@@ -1,0 +1,5 @@
+# LF везде — как в вольте. Иначе diff состоит из переводов строк, а не из кода.
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.webp binary
