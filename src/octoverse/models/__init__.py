@@ -29,6 +29,7 @@ from octoverse.models.ledger import (
     LedgerTransaction,
     PostingReason,
 )
+from octoverse.models.mining import MiningSession, Pace, PowChallenge, SessionState
 from octoverse.models.world import Node, Planet, Vein
 
 #: Правила, которые держит сама база, вешаются сразу после объявления таблиц.
@@ -57,9 +58,13 @@ __all__ = [
     "LedgerAccount",
     "LedgerEntry",
     "LedgerTransaction",
+    "MiningSession",
     "Node",
+    "Pace",
     "Planet",
     "PostingReason",
+    "PowChallenge",
+    "SessionState",
     "Vein",
     "Wound",
 ]

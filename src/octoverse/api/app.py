@@ -68,9 +68,12 @@ def create_app() -> FastAPI:
         ),
     )
 
+    from octoverse.api import session
     from octoverse.api.routes import public
 
     app.include_router(public.router)
+    #: Единственная поверхность, где игрок действует. HTTP-методов у неё нет.
+    app.include_router(session.router)
 
     @app.get("/health", tags=["служебное"])
     async def health() -> dict[str, object]:

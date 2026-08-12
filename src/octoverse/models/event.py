@@ -41,6 +41,13 @@ class EventKind(StrEnum):
     ITEM_CONSUMED = "item.consumed"
     ITEM_WORN = "item.worn"
 
+    # добыча (D-143)
+    MINING_STARTED = "mining.started"
+    MINING_SWING = "mining.swing"
+    MINING_TIMBERED = "mining.timbered"
+    MINING_LEFT = "mining.left"
+    MINING_COLLAPSED = "mining.collapsed"
+
     # деньги
     LEDGER_POSTED = "ledger.posted"
 

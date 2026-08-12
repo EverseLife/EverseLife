@@ -7,6 +7,6 @@
 
 from __future__ import annotations
 
-from octoverse.engine import events, jobs, ledger, tick, world
+from octoverse.engine import events, jobs, ledger, mining, pow, tick, world
 
-__all__ = ["events", "jobs", "ledger", "tick", "world"]
+__all__ = ["events", "jobs", "ledger", "mining", "pow", "tick", "world"]

@@ -14,6 +14,8 @@ dependencies = [
     "redis>=5.2",
     "arq>=0.26",
     "orjson>=3.10",
+    # Плата устройства: сервер проверяет ту же оценку, что считает клиент (D-112).
+    "argon2-cffi>=23.1",
 ]
 
 [project.optional-dependencies]
