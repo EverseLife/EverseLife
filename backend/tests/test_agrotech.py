@@ -18,7 +18,7 @@ import uuid
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.constants import Catalog, ConstantError, Constants
+from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import breed, farm, world
 from src.models.farm import PlotState
@@ -150,7 +150,8 @@ async def test_агротехнику_выведенного_знает_толь
 
     assert await breed.knows_agrotech(session, автор_личность.id, гибрид)
     assert not await breed.knows_agrotech(session, чужой_личность.id, гибрид)
-    #: И в Библиотеке её нет: туда попадают только базовые восемь. Отказ
-    #: приходит из каталога: сорта в `build/plants.json` нет и быть не может.
-    with pytest.raises(ConstantError):
+    #: И в Библиотеке её нет: туда попадают только базовые восемь. Здесь автор
+    #: вдобавок стоит не в Библиотеке, так что отказ приходит раньше — на
+    #: присутствии (D-053).
+    with pytest.raises(breed.BreedError):
         await breed.copy_agrotech(session, catalog, автор, str(гибрид.id))
