@@ -15,8 +15,15 @@
 //: Адрес сервера по умолчанию — тот же хост, откуда открыта страница. Иначе
 //: зашедший по локальной сети искал бы сервер у себя на телефоне: `localhost`
 //: у каждого свой. Явный `VITE_API` перекрывает это, когда сервер не рядом.
+//:
+//: В разработке сервер живёт отдельным портом, в бою — за одним источником с
+//: клиентом, на пути `/api`: так собранный образ не знает боевого домена и
+//: годится любому, а сокет получает `wss://` без отдельной настройки.
 const HTTP =
-  import.meta.env.VITE_API ?? `${window.location.protocol}//${window.location.hostname}:8000`;
+  import.meta.env.VITE_API ??
+  (import.meta.env.PROD
+    ? `${window.location.origin}/api`
+    : `${window.location.protocol}//${window.location.hostname}:8000`);
 const WS = HTTP.replace(/^http/, "ws") + "/session/ws";
 
 export type Thing = {

@@ -1,3 +1,5 @@
+# Разработка: база под сервер и тесты, ничего больше.
+# Боевой состав — `deploy/compose.yaml`, порядок выкладки — `DEPLOY.md`.
 services:
   postgres:
     image: postgres:16
