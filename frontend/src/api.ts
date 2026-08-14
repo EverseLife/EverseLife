@@ -202,8 +202,12 @@ export type Look = {
     fertility: number;
     /** Чей участок: хозяйство ведёт владелец (06-farming). */
     owner: string | null;
+    /** Город-владелец, если земля городская: владение публично (D-178). */
+    owner_city: string | null;
     mine: boolean;
     city: boolean;
+    /** Вправе ли смотрящий дать участку имя (D-178). */
+    may_name: boolean;
     /** Ничей и дикий: такой занимают присутственно (D-152). */
     wild: boolean;
     /** Отключён за неуплату: станки не работают (D-149). */
@@ -291,6 +295,8 @@ export type Bench = {
   condition: number;
   busy: boolean;
   mine: boolean;
+  /** Заряд — у аккумулятора, стоящего здесь станком (D-179). */
+  charge: number | null;
 };
 
 /** Дверь в мир: где напечатать тело и почём (D-028, D-033). */

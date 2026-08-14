@@ -83,6 +83,8 @@ class EventKind(StrEnum):
     LAND_CLAIMED = "land.claimed"
     #: Выкуп городской земли: цена от удалённости, выручка в казну (D-089).
     LAND_BOUGHT = "land.bought"
+    #: Участку дали имя (D-178). Ключ узла при этом прежний.
+    LAND_RENAMED = "land.renamed"
     #: Ценная бумага на участок: выдана, выставлена, продана (D-116).
     DEED_ISSUED = "deed.issued"
     DEED_OFFERED = "deed.offered"

@@ -147,6 +147,74 @@ async def test_занятый_участок_не_продаётся(
         await estate.buy(session, constants, catalog, тело_второго, ближний)
 
 
+# --- имя участка (D-178) -----------------------------------------------------
+
+
+async def test_хозяин_даёт_участку_имя(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Купил — назвал. Ключ узла при этом прежний: на него ссылаются бумаги."""
+    город, _, ближний, _ = await _город(session, catalog)
+    _, тело = await _покупатель(session, ближний, город=город)
+    await estate.buy(session, constants, catalog, тело, ближний)
+    ключ = ближний.key
+
+    await estate.rename(session, тело, ближний, "  Кузня у ворот  ")
+
+    assert ближний.name == "Кузня у ворот", "пробелы по краям обрезаются"
+    assert ближний.key == ключ, "ключ узла переименованием не трогают"
+
+
+async def test_чужой_участок_переименовать_нельзя(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Табличку на чужом доме не меняют — даже стоя рядом."""
+    город, _, ближний, _ = await _город(session, catalog)
+    _, хозяин = await _покупатель(session, ближний, город=город)
+    await estate.buy(session, constants, catalog, хозяин, ближний)
+    было = ближний.name
+
+    _, прохожий = await _покупатель(session, ближний, город=город)
+    with pytest.raises(estate.NotOwner):
+        await estate.rename(session, прохожий, ближний, "Моё теперь")
+    assert ближний.name == было
+
+
+async def test_власть_называет_городскую_землю_но_не_частную(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Право `land` — про городские участки, а не про чужой двор (D-089)."""
+    город, ядро, ближний, дальний = await _город(session, catalog)
+    правитель, тело_правителя = await _покупатель(session, дальний, город=город)
+    await town.install_founder(session, город, правитель)
+
+    await estate.rename(session, тело_правителя, дальний, "Площадь совета")
+    assert дальний.name == "Площадь совета"
+
+    #: Тот же правитель на выкупленном участке — уже не власть, а гость.
+    _, хозяин = await _покупатель(session, ближний, город=город)
+    await estate.buy(session, constants, catalog, хозяин, ближний)
+    тело_правителя.node_id = ближний.id
+    await session.flush()
+    with pytest.raises(estate.NotOwner):
+        await estate.rename(session, тело_правителя, ближний, "Городское теперь")
+
+
+async def test_имя_не_бывает_пустым_и_бесконечным(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    from src.runtime import LAND_NAME_LIMIT
+
+    город, _, ближний, _ = await _город(session, catalog)
+    _, тело = await _покупатель(session, ближний, город=город)
+    await estate.buy(session, constants, catalog, тело, ближний)
+
+    with pytest.raises(estate.BadName):
+        await estate.rename(session, тело, ближний, "   ")
+    with pytest.raises(estate.BadName):
+        await estate.rename(session, тело, ближний, "я" * (LAND_NAME_LIMIT + 1))
+
+
 # --- бумага и договор купли-продажи (D-116) ----------------------------------
 
 

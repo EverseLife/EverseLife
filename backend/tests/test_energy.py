@@ -272,3 +272,55 @@ async def test_энергия_в_мешке_не_лежит(
     )
     with pytest.raises(energy.NotBattery):
         await energy.charge_battery(session, constants, body, мешок)
+
+
+# --- аккумулятор как станок (D-179) ------------------------------------------
+
+
+async def test_аккумулятор_станок(catalog) -> None:
+    """Ставится в здание, как всякий станок: отдельного вида предмета нет."""
+    from src.engine import station
+
+    assert station.is_station(catalog, energy.BATTERY)
+
+
+async def test_стоящий_аккумулятор_заряжается(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """Заряд берут и в руки, и в дом: аккумулятор — имущество места (D-179)."""
+    _, двор, identity, body = await _город(session)
+    pool = await energy.pool_of(session, constants, двор)
+    pool.stored = Decimal("400")
+    pool.counted_at = datetime.now(UTC)
+
+    #: Стоит в узле, а не в кармане — как поставленный станок.
+    батарея = await _поставить(session, двор, energy.BATTERY, качество=55)
+    счёт = await ledger.account_for(session, AccountKind.IDENTITY, identity.id)
+    genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
+    from src.models.ledger import PostingReason
+    from src.units import money
+
+    await ledger.transfer(
+        session, PostingReason.GENESIS, debit=genesis.id, credit=счёт.id,
+        amount=money(100), memo={},
+    )
+
+    дали = await energy.charge_battery(session, constants, body, батарея, 150)
+    assert дали == pytest.approx(150)
+    assert float(батарея.charge) == pytest.approx(150)
+
+
+async def test_чужой_аккумулятор_из_другого_узла_не_зарядить(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """Присутственное остаётся присутственным: дотянуться через город нельзя."""
+    _, двор, _, body = await _город(session)
+    pool = await energy.pool_of(session, constants, двор)
+    pool.stored = Decimal("400")
+    pool.counted_at = datetime.now(UTC)
+
+    _, соседний, _, _ = await _город(session)
+    чужая = await _поставить(session, соседний, energy.BATTERY, качество=55)
+
+    with pytest.raises(energy.EnergyError):
+        await energy.charge_battery(session, constants, body, чужая)

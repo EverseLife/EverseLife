@@ -257,6 +257,9 @@ async def charge_battery(
 
     Присутственное: заряд берут в городе и руками. Платит берущий — в казну
     города: бесплатной энергии не бывает, а ноль тоже тариф (D-085).
+
+    Заряжается и тот, что в руках, и тот, что стоит здесь станком (D-179):
+    аккумулятор — имущество места не меньше, чем ноша.
     """
     moment = now or datetime.now(UTC)
     if body.state is not BodyState.ALIVE:
@@ -265,13 +268,14 @@ async def charge_battery(
 
     if item.type_key != BATTERY:
         raise NotBattery(f"{item.type_key!r} — не аккумулятор: энергия в мешке не лежит")
-    карман = await world.body_container(session, body)
-    if item.container_id != карман.id:
-        raise EnergyError("аккумулятор не в руках")
 
     node = await session.get(Node, body.node_id)
     if node is None:  # pragma: no cover
         raise EnergyError("тело вне узла")
+    карман = await world.body_container(session, body)
+    двор = await world.node_container(session, node)
+    if item.container_id not in (карман.id, двор.id):
+        raise EnergyError("аккумулятор не в руках и не стоит здесь")
     pool = await pool_of(session, constants, node)
     if pool is None:
         raise NoGrid(

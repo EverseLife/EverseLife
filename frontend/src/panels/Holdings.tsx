@@ -29,7 +29,21 @@ export function Holdings({ look, session, busy, act }: Props) {
   const [сеть, setСеть] = useState<Grid | null>(null);
   const [владения, setВладения] = useState<Holding[]>([]);
   const [рынок_бумаг, setРынокБумаг] = useState<DeedView[]>([]);
-  const батареи: Thing[] = look.inventory.filter((т) => т.charge != null);
+  //: Аккумулятор — станок (D-179): он либо в руках, либо стоит здесь. Оба
+  //: заряжаются одинаково, и держать для этого два окна незачем.
+  const батареи: { id: string; goods: string; charge: number; где: string }[] = [
+    ...look.inventory
+      .filter((т: Thing) => т.charge != null)
+      .map((т) => ({ id: т.id, goods: т.goods, charge: т.charge!, где: "в руках" })),
+    ...(look.bench ?? [])
+      .filter((станок) => станок.charge != null)
+      .map((станок) => ({
+        id: станок.id,
+        goods: станок.goods,
+        charge: станок.charge!,
+        где: "стоит здесь",
+      })),
+  ];
 
   const reload = useCallback(async () => {
     const сетьОтвет = await session.send("energy.grid");
@@ -70,16 +84,18 @@ export function Holdings({ look, session, busy, act }: Props) {
       <h3>Аккумуляторы</h3>
       {батареи.length === 0 ? (
         <p className="note">
-          Аккумулятора нет. Энергия не лежит в мешке: она либо в пуле города,
-          либо в аккумуляторе.
+          Аккумулятора нет: энергия либо в пуле города, либо в аккумуляторе.
         </p>
       ) : (
         <table>
           <tbody>
             {батареи.map((батарея) => (
               <tr key={батарея.id}>
-                <td>{батарея.goods}</td>
-                <td className="num">{батарея.charge!.toFixed(0)}</td>
+                <td>
+                  {батарея.goods}
+                  <span className="note"> · {батарея.где}</span>
+                </td>
+                <td className="num">{батарея.charge.toFixed(0)}</td>
                 <td>
                   <button
                     onClick={() => го(() => session.send("energy.charge", { item: батарея.id }))}

@@ -69,11 +69,17 @@ def placeable(catalog: Catalog, type_key: str) -> bool:
 
 
 async def may_build(session: AsyncSession, body: Body, node: Node) -> bool:
-    """Вправе ли это тело ставить и уносить оборудование в этом узле."""
+    """Вправе ли это тело ставить и уносить оборудование в этом узле.
+
+    Выкупленный участок остаётся **на территории** города — с него идут налоги
+    и счета за быт, — но хозяин у него человек (D-089, D-116). Поэтому частное
+    владение проверяется первым: власть распоряжается городской застройкой, а
+    не чужим домом внутри города. Забрать чужое — дело суда (D-166).
+    """
     from src.engine import city as town
 
-    if node.owner_identity_id == body.identity_id:
-        return True
+    if node.owner_identity_id is not None:
+        return node.owner_identity_id == body.identity_id
     if node.owner_city_id is None:
         return False
     город = await town.by_id(session, node.owner_city_id)

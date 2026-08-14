@@ -64,6 +64,14 @@ class NotEnoughMoney(EstateError):
     pass
 
 
+class NotOwner(EstateError):
+    """Землёй распоряжается хозяин, а городской — власть с правом `land`."""
+
+
+class BadName(EstateError):
+    """Имя пустое либо длиннее разумного. Табличка — не письмо."""
+
+
 class NoBuilding(EstateError):
     """Здания на участке нет: сначала строят, потом ставят станки (D-106)."""
 
@@ -231,6 +239,65 @@ async def buy(
         deed_id=str(deed.id),
     )
     return deed
+
+
+async def may_name(session: AsyncSession, body: Body, node: Node) -> bool:
+    """Вправе ли это тело дать узлу имя (D-178).
+
+    Своей землёй распоряжается хозяин, городской — власть с правом `land`: тем
+    же, которым она эту землю раздаёт (D-089). Ничья земля имени не носит.
+    """
+    from src.engine import city as town
+    from src.models.city import Power
+
+    if node.owner_identity_id is not None:
+        return node.owner_identity_id == body.identity_id
+    if node.owner_city_id is None:
+        return False
+    город = await town.by_id(session, node.owner_city_id)
+    return город is not None and await town.may(
+        session, body.identity_id, город, Power.LAND
+    )
+
+
+async def rename(
+    session: AsyncSession, body: Body, node: Node, name: str
+) -> Node:
+    """Дать участку имя. Табличку прибивают на месте, а не из Сети (D-178).
+
+    Меняется подпись, а не ключ узла: на `terra.capital.lot2` ссылаются бумаги,
+    рёбра и события, и переименование не вправе их порвать.
+    """
+    from src.runtime import LAND_NAME_LIMIT
+
+    if body.state is not BodyState.ALIVE:
+        raise EstateError("мёртвое тело ничего не переименовывает")
+    await travel.require_here(session, body)
+    if body.node_id != node.id:
+        raise EstateError("до участка надо дойти: табличку прибивают на месте")
+    if not await may_name(session, body, node):
+        raise NotOwner(
+            "участок не ваш: имя даёт хозяин, а городской земле — власть с "
+            "правом на участки"
+        )
+
+    название = name.strip()
+    if not название:
+        raise BadName("у участка должно быть имя")
+    if len(название) > LAND_NAME_LIMIT:
+        raise BadName(f"имя длиннее {LAND_NAME_LIMIT} знаков")
+
+    было, node.name = node.name, название
+    await session.flush()
+    await events.record(
+        session,
+        EventKind.LAND_RENAMED,
+        actor_identity_id=body.identity_id,
+        node_id=node.id,
+        was=было,
+        now=название,
+    )
+    return node
 
 
 # --- ценная бумага (D-116) ---------------------------------------------------

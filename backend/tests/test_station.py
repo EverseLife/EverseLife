@@ -140,6 +140,41 @@ async def test_станок_ставят_у_себя(
     assert станок.container_id == двор.id
 
 
+async def test_власть_не_хозяйничает_в_чужом_доме(
+    session: AsyncSession, catalog: Catalog
+) -> None:
+    """Выкупленный участок стоит на земле города, но хозяин у него человек.
+
+    Право `laws` — про городскую застройку; чужой дом отбирают по суду, а не
+    полномочием (D-089, D-116, D-166).
+    """
+    from src.engine import city as town
+    from src.models.world import Layer
+
+    метка = uuid.uuid4().hex[:8]
+    планета = await world.create_node(
+        session, f"terra.state.{метка}", "Столица", area_m2=1, layer=Layer.PLANET
+    )
+    участок = await world.create_node(
+        session, f"terra.state.{метка}.lot", "Участок", area_m2=200,
+        layer=Layer.CITY, parent=планета,
+    )
+    город = await town.found(session, catalog, планета, "Столица")
+    участок.owner_city_id = город.id
+    await session.flush()
+
+    правитель, тело_правителя = await _мастер(session, участок, "Правитель")
+    await town.install_founder(session, город, правитель)
+    #: Пока земля городская — власть распоряжается ею.
+    assert await station.may_build(session, тело_правителя, участок)
+
+    #: Появился частный хозяин — и власть перестаёт быть хозяином.
+    хозяин, _ = await _мастер(session, участок, "Хозяин")
+    участок.owner_identity_id = хозяин.id
+    await session.flush()
+    assert not await station.may_build(session, тело_правителя, участок)
+
+
 async def test_без_здания_станок_не_встаёт(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:

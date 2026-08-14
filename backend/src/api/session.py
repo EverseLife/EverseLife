@@ -334,9 +334,17 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
         #: Плодородие — свойство места (D-126): по нему видна сцена делянок.
         "fertility": float(node.properties.get("плодородие", 0) or 0),
         #: Чей участок: хозяйство ведёт владелец, чужое — по договору (D-116).
+        #: Владение — публичный факт: вошедший видит хозяина, кем бы тот ни
+        #: был, человеком или городом (D-178).
         "owner": None if хозяин is None else хозяин.name,
+        "owner_city": (
+            None if node.owner_city_id is None
+            else getattr(await town.by_id(db, node.owner_city_id), "name", None)
+        ),
         "mine": node.owner_identity_id == identity.id,
         "city": node.owner_city_id is not None,
+        #: Вправе ли смотрящий дать участку имя (D-178).
+        "may_name": await estate.may_name(db, body, node),
         #: Дикий и ничей: такой узел занимают присутственно (06-farming, D-152).
         "wild": node.owner_identity_id is None and node.owner_city_id is None,
         #: Отключён за неуплату: станки не работают, и игрок обязан это видеть
@@ -634,6 +642,19 @@ async def _land_buy(state: dict, db: AsyncSession, message: dict) -> dict:
         "paid": deed.paid,
         "money": await _money(db, state["identity_id"]),
     }
+
+
+async def _land_rename(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Дать участку имя. Присутственно и только тому, кто им распоряжается."""
+    body = await _alive(state, db)
+    node = await db.get(Node, body.node_id)
+    if node is None:  # pragma: no cover
+        raise Refused("тело вне узла")
+    try:
+        await estate.rename(db, body, node, str(message.get("name", "")))
+    except estate.EstateError as refusal:
+        raise Refused(str(refusal)) from refusal
+    return {"renamed": node.key, "name": node.name}
 
 
 async def _build_construct(state: dict, db: AsyncSession, message: dict) -> dict:
@@ -1076,9 +1097,15 @@ async def _energy_grid(state: dict, db: AsyncSession, message: dict) -> dict:
 
 
 async def _energy_charge(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Зарядить аккумулятор из пула по тарифу. Присутственно и платно (D-085)."""
+    """Зарядить аккумулятор из пула по тарифу. Присутственно и платно (D-085).
+
+    Аккумулятор — станок (D-179): заряжают и тот, что в руках, и тот, что
+    стоит здесь. Что вещь досягаема, проверяет сам движок энергии.
+    """
     body = await _alive(state, db)
-    item = await _own_item(db, body, message["item"])
+    item = await db.get(Item, uuid.UUID(message["item"]))
+    if item is None:
+        raise Refused("нет такого предмета")
     сколько = message.get("amount")
     дали = await energy.charge_battery(
         db, current(), body, item, None if сколько is None else float(сколько)
@@ -1988,6 +2015,7 @@ _COMMANDS = {
     "rig.empty": _rig_empty,
     "land.claim": _land_claim,
     "land.buy": _land_buy,
+    "land.rename": _land_rename,
     "build.construct": _build_construct,
     "deed.offer": _deed_offer,
     "deed.buy": _deed_buy,
@@ -2160,6 +2188,14 @@ async def _bench(
                 "condition": float(item.condition),
                 "busy": item.busy_body_id is not None,
                 "mine": item.busy_body_id == body.id,
+                #: Заряд — у аккумулятора, стоящего здесь станком (D-179).
+                #: Признак — тип вещи, а не заполненность поля: пустой
+                #: аккумулятор — это ноль энергии, а не «не аккумулятор».
+                "charge": (
+                    round(energy.charge_of(current(), item), 2)
+                    if item.type_key == energy.BATTERY
+                    else None
+                ),
             }
         )
     return sorted(out, key=lambda станок: станок["goods"])
@@ -2253,9 +2289,12 @@ async def _things(db: AsyncSession, constants, container) -> list[dict[str, Any]
             "vigor": None if item.vigor is None else float(item.vigor),
             #: У аккумулятора: заряд с учётом саморазряда — то, что в нём
             #: действительно есть сейчас, а не то, что залили вчера (D-071).
+            #: Ни разу не заряженный показывает ноль, а не пустоту: иначе он
+            #: не виден в «хозяйстве» до первой зарядки.
             "charge": (
-                None if item.charge is None
-                else round(energy.charge_of(constants, item), 1)
+                round(energy.charge_of(constants, item), 1)
+                if item.type_key == energy.BATTERY
+                else None
             ),
         }
         for item in items

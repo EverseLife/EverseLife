@@ -29,7 +29,12 @@ export function Place({ look, session, busy, act, книга }: Props) {
   const мой = Boolean(look.node?.mine);
   const дикий = Boolean(look.node?.wild);
   const ничей = !look.node?.owner;
-  const властен = Boolean(look.city?.powers.includes("laws"));
+  //: Власть распоряжается **городской** землёй, а не всякой: выкупленный
+  //: участок стоит на территории города, но хозяин у него человек, и движок
+  //: откажет власти так же, как прохожему (`station.may_build`).
+  const властен = Boolean(
+    look.node?.city && !look.node?.owner && look.city?.powers.includes("laws"),
+  );
   const цена = look.node?.price ?? null;
 
   //: Пустой узел: окно «Участок» с выкупом либо занятием. Как только владелец
@@ -80,6 +85,7 @@ export function Place({ look, session, busy, act, книга }: Props) {
 
   return (
     <>
+      <Plot look={look} session={session} busy={busy} act={act} />
       {(мой || властен) && <Building look={look} session={session} busy={busy} act={act} />}
       <Gather look={look} session={session} busy={busy} act={act} книга={книга} />
       <Foundation look={look} session={session} busy={busy} act={act} />
@@ -111,6 +117,61 @@ export function Place({ look, session, busy, act, книга }: Props) {
   );
 }
 
+/** Занятый участок: чей он и как называется (D-178).
+ *
+ * Владение — публичный факт: вошедший видит хозяина, кем бы тот ни был,
+ * человеком или городом. Имя даёт тот, кто землёй распоряжается, — и меняется
+ * при этом подпись на карте, а не ключ узла: на ключ ссылаются бумаги и рёбра.
+ */
+function Plot({ look, session, busy, act }: Omit<Props, "книга">) {
+  const узел = look.node;
+  const [имя, setИмя] = useState("");
+  if (!узел || (!узел.owner && !узел.owner_city)) return null;
+
+  const чей = узел.mine
+    ? "ваш участок"
+    : узел.owner
+      ? `хозяин ${узел.owner}`
+      : `земля города ${узел.owner_city}`;
+
+  return (
+    <section>
+      <h2>Участок</h2>
+      <p className="note">
+        {узел.name} · {узел.area.toFixed(0)} м² · {чей}
+        {узел.cut_off && " · отключён за неуплату"}
+      </p>
+      {узел.may_name && (
+        <div className="row">
+          <input
+            value={имя}
+            onChange={(e) => setИмя(e.target.value)}
+            placeholder={узел.name}
+            //: Повторяет `runtime.LAND_NAME_LIMIT`: предел лучше показать
+            //: полем ввода, чем сообщить отказом после нажатия.
+            maxLength={40}
+            title="как называть это место"
+          />
+          <button
+            onClick={() =>
+              act(async () => {
+                await session.send("land.rename", { name: имя });
+                setИмя("");
+              })
+            }
+            disabled={busy || !имя.trim() || имя.trim() === узел.name}
+          >
+            Переименовать
+          </button>
+          <span className="note">
+            Имя увидят все на карте; ключ участка не меняется (D-178).
+          </span>
+        </div>
+      )}
+    </section>
+  );
+}
+
 /** Здание своего участка: сколько застроено, сколько мест, стройка. */
 function Building({ look, session, busy, act }: Omit<Props, "книга">) {
   const дом = look.node?.building;
@@ -123,11 +184,6 @@ function Building({ look, session, busy, act }: Omit<Props, "книга">) {
   return (
     <section>
       <h2>Здание</h2>
-      <p className="note">
-        {look.node?.name} · участок {участок.toFixed(0)} м²
-        {look.node?.owner ? ` · хозяин ${look.node.owner}` : ""}
-        {look.node?.cut_off && " · отключён за неуплату"}
-      </p>
       {дом.area > 0 ? (
         <p>
           застроено <b>{дом.area.toFixed(0)} м²</b> · мест под оборудование{" "}
@@ -513,7 +569,11 @@ function Equipment({
   пояснение: string;
 }) {
   const мой = Boolean(look.node?.mine);
-  const властен = Boolean(look.city?.powers.includes("laws"));
+  //: Ставит и уносит хозяин, а на городской земле — власть (`station.may_build`).
+  //: В чужом доме не вправе ни тот, ни другой.
+  const властен = Boolean(
+    look.node?.city && !look.node?.owner && look.city?.powers.includes("laws"),
+  );
 
   //: Что из рук можно поставить здесь: вид — из данных вольта (D-090).
   const в_руках = look.inventory.filter((вещь) =>
@@ -542,13 +602,17 @@ function Equipment({
                   {вещь.condition < 100 && ` · сост. ${вещь.condition.toFixed(0)}`}
                 </td>
                 <td className="note">
-                  {вид === "station"
-                    ? вещь.busy
-                      ? вещь.mine
-                        ? "занят вами"
-                        : "занят"
-                      : "свободен"
-                    : ""}
+                  {/* У аккумулятора состояние — это заряд, а не «занят»:
+                      за ним не работают, он хранит энергию (D-179). */}
+                  {вещь.charge !== null
+                    ? `заряд ${вещь.charge.toFixed(0)} · заряжают в «хозяйстве»`
+                    : вид === "station"
+                      ? вещь.busy
+                        ? вещь.mine
+                          ? "занят вами"
+                          : "занят"
+                        : "свободен"
+                      : ""}
                 </td>
                 <td>
                   {(мой || властен) && (
