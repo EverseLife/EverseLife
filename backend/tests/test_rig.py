@@ -12,7 +12,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,7 +21,7 @@ from src.constants import Constants
 from src.constants import registry as R
 from src.engine import rig, world
 from src.models.inventory import Item
-from src.units import SCALE_MAX, amount_float
+from src.units import amount_float
 
 
 async def _забой(session: AsyncSession, *, угля: float = 100, богатство: float = 60):

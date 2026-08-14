@@ -313,9 +313,13 @@ async def ensure_meters(session: AsyncSession, constants: Constants) -> int:
     ).scalars().all()
     заведено = 0
     for узел in занятые:
-        if await meter_of(session, узел, create=False) is None:
-            if await meter_of(session, узел) is not None:
-                заведено += 1
+        # Второй вызов заводит счётчик, и до него дело доходит только у того,
+        # у кого его нет: `and` не считает правую часть, пока левая ложна.
+        if (
+            await meter_of(session, узел, create=False) is None
+            and await meter_of(session, узел) is not None
+        ):
+            заведено += 1
     return заведено
 
 

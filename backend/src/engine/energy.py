@@ -43,7 +43,7 @@ from __future__ import annotations
 
 import random
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from decimal import Decimal
 
 from sqlalchemy import select
@@ -427,7 +427,11 @@ async def ensure_pools(
     ).scalars().all()
     заведено = 0
     for узел in города:
-        if await pool_of(session, constants, узел, create=False) is None:
-            if await pool_of(session, constants, узел) is not None:
-                заведено += 1
+        # Второй вызов заводит пул, и до него дело доходит только у того, у
+        # кого его нет: `and` не считает правую часть, пока левая ложна.
+        if (
+            await pool_of(session, constants, узел, create=False) is None
+            and await pool_of(session, constants, узел) is not None
+        ):
+            заведено += 1
     return заведено

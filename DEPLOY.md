@@ -43,8 +43,32 @@ curl -fsSL https://get.docker.com | sh
 adduser --disabled-password --gecos "" octoverse
 usermod -aG docker octoverse
 
+# Пароля у него нет, значит нужен ключ — иначе к нему не подключиться.
+# Проще всего отдать тот же, которым вы ходите root'ом.
+install -d -m 700 -o octoverse -g octoverse /home/octoverse/.ssh
+cp /root/.ssh/authorized_keys /home/octoverse/.ssh/authorized_keys
+chown octoverse:octoverse /home/octoverse/.ssh/authorized_keys
+chmod 600 /home/octoverse/.ssh/authorized_keys
+
 mkdir -p /opt/octoverse
 chown octoverse:octoverse /opt/octoverse
+```
+
+Проверить, что дверь открылась, — со своей машины:
+
+```powershell
+ssh -i $env:USERPROFILE\.ssh\<ваш ключ> octoverse@alpha.example.com "docker version --format '{{.Server.Version}}'"
+```
+
+`scp` и `ssh` берут только ключи с именами по умолчанию (`id_ed25519`,
+`id_rsa`), поэтому свой указывайте явно через `-i` — либо опишите сервер раз и
+навсегда в `~/.ssh/config`:
+
+```
+Host octoverse
+  HostName alpha.example.com
+  User octoverse
+  IdentityFile ~/.ssh/<ваш ключ>
 ```
 
 Брандмауэр — только то, что нужно:
@@ -260,8 +284,13 @@ Settings → Secrets and variables → Actions.
 ```bash
 # на своей машине
 ssh-keygen -t ed25519 -f deploy_key -N "" -C "github-deploy"
-ssh-copy-id -i deploy_key.pub octoverse@alpha.example.com
 ssh-keyscan alpha.example.com     # это в DEPLOY_KNOWN_HOSTS
+```
+
+`ssh-copy-id` в Windows нет, поэтому открытую половину доливаем строкой:
+
+```powershell
+type deploy_key.pub | ssh octoverse@alpha.example.com "cat >> ~/.ssh/authorized_keys"
 ```
 
 Содержимое `deploy_key` (закрытая половина) — в `DEPLOY_SSH_KEY`, после чего

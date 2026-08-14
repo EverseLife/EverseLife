@@ -108,9 +108,10 @@ async def test_угольная_станция_жжёт_уголь_и_без_н�
     session: AsyncSession, constants: Constants
 ) -> None:
     """Станция без угля мертва — отсюда и энергетическая блокада (D-082)."""
-    from src.units import amount_float
     from sqlalchemy import select
+
     from src.models.inventory import Item
+    from src.units import amount_float
 
     _, двор, _, _ = await _город(session)
     await _поставить(session, двор, energy.COAL_PLANT)

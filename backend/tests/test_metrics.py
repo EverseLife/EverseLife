@@ -21,9 +21,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Constants
 from src.engine import ledger, world
-from src.telemetry import metrics
 from src.models.ledger import AccountKind, PostingReason
 from src.models.metrics import DailyMetric
+from src.telemetry import metrics
 from src.units import money
 
 

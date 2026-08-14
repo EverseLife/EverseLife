@@ -317,11 +317,10 @@ async def test_автопуть_обрывается_на_границе(
     Иначе отказ таможни превращался бы в вечно повторяющееся задание, а тело
     зависало бы посреди перегона.
     """
-    from datetime import UTC, datetime, timedelta
 
-    from src.engine import jobs
-    from src.models.job import Job, JobKind, JobState
     from sqlalchemy import select
+
+    from src.models.job import Job, JobKind, JobState
 
     город, рынок, ворота, поле = await _мир(session, catalog)
     await _сделка(session, constants, catalog, рынок, 3)
