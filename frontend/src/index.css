@@ -330,8 +330,13 @@ tr.picked td:first-child {
 
 .note {
   opacity: 0.7;
-  font-size: 0.85rem;
-  margin: 0.35rem 0;
+  font-size: 0.8rem;
+  line-height: 1.35;
+  margin: 0.2rem 0;
+}
+/* Подсказки не громоздятся: у соседних заметок один зазор, а не сумма двух. */
+.note + .note {
+  margin-top: 0;
 }
 
 /* Ошибка — всегда на виду: полоса под каркасом, а не в глубине прокрутки. */

@@ -48,7 +48,7 @@ from src.constants import bootstrap, current, current_catalog
 from src.constants import registry as R
 from src.db.base import dispose, session_factory
 from src.engine import city as town
-from src.engine import death, ledger, market, tick, travel, utility, world
+from src.engine import death, justice, ledger, market, tick, travel, utility, world
 from src.models.identity import Identity
 from src.models.inventory import Item
 from src.models.ledger import AccountKind, PostingReason
@@ -138,11 +138,12 @@ async def seed(session: AsyncSession) -> Node:
         session, "terra.coal", "Угольная шахта", area_m2=400,
         layer=Layer.PLANET, parent=терра, properties={"лес": True, "вода": "нет"},
     )
-    #: Каторга столицы (D-174): жила, принтер и терминал за одной стеной.
-    #: Несостоятельный отрабатывает долг киркой, руда достаётся городу.
+    #: Каторга столицы (D-174, D-176): жила, принтер и терминал за одной
+    #: стеной. Тюрьмой узел делает станок «Каторга», а не свойство: власть
+    #: строит новые каторги сама, как всякое здание.
     тюрьма = await world.create_node(
         session, "terra.capital.jail", "Каторжный забой", area_m2=120,
-        parent=столица, properties={"кольцо": 3, "тюрьма": True},
+        parent=столица, properties={"кольцо": 3},
     )
     #: Свободные участки второго кольца: город раздаёт их жителям (D-089), и
     #: только на своей земле ремесленник ставит свой станок (D-150).
@@ -207,8 +208,11 @@ async def seed(session: AsyncSession) -> Node:
     await world.create_vein(session, тюрьма, IRON, richness=35, remaining=20_000)
     await _станок(session, тюрьма, death.PRINTER, 50)
     await _станок(session, тюрьма, market.TERMINAL, 50)
+    await _станок(session, тюрьма, justice.KATORGA, 55)
 
     await _станок(session, ратуша, "Администрация", 65)
+    #: Библиотека — станок (D-176): окно знаний показывается там, где он стоит.
+    await _станок(session, библиотека, world.LIBRARY, 70)
     #: Принтер Предтеч: бесплатно и двенадцать часов (D-028). Он же — единственная
     #: дверь в мир, которая не закрывается никогда, и потому стоит в ядре.
     await _станок(session, ядро, death.PRINTER, 90)
@@ -243,7 +247,9 @@ async def seed(session: AsyncSession) -> Node:
     #: Столица — город-институт (D-154): устав из умолчаний вольта, казна и
     #: код-законы. Всё, что здесь ставится, власть потом меняет сама.
     город = await town.found(session, current_catalog(), столица, столица.name)
-    for узел in (ядро, библиотека, рынок, кузница, забой, ратуша, ворота, *участки):
+    #: Тюрьма — тоже земля города (D-176): государственная локация не бывает
+    #: «свободным участком».
+    for узел in (ядро, библиотека, рынок, кузница, забой, ратуша, ворота, тюрьма, *участки):
         узел.owner_city_id = город.id
     await session.flush()
     await _казна(session, город)
@@ -414,6 +420,45 @@ async def догнать(session: AsyncSession, ядро: Node) -> None:
             session, ядро, ратуша,
             base_seconds=бросок.uniform(шаг.min, шаг.max), surface=Surface.PAVED,
         )
+
+    #: Библиотека и каторга — станки (D-176): миры, обставленные до этого,
+    #: получают их задним числом, и «свободный участок» на их месте исчезает.
+    библиотека = (
+        await session.execute(
+            select(Node).where(Node.key == "terra.capital.library")
+        )
+    ).scalar_one_or_none()
+    if библиотека is not None:
+        await _станок_если_нет(session, библиотека, world.LIBRARY, 70)
+    #: Каторга столицы (D-174, D-176): мир, заведённый до неё, получает узел
+    #: целиком — жила, принтер, терминал и сам станок «Каторга».
+    новая_тюрьма = await _узел_если_нет(
+        session, "terra.capital.jail", "Каторжный забой", 120, столица,
+        {"кольцо": 3},
+    )
+    тюрьма = новая_тюрьма or (
+        await session.execute(
+            select(Node).where(Node.key == "terra.capital.jail")
+        )
+    ).scalar_one_or_none()
+    if тюрьма is not None:
+        тюрьма.owner_city_id = город.id
+        await _станок_если_нет(session, тюрьма, justice.KATORGA, 55)
+        await _станок_если_нет(session, тюрьма, death.PRINTER, 50)
+        await _станок_если_нет(session, тюрьма, market.TERMINAL, 50)
+    if новая_тюрьма is not None:
+        await world.create_vein(session, новая_тюрьма, IRON, richness=35, remaining=20_000)
+        выход = (
+            await session.execute(
+                select(Node).where(Node.key == "terra.capital.gate")
+            )
+        ).scalar_one_or_none()
+        if выход is not None:
+            await travel.connect(
+                session, выход, новая_тюрьма,
+                base_seconds=бросок.uniform(шаг.min, шаг.max),
+                surface=Surface.PAVED,
+            )
 
     кузница = (
         await session.execute(

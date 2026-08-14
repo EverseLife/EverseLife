@@ -58,10 +58,51 @@ from src.units import money, money_str
 #: санкций живёт в вольте, а исполняет движок ровно то, что умеет.
 FINE, PRISON, EXILE = "fine", "prison", "exile"
 
-#: Свойство узла «тюрьма» (D-174): жила, принтер и терминал за одной стеной.
-#: Ставит его город; движку тюрьма — это место, где отработка гасит долг.
+#: Свойство узла «тюрьма» — наследие старых миров (D-174). Новый порядок —
+#: станок «Каторга» (D-176): тюрьму власть строит, как всякое здание.
 PRISON_NODE = "тюрьма"
+#: Станок из `build/recipes.json`: узел городской земли с ним — каторга.
+KATORGA = "Каторга"
 ENFORCED = (FINE, PRISON, EXILE)
+
+
+async def is_prison(session: AsyncSession, node) -> bool:
+    """Тюрьма ли этот узел: станок «Каторга» либо старое свойство (D-176)."""
+    from src.engine import world
+
+    if (node.properties or {}).get(PRISON_NODE):
+        return True
+    return await world.has_station(session, node, KATORGA)
+
+
+async def held(
+    session: AsyncSession, constants: Constants, identity_id: uuid.UUID
+) -> bool:
+    """Держит ли человека тюрьма: приговором либо долгом (D-166, D-168).
+
+    По этому признаку открываются тюремный принтер и каторжный забой — и
+    закрываются для всех остальных (D-174, D-176).
+    """
+    from src.engine import bank
+
+    if await imprisoned(session, identity_id) is not None:
+        return True
+    return await bank.restrained(session, constants, identity_id) is not None
+
+
+async def prisons_of(session: AsyncSession, city: City) -> list:
+    """Каторги города: узлы его земли со станком «Каторга» (D-176)."""
+    from src.engine import world
+    from src.models.world import Node
+
+    узлы = (
+        await session.execute(select(Node).where(Node.owner_city_id == city.id))
+    ).scalars().all()
+    итог = []
+    for узел in узлы:
+        if await is_prison(session, узел):
+            итог.append(узел)
+    return итог
 
 
 class JusticeError(Exception):
@@ -162,6 +203,7 @@ async def judge(
     days: float | None = None,
     amount: float | None = None,
     verdict: str = "",
+    prison_node: str | None = None,
     now: datetime | None = None,
 ) -> Sanction | None:
     """Вынести приговор. Без санкции — оправдание: висящих дел не бывает."""
@@ -217,6 +259,7 @@ async def judge(
         sanction,
         days=days,
         amount=amount,
+        prison_node=prison_node,
         now=moment,
     )
     case.state = CaseState.JUDGED
@@ -245,6 +288,7 @@ async def _enforce(
     *,
     days: float | None,
     amount: float | None,
+    prison_node: str | None = None,
     now: datetime,
 ) -> Sanction:
     """Исполнить санкцию. Стража для этого не нужна: исполняет движок."""
@@ -279,7 +323,14 @@ async def _enforce(
         срок = min(float(days or потолок), потолок)
         наказание.until = now + timedelta(days=срок)
         тело = await _body_of(session, who)
-        наказание.node_id = None if тело is None else тело.node_id
+        #: Куда сажать — решает суд (D-176): каторга одна — туда, несколько —
+        #: судья называет которую, ни одной — держим там, где застало.
+        камера = await _prison_choice(session, city, prison_node)
+        if камера is not None and тело is not None:
+            тело.node_id = камера.id
+            наказание.node_id = камера.id
+        else:
+            наказание.node_id = None if тело is None else тело.node_id
 
     elif kind == EXILE:
         запись = await town.citizenship(session, who.id)
@@ -383,6 +434,21 @@ async def view(session: AsyncSession, city: City) -> list[dict]:
             }
         )
     return итог
+
+
+async def _prison_choice(session: AsyncSession, city: City, prison_node: str | None):
+    """Каторга, куда отправит приговор. Ничего не выдумывает: выбор — суда."""
+    каторги = await prisons_of(session, city)
+    if prison_node is not None:
+        выбранная = next((узел for узел in каторги if узел.key == prison_node), None)
+        if выбранная is None:
+            raise JusticeError(f"«{prison_node}» — не каторга этого города")
+        return выбранная
+    if len(каторги) > 1:
+        raise JusticeError(
+            "в городе несколько каторг: суд называет, в какую отправить"
+        )
+    return каторги[0] if каторги else None
 
 
 async def _body_of(session: AsyncSession, who: Identity):

@@ -40,6 +40,8 @@ export function Place({ look, session, busy, act, книга }: Props) {
       <>
         {/* Обоз стоит где угодно: у ничьего узла тоже грузят и распрягают. */}
         <Convoy look={look} session={session} busy={busy} act={act} />
+        {/* Лес ничейного узла рубит любой пришедший (D-177). */}
+        <Gather look={look} session={session} busy={busy} act={act} книга={книга} />
         <section>
         <h2>Участок</h2>
         <p className="note">
@@ -51,8 +53,8 @@ export function Place({ look, session, busy, act, книга }: Props) {
               Занять участок
             </button>
             <span className="note">
-              Дикая земля занимается присутственно и бесплатно; владение
-              оформляется ценной бумагой — она появится в «хозяйстве» (D-116).
+              Бесплатно и присутственно; бумага на владение появится в
+              «хозяйстве» (D-116).
             </span>
           </div>
         ) : цена !== null ? (
@@ -61,8 +63,8 @@ export function Place({ look, session, busy, act, книга }: Props) {
               Выкупить за {api.tk(цена)} ₭
             </button>
             <span className="note">
-              Цену за м² назначает город; с удалением от биопринтера участок
-              дешевеет (D-089). Деньги уходят в казну, вам — ценная бумага.
+              Цена от удалённости до биопринтера (D-089): деньги в казну,
+              вам — бумага на землю.
             </span>
           </div>
         ) : (
@@ -79,6 +81,7 @@ export function Place({ look, session, busy, act, книга }: Props) {
   return (
     <>
       {(мой || властен) && <Building look={look} session={session} busy={busy} act={act} />}
+      <Gather look={look} session={session} busy={busy} act={act} книга={книга} />
       <Foundation look={look} session={session} busy={busy} act={act} />
       <Citizenship look={look} session={session} busy={busy} act={act} />
       <Convoy look={look} session={session} busy={busy} act={act} />
@@ -155,12 +158,82 @@ function Building({ look, session, busy, act }: Omit<Props, "книга">) {
             Строить {площадь} м²
           </button>
           <span className="note">
-            Материалы — брус, доски, верёвка на каждый метр — спишутся сразу;
-            здание встанет по сроку. Свободно {свободно.toFixed(0)} м² двора.
+            Материалы спишутся сразу, здание встанет по сроку. Свободно{" "}
+            {свободно.toFixed(0)} м² двора.
           </span>
         </div>
       )}
     </section>
+  );
+}
+
+/** Русские заголовки признаков места: пока признак один — лес. */
+const МЕСТА: Record<string, string> = { лес: "Лес" };
+
+/** Добыча места (D-177): рубка леса — и будущие сборы — без станка.
+ *
+ * Показывается там, где у узла есть признак («лес») и земля своя либо ничья:
+ * чужой лес принадлежит хозяину. Партия идёт обычным крафтом — время и
+ * инструмент из вольта, готовое видно в «делах».
+ */
+function Gather({ look, session, busy, act, книга }: Props) {
+  const [сколько, setСколько] = useState(10);
+  const узел = look.node;
+  if (!узел) return null;
+  const доступно = узел.mine || узел.wild;
+  const операции = (книга?.operations ?? []).filter(
+    (о: any) => о.place && (узел.features ?? []).includes(о.place),
+  );
+  if (!доступно || операции.length === 0) return null;
+
+  //: Чем закрыть требование: сам предмет либо любой из класса («Топор»).
+  const в_руках = new Set(look.inventory.map((вещь) => вещь.goods));
+  const есть_чем = (чем: string) =>
+    в_руках.has(чем) ||
+    ((книга?.tool_classes?.[чем] ?? []) as string[]).some((и) => в_руках.has(и));
+
+  return (
+    <>
+      {операции.map((операция: any) => (
+        <section key={операция.name}>
+          <h2>{МЕСТА[операция.place] ?? операция.place}</h2>
+          <div className="row">
+            <input
+              type="number"
+              min={1}
+              value={сколько}
+              onChange={(e) => setСколько(Number(e.target.value))}
+              title="сколько добыть"
+            />
+            {(операция.gives as string[]).map((выход) => {
+              const годится = (операция.requires as string[]).every(есть_чем);
+              return (
+                <button
+                  key={выход}
+                  onClick={() =>
+                    act(() =>
+                      session.send("craft.start", { output: выход, units: сколько }),
+                    )
+                  }
+                  disabled={busy || сколько <= 0 || !годится}
+                  title={
+                    годится
+                      ? `партия пойдёт временем, готовое — в «делах»`
+                      : `нужен: ${(операция.requires as string[]).join(", ")}`
+                  }
+                >
+                  {операция.name}: {выход}
+                </button>
+              );
+            })}
+            <span className="note">
+              Нужен {(операция.requires as string[]).join(", ")}; партия идёт
+              временем, готовое забирается в «делах».
+            </span>
+          </div>
+        </section>
+      ))}
+    </>
   );
 }
 
@@ -174,7 +247,8 @@ function Building({ look, session, busy, act }: Omit<Props, "книга">) {
 function Citizenship({ look, session, busy, act }: Omit<Props, "книга">) {
   const город = look.city ?? null;
   const своё = look.citizenship ?? null;
-  if (!город?.hall && !своё) return null;
+  //: Только в администрации: и вступают, и выходят присутственно (D-155).
+  if (!город?.hall) return null;
 
   const порядок: Record<string, string> = {
     open: "принимают свободно",
@@ -232,8 +306,7 @@ function Citizenship({ look, session, busy, act }: Omit<Props, "книга">) {
             Выйти из гражданства
           </button>
           <span className="note">
-            Выход свободен, но не мгновенен: гражданство спадёт по сроку — чтобы
-            нельзя было выйти прямо перед приговором (D-160).
+            Выход не мгновенен: гражданство спадёт по сроку (D-160).
           </span>
         </div>
       )}
@@ -287,8 +360,8 @@ function Foundation({ look, session, busy, act }: Omit<Props, "книга">) {
       </div>
       <p className="note">
         {готово
-          ? "Участок станет территорией города: бумага на него погасится, а раздавать землю дальше будет власть (D-089). Основатель получает все полномочия."
-          : "Порог входа — постройки, а не монета: город-однодневка не должен стоить одного клика (D-023)."}
+          ? "Земля отойдёт городу, основатель получит все полномочия (D-089)."
+          : "Порог входа — постройки, а не монета (D-023)."}
       </p>
     </section>
   );
@@ -391,9 +464,7 @@ function Convoy({ look, session, busy, act }: Omit<Props, "книга">) {
               Распрячься
             </button>
             <span className="note">
-              Обоз останется стоять здесь вместе с грузом. Бездорожье транспорт
-              не пускает вовсе: до найденного разведкой узла телега доедет
-              только по дороге (D-107).
+              Обоз останется здесь с грузом; по бездорожью он не идёт (D-107).
             </span>
           </div>
         </>
@@ -416,8 +487,7 @@ function Convoy({ look, session, busy, act }: Omit<Props, "книга">) {
             </button>
           ))}
           <span className="note">
-            Груз едет в трюме, а не в руках: это и есть ответ на предел
-            носимого (D-146, D-157).
+            Груз едет в трюме, а не в руках (D-146, D-157).
           </span>
         </div>
       )}

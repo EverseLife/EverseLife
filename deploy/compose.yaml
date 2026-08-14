@@ -76,6 +76,15 @@ services:
     image: ghcr.io/${GHCR_OWNER:-sumrak10}/octoverse-frontend:${TAG:-latest}
     restart: unless-stopped
 
+  # Лендинг octoverse.world: страница и приём заявок на бету. Заявки — в SQLite
+  # на томе; в базу игры лендинг не ходит. Пока LANDING_DOMAIN не задан в
+  # `.env`, Caddy держит его на внутреннем имени и наружу не отдаёт.
+  landing:
+    image: ghcr.io/${GHCR_OWNER:-sumrak10}/octoverse-landing:${TAG:-latest}
+    volumes:
+      - landing_data:/data
+    restart: unless-stopped
+
   caddy:
     image: caddy:2-alpine
     ports:
@@ -84,6 +93,7 @@ services:
       - "443:443/udp"
     environment:
       DOMAIN: ${DOMAIN:?нужен DOMAIN}
+      LANDING_DOMAIN: ${LANDING_DOMAIN:-landing.localhost}
       ACME_EMAIL: ${ACME_EMAIL:?нужен ACME_EMAIL}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
@@ -94,9 +104,11 @@ services:
     depends_on:
       - backend
       - frontend
+      - landing
     restart: unless-stopped
 
 volumes:
   pgdata:
+  landing_data:
   caddy_data:
   caddy_config:

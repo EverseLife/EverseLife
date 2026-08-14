@@ -41,3 +41,26 @@
 		format console
 	}
 }
+
+# Лендинг с приёмом заявок на бету. Пока в `.env` не задан LANDING_DOMAIN,
+# умолчание `landing.localhost` держит блок на внутреннем сертификате и Caddy
+# не ходит за настоящим. Чтобы открыть octoverse.world:
+#   1. A-запись `octoverse.world` → адрес этого сервера;
+#   2. `LANDING_DOMAIN=octoverse.world` в `.env`;
+#   3. `docker compose up -d --force-recreate caddy`.
+{$LANDING_DOMAIN} {
+	encode zstd gzip
+
+	reverse_proxy landing:8080
+
+	log {
+		output stdout
+		format console
+	}
+}
+
+# `www.` живёт отдельной строкой: ему нужны своя A-запись и свой сертификат.
+# Заведёте запись в DNS — снять решётки, и www поедет на голый домен.
+# www.{$LANDING_DOMAIN} {
+# 	redir https://{$LANDING_DOMAIN}{uri} permanent
+# }

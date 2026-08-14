@@ -10,7 +10,18 @@
         "--prefix",
         "frontend"
       ],
-      "port": 5173
+      "port": 5173,
+      "autoPort": true
+    },
+    {
+      "name": "landing",
+      "runtimeExecutable": "powershell",
+      "runtimeArgs": [
+        "-Command",
+        "$env:LANDING_DB = Join-Path $env:TEMP 'octoverse-landing-signups.db'; & '../backend/.venv/Scripts/python.exe' -m uvicorn app:app --port 8123"
+      ],
+      "cwd": "landing",
+      "port": 8123
     },
     {
       "name": "backend",

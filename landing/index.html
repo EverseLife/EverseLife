@@ -1,0 +1,595 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OctoVerse — вечный мир, который строят игроки</title>
+<meta name="description" content="OctoVerse — космическая песочница без вайпов: цены назначает рынок, законы пишут города, карту рисует разведка. Запишитесь на бету.">
+<meta property="og:title" content="OctoVerse — вечный мир, который строят игроки">
+<meta property="og:description" content="Один мир навсегда. Каждая цена назначена игроком, каждая дорога проложена руками, каждый закон принят голосованием. Займите место в бете.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://octoverse.world/">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<style>
+  :root {
+    --bg: #070a10;
+    --bg-2: #0e1420;
+    --ink: #e8ecf1;
+    --muted: #93a0b4;
+    --accent: #62d9c8;
+    --accent-2: #7f9df5;
+    --accent-ink: #06231f;
+    --line: rgba(147, 160, 180, .16);
+    --card: rgba(148, 175, 215, .045);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font: 17px/1.65 "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+
+  /* ── Космос: туманности + канвас со звёздами ─────────────────────── */
+  .nebula { position: fixed; inset: -25%; z-index: 0; pointer-events: none; filter: blur(70px); }
+  .nebula i { position: absolute; border-radius: 50%; display: block; }
+  .nebula i:nth-child(1) {
+    width: 55vw; height: 55vw; left: -10vw; top: -12vw;
+    background: radial-gradient(circle, rgba(98,217,200,.10), transparent 65%);
+    animation: drift1 90s ease-in-out infinite alternate;
+  }
+  .nebula i:nth-child(2) {
+    width: 60vw; height: 60vw; right: -15vw; top: 20vh;
+    background: radial-gradient(circle, rgba(127,157,245,.09), transparent 65%);
+    animation: drift2 110s ease-in-out infinite alternate;
+  }
+  .nebula i:nth-child(3) {
+    width: 45vw; height: 45vw; left: 25vw; bottom: -18vw;
+    background: radial-gradient(circle, rgba(186,124,235,.06), transparent 65%);
+    animation: drift1 130s 10s ease-in-out infinite alternate-reverse;
+  }
+  @keyframes drift1 { from { transform: translate3d(0,0,0) scale(1); } to { transform: translate3d(9vw, 6vh, 0) scale(1.15); } }
+  @keyframes drift2 { from { transform: translate3d(0,0,0) scale(1.1); } to { transform: translate3d(-8vw, -7vh, 0) scale(.95); } }
+  #space { position: fixed; inset: 0; z-index: 0; pointer-events: none; }
+
+  main { position: relative; z-index: 1; }
+  .wrap { max-width: 1020px; margin: 0 auto; padding: 0 24px; }
+
+  /* ── Шапка ────────────────────────────────────────────────────────── */
+  header.top {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 20px 0;
+  }
+  .brand { display: flex; align-items: center; gap: 12px; color: var(--ink); }
+  .brand svg { width: 34px; height: auto; color: var(--accent); }
+  .brand span { font-weight: 700; letter-spacing: .14em; font-size: 14px; text-transform: uppercase; }
+  a.cta-mini {
+    color: var(--accent); text-decoration: none; font-size: 15px;
+    border: 1px solid var(--line); border-radius: 999px; padding: 8px 20px;
+    transition: border-color .2s, box-shadow .2s;
+  }
+  a.cta-mini:hover { border-color: var(--accent); box-shadow: 0 0 18px rgba(98,217,200,.25); }
+
+  /* ── Герой ────────────────────────────────────────────────────────── */
+  .hero { padding: 64px 0 72px; text-align: center; }
+  .logo-wrap {
+    display: flex; justify-content: center; margin-bottom: 36px;
+    filter: drop-shadow(0 0 26px rgba(98,217,200,.22));
+    animation: glowPulse 6s 1.4s ease-in-out infinite;
+  }
+  .logo-hero {
+    width: min(88vw, 680px); height: auto;
+    animation: logoIn 1.3s cubic-bezier(.2,.7,.25,1) both, logoFloat 8s 1.4s ease-in-out infinite;
+  }
+  .logo-octo { transform-box: fill-box; transform-origin: center; animation: octoSway 10s 1.4s ease-in-out infinite; }
+  @keyframes logoIn {
+    from { opacity: 0; transform: translateY(26px) scale(.94); filter: blur(8px); }
+    to   { opacity: 1; transform: none; filter: blur(0); }
+  }
+  @keyframes logoFloat { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-9px); } }
+  @keyframes octoSway { 0%,100% { transform: rotate(-4deg); } 50% { transform: rotate(4deg); } }
+  @keyframes glowPulse {
+    0%,100% { filter: drop-shadow(0 0 26px rgba(98,217,200,.18)); }
+    50%     { filter: drop-shadow(0 0 44px rgba(98,217,200,.38)); }
+  }
+  .hero h1 {
+    font-size: clamp(24px, 3.6vw, 34px); line-height: 1.3; font-weight: 650;
+    letter-spacing: -.01em; margin-bottom: 18px;
+  }
+  .hero h1 em { font-style: normal; color: var(--accent); }
+  .hero p.lead {
+    max-width: 640px; margin: 0 auto 40px; color: var(--muted); font-size: 18.5px;
+  }
+  .hero p.lead strong { color: var(--ink); font-weight: 600; }
+
+  /* ── Форма ────────────────────────────────────────────────────────── */
+  form.signup {
+    display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;
+    max-width: 540px; margin: 0 auto;
+  }
+  form.signup input[type=email] {
+    flex: 1 1 260px; min-width: 0;
+    background: rgba(14, 20, 32, .8); color: var(--ink);
+    border: 1px solid var(--line); border-radius: 12px;
+    padding: 14px 18px; font-size: 16px; outline: none;
+    transition: border-color .2s, box-shadow .2s;
+  }
+  form.signup input[type=email]:focus { border-color: var(--accent); box-shadow: 0 0 20px rgba(98,217,200,.15); }
+  form.signup button {
+    flex: 0 0 auto;
+    background: linear-gradient(135deg, var(--accent), #4cc3ff); color: var(--accent-ink);
+    border: 0; border-radius: 12px; padding: 14px 28px;
+    font-size: 16px; font-weight: 700; cursor: pointer;
+    transition: filter .2s, box-shadow .2s;
+  }
+  form.signup button:hover { filter: brightness(1.1); box-shadow: 0 0 26px rgba(98,217,200,.35); }
+  form.signup button:disabled { opacity: .6; cursor: default; }
+  .trap { position: absolute; left: -9999px; opacity: 0; }
+  .form-note { flex-basis: 100%; margin-top: 6px; font-size: 14px; color: var(--muted); }
+  .form-msg { flex-basis: 100%; margin-top: 8px; font-size: 15px; min-height: 1.5em; }
+  .form-msg.ok { color: var(--accent); }
+  .form-msg.err { color: #ff9d87; }
+
+  /* ── Бегущая строка фактов ────────────────────────────────────────── */
+  .facts {
+    border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+    overflow: hidden; white-space: nowrap; padding: 14px 0;
+    background: rgba(14, 20, 32, .35);
+  }
+  .facts .track { display: inline-block; animation: marquee 55s linear infinite; }
+  .facts span {
+    display: inline-block; margin: 0 28px; color: var(--muted); font-size: 15px;
+    letter-spacing: .02em;
+  }
+  .facts b { color: var(--accent); font-weight: 600; }
+  @keyframes marquee { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+
+  /* ── Секции ───────────────────────────────────────────────────────── */
+  section { padding: 72px 0; }
+  section + section { border-top: 1px solid var(--line); }
+  .kicker {
+    display: block; color: var(--accent); font-size: 13px; font-weight: 700;
+    letter-spacing: .22em; text-transform: uppercase; margin-bottom: 12px;
+  }
+  h2 { font-size: clamp(24px, 3.4vw, 32px); margin-bottom: 14px; letter-spacing: -.015em; }
+  .section-lead { color: var(--muted); max-width: 640px; margin-bottom: 40px; }
+
+  /* Три закона */
+  .pillars { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+  .pillar {
+    background: var(--card); border: 1px solid var(--line); border-radius: 16px;
+    padding: 28px 24px; position: relative; overflow: hidden;
+  }
+  .pillar::before {
+    content: ""; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, var(--accent), transparent);
+  }
+  .pillar .num {
+    color: var(--accent); font-size: 13px; letter-spacing: .2em;
+    display: block; margin-bottom: 14px; font-weight: 700;
+  }
+  .pillar h3 { font-size: 19px; margin-bottom: 10px; }
+  .pillar p { color: var(--muted); font-size: 15.5px; }
+  .pillar p strong { color: var(--ink); font-weight: 600; }
+
+  /* Карточки механик */
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 16px;
+    padding: 26px 24px;
+    transition: transform .25s, border-color .25s, box-shadow .25s;
+  }
+  .card:hover {
+    transform: translateY(-5px); border-color: rgba(98,217,200,.45);
+    box-shadow: 0 12px 34px rgba(0,0,0,.35), 0 0 24px rgba(98,217,200,.08);
+  }
+  .card .ico {
+    width: 42px; height: 42px; border-radius: 11px; margin-bottom: 16px;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(98,217,200,.09); border: 1px solid rgba(98,217,200,.25);
+  }
+  .card .ico svg { width: 22px; height: 22px; stroke: var(--accent); fill: none; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+  .card h3 { font-size: 17px; margin-bottom: 8px; }
+  .card p { color: var(--muted); font-size: 14.5px; line-height: 1.6; }
+  .card p strong { color: var(--ink); font-weight: 600; }
+
+  /* Путь игрока */
+  .steps { position: relative; max-width: 640px; }
+  .steps::before {
+    content: ""; position: absolute; left: 19px; top: 8px; bottom: 8px; width: 2px;
+    background: linear-gradient(180deg, var(--accent), rgba(127,157,245,.4), transparent);
+  }
+  .step { position: relative; padding: 0 0 34px 64px; }
+  .step:last-child { padding-bottom: 0; }
+  .step .dot {
+    position: absolute; left: 0; top: 0; width: 40px; height: 40px;
+    border-radius: 50%; background: var(--bg-2); border: 1px solid rgba(98,217,200,.4);
+    display: flex; align-items: center; justify-content: center;
+    color: var(--accent); font-weight: 700; font-size: 15px;
+    box-shadow: 0 0 16px rgba(98,217,200,.12);
+  }
+  .step h3 { font-size: 17px; margin-bottom: 6px; padding-top: 7px; }
+  .step p { color: var(--muted); font-size: 15px; }
+  .step p strong { color: var(--ink); font-weight: 600; }
+
+  /* Лор */
+  .lore {
+    background: linear-gradient(180deg, rgba(98,217,200,.05), transparent);
+    border-radius: 20px; border: 1px solid var(--line);
+    padding: 48px 44px; margin-top: 0;
+  }
+  .lore p { max-width: 700px; color: var(--muted); margin-bottom: 14px; font-size: 16.5px; }
+  .lore p:last-child { margin-bottom: 0; }
+  .lore p strong { color: var(--ink); font-weight: 600; }
+  .lore p em { color: var(--accent); font-style: normal; }
+
+  /* Нижний призыв */
+  .bottom-cta { text-align: center; }
+  .bottom-cta h2 { margin-bottom: 12px; }
+  .bottom-cta > p { color: var(--muted); max-width: 560px; margin: 0 auto 36px; }
+  .bottom-cta > p strong { color: var(--ink); }
+
+  footer {
+    border-top: 1px solid var(--line);
+    padding: 30px 0 44px; color: var(--muted); font-size: 14px;
+    display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;
+  }
+  footer .brand svg { width: 26px; color: var(--muted); }
+
+  @media (max-width: 840px) {
+    .pillars, .grid { grid-template-columns: 1fr; }
+    .hero { padding: 40px 0 56px; }
+    section { padding: 52px 0; }
+    .lore { padding: 34px 24px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+  }
+</style>
+</head>
+<body>
+<div class="nebula" aria-hidden="true"><i></i><i></i><i></i></div>
+<canvas id="space" aria-hidden="true"></canvas>
+<main>
+  <div class="wrap">
+    <header class="top">
+      <a class="brand" href="/" aria-label="OctoVerse">
+        <svg viewBox="0 0 350 266" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <path fill-rule="evenodd" clip-rule="evenodd" d="M41.5932 133C41.5932 59.5461 101.183 0 174.691 0C210.353 0 242.738 14.0145 266.634 36.8325C310.468 15.3446 342.041 6.67919 348.712 16.4866C355.412 26.3355 335.536 52.6643 299.12 85.6833C300.599 89.5635 301.901 93.5306 303.016 97.575C301.597 93.7885 299.998 90.0894 298.231 86.4879C271.576 110.559 236.23 138.12 196.044 165.417C159.883 189.979 124.963 210.821 94.8648 226.343C116.45 249.466 146.731 264.378 180.503 265.876C178.576 265.958 176.639 266 174.691 266C140.158 266 108.695 252.858 85.0408 231.305C40.3374 253.394 8.0438 262.407 1.28763 252.475C-5.43687 242.59 14.6106 216.103 51.2833 182.913C45.0345 167.5 41.5932 150.652 41.5932 133ZM186.129 16.625C117.215 16.625 61.3498 72.4495 61.3498 141.312C61.3498 151.522 62.5777 161.445 64.8941 170.942C65.3493 172.808 65.8466 174.658 66.3848 176.491C71.3944 193.545 79.9536 209.083 91.2085 222.25C120.496 208.194 156.356 187.349 193.706 161.979C235.441 133.631 271.234 104.932 295.537 81.3096C287.635 66.9522 276.984 54.318 264.294 44.1146C262.711 42.8422 261.097 41.6076 259.452 40.4122C238.868 25.4506 213.53 16.625 186.129 16.625ZM53.6668 188.428C60.3261 202.923 69.5165 216.016 80.6727 227.141C49.2225 241.216 27.1301 246.105 21.9267 238.456C16.7518 230.848 29.2635 212.282 53.6668 188.428ZM296.825 80.0524C290.518 65.5469 281.7 52.3844 270.918 41.1131C301.521 27.5838 322.958 22.9862 328.073 30.5057C333.213 38.0618 320.904 56.4295 296.825 80.0524Z" fill="currentColor"/>
+        </svg>
+        <span>OctoVerse</span>
+      </a>
+      <a class="cta-mini" href="#signup">В бету</a>
+    </header>
+
+    <div class="hero">
+      <div class="logo-wrap">
+        <svg class="logo-hero" viewBox="0 0 398 65" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="OctoVerse">
+          <path d="M215.357 64H222.364L242.339 2H236.339L218.839 56.5L201.339 2H195.339L215.357 64Z" fill="white"/>
+          <path d="M307.651 30C305.193 30 302.995 30.5417 301.057 31.625C299.141 32.6875 297.495 34.1458 296.12 36L296.089 35.1562V30H290.339V64.4375H296.151V42.75C296.151 42.0415 297.276 40.8333 297.839 40C298.422 39.1458 299.068 38.5833 299.839 38C300.693 37.3333 302.589 36.2812 302.589 36.2812C302.589 36.2812 304.801 35.173 306.339 35C307.505 34.8688 308.168 34.9221 309.339 35C310.903 35.1041 312.214 35.25 313.339 35.5V31C312.755 30.75 312.13 30.3646 310.964 30.2187C309.818 30.0729 308.714 30 307.651 30Z" fill="white"/>
+          <path fill-rule="evenodd" clip-rule="evenodd" d="M100.839 64C107.732 64 113.667 59.897 116.335 54H109.964C107.861 56.7363 104.556 58.5 100.839 58.5C94.4875 58.5 89.3388 53.3513 89.3388 47C89.3388 40.6487 94.4875 35.5 100.839 35.5C104.556 35.5 107.861 37.2637 109.964 40H116.335C113.667 34.1029 107.732 30 100.839 30C91.4499 30 83.8388 37.6112 83.8388 47C83.8388 56.3888 91.4499 64 100.839 64Z" fill="white"/>
+          <path d="M345.776 54.4687C345.776 55.0104 345.672 55.5208 345.464 56C345.255 56.4792 344.953 56.9167 344.557 57.3125C343.912 57.9583 343.016 58.4687 341.87 58.8437C340.724 59.1979 339.38 59.375 337.839 59.375C336.86 59.375 335.87 59.2708 334.87 59.0625C333.87 58.8542 332.964 58.5 332.151 58C331.318 57.5 330.62 56.8437 330.057 56.0312C329.516 55.2187 329.203 54.2187 329.12 53.0312H323.339C323.339 54.4687 323.662 55.8542 324.307 57.1875C324.974 58.5208 325.932 59.6875 327.182 60.6875C328.412 61.7083 329.922 62.5312 331.714 63.1562C333.505 63.7604 335.547 64.0625 337.839 64.0625C339.839 64.0625 341.682 63.8229 343.37 63.3437C345.057 62.8646 346.505 62.1875 347.714 61.3125C348.922 60.4375 349.86 59.3854 350.526 58.1562C351.214 56.9271 351.557 55.5625 351.557 54.0625C351.557 52.6667 351.255 51.4375 350.651 50.375C350.068 49.3125 349.214 48.375 348.089 47.5625C346.964 46.7708 345.578 46.0937 343.932 45.5312C342.287 44.9479 340.422 44.4375 338.339 44C336.755 43.6875 335.443 43.3646 334.401 43.0312C333.38 42.6979 332.568 42.3229 331.964 41.9062C331.339 41.4896 330.901 41.0208 330.651 40.5C330.401 39.9792 330.276 39.3854 330.276 38.7187C330.276 38.0729 330.432 37.4479 330.745 36.8437C331.057 36.2396 331.526 35.7083 332.151 35.25C332.755 34.7917 333.516 34.4271 334.432 34.1562C335.37 33.8854 336.453 33.75 337.682 33.75C338.87 33.75 339.932 33.9167 340.87 34.25C341.828 34.5833 342.641 35.0208 343.307 35.5625C343.974 36.1042 344.495 36.7292 344.87 37.4375C345.245 38.125 345.432 38.8333 345.432 39.5625H351.214C351.214 38.0833 350.891 36.7083 350.245 35.4375C349.62 34.1458 348.724 33.0208 347.557 32.0625C346.391 31.1042 344.974 30.3542 343.307 29.8125C341.641 29.2708 339.766 29 337.682 29C335.745 29 333.964 29.2604 332.339 29.7812C330.735 30.3021 329.349 31.0104 328.182 31.9062C327.016 32.8021 326.11 33.8542 325.464 35.0625C324.818 36.25 324.495 37.5312 324.495 38.9062C324.495 40.3021 324.807 41.5312 325.432 42.5937C326.057 43.6354 326.943 44.5417 328.089 45.3125C329.214 46.1042 330.568 46.7812 332.151 47.3437C333.755 47.9062 335.526 48.3854 337.464 48.7812C339.047 49.0937 340.37 49.4479 341.432 49.8437C342.495 50.2187 343.349 50.6354 343.995 51.0937C344.641 51.5521 345.099 52.0625 345.37 52.625C345.641 53.1667 345.776 53.7812 345.776 54.4687Z" fill="white"/>
+          <path fill-rule="evenodd" clip-rule="evenodd" d="M140.179 21.375H134.366L134.339 31.375H125.339V36.375H134.366V52.4062C134.366 54.4896 134.637 56.2708 135.179 57.75C135.741 59.2083 136.502 60.3958 137.46 61.3125C138.418 62.25 139.543 62.9375 140.835 63.375C142.147 63.7917 143.554 64 145.054 64C145.949 64 146.845 63.9583 147.741 63.875C148.293 63.8249 148.825 63.7597 149.339 63.6794V58.8788C149.038 58.9214 148.734 58.9618 148.429 59C147.762 59.0625 147.116 59.0937 146.491 59.0937C145.637 59.0937 144.824 58.9896 144.054 58.7812C143.304 58.5729 142.637 58.2083 142.054 57.6875C141.47 57.1875 141.012 56.5104 140.679 55.6562C140.345 54.8021 140.179 53.7187 140.179 52.4062V36.375H149.339V31.375H140.179V21.375Z" fill="white"/>
+          <g class="logo-octo">
+            <path fill-rule="evenodd" clip-rule="evenodd" d="M74.2501 32.4375C74.2501 50.1106 59.9232 64.4375 42.25 64.4375C33.7241 64.4375 25.9769 61.1031 20.2413 55.6672C9.59966 60.9084 1.9236 63.0343 0.309578 60.6598C-1.30912 58.2785 3.52445 51.8932 12.3619 43.8939C10.9976 40.337 10.2501 36.4745 10.2501 32.4375C10.2501 14.7644 24.5769 0.4375 42.25 0.4375C50.6009 0.4375 58.2046 3.63629 63.9027 8.87541C74.5466 3.63275 82.2245 1.50595 83.8388 3.8807C85.4475 6.24737 80.6831 12.569 71.9489 20.4993C73.4332 24.1883 74.2501 28.2175 74.2501 32.4375ZM42.25 59.0375C56.3885 59.0375 68.7501 46.676 68.7501 32.5375C68.7501 29.7548 68.2712 27.0409 67.3942 24.4766C61.6709 29.2984 54.7653 34.5259 47.1337 39.7135C39.557 44.8638 32.207 49.3342 25.6534 52.87C30.264 56.6896 36.0883 59.0375 42.25 59.0375ZM42.25 6.0375C28.1116 6.0375 15.7501 18.399 15.7501 32.5375C15.7501 35.0858 16.1516 37.5764 16.8928 39.9473C17.0217 40.3596 17.1609 40.7683 17.31 41.173C18.8384 45.3218 21.4118 49.056 24.6791 52.0245C31.1608 48.7172 38.7296 44.217 46.5715 38.8864C54.464 33.5215 61.4725 28.1045 66.9482 23.2707C65.3132 19.1626 62.6499 15.4877 59.3101 12.5974C58.9829 12.3142 58.6492 12.0386 58.3093 11.7709C53.7876 8.20825 48.1748 6.0375 42.25 6.0375ZM5.27171 57.2868C4.02677 55.4554 7.03933 50.984 12.9136 45.2394C14.4468 48.748 16.5911 51.9286 19.2118 54.6465C11.7482 57.9698 6.51256 59.1123 5.27171 57.2868ZM78.8767 7.25371C80.1116 9.07049 77.1571 13.485 71.3755 19.1632C69.7919 15.6942 67.6068 12.5575 64.9536 9.88643C72.4081 6.56904 77.6367 5.42966 78.8767 7.25371Z" fill="white"/>
+          </g>
+          <path fill-rule="evenodd" clip-rule="evenodd" d="M194.474 47.5C194.474 56.8888 186.863 64.5 177.474 64.5C168.085 64.5 160.474 56.8888 160.474 47.5C160.474 38.1112 168.085 30.5 177.474 30.5C186.863 30.5 194.474 38.1112 194.474 47.5ZM177.474 59C183.826 59 188.974 53.8513 188.974 47.5C188.974 41.1487 183.826 36 177.474 36C171.123 36 165.974 41.1487 165.974 47.5C165.974 53.8513 171.123 59 177.474 59Z" fill="white"/>
+          <path fill-rule="evenodd" clip-rule="evenodd" d="M262.839 64.2187C253.45 64.2187 245.839 56.6076 245.839 47.2187C245.839 37.8299 253.45 30.2187 262.839 30.2187C272.228 30.2187 279.839 37.8299 279.839 47.2187C279.839 47.8954 279.799 48.5628 279.722 49.2187H274.165H251.512C252.459 54.6166 257.17 58.7187 262.839 58.7187C266.081 58.7187 269.01 57.3771 271.1 55.2187H277.839C277.839 55.2187 272.228 64.2187 262.839 64.2187ZM273.944 44.2187C272.624 39.3223 268.152 35.7187 262.839 35.7187C257.525 35.7187 253.054 39.3223 251.734 44.2187H273.944Z" fill="white"/>
+          <path fill-rule="evenodd" clip-rule="evenodd" d="M380.339 64C370.95 64 363.339 56.3888 363.339 47C363.339 37.6112 370.95 30 380.339 30C389.728 30 397.339 37.6112 397.339 47C397.339 47.6766 397.299 48.344 397.222 49H391.665H369.012C369.959 54.3979 374.67 58.5 380.339 58.5C383.581 58.5 386.51 57.1584 388.6 55H395.339C395.339 55 389.728 64 380.339 64ZM391.444 44C390.124 39.1035 385.652 35.5 380.339 35.5C375.025 35.5 370.554 39.1035 369.234 44H391.444Z" fill="white"/>
+        </svg>
+      </div>
+      <h1>Один мир. Навсегда. И его строите <em>вы</em>.</h1>
+      <p class="lead">
+        Ни NPC-торговцев, ни магазина с донатом, ни сброса прогресса.
+        <strong>Каждая цена назначена игроком, каждая дорога проложена руками,
+        каждый закон принят голосованием.</strong> Мир один — и в нём ещё есть
+        нетронутые земли.
+      </p>
+      <form class="signup" id="signup" autocomplete="off">
+        <input type="email" name="email" placeholder="ваша@почта" required
+               aria-label="Почта для приглашения в бету">
+        <input class="trap" type="text" name="website" tabindex="-1" aria-hidden="true">
+        <button type="submit">Хочу в бету</button>
+        <p class="form-msg" role="status"></p>
+        <p class="form-note">Одно письмо — о старте беты. Никакой рассылки, никакого спама.</p>
+      </form>
+    </div>
+  </div>
+
+  <div class="facts" aria-hidden="true">
+    <div class="track">
+      <span><b>0</b> вайпов — мир вечен</span><span>·</span>
+      <span>цены назначает <b>рынок</b>, а не движок</span><span>·</span>
+      <span>каждая монета <b>прослеживается</b></span><span>·</span>
+      <span>законы пишут <b>города</b></span><span>·</span>
+      <span>карту рисует <b>разведка</b></span><span>·</span>
+      <span>тело — расходник, личность — <b>бессмертна</b></span><span>·</span>
+      <span><b>0</b> вайпов — мир вечен</span><span>·</span>
+      <span>цены назначает <b>рынок</b>, а не движок</span><span>·</span>
+      <span>каждая монета <b>прослеживается</b></span><span>·</span>
+      <span>законы пишут <b>города</b></span><span>·</span>
+      <span>карту рисует <b>разведка</b></span><span>·</span>
+      <span>тело — расходник, личность — <b>бессмертна</b></span><span>·</span>
+    </div>
+  </div>
+
+  <div class="wrap">
+    <section>
+      <span class="kicker">Фундамент</span>
+      <h2>Три закона, которые не нарушает даже движок</h2>
+      <p class="section-lead">Всё остальное в этом мире можно изменить — законом,
+         выборами или топором. Эти три — нельзя.</p>
+      <div class="pillars">
+        <div class="pillar">
+          <span class="num">01</span>
+          <h3>Мир вечен</h3>
+          <p><strong>Вайпов не бывает.</strong> Город, который вы заложите в бете,
+             будет стоять и через пять лет. Здесь имеет смысл строить надолго,
+             дружить надолго и помнить обиды — репутация дороже золота.</p>
+        </div>
+        <div class="pillar">
+          <span class="num">02</span>
+          <h3>Деньги не берутся из воздуха</h3>
+          <p>Движок не печатает ценности и не назначает цены. Двойная запись, как
+             в настоящем банке: <strong>происхождение каждой монеты можно
+             проследить.</strong> Разбогатеть можно одним способом — стать нужным
+             другим игрокам.</p>
+        </div>
+        <div class="pillar">
+          <span class="num">03</span>
+          <h3>Правила пишут игроки</h3>
+          <p>Налоги, пошлины, выборы, суд — не настройки сервера, а решения живых
+             людей. <strong>Самодержавие и республика отличаются уставом, а не
+             патчем.</strong> Плохую власть переизбирают. Или переезжают от неё.</p>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <span class="kicker">Механики</span>
+      <h2>Чем вы будете здесь жить</h2>
+      <p class="section-lead">Каждое ремесло тянет за собой другие: шахтёру нужен
+         кузнец, кузнецу — возчик, возчику — дорога, дороге — город. Выберите своё
+         место в этой цепочке.</p>
+      <div class="grid">
+        <div class="card">
+          <div class="ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M15.5 8.5 13.6 13.6 8.5 15.5l1.9-5.1z"/></svg></div>
+          <h3>Карта, которой ещё нет</h3>
+          <p>Мир не нарисован заранее — он прирастает теми, кто рискнул выйти за
+             стену. Найдёте жилу — она появится на карте у всех, но <strong>право
+             первой ночи — ваше</strong>. Исхоженная окрестность беднеет:
+             лучшее достаётся первопроходцам.</p>
+        </div>
+        <div class="card">
+          <div class="ico"><svg viewBox="0 0 24 24"><path d="M3 21l6-6"/><path d="M8 9c2-3 6-5 11-4-1 5-3 9-6 11z"/><path d="M12 12l3 3"/></svg></div>
+          <h3>Шахта, которая не прощает</h3>
+          <p>Прочность свода скрыта, приборы врут, крепь стоит денег, а
+             <strong>обвал — единственная смерть в этом мире</strong>. Богатая жила
+             держится хуже бедной: за богатство платят риском. Азарт настоящий,
+             потому что потеря настоящая.</p>
+        </div>
+        <div class="card">
+          <div class="ico"><svg viewBox="0 0 24 24"><path d="M14 4l6 6-2 2-6-6z"/><path d="M12 6L4 14l6 6 8-8"/><path d="M4 14l6 6"/></svg></div>
+          <h3>Качество, которое считается</h3>
+          <p>Никакого лутбокса: <strong>прогноз качества виден до партии</strong>,
+             потолок задаёт самое слабое звено, точная пропорция смеси даёт премию
+             мастера. Разбитая наковальня куёт хуже целой — и это тоже рынок:
+             кто-то ведь её починит.</p>
+        </div>
+        <div class="card">
+          <div class="ico"><svg viewBox="0 0 24 24"><path d="M4 19h16"/><path d="M6 19v-6M10 19v-9M14 19v-4M18 19V8"/></svg></div>
+          <h3>География — это деньги</h3>
+          <p>В каждом городе свой стакан заявок, <strong>единой цены нет</strong>.
+             Купить у шахты дёшево и продать в столице дорого — профессия.
+             Бронь с задатком, налог в казну, комиссия терминала: экономика
+             всерьёз, а не декорация.</p>
+        </div>
+        <div class="card">
+          <div class="ico"><svg viewBox="0 0 24 24"><path d="M5 21c3-8 3-13 7-17 4 4 4 9 7 17"/><path d="M12 8v2M12 13v2M12 18v2"/></svg></div>
+          <h3>Дорога — предусловие торговли</h3>
+          <p>До находки телега не доедет, пока к ней не проложат дорогу — метрами
+             полотна и часами работы. Тяжёлому обозу нужен тракт,
+             <strong>разбитая повозка встаёт вместе с грузом</strong>, а
+             заброшенный тракт зарастает. Узкий перевал — чьё-то состояние.</p>
+        </div>
+        <div class="card">
+          <div class="ico"><svg viewBox="0 0 24 24"><path d="M12 3l8 4v2H4V7z"/><path d="M6 9v8M12 9v8M18 9v8"/><path d="M4 17h16v3H4z"/></svg></div>
+          <h3>Кредит под репутацию</h3>
+          <p><strong>Залога нет.</strong> Кредитный лимит считается из вашего
+             оборота, возвращённых долгов и доверия: банк кредитует труд, а не
+             гринд. Ставку рекомендует алгоритм, а решает совет городов —
+             инфляция здесь не абстракция, а чей-то просчёт.</p>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <span class="kicker">Ваш путь</span>
+      <h2>Ваша история начнётся так</h2>
+      <p class="section-lead">А вот чем она закончится — решаете уже вы. В вечном
+         мире след остаётся навсегда.</p>
+      <div class="steps">
+        <div class="step">
+          <div class="dot">1</div>
+          <h3>Биопринтер собирает ваше тело</h3>
+          <p>На счету — ноль. Этот мир ничего не раздаёт, но всё позволяет
+             заработать. <strong>Голова и руки прилагаются.</strong></p>
+        </div>
+        <div class="step">
+          <div class="dot">2</div>
+          <h3>Первая смена в шахте</h3>
+          <p>Свод потрескивает, признаки врут, крепь бы поставить… Но руда в
+             кармане — ваша, и кузнец за стеной уже ждёт её.</p>
+        </div>
+        <div class="step">
+          <div class="dot">3</div>
+          <h3>Первая сделка</h3>
+          <p>Ваша цена в стакане — и кто-то согласился её заплатить.
+             <strong>Так в этом мире появляется цена</strong> — не из патчноута.</p>
+        </div>
+        <div class="step">
+          <div class="dot">4</div>
+          <h3>Ваш обоз выходит на тракт</h3>
+          <p>По дороге, которую вы проложили, к жиле, которую вы нашли. Караванщики
+             уже спрашивают, почём проезд.</p>
+        </div>
+        <div class="step">
+          <div class="dot">5</div>
+          <h3>Ваш город. Ваш устав. Ваши выборы</h3>
+          <p>Биопринтер, администрация, энергия — и на карте новый город с казной
+             и гражданством. <strong>Добро пожаловать во власть.</strong>
+             Переизбрать вас теперь могут только голосами.</p>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <span class="kicker">Лор</span>
+      <div class="lore">
+        <h2>Людей здесь печатают</h2>
+        <p><strong>Биопринтер собирает тело. В тело входит личность — бессмертная.</strong>
+           Знания, счёт, имущество и репутация переживают любую гибель: они
+           принадлежат вам, а не оболочке.</p>
+        <p>Погибнуть — значит потерять тело и всё, что оно несло. Город напечатает
+           новое быстро — за энергию и железо. Предтечи — бесплатно, но придётся
+           подождать. <em>Город продаёт не жизнь, а скорость</em> — и на этом тоже
+           кто-то делает состояние.</p>
+      </div>
+    </section>
+
+    <section class="bottom-cta">
+      <span class="kicker">Бета</span>
+      <h2>Нетронутая карта достанется первым</h2>
+      <p>Право первой ночи на жилы, лучшие узлы под города, имена в истории
+         вечного мира — <strong>всё это разбирают один раз</strong>. Оставьте
+         почту, и мы пришлём одно письмо, когда двери откроются.</p>
+      <form class="signup" autocomplete="off">
+        <input type="email" name="email" placeholder="ваша@почта" required
+               aria-label="Почта для приглашения в бету">
+        <input class="trap" type="text" name="website" tabindex="-1" aria-hidden="true">
+        <button type="submit">Занять место в бете</button>
+        <p class="form-msg" role="status"></p>
+      </form>
+    </section>
+
+    <footer>
+      <a class="brand" href="#" aria-label="Наверх">
+        <svg viewBox="0 0 350 266" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <path fill-rule="evenodd" clip-rule="evenodd" d="M41.5932 133C41.5932 59.5461 101.183 0 174.691 0C210.353 0 242.738 14.0145 266.634 36.8325C310.468 15.3446 342.041 6.67919 348.712 16.4866C355.412 26.3355 335.536 52.6643 299.12 85.6833C300.599 89.5635 301.901 93.5306 303.016 97.575C301.597 93.7885 299.998 90.0894 298.231 86.4879C271.576 110.559 236.23 138.12 196.044 165.417C159.883 189.979 124.963 210.821 94.8648 226.343C116.45 249.466 146.731 264.378 180.503 265.876C178.576 265.958 176.639 266 174.691 266C140.158 266 108.695 252.858 85.0408 231.305C40.3374 253.394 8.0438 262.407 1.28763 252.475C-5.43687 242.59 14.6106 216.103 51.2833 182.913C45.0345 167.5 41.5932 150.652 41.5932 133ZM186.129 16.625C117.215 16.625 61.3498 72.4495 61.3498 141.312C61.3498 151.522 62.5777 161.445 64.8941 170.942C65.3493 172.808 65.8466 174.658 66.3848 176.491C71.3944 193.545 79.9536 209.083 91.2085 222.25C120.496 208.194 156.356 187.349 193.706 161.979C235.441 133.631 271.234 104.932 295.537 81.3096C287.635 66.9522 276.984 54.318 264.294 44.1146C262.711 42.8422 261.097 41.6076 259.452 40.4122C238.868 25.4506 213.53 16.625 186.129 16.625ZM53.6668 188.428C60.3261 202.923 69.5165 216.016 80.6727 227.141C49.2225 241.216 27.1301 246.105 21.9267 238.456C16.7518 230.848 29.2635 212.282 53.6668 188.428ZM296.825 80.0524C290.518 65.5469 281.7 52.3844 270.918 41.1131C301.521 27.5838 322.958 22.9862 328.073 30.5057C333.213 38.0618 320.904 56.4295 296.825 80.0524Z" fill="currentColor"/>
+        </svg>
+      </a>
+      <span>© 2026 OctoVerse · Мир один. Навсегда.</span>
+      <span>octoverse.world</span>
+    </footer>
+  </div>
+</main>
+
+<script>
+  // ── Звёздное небо: три слоя со сносом, мерцание, редкие метеоры ──────
+  (() => {
+    const canvas = document.getElementById("space");
+    const ctx = canvas.getContext("2d");
+    const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    let w, h, stars = [], meteors = [];
+
+    const TINTS = ["255,255,255", "185,240,232", "190,205,255"];
+
+    function resize() {
+      const dpr = Math.min(devicePixelRatio || 1, 2);
+      w = innerWidth; h = innerHeight;
+      canvas.width = w * dpr; canvas.height = h * dpr;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      const n = Math.min(240, Math.floor(w * h / 8000));
+      stars = Array.from({ length: n }, () => ({
+        x: Math.random() * w,
+        y: Math.random() * h,
+        z: .3 + Math.random() * .7,                    // глубина: снос и яркость
+        r: .4 + Math.random() * 1.2,
+        phase: Math.random() * Math.PI * 2,
+        speed: .4 + Math.random() * 1.2,
+        tint: TINTS[Math.random() * TINTS.length | 0],
+      }));
+    }
+
+    function drawStars(t) {
+      ctx.clearRect(0, 0, w, h);
+      for (const s of stars) {
+        const tw = reduced ? .75 : .55 + .45 * Math.sin(t / 1000 * s.speed + s.phase);
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, s.r * s.z, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(${s.tint},${(.25 + .75 * tw) * s.z})`;
+        ctx.fill();
+      }
+    }
+
+    function frame(t) {
+      drawStars(t);
+      for (const s of stars) {
+        s.x -= s.z * .045;                              // параллакс: ближние быстрее
+        if (s.x < -2) { s.x = w + 2; s.y = Math.random() * h; }
+      }
+      if (Math.random() < 1 / 420 && meteors.length < 2) {
+        const x = w * (.2 + Math.random() * .7);
+        meteors.push({ x, y: -20, vx: -3.5 - Math.random() * 2, vy: 2.5 + Math.random(), life: 1 });
+      }
+      for (const m of meteors) {
+        m.x += m.vx; m.y += m.vy; m.life -= .012;
+        const grad = ctx.createLinearGradient(m.x, m.y, m.x - m.vx * 14, m.y - m.vy * 14);
+        grad.addColorStop(0, `rgba(200,245,238,${.8 * m.life})`);
+        grad.addColorStop(1, "rgba(200,245,238,0)");
+        ctx.strokeStyle = grad;
+        ctx.lineWidth = 1.4;
+        ctx.beginPath();
+        ctx.moveTo(m.x, m.y);
+        ctx.lineTo(m.x - m.vx * 14, m.y - m.vy * 14);
+        ctx.stroke();
+      }
+      meteors = meteors.filter(m => m.life > 0 && m.y < h + 40);
+      requestAnimationFrame(frame);
+    }
+
+    addEventListener("resize", resize);
+    resize();
+    if (reduced) drawStars(0); else requestAnimationFrame(frame);
+  })();
+
+  // ── Заявка на бету: обе формы, честные ответы ────────────────────────
+  document.querySelectorAll("form.signup").forEach((form) => {
+    const msg = form.querySelector(".form-msg");
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const button = form.querySelector("button");
+      msg.textContent = "";
+      msg.className = "form-msg";
+      button.disabled = true;
+      try {
+        const res = await fetch("/api/signup", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: form.email.value,
+            website: form.website.value,
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data.ok) {
+          msg.textContent = "Готово. Ждите письмо о старте беты.";
+          msg.className = "form-msg ok";
+          form.email.value = "";
+        } else {
+          msg.textContent = data.error || "Что-то пошло не так. Попробуйте ещё раз.";
+          msg.className = "form-msg err";
+        }
+      } catch {
+        msg.textContent = "Сеть не ответила. Попробуйте ещё раз.";
+        msg.className = "form-msg err";
+      } finally {
+        button.disabled = false;
+      }
+    });
+  });
+</script>
+</body>
+</html>

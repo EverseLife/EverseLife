@@ -40,6 +40,7 @@ export function Admin({ look, session, busy, act }: Props) {
   const [голосования, setГолосования] = useState<CityVote[]>([]);
   const [дела, setДела] = useState<CourtCase[]>([]);
   const [санкции, setСанкции] = useState<SanctionKind[]>([]);
+  const [каторги, setКаторги] = useState<{ key: string; name: string }[]>([]);
   const [правка, setПравка] = useState<Record<string, string>>({});
   const [кому, setКому] = useState("");
   const [должность, setДолжность] = useState("Министр экономики");
@@ -61,6 +62,7 @@ export function Admin({ look, session, busy, act }: Props) {
       const суд = await session.send("city.cases");
       setДела((суд.cases as CourtCase[]) ?? []);
       setСанкции((суд.sanctions as SanctionKind[]) ?? []);
+      setКаторги((суд.prisons as { key: string; name: string }[]) ?? []);
     } catch {
       setГород(null);
       setПанель(null);
@@ -112,7 +114,7 @@ export function Admin({ look, session, busy, act }: Props) {
         <Panel панель={панель} />
       ) : (
         <>
-        <Court дела={дела} санкции={санкции} может={может("justice")} session={session} go={го} busy={busy} />
+        <Court дела={дела} санкции={санкции} каторги={каторги} может={может("justice")} session={session} go={го} busy={busy} />
         <Votes
           голосования={голосования}
           город={город}
@@ -872,6 +874,7 @@ function Votes({
 function Court({
   дела,
   санкции,
+  каторги,
   может,
   session,
   go,
@@ -879,6 +882,7 @@ function Court({
 }: {
   дела: CourtCase[];
   санкции: SanctionKind[];
+  каторги: { key: string; name: string }[];
   может: boolean;
   session: Session;
   go: (what: () => Promise<unknown>) => Promise<void>;
@@ -888,6 +892,7 @@ function Court({
   const [суть, setСуть] = useState("");
   const [санкция, setСанкция] = useState("fine");
   const [сколько, setСколько] = useState(10);
+  const [каторга, setКаторга] = useState("");
   const открытые = дела.filter((дело) => дело.state === "open");
   if (дела.length === 0 && !может) return null;
 
@@ -931,6 +936,22 @@ function Court({
                         onChange={(e) => setСколько(Number(e.target.value))}
                         title="сумма штрафа либо срок заключения в сутках"
                       />
+                      {/* Куда сажать — решает суд (D-176): каторга одна —
+                          очевидно, несколько — судья называет которую. */}
+                      {санкция === "prison" && каторги.length > 1 && (
+                        <select
+                          value={каторга}
+                          onChange={(e) => setКаторга(e.target.value)}
+                          title="в какую каторгу отправить"
+                        >
+                          <option value="">— каторга —</option>
+                          {каторги.map((узел) => (
+                            <option key={узел.key} value={узел.key}>
+                              {узел.name}
+                            </option>
+                          ))}
+                        </select>
+                      )}
                       <button
                         onClick={() =>
                           go(() =>
@@ -939,10 +960,13 @@ function Court({
                               sanction: санкция,
                               amount: сколько,
                               days: сколько,
+                              ...(санкция === "prison" && каторга
+                                ? { prison: каторга }
+                                : {}),
                             }),
                           )
                         }
-                        disabled={busy}
+                        disabled={busy || (санкция === "prison" && каторги.length > 1 && !каторга)}
                       >
                         Приговор
                       </button>
@@ -983,8 +1007,7 @@ function Court({
           Подать жалобу
         </button>
         <span className="note">
-          Жалоба стоит пошлины, и пошлина идёт в казну города. Срок давности —
-          `justice.claim_window` суток (D-117, D-166).
+          Жалоба стоит пошлины в казну города (D-117, D-166).
         </span>
       </div>
       {открытые.length > 0 && !может && (

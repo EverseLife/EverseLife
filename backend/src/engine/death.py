@@ -219,9 +219,11 @@ async def printers(
     for узел in узлы:
         #: Тюремный принтер — не ещё одна дверь в мир (D-174): он печатает
         #: только тех, кого тюрьма держит, и остальным не показывается вовсе.
-        if (узел.properties or {}).get(_prison_marker()) and not (
+        from src.engine import justice
+
+        if await justice.is_prison(session, узел) and not (
             identity_id is not None
-            and await _held_by_law(session, constants, identity_id)
+            and await justice.held(session, constants, identity_id)
         ):
             continue
         предтечи = bool(узел.properties.get(PRECURSOR))
@@ -362,7 +364,9 @@ async def _charge(
             "процессор не из чего собрать (D-013)"
         )
 
-    if (node.properties or {}).get(_prison_marker()) and not await _held_by_law(
+    from src.engine import justice
+
+    if await justice.is_prison(session, node) and not await justice.held(
         session, constants, identity.id
     ):
         raise DeathError(
@@ -486,18 +490,3 @@ async def pending(session: AsyncSession, identity_id: uuid.UUID) -> Job | None:
     ).scalars().first()
 
 
-def _prison_marker() -> str:
-    from src.engine import justice
-
-    return justice.PRISON_NODE
-
-
-async def _held_by_law(
-    session: AsyncSession, constants: Constants, identity_id: uuid.UUID
-) -> bool:
-    """Держит ли этого человека тюрьма: приговором либо долгом (D-166, D-168)."""
-    from src.engine import bank, justice
-
-    if await justice.imprisoned(session, identity_id) is not None:
-        return True
-    return await bank.restrained(session, constants, identity_id) is not None

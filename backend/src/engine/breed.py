@@ -527,7 +527,8 @@ async def copy_agrotech(
     """
     await travel.require_here(session, body)
     node = await session.get(Node, body.node_id)
-    if node is None or not node.properties.get("library"):
+    #: Библиотека — станок (D-176): агротехнику берут там, где он стоит.
+    if node is None or not await world.is_library(session, node):
         raise BreedError("Библиотека не работает удалённо: за знанием надо прийти")
 
     plant = catalog.plants.by_id(culture_id)

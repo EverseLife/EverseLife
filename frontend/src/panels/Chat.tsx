@@ -69,7 +69,7 @@ export function Chat({ session, busy, act, place }: Props) {
     <section className="chat">
       <div className="chat-lines" ref={scroll}>
         {lines.length === 0 && (
-          <p className="note">Тихо. Разговор существует, пока ты в комнате, — истории нет.</p>
+          <p className="note">Тихо. Разговор живёт, пока ты в комнате.</p>
         )}
         {lines.map((line) => (
           <Line key={line.id} line={line} />
@@ -113,8 +113,8 @@ export function Chat({ session, busy, act, place }: Props) {
       </div>
       <p className="note">
         {mine
-          ? `Вы в кружке «${mine.name ?? "без имени"}»: слышат его участники, остальным может долететь обрывок.`
-          : "Говорите на всю комнату: слышат все, кто здесь. Кружки — в соседнем табе."}
+          ? `Вы в кружке «${mine.name ?? "без имени"}»: слышат участники, остальным долетают обрывки.`
+          : "Слышат все, кто здесь. Кружки — в соседнем табе."}
       </p>
     </section>
   );

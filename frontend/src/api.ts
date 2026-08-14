@@ -177,6 +177,8 @@ export type Look = {
   identity: string;
   money: string;
   knows: string[];
+  /** Взятая агротехника: культуры, чью норму личность уже изучила (D-057). */
+  agrotech: string[];
   orders: Order[];
   reservations: Reservation[];
   batches: Batch[];
@@ -195,6 +197,8 @@ export type Look = {
     layer: "space" | "planet" | "city" | "location";
     library: boolean;
     stations: string[];
+    /** Свойства-признаки места («лес», «выход»): по ним видна добыча места (D-177). */
+    features: string[];
     fertility: number;
     /** Чей участок: хозяйство ведёт владелец (06-farming). */
     owner: string | null;
@@ -535,10 +539,16 @@ type Waiting = {
   reject: (error: Error) => void;
 };
 
-/** Сессия клиента. Держит сокет и очередь «команда → ответ». */
+/** Сессия клиента. Держит сокет и очередь «команда → ответ».
+ *
+ * Сокет живёт не вечно: сервер и прокси режут простой. Порванная сессия
+ * поднимается сама — команда, заставшая мёртвый сокет, сначала
+ * переподключается и опознаётся прежним именем, и только потом уходит.
+ */
 export class Session {
   private socket: WebSocket | null = null;
   private queue: Waiting[] = [];
+  private reviving: Promise<void> | null = null;
   account = "";
   name = "";
 
@@ -587,15 +597,30 @@ export class Session {
     return hello;
   }
 
-  send(cmd: string, args: Record<string, unknown> = {}): Promise<Record<string, unknown>> {
-    const socket = this.socket;
-    if (!socket || socket.readyState !== WebSocket.OPEN) {
-      return Promise.reject(new Error("нет сессии"));
+  async send(cmd: string, args: Record<string, unknown> = {}): Promise<Record<string, unknown>> {
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
+      //: Опознаться пока некем: сессии ещё не было, чинить нечего.
+      if (!this.name) throw new Error("нет сессии");
+      await this.revive();
     }
+    const socket = this.socket!;
     return new Promise((resolve, reject) => {
       this.queue.push({ resolve, reject });
       socket.send(JSON.stringify({ cmd, ...args }));
     });
+  }
+
+  /** Поднять порванную сессию заново. Один подъём на всех, кто его застал. */
+  private revive(): Promise<void> {
+    this.reviving ??= (async () => {
+      try {
+        await this.connect();
+        await this.greet("hello", this.name);
+      } finally {
+        this.reviving = null;
+      }
+    })();
+    return this.reviving;
   }
 
   async look(): Promise<Look> {

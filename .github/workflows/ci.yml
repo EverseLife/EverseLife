@@ -134,6 +134,17 @@ jobs:
           cache-from: type=gha,scope=frontend
           cache-to: type=gha,scope=frontend,mode=max
 
+      - name: Лендинг
+        uses: docker/build-push-action@v6
+        with:
+          context: landing
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/octoverse-landing:latest
+            ghcr.io/${{ github.repository_owner }}/octoverse-landing:${{ github.sha }}
+          cache-from: type=gha,scope=landing
+          cache-to: type=gha,scope=landing,mode=max
+
   deploy:
     name: Выкладка
     needs: images

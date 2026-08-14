@@ -57,7 +57,7 @@ from src.models.event import EventKind
 from src.models.identity import Body, BodyState, Wound
 from src.models.inventory import Container, ContainerKind, Item
 from src.models.mining import MiningSession, Pace, SessionState
-from src.models.world import Vein
+from src.models.world import Node, Vein
 from src.units import PERCENT, SCALE_MAX, SCALE_MIN, amount, amount_float
 
 
@@ -206,6 +206,14 @@ async def start(
     await travel.require_here(session, body)
     if vein.remaining <= 0:
         raise VeinDepleted(f"жила {vein.id} выработана")
+    #: Каторжный забой — только для тех, кого держит тюрьма (D-174, D-176):
+    #: постороннему её жила не видна и не отдаётся.
+    from src.engine import justice
+
+    узел = await session.get(Node, body.node_id)
+    if узел is not None and await justice.is_prison(session, узел):
+        if not await justice.held(session, constants, body.identity_id):
+            raise SessionClosed("каторжный забой работает только на заключённых")
     #: Сессия не открывается телом, которому нечем ударить даже раз.
     первый_удар = swing_cost(constants, body, pace, datetime.now(UTC))
     if float(body.stamina) < первый_удар:
@@ -624,7 +632,7 @@ async def _prison_workoff(
     from src.models.world import Node
 
     node = await session.get(Node, body.node_id)
-    if node is None or not (node.properties or {}).get(justice.PRISON_NODE):
+    if node is None or not await justice.is_prison(session, node):
         return None
     if await bank.restrained(session, constants, body.identity_id, now=now) is None:
         return None

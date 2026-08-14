@@ -82,6 +82,7 @@ from src.constants import registry as R
 from src.constants.catalog import ItemKind, Operation, Recipe
 from src.engine import events, travel, wear
 from src.engine.jobs import enqueue, handler
+from src.engine import world as world_engine
 from src.engine.world import body_container, learn, node_container
 from src.models.craft import BatchKind, BatchState, CraftBatch
 from src.models.event import EventKind
@@ -183,6 +184,9 @@ class Procedure:
     #: Смесь: состав задан пропорцией, и точность попадания влияет на качество.
     mix: bool
     needs_recipe: bool
+    #: Свойство узла, где способ возможен (D-177): «Рубка дерева» → `лес`.
+    #: Пусто — способ не привязан к месту.
+    place: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -276,7 +280,9 @@ def _from_operation(catalog: Catalog, operation: Operation, output: str) -> Proc
     per_unit = {
         book.resolve(name): value for name, value in operation.amounts.get(output, {}).items()
     }
-    if not per_unit:
+    #: Операция без расходов — добыча. С полем `place` это добыча места (D-177):
+    #: рубка леса идёт партией без входов. Без поля — чужая механика (жила).
+    if not per_unit and operation.place is None:
         raise Unmakeable(
             f"операция «{operation.name}» ничего не расходует: это добыча, а не крафт"
         )
@@ -304,6 +310,7 @@ def _from_operation(catalog: Catalog, operation: Operation, output: str) -> Proc
         step_hours=operation.hours_per_unit.get(output, 0.0),
         mix=False,
         needs_recipe=False,
+        place=operation.place,
     )
 
 
@@ -1020,7 +1027,8 @@ async def copy_recipe(
     constants = current()
     await travel.require_here(session, body)
     node = await session.get(Node, body.node_id)
-    if node is None or not node.properties.get("library"):
+    #: Библиотека — станок (D-176): рецепты берут там, где он стоит.
+    if node is None or not await world_engine.is_library(session, node):
         raise NoLibrary("Библиотека не работает удалённо: за знанием надо прийти")
 
     recipe = catalog.recipes.recipe(key)
@@ -1077,6 +1085,19 @@ async def _prepare(
         raise CraftError(f"{proc.output!r} — изделие, а не сырьё: партия считается штуками")
     if proc.needs_recipe and not await _knows(session, body, proc.output):
         raise NotLearned(f"рецепт {proc.output!r} не скопирован в личность")
+
+    #: Добыча места (D-177): идёт там, где у узла есть названное свойство, и
+    #: только на своей либо ничьей земле — чужой лес принадлежит хозяину.
+    if proc.place is not None:
+        node = await session.get(Node, body.node_id)
+        if node is None or not (node.properties or {}).get(proc.place):
+            raise CraftError(f"здесь нет: {proc.place}")
+        чужой = (
+            node.owner_identity_id is not None
+            and node.owner_identity_id != body.identity_id
+        ) or (node.owner_identity_id is None and node.owner_city_id is not None)
+        if чужой:
+            raise CraftError(f"{proc.place} на чужой земле: рубить может хозяин")
 
     if auto:
         #: Промышленный уклад: потолок задаёт станок, инструмент не нужен вовсе,

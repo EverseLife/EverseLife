@@ -143,6 +143,9 @@ async def is_vacant(session: AsyncSession, constants: Constants, node: Node) -> 
     """
     if await built_area(session, node) > 0:
         return False
+    #: Транзитные ворота города — общая дорога, а не участок (D-176).
+    if (node.properties or {}).get("выход"):
+        return False
     _, занято = await slots(session, constants, node)
     if занято > 0:
         return False

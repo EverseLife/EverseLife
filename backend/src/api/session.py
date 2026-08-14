@@ -251,6 +251,9 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
         "identity": identity.name,
         "money": await _money(db, identity.id),
         "knows": await _knowledge(db, identity.id),
+        #: Взятая агротехника — отдельным списком: клиент показывает в
+        #: Библиотеке, какие культуры уже изучены, и не даёт брать дважды.
+        "agrotech": await _knowledge(db, identity.id, kind=KnowledgeKind.AGROTECH),
         "orders": await _orders(db, identity.id),
         "reservations": await _reservations(db, identity.id),
         "batches": await _batches(db, identity.id),
@@ -313,13 +316,21 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
         if node.owner_identity_id is None
         else await db.get(Identity, node.owner_identity_id)
     )
+    станции = await _stations(db, node)
     seen["node"] = {
         "key": node.key,
         "name": node.name,
         "layer": node.layer.value,
-        "library": bool(node.properties.get("library")),
+        #: Библиотека — станок (D-176); свойство узла — наследие старых миров.
+        "library": await world.is_library(db, node),
         #: Что в узле есть — по этому клиент решает, какие сцены показывать.
-        "stations": await _stations(db, node),
+        "stations": станции,
+        #: Свойства-признаки места («лес», «выход»): по ним клиент показывает
+        #: добычу места (D-177) и прочие окна, привязанные к земле, а не к станку.
+        "features": sorted(
+            имя for имя, значение in (node.properties or {}).items()
+            if значение is True
+        ),
         #: Плодородие — свойство места (D-126): по нему видна сцена делянок.
         "fertility": float(node.properties.get("плодородие", 0) or 0),
         #: Чей участок: хозяйство ведёт владелец, чужое — по договору (D-116).
@@ -371,7 +382,7 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
             "powers": sorted(await town.powers_of(db, identity.id, город)),
             #: Управление присутственно: клиент показывает его только в
             #: администрации, а не в сайдбаре (D-155).
-            "hall": town.HALL in await _stations(db, node),
+            "hall": town.HALL in станции,
             #: Гражданство (D-160): своё состояние в этом городе и порядок
             #: приёма. Клиент по ним решает, что показывать — «вступить»,
             #: «заявка подана» или «выйти».
@@ -474,7 +485,12 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
         None if открытая is None
         else _sight(открытая, await mining.sight(db, constants, открытая))
     )
-    seen["veins"] = [
+    #: Каторжный забой видит только тот, кого держит тюрьма (D-174, D-176):
+    #: постороннему жилы тюрьмы не показываются, как и тюремный принтер.
+    забой_скрыт = await justice.is_prison(db, node) and not await justice.held(
+        db, constants, identity.id
+    )
+    seen["veins"] = [] if забой_скрыт else [
         {"id": str(vein.id), "resource": vein.resource, "richness": float(vein.richness)}
         for vein in (
             await db.execute(select(Vein).where(Vein.node_id == node.id))
@@ -1609,6 +1625,8 @@ async def _city_judge(state: dict, db: AsyncSession, message: dict) -> dict:
         days=None if message.get("days") is None else float(message["days"]),
         amount=None if message.get("amount") is None else float(message["amount"]),
         verdict=str(message.get("verdict") or ""),
+        #: Куда сажать при нескольких каторгах — называет суд (D-176).
+        prison_node=None if message.get("prison") is None else str(message["prison"]),
     )
     return {"judged": дело.state.value, "sanction": None if наказание is None else наказание.kind}
 
@@ -1625,6 +1643,12 @@ async def _city_cases(state: dict, db: AsyncSession, message: dict) -> dict:
                 "enforced": примитив.id in justice.ENFORCED,
             }
             for примитив in current_catalog().laws.sanctions
+        ],
+        #: Каторги города (D-176): при нескольких суд называет, в какую
+        #: отправить, — клиенту нужен список.
+        "prisons": [
+            {"key": узел.key, "name": узел.name}
+            for узел in await justice.prisons_of(db, город)
         ],
     }
 
@@ -2268,10 +2292,15 @@ def _edible(catalog, type_key: str) -> bool:
         return False
 
 
-async def _knowledge(db: AsyncSession, identity_id: uuid.UUID) -> list[str]:
+async def _knowledge(
+    db: AsyncSession,
+    identity_id: uuid.UUID,
+    *,
+    kind: KnowledgeKind = KnowledgeKind.RECIPE,
+) -> list[str]:
     rows = await db.execute(
         select(Knowledge.key).where(
-            Knowledge.identity_id == identity_id, Knowledge.kind == KnowledgeKind.RECIPE
+            Knowledge.identity_id == identity_id, Knowledge.kind == kind
         )
     )
     return sorted(row[0] for row in rows)

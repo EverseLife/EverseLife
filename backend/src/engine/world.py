@@ -240,6 +240,31 @@ async def node_container(session: AsyncSession, node: Node) -> Container:
     return container
 
 
+#: Станок «Библиотека» (D-176): окно библиотеки показывается там, где он стоит.
+LIBRARY = "Библиотека"
+
+
+async def has_station(session: AsyncSession, node: Node, name: str) -> bool:
+    """Стоит ли в узле станок с этим именем: сцена узла собирается из станков
+    (D-176), и это единственный способ спросить, чем место является."""
+    двор = await node_container(session, node)
+    found = await session.scalar(
+        select(Item.id)
+        .where(Item.container_id == двор.id, Item.type_key == name)
+        .limit(1)
+    )
+    return found is not None
+
+
+async def is_library(session: AsyncSession, node: Node) -> bool:
+    """Библиотека — станок, а не свойство узла (D-176). Свойство `library`
+    остаётся наследием старых миров: догоняющий сид ставит станок, но мир,
+    который догнать не успели, не должен потерять окно."""
+    if (node.properties or {}).get("library"):
+        return True
+    return await has_station(session, node, LIBRARY)
+
+
 async def learn(
     session: AsyncSession,
     identity: Identity,

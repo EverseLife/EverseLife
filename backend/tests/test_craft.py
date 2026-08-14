@@ -106,9 +106,21 @@ def test_операция_без_рецепта_знания_не_требует
 
 
 def test_добыча_крафтом_не_притворяется(catalog: Catalog) -> None:
-    """Операция, ничего не расходующая, берёт материю из мира — это не крафт."""
+    """Операция, ничего не расходующая, берёт материю из мира — это не крафт.
+
+    Руда идёт своей механикой (жила и кирка), и партией её не взять.
+    """
     with pytest.raises(craft.Unmakeable):
-        craft.procedure(catalog, "Бревно")
+        craft.procedure(catalog, "Железная руда")
+
+
+def test_добыча_места_идёт_партией(catalog: Catalog) -> None:
+    """Рубка леса — добыча места (D-177): без входов, но с привязкой к узлу."""
+    способ = craft.procedure(catalog, "Бревно")
+    assert способ.place == "лес"
+    assert способ.inputs == ()
+    assert "Топор" in способ.tools
+    assert not способ.needs_recipe
 
 
 def test_блюда_ждут_готовки(catalog: Catalog) -> None:

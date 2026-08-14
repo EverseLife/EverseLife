@@ -69,6 +69,9 @@ class Operation(Strict):
     requires: tuple[str, ...] = ()
     gives: tuple[str, ...] = ()
     consumes: tuple[str, ...] = ()
+    #: Свойство узла, где операция возможна (D-177): «Рубка дерева» → `лес`.
+    #: Пусто — операция не привязана к месту.
+    place: str | None = None
     amounts: dict[str, dict[str, float]] = Field(default_factory=dict)
     hours_per_unit: dict[str, float] = Field(default_factory=dict)
     yields: dict[str, float] = Field(default_factory=dict, alias="yield")
