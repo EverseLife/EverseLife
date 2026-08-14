@@ -99,7 +99,8 @@ export function Chat({ session, busy, act, place }: Props) {
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter") void say();
+            //: Тот же предохранитель, что у кнопки: занято или пусто — не шлём.
+            if (e.key === "Enter" && !busy && text.trim()) void say();
           }}
           placeholder={
             kind === "speech" ? "сказать…" : kind === "action" ? "что делает персонаж…"

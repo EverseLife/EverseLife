@@ -1,12 +1,16 @@
 /*
- * Оформление демки — намеренно никакое.
+ * Оформление демки — намеренно аскетичное.
  *
  * Визуальный язык игры это отдельная работа (D-049, D-055, D-072), и пилотный
  * экран проверяет непроверенное решение: обозначать интерактивность **без
- * цвета**. Нарисовать здесь «примерный вид» значило бы выдать черновик за
- * решение — а макеты устаревают быстрее текста (D-051).
+ * цвета**. Поэтому по-прежнему один шрифт, одна рамка и никакого цветового
+ * кодирования смысла.
  *
- * Поэтому: один шрифт, одна рамка, никакого цветового кодирования смысла.
+ * Иерархия при этом есть — она делается плотностью, а не цветом: структурные
+ * линии полупрозрачные, интерактивное — полным тоном. Каркас резиновый:
+ * приложение занимает весь экран, сайдбар и сцена прокручиваются каждый сам,
+ * чат прибит к низу сцены. На узких экранах каркас распускается в обычный
+ * поток документа — там свои области прокрутки только мешают.
  */
 
 :root {
@@ -14,11 +18,36 @@
   font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   font-size: 15px;
   line-height: 1.5;
+  /* Линии структуры: полупрозрачный currentColor. Полный тон остаётся
+     интерактивному — кнопкам и выбранному. */
+  --line: color-mix(in srgb, currentColor 35%, transparent);
+  --hairline: color-mix(in srgb, currentColor 16%, transparent);
+  --wash: color-mix(in srgb, currentColor 8%, transparent);
+}
+@media (max-width: 40rem) {
+  :root {
+    font-size: 14px;
+  }
+}
+
+* {
+  box-sizing: border-box;
+  scrollbar-width: thin;
+}
+
+html,
+body,
+#root {
+  height: 100%;
 }
 
 body {
   margin: 0;
-  padding: 1rem;
+  /* Системная пара фон/текст: тот же холст, на котором система рисует поля
+     ввода, — тема при этом переключается сама. */
+  background: Canvas;
+  color: CanvasText;
+  overflow-wrap: break-word;
 }
 
 h1 {
@@ -27,60 +56,109 @@ h1 {
 }
 h2 {
   font-size: 1rem;
-  margin: 0 0 0.5rem;
+  margin: 0 0 0.6rem;
   text-transform: uppercase;
   letter-spacing: 0.08em;
+  padding-bottom: 0.35rem;
+  border-bottom: 1px solid var(--line);
 }
 h3 {
   font-size: 0.9rem;
-  margin: 1rem 0 0.25rem;
+  margin: 1rem 0 0.35rem;
   font-weight: normal;
   text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-color: var(--line);
+}
+
+/* --- каркас: экран целиком ------------------------------------------------ */
+
+main {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 0.75rem 1rem;
 }
 
 header {
+  flex: none;
   display: flex;
-  gap: 1.5rem;
+  gap: 0.75rem 1.25rem;
   align-items: baseline;
   flex-wrap: wrap;
   padding-bottom: 0.5rem;
-  border-bottom: 1px solid currentColor;
-  margin-bottom: 1rem;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 0.75rem;
+}
+/* Табы сцены — по правому краю: слева «кто и где», справа «куда смотреть». */
+header nav.tabs {
+  margin-left: auto;
 }
 
 .who {
   font-weight: bold;
 }
 
-/* Каркас: сайдбар слева (Сеть), основное окно справа (присутственное). */
+/* Каркас: сайдбар слева (Сеть), основное окно справа (присутственное).
+   Обе колонки прокручиваются каждая сама — заголовок и низ всегда на месте. */
 .frame {
+  flex: 1;
+  min-height: 0;
   display: grid;
-  grid-template-columns: minmax(16rem, 20rem) 1fr;
+  grid-template-columns: minmax(17rem, 21rem) 1fr;
   gap: 1rem;
-  align-items: start;
-}
-@media (max-width: 56rem) {
-  .frame {
-    grid-template-columns: 1fr;
-  }
+  align-items: stretch;
 }
 
 .sidebar {
-  border: 1px solid currentColor;
-  padding: 0.75rem;
-  position: sticky;
-  top: 0.5rem;
-}
-/* В одну колонку сайдбар не липнет: липкий без своего фона он ложится
-   поверх прокручиваемого контента. Правило стоит ПОСЛЕ базового: при равной
-   специфичности побеждает позднее. */
-@media (max-width: 56rem) {
-  .sidebar {
-    position: static;
-  }
+  border: 1px solid var(--line);
+  padding: 0.85rem;
+  overflow-y: auto;
+  min-height: 0;
 }
 .sidebar h3 {
-  margin-top: 0.75rem;
+  margin-top: 0.85rem;
+}
+
+/* Сцена: содержимое прокручивается, чат остаётся прибит к низу. */
+.main {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  gap: 0.75rem;
+}
+.main > .panels,
+.main > section:not(.chat):not(.map-pane) {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+.chat {
+  flex: none;
+}
+
+/* Узкий экран: одна колонка, обычная прокрутка страницы. Сцена — первой:
+   карта важнее сайдбара, когда всё в один столбец. */
+@media (max-width: 56rem) {
+  main {
+    height: auto;
+    min-height: 100%;
+  }
+  .frame {
+    display: flex;
+    flex-direction: column;
+  }
+  .sidebar {
+    order: 2;
+    overflow: visible;
+  }
+  .main,
+  .main > .panels,
+  .main > section:not(.chat):not(.map-pane) {
+    min-height: auto;
+    overflow: visible;
+    flex: none;
+  }
 }
 
 .tabs button {
@@ -89,14 +167,16 @@ header {
 
 .panels {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(22rem, 1fr));
-  gap: 1rem;
+  /* min(22rem, 100%): колонка не обязана быть шире экрана. */
+  grid-template-columns: repeat(auto-fit, minmax(min(22rem, 100%), 1fr));
+  gap: 0.75rem;
   align-items: start;
+  align-content: start;
 }
 
 section {
-  border: 1px solid currentColor;
-  padding: 0.75rem;
+  border: 1px solid var(--line);
+  padding: 0.85rem;
 }
 
 .row {
@@ -107,6 +187,8 @@ section {
   margin: 0.5rem 0;
 }
 
+/* --- интерактивное: полный тон -------------------------------------------- */
+
 button,
 select,
 input {
@@ -115,6 +197,7 @@ input {
   border: 1px solid currentColor;
   background: transparent;
   color: inherit;
+  max-width: 100%;
 }
 
 /*
@@ -135,21 +218,42 @@ option {
   color: FieldText;
 }
 
+/*
+ * Главная кнопка «толще» тихой, но толщина набирается внутренней тенью, а не
+ * рамкой: смена класса (табы!) не должна дёргать раскладку на пиксель.
+ */
 button:not(:disabled) {
   cursor: pointer;
-  border-width: 2px;
+  box-shadow: inset 0 0 0 1px currentColor;
 }
 button:disabled {
   opacity: 0.4;
+  cursor: not-allowed;
 }
 button.quiet {
-  border-width: 1px;
   border-style: dashed;
+  box-shadow: none;
+}
+button:not(:disabled):hover {
+  background-color: var(--wash);
+}
+button:not(:disabled):active {
+  transform: translateY(1px);
+}
+
+:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
 }
 
 input[type="number"] {
-  width: 6rem;
+  width: 6.5rem;
 }
+input[type="checkbox"] {
+  accent-color: currentColor;
+}
+
+/* --- таблицы --------------------------------------------------------------- */
 
 table {
   border-collapse: collapse;
@@ -157,13 +261,18 @@ table {
 }
 td,
 th {
-  padding: 0.1rem 0.4rem 0.1rem 0;
+  padding: 0.25rem 0.5rem 0.25rem 0;
   text-align: left;
   vertical-align: baseline;
+  border-bottom: 1px solid var(--hairline);
+}
+tbody tr:last-child td {
+  border-bottom: none;
 }
 th {
   font-weight: normal;
-  text-decoration: underline;
+  opacity: 0.7;
+  border-bottom: 1px solid var(--line);
 }
 .num {
   text-align: right;
@@ -172,8 +281,8 @@ th {
 
 .book td:nth-child(2) {
   text-align: center;
-  border-left: 1px solid currentColor;
-  border-right: 1px solid currentColor;
+  border-left: 1px solid var(--line);
+  border-right: 1px solid var(--line);
 }
 
 /* Панель во всю ширину сцены: рынку тесно в общей сетке. */
@@ -197,8 +306,12 @@ th {
 tr.pick {
   cursor: pointer;
 }
+tr.pick:hover {
+  background-color: var(--wash);
+}
 tr.pick td:first-child {
   text-decoration: underline dotted;
+  text-underline-offset: 3px;
 }
 tr.picked td:first-child {
   font-weight: bold;
@@ -210,7 +323,7 @@ tr.picked td:first-child {
 }
 
 .plan {
-  border: 1px dashed currentColor;
+  border: 1px dashed var(--line);
   padding: 0.5rem;
   margin: 0.5rem 0;
 }
@@ -221,10 +334,13 @@ tr.picked td:first-child {
   margin: 0.35rem 0;
 }
 
+/* Ошибка — всегда на виду: полоса под каркасом, а не в глубине прокрутки. */
 .trouble {
+  flex: none;
   border: 2px solid currentColor;
+  background-color: var(--wash);
   padding: 0.4rem 0.6rem;
-  margin-top: 1rem;
+  margin: 0.5rem 0 0;
 }
 
 .pocket {
@@ -232,30 +348,65 @@ tr.picked td:first-child {
 }
 
 footer {
-  margin-top: 1.5rem;
+  flex: none;
+  margin-top: 0.5rem;
   opacity: 0.6;
   font-size: 0.8rem;
 }
 
-.entry {
-  max-width: 34rem;
-  margin: 4rem auto;
+/* Экран входа: одна колонка по центру экрана. */
+main.entry {
+  justify-content: center;
   border: none;
+}
+.entry > * {
+  width: min(34rem, 100%);
+  margin-inline: auto;
 }
 
 /* --- карта-граф ---------------------------------------------------------- */
 
+/* Карта — единственная панель, которая не прокручивается, а растягивается:
+   svg занимает всё, что осталось от подсказок и кнопок. */
+.main > .map-pane {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 .map-pane svg {
+  flex: 1;
+  min-height: 12rem;
   width: 100%;
-  max-width: 60rem;
-  border: 1px solid currentColor;
+  border: 1px solid var(--line);
   display: block;
+  cursor: grab;
+  /* Перетаскивание узлов не должно выделять подписи и скроллить страницу. */
+  user-select: none;
+  touch-action: none;
+}
+.map-pane svg:active {
+  cursor: grabbing;
+}
+@media (max-width: 56rem) {
+  .main > .map-pane {
+    flex: none;
+    overflow: visible;
+  }
+  .map-pane svg {
+    flex: none;
+    aspect-ratio: 880 / 540;
+    min-height: 0;
+    height: auto;
+  }
 }
 
 .edge {
   stroke: currentColor;
   stroke-width: 1;
-  opacity: 0.7;
+  opacity: 0.55;
 }
 .edge.paved {
   stroke-width: 2.5;
@@ -273,7 +424,7 @@ footer {
 }
 
 .node circle {
-  fill: transparent;
+  fill: Canvas;
   stroke: currentColor;
   stroke-width: 1.5;
 }
@@ -319,18 +470,25 @@ footer {
 /* --- живое общение: нижняя полоса (D-050) --------------------------------- */
 
 .chat {
-  margin-top: 1rem;
+  margin-top: 0;
 }
 
 .chat-lines {
-  max-height: 14rem;
+  /* Резиновая высота: на большом экране разговору просторнее. */
+  height: clamp(6rem, 22vh, 16rem);
   overflow-y: auto;
-  border-bottom: 1px dashed currentColor;
+  border-bottom: 1px dashed var(--line);
   padding-bottom: 0.5rem;
+}
+@media (max-width: 56rem) {
+  .chat-lines {
+    height: auto;
+    max-height: 14rem;
+  }
 }
 
 .line {
-  margin: 0.15rem 0;
+  margin: 0.25rem 0;
 }
 .line.action {
   font-style: italic;
@@ -345,14 +503,15 @@ footer {
 }
 
 .chat-text {
-  flex: 1;
-  min-width: 12rem;
+  flex: 1 1 12rem;
+  min-width: 0;
 }
 
 .circle {
-  border: 1px dashed currentColor;
+  border: 1px dashed var(--line);
   padding: 0.1rem 0.5rem;
 }
 .circle.mine {
   border-style: solid;
+  border-color: currentColor;
 }

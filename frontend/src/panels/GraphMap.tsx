@@ -46,8 +46,8 @@ type Props = {
   onEnter: () => void;
 };
 
-const W = 720;
-const H = 440;
+const W = 880;
+const H = 540;
 
 const LAYERS = [
   { id: "space", label: "космос" },
@@ -61,12 +61,23 @@ type LayerId = (typeof LAYERS)[number]["id"];
 type Mass = { x: number; y: number; vx: number; vy: number; pinned: boolean };
 
 //: Ручки физики. Числа интерфейса, а не мира: балансу они не принадлежат.
-const SPRING = 0.02;
-const REPULSE = 5200;
-const REPULSE_RADIUS = 190;
-const CENTERING = 0.006;
-const DAMPING = 0.86;
+//: Пружина мягкая, затухание сильное, скорость ограничена: раскладка
+//: расползается плавно, а не скачками.
+const SPRING = 0.014;
+const REPULSE = 7500;
+const REPULSE_RADIUS = 250;
+const CENTERING = 0.005;
+const DAMPING = 0.8;
 const SLEEP_SPEED = 0.02;
+const MAX_SPEED = 4;
+
+/**
+ * Память раскладки: узел, однажды улёгшийся, помнит своё место по ключу —
+ * через смену слоя, уход с таба карты и дорогу. Пересеивание с нуля выглядит
+ * как «карту перетрясло», и случается оно теперь только с по-настоящему
+ * новыми узлами. Живёт на уровне модуля: жизнь компонента короче жизни клиента.
+ */
+const REMEMBERED = new Map<string, { x: number; y: number }>();
 
 /** Засеянная стартовая точка: одна и та же карта просыпается похоже. */
 function seedPoint(key: string): { x: number; y: number } {
@@ -187,24 +198,42 @@ export function GraphMap({ look, session, busy, act, onEnter }: Props) {
   //: Панорама и зум: viewBox и есть камера.
   const [camera, setCamera] = useState({ x: 0, y: 0, scale: 1 });
 
-  //: Новые узлы получают засеянные места; ушедшие со слоя — забываются.
+  //: Новые узлы встают на запомненные места, а без памяти — на засеянные.
+  //: Ушедшие со слоя сперва запоминаются: вернутся — лягут как лежали.
   useEffect(() => {
     const alive = new Set(visible.map((n) => n.key));
-    for (const key of [...bodies.current.keys()]) {
-      if (!alive.has(key)) bodies.current.delete(key);
+    for (const [key, body] of [...bodies.current]) {
+      if (!alive.has(key)) {
+        REMEMBERED.set(key, { x: body.x, y: body.y });
+        bodies.current.delete(key);
+      }
     }
     for (const node of visible) {
       if (!bodies.current.has(node.key)) {
-        const p = seedPoint(node.key);
+        const p = REMEMBERED.get(node.key) ?? seedPoint(node.key);
         bodies.current.set(node.key, { ...p, vx: 0, vy: 0, pinned: false });
       }
     }
   }, [visible]);
 
+  //: Уход с карты (другой таб, размонтирование) тоже сохраняет раскладку.
+  useEffect(() => {
+    const held = bodies.current;
+    return () => {
+      for (const [key, body] of held) REMEMBERED.set(key, { x: body.x, y: body.y });
+    };
+  }, []);
+
+  //: Разбудить симуляцию может кто угодно (перетаскивание, прибытие), а сам
+  //: цикл живёт в эффекте ниже — ссылка сшивает их без пересоздания замыканий.
+  const kick = useRef<() => void>(() => {});
+
   //: Сама симуляция: пружины по рёбрам, расталкивание, лёгкое притяжение к
   //: центру. Засыпает, когда всё улеглось, и просыпается от любого касания.
   useEffect(() => {
     let raf = 0;
+    let alive = true;
+    let running = false;
     const step = () => {
       const items = [...bodies.current.entries()];
       //: Пружины: ребро тянет к длине покоя, выведенной из времени пути.
@@ -212,7 +241,7 @@ export function GraphMap({ look, session, busy, act, onEnter }: Props) {
         const a = bodies.current.get(edge.a);
         const b = bodies.current.get(edge.b);
         if (!a || !b) continue;
-        const rest = 90 + Math.min(80, Math.sqrt(edge.seconds));
+        const rest = 140 + Math.min(110, Math.sqrt(edge.seconds) * 2);
         const dx = b.x - a.x;
         const dy = b.y - a.y;
         const dist = Math.max(1, Math.hypot(dx, dy));
@@ -258,6 +287,9 @@ export function GraphMap({ look, session, busy, act, onEnter }: Props) {
           body.vy += (H / 2 - body.y) * CENTERING;
           body.vx *= DAMPING;
           body.vy *= DAMPING;
+          //: Потолок скорости: рывок гасится в шаг, а не размазывается прыжком.
+          body.vx = Math.max(-MAX_SPEED, Math.min(MAX_SPEED, body.vx));
+          body.vy = Math.max(-MAX_SPEED, Math.min(MAX_SPEED, body.vy));
           body.x += body.vx;
           body.y += body.vy;
         }
@@ -265,31 +297,56 @@ export function GraphMap({ look, session, busy, act, onEnter }: Props) {
       }
       setFrame((f) => f + 1);
       //: Улеглось — спим до следующего касания: кадры даром не жгём.
-      if (speed > SLEEP_SPEED || dragging.current?.key) {
+      running = speed > SLEEP_SPEED || Boolean(dragging.current?.key);
+      if (running) raf = requestAnimationFrame(step);
+    };
+    //: Пробуждение идемпотентно: пока цикл крутится, второй не заводится.
+    kick.current = () => {
+      if (!running && alive) {
+        running = true;
         raf = requestAnimationFrame(step);
       }
     };
-    raf = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(raf);
+    kick.current();
+    return () => {
+      alive = false;
+      cancelAnimationFrame(raf);
+    };
   }, [shownEdges, visible]);
 
-  /** Пнуть симуляцию: после перетаскивания пружины доигрывают сами. */
+  /** Разбудить цикл — без пинков телам: случайные толчки дёргали карту.
+   *  Кадр форсируется сразу: перетаскиваемый узел следует за мышью, даже
+   *  пока цикл ещё не проснулся. */
   const wake = () => {
-    for (const [, body] of bodies.current) {
-      body.vx += (Math.random() - 0.5) * 0.01;
-    }
+    kick.current();
     setFrame((f) => f + 1);
   };
 
   // --- мышь: перетаскивание, панорама, зум ----------------------------------
 
-  const toWorld = (e: { clientX: number; clientY: number }) => {
+  /** Пиксели → мир. Svg резиновый, а viewBox держит пропорции (`meet`), и по
+   *  краям возникают поля — без их учёта клик попадает мимо узла. */
+  const lens = () => {
     const svg = svgRef.current;
-    if (!svg) return { x: 0, y: 0 };
+    if (!svg) return null;
     const rect = svg.getBoundingClientRect();
+    const worldW = W / camera.scale;
+    const worldH = H / camera.scale;
+    const k = Math.min(rect.width / worldW, rect.height / worldH);
     return {
-      x: camera.x + ((e.clientX - rect.left) / rect.width) * (W / camera.scale),
-      y: camera.y + ((e.clientY - rect.top) / rect.height) * (H / camera.scale),
+      rect,
+      k,
+      offX: (rect.width - worldW * k) / 2,
+      offY: (rect.height - worldH * k) / 2,
+    };
+  };
+
+  const toWorld = (e: { clientX: number; clientY: number }) => {
+    const m = lens();
+    if (!m) return { x: 0, y: 0 };
+    return {
+      x: camera.x + (e.clientX - m.rect.left - m.offX) / m.k,
+      y: camera.y + (e.clientY - m.rect.top - m.offY) / m.k,
     };
   };
 
@@ -349,11 +406,9 @@ export function GraphMap({ look, session, busy, act, onEnter }: Props) {
       }
       wake();
     } else if (drag.moved) {
-      const svg = svgRef.current;
-      const rect = svg?.getBoundingClientRect();
-      const kx = rect ? (W / camera.scale) / rect.width : 1;
-      const ky = rect ? (H / camera.scale) / rect.height : 1;
-      setCamera((cam) => ({ ...cam, x: drag.panX0 - dx * kx, y: drag.panY0 - dy * ky }));
+      const m = lens();
+      const k = m ? 1 / m.k : 1;
+      setCamera((cam) => ({ ...cam, x: drag.panX0 - dx * k, y: drag.panY0 - dy * k }));
     }
   };
 
@@ -369,6 +424,17 @@ export function GraphMap({ look, session, busy, act, onEnter }: Props) {
       if (!drag.moved && node) клик(node);
     }
   };
+
+  //: Колесо над картой — зум, и только зум. React вешает wheel пассивно, и
+  //: preventDefault оттуда не работает — страница прокручивалась вместе с
+  //: зумом. Гасится нативным слушателем с passive: false.
+  useEffect(() => {
+    const svg = svgRef.current;
+    if (!svg) return;
+    const block = (e: WheelEvent) => e.preventDefault();
+    svg.addEventListener("wheel", block, { passive: false });
+    return () => svg.removeEventListener("wheel", block);
+  }, [map, visible.length]);
 
   const zoom = (e: React.WheelEvent) => {
     const p = toWorld(e);
