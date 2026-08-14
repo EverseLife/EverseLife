@@ -92,7 +92,6 @@ async def held(
 
 async def prisons_of(session: AsyncSession, city: City) -> list:
     """Каторги города: узлы его земли со станком «Каторга» (D-176)."""
-    from src.engine import world
     from src.models.world import Node
 
     узлы = (

@@ -211,9 +211,12 @@ async def start(
     from src.engine import justice
 
     узел = await session.get(Node, body.node_id)
-    if узел is not None and await justice.is_prison(session, узел):
-        if not await justice.held(session, constants, body.identity_id):
-            raise SessionClosed("каторжный забой работает только на заключённых")
+    if (
+        узел is not None
+        and await justice.is_prison(session, узел)
+        and not await justice.held(session, constants, body.identity_id)
+    ):
+        raise SessionClosed("каторжный забой работает только на заключённых")
     #: Сессия не открывается телом, которому нечем ударить даже раз.
     первый_удар = swing_cost(constants, body, pace, datetime.now(UTC))
     if float(body.stamina) < первый_удар:

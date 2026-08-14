@@ -81,8 +81,8 @@ from src.constants import Catalog, ConstantError, Constants, current, current_ca
 from src.constants import registry as R
 from src.constants.catalog import ItemKind, Operation, Recipe
 from src.engine import events, travel, wear
-from src.engine.jobs import enqueue, handler
 from src.engine import world as world_engine
+from src.engine.jobs import enqueue, handler
 from src.engine.world import body_container, learn, node_container
 from src.models.craft import BatchKind, BatchState, CraftBatch
 from src.models.event import EventKind
