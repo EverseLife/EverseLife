@@ -1,0 +1,3757 @@
+{
+  "synonyms": {
+    "Печь": "Плавильная печь",
+    "Медь": "Медный слиток",
+    "Железо": "Слиток железа"
+  },
+  "tool_classes": {
+    "Кирка": [
+      "Каменная кирка",
+      "Железная кирка",
+      "Стальная кирка"
+    ],
+    "Топор": [
+      "Каменный топор",
+      "Топор"
+    ],
+    "Утварь": [
+      "Глиняный горшок",
+      "Котёл"
+    ]
+  },
+  "operations": [
+    {
+      "name": "Рубка дерева",
+      "requires": [
+        "Топор"
+      ],
+      "gives": [
+        "Дерево",
+        "Бревно"
+      ],
+      "consumes": [],
+      "amounts": {
+        "Дерево": {},
+        "Бревно": {}
+      },
+      "hours_per_unit": {
+        "Дерево": 0.025,
+        "Бревно": 0.0333
+      },
+      "yield": {},
+      "manual_amounts": {
+        "Дерево": false,
+        "Бревно": false
+      }
+    },
+    {
+      "name": "Распил",
+      "requires": [
+        "Пила"
+      ],
+      "gives": [
+        "Доски"
+      ],
+      "consumes": [
+        "Бревно"
+      ],
+      "amounts": {
+        "Доски": {
+          "Бревно": 0.2
+        }
+      },
+      "hours_per_unit": {
+        "Доски": 0.02
+      },
+      "yield": {
+        "Доски": 5
+      },
+      "manual_amounts": {
+        "Доски": true
+      }
+    },
+    {
+      "name": "Добыча",
+      "requires": [
+        "Кирка",
+        "Жила"
+      ],
+      "gives": [
+        "Железная руда",
+        "Медная руда",
+        "Оловянная руда",
+        "Свинцовая руда",
+        "Камень",
+        "Уголь"
+      ],
+      "consumes": [],
+      "amounts": {
+        "Железная руда": {},
+        "Медная руда": {},
+        "Оловянная руда": {},
+        "Свинцовая руда": {},
+        "Камень": {},
+        "Уголь": {}
+      },
+      "hours_per_unit": {
+        "Железная руда": 0.0167,
+        "Медная руда": 0.0222,
+        "Оловянная руда": 0.0333,
+        "Свинцовая руда": 0.025,
+        "Камень": 0.0125,
+        "Уголь": 0.0167
+      },
+      "yield": {},
+      "manual_amounts": {
+        "Железная руда": false,
+        "Медная руда": false,
+        "Оловянная руда": false,
+        "Свинцовая руда": false,
+        "Камень": false,
+        "Уголь": false
+      }
+    },
+    {
+      "name": "Дробление",
+      "requires": [
+        "Молот"
+      ],
+      "gives": [
+        "Щебень",
+        "Крошка"
+      ],
+      "consumes": [
+        "Камень"
+      ],
+      "amounts": {
+        "Щебень": {
+          "Камень": 1.1
+        },
+        "Крошка": {
+          "Камень": 1.1
+        }
+      },
+      "hours_per_unit": {
+        "Щебень": 0.0143,
+        "Крошка": 0.0143
+      },
+      "yield": {},
+      "manual_amounts": {
+        "Щебень": false,
+        "Крошка": false
+      }
+    },
+    {
+      "name": "Плавка железа",
+      "requires": [
+        "Печь"
+      ],
+      "gives": [
+        "Слиток железа"
+      ],
+      "consumes": [
+        "Железная руда",
+        "Уголь"
+      ],
+      "amounts": {
+        "Слиток железа": {
+          "Железная руда": 5,
+          "Уголь": 1.2
+        }
+      },
+      "hours_per_unit": {
+        "Слиток железа": 0.1
+      },
+      "yield": {},
+      "manual_amounts": {
+        "Слиток железа": false
+      }
+    },
+    {
+      "name": "Плавка меди",
+      "requires": [
+        "Печь"
+      ],
+      "gives": [
+        "Медный слиток"
+      ],
+      "consumes": [
+        "Медная руда",
+        "Уголь"
+      ],
+      "amounts": {
+        "Медный слиток": {
+          "Медная руда": 4,
+          "Уголь": 1.5
+        }
+      },
+      "hours_per_unit": {
+        "Медный слиток": 0.125
+      },
+      "yield": {},
+      "manual_amounts": {
+        "Медный слиток": false
+      }
+    },
+    {
+      "name": "Плавка олова",
+      "requires": [
+        "Печь"
+      ],
+      "gives": [
+        "Олово"
+      ],
+      "consumes": [
+        "Оловянная руда",
+        "Уголь"
+      ],
+      "amounts": {
+        "Олово": {
+          "Оловянная руда": 3,
+          "Уголь": 1.7
+        }
+      },
+      "hours_per_unit": {
+        "Олово": 0.1429
+      },
+      "yield": {},
+      "manual_amounts": {
+        "Олово": false
+      }
+    },
+    {
+      "name": "Плавка свинца",
+      "requires": [
+        "Печь"
+      ],
+      "gives": [
+        "Свинец"
+      ],
+      "consumes": [
+        "Свинцовая руда",
+        "Уголь"
+      ],
+      "amounts": {
+        "Свинец": {
+          "Свинцовая руда": 5,
+          "Уголь": 1.7
+        }
+      },
+      "hours_per_unit": {
+        "Свинец": 0.1429
+      },
+      "yield": {},
+      "manual_amounts": {
+        "Свинец": false
+      }
+    },
+    {
+      "name": "Обжиг",
+      "requires": [
+        "Печь"
+      ],
+      "gives": [
+        "Керамика"
+      ],
+      "consumes": [
+        "Глина"
+      ],
+      "amounts": {
+        "Керамика": {
+          "Глина": 1.8
+        }
+      },
+      "hours_per_unit": {
+        "Керамика": 0.025
+      },
+      "yield": {},
+      "manual_amounts": {
+        "Керамика": false
+      }
+    }
+  ],
+  "raw": [
+    "Волокно",
+    "Дерево",
+    "Камень",
+    "Глина",
+    "Вода",
+    "Смола",
+    "Зерно",
+    "Солома",
+    "Овощи",
+    "Бобы",
+    "Масличные семена",
+    "Сахарный стебель",
+    "Целебные травы",
+    "Сено",
+    "Мясо",
+    "Известняк",
+    "Кварцевый песок",
+    "Песок",
+    "Органические отходы",
+    "Соль",
+    "Сера",
+    "Селитра",
+    "Железная руда",
+    "Медная руда",
+    "Оловянная руда",
+    "Свинцовая руда",
+    "Уголь",
+    "Вольфрам",
+    "Никель",
+    "Золотоносная порода",
+    "Серебряная порода",
+    "Энергия",
+    "Жила"
+  ],
+  "edible": [
+    "Зерно",
+    "Овощи",
+    "Бобы",
+    "Мясо",
+    "Вода",
+    "Соль",
+    "Мука",
+    "Масло",
+    "Сахар",
+    "Целебные травы"
+  ],
+  "gear_slots": [
+    "спина",
+    "тело",
+    "каркас"
+  ],
+  "mass": {
+    "Автоматический станок": 60.0,
+    "Администрация": 60.0,
+    "Аккумулятор": 15.0,
+    "Аффинированное золото": 1.0,
+    "Аффинированное серебро": 1.0,
+    "Баллон высокого давления": 1.0,
+    "Бинт": 0.5,
+    "Био-камера": 1.0,
+    "Биопринтер": 60.0,
+    "Бобы": 0.7,
+    "Бочка": 2.0,
+    "Бревно": 20.0,
+    "Бродильный чан": 60.0,
+    "Броня": 12.0,
+    "Брус": 1.0,
+    "Буровая установка": 60.0,
+    "Ведро": 2.0,
+    "Верстак": 60.0,
+    "Верфь": 60.0,
+    "Верёвка": 1.0,
+    "Ветряк": 60.0,
+    "Вода": 1.0,
+    "Водяное колесо": 60.0,
+    "Волокно": 0.2,
+    "Волочильный станок": 60.0,
+    "Вольфрам": 2.5,
+    "Вольфрамовый резец": 3.0,
+    "Высокая печь": 60.0,
+    "Гвозди": 1.0,
+    "Глина": 1.5,
+    "Глиняный горшок": 3.0,
+    "Датчик": 1.0,
+    "Двигатель I класса": 1.0,
+    "Дерево": 3.0,
+    "Дорожное полотно": 0.5,
+    "Доски": 5.0,
+    "Жаркое": 0.6,
+    "Железная кирка": 3.0,
+    "Железная руда": 1.0,
+    "Жила": 0.0,
+    "Зерно": 0.7,
+    "Золотая монета": 0.001,
+    "Золотоносная порода": 2.5,
+    "Известняк": 2.0,
+    "Известь": 1.0,
+    "Каменная кирка": 3.0,
+    "Каменный блок": 1.0,
+    "Каменный топор": 3.0,
+    "Камень": 2.0,
+    "Камера сгорания": 1.0,
+    "Кварцевый песок": 1.5,
+    "Керамика": 2.0,
+    "Кирпич": 1.0,
+    "Кислород": 1.0,
+    "Клещи": 3.0,
+    "Колесо": 1.0,
+    "Компост": 0.5,
+    "Корзина": 1.0,
+    "Корм": 0.5,
+    "Корпус": 1.0,
+    "Космодром": 60.0,
+    "Котёл": 3.0,
+    "Кремниевая пластина": 1.0,
+    "Кремний": 1.0,
+    "Кровать": 40.0,
+    "Крошка": 2.0,
+    "Кузница": 60.0,
+    "Лечебница": 60.0,
+    "Лопата": 3.0,
+    "Магнит": 1.0,
+    "Масличные семена": 0.5,
+    "Масло": 1.0,
+    "Масляная лампа": 2.0,
+    "Мастерская": 60.0,
+    "Медная руда": 1.1,
+    "Медная фольга": 1.0,
+    "Медный слиток": 5.0,
+    "Мельница": 60.0,
+    "Меха": 1.0,
+    "Мешок": 1.0,
+    "Микросхема": 1.0,
+    "Минеральное удобрение": 0.5,
+    "Молот": 3.0,
+    "Монетный станок": 60.0,
+    "Мука": 1.0,
+    "Мясо": 1.0,
+    "Навигационный блок": 1.0,
+    "Насос": 1.0,
+    "Настойка": 0.5,
+    "Никель": 2.2,
+    "Обшивка": 1.0,
+    "Овощи": 0.8,
+    "Одежда": 2.0,
+    "Окислитель": 1.0,
+    "Олово": 5.0,
+    "Оловянная руда": 1.0,
+    "Орбитальный корабль": 80.0,
+    "Органические отходы": 0.5,
+    "Отвар": 0.5,
+    "Очаг": 60.0,
+    "Песок": 1.5,
+    "Печатная плата": 1.0,
+    "Пила": 3.0,
+    "Питающий контур": 1.0,
+    "Плавильная печь": 60.0,
+    "Плуг": 3.0,
+    "Повозка": 80.0,
+    "Полевой автомат": 60.0,
+    "Похлёбка": 0.6,
+    "Походный набор": 2.0,
+    "Пресс": 60.0,
+    "Привод": 1.0,
+    "Провод": 1.0,
+    "Прокатный стан": 60.0,
+    "Процессорный блок": 1.0,
+    "Ракетное топливо": 0.5,
+    "Раствор": 1.0,
+    "Реле": 1.0,
+    "Ремкомплект биопринтера": 0.5,
+    "Ремонтный набор": 0.5,
+    "Рукоять": 1.0,
+    "Рюкзак": 2.0,
+    "Сахар": 1.0,
+    "Сахарный стебель": 1.0,
+    "Свинец": 6.0,
+    "Свинцовая руда": 1.4,
+    "Селекционный питомник": 60.0,
+    "Селитра": 1.0,
+    "Семена бобов": 0.05,
+    "Семена зверобоя": 0.05,
+    "Семена костреца": 0.05,
+    "Семена льна": 0.05,
+    "Семена полбы": 0.05,
+    "Семена репы": 0.05,
+    "Семена рыжика": 0.05,
+    "Семена сахарника": 0.05,
+    "Сено": 0.2,
+    "Сера": 1.0,
+    "Серебряная монета": 0.005,
+    "Серебряная порода": 2.3,
+    "Серная кислота": 1.0,
+    "Серп": 3.0,
+    "Система жизнеобеспечения": 1.0,
+    "Скобы": 1.0,
+    "Слиток железа": 5.0,
+    "Смола": 0.5,
+    "Солома": 0.1,
+    "Солонина": 0.5,
+    "Соль": 1.0,
+    "Спирт": 1.0,
+    "Сталь": 1.0,
+    "Стальная кирка": 3.0,
+    "Стальная рама": 1.0,
+    "Стекло": 1.0,
+    "Стеллаж": 40.0,
+    "Сушёные овощи": 0.5,
+    "Тачка": 80.0,
+    "Текстолит": 1.0,
+    "Теплица": 60.0,
+    "Теплозащитные плиты": 1.0,
+    "Терминал маркетплейса": 60.0,
+    "Ткань": 1.0,
+    "Токарный станок": 60.0,
+    "Топор": 3.0,
+    "Точная деталь": 1.0,
+    "Труба": 1.0,
+    "Уголь": 0.8,
+    "Угольная станция": 60.0,
+    "Упряжь": 2.0,
+    "Факел": 0.5,
+    "Хлеб": 0.5,
+    "Целебные травы": 0.1,
+    "Чистая мастерская": 60.0,
+    "Шахтная крепь": 8.0,
+    "Щебень": 2.0,
+    "Экзоскелет": 25.0,
+    "Электродвигатель": 1.0,
+    "Электролизёр": 60.0,
+    "Энергия": 0.0
+  },
+  "labor_hours": {
+    "Автоматический станок": 3.981,
+    "Администрация": 1.682,
+    "Аккумулятор": 0.896,
+    "Аффинированное золото": 0.4,
+    "Аффинированное серебро": 0.233,
+    "Баллон высокого давления": 0.665,
+    "Бинт": 0.414,
+    "Био-камера": 0.97,
+    "Биопринтер": 9.434,
+    "Бобы": 0.045,
+    "Бочка": 0.521,
+    "Бревно": 0.033,
+    "Бродильный чан": 1.337,
+    "Броня": 0.994,
+    "Брус": 0.2,
+    "Буровая установка": 3.164,
+    "Ведро": 0.521,
+    "Верстак": 0.514,
+    "Верфь": 2.234,
+    "Верёвка": 0.214,
+    "Ветряк": 0.918,
+    "Вода": 0.005,
+    "Водяное колесо": 0.757,
+    "Волокно": 0.029,
+    "Волочильный станок": 0.765,
+    "Вольфрам": 0.167,
+    "Вольфрамовый резец": 0.732,
+    "Высокая печь": 2.083,
+    "Гвозди": 0.303,
+    "Глина": 0.014,
+    "Глиняный горшок": 0.2,
+    "Датчик": 2.946,
+    "Двигатель I класса": 8.971,
+    "Дерево": 0.025,
+    "Дорожное полотно": 0.201,
+    "Доски": 0.027,
+    "Жаркое": 0.567,
+    "Железная кирка": 0.603,
+    "Железная руда": 0.017,
+    "Зерно": 0.04,
+    "Золотая монета": 0.58,
+    "Золотоносная порода": 0.25,
+    "Известняк": 0.014,
+    "Известь": 0.2,
+    "Каменная кирка": 0.552,
+    "Каменный блок": 0.2,
+    "Каменный топор": 0.552,
+    "Камень": 0.013,
+    "Камера сгорания": 1.46,
+    "Кварцевый песок": 0.02,
+    "Керамика": 0.051,
+    "Кирпич": 0.2,
+    "Кислород": 0.2,
+    "Клещи": 0.565,
+    "Колесо": 0.765,
+    "Компост": 0.2,
+    "Корзина": 0.214,
+    "Корм": 0.201,
+    "Корпус": 2.13,
+    "Космодром": 2.047,
+    "Котёл": 0.339,
+    "Кремниевая пластина": 0.402,
+    "Кремний": 0.202,
+    "Кровать": 0.829,
+    "Крошка": 0.028,
+    "Кузница": 0.534,
+    "Лечебница": 0.855,
+    "Лопата": 0.765,
+    "Магнит": 0.403,
+    "Масличные семена": 0.056,
+    "Масло": 0.2,
+    "Масляная лампа": 0.955,
+    "Мастерская": 0.903,
+    "Медная руда": 0.022,
+    "Медная фольга": 0.339,
+    "Медный слиток": 0.239,
+    "Мельница": 0.766,
+    "Меха": 0.918,
+    "Мешок": 0.629,
+    "Микросхема": 1.541,
+    "Минеральное удобрение": 0.5,
+    "Молот": 0.765,
+    "Монетный станок": 1.73,
+    "Мука": 0.18,
+    "Мясо": 0.1,
+    "Навигационный блок": 9.415,
+    "Насос": 2.399,
+    "Настойка": 1.05,
+    "Никель": 0.1,
+    "Обшивка": 0.665,
+    "Овощи": 0.033,
+    "Одежда": 0.629,
+    "Окислитель": 0.217,
+    "Олово": 0.271,
+    "Оловянная руда": 0.033,
+    "Орбитальный корабль": 29.893,
+    "Органические отходы": 0.017,
+    "Отвар": 0.275,
+    "Очаг": 0.207,
+    "Песок": 0.011,
+    "Печатная плата": 1.253,
+    "Пила": 0.765,
+    "Питающий контур": 2.0,
+    "Плавильная печь": 0.207,
+    "Плуг": 0.765,
+    "Повозка": 1.686,
+    "Полевой автомат": 3.981,
+    "Похлёбка": 0.214,
+    "Походный набор": 1.089,
+    "Пресс": 0.765,
+    "Привод": 1.069,
+    "Провод": 0.339,
+    "Прокатный стан": 1.069,
+    "Процессорный блок": 4.299,
+    "Ракетное топливо": 1.067,
+    "Раствор": 0.517,
+    "Реле": 1.143,
+    "Ремкомплект биопринтера": 1.669,
+    "Ремонтный набор": 0.833,
+    "Рукоять": 0.2,
+    "Рюкзак": 0.829,
+    "Сахар": 0.2,
+    "Сахарный стебель": 0.05,
+    "Свинец": 0.296,
+    "Свинцовая руда": 0.025,
+    "Селекционный питомник": 0.855,
+    "Селитра": 0.067,
+    "Сено": 0.029,
+    "Сера": 0.05,
+    "Серебряная монета": 0.43,
+    "Серебряная порода": 0.083,
+    "Серная кислота": 0.2,
+    "Серп": 0.765,
+    "Система жизнеобеспечения": 6.177,
+    "Скобы": 0.303,
+    "Слиток железа": 0.203,
+    "Смола": 0.083,
+    "Солома": 0.025,
+    "Солонина": 0.25,
+    "Соль": 0.033,
+    "Спирт": 0.45,
+    "Сталь": 0.365,
+    "Стальная кирка": 0.765,
+    "Стальная рама": 0.565,
+    "Стекло": 0.19,
+    "Стеллаж": 0.61,
+    "Сушёные овощи": 0.2,
+    "Тачка": 0.668,
+    "Текстолит": 0.514,
+    "Теплица": 1.859,
+    "Теплозащитные плиты": 0.5,
+    "Терминал маркетплейса": 0.819,
+    "Ткань": 0.214,
+    "Токарный станок": 2.766,
+    "Топор": 0.765,
+    "Точная деталь": 0.565,
+    "Труба": 0.565,
+    "Уголь": 0.017,
+    "Угольная станция": 1.53,
+    "Упряжь": 0.994,
+    "Факел": 0.25,
+    "Хлеб": 0.43,
+    "Целебные травы": 0.125,
+    "Чистая мастерская": 1.508,
+    "Шахтная крепь": 0.614,
+    "Щебень": 0.028,
+    "Экзоскелет": 4.312,
+    "Электродвигатель": 1.307,
+    "Электролизёр": 1.094,
+    "Энергия": 0.005
+  },
+  "recipes": [
+    {
+      "name": "Верёвка",
+      "level": 1,
+      "section": null,
+      "kind": "material",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Волокно"
+      ],
+      "amounts": {
+        "Волокно": 4
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.214,
+      "station": "Руками"
+    },
+    {
+      "name": "Факел",
+      "level": 1,
+      "section": null,
+      "kind": "consumable",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Дерево",
+        "Волокно",
+        "Смола"
+      ],
+      "amounts": {
+        "Дерево": 1.3,
+        "Волокно": 1.2,
+        "Смола": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.25,
+      "station": "Руками"
+    },
+    {
+      "name": "Каменный топор",
+      "level": 1,
+      "section": null,
+      "kind": "tool",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Камень",
+        "Дерево",
+        "Верёвка"
+      ],
+      "amounts": {
+        "Камень": 5,
+        "Дерево": 3,
+        "Верёвка": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.552,
+      "station": "Руками"
+    },
+    {
+      "name": "Каменная кирка",
+      "level": 1,
+      "section": null,
+      "kind": "tool",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Камень",
+        "Дерево",
+        "Верёвка"
+      ],
+      "amounts": {
+        "Камень": 5,
+        "Дерево": 3,
+        "Верёвка": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.552,
+      "station": "Руками"
+    },
+    {
+      "name": "Корзина",
+      "level": 1,
+      "section": null,
+      "kind": "gear",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": "спина",
+      "inputs": [
+        "Волокно"
+      ],
+      "amounts": {
+        "Волокно": 4
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.214,
+      "station": "Руками"
+    },
+    {
+      "name": "Глиняный горшок",
+      "level": 1,
+      "section": null,
+      "kind": "tool",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Глина"
+      ],
+      "amounts": {
+        "Глина": 7
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.2,
+      "station": "Руками"
+    },
+    {
+      "name": "Верстак",
+      "level": 2,
+      "section": null,
+      "kind": "station",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Бревно",
+        "Верёвка"
+      ],
+      "amounts": {
+        "Бревно": 3,
+        "Верёвка": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.514,
+      "station": "Руками"
+    },
+    {
+      "name": "Плавильная печь",
+      "level": 2,
+      "section": null,
+      "kind": "station",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Камень",
+        "Глина"
+      ],
+      "amounts": {
+        "Камень": 4,
+        "Глина": 4
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.207,
+      "station": "Верстак"
+    },
+    {
+      "name": "Очаг",
+      "level": 2,
+      "section": null,
+      "kind": "station",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Камень",
+        "Глина"
+      ],
+      "amounts": {
+        "Камень": 4,
+        "Глина": 4
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.207,
+      "station": "Верстак"
+    },
+    {
+      "name": "Брус",
+      "level": 2,
+      "section": null,
+      "kind": "material",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Дерево"
+      ],
+      "amounts": {
+        "Дерево": 4
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.2,
+      "station": "Верстак"
+    },
+    {
+      "name": "Рукоять",
+      "level": 2,
+      "section": null,
+      "kind": "material",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Дерево"
+      ],
+      "amounts": {
+        "Дерево": 4
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.2,
+      "station": "Верстак"
+    },
+    {
+      "name": "Ткань",
+      "level": 2,
+      "section": null,
+      "kind": "material",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Волокно"
+      ],
+      "amounts": {
+        "Волокно": 4
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.214,
+      "station": "Верстак"
+    },
+    {
+      "name": "Мешок",
+      "level": 2,
+      "section": null,
+      "kind": "gear",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": "спина",
+      "inputs": [
+        "Ткань",
+        "Верёвка"
+      ],
+      "amounts": {
+        "Ткань": 1.0,
+        "Верёвка": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.629,
+      "station": "Верстак"
+    },
+    {
+      "name": "Рюкзак",
+      "level": 2,
+      "section": null,
+      "kind": "gear",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": "спина",
+      "inputs": [
+        "Ткань",
+        "Верёвка",
+        "Брус"
+      ],
+      "amounts": {
+        "Ткань": 1.0,
+        "Верёвка": 1.0,
+        "Брус": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.829,
+      "station": "Верстак"
+    },
+    {
+      "name": "Ведро",
+      "level": 2,
+      "section": null,
+      "kind": "gear",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Доски",
+        "Верёвка"
+      ],
+      "amounts": {
+        "Доски": 4,
+        "Верёвка": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.521,
+      "station": "Верстак"
+    },
+    {
+      "name": "Бочка",
+      "level": 2,
+      "section": null,
+      "kind": "gear",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Доски",
+        "Верёвка"
+      ],
+      "amounts": {
+        "Доски": 4,
+        "Верёвка": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.521,
+      "station": "Верстак"
+    },
+    {
+      "name": "Шахтная крепь",
+      "level": 2,
+      "section": null,
+      "kind": "consumable",
+      "key": true,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Брус",
+        "Верёвка"
+      ],
+      "amounts": {
+        "Брус": 1.0,
+        "Верёвка": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.614,
+      "station": "Верстак"
+    },
+    {
+      "name": "Тачка",
+      "level": 2,
+      "section": null,
+      "kind": "vehicle",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Доски",
+        "Брус",
+        "Верёвка"
+      ],
+      "amounts": {
+        "Доски": 2,
+        "Брус": 1.0,
+        "Верёвка": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.668,
+      "station": "Верстак"
+    },
+    {
+      "name": "Кровать",
+      "level": 2,
+      "section": null,
+      "kind": "furniture",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Брус",
+        "Ткань",
+        "Верёвка"
+      ],
+      "amounts": {
+        "Брус": 1.0,
+        "Ткань": 1.0,
+        "Верёвка": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.829,
+      "station": "Верстак"
+    },
+    {
+      "name": "Стеллаж",
+      "level": 2,
+      "section": null,
+      "kind": "furniture",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Доски",
+        "Гвозди"
+      ],
+      "amounts": {
+        "Доски": 4,
+        "Гвозди": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.61,
+      "station": "Верстак"
+    },
+    {
+      "name": "Кузница",
+      "level": 3,
+      "section": null,
+      "kind": "station",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Камень",
+        "Глина",
+        "Брус"
+      ],
+      "amounts": {
+        "Камень": 5,
+        "Глина": 5,
+        "Брус": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.534,
+      "station": "Верстак"
+    },
+    {
+      "name": "Меха",
+      "level": 3,
+      "section": null,
+      "kind": "material",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Ткань",
+        "Брус",
+        "Скобы"
+      ],
+      "amounts": {
+        "Ткань": 1.0,
+        "Брус": 1.0,
+        "Скобы": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.918,
+      "station": "Верстак"
+    },
+    {
+      "name": "Сталь",
+      "level": 3,
+      "section": null,
+      "kind": "material",
+      "key": false,
+      "mix": true,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Слиток железа",
+        "Уголь",
+        "Известняк"
+      ],
+      "amounts": {
+        "Слиток железа": 1.0,
+        "Уголь": 2,
+        "Известняк": 2
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.365,
+      "station": "Кузница"
+    },
+    {
+      "name": "Гвозди",
+      "level": 3,
+      "section": null,
+      "kind": "material",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Слиток железа"
+      ],
+      "amounts": {
+        "Слиток железа": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.303,
+      "station": "Кузница"
+    },
+    {
+      "name": "Скобы",
+      "level": 3,
+      "section": null,
+      "kind": "material",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Слиток железа"
+      ],
+      "amounts": {
+        "Слиток железа": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.303,
+      "station": "Кузница"
+    },
+    {
+      "name": "Железная кирка",
+      "level": 3,
+      "section": null,
+      "kind": "tool",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Слиток железа",
+        "Рукоять"
+      ],
+      "amounts": {
+        "Слиток железа": 1.0,
+        "Рукоять": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.603,
+      "station": "Кузница"
+    },
+    {
+      "name": "Стальная кирка",
+      "level": 3,
+      "section": null,
+      "kind": "tool",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Сталь",
+        "Рукоять"
+      ],
+      "amounts": {
+        "Сталь": 1.0,
+        "Рукоять": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.765,
+      "station": "Кузница"
+    },
+    {
+      "name": "Топор",
+      "level": 3,
+      "section": null,
+      "kind": "tool",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Сталь",
+        "Рукоять"
+      ],
+      "amounts": {
+        "Сталь": 1.0,
+        "Рукоять": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.765,
+      "station": "Кузница"
+    },
+    {
+      "name": "Пила",
+      "level": 3,
+      "section": null,
+      "kind": "tool",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Сталь",
+        "Рукоять"
+      ],
+      "amounts": {
+        "Сталь": 1.0,
+        "Рукоять": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.765,
+      "station": "Кузница"
+    },
+    {
+      "name": "Молот",
+      "level": 3,
+      "section": null,
+      "kind": "tool",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Сталь",
+        "Рукоять"
+      ],
+      "amounts": {
+        "Сталь": 1.0,
+        "Рукоять": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.765,
+      "station": "Кузница"
+    },
+    {
+      "name": "Лопата",
+      "level": 3,
+      "section": null,
+      "kind": "tool",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Сталь",
+        "Рукоять"
+      ],
+      "amounts": {
+        "Сталь": 1.0,
+        "Рукоять": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.765,
+      "station": "Кузница"
+    },
+    {
+      "name": "Клещи",
+      "level": 3,
+      "section": null,
+      "kind": "tool",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Сталь"
+      ],
+      "amounts": {
+        "Сталь": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.565,
+      "station": "Кузница"
+    },
+    {
+      "name": "Броня",
+      "level": 3,
+      "section": null,
+      "kind": "gear",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": "тело",
+      "inputs": [
+        "Сталь",
+        "Ткань",
+        "Верёвка"
+      ],
+      "amounts": {
+        "Сталь": 1.0,
+        "Ткань": 1.0,
+        "Верёвка": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.994,
+      "station": "Кузница"
+    },
+    {
+      "name": "Котёл",
+      "level": 3,
+      "section": null,
+      "kind": "tool",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Медный слиток"
+      ],
+      "amounts": {
+        "Медный слиток": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.339,
+      "station": "Кузница"
+    },
+    {
+      "name": "Труба",
+      "level": 3,
+      "section": null,
+      "kind": "material",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Сталь"
+      ],
+      "amounts": {
+        "Сталь": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.565,
+      "station": "Кузница"
+    },
+    {
+      "name": "Плуг",
+      "level": 4,
+      "section": null,
+      "kind": "tool",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Сталь",
+        "Брус"
+      ],
+      "amounts": {
+        "Сталь": 1.0,
+        "Брус": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.765,
+      "station": "Кузница"
+    },
+    {
+      "name": "Серп",
+      "level": 4,
+      "section": null,
+      "kind": "tool",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Сталь",
+        "Рукоять"
+      ],
+      "amounts": {
+        "Сталь": 1.0,
+        "Рукоять": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.765,
+      "station": "Кузница"
+    },
+    {
+      "name": "Селекционный питомник",
+      "level": 4,
+      "section": null,
+      "kind": "station",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Брус",
+        "Доски",
+        "Стекло",
+        "Ткань"
+      ],
+      "amounts": {
+        "Брус": 1.0,
+        "Доски": 1.9,
+        "Стекло": 1.0,
+        "Ткань": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.855,
+      "station": "Стройка"
+    },
+    {
+      "name": "Теплица",
+      "level": 4,
+      "section": null,
+      "kind": "station",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Стекло",
+        "Сталь",
+        "Труба",
+        "Провод"
+      ],
+      "amounts": {
+        "Стекло": 1.0,
+        "Сталь": 1.0,
+        "Труба": 1.0,
+        "Провод": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 1.859,
+      "station": "Стройка"
+    },
+    {
+      "name": "Компост",
+      "level": 4,
+      "section": null,
+      "kind": "consumable",
+      "key": false,
+      "mix": true,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Органические отходы",
+        "Вода"
+      ],
+      "amounts": {
+        "Органические отходы": 3,
+        "Вода": 10
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.2,
+      "station": "Верстак"
+    },
+    {
+      "name": "Минеральное удобрение",
+      "level": 4,
+      "section": null,
+      "kind": "consumable",
+      "key": false,
+      "mix": true,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Селитра",
+        "Известь"
+      ],
+      "amounts": {
+        "Селитра": 1.5,
+        "Известь": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.5,
+      "station": "Мастерская"
+    },
+    {
+      "name": "Мельница",
+      "level": 4,
+      "section": null,
+      "kind": "station",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Камень",
+        "Брус",
+        "Скобы"
+      ],
+      "amounts": {
+        "Камень": 5,
+        "Брус": 1.0,
+        "Скобы": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.766,
+      "station": "Стройка"
+    },
+    {
+      "name": "Мука",
+      "level": 4,
+      "section": null,
+      "kind": "material",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Зерно"
+      ],
+      "amounts": {
+        "Зерно": 2
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.18,
+      "station": "Мельница"
+    },
+    {
+      "name": "Хлеб",
+      "level": 4,
+      "section": null,
+      "kind": "consumable",
+      "key": false,
+      "mix": false,
+      "roles": true,
+      "food": true,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Мука",
+        "Вода"
+      ],
+      "amounts": {
+        "Мука": 1.0,
+        "Вода": 10
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.43,
+      "station": "Очаг"
+    },
+    {
+      "name": "Солонина",
+      "level": 4,
+      "section": null,
+      "kind": "consumable",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": true,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Мясо",
+        "Соль"
+      ],
+      "amounts": {
+        "Мясо": 1.0,
+        "Соль": 1.5
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.25,
+      "station": "Верстак"
+    },
+    {
+      "name": "Сушёные овощи",
+      "level": 4,
+      "section": null,
+      "kind": "consumable",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": true,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Овощи"
+      ],
+      "amounts": {
+        "Овощи": 3
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.2,
+      "station": "Очаг"
+    },
+    {
+      "name": "Корм",
+      "level": 4,
+      "section": null,
+      "kind": "consumable",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Сено",
+        "Солома"
+      ],
+      "amounts": {
+        "Сено": 1.8,
+        "Солома": 2
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.201,
+      "station": "Верстак"
+    },
+    {
+      "name": "Одежда",
+      "level": 4,
+      "section": null,
+      "kind": "gear",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": "тело",
+      "inputs": [
+        "Ткань",
+        "Верёвка"
+      ],
+      "amounts": {
+        "Ткань": 1.0,
+        "Верёвка": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.629,
+      "station": "Верстак"
+    },
+    {
+      "name": "Масло",
+      "level": 4,
+      "section": null,
+      "kind": "material",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Масличные семена"
+      ],
+      "amounts": {
+        "Масличные семена": 1.8
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.2,
+      "station": "Верстак"
+    },
+    {
+      "name": "Сахар",
+      "level": 4,
+      "section": null,
+      "kind": "material",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Сахарный стебель"
+      ],
+      "amounts": {
+        "Сахарный стебель": 2
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.2,
+      "station": "Очаг"
+    },
+    {
+      "name": "Похлёбка",
+      "level": 4,
+      "section": null,
+      "kind": "consumable",
+      "key": false,
+      "mix": false,
+      "roles": true,
+      "food": true,
+      "hot": true,
+      "slot": null,
+      "inputs": [
+        "Бобы",
+        "Овощи",
+        "Вода"
+      ],
+      "amounts": {
+        "Бобы": 1.0,
+        "Овощи": 1.0,
+        "Вода": 7
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.214,
+      "station": "Очаг"
+    },
+    {
+      "name": "Жаркое",
+      "level": 4,
+      "section": null,
+      "kind": "consumable",
+      "key": false,
+      "mix": false,
+      "roles": true,
+      "food": true,
+      "hot": true,
+      "slot": null,
+      "inputs": [
+        "Мясо",
+        "Овощи",
+        "Масло"
+      ],
+      "amounts": {
+        "Мясо": 1.0,
+        "Овощи": 2,
+        "Масло": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.567,
+      "station": "Очаг"
+    },
+    {
+      "name": "Отвар",
+      "level": 4,
+      "section": null,
+      "kind": "consumable",
+      "key": false,
+      "mix": true,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Целебные травы",
+        "Вода"
+      ],
+      "amounts": {
+        "Целебные травы": 1.0,
+        "Вода": 10
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.275,
+      "station": "Очаг"
+    },
+    {
+      "name": "Бинт",
+      "level": 4,
+      "section": null,
+      "kind": "consumable",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Ткань"
+      ],
+      "amounts": {
+        "Ткань": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.414,
+      "station": "Верстак"
+    },
+    {
+      "name": "Походный набор",
+      "level": 4,
+      "section": null,
+      "kind": "gear",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Бинт",
+        "Отвар"
+      ],
+      "amounts": {
+        "Бинт": 1.0,
+        "Отвар": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 1.089,
+      "station": "Верстак"
+    },
+    {
+      "name": "Настойка",
+      "level": 4,
+      "section": null,
+      "kind": "consumable",
+      "key": false,
+      "mix": true,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Целебные травы",
+        "Спирт"
+      ],
+      "amounts": {
+        "Целебные травы": 1.6,
+        "Спирт": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 1.05,
+      "station": "Верстак"
+    },
+    {
+      "name": "Водяное колесо",
+      "level": 5,
+      "section": null,
+      "kind": "station",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Брус",
+        "Доски",
+        "Скобы"
+      ],
+      "amounts": {
+        "Брус": 1.0,
+        "Доски": 2,
+        "Скобы": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.757,
+      "station": "Стройка"
+    },
+    {
+      "name": "Ветряк",
+      "level": 5,
+      "section": null,
+      "kind": "station",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Брус",
+        "Ткань",
+        "Скобы"
+      ],
+      "amounts": {
+        "Брус": 1.0,
+        "Ткань": 1.0,
+        "Скобы": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.918,
+      "station": "Стройка"
+    },
+    {
+      "name": "Угольная станция",
+      "level": 5,
+      "section": null,
+      "kind": "station",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Кирпич",
+        "Сталь",
+        "Труба"
+      ],
+      "amounts": {
+        "Кирпич": 1.0,
+        "Сталь": 1.0,
+        "Труба": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 1.53,
+      "station": "Стройка"
+    },
+    {
+      "name": "Волочильный станок",
+      "level": 5,
+      "section": null,
+      "kind": "station",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Сталь",
+        "Брус"
+      ],
+      "amounts": {
+        "Сталь": 1.0,
+        "Брус": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.765,
+      "station": "Кузница"
+    },
+    {
+      "name": "Провод",
+      "level": 5,
+      "section": null,
+      "kind": "material",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Медный слиток"
+      ],
+      "amounts": {
+        "Медный слиток": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.339,
+      "station": "Волочильный станок"
+    },
+    {
+      "name": "Стекло",
+      "level": 5,
+      "section": null,
+      "kind": "material",
+      "key": false,
+      "mix": true,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Кварцевый песок",
+        "Уголь"
+      ],
+      "amounts": {
+        "Кварцевый песок": 2,
+        "Уголь": 3
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.19,
+      "station": "Печь"
+    },
+    {
+      "name": "Серная кислота",
+      "level": 5,
+      "section": null,
+      "kind": "material",
+      "key": false,
+      "mix": true,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Сера",
+        "Вода"
+      ],
+      "amounts": {
+        "Сера": 1.0,
+        "Вода": 10
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.2,
+      "station": "Печь"
+    },
+    {
+      "name": "Аккумулятор",
+      "level": 5,
+      "section": null,
+      "kind": "gear",
+      "key": true,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Свинец",
+        "Серная кислота",
+        "Глиняный горшок"
+      ],
+      "amounts": {
+        "Свинец": 1.0,
+        "Серная кислота": 1.0,
+        "Глиняный горшок": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.896,
+      "station": "Верстак"
+    },
+    {
+      "name": "Масляная лампа",
+      "level": 5,
+      "section": null,
+      "kind": "gear",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Стекло",
+        "Масло",
+        "Сталь"
+      ],
+      "amounts": {
+        "Стекло": 1.0,
+        "Масло": 1.0,
+        "Сталь": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.955,
+      "station": "Верстак"
+    },
+    {
+      "name": "Кирпич",
+      "level": 6,
+      "section": null,
+      "kind": "material",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Глина"
+      ],
+      "amounts": {
+        "Глина": 7
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.2,
+      "station": "Печь"
+    },
+    {
+      "name": "Известь",
+      "level": 6,
+      "section": null,
+      "kind": "material",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Известняк"
+      ],
+      "amounts": {
+        "Известняк": 7
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.2,
+      "station": "Печь"
+    },
+    {
+      "name": "Раствор",
+      "level": 6,
+      "section": null,
+      "kind": "material",
+      "key": false,
+      "mix": true,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Известь",
+        "Песок",
+        "Вода"
+      ],
+      "amounts": {
+        "Известь": 1.0,
+        "Песок": 6,
+        "Вода": 10
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.517,
+      "station": "Верстак"
+    },
+    {
+      "name": "Каменный блок",
+      "level": 6,
+      "section": null,
+      "kind": "material",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Камень"
+      ],
+      "amounts": {
+        "Камень": 8
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.2,
+      "station": "Кузница"
+    },
+    {
+      "name": "Дорожное полотно",
+      "level": 6,
+      "section": null,
+      "kind": "consumable",
+      "key": false,
+      "mix": true,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Щебень",
+        "Крошка"
+      ],
+      "amounts": {
+        "Щебень": 1.8,
+        "Крошка": 1.8
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.201,
+      "station": "Стройка"
+    },
+    {
+      "name": "Мастерская",
+      "level": 6,
+      "section": null,
+      "kind": "station",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Кирпич",
+        "Брус",
+        "Гвозди"
+      ],
+      "amounts": {
+        "Кирпич": 1.0,
+        "Брус": 1.0,
+        "Гвозди": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.903,
+      "station": "Стройка"
+    },
+    {
+      "name": "Лечебница",
+      "level": 6,
+      "section": null,
+      "kind": "station",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Брус",
+        "Доски",
+        "Стекло",
+        "Ткань"
+      ],
+      "amounts": {
+        "Брус": 1.0,
+        "Доски": 1.9,
+        "Стекло": 1.0,
+        "Ткань": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.855,
+      "station": "Стройка"
+    },
+    {
+      "name": "Терминал маркетплейса",
+      "level": 6,
+      "section": null,
+      "kind": "station",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Брус",
+        "Доски",
+        "Сталь"
+      ],
+      "amounts": {
+        "Брус": 1.0,
+        "Доски": 2,
+        "Сталь": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.819,
+      "station": "Стройка"
+    },
+    {
+      "name": "Администрация",
+      "level": 6,
+      "section": null,
+      "kind": "station",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Кирпич",
+        "Раствор",
+        "Брус",
+        "Сталь"
+      ],
+      "amounts": {
+        "Кирпич": 1.0,
+        "Раствор": 1.0,
+        "Брус": 1.0,
+        "Сталь": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 1.682,
+      "station": "Стройка"
+    },
+    {
+      "name": "Пресс",
+      "level": 7,
+      "section": null,
+      "kind": "station",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Сталь",
+        "Брус"
+      ],
+      "amounts": {
+        "Сталь": 1.0,
+        "Брус": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.765,
+      "station": "Кузница"
+    },
+    {
+      "name": "Монетный станок",
+      "level": 7,
+      "section": null,
+      "kind": "station",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Сталь",
+        "Брус",
+        "Пресс"
+      ],
+      "amounts": {
+        "Сталь": 1.0,
+        "Брус": 1.0,
+        "Пресс": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 1.73,
+      "station": "Кузница"
+    },
+    {
+      "name": "Аффинированное золото",
+      "level": 7,
+      "section": null,
+      "kind": "material",
+      "key": false,
+      "mix": true,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Золотоносная порода",
+        "Уголь"
+      ],
+      "amounts": {
+        "Золотоносная порода": 1.0,
+        "Уголь": 3
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.4,
+      "station": "Печь"
+    },
+    {
+      "name": "Аффинированное серебро",
+      "level": 7,
+      "section": null,
+      "kind": "material",
+      "key": false,
+      "mix": true,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Серебряная порода",
+        "Уголь"
+      ],
+      "amounts": {
+        "Серебряная порода": 1.0,
+        "Уголь": 3
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.233,
+      "station": "Печь"
+    },
+    {
+      "name": "Золотая монета",
+      "level": 7,
+      "section": null,
+      "kind": "money",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Аффинированное золото",
+        "Слиток железа"
+      ],
+      "amounts": {
+        "Аффинированное золото": 0.9,
+        "Слиток железа": 0.1
+      },
+      "manual_amounts": true,
+      "labor_hours": 0.58,
+      "station": "Монетный станок"
+    },
+    {
+      "name": "Серебряная монета",
+      "level": 7,
+      "section": null,
+      "kind": "money",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Аффинированное серебро",
+        "Слиток железа"
+      ],
+      "amounts": {
+        "Аффинированное серебро": 0.9,
+        "Слиток железа": 0.1
+      },
+      "manual_amounts": true,
+      "labor_hours": 0.43,
+      "station": "Монетный станок"
+    },
+    {
+      "name": "Высокая печь",
+      "level": 8,
+      "section": "precision",
+      "kind": "station",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Кирпич",
+        "Известь",
+        "Сталь",
+        "Меха"
+      ],
+      "amounts": {
+        "Кирпич": 1.0,
+        "Известь": 1.0,
+        "Сталь": 1.0,
+        "Меха": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 2.083,
+      "station": "Стройка"
+    },
+    {
+      "name": "Прокатный стан",
+      "level": 8,
+      "section": "precision",
+      "kind": "station",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Сталь",
+        "Брус",
+        "Скобы"
+      ],
+      "amounts": {
+        "Сталь": 1.0,
+        "Брус": 1.0,
+        "Скобы": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 1.069,
+      "station": "Кузница"
+    },
+    {
+      "name": "Медная фольга",
+      "level": 8,
+      "section": "precision",
+      "kind": "material",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Медный слиток"
+      ],
+      "amounts": {
+        "Медный слиток": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.339,
+      "station": "Прокатный стан"
+    },
+    {
+      "name": "Вольфрамовый резец",
+      "level": 8,
+      "section": "precision",
+      "kind": "tool",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Вольфрам",
+        "Сталь"
+      ],
+      "amounts": {
+        "Вольфрам": 1.0,
+        "Сталь": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.732,
+      "station": "Высокая печь"
+    },
+    {
+      "name": "Привод",
+      "level": 8,
+      "section": "precision",
+      "kind": "material",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Сталь",
+        "Брус",
+        "Скобы"
+      ],
+      "amounts": {
+        "Сталь": 1.0,
+        "Брус": 1.0,
+        "Скобы": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 1.069,
+      "station": "Кузница"
+    },
+    {
+      "name": "Токарный станок",
+      "level": 8,
+      "section": "precision",
+      "kind": "station",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Сталь",
+        "Брус",
+        "Вольфрамовый резец",
+        "Привод"
+      ],
+      "amounts": {
+        "Сталь": 1.0,
+        "Брус": 1.0,
+        "Вольфрамовый резец": 1.0,
+        "Привод": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 2.766,
+      "station": "Мастерская"
+    },
+    {
+      "name": "Точная деталь",
+      "level": 8,
+      "section": "precision",
+      "kind": "material",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Сталь"
+      ],
+      "amounts": {
+        "Сталь": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.565,
+      "station": "Токарный станок"
+    },
+    {
+      "name": "Буровая установка",
+      "level": 8,
+      "section": "precision",
+      "kind": "station",
+      "key": true,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Стальная рама",
+        "Привод",
+        "Точная деталь",
+        "Труба"
+      ],
+      "amounts": {
+        "Стальная рама": 1.0,
+        "Привод": 1.0,
+        "Точная деталь": 1.0,
+        "Труба": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 3.164,
+      "station": "Мастерская"
+    },
+    {
+      "name": "Магнит",
+      "level": 8,
+      "section": "electric",
+      "kind": "material",
+      "key": false,
+      "mix": true,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Железо",
+        "Никель"
+      ],
+      "amounts": {
+        "Слиток железа": 1.0,
+        "Никель": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.403,
+      "station": "Высокая печь"
+    },
+    {
+      "name": "Электродвигатель",
+      "level": 8,
+      "section": "electric",
+      "kind": "material",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Сталь",
+        "Провод",
+        "Магнит"
+      ],
+      "amounts": {
+        "Сталь": 1.0,
+        "Провод": 1.0,
+        "Магнит": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 1.307,
+      "station": "Мастерская"
+    },
+    {
+      "name": "Реле",
+      "level": 8,
+      "section": "electric",
+      "kind": "material",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Медь",
+        "Сталь",
+        "Провод"
+      ],
+      "amounts": {
+        "Медный слиток": 1.0,
+        "Сталь": 1.0,
+        "Провод": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 1.143,
+      "station": "Мастерская"
+    },
+    {
+      "name": "Автоматический станок",
+      "level": 8,
+      "section": "electric",
+      "kind": "station",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Стальная рама",
+        "Электродвигатель",
+        "Точная деталь",
+        "Реле"
+      ],
+      "amounts": {
+        "Стальная рама": 1.0,
+        "Электродвигатель": 1.0,
+        "Точная деталь": 1.0,
+        "Реле": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 3.981,
+      "station": "Мастерская"
+    },
+    {
+      "name": "Полевой автомат",
+      "level": 8,
+      "section": "electric",
+      "kind": "station",
+      "key": true,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Стальная рама",
+        "Электродвигатель",
+        "Реле",
+        "Труба"
+      ],
+      "amounts": {
+        "Стальная рама": 1.0,
+        "Электродвигатель": 1.0,
+        "Реле": 1.0,
+        "Труба": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 3.981,
+      "station": "Мастерская"
+    },
+    {
+      "name": "Экзоскелет",
+      "level": 8,
+      "section": "electric",
+      "kind": "gear",
+      "key": true,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": "каркас",
+      "inputs": [
+        "Стальная рама",
+        "Электродвигатель",
+        "Аккумулятор",
+        "Реле"
+      ],
+      "amounts": {
+        "Стальная рама": 1.0,
+        "Электродвигатель": 1.0,
+        "Аккумулятор": 1.0,
+        "Реле": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 4.312,
+      "station": "Мастерская"
+    },
+    {
+      "name": "Кремний",
+      "level": 8,
+      "section": "electronics",
+      "kind": "material",
+      "key": false,
+      "mix": true,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Кварцевый песок",
+        "Уголь",
+        "Энергия"
+      ],
+      "amounts": {
+        "Кварцевый песок": 1.7,
+        "Уголь": 2,
+        "Энергия": 7
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.202,
+      "station": "Высокая печь"
+    },
+    {
+      "name": "Кремниевая пластина",
+      "level": 8,
+      "section": "electronics",
+      "kind": "material",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Кремний"
+      ],
+      "amounts": {
+        "Кремний": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.402,
+      "station": "Токарный станок"
+    },
+    {
+      "name": "Текстолит",
+      "level": 8,
+      "section": "electronics",
+      "kind": "material",
+      "key": false,
+      "mix": true,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Ткань",
+        "Смола"
+      ],
+      "amounts": {
+        "Ткань": 1.0,
+        "Смола": 1.2
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.514,
+      "station": "Верстак"
+    },
+    {
+      "name": "Печатная плата",
+      "level": 8,
+      "section": "electronics",
+      "kind": "material",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Текстолит",
+        "Медная фольга"
+      ],
+      "amounts": {
+        "Текстолит": 1.0,
+        "Медная фольга": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 1.253,
+      "station": "Чистая мастерская"
+    },
+    {
+      "name": "Чистая мастерская",
+      "level": 8,
+      "section": "electronics",
+      "kind": "station",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Стекло",
+        "Сталь",
+        "Кирпич",
+        "Ткань",
+        "Провод"
+      ],
+      "amounts": {
+        "Стекло": 1.0,
+        "Сталь": 1.0,
+        "Кирпич": 1.0,
+        "Ткань": 1.0,
+        "Провод": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 1.508,
+      "station": "Стройка"
+    },
+    {
+      "name": "Микросхема",
+      "level": 8,
+      "section": "electronics",
+      "kind": "material",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Кремниевая пластина",
+        "Аффинированное золото",
+        "Провод"
+      ],
+      "amounts": {
+        "Кремниевая пластина": 1.0,
+        "Аффинированное золото": 1.0,
+        "Провод": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 1.541,
+      "station": "Чистая мастерская"
+    },
+    {
+      "name": "Датчик",
+      "level": 8,
+      "section": "electronics",
+      "kind": "material",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Микросхема",
+        "Стекло",
+        "Провод"
+      ],
+      "amounts": {
+        "Микросхема": 1.0,
+        "Стекло": 1.4,
+        "Провод": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 2.946,
+      "station": "Чистая мастерская"
+    },
+    {
+      "name": "Процессорный блок",
+      "level": 8,
+      "section": "electronics",
+      "kind": "material",
+      "key": true,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Микросхема",
+        "Печатная плата",
+        "Провод",
+        "Сталь"
+      ],
+      "amounts": {
+        "Микросхема": 1.0,
+        "Печатная плата": 1.0,
+        "Провод": 1.0,
+        "Сталь": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 4.299,
+      "station": "Чистая мастерская"
+    },
+    {
+      "name": "Стальная рама",
+      "level": 9,
+      "section": null,
+      "kind": "material",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Сталь"
+      ],
+      "amounts": {
+        "Сталь": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.565,
+      "station": "Кузница"
+    },
+    {
+      "name": "Био-камера",
+      "level": 9,
+      "section": null,
+      "kind": "material",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Стекло",
+        "Сталь",
+        "Ткань"
+      ],
+      "amounts": {
+        "Стекло": 1.0,
+        "Сталь": 1.0,
+        "Ткань": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.97,
+      "station": "Мастерская"
+    },
+    {
+      "name": "Питающий контур",
+      "level": 9,
+      "section": null,
+      "kind": "material",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Аккумулятор",
+        "Провод",
+        "Сталь"
+      ],
+      "amounts": {
+        "Аккумулятор": 1.0,
+        "Провод": 1.0,
+        "Сталь": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 2.0,
+      "station": "Мастерская"
+    },
+    {
+      "name": "Биопринтер",
+      "level": 9,
+      "section": null,
+      "kind": "station",
+      "key": true,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Стальная рама",
+        "Био-камера",
+        "Питающий контур",
+        "Процессорный блок"
+      ],
+      "amounts": {
+        "Стальная рама": 1.0,
+        "Био-камера": 1.0,
+        "Питающий контур": 1.0,
+        "Процессорный блок": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 9.434,
+      "station": "Стройка"
+    },
+    {
+      "name": "Ремкомплект биопринтера",
+      "level": 9,
+      "section": null,
+      "kind": "consumable",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Сталь",
+        "Провод",
+        "Точная деталь"
+      ],
+      "amounts": {
+        "Сталь": 1.0,
+        "Провод": 1.0,
+        "Точная деталь": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 1.669,
+      "station": "Мастерская"
+    },
+    {
+      "name": "Колесо",
+      "level": 10,
+      "section": null,
+      "kind": "material",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Брус",
+        "Сталь"
+      ],
+      "amounts": {
+        "Брус": 1.0,
+        "Сталь": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.765,
+      "station": "Кузница"
+    },
+    {
+      "name": "Повозка",
+      "level": 10,
+      "section": null,
+      "kind": "vehicle",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Доски",
+        "Брус",
+        "Колесо",
+        "Верёвка"
+      ],
+      "amounts": {
+        "Доски": 4,
+        "Брус": 1.0,
+        "Колесо": 1.0,
+        "Верёвка": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 1.686,
+      "station": "Мастерская"
+    },
+    {
+      "name": "Упряжь",
+      "level": 10,
+      "section": null,
+      "kind": "gear",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Ткань",
+        "Верёвка",
+        "Сталь"
+      ],
+      "amounts": {
+        "Ткань": 1.0,
+        "Верёвка": 1.0,
+        "Сталь": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.994,
+      "station": "Верстак"
+    },
+    {
+      "name": "Ремонтный набор",
+      "level": 10,
+      "section": null,
+      "kind": "consumable",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Сталь",
+        "Доски",
+        "Верёвка"
+      ],
+      "amounts": {
+        "Сталь": 1.0,
+        "Доски": 2,
+        "Верёвка": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.833,
+      "station": "Верстак"
+    },
+    {
+      "name": "Бродильный чан",
+      "level": 11,
+      "section": "fuel",
+      "kind": "station",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Доски",
+        "Медь",
+        "Труба"
+      ],
+      "amounts": {
+        "Доски": 5,
+        "Медный слиток": 1.0,
+        "Труба": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 1.337,
+      "station": "Мастерская"
+    },
+    {
+      "name": "Спирт",
+      "level": 11,
+      "section": "fuel",
+      "kind": "material",
+      "key": false,
+      "mix": true,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Сахар",
+        "Вода"
+      ],
+      "amounts": {
+        "Сахар": 1.0,
+        "Вода": 10
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.45,
+      "station": "Бродильный чан"
+    },
+    {
+      "name": "Электролизёр",
+      "level": 11,
+      "section": "fuel",
+      "kind": "station",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Сталь",
+        "Провод",
+        "Стекло"
+      ],
+      "amounts": {
+        "Сталь": 1.0,
+        "Провод": 1.0,
+        "Стекло": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 1.094,
+      "station": "Мастерская"
+    },
+    {
+      "name": "Кислород",
+      "level": 11,
+      "section": "fuel",
+      "kind": "material",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Вода",
+        "Энергия"
+      ],
+      "amounts": {
+        "Вода": 10,
+        "Энергия": 10
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.2,
+      "station": "Электролизёр"
+    },
+    {
+      "name": "Окислитель",
+      "level": 11,
+      "section": "fuel",
+      "kind": "material",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Селитра",
+        "Энергия"
+      ],
+      "amounts": {
+        "Селитра": 1.0,
+        "Энергия": 10
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.217,
+      "station": "Электролизёр"
+    },
+    {
+      "name": "Ракетное топливо",
+      "level": 11,
+      "section": "fuel",
+      "kind": "consumable",
+      "key": true,
+      "mix": true,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Спирт",
+        "Окислитель"
+      ],
+      "amounts": {
+        "Спирт": 1.0,
+        "Окислитель": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 1.067,
+      "station": "Мастерская"
+    },
+    {
+      "name": "Обшивка",
+      "level": 11,
+      "section": "hull",
+      "kind": "material",
+      "key": false,
+      "mix": true,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Сталь",
+        "Никель"
+      ],
+      "amounts": {
+        "Сталь": 1.0,
+        "Никель": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.665,
+      "station": "Прокатный стан"
+    },
+    {
+      "name": "Теплозащитные плиты",
+      "level": 11,
+      "section": "hull",
+      "kind": "material",
+      "key": false,
+      "mix": true,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Глина",
+        "Известь"
+      ],
+      "amounts": {
+        "Глина": 7,
+        "Известь": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.5,
+      "station": "Высокая печь"
+    },
+    {
+      "name": "Баллон высокого давления",
+      "level": 11,
+      "section": "hull",
+      "kind": "material",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Сталь",
+        "Никель"
+      ],
+      "amounts": {
+        "Сталь": 1.0,
+        "Никель": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.665,
+      "station": "Прокатный стан"
+    },
+    {
+      "name": "Камера сгорания",
+      "level": 11,
+      "section": "hull",
+      "kind": "material",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Сталь",
+        "Никель",
+        "Точная деталь"
+      ],
+      "amounts": {
+        "Сталь": 1.0,
+        "Никель": 1.3,
+        "Точная деталь": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 1.46,
+      "station": "Токарный станок"
+    },
+    {
+      "name": "Насос",
+      "level": 11,
+      "section": "hull",
+      "kind": "material",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Точная деталь",
+        "Сталь",
+        "Привод"
+      ],
+      "amounts": {
+        "Точная деталь": 1.0,
+        "Сталь": 1.0,
+        "Привод": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 2.399,
+      "station": "Токарный станок"
+    },
+    {
+      "name": "Двигатель I класса",
+      "level": 11,
+      "section": "hull",
+      "kind": "material",
+      "key": true,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Камера сгорания",
+        "Насос",
+        "Труба",
+        "Датчик"
+      ],
+      "amounts": {
+        "Камера сгорания": 1.0,
+        "Насос": 1.0,
+        "Труба": 1.0,
+        "Датчик": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 8.971,
+      "station": "Верфь"
+    },
+    {
+      "name": "Корпус",
+      "level": 11,
+      "section": "hull",
+      "kind": "material",
+      "key": true,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Стальная рама",
+        "Обшивка",
+        "Теплозащитные плиты"
+      ],
+      "amounts": {
+        "Стальная рама": 1.0,
+        "Обшивка": 1.0,
+        "Теплозащитные плиты": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 2.13,
+      "station": "Верфь"
+    },
+    {
+      "name": "Навигационный блок",
+      "level": 11,
+      "section": "assembly",
+      "kind": "material",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Процессорный блок",
+        "Датчик",
+        "Стекло"
+      ],
+      "amounts": {
+        "Процессорный блок": 1.0,
+        "Датчик": 1.0,
+        "Стекло": 3
+      },
+      "manual_amounts": false,
+      "labor_hours": 9.415,
+      "station": "Чистая мастерская"
+    },
+    {
+      "name": "Система жизнеобеспечения",
+      "level": 11,
+      "section": "assembly",
+      "kind": "material",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Баллон высокого давления",
+        "Кислород",
+        "Труба",
+        "Датчик"
+      ],
+      "amounts": {
+        "Баллон высокого давления": 1.0,
+        "Кислород": 2,
+        "Труба": 1.0,
+        "Датчик": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 6.177,
+      "station": "Мастерская"
+    },
+    {
+      "name": "Верфь",
+      "level": 11,
+      "section": "assembly",
+      "kind": "station",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Кирпич",
+        "Сталь",
+        "Брус",
+        "Привод"
+      ],
+      "amounts": {
+        "Кирпич": 1.0,
+        "Сталь": 1.0,
+        "Брус": 1.0,
+        "Привод": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 2.234,
+      "station": "Стройка"
+    },
+    {
+      "name": "Космодром",
+      "level": 11,
+      "section": "assembly",
+      "kind": "station",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Раствор",
+        "Каменный блок",
+        "Сталь",
+        "Труба"
+      ],
+      "amounts": {
+        "Раствор": 1.0,
+        "Каменный блок": 1.0,
+        "Сталь": 1.0,
+        "Труба": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 2.047,
+      "station": "Стройка"
+    },
+    {
+      "name": "Орбитальный корабль",
+      "level": 11,
+      "section": "assembly",
+      "kind": "vehicle",
+      "key": true,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "inputs": [
+        "Корпус",
+        "Двигатель I класса",
+        "Навигационный блок",
+        "Система жизнеобеспечения"
+      ],
+      "amounts": {
+        "Корпус": 1.0,
+        "Двигатель I класса": 1.0,
+        "Навигационный блок": 1.0,
+        "Система жизнеобеспечения": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 29.893,
+      "station": "Верфь"
+    }
+  ]
+}

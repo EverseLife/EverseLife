@@ -1,0 +1,28 @@
+# Контекст сборки образа сервера — корень репозитория (нужен `vault/`).
+# Всё, что не код сервера и не слепок вольта, сюда ехать не должно.
+
+.git
+.github
+.idea
+.vscode
+.jbeval
+.claude
+.pytest_cache
+.ruff_cache
+.mypy_cache
+
+# Клиент собирается своим образом, из своего контекста.
+frontend
+
+backend/.venv
+backend/.env
+backend/tests
+backend/.pytest_cache
+backend/.ruff_cache
+**/__pycache__
+**/*.py[cod]
+
+deploy
+README.md
+DEPLOY.md
+docker-compose.yml

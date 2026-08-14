@@ -1,0 +1,211 @@
+# Проверка, сборка образов и выкладка альфы.
+#
+# Порядок один и тот же для всех: тесты → образы → сервер. На сервер уезжает
+# только то, что прошло тесты, и только с ветки main.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  # Новый толчок в ту же ветку отменяет прошлый прогон: держать очередь из
+  # выкладок незачем.
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Слепок вольта едет вместе с кодом: и тесты, и образ считают мир по нему.
+  OCTOVERSE_VAULT_BUILD: ${{ github.workspace }}/vault
+
+jobs:
+  backend:
+    name: Сервер
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: octoverse
+          POSTGRES_PASSWORD: octoverse
+          POSTGRES_DB: octoverse
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U octoverse"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      OCTOVERSE_DATABASE_URL: postgresql+asyncpg://octoverse:octoverse@localhost:5432/octoverse
+      OCTOVERSE_MIGRATED_DATABASE_URL: postgresql+asyncpg://octoverse:octoverse@localhost:5432/octoverse
+      OCTOVERSE_TEST_DATABASE_URL: postgresql+asyncpg://octoverse:octoverse@localhost:5432/octoverse_test
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+
+      - name: Окружение по замку
+        run: uv sync --frozen --extra dev
+
+      - name: База для тестов
+        env:
+          PGPASSWORD: octoverse
+        run: psql -h localhost -U octoverse -d postgres -c 'CREATE DATABASE octoverse_test'
+
+      - name: Разбор кода
+        run: uv run ruff check .
+
+      - name: Миграции накатываются
+        run: uv run alembic upgrade head
+
+      # Полный прогон ~8 минут: он и есть главная защита мира от вайпа.
+      - name: Тесты
+        run: uv run pytest -q
+
+  frontend:
+    name: Клиент
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run build
+
+  images:
+    name: Образы
+    needs: [backend, frontend]
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Контекст сервера — корень: в образ едет `vault/`.
+      - name: Сервер
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: backend/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/octoverse-backend:latest
+            ghcr.io/${{ github.repository_owner }}/octoverse-backend:${{ github.sha }}
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,scope=backend,mode=max
+
+      - name: Клиент
+        uses: docker/build-push-action@v6
+        with:
+          context: frontend
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/octoverse-frontend:latest
+            ghcr.io/${{ github.repository_owner }}/octoverse-frontend:${{ github.sha }}
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,scope=frontend,mode=max
+
+  deploy:
+    name: Выкладка
+    needs: images
+    # Пока на Actions не заведена переменная DEPLOY_ENABLED=true, шаг молчит:
+    # форк и чужая копия репозитория не должны стучаться на чей-то сервер.
+    if: vars.DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      packages: read
+    env:
+      SSH_HOST: ${{ secrets.DEPLOY_HOST }}
+      SSH_USER: ${{ secrets.DEPLOY_USER }}
+      SSH_PORT: ${{ secrets.DEPLOY_PORT || '22' }}
+      DIR: ${{ vars.DEPLOY_PATH || '/opt/octoverse' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Ключ и известные хосты
+        env:
+          KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          if [ -n "$KNOWN_HOSTS" ]; then
+            printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          else
+            # Слабее: отпечаток берётся у самого сервера. Годится на первый
+            # раз, дальше положите его в секрет DEPLOY_KNOWN_HOSTS.
+            ssh-keyscan -p "$SSH_PORT" -H "$SSH_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          fi
+          chmod 600 ~/.ssh/known_hosts
+
+      # Состав и настройки границы правятся в репозитории, а не на сервере.
+      # `.env` с паролями остаётся нетронутым: его туда никто не кладёт.
+      - name: Отвезти состав
+        run: |
+          scp -i ~/.ssh/id_deploy -P "$SSH_PORT" \
+            deploy/compose.yaml deploy/Caddyfile \
+            "$SSH_USER@$SSH_HOST:$DIR/"
+
+      # Сценарий уезжает на сервер потоком ввода, а не строкой команды: пропуск
+      # к реестру не должен светиться в списке процессов чужой машины. Живёт он
+      # ровно этот прогон — на сервере ничего не оседает.
+      - name: Поднять
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_USER: ${{ github.actor }}
+        run: |
+          ssh -i ~/.ssh/id_deploy -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" bash -s <<REMOTE
+          set -euo pipefail
+          cd "$DIR"
+          echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+          docker compose pull
+          # Схема накатывается службой migrate до старта сервера, поднимать
+          # руками ничего не нужно.
+          docker compose up -d --remove-orphans
+          docker logout ghcr.io
+          docker image prune -f
+          docker compose ps
+          REMOTE
+
+      - name: Сервер отвечает
+        if: vars.DEPLOY_DOMAIN != ''
+        run: |
+          for i in $(seq 1 20); do
+            if curl -fsS "https://${{ vars.DEPLOY_DOMAIN }}/api/health" > /dev/null; then
+              echo "живой"; exit 0
+            fi
+            sleep 5
+          done
+          echo "сервер не ответил на /api/health"; exit 1

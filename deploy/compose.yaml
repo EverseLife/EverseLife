@@ -1,0 +1,102 @@
+# Боевой состав альфы. Живёт на сервере в `/opt/octoverse`.
+#
+#   docker compose pull && docker compose up -d
+#
+# Наружу смотрит только Caddy (80/443): он берёт сертификат Let's Encrypt,
+# отдаёт клиента и проксирует `/api` на сервер игры. База портов не публикует —
+# в неё ходят по внутренней сети состава.
+#
+# Роли `backend`, `worker` и `migrate` — один и тот же образ: расходиться
+# версиями движку и его воркеру нельзя.
+
+name: octoverse
+
+x-server: &server
+  image: ghcr.io/${GHCR_OWNER:-sumrak10}/octoverse-backend:${TAG:-latest}
+  environment:
+    OCTOVERSE_DATABASE_URL: postgresql+asyncpg://octoverse:${POSTGRES_PASSWORD:?нужен POSTGRES_PASSWORD}@postgres:5432/octoverse
+    OCTOVERSE_VAULT_BUILD: /vault
+    OCTOVERSE_LOG_LEVEL: ${OCTOVERSE_LOG_LEVEL:-INFO}
+    OCTOVERSE_JOB_BATCH: ${OCTOVERSE_JOB_BATCH:-64}
+    #: Клиент открыт по своему домену — только его и пускаем в сессию.
+    OCTOVERSE_ALLOWED_ORIGINS: '["https://${DOMAIN:?нужен DOMAIN}"]'
+    #: Образец адресов локальной сети из разработки в бою не нужен: `^$` не
+    #: совпадает ни с одним источником. Двойной доллар — как compose пишет
+    #: доллар обычным знаком, до сервера доедет `^$`.
+    OCTOVERSE_ALLOWED_ORIGIN_REGEX: '^$$'
+  restart: unless-stopped
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: octoverse
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?нужен POSTGRES_PASSWORD}
+      POSTGRES_DB: octoverse
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U octoverse -d octoverse"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  # Схема накатывается до старта сервера и ровно один раз за деплой: мир
+  # вечный, вайпов не бывает (D-007), и расхождение схемы с кодом чинить нечем.
+  migrate:
+    <<: *server
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  backend:
+    <<: *server
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  # Без воркера мир стоит: долгие дела (тик, партии, дороги) доводит он.
+  worker:
+    <<: *server
+    command: ["python", "-m", "src.worker"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      disable: true
+
+  frontend:
+    image: ghcr.io/${GHCR_OWNER:-sumrak10}/octoverse-frontend:${TAG:-latest}
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DOMAIN: ${DOMAIN:?нужен DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL:?нужен ACME_EMAIL}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Сертификаты переживают пересоздание контейнера: у Let's Encrypt есть
+      # предел на выдачу, и терять их при каждом деплое нельзя.
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - backend
+      - frontend
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:
