@@ -1,0 +1,358 @@
+/*
+ * Оформление демки — намеренно никакое.
+ *
+ * Визуальный язык игры это отдельная работа (D-049, D-055, D-072), и пилотный
+ * экран проверяет непроверенное решение: обозначать интерактивность **без
+ * цвета**. Нарисовать здесь «примерный вид» значило бы выдать черновик за
+ * решение — а макеты устаревают быстрее текста (D-051).
+ *
+ * Поэтому: один шрифт, одна рамка, никакого цветового кодирования смысла.
+ */
+
+:root {
+  color-scheme: light dark;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+body {
+  margin: 0;
+  padding: 1rem;
+}
+
+h1 {
+  font-size: 1.4rem;
+  margin: 0 0 0.5rem;
+}
+h2 {
+  font-size: 1rem;
+  margin: 0 0 0.5rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+h3 {
+  font-size: 0.9rem;
+  margin: 1rem 0 0.25rem;
+  font-weight: normal;
+  text-decoration: underline;
+}
+
+header {
+  display: flex;
+  gap: 1.5rem;
+  align-items: baseline;
+  flex-wrap: wrap;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid currentColor;
+  margin-bottom: 1rem;
+}
+
+.who {
+  font-weight: bold;
+}
+
+/* Каркас: сайдбар слева (Сеть), основное окно справа (присутственное). */
+.frame {
+  display: grid;
+  grid-template-columns: minmax(16rem, 20rem) 1fr;
+  gap: 1rem;
+  align-items: start;
+}
+@media (max-width: 56rem) {
+  .frame {
+    grid-template-columns: 1fr;
+  }
+}
+
+.sidebar {
+  border: 1px solid currentColor;
+  padding: 0.75rem;
+  position: sticky;
+  top: 0.5rem;
+}
+/* В одну колонку сайдбар не липнет: липкий без своего фона он ложится
+   поверх прокручиваемого контента. Правило стоит ПОСЛЕ базового: при равной
+   специфичности побеждает позднее. */
+@media (max-width: 56rem) {
+  .sidebar {
+    position: static;
+  }
+}
+.sidebar h3 {
+  margin-top: 0.75rem;
+}
+
+.tabs button {
+  text-transform: lowercase;
+}
+
+.panels {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(22rem, 1fr));
+  gap: 1rem;
+  align-items: start;
+}
+
+section {
+  border: 1px solid currentColor;
+  padding: 0.75rem;
+}
+
+.row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+  margin: 0.5rem 0;
+}
+
+button,
+select,
+input {
+  font: inherit;
+  padding: 0.25rem 0.6rem;
+  border: 1px solid currentColor;
+  background: transparent;
+  color: inherit;
+}
+
+/*
+ * Список вариантов у `select` рисует не страница, а система, и прозрачный фон
+ * ей достаётся белым — вместе с унаследованным белым текстом. Отсюда белое по
+ * белому в тёмной теме. Лечится единственным способом: полю и его вариантам
+ * задаются **системные** цвета, а не наши, — тогда они совпадут с тем, на чём
+ * система их и рисует.
+ */
+select,
+input {
+  background-color: Field;
+  color: FieldText;
+}
+
+option {
+  background-color: Field;
+  color: FieldText;
+}
+
+button:not(:disabled) {
+  cursor: pointer;
+  border-width: 2px;
+}
+button:disabled {
+  opacity: 0.4;
+}
+button.quiet {
+  border-width: 1px;
+  border-style: dashed;
+}
+
+input[type="number"] {
+  width: 6rem;
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+}
+td,
+th {
+  padding: 0.1rem 0.4rem 0.1rem 0;
+  text-align: left;
+  vertical-align: baseline;
+}
+th {
+  font-weight: normal;
+  text-decoration: underline;
+}
+.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.book td:nth-child(2) {
+  text-align: center;
+  border-left: 1px solid currentColor;
+  border-right: 1px solid currentColor;
+}
+
+/* Панель во всю ширину сцены: рынку тесно в общей сетке. */
+.panels .wide {
+  grid-column: 1 / -1;
+}
+
+.market-grid {
+  display: grid;
+  grid-template-columns: 3fr 2fr;
+  gap: 1.25rem;
+  align-items: start;
+}
+@media (max-width: 56rem) {
+  .market-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Строка своего товара: клик выбирает позицию в стакане. */
+tr.pick {
+  cursor: pointer;
+}
+tr.pick td:first-child {
+  text-decoration: underline dotted;
+}
+tr.picked td:first-child {
+  font-weight: bold;
+}
+
+.sign {
+  font-size: 1.2rem;
+  margin: 0.5rem 0;
+}
+
+.plan {
+  border: 1px dashed currentColor;
+  padding: 0.5rem;
+  margin: 0.5rem 0;
+}
+
+.note {
+  opacity: 0.7;
+  font-size: 0.85rem;
+  margin: 0.35rem 0;
+}
+
+.trouble {
+  border: 2px solid currentColor;
+  padding: 0.4rem 0.6rem;
+  margin-top: 1rem;
+}
+
+.pocket {
+  margin-top: 1rem;
+}
+
+footer {
+  margin-top: 1.5rem;
+  opacity: 0.6;
+  font-size: 0.8rem;
+}
+
+.entry {
+  max-width: 34rem;
+  margin: 4rem auto;
+  border: none;
+}
+
+/* --- карта-граф ---------------------------------------------------------- */
+
+.map-pane svg {
+  width: 100%;
+  max-width: 60rem;
+  border: 1px solid currentColor;
+  display: block;
+}
+
+.edge {
+  stroke: currentColor;
+  stroke-width: 1;
+  opacity: 0.7;
+}
+.edge.paved {
+  stroke-width: 2.5;
+}
+
+.edge-label,
+.node-label,
+.node-hint {
+  fill: currentColor;
+  font-size: 11px;
+  text-anchor: middle;
+}
+.edge-label {
+  opacity: 0.55;
+}
+
+.node circle {
+  fill: transparent;
+  stroke: currentColor;
+  stroke-width: 1.5;
+}
+.node.me circle {
+  fill: currentColor;
+}
+.node.near {
+  cursor: pointer;
+}
+.node.near circle {
+  stroke-width: 3;
+}
+.node.near .node-hint {
+  text-decoration: underline;
+}
+
+.walker {
+  fill: currentColor;
+}
+
+/* Узел-группа: второе кольцо говорит «внутри есть что раскрыть». */
+.node .halo {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1;
+  opacity: 0.45;
+  stroke-dasharray: 3 4;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .walker {
+    animation: throb 1s ease-in-out infinite alternate;
+  }
+  @keyframes throb {
+    from { r: 4; }
+    to { r: 7; }
+  }
+}
+
+.map-bar {
+  margin-top: 0.5rem;
+}
+
+/* --- живое общение: нижняя полоса (D-050) --------------------------------- */
+
+.chat {
+  margin-top: 1rem;
+}
+
+.chat-lines {
+  max-height: 14rem;
+  overflow-y: auto;
+  border-bottom: 1px dashed currentColor;
+  padding-bottom: 0.5rem;
+}
+
+.line {
+  margin: 0.15rem 0;
+}
+.line.action {
+  font-style: italic;
+}
+.line.ooc {
+  opacity: 0.55;
+}
+.line.overheard {
+  opacity: 0.75;
+  border-left: 3px dotted currentColor;
+  padding-left: 0.5rem;
+}
+
+.chat-text {
+  flex: 1;
+  min-width: 12rem;
+}
+
+.circle {
+  border: 1px dashed currentColor;
+  padding: 0.1rem 0.5rem;
+}
+.circle.mine {
+  border-style: solid;
+}

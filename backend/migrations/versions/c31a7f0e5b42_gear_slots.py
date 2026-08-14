@@ -1,0 +1,47 @@
+"""gear slots
+
+Слоты снаряжения (D-146). Миграция написана руками, а не автогенерацией:
+в дереве моделей одновременно шла другая работа, и `--autogenerate` сгрёб бы
+чужие незамигрированные таблицы в этот файл.
+
+Revision ID: c31a7f0e5b42
+Revises: 8438648625bf
+Create Date: 2026-08-13
+"""
+from __future__ import annotations
+
+from collections.abc import Sequence
+
+import sqlalchemy as sa
+from alembic import op
+
+revision: str = "c31a7f0e5b42"
+down_revision: str | None = "8438648625bf"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
+
+
+def upgrade() -> None:
+    op.create_table(
+        "equipped",
+        sa.Column("id", sa.Uuid(), nullable=False),
+        sa.Column("body_id", sa.Uuid(), nullable=False),
+        sa.Column("slot", sa.String(), nullable=False),
+        sa.Column("item_id", sa.Uuid(), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
+        sa.ForeignKeyConstraint(["body_id"], ["body.id"], name="fk_equipped_body_id_body"),
+        sa.PrimaryKeyConstraint("id", name="pk_equipped"),
+        sa.UniqueConstraint("body_id", "slot", name="uq_equipped_body_slot"),
+        sa.UniqueConstraint("item_id", name="uq_equipped_item_id"),
+    )
+    op.create_index("ix_equipped_item", "equipped", ["item_id"], unique=False)
+
+
+def downgrade() -> None:
+    op.drop_index("ix_equipped_item", table_name="equipped")
+    op.drop_table("equipped")
