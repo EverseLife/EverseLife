@@ -1,13 +1,13 @@
-"""Делянка — единица агрономии (D-118).
+"""The plot -- the unit of agronomy (D-118).
 
-Одна культура, один срок, одно состояние, один обход. Земля меряется метрами:
-хозяин сам режет участок на делянки и сам ищет баланс — дробить дорого (обход
-на каждую), укрупнять рискованно (болезнь и монокультура).
+One crop, one term, one state, one round. Land is measured in metres: the
+owner cuts the parcel into plots and seeks the balance themselves --
+splitting is expensive (a round for each), merging is risky (disease and monoculture).
 
-**Плодородие и история культур принадлежат земле, а не разметке** (И5):
-при делении обе части наследуют их как есть, при слиянии плодородие берётся
-взвешенным, история — самой тяжёлой. Без этого передел границ был бы
-бесплатным сбросом истощения.
+**Fertility and crop history belong to the land, not the layout** (I5): on a
+split both parts inherit them as is, on a merge fertility is taken weighted
+and history as the heaviest. Without that redrawing borders would be a free
+depletion reset.
 """
 
 from __future__ import annotations
@@ -23,13 +23,13 @@ from src.db.base import Base, created_column, enum_column, uuid_pk
 
 
 class PlotState(StrEnum):
-    #: Незасеяна и не вспахана. Только такую можно перекраивать.
+    #: Unsown and unploughed. Only such a plot can be resurveyed.
     IDLE = "idle"
-    #: Пашется: длительное действие, идёт заданием журнала.
+    #: Being ploughed: a long-running action, goes as a journal job.
     PLOWING = "plowing"
-    #: Вспахана, готова к посеву.
+    #: Ploughed, ready for sowing.
     PLOWED = "plowed"
-    #: Растёт. Зрелость выводится из времени, отдельного состояния ей не нужно.
+    #: Growing. Ripeness is derived from time, it needs no separate state.
     SOWN = "sown"
 
 
@@ -44,7 +44,7 @@ class Plot(Base):
 
     id: Mapped[uuid.UUID] = uuid_pk()
     node_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("node.id"), nullable=False)
-    #: Кто разметил. Титул на землю и аренда приезжают с городами (Э3).
+    #: Who surveyed it. Land title and rent arrive with cities (E3).
     owner_identity_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("identity.id"), nullable=False
     )
@@ -56,28 +56,29 @@ class Plot(Base):
         PlotState, "plot_state", nullable=False, default=PlotState.IDLE
     )
 
-    #: Плодородие земли под этой разметкой, 0…100.
+    #: Fertility of the land under this layout, 0..100.
     fertility: Mapped[float] = mapped_column(Numeric(6, 2), nullable=False)
 
-    #: История: что росло последним и сколько циклов подряд. По ней считается
-    #: истощение монокультуры (`farm.soil_depletion`).
+    #: History: what grew last and how many cycles in a row. Monoculture
+    #: depletion (`farm.soil_depletion`) is counted from it.
     last_culture: Mapped[str | None] = mapped_column(nullable=True)
     same_culture_cycles: Mapped[int] = mapped_column(nullable=False, default=0)
 
-    #: Что растёт сейчас — id культуры из `build/plants.json`.
+    #: What grows now -- a crop id from `build/plants.json`.
     culture_id: Mapped[str | None] = mapped_column(nullable=True)
-    #: Чей сорт посеян и с какой силой было семя: урожай считается по ним,
-    #: а не по числам культуры (D-057).
+    #: Whose cultivar is sown and with what strength the seed was: the harvest
+    #: is computed from them, not from the crop's numbers (D-057).
     variety_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
     seed_vigor: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
     sown_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    #: Зачтённые сутки ухода этого цикла и когда ухаживали в последний раз.
+    #: Credited care days of this cycle and when care was last done.
     care_credits: Mapped[int] = mapped_column(nullable=False, default=0)
     cared_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    #: С какого момента земля стоит под паром: восстановление начисляется по
-    #: факту времени при следующем действии — тик ей не нужен.
+    #: Since when the land stands fallow: recovery is credited by elapsed time
+    #: on the next action -- it needs no tick.
+
     idle_since: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     created_at: Mapped[datetime] = created_column()

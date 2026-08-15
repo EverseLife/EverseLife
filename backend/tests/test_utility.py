@@ -1,13 +1,13 @@
-"""Счётчик быта: кто платит и что бывает, если не заплатил (D-135, D-149).
+"""The household meter: who pays and what happens if they do not (D-135, D-149).
 
-Проверяется ровно то, ради чего счётчик заведён:
+Checked is exactly what the meter exists for:
 
-* платит **владелец**, а за городское — казна, и то не деньгами, а энергией,
-  которую могла бы продать;
-* ничей узел счёта не порождает вовсе: платить некому, а деньгам исчезать
-  некуда (И2);
-* не заплатил — узел отключён, и станки в нём не работают до оплаты;
-* вне города счётчика нет: там нет сети.
+* the **holder** pays, and for civic -- the treasury, and not in money but in
+  energy it could have sold;
+* an unowned node produces no bill at all: nobody to pay, and money has
+  nowhere to vanish (I2);
+* did not pay -- the node is disconnected, and its machines do not work until payment;
+* outside a city there is no meter: there is no grid.
 """
 
 from __future__ import annotations
@@ -28,216 +28,216 @@ from src.models.world import Layer
 from src.units import money
 
 
-async def _город(session: AsyncSession, catalog: Catalog):
-    метка = uuid.uuid4().hex[:8]
-    планета = await world.create_node(
-        session, f"terra.{метка}", "Терра", area_m2=1, layer=Layer.SPACE
+async def _city(session: AsyncSession, catalog: Catalog):
+    stamp = uuid.uuid4().hex[:8]
+    planet = await world.create_node(
+        session, f"terra.{stamp}", "Терра", area_m2=1, layer=Layer.SPACE
     )
-    представитель = await world.create_node(
-        session, f"terra.city.{метка}", "Столица", area_m2=1,
-        layer=Layer.PLANET, parent=планета,
+    delegate = await world.create_node(
+        session, f"terra.city.{stamp}", "Столица", area_m2=1,
+        layer=Layer.PLANET, parent=planet,
     )
-    дом = await world.create_node(
-        session, f"terra.city.{метка}.home", "Дом", area_m2=100, parent=представитель
+    home = await world.create_node(
+        session, f"terra.city.{stamp}.home", "Дом", area_m2=100, parent=delegate
     )
-    город = await town.found(session, catalog, представитель, "Столица")
-    дом.owner_city_id = город.id
+    city = await town.found(session, catalog, delegate, "Столица")
+    home.owner_city_id = city.id
     await session.flush()
-    return город, представитель, дом
+    return city, delegate, home
 
 
-async def _пул(session: AsyncSession, constants: Constants, узел, сколько: float):
-    pool = await energy.pool_of(session, constants, узел)
+async def _pool(session: AsyncSession, constants: Constants, node, qty: float):
+    pool = await energy.pool_of(session, constants, node)
     assert pool is not None
-    pool.stored = Decimal(str(сколько))
+    pool.stored = Decimal(str(qty))
     await session.flush()
     return pool
 
 
-async def _житель(session: AsyncSession, узел, имя: str, *, денег: float = 0):
-    identity = await world.create_identity(session, f"{имя}-{uuid.uuid4().hex[:6]}")
-    body = await world.print_body(session, identity, узел)
-    if денег:
-        счёт = await ledger.account_for(session, AccountKind.IDENTITY, identity.id)
+async def _resident(session: AsyncSession, node, name: str, *, funds: float = 0):
+    identity = await world.create_identity(session, f"{name}-{uuid.uuid4().hex[:6]}")
+    body = await world.print_body(session, identity, node)
+    if funds:
+        account = await ledger.account_for(session, AccountKind.IDENTITY, identity.id)
         genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
         await ledger.transfer(
             session, PostingReason.GENESIS,
-            debit=genesis.id, credit=счёт.id, amount=money(денег),
+            debit=genesis.id, credit=account.id, amount=money(funds),
         )
     return identity, body
 
 
-def _вчера(constants: Constants) -> datetime:
+def _yesterday(constants: Constants) -> datetime:
     return datetime.now(UTC) - timedelta(hours=constants[R.ENERGY_METER_PERIOD])
 
 
-async def test_у_ничьего_узла_счётчика_нет(
+async def test_ownerless_node_has_no_meter(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Выставлять счёт некому — значит и счётчика нет."""
-    _, _, дом = await _город(session, catalog)
-    дом.owner_city_id = None
+    """Nobody to bill -- so there is no meter either."""
+    _, _, home = await _city(session, catalog)
+    home.owner_city_id = None
     await session.flush()
-    assert await utility.meter_of(session, дом) is None
+    assert await utility.meter_of(session, home) is None
 
 
-async def test_вне_города_счётчика_нет(
+async def test_no_meter_outside_city(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Там нет сети: работают от аккумулятора, и коммунальных отношений нет."""
+    """There is no grid there: one works from a battery, and there are no utility relations."""
     identity = await world.create_identity(session, f"Ферма-{uuid.uuid4().hex[:6]}")
-    пойма = await world.create_node(
+    floodplain = await world.create_node(
         session, f"terra.wild.{uuid.uuid4().hex[:8]}", "Пойма", area_m2=400,
         layer=Layer.PLANET,
     )
-    пойма.owner_identity_id = identity.id
+    floodplain.owner_identity_id = identity.id
     await session.flush()
-    assert await utility.meter_of(session, пойма) is None
+    assert await utility.meter_of(session, floodplain) is None
 
 
-async def test_владелец_платит_за_быт(
+async def test_holder_pays_for_household(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Счёт считается с площади и списывается по тарифу города (D-135)."""
-    город, представитель, дом = await _город(session, catalog)
-    хозяин, _ = await _житель(session, дом, "Хозяин", денег=100)
-    дом.owner_identity_id = хозяин.id
+    """The bill is computed from area and written off at the city tariff (D-135)."""
+    city, delegate, home = await _city(session, catalog)
+    owner, _ = await _resident(session, home, "Хозяин", funds=100)
+    home.owner_identity_id = owner.id
     await session.flush()
 
-    pool = await _пул(session, constants, дом, 100_000)
-    meter = await utility.meter_of(session, дом)
-    meter.counted_at = _вчера(constants)
+    pool = await _pool(session, constants, home, 100_000)
+    meter = await utility.meter_of(session, home)
+    meter.counted_at = _yesterday(constants)
     await session.flush()
 
-    начислено = await utility.bill(session, constants, дом)
-    assert начислено > 0
+    accrued = await utility.bill(session, constants, home)
+    assert accrued > 0
 
-    счёт = await ledger.account_for(session, AccountKind.IDENTITY, хозяин.id)
-    assert await ledger.balance(session, счёт.id) == money(100) - начислено
-    #: Деньги ушли в казну города, энергия — из пула: счётчик не выдумывает
-    #: расход, а списывает его.
-    assert await town.treasury_balance(session, город) == начислено
+    account = await ledger.account_for(session, AccountKind.IDENTITY, owner.id)
+    assert await ledger.balance(session, account.id) == money(100) - accrued
+    #: Money went to the city treasury, energy from the pool: the meter does
+    #: not invent the spend, it writes it off.
+    assert await town.treasury_balance(session, city) == accrued
     assert float(pool.stored) < 100_000
     assert not meter.cut_off
 
 
-async def test_за_городское_платит_казна_энергией(
+async def test_treasury_pays_for_civic_with_energy(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Город не платит сам себе деньгами, но платит энергией (D-149)."""
-    город, представитель, дом = await _город(session, catalog)
-    pool = await _пул(session, constants, дом, 100_000)
-    было = float(pool.stored)
+    """The city does not pay itself in money, but pays in energy (D-149)."""
+    city, delegate, home = await _city(session, catalog)
+    pool = await _pool(session, constants, home, 100_000)
+    before = float(pool.stored)
 
-    meter = await utility.meter_of(session, дом)
-    meter.counted_at = _вчера(constants)
+    meter = await utility.meter_of(session, home)
+    meter.counted_at = _yesterday(constants)
     await session.flush()
 
-    assert await utility.bill(session, constants, дом) == 0, "казна не платит себе"
-    assert float(pool.stored) < было, "энергия всё равно ушла"
-    assert await town.treasury_balance(session, город) == 0
+    assert await utility.bill(session, constants, home) == 0, "казна не платит себе"
+    assert float(pool.stored) < before, "энергия всё равно ушла"
+    assert await town.treasury_balance(session, city) == 0
 
 
-async def test_нечем_платить_узел_отключается(
+async def test_node_disconnected_when_unable_to_pay(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Долг остаётся на узле, узел отключён. Отобрать его движок не вправе."""
-    город, представитель, дом = await _город(session, catalog)
-    хозяин, тело = await _житель(session, дом, "Бедняк")
-    дом.owner_identity_id = хозяин.id
+    """The debt stays on the node, the node is disconnected. The engine may not take it."""
+    city, delegate, home = await _city(session, catalog)
+    owner, body = await _resident(session, home, "Бедняк")
+    home.owner_identity_id = owner.id
     await session.flush()
 
-    await _пул(session, constants, дом, 100_000)
-    meter = await utility.meter_of(session, дом)
-    meter.counted_at = _вчера(constants)
+    await _pool(session, constants, home, 100_000)
+    meter = await utility.meter_of(session, home)
+    meter.counted_at = _yesterday(constants)
     await session.flush()
 
-    начислено = await utility.bill(session, constants, дом)
-    assert начислено > 0
-    assert meter.cut_off and meter.debt == начислено
-    assert await utility.cut_off(session, дом)
+    accrued = await utility.bill(session, constants, home)
+    assert accrued > 0
+    assert meter.cut_off and meter.debt == accrued
+    assert await utility.cut_off(session, home)
 
-    #: Отключённый узел не работает станками: счётчик — такое же условие
-    #: работы, как сам станок (D-149).
-    двор = await world.node_container(session, дом)
-    await world.grant_item(session, двор, "Верстак", quality=60, origin="сценарий теста")
-    await world.learn(session, хозяин, "Брус")
+    #: A disconnected node does not run machines: the meter is as much a
+    #: condition of work as the machine itself (D-149).
+    yard = await world.node_container(session, home)
+    await world.grant_item(session, yard, "Верстак", quality=60, origin="сценарий теста")
+    await world.learn(session, owner, "Брус")
     with pytest.raises(craft.CutOff):
-        await craft.plan(session, constants, catalog, тело, "Брус", 1)
+        await craft.plan(session, constants, catalog, body, "Брус", 1)
 
 
-async def test_оплата_включает_узел_обратно(
+async def test_payment_reconnects_node(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    город, представитель, дом = await _город(session, catalog)
-    хозяин, _ = await _житель(session, дом, "Должник")
-    дом.owner_identity_id = хозяин.id
+    city, delegate, home = await _city(session, catalog)
+    owner, _ = await _resident(session, home, "Должник")
+    home.owner_identity_id = owner.id
     await session.flush()
 
-    await _пул(session, constants, дом, 100_000)
-    meter = await utility.meter_of(session, дом)
-    meter.counted_at = _вчера(constants)
+    await _pool(session, constants, home, 100_000)
+    meter = await utility.meter_of(session, home)
+    meter.counted_at = _yesterday(constants)
     await session.flush()
-    долг = await utility.bill(session, constants, дом)
+    debt = await utility.bill(session, constants, home)
     assert meter.cut_off
 
-    #: Денег всё ещё нет — платить нечем, и это отказ, а не молчание.
+    #: Still no money -- nothing to pay with, and that is a refusal, not silence.
     with pytest.raises(utility.NotEnoughMoney):
-        await utility.pay(session, constants, хозяин, дом)
+        await utility.pay(session, constants, owner, home)
 
-    счёт = await ledger.account_for(session, AccountKind.IDENTITY, хозяин.id)
+    account = await ledger.account_for(session, AccountKind.IDENTITY, owner.id)
     genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
     await ledger.transfer(
         session, PostingReason.GENESIS,
-        debit=genesis.id, credit=счёт.id, amount=долг,
+        debit=genesis.id, credit=account.id, amount=debt,
     )
-    assert await utility.pay(session, constants, хозяин, дом) == долг
+    assert await utility.pay(session, constants, owner, home) == debt
     assert not meter.cut_off and meter.debt == 0
-    assert await town.treasury_balance(session, город) == долг
+    assert await town.treasury_balance(session, city) == debt
 
 
-async def test_чужой_счёт_не_оплатишь(
+async def test_cannot_pay_foreign_bill(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Чужие счета оплачивает договор, а не движок."""
-    _, _, дом = await _город(session, catalog)
-    хозяин, _ = await _житель(session, дом, "Хозяин")
-    чужой, _ = await _житель(session, дом, "Чужой", денег=100)
-    дом.owner_identity_id = хозяин.id
+    """Other people's bills are paid by contract, not by the engine."""
+    _, _, home = await _city(session, catalog)
+    owner, _ = await _resident(session, home, "Хозяин")
+    foreign, _ = await _resident(session, home, "Чужой", funds=100)
+    home.owner_identity_id = owner.id
     await session.flush()
-    await _пул(session, constants, дом, 100_000)
-    meter = await utility.meter_of(session, дом)
-    meter.counted_at = _вчера(constants)
+    await _pool(session, constants, home, 100_000)
+    meter = await utility.meter_of(session, home)
+    meter.counted_at = _yesterday(constants)
     await session.flush()
-    await utility.bill(session, constants, дом)
+    await utility.bill(session, constants, home)
 
     with pytest.raises(utility.UtilityError):
-        await utility.pay(session, constants, чужой, дом)
+        await utility.pay(session, constants, foreign, home)
 
 
-async def test_счётчик_заводится_сам_на_занятые_узлы(
+async def test_meter_opens_itself_on_occupied_nodes(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Иначе первого счёта неоткуда взяться: счётчик ждал бы сам себя."""
-    _, _, дом = await _город(session, catalog)
-    assert await utility.meter_of(session, дом, create=False) is None
-    выставлено = await utility.run_meters(session, constants)
-    assert выставлено >= 1
-    assert await utility.meter_of(session, дом, create=False) is not None
+    """Otherwise the first bill has nowhere to come from: the meter would wait for itself."""
+    _, _, home = await _city(session, catalog)
+    assert await utility.meter_of(session, home, create=False) is None
+    listed = await utility.run_meters(session, constants)
+    assert listed >= 1
+    assert await utility.meter_of(session, home, create=False) is not None
 
 
-async def test_хозяйство_показывает_свои_узлы(
+async def test_holdings_show_own_nodes(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Пустой список — не поломка панели, а «владений нет»."""
-    _, _, дом = await _город(session, catalog)
-    хозяин, _ = await _житель(session, дом, "Хозяин")
-    assert await utility.holdings(session, constants, хозяин.id) == []
+    """An empty list is not a broken panel but "no holdings"."""
+    _, _, home = await _city(session, catalog)
+    owner, _ = await _resident(session, home, "Хозяин")
+    assert await utility.holdings(session, constants, owner.id) == []
 
-    дом.owner_identity_id = хозяин.id
+    home.owner_identity_id = owner.id
     await session.flush()
-    свои = await utility.holdings(session, constants, хозяин.id)
-    assert len(свои) == 1
-    assert свои[0]["node"] == дом.key
-    assert свои[0]["grid"] is True
-    assert свои[0]["cost_per_period"] > 0
+    own_items = await utility.holdings(session, constants, owner.id)
+    assert len(own_items) == 1
+    assert own_items[0]["node"] == home.key
+    assert own_items[0]["grid"] is True
+    assert own_items[0]["cost_per_period"] > 0

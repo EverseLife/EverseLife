@@ -1,9 +1,9 @@
-"""Сессия добычи и плата устройства.
+"""Mining session and device fee.
 
-Ключевое поле здесь — `roof`. Оно **скрытое**: игроку не показывается никогда,
-ни числом, ни производной от числа. Наружу уходит только строка признака с
-шумом (D-143). Если устойчивость свода однажды утечёт в ответ API, механика
-превратится в арифметику, и никакой шум её уже не вернёт.
+The key field here is `roof`. It is **hidden**: never shown to the player,
+neither as a number nor as a derivative of one. Only a sign string with noise
+goes out (D-143). If roof stability ever leaks into an API response, the
+mechanic turns into arithmetic, and no noise will bring it back.
 """
 
 from __future__ import annotations
@@ -20,17 +20,17 @@ from src.db.base import Base, created_column, enum_column, uuid_pk
 
 class SessionState(StrEnum):
     ACTIVE = "active"
-    #: Ушёл сам — добытое в инвентаре.
+    #: Left on their own -- what was mined is in the inventory.
     LEFT = "left"
-    #: Обрушение — добытое за сессию потеряно целиком.
+    #: Collapse -- what was mined during the session is lost entirely.
     COLLAPSED = "collapsed"
 
 
 class Pace(StrEnum):
-    """Темп — второй рычаг того же решения (D-091).
+    """Pace is the second lever of the same decision (D-091).
 
-    Быстрее значит больше выхода, больше просадки свода и больше расхода
-    выносливости. Ставка удваивается: рискуешь и обрушением, и запасом.
+    Faster means more yield, more roof sag and more stamina spend. The stake
+    doubles: you risk both a collapse and your reserve.
     """
 
     STEADY = "steady"
@@ -52,10 +52,10 @@ class MiningSession(Base):
     )
     pace: Mapped[Pace] = enum_column(Pace, "mining_pace", nullable=False, default=Pace.STEADY)
 
-    #: СКРЫТОЕ состояние. Не показывается игроку ни при каких условиях.
+    #: HIDDEN state. Not shown to the player under any circumstances.
     roof: Mapped[float] = mapped_column(Numeric(6, 2), nullable=False)
 
-    #: Инструмент, которым работают. Изнашивается за сессию, а не за удар.
+    #: The tool worked with. Wears per session, not per swing.
     tool_item_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
 
     swings: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -66,12 +66,12 @@ class MiningSession(Base):
 
 
 class PowChallenge(Base):
-    """Плата устройства: одна оценка Argon2id на сессию (D-110, D-112).
+    """The device fee: one Argon2id estimate per session (D-110, D-112).
 
-    Мощность даёт доступ, но не преимущество: быстрее посчитал — раньше начал.
-    Выход при этом определяют решения в забое, а не железо. Тысяча параллельных
-    сеансов требует тысячу раз по `pow.memory_per_session` памяти, а память
-    не параллелится дёшево.
+    Power gives access but not advantage: computed faster -- started earlier.
+    Yield meanwhile is determined by decisions at the face, not hardware. A
+    thousand parallel sessions need a thousand times `pow.memory_per_session`
+    of memory, and memory does not parallelise cheaply.
     """
 
     __tablename__ = "pow_challenge"
@@ -82,5 +82,5 @@ class PowChallenge(Base):
     nonce: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
     issued_at: Mapped[datetime] = created_column()
     solved_at: Mapped[datetime | None] = mapped_column(nullable=True)
-    #: Задача одноразовая: решённую нельзя предъявить второй раз.
+    #: The challenge is single-use: a solved one cannot be presented a second time.
     spent_on_session_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)

@@ -1,10 +1,10 @@
-"""Миграции обязаны совпадать с моделями.
+"""Migrations must match the models.
 
-Мир вечный, вайпов не бывает (D-007) — значит расхождение схемы с кодом не
-чинится пересозданием базы. Проверка ловит его в тот день, когда оно появилось.
+The world is eternal, no wipes (D-007) -- so a schema divergence from code
+is not fixed by recreating the database. The check catches it the day it appears.
 
-Тест смотрит на базу, накатанную миграциями (`alembic upgrade head`), и требует,
-чтобы автогенерация не нашла ни одного отличия.
+The test looks at a database upgraded by migrations (`alembic upgrade head`)
+and requires that autogeneration finds not a single difference.
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ def _differences(connection) -> list:
     return compare_metadata(context, Base.metadata)
 
 
-async def test_схема_из_миграций_совпадает_с_моделями() -> None:
+async def test_schema_from_migrations_matches_models() -> None:
     engine = create_async_engine(MIGRATED_URL)
     try:
         async with engine.connect() as connection:
@@ -50,8 +50,8 @@ async def test_схема_из_миграций_совпадает_с_модел
     )
 
 
-async def test_правила_базы_на_месте() -> None:
-    """Триггеры сходимости и неизменяемости обязаны быть в накатанной базе."""
+async def test_database_rules_in_place() -> None:
+    """The balance and immutability triggers must be in the upgraded database."""
     from sqlalchemy import text
 
     engine = create_async_engine(MIGRATED_URL)

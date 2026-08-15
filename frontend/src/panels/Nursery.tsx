@@ -1,14 +1,15 @@
 /**
- * Селекционный питомник: скрещивание и сорта (D-057, D-067).
+ * The breeding nursery: crossing and cultivars (D-057, D-067).
  *
- * Здесь видно то, ради чего вся ветка затевалась: **преимущество фермера — это
- * имущество и знание, а не уровень персонажа**. Две партии семян, полный цикл
- * ожидания — и либо новый сорт, либо пустая грядка, если вышедшее слишком
- * похоже на уже растущее.
+ * Here one sees what the whole branch was started for: **a farmer's advantage
+ * is property and knowledge, not a character level**. Two batches of seeds, a
+ * full cycle of waiting -- and either a new cultivar or an empty bed, if what
+ * came out is too similar to what already grows.
  *
- * Отказ приходит полем, а не окном: движок не говорит «слишком похоже», он
- * говорит «не взошло». Гейт встроен в биологию.
+ * The refusal comes from the field, not a window: the engine does not say
+ * "too similar", it says "did not sprout". The gate is built into biology.
  */
+
 
 import { useCallback, useEffect, useState } from "react";
 import type { Look, Session, Thing } from "../api";
@@ -32,26 +33,26 @@ type Variety = {
 type Bed = { id: string; ready_at: string };
 
 export function Nursery({ look, session, busy, act }: Props) {
-  const [сорта, setСорта] = useState<Variety[]>([]);
-  const [грядки, setГрядки] = useState<Bed[]>([]);
-  const [один, setОдин] = useState("");
-  const [другой, setДругой] = useState("");
-  const [имя, setИмя] = useState("");
-  const [весть, setВесть] = useState<string | null>(null);
+  const [cultivars, setCultivars] = useState<Variety[]>([]);
+  const [beds, setBeds] = useState<Bed[]>([]);
+  const [first, setFirst] = useState("");
+  const [second, setSecond] = useState("");
+  const [name, setName] = useState("");
+  const [notice, setNotice] = useState<string | null>(null);
 
-  const семена: Thing[] = look.inventory.filter((т) => т.vigor != null);
+  const seeds: Thing[] = look.inventory.filter((t) => t.vigor != null);
 
   const reload = useCallback(async () => {
-    const ответ = await session.send("breed.varieties");
-    setСорта(ответ.varieties as Variety[]);
-    setГрядки(ответ.nurseries as Bed[]);
+    const answer = await session.send("breed.varieties");
+    setCultivars(answer.varieties as Variety[]);
+    setBeds(answer.nurseries as Bed[]);
   }, [session]);
 
   useEffect(() => {
     void reload();
   }, [reload, look]);
 
-  const го = (what: () => Promise<unknown>) =>
+  const go = (what: () => Promise<unknown>) =>
     act(async () => {
       await what();
       await reload();
@@ -62,30 +63,30 @@ export function Nursery({ look, session, busy, act }: Props) {
       <h2>Селекционный питомник</h2>
 
       <div className="row">
-        <select value={один} onChange={(e) => setОдин(e.target.value)}>
+        <select value={first} onChange={(e) => setFirst(e.target.value)}>
           <option value="">— первый родитель —</option>
-          {семена.map((т) => (
-            <option key={т.id} value={т.id}>
-              {т.goods} · {т.variety ?? "сорт"} · {т.amount.toFixed(0)}
+          {seeds.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.goods} · {t.variety ?? "сорт"} · {t.amount.toFixed(0)}
             </option>
           ))}
         </select>
-        <select value={другой} onChange={(e) => setДругой(e.target.value)}>
+        <select value={second} onChange={(e) => setSecond(e.target.value)}>
           <option value="">— второй родитель —</option>
-          {семена.map((т) => (
-            <option key={т.id} value={т.id}>
-              {т.goods} · {т.variety ?? "сорт"} · {т.amount.toFixed(0)}
+          {seeds.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.goods} · {t.variety ?? "сорт"} · {t.amount.toFixed(0)}
             </option>
           ))}
         </select>
         <button
           onClick={() =>
-            го(async () => {
-              await session.send("breed.cross", { a: один, b: другой });
-              setВесть(null);
+            go(async () => {
+              await session.send("breed.cross", { a: first, b: second });
+              setNotice(null);
             })
           }
-          disabled={busy || !один || !другой || один === другой}
+          disabled={busy || !first || !second || first === second}
         >
           Скрестить
         </button>
@@ -95,20 +96,20 @@ export function Nursery({ look, session, busy, act }: Props) {
         полного цикла роста: селекция — занятие на недели, а не на вечер.
       </p>
 
-      {грядки.length > 0 && (
+      {beds.length > 0 && (
         <>
           <h3>В питомнике</h3>
-          {грядки.map((грядка) => (
-            <div className="row" key={грядка.id}>
-              <span>всходы к {new Date(грядка.ready_at).toLocaleString()}</span>
+          {beds.map((bed) => (
+            <div className="row" key={bed.id}>
+              <span>всходы к {new Date(bed.ready_at).toLocaleString()}</span>
               <button
                 onClick={() =>
-                  го(async () => {
-                    const ответ = await session.send("breed.gather", {
-                      nursery: грядка.id,
+                  go(async () => {
+                    const answer = await session.send("breed.gather", {
+                      nursery: bed.id,
                     });
-                    setВесть(
-                      ответ.sprouted
+                    setNotice(
+                      answer.sprouted
                         ? "взошло: новый гибрид у вас в руках"
                         : "не взошло: вышедшее слишком похоже на уже растущее",
                     );
@@ -122,40 +123,40 @@ export function Nursery({ look, session, busy, act }: Props) {
           ))}
         </>
       )}
-      {весть && <p className="sign">{весть}</p>}
+      {notice && <p className="sign">{notice}</p>}
 
-      {сорта.length > 0 && (
+      {cultivars.length > 0 && (
         <>
           <h3>Свои сорта</h3>
           <table>
             <tbody>
-              {сорта.map((сорт) => (
-                <tr key={сорт.id}>
-                  <td>{сорт.name ?? `гибрид, поколение ${сорт.generation}`}</td>
+              {cultivars.map((cultivar) => (
+                <tr key={cultivar.id}>
+                  <td>{cultivar.name ?? `гибрид, поколение ${cultivar.generation}`}</td>
                   <td className="note">
-                    {сорт.stable ? "постоянный" : "расщепляется"} · урожай{" "}
-                    {сорт.traits.yield_per_m2?.toFixed(2)} · цикл{" "}
-                    {сорт.traits.cycle_days?.toFixed(1)} сут
+                    {cultivar.stable ? "постоянный" : "расщепляется"} · урожай{" "}
+                    {cultivar.traits.yield_per_m2?.toFixed(2)} · цикл{" "}
+                    {cultivar.traits.cycle_days?.toFixed(1)} сут
                   </td>
                   <td>
-                    {сорт.stable && !сорт.name && (
+                    {cultivar.stable && !cultivar.name && (
                       <span className="row">
                         <input
-                          value={имя}
+                          value={name}
                           placeholder="имя сорта"
-                          onChange={(e) => setИмя(e.target.value)}
+                          onChange={(e) => setName(e.target.value)}
                         />
                         <button
                           onClick={() =>
-                            го(async () => {
+                            go(async () => {
                               await session.send("breed.name", {
-                                variety: сорт.id,
-                                name: имя,
+                                variety: cultivar.id,
+                                name: name,
                               });
-                              setИмя("");
+                              setName("");
                             })
                           }
-                          disabled={busy || !имя.trim()}
+                          disabled={busy || !name.trim()}
                         >
                           Назвать
                         </button>

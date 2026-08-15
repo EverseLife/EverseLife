@@ -1,11 +1,11 @@
-"""Экономическая панель города (D-124, D-140).
+"""The city's economic panel (D-124, D-140).
 
-Проверяется то, ради чего панель заведена:
+Checked is what the panel exists for:
 
-* публичный срез виден всем, полный — по праву `dashboard`;
-* персонального нет ни в одном срезе: ни доходов, ни маршрутов;
-* без администрации город слеп, и он об этом честно говорит;
-* казна разложена по основаниям, а не одной суммой.
+* the public snapshot is visible to all, the full one by the `dashboard` right;
+* nothing personal in either snapshot: neither incomes nor routes;
+* without an administration the city is blind, and it says so honestly;
+* the treasury is broken down by grounds, not one sum.
 """
 
 from __future__ import annotations
@@ -24,110 +24,111 @@ from src.models.world import Layer
 from src.units import money
 
 
-async def _столица(session: AsyncSession, catalog: Catalog, *, ратуша: bool = True):
-    метка = uuid.uuid4().hex[:8]
-    планета = await world.create_node(
-        session, f"terra.{метка}", "Терра", area_m2=1, layer=Layer.SPACE
+async def _capital(session: AsyncSession, catalog: Catalog, *, townhall: bool = True):
+    stamp = uuid.uuid4().hex[:8]
+    planet = await world.create_node(
+        session, f"terra.{stamp}", "Терра", area_m2=1, layer=Layer.SPACE
     )
-    представитель = await world.create_node(
-        session, f"terra.city.{метка}", "Столица", area_m2=1,
-        layer=Layer.PLANET, parent=планета,
+    delegate = await world.create_node(
+        session, f"terra.city.{stamp}", "Столица", area_m2=1,
+        layer=Layer.PLANET, parent=planet,
     )
-    ядро = await world.create_node(
-        session, f"terra.city.{метка}.core", "Ядро", area_m2=100,
-        parent=представитель, properties={"кольцо": 0},
+    core = await world.create_node(
+        session, f"terra.city.{stamp}.core", "Ядро", area_m2=100,
+        parent=delegate, properties={"кольцо": 0},
     )
-    город = await town.found(session, catalog, представитель, "Столица")
-    ядро.owner_city_id = город.id
+    city = await town.found(session, catalog, delegate, "Столица")
+    core.owner_city_id = city.id
     await session.flush()
-    if ратуша:
-        двор = await world.node_container(session, ядро)
-        await world.grant_item(session, двор, town.HALL, quality=65, origin="тест")
-    return город, ядро
+    if townhall:
+        yard = await world.node_container(session, core)
+        await world.grant_item(session, yard, town.HALL, quality=65, origin="тест")
+    return city, core
 
 
-async def test_без_администрации_город_слеп(
+async def test_city_blind_without_administration(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Панель живёт, пока стоит администрация: иначе власть решает вслепую."""
-    город, _ = await _столица(session, catalog, ратуша=False)
-    срез = await panel.collect(session, constants, город)
-    assert срез["blind"] is True
+    """The panel lives while the administration stands: otherwise the authority decides blindly."""
+    city, _ = await _capital(session, catalog, townhall=False)
+    snapshot = await panel.collect(session, constants, city)
+    assert snapshot["blind"] is True
 
-    город_с_ратушей, _ = await _столица(session, catalog)
-    срез = await panel.collect(session, constants, город_с_ратушей)
-    assert срез["blind"] is False
+    city_with_townhall, _ = await _capital(session, catalog)
+    snapshot = await panel.collect(session, constants, city_with_townhall)
+    assert snapshot["blind"] is False
 
 
-async def test_публичный_срез_без_казны(
+async def test_public_snapshot_without_treasury(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Цены и обороты знают все, казна — по праву (D-047, D-140)."""
-    город, _ = await _столица(session, catalog)
-    открытый = await panel.collect(session, constants, город)
-    assert "treasury" not in открытый
-    assert set(открытый) >= {"market", "people", "production", "energy", "goods"}
+    """Everyone knows prices and turnovers, the treasury by right (D-047, D-140)."""
+    city, _ = await _capital(session, catalog)
+    opened = await panel.collect(session, constants, city)
+    assert "treasury" not in opened
+    assert set(opened) >= {"market", "people", "production", "energy", "goods"}
 
-    полный = await panel.collect(session, constants, город, full=True)
-    assert "treasury" in полный
+    full = await panel.collect(session, constants, city, full=True)
+    assert "treasury" in full
 
 
-async def test_казна_разложена_по_основаниям(
+async def test_treasury_broken_down_by_grounds(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Одной суммой панель бесполезна: решать нужно по статьям."""
-    город, ядро = await _столица(session, catalog)
-    казна = await town.treasury(session, город)
+    """As one sum the panel is useless: decisions are made by line item."""
+    city, core = await _capital(session, catalog)
+    treasury = await town.treasury(session, city)
     genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
     await ledger.transfer(
         session, PostingReason.GENESIS,
-        debit=genesis.id, credit=казна.id, amount=money(100),
+        debit=genesis.id, credit=treasury.id, amount=money(100),
     )
 
-    срез = await panel.collect(session, constants, город, full=True)
-    казна_среза = срез["treasury"]
-    assert казна_среза["balance"] == 100
-    assert казна_среза["collected"].get(PostingReason.GENESIS.value) == 100
+    snapshot = await panel.collect(session, constants, city, full=True)
+    snapshot_treasury = snapshot["treasury"]
+    assert snapshot_treasury["balance"] == 100
+    assert snapshot_treasury["collected"].get(PostingReason.GENESIS.value) == 100
 
 
-async def test_окно_панели_из_вольта(
+async def test_panel_window_from_vault(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Шаг медленнее рынка нарочно, и он не выдуман движком (D-124)."""
-    город, _ = await _столица(session, catalog)
-    срез = await panel.collect(session, constants, город)
-    assert срез["window_hours"] == constants[R.TRADE_REPORT_WINDOW]
+    """The step is deliberately slower than the market, and it is not invented by the engine
+    (D-124)."""
+    city, _ = await _capital(session, catalog)
+    snapshot = await panel.collect(session, constants, city)
+    assert snapshot["window_hours"] == constants[R.TRADE_REPORT_WINDOW]
 
 
-async def test_право_на_панель_отдельное(
+async def test_panel_right_is_separate(
     session: AsyncSession, catalog: Catalog
 ) -> None:
-    """Дашборд — такое же точечное право, как и закон: его выдают отдельно."""
-    город, ядро = await _столица(session, catalog)
-    президент = await world.create_identity(session, f"П-{uuid.uuid4().hex[:6]}")
-    тело = await world.print_body(session, президент, ядро)
-    await town.install_founder(session, город, президент)
-    assert await town.may(session, президент.id, город, Power.DASHBOARD)
+    """The dashboard is as narrow a right as a law: it is granted separately."""
+    city, core = await _capital(session, catalog)
+    president = await world.create_identity(session, f"П-{uuid.uuid4().hex[:6]}")
+    body = await world.print_body(session, president, core)
+    await town.install_founder(session, city, president)
+    assert await town.may(session, president.id, city, Power.DASHBOARD)
 
-    счетовод = await world.create_identity(session, f"С-{uuid.uuid4().hex[:6]}")
-    await world.print_body(session, счетовод, ядро)
+    bookkeeper = await world.create_identity(session, f"С-{uuid.uuid4().hex[:6]}")
+    await world.print_body(session, bookkeeper, core)
     await town.appoint(
-        session, президент, город, счетовод,
-        title="Счетовод", powers=(Power.DASHBOARD.value,), body=тело,
+        session, president, city, bookkeeper,
+        title="Счетовод", powers=(Power.DASHBOARD.value,), body=body,
     )
-    assert await town.may(session, счетовод.id, город, Power.DASHBOARD)
-    assert not await town.may(session, счетовод.id, город, Power.TREASURY)
+    assert await town.may(session, bookkeeper.id, city, Power.DASHBOARD)
+    assert not await town.may(session, bookkeeper.id, city, Power.TREASURY)
 
 
-async def test_срез_города_ложится_в_историю(
+async def test_city_snapshot_lands_in_history(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Отличать всплеск от тенденции без истории невозможно (D-140)."""
+    """Telling a spike from a trend is impossible without history (D-140)."""
     from src.telemetry import metrics
 
-    город, _ = await _столица(session, catalog)
-    сколько = await panel.store_daily(session, constants)
-    assert сколько >= 1
+    city, _ = await _capital(session, catalog)
+    qty = await panel.store_daily(session, constants)
+    assert qty >= 1
 
-    ряд = await metrics.history(session, f"city.{город.id}.treasury", days=3)
-    assert ряд, "срез города обязан попасть в ту же таблицу, что и срез мира"
+    row = await metrics.history(session, f"city.{city.id}.treasury", days=3)
+    assert row, "срез города обязан попасть в ту же таблицу, что и срез мира"

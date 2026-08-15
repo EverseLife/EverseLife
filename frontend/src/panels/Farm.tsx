@@ -1,9 +1,9 @@
 /**
- * Делянки — сцена локации (D-118).
+ * Plots -- the location scene (D-118).
  *
- * Всё здесь присутственное: землю метят, пашут, сеют, обходят и убирают
- * ногами — и только на своём участке. Чужая земля показывает хозяина, дикая —
- * предлагает занять: земля не даётся объявлением (06-farming).
+ * Everything here is in-person: land is surveyed, ploughed, sown, tended and
+ * harvested on foot -- and only on your own plot. Somebody else's land shows
+ * the owner, wild land offers to take it: land is not given by announcement (06-farming).
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -28,20 +28,20 @@ type Row = {
   culture_name?: string;
   variety?: string;
   ripe?: boolean;
-  /** Знает ли хозяин агротехнику сорта: от этого зависит всё ниже (D-057). */
+  /** Whether the owner knows the cultivar's agrotech: everything below depends on it (D-057). */
   agrotech?: boolean;
   ripe_at?: string;
   asks_care?: boolean;
   missed_days?: number;
   fertility_required?: number;
   water_need?: number;
-  /** Без агротехники видно только это — что с этим делать, догадывайся. */
+  /** Without agrotech only this is seen -- what to do about it, guess. */
   symptoms?: string[];
 };
 
-//: Симптомы общие для всех культур, нормы — разные. Поэтому опытный человек
-//: читает грядку с одного взгляда даже у незнакомого сорта, а точные числа всё
-//: равно должен знать или вывести (D-057).
+//: Symptoms are common to all crops, norms differ. So an experienced person
+//: reads a bed at a glance even for an unfamiliar cultivar, while the exact
+//: numbers they still have to know or derive (D-057).
 const SYMPTOM: Record<string, string> = {
   thirst: "листья вялые",
   pale: "бледный лист",
@@ -57,30 +57,30 @@ const STATE: Record<Row["state"], string> = {
 };
 
 export function Farm({ look, session, busy, act }: Props) {
-  const мой = Boolean(look.node?.mine);
-  const хозяин = look.node?.owner ?? null;
+  const mine = Boolean(look.node?.mine);
+  const owner = look.node?.owner ?? null;
   const [rows, setRows] = useState<Row[]>([]);
   const [plants, setPlants] = useState<
     { id: string; name: string; gives: string; seed: string }[]
   >([]);
-  const [имя, setИмя] = useState("");
-  const [метров, setМетров] = useState(10);
-  //: Сеют партией семян, а не культурой: у партии свой сорт и своя сила.
-  const [партия, setПартия] = useState("");
+  const [name, setName] = useState("");
+  const [metres, setMetres] = useState(10);
+  //: One sows with a batch of seeds, not a crop: the batch has its own cultivar and strength.
+  const [batch, setBatch] = useState("");
 
-  const текущий = look.node?.key;
+  const current_ = look.node?.key;
 
-  //: Семена узнаются по имени из данных вольта, а не по догадке клиента.
-  const имена_семян = new Set(plants.map((p) => p.seed));
-  const семена = look.inventory.filter((т) => имена_семян.has(т.goods));
+  //: Seeds are recognised by name from vault data, not by the client's guess.
+  const seedNames = new Set(plants.map((p) => p.seed));
+  const seeds = look.inventory.filter((t) => seedNames.has(t.goods));
 
   const reload = useCallback(async () => {
     const answer = await session.send("farm.survey");
-    setRows((answer.plots as Row[]).filter((row) => row.node_key === текущий));
-  }, [session, текущий]);
+    setRows((answer.plots as Row[]).filter((row) => row.node_key === current_));
+  }, [session, current_]);
 
-  //: Сводка перечитывается вместе с общим опросом: пахоту заканчивает воркер,
-  //: и её завершение приходит миром, а не кликом.
+  //: The summary is reread together with the general poll: ploughing is
+  //: finished by the worker, and its completion comes from the world, not a click.
   useEffect(() => {
     void reload();
   }, [reload, look]);
@@ -89,20 +89,20 @@ export function Farm({ look, session, busy, act }: Props) {
     void api.plants().then((p) => setPlants(p.plants));
   }, []);
 
-  const го = (what: () => Promise<unknown>) =>
+  const go = (what: () => Promise<unknown>) =>
     act(async () => {
       await what();
       await reload();
     });
 
-  //: Хозяйство ведёт владелец: сначала займи землю (06-farming).
-  if (!мой) {
+  //: The holder runs the estate: take the land first (06-farming).
+  if (!mine) {
     return (
       <section>
         <h2>Земля</h2>
-        {хозяин ? (
+        {owner ? (
           <p className="note">
-            Участок {хозяин}. Чужим хозяйством не управляют: наём — это доступ
+            Участок {owner}. Чужим хозяйством не управляют: наём — это доступ
             плюс доля через договор (D-116).
           </p>
         ) : (
@@ -158,12 +158,12 @@ export function Farm({ look, session, busy, act }: Props) {
             {row.state === "sown" && !row.agrotech && (row.symptoms?.length ?? 0) > 0 && (
               <i>
                 {" · "}
-                {row.symptoms!.map((код) => SYMPTOM[код] ?? код).join(", ")}
+                {row.symptoms!.map((code) => SYMPTOM[code] ?? code).join(", ")}
               </i>
             )}
           </span>
           {row.state === "idle" && (
-            <button onClick={() => го(() => session.send("farm.plow", { plot: row.id }))}
+            <button onClick={() => go(() => session.send("farm.plow", { plot: row.id }))}
                     disabled={busy}>
               Вспахать
             </button>
@@ -171,27 +171,27 @@ export function Farm({ look, session, busy, act }: Props) {
           {row.state === "plowed" && (
             <>
               <select
-                value={партия || семена[0]?.id || ""}
-                onChange={(e) => setПартия(e.target.value)}
+                value={batch || seeds[0]?.id || ""}
+                onChange={(e) => setBatch(e.target.value)}
               >
-                {семена.length === 0 && <option value="">— семян нет —</option>}
-                {семена.map((т) => (
-                  <option key={т.id} value={т.id}>
-                    {т.goods} · {т.amount.toFixed(0)}
-                    {т.vigor != null ? ` · сила ${т.vigor.toFixed(0)}` : ""}
+                {seeds.length === 0 && <option value="">— семян нет —</option>}
+                {seeds.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.goods} · {t.amount.toFixed(0)}
+                    {t.vigor != null ? ` · сила ${t.vigor.toFixed(0)}` : ""}
                   </option>
                 ))}
               </select>
               <button
                 onClick={() =>
-                  го(() =>
+                  go(() =>
                     session.send("farm.sow", {
                       plot: row.id,
-                      seeds: партия || семена[0]?.id,
+                      seeds: batch || seeds[0]?.id,
                     }),
                   )
                 }
-                disabled={busy || семена.length === 0}
+                disabled={busy || seeds.length === 0}
               >
                 Посеять
               </button>
@@ -199,9 +199,10 @@ export function Farm({ look, session, busy, act }: Props) {
           )}
           {row.state === "sown" && !row.ripe && (
             <button
-              onClick={() => го(() => session.send("farm.care", { plot: row.id }))}
-              //: Без агротехники «сегодня уже ухожено» игроку неизвестно —
-              //: кнопка живая, а лишний обход движок отклонит сам.
+              onClick={() => go(() => session.send("farm.care", { plot: row.id }))}
+              //: Without agrotech "already tended today" is unknown to the
+              //: player -- the button is live, and an extra round the engine rejects itself.
+
               disabled={busy || (row.agrotech === true && !row.asks_care)}
               title={row.agrotech && !row.asks_care ? "сегодня уже ухожено" : ""}
             >
@@ -212,7 +213,7 @@ export function Farm({ look, session, busy, act }: Props) {
             <>
               <button
                 onClick={() =>
-                  го(() =>
+                  go(() =>
                     session.send("farm.harvest", { plot: row.id, select: true }),
                   )
                 }
@@ -223,7 +224,7 @@ export function Farm({ look, session, busy, act }: Props) {
               </button>
               <button
                 className="quiet"
-                onClick={() => го(() => session.send("farm.harvest", { plot: row.id }))}
+                onClick={() => go(() => session.send("farm.harvest", { plot: row.id }))}
                 disabled={busy}
                 title="убрать не глядя: семенной фонд потеряет силу"
               >
@@ -236,21 +237,21 @@ export function Farm({ look, session, busy, act }: Props) {
 
       <div className="row">
         <input
-          value={имя}
+          value={name}
           placeholder="имя делянки"
-          onChange={(e) => setИмя(e.target.value)}
+          onChange={(e) => setName(e.target.value)}
         />
         <input
           type="number"
-          value={метров}
-          onChange={(e) => setМетров(Number(e.target.value))}
+          value={metres}
+          onChange={(e) => setMetres(Number(e.target.value))}
           title="площадь, м²"
         />
         <button
           onClick={() =>
-            го(async () => {
-              await session.send("farm.mark", { name: имя, area: метров });
-              setИмя("");
+            go(async () => {
+              await session.send("farm.mark", { name: name, area: metres });
+              setName("");
             })
           }
           disabled={busy}

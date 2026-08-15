@@ -1,9 +1,9 @@
-"""Узел — атом мира, и жила внутри него.
+"""The node -- the atom of the world, and the vein inside it.
 
-Узел — это не «место, где стоит здание», а само здание: локация, лист графа,
-точка, куда приходят (D-089, 10-world/07-map-topology). В узле ровно одна
-постройка **или** жила **или** ничего — это инвариант целостности, а не
-пожелание (05-domain-model, И4).
+A node is not "a place where a building stands" but the building itself: a
+location, a graph leaf, a point one arrives at (D-089, 10-world/07-map-topology).
+A node holds exactly one building **or** vein **or** nothing -- that is an
+integrity invariant, not a wish (05-domain-model, I4).
 """
 
 from __future__ import annotations
@@ -36,20 +36,21 @@ class Planet(StrEnum):
 
 
 class Layer(StrEnum):
-    """Слой карты, на котором узел показывается (D-045, D-097).
+    """The map layer the node is shown on (D-045, D-097).
 
-    Мир — один граф локаций; слои — абстракция показа, а не устройство мира.
-    Узлы верхних слоёв (планета на космосе, город на планете) — представители
-    групп: у них есть дети, но по ним не ходят — ходят по листьям.
+    The world is one graph of locations; layers are a display abstraction, not
+    the world's structure. Upper-layer nodes (a planet in space, a city on a
+    planet) are group delegates: they have children, but one does not walk on
+    them -- one walks on the leaves.
     """
 
-    #: Планеты и корабли: то, что видно из космоса.
+    #: Planets and ships: what is seen from space.
     SPACE = "space"
-    #: Города и крупные одиночные локации планеты.
+    #: Cities and large solitary locations of the planet.
     PLANET = "planet"
-    #: Городская застройка: кольца вокруг биопринтера (D-089).
+    #: City built-up area: rings around the bioprinter (D-089).
     CITY = "city"
-    #: Субузлы локации: этажи дома, комнаты комплекса.
+    #: Sub-nodes of a location: floors of a house, rooms of a complex.
     LOCATION = "location"
 
 
@@ -58,29 +59,29 @@ class Node(Base):
     __table_args__ = (Index("ix_node_parent", "parent_id"),)
 
     id: Mapped[uuid.UUID] = uuid_pk()
-    #: Устойчивый ключ для ссылок из данных и тестов: `terra.capital`.
+    #: A stable key for references from data and tests: `terra.capital`.
     key: Mapped[str] = mapped_column(unique=True, nullable=False)
     name: Mapped[str] = mapped_column(nullable=False)
     planet: Mapped[Planet] = enum_column(Planet, "planet", nullable=False)
 
-    #: На каком слое узел показывается. Ходят по листьям; узел с детьми —
-    #: представитель группы на своём слое.
+    #: Which layer the node is shown on. One walks on leaves; a node with
+    #: children is the group's delegate on its layer.
     layer: Mapped[Layer] = enum_column(Layer, "node_layer", nullable=False, default=Layer.CITY)
-    #: Группа, в которую узел входит: локация → город → планета. Иерархия
-    #: показа поверх графа, а не второй граф.
+    #: The group the node belongs to: location -> city -> planet. A display
+    #: hierarchy over the graph, not a second graph.
     parent_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("node.id"), nullable=True)
 
-    #: Площадь участка, м². Разыгрывается при появлении узла (D-125).
+    #: Plot area, m2. Rolled when the node appears (D-125).
     area_m2: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False)
 
-    #: Свойства места: температура, осадки, вода, плодородие, ветер, лес.
-    #: Разыгрываются при генерации, сумма достоинств ограничена (D-126).
-    #: Лежат картой, потому что состав свойств ещё будет меняться.
+    #: Place properties: temperature, rainfall, water, fertility, wind, forest.
+    #: Rolled at generation, the sum of merits is bounded (D-126). Kept as a
+    #: map because the set of properties will still change.
     properties: Mapped[dict[str, Any]] = mapped_column(nullable=False, default=dict)
 
     owner_city_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
-    #: Хозяин участка: землю занимают присутственно, в диком узле (06-farming).
-    #: Титул продаётся меной наравне с вещами (D-116) — когда мена приедет.
+    #: The plot's owner: land is taken in person, in a wild node (06-farming).
+    #: The title is sold by exchange like things (D-116) -- when exchange arrives.
     owner_identity_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("identity.id"), nullable=True
     )
@@ -88,22 +89,22 @@ class Node(Base):
 
 
 class Surface(StrEnum):
-    """Покрытие ребра решает и время, и саму возможность проехать (D-107)."""
+    """The edge's surface decides both time and the very possibility to drive through (D-107)."""
 
-    #: Бездорожье: вдвое-втрое дольше, транспорт не проходит вовсе.
+    #: Offroad: two to three times longer, no vehicle passes at all.
     TRAIL = "trail"
-    #: Дорога — эталон времени.
+    #: Road -- the time reference.
     ROAD = "road"
-    #: Мощёный тракт: быстрее, держит тяжёлый транспорт.
+    #: Paved highway: faster, holds heavy vehicles.
     PAVED = "paved"
 
 
 class Edge(Base):
-    """Ребро графа: маршрут со свойствами, а не просто связь (10-world/07).
+    """A graph edge: a route with properties, not just a link (10-world/07).
 
-    Ребро **ненаправленное**: дорога одинакова в обе стороны. Хранится одной
-    строкой, а поиск идёт по обоим концам — иначе рано или поздно появится
-    ребро, ведущее только туда.
+    The edge is **undirected**: the road is the same both ways. Stored as one
+    row, and lookup goes by both ends -- otherwise sooner or later an edge
+    leading only one way appears.
     """
 
     __tablename__ = "edge"
@@ -119,21 +120,21 @@ class Edge(Base):
     node_a_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("node.id"), nullable=False)
     node_b_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("node.id"), nullable=False)
 
-    #: Сколько идти пешком по дороге. Секунды: шаг внутри города и переход
-    #: между узлами живут в одной величине, а не в двух разных единицах.
+    #: How long to walk along the road. Seconds: a step inside the city and a
+    #: transit between nodes live in one quantity, not two different units.
     base_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
     surface: Mapped[Surface] = enum_column(
         Surface, "edge_surface", nullable=False, default=Surface.ROAD
     )
-    #: Состояние покрытия, 0…100 (D-158). Падает на `road.decay_rate` в сутки;
-    #: на нуле покрытие опускается на ступень, а состояние начинается заново.
-    #: У бездорожья смысла не имеет: зарастать там нечему.
+    #: Surface condition, 0..100 (D-158). Falls by `road.decay_rate` per day;
+    #: at zero the surface drops a tier and the condition starts anew. For
+    #: offroad it has no meaning: nothing there to overgrow.
     condition: Mapped[float] = mapped_column(Numeric(6, 2), nullable=False, default=100)
     created_at: Mapped[datetime] = created_column()
 
 
 class Vein(Base):
-    """Жила: порода, запас, богатство. Жилы конечны — это неотменяемо (столп П2)."""
+    """A vein: species, stock, richness. Veins are finite -- that is irrevocable (pillar P2)."""
 
     __tablename__ = "vein"
     __table_args__ = (
@@ -145,18 +146,18 @@ class Vein(Base):
     id: Mapped[uuid.UUID] = uuid_pk()
     node_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("node.id"), nullable=False)
 
-    #: Порода — имя сырья из `build/recipes.json` («Руда», «Уголь», «Камень»).
+    #: The species -- a raw-material name from `build/recipes.json` ("Ore", "Coal", "Stone").
     resource: Mapped[str] = mapped_column(nullable=False)
 
-    #: Богатство 0…100. Задаёт выход, качество сырья и устойчивость свода.
-    #: Падает по мере выработки на `vein.richness_decay` за `vein.depletion_step`.
+    #: Richness 0..100. Sets yield, raw-material quality and roof stability.
+    #: Falls as worked out by `vein.richness_decay` per `vein.depletion_step`.
     richness: Mapped[float] = mapped_column(Numeric(6, 2), nullable=False)
 
-    #: Оставшийся запас во внутренних единицах (`units.AMOUNT_SCALE`).
-    #: Дошёл до нуля — жила исчезает, и шахтёрский город вместе с ней.
+    #: The remaining stock in internal units (`units.AMOUNT_SCALE`).
+    #: Reached zero -- the vein disappears, and the mining town with it.
     remaining: Mapped[int] = mapped_column(BigInteger, nullable=False)
 
-    #: Сколько всего выбрано — по этому считаются ступени истощения.
+    #: How much has been extracted in total -- depletion tiers are counted from it.
     extracted: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
 
     created_at: Mapped[datetime] = created_column()

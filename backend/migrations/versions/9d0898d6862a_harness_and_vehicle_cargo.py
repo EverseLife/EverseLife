@@ -1,12 +1,13 @@
-"""Упряжка: кто во что впряжён (D-157).
+"""Harness: who is harnessed to what (D-157).
 
-Трюм отдельной таблицы не требует — это обычный контейнер вида `vehicle`,
-который заводится по первой погрузке.
+The hold needs no separate table -- it is an ordinary container of kind
+`vehicle`, created on the first loading.
 
 Revision ID: 9d0898d6862a
 Revises: a91f3c2d7e01
 Create Date: 2026-08-14 03:05:37.287182
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence

@@ -1,9 +1,10 @@
-"""Срок обязательства новичка: гражданство, взятое при печати (D-184).
+"""Newcomer's obligation term: citizenship taken at printing (D-184).
 
 Revision ID: 384bc599a596
 Revises: 66e943925b9c
 Create Date: 2026-08-15 14:15:39.318393
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence

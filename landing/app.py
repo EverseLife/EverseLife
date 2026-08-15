@@ -1,12 +1,13 @@
-"""Лендинг octoverse.world: страница и приём заявок на бету.
+"""The octoverse.world landing page: the page and beta signup intake.
 
-Одна служба на весь домен: отдаёт `index.html` и принимает `POST /api/signup`.
-Заявка — почта в SQLite (`/data/signups.db`, том состава): своя маленькая база,
-чтобы не пускать лендинг в мир игры. Выгрузка — `python export.py` в контейнере.
+One service for the whole domain: serves `index.html` and accepts `POST /api/signup`.
+A signup is an email in SQLite (`/data/signups.db`, a compose volume): its own
+small database, so as not to let the landing into the game world. Export --
+`python export.py` in the container.
 
-Ответ на заявку всегда `{"ok": true}`, даже на повтор: чужой почтой нельзя
-проверить, подписан ли её хозяин. Роботов отсеивают приманка-поле `website`
-и ограничение частоты с адреса.
+The reply to a signup is always `{"ok": true}`, even on a repeat: somebody
+else's email must not let you check whether its owner is subscribed. Bots are
+filtered by the honeypot field `website` and a per-address rate limit.
 """
 
 import json
@@ -26,17 +27,17 @@ from pydantic import BaseModel
 DB_PATH = Path(os.environ.get("LANDING_DB", "/data/signups.db"))
 INDEX = Path(__file__).parent / "index.html"
 
-#: Почта: непустое до @, непустое после, точка в домене. Строже не нужно —
-#: настоящая проверка случится, когда на адрес уйдёт письмо.
+#: Email: non-empty before @, non-empty after, a dot in the domain. Stricter is
+#: not needed -- the real check happens when a letter goes to the address.
 EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 EMAIL_MAX = 254
 
-#: Ограничение частоты: столько заявок с одного адреса за окно. Живёт в памяти
-#: процесса — этого достаточно, у лендинга один процесс.
+#: Rate limit: this many signups from one address per window. Lives in process
+#: memory -- enough, the landing has one process.
 RATE_WINDOW_SECONDS = 60.0
 RATE_MAX_PER_WINDOW = 5
 
-#: Вебхук служебного канала в Discord. Пусто — лендинг молчит.
+#: The Discord service-channel webhook. Empty -- the landing is silent.
 DISCORD_WEBHOOK = os.environ.get("LANDING_DISCORD_WEBHOOK", "")
 NOTIFY_TIMEOUT = 10.0
 
@@ -63,7 +64,7 @@ def _connect() -> sqlite3.Connection:
 
 
 def _client_ip(request: Request) -> str:
-    # Наружу смотрит только Caddy, он же ставит X-Forwarded-For.
+    # Only Caddy faces outside, and it sets X-Forwarded-For.
     forwarded = request.headers.get("x-forwarded-for")
     if forwarded:
         return forwarded.split(",")[0].strip()
@@ -83,12 +84,12 @@ def _rate_limited(ip: str) -> bool:
 
 
 def _notify(total: int) -> None:
-    """Сказать в служебный канал Discord, что заявок стало больше.
+    """Tell the Discord service channel that there are more signups.
 
-    Адреса здесь нет и не будет. Заявка — чужая почта, а канал видят
-    посторонние: наружу идёт только счётчик, а сами адреса забираются с
-    сервера выгрузкой (`export.py`). Молчащий вебхук заявку не роняет —
-    она к этому моменту уже записана.
+    There is and will be no address here. A signup is somebody's email, and
+    outsiders see the channel: only the counter goes out, and the addresses
+    themselves are fetched from the server by export (`export.py`). A silent
+    webhook does not drop the signup -- by this moment it is already recorded.
     """
     if not DISCORD_WEBHOOK:
         return
@@ -114,7 +115,7 @@ def _notify(total: int) -> None:
 
 class Signup(BaseModel):
     email: str
-    #: Приманка: поле скрыто на странице, человек его не заполнит.
+    #: Honeypot: the field is hidden on the page, a human will not fill it.
     website: str = ""
 
 
@@ -136,7 +137,7 @@ def health() -> dict:
 @app.post("/api/signup")
 def signup(body: Signup, request: Request) -> JSONResponse:
     if body.website:
-        # Робот заполнил приманку: соглашаемся и ничего не записываем.
+        # A bot filled the honeypot: agree and record nothing.
         return JSONResponse({"ok": True})
 
     ip = _client_ip(request)
@@ -150,18 +151,18 @@ def signup(body: Signup, request: Request) -> JSONResponse:
     conn = _connect()
     try:
         with conn:
-            курсор = conn.execute(
+            cursor = conn.execute(
                 "INSERT OR IGNORE INTO signups (email, created_at, ip) VALUES (?, ?, ?)",
                 (email, datetime.now(UTC).isoformat(timespec="seconds"), ip),
             )
-            #: Повтор той же почты не новость: считаем и сообщаем только про
-            #: действительно новую запись.
-            новая = курсор.rowcount == 1
-            всего = conn.execute("SELECT COUNT(*) FROM signups").fetchone()[0]
+            #: A repeat of the same email is not news: we count and report only
+            #: a genuinely new record.
+            new_one = cursor.rowcount == 1
+            in_total = conn.execute("SELECT COUNT(*) FROM signups").fetchone()[0]
     finally:
         conn.close()
 
-    if новая:
-        #: Отдельным потоком: ответ заявителю не должен ждать чужой сети.
-        threading.Thread(target=_notify, args=(всего,), daemon=True).start()
+    if new_one:
+        #: In a separate thread: the applicant's reply must not wait for somebody's network.
+        threading.Thread(target=_notify, args=(in_total,), daemon=True).start()
     return JSONResponse({"ok": True})

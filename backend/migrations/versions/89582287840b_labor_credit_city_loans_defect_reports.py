@@ -1,13 +1,15 @@
-"""Кредит по труду, займы через город, репорты (D-173, D-175).
+"""Labour credit, loans through the city, reports (D-173, D-175).
 
-Залог упразднён вместе с колонками; сеньораж — вместе с таблицей. У новых
-колонок займа умолчания: старые займы — прямые столичные без маржи.
+Collateral is abolished together with its columns; seigniorage together with
+its table. New loan columns have defaults: old loans are direct capital loans
+without margin.
 
 
 Revision ID: 89582287840b
 Revises: e7c2a39e4c96
 Create Date: 2026-08-14 19:18:28.791905
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence

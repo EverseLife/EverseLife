@@ -39,7 +39,7 @@
       "port": 8000
     },
     {
-      "name": "backend-проверка",
+      "name": "backend-check",
       "runtimeExecutable": ".venv/Scripts/python.exe",
       "runtimeArgs": [
         "-m",
@@ -52,7 +52,7 @@
       "port": 8001
     },
     {
-      "name": "frontend-проверка",
+      "name": "frontend-check",
       "runtimeExecutable": "powershell",
       "runtimeArgs": [
         "-Command",

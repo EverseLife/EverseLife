@@ -1,11 +1,11 @@
-"""Гибернация (D-091).
+"""Hibernation (D-091).
 
-Проверяется то, ради чего сон устроен именно так:
+Checked is what sleep is built this way for:
 
-* восстановление считается по фактически проспанному времени — тик не нужен;
-* дома (с кроватью) быстрее ровно в `body.hibernation_home_k` раз;
-* спать впрок нельзя: потолок — `body.stamina_max`, полному ложиться незачем;
-* спящий недоступен для присутственного — этим сон и платит.
+* recovery is computed by the time actually slept -- no tick needed;
+* at home (with a bed) exactly `body.hibernation_home_k` times faster;
+* no sleeping in advance: the ceiling is `body.stamina_max`, a full one has no reason to lie down;
+* a sleeper is unavailable for in-person actions -- that is how sleep pays.
 """
 
 from __future__ import annotations
@@ -23,96 +23,96 @@ from src.engine import chat, mining, rest, travel, world
 from src.models.chat import Utterance
 
 
-async def _усталый(session: AsyncSession, *, stamina: float = 40, кровать: bool = False):
-    метка = uuid.uuid4().hex[:8]
-    node = await world.create_node(session, f"terra.camp.{метка}", "Привал", area_m2=100)
-    identity = await world.create_identity(session, f"Усталый-{метка}")
+async def _tired(session: AsyncSession, *, stamina: float = 40, bed: bool = False):
+    stamp = uuid.uuid4().hex[:8]
+    node = await world.create_node(session, f"terra.camp.{stamp}", "Привал", area_m2=100)
+    identity = await world.create_identity(session, f"Усталый-{stamp}")
     body = await world.print_body(session, identity, node)
     body.stamina = Decimal(str(stamina))
-    if кровать:
-        двор = await world.node_container(session, node)
-        await world.grant_item(session, двор, rest.BED, quality=50, origin="тест")
+    if bed:
+        yard = await world.node_container(session, node)
+        await world.grant_item(session, yard, rest.BED, quality=50, origin="тест")
     await session.flush()
     return node, body
 
 
-async def test_сон_восстанавливает_по_времени(
+async def test_sleep_restores_over_time(
     session: AsyncSession, constants: Constants
 ) -> None:
-    """Начисление при пробуждении, по фактическим часам — офлайн и без тика."""
-    _, body = await _усталый(session, stamina=40)
-    лёг = datetime.now(UTC)
-    await rest.sleep(session, constants, body, now=лёг)
+    """Credited on waking, by actual hours -- offline and without a tick."""
+    _, body = await _tired(session, stamina=40)
+    lay_down = datetime.now(UTC)
+    await rest.sleep(session, constants, body, now=lay_down)
 
-    вернулось = await rest.wake(session, constants, body, now=лёг + timedelta(hours=2))
+    returned = await rest.wake(session, constants, body, now=lay_down + timedelta(hours=2))
     await session.commit()
 
-    assert вернулось == pytest.approx(2 * constants[R.BODY_HIBERNATION_RATE])
-    assert float(body.stamina) == pytest.approx(40 + вернулось)
+    assert returned == pytest.approx(2 * constants[R.BODY_HIBERNATION_RATE])
+    assert float(body.stamina) == pytest.approx(40 + returned)
     assert body.sleeping_since is None
 
 
-async def test_дома_быстрее(session: AsyncSession, constants: Constants) -> None:
-    """Кровать и есть дом, пока своих построек нет (Э3)."""
-    _, в_поле = await _усталый(session, stamina=10)
-    _, дома = await _усталый(session, stamina=10, кровать=True)
-    лёг = datetime.now(UTC)
+async def test_faster_at_home(session: AsyncSession, constants: Constants) -> None:
+    """The bed is the home while there are no own buildings (E3)."""
+    _, in_field = await _tired(session, stamina=10)
+    _, at_home = await _tired(session, stamina=10, bed=True)
+    lay_down = datetime.now(UTC)
 
-    await rest.sleep(session, constants, в_поле, now=лёг)
-    await rest.sleep(session, constants, дома, now=лёг)
-    assert not в_поле.sleeping_home
-    assert дома.sleeping_home
+    await rest.sleep(session, constants, in_field, now=lay_down)
+    await rest.sleep(session, constants, at_home, now=lay_down)
+    assert not in_field.sleeping_home
+    assert at_home.sleeping_home
 
-    час = лёг + timedelta(hours=1)
-    просто = await rest.wake(session, constants, в_поле, now=час)
-    с_кроватью = await rest.wake(session, constants, дома, now=час)
-    assert с_кроватью == pytest.approx(просто * constants[R.BODY_HIBERNATION_HOME_K])
+    hour = lay_down + timedelta(hours=1)
+    plain = await rest.wake(session, constants, in_field, now=hour)
+    with_bed = await rest.wake(session, constants, at_home, now=hour)
+    assert with_bed == pytest.approx(plain * constants[R.BODY_HIBERNATION_HOME_K])
 
 
-async def test_спать_впрок_нельзя(session: AsyncSession, constants: Constants) -> None:
-    """Потолок — `body.stamina_max`; полному ложиться незачем."""
-    _, почти_полный = await _усталый(session, stamina=constants[R.BODY_STAMINA_MAX] - 1)
-    лёг = datetime.now(UTC)
-    await rest.sleep(session, constants, почти_полный, now=лёг)
-    await rest.wake(session, constants, почти_полный, now=лёг + timedelta(hours=50))
-    assert float(почти_полный.stamina) == constants[R.BODY_STAMINA_MAX]
+async def test_cannot_sleep_in_advance(session: AsyncSession, constants: Constants) -> None:
+    """The ceiling is `body.stamina_max`; a full one has no reason to lie down."""
+    _, almost_full = await _tired(session, stamina=constants[R.BODY_STAMINA_MAX] - 1)
+    lay_down = datetime.now(UTC)
+    await rest.sleep(session, constants, almost_full, now=lay_down)
+    await rest.wake(session, constants, almost_full, now=lay_down + timedelta(hours=50))
+    assert float(almost_full.stamina) == constants[R.BODY_STAMINA_MAX]
 
     with pytest.raises(rest.NotTired):
-        await rest.sleep(session, constants, почти_полный)
+        await rest.sleep(session, constants, almost_full)
 
 
-async def test_спящий_недоступен_для_присутственного(
+async def test_sleeper_unavailable_for_in_person(
     session: AsyncSession, constants: Constants
 ) -> None:
-    """Проспал — партию выкупили: этим гибернация и платит (D-091)."""
-    node, body = await _усталый(session)
-    жила = await world.create_vein(session, node, "Железная руда", richness=60, remaining=1000)
-    соседний = await world.create_node(session, f"terra.next.{uuid.uuid4().hex[:6]}",
+    """Overslept -- the lot got bought: that is how hibernation pays (D-091)."""
+    node, body = await _tired(session)
+    vein = await world.create_vein(session, node, "Железная руда", richness=60, remaining=1000)
+    adjacent = await world.create_node(session, f"terra.next.{uuid.uuid4().hex[:6]}",
                                        "Рядом", area_m2=50)
-    await travel.connect(session, node, соседний, base_seconds=10)
+    await travel.connect(session, node, adjacent, base_seconds=10)
 
     await rest.sleep(session, constants, body)
 
     with pytest.raises(travel.Asleep):
-        await mining.start(session, constants, body, жила)
+        await mining.start(session, constants, body, vein)
     with pytest.raises(travel.Asleep):
-        await travel.depart(session, constants, body, соседний)
+        await travel.depart(session, constants, body, adjacent)
     with pytest.raises(travel.Asleep):
         await chat.say(session, constants, body, "сплю и говорю", kind=Utterance.SPEECH)
     with pytest.raises(travel.Asleep):
-        #: Спящий не ложится второй раз — он уже лежит.
+        #: A sleeper does not lie down a second time -- they are already lying.
         await rest.sleep(session, constants, body)
 
-    #: Проснуться — можно всегда, это и есть выход.
+    #: Waking up is always allowed -- that is the exit.
     await rest.wake(session, constants, body)
-    await mining.start(session, constants, body, жила)
+    await mining.start(session, constants, body, vein)
 
 
-async def test_в_пути_не_ложатся(session: AsyncSession, constants: Constants) -> None:
-    node, body = await _усталый(session)
-    соседний = await world.create_node(session, f"terra.far.{uuid.uuid4().hex[:6]}",
+async def test_no_lying_down_en_route(session: AsyncSession, constants: Constants) -> None:
+    node, body = await _tired(session)
+    adjacent = await world.create_node(session, f"terra.far.{uuid.uuid4().hex[:6]}",
                                        "Даль", area_m2=50)
-    await travel.connect(session, node, соседний, base_seconds=600)
-    await travel.depart(session, constants, body, соседний)
+    await travel.connect(session, node, adjacent, base_seconds=600)
+    await travel.depart(session, constants, body, adjacent)
     with pytest.raises(travel.InTransit):
         await rest.sleep(session, constants, body)

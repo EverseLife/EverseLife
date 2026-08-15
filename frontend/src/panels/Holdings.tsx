@@ -1,15 +1,15 @@
 /**
- * Хозяйство: городская сеть, аккумуляторы и счета за быт (D-071, D-135, D-149).
+ * Holdings: the city grid, batteries and household bills (D-071, D-135, D-149).
  *
- * Вкладка живёт в сайдбаре, а не в локации, по той же причине, по какой там
- * живут ордера: **это деньги, а не материя**. Счёт за узел приходит раз в
- * период, платится откуда угодно и ни от какого места не зависит.
+ * The tab lives in the sidebar, not the location, for the same reason orders
+ * live there: **this is money, not matter**. A node's bill comes once a
+ * period, is paid from anywhere and depends on no place.
  *
- * Раздел «владения» показывается только тому, у кого владения есть: у
- * большинства их нет, и пустая таблица «ваши узлы: —» была бы шумом.
+ * The "holdings" section is shown only to those who have holdings: most do
+ * not, and an empty table "your nodes: --" would be noise.
  *
- * Заряд аккумулятора — единственное присутственное действие здесь, и оно
- * названо присутственным: сервер откажет, если города вокруг нет.
+ * Charging a battery is the only in-person action here, and it is named
+ * in-person: the server refuses if there is no city around.
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -26,53 +26,53 @@ type Props = {
 type Grid = { city: string; stored: number; tariff: number };
 
 export function Holdings({ look, session, busy, act }: Props) {
-  const [сеть, setСеть] = useState<Grid | null>(null);
-  const [владения, setВладения] = useState<Holding[]>([]);
-  const [рынок_бумаг, setРынокБумаг] = useState<DeedView[]>([]);
-  //: Аккумулятор — станок (D-179): он либо в руках, либо стоит здесь. Оба
-  //: заряжаются одинаково, и держать для этого два окна незачем.
-  const батареи: { id: string; goods: string; charge: number; где: string }[] = [
+  const [grid, setGrid] = useState<Grid | null>(null);
+  const [holdings, setHoldings] = useState<Holding[]>([]);
+  const [deedMarket, setDeedMarket] = useState<DeedView[]>([]);
+  //: A battery is a machine (D-179): it is either in the hands or stands
+  //: here. Both are charged the same, and there is no reason to keep two windows for that.
+  const batteries: { id: string; goods: string; charge: number; where: string }[] = [
     ...look.inventory
-      .filter((т: Thing) => т.charge != null)
-      .map((т) => ({ id: т.id, goods: т.goods, charge: т.charge!, где: "в руках" })),
+      .filter((t: Thing) => t.charge != null)
+      .map((t) => ({ id: t.id, goods: t.goods, charge: t.charge!, where: "в руках" })),
     ...(look.bench ?? [])
-      .filter((станок) => станок.charge != null)
-      .map((станок) => ({
-        id: станок.id,
-        goods: станок.goods,
-        charge: станок.charge!,
-        где: "стоит здесь",
+      .filter((machine) => machine.charge != null)
+      .map((machine) => ({
+        id: machine.id,
+        goods: machine.goods,
+        charge: machine.charge!,
+        where: "стоит здесь",
       })),
   ];
 
   const reload = useCallback(async () => {
-    const сетьОтвет = await session.send("energy.grid");
-    setСеть((сетьОтвет.grid as Grid | null) ?? null);
-    const своё = await session.send("utility.holdings");
-    setВладения((своё.holdings as Holding[]) ?? []);
-    //: Бумаги, которые можно купить: открытые договоры и адресованные мне.
-    const бумаги = await session.send("deed.market");
-    setРынокБумаг((бумаги.deeds as DeedView[]) ?? []);
+    const gridAnswer = await session.send("energy.grid");
+    setGrid((gridAnswer.grid as Grid | null) ?? null);
+    const own = await session.send("utility.holdings");
+    setHoldings((own.holdings as Holding[]) ?? []);
+    //: Deeds that can be bought: open contracts and those addressed to me.
+    const deeds = await session.send("deed.market");
+    setDeedMarket((deeds.deeds as DeedView[]) ?? []);
   }, [session]);
 
   useEffect(() => {
     void reload();
   }, [reload, look]);
 
-  const го = (what: () => Promise<unknown>) =>
+  const go = (what: () => Promise<unknown>) =>
     act(async () => {
       await what();
       await reload();
     });
 
-  const долг = владения.reduce((сумма, узел) => сумма + узел.debt, 0);
+  const debt = holdings.reduce((amount, node) => amount + node.debt, 0);
 
   return (
     <div>
       <h3>Городская сеть</h3>
-      {сеть ? (
+      {grid ? (
         <p className="sign">
-          {сеть.city}: в пуле {сеть.stored.toFixed(0)} · тариф {сеть.tariff} ₭ за 100
+          {grid.city}: в пуле {grid.stored.toFixed(0)} · тариф {grid.tariff} ₭ за 100
         </p>
       ) : (
         <p className="note">
@@ -82,25 +82,25 @@ export function Holdings({ look, session, busy, act }: Props) {
       )}
 
       <h3>Аккумуляторы</h3>
-      {батареи.length === 0 ? (
+      {batteries.length === 0 ? (
         <p className="note">
           Аккумулятора нет: энергия либо в пуле города, либо в аккумуляторе.
         </p>
       ) : (
         <table>
           <tbody>
-            {батареи.map((батарея) => (
-              <tr key={батарея.id}>
+            {batteries.map((battery) => (
+              <tr key={battery.id}>
                 <td>
-                  {батарея.goods}
-                  <span className="note"> · {батарея.где}</span>
+                  {battery.goods}
+                  <span className="note"> · {battery.where}</span>
                 </td>
-                <td className="num">{батарея.charge.toFixed(0)}</td>
+                <td className="num">{battery.charge.toFixed(0)}</td>
                 <td>
                   <button
-                    onClick={() => го(() => session.send("energy.charge", { item: батарея.id }))}
-                    disabled={busy || !сеть || Boolean(look.travel)}
-                    title={сеть ? "залить доверху по тарифу" : "здесь нет сети"}
+                    onClick={() => go(() => session.send("energy.charge", { item: battery.id }))}
+                    disabled={busy || !grid || Boolean(look.travel)}
+                    title={grid ? "залить доверху по тарифу" : "здесь нет сети"}
                   >
                     Зарядить
                   </button>
@@ -111,31 +111,31 @@ export function Holdings({ look, session, busy, act }: Props) {
         </table>
       )}
 
-      {владения.length > 0 && (
+      {holdings.length > 0 && (
         <>
           <h3>Владения и счета</h3>
           <table>
             <tbody>
-              {владения.map((узел) => (
-                <tr key={узел.node}>
+              {holdings.map((node) => (
+                <tr key={node.node}>
                   <td>
-                    {узел.name}
-                    <span className="note"> · {узел.area.toFixed(0)} м²</span>
-                    {узел.cut_off && <b> · отключён</b>}
+                    {node.name}
+                    <span className="note"> · {node.area.toFixed(0)} м²</span>
+                    {node.cut_off && <b> · отключён</b>}
                   </td>
                   <td className="num">
-                    {узел.grid
-                      ? `${api.tk(узел.cost_per_period)} ₭ / период`
+                    {node.grid
+                      ? `${api.tk(node.cost_per_period)} ₭ / период`
                       : "нет сети"}
                   </td>
                   <td className="num">
-                    {узел.debt > 0 ? `долг ${api.tk(узел.debt)} ₭` : "—"}
+                    {node.debt > 0 ? `долг ${api.tk(node.debt)} ₭` : "—"}
                   </td>
                   <td>
-                    {узел.debt > 0 && (
+                    {node.debt > 0 && (
                       <button
                         onClick={() =>
-                          го(() => session.send("utility.pay", { node: узел.node }))
+                          go(() => session.send("utility.pay", { node: node.node }))
                         }
                         disabled={busy}
                       >
@@ -151,16 +151,16 @@ export function Holdings({ look, session, busy, act }: Props) {
             Счёт считается с площади — свет, тепло, вентиляция. Не заплатил —
             узел отключён, и станки в нём стоят, пока долг не закрыт. Отобрать
             узел за долг движок не вправе: это решение суда.
-            {долг > 0 && <> Сейчас долгов на {api.tk(долг)} ₭.</>}
+            {debt > 0 && <> Сейчас долгов на {api.tk(debt)} ₭.</>}
           </p>
         </>
       )}
 
       <Deeds
-        мои={look.deeds ?? []}
-        рынок={рынок_бумаг}
+        my={look.deeds ?? []}
+        market={deedMarket}
         busy={busy}
-        го={го}
+        go={go}
         session={session}
       />
 
@@ -172,32 +172,33 @@ export function Holdings({ look, session, busy, act }: Props) {
   );
 }
 
-/** Ценные бумаги на участки: электронные документы Сети (D-116).
+/** Deeds for plots: electronic documents of the Net (D-116).
  *
- * Бумага — владение, оформленное документом: живёт при личности, переживает
- * тело и продаётся договором купли-продажи — всем либо адресно. Деньги и
- * титул переходят одной сделкой, эскроу не нужен. */
+ * A deed is ownership documented: it lives with the identity, survives the
+ * body and is sold by a sale contract -- to everyone or addressed. Money and
+ * title pass in one deal, no escrow is needed. */
+
 function Deeds({
-  мои,
-  рынок,
+  my,
+  market,
   busy,
-  го,
+  go,
   session,
 }: {
-  мои: DeedView[];
-  рынок: DeedView[];
+  my: DeedView[];
+  market: DeedView[];
   busy: boolean;
-  го: (what: () => Promise<unknown>) => Promise<void>;
+  go: (what: () => Promise<unknown>) => Promise<void>;
   session: Session;
 }) {
-  const [цены, setЦены] = useState<Record<string, number>>({});
-  const [кому, setКому] = useState<Record<string, string>>({});
-  if (мои.length === 0 && рынок.length === 0) return null;
+  const [prices, setPrices] = useState<Record<string, number>>({});
+  const [toWhom, setToWhom] = useState<Record<string, string>>({});
+  if (my.length === 0 && market.length === 0) return null;
 
   return (
     <>
       <h3>Ценные бумаги</h3>
-      {мои.length === 0 ? (
+      {my.length === 0 ? (
         <p className="note">
           Своих бумаг нет. Бумага появляется с участком: выкупили или заняли
           землю — владение оформлено документом.
@@ -205,53 +206,53 @@ function Deeds({
       ) : (
         <table>
           <tbody>
-            {мои.map((бумага) => (
-              <tr key={бумага.id}>
+            {my.map((deed) => (
+              <tr key={deed.id}>
                 <td>
-                  {бумага.name ?? бумага.node}
+                  {deed.name ?? deed.node}
                   <span className="note">
                     {" "}
-                    · {бумага.area?.toFixed(0) ?? "?"} м²
+                    · {deed.area?.toFixed(0) ?? "?"} м²
                   </span>
                 </td>
                 <td className="note">
-                  {бумага.sale_price != null
-                    ? `продаётся за ${api.tk(бумага.sale_price)} ₭` +
-                      (бумага.sale_to ? ` · для ${бумага.sale_to}` : "")
+                  {deed.sale_price != null
+                    ? `продаётся за ${api.tk(deed.sale_price)} ₭` +
+                      (deed.sale_to ? ` · для ${deed.sale_to}` : "")
                     : "не продаётся"}
                 </td>
                 <td>
-                  {бумага.sale_price == null ? (
+                  {deed.sale_price == null ? (
                     <span className="row">
                       <input
                         type="number"
                         min={0}
                         placeholder="цена, ₭"
-                        value={цены[бумага.id] ?? ""}
+                        value={prices[deed.id] ?? ""}
                         onChange={(e) =>
-                          setЦены({ ...цены, [бумага.id]: Number(e.target.value) })
+                          setPrices({ ...prices, [deed.id]: Number(e.target.value) })
                         }
                         title="цена договора, ТК"
                       />
                       <input
                         placeholder="кому (пусто — всем)"
-                        value={кому[бумага.id] ?? ""}
+                        value={toWhom[deed.id] ?? ""}
                         onChange={(e) =>
-                          setКому({ ...кому, [бумага.id]: e.target.value })
+                          setToWhom({ ...toWhom, [deed.id]: e.target.value })
                         }
                       />
                       <button
                         className="quiet"
                         onClick={() =>
-                          го(() =>
+                          go(() =>
                             session.send("deed.offer", {
-                              deed: бумага.id,
-                              price: api.minor(цены[бумага.id] ?? 0),
-                              to: (кому[бумага.id] ?? "").trim() || undefined,
+                              deed: deed.id,
+                              price: api.minor(prices[deed.id] ?? 0),
+                              to: (toWhom[deed.id] ?? "").trim() || undefined,
                             }),
                           )
                         }
-                        disabled={busy || !(цены[бумага.id] > 0)}
+                        disabled={busy || !(prices[deed.id] > 0)}
                       >
                         Продать
                       </button>
@@ -260,8 +261,8 @@ function Deeds({
                     <button
                       className="quiet"
                       onClick={() =>
-                        го(() =>
-                          session.send("deed.offer", { deed: бумага.id, price: 0 }),
+                        go(() =>
+                          session.send("deed.offer", { deed: deed.id, price: 0 }),
                         )
                       }
                       disabled={busy}
@@ -276,25 +277,25 @@ function Deeds({
         </table>
       )}
 
-      {рынок.length > 0 && (
+      {market.length > 0 && (
         <>
           <h3>Бумаги на продажу</h3>
           <table>
             <tbody>
-              {рынок.map((бумага) => (
-                <tr key={бумага.id}>
+              {market.map((deed) => (
+                <tr key={deed.id}>
                   <td>
-                    {бумага.name ?? бумага.node}
+                    {deed.name ?? deed.node}
                     <span className="note">
                       {" "}
-                      · {бумага.area?.toFixed(0) ?? "?"} м² · у {бумага.owner}
+                      · {deed.area?.toFixed(0) ?? "?"} м² · у {deed.owner}
                     </span>
                   </td>
-                  <td className="num">{api.tk(бумага.sale_price ?? 0)} ₭</td>
+                  <td className="num">{api.tk(deed.sale_price ?? 0)} ₭</td>
                   <td>
                     <button
                       onClick={() =>
-                        го(() => session.send("deed.buy", { deed: бумага.id }))
+                        go(() => session.send("deed.buy", { deed: deed.id }))
                       }
                       disabled={busy}
                     >

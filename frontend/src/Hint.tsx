@@ -1,16 +1,18 @@
 /**
- * Подсказка по требованию: значок «?», раскрывающийся по наведению.
+ * A hint on demand: a "?" icon expanding on hover.
  *
- * Пояснения к механике нужны один раз — когда человек видит окно впервые. Дальше
- * они превращаются в фон, сквозь который приходится искать кнопки: под картой
- * набиралось пять абзацев на четыре действия. Поэтому объяснение прячется за
- * значок, а на виду остаётся то, что меняется, — числа и кнопки.
+ * Explanations of a mechanic are needed once -- when a person sees the window
+ * for the first time. Afterwards they turn into a background through which
+ * one has to hunt for buttons: under the map five paragraphs had piled up
+ * for four actions. So the explanation hides behind an icon, and what
+ * changes stays in view -- numbers and buttons.
  *
- * Работает и с клавиатуры: значок фокусируется, подсказка раскрывается на
- * `:focus-visible` наравне с `:hover`. Содержимое лежит в разметке, а не в
- * `title`, — нативная подсказка появляется через секунду и не читается с
- * телефона вовсе.
+ * Works from the keyboard too: the icon focuses, the hint expands on
+ * `:focus-visible` as well as `:hover`. The content lies in markup, not in
+ * `title` -- the native tooltip appears after a second and is not readable
+ * from a phone at all.
  */
+
 
 import type { ReactNode } from "react";
 

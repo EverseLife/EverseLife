@@ -1,12 +1,13 @@
-"""Совет: места и круг голосующих (D-164).
+"""Council: seats and voter circle (D-164).
 
-У идущих голосований круг — граждане: других до этой правки не было.
+For ongoing polls the circle is the citizens: there were no others before this change.
 
 
 Revision ID: 736bfb8cf103
 Revises: c4150dfdb34e
 Create Date: 2026-08-14 14:26:24.399638
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence

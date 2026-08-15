@@ -1,24 +1,26 @@
 /**
- * Разговор с сервером.
+ * Talking to the server.
  *
- * Две поверхности, и они разные не случайно:
+ * Two surfaces, and they differ not by accident:
  *
- * - `/public/*` — чтение, доступное всем: справочники, ступени, стаканы.
- *   Цены знают все (D-047), и прятать их незачем;
- * - `/session/ws` — единственное место, где игрок **действует**. Удобного REST
- *   для «сделать удар» нет и не будет: он превратил бы добычу в скрипт
- *   (60-meta/01-anti-cheat).
+ * - `/public/*` -- reads available to all: catalogs, tiers, order books.
+ *   Everyone knows the prices (D-047), and there is no reason to hide them;
+ * - `/session/ws` -- the only place where the player **acts**. There is and
+ *   will be no convenient REST for "make a swing": it would turn mining into
+ *   a script (60-meta/01-anti-cheat).
  *
- * Протокол скучный: одна команда — один ответ. Отсюда очередь ниже.
+ * The protocol is boring: one command -- one reply. Hence the queue below.
  */
 
-//: Адрес сервера по умолчанию — тот же хост, откуда открыта страница. Иначе
-//: зашедший по локальной сети искал бы сервер у себя на телефоне: `localhost`
-//: у каждого свой. Явный `VITE_API` перекрывает это, когда сервер не рядом.
+//: The default server address is the same host the page was opened from.
+//: Otherwise someone coming over the local network would look for the server
+//: on their own phone: everyone has their own `localhost`. An explicit
+//: `VITE_API` overrides this when the server is not nearby.
 //:
-//: В разработке сервер живёт отдельным портом, в бою — за одним источником с
-//: клиентом, на пути `/api`: так собранный образ не знает боевого домена и
-//: годится любому, а сокет получает `wss://` без отдельной настройки.
+//: In development the server lives on a separate port, in production behind
+//: the same origin as the client, at the `/api` path: so the built image does
+//: not know the production domain and suits anyone, and the socket gets
+//: `wss://` without separate configuration.
 const HTTP =
   import.meta.env.VITE_API ??
   (import.meta.env.PROD
@@ -33,28 +35,28 @@ export type Thing = {
   quality: number | null;
   tier: string;
   condition: number;
-  /** Вид блюда: сочетание решает вид, а не качество (D-128). */
+  /** Dish kind: the combination decides the kind, not the quality (D-128). */
   flavor: string | null;
-  /** Съедобность — из данных вольта, а не из догадок клиента. */
+  /** Edibility comes from vault data, not the client's guesses. */
   food: boolean;
-  /** Годится в котёл: продукт, а не кирка (16-cooking). */
+  /** Fits the pot: a product, not a pickaxe (16-cooking). */
   ingredient: boolean;
   spoils_at: string | null;
-  /** Проба монеты в тысячных: качества у монеты нет, есть металл (D-016). */
+  /** Coin fineness in thousandths: a coin has no quality, it has metal (D-016). */
   fineness: number | null;
-  /** Клеймо: чья это работа (D-058). */
+  /** The mark: whose work this is (D-058). */
   maker: string | null;
-  /** У семян: сорт и сила партии, % (D-057). */
+  /** For seeds: cultivar and batch strength, % (D-057). */
   variety: string | null;
   vigor: number | null;
-  /** У аккумулятора: заряд с учётом саморазряда (D-071). */
+  /** For a battery: charge with self-discharge (D-071). */
   charge: number | null;
-  /** Вес единицы, кг, и слот, если это снаряжение (D-146). */
+  /** Unit weight, kg, and the slot if this is gear (D-146). */
   mass: number;
   slot: string | null;
 };
 
-/** Носимое: сколько несёт, сколько может и что надето (D-146). */
+/** Carried load: how much is carried, how much can be, and what is worn (D-146). */
 export type Carry = {
   load: number;
   capacity: number;
@@ -62,81 +64,81 @@ export type Carry = {
   equipped: Record<string, { id: string; goods: string }>;
 };
 
-/** Транспорт, стоящий в узле: в него впрягаются, а не встают за него (D-157). */
+/** Vehicles standing in the node: one harnesses to them, not stands at them (D-157). */
 export type Vehicle = {
   id: string;
   goods: string;
   condition: number;
-  /** Грузоподъёмность трюма, кг. Пусто — вольт её не назвал. */
+  /** Hold capacity, kg. Empty -- the vault did not name it. */
   capacity: number | null;
-  /** Множитель к скорости пешего: тачка медленнее ног, повозка быстрее. */
+  /** Multiplier to walking speed: a barrow is slower than legs, a wagon faster. */
   speed_k: number;
-  /** Занят чужой упряжкой. */
+  /** Taken by somebody else's harness. */
   taken: boolean;
 };
 
-/** Обоз: во что впряжён и что везёт (D-157). */
+/** Convoy: what it is harnessed to and what it carries (D-157). */
 export type Convoy = {
   id: string;
   type_key: string;
   condition: number;
   capacity: number;
-  /** Сколько уже везёт, кг. */
+  /** How much it already carries, kg. */
   mass: number;
   speed_k: number;
   heavy: boolean;
   cargo: { id: string; type_key: string; amount: number; quality: number | null }[];
 };
 
-/** Дорога как работа на ребре (D-107, D-158). */
+/** A road as work on an edge (D-107, D-158). */
 export type RoadWork = {
   edge: string;
-  /** Куда ведёт. */
+  /** Where it leads. */
   to: string;
   surface: "trail" | "road" | "paved";
-  /** Состояние покрытия 0…100: без содержания зарастает. */
+  /** Surface condition 0..100: overgrows without maintenance. */
   condition: number;
   seconds: number;
-  /** Следующая ступень, либо пусто у тракта. */
+  /** The next tier, or empty for a highway. */
   next: "road" | "paved" | null;
-  /** Сколько полотна возьмёт укладка ступени, и сколько — подсыпка. */
+  /** How much surface laying a tier takes, and how much resurfacing does. */
   needs: number | null;
   mend_needs: number | null;
-  /** Сколько полотна в руках прямо сейчас. */
+  /** How much surface is in the hands right now. */
   at_hand: number;
   working: boolean;
 };
 
-/** Куда отсюда можно, сколько это стоит времени и сколько — тела (D-147). */
+/** Where one can go from here, how much it costs in time and how much in body (D-147). */
 export type Exit = {
   key: string;
   name: string;
   surface: "trail" | "road" | "paved";
   seconds: number;
-  /** Расход выносливости на дорогу. С транспортом — ноль. */
+  /** Stamina spend for the road. With a vehicle -- zero. */
   stamina: number;
 };
 
-/** Пока идёшь — тебя нет: всё присутственное закрыто (D-107). */
+/** While walking -- you are absent: everything in-person is closed (D-107). */
 export type Transit = {
   to: string;
   to_key: string;
   from_key: string;
   started_at: string;
   arrives_at: string;
-  /** Автопуть (D-045): конечная цель маршрута, если она дальше этого отрезка. */
+  /** Autopath (D-045): the route's final goal, if it is beyond this leg. */
   final?: string;
   final_key?: string;
   legs_left?: number;
 };
 
-/** Карта мира: узлы и рёбра. Города и магистрали публичны (D-097). */
+/** The world map: nodes and edges. Cities and highways are public (D-097). */
 export type MapNode = {
   key: string;
   name: string;
-  /** Слой показа: мир — один граф, слои — способ на него смотреть (D-045). */
+  /** Display layer: the world is one graph, layers are a way to look at it (D-045). */
   layer: "space" | "planet" | "city" | "location";
-  /** Группа, в которую узел входит: локация → город → планета. */
+  /** The group the node belongs to: location -> city -> planet. */
   parent: string | null;
   ring: number | null;
   exit: boolean;
@@ -144,7 +146,7 @@ export type MapNode = {
 export type MapEdge = { a: string; b: string; surface: Exit["surface"]; seconds: number };
 export type WorldMap = { nodes: MapNode[]; edges: MapEdge[] };
 
-/** Реплика, как её слышит стоящий в локации (D-043, D-050). */
+/** A remark as heard by someone standing in the location (D-043, D-050). */
 export type ChatLine = {
   id: string;
   who: string;
@@ -156,32 +158,32 @@ export type ChatLine = {
   at: string;
 };
 
-/** Кружок: состав виден, содержание — нет. */
+/** A circle: membership visible, content not. */
 export type Circle = { id: string; name: string | null; members: string[]; mine: boolean };
 
-/** Во что обойдётся заход разведки отсюда (D-156).
+/** What an exploration run from here will cost (D-156).
  *
- * Цена — свойство места, а не игрока: нехоженая окрестность отдаёт находку за
- * минуты, исхоженная — за часы и не всегда. Показывается до выхода, иначе
- * читается как случайность движка. */
+ * The price is a property of the place, not the player: untrodden
+ * surroundings give a find in minutes, trodden ones in hours and not always.
+ * Shown before leaving, otherwise it reads as engine randomness. */
 export type Outlook = {
-  /** Сколько находок уже сделано от этого узла. */
+  /** How many finds have already been made from this node. */
   explored: number;
   minutes: { min: number; max: number };
-  /** Наибольшая цена выносливостью — по самому долгому заходу. */
+  /** The largest stamina price -- by the longest run. */
   stamina: number;
-  /** Шанс с учётом заказанной породы: редкая ищется хуже (D-151). */
+  /** Chance with the requested species in mind: the rare is found worse (D-151). */
   chance: number;
-  /** Во сколько раз заказ породы сузил шанс; 1 — заказа не было. */
+  /** By how much the species request narrowed the chance; 1 -- no request. */
   aim?: number;
-  /** Какая порода заказана, если заказана. */
+  /** Which species is requested, if any. */
   resource?: string | null;
 };
 
-/** Кабинет аккаунта (D-187): самоописание рядом с именем. Игрового здесь нет. */
+/** Account panel (D-187): self-description next to the name. Nothing game-related here. */
 export type Profile = {
   email: string | null;
-  /** Имя уникально и несменяемо (D-011): на нём репутация. */
+  /** The name is unique and unchangeable (D-011): reputation rests on it. */
   name: string;
   surname: string;
   age: number | null;
@@ -190,7 +192,7 @@ export type Profile = {
   since: string;
 };
 
-/** Линия персонажа на экране выбора: в альфе играбельна одна (D-104). */
+/** A character line on the selection screen: one is playable in the alpha (D-104). */
 export type Line = {
   id: "human" | "nymph";
   name: string;
@@ -198,11 +200,11 @@ export type Line = {
   playable: boolean;
   summary: string;
   traits: string[];
-  /** Сколько за неё играют: живой мир видно числом. */
+  /** How many play it: a living world is seen as a number. */
   players: number;
 };
 
-/** Заявка на регистрацию: четыре шага клиента — одна команда сервера. */
+/** Registration request: four client steps -- one server command. */
 export type Enrollment = {
   email: string;
   password: string;
@@ -220,7 +222,7 @@ export type Look = {
   profile: Profile;
   money: string;
   knows: string[];
-  /** Взятая агротехника: культуры, чью норму личность уже изучила (D-057). */
+  /** Learned agrotech: crops whose norm the identity has already studied (D-057). */
   agrotech: string[];
   orders: Order[];
   reservations: Reservation[];
@@ -231,7 +233,7 @@ export type Look = {
     stamina: number;
     sleeping_since: string | null;
     sleeping_home: boolean;
-    /** До этого момента расход выносливости снижен: обед, а не бафф (D-119). */
+    /** Until this moment the stamina spend is reduced: a meal, not a buff (D-119). */
     satiated_until: string | null;
   } | null;
   node: {
@@ -240,101 +242,101 @@ export type Look = {
     layer: "space" | "planet" | "city" | "location";
     library: boolean;
     stations: string[];
-    /** Свойства-признаки места («лес», «выход»): по ним видна добыча места (D-177). */
+    /** Place-sign properties ("forest", "outcrop"): place extraction is shown by them (D-177). */
     features: string[];
     fertility: number;
-    /** Чей участок: хозяйство ведёт владелец (06-farming). */
+    /** Whose plot: the holder runs the estate (06-farming). */
     owner: string | null;
-    /** Город-владелец, если земля городская: владение публично (D-178). */
+    /** The owning city, if the land is civic: ownership is public (D-178). */
     owner_city: string | null;
     mine: boolean;
     city: boolean;
-    /** Вправе ли смотрящий дать участку имя (D-178). */
+    /** Whether the viewer may name the plot (D-178). */
     may_name: boolean;
-    /** Ничей и дикий: такой занимают присутственно (D-152). */
+    /** Unowned and wild: such is taken in person (D-152). */
     wild: boolean;
-    /** Отключён за неуплату: станки не работают (D-149). */
+    /** Disconnected for non-payment: machines do not work (D-149). */
     cut_off: boolean;
-    /** Площадь участка, м² (D-125). */
+    /** Plot area, m2 (D-125). */
     area: number;
-    /** Здание и вместимость: станок занимает площадь (D-106). */
+    /** Building and capacity: a machine takes area (D-106). */
     building: { area: number; slots: number; used: number };
-    /** Цена выкупа пустого городского участка, минорными единицами (D-089). */
+    /** Purchase price of an empty civic plot, in minor units (D-089). */
     price: number | null;
   } | null;
-  /** Город, на территории которого стоим, и свои права в нём (D-154, D-155). */
+  /** The city whose territory we stand on, and our own rights in it (D-154, D-155). */
   city?: {
     id: string;
     name: string;
     node: string;
-    /** Права строками: крупные (`treasury`) и точечные (`law:import_duty`). */
+    /** Rights as strings: broad (`treasury`) and narrow (`law:import_duty`). */
     powers: string[];
-    /** Здесь ли стоит администрация: решения принимаются в ней (D-155). */
+    /** Whether the administration stands here: decisions are made in it (D-155). */
     hall: boolean;
-    /** Гражданин ли этого города (D-160). */
+    /** Whether a citizen of this city (D-160). */
     citizen: boolean;
-    /** Как принимают: свободно, по заявке либо по приглашению. */
+    /** How they admit: open, by application or by invitation. */
     admission: "open" | "application" | "invite";
-    /** Заявка подана либо приглашение получено — ждёт своей стороны. */
+    /** An application filed or an invitation received -- waits for its side. */
     requested: boolean;
   } | null;
-  /** Где состоит личность: гражданство одно и видно отовсюду (D-160). */
+  /** Where the identity belongs: citizenship is one and visible from everywhere (D-160). */
   citizenship?: {
     city: string | null;
     since: string;
-    /** Заявление о выходе подано: гражданство спадёт к этому сроку. */
+    /** An exit declaration is filed: citizenship lapses by this date. */
     leaving_at: string | null;
-    /** Обязательство, принятое условием печати: до этого срока не выйти (D-184). */
+    /** An obligation taken as a print condition: no leaving before this date (D-184). */
     bound_until: string | null;
   } | null;
-  /** Идущий заход разведки, если он есть (D-152). */
+  /** An ongoing exploration run, if any (D-152). */
   survey?: { returns_at: string } | null;
-  /** Можно ли здесь основать город и чего для этого не хватает (D-159).
-   *  Пусто — место не годится: чужая земля, чужой город либо не планета. */
+  /** Whether a city can be founded here and what is missing for that (D-159).
+   *  Empty -- the place is unsuitable: foreign land, a foreign city or not a planet. */
   foundation?: {
     missing: string[];
     needs: { role: string; any_of: string[] }[];
   } | null;
-  /** Свой обоз: во что впряжён и что везёт (D-157). */
+  /** Own convoy: what it is harnessed to and what it carries (D-157). */
   convoy?: Convoy | null;
-  /** Транспорт, стоящий в этом узле: впрягаются в то, что рядом. */
+  /** Vehicles standing in this node: one harnesses to what is nearby. */
   vehicles?: Vehicle[];
-  /** Тела нет — личность в облаке: где печататься и идёт ли печать (D-033). */
+  /** No body -- the identity is in the cloud: where to print and whether a print is ongoing (D-033). */
   printers?: Printer[];
   printing?: { ready_at: string } | null;
-  /** Станки узла поимённо: за какой можно встать прямо сейчас (D-150). */
+  /** The node's machines by name: which one can be taken right now (D-150). */
   bench?: Bench[];
-  /** Мебель узла: кровать и стеллаж — не станки, окно у них своё (D-090). */
+  /** The node's furniture: a bed and a shelf are not machines, they have their own window (D-090). */
   furniture?: Bench[];
-  /** Хранилища узла и что в них лежит (D-181). */
+  /** The node's storages and what lies in them (D-181). */
   storages?: Storage[];
-  /** Свои ценные бумаги на участки: электронные документы Сети (D-116). */
+  /** Own deeds for plots: electronic documents of the Net (D-116). */
   deeds?: DeedView[];
   inventory: Thing[];
   stall?: Thing[];
   veins?: { id: string; resource: string; richness: number }[];
   exits?: Exit[];
   travel?: Transit | null;
-  /** Открытый забой переживает уход игрока: вернулся — сессия на месте. */
+  /** An open face survives the player leaving: on return the session is in place. */
   mining?: Sight | null;
 };
 
-/** Ценная бумага на участок: владение, оформленное документом (D-116). */
+/** A deed for a plot: ownership documented (D-116). */
 export type DeedView = {
   id: string;
   node: string | null;
   name: string | null;
   area: number | null;
   owner: string | null;
-  /** Почём выдана: цена выкупа, ноль у занятой дикой земли. */
+  /** The issue price: the purchase price, zero for taken wild land. */
   paid: number;
-  /** Выставлена на продажу: цена и адресат, если договор адресный. */
+  /** Listed for sale: the price and the addressee, if the contract is addressed. */
   sale_price: number | null;
   sale_to: string | null;
   issued_at: string;
 };
 
-/** Станок в узле: за станком работает один (D-150). */
+/** A machine in the node: one person works at a machine (D-150). */
 export type Bench = {
   id: string;
   goods: string;
@@ -342,74 +344,74 @@ export type Bench = {
   condition: number;
   busy: boolean;
   mine: boolean;
-  /** Заряд — у аккумулятора, стоящего здесь станком (D-179). */
+  /** Charge belongs to the battery standing here as a machine (D-179). */
   charge: number | null;
 };
 
-/** Хранилище узла: сундук либо стеллаж (D-181).
+/** A node storage: a chest or a shelf (D-181).
  *
- * Сам сундук виден всякому — он стоит в комнате; содержимое приходит только
- * тому, кто вправе его открыть, у остальных `content` пуст.
+ * The chest itself is visible to anyone -- it stands in the room; the contents
+ * come only to whoever may open it, for the rest `content` is empty.
  */
 export type Storage = {
   id: string;
   goods: string;
-  /** Вместимость, кг. */
+  /** Capacity, kg. */
   capacity: number;
-  /** Сколько килограммов уже занято. */
+  /** How many kilograms are already taken. */
   mass: number;
-  /** Вправе ли смотрящий класть и забирать. */
+  /** Whether the viewer may put and take. */
   mine: boolean;
   content: Thing[];
 };
 
-/** Дверь в мир: где напечатать тело и почём (D-028, D-033). */
+/** A door into the world: where to print a body and for how much (D-028, D-033). */
 export type Printer = {
   node: string;
   name: string;
   city: string | null;
-  /** Тот самый вечный принтер: бесплатно, но двенадцать часов. */
+  /** That very eternal printer: free, but twelve hours. */
   precursor: boolean;
   energy: number;
   iron: number;
   cost: number;
   minutes: number;
   iron_here: number;
-  /** Город печатает за свой счёт: код-закон `body_print` (D-032). */
+  /** The city prints at its own expense: code-law `body_print` (D-032). */
   at_city_expense: boolean;
 };
 
-/** Дверь для новичка: где напечататься впервые (D-013, D-182).
+/** A door for a newcomer: where to print for the first time (D-013, D-182).
  *
- * Ни цены, ни срока: первое тело печатается сразу и бесплатно у любой двери
- * (D-040). Выбор здесь — про людей, а не про деньги.
+ * Neither price nor term: the first body is printed at once and for free at
+ * any door (D-040). The choice here is about people, not money.
  */
 export type Door = {
   node: string;
   name: string;
   city: string | null;
-  /** Слово города новичку: его обещание, а не договор (D-183). Пусто — молчит. */
+  /** The city's word to newcomers: its promise, not a contract (D-183). Empty -- silent. */
   about: string;
-  /** Условия печати — их движок исполняет (D-184): гражданство в момент
-   *  печати, его срок в сутках и налог с продажи, %. */
+  /** Print conditions -- the engine enforces them (D-184): citizenship at the
+   *  moment of printing, its term in days and the sales tax, %. */
   citizenship: boolean;
   term: number;
   tax: number;
-  /** Принтер Предтеч: вечная машина, ничьей казны не требует. */
+  /** The Forerunners' Printer: an eternal machine, needs nobody's treasury. */
   precursor: boolean;
   citizens: number;
-  /** Живых тел на земле города сейчас — кого встретишь, а не кто прописан. */
+  /** Living bodies on the city's land now -- whom you will meet, not who is registered. */
   population: number;
-  /** Подъёмные из устава города, в минорных единицах. Ноль — не платит. */
+  /** The settlement grant from the city charter, in minor units. Zero -- does not pay. */
   grant: number;
 };
 
-/** Свой узел и счёт за быт (D-149). */
+/** Own node and the household bill (D-149). */
 export type Holding = {
   node: string;
   name: string;
   area: number;
-  /** Есть ли городская сеть: вне города счетов нет вовсе. */
+  /** Whether there is a city grid: outside a city there are no bills at all. */
   grid: boolean;
   energy_per_period: number;
   cost_per_period: number;
@@ -418,7 +420,7 @@ export type Holding = {
   last_energy: number;
 };
 
-/** Действующий код-закон города: своё решение либо умолчание вольта (D-130). */
+/** The city's code-law in force: its own decision or the vault default (D-130). */
 export type Law = {
   name: string;
   unit: string | null;
@@ -435,18 +437,18 @@ export type Office = {
   powers: string[];
 };
 
-/** Сводка города: устав, законы, должности, казна (D-154). */
+/** City summary: charter, laws, offices, treasury (D-154). */
 export type CityView = {
   id: string;
   name: string;
-  /** Слово города новичку: пишет власть, видят все (D-183). */
+  /** The city's word to newcomers: the authority writes it, everyone sees it (D-183). */
   about: string;
   node: string;
   treasury: number;
   offices: Office[];
   charter: Record<string, string>;
   charter_params: Record<string, number>;
-  /** Вопросы устава словами: текст живёт в вольте, а не в клиенте (D-130). */
+  /** Charter questions in words: the text lives in the vault, not the client (D-130). */
   charter_questions: {
     id: string;
     section: string;
@@ -455,14 +457,14 @@ export type CityView = {
   }[];
   laws: Record<string, Law>;
   powers: string[];
-  /** Здесь ли принимаются решения: власть присутственна (D-155). */
+  /** Whether decisions are made here: authority is in-person (D-155). */
   at_hall: boolean;
   lots: { key: string; name: string; area: number; owner: string | null; free: boolean }[];
   citizens: string[];
 };
 
-/** Экономическая панель города (D-124, D-140). Публичный срез виден всем. */
-/** Дело в городском суде (D-166). */
+/** The city's economic panel (D-124, D-140). The public snapshot is visible to all. */
+/** A case in the city court (D-166). */
 export type CourtCase = {
   id: string;
   plaintiff: string | null;
@@ -473,29 +475,29 @@ export type CourtCase = {
   opened_at: string;
 };
 
-/** Примитив санкции из вольта: движок исполняет не все (D-166). */
+/** A sanction primitive from the vault: the engine enforces not all (D-166). */
 export type SanctionKind = { id: string; name: string; enforced: boolean };
 
-/** Идущее голосование граждан (D-161). */
+/** An ongoing citizens' poll (D-161). */
 export type CityVote = {
   id: string;
   kind: "law" | "election" | "recall" | "charter" | "council";
-  /** Кто голосует: все граждане либо члены совета (D-164). */
+  /** Who votes: all citizens or council members (D-164). */
   voters: "citizens" | "council";
   law: string | null;
   value: unknown;
-  /** Кандидаты на выборах: выдвигаются сами, пока голосование идёт (D-162). */
+  /** Candidates in the election: they nominate themselves while the poll runs (D-162). */
   candidates: { id: string; name: string | null; votes: number }[];
-  /** За кого отдан свой голос на выборах. */
+  /** Whom one's own vote in the election is for. */
   choice: string | null;
   closes_at: string;
   threshold: "simple" | "two_thirds" | "unanimous";
-  /** Доля имеющих право, нужная для кворума; 0 — кворум не требуется. */
+  /** The share of eligible voters needed for a quorum; 0 -- no quorum required. */
   quorum: number;
   electorate: number;
   yes: number;
   no: number;
-  /** Свой голос, если подан. */
+  /** Own vote, if cast. */
   mine: boolean | null;
   may_vote: boolean;
 };
@@ -504,7 +506,7 @@ export type CityPanel = {
   city: string;
   window_hours: number;
   at: string;
-  /** Без администрации город слеп: данные не обновляются. */
+  /** Without an administration the city is blind: the data does not update. */
   blind: boolean;
   full: boolean;
   market: { trades: number; volume: number; prices: Record<string, number> };
@@ -516,7 +518,7 @@ export type CityPanel = {
   };
   energy: { stored: number; tariff: number; spent_work: number; spent_home: number };
   goods: Record<string, number>;
-  /** Ввоз, вывоз, ходки и собранная пошлина за окно (D-123, D-124). */
+  /** Imports, exports, trips and collected duty over the window (D-123, D-124). */
   trade: {
     imported: Record<string, number>;
     exported: Record<string, number>;
@@ -531,7 +533,7 @@ export type CityPanel = {
   };
 };
 
-/** Крупные права. Точечные — `law:<id>` — собираются из каталога законов. */
+/** Broad rights. Narrow ones -- `law:<id>` -- are assembled from the law catalog. */
 export const POWERS: Record<string, string> = {
   laws: "все законы",
   charter: "устав",
@@ -542,11 +544,11 @@ export const POWERS: Record<string, string> = {
   justice: "суд",
 };
 
-/** Право на один закон: `law:import_duty` (D-155). */
+/** The right to one law: `law:import_duty` (D-155). */
 export const LAW_SCOPE = "law:";
 
-/** Предел слова города (D-183). Считает сервер (`runtime.CITY_ABOUT_LIMIT`);
- *  здесь он затем, чтобы поле не давало набрать заведомо отказанное. */
+/** The limit of the city's word (D-183). The server counts it (`runtime.CITY_ABOUT_LIMIT`);
+ *  it is here so that the field does not let one type what is refused in advance. */
 export const CITY_ABOUT_LIMIT = 300;
 
 export const SURFACE: Record<Exit["surface"], string> = {
@@ -555,7 +557,7 @@ export const SURFACE: Record<Exit["surface"], string> = {
   paved: "тракт",
 };
 
-/** Время в пути словами: секунды для шага по городу, минуты для дороги. */
+/** Travel time in words: seconds for a step across the city, minutes for a road. */
 export function spell(seconds: number): string {
   if (seconds < 60) return `${Math.round(seconds)} с`;
   if (seconds < 3600) return `${Math.round(seconds / 60)} мин`;
@@ -580,7 +582,7 @@ export type Batch = {
   ready_at: string;
 };
 
-/** Всё, что игрок видит о забое. Устойчивости свода здесь нет и быть не может. */
+/** Everything the player sees about the face. Roof stability is not here and cannot be. */
 export type Sight = {
   sign: string;
   mined: number;
@@ -602,14 +604,14 @@ export type Plan = {
   waste: number;
   minutes: number;
   consumes: Record<string, number>;
-  /** Промышленный уклад: партия идёт на автомате (D-035). */
+  /** Industrial mode: the batch runs on the automaton (D-035). */
   auto: boolean;
-  /** Сколько энергии съест автомат и во что это обойдётся по тарифу города. */
+  /** How much energy the automaton eats and what that costs at the city tariff. */
   energy: number;
   energy_cost: number;
 };
 
-/** Бронь: единственный способ купить удалённо — с задатком и сроком (D-047). */
+/** Reservation: the only way to buy remotely -- with a deposit and a term (D-047). */
 export type Reservation = {
   id: string;
   goods: string;
@@ -640,18 +642,19 @@ type Waiting = {
   reject: (error: Error) => void;
 };
 
-/** Где лежит жетон сессии между обновлениями страницы (D-187). */
+/** Where the session token lives between page refreshes (D-187). */
 const TOKEN_KEY = "octoverse.token";
 
-/** Сессия клиента. Держит сокет и очередь «команда → ответ».
+/** The client session. Holds the socket and the "command -> reply" queue.
  *
- * Сокет живёт не вечно: сервер и прокси режут простой. Порванная сессия
- * поднимается сама — команда, заставшая мёртвый сокет, сначала
- * переподключается и опознаётся жетоном, и только потом уходит.
+ * The socket does not live forever: the server and proxies cut idle
+ * connections. A broken session rises by itself -- a command that finds a
+ * dead socket first reconnects and identifies by token, and only then goes.
  *
- * Опознание — почта и пароль (D-187). Пароль вводится один раз: сервер отдаёт
- * жетон, он живёт в `localStorage`, и по нему сессия поднимается после F5 и
- * после обрыва. Выход из кабинета жетон отзывает и забывает.
+ * Identification is email and password (D-187). The password is entered
+ * once: the server gives a token, it lives in `localStorage`, and by it the
+ * session rises after F5 and after a break. Logging out of the account panel
+ * revokes and forgets the token.
  */
 export class Session {
   private socket: WebSocket | null = null;
@@ -661,7 +664,7 @@ export class Session {
   name = "";
   token = "";
 
-  /** Жетон прошлого входа, если он есть: с него начинается автовход. */
+  /** The token of the last login, if any: auto-login starts from it. */
   static remembered(): string {
     try {
       return localStorage.getItem(TOKEN_KEY) ?? "";
@@ -680,7 +683,7 @@ export class Session {
     }
   }
 
-  /** Поднять сокет. Опознание — отдельным шагом: новичка ещё некем опознать. */
+  /** Bring up the socket. Identification is a separate step: a newcomer has nothing to identify with yet. */
   private async connect(): Promise<void> {
     await this.close();
     const socket = new WebSocket(WS);
@@ -707,33 +710,33 @@ export class Session {
     };
   }
 
-  /** Вход почтой и паролем. */
+  /** Login by email and password. */
   async open(email: string, password: string): Promise<Record<string, unknown>> {
     await this.connect();
     return this.greet("hello", { email, password });
   }
 
-  /** Вход жетоном прошлого раза: F5 не спрашивает пароль. */
+  /** Login with last time's token: F5 does not ask for the password. */
   async resume(token: string): Promise<Record<string, unknown>> {
     await this.connect();
     try {
       return await this.greet("hello", { token });
     } catch (error) {
-      //: Отозванный или истёкший жетон забываем сразу — иначе каждый вход
-      //: начинался бы с одного и того же отказа.
+      //: A revoked or expired token is forgotten at once -- otherwise every
+      //: login would start with the same refusal.
       if (error instanceof Refused) this.remember("");
       throw error;
     }
   }
 
-  /** Регистрация (D-187): личности ещё нет — её печатают у выбранной двери
-   * (D-153, D-182). Четыре шага клиента уходят одной командой. */
-  async create(заявка: Enrollment): Promise<Record<string, unknown>> {
+  /** Registration (D-187): there is no identity yet -- it is printed at the
+   * chosen door (D-153, D-182). Four client steps go as one command. */
+  async create(application: Enrollment): Promise<Record<string, unknown>> {
     await this.connect();
-    return this.greet("join", { ...заявка });
+    return this.greet("join", { ...application });
   }
 
-  /** Выход: жетон отозван и забыт, сокет закрыт. */
+  /** Logout: the token is revoked and forgotten, the socket closed. */
   async logout(): Promise<void> {
     try {
       if (this.socket?.readyState === WebSocket.OPEN) await this.send("account.logout");
@@ -759,7 +762,7 @@ export class Session {
 
   async send(cmd: string, args: Record<string, unknown> = {}): Promise<Record<string, unknown>> {
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
-      //: Опознаться пока нечем: сессии ещё не было, чинить нечего.
+      //: Nothing to identify with yet: there was no session, nothing to repair.
       if (!this.token) throw new Error("нет сессии");
       await this.revive();
     }
@@ -770,7 +773,7 @@ export class Session {
     });
   }
 
-  /** Поднять порванную сессию заново. Один подъём на всех, кто его застал. */
+  /** Bring a broken session back up. One rise for everyone who caught it. */
   private revive(): Promise<void> {
     this.reviving ??= (async () => {
       try {
@@ -804,9 +807,9 @@ export const constants = () => read<{ digest: string; values: Record<string, any
   "/public/constants",
 );
 export const recipes = () => read<any>("/public/recipes");
-/** Двери в мир: читаются до опознания — личности у новичка ещё нет. */
+/** Doors into the world: read before identification -- a newcomer has no identity yet. */
 export const doors = () => read<{ doors: Door[] }>("/public/doors");
-/** Линии персонажа и число играющих — тоже до опознания (D-187). */
+/** Character lines and the number of players -- also before identification (D-187). */
 export const lines = () => read<{ lines: Line[] }>("/public/lines");
 export const tiers = () => read<{ tiers: { from: number; to: number; name: string }[] }>(
   "/public/quality/tiers",
@@ -818,7 +821,7 @@ export const plants = () =>
       id: string;
       name: string;
       gives: string;
-      /** Чем сеют: семена — предмет, отдельный от урожая (D-057). */
+      /** What is sown with: seeds are an item separate from the harvest (D-057). */
       seed: string;
       cycle_days: number;
     }[];
@@ -833,7 +836,7 @@ export const book = (node: string, goods: string, tier: string) =>
       `?goods=${encodeURIComponent(goods)}&tier=${encodeURIComponent(tier)}`,
   );
 
-/** Деньги приходят минорными единицами: 1 ТК = 10 000. Копейка не теряется. */
+/** Money comes in minor units: 1 TC = 10 000. Not a cent is lost. */
 export const MONEY_SCALE = 10_000;
 export const tk = (minor: number) => (minor / MONEY_SCALE).toFixed(2).replace(/\.?0+$/, "");
 export const minor = (tk: number) => Math.round(tk * MONEY_SCALE);

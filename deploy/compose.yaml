@@ -1,31 +1,31 @@
-# Боевой состав альфы. Живёт на сервере в `/opt/octoverse`.
+# The alpha's production compose. Lives on the server in `/opt/octoverse`.
 #
 #   docker compose pull && docker compose up -d
 #
-# Наружу смотрит только Caddy (80/443): он берёт сертификат Let's Encrypt,
-# отдаёт клиента и проксирует `/api` на сервер игры. База портов не публикует —
-# в неё ходят по внутренней сети состава.
+# Only Caddy (80/443) faces outside: it obtains the Let's Encrypt certificate,
+# serves the client and proxies `/api` to the game server. The database
+# publishes no ports -- it is reached over the compose internal network.
 #
-# Роли `backend`, `worker` и `migrate` — один и тот же образ: расходиться
-# версиями движку и его воркеру нельзя.
+# The `backend`, `worker` and `migrate` roles are one and the same image: the
+# engine and its worker may not diverge in version.
 
 name: octoverse
 
 x-server: &server
   image: ghcr.io/${GHCR_OWNER:-sumrak10}/octoverse-backend:${TAG:-latest}
   environment:
-    OCTOVERSE_DATABASE_URL: postgresql+asyncpg://octoverse:${POSTGRES_PASSWORD:?нужен POSTGRES_PASSWORD}@postgres:5432/octoverse
+    OCTOVERSE_DATABASE_URL: postgresql+asyncpg://octoverse:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/octoverse
     OCTOVERSE_VAULT_BUILD: /vault
     OCTOVERSE_LOG_LEVEL: ${OCTOVERSE_LOG_LEVEL:-INFO}
     OCTOVERSE_JOB_BATCH: ${OCTOVERSE_JOB_BATCH:-64}
-    #: Хроника мира в Discord (`src/herald/`). Пусто — глашатай молчит; лента
-    #: наружу, внутрь из Discord не приходит ничего.
+    #: The world chronicle to Discord (`src/herald/`). Empty -- the herald is
+    #: silent; the feed goes out, nothing comes in from Discord.
     OCTOVERSE_DISCORD_WEBHOOK: ${OCTOVERSE_DISCORD_WEBHOOK:-}
-    #: Клиент открыт по своему домену — только его и пускаем в сессию.
-    OCTOVERSE_ALLOWED_ORIGINS: '["https://${DOMAIN:?нужен DOMAIN}"]'
-    #: Образец адресов локальной сети из разработки в бою не нужен: `^$` не
-    #: совпадает ни с одним источником. Двойной доллар — как compose пишет
-    #: доллар обычным знаком, до сервера доедет `^$`.
+    #: The client is opened by its own domain -- only it is let into the session.
+    OCTOVERSE_ALLOWED_ORIGINS: '["https://${DOMAIN:?DOMAIN is required}"]'
+    #: The local-network address pattern from development is not needed in
+    #: production: `^$` matches no origin. The double dollar is how compose
+    #: writes a literal dollar; `^$` reaches the server.
     OCTOVERSE_ALLOWED_ORIGIN_REGEX: '^$$'
   restart: unless-stopped
 
@@ -34,7 +34,7 @@ services:
     image: postgres:16
     environment:
       POSTGRES_USER: octoverse
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?нужен POSTGRES_PASSWORD}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       POSTGRES_DB: octoverse
     volumes:
       - pgdata:/var/lib/postgresql/data
@@ -45,8 +45,8 @@ services:
       retries: 20
     restart: unless-stopped
 
-  # Схема накатывается до старта сервера и ровно один раз за деплой: мир
-  # вечный, вайпов не бывает (D-007), и расхождение схемы с кодом чинить нечем.
+  # The schema is applied before the server starts and exactly once per deploy:
+  # the world is eternal, no wipes (D-007), and a schema/code divergence cannot be fixed.
   migrate:
     <<: *server
     command: ["alembic", "upgrade", "head"]
@@ -63,7 +63,7 @@ services:
       migrate:
         condition: service_completed_successfully
 
-  # Без воркера мир стоит: долгие дела (тик, партии, дороги) доводит он.
+  # Without the worker the world stands: long-running jobs (tick, batches, roads) are driven by it.
   worker:
     <<: *server
     command: ["python", "-m", "src.worker"]
@@ -79,14 +79,14 @@ services:
     image: ghcr.io/${GHCR_OWNER:-sumrak10}/octoverse-frontend:${TAG:-latest}
     restart: unless-stopped
 
-  # Лендинг octoverse.world: страница и приём заявок на бету. Заявки — в SQLite
-  # на томе; в базу игры лендинг не ходит. Пока LANDING_DOMAIN не задан в
-  # `.env`, Caddy держит его на внутреннем имени и наружу не отдаёт.
+  # The octoverse.world landing: the page and beta signup intake. Signups go
+  # to SQLite on a volume; the landing does not touch the game database. Until
+  # LANDING_DOMAIN is set in `.env`, Caddy keeps it on an internal name and does not expose it.
   landing:
     image: ghcr.io/${GHCR_OWNER:-sumrak10}/octoverse-landing:${TAG:-latest}
     environment:
-      #: Служебный канал: «пришла ещё одна заявка, всего столько-то». Почта
-      #: заявителя туда не уходит и уходить не должна.
+      #: The service channel: "one more signup came, so many in total". The
+      #: applicant's email does not go there and must not.
       LANDING_DISCORD_WEBHOOK: ${LANDING_DISCORD_WEBHOOK:-}
     volumes:
       - landing_data:/data
@@ -99,13 +99,14 @@ services:
       - "443:443"
       - "443:443/udp"
     environment:
-      DOMAIN: ${DOMAIN:?нужен DOMAIN}
+      DOMAIN: ${DOMAIN:?DOMAIN is required}
       LANDING_DOMAIN: ${LANDING_DOMAIN:-landing.localhost}
-      ACME_EMAIL: ${ACME_EMAIL:?нужен ACME_EMAIL}
+      ACME_EMAIL: ${ACME_EMAIL:?ACME_EMAIL is required}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      # Сертификаты переживают пересоздание контейнера: у Let's Encrypt есть
-      # предел на выдачу, и терять их при каждом деплое нельзя.
+      # Certificates survive container recreation: Let's Encrypt has an
+      # issuance limit, and losing them on every deploy is not allowed.
+
       - caddy_data:/data
       - caddy_config:/config
     depends_on:

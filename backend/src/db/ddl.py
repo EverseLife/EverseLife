@@ -1,20 +1,20 @@
-"""Правила, которые обязана держать сама база.
+"""Rules the database itself must hold.
 
-Три инварианта из 05-domain-model слишком важны, чтобы держаться на дисциплине
-вызывающего кода. Их нарушение — не баланс, а баг, и обнаружиться оно должно
-в момент нарушения, а не через месяц в отчёте:
+Three invariants from 05-domain-model are too important to rest on the
+discipline of calling code. Their violation is not balance but a bug, and it
+must be discovered at the moment of violation, not a month later in a report:
 
-* **проводки операции сходятся в ноль** — деньги переходят, а не появляются (И2);
-* **журнал событий неизменяем** — иначе доказательная база суда ничего не стоит;
-* **журнал проводок неизменяем** — по той же причине.
+* **an operation's postings sum to zero** -- money moves, it does not appear (I2);
+* **the event journal is immutable** -- otherwise the court's evidence is worthless;
+* **the posting journal is immutable** -- for the same reason.
 
-Проверка суммы отложена до фиксации транзакции (`DEFERRABLE INITIALLY
-DEFERRED`): проводки добавляются по одной, и в середине операции журнал
-законно не сходится.
+The sum check is deferred until transaction commit (`DEFERRABLE INITIALLY
+DEFERRED`): postings are added one at a time, and mid-operation the journal
+legitimately does not balance.
 
-Определения подключаются к `metadata`, поэтому попадают и в тестовую базу, и
-в миграции — второй копии SQL не существует. Каждое выражение отдельной
-строкой: asyncpg не принимает несколько команд в одном запросе.
+The definitions attach to `metadata`, so they land both in the test database
+and in migrations -- no second copy of the SQL exists. Each statement on a
+separate line: asyncpg does not accept several commands in one query.
 """
 
 from __future__ import annotations
@@ -61,9 +61,8 @@ $$ LANGUAGE plpgsql
 
 
 def _append_only(table: str) -> tuple[str, ...]:
-    #: Функция объявляется рядом с каждым триггером: порядок создания таблиц
-    #: задаётся зависимостями, и полагаться на него нельзя. `OR REPLACE`
-    #: делает повтор безобидным.
+    #: The function is declared next to each trigger: table creation order is
+    #: set by dependencies and cannot be relied on. `OR REPLACE` makes a repeat harmless.
     return (
         APPEND_ONLY_FUNCTION,
         f"""
@@ -75,9 +74,9 @@ FOR EACH ROW EXECUTE FUNCTION forbid_rewrite()
 
 
 RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
-    #: Проводку нельзя ни переписать, ни удалить: исправление ошибки — это
-    #: обратная проводка, как в настоящей бухгалтерии. Иначе журнал перестаёт
-    #: быть доказательством.
+    #: A posting can be neither rewritten nor deleted: correcting an error is a
+    #: reversing posting, as in real bookkeeping. Otherwise the journal stops
+    #: being evidence.
     ("ledger_entry", (BALANCE_FUNCTION, BALANCE_TRIGGER, *_append_only("ledger_entry"))),
     ("event", _append_only("event")),
     ("ledger_transaction", _append_only("ledger_transaction")),
@@ -85,7 +84,7 @@ RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
 
 
 def attach(metadata: MetaData) -> None:
-    """Подключить правила к созданию таблиц."""
+    """Attach the rules to table creation."""
     for table_name, statements in RULES:
         table = metadata.tables.get(table_name)
         if table is None:  # pragma: no cover
@@ -95,5 +94,5 @@ def attach(metadata: MetaData) -> None:
 
 
 def statements() -> tuple[str, ...]:
-    """Тот же SQL для миграции — второй копии не существует."""
+    """The same SQL for a migration -- no second copy exists."""
     return tuple(sql for _, group in RULES for sql in group)

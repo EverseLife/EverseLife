@@ -1,9 +1,10 @@
 /**
- * Вход (D-187): знак, почта, пароль, и снизу — дорога к регистрации.
+ * Login (D-187): the logo, email, password, and below -- the road to registration.
  *
- * Здесь намеренно ничего не рассказывается о мире: рассказ — дело регистрации
- * и вступления (D-182). Тот, кто входит, уже знает, куда идёт.
+ * Deliberately nothing is told about the world here: the telling is the
+ * business of registration and the intro (D-182). Whoever logs in already knows where they are going.
  */
+
 
 import { type FormEvent, useState } from "react";
 import { Logo } from "../Logo";

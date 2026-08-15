@@ -1,17 +1,17 @@
-"""Деньги: двойная запись, а не поле «баланс».
+"""Money: double entry, not a "balance" field.
 
-D-127 требует: продавец получает ровно то, что заплатил покупатель, минус налог
-и комиссия. На поле `balance` это непроверяемо — расхождение обнаружится через
-месяц и не будет объяснимо (01-tech-notes, паттерн 2).
+D-127 demands: the seller gets exactly what the buyer paid, minus tax and
+commission. On a `balance` field this is unverifiable -- a discrepancy shows up
+a month later and cannot be explained (01-tech-notes, pattern 2).
 
-Поэтому денег как атрибута игрока не существует. Существует неизменяемый журнал
-проводок; баланс — сумма по счёту. Каждая сделка, налог, пошлина, жалованье и
-счёт за энергию — проводка со ссылкой на основание.
+So money as a player attribute does not exist. What exists is an immutable
+journal of postings; the balance is the sum over the account. Every deal, tax,
+duty, salary and energy bill is a posting with a reference to its ground.
 
-**Инвариант, который держит вся конструкция:** сумма проводок каждой операции
-равна нулю. Деньги переходят, а не появляются. Единственное исключение — счета
-вида `genesis`, и на них смотрит отдельная проверка инвариантов: любой прирост
-денежной массы обязан быть объяснён.
+**The invariant the whole construction holds:** the sum of postings of each
+operation is zero. Money moves, it does not appear. The only exception is
+`genesis`-kind accounts, and a separate invariant check watches them: any
+growth of the money supply must be explained.
 """
 
 from __future__ import annotations
@@ -27,31 +27,31 @@ from src.db.base import Base, created_column, enum_column, uuid_pk
 
 
 class Currency(StrEnum):
-    """Две формы денег, разведённые по местам, а не по планетам (D-086)."""
+    """The two forms of money, separated by place, not by planet (D-086)."""
 
-    #: Терракоин — безналичный расчёт Терры.
+    #: Terracoin -- Terra's cashless settlement.
     TK = "TK"
 
 
 class AccountKind(StrEnum):
-    #: Счёт личности. Переживает гибель тела (D-012): деньги в банке целы,
-    #: монета при себе — нет.
+    #: An identity's account. Survives the body's death (D-012): money in the
+    #: bank is intact, the coin on your person is not.
     IDENTITY = "identity"
-    #: Казна города (D-127, D-134).
+    #: A city treasury (D-127, D-134).
     CITY_TREASURY = "city_treasury"
-    #: Задаток по брони и эскроу заказа — деньги вышли у плательщика,
-    #: но ещё не пришли получателю (D-116).
+    #: A reservation deposit and an order's escrow -- money has left the payer
+    #: but has not yet reached the recipient (D-116).
     ESCROW = "escrow"
-    #: Резерв банковской системы (D-087, D-167): деньги, вышедшие из оборота.
-    #: Кредит выдаётся отсюда, погашение возвращается сюда — не в оборот.
+    #: The banking system's reserve (D-087, D-167): money that left circulation.
+    #: Credit is issued from here, repayment returns here -- not into circulation.
     BANK_RESERVE = "bank_reserve"
-    #: Единственный законный источник и сток денежной массы. Каждая проводка
-    #: сюда — предмет отдельного разбора и телеметрии.
+    #: The only lawful source and sink of the money supply. Every posting here
+    #: is the subject of separate examination and telemetry.
     GENESIS = "genesis"
 
 
 class PostingReason(StrEnum):
-    """Основание проводки. Оно же — то, что увидит суд."""
+    """The posting's ground. Also what the court will see."""
 
     GENESIS = "genesis"
     TRADE = "trade"
@@ -67,9 +67,9 @@ class PostingReason(StrEnum):
     ESCROW_RELEASE = "escrow_release"
     LOAN = "loan"
     LOAN_REPAYMENT = "loan_repayment"
-    #: Отменено D-175: значение осталось ради старых проводок.
+    #: Cancelled by D-175: the value remains for old postings.
     SEIGNIORAGE = "seigniorage"
-    #: Маржа города с процентов своего заёмщика (D-175).
+    #: The city's margin on its borrower's interest (D-175).
     BANK_MARGIN = "bank_margin"
 
 
@@ -81,22 +81,22 @@ class LedgerAccount(Base):
 
     id: Mapped[uuid.UUID] = uuid_pk()
     kind: Mapped[AccountKind] = enum_column(AccountKind, "ledger_account_kind", nullable=False)
-    #: Личность, город или иной владелец. У `genesis` владельца нет.
+    #: An identity, a city or another owner. `genesis` has no owner.
     owner_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
     currency: Mapped[Currency] = enum_column(Currency, "currency", nullable=False)
     created_at: Mapped[datetime] = created_column()
 
 
 class LedgerTransaction(Base):
-    """Операция целиком. Проводки внутри неё обязаны давать в сумме ноль."""
+    """A whole operation. The postings inside it must sum to zero."""
 
     __tablename__ = "ledger_transaction"
 
     id: Mapped[uuid.UUID] = uuid_pk()
     at: Mapped[datetime] = created_column()
     reason: Mapped[PostingReason] = enum_column(PostingReason, "posting_reason", nullable=False)
-    #: Событие-основание. По нему операция связывается с тем, что произошло
-    #: в мире: исполнение ордера, приговор, счёт за энергию.
+    #: The grounding event. Through it the operation is linked to what happened
+    #: in the world: an order fill, a verdict, an energy bill.
     event_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     memo: Mapped[dict] = mapped_column(nullable=False, default=dict)
 
@@ -106,7 +106,7 @@ class LedgerTransaction(Base):
 
 
 class LedgerEntry(Base):
-    """Одна сторона проводки. Знак: списание отрицательно, зачисление положительно."""
+    """One side of a posting. Sign: a debit is negative, a credit is positive."""
 
     __tablename__ = "ledger_entry"
     __table_args__ = (Index("ix_ledger_entry_account", "account_id", "id"),)
@@ -118,7 +118,7 @@ class LedgerEntry(Base):
     account_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("ledger_account.id"), nullable=False
     )
-    #: Минорные единицы (`units.MONEY_SCALE`). Целое — чтобы копейка не терялась.
+    #: Minor units (`units.MONEY_SCALE`). Integer -- so that not a cent is lost.
     amount: Mapped[int] = mapped_column(BigInteger, nullable=False)
 
     transaction: Mapped[LedgerTransaction] = relationship(back_populates="entries")

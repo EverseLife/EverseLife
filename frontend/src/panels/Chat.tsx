@@ -1,13 +1,13 @@
 /**
- * Живое общение — нижняя полоса локации (D-043, D-050).
+ * Live talk -- the location's bottom strip (D-043, D-050).
  *
- * Три типа сообщений, и тип обязателен: речь, действие, вне игры. Оформлены
- * по-разному — без этого отыгрыш неотличим от реплик, а метагейм протекает в
- * игровое, вплоть до суда.
+ * Three message kinds, and the kind is mandatory: speech, action,
+ * out-of-game. Styled differently -- without that roleplay is
+ * indistinguishable from remarks, and metagame leaks into the in-game, up to the court.
  *
- * Управление кружками живёт отдельным табом основного окна; здесь только сам
- * разговор — и пометка, если вы говорите в кружке, а не на всю комнату.
- * Истории нет: это разговор в комнате, а не переписка.
+ * Circle management lives in a separate tab of the main window; here only
+ * the talk itself -- and a mark if you speak in a circle rather than to the
+ * whole room. There is no history: this is a conversation in a room, not correspondence.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -17,7 +17,7 @@ type Props = {
   session: Session;
   busy: boolean;
   act: (what: () => Promise<unknown>) => Promise<void>;
-  /** Ключ локации: сменилась — разговор начался заново. */
+  /** The location key: changed -- the conversation started anew. */
   place: string;
 };
 
@@ -99,7 +99,7 @@ export function Chat({ session, busy, act, place }: Props) {
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
-            //: Тот же предохранитель, что у кнопки: занято или пусто — не шлём.
+            //: The same fuse as on the button: busy or empty -- we do not send.
             if (e.key === "Enter" && !busy && text.trim()) void say();
           }}
           placeholder={

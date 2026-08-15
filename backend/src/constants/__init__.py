@@ -1,7 +1,7 @@
-"""Балансные константы и каталоги — единственный источник чисел (D-065).
+"""Balance constants and catalogs -- the only source of numbers (D-065).
 
-Движок не хранит собственных числовых значений: всё приходит из `build/` вольта
-гейм-дизайна. Здесь — загрузка, типизация и горячая замена.
+The engine keeps no numeric values of its own: everything comes from the
+game-design vault's `build/`. Here: loading, typing and hot replacement.
 """
 
 from __future__ import annotations
@@ -36,11 +36,12 @@ __all__ = [
 
 
 def bootstrap(build_dir: Path, overrides: dict | None = None) -> tuple[Constants, Catalog]:
-    """Загрузить и проверить всё, от чего зависит движок.
+    """Load and check everything the engine depends on.
 
-    Вызывается при старте процесса. Константы, которой нет, обязана падать
-    здесь — а не в бою (01-tech-notes, паттерн 4).
+    Called at process start. A missing constant must fail here -- not in
+    production (01-tech-notes, pattern 4).
     """
+
     constants = load_constants(build_dir)
     if overrides:
         constants = constants.with_overrides(overrides)

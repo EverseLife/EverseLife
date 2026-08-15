@@ -1,13 +1,13 @@
-"""Отдельный тест обязан ловить магические числа в коде (01-tech-notes, паттерн 4).
+"""A separate test must catch magic numbers in code (01-tech-notes, pattern 4).
 
-D-065 требует: ни одно балансное число не зашито в код, изменение применяется
-без выката версии. Правило легко нарушить случайно — написать `stamina - 5`
-вместо `stamina - constants[BODY_DRAIN_RATE].min` и не заметить.
+D-065 demands: not one balance number is hard-coded, a change applies without
+a release. The rule is easy to break by accident -- write `stamina - 5`
+instead of `stamina - constants[BODY_DRAIN_RATE].min` and not notice.
 
-Что проверяется: в модулях правил (`engine/`) не встречается числовых литералов,
-кроме нейтральных 0 и 1. Всё остальное обязано приходить из реестра констант.
-Единицы представления (`units.py`) под проверку не попадают — их невозможно
-«сбалансировать», это способ хранения, а не свойство игры.
+What is checked: no numeric literals occur in the rule modules (`engine/`)
+except the neutral 0 and 1. Everything else must come from the constants
+registry. Representation units (`units.py`) are not checked -- they cannot be
+"balanced", they are a way of storing, not a property of the game.
 """
 
 from __future__ import annotations
@@ -19,8 +19,9 @@ import pytest
 
 RULES_DIRS = ["engine", "game"]
 
-#: 0 и 1 — нейтральны: пустая сумма, один шаг, первый элемент. Всё прочее
-#: числом в правилах быть не может.
+#: 0 and 1 are neutral: an empty sum, one step, the first element. Nothing
+#: else can be a number in the rules.
+
 ALLOWED = {0, 1}
 
 SRC = Path(__file__).resolve().parents[1] / "src"
@@ -45,12 +46,12 @@ def literals(tree: ast.AST) -> list[tuple[int, object]]:
     return found
 
 
-def test_модули_правил_найдены() -> None:
+def test_rule_modules_found() -> None:
     assert rule_modules(), "проверка бесполезна, если ей нечего проверять"
 
 
 @pytest.mark.parametrize("path", rule_modules(), ids=lambda p: p.name)
-def test_в_правилах_нет_балансных_чисел(path: Path) -> None:
+def test_no_balance_numbers_in_rules(path: Path) -> None:
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     offenders = literals(tree)
     assert not offenders, (

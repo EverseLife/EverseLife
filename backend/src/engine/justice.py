@@ -1,37 +1,38 @@
-"""Суд: жалоба, дело, приговор, исполнение (D-095, D-117, D-166).
+"""Court: complaint, case, verdict, enforcement (D-095, D-117, D-166).
 
-Право `justice` было объявлено, четырнадцать примитивов санкций лежали в
-`laws.json` — а суда не существовало. Всё, что движок не проверяет сам
-(договор, слово-закон, снос чужого), обеспечивалось связкой «жалоба → суд →
-санкция», у которой не было ни одного звена.
+The `justice` right was declared, fourteen sanction primitives lay in
+`laws.json` -- and the court did not exist. Everything the engine does not
+check itself (contract, word-law, demolishing what is not yours) was ensured
+by the chain "complaint -> court -> sanction", which had not a single link.
 
-## Как устроено
+## How it works
 
-**Жалоба** подаётся в конкретный город и стоит `justice.court_fee` в его казну:
-пошлина — не барьер, а то, что делает хороший суд выгодным городу (D-117).
-Срок давности — `justice.claim_window` суток: суд не архив обид.
+A **complaint** is filed in a specific city and costs `justice.court_fee` to
+its treasury: the fee is not a barrier but what makes a good court profitable
+for the city (D-117). The limitation period is `justice.claim_window` days:
+the court is not an archive of grudges.
 
-**Дело** — истец, ответчик, суть претензии словами. Движок претензию не
-осмысляет: разбирать её — работа судьи, а не кода.
+A **case** is plaintiff, defendant, the substance of the claim in words. The
+engine does not interpret the claim: examining it is the judge's work, not code's.
 
-**Приговор** называет санкцию из примитивов вольта. Движок исполняет три и
-честно отказывает в остальных:
+A **verdict** names a sanction from the vault primitives. The engine enforces
+three and honestly refuses the rest:
 
-| Санкция | Что делает движок |
+| Sanction | What the engine does |
 |---|---|
-| `fine` | списывает со счёта в казну; чего нет — записано долгом |
-| `prison` | держит тело в узле до срока, не дольше `justice.prison_max` |
-| `exile` | снимает гражданство (D-160): высылка, а не смерть |
+| `fine` | writes off from the account to the treasury; what is missing is recorded as debt |
+| `prison` | holds the body in a node until the term, no longer than `justice.prison_max` |
+| `exile` | removes citizenship (D-160): banishment, not death |
 
-**Исполнение не зависит от того, онлайн ли стража:** санкция применяется в
-момент приговора, срок снимается заданием журнала.
+**Enforcement does not depend on whether guards are online:** the sanction is
+applied at the moment of the verdict, the term is lifted by a journal job.
 
-## Чего здесь нет
+## What is not here
 
-Обжалования, розыска сбежавшего, признания чужих приговоров и одиннадцати
-остальных примитивов: конфискация требует описи имущества, арест — обратимой
-заморозки, лишение лицензии — самих лицензий. Каждый из них отдельная
-механика, а не строка в перечислении.
+Appeals, hunting an escapee, recognition of foreign verdicts and the eleven
+remaining primitives: confiscation needs an inventory of property, arrest a
+reversible freeze, licence revocation the licences themselves. Each of them is
+a separate mechanic, not a line in an enumeration.
 """
 
 from __future__ import annotations
@@ -54,20 +55,20 @@ from src.models.justice import Case, CaseState, Sanction
 from src.models.ledger import AccountKind, PostingReason
 from src.units import money, money_str
 
-#: Примитивы, которые движок исполняет. Остальные названы в шапке: список
-#: санкций живёт в вольте, а исполняет движок ровно то, что умеет.
+#: Primitives the engine enforces. The rest are named in the header: the
+#: sanction list lives in the vault, and the engine enforces exactly what it can.
 FINE, PRISON, EXILE = "fine", "prison", "exile"
 
-#: Свойство узла «тюрьма» — наследие старых миров (D-174). Новый порядок —
-#: станок «Каторга» (D-176): тюрьму власть строит, как всякое здание.
+#: The node property "prison" is a legacy of old worlds (D-174). The new order
+#: is the "Penal colony" machine (D-176): the authority builds a prison like any building.
 PRISON_NODE = "тюрьма"
-#: Станок из `build/recipes.json`: узел городской земли с ним — каторга.
+#: Machine from `build/recipes.json`: a civic-land node with it is a penal colony.
 KATORGA = "Каторга"
 ENFORCED = (FINE, PRISON, EXILE)
 
 
 async def is_prison(session: AsyncSession, node) -> bool:
-    """Тюрьма ли этот узел: станок «Каторга» либо старое свойство (D-176)."""
+    """Whether this node is a prison: the "Penal colony" machine or the old property (D-176)."""
     from src.engine import world
 
     if (node.properties or {}).get(PRISON_NODE):
@@ -78,10 +79,10 @@ async def is_prison(session: AsyncSession, node) -> bool:
 async def held(
     session: AsyncSession, constants: Constants, identity_id: uuid.UUID
 ) -> bool:
-    """Держит ли человека тюрьма: приговором либо долгом (D-166, D-168).
+    """Whether the prison holds the person: by verdict or by debt (D-166, D-168).
 
-    По этому признаку открываются тюремный принтер и каторжный забой — и
-    закрываются для всех остальных (D-174, D-176).
+    By this sign the prison printer and the penal face open -- and close for
+    everyone else (D-174, D-176).
     """
     from src.engine import bank
 
@@ -91,17 +92,17 @@ async def held(
 
 
 async def prisons_of(session: AsyncSession, city: City) -> list:
-    """Каторги города: узлы его земли со станком «Каторга» (D-176)."""
+    """The city's penal colonies: nodes of its land with the "Penal colony" machine (D-176)."""
     from src.models.world import Node
 
-    узлы = (
+    nodes = (
         await session.execute(select(Node).where(Node.owner_city_id == city.id))
     ).scalars().all()
-    итог = []
-    for узел in узлы:
-        if await is_prison(session, узел):
-            итог.append(узел)
-    return итог
+    result = []
+    for node in nodes:
+        if await is_prison(session, node):
+            result.append(node)
+    return result
 
 
 class JusticeError(Exception):
@@ -109,19 +110,19 @@ class JusticeError(Exception):
 
 
 class TooLate(JusticeError):
-    """Срок давности вышел: суд — не архив обид."""
+    """The limitation period has expired: the court is not an archive of grudges."""
 
 
 class CannotPayFee(JusticeError):
-    """Пошлина не по карману. Суд стоит денег, и это решение города."""
+    """The fee is unaffordable. Court costs money, and that is the city's decision."""
 
 
 class NotJudge(JusticeError):
-    """Судит тот, кому город дал право `justice`."""
+    """Whoever the city gave the `justice` right judges."""
 
 
 class Unenforceable(JusticeError):
-    """Такую санкцию движок не исполняет — и молча делать вид не станет."""
+    """The engine does not enforce such a sanction -- and will not silently pretend to."""
 
 
 async def sue(
@@ -135,16 +136,16 @@ async def sue(
     happened_at: datetime | None = None,
     now: datetime | None = None,
 ) -> Case:
-    """Подать жалобу. Пошлина уходит в казну города сразу (D-117)."""
+    """File a complaint. The fee goes to the city treasury at once (D-117)."""
     moment = now or datetime.now(UTC)
-    суть = claim.strip()
-    if not суть:
+    essence = claim.strip()
+    if not essence:
         raise JusticeError("жалоба без сути — не жалоба")
     if plaintiff.id == defendant.id:
         raise JusticeError("на себя не жалуются")
     if happened_at is not None:
-        окно = timedelta(days=constants[R.JUSTICE_CLAIM_WINDOW])
-        if happened_at + окно < moment:
+        window = timedelta(days=constants[R.JUSTICE_CLAIM_WINDOW])
+        if happened_at + window < moment:
             raise TooLate(
                 f"с события прошло больше {constants[R.JUSTICE_CLAIM_WINDOW]:g} суток: "
                 "срок давности вышел"
@@ -152,30 +153,30 @@ async def sue(
 
     from src.engine import city as town
 
-    пошлина = money(constants[R.JUSTICE_COURT_FEE])
-    счёт = await ledger.account_for(session, AccountKind.IDENTITY, plaintiff.id)
-    if await ledger.balance(session, счёт.id) < пошлина:
+    duty = money(constants[R.JUSTICE_COURT_FEE])
+    account = await ledger.account_for(session, AccountKind.IDENTITY, plaintiff.id)
+    if await ledger.balance(session, account.id) < duty:
         raise CannotPayFee(
-            f"пошлина суда {money_str(пошлина)} ₭, а на счету меньше"
+            f"пошлина суда {money_str(duty)} ₭, а на счету меньше"
         )
-    казна = await town.treasury(session, city)
+    treasury = await town.treasury(session, city)
     await ledger.transfer(
         session,
         PostingReason.COURT_FEE,
-        debit=счёт.id,
-        credit=казна.id,
-        amount=пошлина,
+        debit=account.id,
+        credit=treasury.id,
+        amount=duty,
         memo={"пошлина суда": city.name},
     )
 
-    дело = Case(
+    case = Case(
         city_id=city.id,
         plaintiff_identity_id=plaintiff.id,
         defendant_identity_id=defendant.id,
-        claim=суть,
-        fee=пошлина,
+        claim=essence,
+        fee=duty,
     )
-    session.add(дело)
+    session.add(case)
     await session.flush()
     await events.record(
         session,
@@ -183,12 +184,12 @@ async def sue(
         actor_identity_id=plaintiff.id,
         node_id=city.node_id,
         city_id=str(city.id),
-        case_id=str(дело.id),
+        case_id=str(case.id),
         against=defendant.name,
-        claim=суть,
-        fee=пошлина,
+        claim=essence,
+        fee=duty,
     )
-    return дело
+    return case
 
 
 async def judge(
@@ -205,14 +206,14 @@ async def judge(
     prison_node: str | None = None,
     now: datetime | None = None,
 ) -> Sanction | None:
-    """Вынести приговор. Без санкции — оправдание: висящих дел не бывает."""
+    """Deliver a verdict. Without a sanction it is an acquittal: there are no hanging cases."""
     from src.engine import city as town
 
     moment = now or datetime.now(UTC)
     if case.state is not CaseState.OPEN:
         raise JusticeError("дело уже рассмотрено")
     city = await town.by_id(session, case.city_id)
-    if city is None:  # pragma: no cover — дело без города это баг
+    if city is None:  # pragma: no cover -- a case without a city is a bug
         raise JusticeError("дело ссылается в никуда")
     if not await town.may(session, by.id, city, Power.JUSTICE):
         raise NotJudge("судит тот, кому город дал право justice")
@@ -236,8 +237,8 @@ async def judge(
         )
         return None
 
-    известные = {примитив.id for примитив in catalog.laws.sanctions}
-    if sanction not in известные:
+    known = {primitive.id for primitive in catalog.laws.sanctions}
+    if sanction not in known:
         raise JusticeError(f"нет такой санкции: {sanction}")
     if sanction not in ENFORCED:
         raise Unenforceable(
@@ -245,16 +246,16 @@ async def judge(
             "хуже, чем отказ от приговора"
         )
 
-    ответчик = await session.get(Identity, case.defendant_identity_id)
-    if ответчик is None:  # pragma: no cover — личность вечна
+    defendant = await session.get(Identity, case.defendant_identity_id)
+    if defendant is None:  # pragma: no cover -- the identity is eternal
         raise JusticeError("ответчик исчез")
 
-    наказание = await _enforce(
+    penalty = await _enforce(
         session,
         constants,
         city,
         case,
-        ответчик,
+        defendant,
         sanction,
         days=days,
         amount=amount,
@@ -274,7 +275,7 @@ async def judge(
         sanction=sanction,
         verdict=case.verdict,
     )
-    return наказание
+    return penalty
 
 
 async def _enforce(
@@ -290,54 +291,54 @@ async def _enforce(
     prison_node: str | None = None,
     now: datetime,
 ) -> Sanction:
-    """Исполнить санкцию. Стража для этого не нужна: исполняет движок."""
+    """Enforce a sanction. No guards are needed for that: the engine enforces."""
     from src.engine import city as town
 
-    наказание = Sanction(
+    penalty = Sanction(
         case_id=case.id, city_id=city.id, identity_id=who.id, kind=kind
     )
 
     if kind == FINE:
-        присуждено = money(amount or 0)
-        счёт = await ledger.account_for(session, AccountKind.IDENTITY, who.id)
-        есть = await ledger.balance(session, счёт.id)
-        взыскано = min(есть, присуждено)
-        if взыскано > 0:
-            казна = await town.treasury(session, city)
+        awarded = money(amount or 0)
+        account = await ledger.account_for(session, AccountKind.IDENTITY, who.id)
+        have = await ledger.balance(session, account.id)
+        collected_ = min(have, awarded)
+        if collected_ > 0:
+            treasury = await town.treasury(session, city)
             await ledger.transfer(
                 session,
                 PostingReason.FINE,
-                debit=счёт.id,
-                credit=казна.id,
-                amount=взыскано,
+                debit=account.id,
+                credit=treasury.id,
+                amount=collected_,
                 memo={"штраф по делу": str(case.id)},
             )
-        наказание.amount = присуждено
-        #: Чего нет — то долг перед городом. Взыскания долга пока нет, и
-        #: выдумывать его здесь нельзя: это отдельная механика (D-166).
-        наказание.debt = присуждено - взыскано
+        penalty.amount = awarded
+        #: What is missing is a debt to the city. Debt collection does not exist
+        #: yet, and inventing it here is not allowed: a separate mechanic (D-166).
+        penalty.debt = awarded - collected_
 
     elif kind == PRISON:
-        потолок = constants[R.JUSTICE_PRISON_MAX]
-        срок = min(float(days or потолок), потолок)
-        наказание.until = now + timedelta(days=срок)
-        тело = await _body_of(session, who)
-        #: Куда сажать — решает суд (D-176): каторга одна — туда, несколько —
-        #: судья называет которую, ни одной — держим там, где застало.
-        камера = await _prison_choice(session, city, prison_node)
-        if камера is not None and тело is not None:
-            тело.node_id = камера.id
-            наказание.node_id = камера.id
+        ceiling = constants[R.JUSTICE_PRISON_MAX]
+        term = min(float(days or ceiling), ceiling)
+        penalty.until = now + timedelta(days=term)
+        body = await _body_of(session, who)
+        #: Where to imprison is the court's decision (D-176): one penal colony --
+        #: there; several -- the judge names which; none -- hold where it caught them.
+        cell_ = await _prison_choice(session, city, prison_node)
+        if cell_ is not None and body is not None:
+            body.node_id = cell_.id
+            penalty.node_id = cell_.id
         else:
-            наказание.node_id = None if тело is None else тело.node_id
+            penalty.node_id = None if body is None else body.node_id
 
     elif kind == EXILE:
-        запись = await town.citizenship(session, who.id)
-        if запись is not None and запись.city_id == city.id:
-            await session.delete(запись)
+        entry = await town.citizenship(session, who.id)
+        if entry is not None and entry.city_id == city.id:
+            await session.delete(entry)
             await session.flush()
 
-    session.add(наказание)
+    session.add(penalty)
     await session.flush()
     await events.record(
         session,
@@ -347,60 +348,60 @@ async def _enforce(
         city_id=str(city.id),
         case_id=str(case.id),
         sanction=kind,
-        amount=наказание.amount,
-        debt=наказание.debt,
-        until=None if наказание.until is None else наказание.until.isoformat(),
+        amount=penalty.amount,
+        debt=penalty.debt,
+        until=None if penalty.until is None else penalty.until.isoformat(),
     )
-    if наказание.until is not None:
+    if penalty.until is not None:
         await enqueue(
             session,
             JobKind.SANCTION_LIFT,
-            наказание.until,
-            payload={"sanction": str(наказание.id)},
-            dedup_key=f"sanction.lift:{наказание.id}",
+            penalty.until,
+            payload={"sanction": str(penalty.id)},
+            dedup_key=f"sanction.lift:{penalty.id}",
         )
-    return наказание
+    return penalty
 
 
 @handler(JobKind.SANCTION_LIFT)
 async def lift(session: AsyncSession, job: Job) -> None:
-    """Срок вышел: санкция снимается сама, без чьего-либо участия."""
-    наказание = await session.get(Sanction, uuid.UUID(job.payload["sanction"]))
-    if наказание is None or наказание.lifted_at is not None:
+    """The term is up: the sanction is lifted by itself, without anybody's participation."""
+    penalty = await session.get(Sanction, uuid.UUID(job.payload["sanction"]))
+    if penalty is None or penalty.lifted_at is not None:
         return
-    наказание.lifted_at = job.run_at
+    penalty.lifted_at = job.run_at
     await session.flush()
     await events.record(
         session,
         EventKind.SANCTION_LIFTED,
-        actor_identity_id=наказание.identity_id,
-        city_id=str(наказание.city_id),
-        sanction=наказание.kind,
+        actor_identity_id=penalty.identity_id,
+        city_id=str(penalty.city_id),
+        sanction=penalty.kind,
     )
 
 
 async def active(
     session: AsyncSession, identity_id: uuid.UUID, kind: str | None = None
 ) -> list[Sanction]:
-    """Действующие санкции на человеке."""
-    условия = [Sanction.identity_id == identity_id, Sanction.lifted_at.is_(None)]
+    """Sanctions in force on the person."""
+    conditions = [Sanction.identity_id == identity_id, Sanction.lifted_at.is_(None)]
     if kind is not None:
-        условия.append(Sanction.kind == kind)
-    строки = (await session.execute(select(Sanction).where(*условия))).scalars().all()
-    сейчас = datetime.now(UTC)
+        conditions.append(Sanction.kind == kind)
+    lines = (await session.execute(select(Sanction).where(*conditions))).scalars().all()
+    now_ = datetime.now(UTC)
     return [
-        наказание
-        for наказание in строки
-        if наказание.until is None or наказание.until > сейчас
+        penalty
+        for penalty in lines
+        if penalty.until is None or penalty.until > now_
     ]
 
 
 async def imprisoned(
     session: AsyncSession, identity_id: uuid.UUID
 ) -> Sanction | None:
-    """Заключение, если оно действует. Тело держат узлом, а не уговорами."""
-    сидит = await active(session, identity_id, PRISON)
-    return сидит[0] if сидит else None
+    """Imprisonment, if in force. The body is held by the node, not by persuasion."""
+    sits = await active(session, identity_id, PRISON)
+    return sits[0] if sits else None
 
 
 async def cases_of(session: AsyncSession, city: City) -> list[Case]:
@@ -416,38 +417,38 @@ async def cases_of(session: AsyncSession, city: City) -> list[Case]:
 
 
 async def view(session: AsyncSession, city: City) -> list[dict]:
-    """Карточки дел этого города — то, что показывает клиент."""
-    итог: list[dict] = []
-    for дело in await cases_of(session, city):
-        истец = await session.get(Identity, дело.plaintiff_identity_id)
-        ответчик = await session.get(Identity, дело.defendant_identity_id)
-        итог.append(
+    """This city's case cards -- what the client shows."""
+    result: list[dict] = []
+    for case in await cases_of(session, city):
+        plaintiff = await session.get(Identity, case.plaintiff_identity_id)
+        defendant = await session.get(Identity, case.defendant_identity_id)
+        result.append(
             {
-                "id": str(дело.id),
-                "plaintiff": None if истец is None else истец.name,
-                "defendant": None if ответчик is None else ответчик.name,
-                "claim": дело.claim,
-                "state": дело.state.value,
-                "verdict": дело.verdict,
-                "opened_at": дело.opened_at.isoformat(),
+                "id": str(case.id),
+                "plaintiff": None if plaintiff is None else plaintiff.name,
+                "defendant": None if defendant is None else defendant.name,
+                "claim": case.claim,
+                "state": case.state.value,
+                "verdict": case.verdict,
+                "opened_at": case.opened_at.isoformat(),
             }
         )
-    return итог
+    return result
 
 
 async def _prison_choice(session: AsyncSession, city: City, prison_node: str | None):
-    """Каторга, куда отправит приговор. Ничего не выдумывает: выбор — суда."""
-    каторги = await prisons_of(session, city)
+    """The penal colony the verdict sends to. Invents nothing: the choice is the court's."""
+    penal_face = await prisons_of(session, city)
     if prison_node is not None:
-        выбранная = next((узел for узел in каторги if узел.key == prison_node), None)
-        if выбранная is None:
+        chosen = next((node for node in penal_face if node.key == prison_node), None)
+        if chosen is None:
             raise JusticeError(f"«{prison_node}» — не каторга этого города")
-        return выбранная
-    if len(каторги) > 1:
+        return chosen
+    if len(penal_face) > 1:
         raise JusticeError(
             "в городе несколько каторг: суд называет, в какую отправить"
         )
-    return каторги[0] if каторги else None
+    return penal_face[0] if penal_face else None
 
 
 async def _body_of(session: AsyncSession, who: Identity):

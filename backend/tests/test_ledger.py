@@ -1,7 +1,7 @@
-"""Деньги переходят, а не появляются (инвариант И2, D-127).
+"""Money moves, it does not appear (invariant I2, D-127).
 
-Эти проверки — не про SQLAlchemy. Они про то, что **несходящуюся операцию
-невозможно провести**: ни через код движка, ни в обход него запросом.
+These checks are not about SQLAlchemy. They are about **an unbalanced operation
+being impossible to post**: neither through engine code nor around it by a query.
 """
 
 from __future__ import annotations
@@ -18,7 +18,8 @@ from src.units import money
 
 
 async def _funded(session: AsyncSession, amount: int) -> tuple:
-    """Личность с деньгами. Деньги выпущены явной операцией с genesis-счёта."""
+    """An identity with money. The money is issued by an explicit operation from the genesis
+    account."""
     genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
     wallet = await ledger.account_for(session, AccountKind.IDENTITY, uuid.uuid4())
     await ledger.transfer(
@@ -27,7 +28,7 @@ async def _funded(session: AsyncSession, amount: int) -> tuple:
     return genesis, wallet
 
 
-async def test_перевод_сохраняет_сумму(session: AsyncSession) -> None:
+async def test_transfer_preserves_sum(session: AsyncSession) -> None:
     _, seller = await _funded(session, money(100))
     buyer = await ledger.account_for(session, AccountKind.IDENTITY, uuid.uuid4())
     await ledger.transfer(
@@ -45,8 +46,8 @@ async def test_перевод_сохраняет_сумму(session: AsyncSessio
     assert await ledger.balance(session, seller.id) == money(130)
 
 
-async def test_продавец_получает_ровно_минус_налог(session: AsyncSession) -> None:
-    """D-127: покупатель видит цену — она и есть цена. Налог платит продавец."""
+async def test_seller_gets_exactly_minus_tax(session: AsyncSession) -> None:
+    """D-127: the buyer sees the price -- it is the price. The seller pays the tax."""
     genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
     buyer = await ledger.account_for(session, AccountKind.IDENTITY, uuid.uuid4())
     seller = await ledger.account_for(session, AccountKind.IDENTITY, uuid.uuid4())
@@ -70,11 +71,11 @@ async def test_продавец_получает_ровно_минус_нало�
     assert await ledger.balance(session, buyer.id) == money(60)
     assert await ledger.balance(session, seller.id) == price - tax
     assert await ledger.balance(session, treasury.id) == tax
-    #: Денежная масса не изменилась: налог — переход, а не сжигание.
+    #: The money supply did not change: tax is a transfer, not burning.
     assert await ledger.money_supply(session) == money(100)
 
 
-async def test_несходящаяся_операция_отвергается_движком(session: AsyncSession) -> None:
+async def test_unbalanced_operation_rejected_by_engine(session: AsyncSession) -> None:
     _, wallet = await _funded(session, money(10))
     other = await ledger.account_for(session, AccountKind.IDENTITY, uuid.uuid4())
 
@@ -86,8 +87,8 @@ async def test_несходящаяся_операция_отвергается_
         )
 
 
-async def test_несходящаяся_операция_отвергается_базой(session: AsyncSession) -> None:
-    """Главная проверка: правило держится, даже если движок обошли запросом."""
+async def test_unbalanced_operation_rejected_by_database(session: AsyncSession) -> None:
+    """The main check: the rule holds even if the engine was bypassed by a query."""
     _, wallet = await _funded(session, money(10))
     await session.commit()
 
@@ -102,15 +103,15 @@ async def test_несходящаяся_операция_отвергается_
             ),
         ],
     )
-    #: Добавляем половину проводки мимо движка — так, как это сделала бы
-    #: ошибка в коде или правка руками.
+    #: We add half a posting past the engine -- the way a bug in code or a
+    #: hand edit would do it.
     session.add(LedgerEntry(transaction_id=transaction.id, account_id=wallet.id, amount=money(5)))
 
     with pytest.raises(DBAPIError, match="не сходятся"):
         await session.commit()
 
 
-async def test_нельзя_потратить_чего_нет(session: AsyncSession) -> None:
+async def test_cannot_spend_what_you_do_not_have(session: AsyncSession) -> None:
     _, wallet = await _funded(session, money(10))
     other = await ledger.account_for(session, AccountKind.IDENTITY, uuid.uuid4())
 
@@ -120,8 +121,8 @@ async def test_нельзя_потратить_чего_нет(session: AsyncSes
         )
 
 
-async def test_штраф_уводит_счёт_в_долг_осознанно(session: AsyncSession) -> None:
-    """Санкция `fine`: списание при нехватке превращается в долг перед городом."""
+async def test_fine_pushes_account_into_debt_deliberately(session: AsyncSession) -> None:
+    """The `fine` sanction: a write-off with a shortfall turns into debt to the city."""
     _, wallet = await _funded(session, money(5))
     treasury = await ledger.account_for(session, AccountKind.CITY_TREASURY, uuid.uuid4())
 
@@ -137,7 +138,7 @@ async def test_штраф_уводит_счёт_в_долг_осознанно(s
     assert await ledger.balance(session, wallet.id) == money(-15)
 
 
-async def test_денежная_масса_растёт_только_через_genesis(session: AsyncSession) -> None:
+async def test_money_supply_grows_only_via_genesis(session: AsyncSession) -> None:
     assert await ledger.money_supply(session) == 0
     _, wallet = await _funded(session, money(100))
     other = await ledger.account_for(session, AccountKind.IDENTITY, uuid.uuid4())
@@ -145,11 +146,11 @@ async def test_денежная_масса_растёт_только_через_
         session, PostingReason.TRADE, debit=wallet.id, credit=other.id, amount=money(40)
     )
     await session.commit()
-    #: Сколько ни перекладывай — масса та же.
+    #: However much you move it around -- the supply is the same.
     assert await ledger.money_supply(session) == money(100)
 
 
-async def test_журнал_проводок_неизменяем(session: AsyncSession) -> None:
+async def test_posting_journal_immutable(session: AsyncSession) -> None:
     _, wallet = await _funded(session, money(10))
     await session.commit()
 
@@ -163,7 +164,7 @@ async def test_журнал_проводок_неизменяем(session: Async
     await session.rollback()
 
 
-async def test_счёт_переиспользуется_а_не_плодится(session: AsyncSession) -> None:
+async def test_account_reused_not_multiplied(session: AsyncSession) -> None:
     owner = uuid.uuid4()
     first = await ledger.account_for(session, AccountKind.IDENTITY, owner, Currency.TK)
     second = await ledger.account_for(session, AccountKind.IDENTITY, owner, Currency.TK)

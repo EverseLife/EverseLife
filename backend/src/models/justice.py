@@ -1,8 +1,8 @@
-"""Суд: дело и санкция (D-095, D-117, D-166).
+"""Court: case and sanction (D-095, D-117, D-166).
 
-Дело — запись «истец обвиняет ответчика в этом городе». Санкция — то, что
-движок исполняет по приговору, и она отдельной строкой: у срочных санкций есть
-конец, и снимать их обязано задание журнала, а не память судьи.
+A case is a record "plaintiff accuses defendant in this city". A sanction is
+what the engine enforces by verdict, and it is a separate row: timed sanctions
+have an end, and lifting them must be a journal job's duty, not the judge's memory.
 """
 
 from __future__ import annotations
@@ -19,9 +19,9 @@ from src.db.base import Base, created_column, enum_column, uuid_pk
 
 class CaseState(StrEnum):
     OPEN = "open"
-    #: Приговор вынесен: санкция применена.
+    #: The verdict is delivered: the sanction is applied.
     JUDGED = "judged"
-    #: Отказано: оправдание — тоже приговор, и висящих дел не бывает.
+    #: Refused: an acquittal is also a verdict, and there are no hanging cases.
     DISMISSED = "dismissed"
 
 
@@ -37,9 +37,9 @@ class Case(Base):
     defendant_identity_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("identity.id"), nullable=False
     )
-    #: Суть претензии словами: движок её не осмысляет — это работа судьи.
+    #: The substance of the claim in words: the engine does not interpret it -- the judge's work.
     claim: Mapped[str] = mapped_column(nullable=False)
-    #: Пошлина, ушедшая в казну при подаче, минорными единицами.
+    #: The fee that went to the treasury on filing, in minor units.
     fee: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
 
     state: Mapped[CaseState] = enum_column(
@@ -48,14 +48,14 @@ class Case(Base):
     judge_identity_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("identity.id"), nullable=True
     )
-    #: Чем кончилось — словами приговора, для карточки дела.
+    #: How it ended -- in the words of the verdict, for the case card.
     verdict: Mapped[str | None] = mapped_column(nullable=True)
     opened_at: Mapped[datetime] = created_column()
     judged_at: Mapped[datetime | None] = mapped_column(nullable=True)
 
 
 class Sanction(Base):
-    """Применённая санкция. Срочная снимается заданием журнала, а не памятью."""
+    """An applied sanction. A timed one is lifted by a journal job, not by memory."""
 
     __tablename__ = "sanction"
     __table_args__ = (
@@ -71,18 +71,18 @@ class Sanction(Base):
     identity_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("identity.id"), nullable=False
     )
-    #: Примитив из `laws.json`: движок не держит своего списка (D-094).
+    #: A primitive from `laws.json`: the engine keeps no list of its own (D-094).
     kind: Mapped[str] = mapped_column(nullable=False)
-    #: У штрафа — сколько присуждено; у заключения — узел, в котором держат.
+    #: For a fine -- how much is awarded; for imprisonment -- the node held in.
     amount: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     node_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("node.id"), nullable=True
     )
-    #: Что не удалось взыскать: долг перед городом ждёт своей механики.
+    #: What could not be collected: debt to the city awaits its mechanic.
     debt: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
 
     created_at: Mapped[datetime] = created_column()
-    #: До какого момента действует. Пусто — бессрочно.
+    #: Until when it is in force. Empty -- indefinite.
     until: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )

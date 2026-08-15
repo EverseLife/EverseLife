@@ -1,5 +1,6 @@
-# Разработка: база под сервер и тесты, ничего больше.
-# Боевой состав — `deploy/compose.yaml`, порядок выкладки — `DEPLOY.md`.
+# Development: a database for the server and tests, nothing more.
+# The production compose is `deploy/compose.yaml`, the deploy procedure is `DEPLOY.md`.
+
 services:
   postgres:
     image: postgres:16

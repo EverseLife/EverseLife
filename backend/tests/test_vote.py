@@ -1,11 +1,11 @@
-"""Голосование граждан: срок, ценз, кворум, порог (D-036, D-161).
+"""Citizens' vote: term, census, quorum, threshold (D-036, D-161).
 
-Проверяется то, ради чего процедура введена:
+Checked is what the procedure was introduced for:
 
-* город, отдавший утверждение гражданам, не меняет закон росчерком правителя;
-* голос есть только у граждан, и только у отвечающих цензу устава;
-* условия сняты при открытии: правитель не поднимает порог на ходу;
-* итог применяется **сам**, заданием журнала, и без чьего-либо участия.
+* a city that gave approval to citizens does not change a law by the ruler's stroke of a pen;
+* only citizens have a vote, and only those meeting the charter's census;
+* conditions are captured at opening: the ruler does not raise the threshold on the fly;
+* the result applies **itself**, by a journal job, without anybody's participation.
 """
 
 from __future__ import annotations
@@ -26,666 +26,666 @@ from src.models.vote import Vote, VoteKind, VoteState
 from src.models.world import Layer
 from src.units import money
 
-ЗАКОН, ЗНАЧЕНИЕ = "tax_trade", "7"
+LAW, VALUE = "tax_trade", "7"
 
 
-async def _город(session: AsyncSession, catalog: Catalog, **устав):
-    """Город, отдавший законы гражданам, и его правитель."""
-    метка = uuid.uuid4().hex[:8]
-    планета = await world.create_node(
-        session, f"terra.{метка}", "Терра", area_m2=1, layer=Layer.SPACE
+async def _city(session: AsyncSession, catalog: Catalog, **charter):
+    """A city that gave laws to citizens, and its ruler."""
+    stamp = uuid.uuid4().hex[:8]
+    planet = await world.create_node(
+        session, f"terra.{stamp}", "Терра", area_m2=1, layer=Layer.SPACE
     )
-    представитель = await world.create_node(
-        session, f"terra.city.{метка}", "Вече", area_m2=1,
-        layer=Layer.PLANET, parent=планета,
+    delegate = await world.create_node(
+        session, f"terra.city.{stamp}", "Вече", area_m2=1,
+        layer=Layer.PLANET, parent=planet,
     )
-    ядро = await world.create_node(
-        session, f"terra.city.{метка}.core", "Ядро", area_m2=100,
-        parent=представитель, properties={"кольцо": 0},
+    core = await world.create_node(
+        session, f"terra.city.{stamp}.core", "Ядро", area_m2=100,
+        parent=delegate, properties={"кольцо": 0},
     )
-    город = await town.found(session, catalog, представитель, "Вече")
-    ядро.owner_city_id = город.id
-    двор = await world.node_container(session, ядро)
-    await world.grant_item(session, двор, town.HALL, quality=65, origin="тест")
-    город.charter = {**город.charter, vote.APPROVAL: vote.BY_CITIZENS, **устав}
+    city = await town.found(session, catalog, delegate, "Вече")
+    core.owner_city_id = city.id
+    yard = await world.node_container(session, core)
+    await world.grant_item(session, yard, town.HALL, quality=65, origin="тест")
+    city.charter = {**city.charter, vote.APPROVAL: vote.BY_CITIZENS, **charter}
     await session.flush()
 
-    правитель, тело = await _житель(session, ядро, город, "Правитель")
-    await town.install_founder(session, город, правитель)
-    return город, ядро, правитель, тело
+    ruler, body = await _resident(session, core, city, "Правитель")
+    await town.install_founder(session, city, ruler)
+    return city, core, ruler, body
 
 
-async def _житель(session: AsyncSession, узел, город, имя: str, *, гражданин=True):
-    identity = await world.create_identity(session, f"{имя}-{uuid.uuid4().hex[:6]}")
-    body = await world.print_body(session, identity, узел)
-    if гражданин:
-        session.add(Citizen(identity_id=identity.id, city_id=город.id))
+async def _resident(session: AsyncSession, node, city, name: str, *, citizen=True):
+    identity = await world.create_identity(session, f"{name}-{uuid.uuid4().hex[:6]}")
+    body = await world.print_body(session, identity, node)
+    if citizen:
+        session.add(Citizen(identity_id=identity.id, city_id=city.id))
         await session.flush()
     return identity, body
 
 
-async def _созвать(session, constants, catalog, город, правитель, тело) -> Vote:
+async def _convene(session, constants, catalog, city, ruler, body) -> Vote:
     await town.set_law(
-        session, constants, catalog, правитель, город, ЗАКОН, ЗНАЧЕНИЕ, body=тело
+        session, constants, catalog, ruler, city, LAW, VALUE, body=body
     )
-    идут = await vote.open_votes(session, город)
-    assert len(идут) == 1
-    return идут[0]
+    going = await vote.open_votes(session, city)
+    assert len(going) == 1
+    return going[0]
 
 
-# --- созыв ------------------------------------------------------------------
+# --- convening ---------------------------------------------------------------
 
 
-async def test_закон_уходит_на_голосование_а_не_применяется(
+async def test_law_goes_to_vote_not_applied(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """`law_approval: citizens` — правитель созывает, а не решает."""
-    город, _, правитель, тело = await _город(session, catalog)
-    голосование = await _созвать(session, constants, catalog, город, правитель, тело)
+    """`law_approval: citizens` -- the ruler convenes rather than decides."""
+    city, _, ruler, body = await _city(session, catalog)
+    poll = await _convene(session, constants, catalog, city, ruler, body)
 
-    assert (город.laws or {}).get(ЗАКОН) != ЗНАЧЕНИЕ, "закон ещё не принят"
-    assert голосование.subject == {"law": ЗАКОН, "value": ЗНАЧЕНИЕ}
-    assert голосование.state is VoteState.OPEN
+    assert (city.laws or {}).get(LAW) != VALUE, "закон ещё не принят"
+    assert poll.subject == {"law": LAW, "value": VALUE}
+    assert poll.state is VoteState.OPEN
 
 
-async def test_срок_голосования_из_вольта(
+async def test_poll_term_from_vault(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    город, _, правитель, тело = await _город(session, catalog)
-    голосование = await _созвать(session, constants, catalog, город, правитель, тело)
-    длится = голосование.closes_at - голосование.opened_at
-    assert длится == pytest.approx(
+    city, _, ruler, body = await _city(session, catalog)
+    poll = await _convene(session, constants, catalog, city, ruler, body)
+    lasts = poll.closes_at - poll.opened_at
+    assert lasts == pytest.approx(
         timedelta(hours=constants[R.VOTE_DURATION]), abs=timedelta(seconds=2)
     )
 
 
-# --- у кого голос -----------------------------------------------------------
+# --- who has a vote ----------------------------------------------------------
 
 
-async def test_голосуют_граждане(
+async def test_citizens_vote(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Без этого демократия — соревнование мультиаккаунтов (01-government-forms)."""
-    город, ядро, правитель, тело = await _город(session, catalog)
-    голосование = await _созвать(session, constants, catalog, город, правитель, тело)
-    гость, _ = await _житель(session, ядро, город, "Гость", гражданин=False)
+    """Without this democracy is a multi-account contest (01-government-forms)."""
+    city, core, ruler, body = await _city(session, catalog)
+    poll = await _convene(session, constants, catalog, city, ruler, body)
+    guest, _ = await _resident(session, core, city, "Гость", citizen=False)
 
     with pytest.raises(vote.NoVoice):
-        await vote.cast(session, город, гость, голосование, True)
-    await vote.cast(session, город, правитель, голосование, True)
-    assert await vote.standing(session, голосование) == (1, 0)
+        await vote.cast(session, city, guest, poll, True)
+    await vote.cast(session, city, ruler, poll, True)
+    assert await vote.standing(session, poll) == (1, 0)
 
 
-async def test_ценз_по_сроку_проживания(
+async def test_residency_census(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Вчерашний гражданин не решает судьбу города, если устав так сказал."""
-    город, ядро, правитель, тело = await _город(
+    """Yesterday's citizen does not decide the city's fate if the charter says so."""
+    city, core, ruler, body = await _city(
         session, catalog, **{vote.QUALIFICATION: vote.RESIDENCE}
     )
-    город.charter_params = {vote.QUALIFICATION: 30}
+    city.charter_params = {vote.QUALIFICATION: 30}
     await session.flush()
 
-    новичок, _ = await _житель(session, ядро, город, "Новичок")
-    assert not await vote.may_vote(session, город, новичок.id)
+    newcomer, _ = await _resident(session, core, city, "Новичок")
+    assert not await vote.may_vote(session, city, newcomer.id)
 
-    старожил = await town.citizenship(session, правитель.id)
-    старожил.since = datetime.now(UTC) - timedelta(days=60)
+    oldtimer = await town.citizenship(session, ruler.id)
+    oldtimer.since = datetime.now(UTC) - timedelta(days=60)
     await session.flush()
-    assert await vote.may_vote(session, город, правитель.id)
+    assert await vote.may_vote(session, city, ruler.id)
 
 
-async def test_имущественный_ценз(
+async def test_property_census(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    город, ядро, _, _ = await _город(
+    city, core, _, _ = await _city(
         session, catalog, **{vote.QUALIFICATION: vote.PROPERTY}
     )
-    город.charter_params = {vote.QUALIFICATION: 100}
+    city.charter_params = {vote.QUALIFICATION: 100}
     await session.flush()
 
-    бедный, _ = await _житель(session, ядро, город, "Бедный")
-    богатый, _ = await _житель(session, ядро, город, "Богатый")
-    счёт = await ledger.account_for(session, AccountKind.IDENTITY, богатый.id)
+    poor_, _ = await _resident(session, core, city, "Бедный")
+    wealthy, _ = await _resident(session, core, city, "Богатый")
+    account = await ledger.account_for(session, AccountKind.IDENTITY, wealthy.id)
     genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
     await ledger.transfer(
         session, PostingReason.GENESIS,
-        debit=genesis.id, credit=счёт.id, amount=money(500), memo={},
+        debit=genesis.id, credit=account.id, amount=money(500), memo={},
     )
 
-    assert not await vote.may_vote(session, город, бедный.id)
-    assert await vote.may_vote(session, город, богатый.id)
+    assert not await vote.may_vote(session, city, poor_.id)
+    assert await vote.may_vote(session, city, wealthy.id)
 
 
-# --- подсчёт ----------------------------------------------------------------
+# --- tally -------------------------------------------------------------------
 
 
-async def test_итог_применяется_сам_по_сроку(
+async def test_result_applied_itself_on_term(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Задание журнала считает и применяет — без чьего-либо участия."""
-    город, ядро, правитель, тело = await _город(session, catalog)
-    голосование = await _созвать(session, constants, catalog, город, правитель, тело)
-    за_, _ = await _житель(session, ядро, город, "Сторонник")
-    await vote.cast(session, город, правитель, голосование, True)
-    await vote.cast(session, город, за_, голосование, True)
+    """The journal job counts and applies -- without anybody's participation."""
+    city, core, ruler, body = await _city(session, catalog)
+    poll = await _convene(session, constants, catalog, city, ruler, body)
+    pro_, _ = await _resident(session, core, city, "Сторонник")
+    await vote.cast(session, city, ruler, poll, True)
+    await vote.cast(session, city, pro_, poll, True)
 
-    await _подвести(session, голосование)
-    assert голосование.state is VoteState.PASSED
-    assert (город.laws or {}).get(ЗАКОН) == ЗНАЧЕНИЕ, "закон принят сам"
+    await _bring(session, poll)
+    assert poll.state is VoteState.PASSED
+    assert (city.laws or {}).get(LAW) == VALUE, "закон принят сам"
 
 
-async def test_большинства_нет_закон_не_проходит(
+async def test_no_majority_law_fails(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    город, ядро, правитель, тело = await _город(session, catalog)
-    голосование = await _созвать(session, constants, catalog, город, правитель, тело)
-    против1, _ = await _житель(session, ядро, город, "Против")
-    против2, _ = await _житель(session, ядро, город, "Тоже против")
-    await vote.cast(session, город, правитель, голосование, True)
-    await vote.cast(session, город, против1, голосование, False)
-    await vote.cast(session, город, против2, голосование, False)
+    city, core, ruler, body = await _city(session, catalog)
+    poll = await _convene(session, constants, catalog, city, ruler, body)
+    contra1, _ = await _resident(session, core, city, "Против")
+    contra2, _ = await _resident(session, core, city, "Тоже против")
+    await vote.cast(session, city, ruler, poll, True)
+    await vote.cast(session, city, contra1, poll, False)
+    await vote.cast(session, city, contra2, poll, False)
 
-    await _подвести(session, голосование)
-    assert голосование.state is VoteState.FAILED
-    assert (город.laws or {}).get(ЗАКОН) != ЗНАЧЕНИЕ
+    await _bring(session, poll)
+    assert poll.state is VoteState.FAILED
+    assert (city.laws or {}).get(LAW) != VALUE
 
 
-async def test_кворум_не_собран(
+async def test_quorum_not_met(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Меньшинство не решает за город, если устав требует кворума."""
-    город, ядро, правитель, тело = await _город(
+    """A minority does not decide for the city if the charter requires a quorum."""
+    city, core, ruler, body = await _city(
         session, catalog, **{vote.QUORUM: "share"}
     )
-    город.charter_params = {vote.QUORUM: 60}
+    city.charter_params = {vote.QUORUM: 60}
     await session.flush()
-    for номер in range(4):
-        await _житель(session, ядро, город, f"Гражданин{номер}")
+    for number in range(4):
+        await _resident(session, core, city, f"Гражданин{number}")
 
-    голосование = await _созвать(session, constants, catalog, город, правитель, тело)
-    assert голосование.electorate == 5
-    await vote.cast(session, город, правитель, голосование, True)
+    poll = await _convene(session, constants, catalog, city, ruler, body)
+    assert poll.electorate == 5
+    await vote.cast(session, city, ruler, poll, True)
 
-    await _подвести(session, голосование)
-    assert голосование.state is VoteState.FAILED, "один голос из пяти — не кворум"
+    await _bring(session, poll)
+    assert poll.state is VoteState.FAILED, "один голос из пяти — не кворум"
 
 
-async def test_условия_снимаются_при_открытии(
+async def test_conditions_captured_at_opening(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Правитель не поднимает порог, увидев, что проигрывает (D-161)."""
-    город, ядро, правитель, тело = await _город(session, catalog)
-    голосование = await _созвать(session, constants, catalog, город, правитель, тело)
-    assert голосование.threshold == vote.SIMPLE
+    """The ruler does not raise the threshold on seeing they are losing (D-161)."""
+    city, core, ruler, body = await _city(session, catalog)
+    poll = await _convene(session, constants, catalog, city, ruler, body)
+    assert poll.threshold == vote.SIMPLE
 
-    город.charter = {**город.charter, vote.THRESHOLD: vote.UNANIMOUS}
+    city.charter = {**city.charter, vote.THRESHOLD: vote.UNANIMOUS}
     await session.flush()
 
-    против, _ = await _житель(session, ядро, город, "Против")
-    await vote.cast(session, город, правитель, голосование, True)
-    await vote.cast(session, город, против, голосование, False)
-    сторонник, _ = await _житель(session, ядро, город, "Сторонник")
-    await vote.cast(session, город, сторонник, голосование, True)
+    contra, _ = await _resident(session, core, city, "Против")
+    await vote.cast(session, city, ruler, poll, True)
+    await vote.cast(session, city, contra, poll, False)
+    supporter, _ = await _resident(session, core, city, "Сторонник")
+    await vote.cast(session, city, supporter, poll, True)
 
-    await _подвести(session, голосование)
-    assert голосование.state is VoteState.PASSED, "судят по правилам созыва"
+    await _bring(session, poll)
+    assert poll.state is VoteState.PASSED, "судят по правилам созыва"
 
 
-async def test_передумать_до_срока_можно(
+async def test_can_change_mind_before_term(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    город, _, правитель, тело = await _город(session, catalog)
-    голосование = await _созвать(session, constants, catalog, город, правитель, тело)
-    await vote.cast(session, город, правитель, голосование, True)
-    await vote.cast(session, город, правитель, голосование, False)
-    assert await vote.standing(session, голосование) == (0, 1), "голос один"
+    city, _, ruler, body = await _city(session, catalog)
+    poll = await _convene(session, constants, catalog, city, ruler, body)
+    await vote.cast(session, city, ruler, poll, True)
+    await vote.cast(session, city, ruler, poll, False)
+    assert await vote.standing(session, poll) == (0, 1), "голос один"
 
 
-async def test_опоздавший_голос_не_принимается(
+async def test_late_vote_not_accepted(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    город, _, правитель, тело = await _город(session, catalog)
-    голосование = await _созвать(session, constants, catalog, город, правитель, тело)
-    поздно = голосование.closes_at + timedelta(minutes=1)
+    city, _, ruler, body = await _city(session, catalog)
+    poll = await _convene(session, constants, catalog, city, ruler, body)
+    late = poll.closes_at + timedelta(minutes=1)
     with pytest.raises(vote.Closed):
-        await vote.cast(session, город, правитель, голосование, True, now=поздно)
+        await vote.cast(session, city, ruler, poll, True, now=late)
 
 
-async def _подвести(session: AsyncSession, голосование: Vote) -> None:
-    """Прокрутить подсчёт — так же, как это сделал бы воркер."""
+async def _bring(session: AsyncSession, poll: Vote) -> None:
+    """Run the tally -- the same way the worker would."""
     from sqlalchemy import select
 
     from src.models.job import Job, JobKind, JobState
 
-    задание = (
+    job = (
         await session.execute(
             select(Job).where(
                 Job.kind == JobKind.VOTE_CLOSE.value, Job.state == JobState.PENDING
             )
         )
     ).scalars().first()
-    assert задание is not None
-    await vote.close(session, задание)
-    задание.state = JobState.DONE
+    assert job is not None
+    await vote.close(session, job)
+    job.state = JobState.DONE
     await session.flush()
 
 
-# --- выборы и отзыв (D-162) -------------------------------------------------
+# --- election and recall (D-162) ---------------------------------------------
 
 
-async def _выборный(session: AsyncSession, catalog: Catalog, **устав):
-    """Город, отдавший власть выборам."""
-    return await _город(
+async def _elective(session: AsyncSession, catalog: Catalog, **charter):
+    """A city that gave power to elections."""
+    return await _city(
         session,
         catalog,
         **{vote.SELECTION: vote.ELECTED, vote.RECALL_RULE: vote.RECALL_BY_CITIZENS},
-        **устав,
+        **charter,
     )
 
 
-async def test_избранный_получает_власть(
+async def test_elected_gets_authority(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Должность переходит по подсчёту, а не по назначению (D-162)."""
-    город, ядро, правитель, _ = await _выборный(session, catalog)
-    соперник, _ = await _житель(session, ядро, город, "Соперник")
-    избиратель, _ = await _житель(session, ядро, город, "Избиратель")
+    """The office passes by tally, not by appointment (D-162)."""
+    city, core, ruler, _ = await _elective(session, catalog)
+    rival, _ = await _resident(session, core, city, "Соперник")
+    voter, _ = await _resident(session, core, city, "Избиратель")
 
-    выборы = await vote.open_election(session, constants, город, правитель)
-    await vote.nominate(session, город, правитель, выборы)
-    await vote.nominate(session, город, соперник, выборы)
-    await vote.choose(session, город, избиратель, выборы, соперник)
-    await vote.choose(session, город, соперник, выборы, соперник)
-    await vote.choose(session, город, правитель, выборы, правитель)
+    election = await vote.open_election(session, constants, city, ruler)
+    await vote.nominate(session, city, ruler, election)
+    await vote.nominate(session, city, rival, election)
+    await vote.choose(session, city, voter, election, rival)
+    await vote.choose(session, city, rival, election, rival)
+    await vote.choose(session, city, ruler, election, ruler)
 
-    await _подвести(session, выборы)
-    новый = await town.ruler(session, город)
-    assert новый is not None and новый.identity_id == соперник.id
-    assert await town.may(session, соперник.id, город, "laws"), (
+    await _bring(session, election)
+    new = await town.ruler(session, city)
+    assert new is not None and new.identity_id == rival.id
+    assert await town.may(session, rival.id, city, "laws"), (
         "избранный получает набор прежнего правителя"
     )
-    assert not await town.may(session, правитель.id, город, "laws"), (
+    assert not await town.may(session, ruler.id, city, "laws"), (
         "прежняя должность сложена"
     )
 
 
-async def test_выдвигаются_только_граждане(
+async def test_only_citizens_nominated(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    город, ядро, правитель, _ = await _выборный(session, catalog)
-    выборы = await vote.open_election(session, constants, город, правитель)
-    гость, _ = await _житель(session, ядро, город, "Гость", гражданин=False)
+    city, core, ruler, _ = await _elective(session, catalog)
+    election = await vote.open_election(session, constants, city, ruler)
+    guest, _ = await _resident(session, core, city, "Гость", citizen=False)
     with pytest.raises(vote.NotCandidate):
-        await vote.nominate(session, город, гость, выборы)
+        await vote.nominate(session, city, guest, election)
 
 
-async def test_за_невыдвинувшегося_не_голосуют(
+async def test_no_vote_for_non_nominee(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    город, ядро, правитель, _ = await _выборный(session, catalog)
-    выборы = await vote.open_election(session, constants, город, правитель)
-    посторонний, _ = await _житель(session, ядро, город, "Посторонний")
+    city, core, ruler, _ = await _elective(session, catalog)
+    election = await vote.open_election(session, constants, city, ruler)
+    stranger, _ = await _resident(session, core, city, "Посторонний")
     with pytest.raises(vote.NotCandidate):
-        await vote.choose(session, город, правитель, выборы, посторонний)
+        await vote.choose(session, city, ruler, election, stranger)
 
 
-async def test_ничья_власть_не_передаёт(
+async def test_tie_does_not_transfer_authority(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Жребий — отдельный вариант устава, и выдумывать его нельзя (D-065)."""
-    город, ядро, правитель, _ = await _выборный(session, catalog)
-    соперник, _ = await _житель(session, ядро, город, "Соперник")
-    выборы = await vote.open_election(session, constants, город, правитель)
-    await vote.nominate(session, город, правитель, выборы)
-    await vote.nominate(session, город, соперник, выборы)
-    await vote.choose(session, город, правитель, выборы, правитель)
-    await vote.choose(session, город, соперник, выборы, соперник)
+    """Sortition is a separate charter option, and inventing it is not allowed (D-065)."""
+    city, core, ruler, _ = await _elective(session, catalog)
+    rival, _ = await _resident(session, core, city, "Соперник")
+    election = await vote.open_election(session, constants, city, ruler)
+    await vote.nominate(session, city, ruler, election)
+    await vote.nominate(session, city, rival, election)
+    await vote.choose(session, city, ruler, election, ruler)
+    await vote.choose(session, city, rival, election, rival)
 
-    await _подвести(session, выборы)
-    assert выборы.state is VoteState.FAILED
-    остался = await town.ruler(session, город)
-    assert остался is not None and остался.identity_id == правитель.id
+    await _bring(session, election)
+    assert election.state is VoteState.FAILED
+    remained = await town.ruler(session, city)
+    assert remained is not None and remained.identity_id == ruler.id
 
 
-async def test_город_без_выборного_устава_их_не_созывает(
+async def test_city_without_elective_charter_does_not_convene_them(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    город, _, правитель, _ = await _город(session, catalog)
+    city, _, ruler, _ = await _city(session, catalog)
     with pytest.raises(vote.NotElective):
-        await vote.open_election(session, constants, город, правитель)
+        await vote.open_election(session, constants, city, ruler)
 
 
-async def test_отзыв_снимает_правителя_и_созывает_выборы(
+async def test_recall_removes_ruler_and_convenes_election(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Город не остаётся без власти дольше одного голосования (D-162)."""
-    город, ядро, правитель, _ = await _выборный(session, catalog)
-    недовольный, _ = await _житель(session, ядро, город, "Недовольный")
-    ещё_один, _ = await _житель(session, ядро, город, "Тоже недовольный")
+    """The city does not stay without authority longer than one poll (D-162)."""
+    city, core, ruler, _ = await _elective(session, catalog)
+    unhappy, _ = await _resident(session, core, city, "Недовольный")
+    one_more, _ = await _resident(session, core, city, "Тоже недовольный")
 
-    отзыв = await vote.open_recall(session, constants, город, недовольный)
-    await vote.cast(session, город, недовольный, отзыв, True)
-    await vote.cast(session, город, ещё_один, отзыв, True)
-    await vote.cast(session, город, правитель, отзыв, False)
+    recall = await vote.open_recall(session, constants, city, unhappy)
+    await vote.cast(session, city, unhappy, recall, True)
+    await vote.cast(session, city, one_more, recall, True)
+    await vote.cast(session, city, ruler, recall, False)
 
-    await _подвести(session, отзыв)
-    assert отзыв.state is VoteState.PASSED
-    assert await town.ruler(session, город) is None, "должность снята"
-    идут = await vote.open_votes(session, город)
-    assert [г.kind for г in идут] == [VoteKind.ELECTION], "выборы созваны сразу"
+    await _bring(session, recall)
+    assert recall.state is VoteState.PASSED
+    assert await town.ruler(session, city) is None, "должность снята"
+    going = await vote.open_votes(session, city)
+    assert [g.kind for g in going] == [VoteKind.ELECTION], "выборы созваны сразу"
 
 
-async def test_отзыв_запрещённый_уставом_не_созывается(
+async def test_recall_forbidden_by_charter_not_convened(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    город, ядро, правитель, _ = await _город(session, catalog)
-    кто_то, _ = await _житель(session, ядро, город, "Кто-то")
+    city, core, ruler, _ = await _city(session, catalog)
+    someone, _ = await _resident(session, core, city, "Кто-то")
     with pytest.raises(vote.NotElective):
-        await vote.open_recall(session, constants, город, кто_то)
+        await vote.open_recall(session, constants, city, someone)
 
 
-# --- срок полномочий и правка устава (D-163) --------------------------------
+# --- term of office and charter amendment (D-163) ----------------------------
 
 
-async def test_срок_полномочий_снимает_должность_сам(
+async def test_term_of_office_removes_post_itself(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """«Избирается на тридцать суток» не должно значить «пока сам не вспомнит»."""
+    """"Elected for thirty days" must not mean "until they remember themselves"."""
     from sqlalchemy import select as _select
 
     from src.models.job import Job, JobKind, JobState
 
-    город, ядро, правитель, _ = await _выборный(session, catalog)
-    город.charter = {**город.charter, vote.TERM: vote.FIXED_TERM}
-    город.charter_params = {vote.TERM: 30}
+    city, core, ruler, _ = await _elective(session, catalog)
+    city.charter = {**city.charter, vote.TERM: vote.FIXED_TERM}
+    city.charter_params = {vote.TERM: 30}
     await session.flush()
 
-    сменщик, _ = await _житель(session, ядро, город, "Сменщик")
-    выборы = await vote.open_election(session, constants, город, правитель)
-    await vote.nominate(session, город, сменщик, выборы)
-    await vote.choose(session, город, правитель, выборы, сменщик)
-    await _подвести(session, выборы)
+    successor, _ = await _resident(session, core, city, "Сменщик")
+    election = await vote.open_election(session, constants, city, ruler)
+    await vote.nominate(session, city, successor, election)
+    await vote.choose(session, city, ruler, election, successor)
+    await _bring(session, election)
 
-    срок = (
+    term = (
         await session.execute(
             _select(Job).where(
                 Job.kind == JobKind.RULER_TERM.value, Job.state == JobState.PENDING
             )
         )
     ).scalars().first()
-    assert срок is not None, "срок поставлен при вступлении в должность"
+    assert term is not None, "срок поставлен при вступлении в должность"
 
-    await town.term_ended(session, срок)
-    assert await town.ruler(session, город) is None, "должность снята по сроку"
-    идут = await vote.open_votes(session, город)
-    assert VoteKind.ELECTION in [г.kind for г in идут], "выборный город идёт на выборы"
+    await town.term_ended(session, term)
+    assert await town.ruler(session, city) is None, "должность снята по сроку"
+    going = await vote.open_votes(session, city)
+    assert VoteKind.ELECTION in [g.kind for g in going], "выборный город идёт на выборы"
 
 
-async def test_устав_правится_голосованием(
+async def test_charter_edited_by_vote(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Правитель не запрещает себе отзыв там, где устав отдан гражданам."""
-    город, ядро, правитель, тело = await _город(session, catalog)
-    город.charter = {**город.charter, vote.AMENDMENT: "two_thirds"}
+    """The ruler does not forbid their own recall where the charter is given to citizens."""
+    city, core, ruler, body = await _city(session, catalog)
+    city.charter = {**city.charter, vote.AMENDMENT: "two_thirds"}
     await session.flush()
-    сторонник, _ = await _житель(session, ядро, город, "Сторонник")
+    supporter, _ = await _resident(session, core, city, "Сторонник")
 
-    #: Меняем отзыв с умолчания «нельзя» на «голосованием граждан»: правитель,
-    #: которому устав отдан, такого себе не сделал бы.
+    #: We change the recall from the default "not allowed" to "by citizens'
+    #: vote": a ruler given the charter would not have done that to themselves.
     await town.set_charter(
-        session, catalog, правитель, город, vote.RECALL_RULE,
-        vote.RECALL_BY_CITIZENS, body=тело,
+        session, catalog, ruler, city, vote.RECALL_RULE,
+        vote.RECALL_BY_CITIZENS, body=body,
     )
-    assert город.charter[vote.RECALL_RULE] != vote.RECALL_BY_CITIZENS, (
+    assert city.charter[vote.RECALL_RULE] != vote.RECALL_BY_CITIZENS, (
         "правка ушла на голосование, а не применилась"
     )
 
-    голосование = (await vote.open_votes(session, город))[0]
-    assert голосование.kind is VoteKind.CHARTER
-    assert голосование.threshold == vote.TWO_THIRDS, "у конституции свой порог"
+    poll = (await vote.open_votes(session, city))[0]
+    assert poll.kind is VoteKind.CHARTER
+    assert poll.threshold == vote.TWO_THIRDS, "у конституции свой порог"
 
-    await vote.cast(session, город, правитель, голосование, True)
-    await vote.cast(session, город, сторонник, голосование, True)
-    await _подвести(session, голосование)
-    assert город.charter[vote.RECALL_RULE] == vote.RECALL_BY_CITIZENS, (
+    await vote.cast(session, city, ruler, poll, True)
+    await vote.cast(session, city, supporter, poll, True)
+    await _bring(session, poll)
+    assert city.charter[vote.RECALL_RULE] == vote.RECALL_BY_CITIZENS, (
         "принятое применилось само"
     )
 
 
-async def test_двух_третей_не_набралось(
+async def test_two_thirds_not_reached(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    город, ядро, правитель, тело = await _город(session, catalog)
-    город.charter = {**город.charter, vote.AMENDMENT: "two_thirds"}
+    city, core, ruler, body = await _city(session, catalog)
+    city.charter = {**city.charter, vote.AMENDMENT: "two_thirds"}
     await session.flush()
-    было = город.charter[vote.RECALL_RULE]
-    против, _ = await _житель(session, ядро, город, "Против")
+    before = city.charter[vote.RECALL_RULE]
+    contra, _ = await _resident(session, core, city, "Против")
 
     await town.set_charter(
-        session, catalog, правитель, город, vote.RECALL_RULE,
-        vote.RECALL_BY_CITIZENS, body=тело,
+        session, catalog, ruler, city, vote.RECALL_RULE,
+        vote.RECALL_BY_CITIZENS, body=body,
     )
-    голосование = (await vote.open_votes(session, город))[0]
-    await vote.cast(session, город, правитель, голосование, True)
-    await vote.cast(session, город, против, голосование, False)
+    poll = (await vote.open_votes(session, city))[0]
+    await vote.cast(session, city, ruler, poll, True)
+    await vote.cast(session, city, contra, poll, False)
 
-    await _подвести(session, голосование)
-    assert голосование.state is VoteState.FAILED
-    assert город.charter[vote.RECALL_RULE] == было
+    await _bring(session, poll)
+    assert poll.state is VoteState.FAILED
+    assert city.charter[vote.RECALL_RULE] == before
 
 
-async def test_запечатанный_устав_не_меняется(
+async def test_sealed_charter_does_not_change(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """`never` исполняется буквально: изнутри устав не открыть (D-163)."""
-    город, _, правитель, тело = await _город(session, catalog)
-    город.charter = {**город.charter, vote.AMENDMENT: vote.NEVER}
+    """`never` is executed literally: the charter cannot be opened from inside (D-163)."""
+    city, _, ruler, body = await _city(session, catalog)
+    city.charter = {**city.charter, vote.AMENDMENT: vote.NEVER}
     await session.flush()
 
     with pytest.raises(vote.Sealed):
         await town.set_charter(
-            session, catalog, правитель, город, vote.RECALL_RULE,
-            vote.RECALL_BY_CITIZENS, body=тело,
+            session, catalog, ruler, city, vote.RECALL_RULE,
+            vote.RECALL_BY_CITIZENS, body=body,
         )
 
 
-# --- совет (D-164) ----------------------------------------------------------
+# --- council (D-164) ---------------------------------------------------------
 
 
-async def _с_советом(session: AsyncSession, catalog: Catalog, *, мест: int, как: str):
-    город, ядро, правитель, тело = await _город(session, catalog)
-    город.charter = {**город.charter, vote.COUNCIL: как}
-    город.charter_params = {vote.COUNCIL: мест}
+async def _with_council(session: AsyncSession, catalog: Catalog, *, seats: int, how: str):
+    city, core, ruler, body = await _city(session, catalog)
+    city.charter = {**city.charter, vote.COUNCIL: how}
+    city.charter_params = {vote.COUNCIL: seats}
     await session.flush()
-    return город, ядро, правитель, тело
+    return city, core, ruler, body
 
 
-async def test_правитель_сажает_в_совет_и_мест_не_больше_чем_в_уставе(
+async def test_ruler_seats_council_no_more_than_charter_seats(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    город, ядро, правитель, _ = await _с_советом(
-        session, catalog, мест=1, как=vote.APPOINTED_COUNCIL
+    city, core, ruler, _ = await _with_council(
+        session, catalog, seats=1, how=vote.APPOINTED_COUNCIL
     )
-    первый, _ = await _житель(session, ядро, город, "Советник")
-    второй, _ = await _житель(session, ядро, город, "Второй")
+    first, _ = await _resident(session, core, city, "Советник")
+    second, _ = await _resident(session, core, city, "Второй")
 
-    await vote.appoint_to_council(session, город, правитель, первый)
-    assert await vote.in_council(session, город, первый.id)
+    await vote.appoint_to_council(session, city, ruler, first)
+    assert await vote.in_council(session, city, first.id)
 
     with pytest.raises(vote.NoCouncil):
-        await vote.appoint_to_council(session, город, правитель, второй)
+        await vote.appoint_to_council(session, city, ruler, second)
 
 
-async def test_выборный_совет_набирает_столько_сколько_мест(
+async def test_elective_council_fills_as_many_as_seats(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    город, ядро, правитель, _ = await _с_советом(
-        session, catalog, мест=2, как=vote.ELECTED_COUNCIL
+    city, core, ruler, _ = await _with_council(
+        session, catalog, seats=2, how=vote.ELECTED_COUNCIL
     )
-    а, _ = await _житель(session, ядро, город, "А")
-    б, _ = await _житель(session, ядро, город, "Б")
-    в, _ = await _житель(session, ядро, город, "В")
+    a, _ = await _resident(session, core, city, "А")
+    b, _ = await _resident(session, core, city, "Б")
+    v_, _ = await _resident(session, core, city, "В")
 
-    выборы = await vote.open_council_election(session, constants, город, правитель)
-    for кто in (а, б, в):
-        await vote.nominate(session, город, кто, выборы)
-    await vote.choose(session, город, правитель, выборы, а)
-    await vote.choose(session, город, а, выборы, а)
-    await vote.choose(session, город, б, выборы, б)
-    await vote.choose(session, город, в, выборы, в)
+    election = await vote.open_council_election(session, constants, city, ruler)
+    for who in (a, b, v_):
+        await vote.nominate(session, city, who, election)
+    await vote.choose(session, city, ruler, election, a)
+    await vote.choose(session, city, a, election, a)
+    await vote.choose(session, city, b, election, b)
+    await vote.choose(session, city, v_, election, v_)
 
-    await _подвести(session, выборы)
-    места = {м.identity_id for м in await vote.council_of(session, город)}
-    assert а.id in места, "больше всех голосов — место"
-    assert len(места) == 2, "мест ровно столько, сколько назначил устав"
+    await _bring(session, election)
+    places = {m.identity_id for m in await vote.council_of(session, city)}
+    assert a.id in places, "больше всех голосов — место"
+    assert len(places) == 2, "мест ровно столько, сколько назначил устав"
 
 
-async def test_совет_утверждает_закон_вместо_граждан(
+async def test_council_approves_law_instead_of_citizens(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Та же машина, другой круг голосующих (D-164)."""
-    город, ядро, правитель, тело = await _с_советом(
-        session, catalog, мест=2, как=vote.APPOINTED_COUNCIL
+    """The same machine, another voter circle (D-164)."""
+    city, core, ruler, body = await _with_council(
+        session, catalog, seats=2, how=vote.APPOINTED_COUNCIL
     )
-    город.charter = {**город.charter, vote.APPROVAL: vote.BY_COUNCIL}
+    city.charter = {**city.charter, vote.APPROVAL: vote.BY_COUNCIL}
     await session.flush()
-    советник, _ = await _житель(session, ядро, город, "Советник")
-    посторонний, _ = await _житель(session, ядро, город, "Горожанин")
-    await vote.appoint_to_council(session, город, правитель, советник)
+    councillor, _ = await _resident(session, core, city, "Советник")
+    stranger, _ = await _resident(session, core, city, "Горожанин")
+    await vote.appoint_to_council(session, city, ruler, councillor)
 
-    голосование = await _созвать(session, constants, catalog, город, правитель, тело)
-    assert голосование.voters == vote.COUNCIL_VOTERS
-    assert голосование.electorate == 1, "кворум считается от совета, а не от города"
+    poll = await _convene(session, constants, catalog, city, ruler, body)
+    assert poll.voters == vote.COUNCIL_VOTERS
+    assert poll.electorate == 1, "кворум считается от совета, а не от города"
 
     with pytest.raises(vote.NoVoice):
-        await vote.cast(session, город, посторонний, голосование, True)
-    await vote.cast(session, город, советник, голосование, True)
+        await vote.cast(session, city, stranger, poll, True)
+    await vote.cast(session, city, councillor, poll, True)
 
-    await _подвести(session, голосование)
-    assert (город.laws or {}).get(ЗАКОН) == ЗНАЧЕНИЕ
+    await _bring(session, poll)
+    assert (city.laws or {}).get(LAW) == VALUE
 
 
-async def test_член_совета_вносит_закон_без_права_laws(
+async def test_council_member_proposes_law_without_laws_right(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """«Вносит совет» — значит законодателей столько, сколько мест."""
-    город, ядро, правитель, _ = await _с_советом(
-        session, catalog, мест=2, как=vote.APPOINTED_COUNCIL
+    """"The council proposes" means as many legislators as seats."""
+    city, core, ruler, _ = await _with_council(
+        session, catalog, seats=2, how=vote.APPOINTED_COUNCIL
     )
-    город.charter = {**город.charter, vote.LAWMAKER: vote.BY_COUNCIL}
+    city.charter = {**city.charter, vote.LAWMAKER: vote.BY_COUNCIL}
     await session.flush()
-    советник, тело_советника = await _житель(session, ядро, город, "Советник")
+    councillor, councillor_body = await _resident(session, core, city, "Советник")
 
-    #: Без места в совете прав нет никаких.
+    #: Without a council seat there are no rights at all.
     with pytest.raises(town.NotAllowed):
         await town.set_law(
-            session, constants, catalog, советник, город, ЗАКОН, ЗНАЧЕНИЕ,
-            body=тело_советника,
+            session, constants, catalog, councillor, city, LAW, VALUE,
+            body=councillor_body,
         )
 
-    await vote.appoint_to_council(session, город, правитель, советник)
+    await vote.appoint_to_council(session, city, ruler, councillor)
     await town.set_law(
-        session, constants, catalog, советник, город, ЗАКОН, ЗНАЧЕНИЕ,
-        body=тело_советника,
+        session, constants, catalog, councillor, city, LAW, VALUE,
+        body=councillor_body,
     )
-    assert await vote.open_votes(session, город), "внесённое ушло на голосование"
+    assert await vote.open_votes(session, city), "внесённое ушло на голосование"
 
 
-async def test_пустая_палата_законы_не_запирает(
+async def test_empty_chamber_does_not_lock_laws(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Совет из нуля мест равен отсутствию совета (D-164).
+    """A council of zero seats equals no council (D-164).
 
-    Устав отдал утверждение палате, а палаты нет: закон применяет тот, кто его
-    внёс. Иначе город, ответивший «утверждает совет» и не собравший его,
-    остался бы без законодательства навсегда.
+    The charter gave approval to the chamber, and there is no chamber: the law
+    is applied by whoever proposed it. Otherwise a city that answered "the
+    council approves" and did not assemble one would stay without legislation forever.
     """
-    город, _, правитель, тело = await _с_советом(
-        session, catalog, мест=0, как=vote.ELECTED_COUNCIL
+    city, _, ruler, body = await _with_council(
+        session, catalog, seats=0, how=vote.ELECTED_COUNCIL
     )
-    город.charter = {**город.charter, vote.APPROVAL: vote.BY_COUNCIL}
+    city.charter = {**city.charter, vote.APPROVAL: vote.BY_COUNCIL}
     await session.flush()
 
     await town.set_law(
-        session, constants, catalog, правитель, город, ЗАКОН, ЗНАЧЕНИЕ, body=тело
+        session, constants, catalog, ruler, city, LAW, VALUE, body=body
     )
-    assert not await vote.open_votes(session, город), "голосовать некому"
-    assert (город.laws or {}).get(ЗАКОН) == ЗНАЧЕНИЕ
+    assert not await vote.open_votes(session, city), "голосовать некому"
+    assert (city.laws or {}).get(LAW) == VALUE
 
 
-async def test_города_без_совета_его_не_собирают(
+async def test_cities_without_council_do_not_assemble_it(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    город, ядро, правитель, _ = await _город(session, catalog)
-    кто_то, _ = await _житель(session, ядро, город, "Кто-то")
+    city, core, ruler, _ = await _city(session, catalog)
+    someone, _ = await _resident(session, core, city, "Кто-то")
     with pytest.raises(vote.NoCouncil):
-        await vote.appoint_to_council(session, город, правитель, кто_то)
+        await vote.appoint_to_council(session, city, ruler, someone)
     with pytest.raises(vote.NoCouncil):
-        await vote.open_council_election(session, constants, город, правитель)
+        await vote.open_council_election(session, constants, city, ruler)
 
 
-# --- совет выбирает и отзывает правителя (D-165) ----------------------------
+# --- the council elects and recalls the ruler (D-165) ------------------------
 
 
-async def test_совет_выбирает_правителя(
+async def test_council_elects_ruler(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Парламентская республика отличается от прямой демократии кругом."""
-    город, ядро, правитель, _ = await _с_советом(
-        session, catalog, мест=2, как=vote.APPOINTED_COUNCIL
+    """A parliamentary republic differs from direct democracy by the circle."""
+    city, core, ruler, _ = await _with_council(
+        session, catalog, seats=2, how=vote.APPOINTED_COUNCIL
     )
-    город.charter = {**город.charter, vote.SELECTION: vote.ELECTED_BY_COUNCIL}
+    city.charter = {**city.charter, vote.SELECTION: vote.ELECTED_BY_COUNCIL}
     await session.flush()
-    советник, _ = await _житель(session, ядро, город, "Советник")
-    горожанин, _ = await _житель(session, ядро, город, "Горожанин")
-    await vote.appoint_to_council(session, город, правитель, советник)
+    councillor, _ = await _resident(session, core, city, "Советник")
+    townsman, _ = await _resident(session, core, city, "Горожанин")
+    await vote.appoint_to_council(session, city, ruler, councillor)
 
-    выборы = await vote.open_election(session, constants, город, правитель)
-    assert выборы.voters == vote.COUNCIL_VOTERS
-    assert выборы.electorate == 1, "кворум считается от палаты"
+    election = await vote.open_election(session, constants, city, ruler)
+    assert election.voters == vote.COUNCIL_VOTERS
+    assert election.electorate == 1, "кворум считается от палаты"
 
     with pytest.raises(vote.NotCandidate):
-        await vote.nominate(session, город, горожанин, выборы)
-    await vote.nominate(session, город, советник, выборы)
+        await vote.nominate(session, city, townsman, election)
+    await vote.nominate(session, city, councillor, election)
     with pytest.raises(vote.NoVoice):
-        await vote.choose(session, город, горожанин, выборы, советник)
-    await vote.choose(session, город, советник, выборы, советник)
+        await vote.choose(session, city, townsman, election, councillor)
+    await vote.choose(session, city, councillor, election, councillor)
 
-    await _подвести(session, выборы)
-    новый = await town.ruler(session, город)
-    assert новый is not None and новый.identity_id == советник.id
+    await _bring(session, election)
+    new = await town.ruler(session, city)
+    assert new is not None and new.identity_id == councillor.id
 
 
-async def test_совет_отзывает_правителя(
+async def test_council_recalls_ruler(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    город, ядро, правитель, _ = await _с_советом(
-        session, catalog, мест=1, как=vote.APPOINTED_COUNCIL
+    city, core, ruler, _ = await _with_council(
+        session, catalog, seats=1, how=vote.APPOINTED_COUNCIL
     )
-    город.charter = {**город.charter, vote.RECALL_RULE: vote.RECALL_BY_COUNCIL}
+    city.charter = {**city.charter, vote.RECALL_RULE: vote.RECALL_BY_COUNCIL}
     await session.flush()
-    советник, _ = await _житель(session, ядро, город, "Советник")
-    await vote.appoint_to_council(session, город, правитель, советник)
+    councillor, _ = await _resident(session, core, city, "Советник")
+    await vote.appoint_to_council(session, city, ruler, councillor)
 
-    отзыв = await vote.open_recall(session, constants, город, советник)
-    assert отзыв.voters == vote.COUNCIL_VOTERS
-    await vote.cast(session, город, советник, отзыв, True)
+    recall = await vote.open_recall(session, constants, city, councillor)
+    assert recall.voters == vote.COUNCIL_VOTERS
+    await vote.cast(session, city, councillor, recall, True)
 
-    await _подвести(session, отзыв)
-    assert отзыв.state is VoteState.PASSED
-    assert await town.ruler(session, город) is None
+    await _bring(session, recall)
+    assert recall.state is VoteState.PASSED
+    assert await town.ruler(session, city) is None
 
 
-async def test_пустая_палата_не_запирает_власть(
+async def test_empty_chamber_does_not_lock_authority(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Устав, неисполнимый буквально, исполняется по смыслу (D-165)."""
-    город, _, правитель, _ = await _с_советом(
-        session, catalog, мест=0, как=vote.ELECTED_COUNCIL
+    """A charter that cannot be executed literally is executed by meaning (D-165)."""
+    city, _, ruler, _ = await _with_council(
+        session, catalog, seats=0, how=vote.ELECTED_COUNCIL
     )
-    город.charter = {**город.charter, vote.SELECTION: vote.ELECTED_BY_COUNCIL}
+    city.charter = {**city.charter, vote.SELECTION: vote.ELECTED_BY_COUNCIL}
     await session.flush()
 
-    выборы = await vote.open_election(session, constants, город, правитель)
-    assert выборы.voters == vote.CITIZENS, "выбирает весь город, раз палаты нет"
+    election = await vote.open_election(session, constants, city, ruler)
+    assert election.voters == vote.CITIZENS, "выбирает весь город, раз палаты нет"

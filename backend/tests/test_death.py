@@ -1,11 +1,11 @@
-"""Смерть и печать тела (D-012, D-028, D-032, D-033, D-040).
+"""Death and body printing (D-012, D-028, D-032, D-033, D-040).
 
-Проверяется приёмка вольта, дословно:
+The vault's acceptance is checked verbatim:
 
-* «Смерть теряет тело и вещи, но не знания и счёт» (07-implementation-map, Э1);
-* «Первое тело мгновенно; столица печатает всегда, но 12 часов» (Э3);
-* часть носимого остаётся на месте гибели, и в повреждённом виде;
-* город продаёт не жизнь, а скорость: платная дверь быстрее бесплатной.
+* "Death loses the body and things, but not knowledge and account" (07-implementation-map, E1);
+* "The first body is instant; the capital always prints, but 12 hours" (E3);
+* part of the worn stays at the place of death, and in damaged form;
+* the city sells not life but speed: the paid door is faster than the free one.
 """
 
 from __future__ import annotations
@@ -28,376 +28,376 @@ from src.models.world import Layer
 from src.units import MINUTES_PER_HOUR, amount_float, money
 
 
-async def _мир(session: AsyncSession, catalog: Catalog, *, казна: float = 0):
-    """Столица с двумя дверями: вечный Принтер Предтеч и городской принтер."""
-    метка = uuid.uuid4().hex[:8]
-    планета = await world.create_node(
-        session, f"terra.{метка}", "Терра", area_m2=1, layer=Layer.SPACE
+async def _world(session: AsyncSession, catalog: Catalog, *, treasury: float = 0):
+    """The capital with two doors: the eternal Forerunners' Printer and the city printer."""
+    stamp = uuid.uuid4().hex[:8]
+    planet = await world.create_node(
+        session, f"terra.{stamp}", "Терра", area_m2=1, layer=Layer.SPACE
     )
-    представитель = await world.create_node(
-        session, f"terra.city.{метка}", "Столица", area_m2=1,
-        layer=Layer.PLANET, parent=планета,
+    delegate = await world.create_node(
+        session, f"terra.city.{stamp}", "Столица", area_m2=1,
+        layer=Layer.PLANET, parent=planet,
     )
-    ядро = await world.create_node(
-        session, f"terra.city.{метка}.core", "Ядро", area_m2=120,
-        parent=представитель, properties={"кольцо": 0, death.PRECURSOR: True},
+    core = await world.create_node(
+        session, f"terra.city.{stamp}.core", "Ядро", area_m2=120,
+        parent=delegate, properties={"кольцо": 0, death.PRECURSOR: True},
     )
-    кузница = await world.create_node(
-        session, f"terra.city.{метка}.forge", "Кузница", area_m2=200,
-        parent=представитель, properties={"кольцо": 2},
+    forge = await world.create_node(
+        session, f"terra.city.{stamp}.forge", "Кузница", area_m2=200,
+        parent=delegate, properties={"кольцо": 2},
     )
-    город = await town.found(session, catalog, представитель, "Столица")
-    for узел in (ядро, кузница):
-        узел.owner_city_id = город.id
+    city = await town.found(session, catalog, delegate, "Столица")
+    for node in (core, forge):
+        node.owner_city_id = city.id
     await session.flush()
 
-    for узел, качество in ((ядро, 90), (кузница, 60)):
-        двор = await world.node_container(session, узел)
+    for node, quality in ((core, 90), (forge, 60)):
+        yard = await world.node_container(session, node)
         await world.grant_item(
-            session, двор, death.PRINTER, quality=качество, origin="тест"
+            session, yard, death.PRINTER, quality=quality, origin="тест"
         )
-    #: Решения города принимаются в администрации (D-155): без неё президент
-    #: не сможет даже разрешить печать за счёт казны.
+    #: City decisions are made in the administration (D-155): without it the
+    #: president cannot even allow printing at the treasury's expense.
     await world.grant_item(
-        session, await world.node_container(session, ядро),
+        session, await world.node_container(session, core),
         town.HALL, quality=65, origin="тест",
     )
-    двор_кузницы = await world.node_container(session, кузница)
+    forge_yard = await world.node_container(session, forge)
     await world.grant_item(
-        session, двор_кузницы, death.IRON, amount=50, quality=55, origin="тест"
+        session, forge_yard, death.IRON, amount=50, quality=55, origin="тест"
     )
 
-    if казна:
-        счёт = await town.treasury(session, город)
+    if treasury:
+        account = await town.treasury(session, city)
         genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
         await ledger.transfer(
             session, PostingReason.GENESIS,
-            debit=genesis.id, credit=счёт.id, amount=money(казна),
+            debit=genesis.id, credit=account.id, amount=money(treasury),
         )
-    return город, ядро, кузница
+    return city, core, forge
 
 
-async def _житель(session: AsyncSession, узел, имя: str, *, денег: float = 0):
-    identity, body = await world.spawn(session, f"{имя}-{uuid.uuid4().hex[:6]}", узел)
-    if денег:
-        счёт = await ledger.account_for(session, AccountKind.IDENTITY, identity.id)
+async def _resident(session: AsyncSession, node, name: str, *, funds: float = 0):
+    identity, body = await world.spawn(session, f"{name}-{uuid.uuid4().hex[:6]}", node)
+    if funds:
+        account = await ledger.account_for(session, AccountKind.IDENTITY, identity.id)
         genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
         await ledger.transfer(
             session, PostingReason.GENESIS,
-            debit=genesis.id, credit=счёт.id, amount=money(денег),
+            debit=genesis.id, credit=account.id, amount=money(funds),
         )
     return identity, body
 
 
-async def _пул(session: AsyncSession, constants: Constants, узел, сколько: float):
-    pool = await energy.pool_of(session, constants, узел)
-    pool.stored = Decimal(str(сколько))
+async def _pool(session: AsyncSession, constants: Constants, node, qty: float):
+    pool = await energy.pool_of(session, constants, node)
+    pool.stored = Decimal(str(qty))
     await session.flush()
     return pool
 
 
-# --- гибель -----------------------------------------------------------------
+# --- death -------------------------------------------------------------------
 
 
-async def test_смерть_забирает_вещи_но_не_знания_и_счёт(
+async def test_death_takes_things_but_not_knowledge_and_account(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Приёмка Э1 дословно: тело и вещи — да, знания и счёт — нет."""
-    _, ядро, _ = await _мир(session, catalog)
-    identity, body = await _житель(session, ядро, "Шахтёр", денег=40)
-    карман = await world.body_container(session, body)
+    """E1 acceptance verbatim: body and things -- yes, knowledge and account -- no."""
+    _, core, _ = await _world(session, catalog)
+    identity, body = await _resident(session, core, "Шахтёр", funds=40)
+    pocket = await world.body_container(session, body)
     await world.grant_item(
-        session, карман, "Железная кирка", quality=60, origin="тест"
+        session, pocket, "Железная кирка", quality=60, origin="тест"
     )
     await world.grant_item(
-        session, карман, "Уголь", amount=100, quality=50, origin="тест"
+        session, pocket, "Уголь", amount=100, quality=50, origin="тест"
     )
     await world.learn(session, identity, "Гвозди")
 
     await death.die(session, constants, body, cause="обрушение свода")
 
     assert body.state is BodyState.DEAD and body.died_at is not None
-    осталось = (
-        await session.execute(select(Item).where(Item.container_id == карман.id))
+    left = (
+        await session.execute(select(Item).where(Item.container_id == pocket.id))
     ).scalars().all()
-    assert осталось == [], "карман погибшего пуст: вещи гибнут вместе с телом"
+    assert left == [], "карман погибшего пуст: вещи гибнут вместе с телом"
 
-    счёт = await ledger.account_for(session, AccountKind.IDENTITY, identity.id)
-    assert await ledger.balance(session, счёт.id) == money(40), "счёт телу не принадлежит"
-    знание = (
+    account = await ledger.account_for(session, AccountKind.IDENTITY, identity.id)
+    assert await ledger.balance(session, account.id) == money(40), "счёт телу не принадлежит"
+    knowledge = (
         await session.execute(
             select(Knowledge).where(Knowledge.identity_id == identity.id)
         )
     ).scalars().all()
-    assert знание, "знание живёт в личности и не теряется"
+    assert knowledge, "знание живёт в личности и не теряется"
 
 
-async def test_гибель_в_пути_обрывает_переход(
+async def test_death_en_route_cuts_transit(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Мёртвое тело никуда не приходит, и переход обязан это помнить.
+    """A dead body arrives nowhere, and the transit must remember that.
 
-    Состояние отдельное от «пришёл»: иначе разбор эпизода покажет приход туда,
-    куда никто не приходил, а задание журнала попробует довезти труп.
+    A state separate from "arrived": otherwise examining the episode shows an
+    arrival where nobody arrived, and the journal job tries to deliver a corpse.
     """
     from src.engine import travel
     from src.models.travel import Travel, TravelState
     from src.models.world import Node
 
-    _, ядро, _ = await _мир(session, catalog)
-    _, body = await _житель(session, ядро, "Ходок")
-    там = await world.create_node(
+    _, core, _ = await _world(session, catalog)
+    _, body = await _resident(session, core, "Ходок")
+    there = await world.create_node(
         session, f"terra.dead.{uuid.uuid4().hex[:8]}", "Там", area_m2=100
     )
-    await travel.connect(session, await session.get(Node, body.node_id), там,
+    await travel.connect(session, await session.get(Node, body.node_id), there,
                          base_seconds=600)
-    переход = await travel.depart(session, constants, body, там)
+    transit = await travel.depart(session, constants, body, there)
 
     await death.die(session, constants, body, cause="обрушение свода")
 
-    переход = await session.get(Travel, переход.id)
-    assert переход.state is TravelState.CANCELLED, "переход оборван, а не дошёл"
-    assert body.node_id != там.id, "мёртвое тело никуда не приходит"
+    transit = await session.get(Travel, transit.id)
+    assert transit.state is TravelState.CANCELLED, "переход оборван, а не дошёл"
+    assert body.node_id != there.id, "мёртвое тело никуда не приходит"
     assert await travel.current(session, body) is None
 
 
-async def test_часть_носимого_остаётся_на_месте_и_битой(
+async def test_part_of_worn_stays_in_place_and_damaged(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Ограбить живого выгоднее, чем убить: мёртвый оставляет треть, и ту битую."""
-    _, ядро, _ = await _мир(session, catalog)
-    _, body = await _житель(session, ядро, "Шахтёр")
-    карман = await world.body_container(session, body)
+    """Robbing the living pays better than killing: the dead leave a third, and that one damaged."""
+    _, core, _ = await _world(session, catalog)
+    _, body = await _resident(session, core, "Шахтёр")
+    pocket = await world.body_container(session, body)
     await world.grant_item(
-        session, карман, "Уголь", amount=100, quality=50, origin="тест"
+        session, pocket, "Уголь", amount=100, quality=50, origin="тест"
     )
 
-    уцелело = await death.die(session, constants, body, cause="обвал")
-    доля = constants[R.DEATH_SALVAGE_RATIO] / 100
+    survived = await death.die(session, constants, body, cause="обвал")
+    share = constants[R.DEATH_SALVAGE_RATIO] / 100
 
-    двор = await world.node_container(session, ядро)
-    на_месте = (
+    yard = await world.node_container(session, core)
+    in_place = (
         await session.execute(
-            select(Item).where(Item.container_id == двор.id, Item.type_key == "Уголь")
+            select(Item).where(Item.container_id == yard.id, Item.type_key == "Уголь")
         )
     ).scalars().all()
-    assert len(на_месте) == 1
-    assert amount_float(на_месте[0].amount) == pytest.approx(100 * доля)
-    assert float(на_месте[0].condition) == pytest.approx(100 * доля)
-    assert уцелело == pytest.approx(100 * доля)
+    assert len(in_place) == 1
+    assert amount_float(in_place[0].amount) == pytest.approx(100 * share)
+    assert float(in_place[0].condition) == pytest.approx(100 * share)
+    assert survived == pytest.approx(100 * share)
 
 
-# --- печать -----------------------------------------------------------------
+# --- printing ----------------------------------------------------------------
 
 
-async def test_предтечи_печатают_бесплатно_но_двенадцать_часов(
+async def test_forerunners_print_free_but_twelve_hours(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Верхняя граница цены воскрешения: дольше этого никто не заплатит (D-028)."""
-    _, ядро, _ = await _мир(session, catalog)
-    identity, body = await _житель(session, ядро, "Погибший")
+    """The upper bound of the resurrection price: nobody pays for longer than this (D-028)."""
+    _, core, _ = await _world(session, catalog)
+    identity, body = await _resident(session, core, "Погибший")
     await death.die(session, constants, body, cause="обвал")
 
-    задание = await death.order(session, constants, catalog, identity, ядро)
-    часов = (задание.run_at - body.died_at).total_seconds() / 3600
-    assert часов == pytest.approx(constants[R.DEATH_PRINT_TIME_CAPITAL], rel=0.01)
+    job = await death.order(session, constants, catalog, identity, core)
+    hours = (job.run_at - body.died_at).total_seconds() / 3600
+    assert hours == pytest.approx(constants[R.DEATH_PRINT_TIME_CAPITAL], rel=0.01)
 
-    счёт = await ledger.account_for(session, AccountKind.IDENTITY, identity.id)
-    assert await ledger.balance(session, счёт.id) == 0, "у Предтеч печать бесплатна"
+    account = await ledger.account_for(session, AccountKind.IDENTITY, identity.id)
+    assert await ledger.balance(session, account.id) == 0, "у Предтеч печать бесплатна"
 
 
-async def test_городской_принтер_берёт_энергию_железо_и_деньги(
+async def test_city_printer_takes_energy_iron_and_money(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Город продаёт скорость: минуты вместо часов, но за ресурсы (D-033)."""
-    город, ядро, кузница = await _мир(session, catalog)
-    identity, body = await _житель(session, ядро, "Богатый", денег=100)
+    """The city sells speed: minutes instead of hours, but for resources (D-033)."""
+    city, core, forge = await _world(session, catalog)
+    identity, body = await _resident(session, core, "Богатый", funds=100)
     await death.die(session, constants, body, cause="обвал")
 
-    pool = await _пул(session, constants, кузница, 100_000)
-    было_энергии = float(pool.stored)
-    двор = await world.node_container(session, кузница)
-    было_железа = await death._iron_here(session, кузница)
+    pool = await _pool(session, constants, forge, 100_000)
+    energy_before = float(pool.stored)
+    yard = await world.node_container(session, forge)
+    iron_before = await death._iron_here(session, forge)
 
-    задание = await death.order(session, constants, catalog, identity, кузница)
-    минут = (задание.run_at - body.died_at).total_seconds() / 60
-    assert минут == pytest.approx(constants[R.DEATH_PRINT_TIME_CITY], rel=0.01)
-    assert минут < constants[R.DEATH_PRINT_TIME_CAPITAL] * MINUTES_PER_HOUR
+    job = await death.order(session, constants, catalog, identity, forge)
+    minutes = (job.run_at - body.died_at).total_seconds() / 60
+    assert minutes == pytest.approx(constants[R.DEATH_PRINT_TIME_CITY], rel=0.01)
+    assert minutes < constants[R.DEATH_PRINT_TIME_CAPITAL] * MINUTES_PER_HOUR
 
     assert float(pool.stored) == pytest.approx(
-        было_энергии - constants[R.ENERGY_BODY_PRINT]
+        energy_before - constants[R.ENERGY_BODY_PRINT]
     )
-    assert await death._iron_here(session, кузница) == pytest.approx(
-        было_железа - constants[R.DEATH_IRON_COST]
+    assert await death._iron_here(session, forge) == pytest.approx(
+        iron_before - constants[R.DEATH_IRON_COST]
     )
-    счёт = await ledger.account_for(session, AccountKind.IDENTITY, identity.id)
-    заплачено = money(100) - await ledger.balance(session, счёт.id)
-    assert заплачено > 0
-    assert await town.treasury_balance(session, город) == заплачено
-    assert двор is not None
+    account = await ledger.account_for(session, AccountKind.IDENTITY, identity.id)
+    paid = money(100) - await ledger.balance(session, account.id)
+    assert paid > 0
+    assert await town.treasury_balance(session, city) == paid
+    assert yard is not None
 
 
-async def test_без_денег_городской_принтер_отказывает(
+async def test_city_printer_refuses_without_money(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Но дверь столицы при этом остаётся открытой — из игры не выпадают."""
-    _, ядро, кузница = await _мир(session, catalog)
-    identity, body = await _житель(session, ядро, "Бедняк")
+    """But the capital's door stays open meanwhile -- nobody drops out of the game."""
+    _, core, forge = await _world(session, catalog)
+    identity, body = await _resident(session, core, "Бедняк")
     await death.die(session, constants, body, cause="обвал")
-    await _пул(session, constants, кузница, 100_000)
+    await _pool(session, constants, forge, 100_000)
 
     with pytest.raises(death.CannotPay):
-        await death.order(session, constants, catalog, identity, кузница)
+        await death.order(session, constants, catalog, identity, forge)
 
-    #: А бесплатная дверь работает всегда.
-    задание = await death.order(session, constants, catalog, identity, ядро)
-    assert задание is not None
+    #: And the free door always works.
+    job = await death.order(session, constants, catalog, identity, core)
+    assert job is not None
 
 
-async def test_город_может_печатать_за_свой_счёт(
+async def test_city_can_print_at_own_expense(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Код-закон `body_print` — тот самый аргумент вступить в город (D-032)."""
-    город, ядро, кузница = await _мир(session, catalog, казна=500)
-    президент, тело_президента = await _житель(session, ядро, "Президент")
-    await town.install_founder(session, город, президент)
+    """The code-law `body_print` is the very argument to join a city (D-032)."""
+    city, core, forge = await _world(session, catalog, treasury=500)
+    president, president_body = await _resident(session, core, "Президент")
+    await town.install_founder(session, city, president)
     await town.set_law(
-        session, constants, catalog, президент, город, "body_print", "всем",
-        body=тело_президента,
+        session, constants, catalog, president, city, "body_print", "всем",
+        body=president_body,
     )
 
-    identity, body = await _житель(session, ядро, "Бедняк")
+    identity, body = await _resident(session, core, "Бедняк")
     await death.die(session, constants, body, cause="обвал")
-    await _пул(session, constants, кузница, 100_000)
+    await _pool(session, constants, forge, 100_000)
 
-    задание = await death.order(session, constants, catalog, identity, кузница)
-    assert задание is not None
-    счёт = await ledger.account_for(session, AccountKind.IDENTITY, identity.id)
-    assert await ledger.balance(session, счёт.id) == 0, "платит казна, не игрок"
+    job = await death.order(session, constants, catalog, identity, forge)
+    assert job is not None
+    account = await ledger.account_for(session, AccountKind.IDENTITY, identity.id)
+    assert await ledger.balance(session, account.id) == 0, "платит казна, не игрок"
 
 
-async def test_печать_приводит_личность_обратно(
+async def test_print_brings_identity_back(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Тело новое, личность та же: имя и обязательства переживают смерть."""
-    _, ядро, _ = await _мир(session, catalog)
-    identity, body = await _житель(session, ядро, "Возвращённый")
+    """The body is new, the identity the same: name and obligations survive death."""
+    _, core, _ = await _world(session, catalog)
+    identity, body = await _resident(session, core, "Возвращённый")
     await death.die(session, constants, body, cause="обвал")
 
-    задание = await death.order(session, constants, catalog, identity, ядро)
-    await death.printed(session, задание)
+    job = await death.order(session, constants, catalog, identity, core)
+    await death.printed(session, job)
 
-    новое = await death.alive_body(session, identity.id)
-    assert новое is not None and новое.id != body.id
-    assert новое.node_id == ядро.id
-    assert float(новое.stamina) == constants[R.BODY_STAMINA_MAX]
+    new_ = await death.alive_body(session, identity.id)
+    assert new_ is not None and new_.id != body.id
+    assert new_.node_id == core.id
+    assert float(new_.stamina) == constants[R.BODY_STAMINA_MAX]
 
-    #: Повтор задания после сбоя вторым телом не станет (D-011).
-    await death.printed(session, задание)
-    тела = (
+    #: A job retry after a failure does not become a second body (D-011).
+    await death.printed(session, job)
+    bodies = (
         await session.execute(
             select(Body).where(
                 Body.identity_id == identity.id, Body.state == BodyState.ALIVE
             )
         )
     ).scalars().all()
-    assert len(тела) == 1
+    assert len(bodies) == 1
 
 
-async def test_живому_печать_не_положена(
+async def test_no_print_for_living(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    _, ядро, _ = await _мир(session, catalog)
-    identity, _ = await _житель(session, ядро, "Живой")
+    _, core, _ = await _world(session, catalog)
+    identity, _ = await _resident(session, core, "Живой")
     with pytest.raises(death.Alive):
-        await death.order(session, constants, catalog, identity, ядро)
+        await death.order(session, constants, catalog, identity, core)
 
 
-async def test_вторая_печать_подряд_не_ставится(
+async def test_second_print_in_row_not_queued(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    _, ядро, _ = await _мир(session, catalog)
-    identity, body = await _житель(session, ядро, "Погибший")
+    _, core, _ = await _world(session, catalog)
+    identity, body = await _resident(session, core, "Погибший")
     await death.die(session, constants, body, cause="обвал")
 
-    await death.order(session, constants, catalog, identity, ядро)
+    await death.order(session, constants, catalog, identity, core)
     with pytest.raises(death.AlreadyPrinting):
-        await death.order(session, constants, catalog, identity, ядро)
+        await death.order(session, constants, catalog, identity, core)
 
 
-async def test_принтеры_видны_из_облака(
+async def test_printers_visible_from_cloud(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Личность в Сети: список дверей доступен и мёртвому (D-033)."""
-    _, ядро, кузница = await _мир(session, catalog)
-    _, body = await _житель(session, ядро, "Погибший")
+    """The identity is in the Net: the door list is available to the dead too (D-033)."""
+    _, core, forge = await _world(session, catalog)
+    _, body = await _resident(session, core, "Погибший")
     await death.die(session, constants, body, cause="обвал")
 
-    двери = await death.printers(session, constants)
-    ключи = {дверь["node"]: дверь for дверь in двери}
-    assert ядро.key in ключи and кузница.key in ключи
-    assert ключи[ядро.key]["precursor"] is True
-    assert ключи[ядро.key]["cost"] == 0
-    assert ключи[кузница.key]["iron"] == constants[R.DEATH_IRON_COST]
-    #: Быстрая дверь первой: сравнивать двери игрок должен по сроку.
-    assert двери[0]["node"] == кузница.key
+    doors = await death.printers(session, constants)
+    keys = {door["node"]: door for door in doors}
+    assert core.key in keys and forge.key in keys
+    assert keys[core.key]["precursor"] is True
+    assert keys[core.key]["cost"] == 0
+    assert keys[forge.key]["iron"] == constants[R.DEATH_IRON_COST]
+    #: The fast door first: the player must compare doors by term.
+    assert doors[0]["node"] == forge.key
 
 
-# --- вход новичка (D-013, D-182) --------------------------------------------
+# --- newcomer entry (D-013, D-182) -------------------------------------------
 
 
-async def test_двери_новичка_показывают_город_а_не_цену(
+async def test_newcomer_doors_show_city_not_price(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Первое тело бесплатно везде (D-040), значит выбирают не цену, а людей."""
-    город, ядро, кузница = await _мир(session, catalog)
-    город.laws = {"newcomer_grant": "50"}
-    await _житель(session, ядро, "Старожил")
+    """The first body is free everywhere (D-040), so one chooses not the price but the people."""
+    city, core, forge = await _world(session, catalog)
+    city.laws = {"newcomer_grant": "50"}
+    await _resident(session, core, "Старожил")
     await session.flush()
 
-    двери = await world.doors(session, constants, catalog)
-    ключи = {дверь["node"]: дверь for дверь in двери}
-    assert set(ключи) == {ядро.key, кузница.key}
-    assert ключи[кузница.key]["city"] == "Столица"
-    assert ключи[кузница.key]["grant"] == money(50)
-    #: Ни цены, ни срока: новичку они не назначаются, и врать о них нельзя.
-    assert "cost" not in ключи[ядро.key] and "minutes" not in ключи[ядро.key]
-    #: Принтер Предтеч последним: запасная дверь без жителей и без казны.
-    assert двери[-1]["node"] == ядро.key and двери[-1]["precursor"] is True
+    doors = await world.doors(session, constants, catalog)
+    keys = {door["node"]: door for door in doors}
+    assert set(keys) == {core.key, forge.key}
+    assert keys[forge.key]["city"] == "Столица"
+    assert keys[forge.key]["grant"] == money(50)
+    #: Neither price nor term: they are not set for a newcomer, and lying about them is not allowed.
+    assert "cost" not in keys[core.key] and "minutes" not in keys[core.key]
+    #: The Forerunners' Printer last: a fallback door without residents and without a treasury.
+    assert doors[-1]["node"] == core.key and doors[-1]["precursor"] is True
 
 
-async def test_каторга_новичку_дверью_не_является(
+async def test_penal_colony_is_not_door_for_newcomer(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Тюремный принтер печатает только удерживаемых (D-174) и в мир не ведёт."""
+    """The prison printer prints only the held (D-174) and does not lead into the world."""
     from src.engine import justice
 
-    _, ядро, _ = await _мир(session, catalog)
-    тюрьма = await world.create_node(
+    _, core, _ = await _world(session, catalog)
+    prison = await world.create_node(
         session, f"terra.jail.{uuid.uuid4().hex[:6]}", "Каторга", area_m2=100
     )
-    двор = await world.node_container(session, тюрьма)
-    await world.grant_item(session, двор, death.PRINTER, quality=40, origin="тест")
-    await world.grant_item(session, двор, justice.KATORGA, quality=40, origin="тест")
+    yard = await world.node_container(session, prison)
+    await world.grant_item(session, yard, death.PRINTER, quality=40, origin="тест")
+    await world.grant_item(session, yard, justice.KATORGA, quality=40, origin="тест")
     await session.flush()
 
-    ключи = {дверь["node"] for дверь in await world.doors(session, constants, catalog)}
-    assert тюрьма.key not in ключи
-    assert await world.door(session, тюрьма.key) is None
-    #: Обычная дверь по ключу открывается — иначе выбирать было бы нечего.
-    assert (await world.door(session, ядро.key)) is not None
+    keys = {door["node"] for door in await world.doors(session, constants, catalog)}
+    assert prison.key not in keys
+    assert await world.door(session, prison.key) is None
+    #: An ordinary door by key opens -- otherwise there would be nothing to choose.
+    assert (await world.door(session, core.key)) is not None
 
 
-async def test_дверью_зовётся_только_узел_с_принтером(
+async def test_only_node_with_printer_called_door(
     session: AsyncSession, catalog: Catalog
 ) -> None:
-    """Чужой ключ и узел без принтера отказывают одинаково: печатать негде."""
-    _, _, кузница = await _мир(session, catalog)
-    поле = await world.create_node(
+    """A foreign key and a node without a printer refuse alike: nowhere to print."""
+    _, _, forge = await _world(session, catalog)
+    field = await world.create_node(
         session, f"terra.field.{uuid.uuid4().hex[:6]}", "Пойма", area_m2=400
     )
     await session.flush()
 
-    assert await world.door(session, поле.key) is None
+    assert await world.door(session, field.key) is None
     assert await world.door(session, "нет-такого-узла") is None
-    assert (await world.door(session, кузница.key)) is not None
+    assert (await world.door(session, forge.key)) is not None

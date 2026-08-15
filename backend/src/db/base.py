@@ -16,8 +16,8 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from src.settings import settings
 
-#: Явные имена ограничений — иначе Alembic генерирует неповторяемые миграции,
-#: а мир вечный и вайпов не бывает (D-007).
+#: Explicit constraint names -- otherwise Alembic generates non-reproducible
+#: migrations, and the world is eternal with no wipes (D-007).
 NAMING = {
     "ix": "ix_%(column_0_label)s",
     "uq": "uq_%(table_name)s_%(column_0_name)s",
@@ -26,10 +26,10 @@ NAMING = {
     "pk": "pk_%(table_name)s",
 }
 
-#: Словарь `dict` в аннотации поля означает JSONB — параметры законов,
-#: полезная нагрузка событий и заданий (01-tech-notes).
-#: Время **всегда** с зоной: сутки у каждой планеты свои (D-008), и наивная
-#: метка времени в такой игре — гарантированная путаница.
+#: A `dict` in a field annotation means JSONB -- law parameters, event and job
+#: payloads (01-tech-notes).
+#: Time is **always** zoned: every planet has its own day (D-008), and a naive
+#: timestamp in such a game is guaranteed confusion.
 TYPE_MAP = {
     dict[str, Any]: JSONB,
     dict: JSONB,
@@ -51,13 +51,14 @@ def created_column() -> Mapped[datetime]:
 
 
 def enum_column(enum_type: type, name: str, **kw: Any) -> Any:
-    """VARCHAR + CHECK вместо нативного типа Postgres.
+    """VARCHAR + CHECK instead of the native Postgres type.
 
-    Нативный enum расширяется миграцией и блокирует таблицу; список состояний
-    в игре меняется чаще, чем хотелось бы. В базе лежит **значение** элемента,
-    а не его имя: `pending`, а не `PENDING` — чтобы запрос руками читался так
-    же, как код.
+    A native enum is extended by a migration and locks the table; the list of
+    states in the game changes more often than one would like. The database
+    holds the member's **value**, not its name: `pending`, not `PENDING` -- so
+    that a hand-written query reads the same as code.
     """
+
     return mapped_column(
         Enum(
             enum_type,

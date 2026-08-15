@@ -1,12 +1,13 @@
 /**
- * Поле пароля с глазом (D-187).
+ * A password field with an eye (D-187).
  *
- * Показать пароль — значит открыть глаз: веко поднимается, зрачок смотрит на
- * строку и провожает набор, по полю проходит блик, и точки становятся буквами.
- * Скрыть — веко опускается. Одна кнопка, одно состояние; всё остальное — CSS.
+ * Showing the password means opening the eye: the lid rises, the pupil looks
+ * at the line and follows the typing, a glint passes over the field, and dots
+ * become letters. Hiding -- the lid lowers. One button, one state; everything else is CSS.
  *
- * Зрачок следит за длиной введённого: чем длиннее пароль, тем правее взгляд.
- * Это не индикатор силы — просто глаз смотрит туда, где печатают.
+ * The pupil follows the length of what is entered: the longer the password,
+ * the further right the gaze. This is not a strength indicator -- the eye
+ * just looks where the typing is.
  */
 
 import { useId, useState } from "react";
@@ -17,7 +18,7 @@ type Props = {
   placeholder?: string;
   autoComplete?: string;
   disabled?: boolean;
-  /** Пометить поле как ошибочное: рамка, а не текст — текст даёт родитель. */
+  /** Mark the field as erroneous: a border, not text -- the parent gives the text. */
   invalid?: boolean;
 };
 
@@ -30,11 +31,11 @@ export function Secret({
   invalid,
 }: Props) {
   const [open, setOpen] = useState(false);
-  //: Счётчик переключений — ключ блика: каждое открытие проигрывает его заново.
+  //: The toggle counter is the glint's key: every opening plays it anew.
   const [blink, setBlink] = useState(0);
   const id = useId();
 
-  //: Взгляд: от −6 до +6 по горизонтали, по длине набранного.
+  //: The gaze: from -6 to +6 horizontally, by the length of what is typed.
   const gaze = Math.min(6, Math.max(-6, value.length / 2 - 4));
 
   const toggle = () => {

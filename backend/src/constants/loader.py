@@ -1,14 +1,14 @@
-"""Снимок балансных констант и его горячая замена.
+"""A snapshot of balance constants and its hot replacement.
 
-D-065 требует двух вещей сразу: числа не зашиты в код и меняются **без выката
-версии**. Отсюда конструкция:
+D-065 demands two things at once: numbers are not hard-coded and they change
+**without a release**. Hence the construction:
 
-* `Constants` — неизменяемый снимок. Он либо собрался целиком, либо не собрался
-  вовсе: частично валидных констант не бывает;
-* `ConstantsHolder` — единственная изменяемая ячейка на процесс. Замена снимка
-  атомарна, читатель всегда видит согласованный набор;
-* поверх файла ложатся правки админ-панели (`overrides`), и каждая обязана быть
-  записана в журнал изменений — это делает слой хранения, не этот модуль.
+* `Constants` -- an immutable snapshot. It either assembled whole or not at
+  all: there are no partially valid constants;
+* `ConstantsHolder` -- the only mutable cell per process. Snapshot replacement
+  is atomic, a reader always sees a consistent set;
+* on top of the file lie admin-panel edits (`overrides`), and each must be
+  written to the change journal -- the storage layer does that, not this module.
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ T = TypeVar("T")
 
 
 class Constants:
-    """Согласованный снимок `build/constants.json` плюс правки поверх него."""
+    """A consistent snapshot of `build/constants.json` plus edits on top of it."""
 
     __slots__ = ("_raw", "_cache", "_digest", "_source")
 
@@ -39,8 +39,8 @@ class Constants:
 
     @property
     def digest(self) -> str:
-        """Отпечаток набора. Пишется в события — по нему видно, на каких
-        числах игрался эпизод, когда числа потом поменяли."""
+        """The set's fingerprint. Written into events -- by it one sees which
+        numbers an episode was played on once the numbers were later changed."""
         return self._digest
 
     @property
@@ -67,7 +67,7 @@ class Constants:
         return self._raw
 
     def with_overrides(self, overrides: Mapping[str, Any]) -> Constants:
-        """Новый снимок с правками поверх. Исходный не меняется."""
+        """A new snapshot with edits on top. The original does not change."""
         unknown = set(overrides) - set(self._raw)
         if unknown:
             raise ConstantError(
@@ -76,10 +76,10 @@ class Constants:
         return Constants({**self._raw, **overrides}, source=f"{self._source}+overrides")
 
     def validate(self, specs: Iterable[Spec]) -> None:
-        """Проверить объявленные константы разом.
+        """Check the declared constants at once.
 
-        Сообщает **все** проблемы сразу: чинить набор по одной ошибке за
-        перезапуск — это тот случай, когда старт должен падать один раз.
+        Reports **all** problems at once: fixing the set one error per restart
+        is the case where startup should fail once.
         """
         problems: list[str] = []
         for spec in specs:
@@ -108,7 +108,7 @@ def load_constants(build_dir: Path) -> Constants:
 
 
 class ConstantsHolder:
-    """Текущий снимок процесса. Замена атомарна."""
+    """The process's current snapshot. Replacement is atomic."""
 
     def __init__(self) -> None:
         self._lock = threading.Lock()

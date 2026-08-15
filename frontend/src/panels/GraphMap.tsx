@@ -1,28 +1,29 @@
 /**
- * Карта — один граф, четыре слоя показа (D-045, D-097).
+ * The map is one graph, four display layers (D-045, D-097).
  *
- * Вся вселенная — граф локаций, и ходят только по нему. Слои — абстракция
- * показа, чтобы в графе можно было ориентироваться:
+ * The whole universe is a graph of locations, and one walks only on it.
+ * Layers are a display abstraction so that the graph can be navigated:
  *
- * - **Космос** — планеты и корабли;
- * - **Планета** — города и крупные одиночные локации;
- * - **Город** — застройка: кольца вокруг биопринтера;
- * - **Локация** — субузлы: этажи дома, комнаты комплекса.
+ * - **Space** -- planets and ships;
+ * - **Planet** -- cities and large solitary locations;
+ * - **City** -- the built-up area: rings around the bioprinter;
+ * - **Location** -- sub-nodes: floors of a house, rooms of a complex.
  *
- * Узел верхнего слоя — представитель своей группы: клик по «Столице Терры» на
- * планетном слое раскрывает её застройку, а дорога «в столицу» на самом деле
- * ведёт в конкретный узел-вход. Рёбра между группами проецируются на
- * представителей — граф при этом остаётся одним и тем же.
+ * An upper-layer node is its group's delegate: a click on "Terra's Capital" on
+ * the planet layer expands its built-up area, and the road "to the capital"
+ * actually leads to a specific entry node. Edges between groups are projected
+ * onto delegates -- the graph stays one and the same.
  *
- * ## Карта физическая
+ * ## The map is physical
  *
- * Узлы — тела в силовой симуляции, как граф в Obsidian: рёбра — пружины,
- * узлы расталкиваются, и живую раскладку можно поправить руками — схватить
- * узел и перетащить, если он лёг неудачно. Фон таскается панорамой, колесо
- * приближает. Клик остаётся кликом: короткое нажатие без движения — это
- * «раскрыть» либо «идти».
+ * Nodes are bodies in a force simulation, like the graph in Obsidian: edges
+ * are springs, nodes repel, and the live layout can be adjusted by hand --
+ * grab a node and drag it if it settled badly. The background pans, the wheel
+ * zooms. A click stays a click: a short press without movement is "expand" or
+ * "walk".
  *
- * Пока идёшь, точка ползёт по ребру, и войти никуда нельзя. Дошёл — «Войти».
+ * While walking, the dot creeps along the edge, and nowhere can be entered.
+ * Arrived -- "Enter".
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -58,12 +59,12 @@ const LAYERS = [
 ] as const;
 type LayerId = (typeof LAYERS)[number]["id"];
 
-/** Тело узла в симуляции: положение, скорость и «прибит ли рукой». */
+/** A node's body in the simulation: position, velocity and "pinned by hand". */
 type Mass = { x: number; y: number; vx: number; vy: number; pinned: boolean };
 
-//: Ручки физики. Числа интерфейса, а не мира: балансу они не принадлежат.
-//: Пружина мягкая, затухание сильное, скорость ограничена: раскладка
-//: расползается плавно, а не скачками.
+//: Physics knobs. Interface numbers, not world numbers: they do not belong to
+//: balance. The spring is soft, damping strong, speed bounded: the layout
+//: spreads smoothly rather than in jumps.
 const SPRING = 0.014;
 const REPULSE = 7500;
 const REPULSE_RADIUS = 250;
@@ -73,14 +74,14 @@ const SLEEP_SPEED = 0.02;
 const MAX_SPEED = 4;
 
 /**
- * Память раскладки: узел, однажды улёгшийся, помнит своё место по ключу —
- * через смену слоя, уход с таба карты и дорогу. Пересеивание с нуля выглядит
- * как «карту перетрясло», и случается оно теперь только с по-настоящему
- * новыми узлами. Живёт на уровне модуля: жизнь компонента короче жизни клиента.
+ * Layout memory: a node that once settled remembers its place by key --
+ * across layer changes, leaving the map tab and the road. Reseeding from
+ * scratch looks like "the map got shaken", and it now happens only with truly
+ * new nodes. Lives at module level: the component's life is shorter than the client's.
  */
 const REMEMBERED = new Map<string, { x: number; y: number }>();
 
-/** Засеянная стартовая точка: одна и та же карта просыпается похоже. */
+/** A seeded starting point: the same map wakes up looking similar. */
 function seedPoint(key: string): { x: number; y: number } {
   let seed = 0;
   for (const ch of key) seed = (seed * 31 + ch.charCodeAt(0)) % 997;
@@ -95,23 +96,23 @@ const DASH: Record<string, string | undefined> = { trail: "4 6" };
 export function GraphMap({ look, session, busy, act, onEnter }: Props) {
   const [map, setMap] = useState<WorldMap | null>(null);
   const here = look.node?.key ?? "";
-  //: Карта растёт разведкой (D-152), и найденный узел обязан появиться сам.
-  //: Перечитываем её, когда меняется то, из-за чего карта могла измениться:
-  //: свой узел, набор выходов из него и возвращение разведчика. Одной
-  //: загрузки при первом показе хватало ровно до первой находки.
-  const выходы = (look.exits ?? []).map((путь) => путь.key).join("|");
-  const в_разведке = look.survey?.returns_at ?? "";
+  //: The map grows by exploration (D-152), and a found node must appear by
+  //: itself. We reread it when what could have changed the map changes: own
+  //: node, the set of exits from it and the scout's return. One load on first
+  //: show lasted exactly until the first find.
+  const exits = (look.exits ?? []).map((path) => path.key).join("|");
+  const exploring = look.survey?.returns_at ?? "";
   useEffect(() => {
     void api.worldMap().then(setMap);
-  }, [here, выходы, в_разведке]);
-  const идёт = look.travel ?? null;
+  }, [here, exits, exploring]);
+  const ongoing = look.travel ?? null;
   const byKey = useMemo(() => {
     const out: Record<string, MapNode> = {};
     for (const node of map?.nodes ?? []) out[node.key] = node;
     return out;
   }, [map]);
 
-  /** Представитель узла на слое: подъём по родителям до узла этого слоя. */
+  /** The node's delegate on the layer: climb the parents up to a node of this layer. */
   const repr = useMemo(() => {
     return (key: string, layer: LayerId): string | null => {
       let cursor: MapNode | undefined = byKey[key];
@@ -123,57 +124,57 @@ export function GraphMap({ look, session, busy, act, onEnter }: Props) {
     };
   }, [byKey]);
 
-  //: Слой по умолчанию — тот, где стоишь; явное раскрытие живёт до перехода.
+  //: The default layer is the one you stand on; explicit expansion lives until the transit.
   const [layer, setLayer] = useState<LayerId | null>(null);
   const [cityFocus, setCityFocus] = useState<string | null>(null);
   useEffect(() => setCityFocus(null), [here]);
 
-  const города = useMemo(() => {
+  const cities = useMemo(() => {
     const out = new Set<string>();
     for (const node of map?.nodes ?? []) {
       if (node.layer === "city" && node.parent) out.add(node.parent);
     }
     return out;
   }, [map]);
-  const мойГород = byKey[repr(here, "city") ?? ""]?.parent ?? null;
-  const фокус = cityFocus ?? мойГород ?? [...города].sort()[0] ?? null;
+  const myCity = byKey[repr(here, "city") ?? ""]?.parent ?? null;
+  const focus = cityFocus ?? myCity ?? [...cities].sort()[0] ?? null;
 
-  const базаЛокации =
+  const locationBase =
     byKey[here]?.layer === "location" ? (byKey[here]?.parent ?? here) : here;
-  const субузлыЕсть = useMemo(
+  const hasSubnodes = useMemo(
     () =>
       (map?.nodes ?? []).some(
-        (node) => node.layer === "location" && node.parent === базаЛокации,
+        (node) => node.layer === "location" && node.parent === locationBase,
       ),
-    [map, базаЛокации],
+    [map, locationBase],
   );
 
-  const слои = LAYERS.filter(
+  const layers = LAYERS.filter(
     (option) =>
-      (option.id !== "location" || субузлыЕсть) &&
-      (option.id !== "city" || города.size > 0),
+      (option.id !== "location" || hasSubnodes) &&
+      (option.id !== "city" || cities.size > 0),
   );
-  const желаемый: LayerId =
+  const desired: LayerId =
     layer ?? ((byKey[here]?.layer as LayerId | undefined) ?? "planet");
-  const текущийСлой: LayerId = слои.some((s) => s.id === желаемый)
-    ? желаемый
+  const currentLayer: LayerId = layers.some((s) => s.id === desired)
+    ? desired
     : "planet";
 
   const visible = useMemo(() => {
     return (map?.nodes ?? []).filter((node) => {
-      if (node.layer !== текущийСлой) return false;
-      if (текущийСлой === "city") return node.parent === фокус;
-      if (текущийСлой === "location") return node.parent === базаЛокации;
+      if (node.layer !== currentLayer) return false;
+      if (currentLayer === "city") return node.parent === focus;
+      if (currentLayer === "location") return node.parent === locationBase;
       return true;
     });
-  }, [map, текущийСлой, фокус, базаЛокации]);
+  }, [map, currentLayer, focus, locationBase]);
 
   const shownEdges = useMemo(() => {
     const seen = new Map<string, { a: string; b: string; surface: string; seconds: number }>();
     const keys = new Set(visible.map((node) => node.key));
     for (const edge of map?.edges ?? []) {
-      const pa = repr(edge.a, текущийСлой);
-      const pb = repr(edge.b, текущийСлой);
+      const pa = repr(edge.a, currentLayer);
+      const pb = repr(edge.b, currentLayer);
       if (!pa || !pb || pa === pb) continue;
       if (!keys.has(pa) || !keys.has(pb)) continue;
       const id = [pa, pb].sort().join("|");
@@ -183,14 +184,14 @@ export function GraphMap({ look, session, busy, act, onEnter }: Props) {
       }
     }
     return [...seen.values()];
-  }, [map, visible, repr, текущийСлой]);
+  }, [map, visible, repr, currentLayer]);
 
-  // --- физика ---------------------------------------------------------------
+  // --- physics --------------------------------------------------------------
 
-  //: Тела живут в ref: симуляция крутится кадрами, а не рендерами React.
+  //: Bodies live in a ref: the simulation runs by frames, not React renders.
   const bodies = useRef<Map<string, Mass>>(new Map());
   const [, setFrame] = useState(0);
-  //: Пока держим узел — он «прибит» и слушается мыши, а не пружин.
+  //: While we hold a node it is "pinned" and obeys the mouse, not the springs.
   const dragging = useRef<{
     key: string | null;
     moved: boolean;
@@ -201,11 +202,11 @@ export function GraphMap({ look, session, busy, act, onEnter }: Props) {
   } | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
 
-  //: Панорама и зум: viewBox и есть камера.
+  //: Pan and zoom: the viewBox is the camera.
   const [camera, setCamera] = useState({ x: 0, y: 0, scale: 1 });
 
-  //: Новые узлы встают на запомненные места, а без памяти — на засеянные.
-  //: Ушедшие со слоя сперва запоминаются: вернутся — лягут как лежали.
+  //: New nodes take remembered places, and without memory -- seeded ones.
+  //: Those leaving the layer are remembered first: come back -- they lie as they lay.
   useEffect(() => {
     const alive = new Set(visible.map((n) => n.key));
     for (const [key, body] of [...bodies.current]) {
@@ -222,7 +223,7 @@ export function GraphMap({ look, session, busy, act, onEnter }: Props) {
     }
   }, [visible]);
 
-  //: Уход с карты (другой таб, размонтирование) тоже сохраняет раскладку.
+  //: Leaving the map (another tab, unmount) also saves the layout.
   useEffect(() => {
     const held = bodies.current;
     return () => {
@@ -230,19 +231,19 @@ export function GraphMap({ look, session, busy, act, onEnter }: Props) {
     };
   }, []);
 
-  //: Разбудить симуляцию может кто угодно (перетаскивание, прибытие), а сам
-  //: цикл живёт в эффекте ниже — ссылка сшивает их без пересоздания замыканий.
+  //: Anyone may wake the simulation (dragging, arrival), while the loop itself
+  //: lives in the effect below -- the ref stitches them without recreating closures.
   const kick = useRef<() => void>(() => {});
 
-  //: Сама симуляция: пружины по рёбрам, расталкивание, лёгкое притяжение к
-  //: центру. Засыпает, когда всё улеглось, и просыпается от любого касания.
+  //: The simulation itself: springs along edges, repulsion, a slight pull to
+  //: the centre. Falls asleep when everything settled, and wakes from any touch.
   useEffect(() => {
     let raf = 0;
     let alive = true;
     let running = false;
     const step = () => {
       const items = [...bodies.current.entries()];
-      //: Пружины: ребро тянет к длине покоя, выведенной из времени пути.
+      //: Springs: an edge pulls toward the rest length derived from travel time.
       for (const edge of shownEdges) {
         const a = bodies.current.get(edge.a);
         const b = bodies.current.get(edge.b);
@@ -263,7 +264,7 @@ export function GraphMap({ look, session, busy, act, onEnter }: Props) {
           b.vy -= fy;
         }
       }
-      //: Расталкивание: узлы не слипаются в кляксу.
+      //: Repulsion: nodes do not clump into a blob.
       for (let i = 0; i < items.length; i++) {
         for (let j = i + 1; j < items.length; j++) {
           const a = items[i][1];
@@ -285,7 +286,7 @@ export function GraphMap({ look, session, busy, act, onEnter }: Props) {
           }
         }
       }
-      //: К центру — слабо: одинокие компоненты не уплывают за горизонт.
+      //: Toward the centre -- weakly: lone components do not drift beyond the horizon.
       let speed = 0;
       for (const [, body] of items) {
         if (!body.pinned) {
@@ -293,7 +294,7 @@ export function GraphMap({ look, session, busy, act, onEnter }: Props) {
           body.vy += (H / 2 - body.y) * CENTERING;
           body.vx *= DAMPING;
           body.vy *= DAMPING;
-          //: Потолок скорости: рывок гасится в шаг, а не размазывается прыжком.
+          //: Speed ceiling: a jerk is damped into a step rather than smeared into a jump.
           body.vx = Math.max(-MAX_SPEED, Math.min(MAX_SPEED, body.vx));
           body.vy = Math.max(-MAX_SPEED, Math.min(MAX_SPEED, body.vy));
           body.x += body.vx;
@@ -302,11 +303,11 @@ export function GraphMap({ look, session, busy, act, onEnter }: Props) {
         speed = Math.max(speed, Math.abs(body.vx), Math.abs(body.vy));
       }
       setFrame((f) => f + 1);
-      //: Улеглось — спим до следующего касания: кадры даром не жгём.
+      //: Settled -- we sleep until the next touch: no frames burned for nothing.
       running = speed > SLEEP_SPEED || Boolean(dragging.current?.key);
       if (running) raf = requestAnimationFrame(step);
     };
-    //: Пробуждение идемпотентно: пока цикл крутится, второй не заводится.
+    //: Waking is idempotent: while the loop runs, a second is not started.
     kick.current = () => {
       if (!running && alive) {
         running = true;
@@ -320,18 +321,18 @@ export function GraphMap({ look, session, busy, act, onEnter }: Props) {
     };
   }, [shownEdges, visible]);
 
-  /** Разбудить цикл — без пинков телам: случайные толчки дёргали карту.
-   *  Кадр форсируется сразу: перетаскиваемый узел следует за мышью, даже
-   *  пока цикл ещё не проснулся. */
+  /** Wake the loop -- without kicking the bodies: random pushes twitched the map.
+   *  A frame is forced at once: the dragged node follows the mouse even while
+   *  the loop has not woken yet. */
   const wake = () => {
     kick.current();
     setFrame((f) => f + 1);
   };
 
-  // --- мышь: перетаскивание, панорама, зум ----------------------------------
+  // --- mouse: dragging, pan, zoom -------------------------------------------
 
-  /** Пиксели → мир. Svg резиновый, а viewBox держит пропорции (`meet`), и по
-   *  краям возникают поля — без их учёта клик попадает мимо узла. */
+  /** Pixels -> world. The svg is elastic, and the viewBox keeps proportions (`meet`),
+   *  so margins appear at the edges -- without accounting for them a click misses the node. */
   const lens = () => {
     const svg = svgRef.current;
     if (!svg) return null;
@@ -372,8 +373,8 @@ export function GraphMap({ look, session, busy, act, onEnter }: Props) {
     wake();
   };
 
-  //: Захват указателя — удобство (drag не рвётся за краем), а не условие:
-  //: указатель без захвата (тач-эмуляция, тесты) не должен ломать перенос.
+  //: Pointer capture is a convenience (drag does not break at the edge), not a
+  //: condition: a pointer without capture (touch emulation, tests) must not break dragging.
   const capture = (e: React.PointerEvent) => {
     try {
       (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
@@ -426,14 +427,14 @@ export function GraphMap({ look, session, busy, act, onEnter }: Props) {
       const body = bodies.current.get(drag.key);
       if (body) body.pinned = false;
       wake();
-      //: Короткое нажатие без движения — это клик, а не перестановка.
-      if (!drag.moved && node) клик(node);
+      //: A short press without movement is a click, not a move.
+      if (!drag.moved && node) click(node);
     }
   };
 
-  //: Колесо над картой — зум, и только зум. React вешает wheel пассивно, и
-  //: preventDefault оттуда не работает — страница прокручивалась вместе с
-  //: зумом. Гасится нативным слушателем с passive: false.
+  //: The wheel over the map is zoom, and only zoom. React attaches wheel
+  //: passively, and preventDefault from there does not work -- the page
+  //: scrolled along with the zoom. Suppressed by a native listener with passive: false.
   useEffect(() => {
     const svg = svgRef.current;
     if (!svg) return;
@@ -446,7 +447,7 @@ export function GraphMap({ look, session, busy, act, onEnter }: Props) {
     const p = toWorld(e);
     setCamera((cam) => {
       const scale = Math.min(4, Math.max(0.4, cam.scale * (e.deltaY < 0 ? 1.15 : 1 / 1.15)));
-      //: Зум к курсору: точка под мышью остаётся под мышью.
+      //: Zoom to the cursor: the point under the mouse stays under the mouse.
       return {
         scale,
         x: p.x - (p.x - cam.x) * (cam.scale / scale),
@@ -455,69 +456,70 @@ export function GraphMap({ look, session, busy, act, onEnter }: Props) {
     });
   };
 
-  // --- поведение узлов ------------------------------------------------------
+  // --- node behaviour -------------------------------------------------------
 
   const walkTargets = useMemo(() => {
     const out: Record<string, { key: string; seconds: number }> = {};
     for (const exit of look.exits ?? []) {
-      const p = repr(exit.key, текущийСлой);
-      if (!p || p === repr(here, текущийСлой)) continue;
+      const p = repr(exit.key, currentLayer);
+      if (!p || p === repr(here, currentLayer)) continue;
       const known = out[p];
       if (!known || exit.seconds < known.seconds) {
         out[p] = { key: exit.key, seconds: exit.seconds };
       }
     }
     return out;
-  }, [look.exits, repr, here, текущийСлой]);
+  }, [look.exits, repr, here, currentLayer]);
 
-  const myRepr = repr(here, текущийСлой);
+  const myRepr = repr(here, currentLayer);
 
-  const группы = useMemo(() => {
+  const groups = useMemo(() => {
     const out = new Set<string>();
     for (const node of map?.nodes ?? []) if (node.parent) out.add(node.parent);
     return out;
   }, [map]);
 
   /**
-   * Ходок движется кадрами, а не рендерами.
+   * The walker moves by frames, not renders.
    *
-   * Раньше его позицию пересчитывал таймер раз в полсекунды — на переходе в
-   * шесть секунд это дюжина скачков вместо движения. Теперь кружок двигается
-   * прямо в `requestAnimationFrame`, минуя React: React перерисовывает карту,
-   * когда карта изменилась, а не шестьдесят раз в секунду ради одной точки.
+   * Previously a timer recomputed its position every half second -- on a
+   * six-second transit that is a dozen jumps instead of movement. Now the dot
+   * moves right in `requestAnimationFrame`, bypassing React: React re-renders
+   * the map when the map changed, not sixty times a second for one dot.
    *
-   * Концы отрезка берутся из тел симуляции на каждом кадре: узлы под ходоком
-   * могут ещё расходиться пружинами, и точка обязана держаться ребра.
+   * The leg's endpoints are taken from the simulation bodies on every frame:
+   * the nodes under the walker may still be spreading by springs, and the dot
+   * must stick to the edge.
    */
   const walkerRef = useRef<SVGCircleElement | null>(null);
   useEffect(() => {
-    if (!идёт) return;
+    if (!ongoing) return;
     let raf = 0;
-    const шаг = () => {
-      const круг = walkerRef.current;
-      const from = bodies.current.get(repr(идёт.from_key, текущийСлой) ?? "");
-      const to = bodies.current.get(repr(идёт.to_key, текущийСлой) ?? "");
-      if (круг && from && to) {
-        const t0 = new Date(идёт.started_at).getTime();
-        const t1 = new Date(идёт.arrives_at).getTime();
-        const доля = Math.min(1, Math.max(0, (Date.now() - t0) / Math.max(1, t1 - t0)));
-        круг.setAttribute("cx", String(from.x + (to.x - from.x) * доля));
-        круг.setAttribute("cy", String(from.y + (to.y - from.y) * доля));
+    const step = () => {
+      const circle = walkerRef.current;
+      const from = bodies.current.get(repr(ongoing.from_key, currentLayer) ?? "");
+      const to = bodies.current.get(repr(ongoing.to_key, currentLayer) ?? "");
+      if (circle && from && to) {
+        const t0 = new Date(ongoing.started_at).getTime();
+        const t1 = new Date(ongoing.arrives_at).getTime();
+        const share = Math.min(1, Math.max(0, (Date.now() - t0) / Math.max(1, t1 - t0)));
+        circle.setAttribute("cx", String(from.x + (to.x - from.x) * share));
+        circle.setAttribute("cy", String(from.y + (to.y - from.y) * share));
       }
-      raf = requestAnimationFrame(шаг);
+      raf = requestAnimationFrame(step);
     };
-    raf = requestAnimationFrame(шаг);
+    raf = requestAnimationFrame(step);
     return () => cancelAnimationFrame(raf);
     //: В зависимостях поля перехода, а не сам `идёт`: объект приходит новым с
     //: каждым опросом сервера, и эффект пересоздавался бы дважды в секунду —
     //: то самое дёрганье, от которого мы уходим. Все читаемые поля перечислены,
     //: поэтому замыкание не устаревает; линтеру этого не доказать.
   }, [
-    идёт?.from_key,
-    идёт?.to_key,
-    идёт?.started_at,
-    идёт?.arrives_at,
-    текущийСлой,
+    ongoing?.from_key,
+    ongoing?.to_key,
+    ongoing?.started_at,
+    ongoing?.arrives_at,
+    currentLayer,
     repr,
   ]);
 
@@ -532,36 +534,36 @@ export function GraphMap({ look, session, busy, act, onEnter }: Props) {
   const at = (key: string) => bodies.current.get(key);
 
   const walker = (() => {
-    if (!идёт) return null;
-    const from = at(repr(идёт.from_key, текущийСлой) ?? "");
-    const to = at(repr(идёт.to_key, текущийСлой) ?? "");
+    if (!ongoing) return null;
+    const from = at(repr(ongoing.from_key, currentLayer) ?? "");
+    const to = at(repr(ongoing.to_key, currentLayer) ?? "");
     if (!from || !to) return null;
-    const t0 = new Date(идёт.started_at).getTime();
-    const t1 = new Date(идёт.arrives_at).getTime();
+    const t0 = new Date(ongoing.started_at).getTime();
+    const t1 = new Date(ongoing.arrives_at).getTime();
     const share = Math.min(1, Math.max(0, (Date.now() - t0) / Math.max(1, t1 - t0)));
     return { x: from.x + (to.x - from.x) * share, y: from.y + (to.y - from.y) * share };
   })();
 
-  const раскрыть = (node: MapNode) => {
-    if (текущийСлой === "space") setLayer("planet");
-    else if (текущийСлой === "planet") {
+  const expand = (node: MapNode) => {
+    if (currentLayer === "space") setLayer("planet");
+    else if (currentLayer === "planet") {
       setCityFocus(node.key);
       setLayer("city");
     }
   };
 
-  const идти = (node: MapNode) => {
+  const walk = (node: MapNode) => {
     const target =
-      walkTargets[node.key]?.key ?? (группы.has(node.key) ? null : node.key);
-    if (target && !идёт && !look.survey && !busy) {
+      walkTargets[node.key]?.key ?? (groups.has(node.key) ? null : node.key);
+    if (target && !ongoing && !look.survey && !busy) {
       void act(() => session.send("travel.go", { node: target }));
     }
   };
 
-  const клик = (node: MapNode) => {
+  const click = (node: MapNode) => {
     if (busy) return;
-    if (группы.has(node.key)) раскрыть(node);
-    else идти(node);
+    if (groups.has(node.key)) expand(node);
+    else walk(node);
   };
 
   const vb = `${camera.x} ${camera.y} ${W / camera.scale} ${H / camera.scale}`;
@@ -569,10 +571,10 @@ export function GraphMap({ look, session, busy, act, onEnter }: Props) {
   return (
     <section className="map-pane">
       <nav className="row tabs">
-        {слои.map((option) => (
+        {layers.map((option) => (
           <button
             key={option.id}
-            className={текущийСлой === option.id ? "" : "quiet"}
+            className={currentLayer === option.id ? "" : "quiet"}
             onClick={() => setLayer(option.id)}
           >
             {option.label}
@@ -620,15 +622,15 @@ export function GraphMap({ look, session, busy, act, onEnter }: Props) {
             const p = at(node.key);
             if (!p) return null;
             const mine = node.key === myRepr;
-            //: Разведчик никуда не идёт: он в поле, и в узле его нет (D-152).
-            //: Кнопка, которую сервер всё равно отвергнет, — обещание, которое
-            //: интерфейс не вправе давать.
+            //: The scout goes nowhere: they are in the field, and not in the
+            //: node (D-152). A button the server will refuse anyway is a
+            //: promise the interface may not make.
             const near =
-              !идёт &&
+              !ongoing &&
               !look.survey &&
               !mine &&
-              (группы.has(node.key) ? Boolean(walkTargets[node.key]) : true);
-            const group = группы.has(node.key);
+              (groups.has(node.key) ? Boolean(walkTargets[node.key]) : true);
+            const group = groups.has(node.key);
             return (
               <g
                 key={node.key}
@@ -642,7 +644,7 @@ export function GraphMap({ look, session, busy, act, onEnter }: Props) {
                 <text x={p.x} y={p.y - 20} className="node-label">
                   {node.name}
                 </text>
-                {group && текущийСлой !== "city" && (
+                {group && currentLayer !== "city" && (
                   <text x={p.x} y={p.y + 30} className="node-hint">
                     раскрыть
                   </text>
@@ -655,7 +657,7 @@ export function GraphMap({ look, session, busy, act, onEnter }: Props) {
                     onPointerDown={(e) => e.stopPropagation()}
                     onClick={(e) => {
                       e.stopPropagation();
-                      идти(node);
+                      walk(node);
                     }}
                   >
                     идти
@@ -679,17 +681,17 @@ export function GraphMap({ look, session, busy, act, onEnter }: Props) {
       )}
 
       <div className="row map-bar">
-        {идёт ? (
+        {ongoing ? (
           <span>
-            в пути: {идёт.final ?? идёт.to}
-            {идёт.final ? (
+            в пути: {ongoing.final ?? ongoing.to}
+            {ongoing.final ? (
               <>
-                {" "}· сейчас — отрезок до «{идёт.to}», <Countdown to={идёт.arrives_at} />
-                {(идёт.legs_left ?? 0) > 1 && ` · впереди ещё ${идёт.legs_left! - 1} узл.`}
+                {" "}· сейчас — отрезок до «{ongoing.to}», <Countdown to={ongoing.arrives_at} />
+                {(ongoing.legs_left ?? 0) > 1 && ` · впереди ещё ${ongoing.legs_left! - 1} узл.`}
               </>
             ) : (
               <>
-                {" "}· придём через <Countdown to={идёт.arrives_at} />
+                {" "}· придём через <Countdown to={ongoing.arrives_at} />
               </>
             )}
           </span>
@@ -707,7 +709,7 @@ export function GraphMap({ look, session, busy, act, onEnter }: Props) {
               <Hint>
                 Дорога стоит выносливости (D-147):{" "}
                 {(look.exits ?? [])
-                  .map((путь) => `${путь.name} ${цена(путь.stamina)}`)
+                  .map((path) => `${path.name} ${price(path.stamina)}`)
                   .join(" · ")}
                 . Идти можно в любой узел — маршрут строится сам (D-045).
               </Hint>
@@ -718,16 +720,16 @@ export function GraphMap({ look, session, busy, act, onEnter }: Props) {
       {/* Разведка живёт на карте: искать новое место логично там, где карта
           видна. Что искать — зависит от слоя: в городе ищут участок, на
           планете — место под город или жилу названной породы (D-152). */}
-      {!идёт && <Search look={look} session={session} busy={busy} act={act} layer={текущийСлой} />}
+      {!ongoing && <Search look={look} session={session} busy={busy} act={act} layer={currentLayer} />}
       {/* Дорога — работа на ребре, и место ей там же, где рёбра видны (D-158). */}
-      {!идёт && !look.survey && <Roads look={look} session={session} busy={busy} act={act} />}
+      {!ongoing && !look.survey && <Roads look={look} session={session} busy={busy} act={act} />}
 
       {/* Осталось только то, что меняется: пока идёшь или разведываешь,
           присутственное закрыто, и это стоит сказать прямо. Объяснения
           устройства мира ушли в подсказки. */}
-      {(идёт || look.survey) && (
+      {(ongoing || look.survey) && (
         <p className="note">
-          {идёт
+          {ongoing
             ? "Пока идёшь, тебя нет нигде: присутственное закрыто (D-107)."
             : "Разведчик в поле: тело недоступно, как во сне (D-152)."}
         </p>
@@ -736,12 +738,12 @@ export function GraphMap({ look, session, busy, act, onEnter }: Props) {
   );
 }
 
-/** Дороги из этого узла: что уложено, что просело и чего это стоит (D-158).
+/** Roads from this node: what is laid, what sagged and what it costs (D-158).
  *
- * Покрытие поднимается на ступень за `road.surface_per_edge` полотна и
- * `road.build_hours` времени: бездорожье → дорога → мощёный тракт. Без
- * содержания дорога зарастает обратно, поэтому состояние показывается всегда —
- * заросшая отрежет обоз от узла, куда он вчера проезжал.
+ * The surface rises by a tier for `road.surface_per_edge` of surface and
+ * `road.build_hours` of time: offroad -> road -> paved highway. Without
+ * maintenance a road overgrows back, so the condition is always shown -- an
+ * overgrown one cuts the convoy off from a node it drove to yesterday.
  */
 function Roads({
   look,
@@ -754,47 +756,47 @@ function Roads({
   busy: boolean;
   act: (what: () => Promise<unknown>) => Promise<void>;
 }) {
-  const [дороги, setДороги] = useState<RoadWork[]>([]);
+  const [roads, setRoads] = useState<RoadWork[]>([]);
 
   useEffect(() => {
     void session
       .send("road.here")
-      .then((ответ) => setДороги((ответ.roads as RoadWork[]) ?? []))
-      .catch(() => setДороги([]));
+      .then((answer) => setRoads((answer.roads as RoadWork[]) ?? []))
+      .catch(() => setRoads([]));
     //: Пересчитывается при переходе и после каждого действия: уложенная
     //: ступень меняет и покрытие, и остаток полотна в руках.
   }, [session, look.node?.key, look.inventory]);
 
-  if (дороги.length === 0) return null;
-  const работать = (edge: string, mend: boolean) =>
+  if (roads.length === 0) return null;
+  const work_ = (edge: string, mend: boolean) =>
     act(() => session.send("road.lay", { edge, mend }));
 
   return (
     <div className="row map-bar">
-      {дороги.map((путь) => (
-        <span key={путь.edge} className="note">
-          {путь.to}: {ПОКРЫТИЕ[путь.surface]}
-          {путь.surface !== "trail" && ` ${путь.condition.toFixed(0)}%`}
-          {путь.working ? (
+      {roads.map((path) => (
+        <span key={path.edge} className="note">
+          {path.to}: {SURFACE_LABEL[path.surface]}
+          {path.surface !== "trail" && ` ${path.condition.toFixed(0)}%`}
+          {path.working ? (
             " · идёт работа"
           ) : (
             <>
-              {путь.next && путь.needs !== null && (
+              {path.next && path.needs !== null && (
                 <button
                   className="quiet"
-                  onClick={() => работать(путь.edge, false)}
-                  disabled={busy || путь.at_hand < путь.needs}
-                  title={`нужно ${путь.needs.toFixed(0)} полотна, в руках ${путь.at_hand.toFixed(0)}`}
+                  onClick={() => work_(path.edge, false)}
+                  disabled={busy || path.at_hand < path.needs}
+                  title={`нужно ${path.needs.toFixed(0)} полотна, в руках ${path.at_hand.toFixed(0)}`}
                 >
-                  {путь.surface === "trail" ? "Проложить" : "Мостить"}
+                  {path.surface === "trail" ? "Проложить" : "Мостить"}
                 </button>
               )}
-              {путь.mend_needs !== null && (
+              {path.mend_needs !== null && (
                 <button
                   className="quiet"
-                  onClick={() => работать(путь.edge, true)}
-                  disabled={busy || путь.at_hand < путь.mend_needs}
-                  title={`подсыпка: ${путь.mend_needs.toFixed(0)} полотна`}
+                  onClick={() => work_(path.edge, true)}
+                  disabled={busy || path.at_hand < path.mend_needs}
+                  title={`подсыпка: ${path.mend_needs.toFixed(0)} полотна`}
                 >
                   Подсыпать
                 </button>
@@ -812,8 +814,8 @@ function Roads({
   );
 }
 
-/** Покрытие словами: игрок читает дорогу, а не enum. */
-const ПОКРЫТИЕ: Record<RoadWork["surface"], string> = {
+/** Surface in words: the player reads a road, not an enum. */
+const SURFACE_LABEL: Record<RoadWork["surface"], string> = {
   trail: "бездорожье",
   road: "дорога",
   paved: "тракт",
@@ -831,14 +833,14 @@ function Countdown({ to }: { to: string }) {
   return <b>{left <= 0 ? "вот-вот" : spell(left)}</b>;
 }
 
-/** Разведка с карты: цель зависит от слоя, на который смотрит игрок (D-152).
+/** Exploration from the map: the goal depends on the layer the player looks at (D-152).
  *
- * Разведчик **уходит сам**: пока заход идёт, тело в поле и недоступно, как во
- * сне. Вернуться раньше срока можно — находка тогда не состоится.
+ * The scout **leaves in person**: while the run goes, the body is in the field
+ * and unavailable, as in sleep. Returning early is allowed -- the find then does not happen.
  *
- * Цена захода — свойство места (D-156): по нехоженой окрестности это минуты и
- * почти верная находка, по исхоженной — часы и бросок. Прогноз показывается до
- * выхода и обновляется при смене узла. */
+ * The run's price is a property of the place (D-156): in untrodden surroundings
+ * it is minutes and an almost certain find, in trodden ones hours and a roll.
+ * The forecast is shown before leaving and updates on node change. */
 function Search({
   look,
   session,
@@ -852,39 +854,39 @@ function Search({
   act: (what: () => Promise<unknown>) => Promise<void>;
   layer: LayerId;
 }) {
-  const [породы, setПороды] = useState<string[]>([]);
-  const [порода, setПорода] = useState("");
-  const [прогноз, setПрогноз] = useState<Outlook | null>(null);
-  const заход = look.survey ?? null;
+  const [speciesList, setSpeciesList] = useState<string[]>([]);
+  const [species, setSpecies] = useState("");
+  const [forecast, setForecast] = useState<Outlook | null>(null);
+  const run = look.survey ?? null;
 
   useEffect(() => {
     void session
       //: Прогноз просится под выбранную породу: редкая ищется хуже частой
       //: (D-151), и «шанс 90%» рядом с заказом золота был бы обманом.
-      .send("explore.goals", порода ? { goal: "vein", resource: порода } : {})
-      .then((ответ) => {
-        setПороды((ответ.resources as string[]) ?? []);
-        setПрогноз((ответ.outlook as Outlook | null) ?? null);
+      .send("explore.goals", species ? { goal: "vein", resource: species } : {})
+      .then((answer) => {
+        setSpeciesList((answer.resources as string[]) ?? []);
+        setForecast((answer.outlook as Outlook | null) ?? null);
       })
       .catch(() => {
-        setПороды([]);
-        setПрогноз(null);
+        setSpeciesList([]);
+        setForecast(null);
       });
     //: Заход меняет счёт находок узла, поэтому прогноз пересчитывается и по
     //: возвращении разведчика, а не только при переходе.
-  }, [session, look.node?.key, заход?.returns_at, порода]);
+  }, [session, look.node?.key, run?.returns_at, species]);
 
-  if (!заход && layer !== "city" && layer !== "planet") return null;
+  if (!run && layer !== "city" && layer !== "planet") return null;
 
-  const искать = (goal: string, resource?: string) =>
+  const seek = (goal: string, resource?: string) =>
     act(() => session.send("explore.survey", { goal, resource }));
 
   return (
     <div className="row map-bar">
-      {заход ? (
+      {run ? (
         <>
           <span className="note">
-            вы в разведке · вернётесь <Countdown to={заход.returns_at} />
+            вы в разведке · вернётесь <Countdown to={run.returns_at} />
           </span>
           <button
             onClick={() => act(() => session.send("explore.cancel"))}
@@ -899,7 +901,7 @@ function Search({
         </>
       ) : layer === "city" ? (
         <>
-          <button onClick={() => искать("lot")} disabled={busy}>
+          <button onClick={() => seek("lot")} disabled={busy}>
             Уйти искать участок
           </button>
           <Hint>
@@ -910,16 +912,16 @@ function Search({
         </>
       ) : (
         <>
-          <button onClick={() => искать("site")} disabled={busy}>
+          <button onClick={() => seek("site")} disabled={busy}>
             Уйти искать узел для города
           </button>
-          <button onClick={() => искать("vein", порода || undefined)} disabled={busy}>
+          <button onClick={() => seek("vein", species || undefined)} disabled={busy}>
             Уйти искать жилу
           </button>
-          <select value={порода} onChange={(e) => setПорода(e.target.value)}>
+          <select value={species} onChange={(e) => setSpecies(e.target.value)}>
             <option value="">любую породу</option>
-            {породы.map((имя) => (
-              <option key={имя}>{имя}</option>
+            {speciesList.map((name) => (
+              <option key={name}>{name}</option>
             ))}
           </select>
           <Hint>
@@ -930,56 +932,56 @@ function Search({
           </Hint>
         </>
       )}
-      {!заход && прогноз && <Forecast прогноз={прогноз} />}
+      {!run && forecast && <Forecast forecast={forecast} />}
     </div>
   );
 }
 
-/** Во что обойдётся заход отсюда (D-156). */
-function Forecast({ прогноз }: { прогноз: Outlook }) {
-  const { min, max } = прогноз.minutes;
-  const срок = min === max ? долго(min) : размах(min, max);
-  //: Шанс может быть долей процента — округление до целого показало бы ноль
-  //: там, где искать всё-таки можно.
-  const шанс = прогноз.chance >= 1
-    ? Math.round(прогноз.chance)
-    : прогноз.chance.toFixed(1);
+/** What a run from here will cost (D-156). */
+function Forecast({ forecast }: { forecast: Outlook }) {
+  const { min, max } = forecast.minutes;
+  const term = min === max ? long(min) : spread(min, max);
+  //: The chance may be a fraction of a percent -- rounding to an integer would
+  //: show zero where searching is still possible.
+  const chance = forecast.chance >= 1
+    ? Math.round(forecast.chance)
+    : forecast.chance.toFixed(1);
   return (
     <span className="note">
-      заход отсюда: {срок} · шанс {шанс}% · до {цена(прогноз.stamina)}{" "}
+      заход отсюда: {term} · шанс {chance}% · до {price(forecast.stamina)}{" "}
       выносливости
-      {прогноз.resource && (прогноз.aim ?? 1) < 1 &&
-        ` · ${прогноз.resource.toLowerCase()} редка: шанс уже в ${(1 / (прогноз.aim ?? 1)).toFixed(0)} раз`}
-      {прогноз.explored > 0 &&
-        ` · окрестность исхожена: находок отсюда ${прогноз.explored}`}
+      {forecast.resource && (forecast.aim ?? 1) < 1 &&
+        ` · ${forecast.resource.toLowerCase()} редка: шанс уже в ${(1 / (forecast.aim ?? 1)).toFixed(0)} раз`}
+      {forecast.explored > 0 &&
+        ` · окрестность исхожена: находок отсюда ${forecast.explored}`}
     </span>
   );
 }
 
-const МИНУТ_В_ЧАСЕ = 60;
+const MINUTES_PER_HOUR = 60;
 
-function долго(минут: number): string {
-  return `${счёт(минут)} ${единица(минут)}`;
+function long(minutes: number): string {
+  return `${account(minutes)} ${unit(minutes)}`;
 }
 
-function размах(от: number, до: number): string {
-  return единица(от) === единица(до)
-    ? `${счёт(от)}–${счёт(до)} ${единица(до)}`
-    : `${долго(от)} – ${долго(до)}`;
+function spread(from: number, until: number): string {
+  return unit(from) === unit(until)
+    ? `${account(from)}–${account(until)} ${unit(until)}`
+    : `${long(from)} – ${long(until)}`;
 }
 
-function единица(минут: number): string {
-  return минут < МИНУТ_В_ЧАСЕ ? "мин" : "ч";
+function unit(minutes: number): string {
+  return minutes < MINUTES_PER_HOUR ? "мин" : "ч";
 }
 
-function счёт(минут: number): string {
-  if (минут < МИНУТ_В_ЧАСЕ) return String(Math.round(минут));
-  const часов = минут / МИНУТ_В_ЧАСЕ;
-  return часов % 1 === 0 ? String(часов) : часов.toFixed(1);
+function account(minutes: number): string {
+  if (minutes < MINUTES_PER_HOUR) return String(Math.round(minutes));
+  const hours = minutes / MINUTES_PER_HOUR;
+  return hours % 1 === 0 ? String(hours) : hours.toFixed(1);
 }
 
-/** Цена дороги телом. Шаг по городу стоит доли единицы — и «0.0» тут врало бы. */
-function цена(выносливость: number): string {
-  if (выносливость <= 0) return "0";
-  return выносливость < 0.1 ? "<0.1" : выносливость.toFixed(1);
+/** The road's price to the body. A step across town costs a fraction of a unit -- and "0.0" would lie here. */
+function price(stamina: number): string {
+  if (stamina <= 0) return "0";
+  return stamina < 0.1 ? "<0.1" : stamina.toFixed(1);
 }

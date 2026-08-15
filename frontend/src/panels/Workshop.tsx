@@ -1,18 +1,19 @@
 /**
- * Станок: что на нём делают, кто за ним стоит, что чинят (D-092, D-133, D-150).
+ * A machine: what is made at it, who stands at it, what is repaired (D-092, D-133, D-150).
  *
- * Панель называется именем станка, а не «мастерской», и показывается **только
- * там, где этот станок стоит**. Причина не в оформлении: станок задаёт, чем
- * место является (D-106), и три станка во дворе — это три разных дела, а не
- * один список рецептов, из которого половина всё равно откажет.
+ * The panel is named after the machine, not "workshop", and is shown **only
+ * where this machine stands**. The reason is not styling: the machine sets
+ * what a place is (D-106), and three machines in the yard are three different
+ * jobs, not one recipe list half of which will refuse anyway.
  *
- * Отдельный случай — «Руками»: этому месту не нужно, и панель появляется
- * везде, где игрок вообще знает хоть один такой рецепт. Верёвка и каменная
- * кирка делаются в чистом поле, и это начало всей лестницы (D-084).
+ * A separate case is "By hand": it needs no place, and the panel appears
+ * wherever the player knows at least one such recipe. Rope and a stone
+ * pickaxe are made in an open field, and that is the start of the whole ladder (D-084).
  *
- * Главное здесь — **прогноз точным числом до того, как потрачены материалы**:
- * без него игрок не свяжет действие с результатом и не выведет ни одной
- * пропорции (D-092). Поэтому «Запустить» стоит рядом с прогнозом, а не вместо.
+ * The main thing here is **the forecast as an exact number before materials
+ * are spent**: without it the player will not connect action with result and
+ * will not derive a single proportion (D-092). So "Start" stands next to the
+ * forecast, not instead of it.
  */
 
 import { useState } from "react";
@@ -25,75 +26,75 @@ type Props = {
   session: Session;
   busy: boolean;
   act: (what: () => Promise<unknown>) => Promise<void>;
-  /** Имя станка либо `null` — «Руками». */
-  станок: string | null;
-  /** Справочник вольта: грузится один раз на весь экран. */
-  книга: any;
+  /** The machine's name or `null` -- "By hand". */
+  machine: string | null;
+  /** The vault catalog: loaded once for the whole screen. */
+  book: any;
 };
 
-export function Workshop({ look, session, busy, act, станок, книга }: Props) {
-  const умею = craftableAt(книга, станок, look.knows);
-  const [что, setЧто] = useState<string | null>(null);
-  const [сколько, setСколько] = useState(1);
-  const [прогноз, setПрогноз] = useState<Plan | null>(null);
-  //: «Поставить на автомат» — выбор уклада: объём и счёт за энергию против
-  //: качества и внимания (D-035, D-058).
-  const [автомат, setАвтомат] = useState(false);
+export function Workshop({ look, session, busy, act, machine, book }: Props) {
+  const known = craftableAt(book, machine, look.knows);
+  const [what, setWhat] = useState<string | null>(null);
+  const [qty, setQty] = useState(1);
+  const [forecast, setForecast] = useState<Plan | null>(null);
+  //: "Put on automatic" is a choice of mode: volume and an energy bill against
+  //: quality and attention (D-035, D-058).
+  const [automaton, setAutomaton] = useState(false);
 
-  if (умею.length === 0) return null;
-  const выбрано = что && умею.includes(что) ? что : умею[0];
-  const мой_станок = (look.bench ?? []).filter((б) => б.goods === станок);
-  const автоматом = станок === "Автоматический станок";
+  if (known.length === 0) return null;
+  const selected = what && known.includes(what) ? what : known[0];
+  const myMachine = (look.bench ?? []).filter((b) => b.goods === machine);
+  const automated = machine === "Автоматический станок";
 
-  const прогнозировать = () =>
+  const doForecast = () =>
     act(async () => {
-      const ответ = await session.send("craft.plan", {
-        output: выбрано,
-        units: сколько,
-        auto: автомат && автоматом,
+      const answer = await session.send("craft.plan", {
+        output: selected,
+        units: qty,
+        auto: automaton && automated,
       });
-      setПрогноз(ответ.plan as Plan);
+      setForecast(answer.plan as Plan);
     });
 
-  const запустить = () =>
+  const launch = () =>
     act(async () => {
       await session.send("craft.start", {
-        output: выбрано,
-        units: сколько,
-        auto: автомат && автоматом,
+        output: selected,
+        units: qty,
+        auto: automaton && automated,
       });
-      setПрогноз(null);
+      setForecast(null);
     });
 
-  //: Чинят и разбирают там же, где делают: у станка, на котором вещь сделана.
-  const чинить = look.inventory.filter(
-    (вещь) => вещь.condition < 100 && stationOf(книга, вещь.goods) === станок,
+  //: Things are repaired and taken apart where they are made: at the machine the thing was made at.
+  const repair = look.inventory.filter(
+    (thing) => thing.condition < 100 && stationOf(book, thing.goods) === machine,
   );
 
   return (
     <section>
-      <h2>{станок ?? "Руками"}</h2>
+      <h2>{machine ?? "Руками"}</h2>
 
-      {look.node?.cut_off && станок !== null && (
+      {look.node?.cut_off && machine !== null && (
         <p className="trouble">
           Узел отключён за неуплату: станки не работают, пока долг не закрыт.
           Счёт — в сайдбаре, во вкладке «хозяйство».
         </p>
       )}
 
-      {мой_станок.map((станция) => (
-        <p className="note" key={станция.id}>
-          {станция.quality === null ? "" : `качество ${станция.quality.toFixed(0)}`}
-          {станция.condition < 100 && ` · состояние ${станция.condition.toFixed(0)}`}
+      {myMachine.map((station) => (
+        <p className="note" key={station.id}>
+          {station.quality === null ? "" : `качество ${station.quality.toFixed(0)}`}
+          {station.condition < 100 && ` · состояние ${station.condition.toFixed(0)}`}
           {" · "}
-          {станция.busy ? (станция.mine ? "занят вами" : "занят другим") : "свободен"}
+          {station.busy ? (station.mine ? "занят вами" : "занят другим") : "свободен"}
           {(look.node?.mine || look.city?.powers.includes("laws")) && (
             <>
               {" "}
               <button
                 className="quiet"
-                onClick={() => act(() => session.send("station.take", { item: станция.id }))}
-                disabled={busy || станция.busy}
+                onClick={() => act(() => session.send("station.take", { item: station.id }))}
+                disabled={busy || station.busy}
                 title="забрать станок в руки"
               >
                 Забрать
@@ -105,36 +106,36 @@ export function Workshop({ look, session, busy, act, станок, книга }:
 
       <div className="row">
         <select
-          value={выбрано}
+          value={selected}
           onChange={(e) => {
-            setЧто(e.target.value);
-            setПрогноз(null);
+            setWhat(e.target.value);
+            setForecast(null);
           }}
         >
-          {умею.map((имя) => (
-            <option key={имя}>{имя}</option>
+          {known.map((name) => (
+            <option key={name}>{name}</option>
           ))}
         </select>
         <input
           type="number"
           min={1}
-          value={сколько}
+          value={qty}
           onChange={(e) => {
-            setСколько(Number(e.target.value));
-            setПрогноз(null);
+            setQty(Number(e.target.value));
+            setForecast(null);
           }}
         />
-        <button onClick={прогнозировать} disabled={busy}>
+        <button onClick={doForecast} disabled={busy}>
           Прогноз
         </button>
-        {автоматом && (
+        {automated && (
           <label className="note">
             <input
               type="checkbox"
-              checked={автомат}
+              checked={automaton}
               onChange={(e) => {
-                setАвтомат(e.target.checked);
-                setПрогноз(null);
+                setAutomaton(e.target.checked);
+                setForecast(null);
               }}
             />{" "}
             на автомате
@@ -142,49 +143,49 @@ export function Workshop({ look, session, busy, act, станок, книга }:
         )}
       </div>
 
-      {прогноз && (
+      {forecast && (
         <div className="plan">
           <p>
-            качество <b>{прогноз.quality.toFixed(1)}</b> ± {прогноз.spread.toFixed(1)}
-            {" · "}потолок {прогноз.ceiling.toFixed(0)}
-            {" · "}{прогноз.minutes.toFixed(1)} мин
-            {" · "}потери {прогноз.waste.toFixed(1)}%
+            качество <b>{forecast.quality.toFixed(1)}</b> ± {forecast.spread.toFixed(1)}
+            {" · "}потолок {forecast.ceiling.toFixed(0)}
+            {" · "}{forecast.minutes.toFixed(1)} мин
+            {" · "}потери {forecast.waste.toFixed(1)}%
           </p>
           <p className="note">
             уйдёт:{" "}
-            {Object.entries(прогноз.consumes)
-              .map(([имя, сколько]) => `${имя} ${сколько.toFixed(2)}`)
+            {Object.entries(forecast.consumes)
+              .map(([name, qty]) => `${name} ${qty.toFixed(2)}`)
               .join(", ")}
-            {прогноз.auto && прогноз.energy > 0 && (
+            {forecast.auto && forecast.energy > 0 && (
               <>
-                {" "}· энергии {прогноз.energy.toFixed(0)} на{" "}
-                {api.tk(прогноз.energy_cost)} ₭ по тарифу города
+                {" "}· энергии {forecast.energy.toFixed(0)} на{" "}
+                {api.tk(forecast.energy_cost)} ₭ по тарифу города
               </>
             )}
           </p>
-          <button onClick={запустить} disabled={busy}>
+          <button onClick={launch} disabled={busy}>
             Запустить партию
           </button>
         </div>
       )}
 
-      {чинить.length > 0 && (
+      {repair.length > 0 && (
         <>
           <h3>Починить или разобрать</h3>
-          {чинить.map((вещь) => (
-            <div className="row" key={вещь.id}>
+          {repair.map((thing) => (
+            <div className="row" key={thing.id}>
               <span>
-                {вещь.goods} · состояние {вещь.condition.toFixed(0)}
+                {thing.goods} · состояние {thing.condition.toFixed(0)}
               </span>
               <button
-                onClick={() => act(() => session.send("craft.repair", { item: вещь.id }))}
+                onClick={() => act(() => session.send("craft.repair", { item: thing.id }))}
                 disabled={busy}
               >
                 Починить
               </button>
               <button
                 className="quiet"
-                onClick={() => act(() => session.send("craft.recycle", { item: вещь.id }))}
+                onClick={() => act(() => session.send("craft.recycle", { item: thing.id }))}
                 disabled={busy}
               >
                 Разобрать

@@ -1,7 +1,7 @@
-"""мир, журнал событий, журнал заданий, двойная запись
+"""world, event journal, job journal, double entry
 
 Revision ID: 7cc5d271b642
-Revises: 
+Revises:
 Create Date: 2026-08-12 13:38:41.884964
 """
 from __future__ import annotations
@@ -210,8 +210,9 @@ def upgrade() -> None:
     op.create_index('ix_wound_body', 'wound', ['body_id'], unique=False)
     # ### end Alembic commands ###
 
-    # Правила, которые держит сама база: сходимость проводок и неизменяемость
-    # журналов. SQL берётся из octoverse.db.ddl — второй копии не существует.
+    # Rules the database itself holds: posting balance and journal immutability.
+    # The SQL is taken from octoverse.db.ddl -- no second copy exists.
+
     for statement in ddl.statements():
         op.execute(statement)
 

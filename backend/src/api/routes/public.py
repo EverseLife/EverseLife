@@ -1,8 +1,8 @@
-"""Публичное чтение: справочники и состояние мира.
+"""Public reads: catalogs and world state.
 
-Здесь нет ничего, что меняет мир, и не будет. Цены, статистика и кодекс
-публичны намеренно: цены знают все (D-047), а закрывать справочники бессмысленно
-— они и так лежат в вольте.
+Nothing here changes the world, and never will. Prices, statistics and the
+code are public on purpose: everyone knows the prices (D-047), and closing
+the catalogs is pointless -- they lie in the vault anyway.
 """
 
 from __future__ import annotations
@@ -20,15 +20,16 @@ from src.engine import market
 from src.models.world import Node
 from src.runtime import MARKET_BOOK_DEPTH
 
-router = APIRouter(prefix="/public", tags=["чтение"])
+router = APIRouter(prefix="/public", tags=["reads"])
 
 
 @router.get("/constants")
 async def constants() -> dict[str, Any]:
-    """Действующий набор балансных чисел и его отпечаток.
+    """The current set of balance numbers and its fingerprint.
 
-    Клиент считает прогноз качества и стоимость партии по тем же числам, что и
-    сервер, — иначе прогноз до запуска партии (D-092) разошёлся бы с результатом.
+    The client computes the quality forecast and batch cost by the same
+    numbers as the server -- otherwise the forecast before starting a batch
+    (D-092) would diverge from the result.
     """
     snapshot = HOLDER.current()
     return {"digest": snapshot.digest, "values": snapshot.raw()}
@@ -58,11 +59,11 @@ async def plants() -> dict[str, Any]:
 
 @router.get("/map")
 async def world_map() -> dict[str, Any]:
-    """Карта мира: узлы и рёбра с временем перехода.
+    """The world map: nodes and edges with transit time.
 
-    Города и магистрали публичны — иначе новичок не найдёт, куда идти (D-097).
-    Пока публична вся карта: разведки ещё нет, а с ней дикие узлы и жилы станут
-    видны только разведавшим.
+    Cities and highways are public -- otherwise a newcomer will not find where
+    to go (D-097). For now the whole map is public: there is no exploration
+    yet, and with it wild nodes and veins become visible only to those who explored them.
     """
     from src.constants import current
     from src.engine import travel as roads
@@ -78,8 +79,8 @@ async def world_map() -> dict[str, Any]:
                 {
                     "key": node.key,
                     "name": node.name,
-                    #: Слои — абстракция показа: мир остаётся одним графом,
-                    #: а иерархия parent группирует узлы по слоям (D-045, D-097).
+                    #: Layers are a display abstraction: the world stays one
+                    #: graph, and the parent hierarchy groups nodes by layer (D-045, D-097).
                     "layer": node.layer.value,
                     "parent": by_id.get(node.parent_id),
                     "ring": node.properties.get("кольцо"),
@@ -101,10 +102,10 @@ async def world_map() -> dict[str, Any]:
 
 @router.get("/doors")
 async def doors() -> dict[str, Any]:
-    """Где новичок может напечататься: город, жители, подъёмные (D-013, D-182).
+    """Where a newcomer can print: city, residents, settlement grant (D-013, D-182).
 
-    Читается **до всякого опознания**: выбор двери — первое, что человек делает
-    в игре, и личности у него в этот момент ещё нет.
+    Read **before any identification**: choosing a door is the first thing a
+    person does in the game, and they have no identity at that moment yet.
     """
     from src.api.app import catalog
     from src.engine import world
@@ -115,10 +116,10 @@ async def doors() -> dict[str, Any]:
 
 @router.get("/lines")
 async def lines() -> dict[str, Any]:
-    """Линии персонажа и сколько за каждую играют (D-015, D-104, D-187).
+    """Character lines and how many play each (D-015, D-104, D-187).
 
-    Читается при регистрации, до опознания. Нимфы в списке есть и помечены
-    неиграбельными: обещание, а не заглушка-обманка (10-world/03).
+    Read at registration, before identification. Nymphs are in the list and
+    marked unplayable: a promise, not a deceptive stub (10-world/03).
     """
     from src.engine import account
 
@@ -128,10 +129,10 @@ async def lines() -> dict[str, Any]:
 
 @router.get("/market/{node_key}")
 async def market_positions(node_key: str) -> dict[str, Any]:
-    """Что вообще торгуется в узле: товар плюс ступень качества.
+    """What trades in the node at all: goods plus quality tier.
 
-    Публично и удалённо: цены знают все (D-047). Купить отсюда нельзя и не
-    будет можно — покупка требует ног.
+    Public and remote: everyone knows the prices (D-047). Buying from here is
+    not possible and will not be -- buying requires legs.
     """
     async with session_factory()() as db:
         node = await _node(db, node_key)
@@ -146,7 +147,7 @@ async def market_positions(node_key: str) -> dict[str, Any]:
 
 @router.get("/market/{node_key}/book")
 async def market_book(node_key: str, goods: str, tier: str) -> dict[str, Any]:
-    """Стакан по одной позиции: заявки на покупку и продажу с глубиной."""
+    """The book for one position: buy and sell orders with depth."""
     async with session_factory()() as db:
         node = await _node(db, node_key)
         book = await market.book(db, node, goods, tier, depth=MARKET_BOOK_DEPTH)
@@ -158,10 +159,10 @@ async def market_book(node_key: str, goods: str, tier: str) -> dict[str, Any]:
 
 @router.get("/quality/tiers")
 async def quality_tiers() -> dict[str, Any]:
-    """Ступени качества — витрина стакана (D-058).
+    """Quality tiers -- the book's shop window (D-058).
 
-    В данных шкала непрерывна, на рынке торгуются ступени: непрерывная шкала
-    сделала бы книгу заявок нечитаемой.
+    In data the scale is continuous, on the market tiers trade: a continuous
+    scale would make the order book unreadable.
     """
     tiers = current()[R.QUALITY_TIERS]
     return {"tiers": [{"from": t.frm, "to": t.to, "name": t.name} for t in tiers]}
@@ -176,10 +177,11 @@ async def _node(db, key: str) -> Node:
 
 @router.get("/laws")
 async def laws() -> dict[str, Any]:
-    """Устав, код-законы и санкции с умолчаниями.
+    """Charter, code-laws and sanctions with defaults.
 
-    Новый город работает на умолчаниях, ничего не заполняя (D-130).
+    A new city works on defaults, filling in nothing (D-130).
     """
+
     from src.api.app import catalog
 
     book = catalog().laws

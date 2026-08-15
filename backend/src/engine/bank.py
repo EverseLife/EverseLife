@@ -1,56 +1,58 @@
-"""Банк: резерв, кредит, ключевая ставка (D-030, D-087, D-167).
+"""Bank: reserve, credit, key rate (D-030, D-087, D-167).
 
-Единственным источником денег до сих пор был `genesis`, то есть любая выдача
-была бы чистой эмиссией, а «денежная политика» — словом.
+Until now the only source of money was `genesis`, so any issue would have been
+pure emission, and "monetary policy" a word.
 
-## Резерв стерилизует, а не копит
+## The reserve sterilises, it does not hoard
 
-Выдавая кредит, система берёт ТК из **резерва** — уже существующих денег,
-собранных процентами. Чего не хватает, печатает через `genesis`. Погашение и
-проценты возвращают ТК **в резерв**, а не в оборот. Отсюда инвариант, который
-движок держит и проверяет:
+Issuing a loan, the system takes TC from the **reserve** -- already existing
+money collected as interest. What is missing it prints through `genesis`.
+Repayment and interest return TC **to the reserve**, not into circulation.
+Hence the invariant the engine keeps and checks:
 
-    вся масса ТК = деньги на счетах + резерв системы
+    total TC supply = money on accounts + system reserve
 
-Цены зависят не от всей массы, а от **оборотной** — той, что на счетах.
+Prices depend not on the total supply but on the **circulating** one -- what
+is on accounts.
 
-## Ключевая ставка считается формулой, а не решается
+## The key rate is computed by formula, not decided
 
-    ставка = bank.base_rate
-           + bank.rate_reaction_k     × (инфляция − bank.target_inflation)
-           + bank.emission_reaction_k × (доля эмиссии − bank.emission_share_target)
+    rate = bank.base_rate
+         + bank.rate_reaction_k     * (inflation - bank.target_inflation)
+         + bank.emission_reaction_k * (emission share - bank.emission_share_target)
 
-с полом `bank.rate_floor`, потолком `bank.rate_cap` и шагом не больше
-`bank.rate_step_max` за пересмотр. Алгоритм публичен и детерминирован: те же
-входные данные дают тот же ответ, иначе банк превращается в скрытого NPC с
-собственной волей (D-030). **Молчащий датчик не повод шевелить рычаг:** нет
-данных по инфляции — нет и реакции на неё.
+with floor `bank.rate_floor`, ceiling `bank.rate_cap` and a step of at most
+`bank.rate_step_max` per review. The algorithm is public and deterministic: the
+same inputs give the same answer, otherwise the bank turns into a hidden NPC
+with a will of its own (D-030). **A silent sensor is no reason to move the
+lever:** no inflation data -- no reaction to it.
 
-## Заём — договор
+## A loan is a contract
 
-Ставка заёмщика фиксируется при выдаче и дальше не меняется, что бы банк ни
-решил после. Залога нет (D-173): лимит выдаёт **труд** — оборот продаж,
-возвращённые кредиты, стаж без просрочек и доверие, — и считается он публичной
-формулой, как ставка.
+The borrower's rate is fixed at issue and does not change afterwards, whatever
+the bank decides later. There is no collateral (D-173): the limit is granted
+by **labour** -- sales turnover, repaid loans, a record without overdue payments
+and trust -- and it is computed by a public formula, like the rate.
 
-## Банк двухуровневый (D-175)
+## The bank is two-tier (D-175)
 
-Печатает деньги только столица. Гражданин занимает **у своего города** по
-ставке «ключевая + маржа города» (код-закон `bank_margin`, потолок
-`bank.city_margin_cap`); каждый такой заём ложится на кредитную линию города
-перед столицей — `bank.debt_to_turnover_cap` от его оборота. Линия кончилась
-или гражданства нет — прямой заём столицы по худшей ставке: выход есть всегда,
-но дешёвый кредит — привилегия гражданства (D-160).
+Only the capital prints money. A citizen borrows **from their city** at
+"key + city margin" (code-law `bank_margin`, ceiling `bank.city_margin_cap`);
+each such loan sits on the city's credit line with the capital --
+`bank.debt_to_turnover_cap` of its turnover. Line exhausted or no citizenship
+-- a direct loan from the capital at the worse rate: there is always a way out,
+but cheap credit is a privilege of citizenship (D-160).
 
-Маржа с каждого платежа процентов уходит в казну города, ключевая часть — в
-резерв столицы. Так город зарабатывает на своих заёмщиках и отвечает за них
-своей линией: сеньораж (D-171) отменён за ненадобностью.
+The margin from each interest payment goes to the city treasury, the key part
+to the capital's reserve. So the city earns on its borrowers and answers for
+them with its line: seigniorage (D-171) is cancelled as unnecessary.
 
-## Чего здесь нет
+## What is not here
 
-Процента по вкладу — это доход без труда, то есть эмиссия в обход столпа П1
-(D-087). И переработки за репорты: репорт «дефектная печать» снижает доверие и
-режет лимит, но не убивает — необратимое делает только внеигровой саппорт.
+Deposit interest -- that is income without labour, i.e. emission around pillar
+P1 (D-087). And processing for reports: a "defective print" report lowers trust
+and cuts the limit but does not kill -- only out-of-game support does the
+irreversible.
 """
 
 from __future__ import annotations
@@ -73,8 +75,8 @@ from src.models.job import Job, JobKind
 from src.models.ledger import AccountKind, LedgerAccount, PostingReason
 from src.units import MONEY_SCALE, PERCENT, amount_float, money, money_str
 
-#: Владелец счёта резерва. Резерв один на мир: банк — единая система, а не
-#: набор предприятий (D-030, D-031).
+#: Owner of the reserve account. One reserve per world: the bank is a single
+#: system, not a set of enterprises (D-030, D-031).
 RESERVE = uuid.UUID("00000000-0000-0000-0000-00000000ba17")
 
 
@@ -83,7 +85,8 @@ class BankError(Exception):
 
 
 class TooMuch(BankError):
-    """Столько не дают: без залога есть предел, под залог — норма залога."""
+    """That much is not given: without collateral there is a limit, with it -- the collateral
+    norm."""
 
 
 class NothingToRepay(BankError):
@@ -91,7 +94,7 @@ class NothingToRepay(BankError):
 
 
 async def reserve_account(session: AsyncSession) -> LedgerAccount:
-    """Счёт резерва системы. Заводится по первой надобности."""
+    """The system reserve account. Created on first need."""
     return await ledger.account_for(session, AccountKind.BANK_RESERVE, RESERVE)
 
 
@@ -100,14 +103,14 @@ async def reserve(session: AsyncSession) -> int:
 
 
 async def key_rate(session: AsyncSession, constants: Constants) -> float:
-    """Действующая ключевая ставка: последнее решение либо базовая."""
-    решение = (
+    """The key rate in force: the latest decision or the base one."""
+    decision = (
         await session.execute(
             select(RateDecision).order_by(RateDecision.decided_at.desc()).limit(1)
         )
     ).scalars().first()
     return (
-        float(решение.rate) if решение is not None else constants[R.BANK_BASE_RATE]
+        float(decision.rate) if decision is not None else constants[R.BANK_BASE_RATE]
     )
 
 
@@ -118,80 +121,81 @@ def compute_rate(
     inflation: float | None,
     emission_share: float | None,
 ) -> tuple[float, str]:
-    """Публичная формула ставки. Возвращает ставку и объяснение словами.
+    """The public rate formula. Returns the rate and an explanation in words.
 
-    Объяснение — не украшение: алгоритм обязан быть не только детерминированным,
-    но и читаемым, иначе спорить с денежной политикой нечем (D-030).
+    The explanation is not decoration: the algorithm must be not only
+    deterministic but readable, otherwise there is nothing to argue monetary
+    policy with (D-030).
     """
-    ставка = constants[R.BANK_BASE_RATE]
-    причины = [f"база {ставка:g}"]
+    rate_value = constants[R.BANK_BASE_RATE]
+    reasons = [f"база {rate_value:g}"]
 
     if inflation is not None:
-        цель = constants[R.BANK_TARGET_INFLATION]
-        добавка = constants[R.BANK_RATE_REACTION_K] * (inflation - цель)
-        ставка += добавка
-        причины.append(f"инфляция {inflation:+.1f} против цели {цель:g} → {добавка:+.2f}")
+        goal = constants[R.BANK_TARGET_INFLATION]
+        bonus = constants[R.BANK_RATE_REACTION_K] * (inflation - goal)
+        rate_value += bonus
+        reasons.append(f"инфляция {inflation:+.1f} против цели {goal:g} → {bonus:+.2f}")
     else:
-        причины.append("инфляция не измерена: реакции нет")
+        reasons.append("инфляция не измерена: реакции нет")
 
     if emission_share is not None:
-        цель = constants[R.BANK_EMISSION_SHARE_TARGET]
-        добавка = constants[R.BANK_EMISSION_REACTION_K] * (emission_share - цель)
-        ставка += добавка
-        причины.append(
-            f"эмиссия {emission_share:.0f}% против цели {цель:g} → {добавка:+.2f}"
+        goal = constants[R.BANK_EMISSION_SHARE_TARGET]
+        bonus = constants[R.BANK_EMISSION_REACTION_K] * (emission_share - goal)
+        rate_value += bonus
+        reasons.append(
+            f"эмиссия {emission_share:.0f}% против цели {goal:g} → {bonus:+.2f}"
         )
 
-    #: Шаг ограничен: денежная политика не дёргается, иначе прогнозировать её
-    #: невозможно, а прогноз — половина её смысла.
-    шаг = constants[R.BANK_RATE_STEP_MAX]
-    ставка = max(previous - шаг, min(previous + шаг, ставка))
-    ставка = max(
-        constants[R.BANK_RATE_FLOOR], min(constants[R.BANK_RATE_CAP], ставка)
+    #: The step is bounded: monetary policy does not twitch, otherwise it
+    #: cannot be predicted, and prediction is half its point.
+    step = constants[R.BANK_RATE_STEP_MAX]
+    rate_value = max(previous - step, min(previous + step, rate_value))
+    rate_value = max(
+        constants[R.BANK_RATE_FLOOR], min(constants[R.BANK_RATE_CAP], rate_value)
     )
-    return ставка, "; ".join(причины)
+    return rate_value, "; ".join(reasons)
 
 
 async def review_rate(
     session: AsyncSession, constants: Constants, *, now: datetime | None = None
 ) -> RateDecision:
-    """Пересмотреть ставку по датчикам. Решение и его причина сохраняются."""
+    """Review the rate by sensors. The decision and its reason are stored."""
     moment = now or datetime.now(UTC)
-    было = await key_rate(session, constants)
-    инфляция = await _inflation(session, constants)
-    доля_эмиссии = await _emission_share(session, constants, now=moment)
-    ставка, почему = compute_rate(
+    before = await key_rate(session, constants)
+    inflation = await _inflation(session, constants)
+    issue_share = await _emission_share(session, constants, now=moment)
+    rate_value, reason = compute_rate(
         constants,
-        previous=было,
-        inflation=инфляция,
-        emission_share=доля_эмиссии,
+        previous=before,
+        inflation=inflation,
+        emission_share=issue_share,
     )
-    #: Инфляция за тревожной чертой возвращает ставку алгоритму на
-    #: `bank.council_lockout` суток: политическое решение хорошо ровно до
-    #: момента, когда цена ошибки — деньги у всех (D-172).
-    блокировка = (
+    #: Inflation past the alarm line returns the rate to the algorithm for
+    #: `bank.council_lockout` days: a political decision is good exactly until
+    #: the price of a mistake is everybody's money (D-172).
+    lock = (
         moment + timedelta(days=constants[R.BANK_COUNCIL_LOCKOUT])
-        if инфляция is not None and инфляция > constants[R.BANK_INFLATION_ALARM]
+        if inflation is not None and inflation > constants[R.BANK_INFLATION_ALARM]
         else None
     )
-    решение = RateDecision(
-        rate=ставка,
-        locked_until=блокировка,
-        inflation=инфляция or 0,
-        emission_share=доля_эмиссии or 0,
-        why=почему,
+    decision = RateDecision(
+        rate=rate_value,
+        locked_until=lock,
+        inflation=inflation or 0,
+        emission_share=issue_share or 0,
+        why=reason,
         decided_at=moment,
     )
-    session.add(решение)
+    session.add(decision)
     await session.flush()
     await events.record(
         session,
         EventKind.RATE_DECIDED,
-        rate=ставка,
-        was=было,
-        why=почему,
+        rate=rate_value,
+        was=before,
+        why=reason,
     )
-    return решение
+    return decision
 
 
 async def borrow(
@@ -203,123 +207,125 @@ async def borrow(
     *,
     now: datetime | None = None,
 ) -> Loan:
-    """Взять кредит. Деньги идут из резерва; недостающее печатается (D-087).
+    """Take a loan. Money comes from the reserve; the shortfall is printed (D-087).
 
-    Заём идёт через город гражданства (D-175): ставка — ключевая плюс маржа
-    города, и заём занимает кредитную линию города перед столицей. Нет
-    гражданства или линия исчерпана — прямой заём столицы по худшей ставке.
+    The loan goes through the city of citizenship (D-175): the rate is key plus
+    city margin, and the loan takes up the city's credit line with the capital.
+    No citizenship or line exhausted -- a direct loan from the capital at the
+    worse rate.
     """
     from src.engine import city as town
 
     moment = now or datetime.now(UTC)
-    сумма = money(amount)
-    if сумма <= 0:
+    total = money(amount)
+    if total <= 0:
         raise BankError("заём должен быть положительным")
 
-    лимит, почему = await credit_limit(session, constants, who.id, now=moment)
-    доступно = лимит - await debt_of(session, who.id)
-    if сумма > доступно:
+    limit_, reason = await credit_limit(session, constants, who.id, now=moment)
+    available = limit_ - await debt_of(session, who.id)
+    if total > available:
         raise TooMuch(
-            f"столько не дают: доступно {money_str(max(0, доступно))} ₭ "
-            f"из лимита {money_str(лимит)} ₭ ({почему})"
+            f"столько не дают: доступно {money_str(max(0, available))} ₭ "
+            f"из лимита {money_str(limit_)} ₭ ({reason})"
         )
 
-    #: Город гражданства и его линия. Линия сжимается плавно: доступен ровно
-    #: остаток, и набег «взять всё перед отсечением» упирается в арифметику.
-    город = None
-    маржа = 0.0
-    запись = await town.citizenship(session, who.id)
-    if запись is not None:
-        кандидат = await town.by_id(session, запись.city_id)
-        if кандидат is not None:
-            _, _, свободно = await city_line(session, constants, кандидат, now=moment)
-            if сумма <= свободно:
-                город = кандидат
-                маржа = city_margin(constants, catalog, кандидат)
+    #: The city of citizenship and its line. The line shrinks smoothly: exactly
+    #: the remainder is available, and a "take everything before the cutoff"
+    #: run hits arithmetic.
+    city = None
+    margin = 0.0
+    entry = await town.citizenship(session, who.id)
+    if entry is not None:
+        candidate = await town.by_id(session, entry.city_id)
+        if candidate is not None:
+            _, _, free = await city_line(session, constants, candidate, now=moment)
+            if total <= free:
+                city = candidate
+                margin = city_margin(constants, catalog, candidate)
 
-    if город is not None:
-        ставка = await key_rate(session, constants) + маржа
+    if city is not None:
+        rate_value = await key_rate(session, constants) + margin
     else:
-        #: Прямой заём столицы: выход для не-граждан и жителей отсечённых
-        #: городов, но по верху вилки риска (D-175).
-        ставка = await key_rate(session, constants) + constants[R.BANK_RISK_PREMIUM].max
+        #: A direct loan from the capital: the way out for non-citizens and
+        #: residents of cut-off cities, but at the top of the risk range (D-175).
+        rate_value = await key_rate(session, constants) + constants[R.BANK_RISK_PREMIUM].max
 
-    #: Резерв — стерилизатор: сначала тратим уже существующие ТК, и только
-    #: недостающее печатаем. Печать видна отдельной проводкой и телеметрией.
-    казна_резерва = await reserve_account(session)
-    есть = await ledger.balance(session, казна_резерва.id)
-    напечатано = max(0, сумма - есть)
-    if напечатано > 0:
+    #: The reserve is a steriliser: first we spend already existing TC, and
+    #: print only the shortfall. Printing shows as a separate posting and in telemetry.
+    reserve_treasury = await reserve_account(session)
+    have = await ledger.balance(session, reserve_treasury.id)
+    printed = max(0, total - have)
+    if printed > 0:
         genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
         await ledger.transfer(
             session,
             PostingReason.GENESIS,
             debit=genesis.id,
-            credit=казна_резерва.id,
-            amount=напечатано,
+            credit=reserve_treasury.id,
+            amount=printed,
             memo={"печать под кредит": who.name},
         )
 
-    счёт = await ledger.account_for(session, AccountKind.IDENTITY, who.id)
+    account = await ledger.account_for(session, AccountKind.IDENTITY, who.id)
     await ledger.transfer(
         session,
         PostingReason.LOAN,
-        debit=казна_резерва.id,
-        credit=счёт.id,
-        amount=сумма,
+        debit=reserve_treasury.id,
+        credit=account.id,
+        amount=total,
         memo={"кредит": who.name},
     )
 
-    заём = Loan(
+    loan = Loan(
         identity_id=who.id,
-        principal=сумма,
-        outstanding=сумма,
-        rate=ставка,
-        city_id=None if город is None else город.id,
-        margin=маржа,
-        printed=напечатано,
+        principal=total,
+        outstanding=total,
+        rate=rate_value,
+        city_id=None if city is None else city.id,
+        margin=margin,
+        printed=printed,
         taken_at=moment,
         accrued_at=moment,
         serviced_at=moment,
     )
-    session.add(заём)
+    session.add(loan)
     await session.flush()
     await events.record(
         session,
         EventKind.LOAN_TAKEN,
         actor_identity_id=who.id,
-        loan_id=str(заём.id),
-        amount=сумма,
-        rate=ставка,
-        printed=напечатано,
-        city=None if город is None else город.name,
-        margin=маржа,
+        loan_id=str(loan.id),
+        amount=total,
+        rate=rate_value,
+        printed=printed,
+        city=None if city is None else city.name,
+        margin=margin,
     )
-    return заём
+    return loan
 
 
 async def accrue(
     session: AsyncSession, constants: Constants, loan: Loan, *, now: datetime | None = None
 ) -> int:
-    """Начислить проценты за прошедшие сутки. Возвращает начисленное.
+    """Accrue interest for the past day. Returns the accrued amount.
 
-    Года в мире нет — сутки Терры тридцатичасовые, — поэтому расчётный год
-    задан вольтом (`bank.year_days`, D-167): число банковское, а не
-    астрономическое.
+    There is no year in the world -- Terra's day is thirty hours -- so the
+    accounting year is set by the vault (`bank.year_days`, D-167): a banking
+    number, not an astronomical one.
     """
     moment = now or datetime.now(UTC)
     if loan.state is not LoanState.OPEN:
         return 0
-    прошло = (moment - loan.accrued_at).total_seconds() / timedelta(days=1).total_seconds()
-    if прошло <= 0:
+    elapsed = (moment - loan.accrued_at).total_seconds() / timedelta(days=1).total_seconds()
+    if elapsed <= 0:
         return 0
-    в_сутки = float(loan.rate) / PERCENT / constants[R.BANK_YEAR_DAYS]
-    начислено = int(loan.outstanding * в_сутки * прошло)
-    loan.outstanding += начислено
-    loan.interest_accrued += начислено
+    per_day = float(loan.rate) / PERCENT / constants[R.BANK_YEAR_DAYS]
+    accrued = int(loan.outstanding * per_day * elapsed)
+    loan.outstanding += accrued
+    loan.interest_accrued += accrued
     loan.accrued_at = moment
     await session.flush()
-    return начислено
+    return accrued
 
 
 async def repay(
@@ -332,27 +338,27 @@ async def repay(
     from_account=None,
     now: datetime | None = None,
 ) -> int:
-    """Погасить долг. Деньги уходят **в резерв**, а не в оборот (D-087).
+    """Repay debt. Money goes **to the reserve**, not into circulation (D-087).
 
-    Платить может **кто угодно** (D-063, D-168): за должника вправе рассчитаться
-    третий — и город из своей казны тоже (`from_account`). Движок не
-    спрашивает, зачем: деньги приняты, долг уменьшился.
+    **Anyone** may pay (D-063, D-168): a third party may settle for the debtor
+    -- and a city from its treasury too (`from_account`). The engine does not
+    ask why: money accepted, debt reduced.
     """
     moment = now or datetime.now(UTC)
     if loan.state is not LoanState.OPEN:
         raise NothingToRepay("этот заём уже закрыт")
     await accrue(session, constants, loan, now=moment)
 
-    счёт = from_account or await ledger.account_for(
+    account = from_account or await ledger.account_for(
         session, AccountKind.IDENTITY, who.id
     )
-    есть = await ledger.balance(session, счёт.id)
-    хочет = loan.outstanding if amount is None else money(amount)
-    платёж = min(хочет, loan.outstanding, есть)
-    if платёж <= 0:
+    have = await ledger.balance(session, account.id)
+    wants = loan.outstanding if amount is None else money(amount)
+    payment = min(wants, loan.outstanding, have)
+    if payment <= 0:
         raise NothingToRepay("платить нечем")
 
-    await _settle(session, loan, счёт, платёж)
+    await _settle(session, loan, account, payment)
     loan.serviced_at = moment
     if loan.outstanding <= 0:
         loan.state = LoanState.REPAID
@@ -363,49 +369,49 @@ async def repay(
         EventKind.LOAN_REPAID,
         actor_identity_id=who.id,
         loan_id=str(loan.id),
-        amount=платёж,
+        amount=payment,
         left=loan.outstanding,
         closed=loan.state is LoanState.REPAID,
     )
-    return платёж
+    return payment
 
 
-async def _settle(session: AsyncSession, loan: Loan, счёт, платёж: int) -> None:
-    """Провести платёж: проценты вперёд тела, маржа города — в его казну.
+async def _settle(session: AsyncSession, loan: Loan, account, payment: int) -> None:
+    """Post a payment: interest ahead of principal, city margin to its treasury.
 
-    Порядок обычный банковский, и он же делает «доход системы» измеримым
-    (D-171): без раздельного учёта маржу города не отделить от ключевой части,
-    которая стерилизуется в резерве столицы (D-175).
+    The usual banking order, and it also makes "system income" measurable
+    (D-171): without separate accounting the city margin cannot be separated
+    from the key part that is sterilised in the capital's reserve (D-175).
     """
     from src.engine import city as town
 
-    проценты = min(платёж, max(0, loan.interest_accrued - loan.interest_paid))
-    маржа_города = 0
-    if проценты > 0 and loan.city_id is not None and float(loan.rate) > 0:
-        маржа_города = int(проценты * float(loan.margin) / float(loan.rate))
-    город = None if loan.city_id is None else await town.by_id(session, loan.city_id)
+    interest = min(payment, max(0, loan.interest_accrued - loan.interest_paid))
+    city_margin = 0
+    if interest > 0 and loan.city_id is not None and float(loan.rate) > 0:
+        city_margin = int(interest * float(loan.margin) / float(loan.rate))
+    city = None if loan.city_id is None else await town.by_id(session, loan.city_id)
 
-    if маржа_города > 0 and город is not None:
+    if city_margin > 0 and city is not None:
         await ledger.transfer(
             session,
             PostingReason.BANK_MARGIN,
-            debit=счёт.id,
-            credit=(await town.treasury(session, город)).id,
-            amount=маржа_города,
-            memo={"маржа города": город.name, "заём": str(loan.id)},
+            debit=account.id,
+            credit=(await town.treasury(session, city)).id,
+            amount=city_margin,
+            memo={"маржа города": city.name, "заём": str(loan.id)},
         )
-    в_резерв = платёж - маржа_города
-    if в_резерв > 0:
+    to_reserve = payment - city_margin
+    if to_reserve > 0:
         await ledger.transfer(
             session,
             PostingReason.LOAN_REPAYMENT,
-            debit=счёт.id,
+            debit=account.id,
             credit=(await reserve_account(session)).id,
-            amount=в_резерв,
+            amount=to_reserve,
             memo={"погашение": str(loan.id)},
         )
-    loan.interest_paid += проценты
-    loan.outstanding -= платёж
+    loan.interest_paid += interest
+    loan.outstanding -= payment
 
 
 async def loans_of(session: AsyncSession, identity_id: uuid.UUID) -> list[Loan]:
@@ -421,26 +427,26 @@ async def loans_of(session: AsyncSession, identity_id: uuid.UUID) -> list[Loan]:
 
 
 async def circulating(session: AsyncSession) -> int:
-    """Оборотная масса: деньги на счетах личностей и казн, без резерва.
+    """Circulating supply: money on identity and treasury accounts, without the reserve.
 
-    Цены зависят от неё, а не от всей массы: то, что лежит в резерве, из
-    оборота вышло и ждёт следующего заёмщика (D-087).
+    Prices depend on it, not on the total supply: what lies in the reserve has
+    left circulation and waits for the next borrower (D-087).
     """
-    итог = 0
-    for вид in (AccountKind.IDENTITY, AccountKind.CITY_TREASURY, AccountKind.ESCROW):
-        счета = (
+    result = 0
+    for kind in (AccountKind.IDENTITY, AccountKind.CITY_TREASURY, AccountKind.ESCROW):
+        accounts = (
             await session.execute(
-                select(LedgerAccount.id).where(LedgerAccount.kind == вид)
+                select(LedgerAccount.id).where(LedgerAccount.kind == kind)
             )
         ).scalars().all()
-        for счёт in счета:
-            итог += await ledger.balance(session, счёт)
-    return итог
+        for account in accounts:
+            result += await ledger.balance(session, account)
+    return result
 
 
 @handler(JobKind.RATE_REVIEW)
 async def rate_review(session: AsyncSession, job: Job) -> None:
-    """Пересмотр ставки по расписанию: раз в `bank.rate_review_period` суток."""
+    """Scheduled rate review: once every `bank.rate_review_period` days."""
     from src.constants import current
 
     constants = current()
@@ -452,64 +458,65 @@ async def schedule_review(
     session: AsyncSession, constants: Constants, *, after: datetime | None = None
 ) -> None:
     moment = after or datetime.now(UTC)
-    срок = moment + timedelta(days=constants[R.BANK_RATE_REVIEW_PERIOD])
+    term = moment + timedelta(days=constants[R.BANK_RATE_REVIEW_PERIOD])
     await enqueue(
         session,
         JobKind.RATE_REVIEW,
-        срок,
-        dedup_key=f"bank.rate:{int(срок.timestamp())}",
+        term,
+        dedup_key=f"bank.rate:{int(term.timestamp())}",
     )
 
 
 async def _inflation(session: AsyncSession, constants: Constants) -> float | None:
-    """Инфляция по суточным метрикам. Нет данных — молчим, а не выдумываем."""
+    """Inflation from daily metrics. No data -- we stay silent rather than invent."""
     from src.models.metrics import DailyMetric
 
-    окно = int(constants[R.BANK_PRICE_INDEX_WINDOW])
-    строки = (
+    window = int(constants[R.BANK_PRICE_INDEX_WINDOW])
+    lines = (
         await session.execute(
             select(DailyMetric)
             .where(DailyMetric.key == PRICE_INDEX)
             .order_by(DailyMetric.day.desc())
-            .limit(окно)
+            .limit(window)
         )
     ).scalars().all()
-    #: Одной точки для изменения мало: датчик молчит, пока не с чем сравнить.
-    if len(строки) <= 1:
+    #: One point is not enough for a change: the sensor is silent until there is something to
+    #: compare.
+    if len(lines) <= 1:
         return None
-    новый, старый = float(строки[0].value), float(строки[-1].value)
-    if старый <= 0:
+    new, old = float(lines[0].value), float(lines[-1].value)
+    if old <= 0:
         return None
-    return (новый - старый) / старый * PERCENT
+    return (new - old) / old * PERCENT
 
 
 async def _emission_share(
     session: AsyncSession, constants: Constants, *, now: datetime
 ) -> float | None:
-    """Доля напечатанного в выданном за окно. Датчик быстрый: видно раньше цен."""
-    окно = now - timedelta(days=constants[R.BANK_PRICE_INDEX_WINDOW])
-    строка = (
+    """Share of printed in issued over the window. A fast sensor: visible before prices."""
+    window = now - timedelta(days=constants[R.BANK_PRICE_INDEX_WINDOW])
+    line = (
         await session.execute(
             select(func.sum(Loan.principal), func.sum(Loan.printed)).where(
-                Loan.taken_at >= окно
+                Loan.taken_at >= window
             )
         )
     ).one()
-    выдано, напечатано = строка[0] or 0, строка[1] or 0
-    if выдано <= 0:
+    issued_, printed = line[0] or 0, line[1] or 0
+    if issued_ <= 0:
         return None
-    return напечатано / выдано * PERCENT
+    return printed / issued_ * PERCENT
 
 
-# --- несостоятельность (D-063, D-168) -----------------------------------------
+# --- insolvency (D-063, D-168) -----------------------------------------------
 
 
 class Restrained(BankError):
-    """Долг держит в узле: это физика мира, а не приговор города."""
+    """Debt holds in the node: this is world physics, not a city verdict."""
 
 
 def overdue_days(loan: Loan, now: datetime) -> float:
-    """Сколько суток по займу не платили. Просрочка — это неоплата, не возраст."""
+    """How many days the loan went unpaid. Overdue means non-payment, not age."""
     return (now - loan.serviced_at).total_seconds() / timedelta(days=1).total_seconds()
 
 
@@ -518,8 +525,8 @@ def overdue(constants: Constants, loan: Loan, now: datetime) -> bool:
 
 
 async def debt_of(session: AsyncSession, identity_id: uuid.UUID) -> int:
-    """Весь непогашенный долг личности, минорными единицами."""
-    return sum(заём.outstanding for заём in await loans_of(session, identity_id))
+    """The identity's whole outstanding debt, in minor units."""
+    return sum(loan.outstanding for loan in await loans_of(session, identity_id))
 
 
 async def restrained(
@@ -529,136 +536,138 @@ async def restrained(
     *,
     now: datetime | None = None,
 ) -> Loan | None:
-    """Держит ли долг этого человека в узле (D-063).
+    """Whether debt holds this person in the node (D-063).
 
-    Два условия сразу: долг больше всего, что есть на счету, и не обслуживается
-    дольше `debt.prison_threshold`. Одного мало: заём, который человек честно
-    гасит, свободы не отнимает, а бедность сама по себе не преступление.
+    Two conditions at once: the debt exceeds everything on the account, and it
+    has not been serviced for longer than `debt.prison_threshold`. One is not
+    enough: a loan a person honestly repays does not take freedom, and poverty
+    by itself is not a crime.
     """
     moment = now or datetime.now(UTC)
-    займы = await loans_of(session, identity_id)
-    if not займы:
+    loans = await loans_of(session, identity_id)
+    if not loans:
         return None
-    долг = sum(заём.outstanding for заём in займы)
-    счёт = await ledger.account_for(session, AccountKind.IDENTITY, identity_id)
-    if долг <= await ledger.balance(session, счёт.id):
+    debt = sum(loan.outstanding for loan in loans)
+    account = await ledger.account_for(session, AccountKind.IDENTITY, identity_id)
+    if debt <= await ledger.balance(session, account.id):
         return None
-    порог = constants[R.DEBT_PRISON_THRESHOLD]
-    просроченные = [
-        заём for заём in займы if overdue_days(заём, moment) > порог
+    threshold = constants[R.DEBT_PRISON_THRESHOLD]
+    overdue = [
+        loan for loan in loans if overdue_days(loan, moment) > threshold
     ]
-    if not просроченные:
+    if not overdue:
         return None
-    return max(просроченные, key=lambda заём: overdue_days(заём, moment))
+    return max(overdue, key=lambda loan: overdue_days(loan, moment))
 
 
 async def collect(
     session: AsyncSession, constants: Constants, *, now: datetime | None = None
 ) -> int:
-    """Принудительное удержание с просроченных долгов. Возвращает удержанное.
+    """Forced withholding from overdue debts. Returns what was withheld.
 
-    Вольт говорит «процент дохода», но дохода как измеряемой величины нет:
-    приход на счёт бывает от продажи, от казны и от подарка, и разделить их
-    нельзя. Удержание с остатка — ближайшее честное приближение, и поведение то
-    же: у работающего должника долг тает, у лежащего на печи — нет (D-168).
+    The vault says "percent of income", but income as a measurable quantity
+    does not exist: money comes to the account from sales, from the treasury
+    and from gifts, and they cannot be separated. Withholding from the balance
+    is the nearest honest approximation, and the behaviour is the same: a
+    working debtor's debt melts, an idle one's does not (D-168).
     """
     moment = now or datetime.now(UTC)
-    доля = constants[R.DEBT_WORKOFF_RATE] / PERCENT
-    удержано = 0
+    share = constants[R.DEBT_WORKOFF_RATE] / PERCENT
+    withheld = 0
 
-    займы = (
+    loans = (
         await session.execute(select(Loan).where(Loan.state == LoanState.OPEN))
     ).scalars().all()
-    for заём in займы:
-        if not overdue(constants, заём, moment):
+    for loan in loans:
+        if not overdue(constants, loan, moment):
             continue
-        await accrue(session, constants, заём, now=moment)
-        счёт = await ledger.account_for(
-            session, AccountKind.IDENTITY, заём.identity_id
+        await accrue(session, constants, loan, now=moment)
+        account = await ledger.account_for(
+            session, AccountKind.IDENTITY, loan.identity_id
         )
-        есть = await ledger.balance(session, счёт.id)
-        платёж = min(int(есть * доля), заём.outstanding)
-        if платёж <= 0:
+        have = await ledger.balance(session, account.id)
+        payment = min(int(have * share), loan.outstanding)
+        if payment <= 0:
             continue
 
-        await _settle(session, заём, счёт, платёж)
-        #: Удержание — не платёж должника: просрочка не обнуляется им, иначе
-        #: несостоятельный вечно висел бы в льготном периоде.
-        if заём.outstanding <= 0:
-            заём.state = LoanState.REPAID
-            заём.repaid_at = moment
-        удержано += платёж
+        await _settle(session, loan, account, payment)
+        #: Withholding is not a payment by the debtor: it does not reset the
+        #: overdue, otherwise the insolvent would hang in the grace period forever.
+        if loan.outstanding <= 0:
+            loan.state = LoanState.REPAID
+            loan.repaid_at = moment
+        withheld += payment
         await events.record(
             session,
             EventKind.DEBT_WITHHELD,
-            actor_identity_id=заём.identity_id,
-            loan_id=str(заём.id),
-            amount=платёж,
-            left=заём.outstanding,
+            actor_identity_id=loan.identity_id,
+            loan_id=str(loan.id),
+            amount=payment,
+            left=loan.outstanding,
         )
     await session.flush()
-    return удержано
+    return withheld
 
 
-# --- датчик цен и стерилизация (D-087, D-169) ---------------------------------
+# --- price sensor and sterilisation (D-087, D-169) ---------------------------
 
-#: Имя измерения, под которым индекс ложится в суточные метрики.
+#: Measurement name under which the index lands in daily metrics.
 PRICE_INDEX = "price_index"
 
 
 async def price_index(
     session: AsyncSession, constants: Constants, *, now: datetime | None = None
 ) -> float | None:
-    """Индекс цен из сделок игроков. Пусто — сделок не было, мерить нечего.
+    """Price index from player deals. Empty -- there were no deals, nothing to measure.
 
-    Медиана по товару, взвешенная его долей в обороте: одна сделка по нелепой
-    цене не должна двигать денежную политику, а хлеб важнее редкого сплава
-    ровно настолько, насколько его больше покупают (D-087, D-169).
+    Median per goods, weighted by its share of turnover: one deal at an absurd
+    price must not move monetary policy, and bread matters more than a rare
+    alloy exactly as much as more of it is bought (D-087, D-169).
     """
     from src.models.market import Trade
 
     moment = now or datetime.now(UTC)
-    сутки = timedelta(hours=constants[R.TIME_DAY_TERRA])
-    сделки = (
-        await session.execute(select(Trade).where(Trade.at >= moment - сутки))
+    day = timedelta(hours=constants[R.TIME_DAY_TERRA])
+    deals = (
+        await session.execute(select(Trade).where(Trade.at >= moment - day))
     ).scalars().all()
-    if not сделки:
+    if not deals:
         return None
 
-    по_товарам: dict[str, list[int]] = {}
-    оборот: dict[str, int] = {}
-    for сделка in сделки:
-        по_товарам.setdefault(сделка.type_key, []).append(сделка.price)
-        оборот[сделка.type_key] = (
-            оборот.get(сделка.type_key, 0) + сделка.price * сделка.amount
+    by_goods: dict[str, list[int]] = {}
+    turnover: dict[str, int] = {}
+    for deal in deals:
+        by_goods.setdefault(deal.type_key, []).append(deal.price)
+        turnover[deal.type_key] = (
+            turnover.get(deal.type_key, 0) + deal.price * deal.amount
         )
-    весь_оборот = sum(оборот.values())
-    if весь_оборот <= 0:
+    total_turnover = sum(turnover.values())
+    if total_turnover <= 0:
         return None
 
-    #: Медиана берётся общей: та же, что считает телеметрию. Второй копии
-    #: формулы быть не должно — она разошлась бы с первой (D-139).
+    #: The median is the shared one: the same that telemetry computes. There
+    #: must be no second copy of the formula -- it would diverge from the first (D-139).
     from src.telemetry.metrics import median
 
-    индекс = 0.0
-    for товар, цены in по_товарам.items():
-        индекс += median(цены) * оборот[товар] / весь_оборот
-    return индекс
+    index = 0.0
+    for goods, prices in by_goods.items():
+        index += median(prices) * turnover[goods] / total_turnover
+    return index
 
 
 async def sterilize(
     session: AsyncSession, constants: Constants
 ) -> int:
-    """Сжечь излишек резерва сверх `bank.reserve_cap` от оборота (D-169).
+    """Burn the reserve surplus above `bank.reserve_cap` of circulation (D-169).
 
-    Потолок считается долей от оборотной массы, а не абсолютной суммой: мир
-    растёт, и то, что сегодня огромный резерв, через сто суток — мелочь.
+    The ceiling is a share of the circulating supply, not an absolute sum: the
+    world grows, and what is a huge reserve today is pocket change in a hundred days.
     """
-    в_резерве = await reserve(session)
-    в_обороте = await circulating(session)
-    потолок = int(в_обороте * constants[R.BANK_RESERVE_CAP] / PERCENT)
-    излишек = в_резерве - потолок
-    if излишек <= 0:
+    in_reserve = await reserve(session)
+    in_circulation = await circulating(session)
+    ceiling = int(in_circulation * constants[R.BANK_RESERVE_CAP] / PERCENT)
+    surplus = in_reserve - ceiling
+    if surplus <= 0:
         return 0
 
     genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
@@ -667,84 +676,84 @@ async def sterilize(
         PostingReason.GENESIS,
         debit=(await reserve_account(session)).id,
         credit=genesis.id,
-        amount=излишек,
-        memo={"сжигание излишка резерва": money_str(излишек)},
+        amount=surplus,
+        memo={"сжигание излишка резерва": money_str(surplus)},
     )
     await events.record(
         session,
         EventKind.RESERVE_BURNED,
-        amount=излишек,
-        reserve=в_резерве - излишек,
-        circulating=в_обороте,
+        amount=surplus,
+        reserve=in_reserve - surplus,
+        circulating=in_circulation,
     )
-    return излишек
+    return surplus
 
 
-# --- кредитная линия города (D-175) -------------------------------------------
+# --- city credit line (D-175) ------------------------------------------------
 
 
 async def _turnover_by_city(
     session: AsyncSession, since: datetime
 ) -> dict[uuid.UUID, int]:
-    """Оборот городов за период: по сделкам на их территории.
+    """City turnover for the period: by deals on their territory.
 
-    Оборот — единственная величина, которую нельзя нарисовать, не проведя
-    настоящих сделок с настоящим товаром (D-171).
+    Turnover is the one quantity that cannot be faked without making real deals
+    with real goods (D-171).
     """
     from src.engine import city as town
     from src.models.market import Trade
     from src.models.world import Node
 
-    сделки = (
+    deals = (
         await session.execute(select(Trade).where(Trade.at >= since))
     ).scalars().all()
-    по_городам: dict[uuid.UUID, int] = {}
-    чей: dict[uuid.UUID, uuid.UUID | None] = {}
-    for сделка in сделки:
-        if сделка.node_id not in чей:
-            узел = await session.get(Node, сделка.node_id)
-            город = None if узел is None else await town.of_node(session, узел)
-            чей[сделка.node_id] = None if город is None else город.id
-        город_id = чей[сделка.node_id]
-        if город_id is None:
+    by_city: dict[uuid.UUID, int] = {}
+    whose: dict[uuid.UUID, uuid.UUID | None] = {}
+    for deal in deals:
+        if deal.node_id not in whose:
+            node = await session.get(Node, deal.node_id)
+            city = None if node is None else await town.of_node(session, node)
+            whose[deal.node_id] = None if city is None else city.id
+        city_id = whose[deal.node_id]
+        if city_id is None:
             continue
-        по_городам[город_id] = по_городам.get(город_id, 0) + int(
-            сделка.price * amount_float(сделка.amount)
+        by_city[city_id] = by_city.get(city_id, 0) + int(
+            deal.price * amount_float(deal.amount)
         )
-    return по_городам
+    return by_city
 
 
-# --- Совет городов и ставка (D-087, D-172) ------------------------------------
+# --- Council of cities and the rate (D-087, D-172) ---------------------------
 
 
 class NotCouncilTime(BankError):
-    """Ставку решает алгоритм: либо городов мало, либо действует блокировка."""
+    """The algorithm decides the rate: either few cities, or a lockout is in force."""
 
 
 class OutOfCorridor(BankError):
-    """Совет спорит с алгоритмом, а не заменяет его: есть коридор."""
+    """The council argues with the algorithm rather than replacing it: there is a corridor."""
 
 
 async def cities_with_hall(session: AsyncSession) -> int:
-    """Сколько на планете городов **с администрацией**.
+    """How many cities **with an administration** are on the planet.
 
-    Город без ратуши — не орган власти, а точка на карте: считать его при
-    передаче ставки значило бы отдать деньги вывескам (D-172).
+    A city without a town hall is not an organ of power but a dot on the map:
+    counting it when handing over the rate would give money to signboards (D-172).
     """
     from src.engine import city as town
     from src.models.world import Node
 
-    города = (await session.execute(select(City))).scalars().all()
-    сколько = 0
-    for город in города:
-        узел = await session.get(Node, город.node_id)
-        if узел is None:  # pragma: no cover — город без узла это баг
+    cities = (await session.execute(select(City))).scalars().all()
+    qty = 0
+    for city in cities:
+        node = await session.get(Node, city.node_id)
+        if node is None:  # pragma: no cover -- a city without a node is a bug
             continue
-        for свой in (узел, *await _children(session, узел)):
-            if await _has_hall(session, town, свой):
-                сколько += 1
+        for own in (node, *await _children(session, node)):
+            if await _has_hall(session, town, own):
+                qty += 1
                 break
-    return сколько
+    return qty
 
 
 async def _children(session: AsyncSession, node) -> list:
@@ -761,37 +770,37 @@ async def _has_hall(session: AsyncSession, town, node) -> bool:
     from src.engine.world import node_container
     from src.models.inventory import Item
 
-    двор = await node_container(session, node)
-    имена = (
+    yard = await node_container(session, node)
+    names = (
         await session.execute(
-            select(Item.type_key).where(Item.container_id == двор.id).distinct()
+            select(Item.type_key).where(Item.container_id == yard.id).distinct()
         )
     ).scalars().all()
-    return town.HALL in имена
+    return town.HALL in names
 
 
 async def locked_until(session: AsyncSession) -> datetime | None:
-    """До какого момента ставка возвращена алгоритму аварийно (D-172)."""
-    решение = (
+    """Until when the rate is returned to the algorithm in emergency (D-172)."""
+    decision = (
         await session.execute(
             select(RateDecision).order_by(RateDecision.decided_at.desc()).limit(1)
         )
     ).scalars().first()
-    if решение is None or not решение.locked_until:
+    if decision is None or not decision.locked_until:
         return None
-    return решение.locked_until
+    return decision.locked_until
 
 
 async def council_decides(
     session: AsyncSession, constants: Constants, *, now: datetime | None = None
 ) -> bool:
-    """Решает ли ставку Совет городов прямо сейчас."""
+    """Whether the Council of cities decides the rate right now."""
     moment = now or datetime.now(UTC)
-    до = await locked_until(session)
-    if до is not None and до > moment:
+    until = await locked_until(session)
+    if until is not None and until > moment:
         return False
-    порог = constants[R.BANK_COUNCIL_HANDOVER_CITIES]
-    return await cities_with_hall(session) >= порог
+    threshold = constants[R.BANK_COUNCIL_HANDOVER_CITIES]
+    return await cities_with_hall(session) >= threshold
 
 
 async def council_set_rate(
@@ -803,11 +812,11 @@ async def council_set_rate(
     *,
     now: datetime | None = None,
 ) -> RateDecision:
-    """Решение Совета по ставке. Голос подаёт город, а не человек (D-172).
+    """The Council's rate decision. A city casts the vote, not a person (D-172).
 
-    Один город — один голос: собрание городов не собрание акционеров, и
-    столица со стартовым преимуществом не должна фиксировать контроль навсегда.
-    Здесь исполняется само решение; порядок его принятия — дело Совета.
+    One city -- one vote: an assembly of cities is not a shareholders' meeting,
+    and the capital with its head start must not lock in control forever. Here
+    the decision itself is executed; how it is reached is the Council's business.
     """
     from src.engine import city as town
 
@@ -817,64 +826,64 @@ async def council_set_rate(
             "ставку решает алгоритм: городов с администрацией меньше "
             f"{constants[R.BANK_COUNCIL_HANDOVER_CITIES]:g} либо действует блокировка"
         )
-    #: Ставка — вопрос закона, а не казны.
+    #: The rate is a matter of law, not of the treasury.
     await town.require(session, by.id, city, Power.LAWS)
 
-    рекомендация, почему = compute_rate(
+    recommendation, reason = compute_rate(
         constants,
         previous=await key_rate(session, constants),
         inflation=await _inflation(session, constants),
         emission_share=await _emission_share(session, constants, now=moment),
     )
-    коридор = constants[R.BANK_COUNCIL_RATE_DEVIATION]
-    if abs(rate - рекомендация) > коридор:
+    corridor = constants[R.BANK_COUNCIL_RATE_DEVIATION]
+    if abs(rate - recommendation) > corridor:
         raise OutOfCorridor(
-            f"алгоритм рекомендует {рекомендация:.2f}%, отклониться можно на "
-            f"{коридор:g} п.п. — просят {rate:.2f}%"
+            f"алгоритм рекомендует {recommendation:.2f}%, отклониться можно на "
+            f"{corridor:g} п.п. — просят {rate:.2f}%"
         )
-    ставка = max(
+    rate_value = max(
         constants[R.BANK_RATE_FLOOR], min(constants[R.BANK_RATE_CAP], rate)
     )
 
-    решение = RateDecision(
-        rate=ставка,
+    decision = RateDecision(
+        rate=rate_value,
         why=(
             f"решение Совета городов ({city.name}); "
-            f"алгоритм советовал {рекомендация:.2f}: {почему}"
+            f"алгоритм советовал {recommendation:.2f}: {reason}"
         ),
         decided_at=moment,
     )
-    session.add(решение)
+    session.add(decision)
     await session.flush()
     await events.record(
         session,
         EventKind.RATE_DECIDED,
-        rate=ставка,
-        advised=рекомендация,
+        rate=rate_value,
+        advised=recommendation,
         by_council=True,
         city=city.name,
     )
-    return решение
+    return decision
 
-# --- кредитный лимит из труда (D-173) ------------------------------------------
+# --- credit limit from labour (D-173) ----------------------------------------
 
 
 async def trust(
     session: AsyncSession, constants: Constants, identity_id: uuid.UUID
 ) -> float:
-    """Доверие 0…1: каждый репорт «дефектная печать» режет его на
-    `credit.report_penalty`, но не ниже `credit.trust_floor`.
+    """Trust 0..1: each "defective print" report cuts it by
+    `credit.report_penalty`, but not below `credit.trust_floor`.
 
-    Репорты снижают кредит, а не хоронят человека: необратимое делает только
-    внеигровой саппорт (D-173).
+    Reports lower credit, they do not bury the person: only out-of-game support
+    does the irreversible (D-173).
     """
-    репортов = await session.scalar(
+    report_count = await session.scalar(
         select(func.count()).select_from(DefectReport).where(
             DefectReport.target_identity_id == identity_id
         )
     )
-    доля = (PERCENT - constants[R.CREDIT_REPORT_PENALTY] * int(репортов or 0)) / PERCENT
-    return max(constants[R.CREDIT_TRUST_FLOOR] / PERCENT, доля)
+    share = (PERCENT - constants[R.CREDIT_REPORT_PENALTY] * int(report_count or 0)) / PERCENT
+    return max(constants[R.CREDIT_TRUST_FLOOR] / PERCENT, share)
 
 
 async def personal_turnover(
@@ -884,33 +893,33 @@ async def personal_turnover(
     *,
     now: datetime | None = None,
 ) -> int:
-    """Оборот продаж личности за `credit.window`, минорными единицами.
+    """The identity's sales turnover over `credit.window`, in minor units.
 
-    Оборот нельзя нарисовать, не продав настоящий товар настоящему покупателю:
-    поэтому лимит считается из него, а не из времени в игре (D-173).
+    Turnover cannot be faked without selling real goods to a real buyer: that
+    is why the limit is computed from it, not from time in game (D-173).
     """
     from src.models.market import Order, Trade
 
     moment = now or datetime.now(UTC)
-    окно = moment - timedelta(days=constants[R.CREDIT_WINDOW])
-    сделки = (
+    window = moment - timedelta(days=constants[R.CREDIT_WINDOW])
+    deals = (
         await session.execute(
             select(Trade)
             .join(Order, Order.id == Trade.sell_order_id)
-            .where(Order.identity_id == identity_id, Trade.at >= окно)
+            .where(Order.identity_id == identity_id, Trade.at >= window)
         )
     ).scalars().all()
-    return sum(int(сделка.price * amount_float(сделка.amount)) for сделка in сделки)
+    return sum(int(deal.price * amount_float(deal.amount)) for deal in deals)
 
 
 async def repaid_total(session: AsyncSession, identity_id: uuid.UUID) -> int:
-    """Сумма возвращённых ранее кредитов: кредитная история — актив (D-173)."""
-    итог = await session.scalar(
+    """Sum of previously repaid loans: credit history is an asset (D-173)."""
+    result = await session.scalar(
         select(func.coalesce(func.sum(Loan.principal), 0)).where(
             Loan.identity_id == identity_id, Loan.state == LoanState.REPAID
         )
     )
-    return int(итог or 0)
+    return int(result or 0)
 
 
 async def credit_limit(
@@ -920,48 +929,48 @@ async def credit_limit(
     *,
     now: datetime | None = None,
 ) -> tuple[int, str]:
-    """Кредитный лимит и объяснение словами — публично, как и ставка (D-030).
+    """Credit limit and an explanation in words -- public, like the rate (D-030).
 
-    База из вольта, плюс доля оборота продаж, плюс доля возвращённого,
-    умножить на доверие и стаж. Труд, а не календарь: время в игре — самое
-    дешёвое, что можно нафармить (D-173).
+    Base from the vault, plus a share of sales turnover, plus a share of what
+    was repaid, times trust and record. Labour, not the calendar: time in game
+    is the cheapest thing to farm (D-173).
     """
     moment = now or datetime.now(UTC)
-    база = money(constants[R.BANK_UNSECURED_LIMIT])
-    оборот = await personal_turnover(session, constants, identity_id, now=moment)
-    возвращено = await repaid_total(session, identity_id)
-    лимит = (
-        база
-        + int(оборот * constants[R.CREDIT_TURNOVER_SHARE] / PERCENT)
-        + int(возвращено * constants[R.CREDIT_REPAID_SHARE] / PERCENT)
+    base_ = money(constants[R.BANK_UNSECURED_LIMIT])
+    turnover = await personal_turnover(session, constants, identity_id, now=moment)
+    returned_ = await repaid_total(session, identity_id)
+    limit_ = (
+        base_
+        + int(turnover * constants[R.CREDIT_TURNOVER_SHARE] / PERCENT)
+        + int(returned_ * constants[R.CREDIT_REPAID_SHARE] / PERCENT)
     )
-    причины = [
-        f"база {money_str(база)}",
-        f"оборот {money_str(оборот)} за {constants[R.CREDIT_WINDOW]:g} суток",
-        f"возвращено ранее {money_str(возвращено)}",
+    reasons = [
+        f"база {money_str(base_)}",
+        f"оборот {money_str(turnover)} за {constants[R.CREDIT_WINDOW]:g} суток",
+        f"возвращено ранее {money_str(returned_)}",
     ]
 
-    #: Стаж — множитель, а не основа: прибавка за историю без просрочек.
-    займы = await loans_of(session, identity_id)
-    без_просрочек = not any(overdue(constants, заём, moment) for заём in займы)
-    if возвращено > 0 and без_просрочек:
-        лимит = int(лимит * (1 + constants[R.CREDIT_NO_OVERDUE_BONUS] / PERCENT))
-        причины.append("стаж без просрочек")
+    #: The record is a multiplier, not a base: a bonus for a history without overdue.
+    loans = await loans_of(session, identity_id)
+    no_overdue = not any(overdue(constants, loan, moment) for loan in loans)
+    if returned_ > 0 and no_overdue:
+        limit_ = int(limit_ * (1 + constants[R.CREDIT_NO_OVERDUE_BONUS] / PERCENT))
+        reasons.append("стаж без просрочек")
 
-    вера = await trust(session, constants, identity_id)
-    if вера < 1:
-        лимит = int(лимит * вера)
-        причины.append(f"доверие {вера * PERCENT:.0f}% по репортам")
-    return лимит, "; ".join(причины)
+    faith = await trust(session, constants, identity_id)
+    if faith < 1:
+        limit_ = int(limit_ * faith)
+        reasons.append(f"доверие {faith * PERCENT:.0f}% по репортам")
+    return limit_, "; ".join(reasons)
 
 
 async def report_defect(
     session: AsyncSession, reporter: Identity, target: Identity
 ) -> DefectReport:
-    """Указать на дефектную печать. Один репорт от личности на личность."""
+    """Point at a defective print. One report per identity per identity."""
     if reporter.id == target.id:
         raise BankError("на себя не жалуются даже по лору")
-    существует = (
+    exists = (
         await session.execute(
             select(DefectReport).where(
                 DefectReport.reporter_identity_id == reporter.id,
@@ -969,12 +978,12 @@ async def report_defect(
             )
         )
     ).scalar_one_or_none()
-    if существует is not None:
-        return существует
-    репорт = DefectReport(
+    if exists is not None:
+        return exists
+    report = DefectReport(
         reporter_identity_id=reporter.id, target_identity_id=target.id
     )
-    session.add(репорт)
+    session.add(report)
     await session.flush()
     await events.record(
         session,
@@ -982,14 +991,14 @@ async def report_defect(
         actor_identity_id=reporter.id,
         target=target.name,
     )
-    return репорт
+    return report
 
 
 async def withdraw_report(
     session: AsyncSession, reporter: Identity, target: Identity
 ) -> bool:
-    """Отозвать свой репорт: ошибиться можно, а исправиться — нужно."""
-    репорт = (
+    """Withdraw your report: one may err, and one must be able to correct it."""
+    report = (
         await session.execute(
             select(DefectReport).where(
                 DefectReport.reporter_identity_id == reporter.id,
@@ -997,9 +1006,9 @@ async def withdraw_report(
             )
         )
     ).scalar_one_or_none()
-    if репорт is None:
+    if report is None:
         return False
-    await session.delete(репорт)
+    await session.delete(report)
     await session.flush()
     await events.record(
         session,
@@ -1010,51 +1019,51 @@ async def withdraw_report(
     return True
 
 
-# --- линия города и маржа (D-175) ----------------------------------------------
+# --- city line and margin (D-175) --------------------------------------------
 
 
 def city_margin(constants: Constants, catalog, city) -> float:
-    """Маржа города: код-закон `bank_margin` с потолком `bank.city_margin_cap`."""
+    """City margin: code-law `bank_margin` with ceiling `bank.city_margin_cap`."""
     from src.engine import city as town
 
-    сырое = town.law(catalog, city, "bank_margin")
+    raw_item = town.law(catalog, city, "bank_margin")
     try:
-        маржа = float(сырое)
+        margin = float(raw_item)
     except (TypeError, ValueError):
-        маржа = 0.0
-    return max(0.0, min(constants[R.BANK_CITY_MARGIN_CAP], маржа))
+        margin = 0.0
+    return max(0.0, min(constants[R.BANK_CITY_MARGIN_CAP], margin))
 
 
 async def city_outstanding(session: AsyncSession, city) -> int:
-    """Сколько долга граждан висит на линии этого города перед столицей."""
-    итог = await session.scalar(
+    """How much citizen debt sits on this city's line with the capital."""
+    result = await session.scalar(
         select(func.coalesce(func.sum(Loan.outstanding), 0)).where(
             Loan.city_id == city.id, Loan.state == LoanState.OPEN
         )
     )
-    return int(итог or 0)
+    return int(result or 0)
 
 
 async def city_line(
     session: AsyncSession, constants: Constants, city, *, now: datetime | None = None
 ) -> tuple[int, int, int]:
-    """Линия города: (позволено, занято, свободно), минорными единицами.
+    """City line: (permitted, occupied, free), in minor units.
 
-    Позволено — `bank.debt_to_turnover_cap` от оборота города за
-    `credit.window`. Долг города переживает власть (D-175): смена правителя не
-    гасит ничего, иначе «занять, раздать своим, переизбраться» — доминирующая
-    стратегия.
+    Permitted is `bank.debt_to_turnover_cap` of the city's turnover over
+    `credit.window`. The city's debt outlives the authority (D-175): a change of
+    ruler repays nothing, otherwise "borrow, hand out to your own, get
+    re-elected" is the dominant strategy.
     """
     moment = now or datetime.now(UTC)
-    окно = moment - timedelta(days=constants[R.CREDIT_WINDOW])
-    обороты = await _turnover_by_city(session, окно)
-    оборот = обороты.get(city.id, 0)
-    позволено = int(оборот * constants[R.BANK_DEBT_TO_TURNOVER_CAP] / PERCENT)
-    занято = await city_outstanding(session, city)
-    return позволено, занято, max(0, позволено - занято)
+    window = moment - timedelta(days=constants[R.CREDIT_WINDOW])
+    turnovers = await _turnover_by_city(session, window)
+    turnover = turnovers.get(city.id, 0)
+    permitted = int(turnover * constants[R.BANK_DEBT_TO_TURNOVER_CAP] / PERCENT)
+    occupied = await city_outstanding(session, city)
+    return permitted, occupied, max(0, permitted - occupied)
 
 
-# --- тюремный зачёт (D-174) ----------------------------------------------------
+# --- prison credit (D-174) ---------------------------------------------------
 
 
 async def prison_credit(
@@ -1062,57 +1071,58 @@ async def prison_credit(
     constants: Constants,
     city,
     debtor_identity_id: uuid.UUID,
-    стоимость: int,
+    cost: int,
     *,
     now: datetime | None = None,
 ) -> int:
-    """Казна платит справочную стоимость добытого в погашение долга заключённого.
+    """The treasury pays the reference value of what a prisoner mined toward their debt.
 
-    Круг замыкается (D-174, D-175): руда — городу, деньги казны — в погашение,
-    погашение — в резерв столицы. Возвращает, сколько удалось зачесть; ноль —
-    казна пуста, и руда остаётся заключённому.
+    The circle closes (D-174, D-175): ore to the city, treasury money toward
+    repayment, repayment to the capital's reserve. Returns how much could be
+    credited; zero -- the treasury is empty, and the ore stays with the prisoner.
     """
     from src.engine import city as town
 
     moment = now or datetime.now(UTC)
-    казна = await town.treasury(session, city)
-    if await ledger.balance(session, казна.id) < стоимость:
+    treasury = await town.treasury(session, city)
+    if await ledger.balance(session, treasury.id) < cost:
         return 0
 
-    должник = await session.get(Identity, debtor_identity_id)
-    займы = sorted(
-        await loans_of(session, debtor_identity_id), key=lambda заём: заём.taken_at
+    debtor = await session.get(Identity, debtor_identity_id)
+    loans = sorted(
+        await loans_of(session, debtor_identity_id), key=lambda loan: loan.taken_at
     )
-    зачтено = 0
-    остаток = стоимость
-    for заём in займы:
-        if остаток <= 0:
+    credited = 0
+    remainder = cost
+    for loan in loans:
+        if remainder <= 0:
             break
-        платёж = min(остаток, заём.outstanding)
-        if платёж <= 0:
+        payment = min(remainder, loan.outstanding)
+        if payment <= 0:
             continue
         await repay(
-            session, constants, должник, заём, платёж / MONEY_SCALE,
-            from_account=казна, now=moment,
+            session, constants, debtor, loan, payment / MONEY_SCALE,
+            from_account=treasury, now=moment,
         )
-        зачтено += платёж
-        остаток -= платёж
-    if зачтено > 0:
+        credited += payment
+        remainder -= payment
+    if credited > 0:
         await events.record(
             session,
             EventKind.PRISON_WORKOFF,
             actor_identity_id=debtor_identity_id,
             city_id=str(city.id),
-            amount=зачтено,
+            amount=credited,
         )
-    return зачтено
+    return credited
 
 
 @handler(JobKind.SEIGNIORAGE)
 async def seigniorage_cancelled(session: AsyncSession, job: Job) -> None:
-    """Сеньораж отменён (D-175): город зарабатывает маржой, а не раздачей.
+    """Seigniorage is cancelled (D-175): the city earns by margin, not by handouts.
 
-    Вид задания остаётся в перечислении навсегда — журнал вечен, — а старое
-    задание, пережившее отмену механики, закрывается без эффекта.
+    The job kind stays in the enumeration forever -- the journal is eternal --
+    and an old job that outlived the mechanic's cancellation closes without effect.
     """
+
     return

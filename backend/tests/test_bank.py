@@ -1,13 +1,14 @@
-"""Банк: резерв, кредит, ключевая ставка (D-030, D-087, D-167).
+"""Bank: reserve, credit, key rate (D-030, D-087, D-167).
 
-Проверяется то, ради чего банк устроен именно так:
+Checked is what the bank is built this way for:
 
-* деньги идут **из резерва**, и печатается только недостающее;
-* погашение возвращает ТК в резерв, а не в оборот, — резерв стерилизатор;
-* инвариант «вся масса = счета + резерв» держится и после выдачи, и после
-  погашения;
-* ставка считается публичной формулой, не прыгает больше шага и не выходит за
-  пол и потолок.
+* money comes **from the reserve**, and only the shortfall is printed;
+* repayment returns TC to the reserve, not into circulation -- the reserve is
+  a steriliser;
+* the invariant "total supply = accounts + reserve" holds both after issue
+  and after repayment;
+* the rate is computed by a public formula, does not jump more than a step
+  and does not leave the floor and ceiling.
 """
 
 from __future__ import annotations
@@ -27,165 +28,165 @@ from src.models.ledger import AccountKind, LedgerAccount, PostingReason
 from src.units import PERCENT, money
 
 
-async def _заёмщик(session: AsyncSession, *, денег: float = 0):
+async def _borrower(session: AsyncSession, *, funds: float = 0):
     identity = await world.create_identity(session, f"Заёмщик-{uuid.uuid4().hex[:6]}")
-    if денег:
-        счёт = await ledger.account_for(session, AccountKind.IDENTITY, identity.id)
+    if funds:
+        account = await ledger.account_for(session, AccountKind.IDENTITY, identity.id)
         genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
         await ledger.transfer(
             session, PostingReason.GENESIS,
-            debit=genesis.id, credit=счёт.id, amount=money(денег), memo={},
+            debit=genesis.id, credit=account.id, amount=money(funds), memo={},
         )
     return identity
 
 
-async def _масса(session: AsyncSession) -> tuple[int, int]:
-    """Оборотная масса и резерв: их сумма и есть вся масса ТК (D-087)."""
-    оборот = await bank.circulating(session)
-    return оборот, await bank.reserve(session)
+async def _mass(session: AsyncSession) -> tuple[int, int]:
+    """Circulating supply and reserve: their sum is the whole TC supply (D-087)."""
+    turnover = await bank.circulating(session)
+    return turnover, await bank.reserve(session)
 
 
-async def _счёт(session: AsyncSession, кто) -> int:
-    счёт = await ledger.account_for(session, AccountKind.IDENTITY, кто.id)
-    return await ledger.balance(session, счёт.id)
+async def _account(session: AsyncSession, who) -> int:
+    account = await ledger.account_for(session, AccountKind.IDENTITY, who.id)
+    return await ledger.balance(session, account.id)
 
 
-# --- резерв и эмиссия --------------------------------------------------------
+# --- reserve and emission ----------------------------------------------------
 
 
-async def test_пустой_резерв_печатает_ровно_столько_сколько_нужно(
+async def test_empty_reserve_prints_exactly_what_is_needed(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    кто = await _заёмщик(session)
-    заём = await bank.borrow(session, constants, catalog, кто, 100)
+    who = await _borrower(session)
+    loan = await bank.borrow(session, constants, catalog, who, 100)
 
-    assert заём.printed == money(100), "резерв был пуст — напечатано всё"
-    assert await _счёт(session, кто) == money(100)
+    assert loan.printed == money(100), "резерв был пуст — напечатано всё"
+    assert await _account(session, who) == money(100)
     assert await bank.reserve(session) == 0, "выданное ушло из резерва"
 
 
-async def test_погашение_возвращает_деньги_в_резерв_а_не_в_оборот(
+async def test_repayment_returns_money_to_reserve_not_circulation(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Резерв — стерилизатор: деньги выходят из оборота и ждут заёмщика."""
-    кто = await _заёмщик(session)
-    заём = await bank.borrow(session, constants, catalog, кто, 100)
-    оборот_до, резерв_до = await _масса(session)
+    """The reserve is a steriliser: money leaves circulation and waits for a borrower."""
+    who = await _borrower(session)
+    loan = await bank.borrow(session, constants, catalog, who, 100)
+    turnover_before, reserve_before = await _mass(session)
 
-    вернул = await bank.repay(session, constants, кто, заём, 40)
+    gave_back = await bank.repay(session, constants, who, loan, 40)
 
-    оборот_после, резерв_после = await _масса(session)
-    assert вернул == money(40)
-    assert резерв_после - резерв_до == money(40)
-    assert оборот_до - оборот_после == money(40)
-    assert оборот_до + резерв_до == оборот_после + резерв_после, (
+    turnover_after, reserve_after = await _mass(session)
+    assert gave_back == money(40)
+    assert reserve_after - reserve_before == money(40)
+    assert turnover_before - turnover_after == money(40)
+    assert turnover_before + reserve_before == turnover_after + reserve_after, (
         "вся масса ТК не изменилась: погашение не сжигает деньги"
     )
 
 
-async def test_второй_кредит_берёт_из_резерва_и_не_печатает(
+async def test_second_loan_takes_from_reserve_and_does_not_print(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    первый = await _заёмщик(session)
-    заём = await bank.borrow(session, constants, catalog, первый, 100)
-    await bank.repay(session, constants, первый, заём, 100)
+    first = await _borrower(session)
+    loan = await bank.borrow(session, constants, catalog, first, 100)
+    await bank.repay(session, constants, first, loan, 100)
 
-    второй = await _заёмщик(session)
-    новый = await bank.borrow(session, constants, catalog, второй, 60)
-    assert новый.printed == 0, "в резерве было — печатать незачем"
+    second = await _borrower(session)
+    new = await bank.borrow(session, constants, catalog, second, 60)
+    assert new.printed == 0, "в резерве было — печатать незачем"
 
 
-async def test_заём_закрывается_полным_погашением(
+async def test_loan_closes_with_full_repayment(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    кто = await _заёмщик(session, денег=50)
-    заём = await bank.borrow(session, constants, catalog, кто, 100)
-    await bank.repay(session, constants, кто, заём)
-    assert заём.state is LoanState.REPAID
-    assert заём.outstanding == 0
-    assert not await bank.loans_of(session, кто.id)
+    who = await _borrower(session, funds=50)
+    loan = await bank.borrow(session, constants, catalog, who, 100)
+    await bank.repay(session, constants, who, loan)
+    assert loan.state is LoanState.REPAID
+    assert loan.outstanding == 0
+    assert not await bank.loans_of(session, who.id)
 
 
-# --- пределы -----------------------------------------------------------------
+# --- bounds ------------------------------------------------------------------
 
 
-async def test_без_залога_дают_не_больше_предела(
+async def test_without_collateral_no_more_than_limit(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    кто = await _заёмщик(session)
-    предел = constants[R.BANK_UNSECURED_LIMIT]
+    who = await _borrower(session)
+    limit = constants[R.BANK_UNSECURED_LIMIT]
     with pytest.raises(bank.TooMuch):
-        await bank.borrow(session, constants, catalog, кто, предел + 1)
-    заём = await bank.borrow(session, constants, catalog, кто, предел)
-    assert заём.principal == money(предел)
+        await bank.borrow(session, constants, catalog, who, limit + 1)
+    loan = await bank.borrow(session, constants, catalog, who, limit)
+    assert loan.principal == money(limit)
 
 
-async def test_формула_ставки_публична_и_детерминирована(
+async def test_rate_formula_public_and_deterministic(
     constants: Constants,
 ) -> None:
-    """Те же входные данные дают тот же ответ — иначе банк это скрытый NPC."""
-    первый = bank.compute_rate(
+    """The same inputs give the same answer -- otherwise the bank is a hidden NPC."""
+    first = bank.compute_rate(
         constants, previous=constants[R.BANK_BASE_RATE], inflation=5, emission_share=20
     )
-    второй = bank.compute_rate(
+    second = bank.compute_rate(
         constants, previous=constants[R.BANK_BASE_RATE], inflation=5, emission_share=20
     )
-    assert первый == второй
-    assert "инфляция" in первый[1], "решение объясняется словами"
+    assert first == second
+    assert "инфляция" in first[1], "решение объясняется словами"
 
 
-async def test_молчащий_датчик_рычага_не_шевелит(constants: Constants) -> None:
-    ставка, почему = bank.compute_rate(
+async def test_silent_sensor_does_not_move_lever(constants: Constants) -> None:
+    rate, reason = bank.compute_rate(
         constants,
         previous=constants[R.BANK_BASE_RATE],
         inflation=None,
         emission_share=None,
     )
-    assert ставка == pytest.approx(constants[R.BANK_BASE_RATE])
-    assert "не измерена" in почему
+    assert rate == pytest.approx(constants[R.BANK_BASE_RATE])
+    assert "не измерена" in reason
 
 
-async def test_шаг_ставки_ограничен(constants: Constants) -> None:
-    """Денежная политика не дёргается: прогноз — половина её смысла."""
-    было = constants[R.BANK_BASE_RATE]
-    ставка, _ = bank.compute_rate(
-        constants, previous=было, inflation=100, emission_share=100
+async def test_rate_step_is_bounded(constants: Constants) -> None:
+    """Monetary policy does not twitch: prediction is half its point."""
+    before = constants[R.BANK_BASE_RATE]
+    rate, _ = bank.compute_rate(
+        constants, previous=before, inflation=100, emission_share=100
     )
-    assert ставка <= было + constants[R.BANK_RATE_STEP_MAX] + 1e-9
+    assert rate <= before + constants[R.BANK_RATE_STEP_MAX] + 1e-9
 
 
-async def test_ставка_не_выходит_за_пол_и_потолок(constants: Constants) -> None:
-    низкая, _ = bank.compute_rate(
+async def test_rate_stays_within_floor_and_ceiling(constants: Constants) -> None:
+    low, _ = bank.compute_rate(
         constants,
         previous=constants[R.BANK_RATE_FLOOR],
         inflation=-100,
         emission_share=-100,
     )
-    assert низкая >= constants[R.BANK_RATE_FLOOR]
-    высокая, _ = bank.compute_rate(
+    assert low >= constants[R.BANK_RATE_FLOOR]
+    high, _ = bank.compute_rate(
         constants, previous=constants[R.BANK_RATE_CAP], inflation=100, emission_share=100
     )
-    assert высокая <= constants[R.BANK_RATE_CAP]
+    assert high <= constants[R.BANK_RATE_CAP]
 
 
-async def test_пересмотр_сохраняет_решение_и_действует(
+async def test_review_stores_decision_and_applies(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    было = await bank.key_rate(session, constants)
-    assert было == pytest.approx(constants[R.BANK_BASE_RATE]), "до решений — базовая"
+    before = await bank.key_rate(session, constants)
+    assert before == pytest.approx(constants[R.BANK_BASE_RATE]), "до решений — базовая"
 
-    решение = await bank.review_rate(session, constants)
-    assert решение.why, "почему получилось столько, видно всем"
-    assert await bank.key_rate(session, constants) == pytest.approx(float(решение.rate))
+    decision = await bank.review_rate(session, constants)
+    assert decision.why, "почему получилось столько, видно всем"
+    assert await bank.key_rate(session, constants) == pytest.approx(float(decision.rate))
 
 
-async def test_ставка_заёмщика_зафиксирована_при_выдаче(
+async def test_borrower_rate_fixed_at_issue(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Заём — договор, а не подписка на решения банка (D-167)."""
-    кто = await _заёмщик(session)
-    заём = await bank.borrow(session, constants, catalog, кто, 50)
-    была = float(заём.rate)
+    """A loan is a contract, not a subscription to the bank's decisions (D-167)."""
+    who = await _borrower(session)
+    loan = await bank.borrow(session, constants, catalog, who, 50)
+    was = float(loan.rate)
 
     from src.models.bank import RateDecision
 
@@ -195,657 +196,659 @@ async def test_ставка_заёмщика_зафиксирована_при_�
         )
     )
     await session.flush()
-    assert float(заём.rate) == была
+    assert float(loan.rate) == was
 
 
-# --- проценты ----------------------------------------------------------------
+# --- interest ----------------------------------------------------------------
 
 
-async def test_проценты_идут_временем(
+async def test_interest_accrues_over_time(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    кто = await _заёмщик(session)
-    await _сделка(session, "Железная руда", 4000, 1, продавец=кто)
-    заём = await bank.borrow(session, constants, catalog, кто, 1000)
-    было = заём.outstanding
+    who = await _borrower(session)
+    await _deal(session, "Железная руда", 4000, 1, seller=who)
+    loan = await bank.borrow(session, constants, catalog, who, 1000)
+    before = loan.outstanding
 
-    через_год = заём.taken_at + timedelta(days=constants[R.BANK_YEAR_DAYS])
-    начислено = await bank.accrue(session, constants, заём, now=через_год)
+    in_a_year = loan.taken_at + timedelta(days=constants[R.BANK_YEAR_DAYS])
+    accrued = await bank.accrue(session, constants, loan, now=in_a_year)
 
-    ожидалось = было * float(заём.rate) / PERCENT
-    assert начислено == pytest.approx(ожидалось, rel=0.01)
-    assert заём.outstanding == было + начислено
+    expected_ = before * float(loan.rate) / PERCENT
+    assert accrued == pytest.approx(expected_, rel=0.01)
+    assert loan.outstanding == before + accrued
 
 
-async def test_процента_по_вкладу_нет(
+async def test_no_deposit_interest(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Деньги на счёте не растут: это доход без труда, то есть эмиссия (П1)."""
-    кто = await _заёмщик(session, денег=100)
-    было = await _счёт(session, кто)
-    #: Никакого начисления на остаток в движке нет и быть не должно.
-    счета = (
+    """Money on the account does not grow: that is income without labour, i.e. emission (P1)."""
+    who = await _borrower(session, funds=100)
+    before = await _account(session, who)
+    #: There is and must be no accrual on the balance in the engine.
+    accounts = (
         await session.execute(
             select(LedgerAccount).where(LedgerAccount.kind == AccountKind.IDENTITY)
         )
     ).scalars().all()
-    assert счета, "счёт есть"
-    assert await _счёт(session, кто) == было
+    assert accounts, "счёт есть"
+    assert await _account(session, who) == before
 
 
-# --- несостоятельность (D-063, D-168) ---------------------------------------
+# --- insolvency (D-063, D-168) -----------------------------------------------
 
 
-async def test_просрочка_считается_от_последнего_платежа(
+async def test_overdue_counted_from_last_payment(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Необслуживаемый долг — это неоплачиваемый, а не старый."""
-    кто = await _заёмщик(session)
-    заём = await bank.borrow(session, constants, catalog, кто, 100)
-    льгота = constants[R.DEBT_GRACE_PERIOD]
+    """An unserviced debt is an unpaid one, not an old one."""
+    who = await _borrower(session)
+    loan = await bank.borrow(session, constants, catalog, who, 100)
+    relief = constants[R.DEBT_GRACE_PERIOD]
 
-    в_срок = заём.taken_at + timedelta(days=льгота - 1)
-    assert not bank.overdue(constants, заём, в_срок)
-    поздно = заём.taken_at + timedelta(days=льгота + 1)
-    assert bank.overdue(constants, заём, поздно)
+    on_time = loan.taken_at + timedelta(days=relief - 1)
+    assert not bank.overdue(constants, loan, on_time)
+    late = loan.taken_at + timedelta(days=relief + 1)
+    assert bank.overdue(constants, loan, late)
 
-    #: Платёж сдвигает отсчёт: заём снова обслуживается.
-    await bank.repay(session, constants, кто, заём, 10, now=поздно)
-    assert not bank.overdue(constants, заём, поздно)
+    #: A payment moves the count: the loan is serviced again.
+    await bank.repay(session, constants, who, loan, 10, now=late)
+    assert not bank.overdue(constants, loan, late)
 
 
-async def test_удержание_забирает_долю_остатка(
+async def test_withholding_takes_share_of_remainder(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    кто = await _заёмщик(session)
-    заём = await bank.borrow(session, constants, catalog, кто, 100)
-    было = await _счёт(session, кто)
-    поздно = заём.taken_at + timedelta(days=constants[R.DEBT_GRACE_PERIOD] + 1)
+    who = await _borrower(session)
+    loan = await bank.borrow(session, constants, catalog, who, 100)
+    before = await _account(session, who)
+    late = loan.taken_at + timedelta(days=constants[R.DEBT_GRACE_PERIOD] + 1)
 
-    удержано = await bank.collect(session, constants, now=поздно)
+    withheld = await bank.collect(session, constants, now=late)
 
-    доля = constants[R.DEBT_WORKOFF_RATE] / PERCENT
-    assert удержано == pytest.approx(было * доля, rel=0.02)
-    assert await _счёт(session, кто) == было - удержано
-    assert await bank.reserve(session) == удержано, "удержанное ушло в резерв"
+    share = constants[R.DEBT_WORKOFF_RATE] / PERCENT
+    assert withheld == pytest.approx(before * share, rel=0.02)
+    assert await _account(session, who) == before - withheld
+    assert await bank.reserve(session) == withheld, "удержанное ушло в резерв"
 
 
-async def test_обслуживаемый_долг_не_трогают(
+async def test_serviced_debt_left_alone(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    кто = await _заёмщик(session)
-    await bank.borrow(session, constants, catalog, кто, 100)
-    было = await _счёт(session, кто)
+    who = await _borrower(session)
+    await bank.borrow(session, constants, catalog, who, 100)
+    before = await _account(session, who)
     assert await bank.collect(session, constants) == 0
-    assert await _счёт(session, кто) == было
+    assert await _account(session, who) == before
 
 
-async def test_долг_держит_в_узле_и_отпускает_за_выкуп(
+async def test_debt_holds_in_node_and_releases_on_payoff(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Ограничение накладывает система, а платить может кто угодно (D-063)."""
-    из_узла = await world.create_node(
+    """The system imposes the restriction, and anyone may pay (D-063)."""
+    from_node = await world.create_node(
         session, f"terra.debt.{uuid.uuid4().hex[:6]}", "Узел", area_m2=100
     )
-    куда = await world.create_node(
+    dest = await world.create_node(
         session, f"terra.free.{uuid.uuid4().hex[:6]}", "Прочь", area_m2=100
     )
     from src.engine import travel
 
-    await travel.connect(session, из_узла, куда, base_seconds=60)
+    await travel.connect(session, from_node, dest, base_seconds=60)
 
-    должник = await world.create_identity(session, f"Должник-{uuid.uuid4().hex[:6]}")
-    тело = await world.print_body(session, должник, из_узла)
-    заём = await bank.borrow(session, constants, catalog, должник, 100)
-    #: Деньги потрачены, долг остался, и его не обслуживают.
-    счёт = await ledger.account_for(session, AccountKind.IDENTITY, должник.id)
+    debtor = await world.create_identity(session, f"Должник-{uuid.uuid4().hex[:6]}")
+    body = await world.print_body(session, debtor, from_node)
+    loan = await bank.borrow(session, constants, catalog, debtor, 100)
+    #: The money is spent, the debt remains, and it is not serviced.
+    account = await ledger.account_for(session, AccountKind.IDENTITY, debtor.id)
     genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
     await ledger.transfer(
-        session, PostingReason.TRADE, debit=счёт.id, credit=genesis.id,
-        amount=await ledger.balance(session, счёт.id), memo={"прожито": "всё"},
+        session, PostingReason.TRADE, debit=account.id, credit=genesis.id,
+        amount=await ledger.balance(session, account.id), memo={"прожито": "всё"},
     )
-    поздно = заём.taken_at + timedelta(days=constants[R.DEBT_PRISON_THRESHOLD] + 1)
+    late = loan.taken_at + timedelta(days=constants[R.DEBT_PRISON_THRESHOLD] + 1)
 
-    держит = await bank.restrained(session, constants, должник.id, now=поздно)
-    assert держит is not None
+    holds = await bank.restrained(session, constants, debtor.id, now=late)
+    assert holds is not None
     with pytest.raises(travel.Imprisoned):
-        await travel.depart(session, constants, тело, куда, now=поздно)
+        await travel.depart(session, constants, body, dest, now=late)
 
-    #: Выкуп: за должника платит третий, и ограничение спадает само.
-    доброхот = await _заёмщик(session, денег=500)
-    await bank.repay(session, constants, доброхот, заём, now=поздно)
-    assert await bank.restrained(session, constants, должник.id, now=поздно) is None
-    assert await travel.depart(session, constants, тело, куда, now=поздно) is not None
+    #: Payoff: a third party pays for the debtor, and the restriction lifts by itself.
+    volunteer = await _borrower(session, funds=500)
+    await bank.repay(session, constants, volunteer, loan, now=late)
+    assert await bank.restrained(session, constants, debtor.id, now=late) is None
+    assert await travel.depart(session, constants, body, dest, now=late) is not None
 
 
-async def test_платящий_должник_свободен(
+async def test_paying_debtor_is_free(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Заём, который честно гасят, свободы не отнимает."""
-    кто = await _заёмщик(session, денег=1000)
-    заём = await bank.borrow(session, constants, catalog, кто, 100)
-    поздно = заём.taken_at + timedelta(days=constants[R.DEBT_PRISON_THRESHOLD] + 1)
-    #: Денег на счету больше, чем долга: ограничивать не за что.
-    assert await bank.restrained(session, constants, кто.id, now=поздно) is None
+    """A loan honestly repaid does not take freedom."""
+    who = await _borrower(session, funds=1000)
+    loan = await bank.borrow(session, constants, catalog, who, 100)
+    late = loan.taken_at + timedelta(days=constants[R.DEBT_PRISON_THRESHOLD] + 1)
+    #: More money on the account than debt: nothing to restrict for.
+    assert await bank.restrained(session, constants, who.id, now=late) is None
 
 
-# --- датчик цен и стерилизация (D-087, D-169) -------------------------------
+# --- price sensor and sterilisation (D-087, D-169) ---------------------------
 
 
-async def _сделка(
-    session: AsyncSession, товар: str, цена: float, сколько: float, продавец=None
+async def _deal(
+    session: AsyncSession, goods: str, price: float, qty: float, seller=None
 ):
-    """Состоявшаяся сделка: из них и считается индекс цен."""
+    """A concluded deal: the price index is computed from them."""
     from src.models.market import Trade
     from src.units import amount as _amount
 
-    узел = await world.create_node(
+    node = await world.create_node(
         session, f"terra.mkt.{uuid.uuid4().hex[:8]}", "Рынок", area_m2=10
     )
-    if продавец is None:
-        продавец = await world.create_identity(session, f"П-{uuid.uuid4().hex[:6]}")
+    if seller is None:
+        seller = await world.create_identity(session, f"П-{uuid.uuid4().hex[:6]}")
     from src.models.market import Order, OrderSide
 
-    ордер = Order(
-        node_id=узел.id,
-        identity_id=продавец.id,
+    order_ = Order(
+        node_id=node.id,
+        identity_id=seller.id,
         side=OrderSide.SELL,
-        type_key=товар,
+        type_key=goods,
         tier="обычное",
-        price=money(цена),
-        amount_total=_amount(сколько),
+        price=money(price),
+        amount_total=_amount(qty),
         amount_left=0,
         expires_at=datetime.now(UTC) + timedelta(days=1),
     )
-    session.add(ордер)
+    session.add(order_)
     await session.flush()
     session.add(
         Trade(
-            node_id=узел.id,
-            sell_order_id=ордер.id,
-            type_key=товар,
+            node_id=node.id,
+            sell_order_id=order_.id,
+            type_key=goods,
             tier="обычное",
-            price=money(цена),
-            amount=_amount(сколько),
+            price=money(price),
+            amount=_amount(qty),
         )
     )
     await session.flush()
 
 
-async def test_индекс_считается_медианой_из_сделок(
+async def test_index_is_median_of_deals(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Одна сделка по нелепой цене не двигает денежную политику."""
+    """One deal at an absurd price does not move monetary policy."""
     assert await bank.price_index(session, constants) is None, "сделок нет — молчим"
 
-    for цена in (10, 10, 1000):
-        await _сделка(session, "Железная руда", цена, 1)
-    индекс = await bank.price_index(session, constants)
-    assert индекс == pytest.approx(money(10)), "медиана, а не среднее"
+    for price in (10, 10, 1000):
+        await _deal(session, "Железная руда", price, 1)
+    index = await bank.price_index(session, constants)
+    assert index == pytest.approx(money(10)), "медиана, а не среднее"
 
 
-async def test_индекс_взвешен_оборотом(
+async def test_index_weighted_by_turnover(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Хлеб важнее редкого сплава ровно настолько, насколько его больше берут."""
-    await _сделка(session, "Хлеб", 10, 100)
-    await _сделка(session, "Сплав", 1000, 1)
+    """Bread matters more than a rare alloy exactly as much as more of it is bought."""
+    await _deal(session, "Хлеб", 10, 100)
+    await _deal(session, "Сплав", 1000, 1)
 
-    индекс = await bank.price_index(session, constants)
-    #: Оборот хлеба 1000, сплава 1000 — веса равные, индекс посередине.
-    assert индекс == pytest.approx(money(505), rel=0.01)
+    index = await bank.price_index(session, constants)
+    #: Bread turnover 1000, alloy 1000 -- equal weights, the index in the middle.
+    assert index == pytest.approx(money(505), rel=0.01)
 
 
-async def test_излишек_резерва_сжигается(
+async def test_reserve_surplus_burned(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Второй рычаг: деньги, вернувшиеся в резерв и там не нужные, исчезают."""
-    кто = await _заёмщик(session, денег=100)
-    заём = await bank.borrow(session, constants, catalog, кто, 200)
-    await bank.repay(session, constants, кто, заём, 200)
+    """The second lever: money that returned to the reserve and is not needed there disappears."""
+    who = await _borrower(session, funds=100)
+    loan = await bank.borrow(session, constants, catalog, who, 200)
+    await bank.repay(session, constants, who, loan, 200)
 
-    в_обороте = await bank.circulating(session)
-    потолок = int(в_обороте * constants[R.BANK_RESERVE_CAP] / PERCENT)
-    было = await bank.reserve(session)
-    assert было > потолок, "резерв заведомо выше потолка"
+    in_circulation = await bank.circulating(session)
+    ceiling = int(in_circulation * constants[R.BANK_RESERVE_CAP] / PERCENT)
+    before = await bank.reserve(session)
+    assert before > ceiling, "резерв заведомо выше потолка"
 
-    сожжено = await bank.sterilize(session, constants)
-    assert сожжено == было - потолок
-    assert await bank.reserve(session) == потолок
-    assert await bank.circulating(session) == в_обороте, "оборот не тронут"
+    burned = await bank.sterilize(session, constants)
+    assert burned == before - ceiling
+    assert await bank.reserve(session) == ceiling
+    assert await bank.circulating(session) == in_circulation, "оборот не тронут"
 
 
-async def test_резерв_в_пределах_потолка_не_жгут(
+async def test_reserve_within_ceiling_not_burned(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    кто = await _заёмщик(session, денег=10_000)
-    заём = await bank.borrow(session, constants, catalog, кто, 100)
-    await bank.repay(session, constants, кто, заём, 100)
+    who = await _borrower(session, funds=10_000)
+    loan = await bank.borrow(session, constants, catalog, who, 100)
+    await bank.repay(session, constants, who, loan, 100)
     assert await bank.sterilize(session, constants) == 0
 
 
-# --- норма залога как рычаг (D-170) -----------------------------------------
+# --- collateral ratio as a lever (D-170) -------------------------------------
 
 
-async def _город_с_оборотом(
-    session: AsyncSession, catalog, оборот: float, товар: str = "Хлеб"
+async def _city_with_turnover(
+    session: AsyncSession, catalog, turnover: float, goods: str = "Хлеб"
 ):
-    """Город, на территории которого прошли сделки: по ним считается доля."""
+    """The city on whose territory the deals happened: the share is computed by them."""
     from src.engine import city as town
     from src.models.market import Order, OrderSide, Trade
     from src.models.world import Layer
     from src.units import amount as _amount
 
-    метка = uuid.uuid4().hex[:8]
-    планета = await world.create_node(
-        session, f"terra.{метка}", "Терра", area_m2=1, layer=Layer.SPACE
+    stamp = uuid.uuid4().hex[:8]
+    planet = await world.create_node(
+        session, f"terra.{stamp}", "Терра", area_m2=1, layer=Layer.SPACE
     )
-    представитель = await world.create_node(
-        session, f"terra.city.{метка}", f"Город-{метка}", area_m2=1,
-        layer=Layer.PLANET, parent=планета,
+    delegate = await world.create_node(
+        session, f"terra.city.{stamp}", f"Город-{stamp}", area_m2=1,
+        layer=Layer.PLANET, parent=planet,
     )
-    рынок = await world.create_node(
-        session, f"terra.city.{метка}.market", "Рынок", area_m2=50,
-        parent=представитель,
+    marketplace = await world.create_node(
+        session, f"terra.city.{stamp}.market", "Рынок", area_m2=50,
+        parent=delegate,
     )
-    город = await town.found(session, catalog, представитель, f"Город-{метка}")
-    рынок.owner_city_id = город.id
-    продавец = await world.create_identity(session, f"Купец-{метка}")
-    ордер = Order(
-        node_id=рынок.id, identity_id=продавец.id, side=OrderSide.SELL,
-        type_key=товар, tier="обычное", price=money(оборот),
+    city = await town.found(session, catalog, delegate, f"Город-{stamp}")
+    marketplace.owner_city_id = city.id
+    seller = await world.create_identity(session, f"Купец-{stamp}")
+    order_ = Order(
+        node_id=marketplace.id, identity_id=seller.id, side=OrderSide.SELL,
+        type_key=goods, tier="обычное", price=money(turnover),
         amount_total=_amount(1), amount_left=0,
         expires_at=datetime.now(UTC) + timedelta(days=1),
     )
-    session.add(ордер)
+    session.add(order_)
     await session.flush()
     session.add(
         Trade(
-            node_id=рынок.id, sell_order_id=ордер.id, type_key=товар,
-            tier="обычное", price=money(оборот), amount=_amount(1),
+            node_id=marketplace.id, sell_order_id=order_.id, type_key=goods,
+            tier="обычное", price=money(turnover), amount=_amount(1),
         )
     )
     await session.flush()
-    return город
+    return city
 
 
-async def test_платёж_гасит_сначала_проценты(
+async def test_payment_covers_interest_first(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Без этого «доход системы» неизмерим, а значит и не возвращается (D-171)."""
-    кто = await _заёмщик(session, денег=1000)
-    #: Лимит выше базы даёт труд: оборот продаж за окно (D-173).
-    await _сделка(session, "Железная руда", 4000, 1, продавец=кто)
-    заём = await bank.borrow(session, constants, catalog, кто, 1000)
-    через_год = заём.taken_at + timedelta(days=constants[R.BANK_YEAR_DAYS])
-    начислено = await bank.accrue(session, constants, заём, now=через_год)
-    assert начислено > 0
+    """Without this "system income" is unmeasurable, and hence not returned (D-171)."""
+    who = await _borrower(session, funds=1000)
+    #: A limit above the base is given by labour: sales turnover over the window (D-173).
+    await _deal(session, "Железная руда", 4000, 1, seller=who)
+    loan = await bank.borrow(session, constants, catalog, who, 1000)
+    in_a_year = loan.taken_at + timedelta(days=constants[R.BANK_YEAR_DAYS])
+    accrued = await bank.accrue(session, constants, loan, now=in_a_year)
+    assert accrued > 0
 
-    заплачено = await bank.repay(session, constants, кто, заём, 10, now=через_год)
-    assert заём.interest_paid == заплачено, "платёж ушёл в проценты целиком"
+    paid = await bank.repay(session, constants, who, loan, 10, now=in_a_year)
+    assert loan.interest_paid == paid, "платёж ушёл в проценты целиком"
 
 
-async def _город_с_ратушей(session: AsyncSession, catalog: Catalog):
-    """Город с администрацией: только такой считается при передаче ставки."""
+async def _city_with_townhall(session: AsyncSession, catalog: Catalog):
+    """A city with an administration: only such counts when handing over the rate."""
     from src.engine import city as town
     from src.models.world import Layer
 
-    метка = uuid.uuid4().hex[:8]
-    планета = await world.create_node(
-        session, f"terra.{метка}", "Терра", area_m2=1, layer=Layer.SPACE
+    stamp = uuid.uuid4().hex[:8]
+    planet = await world.create_node(
+        session, f"terra.{stamp}", "Терра", area_m2=1, layer=Layer.SPACE
     )
-    представитель = await world.create_node(
-        session, f"terra.town.{метка}", f"Город-{метка}", area_m2=1,
-        layer=Layer.PLANET, parent=планета,
+    delegate = await world.create_node(
+        session, f"terra.town.{stamp}", f"Город-{stamp}", area_m2=1,
+        layer=Layer.PLANET, parent=planet,
     )
-    ядро = await world.create_node(
-        session, f"terra.town.{метка}.core", "Ядро", area_m2=100,
-        parent=представитель,
+    core = await world.create_node(
+        session, f"terra.town.{stamp}.core", "Ядро", area_m2=100,
+        parent=delegate,
     )
-    город = await town.found(session, catalog, представитель, f"Город-{метка}")
-    ядро.owner_city_id = город.id
-    двор = await world.node_container(session, ядро)
-    await world.grant_item(session, двор, town.HALL, quality=60, origin="тест")
-    правитель = await world.create_identity(session, f"Глава-{метка}")
-    await town.install_founder(session, город, правитель)
+    city = await town.found(session, catalog, delegate, f"Город-{stamp}")
+    core.owner_city_id = city.id
+    yard = await world.node_container(session, core)
+    await world.grant_item(session, yard, town.HALL, quality=60, origin="тест")
+    ruler = await world.create_identity(session, f"Глава-{stamp}")
+    await town.install_founder(session, city, ruler)
     await session.flush()
-    return город, правитель
+    return city, ruler
 
 
-async def test_пока_городов_мало_решает_алгоритм(
+async def test_algorithm_decides_while_few_cities(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    город, правитель = await _город_с_ратушей(session, catalog)
+    city, ruler = await _city_with_townhall(session, catalog)
     assert not await bank.council_decides(session, constants)
     with pytest.raises(bank.NotCouncilTime):
-        await bank.council_set_rate(session, constants, город, правитель, 6)
+        await bank.council_set_rate(session, constants, city, ruler, 6)
 
 
-async def test_совет_получает_ставку_на_пороге(
+async def test_council_gets_rate_at_threshold(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Порог считается по городам с администрацией: вывеска не орган власти."""
-    порог = int(constants[R.BANK_COUNCIL_HANDOVER_CITIES])
-    города = [await _город_с_ратушей(session, catalog) for _ in range(порог)]
-    assert await bank.cities_with_hall(session) == порог
+    """The threshold is counted by cities with an administration: a signboard is not an organ of
+    power."""
+    threshold = int(constants[R.BANK_COUNCIL_HANDOVER_CITIES])
+    cities = [await _city_with_townhall(session, catalog) for _ in range(threshold)]
+    assert await bank.cities_with_hall(session) == threshold
     assert await bank.council_decides(session, constants)
 
-    город, правитель = города[0]
-    решение = await bank.council_set_rate(session, constants, город, правитель, 6)
-    assert float(решение.rate) == pytest.approx(6)
-    assert "Совета городов" in решение.why
+    city, ruler = cities[0]
+    decision = await bank.council_set_rate(session, constants, city, ruler, 6)
+    assert float(decision.rate) == pytest.approx(6)
+    assert "Совета городов" in decision.why
     assert await bank.key_rate(session, constants) == pytest.approx(6)
 
 
-async def test_коридор_ограничивает_совет(
+async def test_corridor_bounds_council(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Совет спорит с алгоритмом, а не заменяет его (D-172)."""
-    порог = int(constants[R.BANK_COUNCIL_HANDOVER_CITIES])
-    города = [await _город_с_ратушей(session, catalog) for _ in range(порог)]
-    город, правитель = города[0]
-    далеко = (
+    """The council argues with the algorithm rather than replacing it (D-172)."""
+    threshold = int(constants[R.BANK_COUNCIL_HANDOVER_CITIES])
+    cities = [await _city_with_townhall(session, catalog) for _ in range(threshold)]
+    city, ruler = cities[0]
+    far_away = (
         constants[R.BANK_BASE_RATE] + constants[R.BANK_COUNCIL_RATE_DEVIATION] + 1
     )
     with pytest.raises(bank.OutOfCorridor):
-        await bank.council_set_rate(session, constants, город, правитель, далеко)
+        await bank.council_set_rate(session, constants, city, ruler, far_away)
 
 
-async def test_голос_подаёт_имеющий_право_законов(
+async def test_vote_cast_by_holder_of_laws_right(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    порог = int(constants[R.BANK_COUNCIL_HANDOVER_CITIES])
-    города = [await _город_с_ратушей(session, catalog) for _ in range(порог)]
-    город, _ = города[0]
+    threshold = int(constants[R.BANK_COUNCIL_HANDOVER_CITIES])
+    cities = [await _city_with_townhall(session, catalog) for _ in range(threshold)]
+    city, _ = cities[0]
     from src.engine import city as town
 
-    посторонний = await world.create_identity(session, f"Никто-{uuid.uuid4().hex[:6]}")
+    stranger = await world.create_identity(session, f"Никто-{uuid.uuid4().hex[:6]}")
     with pytest.raises(town.NotAllowed):
-        await bank.council_set_rate(session, constants, город, посторонний, 6)
+        await bank.council_set_rate(session, constants, city, stranger, 6)
 
 
-async def test_авария_возвращает_ставку_алгоритму(
+async def test_emergency_returns_rate_to_algorithm(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Политическое решение хорошо до момента, когда цена ошибки — деньги у всех."""
+    """A political decision is good until the price of a mistake is everybody's money."""
     from src.models.bank import RateDecision
 
-    порог = int(constants[R.BANK_COUNCIL_HANDOVER_CITIES])
-    города = [await _город_с_ратушей(session, catalog) for _ in range(порог)]
-    сейчас = datetime.now(UTC)
+    threshold = int(constants[R.BANK_COUNCIL_HANDOVER_CITIES])
+    cities = [await _city_with_townhall(session, catalog) for _ in range(threshold)]
+    now_ = datetime.now(UTC)
     session.add(
         RateDecision(
             rate=constants[R.BANK_BASE_RATE],
             why="авария",
-            decided_at=сейчас,
-            locked_until=сейчас + timedelta(days=constants[R.BANK_COUNCIL_LOCKOUT]),
+            decided_at=now_,
+            locked_until=now_ + timedelta(days=constants[R.BANK_COUNCIL_LOCKOUT]),
         )
     )
     await session.flush()
 
-    assert not await bank.council_decides(session, constants, now=сейчас)
-    город, правитель = города[0]
+    assert not await bank.council_decides(session, constants, now=now_)
+    city, ruler = cities[0]
     with pytest.raises(bank.NotCouncilTime):
-        await bank.council_set_rate(session, constants, город, правитель, 6, now=сейчас)
+        await bank.council_set_rate(session, constants, city, ruler, 6, now=now_)
 
-    #: Блокировка кончилась — ставка снова у Совета.
-    позже = сейчас + timedelta(days=constants[R.BANK_COUNCIL_LOCKOUT] + 1)
-    assert await bank.council_decides(session, constants, now=позже)
-
-
-# --- кредит по труду (D-173) --------------------------------------------------
+    #: The lockout ended -- the rate is with the Council again.
+    later = now_ + timedelta(days=constants[R.BANK_COUNCIL_LOCKOUT] + 1)
+    assert await bank.council_decides(session, constants, now=later)
 
 
-async def test_оборот_поднимает_лимит(
+# --- credit from labour (D-173) ----------------------------------------------
+
+
+async def test_turnover_raises_limit(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Лимит выдаёт труд: время в игре — самое дешёвое, что можно нафармить."""
-    кто = await _заёмщик(session)
-    базовый, _ = await bank.credit_limit(session, constants, кто.id)
-    assert базовый == money(constants[R.BANK_UNSECURED_LIMIT])
+    """Labour grants the limit: time in game is the cheapest thing to farm."""
+    who = await _borrower(session)
+    base, _ = await bank.credit_limit(session, constants, who.id)
+    assert base == money(constants[R.BANK_UNSECURED_LIMIT])
 
-    await _сделка(session, "Железная руда", 1000, 1, продавец=кто)
-    поднятый, почему = await bank.credit_limit(session, constants, кто.id)
-    прибавка = money(1000 * constants[R.CREDIT_TURNOVER_SHARE] / PERCENT)
-    assert поднятый == базовый + прибавка
-    assert "оборот" in почему, "формула объясняется словами, как ставка"
+    await _deal(session, "Железная руда", 1000, 1, seller=who)
+    raised, reason = await bank.credit_limit(session, constants, who.id)
+    increment = money(1000 * constants[R.CREDIT_TURNOVER_SHARE] / PERCENT)
+    assert raised == base + increment
+    assert "оборот" in reason, "формула объясняется словами, как ставка"
 
 
-async def test_кредитная_история_актив(
+async def test_credit_history_is_asset(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Возвращённое раньше поднимает лимит — и даёт стаж без просрочек."""
-    кто = await _заёмщик(session, денег=100)
-    заём = await bank.borrow(session, constants, catalog, кто, 100)
-    await bank.repay(session, constants, кто, заём)
+    """What was repaid earlier raises the limit -- and gives a record without overdue."""
+    who = await _borrower(session, funds=100)
+    loan = await bank.borrow(session, constants, catalog, who, 100)
+    await bank.repay(session, constants, who, loan)
 
-    лимит, почему = await bank.credit_limit(session, constants, кто.id)
-    база = money(constants[R.BANK_UNSECURED_LIMIT])
-    ядро = база + money(100 * constants[R.CREDIT_REPAID_SHARE] / PERCENT)
-    assert лимит == int(ядро * (1 + constants[R.CREDIT_NO_OVERDUE_BONUS] / PERCENT))
-    assert "стаж" in почему
+    limit_, reason = await bank.credit_limit(session, constants, who.id)
+    base_ = money(constants[R.BANK_UNSECURED_LIMIT])
+    core = base_ + money(100 * constants[R.CREDIT_REPAID_SHARE] / PERCENT)
+    assert limit_ == int(core * (1 + constants[R.CREDIT_NO_OVERDUE_BONUS] / PERCENT))
+    assert "стаж" in reason
 
 
-async def test_репорт_режет_доверие_но_не_хоронит(
+async def test_report_cuts_trust_but_does_not_bury(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Дефектная печать снижает кредит; переработку делает только саппорт."""
-    кто = await _заёмщик(session)
-    лимит_до, _ = await bank.credit_limit(session, constants, кто.id)
+    """A defective print lowers credit; only support does the processing."""
+    who = await _borrower(session)
+    limit_before, _ = await bank.credit_limit(session, constants, who.id)
 
-    #: Десяток недоброжелателей — и доверие упирается в пол, а не в ноль.
-    for номер in range(12):
-        недруг = await world.create_identity(
-            session, f"Недруг-{номер}-{uuid.uuid4().hex[:4]}"
+    #: A dozen ill-wishers -- and trust hits the floor, not zero.
+    for number in range(12):
+        foe = await world.create_identity(
+            session, f"Недруг-{number}-{uuid.uuid4().hex[:4]}"
         )
-        await bank.report_defect(session, недруг, кто)
+        await bank.report_defect(session, foe, who)
 
-    вера = await bank.trust(session, constants, кто.id)
-    assert вера == pytest.approx(constants[R.CREDIT_TRUST_FLOOR] / PERCENT)
-    лимит_после, почему = await bank.credit_limit(session, constants, кто.id)
-    assert лимит_после == int(лимит_до * вера)
-    assert "доверие" in почему
+    faith = await bank.trust(session, constants, who.id)
+    assert faith == pytest.approx(constants[R.CREDIT_TRUST_FLOOR] / PERCENT)
+    limit_after, reason = await bank.credit_limit(session, constants, who.id)
+    assert limit_after == int(limit_before * faith)
+    assert "доверие" in reason
 
 
-async def test_репорт_один_на_пару_и_отзывается(
+async def test_report_one_per_pair_and_revocable(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    кто = await _заёмщик(session)
-    недруг = await world.create_identity(session, f"Недруг-{uuid.uuid4().hex[:6]}")
-    await bank.report_defect(session, недруг, кто)
-    await bank.report_defect(session, недруг, кто)
-    assert await bank.trust(session, constants, кто.id) == pytest.approx(
+    who = await _borrower(session)
+    foe = await world.create_identity(session, f"Недруг-{uuid.uuid4().hex[:6]}")
+    await bank.report_defect(session, foe, who)
+    await bank.report_defect(session, foe, who)
+    assert await bank.trust(session, constants, who.id) == pytest.approx(
         1 - constants[R.CREDIT_REPORT_PENALTY] / PERCENT
     ), "второй репорт той же пары не считается"
 
-    assert await bank.withdraw_report(session, недруг, кто)
-    assert await bank.trust(session, constants, кто.id) == pytest.approx(1.0)
+    assert await bank.withdraw_report(session, foe, who)
+    assert await bank.trust(session, constants, who.id) == pytest.approx(1.0)
 
 
-# --- заём через город (D-175) -------------------------------------------------
+# --- loan through the city (D-175) -------------------------------------------
 
 
-async def _гражданин_с_городом(
-    session: AsyncSession, catalog: Catalog, *, оборот: float = 4000
+async def _citizen_with_city(
+    session: AsyncSession, catalog: Catalog, *, turnover: float = 4000
 ):
-    """Город с оборотом и его гражданин: линия открыта, маржа по умолчанию."""
+    """A city with turnover and its citizen: the line is open, the margin is default."""
     from src.models.city import Citizen
 
-    город = await _город_с_оборотом(session, catalog, оборот)
-    кто = await _заёмщик(session)
-    session.add(Citizen(identity_id=кто.id, city_id=город.id))
+    city = await _city_with_turnover(session, catalog, turnover)
+    who = await _borrower(session)
+    session.add(Citizen(identity_id=who.id, city_id=city.id))
     await session.flush()
-    return город, кто
+    return city, who
 
 
-async def test_гражданин_занимает_у_города_с_маржой(
+async def test_citizen_borrows_from_city_with_margin(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Ставка — ключевая плюс маржа города; заём ложится на линию города."""
-    город, кто = await _гражданин_с_городом(session, catalog)
-    заём = await bank.borrow(session, constants, catalog, кто, 100)
+    """The rate is key plus city margin; the loan sits on the city's line."""
+    city, who = await _citizen_with_city(session, catalog)
+    loan = await bank.borrow(session, constants, catalog, who, 100)
 
-    маржа = bank.city_margin(constants, catalog, город)
-    assert заём.city_id == город.id
-    assert float(заём.margin) == pytest.approx(маржа)
-    assert float(заём.rate) == pytest.approx(
-        constants[R.BANK_BASE_RATE] + маржа
+    margin = bank.city_margin(constants, catalog, city)
+    assert loan.city_id == city.id
+    assert float(loan.margin) == pytest.approx(margin)
+    assert float(loan.rate) == pytest.approx(
+        constants[R.BANK_BASE_RATE] + margin
     )
-    _, занято, _ = await bank.city_line(session, constants, город)
-    assert занято == заём.outstanding, "заём висит на линии города"
+    _, occupied, _ = await bank.city_line(session, constants, city)
+    assert occupied == loan.outstanding, "заём висит на линии города"
 
 
-async def test_маржа_города_уходит_в_его_казну(
+async def test_city_margin_goes_to_its_treasury(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Город зарабатывает на своих заёмщиках — сеньораж не нужен (D-175)."""
+    """The city earns on its borrowers -- seigniorage is unnecessary (D-175)."""
     from src.engine import city as town
 
-    город, кто = await _гражданин_с_городом(session, catalog)
-    заём = await bank.borrow(session, constants, catalog, кто, 100)
-    через_год = заём.taken_at + timedelta(days=constants[R.BANK_YEAR_DAYS])
-    await bank.accrue(session, constants, заём, now=через_год)
+    city, who = await _citizen_with_city(session, catalog)
+    loan = await bank.borrow(session, constants, catalog, who, 100)
+    in_a_year = loan.taken_at + timedelta(days=constants[R.BANK_YEAR_DAYS])
+    await bank.accrue(session, constants, loan, now=in_a_year)
 
-    казна_до = await town.treasury_balance(session, город)
-    резерв_до = await bank.reserve(session)
-    #: Гасим ровно проценты: их и делят между городом и столицей.
-    проценты = заём.interest_accrued
-    плательщик = await _заёмщик(session, денег=1000)
+    treasury_before = await town.treasury_balance(session, city)
+    reserve_before = await bank.reserve(session)
+    #: We repay exactly the interest: that is what is split between city and capital.
+    interest = loan.interest_accrued
+    payer = await _borrower(session, funds=1000)
     await bank.repay(
-        session, constants, плательщик, заём, проценты / 10_000, now=через_год
+        session, constants, payer, loan, interest / 10_000, now=in_a_year
     )
 
-    доля_города = int(проценты * float(заём.margin) / float(заём.rate))
-    assert await town.treasury_balance(session, город) - казна_до == доля_города
-    assert await bank.reserve(session) - резерв_до == проценты - доля_города
+    city_share = int(interest * float(loan.margin) / float(loan.rate))
+    assert await town.treasury_balance(session, city) - treasury_before == city_share
+    assert await bank.reserve(session) - reserve_before == interest - city_share
 
 
-async def test_исчерпанная_линия_даёт_прямой_заём_дороже(
+async def test_exhausted_line_gives_pricier_direct_loan(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Выход есть всегда, но по верху вилки риска: линия города не резиновая."""
-    город, кто = await _гражданин_с_городом(session, catalog, оборот=100)
-    #: Линия = cap% от оборота 100: первый же крупный заём её переполняет.
-    await _сделка(session, "Железная руда", 4000, 1, продавец=кто)
-    заём = await bank.borrow(session, constants, catalog, кто, 900)
+    """There is always a way out, but at the top of the risk range: the city's line is not
+    elastic."""
+    city, who = await _citizen_with_city(session, catalog, turnover=100)
+    #: Line = cap% of turnover 100: the very first big loan overflows it.
+    await _deal(session, "Железная руда", 4000, 1, seller=who)
+    loan = await bank.borrow(session, constants, catalog, who, 900)
 
-    assert заём.city_id is None, "линии не хватило — заём прямой"
-    assert float(заём.rate) == pytest.approx(
+    assert loan.city_id is None, "линии не хватило — заём прямой"
+    assert float(loan.rate) == pytest.approx(
         constants[R.BANK_BASE_RATE] + constants[R.BANK_RISK_PREMIUM].max
     )
 
 
-async def test_не_гражданин_занимает_напрямую(
+async def test_non_citizen_borrows_directly(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    кто = await _заёмщик(session)
-    заём = await bank.borrow(session, constants, catalog, кто, 50)
-    assert заём.city_id is None
-    assert float(заём.rate) == pytest.approx(
+    who = await _borrower(session)
+    loan = await bank.borrow(session, constants, catalog, who, 50)
+    assert loan.city_id is None
+    assert float(loan.rate) == pytest.approx(
         constants[R.BANK_BASE_RATE] + constants[R.BANK_RISK_PREMIUM].max
     )
 
 
-# --- тюремный зачёт (D-174) ---------------------------------------------------
+# --- prison credit (D-174) ---------------------------------------------------
 
 
-async def test_казна_платит_за_руду_в_погашение(
+async def test_treasury_pays_for_ore_toward_repayment(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Круг замыкается: руда — городу, деньги казны — в резерв столицы."""
+    """The circle closes: ore to the city, treasury money to the capital's reserve."""
     from src.engine import city as town
     from src.engine import ledger as l
     from src.models.ledger import PostingReason as PR
 
-    город, кто = await _гражданин_с_городом(session, catalog)
-    заём = await bank.borrow(session, constants, catalog, кто, 100)
-    #: Пополняем казну: тюрьма — вложение платёжеспособного города.
-    казна = await town.treasury(session, город)
+    city, who = await _citizen_with_city(session, catalog)
+    loan = await bank.borrow(session, constants, catalog, who, 100)
+    #: We fund the treasury: a prison is a solvent city's investment.
+    treasury = await town.treasury(session, city)
     genesis = await l.account_for(session, AccountKind.GENESIS, None)
     await l.transfer(
-        session, PR.GENESIS, debit=genesis.id, credit=казна.id,
+        session, PR.GENESIS, debit=genesis.id, credit=treasury.id,
         amount=money(500), memo={},
     )
 
-    было = заём.outstanding
-    зачтено = await bank.prison_credit(session, constants, город, кто.id, money(60))
-    assert зачтено == money(60)
-    assert заём.outstanding == было - money(60)
+    before = loan.outstanding
+    credited = await bank.prison_credit(session, constants, city, who.id, money(60))
+    assert credited == money(60)
+    assert loan.outstanding == before - money(60)
 
 
-async def test_пустая_казна_зачёта_не_даёт(
+async def test_empty_treasury_gives_no_credit(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Нет денег — нет каторги: руда останется заключённому (D-174)."""
-    город, кто = await _гражданин_с_городом(session, catalog)
-    await bank.borrow(session, constants, catalog, кто, 100)
+    """No money -- no penal labour: the ore stays with the prisoner (D-174)."""
+    city, who = await _citizen_with_city(session, catalog)
+    await bank.borrow(session, constants, catalog, who, 100)
     assert await bank.prison_credit(
-        session, constants, город, кто.id, money(60)
+        session, constants, city, who.id, money(60)
     ) == 0
 
 
-async def test_отработка_в_тюремном_забое_гасит_долг(
+async def test_labour_in_prison_face_repays_debt(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Сквозной случай: жила в тюрьме, добыча городу, долг тает (D-174)."""
+    """The end-to-end case: a vein in prison, yield to the city, debt melts (D-174)."""
     from src.engine import city as town
     from src.engine import justice, mining
     from src.engine import ledger as l
     from src.models.city import Citizen
     from src.models.ledger import PostingReason as PR
 
-    #: Оборот города — сделками по руде: из них берётся справочная цена.
-    город = await _город_с_оборотом(session, catalog, 4000, товар="Железная руда")
-    представитель = await session.get(
-        __import__("src.models.world", fromlist=["Node"]).Node, город.node_id
+    #: City turnover -- by ore deals: the reference price is taken from them.
+    city = await _city_with_turnover(session, catalog, 4000, goods="Железная руда")
+    delegate = await session.get(
+        __import__("src.models.world", fromlist=["Node"]).Node, city.node_id
     )
-    тюрьма = await world.create_node(
+    prison = await world.create_node(
         session, f"terra.jail.{uuid.uuid4().hex[:6]}", "Каторга", area_m2=100,
-        parent=представитель, properties={justice.PRISON_NODE: True},
+        parent=delegate, properties={justice.PRISON_NODE: True},
     )
-    тюрьма.owner_city_id = город.id
-    жила = await world.create_vein(
-        session, тюрьма, "Железная руда", richness=60, remaining=10_000
+    prison.owner_city_id = city.id
+    vein = await world.create_vein(
+        session, prison, "Железная руда", richness=60, remaining=10_000
     )
-    должник = await world.create_identity(session, f"Должник-{uuid.uuid4().hex[:6]}")
-    session.add(Citizen(identity_id=должник.id, city_id=город.id))
-    тело = await world.print_body(session, должник, тюрьма)
+    debtor = await world.create_identity(session, f"Должник-{uuid.uuid4().hex[:6]}")
+    session.add(Citizen(identity_id=debtor.id, city_id=city.id))
+    body = await world.print_body(session, debtor, prison)
 
-    заём = await bank.borrow(session, constants, catalog, должник, 100)
-    #: Деньги прожиты, долг просрочен — узел держит (D-168).
-    счёт = await l.account_for(session, AccountKind.IDENTITY, должник.id)
+    loan = await bank.borrow(session, constants, catalog, debtor, 100)
+    #: The money is spent, the debt is overdue -- the node holds (D-168).
+    account = await l.account_for(session, AccountKind.IDENTITY, debtor.id)
     genesis = await l.account_for(session, AccountKind.GENESIS, None)
     await l.transfer(
-        session, PR.TRADE, debit=счёт.id, credit=genesis.id,
-        amount=await l.balance(session, счёт.id), memo={"прожито": "всё"},
+        session, PR.TRADE, debit=account.id, credit=genesis.id,
+        amount=await l.balance(session, account.id), memo={"прожито": "всё"},
     )
-    заём.serviced_at = заём.taken_at - timedelta(
+    loan.serviced_at = loan.taken_at - timedelta(
         days=constants[R.DEBT_PRISON_THRESHOLD] + 1
     )
-    казна = await town.treasury(session, город)
+    treasury = await town.treasury(session, city)
     await l.transfer(
-        session, PR.GENESIS, debit=genesis.id, credit=казна.id,
+        session, PR.GENESIS, debit=genesis.id, credit=treasury.id,
         amount=money(1000), memo={},
     )
     await session.flush()
 
-    сессия = await mining.start(session, constants, тело, жила)
-    await mining.swing(session, constants, сессия)
-    было = заём.outstanding
-    добыто = await mining.leave(session, constants, сессия)
+    sess = await mining.start(session, constants, body, vein)
+    await mining.swing(session, constants, sess)
+    before = loan.outstanding
+    mined = await mining.leave(session, constants, sess)
 
-    assert добыто > 0
-    assert заём.outstanding < было, "добыча зачлась в долг"
-    из_двора = await world.node_container(session, тюрьма)
-    руда = (
+    assert mined > 0
+    assert loan.outstanding < before, "добыча зачлась в долг"
+    from_yard = await world.node_container(session, prison)
+    ore_ = (
         await session.execute(
             select(
                 __import__("src.models.inventory", fromlist=["Item"]).Item
             ).where(
                 __import__("src.models.inventory", fromlist=["Item"]).Item.container_id
-                == из_двора.id
+                == from_yard.id
             )
         )
     ).scalars().all()
-    assert руда, "добытое досталось городу, а не заключённому"
+    assert ore_, "добытое досталось городу, а не заключённому"
 

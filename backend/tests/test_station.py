@@ -1,15 +1,15 @@
-"""Станок занимает один работник, и ставят его у себя — в здание (D-106, D-150).
+"""A machine is taken by one worker, and it is placed at home -- in a building (D-106, D-150).
 
-Проверяется то, ради чего правило заведено:
+Checked is what the rule exists for:
 
-* пока идёт партия, станок занят и второму не отдаётся;
-* кончилась партия — свободен;
-* станок ставится в **свой** узел, а не в любой; занятый работой не уносится;
-* без здания станок не встаёт, а в тесном здании кончаются места.
+* while a batch runs, the machine is taken and not given to a second;
+* the batch ended -- free;
+* a machine is placed in **own** node, not any; one busy with work is not carried away;
+* without a building a machine does not stand, and in a cramped building places run out.
 
-Следствие, ради которого всё это и сделано: городская мастерская перестаёт
-быть бесплатным цехом на весь город, и ремесленнику становится нужен свой
-станок у себя дома.
+The consequence all this was made for: the city workshop stops being a free
+shop floor for the whole town, and the craftsman comes to need a machine of
+their own at home.
 """
 
 from __future__ import annotations
@@ -28,235 +28,236 @@ BENCH = "Верстак"
 MAKE = "Брус"
 
 
-async def _мастерская(session: AsyncSession, *, сколько_станков: int = 1):
-    метка = uuid.uuid4().hex[:8]
+async def _workshop(session: AsyncSession, *, machine_count: int = 1):
+    stamp = uuid.uuid4().hex[:8]
     node = await world.create_node(
-        session, f"terra.shop.{метка}", "Мастерская", area_m2=200
+        session, f"terra.shop.{stamp}", "Мастерская", area_m2=200
     )
-    #: Станок живёт в здании (D-106): мастерская теста застроена целиком.
+    #: A machine lives in a building (D-106): the test's workshop is fully built.
     session.add(Building(node_id=node.id, area_m2=200))
     await session.flush()
-    двор = await world.node_container(session, node)
-    for _ in range(сколько_станков):
-        await world.grant_item(session, двор, BENCH, quality=60, origin="тест")
+    yard = await world.node_container(session, node)
+    for _ in range(machine_count):
+        await world.grant_item(session, yard, BENCH, quality=60, origin="тест")
     return node
 
 
-async def _мастер(session: AsyncSession, node, имя: str):
-    identity = await world.create_identity(session, f"{имя}-{uuid.uuid4().hex[:6]}")
+async def _master(session: AsyncSession, node, name: str):
+    identity = await world.create_identity(session, f"{name}-{uuid.uuid4().hex[:6]}")
     body = await world.print_body(session, identity, node)
     await world.learn(session, identity, MAKE)
-    карман = await world.body_container(session, body)
+    pocket = await world.body_container(session, body)
     await world.grant_item(
-        session, карман, "Дерево", amount=50, quality=60, origin="тест"
+        session, pocket, "Дерево", amount=50, quality=60, origin="тест"
     )
     return identity, body
 
 
-async def test_станок_занят_одним(
+async def test_machine_busy_with_one(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Сто игроков у одной наковальни — не мастерская, а очередь, которой нет."""
-    node = await _мастерская(session)
-    _, первый = await _мастер(session, node, "Первый")
-    _, второй = await _мастер(session, node, "Второй")
+    """A hundred players at one anvil is not a workshop but a queue that does not exist."""
+    node = await _workshop(session)
+    _, first = await _master(session, node, "Первый")
+    _, second = await _master(session, node, "Второй")
 
-    await craft.start(session, constants, catalog, первый, MAKE, 1)
+    await craft.start(session, constants, catalog, first, MAKE, 1)
     with pytest.raises(craft.Busy):
-        await craft.start(session, constants, catalog, второй, MAKE, 1)
+        await craft.start(session, constants, catalog, second, MAKE, 1)
 
 
-async def test_один_станок_одна_работа(
+async def test_one_machine_one_work(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Занят — значит занят, в том числе для самого мастера.
+    """Taken means taken, including for the master themselves.
 
-    Иначе хозяин станка запускал бы у него сколько угодно партий разом, и
-    правило «за станком работает один» держалось бы только против чужих.
+    Otherwise the machine's owner would start any number of batches at it at
+    once, and the rule "one person works at a machine" would hold only against strangers.
     """
-    node = await _мастерская(session)
-    _, мастер = await _мастер(session, node, "Мастер")
-    await craft.start(session, constants, catalog, мастер, MAKE, 1)
+    node = await _workshop(session)
+    _, master = await _master(session, node, "Мастер")
+    await craft.start(session, constants, catalog, master, MAKE, 1)
     with pytest.raises(craft.Busy):
-        await craft.start(session, constants, catalog, мастер, MAKE, 1)
+        await craft.start(session, constants, catalog, master, MAKE, 1)
 
 
-async def test_второй_станок_снимает_очередь(
+async def test_second_machine_clears_queue(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Мест в мастерской ровно столько, сколько станков."""
-    node = await _мастерская(session, сколько_станков=2)
-    _, первый = await _мастер(session, node, "Первый")
-    _, второй = await _мастер(session, node, "Второй")
+    """There are exactly as many places in a workshop as machines."""
+    node = await _workshop(session, machine_count=2)
+    _, first = await _master(session, node, "Первый")
+    _, second = await _master(session, node, "Второй")
 
-    один = await craft.start(session, constants, catalog, первый, MAKE, 1)
-    другой = await craft.start(session, constants, catalog, второй, MAKE, 1)
-    assert один.station_item_id != другой.station_item_id
+    one = await craft.start(session, constants, catalog, first, MAKE, 1)
+    other = await craft.start(session, constants, catalog, second, MAKE, 1)
+    assert one.station_item_id != other.station_item_id
 
 
-async def test_станок_освобождается_с_концом_партии(
+async def test_machine_freed_when_batch_ends(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    node = await _мастерская(session)
-    _, мастер = await _мастер(session, node, "Мастер")
-    партия = await craft.start(session, constants, catalog, мастер, MAKE, 1)
+    node = await _workshop(session)
+    _, master = await _master(session, node, "Мастер")
+    batch = await craft.start(session, constants, catalog, master, MAKE, 1)
 
-    станок = await session.get(Item, партия.station_item_id)
-    assert станок.busy_body_id == мастер.id
+    machine = await session.get(Item, batch.station_item_id)
+    assert machine.busy_body_id == master.id
 
     from sqlalchemy import select
 
     from src.models.job import Job, JobKind, JobState
 
-    задание = (
+    job = (
         await session.execute(
             select(Job).where(
                 Job.kind == JobKind.CRAFT_BATCH.value, Job.state == JobState.PENDING
             )
         )
     ).scalars().first()
-    await craft.finish(session, задание)
-    await session.refresh(станок)
-    assert станок.busy_body_id is None
+    await craft.finish(session, job)
+    await session.refresh(machine)
+    assert machine.busy_body_id is None
 
 
-async def test_станок_ставят_у_себя(
+async def test_machine_placed_at_own_place(
     session: AsyncSession, catalog: Catalog
 ) -> None:
-    """Чужой узел не застроишь: в этом и смысл своего дома."""
-    node = await _мастерская(session, сколько_станков=0)
-    identity, body = await _мастер(session, node, "Хозяин")
-    карман = await world.body_container(session, body)
-    станок = await world.grant_item(
-        session, карман, BENCH, quality=60, origin="тест"
+    """You cannot build up somebody else's node: that is the point of a home."""
+    node = await _workshop(session, machine_count=0)
+    identity, body = await _master(session, node, "Хозяин")
+    pocket = await world.body_container(session, body)
+    machine = await world.grant_item(
+        session, pocket, BENCH, quality=60, origin="тест"
     )
 
     with pytest.raises(station.NotYours):
-        await station.place(session, catalog, body, станок)
+        await station.place(session, catalog, body, machine)
 
     await world.claim_node(session, body, node)
-    await station.place(session, catalog, body, станок)
-    двор = await world.node_container(session, node)
-    assert станок.container_id == двор.id
+    await station.place(session, catalog, body, machine)
+    yard = await world.node_container(session, node)
+    assert machine.container_id == yard.id
 
 
-async def test_власть_не_хозяйничает_в_чужом_доме(
+async def test_authority_does_not_run_foreign_house(
     session: AsyncSession, catalog: Catalog
 ) -> None:
-    """Выкупленный участок стоит на земле города, но хозяин у него человек.
+    """A bought plot stands on city land, but its owner is a person.
 
-    Право `laws` — про городскую застройку; чужой дом отбирают по суду, а не
-    полномочием (D-089, D-116, D-166).
+    The `laws` right is about the city's buildings; somebody's house is taken
+    by court, not by power (D-089, D-116, D-166).
     """
     from src.engine import city as town
     from src.models.world import Layer
 
-    метка = uuid.uuid4().hex[:8]
-    планета = await world.create_node(
-        session, f"terra.state.{метка}", "Столица", area_m2=1, layer=Layer.PLANET
+    stamp = uuid.uuid4().hex[:8]
+    planet = await world.create_node(
+        session, f"terra.state.{stamp}", "Столица", area_m2=1, layer=Layer.PLANET
     )
-    участок = await world.create_node(
-        session, f"terra.state.{метка}.lot", "Участок", area_m2=200,
-        layer=Layer.CITY, parent=планета,
+    plot = await world.create_node(
+        session, f"terra.state.{stamp}.lot", "Участок", area_m2=200,
+        layer=Layer.CITY, parent=planet,
     )
-    город = await town.found(session, catalog, планета, "Столица")
-    участок.owner_city_id = город.id
+    city = await town.found(session, catalog, planet, "Столица")
+    plot.owner_city_id = city.id
     await session.flush()
 
-    правитель, тело_правителя = await _мастер(session, участок, "Правитель")
-    await town.install_founder(session, город, правитель)
-    #: Пока земля городская — власть распоряжается ею.
-    assert await station.may_build(session, тело_правителя, участок)
+    ruler, ruler_body = await _master(session, plot, "Правитель")
+    await town.install_founder(session, city, ruler)
+    #: While the land is civic -- the authority disposes of it.
+    assert await station.may_build(session, ruler_body, plot)
 
-    #: Появился частный хозяин — и власть перестаёт быть хозяином.
-    хозяин, _ = await _мастер(session, участок, "Хозяин")
-    участок.owner_identity_id = хозяин.id
+    #: A private owner appeared -- and the authority stops being the owner.
+    owner, _ = await _master(session, plot, "Хозяин")
+    plot.owner_identity_id = owner.id
     await session.flush()
-    assert not await station.may_build(session, тело_правителя, участок)
+    assert not await station.may_build(session, ruler_body, plot)
 
 
-async def test_без_здания_станок_не_встаёт(
+async def test_machine_not_placed_without_building(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Сначала строят, потом обставляют (D-106): двор — не мастерская."""
-    метка = uuid.uuid4().hex[:8]
+    """Build first, then furnish (D-106): a yard is not a workshop."""
+    stamp = uuid.uuid4().hex[:8]
     node = await world.create_node(
-        session, f"terra.bare.{метка}", "Пустырь", area_m2=200
+        session, f"terra.bare.{stamp}", "Пустырь", area_m2=200
     )
-    identity, body = await _мастер(session, node, "Хозяин")
+    identity, body = await _master(session, node, "Хозяин")
     await world.claim_node(session, body, node)
-    карман = await world.body_container(session, body)
-    станок = await world.grant_item(session, карман, BENCH, quality=60, origin="тест")
+    pocket = await world.body_container(session, body)
+    machine = await world.grant_item(session, pocket, BENCH, quality=60, origin="тест")
 
     with pytest.raises(estate.NoBuilding):
-        await station.place(session, catalog, body, станок)
+        await station.place(session, catalog, body, machine)
 
 
-async def test_станки_занимают_площадь_здания(
+async def test_machines_take_building_area(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Место — `build.slots_per_area` м² на вещь: в тесном доме станки не множатся."""
-    метка = uuid.uuid4().hex[:8]
+    """A place is `build.slots_per_area` m2 per thing: in a cramped house machines do not
+    multiply."""
+    stamp = uuid.uuid4().hex[:8]
     node = await world.create_node(
-        session, f"terra.tiny.{метка}", "Тесный дом", area_m2=100
+        session, f"terra.tiny.{stamp}", "Тесный дом", area_m2=100
     )
-    #: Здание на одно место: второе не влезает.
+    #: A building for one place: a second does not fit.
     session.add(Building(node_id=node.id, area_m2=10))
     await session.flush()
-    identity, body = await _мастер(session, node, "Хозяин")
+    identity, body = await _master(session, node, "Хозяин")
     await world.claim_node(session, body, node)
-    карман = await world.body_container(session, body)
+    pocket = await world.body_container(session, body)
 
-    первый = await world.grant_item(session, карман, BENCH, quality=60, origin="тест")
-    await station.place(session, catalog, body, первый)
+    first = await world.grant_item(session, pocket, BENCH, quality=60, origin="тест")
+    await station.place(session, catalog, body, first)
 
-    второй = await world.grant_item(session, карман, BENCH, quality=60, origin="тест")
+    second = await world.grant_item(session, pocket, BENCH, quality=60, origin="тест")
     with pytest.raises(estate.NoRoom):
-        await station.place(session, catalog, body, второй)
+        await station.place(session, catalog, body, second)
 
 
-async def test_мебель_ставится_как_станок_но_мебелью(
+async def test_furniture_placed_like_machine_but_as_furniture(
     session: AsyncSession, catalog: Catalog
 ) -> None:
-    """Кровать — мебель, а не станок (D-090): ставится в здание тем же путём."""
-    node = await _мастерская(session, сколько_станков=0)
-    _, body = await _мастер(session, node, "Хозяин")
+    """A bed is furniture, not a machine (D-090): placed in a building the same way."""
+    node = await _workshop(session, machine_count=0)
+    _, body = await _master(session, node, "Хозяин")
     await world.claim_node(session, body, node)
-    карман = await world.body_container(session, body)
-    кровать = await world.grant_item(session, карман, "Кровать", quality=60, origin="тест")
+    pocket = await world.body_container(session, body)
+    bed = await world.grant_item(session, pocket, "Кровать", quality=60, origin="тест")
 
     assert station.is_furniture(catalog, "Кровать")
     assert not station.is_station(catalog, "Кровать")
-    await station.place(session, catalog, body, кровать)
-    двор = await world.node_container(session, node)
-    assert кровать.container_id == двор.id
+    await station.place(session, catalog, body, bed)
+    yard = await world.node_container(session, node)
+    assert bed.container_id == yard.id
 
 
-async def test_не_станок_в_узел_не_ставится(
+async def test_non_machine_not_placed_in_node(
     session: AsyncSession, catalog: Catalog
 ) -> None:
-    node = await _мастерская(session, сколько_станков=0)
-    _, body = await _мастер(session, node, "Хозяин")
+    node = await _workshop(session, machine_count=0)
+    _, body = await _master(session, node, "Хозяин")
     await world.claim_node(session, body, node)
-    карман = await world.body_container(session, body)
-    мешок = (
+    pocket = await world.body_container(session, body)
+    sack = (
         await world.grant_item(
-            session, карман, "Дерево", amount=1, quality=60, origin="тест"
+            session, pocket, "Дерево", amount=1, quality=60, origin="тест"
         )
     )
     with pytest.raises(station.NotStation):
-        await station.place(session, catalog, body, мешок)
+        await station.place(session, catalog, body, sack)
 
 
-async def test_занятый_станок_не_уносят(
+async def test_busy_machine_not_carried_away(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Унести станок из-под работающего нельзя — даже свой."""
-    node = await _мастерская(session)
-    _, мастер = await _мастер(session, node, "Мастер")
-    await world.claim_node(session, мастер, node)
-    партия = await craft.start(session, constants, catalog, мастер, MAKE, 1)
+    """A machine cannot be carried out from under a worker -- even your own."""
+    node = await _workshop(session)
+    _, master = await _master(session, node, "Мастер")
+    await world.claim_node(session, master, node)
+    batch = await craft.start(session, constants, catalog, master, MAKE, 1)
 
-    станок = await session.get(Item, партия.station_item_id)
+    machine = await session.get(Item, batch.station_item_id)
     with pytest.raises(station.Busy):
-        await station.take(session, catalog, мастер, станок)
+        await station.take(session, catalog, master, machine)

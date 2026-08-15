@@ -1,15 +1,15 @@
-"""Движок: то, что меняет мир.
+"""The engine: what changes the world.
 
-Правило слоя: любое изменение состояния идёт через функции этого пакета, а не
-через прямые запросы из API. Причина в журнале — событие и его последствия
-обязаны фиксироваться вместе (01-tech-notes).
+The layer rule: any state change goes through this package's functions, not
+through direct queries from the API. The reason is the journal -- an event and
+its consequences must be committed together (01-tech-notes).
 """
 
 from __future__ import annotations
 
-#: Импорт модуля — он же регистрация его обработчиков заданий, поэтому пакет
-#: втягивает их все: обработчик, которого нет, обязан обнаружиться при старте
-#: (`require_handlers`), а не в тике посреди ночи.
+#: Importing a module also registers its job handlers, so the package pulls
+#: them all in: a missing handler must be discovered at startup
+#: (`require_handlers`), not in a tick in the middle of the night.
 from src.engine import (
     bank,
     chat,

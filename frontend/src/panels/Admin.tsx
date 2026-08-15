@@ -1,18 +1,20 @@
 /**
- * Администрация: должности, права, законы, устав, казна, панель (D-154, D-155).
+ * Administration: offices, rights, laws, charter, treasury, panel (D-154, D-155).
  *
- * Панель стоит **в локации, а не в сайдбаре**: власть присутственна. Решение
- * города принимается там, где стоит администрация, — иначе здание становится
- * декорацией, а захват власти вопросом одного нажатия, а не географии (D-155).
+ * The panel stands **in the location, not the sidebar**: authority is
+ * in-person. A city decision is made where the administration stands --
+ * otherwise the building becomes decoration, and seizing power a matter of
+ * one click rather than geography (D-155).
  *
- * Право здесь не выбирается из четырёх крупных. Оно собирается: «министр
- * экономики» — это `law:import_duty`, `law:export_duty` и `dashboard`, и
- * название ему придумывает город, а не движок. Список законов приходит с
- * сервера из вольта, поэтому новый код-закон появится в этом списке сам.
+ * A right here is not chosen from four broad ones. It is assembled: a
+ * "minister of economy" is `law:import_duty`, `law:export_duty` and
+ * `dashboard`, and the city invents the title, not the engine. The law list
+ * comes from the server out of the vault, so a new code-law appears in this list by itself.
  *
- * Экономическая панель читается **удалённо** (D-140) и потому показывается
- * всем, кто зашёл: цифры — общее знание, спорить с властью без них нечем.
- * Казна по статьям — только тем, у кого есть право `dashboard`.
+ * The economic panel is read **remotely** (D-140) and is therefore shown to
+ * everyone who came in: figures are common knowledge, there is nothing to
+ * argue with the authority without them. The treasury by line item -- only to
+ * those with the `dashboard` right.
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -35,37 +37,37 @@ type Props = {
 };
 
 export function Admin({ look, session, busy, act }: Props) {
-  const [город, setГород] = useState<CityView | null>(null);
-  const [панель, setПанель] = useState<CityPanel | null>(null);
-  const [голосования, setГолосования] = useState<CityVote[]>([]);
-  const [дела, setДела] = useState<CourtCase[]>([]);
-  const [санкции, setСанкции] = useState<SanctionKind[]>([]);
-  const [каторги, setКаторги] = useState<{ key: string; name: string }[]>([]);
-  const [правка, setПравка] = useState<Record<string, string>>({});
-  const [кому, setКому] = useState("");
-  const [должность, setДолжность] = useState("Министр экономики");
-  const [права, setПрава] = useState<string[]>(["dashboard"]);
-  const [сумма, setСумма] = useState(0);
-  const [участок, setУчасток] = useState("");
-  const [вид, setВид] = useState<"власть" | "панель">("власть");
+  const [city, setCity] = useState<CityView | null>(null);
+  const [panel, setPanel] = useState<CityPanel | null>(null);
+  const [polls, setPolls] = useState<CityVote[]>([]);
+  const [jobs, setJobs] = useState<CourtCase[]>([]);
+  const [sanctions, setSanctions] = useState<SanctionKind[]>([]);
+  const [penalColonies, setPenalColonies] = useState<{ key: string; name: string }[]>([]);
+  const [edit, setEdit] = useState<Record<string, string>>({});
+  const [toWhom, setToWhom] = useState("");
+  const [post, setPost] = useState("Министр экономики");
+  const [rights, setRights] = useState<string[]>(["dashboard"]);
+  const [amount, setAmount] = useState(0);
+  const [plot, setPlot] = useState("");
+  const [kind, setKind] = useState<"власть" | "панель">("власть");
 
   const reload = useCallback(async () => {
     try {
-      const сводка = await session.send("city.survey");
-      setГород((сводка.city as CityView) ?? null);
-      const срез = await session.send("city.panel");
-      setПанель((срез.panel as CityPanel) ?? null);
-      //: Голосования идут своим сроком и без игроков: их показывают всем, а
-      //: не только власти — на то они и голосования (D-161).
-      const созывы = await session.send("city.votes");
-      setГолосования((созывы.votes as CityVote[]) ?? []);
-      const суд = await session.send("city.cases");
-      setДела((суд.cases as CourtCase[]) ?? []);
-      setСанкции((суд.sanctions as SanctionKind[]) ?? []);
-      setКаторги((суд.prisons as { key: string; name: string }[]) ?? []);
+      const summary = await session.send("city.survey");
+      setCity((summary.city as CityView) ?? null);
+      const snapshot = await session.send("city.panel");
+      setPanel((snapshot.panel as CityPanel) ?? null);
+      //: Polls run by their own term and without players: they are shown to
+      //: everyone, not only the authority -- that is what polls are for (D-161).
+      const convenings = await session.send("city.votes");
+      setPolls((convenings.votes as CityVote[]) ?? []);
+      const court = await session.send("city.cases");
+      setJobs((court.cases as CourtCase[]) ?? []);
+      setSanctions((court.sanctions as SanctionKind[]) ?? []);
+      setPenalColonies((court.prisons as { key: string; name: string }[]) ?? []);
     } catch {
-      setГород(null);
-      setПанель(null);
+      setCity(null);
+      setPanel(null);
     }
   }, [session]);
 
@@ -73,13 +75,13 @@ export function Admin({ look, session, busy, act }: Props) {
     void reload();
   }, [reload, look.node?.key]);
 
-  const го = (what: () => Promise<unknown>) =>
+  const go = (what: () => Promise<unknown>) =>
     act(async () => {
       await what();
       await reload();
     });
 
-  if (!город) {
+  if (!city) {
     return (
       <section>
         <h2>Администрация</h2>
@@ -88,76 +90,76 @@ export function Admin({ look, session, busy, act }: Props) {
     );
   }
 
-  const может = (право: string) =>
-    город.powers.includes(право) ||
-    (право.startsWith(api.LAW_SCOPE) && город.powers.includes("laws"));
-  const решает = город.at_hall;
-  const жители = город.citizens.filter((имя) => имя !== look.identity);
-  const свободные = город.lots.filter((лот) => лот.free);
+  const can = (right: string) =>
+    city.powers.includes(right) ||
+    (right.startsWith(api.LAW_SCOPE) && city.powers.includes("laws"));
+  const decides = city.at_hall;
+  const residents = city.citizens.filter((name) => name !== look.identity);
+  const vacant = city.lots.filter((lot) => lot.free);
 
   return (
     <section>
-      <h2>Администрация · {город.name}</h2>
+      <h2>Администрация · {city.name}</h2>
       <nav className="row tabs">
-        {(["власть", "панель"] as const).map((имя) => (
+        {(["власть", "панель"] as const).map((name) => (
           <button
-            key={имя}
-            className={вид === имя ? "" : "quiet"}
-            onClick={() => setВид(имя)}
+            key={name}
+            className={kind === name ? "" : "quiet"}
+            onClick={() => setKind(name)}
           >
-            {имя}
+            {name}
           </button>
         ))}
       </nav>
 
-      {вид === "панель" ? (
-        <Panel панель={панель} />
+      {kind === "панель" ? (
+        <Panel panel={panel} />
       ) : (
         <>
-        <Court дела={дела} санкции={санкции} каторги={каторги} может={может("justice")} session={session} go={го} busy={busy} />
+        <Court jobs={jobs} sanctions={sanctions} penalColonies={penalColonies} can={can("justice")} session={session} go={go} busy={busy} />
         <Votes
-          голосования={голосования}
-          город={город}
+          polls={polls}
+          city={city}
           session={session}
-          go={го}
+          go={go}
           busy={busy}
         />
         <>
-          <p className="sign">казна {api.tk(город.treasury)} ₭</p>
+          <p className="sign">казна {api.tk(city.treasury)} ₭</p>
           <p className="note">
-            {город.powers.length === 0
+            {city.powers.length === 0
               ? "Вы здесь житель: законы видны, правят их должностные лица."
-              : `Ваши права: ${город.powers.map(имяПрава(город)).join(", ")}.`}
-            {!решает && город.powers.length > 0 && (
+              : `Ваши права: ${city.powers.map(rightName(city)).join(", ")}.`}
+            {!decides && city.powers.length > 0 && (
               <b> Решения принимаются в администрации — придите в неё.</b>
             )}
           </p>
 
           <Word
-            город={город}
-            может={может("citizens") && решает}
+            city={city}
+            can={can("citizens") && decides}
             session={session}
-            go={го}
+            go={go}
             busy={busy}
           />
 
           <h3>Должности</h3>
-          {город.offices.length === 0 ? (
+          {city.offices.length === 0 ? (
             <p className="note">должностей нет</p>
           ) : (
-            город.offices.map((пост) => (
-              <div className="row" key={пост.id}>
+            city.offices.map((office) => (
+              <div className="row" key={office.id}>
                 <span>
-                  <b>{пост.title}</b> · {пост.who}
+                  <b>{office.title}</b> · {office.who}
                   <span className="note">
                     {" "}
-                    · {пост.powers.map(имяПрава(город)).join(", ")}
+                    · {office.powers.map(rightName(city)).join(", ")}
                   </span>
                 </span>
-                {может("offices") && решает && пост.who !== look.identity && (
+                {can("offices") && decides && office.who !== look.identity && (
                   <button
                     className="quiet"
-                    onClick={() => го(() => session.send("city.revoke", { office: пост.id }))}
+                    onClick={() => go(() => session.send("city.revoke", { office: office.id }))}
                     disabled={busy}
                   >
                     Снять
@@ -167,41 +169,41 @@ export function Admin({ look, session, busy, act }: Props) {
             ))
           )}
 
-          {может("offices") && решает && жители.length > 0 && (
+          {can("offices") && decides && residents.length > 0 && (
             <>
               <h3>Создать должность</h3>
               <div className="row">
-                <select value={кому} onChange={(e) => setКому(e.target.value)}>
+                <select value={toWhom} onChange={(e) => setToWhom(e.target.value)}>
                   <option value="">кого назначить</option>
-                  {жители.map((имя) => (
-                    <option key={имя}>{имя}</option>
+                  {residents.map((name) => (
+                    <option key={name}>{name}</option>
                   ))}
                 </select>
                 <input
-                  value={должность}
-                  onChange={(e) => setДолжность(e.target.value)}
+                  value={post}
+                  onChange={(e) => setPost(e.target.value)}
                   title="название придумывает город, движок смотрит в права"
                 />
                 <button
                   onClick={() =>
-                    го(() =>
+                    go(() =>
                       session.send("city.appoint", {
-                        whom: кому,
-                        title: должность,
-                        powers: права,
+                        whom: toWhom,
+                        title: post,
+                        powers: rights,
                       }),
                     )
                   }
-                  disabled={busy || !кому || права.length === 0}
+                  disabled={busy || !toWhom || rights.length === 0}
                 >
                   Назначить
                 </button>
               </div>
               <Scopes
-                город={город}
-                выбрано={права}
-                setВыбрано={setПрава}
-                может={может}
+                city={city}
+                selected={rights}
+                setSelected={setRights}
+                can={can}
               />
             </>
           )}
@@ -209,34 +211,34 @@ export function Admin({ look, session, busy, act }: Props) {
           <h3>Код-законы</h3>
           <table>
             <tbody>
-              {Object.entries(город.laws).map(([ключ, закон]) => {
-                const правлю = может(api.LAW_SCOPE + ключ) && решает;
+              {Object.entries(city.laws).map(([key, law]) => {
+                const editing = can(api.LAW_SCOPE + key) && decides;
                 return (
-                  <tr key={ключ}>
-                    <td title={закон.note ?? ""}>
-                      {закон.name}
-                      {закон.unit && <span className="note"> · {закон.unit}</span>}
+                  <tr key={key}>
+                    <td title={law.note ?? ""}>
+                      {law.name}
+                      {law.unit && <span className="note"> · {law.unit}</span>}
                     </td>
                     <td className="num">
-                      {правлю ? (
+                      {editing ? (
                         <input
-                          value={правка[ключ] ?? закон.value ?? ""}
+                          value={edit[key] ?? law.value ?? ""}
                           onChange={(e) =>
-                            setПравка((было) => ({ ...было, [ключ]: e.target.value }))
+                            setEdit((before) => ({ ...before, [key]: e.target.value }))
                           }
                           size={10}
                         />
                       ) : (
-                        <b>{закон.value ?? "—"}</b>
+                        <b>{law.value ?? "—"}</b>
                       )}
                     </td>
-                    <td className="note">{закон.own ? "решение города" : "умолчание"}</td>
+                    <td className="note">{law.own ? "решение города" : "умолчание"}</td>
                     <td>
-                      {правлю && (правка[ключ] ?? "") !== "" && (
+                      {editing && (edit[key] ?? "") !== "" && (
                         <button
                           onClick={() =>
-                            го(() =>
-                              session.send("city.law", { law: ключ, value: правка[ключ] }),
+                            go(() =>
+                              session.send("city.law", { law: key, value: edit[key] }),
                             )
                           }
                           disabled={busy}
@@ -256,44 +258,44 @@ export function Admin({ look, session, busy, act }: Props) {
           </p>
 
           {(["import_duty", "export_duty"] as const)
-            .filter((ключ) => может(api.LAW_SCOPE + ключ) && решает)
-            .map((ключ) => (
+            .filter((key) => can(api.LAW_SCOPE + key) && decides)
+            .map((key) => (
               <Customs
-                key={ключ}
-                закон={ключ}
-                имя={город.laws[ключ]?.name ?? ключ}
-                значение={город.laws[ключ]?.value ?? null}
-                товары={Object.keys(панель?.goods ?? {})}
+                key={key}
+                law={key}
+                name={city.laws[key]?.name ?? key}
+                value={city.laws[key]?.value ?? null}
+                goods={Object.keys(panel?.goods ?? {})}
                 busy={busy}
-                применить={(значение) =>
-                  го(() => session.send("city.law", { law: ключ, value: значение }))
+                apply={(value) =>
+                  go(() => session.send("city.law", { law: key, value: value }))
                 }
               />
             ))}
 
-          {может("land") && решает && свободные.length > 0 && жители.length > 0 && (
+          {can("land") && decides && vacant.length > 0 && residents.length > 0 && (
             <>
               <h3>Свободные участки</h3>
               <div className="row">
-                <select value={участок} onChange={(e) => setУчасток(e.target.value)}>
+                <select value={plot} onChange={(e) => setPlot(e.target.value)}>
                   <option value="">какой участок</option>
-                  {свободные.map((лот) => (
-                    <option key={лот.key} value={лот.key}>
-                      {лот.name} · {лот.area.toFixed(0)} м²
+                  {vacant.map((lot) => (
+                    <option key={lot.key} value={lot.key}>
+                      {lot.name} · {lot.area.toFixed(0)} м²
                     </option>
                   ))}
                 </select>
-                <select value={кому} onChange={(e) => setКому(e.target.value)}>
+                <select value={toWhom} onChange={(e) => setToWhom(e.target.value)}>
                   <option value="">кому</option>
-                  {жители.map((имя) => (
-                    <option key={имя}>{имя}</option>
+                  {residents.map((name) => (
+                    <option key={name}>{name}</option>
                   ))}
                 </select>
                 <button
                   onClick={() =>
-                    го(() => session.send("city.allot", { node: участок, whom: кому }))
+                    go(() => session.send("city.allot", { node: plot, whom: toWhom }))
                   }
-                  disabled={busy || !участок || !кому}
+                  disabled={busy || !plot || !toWhom}
                 >
                   Выделить
                 </button>
@@ -301,33 +303,33 @@ export function Admin({ look, session, busy, act }: Props) {
             </>
           )}
 
-          {может("treasury") && решает && жители.length > 0 && (
+          {can("treasury") && decides && residents.length > 0 && (
             <>
               <h3>Казна</h3>
               <div className="row">
-                <select value={кому} onChange={(e) => setКому(e.target.value)}>
+                <select value={toWhom} onChange={(e) => setToWhom(e.target.value)}>
                   <option value="">кому</option>
-                  {жители.map((имя) => (
-                    <option key={имя}>{имя}</option>
+                  {residents.map((name) => (
+                    <option key={name}>{name}</option>
                   ))}
                 </select>
                 <input
                   type="number"
                   min={0}
-                  value={сумма}
-                  onChange={(e) => setСумма(Number(e.target.value))}
+                  value={amount}
+                  onChange={(e) => setAmount(Number(e.target.value))}
                 />
                 <button
                   onClick={() =>
-                    го(() =>
+                    go(() =>
                       session.send("city.spend", {
-                        whom: кому,
-                        amount: api.minor(сумма),
+                        whom: toWhom,
+                        amount: api.minor(amount),
                         memo: "выплата",
                       }),
                     )
                   }
-                  disabled={busy || !кому || сумма <= 0}
+                  disabled={busy || !toWhom || amount <= 0}
                 >
                   Заплатить ₭
                 </button>
@@ -338,36 +340,36 @@ export function Admin({ look, session, busy, act }: Props) {
           <h3>Устав</h3>
           <table>
             <tbody>
-              {(город.charter_questions ?? []).map((вопрос) => {
-                const ответ = город.charter[вопрос.id];
-                const вариант = вопрос.options.find((о) => о.id === ответ);
+              {(city.charter_questions ?? []).map((question) => {
+                const answer = city.charter[question.id];
+                const option = question.options.find((o) => o.id === answer);
                 return (
-                  <tr key={вопрос.id}>
+                  <tr key={question.id}>
                     <td className="note">
-                      {вопрос.section} · {вопрос.question}
+                      {question.section} · {question.question}
                     </td>
                     <td>
-                      {может("charter") && решает ? (
+                      {can("charter") && decides ? (
                         <select
-                          value={ответ ?? ""}
+                          value={answer ?? ""}
                           onChange={(e) =>
-                            го(() =>
+                            go(() =>
                               session.send("city.charter", {
-                                question: вопрос.id,
+                                question: question.id,
                                 option: e.target.value,
                               }),
                             )
                           }
                           disabled={busy}
                         >
-                          {вопрос.options.map((о) => (
-                            <option key={о.id} value={о.id}>
-                              {о.label}
+                          {question.options.map((o) => (
+                            <option key={o.id} value={o.id}>
+                              {o.label}
                             </option>
                           ))}
                         </select>
                       ) : (
-                        <b>{вариант?.label ?? ответ ?? "—"}</b>
+                        <b>{option?.label ?? answer ?? "—"}</b>
                       )}
                     </td>
                   </tr>
@@ -387,59 +389,59 @@ export function Admin({ look, session, busy, act }: Props) {
   );
 }
 
-/** Слово города новичку — то, что стоит на карточке двери (D-183).
+/** The city's word to newcomers -- what stands on the door card (D-183).
  *
- * Правит его тот, кто принимает в граждане: объявление это вербовка. Движок
- * написанное не исполняет — обещание здесь обязывает людей, а не код. */
+ * It is edited by whoever admits citizens: the announcement is recruitment.
+ * The engine does not enforce what is written -- the promise here binds people, not code. */
 function Word({
-  город,
-  может,
+  city,
+  can,
   session,
   go,
   busy,
 }: {
-  город: CityView;
-  может: boolean;
+  city: CityView;
+  can: boolean;
   session: Session;
   go: (what: () => Promise<unknown>) => void;
   busy: boolean;
 }) {
-  const [текст, setТекст] = useState<string | null>(null);
-  const набрано = текст ?? город.about;
+  const [text, setText] = useState<string | null>(null);
+  const tally = text ?? city.about;
 
   return (
     <div>
       <h3>Слово городу</h3>
-      {город.about ? (
-        <p className="say">«{город.about}»</p>
+      {city.about ? (
+        <p className="say">«{city.about}»</p>
       ) : (
         <p className="note">город молчит: новичок видит одни числа</p>
       )}
-      {может && (
+      {can && (
         <>
           <div className="row">
             <textarea
               className="word"
-              value={набрано}
+              value={tally}
               maxLength={api.CITY_ABOUT_LIMIT}
               placeholder="чем город зовёт новичка"
-              onChange={(e) => setТекст(e.target.value)}
+              onChange={(e) => setText(e.target.value)}
             />
           </div>
           <div className="row">
             <button
               onClick={() =>
                 go(async () => {
-                  await session.send("city.about", { text: набрано });
-                  setТекст(null);
+                  await session.send("city.about", { text: tally });
+                  setText(null);
                 })
               }
-              disabled={busy || набрано === город.about}
+              disabled={busy || tally === city.about}
             >
               Объявить
             </button>
             <span className="note">
-              {набрано.length} из {api.CITY_ABOUT_LIMIT} знаков · видно всем,
+              {tally.length} из {api.CITY_ABOUT_LIMIT} знаков · видно всем,
               кто выбирает, где напечататься
             </span>
           </div>
@@ -449,53 +451,53 @@ function Word({
   );
 }
 
-/** Пошлина: товар, ставка и беспошлинная норма (D-123).
+/** Duty: goods, rate and duty-free norm (D-123).
  *
- * Ставка без нормы бьёт по всем одинаково, и первым страдает житель с мешком
- * репы. Поэтому строка тут всегда из трёх частей, а не из одной. */
+ * A rate without a norm hits everyone alike, and the first to suffer is the
+ * resident with a sack of turnips. So the row here is always three parts, not one. */
 function Customs({
-  закон,
-  имя,
-  значение,
-  товары,
+  law,
+  name,
+  value,
+  goods,
   busy,
-  применить,
+  apply,
 }: {
-  закон: string;
-  имя: string;
-  значение: string | null;
-  товары: string[];
+  law: string;
+  name: string;
+  value: string | null;
+  goods: string[];
   busy: boolean;
-  применить: (значение: unknown) => void;
+  apply: (value: unknown) => void;
 }) {
-  const разобрано = разобрать(значение);
-  const [товар, setТовар] = useState("");
-  const [ставка, setСтавка] = useState(10);
-  const [норма, setНорма] = useState(30);
+  const parsed = parse(value);
+  const [item, setItem] = useState("");
+  const [rate, setRate] = useState(10);
+  const [norm, setNorm] = useState(30);
 
-  const добавить = () =>
-    применить({ ...разобрано, [товар]: { rate: ставка, free: норма } });
-  const убрать = (какой: string) => {
-    const без = { ...разобрано };
-    delete без[какой];
-    применить(без);
+  const add = () =>
+    apply({ ...parsed, [item]: { rate: rate, free: norm } });
+  const remove = (which: string) => {
+    const without = { ...parsed };
+    delete without[which];
+    apply(without);
   };
 
   return (
     <div>
-      <h3>{имя}</h3>
-      {Object.keys(разобрано).length === 0 ? (
+      <h3>{name}</h3>
+      {Object.keys(parsed).length === 0 ? (
         <p className="note">граница открыта: ставок нет</p>
       ) : (
         <table>
           <tbody>
-            {Object.entries(разобрано).map(([какой, условие]) => (
-              <tr key={какой}>
-                <td>{какой}</td>
-                <td className="num">{условие.rate}%</td>
-                <td className="note">беспошлинно {условие.free} кг в сутки</td>
+            {Object.entries(parsed).map(([which, condition]) => (
+              <tr key={which}>
+                <td>{which}</td>
+                <td className="num">{condition.rate}%</td>
+                <td className="note">беспошлинно {condition.free} кг в сутки</td>
                 <td>
-                  <button className="quiet" onClick={() => убрать(какой)} disabled={busy}>
+                  <button className="quiet" onClick={() => remove(which)} disabled={busy}>
                     Снять
                   </button>
                 </td>
@@ -506,29 +508,29 @@ function Customs({
       )}
       <div className="row">
         <input
-          list={`товары-${закон}`}
+          list={`товары-${law}`}
           placeholder="товар"
-          value={товар}
-          onChange={(e) => setТовар(e.target.value)}
+          value={item}
+          onChange={(e) => setItem(e.target.value)}
         />
-        <datalist id={`товары-${закон}`}>
-          {товары.map((имя) => (
-            <option key={имя} value={имя} />
+        <datalist id={`товары-${law}`}>
+          {goods.map((name) => (
+            <option key={name} value={name} />
           ))}
         </datalist>
         <input
           type="number"
-          value={ставка}
-          onChange={(e) => setСтавка(Number(e.target.value))}
+          value={rate}
+          onChange={(e) => setRate(Number(e.target.value))}
           title="ставка, % от справочной цены"
         />
         <input
           type="number"
-          value={норма}
-          onChange={(e) => setНорма(Number(e.target.value))}
+          value={norm}
+          onChange={(e) => setNorm(Number(e.target.value))}
           title="беспошлинная норма, кг в сутки на человека"
         />
-        <button onClick={добавить} disabled={busy || !товар.trim() || ставка <= 0}>
+        <button onClick={add} disabled={busy || !item.trim() || rate <= 0}>
           Ввести
         </button>
       </div>
@@ -536,13 +538,13 @@ function Customs({
   );
 }
 
-/** Значение закона-карты приходит строкой JSON: разбираем, не падая. */
-function разобрать(значение: string | null): Record<string, { rate: number; free: number }> {
-  if (!значение) return {};
+/** A map-law's value comes as a JSON string: parse without crashing. */
+function parse(value: string | null): Record<string, { rate: number; free: number }> {
+  if (!value) return {};
   try {
-    const разобрано = JSON.parse(значение);
-    if (разобрано && typeof разобрано === "object" && !Array.isArray(разобрано)) {
-      return разобрано as Record<string, { rate: number; free: number }>;
+    const parsed = JSON.parse(value);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed as Record<string, { rate: number; free: number }>;
     }
   } catch {
     //: Старое значение числом — это ставка на всё, и её показывает таблица
@@ -551,51 +553,51 @@ function разобрать(значение: string | null): Record<string, { r
   return {};
 }
 
-/** Набор прав для новой должности: крупные плюс по одному на каждый закон. */
+/** The set of rights for a new office: broad ones plus one per law. */
 function Scopes({
-  город,
-  выбрано,
-  setВыбрано,
-  может,
+  city,
+  selected,
+  setSelected,
+  can,
 }: {
-  город: CityView;
-  выбрано: string[];
-  setВыбрано: (кто: (было: string[]) => string[]) => void;
-  может: (право: string) => boolean;
+  city: CityView;
+  selected: string[];
+  setSelected: (who: (before: string[]) => string[]) => void;
+  can: (right: string) => boolean;
 }) {
-  const переключить = (право: string) =>
-    setВыбрано((было) =>
-      было.includes(право) ? было.filter((п) => п !== право) : [...было, право],
+  const toggle = (right: string) =>
+    setSelected((before) =>
+      before.includes(right) ? before.filter((p) => p !== right) : [...before, right],
     );
 
   return (
     <div>
       <p className="note">Права должности — отдать можно только своё:</p>
       <div className="row">
-        {Object.entries(api.POWERS).map(([ключ, имя]) => (
-          <label className="note" key={ключ} title={может(ключ) ? "" : "нет у вас"}>
+        {Object.entries(api.POWERS).map(([key, name]) => (
+          <label className="note" key={key} title={can(key) ? "" : "нет у вас"}>
             <input
               type="checkbox"
-              checked={выбрано.includes(ключ)}
-              disabled={!может(ключ)}
-              onChange={() => переключить(ключ)}
+              checked={selected.includes(key)}
+              disabled={!can(key)}
+              onChange={() => toggle(key)}
             />{" "}
-            {имя}
+            {name}
           </label>
         ))}
       </div>
       <div className="row">
-        {Object.entries(город.laws).map(([ключ, закон]) => {
-          const право = api.LAW_SCOPE + ключ;
+        {Object.entries(city.laws).map(([key, law]) => {
+          const right = api.LAW_SCOPE + key;
           return (
-            <label className="note" key={ключ} title={закон.note ?? ""}>
+            <label className="note" key={key} title={law.note ?? ""}>
               <input
                 type="checkbox"
-                checked={выбрано.includes(право)}
-                disabled={!может(право)}
-                onChange={() => переключить(право)}
+                checked={selected.includes(right)}
+                disabled={!can(right)}
+                onChange={() => toggle(right)}
               />{" "}
-              {закон.name}
+              {law.name}
             </label>
           );
         })}
@@ -604,10 +606,10 @@ function Scopes({
   );
 }
 
-/** Экономическая панель: публичный срез плюс казна тем, у кого есть право. */
-export function Panel({ панель }: { панель: CityPanel | null }) {
-  if (!панель) return <p className="note">панель недоступна</p>;
-  if (панель.blind) {
+/** The economic panel: the public snapshot plus the treasury for those with the right. */
+export function Panel({ panel }: { panel: CityPanel | null }) {
+  if (!panel) return <p className="note">панель недоступна</p>;
+  if (panel.blind) {
     return (
       <p className="trouble">
         Город слеп: администрация не стоит либо отключена за неуплату. Данные не
@@ -615,82 +617,82 @@ export function Panel({ панель }: { панель: CityPanel | null }) {
       </p>
     );
   }
-  //: Раздел может не прийти: сервер бывает старше клиента, и падать всем
-  //: экраном из-за одной отсутствующей строки сводки панель не вправе.
-  const рынок = панель.market ?? { trades: 0, volume: 0, prices: {} };
-  const люди = панель.people ?? { here: 0, printed: 0 };
-  const энергия = панель.energy ?? {
+  //: A section may not arrive: the server may be older than the client, and
+  //: the panel may not crash the whole screen over one missing summary line.
+  const market = panel.market ?? { trades: 0, volume: 0, prices: {} };
+  const people = panel.people ?? { here: 0, printed: 0 };
+  const energy = panel.energy ?? {
     stored: 0,
     tariff: 0,
     spent_work: 0,
     spent_home: 0,
   };
-  const работа = панель.production ?? { mined: {}, harvested: 0, crafted: {} };
-  const граница = панель.trade ?? {
+  const work = panel.production ?? { mined: {}, harvested: 0, crafted: {} };
+  const border = panel.trade ?? {
     imported: {},
     exported: {},
     trips_in: 0,
     trips_out: 0,
     duty_collected: 0,
   };
-  const цены = Object.entries(рынок.prices ?? {});
-  const товары = Object.entries(панель.goods ?? {})
+  const prices = Object.entries(market.prices ?? {});
+  const goods = Object.entries(panel.goods ?? {})
     .sort((a, b) => b[1] - a[1])
     .slice(0, 12);
 
   return (
     <div>
       <p className="sign">
-        за последние {панель.window_hours} ч · сделок {рынок.trades} · оборот{" "}
-        {рынок.volume.toFixed(2)} ₭
+        за последние {panel.window_hours} ч · сделок {market.trades} · оборот{" "}
+        {market.volume.toFixed(2)} ₭
       </p>
 
       <h3>Люди</h3>
       <p>
-        в городе {люди.here} · напечаталось за период {люди.printed}
+        в городе {people.here} · напечаталось за период {people.printed}
       </p>
 
       <h3>Энергия</h3>
       <p>
-        в пуле {энергия.stored.toFixed(0)} · тариф {энергия.tariff} ₭ за 100 · на работу{" "}
-        {энергия.spent_work.toFixed(0)} · на быт {энергия.spent_home.toFixed(0)}
+        в пуле {energy.stored.toFixed(0)} · тариф {energy.tariff} ₭ за 100 · на работу{" "}
+        {energy.spent_work.toFixed(0)} · на быт {energy.spent_home.toFixed(0)}
       </p>
 
       <h3>Граница</h3>
       <p>
         ввезено{" "}
-        {Object.entries(граница.imported)
-          .map(([имя, кг]) => `${имя} ${кг.toFixed(1)} кг`)
+        {Object.entries(border.imported)
+          .map(([name, kg]) => `${name} ${kg.toFixed(1)} кг`)
           .join(", ") || "—"}{" "}
         · вывезено{" "}
-        {Object.entries(граница.exported)
-          .map(([имя, кг]) => `${имя} ${кг.toFixed(1)} кг`)
+        {Object.entries(border.exported)
+          .map(([name, kg]) => `${name} ${kg.toFixed(1)} кг`)
           .join(", ") || "—"}
       </p>
       <p className="note">
-        ходок: {граница.trips_in} внутрь, {граница.trips_out} наружу · пошлин собрано{" "}
-        {граница.duty_collected.toFixed(2)} ₭
+        ходок: {border.trips_in} внутрь, {border.trips_out} наружу · пошлин собрано{" "}
+        {border.duty_collected.toFixed(2)} ₭
       </p>
 
       <h3>Производство</h3>
       <p>
-        добыто {(работа.mined?.["всего"] ?? 0).toFixed(1)} · убрано{" "}
-        {(работа.harvested ?? 0).toFixed(1)} · выпущено{" "}
-        {Object.entries(работа.crafted ?? {})
-          .map(([имя, сколько]) => `${имя} ${сколько.toFixed(0)}`)
+        добыто {(work.mined?.["всего"] ?? 0).toFixed(1)} · убрано{" "}
+        {(work.harvested ?? 0).toFixed(1)} · выпущено{" "}
+        {Object.entries(work.crafted ?? {})
+          .map(([name, qty]) => `${name} ${qty.toFixed(0)}`)
           .join(", ") || "—"}
       </p>
 
       <h3>Цены</h3>
-      {цены.length === 0 ? (
+      {prices.length === 0 ? (
         <p className="note">сделок за период не было</p>
       ) : (
         <table>
           <tbody>
-            {цены.map(([имя, цена]) => (
-              <tr key={имя}>
-                <td>{имя}</td>
-                <td className="num">{цена.toFixed(2)} ₭</td>
+            {prices.map(([name, price]) => (
+              <tr key={name}>
+                <td>{name}</td>
+                <td className="num">{price.toFixed(2)} ₭</td>
               </tr>
             ))}
           </tbody>
@@ -700,29 +702,29 @@ export function Panel({ панель }: { панель: CityPanel | null }) {
       <h3>Товар в городе</h3>
       <table>
         <tbody>
-          {товары.map(([имя, сколько]) => (
-            <tr key={имя}>
-              <td>{имя}</td>
-              <td className="num">{сколько.toFixed(1)}</td>
+          {goods.map(([name, qty]) => (
+            <tr key={name}>
+              <td>{name}</td>
+              <td className="num">{qty.toFixed(1)}</td>
             </tr>
           ))}
         </tbody>
       </table>
 
-      {панель.treasury ? (
+      {panel.treasury ? (
         <>
           <h3>Казна</h3>
-          <p>остаток {панель.treasury.balance.toFixed(2)} ₭</p>
+          <p>остаток {panel.treasury.balance.toFixed(2)} ₭</p>
           <p className="note">
             собрано:{" "}
-            {Object.entries(панель.treasury.collected)
-              .map(([основание, сколько]) => `${основание} ${сколько.toFixed(2)}`)
+            {Object.entries(panel.treasury.collected)
+              .map(([ground, qty]) => `${ground} ${qty.toFixed(2)}`)
               .join(", ") || "—"}
           </p>
           <p className="note">
             потрачено:{" "}
-            {Object.entries(панель.treasury.spent)
-              .map(([основание, сколько]) => `${основание} ${сколько.toFixed(2)}`)
+            {Object.entries(panel.treasury.spent)
+              .map(([ground, qty]) => `${ground} ${qty.toFixed(2)}`)
               .join(", ") || "—"}
           </p>
         </>
@@ -742,46 +744,46 @@ export function Panel({ панель }: { панель: CityPanel | null }) {
   );
 }
 
-/** Право словами. Точечное показывается именем своего закона. */
-const имяПрава = (город: CityView) => (право: string) => {
-  if (право.startsWith(api.LAW_SCOPE)) {
-    const ключ = право.slice(api.LAW_SCOPE.length);
-    return город.laws[ключ]?.name ?? ключ;
+/** A right in words. A narrow one is shown by its law's name. */
+const rightName = (city: CityView) => (right: string) => {
+  if (right.startsWith(api.LAW_SCOPE)) {
+    const key = right.slice(api.LAW_SCOPE.length);
+    return city.laws[key]?.name ?? key;
   }
-  return api.POWERS[право] ?? право;
+  return api.POWERS[right] ?? right;
 };
 
-/** Идущие голосования: предмет, срок, расклад и свой голос (D-161).
+/** Ongoing polls: subject, deadline, tally and own vote (D-161).
  *
- * Показываются всем, а не только власти: голосование, видимое лишь тому, кто
- * его созвал, — это не процедура, а формальность. Итог применяется сам по
- * сроку, поэтому кнопки «подвести» здесь нет и быть не может.
+ * Shown to everyone, not only the authority: a poll visible only to whoever
+ * convened it is not a procedure but a formality. The result applies itself
+ * on schedule, so there is and cannot be a "tally" button here.
  */
 function Votes({
-  голосования,
-  город,
+  polls,
+  city,
   session,
   go,
   busy,
 }: {
-  голосования: CityVote[];
-  город: CityView;
+  polls: CityVote[];
+  city: CityView;
   session: Session;
   go: (what: () => Promise<unknown>) => Promise<void>;
   busy: boolean;
 }) {
-  //: Созыв показывается только там, где устав его допускает: сменяемость
-  //: власти — тоже решение города, а не свойство движка (D-162).
-  const выборный =
-    город.charter?.ruler_selection === "elected_citizens" ||
-    город.charter?.ruler_selection === "elected_council";
-  const советный = город.charter?.council_exists === "elected";
-  const отзывной =
-    город.charter?.ruler_recall === "by_citizens" ||
-    город.charter?.ruler_recall === "by_council";
-  const идут = (вид: CityVote["kind"]) => голосования.some((г) => г.kind === вид);
-  if (голосования.length === 0 && !выборный && !отзывной && !советный) return null;
-  const порог: Record<string, string> = {
+  //: Convening is shown only where the charter allows it: turnover of power
+  //: is also a city decision, not an engine property (D-162).
+  const elective =
+    city.charter?.ruler_selection === "elected_citizens" ||
+    city.charter?.ruler_selection === "elected_council";
+  const byCouncil = city.charter?.council_exists === "elected";
+  const recallable =
+    city.charter?.ruler_recall === "by_citizens" ||
+    city.charter?.ruler_recall === "by_council";
+  const running = (kind: CityVote["kind"]) => polls.some((g) => g.kind === kind);
+  if (polls.length === 0 && !elective && !recallable && !byCouncil) return null;
+  const threshold: Record<string, string> = {
     simple: "простое большинство",
     two_thirds: "две трети",
     unanimous: "единогласно",
@@ -790,9 +792,9 @@ function Votes({
   return (
     <>
       <h3>Голосования</h3>
-      {(выборный || отзывной || советный) && (
+      {(elective || recallable || byCouncil) && (
         <div className="row">
-          {выборный && !идут("election") && (
+          {elective && !running("election") && (
             <button
               onClick={() => go(() => session.send("city.election"))}
               disabled={busy}
@@ -800,7 +802,7 @@ function Votes({
               Созвать выборы
             </button>
           )}
-          {город.charter?.council_exists === "elected" && !идут("council") && (
+          {city.charter?.council_exists === "elected" && !running("council") && (
             <button
               className="quiet"
               onClick={() => go(() => session.send("city.council_election"))}
@@ -809,7 +811,7 @@ function Votes({
               Выборы в совет
             </button>
           )}
-          {отзывной && !идут("recall") && (
+          {recallable && !running("recall") && (
             <button
               className="quiet"
               onClick={() => go(() => session.send("city.recall"))}
@@ -824,27 +826,27 @@ function Votes({
           </span>
         </div>
       )}
-      {голосования.length > 0 && (
+      {polls.length > 0 && (
       <table>
         <tbody>
-          {голосования.map((созыв) => (
-            <tr key={созыв.id}>
+          {polls.map((convening) => (
+            <tr key={convening.id}>
               <td>
-                {созыв.kind === "election" || созыв.kind === "council" ? (
+                {convening.kind === "election" || convening.kind === "council" ? (
                   <>
-                    {созыв.kind === "council" ? "выборы в совет" : "выборы правителя"}
+                    {convening.kind === "council" ? "выборы в совет" : "выборы правителя"}
                     <span className="note">
                       {" "}
-                      {созыв.candidates.length === 0
+                      {convening.candidates.length === 0
                         ? "· кандидатов нет"
-                        : `· ${созыв.candidates
-                            .map((к) => `${к.name} (${к.votes})`)
+                        : `· ${convening.candidates
+                            .map((k) => `${k.name} (${k.votes})`)
                             .join(", ")}`}
                     </span>
                   </>
-                ) : созыв.kind === "recall" ? (
+                ) : convening.kind === "recall" ? (
                   "отзыв правителя"
-                ) : созыв.kind === "charter" ? (
+                ) : convening.kind === "charter" ? (
                   <>
                     устав
                     <span className="note">
@@ -854,64 +856,64 @@ function Votes({
                   </>
                 ) : (
                   <>
-                    {созыв.law}
-                    <span className="note"> → {String(созыв.value)}</span>
+                    {convening.law}
+                    <span className="note"> → {String(convening.value)}</span>
                   </>
                 )}
               </td>
               <td className="note">
-                {созыв.voters === "council" && "решает совет · "}
-                за {созыв.yes} · против {созыв.no} · из {созыв.electorate} ·{" "}
-                {порог[созыв.threshold] ?? созыв.threshold}
-                {созыв.quorum > 0 && ` · кворум ${созыв.quorum}%`}
+                {convening.voters === "council" && "решает совет · "}
+                за {convening.yes} · против {convening.no} · из {convening.electorate} ·{" "}
+                {threshold[convening.threshold] ?? convening.threshold}
+                {convening.quorum > 0 && ` · кворум ${convening.quorum}%`}
               </td>
-              <td className="note">до {new Date(созыв.closes_at).toLocaleString()}</td>
+              <td className="note">до {new Date(convening.closes_at).toLocaleString()}</td>
               <td>
-                {созыв.kind === "election" || созыв.kind === "council" ? (
+                {convening.kind === "election" || convening.kind === "council" ? (
                   <>
                     <button
                       className="quiet"
                       onClick={() =>
-                        go(() => session.send("city.nominate", { vote: созыв.id }))
+                        go(() => session.send("city.nominate", { vote: convening.id }))
                       }
                       disabled={busy}
                       title="выдвинуться в правители"
                     >
                       Выдвинуться
                     </button>
-                    {созыв.candidates.map((кандидат) => (
+                    {convening.candidates.map((candidate) => (
                       <button
-                        key={кандидат.id}
-                        className={созыв.choice === кандидат.id ? "" : "quiet"}
+                        key={candidate.id}
+                        className={convening.choice === candidate.id ? "" : "quiet"}
                         onClick={() =>
                           go(() =>
                             session.send("city.choose", {
-                              vote: созыв.id,
-                              candidate: кандидат.id,
+                              vote: convening.id,
+                              candidate: candidate.id,
                             }),
                           )
                         }
-                        disabled={busy || !созыв.may_vote}
+                        disabled={busy || !convening.may_vote}
                       >
-                        За {кандидат.name}
+                        За {candidate.name}
                       </button>
                     ))}
                   </>
-                ) : созыв.may_vote ? (
+                ) : convening.may_vote ? (
                   <>
                     <button
-                      className={созыв.mine === true ? "" : "quiet"}
+                      className={convening.mine === true ? "" : "quiet"}
                       onClick={() =>
-                        go(() => session.send("city.vote", { vote: созыв.id, yes: true }))
+                        go(() => session.send("city.vote", { vote: convening.id, yes: true }))
                       }
                       disabled={busy}
                     >
                       За
                     </button>
                     <button
-                      className={созыв.mine === false ? "" : "quiet"}
+                      className={convening.mine === false ? "" : "quiet"}
                       onClick={() =>
-                        go(() => session.send("city.vote", { vote: созыв.id, yes: false }))
+                        go(() => session.send("city.vote", { vote: convening.id, yes: false }))
                       }
                       disabled={busy}
                     >
@@ -935,89 +937,91 @@ function Votes({
   );
 }
 
-/** Суд города: дела и приговоры (D-095, D-117, D-166).
+/** The city court: cases and verdicts (D-095, D-117, D-166).
  *
- * Карточка дела показывает истца, ответчика и суть словами: разбирать её —
- * работа судьи, а не движка. Санкции перечислены из вольта, и неисполнимые
- * помечены честно — приговор без исполнения хуже, чем отказ от приговора.
+ * The case card shows the plaintiff, the defendant and the substance in
+ * words: examining it is the judge's work, not the engine's. Sanctions are
+ * listed from the vault, and unenforceable ones are marked honestly -- a
+ * verdict without enforcement is worse than refusing a verdict.
  */
+
 function Court({
-  дела,
-  санкции,
-  каторги,
-  может,
+  jobs,
+  sanctions,
+  penalColonies,
+  can,
   session,
   go,
   busy,
 }: {
-  дела: CourtCase[];
-  санкции: SanctionKind[];
-  каторги: { key: string; name: string }[];
-  может: boolean;
+  jobs: CourtCase[];
+  sanctions: SanctionKind[];
+  penalColonies: { key: string; name: string }[];
+  can: boolean;
   session: Session;
   go: (what: () => Promise<unknown>) => Promise<void>;
   busy: boolean;
 }) {
-  const [кому, setКому] = useState("");
-  const [суть, setСуть] = useState("");
-  const [санкция, setСанкция] = useState("fine");
-  const [сколько, setСколько] = useState(10);
-  const [каторга, setКаторга] = useState("");
-  const открытые = дела.filter((дело) => дело.state === "open");
-  if (дела.length === 0 && !может) return null;
+  const [toWhom, setToWhom] = useState("");
+  const [essence, setEssence] = useState("");
+  const [sanction, setSanction] = useState("fine");
+  const [qty, setQty] = useState(10);
+  const [penalColony, setPenalColony] = useState("");
+  const open = jobs.filter((job) => job.state === "open");
+  if (jobs.length === 0 && !can) return null;
 
   return (
     <>
       <h3>Суд</h3>
-      {дела.length > 0 && (
+      {jobs.length > 0 && (
         <table>
           <tbody>
-            {дела.slice(0, 8).map((дело) => (
-              <tr key={дело.id}>
+            {jobs.slice(0, 8).map((job) => (
+              <tr key={job.id}>
                 <td>
-                  {дело.plaintiff} → {дело.defendant}
-                  <span className="note"> · {дело.claim}</span>
+                  {job.plaintiff} → {job.defendant}
+                  <span className="note"> · {job.claim}</span>
                 </td>
                 <td className="note">
-                  {дело.state === "open"
+                  {job.state === "open"
                     ? "ждёт суда"
-                    : дело.state === "judged"
-                      ? `приговор: ${дело.verdict}`
-                      : `отказано: ${дело.verdict}`}
+                    : job.state === "judged"
+                      ? `приговор: ${job.verdict}`
+                      : `отказано: ${job.verdict}`}
                 </td>
                 <td>
-                  {может && дело.state === "open" && (
+                  {can && job.state === "open" && (
                     <>
                       <select
-                        value={санкция}
-                        onChange={(e) => setСанкция(e.target.value)}
+                        value={sanction}
+                        onChange={(e) => setSanction(e.target.value)}
                       >
-                        {санкции.map((вид) => (
-                          <option key={вид.id} value={вид.id} disabled={!вид.enforced}>
-                            {вид.name}
-                            {вид.enforced ? "" : " (не исполняется)"}
+                        {sanctions.map((kind) => (
+                          <option key={kind.id} value={kind.id} disabled={!kind.enforced}>
+                            {kind.name}
+                            {kind.enforced ? "" : " (не исполняется)"}
                           </option>
                         ))}
                       </select>
                       <input
                         type="number"
                         min={0}
-                        value={сколько}
-                        onChange={(e) => setСколько(Number(e.target.value))}
+                        value={qty}
+                        onChange={(e) => setQty(Number(e.target.value))}
                         title="сумма штрафа либо срок заключения в сутках"
                       />
                       {/* Куда сажать — решает суд (D-176): каторга одна —
                           очевидно, несколько — судья называет которую. */}
-                      {санкция === "prison" && каторги.length > 1 && (
+                      {sanction === "prison" && penalColonies.length > 1 && (
                         <select
-                          value={каторга}
-                          onChange={(e) => setКаторга(e.target.value)}
+                          value={penalColony}
+                          onChange={(e) => setPenalColony(e.target.value)}
                           title="в какую каторгу отправить"
                         >
                           <option value="">— каторга —</option>
-                          {каторги.map((узел) => (
-                            <option key={узел.key} value={узел.key}>
-                              {узел.name}
+                          {penalColonies.map((node) => (
+                            <option key={node.key} value={node.key}>
+                              {node.name}
                             </option>
                           ))}
                         </select>
@@ -1026,24 +1030,24 @@ function Court({
                         onClick={() =>
                           go(() =>
                             session.send("city.judge", {
-                              case: дело.id,
-                              sanction: санкция,
-                              amount: сколько,
-                              days: сколько,
-                              ...(санкция === "prison" && каторга
-                                ? { prison: каторга }
+                              case: job.id,
+                              sanction: sanction,
+                              amount: qty,
+                              days: qty,
+                              ...(sanction === "prison" && penalColony
+                                ? { prison: penalColony }
                                 : {}),
                             }),
                           )
                         }
-                        disabled={busy || (санкция === "prison" && каторги.length > 1 && !каторга)}
+                        disabled={busy || (sanction === "prison" && penalColonies.length > 1 && !penalColony)}
                       >
                         Приговор
                       </button>
                       <button
                         className="quiet"
                         onClick={() =>
-                          go(() => session.send("city.judge", { case: дело.id }))
+                          go(() => session.send("city.judge", { case: job.id }))
                         }
                         disabled={busy}
                       >
@@ -1059,20 +1063,20 @@ function Court({
       )}
       <div className="row">
         <input
-          value={кому}
-          onChange={(e) => setКому(e.target.value)}
+          value={toWhom}
+          onChange={(e) => setToWhom(e.target.value)}
           placeholder="на кого"
         />
         <input
-          value={суть}
-          onChange={(e) => setСуть(e.target.value)}
+          value={essence}
+          onChange={(e) => setEssence(e.target.value)}
           placeholder="суть жалобы"
         />
         <button
           onClick={() =>
-            go(() => session.send("city.sue", { who: кому, claim: суть }))
+            go(() => session.send("city.sue", { who: toWhom, claim: essence }))
           }
-          disabled={busy || !кому.trim() || !суть.trim()}
+          disabled={busy || !toWhom.trim() || !essence.trim()}
         >
           Подать жалобу
         </button>
@@ -1080,9 +1084,9 @@ function Court({
           Жалоба стоит пошлины в казну города (D-117, D-166).
         </span>
       </div>
-      {открытые.length > 0 && !может && (
+      {open.length > 0 && !can && (
         <p className="note">
-          Дел в очереди: {открытые.length}. Судит тот, кому город дал право суда.
+          Дел в очереди: {open.length}. Судит тот, кому город дал право суда.
         </p>
       )}
     </>

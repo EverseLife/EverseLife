@@ -1,8 +1,9 @@
-"""Поверхность API.
+"""The API surface.
 
-Главная проверка здесь — не что ручки отвечают, а что **действий в API нет**.
-Античит держится не на защите клиента, а на отсутствии удобного REST для
-«сделать удар» (60-meta/01-anti-cheat, 01-tech-notes, паттерн 6).
+The main check here is not that endpoints respond but that **there are no
+actions in the API**. Anti-cheat rests not on protecting the client but on
+the absence of a convenient REST for "make a swing" (60-meta/01-anti-cheat,
+01-tech-notes, pattern 6).
 """
 
 from __future__ import annotations
@@ -19,34 +20,34 @@ def client():
         yield test_client
 
 
-def test_сервер_поднимается_и_знает_свои_числа(client) -> None:
+def test_server_starts_and_knows_its_numbers(client) -> None:
     body = client.get("/health").json()
     assert body["ok"] is True
     assert body["constants"], "отпечаток набора констант обязан быть известен"
 
 
-def test_константы_отдаются_клиенту_целиком(client) -> None:
+def test_constants_served_to_client_whole(client) -> None:
     body = client.get("/public/constants").json()
-    #: Клиент считает прогноз качества теми же числами, что и сервер, — иначе
-    #: прогноз до партии разойдётся с результатом (D-092).
+    #: The client computes the quality forecast by the same numbers as the
+    #: server -- otherwise the forecast before the batch diverges from the result (D-092).
     assert body["values"]["mine.roof_start"]
     assert body["digest"]
 
 
-def test_справочники_доступны(client) -> None:
+def test_catalogs_available(client) -> None:
     recipes = client.get("/public/recipes").json()
     assert recipes["recipes"] and recipes["raw"] and recipes["operations"]
 
     laws = client.get("/public/laws").json()
-    #: Новый город работает на умолчаниях, ничего не заполняя (D-130).
+    #: A new city works on defaults, filling in nothing (D-130).
     assert laws["charter_defaults"] and laws["code_law_defaults"]
 
     plants = client.get("/public/plants").json()
     assert len(plants["plants"]) == 8
 
 
-def test_api_действий_не_существует(client) -> None:
-    """Ни один маршрут не меняет мир. Это ограничение архитектуры, а не настройка."""
+def test_action_api_does_not_exist(client) -> None:
+    """Not one route changes the world. This is an architectural constraint, not a setting."""
     routes = client.app.routes
     mutating = {
         (route.path, method)

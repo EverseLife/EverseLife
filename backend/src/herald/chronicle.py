@@ -1,22 +1,23 @@
-"""Что мир объявляет вслух.
+"""What the world announces aloud.
 
-Список видов событий ниже — **белый**: новое событие молчит, пока его сюда не
-внесли руками. Это не настройка ленты, а решение о приватности, и принимается
-оно по одному правилу: наружу идёт только то, что публично **внутри** игры.
+The list of event kinds below is an **allowlist**: a new event is silent until
+it is added here by hand. This is not a feed setting but a privacy decision,
+and it is made by one rule: only what is public **inside** the game goes out.
 
-Публично в игре: владелец участка виден всякому вошедшему (D-178), карта
-открыта (`/public/map`), устав и код-законы лежат в `/public/laws`, суд и
-выборы происходят при свидетелях, ключевая ставка объявляется вместе с
-объяснением (D-030).
+Public in the game: a plot's owner is visible to anyone who enters (D-178),
+the map is open (`/public/map`), the charter and code-laws lie in
+`/public/laws`, court and elections happen before witnesses, the key rate is
+announced together with an explanation (D-030).
 
-Не публично и сюда не попадёт никогда: деньги и счета, содержимое карманов и
-сундуков, разговоры и кружки (D-043), **порода найденной жилы**. Последнее не
-мелочь: находка — плата разведчику за риск и время, и объявить её всему миру
-значит эту плату у него отобрать. Поэтому в строке о разведке есть узел,
-которого мир и так не скроет, и нет того, что в нём нашли.
+Not public and will never get here: money and accounts, contents of pockets
+and chests, conversations and circles (D-043), **the species of a found
+vein**. The last is no trifle: a find is the scout's pay for risk and time,
+and announcing it to the whole world would take that pay away. So the
+exploration line has the node, which the world will not hide anyway, and not
+what was found in it.
 
-Строки пишутся без глаголов прошедшего времени в мужском роде: пол за именем
-личности не стоит, и угадывать его строкой хроники незачем.
+Lines are written without gendered past-tense verbs: no gender stands behind
+an identity's name, and there is no reason to guess it with a chronicle line.
 """
 
 from __future__ import annotations
@@ -33,22 +34,22 @@ from src.models.vote import Vote, VoteKind
 from src.models.world import Node
 from src.runtime import HERALD_TEXT_LIMIT
 
-#: Знаки разметки Discord. Имена городов и участков придумывают игроки, и
-#: звёздочка в имени не должна превращать половину хроники в курсив.
+#: Discord markup characters. City and plot names are made up by players, and
+#: an asterisk in a name must not turn half the chronicle into italics.
 MARKDOWN = "\\*_~`|>#@"
 
-НЕИЗВЕСТНО = "неизвестно кто"
-НИГДЕ = "где-то"
+UNKNOWN = "неизвестно кто"
+NOWHERE = "где-то"
 
 
 def plain(text: object) -> str:
-    """Чужой текст в строке хроники: без разметки и без длины на весь экран."""
-    строка = str(text or "").strip()[:HERALD_TEXT_LIMIT]
-    return "".join("\\" + знак if знак in MARKDOWN else знак for знак in строка)
+    """Somebody's text in a chronicle line: without markup and without a screen-long length."""
+    line = str(text or "").strip()[:HERALD_TEXT_LIMIT]
+    return "".join("\\" + sign if sign in MARKDOWN else sign for sign in line)
 
 
-def _число(value: object) -> str | None:
-    """Число из полезной нагрузки. Не число — не строка хроники, а молчание."""
+def _number(value: object) -> str | None:
+    """A number from the payload. Not a number -- not a chronicle line but silence."""
     try:
         return f"{float(value):g}"  # type: ignore[arg-type]
     except (TypeError, ValueError):
@@ -56,46 +57,46 @@ def _число(value: object) -> str | None:
 
 
 class Names:
-    """Имена по идентификаторам, с памятью на один проход.
+    """Names by identifiers, with memory for one pass.
 
-    Проход разбирает десятки событий, и половина из них — про один и тот же
-    город. Кэш живёт ровно один проход: имя участка меняется (D-178), и
-    переживать проход этой памяти незачем.
+    A pass processes dozens of events, and half of them are about the same
+    city. The cache lives exactly one pass: a plot's name changes (D-178), and
+    there is no reason for this memory to outlive the pass.
     """
 
     def __init__(self, session: AsyncSession) -> None:
         self._db = session
-        self._помнит: dict[str, str] = {}
+        self._remembers: dict[str, str] = {}
 
     async def identity(self, ident: uuid.UUID | None) -> str:
         if ident is None:
-            return НЕИЗВЕСТНО
-        ключ = f"identity:{ident}"
-        if ключ not in self._помнит:
-            кто = await self._db.get(Identity, ident)
-            self._помнит[ключ] = plain(кто.name) if кто else НЕИЗВЕСТНО
-        return self._помнит[ключ]
+            return UNKNOWN
+        key = f"identity:{ident}"
+        if key not in self._remembers:
+            who = await self._db.get(Identity, ident)
+            self._remembers[key] = plain(who.name) if who else UNKNOWN
+        return self._remembers[key]
 
     async def node(self, node_id: uuid.UUID | None) -> str:
         if node_id is None:
-            return НИГДЕ
-        ключ = f"node:{node_id}"
-        if ключ not in self._помнит:
-            узел = await self._db.get(Node, node_id)
-            self._помнит[ключ] = plain(узел.name) if узел else НИГДЕ
-        return self._помнит[ключ]
+            return NOWHERE
+        key = f"node:{node_id}"
+        if key not in self._remembers:
+            node_row = await self._db.get(Node, node_id)
+            self._remembers[key] = plain(node_row.name) if node_row else NOWHERE
+        return self._remembers[key]
 
     async def city(self, city_id: object) -> str:
         if not city_id:
-            return НИГДЕ
-        ключ = f"city:{city_id}"
-        if ключ not in self._помнит:
+            return NOWHERE
+        key = f"city:{city_id}"
+        if key not in self._remembers:
             try:
-                город = await self._db.get(City, uuid.UUID(str(city_id)))
+                city_row = await self._db.get(City, uuid.UUID(str(city_id)))
             except ValueError:
-                город = None
-            self._помнит[ключ] = plain(город.name) if город else НИГДЕ
-        return self._помнит[ключ]
+                city_row = None
+            self._remembers[key] = plain(city_row.name) if city_row else NOWHERE
+        return self._remembers[key]
 
     async def vote(self, vote_id: object) -> Vote | None:
         if not vote_id:
@@ -106,8 +107,8 @@ class Names:
             return None
 
 
-#: Как называется предмет голосования в ленте. Машина одна, предметы разные.
-ГОЛОСОВАНИЯ = {
+#: What the subject of a vote is called in the feed. One machine, different subjects.
+POLLS = {
     VoteKind.LAW: "голосование по закону",
     VoteKind.ELECTION: "выборы правителя",
     VoteKind.RECALL: "отзыв правителя",
@@ -117,87 +118,88 @@ class Names:
 
 
 async def _city_founded(event: Event, names: Names) -> str | None:
-    имя = plain(event.payload.get("name")) or await names.city(event.payload.get("city_id"))
-    где = await names.node(event.node_id)
-    кто = await names.identity(event.actor_identity_id)
-    return f"🏛 **Основан город {имя}** — {где}. Кто основал: {кто}."
+    name = plain(event.payload.get("name")) or await names.city(event.payload.get("city_id"))
+    where = await names.node(event.node_id)
+    who = await names.identity(event.actor_identity_id)
+    return f"🏛 **Основан город {name}** — {where}. Кто основал: {who}."
 
 
 async def _city_law_set(event: Event, names: Names) -> str | None:
-    город = await names.city(event.payload.get("city_id"))
-    закон = plain(event.payload.get("law")) or "закон"
-    было = plain(event.payload.get("was"))
-    стало = plain(event.payload.get("now"))
-    return f"📐 {город}: код-закон «{закон}» — было {было or '—'}, стало {стало or '—'}."
+    city_row = await names.city(event.payload.get("city_id"))
+    law = plain(event.payload.get("law")) or "закон"
+    before = plain(event.payload.get("was"))
+    after = plain(event.payload.get("now"))
+    return f"📐 {city_row}: код-закон «{law}» — было {before or '—'}, стало {after or '—'}."
 
 
 async def _city_charter_set(event: Event, names: Names) -> str | None:
-    город = await names.city(event.payload.get("city_id"))
-    вопрос = plain(event.payload.get("question")) or "вопрос устава"
-    выбор = plain(event.payload.get("option")) or "—"
-    return f"📜 {город}: устав — «{вопрос}» теперь «{выбор}»."
+    city_row = await names.city(event.payload.get("city_id"))
+    question = plain(event.payload.get("question")) or "вопрос устава"
+    choice = plain(event.payload.get("option")) or "—"
+    return f"📜 {city_row}: устав — «{question}» теперь «{choice}»."
 
 
 async def _vote_closed(event: Event, names: Names) -> str | None:
-    город = await names.city(event.payload.get("city_id"))
-    голосование = await names.vote(event.payload.get("vote_id"))
-    предмет = "голосование" if голосование is None else ГОЛОСОВАНИЯ.get(
-        голосование.kind, "голосование"
+    city_row = await names.city(event.payload.get("city_id"))
+    poll = await names.vote(event.payload.get("vote_id"))
+    subject = "голосование" if poll is None else POLLS.get(
+        poll.kind, "голосование"
     )
-    итог = "прошло" if event.payload.get("passed") else "не прошло"
-    за = plain(event.payload.get("yes"))
-    против = plain(event.payload.get("no"))
-    ценз = plain(event.payload.get("electorate"))
-    return f"🗳 {город}: {предмет} — {итог} (за {за}, против {против}, голосующих {ценз})."
+    result = "прошло" if event.payload.get("passed") else "не прошло"
+    pro = plain(event.payload.get("yes"))
+    contra = plain(event.payload.get("no"))
+    census = plain(event.payload.get("electorate"))
+    return f"🗳 {city_row}: {subject} — {result} (за {pro}, против {contra}, голосующих {census})."
 
 
 async def _council_seated(event: Event, names: Names) -> str | None:
-    город = await names.city(event.payload.get("city_id"))
-    кто = plain(event.payload.get("who")) or await names.identity(event.actor_identity_id)
-    return f"🪑 {город}: место в совете занимает {кто}."
+    city_row = await names.city(event.payload.get("city_id"))
+    who = plain(event.payload.get("who")) or await names.identity(event.actor_identity_id)
+    return f"🪑 {city_row}: место в совете занимает {who}."
 
 
 async def _case_judged(event: Event, names: Names) -> str | None:
-    город = await names.city(event.payload.get("city_id"))
-    судья = await names.identity(event.actor_identity_id)
-    приговор = plain(event.payload.get("verdict"))
-    санкция = plain(event.payload.get("sanction"))
-    строка = f"⚖️ Суд города {город}. Судья: {судья}."
-    if приговор:
-        строка += f" Приговор: «{приговор}»."
-    строка += f" Санкция: {санкция}." if санкция else " Без санкции."
-    return строка
+    city_row = await names.city(event.payload.get("city_id"))
+    judge = await names.identity(event.actor_identity_id)
+    verdict = plain(event.payload.get("verdict"))
+    sanction = plain(event.payload.get("sanction"))
+    line = f"⚖️ Суд города {city_row}. Судья: {judge}."
+    if verdict:
+        line += f" Приговор: «{verdict}»."
+    line += f" Санкция: {sanction}." if sanction else " Без санкции."
+    return line
 
 
 async def _rate_decided(event: Event, names: Names) -> str | None:
-    ставка = _число(event.payload.get("rate"))
-    if ставка is None:
+    rate = _number(event.payload.get("rate"))
+    if rate is None:
         return None
-    было = _число(event.payload.get("was"))
-    чей = ""
+    before = _number(event.payload.get("was"))
+    whose = ""
     if event.payload.get("by_council"):
-        чей = f" (решение совета, {plain(event.payload.get('city'))})"
-    хвост = f" (было {было})" if было is not None else ""
-    почему = plain(event.payload.get("why"))
-    строка = f"🏦 Ключевая ставка{чей}: **{ставка}**{хвост}."
-    return f"{строка} {почему}" if почему else строка
+        whose = f" (решение совета, {plain(event.payload.get('city'))})"
+    tail = f" (было {before})" if before is not None else ""
+    reason = plain(event.payload.get("why"))
+    line = f"🏦 Ключевая ставка{whose}: **{rate}**{tail}."
+    return f"{line} {reason}" if reason else line
 
 
 async def _explore_found(event: Event, names: Names) -> str | None:
-    """Находка разведки — без того, что найдено.
+    """An exploration find -- without what was found.
 
-    Узел мир и так покажет на общей карте, а порода жилы остаётся разведчику.
+    The world will show the node on the common map anyway, and the vein's
+    species stays with the scout.
     """
-    кто = await names.identity(event.actor_identity_id)
-    что = plain(event.payload.get("name")) or await names.node(event.node_id)
-    откуда = plain(event.payload.get("from_node"))
-    место = f" от узла {откуда}" if откуда else ""
-    return f"🧭 Разведка{место}: карта приросла — {что}. Разведчик: {кто}."
+    who = await names.identity(event.actor_identity_id)
+    what = plain(event.payload.get("name")) or await names.node(event.node_id)
+    origin = plain(event.payload.get("from_node"))
+    place = f" от узла {origin}" if origin else ""
+    return f"🧭 Разведка{place}: карта приросла — {what}. Разведчик: {who}."
 
 
 Line = Callable[[Event, Names], Awaitable[str | None]]
 
-#: Белый список. Всё, чего здесь нет, наружу не уходит.
+#: The allowlist. Everything not here does not go out.
 LINES: dict[str, Line] = {
     EventKind.CITY_FOUNDED: _city_founded,
     EventKind.CITY_LAW_SET: _city_law_set,
@@ -213,14 +215,14 @@ PUBLIC = frozenset(str(kind) for kind in LINES)
 
 
 async def compose(session: AsyncSession, events: Sequence[Event]) -> list[str]:
-    """Строки хроники по событиям. Молчаливое событие просто пропускается."""
-    имена = Names(session)
-    готово: list[str] = []
+    """Chronicle lines by events. A silent event is simply skipped."""
+    names = Names(session)
+    ready_: list[str] = []
     for event in events:
-        пишет = LINES.get(str(event.kind))
-        if пишет is None:
+        writes = LINES.get(str(event.kind))
+        if writes is None:
             continue
-        строка = await пишет(event, имена)
-        if строка:
-            готово.append(строка)
-    return готово
+        line = await writes(event, names)
+        if line:
+            ready_.append(line)
+    return ready_

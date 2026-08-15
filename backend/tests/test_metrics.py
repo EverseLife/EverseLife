@@ -1,13 +1,13 @@
-"""Телеметрия и проверки инвариантов (60-meta/04, 30-economy/05).
+"""Telemetry and invariant checks (60-meta/04, 30-economy/05).
 
-Проверяется то, ради чего телеметрия вообще заводится **до** плейтеста:
+Checked is what telemetry is created for at all **before** the playtest:
 
-* деньги целы: сумма всех проводок — ноль, а вся масса выпущена генезисом.
-  Это не метрика, а закон, и он проверяется автоматически;
-* материя считается вся, где бы ни лежала: карман, узел, терминал;
-* суточный срез идемпотентен — повтор тика не плодит вторую строку;
-* там, где вольт не задал коридора, вердикта нет: зелёная галочка на
-  непроверенном хуже отсутствия проверки.
+* money is intact: the sum of all postings is zero, and the whole supply is
+  issued by genesis. That is not a metric but a law, and it is checked automatically;
+* all matter is counted, wherever it lies: pocket, node, terminal;
+* the daily snapshot is idempotent -- a tick repeat does not spawn a second row;
+* where the vault set no corridor, there is no verdict: a green tick on the
+  unchecked is worse than no check.
 """
 
 from __future__ import annotations
@@ -27,157 +27,157 @@ from src.telemetry import metrics
 from src.units import money
 
 
-async def _мир(session: AsyncSession, *, денег: float = 100, руды: float = 30):
-    метка = uuid.uuid4().hex[:8]
-    node = await world.create_node(session, f"terra.m.{метка}", "Узел", area_m2=100)
-    identity = await world.create_identity(session, f"Житель-{метка}")
+async def _world(session: AsyncSession, *, funds: float = 100, ore: float = 30):
+    stamp = uuid.uuid4().hex[:8]
+    node = await world.create_node(session, f"terra.m.{stamp}", "Узел", area_m2=100)
+    identity = await world.create_identity(session, f"Житель-{stamp}")
     body = await world.print_body(session, identity, node)
-    карман = await world.body_container(session, body)
-    if руды:
+    pocket = await world.body_container(session, body)
+    if ore:
         await world.grant_item(
-            session, карман, "Железная руда", amount=руды, quality=60, origin="тест"
+            session, pocket, "Железная руда", amount=ore, quality=60, origin="тест"
         )
-    if денег:
-        счёт = await ledger.account_for(session, AccountKind.IDENTITY, identity.id)
+    if funds:
+        account = await ledger.account_for(session, AccountKind.IDENTITY, identity.id)
         genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
         await ledger.transfer(
-            session, PostingReason.GENESIS, debit=genesis.id, credit=счёт.id,
-            amount=money(денег), memo={},
+            session, PostingReason.GENESIS, debit=genesis.id, credit=account.id,
+            amount=money(funds), memo={},
         )
     return node, identity, body
 
 
-# --- деньги -----------------------------------------------------------------
+# --- money -------------------------------------------------------------------
 
 
-async def test_двойная_запись_цела(
+async def test_double_entry_intact(
     session: AsyncSession, constants: Constants
 ) -> None:
-    """Сумма всех проводок — ноль. Иначе деньги появились или исчезли."""
-    await _мир(session, денег=250)
-    проверки = {п["code"]: п for п in await metrics.invariants(session, constants)}
+    """The sum of all postings is zero. Otherwise money appeared or vanished."""
+    await _world(session, funds=250)
+    checks = {p["code"]: p for p in await metrics.invariants(session, constants)}
 
-    запись = проверки["деньги.двойная-запись"]
-    assert запись["ok"] is True, запись
-    assert запись["value"] == 0
+    entry = checks["деньги.двойная-запись"]
+    assert entry["ok"] is True, entry
+    assert entry["value"] == 0
 
-    эмиссия = проверки["деньги.эмиссия"]
-    assert эмиссия["ok"] is True, "вся масса выпущена генезисом и только им"
+    emission = checks["деньги.эмиссия"]
+    assert emission["ok"] is True, "вся масса выпущена генезисом и только им"
 
 
-async def test_масса_денег_и_распределение(
+async def test_money_supply_and_distribution(
     session: AsyncSession, constants: Constants
 ) -> None:
-    """Медиана и Джини считаются по счетам личностей."""
-    await _мир(session, денег=100, руды=0)
-    await _мир(session, денег=300, руды=0)
+    """Median and Gini are computed over identity accounts."""
+    await _world(session, funds=100, ore=0)
+    await _world(session, funds=300, ore=0)
 
-    срез = await metrics.collect(session, constants)
-    assert срез["money.total"] >= 400
-    assert срез["money.median"] > 0
-    assert 0 <= срез["money.gini"] <= 1
+    snapshot = await metrics.collect(session, constants)
+    assert snapshot["money.total"] >= 400
+    assert snapshot["money.median"] > 0
+    assert 0 <= snapshot["money.gini"] <= 1
 
 
-def test_джини_у_равных_ноль_а_у_одного_владельца_близок_к_единице() -> None:
-    """Мера неравенства, а не решение о том, каким ему быть."""
+def test_gini_zero_for_equals_and_near_one_for_single_owner() -> None:
+    """A measure of inequality, not a decision about what it should be."""
     assert metrics.gini([100, 100, 100]) == pytest.approx(0, abs=0.01)
     assert metrics.gini([0, 0, 300]) > 0.6
     assert metrics.gini([]) == 0
 
 
-# --- материя ----------------------------------------------------------------
+# --- matter ------------------------------------------------------------------
 
 
-async def test_запас_считается_везде_где_лежит(
+async def test_stock_counted_wherever_it_lies(
     session: AsyncSession, constants: Constants
 ) -> None:
-    """Материя есть материя: карман, узел и терминал считаются вместе."""
-    node, _, body = await _мир(session, руды=10)
-    двор = await world.node_container(session, node)
-    await world.grant_item(session, двор, "Железная руда", amount=5, quality=50, origin="тест")
+    """Matter is matter: pocket, node and terminal are counted together."""
+    node, _, body = await _world(session, ore=10)
+    yard = await world.node_container(session, node)
+    await world.grant_item(session, yard, "Железная руда", amount=5, quality=50, origin="тест")
 
-    остатки = await metrics.stock(session)
-    assert остатки["Железная руда"] >= 15
-
-
-# --- суточный срез ----------------------------------------------------------
+    remainders = await metrics.stock(session)
+    assert remainders["Железная руда"] >= 15
 
 
-async def test_срез_идемпотентен_за_сутки(
+# --- daily snapshot ----------------------------------------------------------
+
+
+async def test_snapshot_idempotent_per_day(
     session: AsyncSession, constants: Constants
 ) -> None:
-    """Повтор суточного тика после сбоя не плодит вторую строку."""
-    await _мир(session, денег=50)
-    момент = datetime.now(UTC)
+    """A daily tick repeat after a failure does not spawn a second row."""
+    await _world(session, funds=50)
+    moment = datetime.now(UTC)
 
-    сколько = await metrics.store(session, constants, now=момент)
-    assert сколько > 0
-    строк = await session.scalar(
+    qty = await metrics.store(session, constants, now=moment)
+    assert qty > 0
+    line_count = await session.scalar(
         select(func.count()).select_from(DailyMetric).where(
-            DailyMetric.day == момент.date()
+            DailyMetric.day == moment.date()
         )
     )
 
-    await metrics.store(session, constants, now=момент)
-    снова = await session.scalar(
+    await metrics.store(session, constants, now=moment)
+    again = await session.scalar(
         select(func.count()).select_from(DailyMetric).where(
-            DailyMetric.day == момент.date()
+            DailyMetric.day == moment.date()
         )
     )
-    assert снова == строк, "второй строки за те же сутки не появилось"
+    assert again == line_count, "второй строки за те же сутки не появилось"
 
 
-async def test_история_помнит_вчера(
+async def test_history_remembers_yesterday(
     session: AsyncSession, constants: Constants
 ) -> None:
-    """Проверка «растёт две недели подряд» требует памяти, а не выборки."""
-    await _мир(session, руды=10)
-    сегодня = datetime.now(UTC)
-    вчера = сегодня - timedelta(days=1)
+    """The check "grows two weeks in a row" needs memory, not a query."""
+    await _world(session, ore=10)
+    today = datetime.now(UTC)
+    yesterday = today - timedelta(days=1)
 
-    await metrics.store(session, constants, now=вчера)
+    await metrics.store(session, constants, now=yesterday)
     await world.grant_item(
         session,
         await world.node_container(
-            session, (await _мир(session, денег=0, руды=0))[0]
+            session, (await _world(session, funds=0, ore=0))[0]
         ),
         "Железная руда", amount=90, quality=50, origin="тест",
     )
-    await metrics.store(session, constants, now=сегодня)
+    await metrics.store(session, constants, now=today)
 
-    ряд = await metrics.history(session, "stock.Железная руда", days=5)
-    assert len(ряд) == 2
-    assert ряд[1][1] > ряд[0][1], "рост запаса виден в истории"
-
-
-# --- честность проверок -----------------------------------------------------
+    row = await metrics.history(session, "stock.Железная руда", days=5)
+    assert len(row) == 2
+    assert row[1][1] > row[0][1], "рост запаса виден в истории"
 
 
-async def test_у_непроверяемого_нет_вердикта(
+# --- honesty of checks -------------------------------------------------------
+
+
+async def test_unverifiable_has_no_verdict(
     session: AsyncSession, constants: Constants
 ) -> None:
-    """Инварианты без своих систем названы поимённо и без зелёной галочки."""
-    проверки = {п["code"]: п for п in await metrics.invariants(session, constants)}
+    """Invariants without their systems are named by name and without a green tick."""
+    checks = {p["code"]: p for p in await metrics.invariants(session, constants)}
 
-    for код in ("И2", "И4", "И5", "И9", "И12"):
-        assert код in проверки, f"{код} обязан быть виден как непроверяемый"
-        assert проверки[код]["ok"] is None
-        assert "ждёт" in проверки[код]["corridor"]
+    for code in ("И2", "И4", "И5", "И9", "И12"):
+        assert code in checks, f"{code} обязан быть виден как непроверяемый"
+        assert checks[code]["ok"] is None
+        assert "ждёт" in checks[code]["corridor"]
 
 
-async def test_и1_показывает_рост_без_выдуманного_порога(
+async def test_i1_shows_growth_without_invented_threshold(
     session: AsyncSession, constants: Constants
 ) -> None:
-    """Порога роста вольт не задал — движок его не выдумывает (D-065)."""
-    node, _, _ = await _мир(session, руды=10)
-    сегодня = datetime.now(UTC)
-    await metrics.store(session, constants, now=сегодня - timedelta(days=1))
-    двор = await world.node_container(session, node)
-    await world.grant_item(session, двор, "Железная руда", amount=100, quality=50, origin="тест")
-    await metrics.store(session, constants, now=сегодня)
+    """The vault set no growth threshold -- the engine does not invent one (D-065)."""
+    node, _, _ = await _world(session, ore=10)
+    today = datetime.now(UTC)
+    await metrics.store(session, constants, now=today - timedelta(days=1))
+    yard = await world.node_container(session, node)
+    await world.grant_item(session, yard, "Железная руда", amount=100, quality=50, origin="тест")
+    await metrics.store(session, constants, now=today)
 
-    проверки = {п["code"]: п for п in await metrics.invariants(session, constants)}
-    запас = проверки.get("И1.запас.Железная руда")
-    assert запас is not None
-    assert запас["ok"] is None, "вердикта нет: порог не задан вольтом"
-    assert запас["value"] > 0, "рост измерен и показан"
+    checks = {p["code"]: p for p in await metrics.invariants(session, constants)}
+    stock = checks.get("И1.запас.Железная руда")
+    assert stock is not None
+    assert stock["ok"] is None, "вердикта нет: порог не задан вольтом"
+    assert stock["value"] > 0, "рост измерен и показан"

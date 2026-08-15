@@ -1,10 +1,11 @@
 /**
- * Кабинет аккаунта (D-187): открывается из шапки, где раньше стояло голое имя.
+ * The account panel (D-187): opens from the header, where the bare name used to stand.
  *
- * Здесь **ничего игрового**: аккаунт — оплата и устройство, личность — игра.
- * Меняются фамилия, возраст, описание, пароль, почта; имя — никогда (D-011).
- * Выход отзывает жетон сессии.
+ * **Nothing game-related** here: the account is payment and device, the
+ * identity is the game. Surname, age, description, password, email change;
+ * the name -- never (D-011). Logout revokes the session token.
  */
+
 
 import { type FormEvent, useState } from "react";
 import type { Profile, Session } from "../api";
@@ -73,8 +74,8 @@ export function Account({ profile, session, busy, act, onClose, onLogout }: Prop
     });
   };
 
-  const линия = profile.line === "human" ? "человек-киборг" : "нимфа";
-  const с = new Date(profile.since);
+  const line = profile.line === "human" ? "человек-киборг" : "нимфа";
+  const s = new Date(profile.since);
 
   return (
     <div className="veil" role="dialog" aria-modal="true" aria-label="Аккаунт">
@@ -85,9 +86,9 @@ export function Account({ profile, session, busy, act, onClose, onLogout }: Prop
             {profile.surname ? ` ${profile.surname}` : ""}
           </h2>
           <span className="note">
-            {линия}
+            {line}
             {profile.age !== null ? ` · ${profile.age}` : ""} · в мире с{" "}
-            {с.toLocaleDateString("ru-RU")}
+            {s.toLocaleDateString("ru-RU")}
           </span>
           <button className="quiet" onClick={onClose} title="закрыть" aria-label="закрыть">
             ×

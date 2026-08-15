@@ -1,22 +1,23 @@
-"""Сессия клиента — единственное место, где игрок действует.
+"""Client session -- the only place where a player acts.
 
-Античит держится не на защите клиента, а на том, что **API действий не
-существует** (60-meta/01-anti-cheat). Присутственное действие идёт только
-отсюда и только после платы устройства (D-110).
+Anti-cheat rests not on protecting the client but on the fact that **there is
+no action API** (60-meta/01-anti-cheat). An in-person action goes only from
+here and only after the device fee (D-110).
 
-Протокол намеренно скучный: JSON поверх WebSocket, одна команда — один ответ.
-Ответ на любую команду добычи — `Sight`, то есть ровно то, что игрок видит.
-Устойчивости свода там нет: она не «скрыта в интерфейсе», её не существует
-в ответе вовсе.
+The protocol is deliberately boring: JSON over WebSocket, one command -- one
+reply. The reply to any mining command is a `Sight`, i.e. exactly what the
+player sees. Roof stability is not there: it is not "hidden in the UI", it
+simply does not exist in the reply.
 
-Крафт живёт здесь по той же причине, хотя партия и идёт офлайн: **запуск** —
-присутственное действие, и удобного REST для него не будет никогда. Прогноз
-(`craft.plan`) и запуск (`craft.start`) разбирают заявку одним и тем же кодом —
-иначе игрок видел бы одно число, а получал другое (D-092).
+Craft lives here for the same reason, even though the batch runs offline:
+**starting** is an in-person action and there will never be a convenient REST
+for it. The forecast (`craft.plan`) and the start (`craft.start`) parse the
+request with the same code -- otherwise the player would see one number and
+get another (D-092).
 
-**Опознание аккаунта — почта и пароль** (D-187): `hello` принимает либо их,
-либо жетон, выданный прежним входом. Подписка (Э7, D-027) привяжется к тому же
-аккаунту.
+**Account identification is email and password** (D-187): `hello` accepts
+either those or a token issued by a previous login. The subscription (E7,
+D-027) will bind to the same account.
 """
 
 from __future__ import annotations
@@ -90,11 +91,11 @@ from src.units import amount_float, money_str
 
 log = logging.getLogger(__name__)
 
-router = APIRouter(tags=["сессия"])
+router = APIRouter(tags=["session"])
 
 
 class Refused(Exception):
-    """Команда отклонена по правилам игры. Это не ошибка сервера."""
+    """Command refused by the game rules. This is not a server error."""
 
 
 @router.websocket("/session/ws")
@@ -163,9 +164,10 @@ async def play(socket: WebSocket) -> None:
                 answer = {"refused": str(refusal)}
             await socket.send_json(answer)
     except WebSocketDisconnect:
-        #: Уход игрока не закрывает сессию добычи: она живёт до «уйти» либо
-        #: до обрушения. Добытое лежит в забое и ждёт решения.
-        log.info("сессия отключилась, личность %s", state.get("identity_id"))
+        #: The player leaving does not close the mining session: it lives until
+        #: "leave" or until a collapse. What was mined lies in the face and
+        #: waits for a decision.
+        log.info("session disconnected, identity %s", state.get("identity_id"))
 
 
 async def _dispatch(state: dict[str, Any], message: dict[str, Any]) -> dict[str, Any]:
@@ -176,7 +178,7 @@ async def _dispatch(state: dict[str, Any], message: dict[str, Any]) -> dict[str,
     async with session_factory()() as db, db.begin():
         if command == "hello":
             return await _hello(state, db, message)
-        #: Новый игрок — до опознания: опознавать ещё некого.
+        #: New player -- before identification: nobody to identify yet.
         if command == "join":
             return await _join(state, db, message)
 
@@ -191,19 +193,19 @@ async def _dispatch(state: dict[str, Any], message: dict[str, Any]) -> dict[str,
 
 
 async def _hello(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Опознание: почта и пароль либо жетон прежнего входа (D-187).
+    """Identification: email and password, or the token of a previous login (D-187).
 
-    Пароль вводится один раз: в ответ уходит жетон, и переподключение сокета
-    или обновление страницы опознаются им. Жетон живёт `LOGIN_TOKEN_TTL` и
-    отзывается выходом из кабинета.
+    The password is entered once: a token goes back, and reconnecting the socket
+    or refreshing the page is identified by it. The token lives `LOGIN_TOKEN_TTL`
+    and is revoked by logging out of the account panel.
     """
     token = message.get("token")
     if token:
         account = await accounts.by_token(db, token)
-        выдан = str(token)
+        issued = str(token)
     else:
         account = await accounts.login(db, message.get("email"), message.get("password"))
-        выдан = await accounts.issue_token(db, account)
+        issued = await accounts.issue_token(db, account)
 
     identity = (
         await db.execute(select(Identity).where(Identity.account_id == account.id))
@@ -212,13 +214,13 @@ async def _hello(state: dict, db: AsyncSession, message: dict) -> dict:
         raise Refused("у аккаунта нет личности: регистрация не завершена")
 
     state["identity_id"] = identity.id
-    state["token"] = выдан
+    state["token"] = issued
     body = await _body(db, identity.id)
     return {
         "hello": identity.name,
-        "token": выдан,
-        #: Клиент считает плату устройства сам, а в оценку входит его аккаунт
-        #: (D-112).
+        "token": issued,
+        #: The client computes the device fee itself, and its account is part
+        #: of the estimate (D-112).
         "account": str(identity.account_id),
         "body": None if body is None else str(body.id),
         "node": None if body is None else str(body.node_id),
@@ -227,20 +229,21 @@ async def _hello(state: dict, db: AsyncSession, message: dict) -> dict:
 
 
 async def _join(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Регистрация: аккаунт, личность и первое тело у выбранной двери (D-187).
+    """Registration: account, identity and first body at the chosen door (D-187).
 
-    Клиент ведёт игрока четырьмя шагами — почта и пароль, линия, персонаж,
-    дверь, — но серверу они приходят одной командой: половины аккаунта не
-    бывает. Всё проверяется до первой записи, и отказ на любом поле оставляет
-    базу нетронутой.
+    The client walks the player through four steps -- email and password, line,
+    character, door -- but the server receives them as one command: there is no
+    half-account. Everything is checked before the first write, and a refusal on
+    any field leaves the database untouched.
 
-    **Где печататься — решает игрок** (D-013, D-182): дверь называется ключом
-    узла из `/public/doors`. Без неё печатаем у первого попавшегося принтера —
-    так входят старые клиенты, а не так задуман вход.
+    **Where to print is the player's decision** (D-013, D-182): the door is named
+    by a node key from `/public/doors`. Without it we print at the first printer
+    we find -- that is how old clients enter, not how entry is meant to work.
 
-    На счету **ноль**: мир денег не выдаёт (D-153). Если город, где стоит
-    биопринтер, решил платить подъёмные, они придут из его казны — и это будет
-    видно в ответе. Ноль в ответе тоже честный: город беден или не платит.
+    The balance is **zero**: the world hands out no money (D-153). If the city
+    where the bioprinter stands decided to pay a settlement grant, it comes from
+    its treasury -- and that is visible in the reply. A zero in the reply is
+    honest too: the city is poor or does not pay.
     """
     email = accounts.normalize_email(message.get("email"))
     password = accounts.check_password(message.get("password"))
@@ -252,29 +255,29 @@ async def _join(state: dict, db: AsyncSession, message: dict) -> dict:
     name = accounts.check_name(message.get("name"))
     profile = accounts.check_profile(message)
 
-    ключ = str(message.get("node") or "").strip()
-    if ключ:
-        где = await world.door(db, ключ)
-        if где is None:
-            raise Refused(f"у двери {ключ!r} не печатают")
+    key = str(message.get("node") or "").strip()
+    if key:
+        where = await world.door(db, key)
+        if where is None:
+            raise Refused(f"у двери {key!r} не печатают")
     else:
-        где = await world.spawn_point(db)
-    if где is None:
+        where = await world.spawn_point(db)
+    if where is None:
         raise Refused("мир ещё не создан: печататься негде")
     try:
         identity, body = await world.spawn(
-            db, name, где, email=email, password=password, line=line, profile=profile
+            db, name, where, email=email, password=password, line=line, profile=profile
         )
     except ValueError as refusal:
         raise Refused(str(refusal)) from refusal
 
     account = await accounts.account_of(db, identity)
-    выдан = await accounts.issue_token(db, account)
+    issued = await accounts.issue_token(db, account)
     state["identity_id"] = identity.id
-    state["token"] = выдан
+    state["token"] = issued
     return {
         "hello": identity.name,
-        "token": выдан,
+        "token": issued,
         "account": str(identity.account_id),
         "body": str(body.id),
         "node": str(body.node_id),
@@ -284,14 +287,14 @@ async def _join(state: dict, db: AsyncSession, message: dict) -> dict:
 
 
 async def _account_profile(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Кабинет: что аккаунт знает о себе (D-187)."""
+    """Account panel: what the account knows about itself (D-187)."""
     identity = await _identity(state, db)
     account = await accounts.account_of(db, identity)
     return {"profile": accounts.profile(account, identity)}
 
 
 async def _account_update(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Сменить фамилию, возраст, описание. Имя не меняется (D-011)."""
+    """Change surname, age, description. The name does not change (D-011)."""
     identity = await _identity(state, db)
     accounts.apply_profile(identity, accounts.check_profile(message))
     await db.flush()
@@ -300,35 +303,35 @@ async def _account_update(state: dict, db: AsyncSession, message: dict) -> dict:
 
 
 async def _account_password(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Сменить пароль: старый обязателен, все прежние сессии отзываются, а этой
-    выдаётся новый жетон."""
+    """Change password: the old one is required, all previous sessions are
+    revoked, and this one gets a new token."""
     identity = await _identity(state, db)
     account = await accounts.account_of(db, identity)
     if not accounts.verify_password(account, str(message.get("old") or "")):
         raise Refused("старый пароль не подходит")
-    новый = accounts.check_password(message.get("new"))
-    if message.get("new_again") is not None and message["new_again"] != новый:
+    new = accounts.check_password(message.get("new"))
+    if message.get("new_again") is not None and message["new_again"] != new:
         raise Refused("пароли не совпадают")
-    account.password_hash = accounts.hash_password(новый)
+    account.password_hash = accounts.hash_password(new)
     await accounts.revoke_all(db, account)
-    выдан = await accounts.issue_token(db, account)
-    state["token"] = выдан
-    return {"token": выдан}
+    issued = await accounts.issue_token(db, account)
+    state["token"] = issued
+    return {"token": issued}
 
 
 async def _account_email(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Сменить почту: подтверждается паролем."""
+    """Change email: confirmed by password."""
     identity = await _identity(state, db)
     account = await accounts.account_of(db, identity)
-    пароль = str(message.get("password") or "")
-    if not accounts.verify_password(account, пароль):
+    password = str(message.get("password") or "")
+    if not accounts.verify_password(account, password):
         raise Refused("пароль не подходит")
-    await accounts.set_credentials(db, account, str(message.get("email") or ""), пароль)
+    await accounts.set_credentials(db, account, str(message.get("email") or ""), password)
     return {"profile": accounts.profile(account, identity)}
 
 
 async def _account_logout(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Выход: жетон этой сессии отзывается, сокет забывает личность."""
+    """Logout: this session's token is revoked, the socket forgets the identity."""
     await accounts.revoke_token(db, message.get("token") or state.get("token"))
     state["identity_id"] = None
     state["token"] = None
@@ -336,11 +339,11 @@ async def _account_logout(state: dict, db: AsyncSession, message: dict) -> dict:
 
 
 async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Что игрок видит о себе: тело, карман, счёт, дела, свои ордера.
+    """What the player sees about themselves: body, pocket, account, jobs, own orders.
 
-    Личное идёт только сюда. Публичное чтение (`/public/*`) — про цены и
-    справочники, и своего кармана там нет и не будет: цены знают все, а что у
-    кого в мешке — нет.
+    Personal data goes only here. Public reads (`/public/*`) are about prices and
+    catalogs; your own pocket is not there and never will be: everyone knows the
+    prices, but not what is in whose sack.
     """
     identity = await _identity(state, db)
     body = await _body(db, identity.id)
@@ -348,22 +351,22 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
 
     seen: dict[str, Any] = {
         "identity": identity.name,
-        #: Кабинет в шапке клиента (D-187): самоописание рядом с именем.
+        #: Account panel in the client header (D-187): self-description next to the name.
         "profile": accounts.profile(await accounts.account_of(db, identity), identity),
         "money": await _money(db, identity.id),
         "knows": await _knowledge(db, identity.id),
-        #: Взятая агротехника — отдельным списком: клиент показывает в
-        #: Библиотеке, какие культуры уже изучены, и не даёт брать дважды.
+        #: Learned agrotech as a separate list: the client shows in the Library
+        #: which crops are already studied and does not let you take them twice.
         "agrotech": await _knowledge(db, identity.id, kind=KnowledgeKind.AGROTECH),
         "orders": await _orders(db, identity.id),
         "reservations": await _reservations(db, identity.id),
         "batches": await _batches(db, identity.id),
     }
     if body is None:
-        #: Тела нет — личность в облаке (D-012). Она по-прежнему распоряжается
-        #: счётом и ордерами, но ничего не делает руками, поэтому наружу идёт
-        #: единственное, что сейчас имеет смысл: где напечататься и почём.
-        идёт = await death.pending(db, identity.id)
+        #: No body -- the identity is in the cloud (D-012). It still controls the
+        #: account and orders but does nothing by hand, so the only thing that
+        #: makes sense right now goes out: where to print and for how much.
+        ongoing = await death.pending(db, identity.id)
         return {
             "look": seen
             | {
@@ -372,13 +375,13 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
                 "inventory": [],
                 "printers": await death.printers(db, constants, identity.id),
                 "printing": (
-                    None if идёт is None else {"ready_at": идёт.run_at.isoformat()}
+                    None if ongoing is None else {"ready_at": ongoing.run_at.isoformat()}
                 ),
             }
         }
 
     node = await db.get(Node, body.node_id)
-    идёт = await travel.current(db, body)
+    ongoing = await travel.current(db, body)
     seen["body"] = {
         "id": str(body.id),
         "stamina": float(body.stamina),
@@ -391,208 +394,210 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
         ),
     }
 
-    #: В пути тело нигде: узел показывается тот, откуда вышли, но всё
-    #: присутственное закрыто, и клиент обязан это видеть (D-107).
+    #: In transit the body is nowhere: the node shown is the one it left from,
+    #: but everything in-person is closed, and the client must see that (D-107).
     seen["travel"] = None
-    if идёт is not None:
-        цель = await db.get(Node, идёт.to_node_id)
-        откуда = await db.get(Node, идёт.from_node_id)
+    if ongoing is not None:
+        goal = await db.get(Node, ongoing.to_node_id)
+        origin = await db.get(Node, ongoing.from_node_id)
         seen["travel"] = {
-            "to": цель.name if цель else "?",
-            "to_key": цель.key if цель else "",
-            "from_key": откуда.key if откуда else "",
-            "started_at": идёт.started_at.isoformat(),
-            "arrives_at": идёт.arrives_at.isoformat(),
+            "to": goal.name if goal else "?",
+            "to_key": goal.key if goal else "",
+            "from_key": origin.key if origin else "",
+            "started_at": ongoing.started_at.isoformat(),
+            "arrives_at": ongoing.arrives_at.isoformat(),
         }
-        #: Автопуть (D-045): показываем конечную цель и сколько узлов впереди —
-        #: идущий обязан понимать, куда его несёт и как долго ещё.
-        if идёт.plan:
-            финал = await db.get(Node, uuid.UUID(идёт.plan[-1]))
-            seen["travel"]["final"] = финал.name if финал else "?"
-            seen["travel"]["final_key"] = финал.key if финал else ""
-            seen["travel"]["legs_left"] = len(идёт.plan)
+        #: Autopath (D-045): show the final goal and how many nodes are ahead --
+        #: the traveller must understand where they are going and for how long.
+        if ongoing.plan:
+            final = await db.get(Node, uuid.UUID(ongoing.plan[-1]))
+            seen["travel"]["final"] = final.name if final else "?"
+            seen["travel"]["final_key"] = final.key if final else ""
+            seen["travel"]["legs_left"] = len(ongoing.plan)
 
-    хозяин = (
+    owner = (
         None
         if node.owner_identity_id is None
         else await db.get(Identity, node.owner_identity_id)
     )
-    станции = await _stations(db, node)
+    stations = await _stations(db, node)
     seen["node"] = {
         "key": node.key,
         "name": node.name,
         "layer": node.layer.value,
-        #: Библиотека — станок (D-176); свойство узла — наследие старых миров.
+        #: The library is a machine (D-176); the node property is a legacy of old worlds.
         "library": await world.is_library(db, node),
-        #: Что в узле есть — по этому клиент решает, какие сцены показывать.
-        "stations": станции,
-        #: Свойства-признаки места («лес», «выход»): по ним клиент показывает
-        #: добычу места (D-177) и прочие окна, привязанные к земле, а не к станку.
+        #: What the node has -- the client decides from this which scenes to show.
+        "stations": stations,
+        #: Place-sign properties ("forest", "outcrop"): the client shows place
+        #: extraction (D-177) and other windows tied to the land, not to a machine.
         "features": sorted(
-            имя for имя, значение in (node.properties or {}).items()
-            if значение is True
+            name for name, value in (node.properties or {}).items()
+            if value is True
         ),
-        #: Плодородие — свойство места (D-126): по нему видна сцена делянок.
+        #: Fertility is a place property (D-126): the plots scene is shown by it.
         "fertility": float(node.properties.get("плодородие", 0) or 0),
-        #: Чей участок: хозяйство ведёт владелец, чужое — по договору (D-116).
-        #: Владение — публичный факт: вошедший видит хозяина, кем бы тот ни
-        #: был, человеком или городом (D-178).
-        "owner": None if хозяин is None else хозяин.name,
+        #: Whose plot: the holder runs the estate, others by contract (D-116).
+        #: Ownership is a public fact: whoever enters sees the owner, whoever it
+        #: is, a person or a city (D-178).
+        "owner": None if owner is None else owner.name,
         "owner_city": (
             None if node.owner_city_id is None
             else getattr(await town.by_id(db, node.owner_city_id), "name", None)
         ),
         "mine": node.owner_identity_id == identity.id,
         "city": node.owner_city_id is not None,
-        #: Вправе ли смотрящий дать участку имя (D-178).
+        #: Whether the viewer may name the plot (D-178).
         "may_name": await estate.may_name(db, body, node),
-        #: Дикий и ничей: такой узел занимают присутственно (06-farming, D-152).
+        #: Wild and unowned: such a node is taken in person (06-farming, D-152).
         "wild": node.owner_identity_id is None and node.owner_city_id is None,
-        #: Отключён за неуплату: станки не работают, и игрок обязан это видеть
-        #: сразу, иначе счётчик превращается в ловушку (D-149).
+        #: Disconnected for non-payment: machines do not work, and the player
+        #: must see that at once, otherwise the meter becomes a trap (D-149).
         "cut_off": await utility.cut_off(db, node),
         "area": float(node.area_m2),
     }
-    #: Здание и вместимость: станок занимает площадь (D-106), и игрок обязан
-    #: видеть, сколько мест осталось, до того как понесёт станок через полгорода.
-    всего_мест, занято_мест = await estate.slots(db, constants, node)
+    #: Building and capacity: a machine takes area (D-106), and the player must
+    #: see how many places are left before carrying a machine across town.
+    total_seats, taken_seats = await estate.slots(db, constants, node)
     seen["node"]["building"] = {
         "area": await estate.built_area(db, node),
-        "slots": всего_мест,
-        "used": занято_мест,
+        "slots": total_seats,
+        "used": taken_seats,
     }
-    #: Пустой городской участок продаётся: цену назначает город от удалённости
-    #: до биопринтера (D-089). Игрок обязан видеть её до выкупа. Застройка и
-    #: жилы города не продаются — у них цены нет вовсе.
+    #: An empty civic plot is for sale: the city sets the price by distance to
+    #: the bioprinter (D-089). The player must see it before buying. Buildings
+    #: and city veins are not for sale -- they have no price at all.
     seen["node"]["price"] = None
     if (
         node.owner_identity_id is None
         and node.owner_city_id is not None
         and await estate.is_vacant(db, constants, node)
     ):
-        город_участка = await town.by_id(db, node.owner_city_id)
-        if город_участка is not None:
+        plot_city = await town.by_id(db, node.owner_city_id)
+        if plot_city is not None:
             try:
                 seen["node"]["price"] = await estate.price_of(
-                    db, constants, current_catalog(), город_участка, node
+                    db, constants, current_catalog(), plot_city, node
                 )
             except estate.NotForSale:
                 seen["node"]["price"] = None
-    #: Город, на территории которого стоим, и свои полномочия в нём: по ним
-    #: клиент решает, показывать ли администрацию (D-154).
-    город = await town.of_node(db, node)
+    #: The city whose territory we stand on, and our own powers in it: the client
+    #: decides from these whether to show the administration (D-154).
+    city = await town.of_node(db, node)
     seen["city"] = None
-    if город is not None:
+    if city is not None:
         seen["city"] = {
-            "id": str(город.id),
-            "name": город.name,
-            "node": (await db.get(Node, город.node_id)).key,
-            #: Права строками: крупные и точечные вперемешку (D-155).
-            "powers": sorted(await town.powers_of(db, identity.id, город)),
-            #: Управление присутственно: клиент показывает его только в
-            #: администрации, а не в сайдбаре (D-155).
-            "hall": town.HALL in станции,
-            #: Гражданство (D-160): своё состояние в этом городе и порядок
-            #: приёма. Клиент по ним решает, что показывать — «вступить»,
-            #: «заявка подана» или «выйти».
-            "citizen": await town.is_citizen(db, identity.id, город),
-            "admission": town.admission(город),
-            "requested": await town.request_of(db, identity.id, город) is not None,
+            "id": str(city.id),
+            "name": city.name,
+            "node": (await db.get(Node, city.node_id)).key,
+            #: Rights as strings: broad and narrow ones mixed (D-155).
+            "powers": sorted(await town.powers_of(db, identity.id, city)),
+            #: Governing is in-person: the client shows it only in the
+            #: administration, not in the sidebar (D-155).
+            "hall": town.HALL in stations,
+            #: Citizenship (D-160): own status in this city and the admission
+            #: order. The client decides from these what to show -- "join",
+            #: "application submitted" or "leave".
+            "citizen": await town.is_citizen(db, identity.id, city),
+            "admission": town.admission(city),
+            "requested": await town.request_of(db, identity.id, city) is not None,
         }
-    #: Где состоит личность вообще: гражданство одно, и видно оно отовсюду —
-    #: это запись о человеке, а не о месте.
-    своё = await town.citizenship(db, identity.id)
+    #: Where the identity belongs at all: citizenship is one and visible from
+    #: everywhere -- it is a record about the person, not the place.
+    own_ = await town.citizenship(db, identity.id)
     seen["citizenship"] = None
-    if своё is not None:
-        родной = await town.by_id(db, своё.city_id)
+    if own_ is not None:
+        native = await town.by_id(db, own_.city_id)
         seen["citizenship"] = {
-            "city": None if родной is None else родной.name,
-            "since": своё.since.isoformat(),
+            "city": None if native is None else native.name,
+            "since": own_.since.isoformat(),
             "leaving_at": (
-                None if своё.leaving_at is None else своё.leaving_at.isoformat()
+                None if own_.leaving_at is None else own_.leaving_at.isoformat()
             ),
-            #: Обязательство, принятое условием печати (D-184): до этого срока
-            #: гражданство не складывается. Показывать его обязаны заранее —
-            #: человек не должен узнавать о сроке из отказа.
+            #: An obligation accepted as a print condition (D-184): citizenship
+            #: does not lapse before this date. It must be shown in advance --
+            #: the person must not learn about the term from a refusal.
             "bound_until": (
-                None if своё.bound_until is None else своё.bound_until.isoformat()
+                None if own_.bound_until is None else own_.bound_until.isoformat()
             ),
         }
-    #: Основание города (D-023, D-159): показывается только там, где оно вообще
-    #: возможно — на своём узле планеты вне чужого города. Список недостающего
-    #: обязан быть виден заранее: порог входа — постройки, и человек должен
-    #: понимать, каких именно ему не хватает, а не упираться в отказ.
+    #: Founding a city (D-023, D-159): shown only where it is possible at all --
+    #: on your own planet node outside a foreign city. The list of what is
+    #: missing must be visible in advance: the entry threshold is buildings, and
+    #: the person must understand which ones exactly they lack, not hit a refusal.
     seen["foundation"] = None
     if (
-        город is None
+        city is None
         and node.layer is Layer.PLANET
         and node.owner_identity_id == identity.id
     ):
         seen["foundation"] = {
             "missing": list(await town.missing_for_foundation(db, node)),
             "needs": [
-                {"role": роль, "any_of": list(чем)}
-                for роль, чем in town.foundation_needs()
+                {"role": role, "any_of": list(with_what)}
+                for role, with_what in town.foundation_needs()
             ],
         }
-    #: Идущий заход разведки: карта прирастает ногами, и ждать приходится
-    #: по-настоящему (D-152).
-    заход = await explore.pending(db, body)
-    seen["survey"] = None if заход is None else {"returns_at": заход.run_at.isoformat()}
+    #: An ongoing exploration run: the map grows on foot, and the wait is
+    #: real (D-152).
+    run = await explore.pending(db, body)
+    seen["survey"] = None if run is None else {"returns_at": run.run_at.isoformat()}
 
     seen["exits"] = [
         {
-            "key": путь.key,
-            "name": путь.name,
-            "surface": путь.surface.value,
-            "seconds": round(путь.seconds),
-            #: Цена дороги телом (D-147): игрок обязан видеть её до выхода.
-            #: Три знака, а не два: шаг по городу стоит тысячных, и округление
-            #: до сотых показало бы ноль там, где цена есть.
+            "key": path.key,
+            "name": path.name,
+            "surface": path.surface.value,
+            "seconds": round(path.seconds),
+            #: Road cost to the body (D-147): the player must see it before
+            #: leaving. Three decimals, not two: a step across town costs
+            #: thousandths, and rounding to hundredths would show zero where a
+            #: price exists.
             "stamina": round(
                 travel.stamina_cost(
-                    constants, путь.seconds,
+                    constants, path.seconds,
                     transport=await travel.has_transport(db, body),
                 ),
                 3,
             ),
         }
-        for путь in await travel.exits(db, constants, node)
+        for path in await travel.exits(db, constants, node)
     ]
-    #: Что стоит в узле и кем занято: станок отдаётся одному (D-150).
+    #: What stands in the node and who occupies it: a machine is given to one (D-150).
     seen["bench"] = await _bench(db, node, body)
-    #: Мебель отдельно от станков: за ней не работают, она обустраивает быт,
-    #: и клиент показывает её своим окном.
+    #: Furniture apart from machines: nobody works at it, it furnishes the
+    #: household, and the client shows it in its own window.
     seen["furniture"] = await _bench(db, node, body, furniture=True)
-    #: Хранилища узла и что в них лежит (D-181). Содержимое видно только тому,
-    #: кто вправе распоряжаться узлом: чужой сундук не просматривают, как не
-    #: открывают, — вскрыть его дело суда (D-166).
+    #: Node storages and what lies in them (D-181). Contents are visible only to
+    #: whoever may dispose of the node: a foreign chest is not inspected, just as
+    #: it is not opened -- breaking it open is a matter for the court (D-166).
     seen["storages"] = await _storages(db, constants, node, body)
-    #: Свои ценные бумаги и бумаги, выставленные на продажу: электронные
-    #: документы живут в Сети и видны отовсюду (D-116).
+    #: Own deeds and deeds listed for sale: electronic documents live in the
+    #: Net and are visible from everywhere (D-116).
     seen["deeds"] = await _deeds(db, identity.id)
     seen["inventory"] = await _things(db, constants, await world.body_container(db, body))
     seen["stall"] = await _things(db, constants, await market.stall(db, node, identity.id))
-    #: Носимое: сколько несёт, сколько может и что надето (D-146). Предел —
-    #: причина существования повозок, и игрок обязан видеть его числом.
-    надето = await gear.equipped(db, body)
+    #: Carried load: how much is carried, how much can be, and what is worn
+    #: (D-146). The limit is why wagons exist, and the player must see it as a number.
+    worn = await gear.equipped(db, body)
     seen["carry"] = {
         "load": round(await gear.load_of(db, current_catalog(), body), 2),
         "capacity": round(await gear.capacity(db, constants, current_catalog(), body), 2),
         "slots": list(current_catalog().recipes.gear_slots),
         "equipped": {
-            слот: {"id": str(вещь.id), "goods": вещь.type_key}
-            for слот, вещь in надето.items()
+            slot: {"id": str(thing.id), "goods": thing.type_key}
+            for slot, thing in worn.items()
         },
     }
-    #: Обоз: во что впряжён, что везёт и сколько ещё влезет (D-157). Предел рук
-    #: без этого — тупик: игрок обязан видеть, чем его обходят.
+    #: Convoy: what we are harnessed to, what it carries and how much still fits
+    #: (D-157). Without this the hands limit is a dead end: the player must see
+    #: what gets around it.
     seen["convoy"] = await transport.view(db, constants, current_catalog(), body)
-    #: Что стоит в узле из транспорта: впрягаются в то, что рядом.
+    #: Vehicles standing in the node: you harness to what is nearby.
     seen["vehicles"] = await _vehicles(db, constants, node)
-    #: Открытый забой переживает уход игрока: сессия живёт до «уйти» либо до
-    #: обрушения. Клиент, вернувшись, обязан увидеть её на месте.
-    открытая = (
+    #: An open face survives the player leaving: the session lives until "leave"
+    #: or until a collapse. The client, on return, must see it in place.
+    open_ = (
         await db.execute(
             select(MiningSession).where(
                 MiningSession.body_id == body.id,
@@ -601,15 +606,15 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
         )
     ).scalars().first()
     seen["mining"] = (
-        None if открытая is None
-        else _sight(открытая, await mining.sight(db, constants, открытая))
+        None if open_ is None
+        else _sight(open_, await mining.sight(db, constants, open_))
     )
-    #: Каторжный забой видит только тот, кого держит тюрьма (D-174, D-176):
-    #: постороннему жилы тюрьмы не показываются, как и тюремный принтер.
-    забой_скрыт = await justice.is_prison(db, node) and not await justice.held(
+    #: The penal face is seen only by whoever the prison holds (D-174, D-176):
+    #: prison veins are not shown to outsiders, nor is the prison printer.
+    face_hidden = await justice.is_prison(db, node) and not await justice.held(
         db, constants, identity.id
     )
-    seen["veins"] = [] if забой_скрыт else [
+    seen["veins"] = [] if face_hidden else [
         {"id": str(vein.id), "resource": vein.resource, "richness": float(vein.richness)}
         for vein in (
             await db.execute(select(Vein).where(Vein.node_id == node.id))
@@ -619,7 +624,7 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
 
 
 async def _challenge(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Выдать задачу платы устройства. Клиент считает её в Web Worker."""
+    """Issue a device-fee challenge. The client computes it in a Web Worker."""
     identity = await db.get(Identity, state["identity_id"])
     if identity is None:  # pragma: no cover
         raise Refused("личность исчезла")
@@ -628,7 +633,7 @@ async def _challenge(state: dict, db: AsyncSession, message: dict) -> dict:
 
 
 async def _mine_start(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Открыть забой. Без оплаченной задачи сессия не начинается."""
+    """Open a face. Without a paid challenge the session does not start."""
     constants = current()
     body = await _body(db, state["identity_id"])
     if body is None:
@@ -680,7 +685,7 @@ async def _mine_leave(state: dict, db: AsyncSession, message: dict) -> dict:
 
 
 async def _craft_plan(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Прогноз до партии. Ничего не тратит и ничего не резервирует (D-092)."""
+    """Forecast before a batch. Spends nothing and reserves nothing (D-092)."""
     body = await _alive(state, db)
     output, units, extra = _craft_request(message)
     plan = await craft.plan(db, current(), current_catalog(), body, output, units, **extra)
@@ -688,7 +693,7 @@ async def _craft_plan(state: dict, db: AsyncSession, message: dict) -> dict:
 
 
 async def _craft_start(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Запустить партию. Дальше она идёт сама, в том числе пока игрок офлайн."""
+    """Start a batch. From then on it runs by itself, including while the player is offline."""
     body = await _alive(state, db)
     output, units, extra = _craft_request(message)
     batch = await craft.start(db, current(), current_catalog(), body, output, units, **extra)
@@ -701,7 +706,7 @@ async def _craft_start(state: dict, db: AsyncSession, message: dict) -> dict:
 
 
 async def _craft_repair(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Починить вещь: состояние вернётся, потолок опустится (15-quality)."""
+    """Repair a thing: condition comes back, the ceiling drops (15-quality)."""
     body = await _alive(state, db)
     item = await _own_item(db, body, message["item"])
     batch = await craft.repair(db, current(), current_catalog(), body, item)
@@ -709,7 +714,7 @@ async def _craft_repair(state: dict, db: AsyncSession, message: dict) -> dict:
 
 
 async def _craft_recycle(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Разобрать вещь на часть материалов. Возврат всегда меньше вложенного."""
+    """Take a thing apart for part of the materials. The return is always less than invested."""
     body = await _alive(state, db)
     item = await _own_item(db, body, message["item"])
     batch = await craft.recycle(db, current(), current_catalog(), body, item)
@@ -717,7 +722,7 @@ async def _craft_recycle(state: dict, db: AsyncSession, message: dict) -> dict:
 
 
 async def _library_copy(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Взять рецепт в Библиотеке: бесплатно, без условий, но только придя (D-053)."""
+    """Take a recipe in the Library: free, unconditional, but only in person (D-053)."""
     body = await _alive(state, db)
     key = message["recipe"]
     await craft.copy_recipe(db, current_catalog(), body, key)
@@ -725,7 +730,7 @@ async def _library_copy(state: dict, db: AsyncSession, message: dict) -> dict:
 
 
 async def _land_claim(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Занять участок: присутственно, в диком узле (06-farming)."""
+    """Take a plot: in person, in a wild node (06-farming)."""
     body = await _alive(state, db)
     node = await db.get(Node, body.node_id)
     if node is None:  # pragma: no cover
@@ -738,9 +743,9 @@ async def _land_claim(state: dict, db: AsyncSession, message: dict) -> dict:
 
 
 async def _land_buy(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Выкупить пустой городской участок: цена от удалённости до биопринтера.
+    """Buy an empty civic plot: the price depends on the distance to the bioprinter.
 
-    Выручка в казну города, покупателю — ценная бумага (D-089, D-116).
+    Proceeds go to the city treasury, the buyer gets a deed (D-089, D-116).
     """
     body = await _alive(state, db)
     node = await db.get(Node, body.node_id)
@@ -756,7 +761,7 @@ async def _land_buy(state: dict, db: AsyncSession, message: dict) -> dict:
 
 
 async def _land_rename(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Дать участку имя. Присутственно и только тому, кто им распоряжается."""
+    """Name a plot. In person and only by whoever disposes of it."""
     body = await _alive(state, db)
     node = await db.get(Node, body.node_id)
     if node is None:  # pragma: no cover
@@ -769,7 +774,7 @@ async def _land_rename(state: dict, db: AsyncSession, message: dict) -> dict:
 
 
 async def _build_construct(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Построить здание на своём участке. Материалы сразу, здание по сроку."""
+    """Build a building on your own plot. Materials at once, the building on schedule."""
     body = await _alive(state, db)
     node = await db.get(Node, body.node_id)
     if node is None:  # pragma: no cover
@@ -779,20 +784,20 @@ async def _build_construct(state: dict, db: AsyncSession, message: dict) -> dict
 
 
 async def _deed_offer(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Выставить свою бумагу на продажу: всем либо адресно. Удалённое."""
+    """List your deed for sale: to everyone or to a named buyer. Remote."""
     identity = await _identity(state, db)
     deed = await _deed(db, message)
-    кому = message.get("to")
+    to_whom = message.get("to")
     await estate.offer_deed(
         db, identity, deed,
         int(message.get("price") or 0),
-        to=None if not кому else await _identity_by_name(db, str(кому)),
+        to=None if not to_whom else await _identity_by_name(db, str(to_whom)),
     )
     return {"offered": str(deed.id), "price": deed.sale_price}
 
 
 async def _deed_buy(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Купить выставленную бумагу: деньги продавцу, титул покупателю. Удалённое."""
+    """Buy a listed deed: money to the seller, title to the buyer. Remote."""
     identity = await _identity(state, db)
     deed = await _deed(db, message)
     await estate.buy_deed(db, identity, deed)
@@ -800,7 +805,7 @@ async def _deed_buy(state: dict, db: AsyncSession, message: dict) -> dict:
 
 
 async def _deed_market(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Бумаги, которые можно купить: открытые и адресованные этой личности."""
+    """Deeds that can be bought: open ones and those addressed to this identity."""
     rows = await estate.deeds_on_sale(db, state["identity_id"])
     return {"deeds": [await _deed_view(db, deed) for deed in rows]}
 
@@ -816,8 +821,8 @@ async def _deed(db: AsyncSession, message: dict):
 
 async def _deed_view(db: AsyncSession, deed) -> dict[str, Any]:
     node = await db.get(Node, deed.node_id)
-    владелец = await db.get(Identity, deed.owner_identity_id)
-    кому = (
+    holder = await db.get(Identity, deed.owner_identity_id)
+    to_whom = (
         None
         if deed.sale_to_identity_id is None
         else await db.get(Identity, deed.sale_to_identity_id)
@@ -827,16 +832,16 @@ async def _deed_view(db: AsyncSession, deed) -> dict[str, Any]:
         "node": None if node is None else node.key,
         "name": None if node is None else node.name,
         "area": None if node is None else float(node.area_m2),
-        "owner": None if владелец is None else владелец.name,
+        "owner": None if holder is None else holder.name,
         "paid": deed.paid,
         "sale_price": deed.sale_price,
-        "sale_to": None if кому is None else кому.name,
+        "sale_to": None if to_whom is None else to_whom.name,
         "issued_at": deed.issued_at.isoformat(),
     }
 
 
 async def _deeds(db: AsyncSession, identity_id: uuid.UUID) -> list[dict[str, Any]]:
-    """Свои бумаги — для вкладки «хозяйство» сайдбара (D-116)."""
+    """Own deeds -- for the sidebar's "holdings" tab (D-116)."""
     return [
         await _deed_view(db, deed) for deed in await estate.deeds_of(db, identity_id)
     ]
@@ -859,7 +864,7 @@ async def _farm_plow(state: dict, db: AsyncSession, message: dict) -> dict:
 
 
 async def _farm_sow(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Посеять семенами сорта: у партии есть и сорт, и своя сила (D-057)."""
+    """Sow with seeds of a cultivar: the batch has both a cultivar and its own strength (D-057)."""
     body = await _alive(state, db)
     seeds = await _own_item(db, body, message["seeds"])
     plot = await farm.sow(
@@ -879,7 +884,7 @@ async def _farm_care(state: dict, db: AsyncSession, message: dict) -> dict:
 
 
 async def _farm_harvest(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Убрать урожай. С отбором фонд держит силу, без — вырождается (D-067)."""
+    """Harvest. With selection the fund keeps its strength, without it degrades (D-067)."""
     body = await _alive(state, db)
     got = await farm.harvest(
         db, current(), current_catalog(), body, await _plot(db, message),
@@ -889,54 +894,55 @@ async def _farm_harvest(state: dict, db: AsyncSession, message: dict) -> dict:
 
 
 async def _breed_cross(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Скрестить два сорта в питомнике: результат — через полный цикл."""
+    """Cross two cultivars in the nursery: the result comes after a full cycle."""
     body = await _alive(state, db)
-    один = await _own_item(db, body, message["a"])
-    другой = await _own_item(db, body, message["b"])
-    питомник = await breed.cross(db, current(), current_catalog(), body, один, другой)
-    return {"nursery": str(питомник.id), "ready_at": питомник.ready_at.isoformat()}
+    one = await _own_item(db, body, message["a"])
+    other = await _own_item(db, body, message["b"])
+    nursery = await breed.cross(db, current(), current_catalog(), body, one, other)
+    return {"nursery": str(nursery.id), "ready_at": nursery.ready_at.isoformat()}
 
 
 async def _breed_gather(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Забрать всходы. Пусто — сорт вышел слишком похожим и не взошёл (D-067)."""
+    """Collect the seedlings. Empty means the cultivar was too similar and did not sprout
+    (D-067)."""
     body = await _alive(state, db)
-    питомник = await db.get(Nursery, uuid.UUID(message["nursery"]))
-    if питомник is None:
+    nursery = await db.get(Nursery, uuid.UUID(message["nursery"]))
+    if nursery is None:
         raise Refused("нет такого питомника")
-    сорт = await breed.gather_cross(db, current(), current_catalog(), body, питомник)
-    if сорт is None:
+    cultivar = await breed.gather_cross(db, current(), current_catalog(), body, nursery)
+    if cultivar is None:
         return {"sprouted": False}
-    return {"sprouted": True, "variety": str(сорт.id), "traits": сорт.traits}
+    return {"sprouted": True, "variety": str(cultivar.id), "traits": cultivar.traits}
 
 
 async def _breed_name(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Назвать выведенный сорт: имя автора закрепляется за ним навсегда."""
+    """Name a bred cultivar: the author's name is attached to it forever."""
     body = await _alive(state, db)
-    сорт = await db.get(Variety, uuid.UUID(message["variety"]))
-    if сорт is None:
+    cultivar = await db.get(Variety, uuid.UUID(message["variety"]))
+    if cultivar is None:
         raise Refused("нет такого сорта")
-    сорт = await breed.name_variety(db, body, сорт, str(message["name"]))
-    return {"variety": str(сорт.id), "name": сорт.name}
+    cultivar = await breed.name_variety(db, body, cultivar, str(message["name"]))
+    return {"variety": str(cultivar.id), "name": cultivar.name}
 
 
 async def _breed_agrotech(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Взять агротехнику базовой культуры в Библиотеке: бесплатно, но ногами."""
+    """Take the agrotech of a base crop in the Library: free, but on foot."""
     body = await _alive(state, db)
-    знание = await breed.copy_agrotech(
+    knowledge = await breed.copy_agrotech(
         db, current_catalog(), body, str(message["culture"])
     )
-    return {"learned": знание is not None, "culture": message["culture"]}
+    return {"learned": knowledge is not None, "culture": message["culture"]}
 
 
 async def _breed_varieties(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Свои сорта и идущие скрещивания. Удалённое: смотреть можно откуда угодно."""
+    """Own cultivars and ongoing crossings. Remote: can be viewed from anywhere."""
     body = await _body(db, state["identity_id"])
-    сорта = (
+    cultivars = (
         await db.execute(
             select(Variety).where(Variety.author_identity_id == state["identity_id"])
         )
     ).scalars().all()
-    питомники = (
+    nurseries = (
         await db.execute(
             select(Nursery).where(
                 Nursery.body_id == (body.id if body else None),
@@ -947,17 +953,17 @@ async def _breed_varieties(state: dict, db: AsyncSession, message: dict) -> dict
     return {
         "varieties": [
             {
-                "id": str(с.id),
-                "name": с.name,
-                "culture": с.culture_id,
-                "stable": с.stable,
-                "generation": с.generation,
-                "traits": с.traits,
+                "id": str(src.id),
+                "name": src.name,
+                "culture": src.culture_id,
+                "stable": src.stable,
+                "generation": src.generation,
+                "traits": src.traits,
             }
-            for с in сорта
+            for src in cultivars
         ],
         "nurseries": [
-            {"id": str(п.id), "ready_at": п.ready_at.isoformat()} for п in питомники
+            {"id": str(p.id), "ready_at": p.ready_at.isoformat()} for p in nurseries
         ],
     }
 
@@ -973,7 +979,7 @@ async def _farm_split(state: dict, db: AsyncSession, message: dict) -> dict:
 
 
 async def _farm_survey(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Сводка хозяйства. Удалённое: читается хоть с дороги (D-118)."""
+    """Farm summary. Remote: readable even from the road (D-118)."""
     rows = await farm.survey(db, current(), current_catalog(), state["identity_id"])
     return {"plots": rows}
 
@@ -988,7 +994,7 @@ async def _plot(db: AsyncSession, message: dict):
 
 
 async def _food_eat(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Съесть порцию. Работает и в дороге: сухарь в пути — норма (D-091)."""
+    """Eat a portion. Works on the road too: hardtack en route is normal (D-091)."""
     body = await _body(db, state["identity_id"])
     if body is None:
         raise Refused("нет живого тела")
@@ -998,7 +1004,7 @@ async def _food_eat(state: dict, db: AsyncSession, message: dict) -> dict:
 
 
 async def _cook_pot(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Сварить котёл: роли вместо состава, порций — cook.pot_portions (D-119)."""
+    """Cook a pot: roles instead of a composition, portions -- cook.pot_portions (D-119)."""
     body = await _alive(state, db)
     batch = await craft.cook(
         db, current(), current_catalog(), body,
@@ -1014,7 +1020,7 @@ async def _cook_pot(state: dict, db: AsyncSession, message: dict) -> dict:
 
 
 async def _coin_mint(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Отчеканить монету. Проба одна на весь мир — 900‰, выбора нет (D-016)."""
+    """Mint a coin. One fineness for the whole world -- 900 per mille, no choice (D-016)."""
     body = await _alive(state, db)
     batch = await coin.mint(
         db, current(), current_catalog(), body,
@@ -1032,7 +1038,7 @@ async def _coin_mint(state: dict, db: AsyncSession, message: dict) -> dict:
 
 
 async def _coin_melt(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Переплавить монеты: металла вернётся по их пробе, минус угар."""
+    """Melt coins: metal returns by their fineness, minus loss."""
     body = await _alive(state, db)
     item = await _own_item(db, body, message["item"])
     batch = await coin.melt(
@@ -1048,12 +1054,12 @@ async def _coin_melt(state: dict, db: AsyncSession, message: dict) -> dict:
 
 
 async def _gear_equip(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Надеть вещь. Слот один на вещь: три рюкзака не наденешь (D-146)."""
+    """Wear a thing. One slot per thing: you cannot wear three backpacks (D-146)."""
     body = await _alive(state, db)
     item = await _own_item(db, body, message["item"])
-    слот = await gear.equip(db, current(), current_catalog(), body, item)
+    slot = await gear.equip(db, current(), current_catalog(), body, item)
     return {
-        "equipped": слот,
+        "equipped": slot,
         "goods": item.type_key,
         "capacity": round(
             await gear.capacity(db, current(), current_catalog(), body), 2
@@ -1062,11 +1068,11 @@ async def _gear_equip(state: dict, db: AsyncSession, message: dict) -> dict:
 
 
 async def _gear_unequip(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Снять надетое. Вещь остаётся в руках — она и так была там."""
+    """Take off a worn thing. It stays in the hands -- it was there anyway."""
     body = await _alive(state, db)
-    снято = await gear.unequip(db, body, str(message["slot"]))
+    removed = await gear.unequip(db, body, str(message["slot"]))
     return {
-        "unequipped": None if снято is None else снято.type_key,
+        "unequipped": None if removed is None else removed.type_key,
         "capacity": round(
             await gear.capacity(db, current(), current_catalog(), body), 2
         ),
@@ -1074,10 +1080,10 @@ async def _gear_unequip(state: dict, db: AsyncSession, message: dict) -> dict:
 
 
 async def _world_metrics(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Сводка мира: агрегаты и проверки инвариантов (60-meta/04).
+    """World summary: aggregates and invariant checks (60-meta/04).
 
-    Удалённое чтение: цифры мира не привязаны к месту. Персонального здесь нет
-    ничего — только агрегаты, и это не служебная тайна, а решение о приватности.
+    Remote read: world figures are not tied to a place. Nothing personal here --
+    only aggregates, and that is a privacy decision, not an official secret.
     """
     constants = current()
     return {
@@ -1087,24 +1093,24 @@ async def _world_metrics(state: dict, db: AsyncSession, message: dict) -> dict:
 
 
 async def _market_offers(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Чужие заявки на продажу в узле: то, что можно забронировать (D-047).
+    """Other people's sell orders in the node: what can be reserved (D-047).
 
-    Стакан публичен уровнями, а бронь берётся из конкретной заявки — значит
-    заявки надо назвать. Имя продавца не показывается: в стакане торгуют
-    товаром, а не репутацией.
+    The book is public by tiers, but a reservation is taken from a specific
+    order -- so orders must be named. The seller's name is not shown: the book
+    trades goods, not reputation.
     """
     identity_id = state["identity_id"]
-    узел = await _node(db, message["node"]) if message.get("node") else None
-    if узел is None:
+    node = await _node(db, message["node"]) if message.get("node") else None
+    if node is None:
         body = await _body(db, identity_id)
         if body is None:
             raise Refused("нет живого тела")
-        узел = await db.get(Node, body.node_id)
+        node = await db.get(Node, body.node_id)
 
     rows = (
         await db.execute(
             select(Order).where(
-                Order.node_id == узел.id,
+                Order.node_id == node.id,
                 Order.side == OrderSide.SELL,
                 Order.state == OrderState.ACTIVE,
                 Order.identity_id != identity_id,
@@ -1114,63 +1120,63 @@ async def _market_offers(state: dict, db: AsyncSession, message: dict) -> dict:
     return {
         "offers": [
             {
-                "id": str(заявка.id),
-                "goods": заявка.type_key,
-                "tier": заявка.tier,
-                "price": заявка.price,
-                "left": amount_float(заявка.amount_left),
+                "id": str(order.id),
+                "goods": order.type_key,
+                "tier": order.tier,
+                "price": order.price,
+                "left": amount_float(order.amount_left),
             }
-            for заявка in rows
-            if заявка.amount_left > 0
+            for order in rows
+            if order.amount_left > 0
         ]
     }
 
 
 async def _market_reserve(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Забронировать партию с задатком. Удалённое: бронь и есть план рейса."""
+    """Reserve a lot with a deposit. Remote: the reservation is the trip plan."""
     identity = await _identity(state, db)
     order = await db.get(Order, uuid.UUID(message["order"]))
     if order is None:
         raise Refused("нет такой заявки")
-    бронь = await market.reserve(
+    reservation = await market.reserve(
         db, current(), identity, order, float(message["amount"])
     )
     return {
-        "reservation": str(бронь.id),
-        "deposit": money_str(бронь.deposit),
-        "expires_at": бронь.expires_at.isoformat(),
+        "reservation": str(reservation.id),
+        "deposit": money_str(reservation.deposit),
+        "expires_at": reservation.expires_at.isoformat(),
         "money": await _money(db, identity.id),
     }
 
 
 async def _market_redeem(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Выкупить бронь: доплатить остаток и забрать. Присутственно (D-047)."""
+    """Redeem a reservation: pay the remainder and take. In person (D-047)."""
     body = await _alive(state, db)
-    бронь = await db.get(Reservation, uuid.UUID(message["reservation"]))
-    if бронь is None:
+    reservation = await db.get(Reservation, uuid.UUID(message["reservation"]))
+    if reservation is None:
         raise Refused("нет такой брони")
-    сделка = await market.redeem(db, current(), current_catalog(), body, бронь)
+    deal = await market.redeem(db, current(), current_catalog(), body, reservation)
     return {
-        "trade": str(сделка.id),
-        "goods": сделка.type_key,
-        "amount": amount_float(сделка.amount),
+        "trade": str(deal.id),
+        "goods": deal.type_key,
+        "amount": amount_float(deal.amount),
         "money": await _money(db, state["identity_id"]),
     }
 
 
 async def _rig_place(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Поставить буровую на жилу. Дальше она работает без игрока (D-115)."""
+    """Place a drilling rig on a vein. From then on it works without the player (D-115)."""
     body = await _alive(state, db)
     item = await _own_item(db, body, message["item"])
     vein = await db.get(Vein, uuid.UUID(message["vein"]))
     if vein is None:
         raise Refused("нет такой жилы")
-    установка = await rig.place(db, body, item, vein)
-    return {"rig": str(установка.id), "vein": vein.resource}
+    installation = await rig.place(db, body, item, vein)
+    return {"rig": str(installation.id), "vein": vein.resource}
 
 
 async def _rig_status(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Что стоит в узле: бункер, топливо, состояние. Присутственная сцена."""
+    """What stands in the node: hopper, fuel, condition. In-person scene."""
     body = await _body(db, state["identity_id"])
     if body is None:
         raise Refused("нет живого тела")
@@ -1178,17 +1184,18 @@ async def _rig_status(state: dict, db: AsyncSession, message: dict) -> dict:
 
 
 async def _rig_empty(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Вывезти бункер. Ногами: без возчика предприятие стоит."""
+    """Empty the hopper. On foot: without a carter the enterprise stands still."""
     body = await _alive(state, db)
-    установка = await db.get(RigRow, uuid.UUID(message["rig"]))
-    if установка is None:
+    installation = await db.get(RigRow, uuid.UUID(message["rig"]))
+    if installation is None:
         raise Refused("нет такой установки")
-    взято = await rig.empty_hopper(db, current(), body, установка)
-    return {"taken": взято}
+    taken = await rig.empty_hopper(db, current(), body, installation)
+    return {"taken": taken}
 
 
 async def _energy_grid(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Пул города, где стоишь. Пустой пул виден всем: это политика (D-071)."""
+    """The pool of the city we stand in. An empty pool is visible to all: that is politics
+    (D-071)."""
     body = await _body(db, state["identity_id"])
     if body is None:
         raise Refused("нет живого тела")
@@ -1197,10 +1204,10 @@ async def _energy_grid(state: dict, db: AsyncSession, message: dict) -> dict:
     if pool is None:
         return {"grid": None}
     await energy.produce(db, current(), pool)
-    город = await db.get(Node, pool.node_id)
+    city = await db.get(Node, pool.node_id)
     return {
         "grid": {
-            "city": город.name if город else "?",
+            "city": city.name if city else "?",
             "stored": round(float(pool.stored), 1),
             "tariff": float(pool.tariff),
         }
@@ -1208,28 +1215,29 @@ async def _energy_grid(state: dict, db: AsyncSession, message: dict) -> dict:
 
 
 async def _energy_charge(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Зарядить аккумулятор из пула по тарифу. Присутственно и платно (D-085).
+    """Charge a battery from the pool at the tariff. In person and paid (D-085).
 
-    Аккумулятор — станок (D-179): заряжают и тот, что в руках, и тот, что
-    стоит здесь. Что вещь досягаема, проверяет сам движок энергии.
+    A battery is a machine (D-179): both the one in hand and the one standing
+    here are charged. Whether the thing is reachable is checked by the energy
+    engine itself.
     """
     body = await _alive(state, db)
     item = await db.get(Item, uuid.UUID(message["item"]))
     if item is None:
         raise Refused("нет такого предмета")
-    сколько = message.get("amount")
-    дали = await energy.charge_battery(
-        db, current(), body, item, None if сколько is None else float(сколько)
+    qty = message.get("amount")
+    given = await energy.charge_battery(
+        db, current(), body, item, None if qty is None else float(qty)
     )
     return {
-        "charged": round(дали, 2),
+        "charged": round(given, 2),
         "charge": round(float(item.charge), 2),
         "money": await _money(db, state["identity_id"]),
     }
 
 
 async def _rest_sleep(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Лечь спать. Восстановление идёт офлайн — тик ему не нужен (D-091)."""
+    """Go to sleep. Recovery runs offline -- it needs no tick (D-091)."""
     body = await _alive(state, db)
     await rest.sleep(db, current(), body)
     return {"sleeping": True, "home": body.sleeping_home}
@@ -1242,7 +1250,8 @@ async def _rest_wake(state: dict, db: AsyncSession, message: dict) -> dict:
 
 
 async def _chat_say(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Сказать в локации. Тип обязателен: речь, действие или вне игры (D-050)."""
+    """Say something in the location. The kind is required: speech, action or out-of-game
+    (D-050)."""
     body = await _alive(state, db)
     said = await chat.say(
         db,
@@ -1256,7 +1265,7 @@ async def _chat_say(state: dict, db: AsyncSession, message: dict) -> dict:
 
 
 async def _chat_hear(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Что слышно и кто с кем шепчется. Разговор в комнате — только из комнаты."""
+    """What is heard and who whispers with whom. Room talk -- only from the room."""
     body = await _alive(state, db)
     return {
         "lines": [
@@ -1285,7 +1294,7 @@ async def _chat_hear(state: dict, db: AsyncSession, message: dict) -> dict:
 
 
 async def _chat_gather(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Собрать кружок. Видно всем: «эти о чём-то договариваются» (D-043)."""
+    """Gather a circle. Visible to all: "these ones are arranging something" (D-043)."""
     body = await _alive(state, db)
     group = await chat.gather(db, body, name=message.get("name") or None)
     return {"circle": str(group.id)}
@@ -1303,20 +1312,20 @@ async def _chat_leave(state: dict, db: AsyncSession, message: dict) -> dict:
 
 
 async def _travel_go(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Выйти в узел — хоть несоседний: маршрут строится сам (D-045, D-107)."""
+    """Go to a node -- even a non-adjacent one: the route builds itself (D-045, D-107)."""
     body = await _alive(state, db)
-    цель = await _node(db, message["node"])
-    переход = await travel.depart(db, current(), body, цель)
+    goal = await _node(db, message["node"])
+    transit = await travel.depart(db, current(), body, goal)
     return {
-        "travel": str(переход.id),
-        "to": цель.name,
-        "arrives_at": переход.arrives_at.isoformat(),
-        "legs_left": len(переход.plan or []),
+        "travel": str(transit.id),
+        "to": goal.name,
+        "arrives_at": transit.arrives_at.isoformat(),
+        "legs_left": len(transit.plan or []),
     }
 
 
 async def _market_load(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Загрузить товар в терминал. Присутственное: везут ногами (D-047)."""
+    """Load goods into the terminal. In person: goods are carried on foot (D-047)."""
     body = await _alive(state, db)
     moved = await market.load(
         db, current(), body, message["goods"], float(message["amount"])
@@ -1325,7 +1334,7 @@ async def _market_load(state: dict, db: AsyncSession, message: dict) -> dict:
 
 
 async def _market_take(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Забрать своё из терминала — и купленное тоже. Тоже ногами."""
+    """Take your own from the terminal -- bought goods too. Also on foot."""
     body = await _alive(state, db)
     moved = await market.take(
         db,
@@ -1339,7 +1348,7 @@ async def _market_take(state: dict, db: AsyncSession, message: dict) -> dict:
 
 
 async def _market_sell(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Выставить заявку на продажу. Удалённое: товар уже привезён."""
+    """List a sell order. Remote: the goods are already delivered."""
     identity = await _identity(state, db)
     node = await _node(db, message["node"])
     fill = await market.sell(
@@ -1357,9 +1366,9 @@ async def _market_sell(state: dict, db: AsyncSession, message: dict) -> dict:
 
 
 async def _market_buy(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Купить: лимитная заявка от присутствующего тела.
+    """Buy: a limit order from a present body.
 
-    Узел не называется намеренно — покупают там, где стоят.
+    The node is deliberately not named -- you buy where you stand.
     """
     body = await _alive(state, db)
     fill = await market.buy(
@@ -1376,7 +1385,7 @@ async def _market_buy(state: dict, db: AsyncSession, message: dict) -> dict:
 
 
 async def _market_cancel(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Снять ордер. Распоряжение присутствия не требует."""
+    """Cancel an order. Disposing requires no presence."""
     identity_id = state["identity_id"]
     order = await db.get(Order, uuid.UUID(message["order"]))
     if order is None:
@@ -1386,20 +1395,20 @@ async def _market_cancel(state: dict, db: AsyncSession, message: dict) -> dict:
 
 
 async def _body_printers(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Где можно напечататься и почём (D-033). Читается из облака — всегда.
+    """Where you can print and for how much (D-033). Read from the cloud -- always.
 
-    Личность живёт в Сети, а не в теле: список доступен и мёртвому, в этом
-    весь смысл — заложника у города не существует.
+    The identity lives in the Net, not in the body: the list is available to the
+    dead too, that is the whole point -- the city holds no hostage.
     """
-    идёт = await death.pending(db, state["identity_id"])
+    ongoing = await death.pending(db, state["identity_id"])
     return {
         "printers": await death.printers(db, current(), state["identity_id"]),
-        "printing": None if идёт is None else {"ready_at": идёт.run_at.isoformat()},
+        "printing": None if ongoing is None else {"ready_at": ongoing.run_at.isoformat()},
     }
 
 
 async def _body_print(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Заказать печать тела. Плата снимается вперёд, тело приходит по сроку."""
+    """Order a body print. The fee is taken up front, the body arrives on schedule."""
     identity = await _identity(state, db)
     node = await _node(db, str(message["node"]))
     job = await death.order(db, current(), current_catalog(), identity, node)
@@ -1410,43 +1419,43 @@ async def _body_print(state: dict, db: AsyncSession, message: dict) -> dict:
 
 
 async def _storage_put(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Положить вещь из рук в хранилище узла (D-181)."""
+    """Put a thing from the hands into the node storage (D-181)."""
     body = await _alive(state, db)
-    сундук = await db.get(Item, uuid.UUID(message["storage"]))
-    if сундук is None:
+    chest = await db.get(Item, uuid.UUID(message["storage"]))
+    if chest is None:
         raise Refused("нет такого хранилища")
     item = await _own_item(db, body, message["item"])
-    сколько = message.get("amount")
+    qty = message.get("amount")
     try:
-        положено = await storage.put(
-            db, current(), current_catalog(), body, сундук, item,
-            None if сколько is None else float(сколько),
+        put = await storage.put(
+            db, current(), current_catalog(), body, chest, item,
+            None if qty is None else float(qty),
         )
     except storage.StorageError as refusal:
         raise Refused(str(refusal)) from refusal
-    return {"stored": положено, "goods": item.type_key}
+    return {"stored": put, "goods": item.type_key}
 
 
 async def _storage_take(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Забрать вещь из хранилища в руки. Предел носимого при этом остаётся."""
+    """Take a thing from storage into the hands. The carry limit still applies."""
     body = await _alive(state, db)
-    сундук = await db.get(Item, uuid.UUID(message["storage"]))
+    chest = await db.get(Item, uuid.UUID(message["storage"]))
     item = await db.get(Item, uuid.UUID(message["item"]))
-    if сундук is None or item is None:
+    if chest is None or item is None:
         raise Refused("нет такой вещи")
-    сколько = message.get("amount")
+    qty = message.get("amount")
     try:
-        взято = await storage.take(
-            db, current(), current_catalog(), body, сундук, item,
-            None if сколько is None else float(сколько),
+        taken = await storage.take(
+            db, current(), current_catalog(), body, chest, item,
+            None if qty is None else float(qty),
         )
     except storage.StorageError as refusal:
         raise Refused(str(refusal)) from refusal
-    return {"taken": взято, "goods": item.type_key}
+    return {"taken": taken, "goods": item.type_key}
 
 
 async def _station_place(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Поставить станок в узел. Присутственно и только у себя (D-150)."""
+    """Place a machine in the node. In person and only at your own place (D-150)."""
     body = await _alive(state, db)
     item = await _own_item(db, body, message["item"])
     await station.place(db, current_catalog(), body, item)
@@ -1454,7 +1463,7 @@ async def _station_place(state: dict, db: AsyncSession, message: dict) -> dict:
 
 
 async def _station_take(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Забрать станок обратно в руки. Занятый работой не отдаётся."""
+    """Take a machine back into the hands. One busy with work is not given up."""
     body = await _alive(state, db)
     item = await db.get(Item, uuid.UUID(message["item"]))
     if item is None:
@@ -1464,10 +1473,10 @@ async def _station_take(state: dict, db: AsyncSession, message: dict) -> dict:
 
 
 async def _road_lay(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Уложить ступень покрытия на ребро либо подсыпать просевшую (D-158).
+    """Lay a surface tier on an edge or resurface a sagged one (D-158).
 
-    Полотно списывается сразу, дорога ложится по сроку: работа идёт офлайн,
-    как всякая длительная.
+    The surface is written off at once, the road is laid on schedule: the work
+    runs offline like every long-running one.
     """
     body = await _alive(state, db)
     edge = await db.get(Edge, uuid.UUID(message["edge"]))
@@ -1481,13 +1490,13 @@ async def _road_lay(state: dict, db: AsyncSession, message: dict) -> dict:
 
 
 async def _road_here(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Дороги из этого узла: что уложено, что просело и чего это стоит."""
+    """Roads from this node: what is laid, what sagged and what it costs."""
     body = await _alive(state, db)
     return {"roads": await road.view(db, current(), body)}
 
 
 async def _transport_harness(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Впрячься в стоящий здесь транспорт (D-157)."""
+    """Harness to a vehicle standing here (D-157)."""
     body = await _alive(state, db)
     item = await db.get(Item, uuid.UUID(message["item"]))
     if item is None:
@@ -1497,46 +1506,46 @@ async def _transport_harness(state: dict, db: AsyncSession, message: dict) -> di
 
 
 async def _transport_unharness(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Распрячься. Обоз с грузом остаётся стоять здесь."""
+    """Unharness. The convoy with its cargo stays standing here."""
     body = await _alive(state, db)
-    вагон = await transport.unharness(db, body)
-    return {"unharnessed": None if вагон is None else вагон.type_key}
+    wagon = await transport.unharness(db, body)
+    return {"unharnessed": None if wagon is None else wagon.type_key}
 
 
 async def _transport_load(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Погрузить из рук в трюм. Присутственно: на ходу не перекладывают."""
+    """Load from the hands into the hold. In person: nothing is moved while on the go."""
     body = await _alive(state, db)
     item = await db.get(Item, uuid.UUID(message["item"]))
     if item is None:
         raise Refused("нет такого предмета")
-    сколько = message.get("amount")
-    перенесено = await transport.load(
+    qty = message.get("amount")
+    carried = await transport.load(
         db, current(), current_catalog(), body, item,
-        None if сколько is None else float(сколько),
+        None if qty is None else float(qty),
     )
-    return {"loaded": перенесено}
+    return {"loaded": carried}
 
 
 async def _transport_unload(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Выгрузить из трюма в руки. Предел рук при этом никуда не девается."""
+    """Unload from the hold into the hands. The hands limit does not go anywhere."""
     body = await _alive(state, db)
     item = await db.get(Item, uuid.UUID(message["item"]))
     if item is None:
         raise Refused("нет такого предмета")
-    сколько = message.get("amount")
-    перенесено = await transport.unload(
+    qty = message.get("amount")
+    carried = await transport.unload(
         db, current(), current_catalog(), body, item,
-        None if сколько is None else float(сколько),
+        None if qty is None else float(qty),
     )
-    return {"unloaded": перенесено}
+    return {"unloaded": carried}
 
 
 async def _explore_survey(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Уйти в разведку за названным. Находка придёт по сроку, в том числе офлайн.
+    """Go exploring for the named goal. The find arrives on schedule, including offline.
 
-    Цель выбирает игрок: участок в городе, место под город или жила — и у жилы
-    можно назвать породу. Названная ищется хуже: целиться в редкое значит чаще
-    возвращаться ни с чем (D-152).
+    The player picks the goal: a plot in the city, a place for a city, or a vein
+    -- and for a vein a species can be named. A named one is found worse: aiming
+    at the rare means coming back empty more often (D-152).
     """
     body = await _alive(state, db)
     job = await explore.survey(
@@ -1548,11 +1557,11 @@ async def _explore_survey(state: dict, db: AsyncSession, message: dict) -> dict:
 
 
 async def _explore_cancel(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Повернуть назад: заход отменяется, тело снова свободно в узле выхода.
+    """Turn back: the run is cancelled, the body is free again in the exit node.
 
-    Выносливость не возвращается, находка не состоится (D-152). Намеренно не
-    `_alive` + `require_here`: разведчик и есть тот, кому присутственное
-    закрыто, и вернуться — единственное, что ему доступно.
+    Stamina does not come back, the find will not happen (D-152). Deliberately
+    not `_alive` + `require_here`: the scout is exactly the one for whom in-person
+    actions are closed, and returning is the only thing available.
     """
     body = await _body(db, state["identity_id"])
     if body is None:
@@ -1562,20 +1571,20 @@ async def _explore_cancel(state: dict, db: AsyncSession, message: dict) -> dict:
 
 
 async def _explore_goals(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Что можно искать и во что обойдётся заход отсюда.
+    """What can be sought and what a run from here will cost.
 
-    Список пород — из вольта (D-151). Прогноз — по месту: цена разведки растёт
-    с каждой находкой от этого узла, и увидеть её игрок обязан до выхода,
-    иначе она читается как случайность движка (D-156).
+    The species list comes from the vault (D-151). The forecast is per place: the
+    price of exploration grows with every find from this node, and the player
+    must see it before leaving, otherwise it reads as engine randomness (D-156).
     """
-    #: Список целей — справка, и мёртвому она тоже положена: прогноза у него
-    #: просто нет, потому что выходить в поле некому.
+    #: The goal list is reference data, and the dead are entitled to it too:
+    #: they simply have no forecast, because nobody can go into the field.
     body = await _body(db, state["identity_id"])
-    #: Прогноз считается под ту цель, которую игрок выбрал прямо сейчас:
-    #: заказанная порода сужает шанс (D-151), и это обязано быть видно до
-    #: выхода, а не выясняться двадцатью пустыми заходами.
-    порода = message.get("resource") or None
-    цель = str(message.get("goal") or explore.SITE)
+    #: The forecast is computed for the goal the player has picked right now: a
+    #: requested species narrows the chance (D-151), and that must be visible
+    #: before leaving rather than discovered after twenty empty runs.
+    species = message.get("resource") or None
+    goal = str(message.get("goal") or explore.SITE)
     return {
         "goals": list(explore.GOALS),
         "resources": list(explore.mineable(current_catalog())),
@@ -1583,20 +1592,20 @@ async def _explore_goals(state: dict, db: AsyncSession, message: dict) -> dict:
             None if body is None
             else await explore.outlook(
                 db, current(), body,
-                goal=цель,
-                resource=None if порода is None else str(порода),
+                goal=goal,
+                resource=None if species is None else str(species),
             )
         ),
     }
 
 
 async def _utility_holdings(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Своё хозяйство и счета за быт. Удалённое: платят не ногами."""
+    """Own holdings and household bills. Remote: paying is not done on foot."""
     return {"holdings": await utility.holdings(db, current(), state["identity_id"])}
 
 
 async def _utility_pay(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Погасить долг узла и включить его обратно."""
+    """Pay off a node's debt and reconnect it."""
     identity = await _identity(state, db)
     node = await _node(db, message["node"])
     paid = await utility.pay(db, current(), identity, node)
@@ -1604,299 +1613,300 @@ async def _utility_pay(state: dict, db: AsyncSession, message: dict) -> dict:
 
 
 async def _city_found(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Основать город на своём узле планеты (D-023, D-098, D-159).
+    """Found a city on your own planet node (D-023, D-098, D-159).
 
-    Порог входа — четыре постройки, а не монета. Земля при этом уходит городу:
-    её дальше раздаёт власть, а не хозяин двора (D-089).
+    The entry threshold is four buildings, not a coin. The land goes to the
+    city: from then on the authority hands it out, not the yard owner (D-089).
     """
     body = await _alive(state, db)
-    город = await town.establish(
+    city = await town.establish(
         db, current(), current_catalog(), body, str(message.get("name") or "")
     )
-    return {"city": str(город.id), "name": город.name}
+    return {"city": str(city.id), "name": city.name}
 
 
 async def _city_join(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Проситься в граждане. Что выйдет — решает устав города (D-160)."""
+    """Apply for citizenship. What comes of it is decided by the city charter (D-160)."""
     body = await _alive(state, db)
-    город = await _city(state, db, message)
-    итог = await town.join(db, body, город)
+    city = await _city(state, db, message)
+    result = await town.join(db, body, city)
     from src.models.city import Citizen
 
-    гражданин = isinstance(итог, Citizen)
+    citizen = isinstance(result, Citizen)
     return {
-        "citizen": гражданин,
-        "city": город.name,
-        "waiting": not гражданин,
+        "citizen": citizen,
+        "city": city.name,
+        "waiting": not citizen,
     }
 
 
 async def _city_leave(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Заявить о выходе. Гражданство спадёт через `city.exit_delay` (D-160)."""
+    """Declare leaving. Citizenship lapses after `city.exit_delay` (D-160)."""
     identity = await _identity(state, db)
-    запись = await town.leave(db, current(), identity)
-    return {"leaves_at": запись.leaving_at.isoformat()}
+    entry = await town.leave(db, current(), identity)
+    return {"leaves_at": entry.leaving_at.isoformat()}
 
 
 async def _city_invite(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Позвать человека в граждане. Право `citizens`."""
+    """Invite a person to become a citizen. Right `citizens`."""
     identity = await _identity(state, db)
-    город = await _city(state, db, message)
-    кого = await _identity_by_name(db, str(message["who"]))
-    await town.invite(db, identity, город, кого)
-    return {"invited": кого.name}
+    city = await _city(state, db, message)
+    whom = await _identity_by_name(db, str(message["who"]))
+    await town.invite(db, identity, city, whom)
+    return {"invited": whom.name}
 
 
 async def _city_admit(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Одобрить заявку в граждане. Право `citizens`."""
+    """Approve a citizenship application. Right `citizens`."""
     identity = await _identity(state, db)
-    город = await _city(state, db, message)
-    кого = await _identity_by_name(db, str(message["who"]))
-    await town.admit(db, identity, город, кого)
-    return {"admitted": кого.name}
+    city = await _city(state, db, message)
+    whom = await _identity_by_name(db, str(message["who"]))
+    await town.admit(db, identity, city, whom)
+    return {"admitted": whom.name}
 
 
 async def _city_exile(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Изгнать из города. Санкция, а не кадровое решение: право `justice`."""
+    """Exile from the city. A sanction, not a personnel decision: right `justice`."""
     identity = await _identity(state, db)
-    город = await _city(state, db, message)
-    кого = await _identity_by_name(db, str(message["who"]))
-    await town.exile(db, identity, город, кого)
-    return {"exiled": кого.name}
+    city = await _city(state, db, message)
+    whom = await _identity_by_name(db, str(message["who"]))
+    await town.exile(db, identity, city, whom)
+    return {"exiled": whom.name}
 
 
 async def _city_citizens(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Жители города и очередь заявок. Удалённое: это справка, а не решение."""
-    город = await _city(state, db, message)
-    жители = []
-    for запись in await town.citizens_of(db, город):
-        кто = await db.get(Identity, запись.identity_id)
-        жители.append(
+    """City residents and the application queue. Remote: reference, not a decision."""
+    city = await _city(state, db, message)
+    residents = []
+    for entry in await town.citizens_of(db, city):
+        who = await db.get(Identity, entry.identity_id)
+        residents.append(
             {
-                "name": None if кто is None else кто.name,
-                "since": запись.since.isoformat(),
+                "name": None if who is None else who.name,
+                "since": entry.since.isoformat(),
                 "leaving_at": (
-                    None if запись.leaving_at is None else запись.leaving_at.isoformat()
+                    None if entry.leaving_at is None else entry.leaving_at.isoformat()
                 ),
             }
         )
-    заявки = []
-    for заявка in await town.requests_of(db, город):
-        кто = await db.get(Identity, заявка.identity_id)
-        заявки.append({"name": None if кто is None else кто.name, "kind": заявка.kind})
+    orders = []
+    for order in await town.requests_of(db, city):
+        who = await db.get(Identity, order.identity_id)
+        orders.append({"name": None if who is None else who.name, "kind": order.kind})
     return {
-        "admission": town.admission(город),
-        "citizens": sorted(жители, key=lambda ж: ж["name"] or ""),
-        "requests": заявки,
+        "admission": town.admission(city),
+        "citizens": sorted(residents, key=lambda zh: zh["name"] or ""),
+        "requests": orders,
     }
 
 
 async def _city_votes(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Идущие голосования города. Удалённое: смотреть можно откуда угодно."""
-    город = await _city(state, db, message)
+    """Ongoing city polls. Remote: can be viewed from anywhere."""
+    city = await _city(state, db, message)
     return {
-        "votes": await vote.view(db, current_catalog(), город, state["identity_id"])
+        "votes": await vote.view(db, current_catalog(), city, state["identity_id"])
     }
 
 
 async def _city_vote(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Проголосовать. Голос — участие, а не управление: подаётся по Сети (D-161)."""
+    """Vote. A vote is participation, not governing: cast over the Net (D-161)."""
     identity = await _identity(state, db)
-    город = await _city(state, db, message)
-    голосование = await db.get(Vote, uuid.UUID(message["vote"]))
-    if голосование is None or голосование.city_id != город.id:
+    city = await _city(state, db, message)
+    poll = await db.get(Vote, uuid.UUID(message["vote"]))
+    if poll is None or poll.city_id != city.id:
         raise Refused("нет такого голосования в этом городе")
-    await vote.cast(db, город, identity, голосование, bool(message.get("yes")))
-    за, против = await vote.standing(db, голосование)
-    return {"yes": за, "no": против}
+    await vote.cast(db, city, identity, poll, bool(message.get("yes")))
+    pro, contra = await vote.standing(db, poll)
+    return {"yes": pro, "no": contra}
 
 
 async def _city_election(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Созвать выборы правителя (D-162). Кандидаты выдвигаются по ходу."""
+    """Convene a ruler election (D-162). Candidates nominate themselves as it goes."""
     identity = await _identity(state, db)
-    город = await _city(state, db, message)
-    голосование = await vote.open_election(db, current(), город, identity)
-    return {"vote": str(голосование.id), "closes_at": голосование.closes_at.isoformat()}
+    city = await _city(state, db, message)
+    poll = await vote.open_election(db, current(), city, identity)
+    return {"vote": str(poll.id), "closes_at": poll.closes_at.isoformat()}
 
 
 async def _city_recall(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Созвать отзыв правителя. Прошло — должность снимается, идут выборы."""
+    """Convene a ruler recall. If it passes, the office is vacated and an election follows."""
     identity = await _identity(state, db)
-    город = await _city(state, db, message)
-    голосование = await vote.open_recall(db, current(), город, identity)
-    return {"vote": str(голосование.id), "closes_at": голосование.closes_at.isoformat()}
+    city = await _city(state, db, message)
+    poll = await vote.open_recall(db, current(), city, identity)
+    return {"vote": str(poll.id), "closes_at": poll.closes_at.isoformat()}
 
 
 async def _city_nominate(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Выдвинуться в правители. Сам, а не по чьему-то представлению."""
+    """Nominate yourself for ruler. Yourself, not on somebody's proposal."""
     identity = await _identity(state, db)
-    город = await _city(state, db, message)
-    голосование = await db.get(Vote, uuid.UUID(message["vote"]))
-    if голосование is None or голосование.city_id != город.id:
+    city = await _city(state, db, message)
+    poll = await db.get(Vote, uuid.UUID(message["vote"]))
+    if poll is None or poll.city_id != city.id:
         raise Refused("нет такого голосования в этом городе")
-    await vote.nominate(db, город, identity, голосование)
+    await vote.nominate(db, city, identity, poll)
     return {"nominated": identity.name}
 
 
 async def _city_choose(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Отдать голос кандидату на выборах."""
+    """Cast a vote for a candidate in the election."""
     identity = await _identity(state, db)
-    город = await _city(state, db, message)
-    голосование = await db.get(Vote, uuid.UUID(message["vote"]))
-    if голосование is None or голосование.city_id != город.id:
+    city = await _city(state, db, message)
+    poll = await db.get(Vote, uuid.UUID(message["vote"]))
+    if poll is None or poll.city_id != city.id:
         raise Refused("нет такого голосования в этом городе")
-    кандидат = await db.get(Identity, uuid.UUID(message["candidate"]))
-    if кандидат is None:
+    candidate = await db.get(Identity, uuid.UUID(message["candidate"]))
+    if candidate is None:
         raise Refused("нет такой личности")
-    await vote.choose(db, город, identity, голосование, кандидат)
-    return {"chosen": кандидат.name}
+    await vote.choose(db, city, identity, poll, candidate)
+    return {"chosen": candidate.name}
 
 
 async def _city_council(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Состав совета и как он собирается (D-164). Удалённое: это справка."""
-    город = await _city(state, db, message)
-    места = []
-    for место in await vote.council_of(db, город):
-        кто = await db.get(Identity, место.identity_id)
-        места.append({"name": None if кто is None else кто.name, "how": место.how})
+    """Council membership and how it is assembled (D-164). Remote: reference."""
+    city = await _city(state, db, message)
+    places = []
+    for place in await vote.council_of(db, city):
+        who = await db.get(Identity, place.identity_id)
+        places.append({"name": None if who is None else who.name, "how": place.how})
     return {
-        "mode": vote.council_mode(город),
-        "seats": vote.council_seats(город),
-        "members": места,
+        "mode": vote.council_mode(city),
+        "seats": vote.council_seats(city),
+        "members": places,
     }
 
 
 async def _city_council_seat(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Назначить в совет либо освободить место. Только там, где места назначают."""
+    """Appoint to the council or vacate a seat. Only where seats are appointed."""
     identity = await _identity(state, db)
-    город = await _city(state, db, message)
-    кого = await _identity_by_name(db, str(message["who"]))
+    city = await _city(state, db, message)
+    whom = await _identity_by_name(db, str(message["who"]))
     if message.get("out"):
-        await town.require(db, identity.id, город, Power.OFFICES)
-        снято = await vote.vacate(db, город, кого)
-        return {"vacated": снято}
-    await vote.appoint_to_council(db, город, identity, кого)
-    return {"seated": кого.name}
+        await town.require(db, identity.id, city, Power.OFFICES)
+        removed = await vote.vacate(db, city, whom)
+        return {"vacated": removed}
+    await vote.appoint_to_council(db, city, identity, whom)
+    return {"seated": whom.name}
 
 
 async def _city_council_election(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Созвать выборы в совет: побеждают столько, сколько мест."""
+    """Convene a council election: as many win as there are seats."""
     identity = await _identity(state, db)
-    город = await _city(state, db, message)
-    голосование = await vote.open_council_election(db, current(), город, identity)
-    return {"vote": str(голосование.id), "closes_at": голосование.closes_at.isoformat()}
+    city = await _city(state, db, message)
+    poll = await vote.open_council_election(db, current(), city, identity)
+    return {"vote": str(poll.id), "closes_at": poll.closes_at.isoformat()}
 
 
 async def _city_sue(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Подать жалобу в суд города. Пошлина уходит в казну сразу (D-117)."""
+    """File a complaint with the city court. The fee goes to the treasury at once (D-117)."""
     identity = await _identity(state, db)
-    город = await _city(state, db, message)
-    ответчик = await _identity_by_name(db, str(message["who"]))
-    дело = await justice.sue(
-        db, current(), город, identity, ответчик, str(message.get("claim") or "")
+    city = await _city(state, db, message)
+    defendant = await _identity_by_name(db, str(message["who"]))
+    case = await justice.sue(
+        db, current(), city, identity, defendant, str(message.get("claim") or "")
     )
-    return {"case": str(дело.id)}
+    return {"case": str(case.id)}
 
 
 async def _city_judge(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Вынести приговор. Без санкции — оправдание: висящих дел не бывает."""
+    """Deliver a verdict. Without a sanction it is an acquittal: there are no hanging cases."""
     identity = await _identity(state, db)
-    дело = await db.get(Case, uuid.UUID(message["case"]))
-    if дело is None:
+    case = await db.get(Case, uuid.UUID(message["case"]))
+    if case is None:
         raise Refused("нет такого дела")
-    санкция = message.get("sanction") or None
-    наказание = await justice.judge(
-        db, current(), current_catalog(), identity, дело,
-        sanction=None if санкция is None else str(санкция),
+    sanction = message.get("sanction") or None
+    penalty = await justice.judge(
+        db, current(), current_catalog(), identity, case,
+        sanction=None if sanction is None else str(sanction),
         days=None if message.get("days") is None else float(message["days"]),
         amount=None if message.get("amount") is None else float(message["amount"]),
         verdict=str(message.get("verdict") or ""),
-        #: Куда сажать при нескольких каторгах — называет суд (D-176).
+        #: Where to imprison when there are several penal faces -- the court names it (D-176).
         prison_node=None if message.get("prison") is None else str(message["prison"]),
     )
-    return {"judged": дело.state.value, "sanction": None if наказание is None else наказание.kind}
+    return {"judged": case.state.value, "sanction": None if penalty is None else penalty.kind}
 
 
 async def _city_cases(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Дела города и примитивы санкций из вольта. Удалённое: это справка."""
-    город = await _city(state, db, message)
+    """City cases and sanction primitives from the vault. Remote: reference."""
+    city = await _city(state, db, message)
     return {
-        "cases": await justice.view(db, город),
+        "cases": await justice.view(db, city),
         "sanctions": [
             {
-                "id": примитив.id,
-                "name": примитив.name,
-                "enforced": примитив.id in justice.ENFORCED,
+                "id": primitive.id,
+                "name": primitive.name,
+                "enforced": primitive.id in justice.ENFORCED,
             }
-            for примитив in current_catalog().laws.sanctions
+            for primitive in current_catalog().laws.sanctions
         ],
-        #: Каторги города (D-176): при нескольких суд называет, в какую
-        #: отправить, — клиенту нужен список.
+        #: The city's penal faces (D-176): with several, the court names which
+        #: one to send to -- the client needs the list.
         "prisons": [
-            {"key": узел.key, "name": узел.name}
-            for узел in await justice.prisons_of(db, город)
+            {"key": node.key, "name": node.name}
+            for node in await justice.prisons_of(db, city)
         ],
     }
 
 
 async def _bank_view(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Банк глазами игрока: ставка с объяснением, свои займы, резерв (D-167)."""
+    """The bank through the player's eyes: the rate with an explanation, own loans, the reserve
+    (D-167)."""
     from src.models.bank import RateDecision
 
     constants = current()
-    решение = (
+    decision = (
         await db.execute(
             select(RateDecision).order_by(RateDecision.decided_at.desc()).limit(1)
         )
     ).scalars().first()
-    займы = []
-    for заём in await bank.loans_of(db, state["identity_id"]):
-        await bank.accrue(db, constants, заём)
-        займы.append(
+    loans = []
+    for loan in await bank.loans_of(db, state["identity_id"]):
+        await bank.accrue(db, constants, loan)
+        loans.append(
             {
-                "id": str(заём.id),
-                "principal": заём.principal,
-                "outstanding": заём.outstanding,
-                "rate": float(заём.rate),
-                "taken_at": заём.taken_at.isoformat(),
+                "id": str(loan.id),
+                "principal": loan.principal,
+                "outstanding": loan.outstanding,
+                "rate": float(loan.rate),
+                "taken_at": loan.taken_at.isoformat(),
             }
         )
     return {
         "rate": await bank.key_rate(db, constants),
-        "why": None if решение is None else решение.why,
-        #: Резерв и оборот публичны: денежная политика не бывает тайной (D-030).
+        "why": None if decision is None else decision.why,
+        #: Reserve and circulation are public: monetary policy is never secret (D-030).
         "reserve": await bank.reserve(db),
         "circulating": await bank.circulating(db),
-        #: Лимит — публичная формула из труда (D-173): игрок видит и число,
-        #: и то, из чего оно сложилось, до похода за кредитом.
-        "limit": (пределы := await bank.credit_limit(db, constants, state["identity_id"]))[0],
-        "limit_why": пределы[1],
-        "loans": займы,
+        #: The limit is a public formula from labour (D-173): the player sees
+        #: both the number and what it is made of before going for a loan.
+        "limit": (limits := await bank.credit_limit(db, constants, state["identity_id"]))[0],
+        "limit_why": limits[1],
+        "loans": loans,
     }
 
 
 async def _bank_borrow(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Взять кредит. Деньги идут из резерва; недостающее печатается (D-087)."""
+    """Take a loan. Money comes from the reserve; the shortfall is printed (D-087)."""
     identity = await _identity(state, db)
-    заём = await bank.borrow(
+    loan = await bank.borrow(
         db, current(), current_catalog(), identity, float(message["amount"])
     )
-    return {"loan": str(заём.id), "rate": float(заём.rate)}
+    return {"loan": str(loan.id), "rate": float(loan.rate)}
 
 
 async def _bank_repay(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Погасить долг. Деньги уходят в резерв, а не в оборот."""
+    """Repay debt. Money goes to the reserve, not into circulation."""
     from src.models.bank import Loan
 
     identity = await _identity(state, db)
-    заём = await db.get(Loan, uuid.UUID(message["loan"]))
-    if заём is None or заём.identity_id != identity.id:
+    loan = await db.get(Loan, uuid.UUID(message["loan"]))
+    if loan is None or loan.identity_id != identity.id:
         raise Refused("нет такого займа")
-    заплачено = await bank.repay(
-        db, current(), identity, заём,
+    paid = await bank.repay(
+        db, current(), identity, loan,
         None if message.get("amount") is None else float(message["amount"]),
     )
-    return {"paid": заплачено, "left": заём.outstanding}
+    return {"paid": paid, "left": loan.outstanding}
 
 
 def _now():
@@ -1906,11 +1916,11 @@ def _now():
 
 
 async def _bank_council(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Кто решает ставку сейчас и в каком коридоре (D-172). Удалённое: справка."""
+    """Who decides the rate now and in what corridor (D-172). Remote: reference."""
     constants = current()
     from src.constants import registry as R
 
-    рекомендация, почему = bank.compute_rate(
+    recommendation, reason = bank.compute_rate(
         constants,
         previous=await bank.key_rate(db, constants),
         inflation=await bank._inflation(db, constants),
@@ -1918,125 +1928,125 @@ async def _bank_council(state: dict, db: AsyncSession, message: dict) -> dict:
             db, constants, now=_now()
         ),
     )
-    до = await bank.locked_until(db)
+    until = await bank.locked_until(db)
     return {
         "council_decides": await bank.council_decides(db, constants),
         "cities_with_hall": await bank.cities_with_hall(db),
         "handover_at": constants[R.BANK_COUNCIL_HANDOVER_CITIES],
-        "advised": рекомендация,
-        "why": почему,
+        "advised": recommendation,
+        "why": reason,
         "corridor": constants[R.BANK_COUNCIL_RATE_DEVIATION],
-        "locked_until": None if до is None else до.isoformat(),
+        "locked_until": None if until is None else until.isoformat(),
     }
 
 
 async def _bank_council_rate(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Голос города по ставке. Подаёт держатель права `laws` (D-172)."""
+    """The city's vote on the rate. Cast by the holder of the `laws` right (D-172)."""
     identity = await _identity(state, db)
-    город = await _city(state, db, message)
-    решение = await bank.council_set_rate(
-        db, current(), город, identity, float(message["rate"])
+    city = await _city(state, db, message)
+    decision = await bank.council_set_rate(
+        db, current(), city, identity, float(message["rate"])
     )
-    return {"rate": float(решение.rate), "why": решение.why}
+    return {"rate": float(decision.rate), "why": decision.why}
 
 
 async def _person_report(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Указать на дефектную печать (D-173). Снижает доверие, а не убивает."""
+    """Point at a defective print (D-173). Lowers trust, does not kill."""
     identity = await _identity(state, db)
-    кого = await _identity_by_name(db, str(message["who"]))
-    await bank.report_defect(db, identity, кого)
-    return {"reported": кого.name}
+    whom = await _identity_by_name(db, str(message["who"]))
+    await bank.report_defect(db, identity, whom)
+    return {"reported": whom.name}
 
 
 async def _person_unreport(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Отозвать свой репорт: ошибиться можно, исправиться — нужно."""
+    """Withdraw your report: one may err, and one must be able to correct it."""
     identity = await _identity(state, db)
-    кого = await _identity_by_name(db, str(message["who"]))
-    return {"withdrawn": await bank.withdraw_report(db, identity, кого)}
+    whom = await _identity_by_name(db, str(message["who"]))
+    return {"withdrawn": await bank.withdraw_report(db, identity, whom)}
 
 
 async def _city_bail(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Город гасит долг гражданина из казны (D-175): освобождает свою линию.
+    """The city repays a citizen's debt from the treasury (D-175): frees its own line.
 
-    Присутственно и по праву казны: трата — решение власти (D-155).
+    In person and by treasury right: spending is an authority decision (D-155).
     """
     from src.models.bank import Loan
 
     identity = await _identity(state, db)
     body = await _alive(state, db)
-    город = await _city(state, db, message)
-    await town.require_at_hall(db, body, город)
-    await town.require(db, identity.id, город, Power.TREASURY)
-    заём = await db.get(Loan, uuid.UUID(message["loan"]))
-    if заём is None:
+    city = await _city(state, db, message)
+    await town.require_at_hall(db, body, city)
+    await town.require(db, identity.id, city, Power.TREASURY)
+    loan = await db.get(Loan, uuid.UUID(message["loan"]))
+    if loan is None:
         raise Refused("нет такого займа")
-    казна = await town.treasury(db, город)
-    заплачено = await bank.repay(
-        db, current(), identity, заём,
+    treasury = await town.treasury(db, city)
+    paid = await bank.repay(
+        db, current(), identity, loan,
         None if message.get("amount") is None else float(message["amount"]),
-        from_account=казна,
+        from_account=treasury,
     )
-    return {"paid": заплачено, "left": заём.outstanding}
+    return {"paid": paid, "left": loan.outstanding}
 
 
 async def _city_survey(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Сводка города: устав, законы, должности, казна и свои полномочия.
+    """City summary: charter, laws, offices, treasury and own powers.
 
-    Удалённое чтение: цифры города не привязаны к месту. Смотреть можно любой
-    город — свой по телу либо названный ключом узла.
+    Remote read: city figures are not tied to a place. Any city may be viewed --
+    your own by body, or one named by node key.
     """
-    город = await _city(state, db, message)
-    сводка = await town.survey(db, current(), current_catalog(), город)
-    сводка["powers"] = sorted(await town.powers_of(db, state["identity_id"], город))
-    #: Здесь ли принимаются решения: управление присутственно (D-155), и
-    #: клиенту нужно знать, показывать кнопки или отправлять в ратушу.
+    city = await _city(state, db, message)
+    summary = await town.survey(db, current(), current_catalog(), city)
+    summary["powers"] = sorted(await town.powers_of(db, state["identity_id"], city))
+    #: Whether decisions are made here: governing is in-person (D-155), and the
+    #: client needs to know whether to show buttons or send you to the town hall.
     body = await _body(db, state["identity_id"])
-    сводка["at_hall"] = False
+    summary["at_hall"] = False
     if body is not None:
-        узел = await db.get(Node, body.node_id)
-        сводка["at_hall"] = узел is not None and узел.owner_city_id == город.id and (
-            town.HALL in await _stations(db, узел)
+        node = await db.get(Node, body.node_id)
+        summary["at_hall"] = node is not None and node.owner_city_id == city.id and (
+            town.HALL in await _stations(db, node)
         )
-    #: Свободные и розданные участки: раздача земли — первое, ради чего в
-    #: администрацию заходят (D-089).
-    участки = (
-        await db.execute(select(Node).where(Node.owner_city_id == город.id))
+    #: Free and allotted plots: land allotment is the first thing people enter
+    #: the administration for (D-089).
+    plots = (
+        await db.execute(select(Node).where(Node.owner_city_id == city.id))
     ).scalars().all()
-    сводка["lots"] = [
+    summary["lots"] = [
         {
-            "key": узел.key,
-            "name": узел.name,
-            "area": float(узел.area_m2),
-            "owner": None if узел.owner_identity_id is None else str(узел.owner_identity_id),
-            "free": узел.owner_identity_id is None and bool(узел.properties.get("участок")),
+            "key": node.key,
+            "name": node.name,
+            "area": float(node.area_m2),
+            "owner": None if node.owner_identity_id is None else str(node.owner_identity_id),
+            "free": node.owner_identity_id is None and bool(node.properties.get("участок")),
         }
-        for узел in участки
-        if узел.properties.get("участок")
+        for node in plots
+        if node.properties.get("участок")
     ]
-    сводка["citizens"] = await _citizens(db)
-    return {"city": сводка}
+    summary["citizens"] = await _citizens(db)
+    return {"city": summary}
 
 
 async def _city_panel(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Экономическая панель города. Удалённое чтение (D-140).
+    """The city's economic panel. Remote read (D-140).
 
-    Публичный срез виден всем, включая гостей: цены и обороты — общее знание
-    (D-047). Полный набор с казной по основаниям — тем, у кого есть право
-    `dashboard`. Персонального нет ни в одном из срезов.
+    The public snapshot is visible to all, guests included: prices and turnover
+    are common knowledge (D-047). The full set with the treasury by grounds --
+    to those with the `dashboard` right. Nothing personal in either snapshot.
     """
-    город = await _city(state, db, message)
-    полный = await town.may(db, state["identity_id"], город, Power.DASHBOARD)
-    сводка = await panel.collect(db, current(), город, full=полный)
-    сводка["full"] = полный
-    return {"panel": сводка}
+    city = await _city(state, db, message)
+    full = await town.may(db, state["identity_id"], city, Power.DASHBOARD)
+    summary = await panel.collect(db, current(), city, full=full)
+    summary["full"] = full
+    return {"panel": summary}
 
 
 async def _city_law(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Записать код-закон. Присутственно и по точечному праву (D-154, D-155)."""
+    """Write a code-law. In person and by narrow right (D-154, D-155)."""
     identity = await _identity(state, db)
-    город = await _city(state, db, message)
+    city = await _city(state, db, message)
     await town.set_law(
-        db, current(), current_catalog(), identity, город,
+        db, current(), current_catalog(), identity, city,
         str(message["law"]), str(message["value"]),
         body=await _body(db, identity.id),
     )
@@ -2044,97 +2054,97 @@ async def _city_law(state: dict, db: AsyncSession, message: dict) -> dict:
 
 
 async def _city_charter(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Ответить на вопрос устава."""
+    """Answer a charter question."""
     identity = await _identity(state, db)
-    город = await _city(state, db, message)
-    параметр = message.get("param")
+    city = await _city(state, db, message)
+    param = message.get("param")
     await town.set_charter(
-        db, current_catalog(), identity, город,
+        db, current_catalog(), identity, city,
         str(message["question"]), str(message["option"]),
-        None if параметр is None else float(параметр),
+        None if param is None else float(param),
         body=await _body(db, identity.id),
     )
     return {"question": message["question"], "option": message["option"]}
 
 
 async def _city_about(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Переписать слово города новичку (D-183)."""
+    """Rewrite the city's word to newcomers (D-183)."""
     identity = await _identity(state, db)
-    город = await _city(state, db, message)
+    city = await _city(state, db, message)
     await town.describe(
-        db, identity, город, str(message.get("text") or ""),
+        db, identity, city, str(message.get("text") or ""),
         body=await _body(db, identity.id),
     )
-    return {"about": город.about}
+    return {"about": city.about}
 
 
 async def _city_appoint(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Назначить должность. Отдать можно только то, что есть у себя."""
+    """Appoint to an office. Only what you have yourself can be given."""
     identity = await _identity(state, db)
-    город = await _city(state, db, message)
-    кому = await _identity_by_name(db, str(message["whom"]))
-    #: Право — строка: крупное (`treasury`) либо точечное (`law:import_duty`).
-    #: Проверять его список здесь незачем: движок сверяет права с тем, что есть
-    #: у назначающего, а несуществующее право просто ничего не открывает.
-    полномочия = tuple(str(raw) for raw in message.get("powers") or ())
+    city = await _city(state, db, message)
+    to_whom = await _identity_by_name(db, str(message["whom"]))
+    #: A right is a string: broad (`treasury`) or narrow (`law:import_duty`).
+    #: No need to check the list here: the engine matches rights against what
+    #: the appointer has, and a nonexistent right simply opens nothing.
+    powers = tuple(str(raw) for raw in message.get("powers") or ())
     office = await town.appoint(
-        db, identity, город, кому,
+        db, identity, city, to_whom,
         title=str(message.get("title") or "Должность"),
-        powers=полномочия,
+        powers=powers,
         body=await _body(db, identity.id),
     )
-    return {"office": str(office.id), "whom": кому.name}
+    return {"office": str(office.id), "whom": to_whom.name}
 
 
 async def _city_revoke(state: dict, db: AsyncSession, message: dict) -> dict:
     identity = await _identity(state, db)
-    город = await _city(state, db, message)
+    city = await _city(state, db, message)
     office = await db.get(Office, uuid.UUID(message["office"]))
     if office is None:
         raise Refused("нет такой должности")
-    await town.revoke(db, identity, город, office, body=await _body(db, identity.id))
+    await town.revoke(db, identity, city, office, body=await _body(db, identity.id))
     return {"revoked": str(office.id)}
 
 
 async def _city_spend(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Заплатить из казны. Жалованье, награда и подряд — это одна проводка."""
+    """Pay from the treasury. Salary, reward and contract are one posting."""
     identity = await _identity(state, db)
-    город = await _city(state, db, message)
-    кому = await _identity_by_name(db, str(message["whom"]))
-    сумма = int(message["amount"])
+    city = await _city(state, db, message)
+    to_whom = await _identity_by_name(db, str(message["whom"]))
+    total = int(message["amount"])
     await town.spend(
-        db, identity, город, кому, сумма,
+        db, identity, city, to_whom, total,
         memo=str(message.get("memo") or ""),
         body=await _body(db, identity.id),
     )
-    return {"spent": сумма, "whom": кому.name}
+    return {"spent": total, "whom": to_whom.name}
 
 
 async def _city_allot(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Выделить городской участок жителю: свой дом начинается отсюда (D-089)."""
+    """Allot a civic plot to a resident: one's own home starts here (D-089)."""
     identity = await _identity(state, db)
-    город = await _city(state, db, message)
-    участок = await _node(db, str(message["node"]))
-    кому = await _identity_by_name(db, str(message["whom"]))
+    city = await _city(state, db, message)
+    plot = await _node(db, str(message["node"]))
+    to_whom = await _identity_by_name(db, str(message["whom"]))
     await town.allot(
-        db, identity, город, участок, кому, body=await _body(db, identity.id)
+        db, identity, city, plot, to_whom, body=await _body(db, identity.id)
     )
-    return {"allotted": участок.key, "whom": кому.name}
+    return {"allotted": plot.key, "whom": to_whom.name}
 
 
 async def _city(state: dict, db: AsyncSession, message: dict):
-    """Город, о котором речь: названный ключом узла либо тот, где стоит тело."""
+    """The city in question: named by node key, or the one where the body stands."""
     if message.get("city"):
-        узел = await _node(db, str(message["city"]))
+        node = await _node(db, str(message["city"]))
     else:
         body = await _body(db, state["identity_id"])
         if body is None:
             raise Refused("нет живого тела: назовите город явно")
-        узел = await db.get(Node, body.node_id)
-    город = await town.of_node(db, узел)
-    if город is None:
+        node = await db.get(Node, body.node_id)
+    city = await town.of_node(db, node)
+    if city is None:
         raise Refused("здесь нет города: за стенами законов нет")
-    return город
+    return city
 
 
 async def _identity_by_name(db: AsyncSession, name: str) -> Identity:
@@ -2147,7 +2157,7 @@ async def _identity_by_name(db: AsyncSession, name: str) -> Identity:
 
 
 async def _citizens(db: AsyncSession) -> list[str]:
-    """Кого вообще можно назначить и кому заплатить. Имена публичны (D-058)."""
+    """Who can be appointed or paid at all. Names are public (D-058)."""
     rows = await db.execute(select(Identity.name).order_by(Identity.name))
     return [row[0] for row in rows]
 
@@ -2274,7 +2284,7 @@ _COMMANDS = {
 
 
 def _fill(fill: market.Fill) -> dict[str, Any]:
-    """Что вышло из заявки: сам ордер и сделки, если они случились."""
+    """What came of the order: the order itself and deals, if any happened."""
     return {
         "order": str(fill.order.id),
         "state": fill.order.state.value,
@@ -2288,9 +2298,10 @@ def _fill(fill: market.Fill) -> dict[str, Any]:
 
 
 def _craft_request(message: dict) -> tuple[str, float, dict[str, Any]]:
-    """Разбор заявки на партию — одинаковый у прогноза и у запуска.
+    """Parsing a batch request -- identical for forecast and start.
 
-    Иначе прогноз считался бы по одной заявке, а партия шла бы по другой.
+    Otherwise the forecast would be computed for one request and the batch
+    would run on another.
     """
     return (
         message["output"],
@@ -2298,18 +2309,18 @@ def _craft_request(message: dict) -> tuple[str, float, dict[str, Any]]:
         {
             "tool_item_id": _optional_uuid(message.get("tool")),
             "proportions": message.get("proportions"),
-            #: «Поставить на автомат» — решение мастера: объём вместо качества,
-            #: и счёт за энергию (D-035, D-058).
+            #: "Put on automatic" is the master's decision: volume instead of
+            #: quality, and an energy bill (D-035, D-058).
             "auto": bool(message.get("auto", False)),
         },
     )
 
 
 def _sight(session: MiningSession, sight: mining.Sight) -> dict[str, Any]:
-    """Наружу уходит только то, что видит игрок.
+    """Only what the player sees goes out.
 
-    Собирается из `Sight`, а не из модели сессии, — чтобы скрытое число
-    физически не могло попасть в ответ по недосмотру.
+    Built from `Sight`, not from the session model -- so that a hidden number
+    physically cannot end up in the reply by oversight.
     """
     payload = asdict(sight)
     payload["pace"] = sight.pace.value
@@ -2324,7 +2335,7 @@ async def _body(db: AsyncSession, identity_id: uuid.UUID) -> Body | None:
 
 
 async def _alive(state: dict, db: AsyncSession) -> Body:
-    """Тело, которым действуют. Материя требует присутствия (D-044)."""
+    """The body being acted with. Matter requires presence (D-044)."""
     body = await _body(db, state["identity_id"])
     if body is None:
         raise Refused("нет живого тела")
@@ -2334,17 +2345,17 @@ async def _alive(state: dict, db: AsyncSession) -> Body:
 async def _bench(
     db: AsyncSession, node: Node, body: Body, *, furniture: bool = False
 ) -> list[dict[str, Any]]:
-    """Станки узла поимённо: качество, состояние и кем занят (D-150).
+    """The node's machines by name: quality, condition and who occupies them (D-150).
 
-    Отдельно от `stations`: тот список отвечает на вопрос «какие сцены
-    показывать», а этот — «за какой станок можно встать прямо сейчас».
-    С `furniture=True` — то же самое про мебель: кровать и стеллаж не станки,
-    и клиент показывает их отдельным окном.
+    Separate from `stations`: that list answers "which scenes to show", this one
+    answers "which machine can I stand at right now". With `furniture=True` the
+    same for furniture: a bed and a shelf are not machines, and the client shows
+    them in a separate window.
     """
     from src.constants.catalog import ItemKind
 
-    ожидаемый = ItemKind.FURNITURE if furniture else ItemKind.STATION
-    книга = current_catalog().recipes
+    expected_value = ItemKind.FURNITURE if furniture else ItemKind.STATION
+    book = current_catalog().recipes
     where = await world.node_container(db, node)
     items = (
         await db.execute(select(Item).where(Item.container_id == where.id))
@@ -2353,10 +2364,10 @@ async def _bench(
     out: list[dict[str, Any]] = []
     for item in items:
         try:
-            рецепт = книга.recipe(item.type_key)
-        except Exception:  # noqa: BLE001 — сырьё у станка рецептом не описано
+            recipe = book.recipe(item.type_key)
+        except Exception:  # noqa: BLE001 -- raw material at the machine has no recipe
             continue
-        if рецепт.kind is not ожидаемый:
+        if recipe.kind is not expected_value:
             continue
         out.append(
             {
@@ -2366,9 +2377,9 @@ async def _bench(
                 "condition": float(item.condition),
                 "busy": item.busy_body_id is not None,
                 "mine": item.busy_body_id == body.id,
-                #: Заряд — у аккумулятора, стоящего здесь станком (D-179).
-                #: Признак — тип вещи, а не заполненность поля: пустой
-                #: аккумулятор — это ноль энергии, а не «не аккумулятор».
+                #: Charge belongs to the battery standing here as a machine
+                #: (D-179). The sign is the thing's type, not whether the field is
+                #: filled: an empty battery is zero energy, not "not a battery".
                 "charge": (
                     round(energy.charge_of(current(), item), 2)
                     if item.type_key == energy.BATTERY
@@ -2376,87 +2387,87 @@ async def _bench(
                 ),
             }
         )
-    return sorted(out, key=lambda станок: станок["goods"])
+    return sorted(out, key=lambda machine: machine["goods"])
 
 
 async def _storages(
     db: AsyncSession, constants, node: Node, body: Body
 ) -> list[dict[str, Any]]:
-    """Хранилища узла с содержимым (D-181).
+    """Node storages with contents (D-181).
 
-    Само наличие сундука видно всем — он стоит в комнате. Что внутри, видит
-    только тот, кто вправе его открыть: иначе «посмотреть» стало бы обходом
-    правила «не лезть в чужое».
+    That a chest exists is visible to all -- it stands in the room. What is
+    inside is seen only by whoever may open it: otherwise "look" would become a
+    way around the rule "do not touch what is not yours".
     """
     catalog = current_catalog()
-    где = await world.node_container(db, node)
-    вещи = (
-        await db.execute(select(Item).where(Item.container_id == где.id))
+    where = await world.node_container(db, node)
+    things = (
+        await db.execute(select(Item).where(Item.container_id == where.id))
     ).scalars().all()
-    можно = await station.may_build(db, body, node)
+    allowed = await station.may_build(db, body, node)
 
     out: list[dict[str, Any]] = []
-    for вещь in вещи:
-        предел = storage.capacity(catalog, вещь.type_key)
-        if not предел:
+    for thing in things:
+        limit = storage.capacity(catalog, thing.type_key)
+        if not limit:
             continue
         out.append(
             {
-                "id": str(вещь.id),
-                "goods": вещь.type_key,
-                "capacity": предел,
-                "mass": round(await storage.stored_mass(db, catalog, вещь), 2),
-                "mine": можно,
+                "id": str(thing.id),
+                "goods": thing.type_key,
+                "capacity": limit,
+                "mass": round(await storage.stored_mass(db, catalog, thing), 2),
+                "mine": allowed,
                 "content": (
-                    await _things(db, constants, await storage.inside(db, вещь))
-                    if можно
+                    await _things(db, constants, await storage.inside(db, thing))
+                    if allowed
                     else []
                 ),
             }
         )
-    return sorted(out, key=lambda сундук: сундук["goods"])
+    return sorted(out, key=lambda chest: chest["goods"])
 
 
 async def _vehicles(db: AsyncSession, constants, node: Node) -> list[dict[str, Any]]:
-    """Транспорт, стоящий в этом узле (D-157).
+    """Vehicles standing in this node (D-157).
 
-    Отдельно от станков: в повозку не встают работать, в неё впрягаются. Занят
-    ли транспорт чужой упряжкой, видно сразу — иначе игрок узнавал бы об этом
-    только отказом.
+    Separate from machines: nobody stands at a wagon to work, they harness to
+    it. Whether a vehicle is taken by somebody else's harness is visible at once
+    -- otherwise the player would learn it only from a refusal.
     """
     from src.models.travel import Harness
 
-    каталог = current_catalog()
-    где = await world.node_container(db, node)
-    вещи = (
-        await db.execute(select(Item).where(Item.container_id == где.id))
+    cat = current_catalog()
+    where = await world.node_container(db, node)
+    things = (
+        await db.execute(select(Item).where(Item.container_id == where.id))
     ).scalars().all()
-    впряжены = set((await db.execute(select(Harness.item_id))).scalars().all())
+    harnessed_ = set((await db.execute(select(Harness.item_id))).scalars().all())
     out: list[dict[str, Any]] = []
-    for item in вещи:
-        if not transport.is_vehicle(каталог, item.type_key):
+    for item in things:
+        if not transport.is_vehicle(cat, item.type_key):
             continue
         try:
-            грузоподъёмность = transport.capacity(constants, item.type_key)
+            capacity = transport.capacity(constants, item.type_key)
         except transport.NotVehicle:
-            #: Вольт не назвал его грузоподъёмности — показываем как есть,
-            #: а откажет упряжка: врать числом хуже, чем не показать его.
-            грузоподъёмность = None
+            #: The vault did not name its capacity -- show it as is, and let the
+            #: harness refuse: lying with a number is worse than not showing it.
+            capacity = None
         out.append(
             {
                 "id": str(item.id),
                 "goods": item.type_key,
                 "condition": float(item.condition),
-                "capacity": грузоподъёмность,
+                "capacity": capacity,
                 "speed_k": transport.speed(constants, item.type_key),
-                "taken": item.id in впряжены,
+                "taken": item.id in harnessed_,
             }
         )
-    return sorted(out, key=lambda телега: телега["goods"])
+    return sorted(out, key=lambda cart: cart["goods"])
 
 
 async def _stations(db: AsyncSession, node: Node) -> list[str]:
-    """Станки и терминал, стоящие в узле. Сцена узла собирается из них."""
+    """Machines and the terminal standing in the node. The node scene is built from them."""
     where = await world.node_container(db, node)
     rows = await db.execute(
         select(Item.type_key).where(Item.container_id == where.id).distinct()
@@ -2465,20 +2476,20 @@ async def _stations(db: AsyncSession, node: Node) -> list[str]:
 
 
 async def _money(db: AsyncSession, identity_id: uuid.UUID) -> str:
-    """Счёт личности. Баланс — сумма проводок, поля «деньги» не существует."""
+    """The identity's account. The balance is the sum of postings; there is no "money" field."""
     account = await ledger.account_for(db, AccountKind.IDENTITY, identity_id)
     return money_str(await ledger.balance(db, account.id))
 
 
 async def _things(db: AsyncSession, constants, container) -> list[dict[str, Any]]:
-    """Содержимое контейнера так, как его видит хозяин: с числом и со ступенью."""
+    """Container contents as the owner sees them: with a number and a tier."""
     items = (
         await db.execute(select(Item).where(Item.container_id == container.id))
     ).scalars().all()
     catalog = current_catalog()
-    #: Клеймо показывается именем: чья это работа, игрок обязан видеть (D-058).
-    клейма = await _makers(db, items)
-    сорта = await _varieties(db, items)
+    #: The mark is shown as a name: the player must see whose work it is (D-058).
+    marks = await _makers(db, items)
+    cultivars = await _varieties(db, items)
     return [
         {
             "id": str(item.id),
@@ -2492,21 +2503,21 @@ async def _things(db: AsyncSession, constants, container) -> list[dict[str, Any]
             "food": _edible(catalog, item.type_key),
             "ingredient": catalog.recipes.is_ingredient(item.type_key),
             "spoils_at": None if item.spoils_at is None else item.spoils_at.isoformat(),
-            #: Проба монеты видна всем: пробирного инструмента в данных вольта
-            #: нет, а прятать пробу без способа её узнать нельзя (OQ 01-currency).
+            #: Coin fineness is visible to all: the vault data has no assay tool,
+            #: and hiding fineness without a way to learn it is not allowed (OQ 01-currency).
             "fineness": None if item.fineness is None else float(item.fineness),
-            "maker": клейма.get(item.maker_identity_id),
-            #: Вес и слот — из данных вольта (D-146). Незнакомому каталогу
-            #: предмету масса не приписывается: дыра должна быть видна.
+            "maker": marks.get(item.maker_identity_id),
+            #: Weight and slot come from vault data (D-146). An item unknown to
+            #: the catalog gets no mass: the hole must be visible.
             "mass": catalog.recipes.mass_of(item.type_key),
             "slot": catalog.recipes.slot_of(item.type_key),
-            #: У семян: чей сорт и сколько силы осталось в партии (D-057).
-            "variety": сорта.get(item.variety_id),
+            #: For seeds: whose cultivar and how much strength is left in the batch (D-057).
+            "variety": cultivars.get(item.variety_id),
             "vigor": None if item.vigor is None else float(item.vigor),
-            #: У аккумулятора: заряд с учётом саморазряда — то, что в нём
-            #: действительно есть сейчас, а не то, что залили вчера (D-071).
-            #: Ни разу не заряженный показывает ноль, а не пустоту: иначе он
-            #: не виден в «хозяйстве» до первой зарядки.
+            #: For a battery: charge with self-discharge -- what is really in it
+            #: now, not what was poured in yesterday (D-071). One never charged
+            #: shows zero, not nothing: otherwise it is invisible in "holdings"
+            #: until the first charge.
             "charge": (
                 round(energy.charge_of(constants, item), 1)
                 if item.type_key == energy.BATTERY
@@ -2518,19 +2529,19 @@ async def _things(db: AsyncSession, constants, container) -> list[dict[str, Any]
 
 
 async def _varieties(db: AsyncSession, items) -> dict[uuid.UUID, str]:
-    """Имена сортов по семенам. У безымянного гибрида — честное «гибрид»."""
+    """Cultivar names by seeds. A nameless hybrid gets an honest "hybrid"."""
     ids = {item.variety_id for item in items if item.variety_id is not None}
     if not ids:
         return {}
     rows = await db.execute(select(Variety).where(Variety.id.in_(ids)))
     return {
-        сорт.id: сорт.name or f"гибрид, поколение {сорт.generation}"
-        for сорт in rows.scalars().all()
+        cultivar.id: cultivar.name or f"гибрид, поколение {cultivar.generation}"
+        for cultivar in rows.scalars().all()
     }
 
 
 async def _makers(db: AsyncSession, items) -> dict[uuid.UUID, str]:
-    """Имена мастеров по клеймам предметов, одним запросом."""
+    """Craftsmen's names by item marks, in one query."""
     ids = {item.maker_identity_id for item in items if item.maker_identity_id is not None}
     if not ids:
         return {}
@@ -2543,7 +2554,7 @@ async def _makers(db: AsyncSession, items) -> dict[uuid.UUID, str]:
 def _edible(catalog, type_key: str) -> bool:
     try:
         return catalog.recipes.recipe(type_key).food
-    except Exception:  # noqa: BLE001 — сырьё рецептом не описано
+    except Exception:  # noqa: BLE001 -- raw material has no recipe
         return False
 
 
@@ -2583,7 +2594,7 @@ async def _orders(db: AsyncSession, identity_id: uuid.UUID) -> list[dict[str, An
 
 
 async def _reservations(db: AsyncSession, identity_id: uuid.UUID) -> list[dict[str, Any]]:
-    """Свои брони: где, что, до какого срока и сколько внесено задатком."""
+    """Own reservations: where, what, until when and how much was deposited."""
     rows = (
         await db.execute(
             select(Reservation, Node.name, Node.key)
@@ -2596,22 +2607,22 @@ async def _reservations(db: AsyncSession, identity_id: uuid.UUID) -> list[dict[s
     ).all()
     return [
         {
-            "id": str(бронь.id),
-            "goods": бронь.type_key,
-            "tier": бронь.tier,
-            "amount": amount_float(бронь.amount),
-            "price": бронь.price,
-            "deposit": бронь.deposit,
-            "node": имя,
-            "node_key": ключ,
-            "expires_at": бронь.expires_at.isoformat(),
+            "id": str(reservation.id),
+            "goods": reservation.type_key,
+            "tier": reservation.tier,
+            "amount": amount_float(reservation.amount),
+            "price": reservation.price,
+            "deposit": reservation.deposit,
+            "node": name,
+            "node_key": key,
+            "expires_at": reservation.expires_at.isoformat(),
         }
-        for бронь, имя, ключ in rows
+        for reservation, name, key in rows
     ]
 
 
 async def _batches(db: AsyncSession, identity_id: uuid.UUID) -> list[dict[str, Any]]:
-    """Дела: длительные работы, которые идут сами, в том числе пока игрок офлайн."""
+    """Jobs: long-running works that go by themselves, including while the player is offline."""
     rows = (
         await db.execute(
             select(CraftBatch)
@@ -2633,7 +2644,7 @@ async def _batches(db: AsyncSession, identity_id: uuid.UUID) -> list[dict[str, A
 
 
 async def _own_item(db: AsyncSession, body: Body, item_id: str) -> Item:
-    """Вещь в руках. Чинят и разбирают своё, а не то, что лежит рядом."""
+    """A thing in the hands. You repair and take apart your own, not what lies nearby."""
     from src.engine.world import body_container
 
     item = await db.get(Item, uuid.UUID(item_id))
@@ -2644,7 +2655,7 @@ async def _own_item(db: AsyncSession, body: Body, item_id: str) -> Item:
 
 
 async def _identity(state: dict, db: AsyncSession) -> Identity:
-    """Личность. Ею распоряжаются удалённо — и когда тело мертво, тоже."""
+    """The identity. It is controlled remotely -- also when the body is dead."""
     identity = await db.get(Identity, state["identity_id"])
     if identity is None:  # pragma: no cover
         raise Refused("личность исчезла")
@@ -2652,7 +2663,7 @@ async def _identity(state: dict, db: AsyncSession) -> Identity:
 
 
 async def _node(db: AsyncSession, key: str) -> Node:
-    """Узел по устойчивому ключу: ордерами распоряжаются откуда угодно."""
+    """A node by stable key: orders are managed from anywhere."""
     node = (await db.execute(select(Node).where(Node.key == key))).scalar_one_or_none()
     if node is None:
         raise Refused(f"нет узла {key!r}")
@@ -2662,7 +2673,7 @@ async def _node(db: AsyncSession, key: str) -> Node:
 async def _active(state: dict, db: AsyncSession) -> MiningSession:
     session_id = state.get("session_id")
     if session_id is None:
-        #: Клиент мог переподключиться — ищем открытую сессию тела.
+        #: The client may have reconnected -- look for the body's open session.
         body = await _body(db, state["identity_id"])
         if body is None:
             raise Refused("нет живого тела")

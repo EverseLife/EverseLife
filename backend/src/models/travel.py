@@ -1,11 +1,11 @@
-"""Переход по ребру — длительное действие (06-actions, D-107).
+"""A transit along an edge -- a long-running action (06-actions, D-107).
 
-Пока персонаж в пути, он **нигде**: тело остаётся привязанным к узлу, откуда
-вышло, но присутственные действия ему закрыты. Так дорога получает цену не на
-словах: за время перехода партию выкупят, а цену собьют.
+While a character is on the way, they are **nowhere**: the body stays bound to
+the node it left, but in-person actions are closed to it. So the road gets a
+price not in words: during the transit the lot gets bought and the price beaten down.
 
-Тело переезжает в новый узел **заданием журнала**, а не проверкой при чтении:
-приход обязан случиться, даже если игрок закрыл вкладку сразу после выхода.
+The body moves to the new node **by a journal job**, not by a check on read:
+the arrival must happen even if the player closed the tab right after leaving.
 """
 
 from __future__ import annotations
@@ -24,9 +24,9 @@ from src.db.base import Base, created_column, enum_column, uuid_pk
 class TravelState(StrEnum):
     GOING = "going"
     ARRIVED = "arrived"
-    #: Оборван, а не дошёл: тело погибло в пути. Отдельное состояние от
-    #: «пришёл» обязательно — иначе разбор эпизода покажет приход туда, куда
-    #: никто не приходил.
+    #: Cut off rather than arrived: the body died en route. A separate state
+    #: from "arrived" is mandatory -- otherwise examining the episode would
+    #: show an arrival where nobody arrived.
     CANCELLED = "cancelled"
 
 
@@ -46,8 +46,8 @@ class Travel(Base):
     state: Mapped[TravelState] = enum_column(
         TravelState, "travel_state", nullable=False, default=TravelState.GOING
     )
-    #: Хвост автопути (D-045): id узлов, которые ещё предстоит пройти после
-    #: этого отрезка. Пусто — обычный переход в соседний узел.
+    #: The autopath tail (D-045): ids of nodes still to be walked after this
+    #: leg. Empty -- an ordinary transit to an adjacent node.
     plan: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
     started_at: Mapped[datetime] = created_column()
     arrives_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -55,16 +55,17 @@ class Travel(Base):
 
 
 class Harness(Base):
-    """Кто во что впряжён (D-157).
+    """Who is harnessed to what (D-157).
 
-    Транспорт тяжелее человека и в руки не берётся никогда: он стоит в узле,
-    как станок. Впряжённый едет за телом по всем переходам — это и есть
-    единственный способ увезти больше, чем `inventory.carry_mass`.
+    A vehicle is heavier than a person and is never taken in hand: it stands in
+    the node, like a machine. A harnessed one follows the body along all
+    transits -- that is the only way to carry more than `inventory.carry_mass`.
 
-    Ограничения стоят в базе, а не в проверках движка: тело тянет один
-    транспорт, и один транспорт тянет одно тело. Обоз из двух возчиков — это
-    конвой, и он приедет своей механикой.
+    The constraints are in the database, not in engine checks: a body pulls one
+    vehicle, and one vehicle is pulled by one body. A convoy of two carters is
+    a caravan, and it will arrive with its own mechanic.
     """
+
 
     __tablename__ = "harness"
     __table_args__ = (

@@ -1,12 +1,13 @@
-"""Норма залога в решении по ставке (D-170).
+"""Collateral ratio in the rate decision (D-170).
 
-У прежних решений её нет: ноль читается как «действует значение вольта».
+Previous decisions have none: zero reads as "the vault value applies".
 
 
 Revision ID: d42986d7abed
 Revises: c49909ff6fcd
 Create Date: 2026-08-14 17:05:12.032059
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence

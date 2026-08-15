@@ -1,16 +1,16 @@
 /*
- * Оформление демки — намеренно аскетичное.
+ * The demo's styling is deliberately ascetic.
  *
- * Визуальный язык игры это отдельная работа (D-049, D-055, D-072), и пилотный
- * экран проверяет непроверенное решение: обозначать интерактивность **без
- * цвета**. Поэтому по-прежнему один шрифт, одна рамка и никакого цветового
- * кодирования смысла.
+ * The game's visual language is separate work (D-049, D-055, D-072), and the
+ * pilot screen tests an untested decision: marking interactivity **without
+ * colour**. So there is still one font, one border and no colour coding of meaning.
  *
- * Иерархия при этом есть — она делается плотностью, а не цветом: структурные
- * линии полупрозрачные, интерактивное — полным тоном. Каркас резиновый:
- * приложение занимает весь экран, сайдбар и сцена прокручиваются каждый сам,
- * чат прибит к низу сцены. На узких экранах каркас распускается в обычный
- * поток документа — там свои области прокрутки только мешают.
+ * There is a hierarchy nonetheless -- it is made by density, not colour:
+ * structural lines are translucent, the interactive is full tone. The frame is
+ * elastic: the app takes the whole screen, the sidebar and the scene each
+ * scroll on their own, the chat is pinned to the bottom of the scene. On
+ * narrow screens the frame unravels into the ordinary document flow -- there
+ * separate scroll areas only get in the way.
  */
 
 :root {
@@ -18,8 +18,8 @@
   font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   font-size: 15px;
   line-height: 1.5;
-  /* Линии структуры: полупрозрачный currentColor. Полный тон остаётся
-     интерактивному — кнопкам и выбранному. */
+  /* Structural lines: translucent currentColor. Full tone is left for the
+     interactive -- buttons and the selected. */
   --line: color-mix(in srgb, currentColor 35%, transparent);
   --hairline: color-mix(in srgb, currentColor 16%, transparent);
   --wash: color-mix(in srgb, currentColor 8%, transparent);
@@ -43,8 +43,8 @@ body,
 
 body {
   margin: 0;
-  /* Системная пара фон/текст: тот же холст, на котором система рисует поля
-     ввода, — тема при этом переключается сама. */
+  /* The system background/text pair: the same canvas the system draws input
+     fields on -- and the theme switches by itself. */
   background: Canvas;
   color: CanvasText;
   overflow-wrap: break-word;
@@ -71,7 +71,7 @@ h3 {
   text-decoration-color: var(--line);
 }
 
-/* --- каркас: экран целиком ------------------------------------------------ */
+/* --- frame: the whole screen ---------------------------------------------- */
 
 main {
   height: 100%;
@@ -90,7 +90,7 @@ header {
   border-bottom: 1px solid var(--line);
   margin-bottom: 0.75rem;
 }
-/* Табы сцены — по правому краю: слева «кто и где», справа «куда смотреть». */
+/* Scene tabs at the right edge: "who and where" on the left, "where to look" on the right. */
 header nav.tabs {
   margin-left: auto;
 }
@@ -99,8 +99,8 @@ header nav.tabs {
   font-weight: bold;
 }
 
-/* Каркас: сайдбар слева (Сеть), основное окно справа (присутственное).
-   Обе колонки прокручиваются каждая сама — заголовок и низ всегда на месте. */
+/* The frame: sidebar on the left (the Net), main window on the right (in-person).
+   Both columns each scroll on their own -- header and bottom always in place. */
 .frame {
   flex: 1;
   min-height: 0;
@@ -120,7 +120,7 @@ header nav.tabs {
   margin-top: 0.85rem;
 }
 
-/* Сцена: содержимое прокручивается, чат остаётся прибит к низу. */
+/* The scene: the content scrolls, the chat stays pinned to the bottom. */
 .main {
   display: flex;
   flex-direction: column;
@@ -137,8 +137,8 @@ header nav.tabs {
   flex: none;
 }
 
-/* Узкий экран: одна колонка, обычная прокрутка страницы. Сцена — первой:
-   карта важнее сайдбара, когда всё в один столбец. */
+/* Narrow screen: one column, ordinary page scrolling. The scene first: the
+   map matters more than the sidebar when everything is in one column. */
 @media (max-width: 56rem) {
   main {
     height: auto;
@@ -167,7 +167,7 @@ header nav.tabs {
 
 .panels {
   display: grid;
-  /* min(22rem, 100%): колонка не обязана быть шире экрана. */
+  /* min(22rem, 100%): the column need not be wider than the screen. */
   grid-template-columns: repeat(auto-fit, minmax(min(22rem, 100%), 1fr));
   gap: 0.75rem;
   align-items: start;
@@ -187,7 +187,7 @@ section {
   margin: 0.5rem 0;
 }
 
-/* --- интерактивное: полный тон -------------------------------------------- */
+/* --- interactive: full tone ------------------------------------------------ */
 
 button,
 select,
@@ -201,11 +201,11 @@ input {
 }
 
 /*
- * Список вариантов у `select` рисует не страница, а система, и прозрачный фон
- * ей достаётся белым — вместе с унаследованным белым текстом. Отсюда белое по
- * белому в тёмной теме. Лечится единственным способом: полю и его вариантам
- * задаются **системные** цвета, а не наши, — тогда они совпадут с тем, на чём
- * система их и рисует.
+ * The `select` option list is drawn by the system, not the page, and a
+ * transparent background comes out white for it -- together with inherited
+ * white text. Hence white on white in the dark theme. Cured only one way: the
+ * field and its options get **system** colours, not ours -- then they match
+ * what the system draws them on.
  */
 select,
 input {
@@ -219,8 +219,8 @@ option {
 }
 
 /*
- * Главная кнопка «толще» тихой, но толщина набирается внутренней тенью, а не
- * рамкой: смена класса (табы!) не должна дёргать раскладку на пиксель.
+ * The main button is "thicker" than the quiet one, but the thickness comes from
+ * an inner shadow, not the border: a class change (tabs!) must not shift the layout by a pixel.
  */
 button:not(:disabled) {
   cursor: pointer;
@@ -253,7 +253,7 @@ input[type="checkbox"] {
   accent-color: currentColor;
 }
 
-/* --- таблицы --------------------------------------------------------------- */
+/* --- tables ---------------------------------------------------------------- */
 
 table {
   border-collapse: collapse;
@@ -285,7 +285,7 @@ th {
   border-right: 1px solid var(--line);
 }
 
-/* Панель во всю ширину сцены: рынку тесно в общей сетке. */
+/* A panel across the whole scene: the market is cramped in the common grid. */
 .panels .wide {
   grid-column: 1 / -1;
 }
@@ -302,7 +302,7 @@ th {
   }
 }
 
-/* Строка своего товара: клик выбирает позицию в стакане. */
+/* Own goods row: a click selects the position in the book. */
 tr.pick {
   cursor: pointer;
 }
@@ -334,13 +334,13 @@ tr.picked td:first-child {
   line-height: 1.35;
   margin: 0.2rem 0;
 }
-/* Подсказки не громоздятся: у соседних заметок один зазор, а не сумма двух. */
+/* Hints do not pile up: adjacent notes have one gap, not the sum of two. */
 .note + .note {
   margin-top: 0;
 }
 
-/* Подсказка по требованию: на виду значок, объяснение — по наведению.
-   Раскрытая не двигает раскладку: она absolute над содержимым. */
+/* A hint on demand: the icon in view, the explanation on hover.
+   Expanded it does not move the layout: it is absolute over the content. */
 .hint {
   position: relative;
   display: inline-flex;
@@ -356,14 +356,14 @@ tr.picked td:first-child {
   cursor: help;
   user-select: none;
 }
-/* `:focus`, а не только `:focus-visible`: на телефоне наведения нет вовсе, и
-   тап по значку — единственный способ раскрыть подсказку. */
+/* `:focus`, not only `:focus-visible`: on a phone there is no hover at all,
+   and a tap on the icon is the only way to expand the hint. */
 .hint:hover,
 .hint:focus {
   opacity: 1;
 }
-/* Раскрывается вниз, а не вверх: панель карты обрезает содержимое по себе
-   (`overflow: hidden`), и подсказка у её верхнего края уходила под обрез. */
+/* Expands down, not up: the map panel clips content to itself
+   (`overflow: hidden`), and a hint at its top edge went under the clip. */
 .hint-body {
   position: absolute;
   top: calc(100% + 0.4rem);
@@ -374,7 +374,7 @@ tr.picked td:first-child {
   max-width: min(26rem, 80vw);
   padding: 0.4rem 0.6rem;
   border: 1px solid var(--line);
-  /* Непрозрачный фон: подсказка ложится поверх карты и текста под ней. */
+  /* Opaque background: the hint lies over the map and the text under it. */
   background: Canvas;
   color: CanvasText;
   font-size: 0.8rem;
@@ -386,13 +386,13 @@ tr.picked td:first-child {
 .hint:focus .hint-body {
   display: block;
 }
-/* В нижней полосе карты места вниз уже нет — там подсказка раскрывается вверх. */
+/* In the map's bottom strip there is no room down any more -- there the hint expands up. */
 .map-bar .hint-body {
   top: auto;
   bottom: calc(100% + 0.4rem);
 }
 
-/* Ошибка — всегда на виду: полоса под каркасом, а не в глубине прокрутки. */
+/* An error is always in view: a strip under the frame, not deep in the scroll. */
 .trouble {
   flex: none;
   border: 2px solid currentColor;
@@ -412,7 +412,7 @@ footer {
   font-size: 0.8rem;
 }
 
-/* Экран входа: одна колонка по центру экрана. */
+/* The login screen: one column in the centre of the screen. */
 main.entry {
   justify-content: center;
   border: none;
@@ -422,8 +422,8 @@ main.entry {
   margin-inline: auto;
 }
 
-/* Двери в мир: карточки рядом, чтобы города сравнивались взглядом (D-182).
-   Экран входа сужен до 34rem — дверям этого мало, они шире своей колонки. */
+/* Doors into the world: cards side by side so cities compare by eye (D-182).
+   The login screen is narrowed to 34rem -- too little for the doors, they are wider than their column. */
 .entry > .doors {
   width: min(52rem, 100%);
   display: grid;
@@ -433,8 +433,8 @@ main.entry {
   margin: 0.75rem auto;
 }
 
-/* Слово города (D-183): чужая речь, а не строка движка. Отбивается курсивом
-   и линией слева — тем же приёмом, что и подслушанная реплика в чате. */
+/* The city's word (D-183): somebody's speech, not an engine line. Set off by
+   italics and a line on the left -- the same device as an overheard remark in chat. */
 .say {
   margin: 0.5rem 0;
   padding-left: 0.6rem;
@@ -442,7 +442,7 @@ main.entry {
   font-style: italic;
 }
 
-/* Поле для этого же слова: те же поля ввода, но текст многострочный. */
+/* The field for that same word: the same input fields, but multi-line text. */
 textarea.word {
   font: inherit;
   width: 100%;
@@ -454,8 +454,8 @@ textarea.word {
   resize: vertical;
 }
 
-/* Вступление: занавес поверх мира. Мир при этом виден по краям — читать
-   необязательно, и закрытое окно ничего не ломает. */
+/* The intro: a curtain over the world. The world is visible at the edges --
+   reading is optional, and the closed window breaks nothing. */
 .veil {
   position: fixed;
   inset: 0;
@@ -470,8 +470,8 @@ textarea.word {
   width: min(38rem, 100%);
   max-height: 100%;
   overflow-y: auto;
-  /* Непрозрачный фон и полный тон рамки: это единственное окно, которое
-     говорит от лица игры, и оно не должно сливаться с панелями под ним. */
+  /* Opaque background and full-tone border: this is the only window that
+     speaks on the game's behalf, and it must not merge with the panels under it. */
   background: Canvas;
   border-color: currentColor;
 }
@@ -486,10 +486,10 @@ textarea.word {
   margin: 0.35rem 0;
 }
 
-/* --- карта-граф ---------------------------------------------------------- */
+/* --- graph map ----------------------------------------------------------- */
 
-/* Карта — единственная панель, которая не прокручивается, а растягивается:
-   svg занимает всё, что осталось от подсказок и кнопок. */
+/* The map is the only panel that does not scroll but stretches: the svg takes
+   everything left over from hints and buttons. */
 .main > .map-pane {
   flex: 1;
   min-height: 0;
@@ -505,7 +505,7 @@ textarea.word {
   border: 1px solid var(--line);
   display: block;
   cursor: grab;
-  /* Перетаскивание узлов не должно выделять подписи и скроллить страницу. */
+  /* Dragging nodes must not select labels or scroll the page. */
   user-select: none;
   touch-action: none;
 }
@@ -567,7 +567,7 @@ textarea.word {
   fill: currentColor;
 }
 
-/* Узел-группа: второе кольцо говорит «внутри есть что раскрыть». */
+/* A group node: the second ring says "there is something to expand inside". */
 .node .halo {
   fill: none;
   stroke: currentColor;
@@ -589,14 +589,14 @@ textarea.word {
   margin-top: 0.5rem;
 }
 
-/* --- живое общение: нижняя полоса (D-050) --------------------------------- */
+/* --- live talk: the bottom strip (D-050) ---------------------------------- */
 
 .chat {
   margin-top: 0;
 }
 
 .chat-lines {
-  /* Резиновая высота: на большом экране разговору просторнее. */
+  /* Elastic height: on a big screen the conversation has more room. */
   height: clamp(6rem, 22vh, 16rem);
   overflow-y: auto;
   border-bottom: 1px dashed var(--line);
@@ -638,9 +638,9 @@ textarea.word {
   border-color: currentColor;
 }
 
-/* --- вход, регистрация, кабинет (D-187) ---------------------------------- */
+/* --- login, registration, account panel (D-187) -------------------------- */
 
-/* Экран входа: знак сверху, карточка по центру, дорога к регистрации снизу. */
+/* The login screen: the logo on top, the card in the centre, the road to registration below. */
 main.entry.auth {
   gap: 0.75rem;
   overflow-y: auto;
@@ -648,7 +648,7 @@ main.entry.auth {
 .entry.auth > * {
   width: min(26rem, 100%);
 }
-/* Широкие шаги — линии и двери — не влезают в узкую колонку. */
+/* Wide steps -- lines and doors -- do not fit into the narrow column. */
 .entry.auth > .wide,
 .entry.auth > .doors-step {
   width: min(56rem, 100%);
@@ -679,7 +679,7 @@ main.entry.auth {
   text-transform: uppercase;
 }
 
-/* Карточка формы: подписи над полями, поля во всю ширину. */
+/* The form card: labels above fields, fields across the whole width. */
 .card {
   border: 1px solid var(--line);
   padding: 1rem;
@@ -728,7 +728,7 @@ main.entry.auth {
   margin: 0;
 }
 
-/* Кнопка-ссылка: текст, а не рамка. */
+/* A link-button: text, not a border. */
 button.link {
   border: none;
   box-shadow: none;
@@ -742,8 +742,8 @@ button.link:not(:disabled):hover {
   text-decoration-color: currentColor;
 }
 
-/* Поле пароля с глазом. Глаз стоит внутри поля справа; блик пробегает по
-   полю при каждом переключении; буквы проявляются из точек через размытие. */
+/* The password field with an eye. The eye stands inside the field on the
+   right; a glint runs across the field on every toggle; letters emerge from dots through a blur. */
 .secret {
   position: relative;
   display: flex;
@@ -820,8 +820,8 @@ button.eye:not(:disabled):active {
   display: block;
   overflow: visible;
 }
-/* Веко опускается сверху: масштаб по вертикали от верхнего края миндалины.
-   Открытый глаз под ним и закрытый поверх — меняются местами плавно. */
+/* The lid lowers from above: vertical scale from the top edge of the almond.
+   The open eye under it and the closed one over it swap places smoothly. */
 .eye-lid {
   transform-origin: 16px 2px;
   transform: scaleY(0);
@@ -852,9 +852,9 @@ button.eye:not(:disabled):active {
   transform: translateY(0);
   transition-delay: 0.12s;
 }
-/* Открытый глаз моргает время от времени: живой, а не пиктограмма. Моргает
-   вся открытая группа сжатием по вертикали — веко занято переходом, и
-   анимация на нём спорила бы с ним за transform. */
+/* The open eye blinks from time to time: alive, not a pictogram. The whole
+   open group blinks by vertical compression -- the lid is busy with the
+   transition, and an animation on it would fight it for transform. */
 .secret.open .eye-open {
   transform-origin: 16px 11px;
   animation: eye-blink 6s ease-in-out 2s infinite;
@@ -881,7 +881,7 @@ button.eye:not(:disabled):active {
   }
 }
 
-/* Шаги регистрации: четыре номера в строку, текущий выделен. */
+/* Registration steps: four numbers in a row, the current one highlighted. */
 .steps {
   display: flex;
   justify-content: center;
@@ -923,7 +923,7 @@ button.eye:not(:disabled):active {
   border-style: dashed;
 }
 
-/* Линии персонажа: две карточки рядом; недоступная — приглушена. */
+/* Character lines: two cards side by side; the unavailable one is muted. */
 .lines {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(18rem, 100%), 1fr));
@@ -962,7 +962,7 @@ button.eye:not(:disabled):active {
   font-style: italic;
 }
 
-/* Двери внутри регистрации: та же сетка, что и раньше. */
+/* Doors inside registration: the same grid as before. */
 .doors-step .doors {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(16rem, 100%), 1fr));
@@ -977,7 +977,7 @@ button.eye:not(:disabled):active {
   width: min(20rem, 100%);
 }
 
-/* Имя в шапке — теперь кнопка кабинета, но выглядит как имя. */
+/* The name in the header is now the account button, but looks like a name. */
 header button.who {
   border: none;
   box-shadow: none;
@@ -991,7 +991,7 @@ header button.who:not(:disabled):hover {
   background: var(--wash);
 }
 
-/* Кабинет: то же окно, что и вступление, но со вкладками. */
+/* The account panel: the same window as the intro, but with tabs. */
 .intro.account > header {
   border: none;
   padding: 0;

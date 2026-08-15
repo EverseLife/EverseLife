@@ -1,4 +1,4 @@
-# Лендинг octoverse.world: страница и приём заявок на бету.
+# The octoverse.world landing: the page and beta signup intake.
 FROM python:3.13-slim
 
 WORKDIR /app
@@ -8,7 +8,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app.py export.py index.html favicon.svg ./
 
-# Заявки живут в SQLite на томе: контейнер одноразовый, база — нет.
+# Signups live in SQLite on a volume: the container is disposable, the database is not.
 ENV LANDING_DB=/data/signups.db
 VOLUME /data
 

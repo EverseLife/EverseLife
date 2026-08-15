@@ -1,11 +1,11 @@
-"""Журнал событий — первичное хранилище.
+"""The event journal -- the primary store.
 
-Требование дизайна: суд, метрики и расследования опираются на полное событийное
-логирование (01-tech-notes). Состояние мира — производное: любое изменение
-сначала становится событием, и только потом отражается в таблицах состояния.
+A design requirement: court, metrics and investigations rely on complete event
+logging (01-tech-notes). World state is derived: any change first becomes an
+event, and only then is reflected in state tables.
 
-Восстановить это задним числом невозможно, поэтому пишется с первого дня всё —
-даже то, что пока никто не читает.
+This cannot be reconstructed retroactively, so everything is written from day
+one -- even what nobody reads yet.
 """
 
 from __future__ import annotations
@@ -22,77 +22,77 @@ from src.db.base import Base
 
 
 class EventKind(StrEnum):
-    """Виды событий. Список растёт вместе с реестром действий (06-actions)."""
+    """Event kinds. The list grows with the action registry (06-actions)."""
 
-    # мир и служебное
+    # world and housekeeping
     WORLD_BOOTSTRAPPED = "world.bootstrapped"
     CONSTANTS_CHANGED = "constants.changed"
     TICK_RAN = "tick.ran"
 
-    # личность и тело
+    # identity and body
     IDENTITY_CREATED = "identity.created"
     BODY_PRINTED = "body.printed"
     BODY_DIED = "body.died"
-    #: Печать заказана и оплачена; тело приходит по сроку (D-028, D-033).
+    #: A print is ordered and paid; the body arrives on schedule (D-028, D-033).
     BODY_PRINT_ORDERED = "body.print_ordered"
     BODY_SLEPT = "body.slept"
     MEAL_EATEN = "meal.eaten"
     BODY_WOKE = "body.woke"
     KNOWLEDGE_LEARNED = "knowledge.learned"
 
-    # имущество
+    # property
     ITEM_CREATED = "item.created"
     ITEM_MOVED = "item.moved"
     ITEM_CONSUMED = "item.consumed"
     ITEM_WORN = "item.worn"
 
-    # снаряжение и носимое (D-146)
+    # gear and carried load (D-146)
     GEAR_EQUIPPED = "gear.equipped"
     GEAR_UNEQUIPPED = "gear.unequipped"
 
-    # добыча (D-143)
+    # mining (D-143)
     MINING_STARTED = "mining.started"
     MINING_SWING = "mining.swing"
     MINING_TIMBERED = "mining.timbered"
     MINING_LEFT = "mining.left"
     MINING_COLLAPSED = "mining.collapsed"
 
-    # перемещение (D-107)
+    # movement (D-107)
     TRAVEL_STARTED = "travel.started"
     TRAVEL_ARRIVED = "travel.arrived"
 
-    # дороги как работа на ребре (D-107, D-158)
+    # roads as work on an edge (D-107, D-158)
     ROAD_WORK_STARTED = "road.work_started"
     ROAD_LAID = "road.laid"
-    #: Заросло: покрытие опустилось на ступень без содержания.
+    #: Overgrown: the surface dropped a tier without maintenance.
     ROAD_DECAYED = "road.decayed"
 
-    # транспорт и обоз (D-157)
+    # transport and convoy (D-157)
     TRANSPORT_HARNESSED = "transport.harnessed"
     TRANSPORT_UNHARNESSED = "transport.unharnessed"
     TRANSPORT_LOADED = "transport.loaded"
     TRANSPORT_UNLOADED = "transport.unloaded"
-    #: Обоз встал: транспорт кончился износом, груз остался лежать в узле.
+    #: The convoy stopped: the vehicle ran out by wear, the cargo stayed in the node.
     TRANSPORT_BROKE = "transport.broke"
 
-    # крафт (D-092, D-133)
+    # craft (D-092, D-133)
     CRAFT_STARTED = "craft.started"
     CRAFT_FINISHED = "craft.finished"
 
-    # земля и земледелие (D-118)
+    # land and farming (D-118)
     LAND_CLAIMED = "land.claimed"
-    #: Выкуп городской земли: цена от удалённости, выручка в казну (D-089).
+    #: Purchase of civic land: the price by distance, proceeds to the treasury (D-089).
     LAND_BOUGHT = "land.bought"
-    #: Участку дали имя (D-178). Ключ узла при этом прежний.
+    #: A plot was named (D-178). The node key stays the same.
     LAND_RENAMED = "land.renamed"
-    #: Ценная бумага на участок: выдана, выставлена, продана (D-116).
+    #: A deed for a plot: issued, listed, sold (D-116).
     DEED_ISSUED = "deed.issued"
     DEED_OFFERED = "deed.offered"
     DEED_SOLD = "deed.sold"
-    #: Бумага погашена: земля ушла городу при основании (D-159). Городская
-    #: земля бумагой не торгуется — её раздаёт власть.
+    #: A deed cancelled: the land went to the city at founding (D-159). Civic
+    #: land is not traded by deed -- the authority hands it out.
     DEED_RETIRED = "deed.retired"
-    #: Здание построено на участке (D-106, D-125).
+    #: A building was built on a plot (D-106, D-125).
     BUILDING_BUILT = "building.built"
     PLOT_MARKED = "farm.marked"
     PLOT_PLOWED = "farm.plowed"
@@ -100,35 +100,35 @@ class EventKind(StrEnum):
     PLOT_CARED = "farm.cared"
     PLOT_HARVESTED = "farm.harvested"
 
-    # энергия (D-071, D-082, D-085)
+    # energy (D-071, D-082, D-085)
     ENERGY_PRODUCED = "energy.produced"
     ENERGY_CHARGED = "energy.charged"
     ENERGY_DRAWN = "energy.drawn"
-    # счётчик и содержание узла (D-135, D-149)
+    # node meter and maintenance (D-135, D-149)
     UTILITY_METERED = "utility.metered"
     UTILITY_PAID = "utility.paid"
     UTILITY_CUT_OFF = "utility.cut_off"
 
-    # станки (D-150)
+    # machines (D-150)
     STATION_PLACED = "station.placed"
     STATION_TAKEN = "station.taken"
 
-    # хранилища: сундук и стеллаж (D-181)
+    # storages: chest and shelf (D-181)
     STORAGE_PUT = "storage.put"
     STORAGE_TAKEN = "storage.taken"
 
-    # разведка (D-152)
+    # exploration (D-152)
     EXPLORE_STARTED = "explore.started"
     EXPLORE_FOUND = "explore.found"
     EXPLORE_EMPTY = "explore.empty"
-    #: Разведчик повернул назад: заход отменён, находка не состоялась.
+    #: The scout turned back: the run is cancelled, the find did not happen.
     EXPLORE_CANCELLED = "explore.cancelled"
 
-    # таможня (D-123)
+    # customs (D-123)
     CUSTOMS_CROSSED = "customs.crossed"
     CUSTOMS_REFUSED = "customs.refused"
 
-    # город и власть (D-127, D-130, D-153, D-154)
+    # city and authority (D-127, D-130, D-153, D-154)
     CITY_FOUNDED = "city.founded"
     CITY_LAW_SET = "city.law_set"
     CITY_CHARTER_SET = "city.charter_set"
@@ -136,48 +136,48 @@ class EventKind(StrEnum):
     CITY_OFFICE_REVOKED = "city.office_revoked"
     CITY_TREASURY_SPENT = "city.treasury_spent"
     CITY_GRANT_PAID = "city.grant_paid"
-    #: Город переписал своё слово новичку (D-183). В журнале оно потому, что
-    #: обещание на карточке — основание иска, и «что было написано тогда»
-    #: обязано сохраниться.
+    #: The city rewrote its word to newcomers (D-183). It is in the journal
+    #: because a promise on the card is grounds for a lawsuit, and "what was
+    #: written then" must be preserved.
     CITY_DESCRIBED = "city.described"
-    #: Гражданство (D-160): попросили либо позвали, приняли, выходят, кончилось.
+    #: Citizenship (D-160): applied or invited, admitted, leaving, ended.
     CITIZENSHIP_REQUESTED = "city.citizenship_requested"
     CITIZENSHIP_GRANTED = "city.citizenship_granted"
     CITIZENSHIP_LEAVING = "city.citizenship_leaving"
     CITIZENSHIP_ENDED = "city.citizenship_ended"
-    #: Голосование граждан (D-161): созвано, голос подан, итог подведён.
+    #: Citizens' vote (D-161): convened, vote cast, result tallied.
     VOTE_OPENED = "city.vote_opened"
     VOTE_CAST = "city.vote_cast"
-    #: Выдвинулся в правители (D-162).
+    #: Nominated for ruler (D-162).
     VOTE_NOMINATED = "city.vote_nominated"
-    #: Совет (D-164): место занято и место освобождено.
+    #: Council (D-164): a seat taken and a seat vacated.
     COUNCIL_SEATED = "city.council_seated"
     COUNCIL_VACATED = "city.council_vacated"
-    #: Суд (D-166): дело заведено, приговор вынесен, санкция применена и снята.
+    #: Court (D-166): a case opened, a verdict delivered, a sanction applied and lifted.
     CASE_OPENED = "justice.case_opened"
     CASE_JUDGED = "justice.case_judged"
     SANCTION_APPLIED = "justice.sanction_applied"
     SANCTION_LIFTED = "justice.sanction_lifted"
-    #: Банк (D-167): ставка пересмотрена, кредит выдан и погашен.
+    #: Bank (D-167): the rate reviewed, a loan issued and repaid.
     RATE_DECIDED = "bank.rate_decided"
     LOAN_TAKEN = "bank.loan_taken"
     LOAN_REPAID = "bank.loan_repaid"
-    #: Несостоятельность (D-168): удержано принудительно, свобода ограничена.
+    #: Insolvency (D-168): withheld by force, freedom restricted.
     DEBT_WITHHELD = "bank.debt_withheld"
     DEBT_RESTRAINED = "bank.debt_restrained"
-    #: Излишек резерва сожжён: денег в мире стало меньше (D-169).
+    #: Reserve surplus burned: there is less money in the world (D-169).
     RESERVE_BURNED = "bank.reserve_burned"
-    #: Процентный доход вернулся в казны городов по обороту (D-171).
-    #: Отменено D-175: значение осталось ради старых событий.
+    #: Interest income returned to city treasuries by turnover (D-171).
+    #: Cancelled by D-175: the value remains for old events.
     SEIGNIORAGE_PAID = "bank.seigniorage_paid"
-    #: Тюремная отработка: казна заплатила за руду в погашение долга (D-174).
+    #: Prison labour: the treasury paid for ore toward the debt (D-174).
     PRISON_WORKOFF = "bank.prison_workoff"
-    #: Репорт «дефектная печать»: снижает доверие, а не убивает (D-173).
+    #: A "defective print" report: lowers trust rather than kills (D-173).
     REPORT_FILED = "identity.report_filed"
     REPORT_WITHDRAWN = "identity.report_withdrawn"
     VOTE_CLOSED = "city.vote_closed"
 
-    # рынок (D-047, D-127)
+    # market (D-047, D-127)
     MARKET_LOADED = "market.loaded"
     MARKET_TAKEN = "market.taken"
     ORDER_PLACED = "market.order_placed"
@@ -187,7 +187,7 @@ class EventKind(StrEnum):
     RESERVATION_LAPSED = "market.reservation_lapsed"
     TRADE_EXECUTED = "market.trade"
 
-    # деньги
+    # money
     LEDGER_POSTED = "ledger.posted"
 
 
@@ -210,8 +210,9 @@ class Event(Base):
 
     payload: Mapped[dict[str, Any]] = mapped_column(nullable=False, default=dict)
 
-    #: Отпечаток набора констант, действовавшего в момент события. Без него
-    #: разбор старого эпизода после правки баланса ничего не доказывает (D-065).
+    #: Fingerprint of the constant set in force at the moment of the event.
+    #: Without it examining an old episode after a balance edit proves nothing (D-065).
+
     constants_digest: Mapped[str | None] = mapped_column(nullable=True)
 
     def __repr__(self) -> str:  # pragma: no cover

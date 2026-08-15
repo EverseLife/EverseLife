@@ -1,48 +1,51 @@
-"""Земледелие делянками (D-118, D-105, D-057).
+"""Farming by plots (D-118, D-105, D-057).
 
-Сорта, семена и скрещивание живут рядом, в `engine/breed.py`: здесь — земля и
-цикл, там — то, что на ней растёт.
+Cultivars, seeds and crossing live next door in `engine/breed.py`: here is the
+land and the cycle, there is what grows on it.
 
-Вторая педаль экономики: добычу ограничивает внимание игрока, земледелие —
-земля и время. Цикл делянки: вспашка → посев → уход → рост → уборка → пар или
-следующая культура. Рост идёт офлайн, уход — только ногами: полностью офлайн
-фермерство не идёт, иначе это печатный станок (D-118).
+The economy's second pedal: mining is limited by the player's attention,
+farming by land and time. The plot cycle: ploughing -> sowing -> care ->
+growth -> harvest -> fallow or the next crop. Growth runs offline, care only
+on foot: fully offline farming does not go, otherwise it is a printing press
+(D-118).
 
-## Откуда взялась каждая формула
+## Where each formula came from
 
-Числа — из `farm.*` и `build/plants.json`, порядок шагов — дело движка.
+Numbers come from `farm.*` and `build/plants.json`, the order of steps is the
+engine's business.
 
-**Сутки.** Все фермерские сроки заданы «в сутках», и сутки здесь планетарные:
-`time.day_terra` часов (D-008). Другой длины суток у Терры нет.
+**A day.** All farming terms are given "in days", and a day here is planetary:
+`time.day_terra` hours (D-008). Terra has no other day length.
 
-**Уход.** Раз в сутки, делянке целиком. Время обхода — формула вольта:
-`farm.plot_overhead + farm.care_time_per_m2 × площадь`; вода —
-`farm.water_per_m2 × площадь`, и у реки её берут из реки, а в сухом месте
-носят предметом. Пропущенные сутки не обнуляют урожай, а режут его на
-`farm.neglect_penalty` каждые: за отпуск не наказывают, но небрежность видна.
+**Care.** Once a day, for the whole plot. The round time is a vault formula:
+`farm.plot_overhead + farm.care_time_per_m2 * area`; water is
+`farm.water_per_m2 * area`, and by a river it is taken from the river, while
+in a dry place it is carried as an item. Skipped days do not zero the harvest
+but cut it by `farm.neglect_penalty` each: a holiday is not punished, but
+neglect shows.
 
-**Урожай.** «Пропорционален площади, плодородию и качеству ухода»:
+**Harvest.** "Proportional to area, fertility and care quality":
 
-    выход = площадь × yield_per_m2 × (плодородие / требуемое) × доля ухода
-    доля ухода = 1 − neglect_penalty × пропущенные сутки / 100  (не ниже нуля)
+    yield = area * yield_per_m2 * (fertility / required) * care share
+    care share = 1 - neglect_penalty * skipped days / 100  (not below zero)
 
-`yield_per_m2` не задан руками — он выведен вольтом из `harvest.rates` (D-136),
-и движок берёт его готовым. Качество урожая — плодородие, взятое по доле ухода:
-ухоженная земля отдаёт то, что в ней есть, запущенная — хуже.
+`yield_per_m2` is not set by hand -- the vault derived it from `harvest.rates`
+(D-136), and the engine takes it ready. Harvest quality is fertility taken by
+the care share: tended land gives what is in it, neglected land gives worse.
 
-**Истощение.** `farm.soil_depletion` за каждый цикл **той же культуры** подряд:
-монокультура выедает землю, чередование — нет. Культура-восстановитель
-возвращает своё `restores_fertility` из данных (бобы), пар — по
-`farm.fallow_recovery` в сутки простоя, начисляется по факту времени при
-следующем действии — тик земле не нужен, как и сну.
+**Depletion.** `farm.soil_depletion` for each cycle of **the same crop** in a
+row: monoculture eats the land, rotation does not. A restoring crop returns
+its `restores_fertility` from the data (beans), fallow recovers by
+`farm.fallow_recovery` per idle day, credited by elapsed time on the next
+action -- the land needs no tick, like sleep.
 
-## Честные упрощения этой версии
+## Honest simplifications of this version
 
-* **Побочный продукт** (солома у полбы) не выдаётся: доля не задана данными,
-  а выдумывать её здесь нельзя (D-065);
-* **Болезни и пять параметров ухода** (OQ-098) сведены к одному суточному
-  обходу: чем отвечает игрок при уходе — открытый вопрос пилотного экрана,
-  и до его закрытия обход бинарен.
+* **By-product** (straw for spelt) is not given: the share is not set by data,
+  and inventing it here is not allowed (D-065);
+* **Diseases and the five care parameters** (OQ-098) are reduced to one daily
+  round: what the player answers with during care is an open question of the
+  pilot screen, and until it closes the round is binary.
 """
 
 from __future__ import annotations
@@ -68,7 +71,7 @@ from src.models.plant import Variety
 from src.models.world import Node
 from src.units import PERCENT, SCALE_MAX, SCALE_MIN, SECONDS_PER_HOUR, amount, amount_float
 
-#: Имя воды в `build/recipes.json` — её носят руками там, где нет реки.
+#: The name of water in `build/recipes.json` -- carried by hand where there is no river.
 WATER = "Вода"
 
 
@@ -77,7 +80,7 @@ class FarmError(Exception):
 
 
 class NoLand(FarmError):
-    """Земля узла конечна: ёмкость под пашню не резиновая."""
+    """The node's land is finite: arable capacity is not elastic."""
 
 
 class NotYours(FarmError):
@@ -85,7 +88,7 @@ class NotYours(FarmError):
 
 
 class WrongState(FarmError):
-    """Делянка не в том состоянии: незасеянное не убирают, спелое не пашут."""
+    """The plot is in the wrong state: the unsown is not harvested, the ripe is not ploughed."""
 
 
 class NoSeeds(FarmError):
@@ -93,15 +96,15 @@ class NoSeeds(FarmError):
 
 
 class NoWater(FarmError):
-    """В сухом месте воду носят руками (D-126)."""
+    """In a dry place water is carried by hand (D-126)."""
 
 
 class TooSmall(FarmError):
-    """Меньше `farm.plot_min_area` межевать бессмысленно."""
+    """Surveying less than `farm.plot_min_area` is pointless."""
 
 
 def day_hours(constants: Constants) -> float:
-    """Сутки Терры. Все фермерские сроки заданы в них (D-008)."""
+    """Terra's day. All farming terms are given in it (D-008)."""
     return constants[R.TIME_DAY_TERRA]
 
 
@@ -112,7 +115,7 @@ def ripe_at(constants: Constants, plot: Plot, plant: Plant) -> datetime:
 
 
 def care_minutes(constants: Constants, area: float) -> float:
-    """Время обхода: формула вольта. Земля масштабируется, руки — нет."""
+    """Round time: a vault formula. Land scales, hands do not."""
     return constants[R.FARM_PLOT_OVERHEAD] + constants[R.FARM_CARE_TIME_PER_M2] * area
 
 
@@ -125,7 +128,7 @@ async def mark(
     area: float,
     now: datetime | None = None,
 ) -> Plot:
-    """Разметить делянку. Присутственное: землю меряют ногами."""
+    """Survey a plot. In person: land is measured on foot."""
     moment = now or datetime.now(UTC)
     await _here(session, body)
     if area < constants[R.FARM_PLOT_MIN_AREA]:
@@ -136,8 +139,8 @@ async def mark(
     node = await session.get(Node, body.node_id)
     if node is None:  # pragma: no cover
         raise FarmError("тело вне узла")
-    #: Хозяйство ведёт владелец участка: сначала займи землю (06-farming).
-    #: Наём — это доступ плюс доля через договор (D-116), а не общая земля.
+    #: The plot's holder runs the estate: take the land first (06-farming).
+    #: Hiring is access plus a share by contract (D-116), not shared land.
     if node.owner_identity_id != body.identity_id:
         raise NotYours(
             "участок не ваш: землю сначала занимают, а чужую — арендуют по договору"
@@ -185,7 +188,7 @@ async def plow(
     *,
     now: datetime | None = None,
 ) -> Plot:
-    """Вспахать. Длительное: началось присутственно, идёт само."""
+    """Plough. Long-running: started in person, goes by itself."""
     moment = now or datetime.now(UTC)
     await _here(session, body)
     _owned(plot, body)
@@ -225,7 +228,7 @@ async def plow_done(session: AsyncSession, job: Job) -> None:
     if plot is None:  # pragma: no cover
         raise FarmError(f"задание {job.id}: делянки нет")
     if plot.state is not PlotState.PLOWING:
-        #: Повтор задания после сбоя пашню не удваивает.
+        #: A job retry after a failure does not double the ploughing.
         return
     plot.state = PlotState.PLOWED
     await session.flush()
@@ -241,10 +244,11 @@ async def sow(
     *,
     now: datetime | None = None,
 ) -> Plot:
-    """Посеять семенами конкретного сорта (D-057).
+    """Sow with seeds of a specific cultivar (D-057).
 
-    Сеют не урожаем, а семенами: у партии есть сорт и своя сила. И то и другое
-    переезжает на делянку — урожай считается по ним, а не по числам культуры.
+    One sows with seeds, not harvest: the batch has a cultivar and its own
+    strength. Both move to the plot -- the harvest is computed from them, not
+    from the crop's numbers.
     """
     moment = now or datetime.now(UTC)
     await _here(session, body)
@@ -256,7 +260,7 @@ async def sow(
 
     variety = await breed._variety_of(session, seeds)  # noqa: SLF001
     plant = catalog.plants.by_id(variety.culture_id)
-    if seeds.type_key != plant.seed:  # pragma: no cover — сорт и семя из данных
+    if seeds.type_key != plant.seed:  # pragma: no cover -- cultivar and seed come from data
         raise NoSeeds(f"{seeds.type_key!r} — не семена культуры {plant.name!r}")
 
     pocket = await world.body_container(session, body)
@@ -270,14 +274,14 @@ async def sow(
             f"есть {amount_float(seeds.amount):g}"
         )
     seeds.amount -= need
-    сила = float(seeds.vigor) if seeds.vigor is not None else SCALE_MAX
+    strength = float(seeds.vigor) if seeds.vigor is not None else SCALE_MAX
     if seeds.amount <= 0:
         await session.delete(seeds)
 
     plot.state = PlotState.SOWN
     plot.culture_id = plant.id
     plot.variety_id = variety.id
-    plot.seed_vigor = Decimal(str(сила))
+    plot.seed_vigor = Decimal(str(strength))
     plot.sown_at = moment
     plot.care_credits = 0
     plot.cared_at = None
@@ -291,7 +295,7 @@ async def sow(
         plot_id=str(plot.id),
         culture=plant.id,
         variety=str(variety.id),
-        vigor=сила,
+        vigor=strength,
         seeds=amount_float(need),
     )
     return plot
@@ -305,10 +309,10 @@ async def care(
     *,
     now: datetime | None = None,
 ) -> Plot:
-    """Обойти делянку: раз в сутки, ногами, с водой.
+    """Do the plot round: once a day, on foot, with water.
 
-    У реки вода берётся из реки; в сухом месте — из инвентаря, и это делает
-    воду товаром там, где её нет (D-126).
+    By a river water is taken from the river; in a dry place from the
+    inventory, and that makes water a commodity where there is none (D-126).
     """
     moment = now or datetime.now(UTC)
     await _here(session, body)
@@ -353,16 +357,16 @@ async def harvest(
     select_seed: bool = False,
     now: datetime | None = None,
 ) -> float:
-    """Убрать урожай. Возвращает собранное количество.
+    """Harvest. Returns the collected amount.
 
-    Урожай пропорционален площади, плодородию, качеству ухода **и силе сорта**;
-    истощение и восстановление земли начисляются здесь же — уборка закрывает
-    цикл.
+    The harvest is proportional to area, fertility, care quality **and cultivar
+    strength**; land depletion and recovery are credited right here -- the
+    harvest closes the cycle.
 
-    Часть урожая (`farm.harvest_seed_share`) остаётся на семена. Если фермер
-    вёл **отбор** — присутственная работа, где и проявляется мастерство, — фонд
-    держит силу; если нет, семена вырождаются, а у гибрида ещё и расщепляются
-    (D-057, D-067).
+    Part of the harvest (`farm.harvest_seed_share`) stays for seeds. If the
+    farmer did **selection** -- in-person work where mastery shows -- the fund
+    keeps its strength; if not, the seeds degrade, and a hybrid additionally
+    segregates (D-057, D-067).
     """
     moment = now or datetime.now(UTC)
     await _here(session, body)
@@ -373,36 +377,36 @@ async def harvest(
     from src.engine import breed
 
     plant = catalog.plants.by_id(plot.culture_id)
-    #: Сорт решает числа: у посеянного своим фондом они уже не те, что у
-    #: культуры в справочнике. Старые делянки без сорта считаются базовым.
+    #: The cultivar decides the numbers: what was sown from one's own fund no
+    #: longer has the crop's catalogue numbers. Old plots without a cultivar count as base.
     variety = (
         await session.get(Variety, plot.variety_id)
         if plot.variety_id is not None
         else None
     ) or await breed.landrace(session, catalog, plant.id)
-    признаки = variety.traits or breed.traits_of_plant(plant)
-    цикл = float(признаки.get("cycle_days", plant.cycle_days))
-    сила = float(plot.seed_vigor) if plot.seed_vigor is not None else SCALE_MAX
+    signs = variety.traits or breed.traits_of_plant(plant)
+    cycle = float(signs.get("cycle_days", plant.cycle_days))
+    strength = float(plot.seed_vigor) if plot.seed_vigor is not None else SCALE_MAX
 
-    ready = (plot.sown_at or moment) + timedelta(hours=цикл * day_hours(constants))
+    ready = (plot.sown_at or moment) + timedelta(hours=cycle * day_hours(constants))
     if moment < ready:
         raise WrongState(
-            f"культура дозреет к {ready.isoformat()}: цикл {цикл:g} суток"
+            f"культура дозреет к {ready.isoformat()}: цикл {cycle:g} суток"
         )
 
     area = float(plot.area_m2)
     fertility = float(plot.fertility)
-    #: Пропущенные сутки ухода режут урожай, но не обнуляют его.
-    missed = max(0, int(цикл) - plot.care_credits)
+    #: Skipped care days cut the harvest but do not zero it.
+    missed = max(0, int(cycle) - plot.care_credits)
     care_share = max(0.0, 1 - constants[R.FARM_NEGLECT_PENALTY] * missed / PERCENT)
-    soil_share = fertility / float(признаки.get("fertility", plant.requires.fertility))
+    soil_share = fertility / float(signs.get("fertility", plant.requires.fertility))
 
     got = (
         area
-        * float(признаки.get("yield_per_m2", plant.yield_per_m2))
+        * float(signs.get("yield_per_m2", plant.yield_per_m2))
         * soil_share
         * care_share
-        * (сила / PERCENT)
+        * (strength / PERCENT)
     )
     quality = max(SCALE_MIN, min(SCALE_MAX, fertility * max(care_share, 0.0)))
 
@@ -416,26 +420,26 @@ async def harvest(
                 type_key=plant.gives,
                 amount=amount(got),
                 quality=Decimal(str(quality)),
-                #: Урожай портится со скоростью сорта: репа быстрее льна.
+                #: The harvest spoils at the cultivar's speed: turnip faster than flax.
                 spoils_at=food.harvest_spoils_at(
                     constants,
-                    float(признаки.get("spoilage_k", plant.traits.spoilage_k)),
+                    float(signs.get("spoilage_k", plant.traits.spoilage_k)),
                     now=moment,
                 ),
             )
         )
 
-    #: Своё семя: доля урожая, оставленная на посев, а не на продажу.
-    семян = got * constants[R.FARM_HARVEST_SEED_SHARE] / PERCENT
-    if семян > 0:
-        сила_семян = breed.next_vigor(constants, variety, сила, selected=select_seed)
+    #: Own seed: the harvest share kept for sowing, not for sale.
+    seed_amount = got * constants[R.FARM_HARVEST_SEED_SHARE] / PERCENT
+    if seed_amount > 0:
+        seed_strength = breed.next_vigor(constants, variety, strength, selected=select_seed)
         if select_seed:
             await breed.select_generation(session, constants, variety)
         await breed.seed_lot(
-            session, catalog, pocket.id, variety, семян, сила_семян, now=moment
+            session, catalog, pocket.id, variety, seed_amount, seed_strength, now=moment
         )
 
-    #: Земля помнит, что на ней росло: монокультура выедает её, чередование нет.
+    #: The land remembers what grew on it: monoculture eats it, rotation does not.
     depletion = (
         constants[R.FARM_SOIL_DEPLETION] if plot.last_culture == plant.id else 0.0
     )
@@ -467,7 +471,7 @@ async def harvest(
         variety=str(variety.id),
         selected=select_seed,
         got=got,
-        seeds=семян,
+        seeds=seed_amount,
         quality=quality,
         missed_days=missed,
         fertility=float(plot.fertility),
@@ -485,7 +489,7 @@ async def split(
     name: str,
     now: datetime | None = None,
 ) -> Plot:
-    """Разделить делянку. Обе части наследуют плодородие и историю как есть."""
+    """Split a plot. Both parts inherit fertility and history as is."""
     moment = now or datetime.now(UTC)
     await _here(session, body)
     _owned(plot, body)
@@ -497,7 +501,7 @@ async def split(
 
     _accrue_fallow(constants, plot, moment)
     plot.area_m2 = Decimal(str(rest))
-    #: Перекроенное пашут заново.
+    #: Resurveyed land is ploughed anew.
     plot.state = PlotState.IDLE
     plot.idle_since = moment
 
@@ -525,9 +529,9 @@ async def merge(
     *,
     now: datetime | None = None,
 ) -> Plot:
-    """Слить две делянки: плодородие взвешенно, история — самая тяжёлая.
+    """Merge two plots: fertility weighted, history -- the heaviest.
 
-    Анти-эксплойт (D-118): иначе передел границ сбрасывал бы истощение.
+    Anti-exploit (D-118): otherwise redrawing borders would reset depletion.
     """
     moment = now or datetime.now(UTC)
     await _here(session, body)
@@ -549,7 +553,7 @@ async def merge(
     heavier = max((one, other), key=lambda p: p.same_culture_cycles)
     one.last_culture = heavier.last_culture
     one.same_culture_cycles = heavier.same_culture_cycles
-    #: Перекроенное пашут заново.
+    #: Resurveyed land is ploughed anew.
     one.state = PlotState.IDLE
     one.idle_since = moment
 
@@ -561,7 +565,7 @@ async def merge(
 async def survey(
     session: AsyncSession, constants: Constants, catalog: Catalog, identity_id: uuid.UUID
 ) -> list[dict]:
-    """Сводка хозяйства. Удалённое: читается откуда угодно, уход — ногами."""
+    """Farm summary. Remote: readable from anywhere, care -- on foot."""
     now = datetime.now(UTC)
     plots = (
         await session.execute(
@@ -593,60 +597,60 @@ async def survey(
                 if plot.variety_id is not None
                 else None
             ) or await breed.landrace(session, catalog, plant.id)
-            признаки = variety.traits or breed.traits_of_plant(plant)
-            цикл = float(признаки.get("cycle_days", plant.cycle_days))
-            надо_плодородия = float(
-                признаки.get("fertility", plant.requires.fertility)
+            signs = variety.traits or breed.traits_of_plant(plant)
+            cycle = float(signs.get("cycle_days", plant.cycle_days))
+            fertility_needed = float(
+                signs.get("fertility", plant.requires.fertility)
             )
 
-            ready = plot.sown_at + timedelta(hours=цикл * day_hours(constants))
+            ready = plot.sown_at + timedelta(hours=cycle * day_hours(constants))
             day = timedelta(hours=day_hours(constants))
-            просит_ухода = plot.cared_at is None or now - plot.cared_at >= day
-            #: Потери набегают в тот день, когда набегают, а не сюрпризом при
-            #: уборке (D-118).
+            needs_care = plot.cared_at is None or now - plot.cared_at >= day
+            #: Losses accrue on the day they accrue, not as a surprise at
+            #: harvest (D-118).
             elapsed = (now - plot.sown_at).total_seconds() / (
                 day_hours(constants) * SECONDS_PER_HOUR
             )
-            пропущено = max(0, min(int(цикл), int(elapsed)) - plot.care_credits)
-            спелое = now >= ready
+            skipped = max(0, min(int(cycle), int(elapsed)) - plot.care_credits)
+            ripe = now >= ready
 
             row["culture_name"] = plant.name
             row["variety"] = variety.name or f"гибрид, поколение {variety.generation}"
-            row["ripe"] = спелое
+            row["ripe"] = ripe
 
-            #: Знание превращает угадайку в решённую задачу (D-057). С
-            #: агротехникой видны нормы и остаток до них; без неё — только
-            #: симптомы, общие для всех культур, и что с ними делать, фермер
-            #: выясняет опытом, покупкой знания или упрямством.
-            знает = await breed.knows_agrotech(session, identity_id, variety)
-            row["agrotech"] = знает
-            if знает:
+            #: Knowledge turns guesswork into a solved problem (D-057). With
+            #: agrotech norms and the remainder to them are visible; without it
+            #: only symptoms, common to all crops, and what to do about them the
+            #: farmer finds out by experience, by buying knowledge, or by stubbornness.
+            knows = await breed.knows_agrotech(session, identity_id, variety)
+            row["agrotech"] = knows
+            if knows:
                 row["ripe_at"] = ready.isoformat()
-                row["asks_care"] = просит_ухода
-                row["missed_days"] = пропущено
-                row["cycle_days"] = цикл
-                row["fertility_required"] = надо_плодородия
+                row["asks_care"] = needs_care
+                row["missed_days"] = skipped
+                row["cycle_days"] = cycle
+                row["fertility_required"] = fertility_needed
                 row["water_need"] = (
                     constants[R.FARM_WATER_PER_M2] * float(plot.area_m2)
                 )
             else:
-                #: Движок называет признак, слово подбирает клиент: симптом —
-                #: это то, что видно, а не то, что посчитано.
-                симптомы: list[str] = []
-                if просит_ухода:
-                    симптомы.append("thirst")
-                if float(plot.fertility) < надо_плодородия:
-                    симптомы.append("pale")
-                if пропущено > 0:
-                    симптомы.append("stunted")
-                if спелое:
-                    симптомы.append("ripe")
-                row["symptoms"] = симптомы
+                #: The engine names the sign, the client picks the word: a
+                #: symptom is what is seen, not what is computed.
+                symptoms: list[str] = []
+                if needs_care:
+                    symptoms.append("thirst")
+                if float(plot.fertility) < fertility_needed:
+                    symptoms.append("pale")
+                if skipped > 0:
+                    symptoms.append("stunted")
+                if ripe:
+                    symptoms.append("ripe")
+                row["symptoms"] = symptoms
         out.append(row)
     return out
 
 
-# --- внутреннее -------------------------------------------------------------
+# --- internal ----------------------------------------------------------------
 
 
 async def _here(session: AsyncSession, body: Body) -> None:
@@ -666,7 +670,7 @@ def _recuttable(plot: Plot) -> None:
 
 
 def _ground_fertility(node: Node) -> float:
-    """Стартовое плодородие — свойство места (D-126). Нет свойства — не родит."""
+    """Starting fertility is a place property (D-126). No property -- it bears nothing."""
     raw = node.properties.get("плодородие", 0)
     try:
         return max(SCALE_MIN, min(SCALE_MAX, float(raw)))
@@ -675,7 +679,7 @@ def _ground_fertility(node: Node) -> float:
 
 
 def _accrue_fallow(constants: Constants, plot: Plot, moment: datetime) -> None:
-    """Пар: восстановление по факту простоя. Тик земле не нужен, как и сну."""
+    """Fallow: recovery by elapsed idle time. The land needs no tick, like sleep."""
     if plot.idle_since is None:
         return
     days = max(
@@ -693,7 +697,7 @@ def _accrue_fallow(constants: Constants, plot: Plot, moment: datetime) -> None:
 async def _consume(
     session: AsyncSession, body: Body, type_key: str, need: int, *, why: FarmError
 ) -> None:
-    """Списать из кармана, худшее первым. Не хватило — действие не началось."""
+    """Write off from the pocket, worst first. Not enough -- the action did not start."""
     pocket = await world.body_container(session, body)
     stacks = (
         (

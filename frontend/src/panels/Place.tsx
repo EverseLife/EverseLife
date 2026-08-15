@@ -1,16 +1,15 @@
 /**
- * Участок, здание и его обстановка (D-089, D-106, D-116, D-150).
+ * The plot, the building and its furnishings (D-089, D-106, D-116, D-150).
  *
- * Окна разведены по смыслу, а не свалены в одно:
+ * The windows are separated by meaning, not piled into one:
  *
- * - **Участок** — только у ничьего узла: городской выкупают по цене от
- *   удалённости до биопринтера (D-089), дикий занимают. Выкуп выдаёт ценную
- *   бумагу — она видна в сайдбаре, во вкладке «хозяйство» (D-116);
- * - **Здание** — у своего участка: сначала строят, потом обставляют. Станки
- *   занимают площадь (`build.slots_per_area` м² на место), поэтому площадь
- *   дома — это вместимость;
- * - **Станки** — за ними работают; ставит и уносит хозяин (D-150);
- * - **Мебель** — кровать и стеллаж: на них не работают, они обустраивают быт.
+ * - **Plot** -- only for an unowned node: a civic one is bought at a price by
+ *   distance to the bioprinter (D-089), a wild one is taken. Buying issues a
+ *   deed -- it is visible in the sidebar, in the "holdings" tab (D-116);
+ * - **Building** -- for your own plot: build first, then furnish. Machines
+ *   take area (`build.slots_per_area` m2 per place), so the house's area is capacity;
+ * - **Machines** -- one works at them; the owner places and removes (D-150);
+ * - **Furniture** -- a bed and a shelf: nobody works at them, they furnish the household.
  */
 
 import { useState } from "react";
@@ -22,37 +21,37 @@ type Props = {
   session: Session;
   busy: boolean;
   act: (what: () => Promise<unknown>) => Promise<void>;
-  книга: any;
+  book: any;
 };
 
-export function Place({ look, session, busy, act, книга }: Props) {
-  const мой = Boolean(look.node?.mine);
-  const дикий = Boolean(look.node?.wild);
-  const ничей = !look.node?.owner;
-  //: Власть распоряжается **городской** землёй, а не всякой: выкупленный
-  //: участок стоит на территории города, но хозяин у него человек, и движок
-  //: откажет власти так же, как прохожему (`station.may_build`).
-  const властен = Boolean(
+export function Place({ look, session, busy, act, book }: Props) {
+  const mine = Boolean(look.node?.mine);
+  const wild = Boolean(look.node?.wild);
+  const unowned = !look.node?.owner;
+  //: The authority disposes of **civic** land, not any: a bought plot stands
+  //: on city territory, but its owner is a person, and the engine refuses the
+  //: authority just like a passer-by (`station.may_build`).
+  const hasPower = Boolean(
     look.node?.city && !look.node?.owner && look.city?.powers.includes("laws"),
   );
-  const цена = look.node?.price ?? null;
+  const price = look.node?.price ?? null;
 
-  //: Пустой узел: окно «Участок» с выкупом либо занятием. Как только владелец
-  //: появился — или если узел не продаётся (городская застройка, жила), —
-  //: этого окна нет: дальше живут «Здание», «Станки», «Мебель».
-  if (ничей && (дикий || цена !== null)) {
+  //: An empty node: the "Plot" window with purchase or taking. As soon as an
+  //: owner appears -- or if the node is not for sale (city buildings, a vein)
+  //: -- this window is gone: from then on "Building", "Machines", "Furniture" live.
+  if (unowned && (wild || price !== null)) {
     return (
       <>
         {/* Обоз стоит где угодно: у ничьего узла тоже грузят и распрягают. */}
         <Convoy look={look} session={session} busy={busy} act={act} />
         {/* Лес ничейного узла рубит любой пришедший (D-177). */}
-        <Gather look={look} session={session} busy={busy} act={act} книга={книга} />
+        <Gather look={look} session={session} busy={busy} act={act} book={book} />
         <section>
         <h2>Участок</h2>
         <p className="note">
           {look.node?.name} · {look.node?.area.toFixed(0)} м² · ничей
         </p>
-        {дикий ? (
+        {wild ? (
           <div className="row">
             <button onClick={() => act(() => session.send("land.claim"))} disabled={busy}>
               Занять участок
@@ -62,10 +61,10 @@ export function Place({ look, session, busy, act, книга }: Props) {
               «хозяйстве» (D-116).
             </span>
           </div>
-        ) : цена !== null ? (
+        ) : price !== null ? (
           <div className="row">
             <button onClick={() => act(() => session.send("land.buy"))} disabled={busy}>
-              Выкупить за {api.tk(цена)} ₭
+              Выкупить за {api.tk(price)} ₭
             </button>
             <span className="note">
               Цена от удалённости до биопринтера (D-089): деньги в казну,
@@ -86,81 +85,81 @@ export function Place({ look, session, busy, act, книга }: Props) {
   return (
     <>
       <Plot look={look} session={session} busy={busy} act={act} />
-      {(мой || властен) && <Building look={look} session={session} busy={busy} act={act} />}
-      <Gather look={look} session={session} busy={busy} act={act} книга={книга} />
+      {(mine || hasPower) && <Building look={look} session={session} busy={busy} act={act} />}
+      <Gather look={look} session={session} busy={busy} act={act} book={book} />
       <Foundation look={look} session={session} busy={busy} act={act} />
       <Citizenship look={look} session={session} busy={busy} act={act} />
       <Convoy look={look} session={session} busy={busy} act={act} />
       <Equipment
-        заголовок="Станки"
-        вещи={look.bench ?? []}
-        вид="station"
+        title="Станки"
+        things={look.bench ?? []}
+        kind="station"
         look={look}
         session={session}
         busy={busy}
         act={act}
-        книга={книга}
-        пояснение="За станком работает один: пока идёт партия, второму он не отдаётся (D-150)."
+        book={book}
+        note="За станком работает один: пока идёт партия, второму он не отдаётся (D-150)."
       />
       <Equipment
-        заголовок="Мебель"
-        вещи={look.furniture ?? []}
-        вид="furniture"
+        title="Мебель"
+        things={look.furniture ?? []}
+        kind="furniture"
         look={look}
         session={session}
         busy={busy}
         act={act}
-        книга={книга}
-        пояснение="Мебель обустраивает быт: кровать — сон быстрее, сундук — хранение. На ней не работают."
+        book={book}
+        note="Мебель обустраивает быт: кровать — сон быстрее, сундук — хранение. На ней не работают."
       />
       <Storages look={look} session={session} busy={busy} act={act} />
     </>
   );
 }
 
-/** Хранилища узла: сундук, стеллаж и всё, у чего в вольте есть вместимость.
+/** Node storages: a chest, a shelf and everything with capacity in the vault.
  *
- * Сам сундук виден всякому — он стоит в комнате. Открыть его вправе тот, кто
- * распоряжается узлом: хозяин, а на городской земле — власть (D-181). Предел
- * один и тот же, что у рук и у трюма, — килограммы.
+ * The chest itself is visible to anyone -- it stands in the room. Whoever
+ * disposes of the node may open it: the owner, and on civic land the
+ * authority (D-181). The limit is the same as for hands and hold -- kilograms.
  */
-function Storages({ look, session, busy, act }: Omit<Props, "книга">) {
-  const [сколько, setСколько] = useState<Record<string, number>>({});
-  const сундуки = look.storages ?? [];
-  if (сундуки.length === 0) return null;
+function Storages({ look, session, busy, act }: Omit<Props, "book">) {
+  const [qty, setQty] = useState<Record<string, number>>({});
+  const chests = look.storages ?? [];
+  if (chests.length === 0) return null;
 
-  const число = (id: string, всего: number) => сколько[id] ?? всего;
-  const задать = (id: string, значение: number) =>
-    setСколько((было) => ({ ...было, [id]: значение }));
-  //: Класть имеет смысл всё, что в руках: невесомого в этом мире нет.
-  const в_руках = look.inventory;
+  const count = (id: string, total: number) => qty[id] ?? total;
+  const assign = (id: string, value: number) =>
+    setQty((before) => ({ ...before, [id]: value }));
+  //: Everything in the hands makes sense to put away: nothing is weightless in this world.
+  const inHands = look.inventory;
 
   return (
     <>
-      {сундуки.map((сундук) => (
-        <section key={сундук.id}>
-          <h2>{сундук.goods}</h2>
+      {chests.map((chest) => (
+        <section key={chest.id}>
+          <h2>{chest.goods}</h2>
           <p className="note">
-            занято {сундук.mass.toFixed(1)} из {сундук.capacity.toFixed(0)} кг
+            занято {chest.mass.toFixed(1)} из {chest.capacity.toFixed(0)} кг
           </p>
-          {!сундук.mine ? (
+          {!chest.mine ? (
             <p className="note">Чужое хранилище: что внутри — не ваше дело.</p>
           ) : (
             <>
-              {сундук.content.length > 0 && (
+              {chest.content.length > 0 && (
                 <table>
                   <tbody>
-                    {сундук.content.map((вещь) => (
-                      <tr key={вещь.id}>
-                        <td>{вещь.goods}</td>
-                        <td className="note">{вещь.amount.toFixed(1)}</td>
+                    {chest.content.map((thing) => (
+                      <tr key={thing.id}>
+                        <td>{thing.goods}</td>
+                        <td className="note">{thing.amount.toFixed(1)}</td>
                         <td>
                           <input
                             type="number"
                             min={0}
-                            max={вещь.amount}
-                            value={число(вещь.id, вещь.amount)}
-                            onChange={(e) => задать(вещь.id, Number(e.target.value))}
+                            max={thing.amount}
+                            value={count(thing.id, thing.amount)}
+                            onChange={(e) => assign(thing.id, Number(e.target.value))}
                           />
                         </td>
                         <td>
@@ -169,9 +168,9 @@ function Storages({ look, session, busy, act }: Omit<Props, "книга">) {
                             onClick={() =>
                               act(() =>
                                 session.send("storage.take", {
-                                  storage: сундук.id,
-                                  item: вещь.id,
-                                  amount: число(вещь.id, вещь.amount),
+                                  storage: chest.id,
+                                  item: thing.id,
+                                  amount: count(thing.id, thing.amount),
                                 }),
                               )
                             }
@@ -186,25 +185,25 @@ function Storages({ look, session, busy, act }: Omit<Props, "книга">) {
                   </tbody>
                 </table>
               )}
-              {сундук.content.length === 0 && <p className="note">пусто</p>}
-              {в_руках.length > 0 && (
+              {chest.content.length === 0 && <p className="note">пусто</p>}
+              {inHands.length > 0 && (
                 <div className="row">
-                  {в_руках.map((вещь) => (
+                  {inHands.map((thing) => (
                     <button
-                      key={вещь.id}
+                      key={thing.id}
                       className="quiet"
                       onClick={() =>
                         act(() =>
                           session.send("storage.put", {
-                            storage: сундук.id,
-                            item: вещь.id,
+                            storage: chest.id,
+                            item: thing.id,
                           }),
                         )
                       }
                       disabled={busy}
-                      title={`${(вещь.mass * вещь.amount).toFixed(1)} кг`}
+                      title={`${(thing.mass * thing.amount).toFixed(1)} кг`}
                     >
-                      Положить: {вещь.goods}
+                      Положить: {thing.goods}
                     </button>
                   ))}
                 </div>
@@ -221,49 +220,49 @@ function Storages({ look, session, busy, act }: Omit<Props, "книга">) {
   );
 }
 
-/** Занятый участок: чей он и как называется (D-178).
+/** An occupied plot: whose it is and what it is called (D-178).
  *
- * Владение — публичный факт: вошедший видит хозяина, кем бы тот ни был,
- * человеком или городом. Имя даёт тот, кто землёй распоряжается, — и меняется
- * при этом подпись на карте, а не ключ узла: на ключ ссылаются бумаги и рёбра.
+ * Ownership is a public fact: whoever enters sees the owner, whoever it is, a
+ * person or a city. The name is given by whoever disposes of the land -- and
+ * the map label changes, not the node key: deeds and edges reference the key.
  */
-function Plot({ look, session, busy, act }: Omit<Props, "книга">) {
-  const узел = look.node;
-  const [имя, setИмя] = useState("");
-  if (!узел || (!узел.owner && !узел.owner_city)) return null;
+function Plot({ look, session, busy, act }: Omit<Props, "book">) {
+  const node = look.node;
+  const [name, setName] = useState("");
+  if (!node || (!node.owner && !node.owner_city)) return null;
 
-  const чей = узел.mine
+  const whose = node.mine
     ? "ваш участок"
-    : узел.owner
-      ? `хозяин ${узел.owner}`
-      : `земля города ${узел.owner_city}`;
+    : node.owner
+      ? `хозяин ${node.owner}`
+      : `земля города ${node.owner_city}`;
 
   return (
     <section>
       <h2>Участок</h2>
       <p className="note">
-        {узел.name} · {узел.area.toFixed(0)} м² · {чей}
-        {узел.cut_off && " · отключён за неуплату"}
+        {node.name} · {node.area.toFixed(0)} м² · {whose}
+        {node.cut_off && " · отключён за неуплату"}
       </p>
-      {узел.may_name && (
+      {node.may_name && (
         <div className="row">
           <input
-            value={имя}
-            onChange={(e) => setИмя(e.target.value)}
-            placeholder={узел.name}
-            //: Повторяет `runtime.LAND_NAME_LIMIT`: предел лучше показать
-            //: полем ввода, чем сообщить отказом после нажатия.
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder={node.name}
+            //: Repeats `runtime.LAND_NAME_LIMIT`: better to show the limit by
+            //: the input field than to report it as a refusal after a click.
             maxLength={40}
             title="как называть это место"
           />
           <button
             onClick={() =>
               act(async () => {
-                await session.send("land.rename", { name: имя });
-                setИмя("");
+                await session.send("land.rename", { name: name });
+                setName("");
               })
             }
-            disabled={busy || !имя.trim() || имя.trim() === узел.name}
+            disabled={busy || !name.trim() || name.trim() === node.name}
           >
             Переименовать
           </button>
@@ -276,23 +275,23 @@ function Plot({ look, session, busy, act }: Omit<Props, "книга">) {
   );
 }
 
-/** Здание своего участка: сколько застроено, сколько мест, стройка. */
-function Building({ look, session, busy, act }: Omit<Props, "книга">) {
-  const дом = look.node?.building;
-  const участок = look.node?.area ?? 0;
-  const [площадь, setПлощадь] = useState(20);
-  if (!дом) return null;
+/** Own plot's building: how much is built, how many places, construction. */
+function Building({ look, session, busy, act }: Omit<Props, "book">) {
+  const home = look.node?.building;
+  const plot = look.node?.area ?? 0;
+  const [area, setArea] = useState(20);
+  if (!home) return null;
 
-  const свободно = Math.max(0, участок - дом.area);
+  const free = Math.max(0, plot - home.area);
 
   return (
     <section>
       <h2>Здание</h2>
-      {дом.area > 0 ? (
+      {home.area > 0 ? (
         <p>
-          застроено <b>{дом.area.toFixed(0)} м²</b> · мест под оборудование{" "}
+          застроено <b>{home.area.toFixed(0)} м²</b> · мест под оборудование{" "}
           <b>
-            {дом.used} из {дом.slots}
+            {home.used} из {home.slots}
           </b>
         </p>
       ) : (
@@ -301,25 +300,25 @@ function Building({ look, session, busy, act }: Omit<Props, "книга">) {
           строят (D-106).
         </p>
       )}
-      {look.node?.mine && свободно > 0 && (
+      {look.node?.mine && free > 0 && (
         <div className="row">
           <input
             type="number"
             min={1}
-            max={Math.floor(свободно)}
-            value={площадь}
-            onChange={(e) => setПлощадь(Number(e.target.value))}
+            max={Math.floor(free)}
+            value={area}
+            onChange={(e) => setArea(Number(e.target.value))}
             title="площадь пристройки, м²"
           />
           <button
-            onClick={() => act(() => session.send("build.construct", { area: площадь }))}
-            disabled={busy || площадь <= 0 || площадь > свободно}
+            onClick={() => act(() => session.send("build.construct", { area: area }))}
+            disabled={busy || area <= 0 || area > free}
           >
-            Строить {площадь} м²
+            Строить {area} м²
           </button>
           <span className="note">
             Материалы спишутся сразу, здание встанет по сроку. Свободно{" "}
-            {свободно.toFixed(0)} м² двора.
+            {free.toFixed(0)} м² двора.
           </span>
         </div>
       )}
@@ -327,67 +326,67 @@ function Building({ look, session, busy, act }: Omit<Props, "книга">) {
   );
 }
 
-/** Русские заголовки признаков места: пока признак один — лес. */
-const МЕСТА: Record<string, string> = { лес: "Лес" };
+/** Human-readable titles of place signs: while there is one sign -- forest. */
+const PLACES: Record<string, string> = { forest: "Лес" };
 
-/** Добыча места (D-177): рубка леса — и будущие сборы — без станка.
+/** Place extraction (D-177): felling -- and future gathering -- without a machine.
  *
- * Показывается там, где у узла есть признак («лес») и земля своя либо ничья:
- * чужой лес принадлежит хозяину. Партия идёт обычным крафтом — время и
- * инструмент из вольта, готовое видно в «делах».
+ * Shown where the node has a sign ("forest") and the land is own or unowned:
+ * somebody else's forest belongs to its owner. The batch runs as ordinary
+ * craft -- time and tool from the vault, the finished product is seen in "jobs".
  */
-function Gather({ look, session, busy, act, книга }: Props) {
-  const [сколько, setСколько] = useState(10);
-  const узел = look.node;
-  if (!узел) return null;
-  const доступно = узел.mine || узел.wild;
-  const операции = (книга?.operations ?? []).filter(
-    (о: any) => о.place && (узел.features ?? []).includes(о.place),
+function Gather({ look, session, busy, act, book }: Props) {
+  const [qty, setQty] = useState(10);
+  const node = look.node;
+  if (!node) return null;
+  const available = node.mine || node.wild;
+  const operations = (book?.operations ?? []).filter(
+    (o: any) => o.place && (node.features ?? []).includes(o.place),
   );
-  if (!доступно || операции.length === 0) return null;
+  if (!available || operations.length === 0) return null;
 
-  //: Чем закрыть требование: сам предмет либо любой из класса («Топор»).
-  const в_руках = new Set(look.inventory.map((вещь) => вещь.goods));
-  const есть_чем = (чем: string) =>
-    в_руках.has(чем) ||
-    ((книга?.tool_classes?.[чем] ?? []) as string[]).some((и) => в_руках.has(и));
+  //: What satisfies the requirement: the item itself or any of the class ("Axe").
+  const inHands = new Set(look.inventory.map((thing) => thing.goods));
+  const hasMeans = (withWhat: string) =>
+    inHands.has(withWhat) ||
+    ((book?.tool_classes?.[withWhat] ?? []) as string[]).some((i) => inHands.has(i));
 
   return (
     <>
-      {операции.map((операция: any) => (
-        <section key={операция.name}>
-          <h2>{МЕСТА[операция.place] ?? операция.place}</h2>
+      {operations.map((operation: any) => (
+        <section key={operation.name}>
+          <h2>{PLACES[operation.place] ?? operation.place}</h2>
           <div className="row">
             <input
               type="number"
               min={1}
-              value={сколько}
-              onChange={(e) => setСколько(Number(e.target.value))}
+              value={qty}
+              onChange={(e) => setQty(Number(e.target.value))}
               title="сколько добыть"
             />
-            {(операция.gives as string[]).map((выход) => {
-              const годится = (операция.requires as string[]).every(есть_чем);
+            {(operation.gives as string[]).map((exit) => {
+              const fits = (operation.requires as string[]).every(hasMeans);
               return (
                 <button
-                  key={выход}
+                  key={exit}
                   onClick={() =>
                     act(() =>
-                      session.send("craft.start", { output: выход, units: сколько }),
+                      session.send("craft.start", { output: exit, units: qty }),
                     )
                   }
-                  disabled={busy || сколько <= 0 || !годится}
+                  disabled={busy || qty <= 0 || !fits}
                   title={
-                    годится
+                    fits
                       ? `партия пойдёт временем, готовое — в «делах»`
-                      : `нужен: ${(операция.requires as string[]).join(", ")}`
+                      : `нужен: ${(operation.requires as string[]).join(", ")}`
                   }
                 >
-                  {операция.name}: {выход}
+                  {operation.name}: {exit}
                 </button>
               );
             })}
             <span className="note">
-              Нужен {(операция.requires as string[]).join(", ")}; партия идёт
+              Нужен {(operation.requires as string[]).join(", ")}; партия идёт
               временем, готовое забирается в «делах».
             </span>
           </div>
@@ -397,85 +396,85 @@ function Gather({ look, session, busy, act, книга }: Props) {
   );
 }
 
-/** Гражданство: одно на человека, вход по уставу, выход с задержкой (D-160).
+/** Citizenship: one per person, entry by charter, exit with a delay (D-160).
  *
- * Вступают в администрации — там же, где город принимает всякое решение
- * (D-155), — поэтому окно живёт в локации, а не в сайдбаре. Порядок приёма
- * показан всегда: «свободно», «по заявке» и «по приглашению» ведут себя
- * по-разному, и человек должен понимать, чего ждать.
+ * One joins in the administration -- where the city makes every decision
+ * (D-155) -- so the window lives in the location, not the sidebar. The
+ * admission order is always shown: "open", "by application" and "by
+ * invitation" behave differently, and the person must understand what to expect.
  */
-function Citizenship({ look, session, busy, act }: Omit<Props, "книга">) {
-  const город = look.city ?? null;
-  const своё = look.citizenship ?? null;
-  //: Только в администрации: и вступают, и выходят присутственно (D-155).
-  if (!город?.hall) return null;
+function Citizenship({ look, session, busy, act }: Omit<Props, "book">) {
+  const city = look.city ?? null;
+  const own = look.citizenship ?? null;
+  //: Only in the administration: both joining and leaving are in-person (D-155).
+  if (!city?.hall) return null;
 
-  const порядок: Record<string, string> = {
+  const order_: Record<string, string> = {
     open: "принимают свободно",
     application: "по заявке с одобрением",
     invite: "только по приглашению",
   };
-  //: Гражданство, взятое условием печати, до срока не складывается (D-184).
-  const связан = Boolean(
-    своё?.bound_until && new Date(своё.bound_until) > new Date(),
+  //: Citizenship taken as a print condition cannot be given up before the term (D-184).
+  const linked = Boolean(
+    own?.bound_until && new Date(own.bound_until) > new Date(),
   );
 
   return (
     <section>
       <h2>Гражданство</h2>
-      {своё ? (
+      {own ? (
         <p>
-          состоите в <b>{своё.city}</b>
-          {своё.leaving_at && (
-            <> · выходите: гражданство спадёт {new Date(своё.leaving_at).toLocaleString()}</>
+          состоите в <b>{own.city}</b>
+          {own.leaving_at && (
+            <> · выходите: гражданство спадёт {new Date(own.leaving_at).toLocaleString()}</>
           )}
           {/* Обязательство, принятое при печати (D-184): срок виден заранее,
               а не открывается отказом при попытке выйти. */}
-          {связан && (
-            <> · обязательство до {new Date(своё.bound_until!).toLocaleString()}</>
+          {linked && (
+            <> · обязательство до {new Date(own.bound_until!).toLocaleString()}</>
           )}
         </p>
       ) : (
         <p className="note">Вы нигде не состоите: гость платит пошлины, но не налоги.</p>
       )}
 
-      {город?.hall && (
+      {city?.hall && (
         <div className="row">
-          {город.citizen ? (
+          {city.citizen ? (
             <span className="note">Это ваш город.</span>
-          ) : город.requested ? (
+          ) : city.requested ? (
             <span className="note">
-              {город.admission === "invite"
+              {city.admission === "invite"
                 ? "Вас позвали: примите приглашение."
                 : "Заявка подана — ждёт решения власти."}
             </span>
           ) : null}
-          {!город.citizen && (
+          {!city.citizen && (
             <button
               onClick={() => act(() => session.send("city.join", {}))}
-              disabled={busy || Boolean(своё)}
+              disabled={busy || Boolean(own)}
               title={
-                своё
+                own
                   ? "гражданство одно на человека: сначала выйти из прежнего города"
-                  : порядок[город.admission]
+                  : order_[city.admission]
               }
             >
-              {город.requested && город.admission === "invite"
+              {city.requested && city.admission === "invite"
                 ? "Принять приглашение"
                 : "Вступить в граждане"}
             </button>
           )}
-          <span className="note">{город.name}: {порядок[город.admission]}</span>
+          <span className="note">{city.name}: {order_[city.admission]}</span>
         </div>
       )}
 
-      {своё && !своё.leaving_at && (
+      {own && !own.leaving_at && (
         <div className="row">
           <button
             onClick={() => act(() => session.send("city.leave", {}))}
-            disabled={busy || связан}
+            disabled={busy || linked}
             title={
-              связан
+              linked
                 ? "срок обязательства вы приняли, выбрав дверь этого города"
                 : "заявление уходит по Сети"
             }
@@ -483,7 +482,7 @@ function Citizenship({ look, session, busy, act }: Omit<Props, "книга">) {
             Выйти из гражданства
           </button>
           <span className="note">
-            {связан
+            {linked
               ? "Обязательство печати держит до своего срока (D-184)."
               : "Выход не мгновенен: гражданство спадёт по сроку (D-160)."}
           </span>
@@ -493,52 +492,53 @@ function Citizenship({ look, session, busy, act }: Omit<Props, "книга">) {
   );
 }
 
-/** Основание города: четыре постройки, а не монета (D-023, D-098, D-159).
+/** Founding a city: four buildings, not a coin (D-023, D-098, D-159).
  *
- * Окно показывается только там, где основание вообще возможно, — на своём узле
- * планеты вне чужого города. Список недостающего виден **до** попытки: порог
- * входа — постройки, и человек должен понимать, каких именно ему не хватает.
+ * The window is shown only where founding is possible at all -- on your own
+ * planet node outside a foreign city. The list of what is missing is visible
+ * **before** the attempt: the entry threshold is buildings, and the person
+ * must understand which ones exactly they lack.
  *
- * Земля при основании уходит городу: дальше её раздаёт власть, а не хозяин
- * двора (D-089), и об этом сказано прямо здесь, а не выясняется потом.
+ * At founding the land goes to the city: from then on the authority hands it
+ * out, not the yard owner (D-089), and that is said right here rather than found out later.
  */
-function Foundation({ look, session, busy, act }: Omit<Props, "книга">) {
-  const основание = look.foundation ?? null;
-  const [имя, setИмя] = useState("");
-  if (!основание) return null;
+function Foundation({ look, session, busy, act }: Omit<Props, "book">) {
+  const ground = look.foundation ?? null;
+  const [name, setName] = useState("");
+  if (!ground) return null;
 
-  const готово = основание.missing.length === 0;
+  const ready = ground.missing.length === 0;
 
   return (
     <section>
       <h2>Основание города</h2>
       <table>
         <tbody>
-          {основание.needs.map((нужда) => (
-            <tr key={нужда.role}>
-              <td>{основание.missing.includes(нужда.role) ? "—" : "✓"}</td>
-              <td>{нужда.role}</td>
-              <td className="note">{нужда.any_of.join(" · ")}</td>
+          {ground.needs.map((need) => (
+            <tr key={need.role}>
+              <td>{ground.missing.includes(need.role) ? "—" : "✓"}</td>
+              <td>{need.role}</td>
+              <td className="note">{need.any_of.join(" · ")}</td>
             </tr>
           ))}
         </tbody>
       </table>
       <div className="row">
         <input
-          value={имя}
-          onChange={(e) => setИмя(e.target.value)}
+          value={name}
+          onChange={(e) => setName(e.target.value)}
           placeholder="название города"
-          disabled={!готово}
+          disabled={!ready}
         />
         <button
-          onClick={() => act(() => session.send("city.found", { name: имя }))}
-          disabled={busy || !готово || !имя.trim()}
+          onClick={() => act(() => session.send("city.found", { name: name }))}
+          disabled={busy || !ready || !name.trim()}
         >
           Основать город
         </button>
       </div>
       <p className="note">
-        {готово
+        {ready
           ? "Земля отойдёт городу, основатель получит все полномочия (D-089)."
           : "Порог входа — постройки, а не монета (D-023)."}
       </p>
@@ -546,54 +546,54 @@ function Foundation({ look, session, busy, act }: Omit<Props, "книга">) {
   );
 }
 
-/** Обоз: во что впряжён, что везёт и во что можно впрячься здесь (D-157).
+/** Convoy: what it is harnessed to, what it carries and what one can harness to here (D-157).
  *
- * Груз едет **в трюме**, а не в руках: это единственный способ увезти больше
- * `inventory.carry_mass`. Из рук в трюм и обратно перекладывают присутственно —
- * на ходу трюм закрыт.
+ * Cargo rides **in the hold**, not in hands: that is the only way to carry
+ * more than `inventory.carry_mass`. Moving from hands to hold and back is
+ * in-person -- on the go the hold is closed.
  *
- * Отдельным окном от станков намеренно: в повозку не встают работать, в неё
- * впрягаются, и путать эти два действия нельзя.
+ * A separate window from machines on purpose: nobody stands at a wagon to
+ * work, one harnesses to it, and these two actions must not be confused.
  */
-function Convoy({ look, session, busy, act }: Omit<Props, "книга">) {
-  const обоз = look.convoy ?? null;
-  const стоят = (look.vehicles ?? []).filter((т) => !т.taken);
-  const [сколько, setСколько] = useState<Record<string, number>>({});
-  if (!обоз && стоят.length === 0) return null;
+function Convoy({ look, session, busy, act }: Omit<Props, "book">) {
+  const convoy = look.convoy ?? null;
+  const standing = (look.vehicles ?? []).filter((t) => !t.taken);
+  const [qty, setQty] = useState<Record<string, number>>({});
+  if (!convoy && standing.length === 0) return null;
 
-  const число = (id: string, всего: number) => сколько[id] ?? всего;
-  const задать = (id: string, значение: number) =>
-    setСколько((было) => ({ ...было, [id]: значение }));
+  const count = (id: string, total: number) => qty[id] ?? total;
+  const assign = (id: string, value: number) =>
+    setQty((before) => ({ ...before, [id]: value }));
 
-  //: Что из рук имеет вес: невесомое грузить незачем, оно и так едет.
-  const в_руках = look.inventory.filter((вещь) => вещь.mass > 0);
+  //: What in the hands has weight: no point loading the weightless, it rides anyway.
+  const inHands = look.inventory.filter((thing) => thing.mass > 0);
 
   return (
     <section>
       <h2>Обоз</h2>
-      {обоз ? (
+      {convoy ? (
         <>
           <p>
-            впряжён: <b>{обоз.type_key}</b> · трюм{" "}
+            впряжён: <b>{convoy.type_key}</b> · трюм{" "}
             <b>
-              {обоз.mass.toFixed(1)} из {обоз.capacity.toFixed(0)} кг
+              {convoy.mass.toFixed(1)} из {convoy.capacity.toFixed(0)} кг
             </b>{" "}
-            · скорость ×{обоз.speed_k} · сост. {обоз.condition.toFixed(0)}
+            · скорость ×{convoy.speed_k} · сост. {convoy.condition.toFixed(0)}
           </p>
-          {обоз.cargo.length > 0 && (
+          {convoy.cargo.length > 0 && (
             <table>
               <tbody>
-                {обоз.cargo.map((вещь) => (
-                  <tr key={вещь.id}>
-                    <td>{вещь.type_key}</td>
-                    <td className="note">{вещь.amount.toFixed(1)}</td>
+                {convoy.cargo.map((thing) => (
+                  <tr key={thing.id}>
+                    <td>{thing.type_key}</td>
+                    <td className="note">{thing.amount.toFixed(1)}</td>
                     <td>
                       <input
                         type="number"
                         min={0}
-                        max={вещь.amount}
-                        value={число(вещь.id, вещь.amount)}
-                        onChange={(e) => задать(вещь.id, Number(e.target.value))}
+                        max={thing.amount}
+                        value={count(thing.id, thing.amount)}
+                        onChange={(e) => assign(thing.id, Number(e.target.value))}
                       />
                     </td>
                     <td>
@@ -602,8 +602,8 @@ function Convoy({ look, session, busy, act }: Omit<Props, "книга">) {
                         onClick={() =>
                           act(() =>
                             session.send("transport.unload", {
-                              item: вещь.id,
-                              amount: число(вещь.id, вещь.amount),
+                              item: thing.id,
+                              amount: count(thing.id, thing.amount),
                             }),
                           )
                         }
@@ -618,19 +618,19 @@ function Convoy({ look, session, busy, act }: Omit<Props, "книга">) {
               </tbody>
             </table>
           )}
-          {в_руках.length > 0 && (
+          {inHands.length > 0 && (
             <div className="row">
-              {в_руках.map((вещь) => (
+              {inHands.map((thing) => (
                 <button
-                  key={вещь.id}
+                  key={thing.id}
                   className="quiet"
                   onClick={() =>
-                    act(() => session.send("transport.load", { item: вещь.id }))
+                    act(() => session.send("transport.load", { item: thing.id }))
                   }
                   disabled={busy}
-                  title={`${(вещь.mass * вещь.amount).toFixed(1)} кг`}
+                  title={`${(thing.mass * thing.amount).toFixed(1)} кг`}
                 >
-                  Погрузить: {вещь.goods}
+                  Погрузить: {thing.goods}
                 </button>
               ))}
             </div>
@@ -649,20 +649,20 @@ function Convoy({ look, session, busy, act }: Omit<Props, "книга">) {
         </>
       ) : (
         <div className="row">
-          {стоят.map((телега: Vehicle) => (
+          {standing.map((cart: Vehicle) => (
             <button
-              key={телега.id}
+              key={cart.id}
               onClick={() =>
-                act(() => session.send("transport.harness", { item: телега.id }))
+                act(() => session.send("transport.harness", { item: cart.id }))
               }
               disabled={busy}
               title={
-                телега.capacity === null
+                cart.capacity === null
                   ? "вольт не назвал грузоподъёмности"
-                  : `${телега.capacity.toFixed(0)} кг · скорость ×${телега.speed_k}`
+                  : `${cart.capacity.toFixed(0)} кг · скорость ×${cart.speed_k}`
               }
             >
-              Впрячься: {телега.goods}
+              Впрячься: {cart.goods}
             </button>
           ))}
           <span className="note">
@@ -674,77 +674,77 @@ function Convoy({ look, session, busy, act }: Omit<Props, "книга">) {
   );
 }
 
-/** Общее окно оборудования: станки и мебель различаются только видом. */
+/** The common equipment window: machines and furniture differ only by kind. */
 function Equipment({
-  заголовок,
-  вещи,
-  вид,
+  title,
+  things,
+  kind,
   look,
   session,
   busy,
   act,
-  книга,
-  пояснение,
+  book,
+  note,
 }: Props & {
-  заголовок: string;
-  вещи: Bench[];
-  вид: "station" | "furniture";
-  пояснение: string;
+  title: string;
+  things: Bench[];
+  kind: "station" | "furniture";
+  note: string;
 }) {
-  const мой = Boolean(look.node?.mine);
-  //: Ставит и уносит хозяин, а на городской земле — власть (`station.may_build`).
-  //: В чужом доме не вправе ни тот, ни другой.
-  const властен = Boolean(
+  const mine = Boolean(look.node?.mine);
+  //: The owner places and removes, and on civic land the authority (`station.may_build`).
+  //: In somebody else's house neither is entitled.
+  const hasPower = Boolean(
     look.node?.city && !look.node?.owner && look.city?.powers.includes("laws"),
   );
 
-  //: Что из рук можно поставить здесь: вид — из данных вольта (D-090).
-  const в_руках = look.inventory.filter((вещь) =>
-    (книга?.recipes ?? []).some(
-      (р: any) => р.name === вещь.goods && р.kind === вид,
+  //: What from the hands can be placed here: the kind comes from vault data (D-090).
+  const inHands = look.inventory.filter((thing) =>
+    (book?.recipes ?? []).some(
+      (r: any) => r.name === thing.goods && r.kind === kind,
     ),
   );
 
-  //: Окно молчит там, где сказать нечего: ни вещей в узле, ни своих в руках.
-  if (вещи.length === 0 && !((мой || властен) && в_руках.length > 0)) return null;
+  //: The window is silent where there is nothing to say: no things in the node, none of yours in hand.
+  if (things.length === 0 && !((mine || hasPower) && inHands.length > 0)) return null;
 
-  const дом = look.node?.building;
-  const мест_нет = дом ? дом.used >= дом.slots : true;
+  const home = look.node?.building;
+  const noRoom = home ? home.used >= home.slots : true;
 
   return (
     <section>
-      <h2>{заголовок}</h2>
-      {вещи.length > 0 && (
+      <h2>{title}</h2>
+      {things.length > 0 && (
         <table>
           <tbody>
-            {вещи.map((вещь) => (
-              <tr key={вещь.id}>
-                <td>{вещь.goods}</td>
+            {things.map((thing) => (
+              <tr key={thing.id}>
+                <td>{thing.goods}</td>
                 <td className="note">
-                  {вещь.quality === null ? "" : `качество ${вещь.quality.toFixed(0)}`}
-                  {вещь.condition < 100 && ` · сост. ${вещь.condition.toFixed(0)}`}
+                  {thing.quality === null ? "" : `качество ${thing.quality.toFixed(0)}`}
+                  {thing.condition < 100 && ` · сост. ${thing.condition.toFixed(0)}`}
                 </td>
                 <td className="note">
                   {/* У аккумулятора состояние — это заряд, а не «занят»:
                       за ним не работают, он хранит энергию (D-179). */}
-                  {вещь.charge !== null
-                    ? `заряд ${вещь.charge.toFixed(0)} · заряжают в «хозяйстве»`
-                    : вид === "station"
-                      ? вещь.busy
-                        ? вещь.mine
+                  {thing.charge !== null
+                    ? `заряд ${thing.charge.toFixed(0)} · заряжают в «хозяйстве»`
+                    : kind === "station"
+                      ? thing.busy
+                        ? thing.mine
                           ? "занят вами"
                           : "занят"
                         : "свободен"
                       : ""}
                 </td>
                 <td>
-                  {(мой || властен) && (
+                  {(mine || hasPower) && (
                     <button
                       className="quiet"
                       onClick={() =>
-                        act(() => session.send("station.take", { item: вещь.id }))
+                        act(() => session.send("station.take", { item: thing.id }))
                       }
-                      disabled={busy || вещь.busy}
+                      disabled={busy || thing.busy}
                       title="забрать в руки"
                     >
                       Забрать
@@ -757,28 +757,28 @@ function Equipment({
         </table>
       )}
 
-      {(мой || властен) && в_руках.length > 0 && (
+      {(mine || hasPower) && inHands.length > 0 && (
         <div className="row">
-          {в_руках.map((вещь) => (
+          {inHands.map((thing) => (
             <button
-              key={вещь.id}
-              onClick={() => act(() => session.send("station.place", { item: вещь.id }))}
-              disabled={busy || мест_нет}
+              key={thing.id}
+              onClick={() => act(() => session.send("station.place", { item: thing.id }))}
+              disabled={busy || noRoom}
               title={
-                мест_нет
+                noRoom
                   ? "в здании нет места: стройте больше либо уносите лишнее"
                   : "поставить в здание"
               }
             >
-              Поставить: {вещь.goods}
+              Поставить: {thing.goods}
             </button>
           ))}
-          {мест_нет && (
+          {noRoom && (
             <span className="note">в здании нет свободных мест (D-106)</span>
           )}
         </div>
       )}
-      <p className="note">{пояснение}</p>
+      <p className="note">{note}</p>
     </section>
   );
 }

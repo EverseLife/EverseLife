@@ -1,13 +1,14 @@
 """buildings and land deeds
 
-Здание на участке (D-106, D-125) и ценная бумага на владение участком (D-116):
-станок ставится в здание и занимает его площадь, а владение узлом оформляется
-электронным документом, который продаётся договором купли-продажи.
+A building on a plot (D-106, D-125) and a deed of plot ownership (D-116): a
+machine is placed in a building and takes its area, and node ownership is
+documented by an electronic document sold by a sale contract.
 
 Revision ID: a91f3c2d7e01
 Revises: f7b2c40de915
 Create Date: 2026-08-14
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence

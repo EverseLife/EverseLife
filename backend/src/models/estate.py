@@ -1,14 +1,13 @@
-"""Недвижимость: здание на участке и ценная бумага на владение.
+"""Real estate: a building on a plot and a deed of ownership.
 
-**Здание** — то, что строят на участке до всякого станка (D-106, D-125):
-станок ставится в здание и занимает его площадь, поэтому площадь дома — не
-украшение, а вместимость: `build.slots_per_area` квадратных метров на одно
-рабочее место.
+A **building** is what is built on a plot before any machine (D-106, D-125):
+a machine is placed in a building and takes its area, so a house's area is
+not decoration but capacity: `build.slots_per_area` square metres per work place.
 
-**Ценная бумага** — электронный документ о владении участком. Выдаётся при
-выкупе городской земли и при занятии дикой; живёт в Сети, а не в кармане:
-смерть тела её не трогает (D-012), а продаётся она договором купли-продажи —
-удалённо, как всякий документ (D-116).
+A **deed** is an electronic document of plot ownership. Issued on buying civic
+land and on taking wild land; lives in the Net, not the pocket: the body's
+death does not touch it (D-012), and it is sold by a sale contract --
+remotely, like any document (D-116).
 """
 
 from __future__ import annotations
@@ -23,11 +22,12 @@ from src.db.base import Base, created_column, uuid_pk
 
 
 class Building(Base):
-    """Здание на участке. Пока одно на узел и одной ступени прочности.
+    """A building on a plot. For now one per node and of one durability tier.
 
-    Этажность и ступени прочности объявлены вольтом (`build.strength_levels`,
-    `build.floors_by_strength`) и приедут своей механикой; таблица заводится
-    так, чтобы их появление было доложением колонок, а не переделкой.
+    Storeys and durability tiers are declared by the vault
+    (`build.strength_levels`, `build.floors_by_strength`) and will arrive with
+    their own mechanic; the table is created so that their arrival is adding
+    columns, not a rework.
     """
 
     __tablename__ = "building"
@@ -39,17 +39,17 @@ class Building(Base):
     id: Mapped[uuid.UUID] = uuid_pk()
     node_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("node.id"), nullable=False)
 
-    #: Площадь застройки, м². Не больше площади участка: двор — остаток.
+    #: Floor area, m2. No more than the plot area: the yard is the remainder.
     area_m2: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False)
 
     built_at: Mapped[datetime] = created_column()
 
 
 class Deed(Base):
-    """Ценная бумага на владение участком.
+    """A deed of plot ownership.
 
-    Владелец бумаги и есть владелец узла: `node.owner_identity_id` — то же
-    самое, продублированное для быстрых проверок движка, и меняются они вместе.
+    The deed holder is the node's owner: `node.owner_identity_id` is the same
+    thing, duplicated for the engine's fast checks, and they change together.
     """
 
     __tablename__ = "deed"
@@ -59,7 +59,7 @@ class Deed(Base):
     )
 
     id: Mapped[uuid.UUID] = uuid_pk()
-    #: Один участок — одна бумага: вторая бумага на тот же узел — подделка.
+    #: One plot -- one deed: a second deed for the same node is a forgery.
     node_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("node.id"), nullable=False, unique=True
     )
@@ -67,11 +67,12 @@ class Deed(Base):
         ForeignKey("identity.id"), nullable=False
     )
 
-    #: Почём выдана: цена выкупа минорными единицами, ноль у занятой дикой земли.
+    #: The issue price: the purchase price in minor units, zero for taken wild land.
     paid: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
 
-    #: Выставлена на продажу: цена и, если договор адресный, покупатель.
-    #: Пусто — бумага не продаётся. Продажа удалённая: документ живёт в Сети.
+    #: Listed for sale: the price and, if the contract is addressed, the buyer.
+    #: Empty -- the deed is not for sale. Sale is remote: the document lives in the Net.
+
     sale_price: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     sale_to_identity_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
 

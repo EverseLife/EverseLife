@@ -1,12 +1,12 @@
 /**
- * Регистрация в четыре шага (D-187): почта и пароль → линия → персонаж →
- * дверь. Серверу всё уходит одной командой на последнем шаге: половины
- * аккаунта не бывает, и отказ на любом поле оставляет мир нетронутым.
+ * Registration in four steps (D-187): email and password -> line -> character
+ * -> door. Everything goes to the server as one command at the last step:
+ * there is no half-account, and a refusal on any field leaves the world untouched.
  *
- * Порядок шагов не случаен: сперва то, что про аккаунт, потом то, что про мир.
- * Линия — раньше персонажа, потому что имя и описание пишутся уже кому-то.
- * Дверь — последней: это первое **игровое** решение (D-182), и до него игрок
- * должен знать, кто он.
+ * The step order is not accidental: first what is about the account, then
+ * what is about the world. The line before the character, because the name
+ * and description are written for somebody already. The door last: it is the
+ * first **game** decision (D-182), and before it the player must know who they are.
  */
 
 import { type FormEvent, useEffect, useState } from "react";
@@ -19,8 +19,8 @@ import { Secret } from "./Secret";
 const STEPS = ["аккаунт", "линия", "персонаж", "город"] as const;
 type Step = 0 | 1 | 2 | 3;
 
-//: Пределы те же, что у сервера (`runtime.py`): клиент подсказывает раньше,
-//: сервер решает. Расхождение здесь — неудобство, а не дыра.
+//: The limits are the same as the server's (`runtime.py`): the client hints
+//: earlier, the server decides. A divergence here is an inconvenience, not a hole.
 const PASSWORD_MIN = 8;
 const NAME_LIMIT = 24;
 const SURNAME_LIMIT = 32;
@@ -30,7 +30,7 @@ const AGE = { min: 16, max: 120 };
 type Props = {
   busy: boolean;
   trouble: string | null;
-  onSubmit: (заявка: Enrollment) => Promise<void>;
+  onSubmit: (application: Enrollment) => Promise<void>;
   onBack: () => void;
 };
 
@@ -46,19 +46,20 @@ export function Register({ busy, trouble, onSubmit, onBack }: Props) {
   const [about, setAbout] = useState("");
 
   const [lines, setLines] = useState<Line[] | null>(null);
-  const [двери, setДвери] = useState<Door[] | null>(null);
+  const [doors, setDoors] = useState<Door[] | null>(null);
   const [local, setLocal] = useState<string | null>(null);
 
-  //: Справочники читаются, когда до них дошли: линии — на втором шаге, двери
-  //: — на четвёртом. Тот, кто бросил на первом, ничего лишнего не грузил.
+  //: Catalogs are read when reached: lines on the second step, doors on the
+  //: fourth. Whoever quit on the first loaded nothing extra.
+
   useEffect(() => {
     if (step === 1 && lines === null) {
       api.lines().then((r) => setLines(r.lines)).catch((e) => setLocal(String(e)));
     }
-    if (step === 3 && двери === null) {
-      api.doors().then((r) => setДвери(r.doors)).catch((e) => setLocal(String(e)));
+    if (step === 3 && doors === null) {
+      api.doors().then((r) => setDoors(r.doors)).catch((e) => setLocal(String(e)));
     }
-  }, [step, lines, двери]);
+  }, [step, lines, doors]);
 
   const go = (to: Step) => {
     setLocal(null);
@@ -67,8 +68,8 @@ export function Register({ busy, trouble, onSubmit, onBack }: Props) {
 
   const credentials = (e: FormEvent) => {
     e.preventDefault();
-    const адрес = email.trim();
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(адрес)) return setLocal("почта выглядит неправильно");
+    const address = email.trim();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(address)) return setLocal("почта выглядит неправильно");
     if (password.length < PASSWORD_MIN) return setLocal(`пароль короче ${PASSWORD_MIN} знаков`);
     if (password !== again) return setLocal("пароли не совпадают");
     go(1);
@@ -76,9 +77,9 @@ export function Register({ busy, trouble, onSubmit, onBack }: Props) {
 
   const character = (e: FormEvent) => {
     e.preventDefault();
-    const имя = name.trim().replace(/\s+/g, " ");
-    if (!имя) return setLocal("имя не названо");
-    if (имя.length > NAME_LIMIT) return setLocal(`имя длиннее ${NAME_LIMIT} знаков`);
+    const trimmedName = name.trim().replace(/\s+/g, " ");
+    if (!trimmedName) return setLocal("имя не названо");
+    if (trimmedName.length > NAME_LIMIT) return setLocal(`имя длиннее ${NAME_LIMIT} знаков`);
     if (surname.trim().length > SURNAME_LIMIT) {
       return setLocal(`фамилия длиннее ${SURNAME_LIMIT} знаков`);
     }
@@ -89,7 +90,7 @@ export function Register({ busy, trouble, onSubmit, onBack }: Props) {
       }
     }
     if (about.length > ABOUT_LIMIT) return setLocal(`описание длиннее ${ABOUT_LIMIT} знаков`);
-    setName(имя);
+    setName(trimmedName);
     go(3);
   };
 
@@ -108,7 +109,7 @@ export function Register({ busy, trouble, onSubmit, onBack }: Props) {
     });
   };
 
-  const ошибка = local ?? trouble;
+  const error = local ?? trouble;
 
   return (
     <main className="entry auth">
@@ -164,7 +165,7 @@ export function Register({ busy, trouble, onSubmit, onBack }: Props) {
               invalid={again.length > 0 && again !== password}
             />
           </label>
-          {ошибка && <p className="trouble">{ошибка}</p>}
+          {error && <p className="trouble">{error}</p>}
           <div className="row">
             <button type="button" className="quiet" onClick={onBack} disabled={busy}>
               ← ко входу
@@ -232,7 +233,7 @@ export function Register({ busy, trouble, onSubmit, onBack }: Props) {
               ))}
             </div>
           )}
-          {ошибка && <p className="trouble">{ошибка}</p>}
+          {error && <p className="trouble">{error}</p>}
           <div className="row">
             <button type="button" className="quiet" onClick={() => go(0)} disabled={busy}>
               ← назад
@@ -291,7 +292,7 @@ export function Register({ busy, trouble, onSubmit, onBack }: Props) {
               disabled={busy}
             />
           </label>
-          {ошибка && <p className="trouble">{ошибка}</p>}
+          {error && <p className="trouble">{error}</p>}
           <div className="row">
             <button type="button" className="quiet" onClick={() => go(1)} disabled={busy}>
               ← назад
@@ -304,14 +305,14 @@ export function Register({ busy, trouble, onSubmit, onBack }: Props) {
       )}
 
       {step === 3 &&
-        (двери === null ? (
+        (doors === null ? (
           <p className="note center">…</p>
         ) : (
           <Doors
-            двери={двери}
-            имя={name}
+            doors={doors}
+            name={name}
             busy={busy}
-            trouble={ошибка}
+            trouble={error}
             onPick={finish}
             onBack={() => go(2)}
           />

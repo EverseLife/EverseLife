@@ -1,37 +1,37 @@
-"""Еда: выносливость, сытость, разнообразие, порча (D-091, D-105, D-119, D-121).
+"""Food: stamina, satiety, variety, spoilage (D-091, D-105, D-119, D-121).
 
-Еда — самый массовый расходник игры: спрос равен населению. Правила собраны из
-четырёх решений, и каждое даёт свою строку формулы.
+Food is the game's most massive consumable: demand equals population. The
+rules are assembled from four decisions, and each gives its own formula line.
 
-## Откуда взялась каждая формула
+## Where each formula came from
 
-**Питательность.** База — `body.food_restore`, множитель качества — линейно по
-шкале от `food.restore_by_quality.min` (скверное) до `.max` (отличное). Дешёвая
-еда кормит хуже, но кормит: бедность стоит времени, а не жизни (D-121).
+**Nutrition.** The base is `body.food_restore`, the quality multiplier is
+linear along the scale from `food.restore_by_quality.min` (poor) to `.max`
+(excellent). Cheap food feeds worse, but feeds: poverty costs time, not life (D-121).
 
-**Сухое против горячего.** Сухое отдаёт восстановление целиком. Горячее — лишь
-`cook.hot_restore_share` от него, зато даёт **сытость**: до
-`cook.hot_duration × доля закрытых ролей` часов расход выносливости снижен на
-`cook.hot_drain_reduction`. Горячее не добавляет запаса — оно замедляет расход:
-это не бафф, а самое очевидное свойство обеда. Сытость требует качества не ниже
-`cook.hot_quality_min` — машинная еда не даёт её никогда (D-121).
+**Dry versus hot.** Dry gives the whole restoration. Hot -- only
+`cook.hot_restore_share` of it, but gives **satiety**: for
+`cook.hot_duration * share of filled roles` hours the stamina spend is reduced
+by `cook.hot_drain_reduction`. Hot adds no reserve -- it slows the spend: not
+a buff but the most obvious property of a meal. Satiety requires quality not
+below `cook.hot_quality_min` -- machine food never gives it (D-121).
 
-**Разнообразие.** Среди последних `food.variety_window` приёмов не меньше
-`food.variety_min_kinds` разных видов — надбавка `body.diet_variety_bonus`
-процентов к восстановлению. Считается по съеденному, а не по запасам, и вид
-блюда — это сочетание, поэтому видов столько, сколько поваров (D-105).
+**Variety.** Among the last `food.variety_window` meals at least
+`food.variety_min_kinds` different kinds -- a bonus of `body.diet_variety_bonus`
+percent to restoration. Counted by what was eaten, not by stocks, and a dish's
+kind is the combination, so there are as many kinds as cooks (D-105).
 
-**Порча.** Срок жизни еды: `spoilage.food_base` суток ÷ скорость порчи. У
-урожая скорость — `spoilage_k` культуры, у готовых блюд —
-`cook.spoilage_multiplier`. Протухшее не еда: съесть нельзя, суточный тик
-подметает. Из порчи растёт всё остальное — оборот, спрос на соль и осада как
-оружие — без единой новой механики.
+**Spoilage.** Food shelf life: `spoilage.food_base` days / spoilage speed. For
+harvest the speed is the crop's `spoilage_k`, for cooked dishes
+`cook.spoilage_multiplier`. Rotten is not food: it cannot be eaten, the daily
+tick sweeps it. Everything else grows out of spoilage -- turnover, demand for
+salt and siege as a weapon -- without a single new mechanic.
 
-## Что осталось честно недоделанным
+## What remains honestly unfinished
 
-Соль и холодный склад (`spoilage.salted_multiplier`, `cold_storage_multiplier`)
-пока не замедляют порчу: солонина получает срок как обычная еда. Приедет вместе
-с тарой и складами (04-items).
+Salt and cold storage (`spoilage.salted_multiplier`, `cold_storage_multiplier`)
+do not slow spoilage yet: salted meat gets a term like ordinary food. Arrives
+together with containers and warehouses (04-items).
 """
 
 from __future__ import annotations
@@ -56,15 +56,15 @@ class FoodError(Exception):
 
 
 class NotFood(FoodError):
-    """Это не еда. Что съедобно — решают данные, а не движок (D-119)."""
+    """Not food. What is edible is decided by data, not the engine (D-119)."""
 
 
 class Spoiled(FoodError):
-    """Испортилось. Порча — не ошибка, а свойство еды."""
+    """Spoiled. Spoilage is not an error but a property of food."""
 
 
 def shelf_hours(constants: Constants, *, rate: float) -> float:
-    """Срок жизни еды в часах: базовые сутки порчи, делённые на скорость."""
+    """Food shelf life in hours: the base spoilage day divided by the speed."""
     if rate <= 0:
         return constants[R.SPOILAGE_FOOD_BASE] * constants[R.TIME_DAY_TERRA]
     return constants[R.SPOILAGE_FOOD_BASE] * constants[R.TIME_DAY_TERRA] / rate
@@ -73,21 +73,21 @@ def shelf_hours(constants: Constants, *, rate: float) -> float:
 def harvest_spoils_at(
     constants: Constants, spoilage_k: float, *, now: datetime
 ) -> datetime | None:
-    """Когда испортится урожай. Культуры портятся со своей скоростью."""
+    """When the harvest spoils. Crops spoil at their own speed."""
     if spoilage_k <= 0:
         return None
     return now + timedelta(hours=shelf_hours(constants, rate=spoilage_k))
 
 
 def cooked_spoils_at(constants: Constants, *, now: datetime) -> datetime:
-    """Когда испортится готовое: в `cook.spoilage_multiplier` раз быстрее сырья."""
+    """When cooked food spoils: `cook.spoilage_multiplier` times faster than raw."""
     return now + timedelta(
         hours=shelf_hours(constants, rate=constants[R.COOK_SPOILAGE_MULTIPLIER])
     )
 
 
 def drain_multiplier(constants: Constants, body: Body, now: datetime) -> float:
-    """Множитель расхода выносливости: сытый работает ровнее (D-119)."""
+    """Stamina spend multiplier: the fed work steadier (D-119)."""
     if body.satiated_until is not None and now < body.satiated_until:
         return 1 - constants[R.COOK_HOT_DRAIN_REDUCTION] / PERCENT
     return 1.0
@@ -102,10 +102,10 @@ async def eat(
     *,
     now: datetime | None = None,
 ) -> float:
-    """Съесть порцию. Возвращает, сколько выносливости вернулось.
+    """Eat a portion. Returns how much stamina came back.
 
-    Еда работает и в дороге: сухарь в пути — ровно тот случай, ради которого
-    сухое существует. Спит — не ест: рот занят сном.
+    Food works on the road too: hardtack en route is exactly the case dry food
+    exists for. Asleep -- not eating: the mouth is busy sleeping.
     """
     moment = now or datetime.now(UTC)
     if body.state is not BodyState.ALIVE:
@@ -121,7 +121,7 @@ async def eat(
     if recipe is None or not recipe.food:
         raise NotFood(f"{item.type_key!r} не еда")
     if item.spoils_at is not None and moment >= item.spoils_at:
-        #: Тухлое исчезает при попытке: его видно, и его больше нет.
+        #: Rotten disappears on the attempt: it is seen, and it is gone.
         await session.delete(item)
         await session.flush()
         raise Spoiled(f"{item.type_key!r} испортилось")
@@ -129,13 +129,13 @@ async def eat(
     scale = constants[R.QUALITY_SCALE]
     quality = scale.mid if item.quality is None else float(item.quality)
 
-    #: Питательность: линейно по качеству, от min к max множителя.
+    #: Nutrition: linear by quality, from min to max of the multiplier.
     span = constants[R.FOOD_RESTORE_BY_QUALITY]
     nutrition = span.min + (span.max - span.min) * quality / scale.max
     restore = constants[R.BODY_FOOD_RESTORE] * nutrition
 
-    #: Горячее восстанавливает меньше сразу, но даёт сытость — если дотягивает
-    #: до `cook.hot_quality_min`. Ниже порога это просто еда (D-121).
+    #: Hot restores less at once but gives satiety -- if it reaches
+    #: `cook.hot_quality_min`. Below the threshold it is just food (D-121).
     satiated = False
     if recipe.hot:
         restore *= constants[R.COOK_HOT_RESTORE_SHARE] / PERCENT
@@ -150,7 +150,7 @@ async def eat(
     session.add(Meal(identity_id=body.identity_id, flavor=flavor, at=moment))
     await session.flush()
 
-    #: Разнообразие: считается по съеденному, включая этот приём (D-105).
+    #: Variety: counted by what was eaten, including this meal (D-105).
     if await _varied(session, constants, body.identity_id):
         restore *= 1 + constants[R.BODY_DIET_VARIETY_BONUS] / PERCENT
 
@@ -181,10 +181,10 @@ async def eat(
 
 
 async def sweep_spoiled(session: AsyncSession, *, now: datetime | None = None) -> int:
-    """Подмести протухшее по всему миру. Зовётся суточным тиком.
+    """Sweep the rotten across the whole world. Called by the daily tick.
 
-    Порча — сток материи, разрешённый столпом П1: еда исчезает так же честно,
-    как исчезает угар при плавке.
+    Spoilage is a matter sink allowed by pillar P1: food disappears as honestly
+    as loss in smelting.
     """
     moment = now or datetime.now(UTC)
     rotten = (
@@ -203,13 +203,13 @@ async def sweep_spoiled(session: AsyncSession, *, now: datetime | None = None) -
     return len(rotten)
 
 
-# --- внутреннее -------------------------------------------------------------
+# --- internal ----------------------------------------------------------------
 
 
 def _recipe_of(catalog: Catalog, type_key: str):
     try:
         return catalog.recipes.recipe(type_key)
-    except Exception:  # noqa: BLE001 — сырьё рецептом не описано
+    except Exception:  # noqa: BLE001 -- raw material has no recipe
         return None
 
 

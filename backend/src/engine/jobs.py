@@ -1,17 +1,17 @@
-"""Исполнение журнала заданий.
+"""Execution of the job journal.
 
-Идемпотентность держится на трёх вещах, и все три обязательны:
+Idempotency rests on three things, and all three are mandatory:
 
-1. **Одно задание — одна транзакция.** Обработчик и отметка «выполнено»
-   фиксируются вместе. Упал процесс посреди задания — откатилось всё, задание
-   осталось ожидающим и выполнится ещё раз. Ровно один раз, а не «примерно».
-2. **`FOR UPDATE SKIP LOCKED`.** Несколько воркеров разбирают очередь, не
-   толкаясь и не дублируя.
-3. **`dedup_key`.** Повторная постановка того же задания не создаёт второго.
+1. **One job -- one transaction.** The handler and the "done" mark are
+   committed together. The process crashed mid-job -- everything rolled back,
+   the job stayed pending and will run again. Exactly once, not "roughly".
+2. **`FOR UPDATE SKIP LOCKED`.** Several workers drain the queue without
+   jostling or duplicating.
+3. **`dedup_key`.** Queueing the same job again does not create a second one.
 
-Из первого пункта следует ограничение, о котором легко забыть: **эффект
-задания обязан быть в базе**. Всё, что уходит наружу (письмо, пуш, вызов
-чужого API), ставится отдельным заданием и повторяется при сбое.
+From the first point follows a constraint easy to forget: **the job's effect
+must be in the database**. Everything going outside (an email, a push, a call
+to somebody's API) is queued as a separate job and retried on failure.
 """
 
 from __future__ import annotations
@@ -68,7 +68,7 @@ async def enqueue(
     cause_event_id: int | None = None,
     body_id: Any = None,
 ) -> Job | None:
-    """Поставить задание. Возвращает None, если такое уже стоит."""
+    """Queue a job. Returns None if such a job is already queued."""
     values = {
         "kind": kind.value,
         "state": JobState.PENDING.value,
@@ -89,7 +89,7 @@ async def enqueue(
 
 
 async def _claim(session: AsyncSession, now: datetime, worker: str) -> Job | None:
-    """Взять одно задание, заблокировав строку до конца транзакции."""
+    """Take one job, locking the row until the end of the transaction."""
     stmt = (
         select(Job)
         .where(Job.state == JobState.PENDING, Job.run_at <= now)
@@ -112,7 +112,7 @@ async def run_one(
     now: datetime | None = None,
     worker: str = "worker",
 ) -> Job | None:
-    """Выполнить одно готовое задание. Возвращает его либо None, если очередь пуста."""
+    """Run one ready job. Returns it, or None if the queue is empty."""
     moment = now or datetime.now(UTC)
 
     async with factory() as session:
@@ -127,15 +127,15 @@ async def run_one(
             job.state = JobState.FAILED
             job.last_error = f"нет обработчика для {job.kind}"
             job.finished_at = moment
-            log.error("задание %s: %s", job_id, job.last_error)
+            log.error("job %s: %s", job_id, job.last_error)
             await session.commit()
             return job
 
         try:
             await action(session, job)
-        except Exception as exc:  # noqa: BLE001 — решение о судьбе задания ниже
-            #: Откат уносит и эффекты задания, и отметку о попытке — поэтому
-            #: попытка записывается отдельной транзакцией.
+        except Exception as exc:  # noqa: BLE001 -- the job's fate is decided below
+            #: The rollback takes both the job's effects and the attempt mark --
+            #: so the attempt is recorded in a separate transaction.
             await session.rollback()
             await _mark_failure(factory, job_id, exc, moment)
             return await _reload(factory, job_id)
@@ -154,7 +154,7 @@ async def run_due(
     now: datetime | None = None,
     worker: str = "worker",
 ) -> int:
-    """Разобрать очередь до `limit` заданий. Возвращает число выполненных."""
+    """Drain the queue up to `limit` jobs. Returns the number executed."""
     done = 0
     for _ in range(limit):
         job = await run_one(factory, now=now, worker=worker)
@@ -170,25 +170,25 @@ async def _mark_failure(
     exc: Exception,
     moment: datetime,
 ) -> None:
-    """Отметить сбой отдельной транзакцией — эффекты задания уже откатились."""
+    """Mark a failure in a separate transaction -- the job's effects have already rolled back."""
     async with factory() as session, session.begin():
         job = await session.get(Job, job_id, with_for_update=True)
         if job is None:  # pragma: no cover
             return
-        #: Откат унёс и увеличенный счётчик попыток — считаем заново здесь,
-        #: иначе сломанное задание крутилось бы вечно.
+        #: The rollback took the incremented attempt counter too -- we count
+        #: again here, otherwise a broken job would spin forever.
         job.attempts += 1
         job.last_error = f"{type(exc).__name__}: {exc}"[:JOB_ERROR_LIMIT]
         if job.attempts >= JOB_MAX_ATTEMPTS:
             job.state = JobState.FAILED
             job.finished_at = moment
-            log.error("задание %s сдалось после %s попыток: %s", job.id, job.attempts, exc)
+            log.error("job %s gave up after %s attempts: %s", job.id, job.attempts, exc)
         else:
             job.state = JobState.PENDING
             job.run_at = moment + JOB_RETRY_BASE * (JOB_RETRY_GROWTH ** (job.attempts - 1))
             job.locked_by = None
             job.locked_at = None
-            log.warning("задание %s повторится в %s: %s", job.id, job.run_at, exc)
+            log.warning("job %s will retry at %s: %s", job.id, job.run_at, exc)
 
 
 async def _reload(factory: async_sessionmaker[AsyncSession], job_id: Any) -> Job | None:
@@ -197,11 +197,12 @@ async def _reload(factory: async_sessionmaker[AsyncSession], job_id: Any) -> Job
 
 
 def require_handlers() -> None:
-    """Проверить, что у каждого вида задания есть обработчик.
+    """Check that every job kind has a handler.
 
-    Вызывается при старте: задание без обработчика — это отложенное молчаливое
-    расхождение мира с самим собой.
+    Called at startup: a job without a handler is a deferred silent divergence
+    of the world from itself.
     """
+
     missing = {kind.value for kind in JobKind} - registered_kinds()
     if missing:
         raise UnknownJobKind(

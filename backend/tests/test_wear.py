@@ -1,14 +1,14 @@
-"""Износ, ремонт и переработка (D-129, D-058, 15-quality).
+"""Wear, repair and recycling (D-129, D-058, 15-quality).
 
-Проверяется то, ради чего система написана:
+Checked is what the system was written for:
 
-* вещь конечна (столп П2): инструмент кончается за столько сессий, сколько
-  обещано приёмкой, и исчезает, а не работает вечно с нулём;
-* качество определяет **скорость** износа, состояние — **насколько вещь хороша
-  сейчас**: разбитая наковальня делает хуже, а не только внезапно ломается;
-* формула срока службы берётся из вольта и вычисляется, а не переписана кодом;
-* ремонт возвращает состояние, но опускает потолок — иначе вещь стала бы вечной;
-* переработка возвращает меньше вложенного, и разница — сток.
+* a thing is finite (pillar P2): a tool runs out in as many sessions as the
+  acceptance promises, and disappears rather than working forever at zero;
+* quality determines the **speed** of wear, condition -- **how good the thing
+  is now**: a broken anvil does worse, not just breaks suddenly;
+* the service-life formula is taken from the vault and evaluated, not rewritten in code;
+* repair restores condition but lowers the ceiling -- otherwise the thing would become eternal;
+* recycling returns less than invested, and the difference is a sink.
 """
 
 from __future__ import annotations
@@ -35,311 +35,311 @@ HANDLE = "Рукоять"
 BASKET = "Корзина"
 
 
-async def _мастер(session: AsyncSession, *, станок: str | None = BENCH):
-    метка = uuid.uuid4().hex[:8]
-    node = await world.create_node(session, f"terra.wear.{метка}", "Двор", area_m2=100)
-    identity = await world.create_identity(session, f"Хозяин-{метка}")
+async def _master(session: AsyncSession, *, machine: str | None = BENCH):
+    stamp = uuid.uuid4().hex[:8]
+    node = await world.create_node(session, f"terra.wear.{stamp}", "Двор", area_m2=100)
+    identity = await world.create_identity(session, f"Хозяин-{stamp}")
     body = await world.print_body(session, identity, node)
-    if станок is not None:
-        двор = await world.node_container(session, node)
-        await world.grant_item(session, двор, станок, quality=70, origin="сценарий теста")
+    if machine is not None:
+        yard = await world.node_container(session, node)
+        await world.grant_item(session, yard, machine, quality=70, origin="сценарий теста")
     return node, identity, body
 
 
-async def _вещь(session: AsyncSession, body, type_key: str, *, качество: float,
-                состояние: float = 100):
-    карман = await world.body_container(session, body)
+async def _thing(session: AsyncSession, body, type_key: str, *, quality: float,
+                state: float = 100):
+    pocket = await world.body_container(session, body)
     item = await world.grant_item(
-        session, карман, type_key, quality=качество, origin="сценарий теста"
+        session, pocket, type_key, quality=quality, origin="сценарий теста"
     )
-    item.condition = состояние
+    item.condition = state
     await session.flush()
     return item
 
 
-# --- формула из вольта ------------------------------------------------------
+# --- the formula from the vault ----------------------------------------------
 
 
-def test_формула_вычисляется_а_не_переписана(constants: Constants) -> None:
-    """Числа формулы остаются в вольте — иначе правка требует выката (D-065)."""
-    формула = constants[R.QUALITY_DURABILITY_FACTOR]
-    посчитано = формула.value(base_life=1, quality=80)
-    assert посчитано == pytest.approx(evaluate(формула.text, base_life=1, quality=80))
-    assert посчитано > формула.value(base_life=1, quality=40)
+def test_formula_evaluated_not_copied(constants: Constants) -> None:
+    """The formula's numbers stay in the vault -- otherwise an edit requires a release (D-065)."""
+    formula = constants[R.QUALITY_DURABILITY_FACTOR]
+    computed = formula.value(base_life=1, quality=80)
+    assert computed == pytest.approx(evaluate(formula.text, base_life=1, quality=80))
+    assert computed > formula.value(base_life=1, quality=40)
 
 
-def test_алгоритм_честно_отвергается() -> None:
-    """Формула со суммированием по этажам — это код, и движок пишет его сам."""
+def test_algorithm_honestly_rejected() -> None:
+    """A formula with summation over levels is code, and the engine writes it itself."""
     with pytest.raises(NotComputable):
         evaluate("sum(x^n for n in 1..floors)", x=1, floors=2)
     with pytest.raises(NotComputable):
         evaluate("__import__('os').system('ls')")
 
 
-def test_хорошая_вещь_служит_дольше(constants: Constants) -> None:
-    плохая = wear.life_factor(constants, 20)
-    хорошая = wear.life_factor(constants, 90)
-    assert хорошая > плохая > 0
+def test_good_thing_lasts_longer(constants: Constants) -> None:
+    bad = wear.life_factor(constants, 20)
+    good = wear.life_factor(constants, 90)
+    assert good > bad > 0
 
 
-# --- состояние --------------------------------------------------------------
+# --- condition ---------------------------------------------------------------
 
 
-async def test_износ_обратен_качеству(
+async def test_wear_inverse_to_quality(
     session: AsyncSession, constants: Constants
 ) -> None:
-    """Хорошая кирка изнашивается медленнее ровно во столько раз, во сколько лучше."""
-    _, _, body = await _мастер(session)
-    плохая = await _вещь(session, body, PICK, качество=20)
-    хорошая = await _вещь(session, body, PICK, качество=90)
+    """A good pickaxe wears slower exactly as many times as it is better."""
+    _, _, body = await _master(session)
+    bad = await _thing(session, body, PICK, quality=20)
+    good = await _thing(session, body, PICK, quality=90)
 
-    await wear.spend(session, constants, плохая, constants[R.WEAR_TOOL_PER_SESSION],
+    await wear.spend(session, constants, bad, constants[R.WEAR_TOOL_PER_SESSION],
                      cause="проверка")
-    await wear.spend(session, constants, хорошая, constants[R.WEAR_TOOL_PER_SESSION],
+    await wear.spend(session, constants, good, constants[R.WEAR_TOOL_PER_SESSION],
                      cause="проверка")
     await session.commit()
 
-    assert float(хорошая.condition) > float(плохая.condition)
+    assert float(good.condition) > float(bad.condition)
 
 
-async def test_инструмент_кончается_за_обещанное_число_сессий(
+async def test_tool_wears_out_in_promised_sessions(
     session: AsyncSession, constants: Constants
 ) -> None:
-    """Ориентир приёмки: `100 / wear.tool_per_session` сессий (07-implementation-map)."""
-    _, _, body = await _мастер(session)
-    шкала = constants[R.QUALITY_SCALE]
-    обычная = шкала.mid
-    кирка = await _вещь(session, body, PICK, качество=обычная)
-    за_сессию = constants[R.WEAR_TOOL_PER_SESSION] / wear.life_factor(constants, обычная)
-    надо = int(шкала.max / за_сессию) + 1
+    """The acceptance benchmark: `100 / wear.tool_per_session` sessions (07-implementation-map)."""
+    _, _, body = await _master(session)
+    scale = constants[R.QUALITY_SCALE]
+    ordinary = scale.mid
+    pickaxe = await _thing(session, body, PICK, quality=ordinary)
+    per_session = constants[R.WEAR_TOOL_PER_SESSION] / wear.life_factor(constants, ordinary)
+    need = int(scale.max / per_session) + 1
 
-    кончилась = False
-    for _ in range(надо):
-        кончилась = await wear.spend(
-            session, constants, кирка, constants[R.WEAR_TOOL_PER_SESSION], cause="сессия"
+    ran_out = False
+    for _ in range(need):
+        ran_out = await wear.spend(
+            session, constants, pickaxe, constants[R.WEAR_TOOL_PER_SESSION], cause="сессия"
         )
-        if кончилась:
+        if ran_out:
             break
     await session.commit()
 
-    assert кончилась, "вещь обязана кончиться, а не работать вечно"
-    assert await session.get(Item, кирка.id) is None
+    assert ran_out, "вещь обязана кончиться, а не работать вечно"
+    assert await session.get(Item, pickaxe.id) is None
 
 
-async def test_изношенное_работает_хуже(
+async def test_worn_works_worse(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Разбитая наковальня даёт худший результат, а не только внезапно ломается."""
-    _, _, body = await _мастер(session)
-    целая = await _вещь(session, body, BENCH, качество=80, состояние=100)
-    убитая = await _вещь(session, body, BENCH, качество=80, состояние=25)
+    """A broken anvil gives a worse result, not just breaks suddenly."""
+    _, _, body = await _master(session)
+    intact = await _thing(session, body, BENCH, quality=80, state=100)
+    worn_out = await _thing(session, body, BENCH, quality=80, state=25)
 
-    assert wear.effective(constants, целая) == pytest.approx(80)
-    assert wear.effective(constants, убитая) == pytest.approx(20)
+    assert wear.effective(constants, intact) == pytest.approx(80)
+    assert wear.effective(constants, worn_out) == pytest.approx(20)
     assert wear.effective(constants, None) == constants[R.QUALITY_SCALE].max
 
 
-async def test_добыча_изнашивает_инструмент(
+async def test_mining_wears_tool(
     session: AsyncSession, constants: Constants
 ) -> None:
-    """Инструмент изнашивается за сессию, а не за удар (D-129)."""
-    метка = uuid.uuid4().hex[:8]
-    node = await world.create_node(session, f"terra.pit.{метка}", "Забой", area_m2=100)
+    """The tool wears per session, not per swing (D-129)."""
+    stamp = uuid.uuid4().hex[:8]
+    node = await world.create_node(session, f"terra.pit.{stamp}", "Забой", area_m2=100)
     vein = await world.create_vein(session, node, "Железная руда", richness=60, remaining=10_000)
-    identity = await world.create_identity(session, f"Шахтёр-{метка}")
+    identity = await world.create_identity(session, f"Шахтёр-{stamp}")
     body = await world.print_body(session, identity, node)
-    кирка = await _вещь(session, body, PICK, качество=50)
+    pickaxe = await _thing(session, body, PICK, quality=50)
 
-    сессия = await mining.start(session, constants, body, vein, tool_item_id=кирка.id)
-    await mining.swing(session, constants, сессия)
-    await mining.leave(session, constants, сессия)
+    sess = await mining.start(session, constants, body, vein, tool_item_id=pickaxe.id)
+    await mining.swing(session, constants, sess)
+    await mining.leave(session, constants, sess)
     await session.commit()
 
-    ожидалось = constants[R.WEAR_TOOL_PER_SESSION] / wear.life_factor(constants, 50)
-    assert float(кирка.condition) == pytest.approx(100 - ожидалось, abs=0.01)
+    expected_ = constants[R.WEAR_TOOL_PER_SESSION] / wear.life_factor(constants, 50)
+    assert float(pickaxe.condition) == pytest.approx(100 - expected_, abs=0.01)
 
 
-async def test_снаряжение_изнашивается_от_ношения(
+async def test_gear_wears_from_wearing(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Сток С2: снаряжение съедается ношением, а не применением (D-129)."""
-    _, _, body = await _мастер(session)
-    корзина = await _вещь(session, body, BASKET, качество=50)
-    кирка = await _вещь(session, body, PICK, качество=50)
+    """Sink S2: gear is eaten by wearing, not by use (D-129)."""
+    _, _, body = await _master(session)
+    basket = await _thing(session, body, BASKET, quality=50)
+    pickaxe = await _thing(session, body, PICK, quality=50)
 
-    кончилось = await wear.daily_gear_wear(session, constants, catalog)
+    ended = await wear.daily_gear_wear(session, constants, catalog)
     await session.commit()
 
-    assert кончилось == 0
-    assert float(корзина.condition) < 100, "корзина — снаряжение и изнашивается"
-    assert float(кирка.condition) == 100, "инструмент изнашивается от работы, не от суток"
+    assert ended == 0
+    assert float(basket.condition) < 100, "корзина — снаряжение и изнашивается"
+    assert float(pickaxe.condition) == 100, "инструмент изнашивается от работы, не от суток"
 
 
-async def test_среда_ускоряет_износ(constants: Constants) -> None:
-    """Пироксис дорог сам по себе, без единой специальной механики (D-129)."""
-    множители = constants[R.WEAR_ENVIRONMENT_K]
-    assert множители[wear.PLANET_NAMES["pyroxis"]] > множители[wear.PLANET_NAMES["terra"]]
+async def test_environment_speeds_wear(constants: Constants) -> None:
+    """Pyroxis is expensive by itself, without a single special mechanic (D-129)."""
+    multipliers = constants[R.WEAR_ENVIRONMENT_K]
+    assert multipliers[wear.PLANET_NAMES["pyroxis"]] > multipliers[wear.PLANET_NAMES["terra"]]
 
 
-# --- ремонт и переработка ---------------------------------------------------
+# --- repair and recycling ----------------------------------------------------
 
 
-async def test_ремонт_возвращает_состояние_и_опускает_потолок(
+async def test_repair_restores_condition_and_lowers_ceiling(
     factory: async_sessionmaker[AsyncSession], constants: Constants, catalog: Catalog
 ) -> None:
-    """Каждая следующая починка дешевле новой вещи и хуже предыдущей."""
+    """Each next repair is cheaper than a new thing and worse than the previous."""
     async with factory() as session, session.begin():
-        _, _, body = await _мастер(session, станок="Кузница")
-        кирка = await _вещь(session, body, PICK, качество=60, состояние=30)
-        await _вещь(session, body, INGOT, качество=60)
-        await _вещь(session, body, HANDLE, качество=60)
-        работа = await craft.repair(session, constants, catalog, body, кирка)
-        срок, item_id = работа.ready_at, кирка.id
-        assert работа.kind is BatchKind.REPAIR
+        _, _, body = await _master(session, machine="Кузница")
+        pickaxe = await _thing(session, body, PICK, quality=60, state=30)
+        await _thing(session, body, INGOT, quality=60)
+        await _thing(session, body, HANDLE, quality=60)
+        work = await craft.repair(session, constants, catalog, body, pickaxe)
+        term, item_id = work.ready_at, pickaxe.id
+        assert work.kind is BatchKind.REPAIR
 
-    await jobs.run_one(factory, now=срок)
+    await jobs.run_one(factory, now=term)
 
     async with factory() as session:
-        кирка = await session.get(Item, item_id)
-        assert кирка is not None
-        потолок = 100 + constants[R.QUALITY_REPAIR_CEILING_LOSS]
-        assert float(кирка.condition_cap) == pytest.approx(потолок)
-        assert float(кирка.condition) == pytest.approx(потолок)
-        assert float(кирка.quality) == 60, "качество не меняется никогда (D-058)"
+        pickaxe = await session.get(Item, item_id)
+        assert pickaxe is not None
+        ceiling = 100 + constants[R.QUALITY_REPAIR_CEILING_LOSS]
+        assert float(pickaxe.condition_cap) == pytest.approx(ceiling)
+        assert float(pickaxe.condition) == pytest.approx(ceiling)
+        assert float(pickaxe.quality) == 60, "качество не меняется никогда (D-058)"
 
 
-async def test_ремонт_стоит_материалов(
+async def test_repair_costs_materials(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Доля от новой вещи — `craft.repair_cost_share` (D-129)."""
-    _, _, body = await _мастер(session, станок="Кузница")
-    кирка = await _вещь(session, body, PICK, качество=60, состояние=30)
-    await _вещь(session, body, INGOT, качество=60)
-    await _вещь(session, body, HANDLE, качество=60)
+    """A share of a new thing -- `craft.repair_cost_share` (D-129)."""
+    _, _, body = await _master(session, machine="Кузница")
+    pickaxe = await _thing(session, body, PICK, quality=60, state=30)
+    await _thing(session, body, INGOT, quality=60)
+    await _thing(session, body, HANDLE, quality=60)
 
-    работа = await craft.repair(session, constants, catalog, body, кирка)
+    work = await craft.repair(session, constants, catalog, body, pickaxe)
     await session.commit()
 
-    доля = constants[R.CRAFT_REPAIR_COST_SHARE] / 100
-    рецепт = catalog.recipes.recipe(PICK)
-    assert работа.spent[INGOT] == pytest.approx(рецепт.amounts[INGOT] * доля)
+    share = constants[R.CRAFT_REPAIR_COST_SHARE] / 100
+    recipe = catalog.recipes.recipe(PICK)
+    assert work.spent[INGOT] == pytest.approx(recipe.amounts[INGOT] * share)
 
-    карман = await world.body_container(session, body)
-    осталось = await session.scalar(
+    pocket = await world.body_container(session, body)
+    left = await session.scalar(
         select(func.coalesce(func.sum(Item.amount), 0)).where(
-            Item.container_id == карман.id, Item.type_key == INGOT
+            Item.container_id == pocket.id, Item.type_key == INGOT
         )
     )
-    assert amount_float(int(осталось)) == pytest.approx(1 - рецепт.amounts[INGOT] * доля)
+    assert amount_float(int(left)) == pytest.approx(1 - recipe.amounts[INGOT] * share)
 
 
-async def test_без_материалов_не_починишь(
+async def test_cannot_repair_without_materials(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    _, _, body = await _мастер(session, станок="Кузница")
-    кирка = await _вещь(session, body, PICK, качество=60, состояние=30)
+    _, _, body = await _master(session, machine="Кузница")
+    pickaxe = await _thing(session, body, PICK, quality=60, state=30)
     with pytest.raises(craft.NotEnough):
-        await craft.repair(session, constants, catalog, body, кирка)
+        await craft.repair(session, constants, catalog, body, pickaxe)
 
 
-async def test_переработка_возвращает_меньше_вложенного(
+async def test_recycling_returns_less_than_invested(
     factory: async_sessionmaker[AsyncSession], constants: Constants, catalog: Catalog
 ) -> None:
-    """Разница — сток, и она же делает переработку не бесплатной (20-systems/03)."""
+    """The difference is a sink, and it also makes recycling not free (20-systems/03)."""
     async with factory() as session, session.begin():
-        _, _, body = await _мастер(session, станок="Кузница")
-        кирка = await _вещь(session, body, PICK, качество=80)
-        работа = await craft.recycle(session, constants, catalog, body, кирка)
-        срок, item_id, body_id = работа.ready_at, кирка.id, body.id
-        assert работа.kind is BatchKind.RECYCLE
+        _, _, body = await _master(session, machine="Кузница")
+        pickaxe = await _thing(session, body, PICK, quality=80)
+        work = await craft.recycle(session, constants, catalog, body, pickaxe)
+        term, item_id, body_id = work.ready_at, pickaxe.id, body.id
+        assert work.kind is BatchKind.RECYCLE
 
-    await jobs.run_one(factory, now=срок)
+    await jobs.run_one(factory, now=term)
 
     async with factory() as session:
         assert await session.get(Item, item_id) is None, "вещи больше нет"
 
-        тело = await session.get(Body, body_id)
-        карман = await world.body_container(session, тело)
-        слитки = (
+        reloaded = await session.get(Body, body_id)
+        pocket = await world.body_container(session, reloaded)
+        ingots = (
             await session.execute(
                 select(Item).where(
-                    Item.container_id == карман.id, Item.type_key == INGOT
+                    Item.container_id == pocket.id, Item.type_key == INGOT
                 )
             )
         ).scalars().all()
-        assert слитки, "часть материалов вернулась"
+        assert ingots, "часть материалов вернулась"
 
-        доля = constants[R.CRAFT_RECYCLE_RETURN] / 100
-        рецепт = catalog.recipes.recipe(PICK)
-        вернулось = sum(amount_float(s.amount) for s in слитки)
-        assert вернулось == pytest.approx(рецепт.amounts[INGOT] * доля)
-        assert вернулось < рецепт.amounts[INGOT]
+        share = constants[R.CRAFT_RECYCLE_RETURN] / 100
+        recipe = catalog.recipes.recipe(PICK)
+        returned = sum(amount_float(s.amount) for s in ingots)
+        assert returned == pytest.approx(recipe.amounts[INGOT] * share)
+        assert returned < recipe.amounts[INGOT]
 
-        перенос = constants[R.QUALITY_RECYCLE_CARRYOVER] / 100
-        assert float(слитки[0].quality) == pytest.approx(80 * перенос)
+        transfer = constants[R.QUALITY_RECYCLE_CARRYOVER] / 100
+        assert float(ingots[0].quality) == pytest.approx(80 * transfer)
 
 
-async def test_чужое_не_чинят(
+async def test_foreign_not_repaired(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Вещь должна быть в руках: чинят своё."""
-    _, _, body = await _мастер(session, станок="Кузница")
-    node2, _, чужой = await _мастер(session, станок="Кузница")
-    чужая = await _вещь(session, чужой, PICK, качество=60, состояние=30)
+    """The thing must be in the hands: one repairs one's own."""
+    _, _, body = await _master(session, machine="Кузница")
+    node2, _, foreign = await _master(session, machine="Кузница")
+    foreign_ = await _thing(session, foreign, PICK, quality=60, state=30)
 
     with pytest.raises(craft.CraftError):
-        await craft.repair(session, constants, catalog, body, чужая)
+        await craft.repair(session, constants, catalog, body, foreign_)
 
 
-async def test_суточный_тик_изнашивает_снаряжение(
+async def test_daily_tick_wears_gear(
     factory: async_sessionmaker[AsyncSession], constants: Constants, catalog: Catalog
 ) -> None:
-    """Мир живёт без игроков: снаряжение ветшает, пока хозяин офлайн."""
+    """The world lives without players: gear decays while the owner is offline."""
     from src.engine import tick
 
     async with factory() as session, session.begin():
-        _, _, body = await _мастер(session)
-        корзина = await _вещь(session, body, BASKET, качество=50)
-        item_id = корзина.id
+        _, _, body = await _master(session)
+        basket = await _thing(session, body, BASKET, quality=50)
+        item_id = basket.id
         await tick.ensure_scheduled(session)
 
-    #: Разбираем обе постановки часов: обычный тик и суточный.
+    #: We drain both clock schedulings: the ordinary tick and the daily one.
     await jobs.run_due(factory, limit=2)
 
     async with factory() as session:
-        корзина = await session.get(Item, item_id)
-        assert корзина is not None
-        assert float(корзина.condition) < 100
+        basket = await session.get(Item, item_id)
+        assert basket is not None
+        assert float(basket.condition) < 100
 
 
-async def test_повторный_ремонт_упирается_в_потолок(
+async def test_repeated_repair_hits_ceiling(
     factory: async_sessionmaker[AsyncSession], constants: Constants, catalog: Catalog
 ) -> None:
-    """Так вещь остаётся конечной, сколько её ни чини (столп П2)."""
+    """So the thing stays finite however much it is repaired (pillar P2)."""
     async with factory() as session, session.begin():
-        _, _, body = await _мастер(session, станок="Кузница")
-        кирка = await _вещь(session, body, PICK, качество=60, состояние=10)
-        #: Материалы на две починки сразу.
+        _, _, body = await _master(session, machine="Кузница")
+        pickaxe = await _thing(session, body, PICK, quality=60, state=10)
+        #: Materials for two repairs at once.
         for _ in range(2):
-            await _вещь(session, body, INGOT, качество=60)
-            await _вещь(session, body, HANDLE, качество=60)
-        работа = await craft.repair(session, constants, catalog, body, кирка)
-        срок, item_id, body_id = работа.ready_at, кирка.id, body.id
+            await _thing(session, body, INGOT, quality=60)
+            await _thing(session, body, HANDLE, quality=60)
+        work = await craft.repair(session, constants, catalog, body, pickaxe)
+        term, item_id, body_id = work.ready_at, pickaxe.id, body.id
 
-    await jobs.run_one(factory, now=срок)
+    await jobs.run_one(factory, now=term)
 
     async with factory() as session, session.begin():
-        тело = await session.get(Body, body_id)
-        кирка = await session.get(Item, item_id)
-        первый_потолок = float(кирка.condition_cap)
-        работа = await craft.repair(session, constants, catalog, тело, кирка)
-        срок = работа.ready_at
+        reloaded = await session.get(Body, body_id)
+        pickaxe = await session.get(Item, item_id)
+        first_ceiling = float(pickaxe.condition_cap)
+        work = await craft.repair(session, constants, catalog, reloaded, pickaxe)
+        term = work.ready_at
 
-    await jobs.run_one(factory, now=срок)
+    await jobs.run_one(factory, now=term)
 
     async with factory() as session:
-        кирка = await session.get(Item, item_id)
-        assert float(кирка.condition_cap) == pytest.approx(
-            первый_потолок + constants[R.QUALITY_REPAIR_CEILING_LOSS]
+        pickaxe = await session.get(Item, item_id)
+        assert float(pickaxe.condition_cap) == pytest.approx(
+            first_ceiling + constants[R.QUALITY_REPAIR_CEILING_LOSS]
         )
-        assert float(кирка.condition_cap) < первый_потолок
+        assert float(pickaxe.condition_cap) < first_ceiling

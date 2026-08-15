@@ -1,19 +1,19 @@
-"""Глашатай: хроника мира наружу, в Discord.
+"""The herald: the world chronicle out to Discord.
 
-Мост односторонний, и это не упущение. API действий не существует
-(60-meta/01-anti-cheat), поэтому Discord умеет ровно одно — узнавать. Ни одной
-команды внутрь отсюда не появится: игрок действует только присутственно и
-только через сессию клиента.
+The bridge is one-way, and that is not an omission. There is no action API
+(60-meta/01-anti-cheat), so Discord can do exactly one thing -- learn. Not a
+single inbound command will appear from here: the player acts only in person
+and only through the client session.
 
-Что уходит наружу и почему именно это — `chronicle.py`; как уходит —
-`webhook.py`; когда — `job.py`. Настройка одна: `OCTOVERSE_DISCORD_WEBHOOK`.
-Порядок включения описан в `community/discord-bridge.md`.
+What goes out and why exactly that -- `chronicle.py`; how it goes -- `webhook.py`;
+when -- `job.py`. One setting: `OCTOVERSE_DISCORD_WEBHOOK`. The enabling
+procedure is described in `community/discord-bridge.md`.
 """
 
 from __future__ import annotations
 
-#: Импорт задания — он же регистрация его обработчика: `require_handlers()`
-#: обязан находить глашатая при старте, а не в тике посреди ночи.
+#: Importing the job also registers its handler: `require_handlers()` must
+#: find the herald at startup, not in a tick in the middle of the night.
 from src.herald import chronicle, webhook
 from src.herald.job import ensure_scheduled, post, run_once
 

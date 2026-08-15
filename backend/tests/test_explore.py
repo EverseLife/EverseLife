@@ -1,12 +1,12 @@
-"""Разведка: карта прирастает ногами (D-152).
+"""Exploration: the map grows on foot (D-152).
 
-Проверяется то, ради чего разведка введена именно такой:
+Checked is what exploration was introduced this way for:
 
-* заход стоит выносливости и времени, а без сил не начинается вовсе;
-* находка — узел, связанный ребром с тем, откуда вышли: телепорта нет;
-* порода жилы берётся из вольта (`gives` операции «Добыча»), а не из списка
-  в коде — заведут пятую породу, она начнёт находиться сама;
-* найденное **ничьё**: нашедший получает право первой ночи, а не собственность.
+* a run costs stamina and time, and does not start at all without strength;
+* a find is a node connected by an edge to where you left from: no teleport;
+* the vein's species comes from the vault (`gives` of the "Mining" operation),
+  not from a list in code -- add a fifth species and it starts being found by itself;
+* what is found is **nobody's**: the finder gets the right of first night, not ownership.
 """
 
 from __future__ import annotations
@@ -26,57 +26,57 @@ from src.models.job import Job, JobKind, JobState
 from src.models.world import Edge, Layer, Node, Vein
 from src.units import MINUTES_PER_HOUR, SECONDS_PER_HOUR
 
-#: Секунд в минуте — столько же, сколько минут в часе.
+#: Seconds in a minute -- as many as minutes in an hour.
 SECONDS_PER_MINUTE = MINUTES_PER_HOUR
 
 
-async def _разведчик(session: AsyncSession):
-    метка = uuid.uuid4().hex[:8]
-    планета = await world.create_node(
-        session, f"terra.{метка}", "Терра", area_m2=1, layer=Layer.SPACE
+async def _scout(session: AsyncSession):
+    stamp = uuid.uuid4().hex[:8]
+    planet = await world.create_node(
+        session, f"terra.{stamp}", "Терра", area_m2=1, layer=Layer.SPACE
     )
-    ворота = await world.create_node(
-        session, f"terra.gate.{метка}", "Выход", area_m2=80,
-        layer=Layer.PLANET, parent=планета,
+    gate = await world.create_node(
+        session, f"terra.gate.{stamp}", "Выход", area_m2=80,
+        layer=Layer.PLANET, parent=planet,
     )
-    identity = await world.create_identity(session, f"Разведчик-{метка}")
-    body = await world.print_body(session, identity, ворота)
-    return планета, ворота, body
+    identity = await world.create_identity(session, f"Разведчик-{stamp}")
+    body = await world.print_body(session, identity, gate)
+    return planet, gate, body
 
 
-async def _горожанин(session: AsyncSession, catalog):
-    """Тело в городе: участок ищут изнутри города, а не с дороги (D-089)."""
+async def _townsman(session: AsyncSession, catalog):
+    """The body is in the city: a plot is sought from inside the city, not from the road (D-089)."""
     from src.engine import city as town
 
-    метка = uuid.uuid4().hex[:8]
-    планета = await world.create_node(
-        session, f"terra.{метка}", "Терра", area_m2=1, layer=Layer.SPACE
+    stamp = uuid.uuid4().hex[:8]
+    planet = await world.create_node(
+        session, f"terra.{stamp}", "Терра", area_m2=1, layer=Layer.SPACE
     )
-    представитель = await world.create_node(
-        session, f"terra.city.{метка}", "Столица", area_m2=1,
-        layer=Layer.PLANET, parent=планета,
+    delegate = await world.create_node(
+        session, f"terra.city.{stamp}", "Столица", area_m2=1,
+        layer=Layer.PLANET, parent=planet,
     )
-    ядро = await world.create_node(
-        session, f"terra.city.{метка}.core", "Ядро", area_m2=100,
-        parent=представитель, properties={"кольцо": 0},
+    core = await world.create_node(
+        session, f"terra.city.{stamp}.core", "Ядро", area_m2=100,
+        parent=delegate, properties={"кольцо": 0},
     )
-    город = await town.found(session, catalog, представитель, "Столица")
-    ядро.owner_city_id = город.id
+    city = await town.found(session, catalog, delegate, "Столица")
+    core.owner_city_id = city.id
     await session.flush()
-    identity = await world.create_identity(session, f"Горожанин-{метка}")
-    body = await world.print_body(session, identity, ядро)
-    return город, ядро, body
+    identity = await world.create_identity(session, f"Горожанин-{stamp}")
+    body = await world.print_body(session, identity, core)
+    return city, core, body
 
 
-async def _исходить(session: AsyncSession, узел: Node, *, находок: int) -> None:
-    """Проставить узлу счёт находок: столько раз отсюда уже уходили не зря."""
-    узел.properties = {**(узел.properties or {}), explore.FOUND_HERE: находок}
+async def _walk_over(session: AsyncSession, node: Node, *, finds: int) -> None:
+    """Set the node's find count: this many times people already left from here not in vain."""
+    node.properties = {**(node.properties or {}), explore.FOUND_HERE: finds}
     await session.flush()
 
 
-async def _вернуть(session: AsyncSession, body) -> None:
-    """Прокрутить заход до конца — так же, как это сделал бы воркер."""
-    задание = (
+async def _return(session: AsyncSession, body) -> None:
+    """Run the run to the end -- the same way the worker would."""
+    job = (
         await session.execute(
             select(Job).where(
                 Job.kind == JobKind.EXPLORE_SURVEY.value,
@@ -85,500 +85,501 @@ async def _вернуть(session: AsyncSession, body) -> None:
             )
         )
     ).scalars().first()
-    assert задание is not None
-    await explore.returned(session, задание)
-    задание.state = JobState.DONE
+    assert job is not None
+    await explore.returned(session, job)
+    job.state = JobState.DONE
     await session.flush()
 
 
-async def test_заход_стоит_выносливости(
+async def test_run_costs_stamina(
     session: AsyncSession, constants: Constants
 ) -> None:
-    """Платят по времени в поле: короткий заход дёшев, но не бесплатен (D-156)."""
-    _, _, body = await _разведчик(session)
-    было = float(body.stamina)
+    """Paid by time in the field: a short run is cheap but not free (D-156)."""
+    _, _, body = await _scout(session)
+    before = float(body.stamina)
     await explore.survey(session, constants, body)
-    списано = было - float(body.stamina)
-    assert списано > 0, "разведка — работа, а не прогулка"
-    assert списано < constants[R.EXPLORE_ATTEMPT_STAMINA], (
+    written_off = before - float(body.stamina)
+    assert written_off > 0, "разведка — работа, а не прогулка"
+    assert written_off < constants[R.EXPLORE_ATTEMPT_STAMINA], (
         "минутный заход не может стоить как заход полной длины"
     )
 
 
-async def test_нехватка_сил_удлиняет_заход_а_не_запирает(
+async def test_lack_of_strength_lengthens_run_not_blocks(
     session: AsyncSession, constants: Constants
 ) -> None:
-    """Чего не хватило — разведчик досыпает в поле и продолжает.
+    """What was missing the scout sleeps off in the field and continues.
 
-    Заход по исхоженной окрестности идёт часами и стоит соответственно; тело с
-    одной единицей уходит всё равно, но возвращается позже — на время сна по
-    `body.hibernation_rate` — и с нулём выносливости.
+    A run in trodden surroundings takes hours and costs accordingly; a body
+    with one unit leaves anyway but returns later -- by the sleep time per
+    `body.hibernation_rate` -- and with zero stamina.
     """
-    _, ворота, body = await _разведчик(session)
-    await _исходить(session, ворота, находок=10)
+    _, gate, body = await _scout(session)
+    await _walk_over(session, gate, finds=10)
     body.stamina = Decimal("1")
     await session.flush()
 
-    начало = datetime.now(UTC)
-    заход = await explore.survey(session, constants, body, now=начало)
+    start = datetime.now(UTC)
+    run = await explore.survey(session, constants, body, now=start)
     assert float(body.stamina) == 0, "всё, что было, ушло в поле"
 
-    #: Дольше потолка обычного захода: добавилось время сна.
-    потолок = constants[R.EXPLORE_ATTEMPT_HOURS] * MINUTES_PER_HOUR
-    шло = (заход.run_at - начало).total_seconds() / SECONDS_PER_MINUTE
-    assert шло > потолок, "дефицит сил досыпается в поле, и заход длиннее"
+    #: Longer than an ordinary run's ceiling: sleep time was added.
+    ceiling = constants[R.EXPLORE_ATTEMPT_HOURS] * MINUTES_PER_HOUR
+    was_going = (run.run_at - start).total_seconds() / SECONDS_PER_MINUTE
+    assert was_going > ceiling, "дефицит сил досыпается в поле, и заход длиннее"
 
 
-async def test_разведчик_недоступен_как_спящий(
+async def test_scout_unavailable_like_sleeper(
     session: AsyncSession, constants: Constants
 ) -> None:
-    """Разведка — состояние тела: пока заход идёт, присутственное закрыто."""
+    """Exploration is a body state: while the run goes, in-person is closed."""
     from src.engine import travel
 
-    _, _, body = await _разведчик(session)
+    _, _, body = await _scout(session)
     await explore.survey(session, constants, body)
     with pytest.raises(travel.InField):
         await travel.require_here(session, body)
 
 
-async def test_разведчик_никуда_не_уходит_ногами(
+async def test_scout_does_not_walk_away(
     session: AsyncSession, constants: Constants
 ) -> None:
-    """Тело в поле — идти ему неоткуда: его нет в узле (D-152).
+    """The body is in the field -- it has nowhere to walk from: it is not in the node (D-152).
 
-    Выход в дорогу проверяется той же дверью, что и всякое присутственное
-    действие: держать для него отдельный список условий значит однажды забыть
-    в нём строку — ровно так разведчик и уходил гулять по карте.
+    Setting out is checked by the same door as every in-person action: keeping
+    a separate list of conditions for it means forgetting a line in it one day
+    -- exactly how the scout went wandering across the map.
     """
     from src.engine import travel
 
-    планета, ворота, body = await _разведчик(session)
-    соседний = await world.create_node(
+    planet, gate, body = await _scout(session)
+    adjacent = await world.create_node(
         session, f"terra.next.{uuid.uuid4().hex[:8]}", "Соседний", area_m2=100,
-        layer=Layer.PLANET, parent=планета,
+        layer=Layer.PLANET, parent=planet,
     )
-    await travel.connect(session, ворота, соседний, base_seconds=30)
+    await travel.connect(session, gate, adjacent, base_seconds=30)
 
     await explore.survey(session, constants, body)
     with pytest.raises(travel.InField):
-        await travel.depart(session, constants, body, соседний)
-    assert body.node_id == ворота.id, "тело сдвинулось, оставаясь в разведке"
+        await travel.depart(session, constants, body, adjacent)
+    assert body.node_id == gate.id, "тело сдвинулось, оставаясь в разведке"
 
-    #: Отменил заход — и дорога снова открыта.
+    #: Cancelled the run -- and the road is open again.
     await explore.cancel(session, body)
-    await travel.depart(session, constants, body, соседний)
+    await travel.depart(session, constants, body, adjacent)
 
 
-async def test_отмена_возвращает_разведчика_сразу(
+async def test_cancel_returns_scout_immediately(
     session: AsyncSession, constants: Constants
 ) -> None:
-    """Повернуть назад можно: заход снят, тело свободно, находки не будет."""
+    """Turning back is allowed: the run is cancelled, the body free, no find will come."""
     from src.engine import travel
 
-    _, _, body = await _разведчик(session)
-    заход = await explore.survey(session, constants, body)
+    _, _, body = await _scout(session)
+    run = await explore.survey(session, constants, body)
     await explore.cancel(session, body)
 
-    await session.refresh(заход)
-    assert заход.state is JobState.CANCELLED
-    #: Тело снова в узле выхода и свободно для присутственного.
+    await session.refresh(run)
+    assert run.state is JobState.CANCELLED
+    #: The body is in the exit node again and free for in-person actions.
     await travel.require_here(session, body)
-    #: Возвращаться повторно неоткуда.
+    #: Nowhere to return from a second time.
     with pytest.raises(explore.NotOut):
         await explore.cancel(session, body)
 
 
-async def test_второй_заход_одним_телом_не_идёт(
+async def test_second_run_with_same_body_does_not_go(
     session: AsyncSession, constants: Constants
 ) -> None:
     from src.engine import travel
 
-    _, _, body = await _разведчик(session)
+    _, _, body = await _scout(session)
     await explore.survey(session, constants, body)
     with pytest.raises(travel.InField):
         await explore.survey(session, constants, body)
 
 
-async def test_находка_встаёт_на_карту_ребром(
+async def test_find_lands_on_map_as_edge(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Найденный узел связан дорогой: по прямой в этом мире не ходят.
+    """The found node is connected by a road: nobody walks in a straight line in this world.
 
-    Заход разыгрывается броском, поэтому проверяется не «нашёл всегда», а
-    «если нашёл — нашёл правильно». Пустой заход — такая же норма.
+    A run is rolled, so what is checked is not "always found" but "if found --
+    found correctly". An empty run is just as normal.
     """
-    _, ворота, body = await _разведчик(session)
-    было = len((await session.execute(select(Node))).scalars().all())
+    _, gate, body = await _scout(session)
+    before = len((await session.execute(select(Node))).scalars().all())
 
-    #: Несколько заходов подряд: с `explore.find_chance` меньше ста один заход
-    #: может не дать ничего, и это не повод считать механику сломанной.
+    #: Several runs in a row: with `explore.find_chance` below a hundred one
+    #: run may give nothing, and that is no reason to consider the mechanic broken.
     for _ in range(12):
         body.stamina = Decimal(str(constants[R.BODY_STAMINA_MAX]))
         await session.flush()
         await explore.survey(session, constants, body, goal=explore.SITE)
-        await _вернуть(session, body)
+        await _return(session, body)
 
-    узлы = (await session.execute(select(Node))).scalars().all()
-    assert len(узлы) > было, "двенадцать заходов подряд не дали ничего"
+    nodes = (await session.execute(select(Node))).scalars().all()
+    assert len(nodes) > before, "двенадцать заходов подряд не дали ничего"
 
-    находки = [узел for узел in узлы if узел.key.startswith("terra.wild.")]
-    for находка in находки:
-        assert находка.layer is Layer.PLANET
-        assert находка.owner_identity_id is None, "найденное ничьё"
-        рёбра = (
+    finds_ = [node for node in nodes if node.key.startswith("terra.wild.")]
+    for find in finds_:
+        assert find.layer is Layer.PLANET
+        assert find.owner_identity_id is None, "найденное ничьё"
+        edges = (
             await session.execute(
                 select(Edge).where(
-                    (Edge.node_a_id == находка.id) | (Edge.node_b_id == находка.id)
+                    (Edge.node_a_id == find.id) | (Edge.node_b_id == find.id)
                 )
             )
         ).scalars().all()
-        assert рёбра, "находка без дороги — это телепорт"
+        assert edges, "находка без дороги — это телепорт"
 
 
-async def test_даль_растёт_и_дорога_дорожает(
+async def test_distance_grows_and_road_gets_pricier(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Фронтир удаляется сам: находка от узла дали `d` встаёт на `d + 1`, и
-    дорога к ней ровно во столько раз длиннее, во сколько велит вольт (D-180).
+    """The frontier recedes by itself: a find from a node of distance `d` lands at
+    `d + 1`, and the road to it is exactly as many times longer as the vault orders (D-180).
     """
     from src.engine import travel
 
-    _, ворота, body = await _разведчик(session)
-    #: Между заходами возвращаемся к воротам: удачный уводит на находку
-    #: (D-185), а здесь проверяется первое кольцо от одного и того же узла.
+    _, gate, body = await _scout(session)
+    #: Between runs we return to the gate: a successful one leads to the find
+    #: (D-185), and here the first ring from one and the same node is checked.
     for _ in range(12):
         body.stamina = Decimal(str(constants[R.BODY_STAMINA_MAX]))
-        body.node_id = ворота.id
+        body.node_id = gate.id
         await session.flush()
         await explore.survey(session, constants, body, goal=explore.SITE)
-        await _вернуть(session, body)
+        await _return(session, body)
 
-    находки = [
-        узел
-        for узел in (await session.execute(select(Node))).scalars().all()
-        if узел.key.startswith("terra.wild.")
+    finds_ = [
+        node
+        for node in (await session.execute(select(Node))).scalars().all()
+        if node.key.startswith("terra.wild.")
     ]
-    assert находки, "двенадцать заходов подряд не дали ничего"
+    assert finds_, "двенадцать заходов подряд не дали ничего"
 
-    #: Ворота города — даль 0, значит всё найденное отсюда встаёт на дали 1.
-    for находка in находки:
-        assert travel.reach_of(находка) == travel.reach_of(ворота) + 1
-        ребро = (
+    #: The city gate is distance 0, so everything found from here lands at distance 1.
+    for find in finds_:
+        assert travel.reach_of(find) == travel.reach_of(gate) + 1
+        edge = (
             await session.execute(
                 select(Edge).where(
-                    (Edge.node_a_id == находка.id) | (Edge.node_b_id == находка.id)
+                    (Edge.node_a_id == find.id) | (Edge.node_b_id == find.id)
                 )
             )
         ).scalars().first()
-        ожидаем = travel.frontier_seconds(constants, travel.reach_of(находка))
-        assert ребро.base_seconds == pytest.approx(ожидаем, rel=0.01)
+        we_expect = travel.frontier_seconds(constants, travel.reach_of(find))
+        assert edge.base_seconds == pytest.approx(we_expect, rel=0.01)
 
-    #: Следующее кольцо дороже предыдущего — в этом весь смысл дали.
-    шаги = [travel.frontier_seconds(constants, d) for d in (1, 2, 3, 4)]
-    assert шаги == sorted(шаги) and шаги[0] < шаги[-1]
-    рост = constants[R.TRAVEL_FRONTIER_GROWTH]
-    assert шаги[1] == pytest.approx(шаги[0] * рост)
+    #: The next ring is pricier than the previous -- that is the whole point of distance.
+    steps = [travel.frontier_seconds(constants, d) for d in (1, 2, 3, 4)]
+    assert steps == sorted(steps) and steps[0] < steps[-1]
+    growth = constants[R.TRAVEL_FRONTIER_GROWTH]
+    assert steps[1] == pytest.approx(steps[0] * growth)
 
 
-async def test_разведчик_остаётся_на_находке(
+async def test_scout_stays_at_find(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Нашёл — значит стоишь там, и следующий заход идёт уже оттуда (D-185).
+    """Found means you stand there, and the next run goes from there (D-185).
 
-    Отсюда цепочка: даль растёт шаг за шагом, а не звездой из одной точки.
+    Hence a chain: distance grows step by step, not as a star from one point.
     """
     from src.engine import travel
 
-    _, ворота, body = await _разведчик(session)
-    дали: list[int] = []
+    _, gate, body = await _scout(session)
+    given: list[int] = []
     for _ in range(14):
         body.stamina = Decimal(str(constants[R.BODY_STAMINA_MAX]))
         await session.flush()
-        стояли = body.node_id
+        were_standing = body.node_id
         await explore.survey(session, constants, body, goal=explore.SITE)
-        await _вернуть(session, body)
-        if body.node_id != стояли:
-            узел = await session.get(Node, body.node_id)
-            assert узел.key.startswith("terra.wild."), "ушли не на находку"
-            дали.append(travel.reach_of(узел))
+        await _return(session, body)
+        if body.node_id != were_standing:
+            node = await session.get(Node, body.node_id)
+            assert node.key.startswith("terra.wild."), "ушли не на находку"
+            given.append(travel.reach_of(node))
 
-    assert дали, "четырнадцать заходов подряд не дали ни одной находки"
-    #: Каждая следующая находка дальше предыдущей: фронтир двигают ногами.
-    assert дали == sorted(дали)
-    assert дали[0] == travel.reach_of(ворота) + 1
+    assert given, "четырнадцать заходов подряд не дали ни одной находки"
+    #: Each next find is farther than the previous: the frontier is pushed on foot.
+    assert given == sorted(given)
+    assert given[0] == travel.reach_of(gate) + 1
 
 
-async def test_пустой_заход_оставляет_на_месте(
+async def test_empty_run_leaves_in_place(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Идти было некуда: узел не появился, и разведчик там же, где вышел."""
-    _, ворота, body = await _разведчик(session)
-    #: Исхоженная окрестность отдаёт находку редко — тут это и нужно.
-    await _исходить(session, ворота, находок=200)
+    """There was nowhere to go: the node did not appear, and the scout is where they left."""
+    _, gate, body = await _scout(session)
+    #: Trodden surroundings give a find rarely -- here that is what is needed.
+    await _walk_over(session, gate, finds=200)
 
     for _ in range(6):
         body.stamina = Decimal(str(constants[R.BODY_STAMINA_MAX]))
-        body.node_id = ворота.id
+        body.node_id = gate.id
         await session.flush()
-        было = len((await session.execute(select(Node))).scalars().all())
+        before = len((await session.execute(select(Node))).scalars().all())
         await explore.survey(session, constants, body, goal=explore.SITE)
-        await _вернуть(session, body)
-        стало = len((await session.execute(select(Node))).scalars().all())
-        if стало == было:
-            assert body.node_id == ворота.id, "пустой заход не двигает тело"
+        await _return(session, body)
+        after = len((await session.execute(select(Node))).scalars().all())
+        if after == before:
+            assert body.node_id == gate.id, "пустой заход не двигает тело"
 
 
-async def test_порода_берётся_из_вольта(
+async def test_species_taken_from_vault(
     constants: Constants, catalog: Catalog
 ) -> None:
-    """Списка «какие бывают руды» в движке нет: он читает операцию «Добыча»."""
+    """There is no "which ores exist" list in the engine: it reads the "Mining" operation."""
     import random
 
-    добыча = next(
+    yield_ = next(
         op for op in catalog.recipes.operations if op.name == explore.MINING_OPERATION
     )
-    выпало = {
-        explore._resource(constants, catalog, random.Random(зерно))
-        for зерно in range(200)
+    rolled = {
+        explore._resource(constants, catalog, random.Random(grain))
+        for grain in range(200)
     }
-    assert выпало, "порода не выбирается вовсе"
-    assert выпало <= set(добыча.gives)
-    #: Железо добывается быстрее прочего, значит и попадается чаще: вес — это
-    #: темп из `harvest.rates`, второй таблицы редкости нет.
-    assert "Железная руда" in выпало
+    assert rolled, "порода не выбирается вовсе"
+    assert rolled <= set(yield_.gives)
+    #: Iron is mined faster than the rest, so it also turns up more often: the
+    #: weight is the pace from `harvest.rates`, there is no second rarity table.
+    assert "Железная руда" in rolled
 
 
-async def test_у_жилы_есть_запас_и_богатство(
+async def test_vein_has_stock_and_richness(
     session: AsyncSession, constants: Constants
 ) -> None:
-    """Жилы конечны — это неотменяемо (столп П2)."""
-    _, _, body = await _разведчик(session)
+    """Veins are finite -- that is irrevocable (pillar P2)."""
+    _, _, body = await _scout(session)
     for _ in range(12):
         body.stamina = Decimal(str(constants[R.BODY_STAMINA_MAX]))
         await session.flush()
         await explore.survey(session, constants, body, goal=explore.VEIN)
-        await _вернуть(session, body)
+        await _return(session, body)
 
-    жилы = (await session.execute(select(Vein))).scalars().all()
-    assert жилы, "двенадцать заходов за жилой не дали ни одной"
-    богатство = constants[R.EXPLORE_VEIN_RICHNESS]
-    for жила in жилы:
-        assert жила.remaining > 0
-        assert богатство.min <= float(жила.richness) <= богатство.max
-
-
-# --- цена захода растёт с истощением места (D-156) --------------------------
+    veins = (await session.execute(select(Vein))).scalars().all()
+    assert veins, "двенадцать заходов за жилой не дали ни одной"
+    richness = constants[R.EXPLORE_VEIN_RICHNESS]
+    for vein in veins:
+        assert vein.remaining > 0
+        assert richness.min <= float(vein.richness) <= richness.max
 
 
-async def test_первый_заход_идёт_минуты(
+# --- the run's price grows with place depletion (D-156) ----------------------
+
+
+async def test_first_run_takes_minutes(
     session: AsyncSession, constants: Constants
 ) -> None:
-    """Нехоженая окрестность отдаёт находку сразу.
+    """Untrodden surroundings give a find at once.
 
-    Первая локация обязана находиться за минуты: механика, ради которой карта
-    прирастает ногами, не может открываться через шесть часов ожидания.
+    The first location must be found in minutes: the mechanic by which the map
+    grows on foot cannot open after six hours of waiting.
     """
-    планета, ворота, body = await _разведчик(session)
-    ушёл = datetime.now(UTC)
-    задание = await explore.survey(session, constants, body, now=ушёл)
+    planet, gate, body = await _scout(session)
+    gone = datetime.now(UTC)
+    job = await explore.survey(session, constants, body, now=gone)
 
-    заход = constants[R.EXPLORE_ATTEMPT_MINUTES]
-    минут = (задание.run_at - ушёл).total_seconds() / SECONDS_PER_MINUTE
-    assert заход.min <= минут <= заход.max
+    run = constants[R.EXPLORE_ATTEMPT_MINUTES]
+    minutes = (job.run_at - gone).total_seconds() / SECONDS_PER_MINUTE
+    assert run.min <= minutes <= run.max
 
 
-async def test_каждая_находка_удорожает_следующий_заход(
+async def test_each_find_raises_next_run_price(
     session: AsyncSession, constants: Constants
 ) -> None:
-    """Чем больше узлов открыто отсюда, тем дороже и реже следующий."""
-    _, ворота, body = await _разведчик(session)
-    ушёл = datetime.now(UTC)
-    свежий = await explore.survey(session, constants, body, now=ушёл)
-    свежих_минут = (свежий.run_at - ушёл).total_seconds() / SECONDS_PER_MINUTE
-    свежий_шанс = explore.chance(constants, ворота)
-    свежая_цена = float(свежий.payload["chance"])
-    assert свежая_цена == pytest.approx(свежий_шанс)
+    """The more nodes are opened from here, the pricier and rarer the next."""
+    _, gate, body = await _scout(session)
+    gone = datetime.now(UTC)
+    fresh = await explore.survey(session, constants, body, now=gone)
+    fresh_minutes = (fresh.run_at - gone).total_seconds() / SECONDS_PER_MINUTE
+    fresh_chance = explore.chance(constants, gate)
+    fresh_price = float(fresh.payload["chance"])
+    assert fresh_price == pytest.approx(fresh_chance)
 
-    await _исходить(session, ворота, находок=4)
-    свежий.state = JobState.DONE
+    await _walk_over(session, gate, finds=4)
+    fresh.state = JobState.DONE
     await session.flush()
     body.stamina = Decimal(str(constants[R.BODY_STAMINA_MAX]))
-    исхоженный = await explore.survey(session, constants, body, now=ушёл)
-    исхоженных_минут = (исхоженный.run_at - ушёл).total_seconds() / SECONDS_PER_MINUTE
+    explored = await explore.survey(session, constants, body, now=gone)
+    explored_minutes = (explored.run_at - gone).total_seconds() / SECONDS_PER_MINUTE
 
-    assert исхоженных_минут > свежих_минут, "исхоженное место обязано стоить дороже"
-    assert explore.chance(constants, ворота) < свежий_шанс, "и находиться реже"
+    assert explored_minutes > fresh_minutes, "исхоженное место обязано стоить дороже"
+    assert explore.chance(constants, gate) < fresh_chance, "и находиться реже"
 
 
-async def test_длительность_упирается_в_потолок(
+async def test_duration_hits_ceiling(
     session: AsyncSession, constants: Constants
 ) -> None:
-    """Рост не бесконечен: сутки на заход — это не сложность, а стена."""
-    _, ворота, body = await _разведчик(session)
-    await _исходить(session, ворота, находок=20)
-    ушёл = datetime.now(UTC)
-    задание = await explore.survey(session, constants, body, now=ушёл)
-    часов = (задание.run_at - ушёл).total_seconds() / SECONDS_PER_HOUR
-    assert часов == pytest.approx(constants[R.EXPLORE_ATTEMPT_HOURS])
+    """Growth is not endless: a day per run is not difficulty but a wall."""
+    _, gate, body = await _scout(session)
+    await _walk_over(session, gate, finds=20)
+    gone = datetime.now(UTC)
+    job = await explore.survey(session, constants, body, now=gone)
+    hours = (job.run_at - gone).total_seconds() / SECONDS_PER_HOUR
+    assert hours == pytest.approx(constants[R.EXPLORE_ATTEMPT_HOURS])
     assert float(body.stamina) == pytest.approx(
         constants[R.BODY_STAMINA_MAX] - constants[R.EXPLORE_ATTEMPT_STAMINA]
     ), "заход полной длины стоит полную цену"
 
 
-async def test_шанс_не_падает_ниже_пола(
+async def test_chance_does_not_fall_below_floor(
     session: AsyncSession, constants: Constants
 ) -> None:
-    """Исхоженная окрестность беднеет, но не запирается насовсем."""
-    _, ворота, _ = await _разведчик(session)
-    await _исходить(session, ворота, находок=200)
-    assert explore.chance(constants, ворота) == pytest.approx(
+    """Trodden surroundings grow poorer but are not locked for good."""
+    _, gate, _ = await _scout(session)
+    await _walk_over(session, gate, finds=200)
+    assert explore.chance(constants, gate) == pytest.approx(
         constants[R.EXPLORE_FIND_FLOOR]
     )
 
 
-async def test_находка_истощает_место_а_пустой_заход_нет(
+async def test_find_depletes_place_but_empty_run_does_not(
     session: AsyncSession, constants: Constants
 ) -> None:
-    """Счёт растёт от удач: невезение не наказывает дважды.
+    """The count grows from successes: bad luck does not punish twice.
 
-    Удачный заход уводит разведчика на находку (D-185), поэтому между
-    заходами тело возвращается к воротам — иначе истощался бы уже новый узел,
-    а проверяем мы именно счёт исходного места.
+    A successful run leads the scout to the find (D-185), so between runs the
+    body returns to the gate -- otherwise the new node would already be
+    depleting, while we check exactly the count of the original place.
     """
-    _, ворота, body = await _разведчик(session)
-    было = explore.found_here(ворота)
-    находок = 0
+    _, gate, body = await _scout(session)
+    before = explore.found_here(gate)
+    finds = 0
     for _ in range(6):
         body.stamina = Decimal(str(constants[R.BODY_STAMINA_MAX]))
-        body.node_id = ворота.id
+        body.node_id = gate.id
         await session.flush()
         await explore.survey(session, constants, body)
-        узлов = len((await session.execute(select(Node))).scalars().all())
-        await _вернуть(session, body)
-        if len((await session.execute(select(Node))).scalars().all()) > узлов:
-            находок += 1
-    assert находок, "шесть заходов по нехоженому месту не дали ничего"
-    assert explore.found_here(ворота) == было + находок
+        node_count = len((await session.execute(select(Node))).scalars().all())
+        await _return(session, body)
+        if len((await session.execute(select(Node))).scalars().all()) > node_count:
+            finds += 1
+    assert finds, "шесть заходов по нехоженому месту не дали ничего"
+    assert explore.found_here(gate) == before + finds
 
 
-async def test_свежая_находка_разведывается_снова_дёшево(
+async def test_fresh_find_explored_again_cheaply(
     session: AsyncSession, constants: Constants
 ) -> None:
-    """Граница двигается: карта растёт вширь, а не звездой из точки рождения."""
-    _, ворота, body = await _разведчик(session)
-    await _исходить(session, ворота, находок=6)
+    """The border moves: the map grows in breadth, not as a star from the birthplace."""
+    _, gate, body = await _scout(session)
+    await _walk_over(session, gate, finds=6)
     body.stamina = Decimal(str(constants[R.BODY_STAMINA_MAX]))
     await explore.survey(session, constants, body)
-    await _вернуть(session, body)
+    await _return(session, body)
 
-    находки = [
-        узел
-        for узел in (await session.execute(select(Node))).scalars().all()
-        if узел.key.startswith("terra.wild.")
+    finds_ = [
+        node
+        for node in (await session.execute(select(Node))).scalars().all()
+        if node.key.startswith("terra.wild.")
     ]
-    if not находки:
+    if not finds_:
         pytest.skip("заход по исхоженному месту не дал находки — это норма")
-    новый = находки[0]
-    assert explore.chance(constants, новый) > explore.chance(constants, ворота)
-    assert explore.found_here(новый) == 0
+    new = finds_[0]
+    assert explore.chance(constants, new) > explore.chance(constants, gate)
+    assert explore.found_here(new) == 0
 
 
-async def test_прогноз_показывает_цену_до_выхода(
+async def test_forecast_shows_price_before_leaving(
     session: AsyncSession, constants: Constants
 ) -> None:
-    """Цена, которую нельзя увидеть заранее, читается как случайность движка."""
-    _, ворота, body = await _разведчик(session)
-    свежий = await explore.outlook(session, constants, body)
-    assert свежий is not None
-    заход = constants[R.EXPLORE_ATTEMPT_MINUTES]
-    assert свежий["minutes"] == {"min": заход.min, "max": заход.max}
-    assert свежий["chance"] == pytest.approx(constants[R.EXPLORE_FIND_CHANCE])
-    assert 0 < свежий["stamina"] < constants[R.EXPLORE_ATTEMPT_STAMINA]
+    """A price that cannot be seen in advance reads as engine randomness."""
+    _, gate, body = await _scout(session)
+    fresh = await explore.outlook(session, constants, body)
+    assert fresh is not None
+    run = constants[R.EXPLORE_ATTEMPT_MINUTES]
+    assert fresh["minutes"] == {"min": run.min, "max": run.max}
+    assert fresh["chance"] == pytest.approx(constants[R.EXPLORE_FIND_CHANCE])
+    assert 0 < fresh["stamina"] < constants[R.EXPLORE_ATTEMPT_STAMINA]
 
-    await _исходить(session, ворота, находок=4)
-    исхоженный = await explore.outlook(session, constants, body)
-    assert исхоженный is not None
-    assert исхоженный["explored"] == 4
-    assert исхоженный["minutes"]["max"] > свежий["minutes"]["max"]
-    assert исхоженный["chance"] < свежий["chance"]
-    assert исхоженный["stamina"] > свежий["stamina"]
-
-
-# --- цели поиска (D-152) ----------------------------------------------------
+    await _walk_over(session, gate, finds=4)
+    explored = await explore.outlook(session, constants, body)
+    assert explored is not None
+    assert explored["explored"] == 4
+    assert explored["minutes"]["max"] > fresh["minutes"]["max"]
+    assert explored["chance"] < fresh["chance"]
+    assert explored["stamina"] > fresh["stamina"]
 
 
-async def test_участок_ищут_в_городе_и_он_городской(
+# --- search goals (D-152) ----------------------------------------------------
+
+
+async def test_plot_sought_in_city_and_is_civic(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Городскую землю не занимают — её раздаёт власть (D-089)."""
-    город, ядро, body = await _горожанин(session, catalog)
+    """Civic land is not taken -- the authority hands it out (D-089)."""
+    city, core, body = await _townsman(session, catalog)
     for _ in range(12):
         body.stamina = Decimal(str(constants[R.BODY_STAMINA_MAX]))
         await session.flush()
         await explore.survey(session, constants, body, goal=explore.LOT)
-        await _вернуть(session, body)
+        await _return(session, body)
 
-    участки = [
-        узел
-        for узел in (await session.execute(select(Node))).scalars().all()
-        if узел.properties.get("участок")
+    plots = [
+        node
+        for node in (await session.execute(select(Node))).scalars().all()
+        if node.properties.get("участок")
     ]
-    assert участки, "двенадцать заходов в городе не дали ни одного участка"
-    for участок in участки:
-        assert участок.layer is Layer.CITY, "участок стоит в городе, а не в поле"
-        assert участок.owner_city_id == город.id, "земля в кольцах — городская"
-        assert участок.owner_identity_id is None, "раздаёт её власть, а не находка"
+    assert plots, "двенадцать заходов в городе не дали ни одного участка"
+    for plot in plots:
+        assert plot.layer is Layer.CITY, "участок стоит в городе, а не в поле"
+        assert plot.owner_city_id == city.id, "земля в кольцах — городская"
+        assert plot.owner_identity_id is None, "раздаёт её власть, а не находка"
 
 
-async def test_за_стенами_участок_не_ищут(
+async def test_plot_not_sought_outside_walls(
     session: AsyncSession, constants: Constants
 ) -> None:
-    """За стенами городской застройки нет: искать там нечего.
+    """There is no city built-up area beyond the walls: nothing to seek there.
 
-    Отказ приходит **до** выхода: тратить три часа и выносливость на заведомо
-    невозможную цель игрок не должен.
+    The refusal comes **before** leaving: the player must not spend three
+    hours and stamina on a goal that is impossible in advance.
     """
-    _, _, body = await _разведчик(session)
-    было = float(body.stamina)
+    _, _, body = await _scout(session)
+    before = float(body.stamina)
     with pytest.raises(explore.ExploreError):
         await explore.survey(session, constants, body, goal=explore.LOT)
-    assert float(body.stamina) == было, "отказ не стоит выносливости"
+    assert float(body.stamina) == before, "отказ не стоит выносливости"
 
 
-async def test_названная_порода_находится_именно_она(
+async def test_named_species_is_exactly_what_is_found(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Ищут не «что-нибудь», а то, что нужно."""
-    _, _, body = await _разведчик(session)
+    """One seeks not "something" but what is needed."""
+    _, _, body = await _scout(session)
     for _ in range(20):
         body.stamina = Decimal(str(constants[R.BODY_STAMINA_MAX]))
         await session.flush()
         await explore.survey(
             session, constants, body, goal=explore.VEIN, resource="Медная руда"
         )
-        await _вернуть(session, body)
+        await _return(session, body)
 
-    жилы = (await session.execute(select(Vein))).scalars().all()
-    assert жилы, "двадцать заходов за медью не дали ни одной жилы"
-    assert {жила.resource for жила in жилы} == {"Медная руда"}
+    veins = (await session.execute(select(Vein))).scalars().all()
+    assert veins, "двадцать заходов за медью не дали ни одной жилы"
+    assert {vein.resource for vein in veins} == {"Медная руда"}
 
 
-async def test_редкое_ищется_хуже_частого(
+async def test_rare_found_worse_than_common(
     constants: Constants, catalog: Catalog
 ) -> None:
-    """Иначе все искали бы только самое дорогое, и разведка стала бы краном."""
-    железо = explore._aim(constants, catalog, explore.VEIN, "Железная руда")
-    олово = explore._aim(constants, catalog, explore.VEIN, "Оловянная руда")
-    вслепую = explore._aim(constants, catalog, explore.VEIN, None)
-    assert вслепую == 1.0
-    assert железо > олово, "редкая порода обязана искаться хуже частой"
-    assert 0 < олово <= 1
+    """Otherwise everyone would seek only the most expensive, and exploration would become a
+    faucet."""
+    iron_ = explore._aim(constants, catalog, explore.VEIN, "Железная руда")
+    tin = explore._aim(constants, catalog, explore.VEIN, "Оловянная руда")
+    blindly = explore._aim(constants, catalog, explore.VEIN, None)
+    assert blindly == 1.0
+    assert iron_ > tin, "редкая порода обязана искаться хуже частой"
+    assert 0 < tin <= 1
 
 
-async def test_несуществующую_породу_не_ищут(
+async def test_nonexistent_species_not_sought(
     session: AsyncSession, constants: Constants
 ) -> None:
-    _, _, body = await _разведчик(session)
+    _, _, body = await _scout(session)
     with pytest.raises(explore.ExploreError):
         await explore.survey(
             session, constants, body, goal=explore.VEIN, resource="Мифрил"

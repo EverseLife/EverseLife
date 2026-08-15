@@ -1,83 +1,84 @@
-"""Параметры исполнения — не параметры игры.
+"""Execution parameters -- not game parameters.
 
-Разница принципиальна. Сколько раз повторить упавшее задание и как долго спать
-на пустой очереди — свойства процесса: их правит тот, кто держит сервер, глядя
-на нагрузку. Балансное число правит гейм-дизайнер, глядя на телеметрию, и живёт
-в `data/constants.yaml` вольта (D-065).
+The difference is fundamental. How many times to retry a failed job and how
+long to sleep on an empty queue are process properties: whoever runs the
+server tunes them, looking at load. A balance number is tuned by the game
+designer, looking at telemetry, and lives in the vault's `data/constants.yaml` (D-065).
 
-Модуль вынесен из-под проверки на магические числа по той же причине, что и
-`units.py`: «сбалансировать» эти величины невозможно.
+The module is excluded from the magic-number check for the same reason as
+`units.py`: these quantities cannot be "balanced".
 """
 
 from __future__ import annotations
 
 from datetime import timedelta
 
-#: Сколько раз пробуем задание, прежде чем признать его сломанным.
+#: How many times we try a job before declaring it broken.
 JOB_MAX_ATTEMPTS = 5
-#: Пауза перед первым повтором.
+#: Pause before the first retry.
 JOB_RETRY_BASE = timedelta(seconds=30)
-#: Во сколько раз растёт пауза с каждой следующей попыткой.
+#: How many times the pause grows with each next attempt.
 JOB_RETRY_GROWTH = 2
-#: Сколько символов текста ошибки сохраняем в журнале задания.
+#: How many characters of the error text we keep in the job journal.
 JOB_ERROR_LIMIT = 2000
 
-#: Пауза воркера, когда очередь пуста, секунды.
+#: Worker pause when the queue is empty, seconds.
 WORKER_IDLE_SLEEP = 1.0
 
-#: Сколько ценовых уровней стакана отдаётся наружу. Глубина показа, а не
-#: свойство рынка: сам стакан не ограничен ничем.
+#: How many price levels of the book are given out. Display depth, not a
+#: market property: the book itself is not bounded by anything.
 MARKET_BOOK_DEPTH = 20
 
-#: Буфер доставки живого чата. Не история — сервер её не ведёт (D-070):
-#: реплика живёт ровно столько, чтобы её успели опросить клиенты.
+#: Live chat delivery buffer. Not history -- the server keeps none (D-070): a
+#: remark lives exactly long enough for clients to poll it.
 CHAT_BUFFER = timedelta(minutes=30)
-#: Предел длины реплики. Гигиена канала, а не баланс.
+#: Remark length limit. Channel hygiene, not balance.
 CHAT_TEXT_LIMIT = 1000
 
-#: Предел длины имени участка (D-178). Такая же гигиена: подпись на карте
-#: должна помещаться в подпись на карте, и балансировать здесь нечего.
+#: Plot name length limit (D-178). The same hygiene: a map label must fit in a
+#: map label, and there is nothing to balance here.
 LAND_NAME_LIMIT = 40
 
-#: Глашатай (`herald/`): как часто воркер относит хронику наружу и сколько
-#: событий разбирает за проход. Свойство процесса, а не игры — лента ни на что
-#: в мире не влияет, и «сбалансировать» её нельзя.
+#: The herald (`herald/`): how often the worker carries the chronicle out and
+#: how many events it processes per pass. A process property, not a game one
+#: -- the feed affects nothing in the world, and it cannot be "balanced".
 HERALD_PERIOD = timedelta(minutes=2)
 HERALD_BATCH = 20
-#: Сколько ждём ответа вебхука. Discord отвечает быстро либо не отвечает вовсе.
+#: How long we wait for the webhook's answer. Discord answers fast or not at all.
 HERALD_TIMEOUT = 10.0
-#: Предел длины сообщения в Discord — их число, не наше.
+#: Discord message length limit -- their number, not ours.
 DISCORD_CONTENT_LIMIT = 2000
-#: Сколько букв чужого текста (приговор, имя) попадает в строку хроники.
-#: Лента — это лента, а не копия документа: полное дело читается в игре.
+#: How many letters of somebody's text (verdict, name) get into a chronicle
+#: line. The feed is a feed, not a copy of the document: the full case is read in the game.
 HERALD_TEXT_LIMIT = 200
 
-#: Предел длины слова города новичку (D-183). Карточки дверей сравнивают
-#: взглядом: город, написавший страницу, превратил бы выбор в чтение.
+#: Length limit of the city's word to newcomers (D-183). Door cards are
+#: compared by eye: a city that wrote a page would turn the choice into reading.
 CITY_ABOUT_LIMIT = 300
 
-#: Аккаунт (D-187): гигиена входа, а не игра. Пароль короче — не пароль;
-#: жетон сессии живёт месяц, чтобы обновление страницы не спрашивало пароль;
-#: имя, фамилия и описание ограничены, чтобы помещаться в шапку и карточку.
+#: Account (D-187): login hygiene, not game. A shorter password is not a
+#: password; a session token lives a month so that a page refresh does not
+#: ask for the password; name, surname and description are bounded to fit the header and card.
 PASSWORD_MIN_LENGTH = 8
 LOGIN_TOKEN_TTL = timedelta(days=30)
 LOGIN_TOKEN_BYTES = 32
 CHARACTER_NAME_LIMIT = 24
 CHARACTER_SURNAME_LIMIT = 32
 CHARACTER_ABOUT_LIMIT = 600
-#: Возраст — самоописание, но всё же число из человеческого диапазона.
+#: Age is self-description, but still a number from the human range.
 CHARACTER_AGE_MIN = 16
 CHARACTER_AGE_MAX = 120
 
-#: Длина задачи и ответа платы устройства, байт. Размер не влияет ни на
-#: стоимость счёта, ни на игру: работу задают `pow.*` из вольта.
+#: Length of the device-fee challenge and answer, bytes. Size affects neither
+#: the fee's cost nor the game: the work is set by `pow.*` from the vault.
 POW_NONCE_BYTES = 32
 POW_HASH_BYTES = 32
-#: Параллелизм Argon2id. Единица намеренно: считаем в одном потоке WASM у
-#: клиента и в одном потоке проверки у сервера, чтобы стоимость совпадала.
+#: Argon2id parallelism. One on purpose: we compute in one WASM thread on the
+#: client and one verification thread on the server so that the cost matches.
 POW_PARALLELISM = 1
-#: Сколько стартов сессии разрешено аккаунту в окно. Защита сервера от
-#: перебора задач, а не игровое ограничение: игра ограничивает добычу
-#: выносливостью и ценой еды (D-091).
+#: How many session starts an account is allowed per window. Server protection
+#: against challenge brute-forcing, not a game constraint: the game limits
+#: mining by stamina and the price of food (D-091).
+
 POW_STARTS_PER_WINDOW = 20
 POW_WINDOW = timedelta(minutes=10)

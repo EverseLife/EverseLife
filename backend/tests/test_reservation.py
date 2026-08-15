@@ -1,13 +1,13 @@
-"""Бронь с задатком и сроком (D-047).
+"""A reservation with a deposit and a term (D-047).
 
-Покупка удалённо невозможна: иначе игрок скупает всё везде, товар зависает в
-резерве, а стаканы становятся фикцией. Бронь — разумное исключение, и она
-устроена так, чтобы мёртвых резервов не возникало:
+Remote buying is impossible: otherwise a player buys everything everywhere,
+goods hang in reserve, and the books become a fiction. A reservation is the
+reasonable exception, and it is built so that dead reserves do not arise:
 
-* задаток вносится сразу и уходит в эскроу — резерв стоит денег;
-* товар выходит из стакана, но остаётся у продавца: он никуда не едет;
-* забрать можно только приехав — география цела;
-* не забрал в срок — задаток продавцу, товар обратно в книгу.
+* the deposit is paid at once and goes to escrow -- a reserve costs money;
+* the goods leave the book but stay with the seller: they go nowhere;
+* one can collect only upon arrival -- geography is intact;
+* did not collect in time -- the deposit to the seller, the goods back to the book.
 """
 
 from __future__ import annotations
@@ -28,212 +28,212 @@ from src.units import PERCENT, amount_float, money
 ORE = "Железная руда"
 
 
-async def _рынок(session: AsyncSession, *, цена=3, сколько=20, качество=64):
-    """Узел с терминалом, продавец с товаром и покупатель с деньгами."""
-    метка = uuid.uuid4().hex[:8]
-    node = await world.create_node(session, f"terra.mkt.{метка}", "Рынок", area_m2=200)
-    двор = await world.node_container(session, node)
-    await world.grant_item(session, двор, market.TERMINAL, quality=70, origin="тест")
+async def _market(session: AsyncSession, *, price=3, qty=20, quality=64):
+    """A node with a terminal, a seller with goods and a buyer with money."""
+    stamp = uuid.uuid4().hex[:8]
+    node = await world.create_node(session, f"terra.mkt.{stamp}", "Рынок", area_m2=200)
+    yard = await world.node_container(session, node)
+    await world.grant_item(session, yard, market.TERMINAL, quality=70, origin="тест")
 
-    продавец = await world.create_identity(session, f"Продавец-{метка}")
-    тело_продавца = await world.print_body(session, продавец, node)
-    карман = await world.body_container(session, тело_продавца)
+    seller = await world.create_identity(session, f"Продавец-{stamp}")
+    seller_body = await world.print_body(session, seller, node)
+    pocket = await world.body_container(session, seller_body)
     await world.grant_item(
-        session, карман, ORE, amount=сколько, quality=качество, origin="тест"
+        session, pocket, ORE, amount=qty, quality=quality, origin="тест"
     )
     constants, catalog = current(), current_catalog()
-    await market.load(session, constants, тело_продавца, ORE, сколько)
-    заявка = (
+    await market.load(session, constants, seller_body, ORE, qty)
+    order = (
         await market.sell(
-            session, constants, catalog, продавец, node,
+            session, constants, catalog, seller, node,
             type_key=ORE,
-            tier=market.tier_of(constants, качество),
-            price=money(цена),
-            quantity=сколько,
+            tier=market.tier_of(constants, quality),
+            price=money(price),
+            quantity=qty,
         )
     ).order
 
-    покупатель = await world.create_identity(session, f"Купец-{метка}")
-    тело_купца = await world.print_body(session, покупатель, node)
-    счёт = await ledger.account_for(session, AccountKind.IDENTITY, покупатель.id)
+    buyer = await world.create_identity(session, f"Купец-{stamp}")
+    merchant_body = await world.print_body(session, buyer, node)
+    account = await ledger.account_for(session, AccountKind.IDENTITY, buyer.id)
     genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
     await ledger.transfer(
-        session, PostingReason.GENESIS, debit=genesis.id, credit=счёт.id,
+        session, PostingReason.GENESIS, debit=genesis.id, credit=account.id,
         amount=money(500), memo={},
     )
-    return node, заявка, продавец, покупатель, тело_купца
+    return node, order, seller, buyer, merchant_body
 
 
-# --- бронь ------------------------------------------------------------------
+# --- reservation -------------------------------------------------------------
 
 
-async def test_бронь_берёт_задаток_и_убирает_товар_из_стакана(
+async def test_reservation_takes_deposit_and_removes_goods_from_book(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Резерв стоит денег и виден в книге: обещанное чужим не показывают."""
-    node, заявка, _, покупатель, _ = await _рынок(session, цена=3, сколько=20)
-    было = await ledger.balance(
+    """A reserve costs money and is visible in the book: what is promised is not shown to others."""
+    node, order, _, buyer, _ = await _market(session, price=3, qty=20)
+    before = await ledger.balance(
         session, (await ledger.account_for(
-            session, AccountKind.IDENTITY, покупатель.id)).id
+            session, AccountKind.IDENTITY, buyer.id)).id
     )
 
-    бронь = await market.reserve(session, constants, покупатель, заявка, 10)
+    reservation = await market.reserve(session, constants, buyer, order, 10)
 
-    сумма = money(3) * 10
-    ожидаемый_задаток = int(сумма * constants[R.MARKET_RESERVATION_DEPOSIT] / PERCENT)
-    assert бронь.deposit == ожидаемый_задаток
-    assert amount_float(заявка.amount_left) == 10, "забронированное ушло из книги"
+    total = money(3) * 10
+    expected_deposit = int(total * constants[R.MARKET_RESERVATION_DEPOSIT] / PERCENT)
+    assert reservation.deposit == expected_deposit
+    assert amount_float(order.amount_left) == 10, "забронированное ушло из книги"
 
-    стало = await ledger.balance(
+    after = await ledger.balance(
         session, (await ledger.account_for(
-            session, AccountKind.IDENTITY, покупатель.id)).id
+            session, AccountKind.IDENTITY, buyer.id)).id
     )
-    assert было - стало == ожидаемый_задаток
+    assert before - after == expected_deposit
 
 
-async def test_свой_товар_не_бронируют(
+async def test_own_goods_not_reservable(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    _, заявка, продавец, _, _ = await _рынок(session)
+    _, order, seller, _, _ = await _market(session)
     with pytest.raises(market.NotYours):
-        await market.reserve(session, constants, продавец, заявка, 1)
+        await market.reserve(session, constants, seller, order, 1)
 
 
-async def test_больше_чем_есть_не_забронируешь(
+async def test_cannot_reserve_more_than_available(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    _, заявка, _, покупатель, _ = await _рынок(session, сколько=5)
+    _, order, _, buyer, _ = await _market(session, qty=5)
     with pytest.raises(market.NoGoods):
-        await market.reserve(session, constants, покупатель, заявка, 50)
+        await market.reserve(session, constants, buyer, order, 50)
 
 
-# --- выкуп ------------------------------------------------------------------
+# --- redemption --------------------------------------------------------------
 
 
-async def test_выкуп_доплачивает_остаток_и_отдаёт_товар(
+async def test_redemption_pays_remainder_and_hands_goods(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Приехать обязательно: бронь не отменяет географию, она её планирует."""
-    node, заявка, продавец, покупатель, тело = await _рынок(session, цена=3, сколько=20)
-    бронь = await market.reserve(session, constants, покупатель, заявка, 10)
+    """Coming is mandatory: a reservation does not cancel geography, it plans it."""
+    node, order, seller, buyer, body = await _market(session, price=3, qty=20)
+    reservation = await market.reserve(session, constants, buyer, order, 10)
 
-    счёт_купца = await ledger.account_for(
-        session, AccountKind.IDENTITY, покупатель.id
+    merchant_account = await ledger.account_for(
+        session, AccountKind.IDENTITY, buyer.id
     )
-    счёт_продавца = await ledger.account_for(
-        session, AccountKind.IDENTITY, продавец.id
+    seller_account = await ledger.account_for(
+        session, AccountKind.IDENTITY, seller.id
     )
-    было_у_купца = await ledger.balance(session, счёт_купца.id)
-    было_у_продавца = await ledger.balance(session, счёт_продавца.id)
+    merchant_before = await ledger.balance(session, merchant_account.id)
+    seller_before = await ledger.balance(session, seller_account.id)
 
-    сделка = await market.redeem(session, constants, catalog, тело, бронь)
+    deal = await market.redeem(session, constants, catalog, body, reservation)
 
-    сумма = money(3) * 10
-    assert бронь.state is ReservationState.REDEEMED
-    #: Купец доплатил ровно остаток: задаток уже был в эскроу.
-    assert было_у_купца - await ledger.balance(session, счёт_купца.id) == (
-        сумма - бронь.deposit
+    total = money(3) * 10
+    assert reservation.state is ReservationState.REDEEMED
+    #: The merchant paid exactly the remainder: the deposit was already in escrow.
+    assert merchant_before - await ledger.balance(session, merchant_account.id) == (
+        total - reservation.deposit
     )
-    #: Продавец получил всё, минус удержания города (в ничьём узле их нет).
-    assert await ledger.balance(session, счёт_продавца.id) - было_у_продавца == (
-        сумма - сделка.tax - сделка.fee
+    #: The seller got everything, minus city withholdings (none in an unowned node).
+    assert await ledger.balance(session, seller_account.id) - seller_before == (
+        total - deal.tax - deal.fee
     )
 
-    ячейка = await market.stall(session, node, покупатель.id)
+    cell = await market.stall(session, node, buyer.id)
     from sqlalchemy import select
 
     from src.models.inventory import Item
 
-    товар = (
+    goods = (
         await session.execute(
-            select(Item).where(Item.container_id == ячейка.id, Item.type_key == ORE)
+            select(Item).where(Item.container_id == cell.id, Item.type_key == ORE)
         )
     ).scalars().all()
-    assert sum(amount_float(и.amount) for и in товар) == pytest.approx(10)
+    assert sum(amount_float(i_.amount) for i_ in goods) == pytest.approx(10)
 
 
-async def test_выкупить_можно_только_приехав(
+async def test_redeem_only_upon_arrival(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Материя требует присутствия — бронь тут ничего не меняет (D-047)."""
-    node, заявка, _, покупатель, тело = await _рынок(session)
-    бронь = await market.reserve(session, constants, покупатель, заявка, 5)
+    """Matter requires presence -- a reservation changes nothing here (D-047)."""
+    node, order, _, buyer, body = await _market(session)
+    reservation = await market.reserve(session, constants, buyer, order, 5)
 
-    прочь = await world.create_node(
+    away = await world.create_node(
         session, f"terra.away.{uuid.uuid4().hex[:6]}", "Прочь", area_m2=50
     )
-    await travel.connect(session, node, прочь, base_seconds=30)
-    await travel.depart(session, constants, тело, прочь)
+    await travel.connect(session, node, away, base_seconds=30)
+    await travel.depart(session, constants, body, away)
 
     with pytest.raises(travel.InTransit):
-        await market.redeem(session, constants, catalog, тело, бронь)
+        await market.redeem(session, constants, catalog, body, reservation)
 
 
-async def test_чужую_бронь_не_выкупают(
+async def test_foreign_reservation_not_redeemable(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    node, заявка, _, покупатель, _ = await _рынок(session)
-    бронь = await market.reserve(session, constants, покупатель, заявка, 5)
+    node, order, _, buyer, _ = await _market(session)
+    reservation = await market.reserve(session, constants, buyer, order, 5)
 
-    чужой = await world.create_identity(session, f"Чужой-{uuid.uuid4().hex[:6]}")
-    чужое_тело = await world.print_body(session, чужой, node)
+    foreign = await world.create_identity(session, f"Чужой-{uuid.uuid4().hex[:6]}")
+    foreign_body = await world.print_body(session, foreign, node)
     with pytest.raises(market.NotYours):
-        await market.redeem(session, constants, catalog, чужое_тело, бронь)
+        await market.redeem(session, constants, catalog, foreign_body, reservation)
 
 
-# --- срок -------------------------------------------------------------------
+# --- term --------------------------------------------------------------------
 
 
-async def test_срок_брони_из_вольта(
+async def test_reservation_term_from_vault(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """`market.reservation_period` суток, и сутки планетарные (D-008)."""
-    _, заявка, _, покупатель, _ = await _рынок(session)
-    момент = datetime.now(UTC)
-    бронь = await market.reserve(
-        session, constants, покупатель, заявка, 5, now=момент
+    """`market.reservation_period` days, and the day is planetary (D-008)."""
+    _, order, _, buyer, _ = await _market(session)
+    moment = datetime.now(UTC)
+    reservation = await market.reserve(
+        session, constants, buyer, order, 5, now=moment
     )
-    срок = timedelta(
+    term = timedelta(
         hours=constants[R.MARKET_RESERVATION_PERIOD] * constants[R.TIME_DAY_TERRA]
     )
-    assert бронь.expires_at == момент + срок
+    assert reservation.expires_at == moment + term
 
 
-async def test_просроченная_бронь_отдаёт_задаток_продавцу_и_товар_в_стакан(
+async def test_expired_reservation_gives_deposit_to_seller_and_goods_to_book(
     factory: async_sessionmaker[AsyncSession], constants: Constants, catalog: Catalog
 ) -> None:
-    """Не забрал — платишь за то, что товар ждал. Резерв не бывает мёртвым."""
+    """Did not collect -- you pay for the goods having waited. A reserve is never dead."""
     async with factory() as session, session.begin():
-        _, заявка, продавец, покупатель, _ = await _рынок(session, цена=3, сколько=20)
-        бронь = await market.reserve(session, constants, покупатель, заявка, 10)
-        срок, бронь_id, заявка_id = бронь.expires_at, бронь.id, заявка.id
-        задаток = бронь.deposit
-        продавец_id = продавец.id
+        _, order, seller, buyer, _ = await _market(session, price=3, qty=20)
+        reservation = await market.reserve(session, constants, buyer, order, 10)
+        term, reservation_id, order_id = reservation.expires_at, reservation.id, order.id
+        deposit = reservation.deposit
+        seller_id = seller.id
 
-    задание = await jobs.run_one(factory, now=срок)
-    assert задание is not None and задание.kind == "market.reservation_expiry"
+    job = await jobs.run_one(factory, now=term)
+    assert job is not None and job.kind == "market.reservation_expiry"
 
     async with factory() as session:
-        бронь = await session.get(type(бронь), бронь_id)
-        заявка = await session.get(Order, заявка_id)
-        assert бронь.state is ReservationState.LAPSED
-        assert amount_float(заявка.amount_left) == 20, "товар вернулся в книгу"
+        reservation = await session.get(type(reservation), reservation_id)
+        order = await session.get(Order, order_id)
+        assert reservation.state is ReservationState.LAPSED
+        assert amount_float(order.amount_left) == 20, "товар вернулся в книгу"
 
-        счёт = await ledger.account_for(session, AccountKind.IDENTITY, продавец_id)
-        #: Продавец получил задаток — плату за ожидание.
-        assert await ledger.balance(session, счёт.id) >= задаток
+        account = await ledger.account_for(session, AccountKind.IDENTITY, seller_id)
+        #: The seller got the deposit -- payment for waiting.
+        assert await ledger.balance(session, account.id) >= deposit
 
 
-async def test_после_срока_выкупить_нельзя(
+async def test_cannot_redeem_after_term(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    _, заявка, _, покупатель, тело = await _рынок(session)
-    момент = datetime.now(UTC)
-    бронь = await market.reserve(
-        session, constants, покупатель, заявка, 5, now=момент
+    _, order, _, buyer, body = await _market(session)
+    moment = datetime.now(UTC)
+    reservation = await market.reserve(
+        session, constants, buyer, order, 5, now=moment
     )
     with pytest.raises(market.BadOrder):
         await market.redeem(
-            session, constants, catalog, тело, бронь,
-            now=бронь.expires_at + timedelta(minutes=1),
+            session, constants, catalog, body, reservation,
+            now=reservation.expires_at + timedelta(minutes=1),
         )

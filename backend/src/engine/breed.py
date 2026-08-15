@@ -1,53 +1,57 @@
-"""Селекция: сорта, семена, скрещивание, вырождение (D-057, D-067).
+"""Breeding: cultivars, seeds, crossing, degradation (D-057, D-067).
 
-Задача, ради которой всё это существует: **дать опытному фермеру настоящее
-преимущество там, где нет ни навыков, ни уровней**. Преимущество здесь —
-имущество (семена) и знание (агротехника), а не характеристика персонажа.
+The task all this exists for: **give an experienced farmer a real advantage
+where there are neither skills nor levels**. The advantage here is property
+(seeds) and knowledge (agrotech), not a character stat.
 
-## Что чем является
+## What is what
 
-* **Культура** — восемь базовых Терры, задана вольтом, неизменна;
-* **Сорт** (`models.plant.Variety`) — линия внутри культуры со своими числами.
-  Базовый сорт культуры ничей и заводится лениво; остальные выводят игроки;
-* **Семена** — предмет (`type_key` из `plants.json`), несущий ссылку на сорт и
-  **силу партии** `vigor`, %. Сила — это не качество: качество зерна решает,
-  как оно кормит, сила — что вырастет из посева.
+* **Crop** -- Terra's eight base ones, set by the vault, immutable;
+* **Cultivar** (`models.plant.Variety`) -- a line within a crop with its own
+  numbers. A crop's base cultivar is nobody's and created lazily; the rest are
+  bred by players;
+* **Seeds** -- an item (`type_key` from `plants.json`) carrying a reference to
+  the cultivar and the **batch strength** `vigor`, %. Strength is not quality:
+  grain quality decides how it feeds, strength what grows from sowing.
 
-## Откуда взялась каждая формула
+## Where each formula came from
 
-**Наследование.** `breed.inherit_drift` записан вольтом дословно:
-`mean(parents) ± 0.15 * spread(parents)`. Признак потомка — среднее родителей
-плюс случайное отклонение, пропорциональное тому, насколько родители разошлись.
-Похожие родители дают предсказуемое потомство, разные — лотерею.
+**Inheritance.** `breed.inherit_drift` is written by the vault verbatim:
+`mean(parents) +- 0.15 * spread(parents)`. An offspring's trait is the parents'
+mean plus a random deviation proportional to how far the parents diverged.
+Similar parents give predictable offspring, different ones a lottery.
 
-**Новый признак.** `breed.novel_trait_chance` — вероятность, что у потомка
-появится то, чего не было ни у одного родителя. Реализован как заметный сдвиг
-одного случайного признака: иначе «новый признак» пришлось бы выдумывать
-списком, которого в вольте нет.
+**Novel trait.** `breed.novel_trait_chance` is the probability that the
+offspring gets something neither parent had. Implemented as a noticeable shift
+of one random trait: otherwise a "novel trait" would have to be invented as a
+list the vault does not have.
 
-**Порог различимости.** `breed.distinctness_threshold` — новый сорт
-жизнеспособен, только если заметно отличается от уже существующих в этой
-культуре. Иначе **грядка просто не всходит**: гейт встроен в биологию, а не в
-интерфейс, и отказ игрок получает полем, а не окном (D-067). Расстояние
-считается как средняя относительная разница по признакам, в процентах.
+**Distinctness threshold.** `breed.distinctness_threshold` -- a new cultivar
+is viable only if it noticeably differs from those already existing in this
+crop. Otherwise **the bed simply does not sprout**: the gate is built into
+biology, not the interface, and the player gets the refusal from the field,
+not a window (D-067). Distance is computed as the mean relative difference
+across traits, in percent.
 
-**Расщепление и вырождение.** Семена гибрида нестабильны: без отбора следующее
-поколение теряет `breed.hybrid_decay`. Любой семенной фонд без отбора теряет
-`breed.degradation_per_gen` за поколение. Обе величины заданы отрицательными —
-складываем, а не вычитаем: знак принадлежит вольту.
+**Segregation and degradation.** Hybrid seeds are unstable: without selection
+the next generation loses `breed.hybrid_decay`. Any seed fund without
+selection loses `breed.degradation_per_gen` per generation. Both quantities
+are given negative -- we add rather than subtract: the sign belongs to the vault.
 
-**Стабилизация.** `breed.generations_to_stabilize` поколений **отбора** — и
-гибрид становится сортом, который создатель вправе назвать. Отбор при этом
-удерживает силу партии: он и есть работа селекционера.
+**Stabilisation.** `breed.generations_to_stabilize` generations of
+**selection** -- and a hybrid becomes a cultivar its creator may name.
+Selection meanwhile holds the batch strength: it is the breeder's work.
 
-## Чего здесь пока нет
+## What is not here yet
 
-* **Агротехника как знание** (D-057): движок уже различает сорта, но интерфейс
-  показывает нормы всем одинаково. Разделение «симптомы без знания — нормы со
-  знанием» ждёт закрытия OQ о пяти параметрах ухода;
-* **Дикие предки в диких узлах**: сбор первых семян руками приедет с разведкой;
-* **Признаки сверх четырёх чисел**: болезни и загущение наследуются, но пока
-  ни на что не влияют — их механики нет (OQ-098).
+* **Agrotech as knowledge** (D-057): the engine already distinguishes
+  cultivars, but the interface shows norms to everyone alike. The split
+  "symptoms without knowledge -- norms with knowledge" waits for closing the
+  OQ about the five care parameters;
+* **Wild ancestors in wild nodes**: gathering the first seeds by hand arrives
+  with exploration;
+* **Traits beyond four numbers**: diseases and crowding are inherited but
+  affect nothing yet -- their mechanics do not exist (OQ-098).
 """
 
 from __future__ import annotations
@@ -72,15 +76,15 @@ from src.models.plant import Nursery, Variety
 from src.models.world import Node
 from src.units import PERCENT, amount, amount_float
 
-#: Постройка из `build/recipes.json`: скрещивают только в питомнике.
+#: Building from `build/recipes.json`: crossing happens only in a nursery.
 NURSERY = "Селекционный питомник"
 
-#: Полная сила партии семян. Это не балансное число, а «сто процентов того,
-#: что сорт умеет»: сами потери задаются `breed.*`.
+#: Full strength of a seed batch. Not a balance number but "one hundred percent
+#: of what the cultivar can": the losses themselves are set by `breed.*`.
 FULL_VIGOR = PERCENT
 
-#: Признаки, которые наследуются. Числа те же, что у культуры в plants.json:
-#: сорт обязан подставляться на место культуры без пересчёта единиц.
+#: Traits that are inherited. The numbers are the same as the crop's in
+#: plants.json: a cultivar must substitute for the crop without unit conversion.
 TRAITS = ("yield_per_m2", "cycle_days", "fertility", "spoilage_k", "hardiness")
 
 
@@ -89,23 +93,23 @@ class BreedError(Exception):
 
 
 class NotSeeds(BreedError):
-    """Это не семена. Сеют и скрещивают семенами, а не урожаем."""
+    """Not seeds. One sows and crosses with seeds, not harvest."""
 
 
 class WrongCulture(BreedError):
-    """Скрещивают сорта одной культуры: межвидового в этой игре нет."""
+    """Cultivars of one crop are crossed: there is no interspecies in this game."""
 
 
 class NoNursery(BreedError):
-    """Питомника в узле нет: скрещивание требует места, как всякий станок."""
+    """No nursery in the node: crossing needs a place, like every machine."""
 
 
 class NotStable(BreedError):
-    """Гибрид ещё не сорт: имя даётся тому, что даёт постоянный результат."""
+    """A hybrid is not a cultivar yet: a name goes to what gives a stable result."""
 
 
 def traits_of_plant(plant: Plant) -> dict[str, float]:
-    """Числа культуры в виде признаков сорта."""
+    """The crop's numbers in the form of cultivar traits."""
     return {
         "yield_per_m2": plant.yield_per_m2,
         "cycle_days": plant.cycle_days,
@@ -116,10 +120,10 @@ def traits_of_plant(plant: Plant) -> dict[str, float]:
 
 
 async def landrace(session: AsyncSession, catalog: Catalog, culture_id: str) -> Variety:
-    """Базовый сорт культуры: ничей, постоянный, заводится при первой нужде.
+    """The crop's base cultivar: nobody's, stable, created at first need.
 
-    Он и есть «то, что растёт у всех»: точка отсчёта, от которой селекционер
-    уходит вверх, а заброшенный семенной фонд — вниз.
+    It is "what grows for everyone": the reference point from which the breeder
+    goes up, and an abandoned seed fund goes down.
     """
     plant = catalog.plants.by_id(culture_id)
     found = (
@@ -148,15 +152,15 @@ async def landrace(session: AsyncSession, catalog: Catalog, culture_id: str) -> 
 
 
 def distance(one: dict[str, float], other: dict[str, float]) -> float:
-    """Насколько два сорта различаются, процентов.
+    """How much two cultivars differ, in percent.
 
-    Считается **наибольшая** относительная разница по признакам, а не средняя:
-    «заметно отличается» — значит отличается хотя бы чем-то. Сорт с двойной
-    урожайностью — другой сорт, даже если во всём прочем он копия родителя;
-    усреднение по признакам топило бы такое различие в нулях.
+    The **largest** relative difference across traits is taken, not the mean:
+    "noticeably differs" means differs in at least something. A cultivar with
+    double yield is another cultivar even if in everything else it copies its
+    parent; averaging across traits would drown such a difference in zeros.
 
-    Метрику вольт не задаёт — он задаёт только порог
-    (`breed.distinctness_threshold`), и выбор здесь принадлежит движку.
+    The vault does not set the metric -- it sets only the threshold
+    (`breed.distinctness_threshold`), and the choice here belongs to the engine.
     """
     diffs: list[float] = []
     for key in TRAITS:
@@ -177,10 +181,10 @@ def inherit(
     *,
     rng: random.Random,
 ) -> dict[str, float]:
-    """Признаки потомка: `mean(parents) ± 0.15 * spread(parents)` (вольт).
+    """Offspring traits: `mean(parents) +- 0.15 * spread(parents)` (vault).
 
-    Формула записана в `breed.inherit_drift` как текст — движок обязан её
-    исполнять, а не изобретать. Коэффициент отклонения читается оттуда же.
+    The formula is written in `breed.inherit_drift` as text -- the engine must
+    execute it, not invent it. The deviation coefficient is read from there too.
     """
     drift = _drift_share(constants)
     child: dict[str, float] = {}
@@ -192,10 +196,10 @@ def inherit(
         spread = abs(one - other)
         child[key] = mean + rng.uniform(-drift, drift) * spread
 
-    #: Изредка появляется признак, которого не было ни у кого из родителей.
-    #: Показать это числами можно единственным честным способом — сдвинуть один
-    #: признак **от середины**, а не внутри родительской вилки. Коэффициент
-    #: сдвига тот же, что у наследования: второго вольт не задаёт.
+    #: Occasionally a trait appears that neither parent had. The only honest
+    #: way to show that with numbers is to shift one trait **from the middle**,
+    #: not within the parents' range. The shift coefficient is the same as for
+    #: inheritance: the vault sets no second one.
     if rng.uniform(0, PERCENT) < constants[R.BREED_NOVEL_TRAIT_CHANCE] and child:
         key = rng.choice(sorted(child))
         child[key] *= 1 + rng.choice((-1, 1)) * drift
@@ -203,11 +207,11 @@ def inherit(
 
 
 def _drift_share(constants: Constants) -> float:
-    """Коэффициент отклонения из формулы вольта `breed.inherit_drift`.
+    """The deviation coefficient from the vault formula `breed.inherit_drift`.
 
-    Формула хранится строкой («mean(parents) ± 0.15 * spread(parents)»), и
-    число берётся из неё же: держать вторую копию коэффициента в коде значило
-    бы завести балансное число мимо вольта (D-065).
+    The formula is stored as a string ("mean(parents) +- 0.15 * spread(parents)"),
+    and the number is taken from it: keeping a second copy of the coefficient
+    in code would introduce a balance number past the vault (D-065).
     """
     formula = constants[R.BREED_INHERIT_DRIFT]
     text = formula if isinstance(formula, str) else str(formula)
@@ -231,11 +235,11 @@ async def cross(
     now: datetime | None = None,
     rng: random.Random | None = None,
 ) -> Nursery:
-    """Скрестить два сорта в питомнике. Стоит семян, места и полного цикла.
+    """Cross two cultivars in the nursery. Costs seeds, a place and a full cycle.
 
-    Результат приходит не сразу: селекция — занятие на недели, а не на вечер.
-    Всходы проверяются на различимость только в конце (D-067) — до того
-    селекционер не знает, вышло ли что-то новое.
+    The result does not come at once: breeding is an occupation of weeks, not
+    an evening. Seedlings are checked for distinctness only at the end (D-067)
+    -- before that the breeder does not know whether something new came out.
     """
     moment = now or datetime.now(UTC)
     if body.state is not BodyState.ALIVE:
@@ -243,48 +247,48 @@ async def cross(
     await travel.require_here(session, body)
 
     node = await world.node_container(session, await _node(session, body))
-    станки = (
+    machines = (
         await session.execute(
             select(Item.type_key).where(Item.container_id == node.id).distinct()
         )
     ).scalars().all()
-    if NURSERY not in станки:
+    if NURSERY not in machines:
         raise NoNursery(f"в узле нет постройки «{NURSERY}»")
 
-    сорт_а = await _variety_of(session, seeds_a)
-    сорт_б = await _variety_of(session, seeds_b)
-    if сорт_а.culture_id != сорт_б.culture_id:
+    cultivar_a = await _variety_of(session, seeds_a)
+    cultivar_b = await _variety_of(session, seeds_b)
+    if cultivar_a.culture_id != cultivar_b.culture_id:
         raise WrongCulture(
-            f"{сорт_а.culture_id} и {сорт_б.culture_id} — разные культуры: "
+            f"{cultivar_a.culture_id} и {cultivar_b.culture_id} — разные культуры: "
             "скрещивают сорта одной"
         )
     if seeds_a.id == seeds_b.id:
         raise BreedError("нужны две партии семян: сорт сам с собой не скрещивают")
 
-    #: Норма высева питомника — та же, что у поля: это делянка и есть.
-    норма = amount(constants[R.FARM_SEED_RATE] * constants[R.FARM_PLOT_MIN_AREA])
-    for партия in (seeds_a, seeds_b):
-        if партия.amount < норма:
+    #: The nursery's sowing norm is the same as the field's: it is a patch, after all.
+    norm = amount(constants[R.FARM_SEED_RATE] * constants[R.FARM_PLOT_MIN_AREA])
+    for batch in (seeds_a, seeds_b):
+        if batch.amount < norm:
             raise NotSeeds(
-                f"на питомник нужно {amount_float(норма):g} семян каждого сорта"
+                f"на питомник нужно {amount_float(norm):g} семян каждого сорта"
             )
-    for партия in (seeds_a, seeds_b):
-        партия.amount -= норма
-        if партия.amount <= 0:
-            await session.delete(партия)
+    for batch in (seeds_a, seeds_b):
+        batch.amount -= norm
+        if batch.amount <= 0:
+            await session.delete(batch)
     await session.flush()
 
-    plant = catalog.plants.by_id(сорт_а.culture_id)
-    цикл = timedelta(hours=plant.cycle_days * constants[R.TIME_DAY_TERRA])
-    питомник = Nursery(
+    plant = catalog.plants.by_id(cultivar_a.culture_id)
+    cycle = timedelta(hours=plant.cycle_days * constants[R.TIME_DAY_TERRA])
+    nursery = Nursery(
         body_id=body.id,
         node_id=body.node_id,
-        parent_a_id=сорт_а.id,
-        parent_b_id=сорт_б.id,
-        seeds=Decimal(str(amount_float(норма))),
-        ready_at=moment + цикл,
+        parent_a_id=cultivar_a.id,
+        parent_b_id=cultivar_b.id,
+        seeds=Decimal(str(amount_float(norm))),
+        ready_at=moment + cycle,
     )
-    session.add(питомник)
+    session.add(nursery)
     await session.flush()
 
     await events.record(
@@ -293,11 +297,11 @@ async def cross(
         actor_identity_id=body.identity_id,
         node_id=body.node_id,
         work="cross",
-        nursery=str(питомник.id),
-        culture=сорт_а.culture_id,
-        parents=[str(сорт_а.id), str(сорт_б.id)],
+        nursery=str(nursery.id),
+        culture=cultivar_a.culture_id,
+        parents=[str(cultivar_a.id), str(cultivar_b.id)],
     )
-    return питомник
+    return nursery
 
 
 async def gather_cross(
@@ -310,10 +314,10 @@ async def gather_cross(
     now: datetime | None = None,
     rng: random.Random | None = None,
 ) -> Variety | None:
-    """Забрать всходы питомника. Пусто — значит не взошло (D-067).
+    """Collect the nursery seedlings. Empty means it did not sprout (D-067).
 
-    Слишком похожий на существующие сорт не прорастает вовсе: селекционер
-    получает не отказ движка, а пустую грядку.
+    A cultivar too similar to existing ones does not germinate at all: the
+    breeder gets not an engine refusal but an empty bed.
     """
     moment = now or datetime.now(UTC)
     await travel.require_here(session, body)
@@ -322,25 +326,26 @@ async def gather_cross(
     if moment < nursery.ready_at:
         raise BreedError(f"питомник созреет к {nursery.ready_at.isoformat()}")
 
-    бросок = rng or random.Random(str(nursery.id))
-    отец = await session.get(Variety, nursery.parent_a_id)
-    мать = await session.get(Variety, nursery.parent_b_id)
-    if отец is None or мать is None:  # pragma: no cover
+    dice = rng or random.Random(str(nursery.id))
+    father = await session.get(Variety, nursery.parent_a_id)
+    mother = await session.get(Variety, nursery.parent_b_id)
+    if father is None or mother is None:  # pragma: no cover
         raise BreedError("родительский сорт исчез")
 
-    признаки = inherit(constants, отец.traits, мать.traits, rng=бросок)
-    порог = constants[R.BREED_DISTINCTNESS_THRESHOLD]
-    соседи = (
+    signs = inherit(constants, father.traits, mother.traits, rng=dice)
+    threshold = constants[R.BREED_DISTINCTNESS_THRESHOLD]
+    neighbours = (
         await session.execute(
-            select(Variety).where(Variety.culture_id == отец.culture_id)
+            select(Variety).where(Variety.culture_id == father.culture_id)
         )
     ).scalars().all()
-    похожий = next(
-        (сосед for сосед in соседи if distance(признаки, сосед.traits) < порог), None
+    similar = next(
+        (nb for nb in neighbours if distance(signs, nb.traits) < threshold),
+        None,
     )
 
     nursery.done = True
-    if похожий is not None:
+    if similar is not None:
         await session.flush()
         await events.record(
             session,
@@ -350,41 +355,41 @@ async def gather_cross(
             work="cross",
             nursery=str(nursery.id),
             sprouted=False,
-            too_close_to=похожий.name or str(похожий.id),
+            too_close_to=similar.name or str(similar.id),
         )
         return None
 
-    гибрид = Variety(
-        culture_id=отец.culture_id,
+    hybrid = Variety(
+        culture_id=father.culture_id,
         name=None,
         author_identity_id=body.identity_id,
-        parent_a_id=отец.id,
-        parent_b_id=мать.id,
+        parent_a_id=father.id,
+        parent_b_id=mother.id,
         generation=1,
         stable=False,
-        traits=признаки,
+        traits=signs,
     )
-    session.add(гибрид)
+    session.add(hybrid)
     await session.flush()
-    nursery.result_variety_id = гибрид.id
+    nursery.result_variety_id = hybrid.id
 
-    #: Создатель знает агротехнику своего сорта, и больше её не знает никто
-    #: (D-057). Не награда, а следствие: он его и вывел.
+    #: The creator knows the agrotech of their cultivar, and nobody else knows
+    #: it (D-057). Not a reward but a consequence: they bred it.
     identity = await session.get(Identity, body.identity_id)
     if identity is not None:
         await world.learn(
-            session, identity, agrotech_key(гибрид),
+            session, identity, agrotech_key(hybrid),
             kind=KnowledgeKind.AGROTECH, discovered=True,
         )
 
-    plant = catalog.plants.by_id(отец.culture_id)
-    карман = await world.body_container(session, body)
+    plant = catalog.plants.by_id(father.culture_id)
+    pocket = await world.body_container(session, body)
     session.add(
         Item(
-            container_id=карман.id,
+            container_id=pocket.id,
             type_key=plant.seed,
             amount=amount(float(nursery.seeds)),
-            variety_id=гибрид.id,
+            variety_id=hybrid.id,
             vigor=Decimal(str(FULL_VIGOR)),
             maker_identity_id=body.identity_id,
             made_at=moment,
@@ -401,36 +406,36 @@ async def gather_cross(
         work="cross",
         nursery=str(nursery.id),
         sprouted=True,
-        variety=str(гибрид.id),
+        variety=str(hybrid.id),
     )
-    return гибрид
+    return hybrid
 
 
 def next_vigor(
     constants: Constants, variety: Variety, vigor: float, *, selected: bool
 ) -> float:
-    """Сила следующего поколения семян.
+    """Strength of the next seed generation.
 
-    Отбор — работа: он удерживает фонд. Без отбора фонд вырождается, а у
-    гибрида вдобавок расщепляется. Обе величины вольта отрицательны.
+    Selection is work: it holds the fund. Without selection the fund degrades,
+    and a hybrid additionally segregates. Both vault quantities are negative.
     """
     if selected:
         return vigor
-    потеря = constants[R.BREED_DEGRADATION_PER_GEN]
+    loss = constants[R.BREED_DEGRADATION_PER_GEN]
     if not variety.stable:
-        потеря += constants[R.BREED_HYBRID_DECAY]
-    return max(0.0, vigor + потеря)
+        loss += constants[R.BREED_HYBRID_DECAY]
+    return max(0.0, vigor + loss)
 
 
 async def select_generation(
     session: AsyncSession, constants: Constants, variety: Variety
 ) -> Variety:
-    """Засчитать поколение отбора. Столько-то поколений — и гибрид стал сортом."""
+    """Count a generation of selection. So many generations -- and the hybrid became a cultivar."""
     if variety.stable:
         return variety
     variety.generation += 1
-    порог = constants[R.BREED_GENERATIONS_TO_STABILIZE]
-    if variety.generation >= порог.max:
+    threshold = constants[R.BREED_GENERATIONS_TO_STABILIZE]
+    if variety.generation >= threshold.max:
         variety.stable = True
     await session.flush()
     return variety
@@ -439,7 +444,7 @@ async def select_generation(
 async def name_variety(
     session: AsyncSession, body: Body, variety: Variety, name: str
 ) -> Variety:
-    """Назвать выведенный сорт. Имя автора закрепляется за ним навсегда."""
+    """Name a bred cultivar. The author's name is attached to it forever."""
     if not variety.stable:
         raise NotStable(
             "сорт ещё не постоянен: имя даётся тому, что даёт тот же результат "
@@ -447,10 +452,10 @@ async def name_variety(
         )
     if variety.author_identity_id != body.identity_id:
         raise BreedError("называет сорт тот, кто его вывел")
-    чистое = name.strip()
-    if not чистое:
+    pure = name.strip()
+    if not pure:
         raise BreedError("имя пустое")
-    variety.name = чистое
+    variety.name = pure
     await session.flush()
     await events.record(
         session,
@@ -458,7 +463,7 @@ async def name_variety(
         actor_identity_id=body.identity_id,
         work="variety",
         variety=str(variety.id),
-        name=чистое,
+        name=pure,
     )
     return variety
 
@@ -473,7 +478,7 @@ async def seed_lot(
     *,
     now: datetime | None = None,
 ) -> Item:
-    """Положить партию семян сорта в контейнер."""
+    """Put a batch of the cultivar's seeds into a container."""
     plant = catalog.plants.by_id(variety.culture_id)
     item = Item(
         container_id=container_id,
@@ -489,11 +494,11 @@ async def seed_lot(
 
 
 def agrotech_key(variety: Variety) -> str:
-    """Чем ключуется агротехника сорта.
+    """What keys a cultivar's agrotech.
 
-    У базовых сортов — именем культуры: их агротехника общая и лежит в
-    Библиотеке (D-053). У выведенного — его собственным id: такую знает только
-    автор, пока сам не продаст носитель.
+    For base cultivars -- the crop's name: their agrotech is common and lies in
+    the Library (D-053). For a bred one -- its own id: only the author knows
+    it, until they sell the carrier themselves.
     """
     return variety.culture_id if variety.author_identity_id is None else str(variety.id)
 
@@ -501,11 +506,12 @@ def agrotech_key(variety: Variety) -> str:
 async def knows_agrotech(
     session: AsyncSession, identity_id: uuid.UUID, variety: Variety
 ) -> bool:
-    """Знает ли личность, чего этому сорту надо.
+    """Whether the identity knows what this cultivar needs.
 
-    Знание не запрещает сеять и не запрещает убирать — оно решает, **видит ли
-    фермер нормы или только симптомы** (D-057). Стены «нельзя посадить» здесь
-    нет и не будет: новичок упирается в собственное невежество, а оно лечится.
+    Knowledge does not forbid sowing or harvesting -- it decides **whether the
+    farmer sees norms or only symptoms** (D-057). There is and will be no
+    "cannot plant" wall here: the newcomer runs into their own ignorance, and
+    that is curable.
     """
     found = await session.execute(
         select(Knowledge).where(
@@ -520,14 +526,14 @@ async def knows_agrotech(
 async def copy_agrotech(
     session: AsyncSession, catalog: Catalog, body: Body, culture_id: str
 ) -> Knowledge | None:
-    """Взять агротехнику базовой культуры в Библиотеке: бесплатно, но ногами.
+    """Take the agrotech of a base crop in the Library: free, but on foot.
 
-    Восемь базовых лежат там для всех (D-053). Агротехника выведенного сорта в
-    Библиотеку не попадает — её знает только автор.
+    The eight base ones lie there for everyone (D-053). The agrotech of a bred
+    cultivar does not go into the Library -- only the author knows it.
     """
     await travel.require_here(session, body)
     node = await session.get(Node, body.node_id)
-    #: Библиотека — станок (D-176): агротехнику берут там, где он стоит.
+    #: The library is a machine (D-176): agrotech is taken where it stands.
     if node is None or not await world.is_library(session, node):
         raise BreedError("Библиотека не работает удалённо: за знанием надо прийти")
 
@@ -544,7 +550,7 @@ async def _variety_of(session: AsyncSession, item: Item) -> Variety:
     if item.variety_id is None:
         raise NotSeeds(f"{item.type_key!r} — не семена сорта")
     variety = await session.get(Variety, item.variety_id)
-    if variety is None:  # pragma: no cover — сорт не удаляется
+    if variety is None:  # pragma: no cover -- a cultivar is never deleted
         raise BreedError("сорт этих семян исчез")
     return variety
 

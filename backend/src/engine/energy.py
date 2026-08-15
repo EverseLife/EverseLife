@@ -1,42 +1,43 @@
-"""Энергия: производство, пул города, аккумуляторы, тариф (D-071, D-082, D-085).
+"""Energy: production, city pool, batteries, tariff (D-071, D-082, D-085).
 
-Энергия — не фон, а товар, во что упирается любое развитие. Устроена она
-намеренно неудобно для накопления и удобно для политики:
+Energy is not a backdrop but a commodity that any development runs into. It
+is deliberately built to be inconvenient to hoard and convenient for politics:
 
-* **производится** станцией, за топливо, которое кто-то добыл и привёз;
-* **живёт** либо в пуле города, либо в аккумуляторе — в мешке её нет;
-* **отпускается по тарифу**, и бесплатной не бывает: ноль — это тоже тариф.
+* **produced** by a station, for fuel that somebody mined and hauled;
+* **lives** either in the city pool or in a battery -- there is none in a sack;
+* **released at a tariff**, and never free: zero is a tariff too.
 
-## Откуда взялась каждая формула
+## Where each formula came from
 
-**Выработка.** Ставки заданы вольтом в час и складываются по станциям города:
+**Generation.** Rates are set by the vault per hour and summed over the city's
+stations:
 
-    водяное колесо  energy.waterwheel_rate      — только там, где река
-    ветряк          energy.windmill_rate {0…40} — нестабильно, зависит от погоды
-    угольная станция energy.coal_plant_rate     — при energy.coal_plant_fuel_draw
-                                                  угля в час
+    water wheel     energy.waterwheel_rate      -- only where there is a river
+    windmill        energy.windmill_rate {0..40} -- unstable, depends on weather
+    coal station    energy.coal_plant_rate      -- at energy.coal_plant_fuel_draw
+                                                   coal per hour
 
-Погоды в мире ещё нет, поэтому ветер разыгрывается броском, засеянным узлом и
-часом: «нестабильно» — это и есть всё, что вольт о нём говорит. Угольная
-станция **ест уголь из узла**, где стоит: нет подвоза — нет выработки, и
-энергетическая блокада работает сама собой, без единой особой механики.
+There is no weather in the world yet, so wind is rolled with a roll seeded by
+node and hour: "unstable" is all the vault says about it. The coal station
+**eats coal from the node** it stands in: no supply -- no generation, and an
+energy blockade works by itself, without a single special mechanic.
 
-**Саморазряд аккумулятора.** `energy.battery_selfdischarge` процентов в сутки
-от ёмкости. Начисляется не тиком, а по факту времени при первом же обращении —
-как пар на делянке: незачем будить мир ради заряда, который никто не смотрит.
+**Battery self-discharge.** `energy.battery_selfdischarge` percent per day of
+capacity. Credited not by tick but by elapsed time on the first access -- like
+fallow on a plot: no point waking the world for a charge nobody looks at.
 
-**Тариф.** `energy.tariff_default` — ТК за сто энергии. Деньги идут в казну
-города: энергия отпускается городом, а не природой. Тариф правится уставом с
-Э3; до тех пор у пула лежит умолчание вольта.
+**Tariff.** `energy.tariff_default` -- TC per hundred energy. Money goes to
+the city treasury: energy is released by the city, not by nature. The tariff
+is edited by the charter from E3; until then the pool holds the vault default.
 
-## Чего здесь пока нет
+## What is not here yet
 
-* **Потребителей, кроме зарядки.** Автоматический станок (D-035), глубокая
-  добыча (D-115) и печать тела (D-024) заберут своё вместе со своими
-  механиками; пока пул тратится только на аккумуляторы;
-* **Счётчика зданий** (D-135): `energy.home_draw_per_m2` считается с площади
-  застройки, а построек нет до Э3;
-* **Геотермали и реактора**: они за пределами альфы вместе со своими планетами.
+* **Consumers other than charging.** The automatic machine (D-035), deep
+  mining (D-115) and body printing (D-024) will take theirs together with
+  their mechanics; for now the pool is spent only on batteries;
+* **Building meter** (D-135): `energy.home_draw_per_m2` is counted from
+  building area, and there are no buildings before E3;
+* **Geothermal and reactor**: they are beyond the alpha along with their planets.
 """
 
 from __future__ import annotations
@@ -60,7 +61,7 @@ from src.models.ledger import AccountKind, PostingReason
 from src.models.world import Layer, Node
 from src.units import ENERGY_PER_TARIFF_UNIT, PERCENT, SECONDS_PER_HOUR, money
 
-#: Станции из `build/recipes.json`. Что они дают — ниже, по ставкам вольта.
+#: Stations from `build/recipes.json`. What they give is below, by vault rates.
 WHEEL = "Водяное колесо"
 WINDMILL = "Ветряк"
 COAL_PLANT = "Угольная станция"
@@ -74,11 +75,11 @@ class EnergyError(Exception):
 
 
 class NoGrid(EnergyError):
-    """Вне города пула нет: там работают от аккумулятора, и его надо привезти."""
+    """No pool outside a city: there one works from a battery, and it has to be brought."""
 
 
 class NotEnough(EnergyError):
-    """В пуле столько нет. Пустой пул — политическое событие, а не ошибка."""
+    """The pool does not have that much. An empty pool is a political event, not an error."""
 
 
 class NotBattery(EnergyError):
@@ -86,10 +87,11 @@ class NotBattery(EnergyError):
 
 
 async def grid_node(session: AsyncSession, node: Node) -> Node | None:
-    """Узел-представитель города, на территории которого стоит этот узел.
+    """The delegate node of the city on whose territory this node stands.
 
-    Городская застройка — дети планетного представителя (D-045). Пойма и балка
-    висят прямо на планете и городу не принадлежат: там пула нет.
+    The city's built-up area is the planet delegate's children (D-045). The
+    floodplain and the gully hang directly on the planet and do not belong to
+    the city: there is no pool there.
     """
     if node.parent_id is None:
         return None
@@ -102,18 +104,18 @@ async def grid_node(session: AsyncSession, node: Node) -> Node | None:
 async def pool_of(
     session: AsyncSession, constants: Constants, node: Node, *, create: bool = True
 ) -> EnergyPool | None:
-    """Пул города этого узла. Заводится при первой надобности."""
-    город = await grid_node(session, node)
-    if город is None:
+    """This node's city pool. Created on first need."""
+    city = await grid_node(session, node)
+    if city is None:
         return None
     found = (
-        await session.execute(select(EnergyPool).where(EnergyPool.node_id == город.id))
+        await session.execute(select(EnergyPool).where(EnergyPool.node_id == city.id))
     ).scalar_one_or_none()
     if found is not None or not create:
         return found
 
     pool = EnergyPool(
-        node_id=город.id,
+        node_id=city.id,
         stored=Decimal(0),
         tariff=Decimal(str(constants[R.ENERGY_TARIFF_DEFAULT])),
     )
@@ -130,81 +132,81 @@ async def produce(
     now: datetime | None = None,
     rng: random.Random | None = None,
 ) -> float:
-    """Довести пул до «сейчас»: выработка станций города за прошедшее время.
+    """Bring the pool up to "now": generation of the city's stations over the elapsed time.
 
-    Возвращает, сколько добавилось. Топливо списывается там же, где стоит
-    станция: город зависит от того, кто возит уголь (D-082).
+    Returns how much was added. Fuel is written off where the station stands:
+    the city depends on whoever hauls coal (D-082).
     """
     moment = now or datetime.now(UTC)
-    прошло = (moment - pool.counted_at).total_seconds() / SECONDS_PER_HOUR
-    if прошло <= 0:
+    elapsed = (moment - pool.counted_at).total_seconds() / SECONDS_PER_HOUR
+    if elapsed <= 0:
         return 0.0
 
-    бросок = rng or random.Random(f"{pool.node_id}:{int(moment.timestamp())}")
-    узлы = (
+    dice = rng or random.Random(f"{pool.node_id}:{int(moment.timestamp())}")
+    nodes = (
         await session.execute(select(Node).where(Node.parent_id == pool.node_id))
     ).scalars().all()
 
-    добавилось = 0.0
-    for узел in узлы:
-        двор = await world.node_container(session, узел)
-        станки = (
+    added = 0.0
+    for node in nodes:
+        yard = await world.node_container(session, node)
+        machines = (
             await session.execute(
-                select(Item).where(Item.container_id == двор.id)
+                select(Item).where(Item.container_id == yard.id)
             )
         ).scalars().all()
-        река = узел.properties.get("вода") == "река"
+        river = node.properties.get("вода") == "река"
 
-        for станок in станки:
-            if станок.type_key == WHEEL and река:
-                добавилось += constants[R.ENERGY_WATERWHEEL_RATE] * прошло
-            elif станок.type_key == WINDMILL:
-                ветер = constants[R.ENERGY_WINDMILL_RATE]
-                добавилось += бросок.uniform(ветер.min, ветер.max) * прошло
-            elif станок.type_key == COAL_PLANT:
-                добавилось += await _burn_coal(
-                    session, constants, двор.id, прошло
+        for machine in machines:
+            if machine.type_key == WHEEL and river:
+                added += constants[R.ENERGY_WATERWHEEL_RATE] * elapsed
+            elif machine.type_key == WINDMILL:
+                wind = constants[R.ENERGY_WINDMILL_RATE]
+                added += dice.uniform(wind.min, wind.max) * elapsed
+            elif machine.type_key == COAL_PLANT:
+                added += await _burn_coal(
+                    session, constants, yard.id, elapsed
                 )
 
-    pool.stored = Decimal(str(float(pool.stored) + добавилось))
+    pool.stored = Decimal(str(float(pool.stored) + added))
     pool.counted_at = moment
     await session.flush()
-    return добавилось
+    return added
 
 
 async def _burn_coal(
     session: AsyncSession, constants: Constants, container_id: uuid.UUID, hours: float
 ) -> float:
-    """Сжечь уголь из узла и вернуть выработку. Нет угля — станция стоит."""
+    """Burn coal from the node and return the generation. No coal -- the station stands."""
     from src.units import amount, amount_float
 
-    надо = constants[R.ENERGY_COAL_PLANT_FUEL_DRAW] * hours
-    стопки = (
+    need = constants[R.ENERGY_COAL_PLANT_FUEL_DRAW] * hours
+    stacks = (
         await session.execute(
             select(Item).where(Item.container_id == container_id, Item.type_key == COAL)
         )
     ).scalars().all()
-    есть = sum(amount_float(стопка.amount) for стопка in стопки)
-    сожжём = min(надо, есть)
-    if сожжём <= 0:
+    have = sum(amount_float(stack.amount) for stack in stacks)
+    to_burn = min(need, have)
+    if to_burn <= 0:
         return 0.0
 
-    осталось = amount(сожжём)
-    for стопка in стопки:
-        if осталось <= 0:
+    left = amount(to_burn)
+    for stack in stacks:
+        if left <= 0:
             break
-        взять = min(осталось, стопка.amount)
-        if взять == стопка.amount:
-            await session.delete(стопка)
+        take = min(left, stack.amount)
+        if take == stack.amount:
+            await session.delete(stack)
         else:
-            стопка.amount -= взять
-        осталось -= взять
+            stack.amount -= take
+        left -= take
     await session.flush()
-    #: Выработка пропорциональна сожжённому: `energy.per_coal` на единицу.
-    return сожжём * constants[R.ENERGY_PER_COAL]
+    #: Generation is proportional to what was burned: `energy.per_coal` per unit.
+    return to_burn * constants[R.ENERGY_PER_COAL]
 
 
-# --- аккумулятор ------------------------------------------------------------
+# --- battery -----------------------------------------------------------------
 
 
 def capacity(constants: Constants) -> float:
@@ -214,34 +216,34 @@ def capacity(constants: Constants) -> float:
 def charge_of(
     constants: Constants, item: Item, *, now: datetime | None = None
 ) -> float:
-    """Заряд аккумулятора с учётом саморазряда — по факту прошедшего времени.
+    """Battery charge with self-discharge -- by elapsed time.
 
-    Энергия — скоропортящийся товар: накопить впрок на годы нельзя, и это
-    делает её постоянным спросом, а не сокровищем.
+    Energy is a perishable commodity: it cannot be stockpiled for years, and
+    that makes it constant demand rather than treasure.
     """
     if item.charge is None:
         return 0.0
     moment = now or datetime.now(UTC)
-    отсчёт = item.charged_at or item.created_at
-    #: Сутки здесь планетарные, как и все прочие сроки мира (D-008).
-    часов_в_сутках = constants[R.TIME_DAY_TERRA]
-    суток = max(
-        0.0, (moment - отсчёт).total_seconds() / SECONDS_PER_HOUR / часов_в_сутках
+    countdown = item.charged_at or item.created_at
+    #: A day here is planetary, like all other terms of the world (D-008).
+    hours_per_day = constants[R.TIME_DAY_TERRA]
+    days = max(
+        0.0, (moment - countdown).total_seconds() / SECONDS_PER_HOUR / hours_per_day
     )
-    утекло = capacity(constants) * constants[R.ENERGY_BATTERY_SELFDISCHARGE] / PERCENT
-    return max(0.0, float(item.charge) - утекло * суток)
+    leaked = capacity(constants) * constants[R.ENERGY_BATTERY_SELFDISCHARGE] / PERCENT
+    return max(0.0, float(item.charge) - leaked * days)
 
 
 async def settle_charge(
     session: AsyncSession, constants: Constants, item: Item, *, now: datetime | None = None
 ) -> float:
-    """Записать в аккумулятор его действительный заряд на сейчас."""
+    """Write into the battery its actual charge as of now."""
     moment = now or datetime.now(UTC)
-    заряд = charge_of(constants, item, now=moment)
-    item.charge = Decimal(str(заряд))
+    charge_ = charge_of(constants, item, now=moment)
+    item.charge = Decimal(str(charge_))
     item.charged_at = moment
     await session.flush()
-    return заряд
+    return charge_
 
 
 async def charge_battery(
@@ -253,13 +255,13 @@ async def charge_battery(
     *,
     now: datetime | None = None,
 ) -> float:
-    """Зарядить аккумулятор из городского пула по тарифу.
+    """Charge a battery from the city pool at the tariff.
 
-    Присутственное: заряд берут в городе и руками. Платит берущий — в казну
-    города: бесплатной энергии не бывает, а ноль тоже тариф (D-085).
+    In person: charge is taken in the city and by hand. The taker pays -- into
+    the city treasury: there is no free energy, and zero is a tariff too (D-085).
 
-    Заряжается и тот, что в руках, и тот, что стоит здесь станком (D-179):
-    аккумулятор — имущество места не меньше, чем ноша.
+    Both the one in hand and the one standing here as a machine are charged
+    (D-179): a battery is property of the place no less than a load.
     """
     moment = now or datetime.now(UTC)
     if body.state is not BodyState.ALIVE:
@@ -272,9 +274,9 @@ async def charge_battery(
     node = await session.get(Node, body.node_id)
     if node is None:  # pragma: no cover
         raise EnergyError("тело вне узла")
-    карман = await world.body_container(session, body)
-    двор = await world.node_container(session, node)
-    if item.container_id not in (карман.id, двор.id):
+    pocket = await world.body_container(session, body)
+    yard = await world.node_container(session, node)
+    if item.container_id not in (pocket.id, yard.id):
         raise EnergyError("аккумулятор не в руках и не стоит здесь")
     pool = await pool_of(session, constants, node)
     if pool is None:
@@ -284,34 +286,34 @@ async def charge_battery(
         )
     await produce(session, constants, pool, now=moment)
 
-    есть = await settle_charge(session, constants, item, now=moment)
-    место = max(0.0, capacity(constants) - есть)
-    хочет = место if amount_wanted is None else min(float(amount_wanted), место)
-    дадут = min(хочет, float(pool.stored))
-    if дадут <= 0:
+    have = await settle_charge(session, constants, item, now=moment)
+    place = max(0.0, capacity(constants) - have)
+    wants = place if amount_wanted is None else min(float(amount_wanted), place)
+    will_give = min(wants, float(pool.stored))
+    if will_give <= 0:
         raise NotEnough(
             f"в пуле {float(pool.stored):.0f} энергии, а в аккумуляторе места "
-            f"на {место:.0f}"
+            f"на {place:.0f}"
         )
 
-    #: Тариф задан за сотню энергии — счёт выставляется по нему же.
-    цена = money(дадут / ENERGY_PER_TARIFF_UNIT * float(pool.tariff))
-    if цена > 0:
-        счёт = await ledger.account_for(session, AccountKind.IDENTITY, body.identity_id)
-        казна = await ledger.account_for(
+    #: The tariff is given per hundred energy -- the bill is issued by it too.
+    price = money(will_give / ENERGY_PER_TARIFF_UNIT * float(pool.tariff))
+    if price > 0:
+        account = await ledger.account_for(session, AccountKind.IDENTITY, body.identity_id)
+        treasury = await ledger.account_for(
             session, AccountKind.CITY_TREASURY, pool.node_id
         )
         await ledger.transfer(
             session,
             PostingReason.ENERGY_BILL,
-            debit=счёт.id,
-            credit=казна.id,
-            amount=цена,
-            memo={"энергии": дадут, "тариф": float(pool.tariff)},
+            debit=account.id,
+            credit=treasury.id,
+            amount=price,
+            memo={"энергии": will_give, "тариф": float(pool.tariff)},
         )
 
-    pool.stored = Decimal(str(float(pool.stored) - дадут))
-    item.charge = Decimal(str(есть + дадут))
+    pool.stored = Decimal(str(float(pool.stored) - will_give))
+    item.charge = Decimal(str(have + will_give))
     item.charged_at = moment
     await session.flush()
 
@@ -321,11 +323,11 @@ async def charge_battery(
         actor_identity_id=body.identity_id,
         node_id=body.node_id,
         item_id=str(item.id),
-        energy=дадут,
-        paid=цена,
+        energy=will_give,
+        paid=price,
         tariff=float(pool.tariff),
     )
-    return дадут
+    return will_give
 
 
 async def draw_for_work(
@@ -337,15 +339,15 @@ async def draw_for_work(
     what: str,
     now: datetime | None = None,
 ) -> int:
-    """Отпустить энергию из пула на работу и выставить счёт по тарифу.
+    """Release energy from the pool for work and issue a bill at the tariff.
 
-    Возвращает уплаченное. Платит тот, кто жжёт (D-135): владелец станка
-    участвует в расходах на топливо наравне со всеми, иначе энергетика
-    перестаёт быть экономикой и становится дотацией.
+    Returns what was paid. Whoever burns pays (D-135): the machine's owner
+    takes part in fuel costs like everyone, otherwise energy stops being an
+    economy and becomes a subsidy.
 
-    Списывается **вперёд**, как и материалы партии: тогда не возникает вопроса,
-    что делать с начатой работой при опустевшем пуле, — он в вольте открыт
-    (12-energy), и решать его молча движок не вправе.
+    Written off **up front**, like batch materials: then no question arises of
+    what to do with started work when the pool empties -- it is open in the
+    vault (12-energy), and the engine may not decide it silently.
     """
     moment = now or datetime.now(UTC)
     if energy_needed <= 0:
@@ -368,18 +370,18 @@ async def draw_for_work(
             f"{float(pool.stored):.0f}: город без топлива стоит"
         )
 
-    цена = money(energy_needed / ENERGY_PER_TARIFF_UNIT * float(pool.tariff))
-    if цена > 0:
-        счёт = await ledger.account_for(session, AccountKind.IDENTITY, body.identity_id)
-        казна = await ledger.account_for(
+    price = money(energy_needed / ENERGY_PER_TARIFF_UNIT * float(pool.tariff))
+    if price > 0:
+        account = await ledger.account_for(session, AccountKind.IDENTITY, body.identity_id)
+        treasury = await ledger.account_for(
             session, AccountKind.CITY_TREASURY, pool.node_id
         )
         await ledger.transfer(
             session,
             PostingReason.ENERGY_BILL,
-            debit=счёт.id,
-            credit=казна.id,
-            amount=цена,
+            debit=account.id,
+            credit=treasury.id,
+            amount=price,
             memo={"энергии": energy_needed, "за": what, "тариф": float(pool.tariff)},
         )
 
@@ -391,51 +393,52 @@ async def draw_for_work(
         actor_identity_id=body.identity_id,
         node_id=body.node_id,
         energy=energy_needed,
-        paid=цена,
+        paid=price,
         work=what,
     )
-    return цена
+    return price
 
 
 async def price_of(
     session: AsyncSession, constants: Constants, node: Node, energy_needed: float
 ) -> int:
-    """Во что обойдётся столько энергии здесь. Для прогноза — до траты."""
+    """What this much energy costs here. For a forecast -- before spending."""
     pool = await pool_of(session, constants, node, create=False)
-    тариф = float(pool.tariff) if pool is not None else constants[R.ENERGY_TARIFF_DEFAULT]
-    return money(energy_needed / ENERGY_PER_TARIFF_UNIT * тариф)
+    tariff = float(pool.tariff) if pool is not None else constants[R.ENERGY_TARIFF_DEFAULT]
+    return money(energy_needed / ENERGY_PER_TARIFF_UNIT * tariff)
 
 
 async def tick_pools(
     session: AsyncSession, constants: Constants, *, now: datetime | None = None
 ) -> float:
-    """Довести все городские пулы до «сейчас». Мир живёт без игроков."""
+    """Bring all city pools up to "now". The world lives without players."""
     moment = now or datetime.now(UTC)
     pools = (await session.execute(select(EnergyPool))).scalars().all()
-    итог = 0.0
+    result = 0.0
     for pool in pools:
-        итог += await produce(session, constants, pool, now=moment)
-    return итог
+        result += await produce(session, constants, pool, now=moment)
+    return result
 
 
 async def ensure_pools(
     session: AsyncSession, constants: Constants, *, now: datetime | None = None
 ) -> int:
-    """Завести пул каждому городу, у которого есть застройка.
+    """Create a pool for every city that has a built-up area.
 
-    Город — узел планетного слоя, под которым стоят узлы городского. Пул
-    заводится один раз и дальше живёт временем.
+    A city is a planet-layer node under which city-layer nodes stand. The pool
+    is created once and lives by time from then on.
     """
-    города = (
+    cities = (
         await session.execute(select(Node).where(Node.layer == Layer.CITY))
     ).scalars().all()
-    заведено = 0
-    for узел in города:
-        # Второй вызов заводит пул, и до него дело доходит только у того, у
-        # кого его нет: `and` не считает правую часть, пока левая ложна.
+    opened = 0
+    for node in cities:
+        # The second call creates the pool, and it is reached only by one that
+        # has none: `and` does not evaluate the right side while the left is false.
+
         if (
-            await pool_of(session, constants, узел, create=False) is None
-            and await pool_of(session, constants, узел) is not None
+            await pool_of(session, constants, node, create=False) is None
+            and await pool_of(session, constants, node) is not None
         ):
-            заведено += 1
-    return заведено
+            opened += 1
+    return opened

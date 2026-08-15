@@ -1,53 +1,53 @@
-﻿# Пересобрать вольт гейм-дизайна и обновить слепок в `vault/`.
+# Rebuild the game-design vault and refresh the snapshot in `vault/`.
 #
-# Запуск из корня репозитория игры:
+# Run from the game repository root:
 #   powershell -File deploy/sync-vault.ps1
 #   powershell -File deploy/sync-vault.ps1 -Vault D:\path\to\octoverse-game-design
 #
-# Числа правятся только в вольте (D-065). Здесь — перенос вывода сборки, чтобы
-# образ сервера и CI видели те же значения, что и разработчик.
+# Numbers are edited only in the vault (D-065). Here -- carrying the build
+# output over, so that the server image and CI see the same values as the developer.
 
 [CmdletBinding()]
 param(
-    # Где лежит вольт. Пусто — рядом с этим репозиторием.
+    # Where the vault lies. Empty -- next to this repository.
     [string]$Vault = '',
-    # Не пересобирать, взять готовый build/.
+    # Do not rebuild, take the ready build/.
     [switch]$NoBuild
 )
 
 $ErrorActionPreference = 'Stop'
 
 $repo = Split-Path -Parent $PSScriptRoot
-# Значение по умолчанию считается здесь, а не в объявлении: в Windows
-# PowerShell $PSScriptRoot до тела скрипта ещё пуст.
+# The default is computed here, not in the declaration: in Windows PowerShell
+# $PSScriptRoot is still empty before the script body.
 if (-not $Vault) { $Vault = Join-Path $repo '..\octoverse-game-design' }
 $vault = (Resolve-Path $Vault).Path
 $build = Join-Path $vault 'build'
 $target = Join-Path $repo 'vault'
 
-if (-not (Test-Path $vault)) { throw "вольт не найден: $vault" }
+if (-not (Test-Path $vault)) { throw "vault not found: $vault" }
 
 if (-not $NoBuild) {
     $tool = Join-Path $vault 'tools\build.py'
     if (Test-Path $tool) {
-        Write-Host "сборка вольта: $tool"
+        Write-Host "building the vault: $tool"
         Push-Location $vault
         try { python tools/build.py } finally { Pop-Location }
     } else {
-        Write-Warning "tools/build.py не найден — беру готовый build/"
+        Write-Warning "tools/build.py not found -- taking the ready build/"
     }
 }
 
-if (-not (Test-Path $build)) { throw "нет каталога сборки: $build" }
+if (-not (Test-Path $build)) { throw "no build directory: $build" }
 
 New-Item -ItemType Directory -Force -Path $target | Out-Null
 foreach ($name in 'constants.json', 'laws.json', 'plants.json', 'recipes.json') {
     $from = Join-Path $build $name
-    if (-not (Test-Path $from)) { throw "сборка неполна, нет файла: $from" }
+    if (-not (Test-Path $from)) { throw "the build is incomplete, missing file: $from" }
     Copy-Item $from (Join-Path $target $name) -Force
     Write-Host "  $name"
 }
 
 Write-Host ''
-Write-Host "слепок обновлён: $target"
-Write-Host 'дальше: git add vault && git commit && git push — числа доедут до сервера деплоем'
+Write-Host "snapshot refreshed: $target"
+Write-Host 'next: git add vault && git commit && git push -- the numbers reach the server by deploy'

@@ -1,10 +1,11 @@
-"""Гражданство: одно на человека, заявки и приглашения (D-160).
+"""Citizenship: one per person, applications and invitations (D-160).
 
 
 Revision ID: e9cd9b438331
 Revises: a905d7075856
 Create Date: 2026-08-14 12:14:57.015960
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence

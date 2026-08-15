@@ -1,13 +1,13 @@
-"""Крафт и качество (D-092, D-133).
+"""Craft and quality (D-092, D-133).
 
-Проверяется не «функция считает число», а то, ради чего система написана:
+Checked is not "the function computes a number" but what the system was written for:
 
-* количества входов берутся **из данных**, а не из головы (D-133);
-* прогноз качества показан точным числом до того, как потрачены материалы;
-* потолок задаёт самое слабое звено — станок или инструмент;
-* у смеси пропорция зависит от качества сырья, у сборки её нет вовсе;
-* партия идёт заданием журнала и завершается ровно один раз;
-* материя не создаётся: вход списан, потери ушли в сток.
+* input amounts are taken **from data**, not from imagination (D-133);
+* the quality forecast is shown as an exact number before materials are spent;
+* the ceiling is set by the weakest link -- machine or tool;
+* for a mix the proportion depends on raw-material quality, an assembly has none at all;
+* a batch runs as a journal job and completes exactly once;
+* matter is not created: the input is written off, losses went to the sink.
 """
 
 from __future__ import annotations
@@ -28,8 +28,8 @@ from src.models.identity import Body, KnowledgeKind
 from src.models.inventory import Item
 from src.units import amount_float
 
-#: Первый настоящий передел лестницы: слиток железа плавится операцией, без
-#: рецепта (20-systems/03-crafting), а гвозди уже требуют знания.
+#: The first real processing step of the ladder: an iron ingot is smelted by
+#: an operation, without a recipe (20-systems/03-crafting), while nails already require knowledge.
 INGOT = "Слиток железа"
 NAILS = "Гвозди"
 STEEL = "Сталь"
@@ -38,499 +38,499 @@ FORGE = "Кузница"
 FURNACE = "Плавильная печь"
 
 
-async def _мастерская(
+async def _workshop(
     session: AsyncSession,
     *,
-    #: Гвозди куются: пример-рецепт тестов живёт в кузнице (ребаланс станков).
-    станок: str | None = FORGE,
-    качество_станка: float = 60,
+    #: Nails are forged: the tests' example recipe lives at the forge (machine rebalance).
+    machine: str | None = FORGE,
+    machine_quality: float = 60,
     library: bool = False,
 ):
-    метка = uuid.uuid4().hex[:8]
+    stamp = uuid.uuid4().hex[:8]
     node = await world.create_node(
         session,
-        f"terra.workshop.{метка}",
+        f"terra.workshop.{stamp}",
         "Мастерская",
         area_m2=100,
         properties={"library": library},
     )
-    identity = await world.create_identity(session, f"Мастер-{метка}")
+    identity = await world.create_identity(session, f"Мастер-{stamp}")
     body = await world.print_body(session, identity, node)
-    if станок is not None:
-        двор = await world.node_container(session, node)
+    if machine is not None:
+        yard = await world.node_container(session, node)
         await world.grant_item(
-            session, двор, станок, quality=качество_станка, origin="сценарий теста"
+            session, yard, machine, quality=machine_quality, origin="сценарий теста"
         )
     return node, identity, body
 
 
-async def _дать(session: AsyncSession, body, type_key: str, количество: float, качество: float):
-    контейнер = await world.body_container(session, body)
+async def _give(session: AsyncSession, body, type_key: str, quantity: float, quality: float):
+    container = await world.body_container(session, body)
     return await world.grant_item(
         session,
-        контейнер,
+        container,
         type_key,
-        amount=количество,
-        quality=качество,
+        amount=quantity,
+        quality=quality,
         origin="сценарий теста",
     )
 
 
-async def _в_инвентаре(session: AsyncSession, body, type_key: str) -> float:
-    контейнер = await world.body_container(session, body)
-    итог = await session.scalar(
+async def _in_inventory(session: AsyncSession, body, type_key: str) -> float:
+    container = await world.body_container(session, body)
+    result = await session.scalar(
         select(func.coalesce(func.sum(Item.amount), 0)).where(
-            Item.container_id == контейнер.id, Item.type_key == type_key
+            Item.container_id == container.id, Item.type_key == type_key
         )
     )
-    return amount_float(int(итог or 0))
+    return amount_float(int(result or 0))
 
 
-# --- способ изготовления ----------------------------------------------------
+# --- method of making ---------------------------------------------------------
 
 
-def test_количества_входов_берутся_из_данных(catalog: Catalog) -> None:
-    """Из головы количества не берутся никогда (D-133)."""
-    рецепт = catalog.recipes.recipe(NAILS)
-    способ = craft.procedure(catalog, NAILS)
-    assert способ.per_unit == {INGOT: рецепт.amounts[INGOT]}
-    assert способ.needs_recipe, "рецепт требует знания"
+def test_input_amounts_taken_from_data(catalog: Catalog) -> None:
+    """Amounts are never taken from imagination (D-133)."""
+    recipe = catalog.recipes.recipe(NAILS)
+    method = craft.procedure(catalog, NAILS)
+    assert method.per_unit == {INGOT: recipe.amounts[INGOT]}
+    assert method.needs_recipe, "рецепт требует знания"
 
 
-def test_операция_без_рецепта_знания_не_требует(catalog: Catalog) -> None:
-    """Плавка — граница между «добыл» и «сделал», и она открыта всем."""
-    способ = craft.procedure(catalog, INGOT)
-    assert not способ.needs_recipe
-    assert способ.station == FURNACE
-    assert set(способ.per_unit) == {"Железная руда", "Уголь"}
+def test_operation_without_recipe_needs_no_knowledge(catalog: Catalog) -> None:
+    """Smelting is the boundary between "mined" and "made", and it is open to all."""
+    method = craft.procedure(catalog, INGOT)
+    assert not method.needs_recipe
+    assert method.station == FURNACE
+    assert set(method.per_unit) == {"Железная руда", "Уголь"}
 
 
-def test_добыча_крафтом_не_притворяется(catalog: Catalog) -> None:
-    """Операция, ничего не расходующая, берёт материю из мира — это не крафт.
+def test_mining_does_not_pretend_to_be_craft(catalog: Catalog) -> None:
+    """An operation that spends nothing takes matter from the world -- that is not craft.
 
-    Руда идёт своей механикой (жила и кирка), и партией её не взять.
+    Ore goes by its own mechanic (vein and pickaxe), and cannot be taken by batch.
     """
     with pytest.raises(craft.Unmakeable):
         craft.procedure(catalog, "Железная руда")
 
 
-def test_добыча_места_идёт_партией(catalog: Catalog) -> None:
-    """Рубка леса — добыча места (D-177): без входов, но с привязкой к узлу."""
-    способ = craft.procedure(catalog, "Бревно")
-    assert способ.place == "лес"
-    assert способ.inputs == ()
-    assert "Топор" in способ.tools
-    assert not способ.needs_recipe
+def test_place_extraction_goes_as_batch(catalog: Catalog) -> None:
+    """Felling is place extraction (D-177): without inputs, but tied to a node."""
+    method = craft.procedure(catalog, "Бревно")
+    assert method.place == "лес"
+    assert method.inputs == ()
+    assert "Топор" in method.tools
+    assert not method.needs_recipe
 
 
-def test_блюда_ждут_готовки(catalog: Catalog) -> None:
-    """Роли приезжают вместе с готовкой на Э2 (D-119), и делать вид нельзя."""
+def test_dishes_wait_for_cooking(catalog: Catalog) -> None:
+    """Roles arrive together with cooking on E2 (D-119), and pretending is not allowed."""
     with pytest.raises(craft.Unmakeable):
         craft.procedure(catalog, "Похлёбка")
 
 
-def test_время_растёт_с_глубиной_передела(catalog: Catalog, constants: Constants) -> None:
-    """Главная ручка ценности лестницы: чем глубже передел, тем дольше (D-133)."""
-    гвозди = craft.step_hours(catalog, catalog.recipes.recipe(NAILS))
-    кирка = craft.step_hours(catalog, catalog.recipes.recipe("Стальная кирка"))
-    assert кирка > гвозди > 0
+def test_time_grows_with_processing_depth(catalog: Catalog, constants: Constants) -> None:
+    """The main value knob of the ladder: the deeper the processing, the longer (D-133)."""
+    nails = craft.step_hours(catalog, catalog.recipes.recipe(NAILS))
+    pickaxe = craft.step_hours(catalog, catalog.recipes.recipe("Стальная кирка"))
+    assert pickaxe > nails > 0
 
-    #: Собственный шаг первого передела — это и есть `craft.time_per_unit`.
-    верёвка = craft.step_hours(catalog, catalog.recipes.recipe("Верёвка"))
-    assert верёвка * 60 == pytest.approx(constants[R.CRAFT_TIME_PER_UNIT], rel=0.05)
+    #: The own step of the first processing level is exactly `craft.time_per_unit`.
+    rope = craft.step_hours(catalog, catalog.recipes.recipe("Верёвка"))
+    assert rope * 60 == pytest.approx(constants[R.CRAFT_TIME_PER_UNIT], rel=0.05)
 
 
-def test_разбитый_станок_работает_медленно(catalog: Catalog, constants: Constants) -> None:
-    способ = craft.procedure(catalog, NAILS)
-    шкала = constants[R.QUALITY_SCALE]
-    быстро = craft.batch_minutes(constants, способ, 1, шкала.max)
-    медленно = craft.batch_minutes(constants, способ, 1, шкала.min)
+def test_broken_machine_works_slowly(catalog: Catalog, constants: Constants) -> None:
+    method = craft.procedure(catalog, NAILS)
+    scale = constants[R.QUALITY_SCALE]
+    fast = craft.batch_minutes(constants, method, 1, scale.max)
+    slow = craft.batch_minutes(constants, method, 1, scale.min)
     k = constants[R.CRAFT_STATION_SPEED_K]
-    assert медленно / быстро == pytest.approx(k.max / k.min)
+    assert slow / fast == pytest.approx(k.max / k.min)
 
 
-# --- качество ---------------------------------------------------------------
+# --- quality -----------------------------------------------------------------
 
 
-def _смесь(catalog: Catalog) -> Procedure:
-    """Сталь: чугун, уголь, известняк — пятнадцать смесей из ста двенадцати."""
+def _mix(catalog: Catalog) -> Procedure:
+    """Steel: pig iron, coal, limestone -- fifteen mixes out of one hundred and twelve."""
     return craft.procedure(catalog, STEEL)
 
 
-def test_бедной_руде_нужно_больше_флюса(constants: Constants, catalog: Catalog) -> None:
-    """У смеси оптимум зависит от качества сырья (D-092)."""
-    смесь = _смесь(catalog)
-    добавка = смесь.inputs[1]
-    бедная = craft.optimal_amounts(constants, смесь, 1, 20)
-    чистая = craft.optimal_amounts(constants, смесь, 1, 90)
-    assert бедная[добавка] > чистая[добавка]
-    #: Основы это не касается: она и есть то, что переделывают.
-    assert бедная[смесь.inputs[0]] == чистая[смесь.inputs[0]]
+def test_poor_ore_needs_more_flux(constants: Constants, catalog: Catalog) -> None:
+    """For a mix the optimum depends on raw-material quality (D-092)."""
+    mix = _mix(catalog)
+    bonus = mix.inputs[1]
+    poor = craft.optimal_amounts(constants, mix, 1, 20)
+    pure_ = craft.optimal_amounts(constants, mix, 1, 90)
+    assert poor[bonus] > pure_[bonus]
+    #: This does not concern the base: it is what is being processed.
+    assert poor[mix.inputs[0]] == pure_[mix.inputs[0]]
 
 
-def test_у_сборки_пропорций_нет(constants: Constants, catalog: Catalog) -> None:
-    """Верстак — это бревно и верёвка, третьего не дано (D-092)."""
-    сборка = craft.procedure(catalog, NAILS)
-    для_бедного = craft.optimal_amounts(constants, сборка, 1, 10)
-    для_чистого = craft.optimal_amounts(constants, сборка, 1, 90)
-    assert для_бедного == для_чистого
+def test_assembly_has_no_proportions(constants: Constants, catalog: Catalog) -> None:
+    """A workbench is a log and a rope, nothing in between (D-092)."""
+    assembly = craft.procedure(catalog, NAILS)
+    for_poor = craft.optimal_amounts(constants, assembly, 1, 10)
+    for_pure = craft.optimal_amounts(constants, assembly, 1, 90)
+    assert for_poor == for_pure
 
 
-def test_промах_дороже_и_разброснее(constants: Constants, catalog: Catalog) -> None:
-    """Плохая плавка съедает больше и даёт непредсказуемый слиток."""
-    точно = craft.waste_share(constants, 1.0)
-    мимо = craft.waste_share(constants, 0.0)
-    assert точно == constants[R.CRAFT_WASTE_SHARE]
-    assert мимо == constants[R.CRAFT_WASTE_BAD_RATIO]
+def test_miss_costs_more_and_spreads_more(constants: Constants, catalog: Catalog) -> None:
+    """Bad smelting eats more and gives an unpredictable ingot."""
+    exact = craft.waste_share(constants, 1.0)
+    miss = craft.waste_share(constants, 0.0)
+    assert exact == constants[R.CRAFT_WASTE_SHARE]
+    assert miss == constants[R.CRAFT_WASTE_BAD_RATIO]
     assert craft.spread_of(constants, 1.0) < craft.spread_of(constants, 0.0)
 
 
-def test_потолок_задаёт_слабое_звено(constants: Constants, catalog: Catalog) -> None:
-    """Отличный инструмент на разбитой наковальне даст посредственный результат."""
-    сборка = craft.procedure(catalog, NAILS)
-    шкала = constants[R.QUALITY_SCALE]
-    отличное = craft.forecast_quality(
-        constants, сборка, ceiling=шкала.max, material=шкала.max, accuracy=1.0
+def test_ceiling_set_by_weakest_link(constants: Constants, catalog: Catalog) -> None:
+    """An excellent tool on a broken anvil gives a mediocre result."""
+    assembly = craft.procedure(catalog, NAILS)
+    scale = constants[R.QUALITY_SCALE]
+    excellent = craft.forecast_quality(
+        constants, assembly, ceiling=scale.max, material=scale.max, accuracy=1.0
     )
-    посредственное = craft.forecast_quality(
-        constants, сборка, ceiling=шкала.mid, material=шкала.max, accuracy=1.0
+    mediocre = craft.forecast_quality(
+        constants, assembly, ceiling=scale.mid, material=scale.max, accuracy=1.0
     )
-    assert отличное == pytest.approx(шкала.max)
-    assert посредственное == pytest.approx(шкала.mid)
+    assert excellent == pytest.approx(scale.max)
+    assert mediocre == pytest.approx(scale.mid)
 
 
-def test_премия_ремесла_только_у_смеси(constants: Constants, catalog: Catalog) -> None:
-    """Мастер превосходит станок адаптивностью, а не большой цифрой (D-058)."""
-    шкала = constants[R.QUALITY_SCALE]
-    смесь = _смесь(catalog)
-    сборка = craft.procedure(catalog, NAILS)
+def test_craft_premium_only_for_mix(constants: Constants, catalog: Catalog) -> None:
+    """The master surpasses the machine by adaptivity, not by a big number (D-058)."""
+    scale = constants[R.QUALITY_SCALE]
+    mix = _mix(catalog)
+    assembly = craft.procedure(catalog, NAILS)
 
-    у_смеси = craft.forecast_quality(
-        constants, смесь, ceiling=шкала.mid, material=шкала.max, accuracy=1.0
+    of_mix = craft.forecast_quality(
+        constants, mix, ceiling=scale.mid, material=scale.max, accuracy=1.0
     )
-    у_сборки = craft.forecast_quality(
-        constants, сборка, ceiling=шкала.mid, material=шкала.max, accuracy=1.0
+    of_assembly = craft.forecast_quality(
+        constants, assembly, ceiling=scale.mid, material=scale.max, accuracy=1.0
     )
-    assert у_смеси > шкала.mid, "точная пропорция поднимает выше потолка станка"
-    assert у_сборки == pytest.approx(шкала.mid), "у сборки прибавке взяться неоткуда"
-    assert у_смеси - шкала.mid <= constants[R.QUALITY_HAND_CRAFT_BONUS]
+    assert of_mix > scale.mid, "точная пропорция поднимает выше потолка станка"
+    assert of_assembly == pytest.approx(scale.mid), "у сборки прибавке взяться неоткуда"
+    assert of_mix - scale.mid <= constants[R.QUALITY_HAND_CRAFT_BONUS]
 
 
-# --- партия -----------------------------------------------------------------
+# --- batch -------------------------------------------------------------------
 
 
-async def test_прогноз_показан_числом_до_партии(
+async def test_forecast_shown_as_number_before_batch(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Без точного числа игрок не свяжет действие с результатом (D-092)."""
-    _, identity, body = await _мастерская(session)
+    """Without an exact number the player will not connect action with result (D-092)."""
+    _, identity, body = await _workshop(session)
     await world.learn(session, identity, NAILS)
-    await _дать(session, body, INGOT, 10, качество=80)
+    await _give(session, body, INGOT, 10, quality=80)
 
-    прогноз = await craft.plan(session, constants, catalog, body, NAILS, 3)
-    assert isinstance(прогноз.quality, float)
-    assert прогноз.minutes > 0
-    assert прогноз.consumes[INGOT] > 0
+    forecast = await craft.plan(session, constants, catalog, body, NAILS, 3)
+    assert isinstance(forecast.quality, float)
+    assert forecast.minutes > 0
+    assert forecast.consumes[INGOT] > 0
 
-    #: Прогноз ничего не тратит.
-    assert await _в_инвентаре(session, body, INGOT) == pytest.approx(10)
+    #: The forecast spends nothing.
+    assert await _in_inventory(session, body, INGOT) == pytest.approx(10)
 
 
-async def test_без_рецепта_партия_не_идёт(
+async def test_batch_does_not_go_without_recipe(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Игрок с рождения не умеет создавать ничего."""
-    _, _, body = await _мастерская(session)
-    await _дать(session, body, INGOT, 10, качество=80)
+    """From birth the player cannot create anything."""
+    _, _, body = await _workshop(session)
+    await _give(session, body, INGOT, 10, quality=80)
     with pytest.raises(craft.NotLearned):
         await craft.plan(session, constants, catalog, body, NAILS, 1)
 
 
-async def test_без_станка_в_узле_партия_не_идёт(
+async def test_batch_does_not_go_without_machine_in_node(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Требование «станок в месте» и делает крафт градообразующим."""
-    _, identity, body = await _мастерская(session, станок=None)
+    """The requirement "machine in place" is what makes craft city-forming."""
+    _, identity, body = await _workshop(session, machine=None)
     await world.learn(session, identity, NAILS)
-    await _дать(session, body, INGOT, 10, качество=80)
+    await _give(session, body, INGOT, 10, quality=80)
     with pytest.raises(craft.NoStation):
         await craft.plan(session, constants, catalog, body, NAILS, 1)
 
 
-async def test_не_хватило_входов__партия_не_начнётся(
+async def test_short_of_inputs_batch_does_not_start(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Материя не создаётся ни при каких обстоятельствах (И1)."""
-    _, identity, body = await _мастерская(session)
+    """Matter is not created under any circumstances (I1)."""
+    _, identity, body = await _workshop(session)
     await world.learn(session, identity, NAILS)
-    await _дать(session, body, INGOT, 1, качество=80)
+    await _give(session, body, INGOT, 1, quality=80)
     with pytest.raises(craft.NotEnough):
         await craft.start(session, constants, catalog, body, NAILS, 10)
 
 
-async def test_партия_больше_потолка_не_ставится(
+async def test_batch_over_ceiling_not_started(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    _, identity, body = await _мастерская(session)
+    _, identity, body = await _workshop(session)
     await world.learn(session, identity, NAILS)
-    сверх_меры = constants[R.CRAFT_BATCH_MAX] + 1
+    over_measure = constants[R.CRAFT_BATCH_MAX] + 1
     with pytest.raises(craft.TooBig):
-        await craft.plan(session, constants, catalog, body, NAILS, сверх_меры)
+        await craft.plan(session, constants, catalog, body, NAILS, over_measure)
 
 
-async def test_вход_списывается_сразу_и_с_угаром(
+async def test_input_written_off_at_once_with_loss(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Угар — сток С9: материи в мире стало меньше, чем было (D-129)."""
-    _, identity, body = await _мастерская(session)
+    """Waste is sink S9: there is less matter in the world than there was (D-129)."""
+    _, identity, body = await _workshop(session)
     await world.learn(session, identity, NAILS)
-    await _дать(session, body, INGOT, 10, качество=60)
+    await _give(session, body, INGOT, 10, quality=60)
 
-    норма = catalog.recipes.recipe(NAILS).amounts[INGOT] * 4
-    партия = await craft.start(session, constants, catalog, body, NAILS, 4)
+    norm = catalog.recipes.recipe(NAILS).amounts[INGOT] * 4
+    batch = await craft.start(session, constants, catalog, body, NAILS, 4)
     await session.commit()
 
-    осталось = await _в_инвентаре(session, body, INGOT)
-    списано = 10 - осталось
-    assert списано > норма, "потери берутся сверх нормы, а не из выхода"
-    assert партия.state is BatchState.RUNNING
-    assert партия.ready_at > партия.started_at
+    left = await _in_inventory(session, body, INGOT)
+    written_off = 10 - left
+    assert written_off > norm, "потери берутся сверх нормы, а не из выхода"
+    assert batch.state is BatchState.RUNNING
+    assert batch.ready_at > batch.started_at
 
 
-async def test_партия_приходит_заданием_и_ровно_один_раз(
+async def test_batch_arrives_by_job_exactly_once(
     factory: async_sessionmaker[AsyncSession], constants: Constants, catalog: Catalog
 ) -> None:
-    """Эффект партии обязан быть в базе, а задание — идемпотентным."""
+    """The batch's effect must be in the database, and the job idempotent."""
     async with factory() as session, session.begin():
-        _, identity, body = await _мастерская(session)
+        _, identity, body = await _workshop(session)
         await world.learn(session, identity, NAILS)
-        await _дать(session, body, INGOT, 10, качество=70)
-        партия = await craft.start(session, constants, catalog, body, NAILS, 2)
-        готова, batch_id, body_id = партия.ready_at, партия.id, body.id
+        await _give(session, body, INGOT, 10, quality=70)
+        batch = await craft.start(session, constants, catalog, body, NAILS, 2)
+        ready, batch_id, body_id = batch.ready_at, batch.id, body.id
 
-    #: Время партии ещё не пришло — задание не берётся.
-    assert await jobs.run_one(factory, now=готова - timedelta(minutes=1)) is None
+    #: The batch's time has not come yet -- the job is not taken.
+    assert await jobs.run_one(factory, now=ready - timedelta(minutes=1)) is None
 
-    задание = await jobs.run_one(factory, now=готова)
-    assert задание is not None and задание.kind == "craft.batch"
+    job = await jobs.run_one(factory, now=ready)
+    assert job is not None and job.kind == "craft.batch"
 
     async with factory() as session:
-        тело = await session.get(Body, body_id)
-        assert тело is not None
-        карман = await world.body_container(session, тело)
-        сделано = (
+        reloaded = await session.get(Body, body_id)
+        assert reloaded is not None
+        pocket = await world.body_container(session, reloaded)
+        done = (
             await session.execute(
-                select(Item).where(Item.container_id == карман.id, Item.type_key == NAILS)
+                select(Item).where(Item.container_id == pocket.id, Item.type_key == NAILS)
             )
         ).scalars().all()
-        assert len(сделано) == 1, "гвозди складываются: одна стопка"
-        assert amount_float(сделано[0].amount) == pytest.approx(2)
-        assert сделано[0].maker_identity_id is not None, "клеймо обязательно (D-058)"
+        assert len(done) == 1, "гвозди складываются: одна стопка"
+        assert amount_float(done[0].amount) == pytest.approx(2)
+        assert done[0].maker_identity_id is not None, "клеймо обязательно (D-058)"
 
-        партия = await session.get(CraftBatch, batch_id)
-        assert партия is not None and партия.state is BatchState.DONE
+        batch = await session.get(CraftBatch, batch_id)
+        assert batch is not None and batch.state is BatchState.DONE
 
-        #: Повтор того же задания второй партии не даёт.
-        await craft.finish(session, задание)
-        всё = (
+        #: A repeat of the same job gives no second batch.
+        await craft.finish(session, job)
+        everything = (
             await session.execute(
                 select(func.count())
                 .select_from(Item)
-                .where(Item.container_id == карман.id, Item.type_key == NAILS)
+                .where(Item.container_id == pocket.id, Item.type_key == NAILS)
             )
         ).scalar_one()
-        assert всё == 1
+        assert everything == 1
 
 
-async def test_станок_рецепта_ищется_через_синонимы(
+async def test_recipe_machine_found_via_synonyms(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """В рецептах станок зовётся «Печью», а в узле стоит «Плавильная печь».
+    """In recipes the machine is called "Furnace", while in the node stands a "Smelting furnace".
 
-    Без разрешения синонима вся химия и аффинаж были неизготовимы: движок
-    искал станок с именем, которого в мире не бывает.
+    Without synonym resolution all chemistry and refining were unmakeable: the
+    engine looked for a machine with a name that never exists in the world.
     """
-    ГЛАЗУРЬ = "Стекло"
-    _, identity, body = await _мастерская(session, станок=FURNACE, качество_станка=70)
-    await world.learn(session, identity, ГЛАЗУРЬ)
-    for сырьё in ("Кварцевый песок", "Уголь"):
-        await _дать(session, body, сырьё, 100, качество=60)
+    GLAZE = "Стекло"
+    _, identity, body = await _workshop(session, machine=FURNACE, machine_quality=70)
+    await world.learn(session, identity, GLAZE)
+    for raw in ("Кварцевый песок", "Уголь"):
+        await _give(session, body, raw, 100, quality=60)
 
-    план = await craft.plan(session, constants, catalog, body, ГЛАЗУРЬ, 1)
-    assert план.ceiling == pytest.approx(70), "потолок задала стоящая в узле печь"
+    plan = await craft.plan(session, constants, catalog, body, GLAZE, 1)
+    assert plan.ceiling == pytest.approx(70), "потолок задала стоящая в узле печь"
 
 
-async def test_партия_плавки_доходит_до_конца(
+async def test_smelting_batch_reaches_end(
     factory: async_sessionmaker[AsyncSession], constants: Constants, catalog: Catalog
 ) -> None:
-    """Выход операции рецептом не описан — и партия обязана это пережить.
+    """An operation's output has no recipe -- and the batch must survive that.
 
-    Плавка идёт без рецепта (20-systems/03), поэтому справочник о слитке ничего
-    не знает. Задание, спрашивавшее у него съедобность, роняло всю партию:
-    вход списан, изделия нет.
+    Smelting runs without a recipe (20-systems/03), so the catalog knows
+    nothing about the ingot. A job that asked it about edibility dropped the
+    whole batch: the input written off, no product.
     """
     async with factory() as session, session.begin():
-        _, _, body = await _мастерская(session, станок=FURNACE)
-        await _дать(session, body, "Железная руда", 20, качество=60)
-        await _дать(session, body, "Уголь", 20, качество=60)
-        партия = await craft.start(session, constants, catalog, body, INGOT, 1)
-        готова, body_id = партия.ready_at, body.id
+        _, _, body = await _workshop(session, machine=FURNACE)
+        await _give(session, body, "Железная руда", 20, quality=60)
+        await _give(session, body, "Уголь", 20, quality=60)
+        batch = await craft.start(session, constants, catalog, body, INGOT, 1)
+        ready, body_id = batch.ready_at, body.id
 
-    задание = await jobs.run_one(factory, now=готова)
-    assert задание is not None and задание.kind == "craft.batch"
+    job = await jobs.run_one(factory, now=ready)
+    assert job is not None and job.kind == "craft.batch"
 
     async with factory() as session:
-        тело = await session.get(Body, body_id)
-        карман = await world.body_container(session, тело)
-        слитки = (
+        reloaded = await session.get(Body, body_id)
+        pocket = await world.body_container(session, reloaded)
+        ingots = (
             await session.execute(
-                select(Item).where(Item.container_id == карман.id, Item.type_key == INGOT)
+                select(Item).where(Item.container_id == pocket.id, Item.type_key == INGOT)
             )
         ).scalars().all()
-        assert слитки, "слиток вышел из печи, а не сгинул вместе с заданием"
+        assert ingots, "слиток вышел из печи, а не сгинул вместе с заданием"
 
 
-async def test_ушёл_от_станка__сделанное_осталось_у_станка(
+async def test_left_machine_output_stays_at_machine(
     factory: async_sessionmaker[AsyncSession], constants: Constants, catalog: Catalog
 ) -> None:
-    """Материя не телепортируется за мастером и не исчезает вместе с ним."""
+    """Matter does not teleport after the master and does not vanish with them."""
     async with factory() as session, session.begin():
-        node, identity, body = await _мастерская(session)
+        node, identity, body = await _workshop(session)
         await world.learn(session, identity, NAILS)
-        await _дать(session, body, INGOT, 10, качество=70)
-        партия = await craft.start(session, constants, catalog, body, NAILS, 2)
-        готова, node_id = партия.ready_at, node.id
+        await _give(session, body, INGOT, 10, quality=70)
+        batch = await craft.start(session, constants, catalog, body, NAILS, 2)
+        ready, node_id = batch.ready_at, node.id
 
-        далеко = await world.create_node(
+        far_away = await world.create_node(
             session, f"terra.away.{uuid.uuid4().hex[:8]}", "Далеко", area_m2=100
         )
-        body.node_id = далеко.id
+        body.node_id = far_away.id
 
-    await jobs.run_one(factory, now=готова)
+    await jobs.run_one(factory, now=ready)
 
     async with factory() as session:
-        двор = await world.node_container(session, await _узел(session, node_id))
-        сделано = (
+        yard = await world.node_container(session, await _node(session, node_id))
+        done = (
             await session.execute(
-                select(Item).where(Item.container_id == двор.id, Item.type_key == NAILS)
+                select(Item).where(Item.container_id == yard.id, Item.type_key == NAILS)
             )
         ).scalars().all()
-        assert len(сделано) == 1
+        assert len(done) == 1
 
 
-async def test_изделия_не_складываются_и_каждое_со_своим_качеством(
+async def test_wares_do_not_stack_each_with_own_quality(
     factory: async_sessionmaker[AsyncSession], constants: Constants, catalog: Catalog
 ) -> None:
-    """Сырьё складывается, изделия нет (04-items)."""
+    """Raw material stacks, products do not (04-items)."""
     async with factory() as session, session.begin():
-        _, identity, body = await _мастерская(session, станок=FORGE, качество_станка=80)
+        _, identity, body = await _workshop(session, machine=FORGE, machine_quality=80)
         await world.learn(session, identity, "Железная кирка")
-        await _дать(session, body, INGOT, 20, качество=70)
-        await _дать(session, body, "Рукоять", 20, качество=70)
-        партия = await craft.start(session, constants, catalog, body, "Железная кирка", 3)
-        готова, body_id = партия.ready_at, body.id
+        await _give(session, body, INGOT, 20, quality=70)
+        await _give(session, body, "Рукоять", 20, quality=70)
+        batch = await craft.start(session, constants, catalog, body, "Железная кирка", 3)
+        ready, body_id = batch.ready_at, body.id
 
-    await jobs.run_one(factory, now=готова)
+    await jobs.run_one(factory, now=ready)
 
     async with factory() as session:
-        тело = await session.get(Body, body_id)
-        assert тело is not None
-        карман = await world.body_container(session, тело)
-        кирки = (
+        reloaded = await session.get(Body, body_id)
+        assert reloaded is not None
+        pocket = await world.body_container(session, reloaded)
+        pickaxes = (
             await session.execute(
                 select(Item).where(
-                    Item.container_id == карман.id, Item.type_key == "Железная кирка"
+                    Item.container_id == pocket.id, Item.type_key == "Железная кирка"
                 )
             )
         ).scalars().all()
-        assert len(кирки) == 3, "каждая кирка — отдельная вещь со своим клеймом"
-        assert all(amount_float(кирка.amount) == 1 for кирка in кирки)
+        assert len(pickaxes) == 3, "каждая кирка — отдельная вещь со своим клеймом"
+        assert all(amount_float(pickaxe.amount) == 1 for pickaxe in pickaxes)
 
 
-async def test_станок_изнашивается_за_партию(
+async def test_machine_wears_per_batch(
     factory: async_sessionmaker[AsyncSession], constants: Constants, catalog: Catalog
 ) -> None:
-    """Содержание обязательно: станок конечен, как и всё прочее (D-129)."""
+    """Maintenance is mandatory: the machine is finite, like everything else (D-129)."""
     async with factory() as session, session.begin():
-        node, identity, body = await _мастерская(session)
+        node, identity, body = await _workshop(session)
         await world.learn(session, identity, NAILS)
-        await _дать(session, body, INGOT, 10, качество=70)
-        партия = await craft.start(session, constants, catalog, body, NAILS, 2)
-        готова, станок_id = партия.ready_at, партия.station_item_id
+        await _give(session, body, INGOT, 10, quality=70)
+        batch = await craft.start(session, constants, catalog, body, NAILS, 2)
+        ready, machine_id = batch.ready_at, batch.station_item_id
 
-    await jobs.run_one(factory, now=готова)
+    await jobs.run_one(factory, now=ready)
 
     async with factory() as session:
-        станок = await session.get(Item, станок_id)
-        assert станок is not None
-        #: Износ делится на срок службы: станок получше и служит дольше.
-        ожидалось = constants[R.WEAR_STATION_PER_BATCH] / wear.life_factor(constants, 60)
-        assert float(станок.condition) == pytest.approx(100 - ожидалось, abs=0.01)
+        machine = await session.get(Item, machine_id)
+        assert machine is not None
+        #: Wear is divided by service life: a better machine also lasts longer.
+        expected_ = constants[R.WEAR_STATION_PER_BATCH] / wear.life_factor(constants, 60)
+        assert float(machine.condition) == pytest.approx(100 - expected_, abs=0.01)
 
 
-async def test_результат_держится_в_обещанном_разбросе(
+async def test_result_stays_within_promised_spread(
     factory: async_sessionmaker[AsyncSession], constants: Constants, catalog: Catalog
 ) -> None:
-    """Крафт не игровой автомат: обещанное число и есть середина результата."""
+    """Craft is not a slot machine: the promised number is the middle of the result."""
     async with factory() as session, session.begin():
-        _, identity, body = await _мастерская(session)
+        _, identity, body = await _workshop(session)
         await world.learn(session, identity, NAILS)
-        await _дать(session, body, INGOT, 10, качество=70)
-        партия = await craft.start(session, constants, catalog, body, NAILS, 2)
-        обещано, разброс = float(партия.quality), float(партия.spread)
-        готова, body_id = партия.ready_at, body.id
+        await _give(session, body, INGOT, 10, quality=70)
+        batch = await craft.start(session, constants, catalog, body, NAILS, 2)
+        promised, spread_ = float(batch.quality), float(batch.spread)
+        ready, body_id = batch.ready_at, body.id
 
-    await jobs.run_one(factory, now=готова)
+    await jobs.run_one(factory, now=ready)
 
     async with factory() as session:
-        тело = await session.get(Body, body_id)
-        assert тело is not None
-        карман = await world.body_container(session, тело)
-        гвозди = (
+        reloaded = await session.get(Body, body_id)
+        assert reloaded is not None
+        pocket = await world.body_container(session, reloaded)
+        nails = (
             await session.execute(
-                select(Item).where(Item.container_id == карман.id, Item.type_key == NAILS)
+                select(Item).where(Item.container_id == pocket.id, Item.type_key == NAILS)
             )
         ).scalars().first()
-        assert гвозди is not None and гвозди.quality is not None
-        assert abs(float(гвозди.quality) - обещано) <= разброс + 0.01
+        assert nails is not None and nails.quality is not None
+        assert abs(float(nails.quality) - promised) <= spread_ + 0.01
 
 
-async def test_библиотека_не_работает_удалённо(
+async def test_library_does_not_work_remotely(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Единственное ограничение Библиотеки — географическое (D-053)."""
-    _, identity, body = await _мастерская(session, library=False)
+    """The Library's only restriction is geographic (D-053)."""
+    _, identity, body = await _workshop(session, library=False)
     with pytest.raises(craft.NoLibrary):
         await craft.copy_recipe(session, catalog, body, NAILS)
 
-    _, identity, body = await _мастерская(session, library=True)
-    знание = await craft.copy_recipe(session, catalog, body, NAILS)
+    _, identity, body = await _workshop(session, library=True)
+    knowledge = await craft.copy_recipe(session, catalog, body, NAILS)
     await session.commit()
-    assert знание is not None
-    assert знание.kind is KnowledgeKind.RECIPE and знание.key == NAILS
+    assert knowledge is not None
+    assert knowledge.kind is KnowledgeKind.RECIPE and knowledge.key == NAILS
 
 
-async def test_копирование_рецепта_стоит_выносливости(
+async def test_copying_recipe_costs_stamina(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Знание бесплатно деньгами, но переписать его — работа (D-148).
+    """Knowledge is free in money, but copying it is work (D-148).
 
-    Плата телом сохраняет и бесплатность знания, и его цену: за день можно
-    унести десяток рецептов, а не весь список.
+    Paying with the body keeps both the freeness of knowledge and its price:
+    in a day one can carry off a dozen recipes, not the whole list.
     """
     from decimal import Decimal
 
-    _, identity, body = await _мастерская(session, library=True)
-    было = float(body.stamina)
+    _, identity, body = await _workshop(session, library=True)
+    before = float(body.stamina)
     await craft.copy_recipe(session, catalog, body, NAILS)
     assert float(body.stamina) == pytest.approx(
-        было - constants[R.CRAFT_COPY_STAMINA]
+        before - constants[R.CRAFT_COPY_STAMINA]
     )
 
-    #: Уже известное не переписывают: за одно и то же тело не платит дважды.
-    сейчас = float(body.stamina)
+    #: What is already known is not rewritten: the same body does not pay twice.
+    now_ = float(body.stamina)
     assert await craft.copy_recipe(session, catalog, body, NAILS) is None
-    assert float(body.stamina) == pytest.approx(сейчас)
+    assert float(body.stamina) == pytest.approx(now_)
 
     body.stamina = Decimal("1")
     await session.flush()
@@ -538,7 +538,7 @@ async def test_копирование_рецепта_стоит_вынослив
         await craft.copy_recipe(session, catalog, body, "Брус")
 
 
-async def _узел(session: AsyncSession, node_id: uuid.UUID):
+async def _node(session: AsyncSession, node_id: uuid.UUID):
     from src.models.world import Node
 
     node = await session.get(Node, node_id)

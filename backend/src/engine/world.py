@@ -1,9 +1,9 @@
-"""Создание того, что существует в мире: узлы, личности, тела, имущество.
+"""Creation of what exists in the world: nodes, identities, bodies, property.
 
-Ни одна функция здесь не создаёт материю из ничего просто так: предметы
-появляются только через добычу и урожай (инвариант И1). `grant_item` — это
-инструмент сеанса разработки и сценариев, и он пишет событие с явным
-основанием, чтобы такой приход было видно в телеметрии.
+No function here creates matter out of nothing just like that: items appear
+only through mining and harvest (invariant I1). `grant_item` is a tool for
+development sessions and scripts, and it writes an event with an explicit
+ground so that such an arrival is visible in telemetry.
 """
 
 from __future__ import annotations
@@ -65,11 +65,11 @@ class LandError(Exception):
 
 
 async def claim_node(session: AsyncSession, body: Body, node: Node) -> Node:
-    """Занять участок: присутственно, в диком узле (06-farming).
+    """Take a plot: in person, in a wild node (06-farming).
 
-    Городскую землю не занимают — её покупают или арендуют у города (Э3).
-    Хозяйство на участке ведёт только владелец: наём — это доступ плюс доля
-    через договор (D-116), а не общая земля.
+    Civic land is not taken -- it is bought or rented from the city (E3). The
+    estate on a plot is run only by the holder: hiring is access plus a share
+    by contract (D-116), not shared land.
     """
     from src.engine import travel
 
@@ -84,8 +84,8 @@ async def claim_node(session: AsyncSession, body: Body, node: Node) -> Node:
     node.owner_identity_id = body.identity_id
     await session.flush()
 
-    #: Владение оформляется бумагой: электронный документ, который дальше
-    #: продаётся договором купли-продажи (D-116).
+    #: Ownership is documented by a deed: an electronic document that is then
+    #: sold by a sale contract (D-116).
     from src.engine import estate
 
     await estate.issue_deed(session, node, body.identity_id)
@@ -127,10 +127,11 @@ async def create_identity(
     line: Line = Line.HUMAN,
     profile: dict[str, Any] | None = None,
 ) -> Identity:
-    """Аккаунт и личность. Один аккаунт — одна личность (D-011).
+    """Account and identity. One account -- one identity (D-011).
 
-    Почта и пароль — опознание аккаунта (D-187); без них личность заводится
-    только сидом и тестами. Фамилия, возраст, описание — самоописание.
+    Email and password identify the account (D-187); without them an identity
+    is created only by the seed and tests. Surname, age, description are
+    self-description.
     """
     from src.engine import account as accounts
 
@@ -153,7 +154,7 @@ async def create_identity(
 
 
 async def print_body(session: AsyncSession, identity: Identity, node: Node) -> Body:
-    """Напечатать тело. Личность при этом не меняется — она вечна (D-012)."""
+    """Print a body. The identity does not change -- it is eternal (D-012)."""
     stamina = current()[R.BODY_STAMINA_MAX]
     body = Body(
         identity_id=identity.id,
@@ -177,20 +178,20 @@ async def print_body(session: AsyncSession, identity: Identity, node: Node) -> B
     return body
 
 
-#: Станок, у которого печатают тела (D-033). Пока биопринтера нигде не стоит,
-#: печатают у ядра города — узла нулевого кольца (D-089).
+#: The machine at which bodies are printed (D-033). While no bioprinter stands
+#: anywhere, printing happens at the city core -- the zero-ring node (D-089).
 BIOPRINTER = "Биопринтер"
 
 
 async def spawn_point(session: AsyncSession) -> Node | None:
-    """Где печатается новое тело: биопринтер, иначе ядро города.
+    """Where a new body is printed: a bioprinter, otherwise the city core.
 
-    Ищется по миру, а не по ключу из сида: мир вправе состоять из других узлов,
-    а печататься людям где-то надо.
+    Searched across the world, not by a seed key: the world may consist of
+    other nodes, and people have to print somewhere.
     """
     from src.models.inventory import Container, ContainerKind
 
-    печатает = (
+    prints = (
         await session.execute(
             select(Node)
             .join(Container, Container.owner_id == Node.id)
@@ -199,36 +200,38 @@ async def spawn_point(session: AsyncSession) -> Node | None:
             .limit(1)
         )
     ).scalars().first()
-    if печатает is not None:
-        return печатает
+    if prints is not None:
+        return prints
 
-    узлы = (
+    nodes = (
         await session.execute(select(Node).where(Node.layer == Layer.CITY))
     ).scalars().all()
-    ядро = [узел for узел in узлы if узел.properties.get("кольцо") == 0]
-    if ядро:
-        return ядро[0]
-    return узлы[0] if узлы else None
+    core = [node for node in nodes if node.properties.get("кольцо") == 0]
+    if core:
+        return core[0]
+    return nodes[0] if nodes else None
 
 
 async def doors(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> list[dict[str, Any]]:
-    """Двери в мир для новичка: где стоит биопринтер и к каким людям выходишь.
+    """Doors into the world for a newcomer: where a bioprinter stands and which people you come out
+    to.
 
-    Ни цены, ни срока здесь нет намеренно: **первое тело печатается сразу и
-    бесплатно** у любой двери (D-040), и двенадцать часов Принтера Предтеч к
-    нему не применяются. Значит, выбор новичка — не про деньги, а про город:
-    сколько там людей и платит ли он подъёмные (D-182).
+    Neither price nor term here, deliberately: **the first body is printed at
+    once and for free** at any door (D-040), and the twelve hours of the
+    Forerunners' Printer do not apply to it. So the newcomer's choice is not
+    about money but about the city: how many people are there and whether it
+    pays a settlement grant (D-182).
 
-    Тюремный принтер не показывается: он печатает только тех, кого тюрьма
-    держит, и дверью в мир не является (D-174).
+    The prison printer is not shown: it prints only those the prison holds and
+    is not a door into the world (D-174).
     """
     from src.engine import city as town
     from src.engine import justice
     from src.engine.death import PRECURSOR
 
-    из_узла = (
+    from_node = (
         await session.execute(
             select(Node)
             .join(Container, Container.owner_id == Node.id)
@@ -238,65 +241,66 @@ async def doors(
         )
     ).scalars().all()
 
-    список: list[dict[str, Any]] = []
-    for узел in из_узла:
-        if await justice.is_prison(session, узел):
+    listing: list[dict[str, Any]] = []
+    for node in from_node:
+        if await justice.is_prison(session, node):
             continue
-        город = await town.of_node(session, узел)
-        предтечи = bool(узел.properties.get(PRECURSOR))
-        #: Условия печати (D-184): их движок исполняет, значит показывать их
-        #: обязан **до** выбора, а не после первой продажи. У Предтеч условий
-        #: нет и быть не может: машина ничья, и город её условиями не обвешивает
-        #: — иначе в мире с одним городом безусловной двери не осталось бы.
-        гражданство, срок = (
-            (False, 0.0) if предтечи else town.spawn_terms(constants, catalog, город)
+        city = await town.of_node(session, node)
+        forerunners = bool(node.properties.get(PRECURSOR))
+        #: Print conditions (D-184): the engine enforces them, so it must show
+        #: them **before** the choice, not after the first sale. The
+        #: Forerunners have no conditions and cannot: the machine is nobody's,
+        #: and the city does not hang conditions on it -- otherwise in a
+        #: one-city world no unconditional door would remain.
+        citizenship, term = (
+            (False, 0.0) if forerunners else town.spawn_terms(constants, catalog, city)
         )
-        список.append(
+        listing.append(
             {
-                "node": узел.key,
-                "name": узел.name,
-                "city": None if город is None else город.name,
-                #: Слово города — обещание, а не договор (D-183): движок его не
-                #: разбирает и не исполняет. Пусто — карточка молчит.
-                "about": "" if город is None else город.about,
-                #: Принтер Предтеч — вечная машина настоящих людей, и это
-                #: единственная дверь, которая не зависит от чьей-то казны.
-                "precursor": предтечи,
-                "citizens": 0 if город is None else len(await town.citizens_of(session, город)),
-                #: Сколько людей сейчас стоит на земле города: живых тел, а не
-                #: паспортов. Новичку важнее, кого он встретит, чем кто где
-                #: прописан (D-187).
-                "population": 0 if город is None else await population(session, город.node_id),
-                #: Подъёмные — обещание города, а не выдача движка (D-153):
-                #: платит казна, и город вправе не платить вовсе. Минорными
-                #: единицами, как всякая цена наружу.
+                "node": node.key,
+                "name": node.name,
+                "city": None if city is None else city.name,
+                #: The city's word is a promise, not a contract (D-183): the
+                #: engine neither parses nor enforces it. Empty -- the card is silent.
+                "about": "" if city is None else city.about,
+                #: The Forerunners' Printer is the eternal machine of real people,
+                #: and the only door that does not depend on somebody's treasury.
+                "precursor": forerunners,
+                "citizens": 0 if city is None else len(await town.citizens_of(session, city)),
+                #: How many people stand on the city's land right now: living
+                #: bodies, not passports. Whom they will meet matters more to a
+                #: newcomer than who is registered where (D-187).
+                "population": 0 if city is None else await population(session, city.node_id),
+                #: The settlement grant is the city's promise, not the engine's
+                #: handout (D-153): the treasury pays, and the city may not pay
+                #: at all. In minor units, like every price going out.
                 "grant": (
                     0
-                    if город is None
-                    else to_money(town.law_number(constants, catalog, город, "newcomer_grant"))
+                    if city is None
+                    else to_money(town.law_number(constants, catalog, city, "newcomer_grant"))
                 ),
-                #: Обязательное гражданство и его срок в сутках.
-                "citizenship": гражданство,
-                "term": срок,
-                #: Налог с продажи — тот самый, который движок удержит при
-                #: первой же сделке. Условие жизни здесь, а не двери.
+                #: Mandatory citizenship and its term in days.
+                "citizenship": citizenship,
+                "term": term,
+                #: The sales tax -- the very one the engine will withhold at the
+                #: first deal. A condition of life here, not of the door.
                 "tax": (
                     0.0
-                    if город is None
-                    else town.law_number(constants, catalog, город, town.TRADE_TAX)
+                    if city is None
+                    else town.law_number(constants, catalog, city, town.TRADE_TAX)
                 ),
             }
         )
-    #: Людные города впереди, Принтер Предтеч последним: у него нет ни жителей,
-    #: ни подъёмных, и как запасная дверь он читается лучше в конце списка.
+    #: Populous cities first, the Forerunners' Printer last: it has neither
+    #: residents nor a grant, and as a fallback door it reads better at the end of the list.
     return sorted(
-        список,
-        key=lambda дверь: (дверь["precursor"], -дверь["population"], дверь["name"]),
+        listing,
+        key=lambda door: (door["precursor"], -door["population"], door["name"]),
     )
 
 
 async def population(session: AsyncSession, city_node_id: uuid.UUID) -> int:
-    """Живые тела на территории города — узлах под его узлом-представителем."""
+    """Living bodies on the city's territory -- nodes under its delegate node."""
     return int(
         (
             await session.execute(
@@ -310,23 +314,23 @@ async def population(session: AsyncSession, city_node_id: uuid.UUID) -> int:
 
 
 async def door(session: AsyncSession, key: str) -> Node | None:
-    """Узел двери по ключу — или ничего, если печататься там нельзя.
+    """The door node by key -- or nothing if printing there is not allowed.
 
-    Проверяется то же, что показано в `doors`: чужой ключ, узел без принтера и
-    тюремный принтер новичку одинаково недоступны.
+    The same is checked as shown in `doors`: a foreign key, a node without a
+    printer and the prison printer are equally unavailable to a newcomer.
     """
-    узел = (
+    node = (
         await session.execute(select(Node).where(Node.key == key))
     ).scalar_one_or_none()
-    if узел is None:
+    if node is None:
         return None
-    if not await has_station(session, узел, BIOPRINTER):
+    if not await has_station(session, node, BIOPRINTER):
         return None
     from src.engine import justice
 
-    if await justice.is_prison(session, узел):
+    if await justice.is_prison(session, node):
         return None
-    return узел
+    return node
 
 
 async def spawn(
@@ -339,27 +343,29 @@ async def spawn(
     line: Line = Line.HUMAN,
     profile: dict[str, Any] | None = None,
 ) -> tuple[Identity, Body]:
-    """Новый игрок: личность, тело у биопринтера и **ноль на счету** (D-153).
+    """A new player: identity, body at the bioprinter and **zero on the account** (D-153).
 
-    Мир денег не выдаёт: любой такой выпуск был бы эмиссией, размывающей деньги
-    всех остальных. Зато город вправе заплатить подъёмные из своей казны — это
-    перевод, а не эмиссия, и решает его власть, а не движок.
+    The world hands out no money: any such issue would be emission diluting
+    everyone else's money. But the city may pay a settlement grant from its
+    treasury -- that is a transfer, not emission, and the authority decides it,
+    not the engine.
 
-    Почему город на это идёт: новый житель — это ВВП. Он покупает, продаёт и
-    платит налоги, значит подъёмные окупаются. Богатый город переманивает
-    новичков, бедный не может себе этого позволить.
+    Why a city goes for it: a new resident is GDP. They buy, sell and pay
+    taxes, so the grant pays off. A rich city lures newcomers, a poor one
+    cannot afford it.
 
-    Здесь же исполняются **условия печати** (D-184): гражданство и его срок,
-    если город их поставил. Человек принял их выбором двери, и приниматься они
-    обязаны в тот же миг, что и тело, — иначе условие остаётся объявлением.
+    **Print conditions** (D-184) are fulfilled here too: citizenship and its
+    term, if the city set them. The person accepted them by choosing the door,
+    and they must take effect at the same moment as the body -- otherwise the
+    condition remains an announcement.
     """
     from src.constants import current_catalog
     from src.engine import city as town
 
-    существует = (
+    exists = (
         await session.execute(select(Identity).where(Identity.name == name))
     ).scalar_one_or_none()
-    if существует is not None:
+    if exists is not None:
         raise ValueError(f"имя {name!r} уже занято: имя сменить нельзя (D-011)")
 
     identity = await create_identity(
@@ -367,17 +373,18 @@ async def spawn(
     )
     body = await print_body(session, identity, node)
 
-    город = await town.of_node(session, node)
-    if город is not None:
+    city = await town.of_node(session, node)
+    if city is not None:
         from src.engine.death import PRECURSOR
 
         constants, catalog = current(), current_catalog()
-        #: Условия ставит тот, чья машина. Принтер Предтеч ничей: город, на чьей
-        #: земле он стоит, не вправе обвешивать его гражданством (D-184).
+        #: Whoever owns the machine sets the conditions. The Forerunners'
+        #: Printer is nobody's: the city on whose land it stands may not hang
+        #: citizenship on it (D-184).
         if not node.properties.get(PRECURSOR):
-            #: Сперва гражданство, потом подъёмные: город платит своему.
-            await town.bind(session, constants, catalog, город, identity)
-        await town.welcome(session, constants, catalog, город, identity)
+            #: Citizenship first, then the grant: the city pays its own.
+            await town.bind(session, constants, catalog, city, identity)
+        await town.welcome(session, constants, catalog, city, identity)
     return identity, body
 
 
@@ -386,16 +393,16 @@ async def body_container(session: AsyncSession, body: Body) -> Container:
         Container.kind == ContainerKind.BODY, Container.owner_id == body.id
     )
     container = (await session.execute(stmt)).scalar_one_or_none()
-    if container is None:  # pragma: no cover — тело без инвентаря это баг
+    if container is None:  # pragma: no cover -- a body without an inventory is a bug
         raise RuntimeError(f"у тела {body.id} нет инвентаря")
     return container
 
 
 async def node_container(session: AsyncSession, node: Node) -> Container:
-    """Что стоит и лежит в узле: станки, изделия у станка.
+    """What stands and lies in the node: machines, products at the machine.
 
-    До зданий (Э3) это единственное место, где может стоять станок. Со
-    зданиями оно переедет в них — станок задаёт, чем здание является (D-106).
+    Before buildings (E3) this is the only place a machine can stand. With
+    buildings it will move into them -- the machine sets what a building is (D-106).
     """
     stmt = select(Container).where(
         Container.kind == ContainerKind.NODE, Container.owner_id == node.id
@@ -408,26 +415,26 @@ async def node_container(session: AsyncSession, node: Node) -> Container:
     return container
 
 
-#: Станок «Библиотека» (D-176): окно библиотеки показывается там, где он стоит.
+#: The "Library" machine (D-176): the library window is shown where it stands.
 LIBRARY = "Библиотека"
 
 
 async def has_station(session: AsyncSession, node: Node, name: str) -> bool:
-    """Стоит ли в узле станок с этим именем: сцена узла собирается из станков
-    (D-176), и это единственный способ спросить, чем место является."""
-    двор = await node_container(session, node)
+    """Whether a machine with this name stands in the node: the node scene is
+    built from machines (D-176), and this is the only way to ask what a place is."""
+    yard = await node_container(session, node)
     found = await session.scalar(
         select(Item.id)
-        .where(Item.container_id == двор.id, Item.type_key == name)
+        .where(Item.container_id == yard.id, Item.type_key == name)
         .limit(1)
     )
     return found is not None
 
 
 async def is_library(session: AsyncSession, node: Node) -> bool:
-    """Библиотека — станок, а не свойство узла (D-176). Свойство `library`
-    остаётся наследием старых миров: догоняющий сид ставит станок, но мир,
-    который догнать не успели, не должен потерять окно."""
+    """The library is a machine, not a node property (D-176). The `library`
+    property remains a legacy of old worlds: the catch-up seed places the
+    machine, but a world that was not caught up must not lose the window."""
     if (node.properties or {}).get("library"):
         return True
     return await has_station(session, node, LIBRARY)
@@ -436,30 +443,30 @@ async def is_library(session: AsyncSession, node: Node) -> bool:
 async def move_stack(
     session: AsyncSession, item: Item, target: Container, quantity: float
 ) -> float:
-    """Переложить стопку или её часть в другой контейнер.
+    """Move a stack or part of it into another container.
 
-    Отделённая часть — **та же вещь**: клеймо, срок, состояние, проба, сорт и
-    заряд едут вместе с ней. Потерять их при делении стопки значило бы
-    обезличить товар: полсотни семян сорта превратились бы в полсотни семян
-    вообще.
+    The split-off part is **the same thing**: mark, shelf life, condition,
+    fineness, cultivar and charge travel with it. Losing them when splitting a
+    stack would depersonalise the goods: fifty seeds of a cultivar would turn
+    into fifty seeds in general.
 
-    Одна функция на весь мир перекладываний — трюм, сундук, терминал: у каждой
-    своей копии рано или поздно отстаёт список полей, и вещь тихо теряет часть
-    себя на одном из путей.
+    One function for all moving in the world -- hold, chest, terminal: each
+    own copy sooner or later falls behind on the field list, and a thing
+    quietly loses part of itself on one of the paths.
     """
     from src.units import AMOUNT_SCALE
     from src.units import amount as to_units
 
-    сколько = min(to_units(quantity), item.amount)
-    if сколько >= item.amount:
+    qty = min(to_units(quantity), item.amount)
+    if qty >= item.amount:
         item.container_id = target.id
     else:
-        item.amount -= сколько
+        item.amount -= qty
         session.add(
             Item(
                 container_id=target.id,
                 type_key=item.type_key,
-                amount=сколько,
+                amount=qty,
                 quality=item.quality,
                 condition=item.condition,
                 condition_cap=item.condition_cap,
@@ -477,7 +484,7 @@ async def move_stack(
             )
         )
     await session.flush()
-    return сколько / AMOUNT_SCALE
+    return qty / AMOUNT_SCALE
 
 
 async def learn(
@@ -488,7 +495,7 @@ async def learn(
     kind: KnowledgeKind = KnowledgeKind.RECIPE,
     discovered: bool = False,
 ) -> Knowledge | None:
-    """Скопировать знание в личность. Бесплатно и навсегда (D-053)."""
+    """Copy knowledge into the identity. Free and forever (D-053)."""
     stmt = select(Knowledge).where(
         Knowledge.identity_id == identity.id, Knowledge.kind == kind, Knowledge.key == key
     )
@@ -521,12 +528,13 @@ async def grant_item(
     maker_identity_id: uuid.UUID | None = None,
     made_node_id: uuid.UUID | None = None,
 ) -> Item:
-    """Положить предмет в контейнер.
+    """Put an item into a container.
 
-    `origin` обязателен и попадает в событие: любое появление материи в мире
-    должно иметь названное основание — добыча, урожай, крафт, сценарий отладки.
-    Безымянного прихода не бывает (столп П1).
+    `origin` is mandatory and lands in the event: any appearance of matter in
+    the world must have a named ground -- mining, harvest, craft, a debugging
+    script. There is no anonymous arrival (pillar P1).
     """
+
     item = Item(
         container_id=container.id,
         type_key=type_key,

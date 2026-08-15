@@ -1,72 +1,74 @@
-"""Разведка: карта прирастает ногами, а не патчем (D-152).
+"""Exploration: the map grows on foot, not by patch (D-152).
 
-Мир был задан сидом и не рос: занять участок можно было только там, где узел
-уже нарисован, а новых жил не появлялось вовсе. Разведка отвечает на вопрос,
-откуда берётся мир за стенами, и ответ «его нарисовали разработчики»
-противоречит замыслу.
+The world was set by the seed and did not grow: a plot could be taken only
+where a node was already drawn, and new veins never appeared. Exploration
+answers where the world beyond the walls comes from, and the answer "the
+developers drew it" contradicts the design.
 
-## Три цели поиска, и они разные
+## Three search goals, and they differ
 
-Ищут не «что-нибудь», а то, что нужно. Цель выбирается до выхода, и от неё
-зависит, что окажется на карте:
+One seeks not "something" but what is needed. The goal is chosen before
+leaving, and what ends up on the map depends on it:
 
-| Цель | Где ищут | Что находят |
+| Goal | Where sought | What is found |
 |---|---|---|
-| `lot` | на слое города | свободный участок под постройку — городская земля (D-089) |
-| `site` | на планете | место под будущий город: дикий узел со свойствами |
-| `vein` | на планете | жила; можно назвать породу заранее |
+| `lot` | on the city layer | a free plot for building -- civic land (D-089) |
+| `site` | on the planet | a place for a future city: a wild node with properties |
+| `vein` | on the planet | a vein; the species can be named in advance |
 
-**Названная порода ищется хуже безымянной.** Шанс множится на её долю в темпе
-добычи (`harvest.rates`): медь встречается реже железа, и целиться в редкое —
-значит чаще возвращаться ни с чем. Иначе все искали бы только самое дорогое, а
-разведка превратилась бы в кран.
+**A named species is found worse than an unnamed one.** The chance is
+multiplied by its share in the mining pace (`harvest.rates`): copper is rarer
+than iron, and aiming at the rare means coming back empty more often.
+Otherwise everyone would seek only the most expensive, and exploration would
+become a faucet.
 
-## Как устроен заход
+## How a run works
 
-Заход — обычное задание журнала: идёт офлайн, переживает перезапуск и
-срабатывает ровно один раз. По сроку бросок на шанс; у жилы без названной
-породы работает ещё и `explore.vein_share`.
+A run is an ordinary journal job: it goes offline, survives a restart and fires
+exactly once. At the deadline a roll against the chance; for a vein without a
+named species `explore.vein_share` applies as well.
 
-**Пустой заход — норма.** Без него карта росла бы кликом, и разведка стала бы
-формальностью.
+**An empty run is normal.** Without it the map would grow by click, and
+exploration would become a formality.
 
-## Цена захода — свойство места, а не игрока (D-156)
+## The run's price is a property of the place, not the player (D-156)
 
-У каждого узла есть счёт находок, сделанных, когда из него выходили. Пока
-окрестность нехожена, заход длится `explore.attempt_minutes` — минуты, — и шанс
-`explore.find_chance` близок к верному. Каждая находка от этого узла умножает
-длительность на `explore.effort_growth`, а шанс на `explore.find_decay`, пока
-длительность не упрётся в потолок `explore.attempt_hours`, а шанс — в пол
-`explore.find_floor`.
+Every node has a count of finds made when leaving from it. While the
+surroundings are untrodden a run lasts `explore.attempt_minutes` -- minutes --
+and the chance `explore.find_chance` is close to certain. Each find from this
+node multiplies the duration by `explore.effort_growth` and the chance by
+`explore.find_decay`, until the duration hits the ceiling
+`explore.attempt_hours` and the chance the floor `explore.find_floor`.
 
-**Выносливость берётся по времени в поле:** `explore.attempt_stamina` — цена
-захода полной длины, минутный стоит соответственно меньше. Иначе выносливость
-запирала бы ранние заходы вместо часов, и правка свелась бы к смене одного
-замка на другой.
+**Stamina is charged by time in the field:** `explore.attempt_stamina` is the
+price of a full-length run; a one-minute one costs correspondingly less.
+Otherwise stamina would lock early runs instead of hours, and the fix would
+amount to swapping one lock for another.
 
-Счёт живёт на узле, а не на игроке: уровень разведки был бы прогрессом
-персонажа и превратил бы мир в фон для прокачки. Исхоженная окрестность беднеет
-для всех сразу, а заход от свежей находки снова дёшев — поэтому карта растёт
-вширь, а не звездой из точки рождения.
+The count lives on the node, not on the player: an exploration level would be
+character progress and turn the world into a backdrop for grinding. A trodden
+neighbourhood grows poorer for everyone at once, and a run from a fresh find is
+cheap again -- so the map grows in breadth, not as a star from the birthplace.
 
-**Шанс обещан на выходе, а не на возвращении.** Он считается в момент выхода и
-едет в задании: пока разведчик в поле, соседи могут исходить окрестность, но
-цена уже названа, и менять её задним числом нечестно.
+**The chance is promised at departure, not at return.** It is computed at the
+moment of leaving and travels in the job: while the scout is in the field the
+neighbours may tread the area, but the price is already named, and changing it
+retroactively is dishonest.
 
-## Что именно находится
+## What exactly is found
 
-Порода жилы выбирается из того, что вообще добывается, — списком `gives`
-операции «Добыча» в вольте. Вес породы равен её темпу в `harvest.rates`:
-редкое добывается медленнее, значит и попадается реже. Списка «какие бывают
-руды» движок не держит: заведут в вольте пятую породу — она начнёт находиться
-без правки кода (D-151).
+The vein's species is chosen from what is mined at all -- the `gives` list of
+the "Mining" operation in the vault. A species' weight equals its pace in
+`harvest.rates`: the rare is mined slower, so it also turns up rarer. The
+engine keeps no list of "which ores exist": add a fifth species in the vault
+and it starts being found without a code change (D-151).
 
-Достоинства места разыгрываются под общий бюджет `site.quality_budget`: место,
-хорошее во всём, не выпадает никогда (D-126). Река съедает часть бюджета, и
-плодородию остаётся тем меньше, чем больше воды.
+A place's merits are rolled under a common budget `site.quality_budget`: a
+place good in everything never drops (D-126). A river eats part of the budget,
+and the more water, the less is left for fertility.
 
-**Найденное ничьё.** Нашедший получает право первой ночи, а не право
-собственности: участок занимают присутственно, как всякую дикую землю.
+**What is found belongs to nobody.** The finder gets the right of first night,
+not ownership: a plot is taken in person, like any wild land.
 """
 
 from __future__ import annotations
@@ -89,15 +91,15 @@ from src.models.job import Job, JobKind, JobState
 from src.models.world import Layer, Node, Surface
 from src.units import MINUTES_PER_HOUR, PERCENT
 
-#: Операция вольта, по которой движок узнаёт, что в этом мире вообще добывают.
+#: The vault operation from which the engine learns what is mined in this world at all.
 MINING_OPERATION = "Добыча"
 
-#: Счёт находок, сделанных от этого узла. Лежит в свойствах узла: истощение —
-#: свойство места, а не игрока, и миграции под него не нужно (D-156).
+#: Count of finds made from this node. Lives in the node's properties:
+#: depletion is a property of the place, not the player, and needs no migration (D-156).
 FOUND_HERE = "разведано"
 
-#: Цели поиска. Строкой, а не перечислением: список растёт вместе с картой, и
-#: клиент называет цель тем же словом, что и движок.
+#: Search goals. As strings, not an enumeration: the list grows with the map,
+#: and the client names the goal with the same word as the engine.
 LOT = "lot"
 SITE = "site"
 VEIN = "vein"
@@ -109,15 +111,15 @@ class ExploreError(Exception):
 
 
 class AlreadyOut(ExploreError):
-    """Заход уже идёт. Разведывать в двух направлениях одним телом нельзя."""
+    """A run is already going. One body cannot explore in two directions."""
 
 
 class NotOut(ExploreError):
-    """Тело не в разведке: возвращаться неоткуда."""
+    """The body is not exploring: nowhere to return from."""
 
 
 async def pending(session: AsyncSession, body: Body) -> Job | None:
-    """Идущий заход этого тела, если он есть."""
+    """This body's ongoing run, if any."""
     return (
         await session.execute(
             select(Job).where(
@@ -138,17 +140,19 @@ async def survey(
     resource: str | None = None,
     now: datetime | None = None,
 ) -> Job:
-    """Уйти в разведку от этого узла за названным. Находка придёт по сроку.
+    """Go exploring from this node for the named goal. The find arrives on schedule.
 
-    Разведчик **уходит сам**: пока заход идёт, тело в поле и недоступно для
-    всего присутственного — как во сне (`travel.require_here`). Вернуться
-    раньше срока можно командой `cancel`, но находка тогда не состоится.
+    The scout **leaves in person**: while the run goes, the body is in the field
+    and unavailable for everything in-person -- as in sleep
+    (`travel.require_here`). One can return before the deadline with `cancel`,
+    but then the find does not happen.
 
-    Длительность и шанс зависят от того, насколько окрестность уже исхожена
-    (D-156): первый заход отсюда — минуты и почти верная находка, шестой —
-    часы и бросок. Выносливость списывается вперёд, как материалы партии, —
-    но нехватка сил заход не запирает: чего не хватило, разведчик досыпает в
-    поле, и заход просто идёт дольше — на время сна по `body.hibernation_rate`.
+    Duration and chance depend on how trodden the surroundings already are
+    (D-156): the first run from here is minutes and an almost certain find, the
+    sixth is hours and a roll. Stamina is written off up front, like batch
+    materials -- but a shortage does not lock the run: what was missing the
+    scout sleeps off in the field, and the run simply lasts longer -- by the
+    sleep time per `body.hibernation_rate`.
     """
     moment = now or datetime.now(UTC)
     if goal not in GOALS:
@@ -159,16 +163,16 @@ async def survey(
         raise ExploreError(f"такой породы в этом мире не добывают: {resource}")
     await travel.require_here(session, body)
 
-    откуда = await session.get(Node, body.node_id)
-    if откуда is None:  # pragma: no cover — тело всегда стоит в узле
+    origin = await session.get(Node, body.node_id)
+    if origin is None:  # pragma: no cover -- a body always stands in a node
         raise ExploreError("разведка идёт из узла, а тело стоит в никуда")
 
-    #: Отказ обязан прийти сразу, а не по возвращении: невозможную цель видно
-    #: до выхода, и тратить на неё выносливость игрок не должен.
+    #: The refusal must come at once, not on return: an impossible goal is
+    #: visible before leaving, and the player must not spend stamina on it.
     if goal == LOT:
         from src.engine import city as town
 
-        if await town.of_node(session, откуда) is None:
+        if await town.of_node(session, origin) is None:
             raise ExploreError(
                 "участок ищут в городе: за стенами городской застройки нет"
             )
@@ -177,175 +181,177 @@ async def survey(
 
     from src.engine import food
 
-    минут = _minutes(constants, откуда, random.Random())
-    расход = _stamina(constants, минут) * food.drain_multiplier(
+    minutes = _minutes(constants, origin, random.Random())
+    spend = _stamina(constants, minutes) * food.drain_multiplier(
         constants, body, moment
     )
-    #: Нехватка сил не запирает заход, а удлиняет его: чего не хватило,
-    #: разведчик досыпает в поле по `body.hibernation_rate` и продолжает.
-    есть = float(body.stamina)
-    if расход > есть:
-        дефицит = расход - есть
-        минут += дефицит / constants[R.BODY_HIBERNATION_RATE] * MINUTES_PER_HOUR
+    #: A shortage of strength does not lock the run but lengthens it: what was
+    #: missing the scout sleeps off in the field per `body.hibernation_rate` and continues.
+    have = float(body.stamina)
+    if spend > have:
+        deficit = spend - have
+        minutes += deficit / constants[R.BODY_HIBERNATION_RATE] * MINUTES_PER_HOUR
         body.stamina = Decimal("0")
     else:
-        body.stamina = Decimal(str(есть - расход))
+        body.stamina = Decimal(str(have - spend))
     await session.flush()
 
-    #: Шанс называется на выходе и едет в задании: пока разведчик в поле,
-    #: окрестность могут исходить соседи, но обещанную цену это не меняет.
-    шанс = chance(constants, откуда) * _aim(constants, current_catalog(), goal, resource)
-    вернётся = moment + timedelta(minutes=минут)
+    #: The chance is named at departure and travels in the job: while the scout
+    #: is in the field the neighbours may tread the area, but that does not change the promised
+    #: price.
+    odds = chance(constants, origin) * _aim(constants, current_catalog(), goal, resource)
+    will_return = moment + timedelta(minutes=minutes)
     event = await events.record(
         session,
         EventKind.EXPLORE_STARTED,
         actor_identity_id=body.identity_id,
         node_id=body.node_id,
-        stamina=расход,
+        stamina=spend,
         goal=goal,
         resource=resource,
-        minutes=минут,
-        chance=шанс,
-        explored=found_here(откуда),
-        returns_at=вернётся.isoformat(),
+        minutes=minutes,
+        chance=odds,
+        explored=found_here(origin),
+        returns_at=will_return.isoformat(),
     )
     job = await enqueue(
         session,
         JobKind.EXPLORE_SURVEY,
-        вернётся,
+        will_return,
         payload={
             "body": str(body.id),
             "from": str(body.node_id),
             "goal": goal,
             "resource": resource,
-            "chance": шанс,
+            "chance": odds,
         },
         dedup_key=f"explore.survey:{body.id}:{event.id}",
         cause_event_id=event.id,
         body_id=body.id,
     )
-    if job is None:  # pragma: no cover — ключ уникален по событию
+    if job is None:  # pragma: no cover -- the key is unique per event
         raise AlreadyOut("заход уже поставлен")
     return job
 
 
 @handler(JobKind.EXPLORE_SURVEY)
 async def returned(session: AsyncSession, job: Job) -> None:
-    """Разведчик вернулся. Бросок один и засеян заданием: повтор даёт то же."""
+    """The scout returned. One roll, seeded by the job: a retry gives the same."""
     body = await session.get(Body, uuid.UUID(job.payload["body"]))
-    откуда = await session.get(Node, uuid.UUID(job.payload["from"]))
-    if body is None or откуда is None:  # pragma: no cover
+    origin = await session.get(Node, uuid.UUID(job.payload["from"]))
+    if body is None or origin is None:  # pragma: no cover
         raise ExploreError(f"заход {job.id} ссылается в никуда")
 
     constants, catalog = current(), current_catalog()
-    бросок = random.Random(str(job.id))
-    цель = str(job.payload.get("goal") or SITE)
-    заказано = job.payload.get("resource")
+    dice = random.Random(str(job.id))
+    goal = str(job.payload.get("goal") or SITE)
+    requested = job.payload.get("resource")
 
-    #: Шанс назван на выходе (D-156). Старые задания его не несут — им считаем
-    #: по месту, как считалось на выходе.
-    шанс = job.payload.get("chance")
-    if шанс is None:  # pragma: no cover — заходы, поставленные до D-156
-        шанс = chance(constants, откуда) * _aim(constants, catalog, цель, заказано)
-    if бросок.random() * PERCENT >= float(шанс):
+    #: The chance was named at departure (D-156). Old jobs do not carry it --
+    #: for them we compute by place, as it was computed at departure.
+    odds = job.payload.get("chance")
+    if odds is None:  # pragma: no cover -- runs queued before D-156
+        odds = chance(constants, origin) * _aim(constants, catalog, goal, requested)
+    if dice.random() * PERCENT >= float(odds):
         await events.record(
             session,
             EventKind.EXPLORE_EMPTY,
             actor_identity_id=body.identity_id,
-            node_id=откуда.id,
-            goal=цель,
-            resource=заказано,
+            node_id=origin.id,
+            goal=goal,
+            resource=requested,
         )
         return
 
-    #: У жилы без названной породы работает прежняя доля `explore.vein_share`:
-    #: искал «что-нибудь» — получил что попалось.
-    с_жилой = цель == VEIN and (
-        заказано is not None
-        or бросок.random() * PERCENT < constants[R.EXPLORE_VEIN_SHARE]
+    #: For a vein without a named species the old share `explore.vein_share`
+    #: applies: sought "anything" -- got whatever turned up.
+    with_vein = goal == VEIN and (
+        requested is not None
+        or dice.random() * PERCENT < constants[R.EXPLORE_VEIN_SHARE]
     )
-    найдено = await _place(session, constants, бросок, откуда, цель=цель, vein=с_жилой)
+    found = await _place(session, constants, dice, origin, goal=goal, vein=with_vein)
 
-    порода = None
-    if с_жилой:
-        порода = заказано or _resource(constants, catalog, бросок)
-        богатство = constants[R.EXPLORE_VEIN_RICHNESS]
-        запас = constants[R.EXPLORE_VEIN_STOCK]
+    species = None
+    if with_vein:
+        species = requested or _resource(constants, catalog, dice)
+        richness = constants[R.EXPLORE_VEIN_RICHNESS]
+        stock = constants[R.EXPLORE_VEIN_STOCK]
         await world.create_vein(
             session,
-            найдено,
-            порода,
-            richness=бросок.uniform(богатство.min, богатство.max),
-            remaining=бросок.uniform(запас.min, запас.max),
+            found,
+            species,
+            richness=dice.uniform(richness.min, richness.max),
+            remaining=dice.uniform(stock.min, stock.max),
         )
-        найдено.name = f"Жила: {порода.lower()}"
+        found.name = f"Жила: {species.lower()}"
         await session.flush()
 
-    #: Участок в городе — шаг по кварталу, находка за стеной — тропа, и её
-    #: длину задаёт даль находки (D-180): чем дальше от города, тем дороже шаг.
-    if цель == LOT:
-        шаг = constants[R.TRAVEL_CITY_STEP]
-        секунд = бросок.uniform(шаг.min, шаг.max)
-        покрытие = Surface.PAVED
-        минут = секунд / MINUTES_PER_HOUR
+    #: A plot in the city is a step across the quarter; a find beyond the wall
+    #: is a trail, and its length is set by the find's distance (D-180): the
+    #: farther from the city, the pricier the step.
+    if goal == LOT:
+        step = constants[R.TRAVEL_CITY_STEP]
+        seconds = dice.uniform(step.min, step.max)
+        coverage = Surface.PAVED
+        minutes = seconds / MINUTES_PER_HOUR
     else:
-        секунд = travel.frontier_seconds(constants, travel.reach_of(найдено))
-        минут = секунд / MINUTES_PER_HOUR
-        покрытие = Surface.TRAIL
+        seconds = travel.frontier_seconds(constants, travel.reach_of(found))
+        minutes = seconds / MINUTES_PER_HOUR
+        coverage = Surface.TRAIL
     await travel.connect(
-        session, откуда, найдено, base_seconds=секунд, surface=покрытие
+        session, origin, found, base_seconds=seconds, surface=coverage
     )
 
-    #: Окрестность стала на находку беднее — для всех, кто выйдет отсюда
-    #: следующим (D-156). Считается только удача: пустой заход ничего не
-    #: исчерпывает, иначе невезение наказывало бы дважды.
-    откуда.properties = {**(откуда.properties or {}), FOUND_HERE: found_here(откуда) + 1}
+    #: The surroundings became one find poorer -- for everyone who leaves from
+    #: here next (D-156). Only luck counts: an empty run depletes nothing,
+    #: otherwise bad luck would punish twice.
+    origin.properties = {**(origin.properties or {}), FOUND_HERE: found_here(origin) + 1}
     await session.flush()
 
-    #: Нашёл — значит стоишь там (D-185): разведчик дошёл до места ногами, и
-    #: возвращать его в узел выхода значило бы отменить пройденный путь.
-    #: Обратная дорога — его решение, и тропу он себе уже проложил.
-    body.node_id = найдено.id
+    #: Found means you stand there (D-185): the scout reached the place on foot,
+    #: and returning them to the exit node would cancel the path walked. The way
+    #: back is their decision, and they have already laid themselves a trail.
+    body.node_id = found.id
     body.node_since = job.run_at
     await session.flush()
 
-    #: Обоз приходит следом, как при обычном переходе (D-157): иначе он
-    #: остался бы стоять в узле выхода, а тело оказалось бы «впряжено» в
-    #: повозку за полкарты отсюда.
+    #: The convoy follows, as in an ordinary transit (D-157): otherwise it would
+    #: stay standing in the exit node, and the body would be "harnessed" to a
+    #: wagon half a map away.
     from src.engine import transport
 
-    обоз = await transport.harnessed(session, body)
-    if обоз is not None:
-        await transport.follow(session, обоз, найдено)
+    convoy = await transport.harnessed(session, body)
+    if convoy is not None:
+        await transport.follow(session, convoy, found)
 
     await events.record(
         session,
         EventKind.EXPLORE_FOUND,
         actor_identity_id=body.identity_id,
-        node_id=найдено.id,
-        from_node=откуда.key,
-        found=найдено.key,
-        name=найдено.name,
-        goal=цель,
-        resource=порода,
-        minutes=минут,
-        explored=found_here(откуда),
+        node_id=found.id,
+        from_node=origin.key,
+        found=found.key,
+        name=found.name,
+        goal=goal,
+        resource=species,
+        minutes=minutes,
+        explored=found_here(origin),
     )
 
 
 async def cancel(session: AsyncSession, body: Body) -> Job:
-    """Повернуть назад: заход отменяется, тело снова в узле выхода.
+    """Turn back: the run is cancelled, the body is in the exit node again.
 
-    Потраченная выносливость не возвращается — ноги уже пройдены, — а находка
-    не состоится: бросок был назначен на срок возвращения, и до него разведчик
-    не дошёл. Узел тела не менялся с выхода, поэтому «вернуться» — это снять
-    задание, и тело свободно сразу.
+    Spent stamina does not come back -- the legs are already walked -- and the
+    find will not happen: the roll was scheduled for the return time, and the
+    scout did not reach it. The body's node has not changed since departure, so
+    "return" means cancelling the job, and the body is free at once.
     """
-    заход = await pending(session, body)
-    if заход is None:
+    run = await pending(session, body)
+    if run is None:
         raise NotOut("тело не в разведке: возвращаться неоткуда")
-    заход.state = JobState.CANCELLED
-    заход.finished_at = datetime.now(UTC)
+    run.state = JobState.CANCELLED
+    run.finished_at = datetime.now(UTC)
     await session.flush()
 
     await events.record(
@@ -353,49 +359,50 @@ async def cancel(session: AsyncSession, body: Body) -> Job:
         EventKind.EXPLORE_CANCELLED,
         actor_identity_id=body.identity_id,
         node_id=body.node_id,
-        goal=str(заход.payload.get("goal") or SITE),
-        resource=заход.payload.get("resource"),
+        goal=str(run.payload.get("goal") or SITE),
+        resource=run.payload.get("resource"),
     )
-    return заход
+    return run
 
 
 def found_here(node: Node) -> int:
-    """Сколько находок уже сделано от этого узла (D-156)."""
+    """How many finds have already been made from this node (D-156)."""
     return int((node.properties or {}).get(FOUND_HERE, 0))
 
 
 def chance(constants: Constants, node: Node) -> float:
-    """Шанс захода отсюда, в процентах. Падает с каждой находкой до пола.
+    """The chance of a run from here, in percent. Falls with each find down to the floor.
 
-    Пол существует, чтобы исхоженное место беднело, а не запиралось: узел, из
-    которого больше нельзя выйти в поле, — тупик, а карта вечная (D-007).
+    The floor exists so that a trodden place grows poorer rather than locked: a
+    node one can no longer go into the field from is a dead end, and the map is
+    eternal (D-007).
     """
-    спад = constants[R.EXPLORE_FIND_DECAY] ** found_here(node)
+    decline = constants[R.EXPLORE_FIND_DECAY] ** found_here(node)
     return max(
-        constants[R.EXPLORE_FIND_FLOOR], constants[R.EXPLORE_FIND_CHANCE] * спад
+        constants[R.EXPLORE_FIND_FLOOR], constants[R.EXPLORE_FIND_CHANCE] * decline
     )
 
 
 def _cap(constants: Constants) -> float:
-    """Потолок длительности захода в минутах: дальше истощение не растит."""
+    """The run duration ceiling in minutes: depletion grows it no further."""
     return constants[R.EXPLORE_ATTEMPT_HOURS] * MINUTES_PER_HOUR
 
 
-def _minutes(constants: Constants, node: Node, бросок: random.Random) -> float:
-    """Сколько займёт заход отсюда. Каждая находка удлиняет следующий."""
-    заход = constants[R.EXPLORE_ATTEMPT_MINUTES]
-    истощение = constants[R.EXPLORE_EFFORT_GROWTH] ** found_here(node)
-    return min(_cap(constants), бросок.uniform(заход.min, заход.max) * истощение)
+def _minutes(constants: Constants, node: Node, dice: random.Random) -> float:
+    """How long a run from here takes. Each find lengthens the next."""
+    run = constants[R.EXPLORE_ATTEMPT_MINUTES]
+    depletion = constants[R.EXPLORE_EFFORT_GROWTH] ** found_here(node)
+    return min(_cap(constants), dice.uniform(run.min, run.max) * depletion)
 
 
-def _stamina(constants: Constants, минут: float) -> float:
-    """Цена захода выносливостью: по времени в поле, а не поштучно.
+def _stamina(constants: Constants, minutes: float) -> float:
+    """The run's price in stamina: by time in the field, not per piece.
 
-    `explore.attempt_stamina` — цена захода полной длины. Поштучная цена
-    заперла бы ранние заходы выносливостью ровно там, где D-156 отпирает их
-    временем.
+    `explore.attempt_stamina` is the price of a full-length run. A per-piece
+    price would lock early runs with stamina exactly where D-156 unlocks them
+    with time.
     """
-    return constants[R.EXPLORE_ATTEMPT_STAMINA] * минут / _cap(constants)
+    return constants[R.EXPLORE_ATTEMPT_STAMINA] * minutes / _cap(constants)
 
 
 async def outlook(
@@ -406,176 +413,178 @@ async def outlook(
     goal: str = SITE,
     resource: str | None = None,
 ) -> dict | None:
-    """Во что обойдётся заход отсюда — до выхода.
+    """What a run from here will cost -- before leaving.
 
-    Цена разведки меняется от места к месту (D-156), а цена, которую нельзя
-    увидеть заранее, читается как случайность движка. Прицельность считается
-    здесь же: заказанная порода ищется тем хуже, чем она реже (D-151), и
-    показывать «шанс 90%» тому, кто идёт за золотом, значило бы врать.
+    The price of exploration changes from place to place (D-156), and a price
+    that cannot be seen in advance reads as engine randomness. Aiming is
+    computed right here: a requested species is found the worse the rarer it is
+    (D-151), and showing "90% chance" to someone going for gold would be a lie.
     """
-    узел = await session.get(Node, body.node_id)
-    if узел is None:  # pragma: no cover — тело всегда стоит в узле
+    node = await session.get(Node, body.node_id)
+    if node is None:  # pragma: no cover -- a body always stands in a node
         return None
-    заход = constants[R.EXPLORE_ATTEMPT_MINUTES]
-    истощение = constants[R.EXPLORE_EFFORT_GROWTH] ** found_here(узел)
-    короткий = min(_cap(constants), заход.min * истощение)
-    длинный = min(_cap(constants), заход.max * истощение)
-    прицел = _aim(constants, current_catalog(), goal, resource)
+    run = constants[R.EXPLORE_ATTEMPT_MINUTES]
+    depletion = constants[R.EXPLORE_EFFORT_GROWTH] ** found_here(node)
+    short = min(_cap(constants), run.min * depletion)
+    long_ = min(_cap(constants), run.max * depletion)
+    aim = _aim(constants, current_catalog(), goal, resource)
     return {
-        "explored": found_here(узел),
-        "minutes": {"min": короткий, "max": длинный},
-        #: Наибольшая из возможных: игрок должен знать потолок, а не среднее.
-        "stamina": _stamina(constants, длинный),
-        "chance": chance(constants, узел) * прицел,
-        #: Во сколько раз заказ породы сузил шанс: игрок видит не только
-        #: «мало», но и почему мало (D-151).
-        "aim": прицел,
+        "explored": found_here(node),
+        "minutes": {"min": short, "max": long_},
+        #: The largest possible: the player must know the ceiling, not the average.
+        "stamina": _stamina(constants, long_),
+        "chance": chance(constants, node) * aim,
+        #: By how much the species request narrowed the chance: the player sees
+        #: not only "little" but why little (D-151).
+        "aim": aim,
         "resource": resource,
     }
 
 
 def mineable(catalog: Catalog) -> tuple[str, ...]:
-    """Что в этом мире вообще добывают — списком `gives` операции «Добыча».
+    """What is mined in this world at all -- the `gives` list of the "Mining" operation.
 
-    Список пород движок не держит: заведут в вольте пятую — она появится и в
-    выборе цели, и в находках, без правки кода (D-151).
+    The engine keeps no species list: add a fifth in the vault and it appears
+    both in the goal choice and in finds, without a code change (D-151).
     """
-    операция = next(
+    operation = next(
         (op for op in catalog.recipes.operations if op.name == MINING_OPERATION), None
     )
-    return tuple(операция.gives) if операция is not None else ()
+    return tuple(operation.gives) if operation is not None else ()
 
 
 def _aim(
-    constants: Constants, catalog: Catalog, цель: str, заказано: str | None
+    constants: Constants, catalog: Catalog, goal: str, requested: str | None
 ) -> float:
-    """Множитель шанса за прицельность.
+    """Chance multiplier for aiming.
 
-    Названная порода ищется хуже безымянной, и ровно во столько раз, во
-    сколько она реже: доля её темпа в `harvest.rates` от самого быстрого.
-    Второй таблицы редкости не заводим — она разошлась бы с первой (D-151).
+    A named species is found worse than an unnamed one, and exactly as many
+    times worse as it is rarer: the share of its pace in `harvest.rates`
+    relative to the fastest. No second rarity table -- it would diverge from
+    the first (D-151).
     """
-    if цель != VEIN or заказано is None:
+    if goal != VEIN or requested is None:
         return 1.0
-    темпы = constants[R.HARVEST_RATES]
-    добывают = [имя for имя in mineable(catalog) if float(темпы.get(имя, 0)) > 0]
-    if заказано not in добывают:
+    paces = constants[R.HARVEST_RATES]
+    mining_ = [name for name in mineable(catalog) if float(paces.get(name, 0)) > 0]
+    if requested not in mining_:
         return 1.0
-    самое_частое = max(float(темпы[имя]) for имя in добывают)
-    return float(темпы[заказано]) / самое_частое
+    most_common = max(float(paces[name]) for name in mining_)
+    return float(paces[requested]) / most_common
 
 
 async def _place(
     session: AsyncSession,
     constants: Constants,
-    бросок: random.Random,
-    откуда: Node,
+    dice: random.Random,
+    origin: Node,
     *,
-    цель: str,
+    goal: str,
     vein: bool,
 ) -> Node:
-    """Завести найденный узел рядом с тем, откуда вышли.
+    """Create the found node next to the one we left from.
 
-    Участок города встаёт **в городе** и принадлежит ему: городскую землю не
-    занимают, её раздаёт власть (D-089). Всё прочее висит на планете и остаётся
-    ничьим — нашедший получает право первой ночи, а не собственность (D-152).
+    A city plot lands **in the city** and belongs to it: civic land is not
+    taken, the authority hands it out (D-089). Everything else hangs on the
+    planet and stays unowned -- the finder gets the right of first night, not
+    ownership (D-152).
     """
     from src.engine import city as town
 
-    #: Ключ узла обязан быть устойчивым и уникальным навсегда: карта вечная,
-    #: вайпов не бывает (D-007), а «дикий участок 3» рано или поздно совпадёт.
-    ключ = f"terra.wild.{uuid.uuid4().hex}"
+    #: The node key must be stable and unique forever: the map is eternal,
+    #: there are no wipes (D-007), and "wild plot 3" will sooner or later collide.
+    key = f"terra.wild.{uuid.uuid4().hex}"
 
-    if цель == LOT:
-        город = await town.of_node(session, откуда)
-        if город is None:
+    if goal == LOT:
+        city = await town.of_node(session, origin)
+        if city is None:
             raise ExploreError("участок ищут в городе: за стенами застройки нет")
-        представитель = await session.get(Node, город.node_id)
-        кольцо = constants[R.LAND_AREA_RING1]
-        участок = await world.create_node(
+        delegate = await session.get(Node, city.node_id)
+        ring = constants[R.LAND_AREA_RING1]
+        plot = await world.create_node(
             session,
-            ключ,
+            key,
             "Свободный участок",
-            area_m2=бросок.uniform(кольцо.min, кольцо.max),
+            area_m2=dice.uniform(ring.min, ring.max),
             layer=Layer.CITY,
-            parent=представитель,
-            planet=откуда.planet,
-            properties={"участок": True, "кольцо": откуда.properties.get("кольцо", 0)},
+            parent=delegate,
+            planet=origin.planet,
+            properties={"участок": True, "кольцо": origin.properties.get("кольцо", 0)},
         )
-        участок.owner_city_id = город.id
+        plot.owner_city_id = city.id
         await session.flush()
-        return участок
+        return plot
 
-    корень = await _planet_root(session, откуда)
-    площадь = constants[R.EXPLORE_NODE_AREA]
+    root = await _planet_root(session, origin)
+    area = constants[R.EXPLORE_NODE_AREA]
     return await world.create_node(
         session,
-        ключ,
-        "Место под город" if цель == SITE else "Дикий участок",
-        area_m2=бросок.uniform(площадь.min, площадь.max),
+        key,
+        "Место под город" if goal == SITE else "Дикий участок",
+        area_m2=dice.uniform(area.min, area.max),
         layer=Layer.PLANET,
-        parent=корень,
-        planet=откуда.planet,
-        #: Даль растёт на шаг от того узла, откуда вышли (D-180): фронтир
-        #: удаляется сам, по мере того как его двигают.
-        properties=_properties(constants, бросок, vein=vein)
-        | {travel.REACH: travel.reach_of(откуда) + 1},
+        parent=root,
+        planet=origin.planet,
+        #: Distance grows by a step from the node we left from (D-180): the
+        #: frontier recedes by itself as it is pushed.
+        properties=_properties(constants, dice, vein=vein)
+        | {travel.REACH: travel.reach_of(origin) + 1},
     )
 
 
 def _properties(
-    constants: Constants, бросок: random.Random, *, vein: bool
+    constants: Constants, dice: random.Random, *, vein: bool
 ) -> dict:
-    """Свойства места под общий бюджет достоинств (D-126).
+    """Place properties under a common merit budget (D-126).
 
-    Идеального места не бывает: река съедает часть бюджета, и плодородию
-    остаётся тем меньше, чем больше воды.
+    There is no perfect place: a river eats part of the budget, and the more
+    water, the less is left for fertility.
     """
-    бюджет = constants[R.SITE_QUALITY_BUDGET]
-    река = бросок.random() * PERCENT < constants[R.SITE_RIVER_SHARE]
-    на_воду = бросок.uniform(0, бюджет) if река else 0.0
-    на_землю = max(0.0, бюджет - на_воду)
+    budget = constants[R.SITE_QUALITY_BUDGET]
+    river = dice.random() * PERCENT < constants[R.SITE_RIVER_SHARE]
+    for_water = dice.uniform(0, budget) if river else 0.0
+    for_land = max(0.0, budget - for_water)
 
-    температура = constants[R.SITE_TEMP_RANGE]
-    осадки = constants[R.SITE_RAIN_RANGE]
+    temperature = constants[R.SITE_TEMP_RANGE]
+    rainfall = constants[R.SITE_RAIN_RANGE]
     return {
-        "вода": "река" if река else "нет",
-        #: На жильной находке пашня ни при чём: порода не родит хлеба.
-        "плодородие": 0 if vein else round(PERCENT * на_землю / бюджет),
-        "температура": round(бросок.uniform(температура.min, температура.max)),
-        "осадки": round(бросок.uniform(осадки.min, осадки.max)),
+        "вода": "река" if river else "нет",
+        #: On a vein find arable land is beside the point: rock bears no bread.
+        "плодородие": 0 if vein else round(PERCENT * for_land / budget),
+        "температура": round(dice.uniform(temperature.min, temperature.max)),
+        "осадки": round(dice.uniform(rainfall.min, rainfall.max)),
         "дикий": True,
     }
 
 
-def _resource(constants: Constants, catalog: Catalog, бросок: random.Random) -> str:
-    """Что за порода. Список — из вольта, вес — из темпа добычи (D-151).
+def _resource(constants: Constants, catalog: Catalog, dice: random.Random) -> str:
+    """Which species. The list is from the vault, the weight from the mining pace (D-151).
 
-    Редкое добывается медленнее, значит и попадается реже. Второй таблицы
-    редкости не заводим: она разошлась бы с первой.
+    The rare is mined slower, so it also turns up rarer. No second rarity table:
+    it would diverge from the first.
     """
-    темпы = constants[R.HARVEST_RATES]
-    операция = next(
+    paces = constants[R.HARVEST_RATES]
+    operation = next(
         (op for op in catalog.recipes.operations if op.name == MINING_OPERATION), None
     )
-    если_нет = "Камень"
-    if операция is None:  # pragma: no cover — операция добычи есть по построению
-        return если_нет
-    порода = [имя for имя in операция.gives if float(темпы.get(имя, 0)) > 0]
-    if not порода:  # pragma: no cover
-        return если_нет
-    веса = [float(темпы[имя]) for имя in порода]
-    return бросок.choices(порода, weights=веса)[0]
+    if_missing = "Камень"
+    if operation is None:  # pragma: no cover -- the mining operation exists by construction
+        return if_missing
+    species = [name for name in operation.gives if float(paces.get(name, 0)) > 0]
+    if not species:  # pragma: no cover
+        return if_missing
+    weights = [float(paces[name]) for name in species]
+    return dice.choices(species, weights=weights)[0]
 
 
 async def _planet_root(session: AsyncSession, node: Node) -> Node | None:
-    """Планета, на которой стоит узел: идём вверх по иерархии показа."""
-    текущий = node
-    while текущий.parent_id is not None:
-        родитель = await session.get(Node, текущий.parent_id)
-        if родитель is None:  # pragma: no cover
+    """The planet the node stands on: walk up the display hierarchy."""
+    current = node
+    while current.parent_id is not None:
+        parent = await session.get(Node, current.parent_id)
+        if parent is None:  # pragma: no cover
             return None
-        if родитель.layer is Layer.SPACE:
-            return родитель
-        текущий = родитель
+        if parent.layer is Layer.SPACE:
+            return parent
+        current = parent
     return None

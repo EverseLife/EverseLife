@@ -1,40 +1,42 @@
-"""Голосование граждан (D-036, D-130, D-161).
+"""Citizens' vote (D-036, D-130, D-161).
 
-Устав спрашивает, кто утверждает закон, с каким порогом, при каком кворуме и у
-кого вообще есть голос. До этого движок исполнял одну ветку — «правитель
-единолично», ту, что стоит умолчанием: города, выбравшего «голосованием
-граждан», просто не могло существовать.
+The charter asks who approves a law, at what threshold, with what quorum and
+who has a vote at all. Until now the engine ran a single branch -- "the ruler
+alone", the default one: a city that chose "by citizens' vote" simply could
+not exist.
 
-## Как устроено
+## How it works
 
-Тот, кому устав дал вносить законы, не меняет закон, а **открывает
-голосование** на `vote.duration` часов. По сроку задание журнала считает итог и
-применяет его само — без чьего-либо участия, в том числе если все разошлись.
+Whoever the charter allowed to propose laws does not change the law but
+**opens a poll** for `vote.duration` hours. At the deadline a journal job
+counts the result and applies it itself -- without anybody's participation,
+even if everyone has left.
 
-| Условие | Вопрос устава |
+| Condition | Charter question |
 |---|---|
-| у кого голос | `vote_qualification`: все граждане · по сроку проживания · по имуществу |
-| кворум | `quorum`: не требуется либо доля имеющих право |
-| порог | `law_threshold`: простое большинство · две трети · единогласно |
+| who has a vote | `vote_qualification`: all citizens - by residency - by property |
+| quorum | `quorum`: not required, or a share of those eligible |
+| threshold | `law_threshold`: simple majority - two thirds - unanimity |
 
-**Условия снимаются при открытии.** Устав, изменённый посреди голосования, не
-переписывает правила уже идущего: иначе правитель, видя, что проигрывает,
-поднимал бы порог на ходу. По той же причине в записи хранится число имевших
-право голоса на момент созыва — кворум считается от него.
+**Conditions are captured at opening.** A charter changed mid-poll does not
+rewrite the rules of one already running: otherwise a ruler who sees they are
+losing would raise the threshold on the fly. For the same reason the record
+stores the number of eligible voters at convening -- the quorum is counted from it.
 
-**Голос подаётся удалённо.** Это Сеть, а не присутственное действие: гражданин
-голосует из дороги и из шахты. Присутствие нужно, чтобы **править** (D-155), а
-голос — это не управление, это участие.
+**A vote is cast remotely.** This is the Net, not an in-person action: a
+citizen votes from the road and from the mine. Presence is needed to
+**govern** (D-155), and a vote is not governing, it is participation.
 
-## Чего здесь нет
+## What is not here
 
-* **Тайного голосования.** Вольт называет видимость параметром устава, но
-  вопроса под неё в `laws.json` нет, а заводить его в коде запрещено (D-065);
-* **Ценза по вкладу в казну.** Учёта личного вклада нет ни в одной таблице, и
-  вывести его из проводок нельзя: их основание не различает «пожертвовал» и
-  «заплатил налог»;
-* **Выборов, отзыва и правки устава.** Они лягут на эту же машину — у них те
-  же ценз, кворум и порог, отличается только предмет.
+* **Secret ballot.** The vault names visibility as a charter parameter, but
+  there is no question for it in `laws.json`, and creating one in code is
+  forbidden (D-065);
+* **A treasury-contribution census.** No table tracks personal contribution,
+  and it cannot be derived from postings: their ground does not distinguish
+  "donated" from "paid tax";
+* **Elections, recall and charter amendment.** They will sit on the same
+  machine -- same census, quorum and threshold, only the subject differs.
 """
 
 from __future__ import annotations
@@ -57,13 +59,13 @@ from src.models.job import Job, JobKind
 from src.models.vote import Ballot, Vote, VoteKind, VoteState
 from src.units import PERCENT
 
-#: Вопросы устава, из которых собирается процедура.
+#: Charter questions from which the procedure is assembled.
 APPROVAL = "law_approval"
 THRESHOLD = "law_threshold"
 QUORUM = "quorum"
 QUALIFICATION = "vote_qualification"
 
-#: Варианты, которые движок исполняет. Остальные названы в шапке.
+#: Options the engine executes. The rest are named in the header.
 BY_CITIZENS = "citizens"
 SIMPLE, TWO_THIRDS, UNANIMOUS = "simple", "two_thirds", "unanimous"
 ALL, RESIDENCE, PROPERTY = "all", "residence", "property"
@@ -74,11 +76,11 @@ class VoteError(Exception):
 
 
 class NoVoice(VoteError):
-    """Голоса нет: гражданства либо ценза не хватает. Ценз — дело устава."""
+    """No vote: citizenship or census is lacking. The census is the charter's business."""
 
 
 class Closed(VoteError):
-    """Голосование закрыто. Опоздавший голос итога не меняет."""
+    """The poll is closed. A late vote does not change the result."""
 
 
 def answer(city: City, question: str, default: str) -> str:
@@ -86,48 +88,48 @@ def answer(city: City, question: str, default: str) -> str:
 
 
 def param(city: City, question: str) -> float:
-    """Числовой параметр варианта устава: суток проживания, ТК имущества, %."""
+    """A charter option's numeric parameter: days of residency, TC of property, %."""
     try:
         return float((city.charter_params or {}).get(question) or 0)
-    except (TypeError, ValueError):  # pragma: no cover — параметр правит человек
+    except (TypeError, ValueError):  # pragma: no cover -- a human edits the parameter
         return 0.0
 
 
 def by_citizens(city: City) -> bool:
-    """Утверждает ли законы голосование граждан, а не правитель единолично."""
+    """Whether laws are approved by a citizens' vote rather than the ruler alone."""
     return answer(city, APPROVAL, "ruler") == BY_CITIZENS
 
 
 async def may_vote(
     session: AsyncSession, city: City, identity_id: uuid.UUID, *, now: datetime | None = None
 ) -> bool:
-    """Есть ли у этого человека голос в этом городе (`vote_qualification`).
+    """Whether this person has a vote in this city (`vote_qualification`).
 
-    Голос есть только у граждан (D-160): без этого демократия превращается в
-    соревнование мультиаккаунтов, и весь политический слой обесценивается.
+    Only citizens have a vote (D-160): without that democracy turns into a
+    multi-account contest, and the whole political layer loses its value.
     """
     from src.engine import city as town
 
     moment = now or datetime.now(UTC)
-    запись = await town.citizenship(session, identity_id)
-    if запись is None or запись.city_id != city.id:
+    entry = await town.citizenship(session, identity_id)
+    if entry is None or entry.city_id != city.id:
         return False
 
-    ценз = answer(city, QUALIFICATION, ALL)
-    if ценз == RESIDENCE:
-        срок = timedelta(days=param(city, QUALIFICATION))
-        return запись.since + срок <= moment
-    if ценз == PROPERTY:
+    census = answer(city, QUALIFICATION, ALL)
+    if census == RESIDENCE:
+        term = timedelta(days=param(city, QUALIFICATION))
+        return entry.since + term <= moment
+    if census == PROPERTY:
         from src.engine import ledger
         from src.models.ledger import AccountKind
         from src.units import money
 
-        счёт = await ledger.account_for(session, AccountKind.IDENTITY, identity_id)
-        return await ledger.balance(session, счёт.id) >= money(
+        account = await ledger.account_for(session, AccountKind.IDENTITY, identity_id)
+        return await ledger.balance(session, account.id) >= money(
             param(city, QUALIFICATION)
         )
-    #: Ценз по вкладу в казну не исполняется: учёта вклада нет (D-161). Такой
-    #: город голосует всеми гражданами, а не запирается наглухо.
+    #: The treasury-contribution census is not enforced: contribution is not
+    #: tracked (D-161). Such a city votes with all citizens rather than locking up.
     return True
 
 
@@ -138,20 +140,20 @@ async def electorate(
     now: datetime | None = None,
     voters: str = "citizens",
 ) -> list[uuid.UUID]:
-    """Кто имеет голос сейчас. От их числа считается кворум.
+    """Who has a vote now. The quorum is counted from their number.
 
-    Круг бывает двух видов: все граждане по цензу либо члены совета (D-164).
+    The circle comes in two kinds: all citizens by census, or council members (D-164).
     """
     from src.engine import city as town
 
     if voters == COUNCIL_VOTERS:
-        return [место.identity_id for место in await council_of(session, city)]
+        return [place.identity_id for place in await council_of(session, city)]
 
-    имеют: list[uuid.UUID] = []
-    for запись in await town.citizens_of(session, city):
-        if await may_vote(session, city, запись.identity_id, now=now):
-            имеют.append(запись.identity_id)
-    return имеют
+    have_: list[uuid.UUID] = []
+    for entry in await town.citizens_of(session, city):
+        if await may_vote(session, city, entry.identity_id, now=now):
+            have_.append(entry.identity_id)
+    return have_
 
 
 async def open_law(
@@ -164,7 +166,7 @@ async def open_law(
     *,
     now: datetime | None = None,
 ) -> Vote:
-    """Созвать голосование по код-закону. Итог применится сам, по сроку."""
+    """Convene a poll on a code-law. The result applies itself, on schedule."""
     return await _open(
         session,
         constants,
@@ -186,13 +188,13 @@ async def _open(
     subject: dict,
     now: datetime | None = None,
 ) -> Vote:
-    """Созыв: условия снимаются здесь и дальше не меняются (D-161)."""
+    """Convening: conditions are captured here and do not change afterwards (D-161)."""
     moment = now or datetime.now(UTC)
-    круг = voters_for(city, kind)
-    имеющие = await electorate(session, city, now=moment, voters=круг)
-    закрытие = moment + timedelta(hours=constants[R.VOTE_DURATION])
+    lap = voters_for(city, kind)
+    eligible = await electorate(session, city, now=moment, voters=lap)
+    closing = moment + timedelta(hours=constants[R.VOTE_DURATION])
 
-    голосование = Vote(
+    poll = Vote(
         city_id=city.id,
         kind=kind,
         subject=subject,
@@ -201,11 +203,11 @@ async def _open(
         quorum_share=Decimal(
             str(param(city, QUORUM) if answer(city, QUORUM, "none") != "none" else 0)
         ),
-        electorate=len(имеющие),
+        electorate=len(eligible),
         voters=voters_for(city, kind),
-        closes_at=закрытие,
+        closes_at=closing,
     )
-    session.add(голосование)
+    session.add(poll)
     await session.flush()
 
     event = await events.record(
@@ -214,21 +216,21 @@ async def _open(
         actor_identity_id=None if by is None else by.id,
         node_id=city.node_id,
         city_id=str(city.id),
-        vote_id=str(голосование.id),
+        vote_id=str(poll.id),
         kind_of_vote=kind.value,
         subject=subject,
-        electorate=голосование.electorate,
-        closes_at=закрытие.isoformat(),
+        electorate=poll.electorate,
+        closes_at=closing.isoformat(),
     )
     await enqueue(
         session,
         JobKind.VOTE_CLOSE,
-        закрытие,
-        payload={"vote": str(голосование.id)},
-        dedup_key=f"vote.close:{голосование.id}",
+        closing,
+        payload={"vote": str(poll.id)},
+        dedup_key=f"vote.close:{poll.id}",
         cause_event_id=event.id,
     )
-    return голосование
+    return poll
 
 
 async def cast(
@@ -240,7 +242,7 @@ async def cast(
     *,
     now: datetime | None = None,
 ) -> Ballot:
-    """Проголосовать. Удалённо: голос — это участие, а не управление."""
+    """Vote. Remote: a vote is participation, not governing."""
     moment = now or datetime.now(UTC)
     if vote.state is not VoteState.OPEN or vote.closes_at <= moment:
         raise Closed("голосование закрыто: опоздавший голос итога не меняет")
@@ -250,20 +252,20 @@ async def cast(
             + ("члены совета" if vote.voters == COUNCIL_VOTERS else "граждане")
         )
 
-    бюллетень = (
+    ballot = (
         await session.execute(
             select(Ballot).where(
                 Ballot.vote_id == vote.id, Ballot.identity_id == identity.id
             )
         )
     ).scalar_one_or_none()
-    if бюллетень is None:
-        бюллетень = Ballot(vote_id=vote.id, identity_id=identity.id, yes=yes)
-        session.add(бюллетень)
+    if ballot is None:
+        ballot = Ballot(vote_id=vote.id, identity_id=identity.id, yes=yes)
+        session.add(ballot)
     else:
-        #: Передумать до срока можно: голосование идёт сутки, и запирать
-        #: человека в первом решении незачем.
-        бюллетень.yes = yes
+        #: Changing one's mind before the deadline is allowed: the poll runs a
+        #: day, and there is no point locking a person into their first decision.
+        ballot.yes = yes
     await session.flush()
     await events.record(
         session,
@@ -273,7 +275,7 @@ async def cast(
         vote_id=str(vote.id),
         yes=yes,
     )
-    return бюллетень
+    return ballot
 
 
 async def may_vote_in(
@@ -284,100 +286,101 @@ async def may_vote_in(
     *,
     now: datetime | None = None,
 ) -> bool:
-    """Есть ли голос **в этом** голосовании: круг снят при созыве (D-164)."""
+    """Whether one has a vote **in this** poll: the circle was captured at convening (D-164)."""
     if vote.voters == COUNCIL_VOTERS:
         return await in_council(session, city, identity_id)
     return await may_vote(session, city, identity_id, now=now)
 
 
 async def standing(session: AsyncSession, vote: Vote) -> tuple[int, int]:
-    """Сколько за и сколько против прямо сейчас. Голосование открытое."""
-    бюллетени = (
+    """How many for and how many against right now. The poll is open."""
+    ballots = (
         await session.execute(select(Ballot).where(Ballot.vote_id == vote.id))
     ).scalars().all()
-    за = sum(1 for б in бюллетени if б.yes)
-    return за, len(бюллетени) - за
+    pro = sum(1 for b in ballots if b.yes)
+    return pro, len(ballots) - pro
 
 
 def passes(
-    constants: Constants, vote: Vote, за: int, против: int
+    constants: Constants, vote: Vote, pro: int, contra: int
 ) -> tuple[bool, str]:
-    """Прошло ли. Возвращает решение и причину — её видит игрок, а не только лог.
+    """Whether it passed. Returns the decision and the reason -- the player sees it,
+    not only the log.
 
-    Доли, стоящие за словами устава, лежат в `vote.thresholds`: «две трети» —
-    это число, и числу место в вольте (D-065). Простое большинство берётся
-    **строго больше** половины, прочие пороги — не меньше своей доли: иначе
-    ровное деление голосов проходило бы как большинство.
+    The shares behind the charter's words lie in `vote.thresholds`: "two thirds"
+    is a number, and a number belongs in the vault (D-065). A simple majority
+    is taken **strictly more** than half, other thresholds not less than their
+    share: otherwise an even split would pass as a majority.
     """
-    подано = за + против
-    нужен_кворум = float(vote.quorum_share) / PERCENT * vote.electorate
-    if подано < нужен_кворум:
+    submitted = pro + contra
+    quorum_needed = float(vote.quorum_share) / PERCENT * vote.electorate
+    if submitted < quorum_needed:
         return False, "кворум не собран"
-    if подано == 0:
+    if submitted == 0:
         return False, "не проголосовал никто"
 
-    доли = constants[R.VOTE_THRESHOLDS]
-    доля = доли.get(vote.threshold, доли.get(SIMPLE, 0))
-    нужно = подано * доля
-    хватило = за > нужно if vote.threshold == SIMPLE else за >= нужно
-    названия = {
+    shares = constants[R.VOTE_THRESHOLDS]
+    share = shares.get(vote.threshold, shares.get(SIMPLE, 0))
+    needed = submitted * share
+    enough = pro > needed if vote.threshold == SIMPLE else pro >= needed
+    titles = {
         SIMPLE: ("большинство за", "большинства нет"),
         TWO_THIRDS: ("две трети собраны", "двух третей нет"),
         UNANIMOUS: ("единогласно", "не единогласно"),
     }
-    прошло, не_прошло = названия.get(vote.threshold, названия[SIMPLE])
-    return хватило, (прошло if хватило else не_прошло)
+    elapsed, not_passed = titles.get(vote.threshold, titles[SIMPLE])
+    return enough, (elapsed if enough else not_passed)
 
 
 @handler(JobKind.VOTE_CLOSE)
 async def close(session: AsyncSession, job: Job) -> None:
-    """Срок вышел: считаем итог и применяем его сами (D-161)."""
+    """The term is up: we count the result and apply it ourselves (D-161)."""
     from src.engine import city as town
 
-    голосование = await session.get(Vote, uuid.UUID(job.payload["vote"]))
-    if голосование is None or голосование.state is not VoteState.OPEN:
-        #: Повтор задания после сбоя вторым решением не станет.
+    poll = await session.get(Vote, uuid.UUID(job.payload["vote"]))
+    if poll is None or poll.state is not VoteState.OPEN:
+        #: A job retry after a failure does not become a second decision.
         return
 
     from src.constants import current
 
-    город = await town.by_id(session, голосование.city_id)
-    за, против = await standing(session, голосование)
+    city = await town.by_id(session, poll.city_id)
+    pro, contra = await standing(session, poll)
 
-    if голосование.kind is VoteKind.ELECTION:
-        почему = await _finish_election(session, голосование, город)
-        прошло = почему.startswith("избран")
-    elif голосование.kind is VoteKind.COUNCIL:
-        почему = await _finish_council(session, голосование, город)
-        прошло = почему.startswith("избрано")
+    if poll.kind is VoteKind.ELECTION:
+        reason = await _finish_election(session, poll, city)
+        elapsed = reason.startswith("избран")
+    elif poll.kind is VoteKind.COUNCIL:
+        reason = await _finish_council(session, poll, city)
+        elapsed = reason.startswith("избрано")
     else:
-        прошло, почему = passes(current(), голосование, за, против)
-        if прошло and город is not None and голосование.kind is VoteKind.LAW:
-            закон = str(голосование.subject.get("law"))
-            город.laws = {
-                **(город.laws or {}),
-                закон: голосование.subject.get("value"),
+        elapsed, reason = passes(current(), poll, pro, contra)
+        if elapsed and city is not None and poll.kind is VoteKind.LAW:
+            law = str(poll.subject.get("law"))
+            city.laws = {
+                **(city.laws or {}),
+                law: poll.subject.get("value"),
             }
-        if голосование.kind is VoteKind.RECALL and город is not None:
-            await _finish_recall(session, голосование, город, прошло)
-        if прошло and голосование.kind is VoteKind.CHARTER and город is not None:
-            await _finish_charter(session, голосование, город)
+        if poll.kind is VoteKind.RECALL and city is not None:
+            await _finish_recall(session, poll, city, elapsed)
+        if elapsed and poll.kind is VoteKind.CHARTER and city is not None:
+            await _finish_charter(session, poll, city)
 
-    голосование.state = VoteState.PASSED if прошло else VoteState.FAILED
-    голосование.closed_at = job.run_at
+    poll.state = VoteState.PASSED if elapsed else VoteState.FAILED
+    poll.closed_at = job.run_at
     await session.flush()
 
     await events.record(
         session,
         EventKind.VOTE_CLOSED,
-        node_id=None if город is None else город.node_id,
-        city_id=str(голосование.city_id),
-        vote_id=str(голосование.id),
-        passed=прошло,
-        why=почему,
-        yes=за,
-        no=против,
-        electorate=голосование.electorate,
+        node_id=None if city is None else city.node_id,
+        city_id=str(poll.city_id),
+        vote_id=str(poll.id),
+        passed=elapsed,
+        why=reason,
+        yes=pro,
+        no=contra,
+        electorate=poll.electorate,
     )
 
 
@@ -396,69 +399,69 @@ async def open_votes(session: AsyncSession, city: City) -> list[Vote]:
 async def view(
     session: AsyncSession, catalog: Catalog, city: City, identity_id: uuid.UUID
 ) -> list[dict]:
-    """Идущие голосования глазами клиента: предмет, сроки и свой голос."""
-    итог: list[dict] = []
-    for голосование in await open_votes(session, city):
-        за, против = await standing(session, голосование)
-        мой = (
+    """Ongoing polls through the client's eyes: subject, deadlines and own vote."""
+    result: list[dict] = []
+    for poll in await open_votes(session, city):
+        pro, contra = await standing(session, poll)
+        mine = (
             await session.execute(
                 select(Ballot).where(
-                    Ballot.vote_id == голосование.id,
+                    Ballot.vote_id == poll.id,
                     Ballot.identity_id == identity_id,
                 )
             )
         ).scalar_one_or_none()
-        #: У выборов предмет — человек: клиенту нужны имена, а не ключи.
-        кандидаты = []
-        if голосование.kind in (VoteKind.ELECTION, VoteKind.COUNCIL):
-            счёт = await tally(session, голосование)
-            for сырой in голосование.subject.get("candidates") or []:
-                кто = await session.get(Identity, uuid.UUID(сырой))
-                кандидаты.append(
+        #: For an election the subject is a person: the client needs names, not keys.
+        candidates = []
+        if poll.kind in (VoteKind.ELECTION, VoteKind.COUNCIL):
+            account = await tally(session, poll)
+            for raw_ in poll.subject.get("candidates") or []:
+                who = await session.get(Identity, uuid.UUID(raw_))
+                candidates.append(
                     {
-                        "id": сырой,
-                        "name": None if кто is None else кто.name,
-                        "votes": счёт.get(сырой, 0),
+                        "id": raw_,
+                        "name": None if who is None else who.name,
+                        "votes": account.get(raw_, 0),
                     }
                 )
-        итог.append(
+        result.append(
             {
-                "id": str(голосование.id),
-                "kind": голосование.kind.value,
-                "law": голосование.subject.get("law"),
-                "value": голосование.subject.get("value"),
-                "candidates": кандидаты,
+                "id": str(poll.id),
+                "kind": poll.kind.value,
+                "law": poll.subject.get("law"),
+                "value": poll.subject.get("value"),
+                "candidates": candidates,
                 "choice": (
                     None
-                    if мой is None or мой.choice_identity_id is None
-                    else str(мой.choice_identity_id)
+                    if mine is None or mine.choice_identity_id is None
+                    else str(mine.choice_identity_id)
                 ),
-                "closes_at": голосование.closes_at.isoformat(),
-                "threshold": голосование.threshold,
-                "quorum": float(голосование.quorum_share),
-                "electorate": голосование.electorate,
-                "yes": за,
-                "no": против,
-                "mine": None if мой is None else мой.yes,
-                "voters": голосование.voters,
+                "closes_at": poll.closes_at.isoformat(),
+                "threshold": poll.threshold,
+                "quorum": float(poll.quorum_share),
+                "electorate": poll.electorate,
+                "yes": pro,
+                "no": contra,
+                "mine": None if mine is None else mine.yes,
+                "voters": poll.voters,
                 "may_vote": await may_vote_in(
-                    session, city, identity_id, голосование
+                    session, city, identity_id, poll
                 ),
             }
         )
-    return итог
+    return result
 
 
-# --- выборы и отзыв (D-162) ---------------------------------------------------
+# --- election and recall (D-162) ---------------------------------------------
 
-#: Вопросы устава про смену власти.
+#: Charter questions about change of power.
 SELECTION = "ruler_selection"
 TERM = "ruler_term"
 RECALL_RULE = "ruler_recall"
 
-#: Варианты, которые движок исполняет.
+#: Options the engine executes.
 ELECTED = "elected_citizens"
-#: Правителя выбирает совет, а не весь город (D-165).
+#: The ruler is elected by the council, not the whole city (D-165).
 ELECTED_BY_COUNCIL = "elected_council"
 RECALL_BY_CITIZENS = "by_citizens"
 RECALL_BY_COUNCIL = "by_council"
@@ -466,15 +469,15 @@ FIXED_TERM = "fixed"
 
 
 class NotElective(VoteError):
-    """Устав не отдал власть выборам: сменяемость — тоже решение города."""
+    """The charter did not hand power to elections: turnover is also a city decision."""
 
 
 class NotCandidate(VoteError):
-    """Выдвигаются граждане, и только пока идут выборы."""
+    """Citizens nominate themselves, and only while the election runs."""
 
 
 def elects_ruler(city: City) -> bool:
-    """Выбирается ли правитель вообще — всем городом либо советом (D-165)."""
+    """Whether the ruler is elected at all -- by the whole city or by the council (D-165)."""
     return answer(city, SELECTION, "founder") in (ELECTED, ELECTED_BY_COUNCIL)
 
 
@@ -493,7 +496,7 @@ async def open_election(
     *,
     now: datetime | None = None,
 ) -> Vote:
-    """Созвать выборы правителя. Кандидаты выдвигаются, пока идёт голосование."""
+    """Convene a ruler election. Candidates nominate themselves while the poll runs."""
     if not elects_ruler(city):
         raise NotElective(
             "устав города не отдал власть выборам: правитель определяется иначе"
@@ -517,13 +520,13 @@ async def open_recall(
     *,
     now: datetime | None = None,
 ) -> Vote:
-    """Созвать отзыв правителя. Прошло — должность снимается и идут выборы."""
+    """Convene a ruler recall. If it passes, the office is vacated and an election follows."""
     from src.engine import city as town
 
     if not recallable(city):
         raise NotElective("устав города не допускает отзыва правителя")
-    правитель = await town.ruler(session, city)
-    if правитель is None:
+    ruler = await town.ruler(session, city)
+    if ruler is None:
         raise VoteError("отзывать некого: правителя нет")
     return await _open(
         session,
@@ -531,7 +534,7 @@ async def open_recall(
         city,
         by,
         kind=VoteKind.RECALL,
-        subject={"office": str(правитель.id), "who": str(правитель.identity_id)},
+        subject={"office": str(ruler.id), "who": str(ruler.identity_id)},
         now=now,
     )
 
@@ -539,7 +542,7 @@ async def open_recall(
 async def nominate(
     session: AsyncSession, city: City, who: Identity, vote: Vote, *, now=None
 ) -> Vote:
-    """Выдвинуться в правители. Сам, а не по чьему-то представлению."""
+    """Nominate yourself for ruler. Yourself, not on somebody's proposal."""
     moment = now or datetime.now(UTC)
     if vote.kind not in (VoteKind.ELECTION, VoteKind.COUNCIL):
         raise NotCandidate("это не выборы: выдвигаться некуда")
@@ -553,11 +556,11 @@ async def nominate(
             + ("члены совета" if vote.voters == COUNCIL_VOTERS else "граждане")
         )
 
-    кандидаты = list(vote.subject.get("candidates") or [])
-    if str(who.id) in кандидаты:
+    candidates = list(vote.subject.get("candidates") or [])
+    if str(who.id) in candidates:
         return vote
-    кандидаты.append(str(who.id))
-    vote.subject = {**vote.subject, "candidates": кандидаты}
+    candidates.append(str(who.id))
+    vote.subject = {**vote.subject, "candidates": candidates}
     await session.flush()
     await events.record(
         session,
@@ -579,7 +582,7 @@ async def choose(
     *,
     now: datetime | None = None,
 ) -> Ballot:
-    """Отдать голос кандидату. Один голос: передумать до срока можно."""
+    """Cast a vote for a candidate. One vote: changing one's mind before the deadline is allowed."""
     moment = now or datetime.now(UTC)
     if vote.kind not in (VoteKind.ELECTION, VoteKind.COUNCIL):
         raise VoteError("это не выборы: здесь голосуют «за» или «против»")
@@ -593,23 +596,23 @@ async def choose(
     if str(candidate.id) not in (vote.subject.get("candidates") or []):
         raise NotCandidate(f"{candidate.name} не выдвигался")
 
-    бюллетень = (
+    ballot = (
         await session.execute(
             select(Ballot).where(
                 Ballot.vote_id == vote.id, Ballot.identity_id == identity.id
             )
         )
     ).scalar_one_or_none()
-    if бюллетень is None:
-        бюллетень = Ballot(
+    if ballot is None:
+        ballot = Ballot(
             vote_id=vote.id,
             identity_id=identity.id,
             yes=True,
             choice_identity_id=candidate.id,
         )
-        session.add(бюллетень)
+        session.add(ballot)
     else:
-        бюллетень.choice_identity_id = candidate.id
+        ballot.choice_identity_id = candidate.id
     await session.flush()
     await events.record(
         session,
@@ -619,83 +622,85 @@ async def choose(
         vote_id=str(vote.id),
         choice=candidate.name,
     )
-    return бюллетень
+    return ballot
 
 
 async def tally(session: AsyncSession, vote: Vote) -> dict[str, int]:
-    """Сколько у кого голосов. Голосование открытое, расклад виден всем."""
-    бюллетени = (
+    """How many votes each has. The poll is open, the tally is visible to all."""
+    ballots = (
         await session.execute(select(Ballot).where(Ballot.vote_id == vote.id))
     ).scalars().all()
-    счёт: dict[str, int] = {}
-    for б in бюллетени:
-        if б.choice_identity_id is None:
+    account: dict[str, int] = {}
+    for b in ballots:
+        if b.choice_identity_id is None:
             continue
-        ключ = str(б.choice_identity_id)
-        счёт[ключ] = счёт.get(ключ, 0) + 1
-    return счёт
+        key = str(b.choice_identity_id)
+        account[key] = account.get(key, 0) + 1
+    return account
 
 
 async def _finish_election(session: AsyncSession, vote: Vote, city) -> str:
-    """Подвести выборы: у кого больше голосов, тот и правитель.
+    """Tally the election: whoever has more votes is the ruler.
 
-    Порога у выборов нет (D-162): требовать большинства от всех поданных
-    значит подвесить город без правителя при трёх кандидатах. Кворум — общий.
+    An election has no threshold (D-162): demanding a majority of all cast
+    would leave the city without a ruler with three candidates. The quorum is
+    the common one.
     """
     from src.engine import city as town
 
-    счёт = await tally(session, vote)
-    подано = sum(счёт.values())
-    нужен_кворум = float(vote.quorum_share) / PERCENT * vote.electorate
-    if подано < нужен_кворум:
+    account = await tally(session, vote)
+    submitted = sum(account.values())
+    quorum_needed = float(vote.quorum_share) / PERCENT * vote.electorate
+    if submitted < quorum_needed:
         return "кворум не собран"
-    if not счёт:
+    if not account:
         return "не проголосовал никто"
 
-    лучший = max(счёт.values())
-    победители = [кто for кто, голосов in счёт.items() if голосов == лучший]
-    if len(победители) > 1:
-        #: Ничья не решается движком: жребий — это отдельный вариант устава,
-        #: и выдумывать его здесь нельзя (D-065).
+    best = max(account.values())
+    winners = [who for who, votes in account.items() if votes == best]
+    if len(winners) > 1:
+        #: A tie is not resolved by the engine: sortition is a separate charter
+        #: option, and inventing it here is not allowed (D-065).
         return "ничья: победитель не определён"
 
-    победитель = await session.get(Identity, uuid.UUID(победители[0]))
-    if победитель is None:  # pragma: no cover — кандидат живёт в личностях
+    winner = await session.get(Identity, uuid.UUID(winners[0]))
+    if winner is None:  # pragma: no cover -- the candidate lives among identities
         return "победитель исчез"
-    await town.hand_over(session, city, победитель)
-    vote.subject = {**vote.subject, "winner": str(победитель.id)}
-    return f"избран {победитель.name}"
+    await town.hand_over(session, city, winner)
+    vote.subject = {**vote.subject, "winner": str(winner.id)}
+    return f"избран {winner.name}"
 
 
-async def _finish_recall(session: AsyncSession, vote: Vote, city, прошло: bool) -> None:
-    """Отзыв прошёл — должность снимается, и тут же созываются выборы."""
+async def _finish_recall(session: AsyncSession, vote: Vote, city, elapsed: bool) -> None:
+    """The recall passed -- the office is vacated, and an election is convened at once."""
     from src.constants import current
     from src.engine import city as town
 
-    if not прошло:
+    if not elapsed:
         return
     await town.dismiss(session, city)
     if elects_ruler(city):
         await open_election(session, current(), city, None)
 
 
-# --- правка устава голосованием (D-163) ---------------------------------------
+# --- charter amendment by vote (D-163) ---------------------------------------
 
-#: Вопрос устава о том, как правится сам устав, и его варианты.
+#: The charter question about how the charter itself is amended, and its options.
 AMENDMENT = "charter_amendment"
 BY_RULER, NEVER = "ruler", "never"
 
-#: Каким порогом голосуется правка. Ключи — варианты `charter_amendment`,
-#: значения — пороги той же машины: у конституции свой порог, а не `law_threshold`.
+#: The threshold an amendment is voted at. Keys are `charter_amendment`
+#: options, values are thresholds of the same machine: the constitution has its
+#: own threshold, not `law_threshold`.
 AMENDMENT_THRESHOLD = {"two_thirds": TWO_THIRDS, "unanimous": UNANIMOUS}
 
 
 class Sealed(VoteError):
-    """Устав запечатан: `charter_amendment: never` исполняется буквально."""
+    """The charter is sealed: `charter_amendment: never` is executed literally."""
 
 
 def amends_by_vote(city: City) -> bool:
-    """Правится ли устав голосованием, а не росчерком правителя."""
+    """Whether the charter is amended by vote rather than the ruler's stroke of a pen."""
     return answer(city, AMENDMENT, BY_RULER) in AMENDMENT_THRESHOLD
 
 
@@ -714,15 +719,15 @@ async def open_charter(
     *,
     now: datetime | None = None,
 ) -> Vote:
-    """Созвать голосование о правке устава (D-163).
+    """Convene a poll on a charter amendment (D-163).
 
-    Порог берётся из `charter_amendment`, а не из `law_threshold`: город вправе
-    принимать законы простым большинством и требовать двух третей для
-    конституции — вольт спрашивает об этом отдельно.
+    The threshold comes from `charter_amendment`, not `law_threshold`: a city
+    may pass laws by simple majority and require two thirds for the
+    constitution -- the vault asks about that separately.
     """
     if sealed(city):
         raise Sealed("устав этого города не меняется: так решил он сам")
-    голосование = await _open(
+    poll = await _open(
         session,
         constants,
         city,
@@ -731,49 +736,49 @@ async def open_charter(
         subject={"question": question_id, "option": option_id, "param": value},
         now=now,
     )
-    голосование.threshold = AMENDMENT_THRESHOLD[answer(city, AMENDMENT, BY_RULER)]
+    poll.threshold = AMENDMENT_THRESHOLD[answer(city, AMENDMENT, BY_RULER)]
     await session.flush()
-    return голосование
+    return poll
 
 
 async def _finish_charter(session: AsyncSession, vote: Vote, city) -> None:
-    """Правка принята: ответ устава меняется, как если бы его дал правитель."""
-    вопрос = str(vote.subject.get("question"))
-    устав = dict(city.charter or {})
-    устав[вопрос] = vote.subject.get("option")
-    city.charter = устав
-    значение = vote.subject.get("param")
-    if значение is not None:
-        параметры = dict(city.charter_params or {})
-        параметры[вопрос] = значение
-        city.charter_params = параметры
+    """The amendment passed: the charter answer changes as if the ruler gave it."""
+    question = str(vote.subject.get("question"))
+    charter = dict(city.charter or {})
+    charter[question] = vote.subject.get("option")
+    city.charter = charter
+    value = vote.subject.get("param")
+    if value is not None:
+        params = dict(city.charter_params or {})
+        params[question] = value
+        city.charter_params = params
     await session.flush()
     await events.record(
         session,
         EventKind.CITY_CHARTER_SET,
         node_id=city.node_id,
         city_id=str(city.id),
-        question=вопрос,
+        question=question,
         option=vote.subject.get("option"),
         by_vote=True,
     )
 
 
-# --- совет (D-164) ------------------------------------------------------------
+# --- council (D-164) ---------------------------------------------------------
 
-#: Вопрос устава о совете и его варианты.
+#: The charter question about the council and its options.
 COUNCIL = "council_exists"
 NO_COUNCIL, ELECTED_COUNCIL, APPOINTED_COUNCIL = "none", "elected", "appointed"
-#: Кто вносит закон: правитель либо совет.
+#: Who proposes a law: the ruler or the council.
 LAWMAKER = "lawmaker"
 BY_COUNCIL = "council"
 
-#: Круги голосующих. Строкой, потому что их станет больше вместе с уставом.
+#: Voter circles. As strings, because there will be more of them along with the charter.
 CITIZENS, COUNCIL_VOTERS = "citizens", "council"
 
 
 class NoCouncil(VoteError):
-    """Совета в этом городе нет: устав ответил «совета нет»."""
+    """There is no council in this city: the charter answered "no council"."""
 
 
 def council_mode(city: City) -> str:
@@ -781,7 +786,7 @@ def council_mode(city: City) -> str:
 
 
 def council_seats(city: City) -> int:
-    """Сколько мест назначил устав. Ноль мест равен отсутствию совета."""
+    """How many seats the charter set. Zero seats equals no council."""
     return int(param(city, COUNCIL))
 
 
@@ -790,7 +795,7 @@ def has_council(city: City) -> bool:
 
 
 async def council_of(session: AsyncSession, city: City) -> list[CouncilSeat]:
-    """Занятые места совета."""
+    """Occupied council seats."""
     return list(
         (
             await session.execute(
@@ -807,28 +812,28 @@ async def in_council(
     session: AsyncSession, city: City, identity_id: uuid.UUID
 ) -> bool:
     return any(
-        место.identity_id == identity_id for место in await council_of(session, city)
+        place.identity_id == identity_id for place in await council_of(session, city)
     )
 
 
 def voters_for(city: City, kind: VoteKind) -> str:
-    """Кто голосует по этому предмету (D-164, D-165).
+    """Who votes on this subject (D-164, D-165).
 
-    Круг определяется предметом **и** уставом: закон утверждает совет, если так
-    сказано; правителя выбирает и отзывает тот, кому устав это отдал. Всё
-    остальное — дело граждан.
+    The circle is determined by the subject **and** the charter: the council
+    approves a law if so stated; the ruler is elected and recalled by whoever
+    the charter gave it to. Everything else is the citizens' business.
 
-    Пустая палата не запирает ни законы, ни власть: город с нулём мест решает
-    сам, всем городом, а закон применяет тот, кто его внёс. Устав, который
-    невозможно исполнить буквально, исполняется по смыслу, а не блокирует
-    город навсегда.
+    An empty chamber locks neither laws nor authority: a city with zero seats
+    decides itself, as a whole city, and a law is applied by whoever proposed
+    it. A charter that cannot be executed literally is executed by meaning
+    rather than blocking the city forever.
     """
-    советом = {
+    by_council = {
         VoteKind.LAW: answer(city, APPROVAL, "ruler") == BY_COUNCIL,
         VoteKind.ELECTION: answer(city, SELECTION, "founder") == ELECTED_BY_COUNCIL,
         VoteKind.RECALL: answer(city, RECALL_RULE, "never") == RECALL_BY_COUNCIL,
     }.get(kind, False)
-    if советом and has_council(city):
+    if by_council and has_council(city):
         return COUNCIL_VOTERS
     return CITIZENS
 
@@ -836,11 +841,11 @@ def voters_for(city: City, kind: VoteKind) -> str:
 async def may_propose(
     session: AsyncSession, city: City, identity_id: uuid.UUID
 ) -> bool:
-    """Вправе ли этот человек вносить законы (`lawmaker`).
+    """Whether this person may propose laws (`lawmaker`).
 
-    Право `laws` вносит закон всегда — это власть. Совет добавляется к ней,
-    когда устав отвечает «вносит совет»: тогда законодателей столько, сколько
-    мест, и правитель среди них не единственный.
+    The `laws` right always proposes a law -- that is authority. The council is
+    added to it when the charter answers "the council proposes": then there are
+    as many legislators as seats, and the ruler is not the only one among them.
     """
     if answer(city, LAWMAKER, "ruler") != BY_COUNCIL:
         return False
@@ -850,20 +855,20 @@ async def may_propose(
 async def seat(
     session: AsyncSession, city: City, who: Identity, *, how: str
 ) -> CouncilSeat:
-    """Посадить человека в совет. Мест не больше, чем назначил устав."""
+    """Seat a person on the council. No more seats than the charter set."""
     if not has_council(city):
         raise NoCouncil("устав этого города не заводит совета")
-    занятые = await council_of(session, city)
-    if any(место.identity_id == who.id for место in занятые):
-        return next(м for м in занятые if м.identity_id == who.id)
-    if len(занятые) >= council_seats(city):
+    occupied_ = await council_of(session, city)
+    if any(place.identity_id == who.id for place in occupied_):
+        return next(m for m in occupied_ if m.identity_id == who.id)
+    if len(occupied_) >= council_seats(city):
         raise NoCouncil(
             f"в совете {council_seats(city)} мест, и все заняты: "
             "сначала освободить место"
         )
 
-    место = CouncilSeat(city_id=city.id, identity_id=who.id, how=how)
-    session.add(место)
+    place = CouncilSeat(city_id=city.id, identity_id=who.id, how=how)
+    session.add(place)
     await session.flush()
     await events.record(
         session,
@@ -874,15 +879,15 @@ async def seat(
         who=who.name,
         how=how,
     )
-    return место
+    return place
 
 
 async def vacate(session: AsyncSession, city: City, who: Identity) -> bool:
-    """Освободить место. Запись остаётся: кто голосовал — вопрос суда."""
-    for место in await council_of(session, city):
-        if место.identity_id != who.id:
+    """Vacate a seat. The record stays: who voted is a matter for the court."""
+    for place in await council_of(session, city):
+        if place.identity_id != who.id:
             continue
-        место.vacated_at = datetime.now(UTC)
+        place.vacated_at = datetime.now(UTC)
         await session.flush()
         await events.record(
             session,
@@ -898,7 +903,7 @@ async def vacate(session: AsyncSession, city: City, who: Identity) -> bool:
 async def appoint_to_council(
     session: AsyncSession, city: City, by: Identity, who: Identity
 ) -> CouncilSeat:
-    """Назначить в совет. Только там, где устав отдал места правителю."""
+    """Appoint to the council. Only where the charter gave the seats to the ruler."""
     from src.engine import city as town
 
     if council_mode(city) != APPOINTED_COUNCIL:
@@ -919,7 +924,7 @@ async def open_council_election(
     *,
     now: datetime | None = None,
 ) -> Vote:
-    """Созвать выборы в совет: побеждают столько, сколько мест."""
+    """Convene a council election: as many win as there are seats."""
     if council_mode(city) != ELECTED_COUNCIL or council_seats(city) <= 0:
         raise NoCouncil("устав этого города не выбирает совет")
     return await _open(
@@ -934,31 +939,31 @@ async def open_council_election(
 
 
 async def _finish_council(session: AsyncSession, vote: Vote, city) -> str:
-    """Подвести выборы в совет: места достаются набравшим больше голосов."""
-    счёт = await tally(session, vote)
-    подано = sum(счёт.values())
-    нужен_кворум = float(vote.quorum_share) / PERCENT * vote.electorate
-    if подано < нужен_кворум:
+    """Tally the council election: seats go to those with more votes."""
+    account = await tally(session, vote)
+    submitted = sum(account.values())
+    quorum_needed = float(vote.quorum_share) / PERCENT * vote.electorate
+    if submitted < quorum_needed:
         return "кворум не собран"
-    if not счёт:
+    if not account:
         return "не проголосовал никто"
 
-    мест = int(vote.subject.get("seats") or 0)
-    #: Больше голосов — выше место; при равенстве порядок задан ключом, и это
-    #: не жребий: жребий — отдельный вариант устава, его здесь нет (D-162).
-    победители = sorted(счёт.items(), key=lambda пара: (-пара[1], пара[0]))[:мест]
+    seats = int(vote.subject.get("seats") or 0)
+    #: More votes -- higher seat; on a tie the order is set by key, and that is
+    #: not sortition: sortition is a separate charter option, absent here (D-162).
+    winners = sorted(account.items(), key=lambda pair: (-pair[1], pair[0]))[:seats]
 
-    #: Прежний состав складывается целиком: выборы обновляют палату, а не
-    #: дописывают в неё.
-    for место in await council_of(session, city):
-        кто = await session.get(Identity, место.identity_id)
-        if кто is not None:
-            await vacate(session, city, кто)
-    посажено = 0
-    for сырой, _ in победители:
-        кто = await session.get(Identity, uuid.UUID(сырой))
-        if кто is None:  # pragma: no cover — кандидат живёт в личностях
+    #: The previous membership is vacated entirely: an election renews the
+    #: chamber rather than appending to it.
+    for place in await council_of(session, city):
+        who = await session.get(Identity, place.identity_id)
+        if who is not None:
+            await vacate(session, city, who)
+    planted = 0
+    for raw_, _ in winners:
+        who = await session.get(Identity, uuid.UUID(raw_))
+        if who is None:  # pragma: no cover -- the candidate lives among identities
             continue
-        await seat(session, city, кто, how=ELECTED_COUNCIL)
-        посажено += 1
-    return f"избрано мест: {посажено}"
+        await seat(session, city, who, how=ELECTED_COUNCIL)
+        planted += 1
+    return f"избрано мест: {planted}"

@@ -1,13 +1,13 @@
-"""Таможня: ставка, норма, запрет (D-123).
+"""Customs: rate, norm, ban (D-123).
 
-Проверяется то, ради чего пошлина введена именно такой:
+Checked is what the duty was introduced this way for:
 
-* норма отделяет бытовой провоз от промысла и считается **за окно**, а не за
-  одну ходку: иначе её обходят, разбив груз на десять заходов;
-* нет сделок — нет справочной цены, и пошлину брать не с чего;
-* запрет абсолютен: запрещённое не проходит ни за какие деньги;
-* нечем платить — товар не проходит, но долга не возникает;
-* шаг внутри своего города таможни не знает.
+* the norm separates household carriage from trade and is counted **per
+  window**, not per trip: otherwise it is dodged by splitting the cargo into ten runs;
+* no deals -- no reference price, and nothing to take the duty from;
+* the ban is absolute: the forbidden does not pass for any money;
+* nothing to pay with -- the goods do not pass, but no debt arises;
+* a step inside your own city knows no customs.
 """
 
 from __future__ import annotations
@@ -28,317 +28,318 @@ from src.units import money
 ORE = "Железная руда"
 
 
-async def _мир(session: AsyncSession, catalog: Catalog):
-    """Город с рынком и ничейная пойма за воротами."""
-    метка = uuid.uuid4().hex[:8]
-    планета = await world.create_node(
-        session, f"terra.{метка}", "Терра", area_m2=1, layer=Layer.SPACE
+async def _world(session: AsyncSession, catalog: Catalog):
+    """A city with a market and an unowned floodplain beyond the gate."""
+    stamp = uuid.uuid4().hex[:8]
+    planet = await world.create_node(
+        session, f"terra.{stamp}", "Терра", area_m2=1, layer=Layer.SPACE
     )
-    представитель = await world.create_node(
-        session, f"terra.city.{метка}", "Столица", area_m2=1,
-        layer=Layer.PLANET, parent=планета,
+    delegate = await world.create_node(
+        session, f"terra.city.{stamp}", "Столица", area_m2=1,
+        layer=Layer.PLANET, parent=planet,
     )
-    рынок = await world.create_node(
-        session, f"terra.city.{метка}.market", "Торг", area_m2=200,
-        parent=представитель,
+    marketplace = await world.create_node(
+        session, f"terra.city.{stamp}.market", "Торг", area_m2=200,
+        parent=delegate,
     )
-    ворота = await world.create_node(
-        session, f"terra.city.{метка}.gate", "Ворота", area_m2=80,
-        parent=представитель,
+    gate = await world.create_node(
+        session, f"terra.city.{stamp}.gate", "Ворота", area_m2=80,
+        parent=delegate,
     )
-    поле = await world.create_node(
-        session, f"terra.field.{метка}", "Пойма", area_m2=400,
-        layer=Layer.PLANET, parent=планета,
+    field = await world.create_node(
+        session, f"terra.field.{stamp}", "Пойма", area_m2=400,
+        layer=Layer.PLANET, parent=planet,
     )
-    город = await town.found(session, catalog, представитель, "Столица")
-    for узел in (рынок, ворота):
-        узел.owner_city_id = город.id
+    city = await town.found(session, catalog, delegate, "Столица")
+    for node in (marketplace, gate):
+        node.owner_city_id = city.id
     await session.flush()
 
-    await travel.connect(session, рынок, ворота, base_seconds=10, surface=Surface.PAVED)
-    await travel.connect(session, ворота, поле, base_seconds=60, surface=Surface.ROAD)
-    двор = await world.node_container(session, рынок)
-    await world.grant_item(session, двор, market.TERMINAL, quality=70, origin="тест")
-    return город, рынок, ворота, поле
+    await travel.connect(session, marketplace, gate, base_seconds=10, surface=Surface.PAVED)
+    await travel.connect(session, gate, field, base_seconds=60, surface=Surface.ROAD)
+    yard = await world.node_container(session, marketplace)
+    await world.grant_item(session, yard, market.TERMINAL, quality=70, origin="тест")
+    return city, marketplace, gate, field
 
 
-async def _купец(session: AsyncSession, узел, имя: str, *, денег: float = 0, руды=0.0):
-    identity, body = await world.spawn(session, f"{имя}-{uuid.uuid4().hex[:6]}", узел)
-    if денег:
-        счёт = await ledger.account_for(session, AccountKind.IDENTITY, identity.id)
+async def _merchant(session: AsyncSession, node, name: str, *, funds: float = 0, ore=0.0):
+    identity, body = await world.spawn(session, f"{name}-{uuid.uuid4().hex[:6]}", node)
+    if funds:
+        account = await ledger.account_for(session, AccountKind.IDENTITY, identity.id)
         genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
         await ledger.transfer(
             session, PostingReason.GENESIS,
-            debit=genesis.id, credit=счёт.id, amount=money(денег),
+            debit=genesis.id, credit=account.id, amount=money(funds),
         )
-    if руды:
-        карман = await world.body_container(session, body)
+    if ore:
+        pocket = await world.body_container(session, body)
         await world.grant_item(
-            session, карман, ORE, amount=руды, quality=60, origin="тест"
+            session, pocket, ORE, amount=ore, quality=60, origin="тест"
         )
     return identity, body
 
 
-async def _сделка(
-    session: AsyncSession, constants: Constants, catalog: Catalog, узел, цена: float
+async def _deal(
+    session: AsyncSession, constants: Constants, catalog: Catalog, node, price: float
 ) -> None:
-    """Одна сделка в стакане: без неё у города нет справочной цены (D-123)."""
-    продавец, тело_продавца = await _купец(session, узел, "Продавец", руды=10)
-    покупатель, тело_покупателя = await _купец(session, узел, "Покупатель", денег=200)
-    ступень = market.tier_of(constants, 60)
-    await market.load(session, constants, тело_продавца, ORE, 10)
+    """One deal in the book: without it the city has no reference price (D-123)."""
+    seller, seller_body = await _merchant(session, node, "Продавец", ore=10)
+    buyer, buyer_body = await _merchant(session, node, "Покупатель", funds=200)
+    tier = market.tier_of(constants, 60)
+    await market.load(session, constants, seller_body, ORE, 10)
     await market.sell(
-        session, constants, catalog, продавец, узел,
-        type_key=ORE, tier=ступень, price=money(цена), quantity=10,
+        session, constants, catalog, seller, node,
+        type_key=ORE, tier=tier, price=money(price), quantity=10,
     )
     await market.buy(
-        session, constants, catalog, тело_покупателя,
-        type_key=ORE, tier=ступень, price=money(цена), quantity=10,
+        session, constants, catalog, buyer_body,
+        type_key=ORE, tier=tier, price=money(price), quantity=10,
     )
 
 
-async def _пошлина(
+async def _duty(
     session: AsyncSession,
     constants: Constants,
     catalog: Catalog,
-    город,
-    ставка: float,
-    норма: float,
-    направление: str = customs.EXPORT,
+    city,
+    rate: float,
+    norm: float,
+    direction: str = customs.EXPORT,
 ) -> None:
-    город.laws = {
-        **(город.laws or {}),
-        f"{направление}_duty": {ORE: {"rate": ставка, "free": норма}},
+    city.laws = {
+        **(city.laws or {}),
+        f"{direction}_duty": {ORE: {"rate": rate, "free": norm}},
     }
     await session.flush()
 
 
-# --- граница ----------------------------------------------------------------
+# --- border ------------------------------------------------------------------
 
 
-async def test_шаг_внутри_города_таможни_не_знает(
+async def test_step_inside_city_knows_no_customs(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    город, рынок, ворота, _ = await _мир(session, catalog)
-    await _сделка(session, constants, catalog, рынок, 3)
-    await _пошлина(session, constants, catalog, город, ставка=50, норма=0)
+    city, marketplace, gate, _ = await _world(session, catalog)
+    await _deal(session, constants, catalog, marketplace, 3)
+    await _duty(session, constants, catalog, city, rate=50, norm=0)
 
-    _, тело = await _купец(session, рынок, "Свой", денег=100, руды=20)
-    начисления = await customs.cross(
-        session, constants, catalog, тело, рынок, ворота
+    _, body = await _merchant(session, marketplace, "Свой", funds=100, ore=20)
+    charges = await customs.cross(
+        session, constants, catalog, body, marketplace, gate
     )
-    assert начисления == [], "внутри города границы нет"
+    assert charges == [], "внутри города границы нет"
 
 
-async def test_вывоз_облагается_по_справочной_цене(
+async def test_export_taxed_by_reference_price(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Пошлина — доля от медианы сделок городского стакана (D-123)."""
-    город, рынок, ворота, поле = await _мир(session, catalog)
-    await _сделка(session, constants, catalog, рынок, 3)
-    await _пошлина(session, constants, catalog, город, ставка=10, норма=0)
+    """The duty is a share of the median of the city book's deals (D-123)."""
+    city, marketplace, gate, field = await _world(session, catalog)
+    await _deal(session, constants, catalog, marketplace, 3)
+    await _duty(session, constants, catalog, city, rate=10, norm=0)
 
-    identity, тело = await _купец(session, ворота, "Вывозящий", денег=100, руды=20)
-    было = await _баланс(session, identity.id)
-    #: В казне уже лежит налог с той сделки, что дала справочную цену: меряем
-    #: приход от перехода, а не остаток.
-    казна_была = await town.treasury_balance(session, город)
-    начисления = await customs.cross(session, constants, catalog, тело, ворота, поле)
+    identity, body = await _merchant(session, gate, "Вывозящий", funds=100, ore=20)
+    before = await _balance(session, identity.id)
+    #: The treasury already holds the tax from the deal that gave the reference
+    #: price: we measure the transit's income, not the balance.
+    treasury_was = await town.treasury_balance(session, city)
+    charges = await customs.cross(session, constants, catalog, body, gate, field)
 
-    assert len(начисления) == 1 and начисления[0].direction == customs.EXPORT
-    #: Двадцать единиц по три ТК, десять процентов — шесть ТК.
-    assert начисления[0].duty == money(6)
-    assert await _баланс(session, identity.id) == было - money(6)
-    assert await town.treasury_balance(session, город) == казна_была + money(6)
+    assert len(charges) == 1 and charges[0].direction == customs.EXPORT
+    #: Twenty units at three TC, ten percent -- six TC.
+    assert charges[0].duty == money(6)
+    assert await _balance(session, identity.id) == before - money(6)
+    assert await town.treasury_balance(session, city) == treasury_was + money(6)
 
 
-async def test_без_сделок_пошлины_нет(
+async def test_no_duty_without_deals(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Город, у которого рынок пуст, не может обложить то, чему не знает цены."""
-    город, _, ворота, поле = await _мир(session, catalog)
-    await _пошлина(session, constants, catalog, город, ставка=50, норма=0)
+    """A city whose market is empty cannot tax what it does not know the price of."""
+    city, _, gate, field = await _world(session, catalog)
+    await _duty(session, constants, catalog, city, rate=50, norm=0)
 
-    _, тело = await _купец(session, ворота, "Вывозящий", денег=100, руды=20)
-    начисления = await customs.cross(session, constants, catalog, тело, ворота, поле)
-    assert начисления[0].duty == 0
+    _, body = await _merchant(session, gate, "Вывозящий", funds=100, ore=20)
+    charges = await customs.cross(session, constants, catalog, body, gate, field)
+    assert charges[0].duty == 0
 
 
-async def test_норма_отделяет_быт_от_промысла(
+async def test_norm_separates_household_from_trade(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Новичок с мешком репы не платит, оптовик платит за всё сверх нормы."""
-    город, рынок, ворота, поле = await _мир(session, catalog)
-    await _сделка(session, constants, catalog, рынок, 3)
-    #: Норма в килограммах, у руды килограмм на единицу (D-146).
-    await _пошлина(session, constants, catalog, город, ставка=10, норма=30)
+    """A newcomer with a sack of turnips pays nothing, a wholesaler pays for everything above the
+    norm."""
+    city, marketplace, gate, field = await _world(session, catalog)
+    await _deal(session, constants, catalog, marketplace, 3)
+    #: The norm is in kilograms, ore is a kilogram per unit (D-146).
+    await _duty(session, constants, catalog, city, rate=10, norm=30)
 
-    _, малый = await _купец(session, ворота, "Житель", денег=100, руды=20)
-    начисления = await customs.cross(session, constants, catalog, малый, ворота, поле)
-    assert начисления[0].duty == 0, "меньше нормы — бесплатно"
+    _, small = await _merchant(session, gate, "Житель", funds=100, ore=20)
+    charges = await customs.cross(session, constants, catalog, small, gate, field)
+    assert charges[0].duty == 0, "меньше нормы — бесплатно"
 
-    _, оптовик = await _купец(session, ворота, "Оптовик", денег=100, руды=50)
-    начисления = await customs.cross(session, constants, catalog, оптовик, ворота, поле)
-    #: Двадцать единиц сверх нормы по три ТК, десять процентов — шесть ТК.
-    assert начисления[0].duty == money(6)
+    _, wholesaler = await _merchant(session, gate, "Оптовик", funds=100, ore=50)
+    charges = await customs.cross(session, constants, catalog, wholesaler, gate, field)
+    #: Twenty units above the norm at three TC, ten percent -- six TC.
+    assert charges[0].duty == money(6)
 
 
-async def test_норма_считается_за_окно_а_не_за_ходку(
+async def test_norm_counted_per_window_not_per_trip(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Норму, которую обнуляет разбиение груза на заходы, нормой не назовёшь."""
-    город, рынок, ворота, поле = await _мир(session, catalog)
-    await _сделка(session, constants, catalog, рынок, 3)
-    await _пошлина(session, constants, catalog, город, ставка=10, норма=30)
+    """A norm reset by splitting the cargo into runs cannot be called a norm."""
+    city, marketplace, gate, field = await _world(session, catalog)
+    await _deal(session, constants, catalog, marketplace, 3)
+    await _duty(session, constants, catalog, city, rate=10, norm=30)
 
-    identity, тело = await _купец(session, ворота, "Хитрый", денег=100, руды=20)
-    первый = await customs.cross(session, constants, catalog, тело, ворота, поле)
-    assert первый[0].duty == 0
+    identity, body = await _merchant(session, gate, "Хитрый", funds=100, ore=20)
+    first = await customs.cross(session, constants, catalog, body, gate, field)
+    assert first[0].duty == 0
 
-    #: Вторая ходка тем же телом. Груз новый: старый уже вывезен, а норма —
-    #: нет, она считается за окно и помнит прошлый заход.
+    #: A second trip with the same body. The cargo is new: the old is already
+    #: hauled out, but the norm is not -- it is counted per window and remembers the last run.
     from sqlalchemy import select
 
     from src.models.inventory import Item
 
-    карман = await world.body_container(session, тело)
-    прошлое = (
+    pocket = await world.body_container(session, body)
+    past = (
         await session.execute(
-            select(Item).where(Item.container_id == карман.id, Item.type_key == ORE)
+            select(Item).where(Item.container_id == pocket.id, Item.type_key == ORE)
         )
     ).scalars().all()
-    for вещь in прошлое:
-        await session.delete(вещь)
+    for thing in past:
+        await session.delete(thing)
     await session.flush()
     await world.grant_item(
-        session, карман, ORE, amount=20, quality=60, origin="тест"
+        session, pocket, ORE, amount=20, quality=60, origin="тест"
     )
-    второй = await customs.cross(session, constants, catalog, тело, ворота, поле)
-    assert второй[0].duty > 0, "норма исчерпана прошлой ходкой"
+    second = await customs.cross(session, constants, catalog, body, gate, field)
+    assert second[0].duty > 0, "норма исчерпана прошлой ходкой"
     assert await customs.moved_in_window(
-        session, constants, identity.id, город, customs.EXPORT, ORE
+        session, constants, identity.id, city, customs.EXPORT, ORE
     ) == pytest.approx(40)
 
 
-async def test_запрет_абсолютен(
+async def test_ban_is_absolute(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Крайняя мера: запрещённое не проходит ни за какие деньги."""
-    город, рынок, ворота, поле = await _мир(session, catalog)
-    город.laws = {**(город.laws or {}), "export_ban": ORE}
+    """The extreme measure: the forbidden does not pass for any money."""
+    city, marketplace, gate, field = await _world(session, catalog)
+    city.laws = {**(city.laws or {}), "export_ban": ORE}
     await session.flush()
 
-    _, тело = await _купец(session, ворота, "Контрабандист", денег=1000, руды=5)
+    _, body = await _merchant(session, gate, "Контрабандист", funds=1000, ore=5)
     with pytest.raises(customs.Banned):
-        await customs.cross(session, constants, catalog, тело, ворота, поле)
+        await customs.cross(session, constants, catalog, body, gate, field)
 
 
-async def test_нечем_платить_товар_не_проходит(
+async def test_goods_do_not_pass_without_means_to_pay(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Долга при этом не возникает: таможня не кредитует (D-123)."""
-    город, рынок, ворота, поле = await _мир(session, catalog)
-    await _сделка(session, constants, catalog, рынок, 3)
-    await _пошлина(session, constants, catalog, город, ставка=50, норма=0)
+    """No debt arises here: customs does not lend (D-123)."""
+    city, marketplace, gate, field = await _world(session, catalog)
+    await _deal(session, constants, catalog, marketplace, 3)
+    await _duty(session, constants, catalog, city, rate=50, norm=0)
 
-    identity, тело = await _купец(session, ворота, "Бедный", руды=50)
+    identity, body = await _merchant(session, gate, "Бедный", ore=50)
     with pytest.raises(customs.CannotPay):
-        await customs.cross(session, constants, catalog, тело, ворота, поле)
-    assert await _баланс(session, identity.id) == 0, "долга не возникает"
+        await customs.cross(session, constants, catalog, body, gate, field)
+    assert await _balance(session, identity.id) == 0, "долга не возникает"
 
 
-async def test_переход_не_начинается_без_пошлины(
+async def test_transit_does_not_start_without_duty(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Граница считается до выхода: иначе в город входит неоплаченное."""
-    город, рынок, ворота, поле = await _мир(session, catalog)
-    await _сделка(session, constants, catalog, рынок, 3)
-    await _пошлина(session, constants, catalog, город, ставка=50, норма=0)
+    """The border is settled before leaving: otherwise the unpaid enters the city."""
+    city, marketplace, gate, field = await _world(session, catalog)
+    await _deal(session, constants, catalog, marketplace, 3)
+    await _duty(session, constants, catalog, city, rate=50, norm=0)
 
-    _, тело = await _купец(session, ворота, "Бедный", руды=50)
+    _, body = await _merchant(session, gate, "Бедный", ore=50)
     with pytest.raises(customs.CannotPay):
-        await travel.depart(session, constants, тело, поле)
-    assert await travel.current(session, тело) is None, "переход не начался"
+        await travel.depart(session, constants, body, field)
+    assert await travel.current(session, body) is None, "переход не начался"
 
 
-async def test_ввоз_и_вывоз_попадают_в_сводку(
+async def test_imports_and_exports_land_in_summary(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """«Ввезено и вывезено по товарам, в весе и в ходках» — строка панели (D-124)."""
+    """"Imported and exported by goods, in weight and trips" is the panel line (D-124)."""
     from datetime import UTC, datetime, timedelta
 
     from src.engine import panel
 
-    город, рынок, ворота, поле = await _мир(session, catalog)
-    await _сделка(session, constants, catalog, рынок, 3)
-    await _пошлина(session, constants, catalog, город, ставка=10, норма=0)
+    city, marketplace, gate, field = await _world(session, catalog)
+    await _deal(session, constants, catalog, marketplace, 3)
+    await _duty(session, constants, catalog, city, rate=10, norm=0)
 
-    _, тело = await _купец(session, ворота, "Возчик", денег=100, руды=20)
-    await customs.cross(session, constants, catalog, тело, ворота, поле)
+    _, body = await _merchant(session, gate, "Возчик", funds=100, ore=20)
+    await customs.cross(session, constants, catalog, body, gate, field)
 
-    сводка = await panel.collect(session, constants, город)
-    торговля = сводка["trade"]
-    assert торговля["exported"][ORE] == pytest.approx(20)
-    assert торговля["trips_out"] == 1
-    assert торговля["duty_collected"] > 0
+    summary = await panel.collect(session, constants, city)
+    trade = summary["trade"]
+    assert trade["exported"][ORE] == pytest.approx(20)
+    assert trade["trips_out"] == 1
+    assert trade["duty_collected"] > 0
 
-    #: И то же самое напрямую из таможни — одной формулой (D-139).
-    прямо = await customs.traffic(
-        session, constants, город, since=datetime.now(UTC) - timedelta(hours=1)
+    #: And the same directly from customs -- by one formula (D-139).
+    direct = await customs.traffic(
+        session, constants, city, since=datetime.now(UTC) - timedelta(hours=1)
     )
-    assert прямо["exported"] == торговля["exported"]
+    assert direct["exported"] == trade["exported"]
 
 
-async def _баланс(session: AsyncSession, identity_id) -> int:
-    счёт = await ledger.account_for(session, AccountKind.IDENTITY, identity_id)
-    return await ledger.balance(session, счёт.id)
+async def _balance(session: AsyncSession, identity_id) -> int:
+    account = await ledger.account_for(session, AccountKind.IDENTITY, identity_id)
+    return await ledger.balance(session, account.id)
 
 
-def test_ставка_числом_означает_на_всё(catalog: Catalog) -> None:
-    """Закон читается двумя способами, и оба честные (D-123)."""
+def test_numeric_rate_means_on_everything(catalog: Catalog) -> None:
+    """The law is read in two ways, both honest (D-123)."""
     from src.models.city import City
 
-    город = City(node_id=uuid.uuid4(), name="Тест", charter={}, charter_params={},
+    city = City(node_id=uuid.uuid4(), name="Тест", charter={}, charter_params={},
                  laws={"import_duty": "12"})
-    ставки = customs.rates(catalog, город, customs.IMPORT)
-    assert ставки["*"]["rate"] == 12 and ставки["*"]["free"] == 0
+    rates = customs.rates(catalog, city, customs.IMPORT)
+    assert rates["*"]["rate"] == 12 and rates["*"]["free"] == 0
 
-    город.laws = {"import_duty": {ORE: {"rate": 5, "free": 10}}}
-    ставки = customs.rates(catalog, город, customs.IMPORT)
-    assert ставки[ORE] == {"rate": 5, "free": 10}
+    city.laws = {"import_duty": {ORE: {"rate": 5, "free": 10}}}
+    rates = customs.rates(catalog, city, customs.IMPORT)
+    assert rates[ORE] == {"rate": 5, "free": 10}
     assert R.TRADE_DUTY_FREE_WINDOW.key == "trade.duty_free_window"
 
 
-async def test_автопуть_обрывается_на_границе(
+async def test_autopath_breaks_at_border(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Не пустили — маршрут кончается здесь, а не роняет задание журнала.
+    """Not let through -- the route ends here rather than dropping the journal job.
 
-    Иначе отказ таможни превращался бы в вечно повторяющееся задание, а тело
-    зависало бы посреди перегона.
+    Otherwise a customs refusal would turn into an eternally repeating job, and
+    the body would hang mid-leg.
     """
 
     from sqlalchemy import select
 
     from src.models.job import Job, JobKind, JobState
 
-    город, рынок, ворота, поле = await _мир(session, catalog)
-    await _сделка(session, constants, catalog, рынок, 3)
-    await _пошлина(session, constants, catalog, город, ставка=50, норма=0)
+    city, marketplace, gate, field = await _world(session, catalog)
+    await _deal(session, constants, catalog, marketplace, 3)
+    await _duty(session, constants, catalog, city, rate=50, norm=0)
 
-    _, тело = await _купец(session, рынок, "Бедный", руды=50)
-    #: Автопуть: первый отрезок внутри города, второй — через границу.
-    await travel.depart(session, constants, тело, поле)
-    задание = (
+    _, body = await _merchant(session, marketplace, "Бедный", ore=50)
+    #: Autopath: the first leg inside the city, the second across the border.
+    await travel.depart(session, constants, body, field)
+    job = (
         await session.execute(
             select(Job).where(
                 Job.kind == JobKind.TRAVEL_LEG.value, Job.state == JobState.PENDING
             )
         )
     ).scalars().first()
-    assert задание is not None
-    await travel.arrive(session, задание)
+    assert job is not None
+    await travel.arrive(session, job)
 
-    #: Дошёл до ворот и встал: дальше не пустили, но задание отработало.
-    assert тело.node_id == ворота.id
-    assert await travel.current(session, тело) is None
+    #: Reached the gate and stopped: not let further, but the job did its work.
+    assert body.node_id == gate.id
+    assert await travel.current(session, body) is None

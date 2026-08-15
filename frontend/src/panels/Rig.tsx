@@ -1,13 +1,15 @@
 /**
- * Буровая установка: капитал вместо труда (D-115).
+ * Drilling rig: capital instead of labour (D-115).
  *
- * Машина не спит — в этом вся её сила, и во всём остальном она проигрывает
- * человеку: выход ниже, качество ограничено, жилу выедает вдвое быстрее.
+ * The machine does not sleep -- that is its whole strength, and in everything
+ * else it loses to a human: lower output, bounded quality, eats the vein twice as fast.
  *
- * Показывать надо ровно три вещи, потому что ровно ими предприятие и держится
- * на людях: сколько в бункере, надолго ли угля и в каком станок состоянии.
- * Полный бункер и пустой угольный склад — это не ошибки, а обязательства.
+ * Exactly three things must be shown, because exactly these keep the
+ * enterprise dependent on people: how much is in the hopper, how long the coal
+ * lasts and what condition the machine is in. A full hopper and an empty coal
+ * store are not errors but obligations.
  */
+
 
 import { useCallback, useEffect, useState } from "react";
 import type { Look, Session } from "../api";
@@ -32,52 +34,52 @@ type RigRow = {
 };
 
 export function Rig({ look, session, busy, act }: Props) {
-  const [установки, setУстановки] = useState<RigRow[]>([]);
-  const станок = look.inventory.find((т) => т.goods === "Буровая установка");
-  const жила = look.veins?.[0];
+  const [rigs, setRigs] = useState<RigRow[]>([]);
+  const machine = look.inventory.find((t) => t.goods === "Буровая установка");
+  const vein = look.veins?.[0];
 
   const reload = useCallback(async () => {
-    const ответ = await session.send("rig.status");
-    setУстановки(ответ.rigs as RigRow[]);
+    const answer = await session.send("rig.status");
+    setRigs(answer.rigs as RigRow[]);
   }, [session]);
 
   useEffect(() => {
     void reload();
   }, [reload, look]);
 
-  const го = (what: () => Promise<unknown>) =>
+  const go = (what: () => Promise<unknown>) =>
     act(async () => {
       await what();
       await reload();
     });
 
-  if (установки.length === 0 && !станок) return null;
+  if (rigs.length === 0 && !machine) return null;
 
   return (
     <section>
       <h2>Буровая</h2>
 
-      {установки.map((у) => (
-        <div key={у.id}>
+      {rigs.map((u) => (
+        <div key={u.id}>
           <p className="sign">
-            {у.resource} · в бункере {у.hopper.toFixed(0)} из {у.capacity.toFixed(0)}
-            {у.full && <b> · бункер полон, машина стоит</b>}
+            {u.resource} · в бункере {u.hopper.toFixed(0)} из {u.capacity.toFixed(0)}
+            {u.full && <b> · бункер полон, машина стоит</b>}
           </p>
           <p className="note">
-            угля на {у.hours_of_fuel.toFixed(1)} ч ({у.fuel.toFixed(0)}) ·
-            состояние {у.condition.toFixed(0)} · в жиле {у.vein_left.toFixed(0)}
-            {у.fuel <= 0 && <b> · топливо кончилось, машина стоит</b>}
+            угля на {u.hours_of_fuel.toFixed(1)} ч ({u.fuel.toFixed(0)}) ·
+            состояние {u.condition.toFixed(0)} · в жиле {u.vein_left.toFixed(0)}
+            {u.fuel <= 0 && <b> · топливо кончилось, машина стоит</b>}
           </p>
           <button
-            onClick={() => го(() => session.send("rig.empty", { rig: у.id }))}
-            disabled={busy || у.hopper <= 0}
+            onClick={() => go(() => session.send("rig.empty", { rig: u.id }))}
+            disabled={busy || u.hopper <= 0}
           >
             Вывезти бункер
           </button>
         </div>
       ))}
 
-      {станок && установки.length === 0 && (
+      {machine && rigs.length === 0 && (
         <>
           <p className="note">
             Установка в руках. Поставьте её на жилу — дальше она работает без
@@ -85,11 +87,11 @@ export function Rig({ look, session, busy, act }: Props) {
           </p>
           <button
             onClick={() =>
-              го(() =>
-                session.send("rig.place", { item: станок.id, vein: жила!.id }),
+              go(() =>
+                session.send("rig.place", { item: machine.id, vein: vein!.id }),
               )
             }
-            disabled={busy || !жила}
+            disabled={busy || !vein}
           >
             Поставить на жилу
           </button>

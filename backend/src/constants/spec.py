@@ -1,15 +1,15 @@
-"""Типизированные объявления балансных констант.
+"""Typed declarations of balance constants.
 
-Правило D-065: ни одно балансное число не зашито в код. Практически это значит,
-что движок не пишет `constants["mine.roof_start"]` где попало, а **объявляет**
-нужную константу здесь один раз — с ключом и ожидаемой формой.
+Rule D-065: not one balance number is hard-coded. In practice this means the
+engine does not write `constants["mine.roof_start"]` anywhere it likes but
+**declares** the needed constant here once -- with a key and an expected shape.
 
-Что это даёт:
+What this gives:
 
-* константы, которой нет в `build/constants.json`, ломают старт, а не бой;
-* константа неожиданной формы (число вместо диапазона) ломает старт тоже;
-* список всех величин, от которых зависит движок, существует в одном месте —
-  и по нему проверяется, что в коде не осталось чисел мимо реестра.
+* a constant missing from `build/constants.json` breaks startup, not gameplay;
+* a constant of an unexpected shape (a number instead of a range) breaks startup too;
+* the list of all quantities the engine depends on exists in one place -- and
+  it is checked against that no numbers past the registry remain in code.
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ from typing import Any
 
 
 class ConstantError(Exception):
-    """Константа отсутствует или имеет не ту форму."""
+    """The constant is missing or has the wrong shape."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,7 +29,7 @@ class Range:
 
     @property
     def mid(self) -> float:
-        """Середина шкалы: «обычное» значение, от которого считают отклонение."""
+        """The middle of the scale: the "ordinary" value deviation is counted from."""
         return (self.min + self.max) / 2
 
     def clamp(self, value: float) -> float:
@@ -48,22 +48,23 @@ class Tier:
 
 @dataclass(frozen=True, slots=True)
 class Formula:
-    """Формула из вольта.
+    """A formula from the vault.
 
-    Простое выражение движок **вычисляет** (`value`), а не переписывает кодом:
-    иначе числа из формулы переезжают в движок и правка баланса начинает
-    требовать выката версии (D-065).
+    A simple expression the engine **evaluates** (`value`) rather than
+    rewrites in code: otherwise numbers from the formula move into the engine
+    and a balance edit starts requiring a release (D-065).
 
-    Формула, описывающая алгоритм — с суммированием по этажам, ветвлением,
-    случайностью, — вычислена быть не может, и её движок реализует кодом. Строка
-    тогда фиксирует, какую именно: расхождение — вопрос к человеку, а не повод
-    молча посчитать иначе (07-implementation-map).
+    A formula describing an algorithm -- with summation over levels,
+    branching, randomness -- cannot be evaluated, and the engine implements it
+    in code. The string then records which one exactly: a discrepancy is a
+    question for a human, not a reason to silently compute otherwise
+    (07-implementation-map).
     """
 
     text: str
 
     def value(self, **names: float) -> float:
-        """Посчитать формулу, подставив названные величины."""
+        """Evaluate the formula, substituting the named quantities."""
         from src.constants.formula import evaluate
 
         return evaluate(self.text, **names)
@@ -71,11 +72,11 @@ class Formula:
 
 @dataclass(frozen=True, slots=True)
 class Spec:
-    """Объявление одной константы."""
+    """Declaration of one constant."""
 
     key: str
 
-    def read(self, raw: Any) -> Any:  # pragma: no cover - переопределяется
+    def read(self, raw: Any) -> Any:  # pragma: no cover - overridden
         raise NotImplementedError
 
     def _fail(self, raw: Any, expected: str) -> ConstantError:
@@ -108,7 +109,7 @@ class Text(Spec):
 
 @dataclass(frozen=True, slots=True)
 class Span(Spec):
-    """`{"min": …, "max": …}`."""
+    """`{"min": ..., "max": ...}`."""
 
     def read(self, raw: Any) -> Range:
         if not isinstance(raw, dict) or "min" not in raw or "max" not in raw:
@@ -123,7 +124,7 @@ class Span(Spec):
 
 @dataclass(frozen=True, slots=True)
 class Table(Spec):
-    """Карта `имя → число`: модификаторы, веса ролей, полосы признаков."""
+    """A map `name -> number`: modifiers, role weights, sign bands."""
 
     def read(self, raw: Any) -> dict[str, float]:
         if not isinstance(raw, dict):
@@ -138,7 +139,7 @@ class Table(Spec):
 
 @dataclass(frozen=True, slots=True)
 class Tiers(Spec):
-    """Список ступеней `{from, to, name}` — витрина качества."""
+    """A list of tiers `{from, to, name}` -- the quality shop window."""
 
     def read(self, raw: Any) -> tuple[Tier, ...]:
         if not isinstance(raw, list) or not raw:
@@ -153,7 +154,7 @@ class Tiers(Spec):
 
 @dataclass(frozen=True, slots=True)
 class FormulaRef(Spec):
-    """`{"formula": "…"}` — движок обязан реализовать её кодом."""
+    """`{"formula": "..."}` -- the engine must implement it in code."""
 
     def read(self, raw: Any) -> Formula:
         if not isinstance(raw, dict) or "formula" not in raw:

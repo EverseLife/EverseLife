@@ -1,8 +1,8 @@
-"""Журнал заданий: ровно один раз, даже если процесс перезапустили.
+"""The job journal: exactly once, even if the process was restarted.
 
-На этом держатся партии, караваны, рост урожая и суточные списания
-(01-tech-notes, паттерн 1). Ошибка здесь не ловится игрой — она проявляется
-двойным списанием содержания через неделю после запуска.
+Batches, caravans, harvest growth and daily write-offs rest on this
+(01-tech-notes, pattern 1). An error here is not caught by the game -- it
+shows as a double maintenance write-off a week after launch.
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ import pytest
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from src import herald  # noqa: F401 — регистрирует обработчик хроники
+from src import herald  # noqa: F401 -- registers the chronicle handler
 from src.engine import jobs, tick
 from src.models.event import Event
 from src.models.job import Job, JobKind, JobState
@@ -22,7 +22,7 @@ from src.models.job import Job, JobKind, JobState
 NOW = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
 
 
-async def test_повторная_постановка_не_плодит_задание(session: AsyncSession) -> None:
+async def test_repeated_queueing_does_not_duplicate_job(session: AsyncSession) -> None:
     first = await jobs.enqueue(session, JobKind.WORLD_TICK, NOW, dedup_key="tick:1")
     second = await jobs.enqueue(session, JobKind.WORLD_TICK, NOW, dedup_key="tick:1")
     await session.commit()
@@ -33,7 +33,7 @@ async def test_повторная_постановка_не_плодит_зад�
     assert total == 1
 
 
-async def test_тик_выполняется_и_ставит_следующий(
+async def test_tick_runs_and_queues_next(
     factory: async_sessionmaker[AsyncSession],
 ) -> None:
     async with factory() as session, session.begin():
@@ -53,17 +53,17 @@ async def test_тик_выполняется_и_ставит_следующий(
         assert pending[0].run_at > NOW
 
 
-async def test_будущее_задание_не_берётся(factory: async_sessionmaker[AsyncSession]) -> None:
+async def test_future_job_not_taken(factory: async_sessionmaker[AsyncSession]) -> None:
     async with factory() as session, session.begin():
         await jobs.enqueue(session, JobKind.WORLD_TICK, NOW + timedelta(hours=1))
 
     assert await jobs.run_one(factory, now=NOW) is None
 
 
-async def test_эффект_и_отметка_фиксируются_вместе(
+async def test_effect_and_mark_committed_together(
     factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """Событие тика и его отметка «выполнено» — одна транзакция."""
+    """The tick event and its "done" mark are one transaction."""
     async with factory() as session, session.begin():
         await tick.ensure_scheduled(session, NOW)
 
@@ -79,10 +79,10 @@ async def test_эффект_и_отметка_фиксируются_вмест�
         assert ticks == finished == 2
 
 
-async def test_упавшее_задание_откатывает_свои_эффекты(
+async def test_failed_job_rolls_back_its_effects(
     factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """Половина эффекта хуже отсутствия эффекта: откатывается всё."""
+    """Half an effect is worse than no effect: everything rolls back."""
     from src.engine import events
 
     async def broken(session: AsyncSession, job: Job) -> None:
@@ -111,7 +111,7 @@ async def test_упавшее_задание_откатывает_свои_эф�
         jobs._HANDLERS.pop("тест.сломанное", None)
 
 
-async def test_задание_сдаётся_после_предела_попыток(
+async def test_job_gives_up_after_attempt_limit(
     factory: async_sessionmaker[AsyncSession],
 ) -> None:
     from src.runtime import JOB_MAX_ATTEMPTS
@@ -138,10 +138,10 @@ async def test_задание_сдаётся_после_предела_попы�
         jobs._HANDLERS.pop("тест.безнадёжное", None)
 
 
-async def test_два_воркера_не_берут_одно_задание(
+async def test_two_workers_do_not_take_same_job(
     factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """`FOR UPDATE SKIP LOCKED`: очередь разбирается без координации."""
+    """`FOR UPDATE SKIP LOCKED`: the queue is drained without coordination."""
     async with factory() as session, session.begin():
         await jobs.enqueue(session, JobKind.WORLD_TICK, NOW, dedup_key="один")
 
@@ -153,18 +153,19 @@ async def test_два_воркера_не_берут_одно_задание(
     assert len(taken) == 1, "задание обязано достаться ровно одному воркеру"
 
 
-async def test_все_виды_заданий_имеют_обработчик() -> None:
-    """Задание без обработчика — отложенное расхождение мира с самим собой.
+async def test_all_job_kinds_have_handler() -> None:
+    """A job without a handler is a deferred divergence of the world from itself.
 
-    Обработчики регистрируются импортом, и здесь импортируется ровно то же,
-    что импортирует воркер: движок и глашатай. Появится третий пакет с
-    заданиями — его сюда придётся дописать, и это правильная цена за то, что
-    проверка идёт при старте, а не в тике посреди ночи.
+    Handlers are registered by import, and exactly the same is imported here
+    as the worker imports: the engine and the herald. A third package with
+    jobs appears -- it will have to be added here, and that is the right price
+    for the check running at startup rather than in a tick in the middle of the night.
     """
+
     jobs.require_handlers()
 
 
-async def test_журнал_событий_неизменяем(session: AsyncSession) -> None:
+async def test_event_journal_immutable(session: AsyncSession) -> None:
     from sqlalchemy.exc import DBAPIError
 
     from src.engine import events

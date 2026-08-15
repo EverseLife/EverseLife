@@ -1,20 +1,20 @@
 /**
- * Альфа-клиент OctoVerse.
+ * The OctoVerse alpha client.
  *
- * Компоновка — четыре постоянные зоны (D-050):
+ * The layout is four permanent zones (D-050):
  *
- * - **верхний баннер** — где ты, что с телом, счёт;
- * - **левый сайдбар** — то, что работает через Сеть: персонаж, инвентарь,
- *   дела, торговля, знания, хозяйство. Доступен всегда, хоть с дороги: счета
- *   за быт — деньги, а не материя (D-149). Управления городом здесь нет:
- *   власть присутственна и живёт в администрации (D-155);
- * - **основное окно** — табы: карта · локация · кружки. Локация и кружки
- *   присутственные: в пути их нет, потому что нет тебя в узле;
- * - **нижняя полоса** — живой чат локации.
+ * - **top banner** -- where you are, what is with the body, the account;
+ * - **left sidebar** -- what works over the Net: character, inventory, jobs,
+ *   trade, knowledge, holdings. Always available, even from the road:
+ *   household bills are money, not matter (D-149). No city governing here:
+ *   authority is in-person and lives in the administration (D-155);
+ * - **main window** -- tabs: map - location - circles. Location and circles
+ *   are in-person: en route they are gone, because you are not in the node;
+ * - **bottom strip** -- the location's live chat.
  *
- * Организующий принцип тот же, что у мира: сайдбар — удалённое, основное окно
- * — присутственное. Игрок усваивает устройство мира, просто пользуясь
- * интерфейсом. Визуальный язык — всё ещё работа дизайнера (D-049, D-055).
+ * The organising principle is the same as the world's: the sidebar is remote,
+ * the main window is in-person. The player absorbs the world's structure just
+ * by using the interface. The visual language is still the designer's work (D-049, D-055).
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -43,7 +43,7 @@ import { Workshop } from "./panels/Workshop";
 import { craftableAt } from "./recipes";
 import { powSettings, type PowSettings } from "./pow";
 
-/** Терминал — постройка рынка, всё прочее в узле это станки (D-090, D-100). */
+/** The terminal is the market building, everything else in the node is machines (D-090, D-100). */
 const TERMINAL = "Терминал маркетплейса";
 
 const VIEWS = [
@@ -57,28 +57,28 @@ export default function App() {
   const session = useRef(new Session());
   const [look, setLook] = useState<Look | null>(null);
   const [values, setValues] = useState<Record<string, any> | null>(null);
-  //: Справочник вольта нужен сразу нескольким панелям станков: грузим один раз.
-  const [книга, setКнига] = useState<any>(null);
+  //: The vault catalog is needed by several machine panels at once: we load it once.
+  const [book, setBook] = useState<any>(null);
   const [pow, setPow] = useState<PowSettings | null>(null);
-  //: Экран до входа: логин либо регистрация (D-187). Жетон прошлого входа
-  //: пробуется молча: пока он проверяется, экран входа не мигает.
+  //: The screen before login: login or registration (D-187). The last login's
+  //: token is tried silently: while it is checked, the login screen does not flicker.
   const [screen, setScreen] = useState<"login" | "register">("login");
   const [resuming, setResuming] = useState(() => Boolean(Session.remembered()));
   const resumed = useRef(false);
-  const [кабинет, setКабинет] = useState(false);
-  const [вступление, setВступление] = useState(false);
+  const [account_, setAccount_] = useState(false);
+  const [intro, setIntro] = useState(false);
   const [trouble, setTrouble] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [view, setView] = useState<View>("map");
 
   const refresh = useCallback(async () => {
-    //: Пока личность не названа, обновлять нечего: сессии ещё нет. Иначе
-    //: первый же шаг входа — чтение дверей — упирался бы в «нет сессии».
+    //: While the identity is not named there is nothing to refresh: no session
+    //: yet. Otherwise the very first login step -- reading doors -- would hit "no session".
     if (!session.current.name) return;
     setLook(await session.current.look());
   }, []);
 
-  /** Любое действие идёт через это: одна ошибка — одна строка внизу экрана. */
+  /** Every action goes through this: one error -- one line at the bottom of the screen. */
   const act = useCallback(
     async (what: () => Promise<unknown>) => {
       setTrouble(null);
@@ -95,31 +95,31 @@ export default function App() {
     [refresh],
   );
 
-  /** Справочники вольта: их ждут и панели станков, и прогноз качества. */
-  const справочники = useCallback(async () => {
+  /** The vault catalogs: both machine panels and the quality forecast wait for them. */
+  const catalogs = useCallback(async () => {
     const { values } = await api.constants();
     setValues(values);
     setPow(powSettings(values));
-    setКнига(await api.recipes());
+    setBook(await api.recipes());
   }, []);
 
   const enter = (email: string, password: string) =>
     act(async () => {
-      await справочники();
+      await catalogs();
       await session.current.open(email, password);
     });
 
-  //: Автовход жетоном (D-187): F5 не спрашивает пароль. Отказ — молча на экран
-  //: входа: истёкший жетон — не ошибка пользователя.
+  //: Auto-login by token (D-187): F5 does not ask for the password. Refusal --
+  //: silently to the login screen: an expired token is not the user's error.
   useEffect(() => {
     const token = Session.remembered();
-    //: Один подъём на страницу: StrictMode в разработке зовёт эффект дважды,
-    //: а два сокета с одним жетоном — это гонка, а не вход.
+    //: One rise per page: StrictMode in development calls the effect twice,
+    //: and two sockets with one token is a race, not a login.
     if (!token || resumed.current) return;
     resumed.current = true;
     void (async () => {
       try {
-        await справочники();
+        await catalogs();
         await session.current.resume(token);
         await refresh();
       } catch {
@@ -128,48 +128,48 @@ export default function App() {
         setResuming(false);
       }
     })();
-  }, [справочники, refresh]);
+  }, [catalogs, refresh]);
 
-  /** Регистрация: четыре шага клиента — одна команда сервера (D-187). Печать у
-   *  выбранной двери: ноль на счету, подъёмные — дело города (D-153). Следом
-   *  слово Предтеч: объяснить, кто он, больше некому (D-182). */
-  const join = (заявка: Enrollment) =>
+  /** Registration: four client steps -- one server command (D-187). Printing
+   *  at the chosen door: zero on the account, the grant is the city's business
+   *  (D-153). Then the Forerunner's word: nobody else can explain who he is (D-182). */
+  const join = (application: Enrollment) =>
     act(async () => {
-      await справочники();
-      await session.current.create(заявка);
-      setВступление(true);
+      await catalogs();
+      await session.current.create(application);
+      setIntro(true);
     });
 
-  /** Выход: жетон отозван, экран входа. */
+  /** Logout: the token is revoked, the login screen. */
   const logout = () =>
     act(async () => {
       await session.current.logout();
-      setКабинет(false);
+      setAccount_(false);
       setLook(null);
       setScreen("login");
     });
 
-  const идёт = Boolean(look?.travel);
-  const спит = Boolean(look?.body?.sleeping_since);
-  //: Разведка — состояние тела (D-152): разведчик ушёл сам, и пока он в поле,
-  //: присутственное закрыто, как во сне. Вернуться — кнопкой на карте.
-  const в_разведке = Boolean(look?.survey);
-  const отлучился = идёт || в_разведке;
+  const ongoing = Boolean(look?.travel);
+  const asleep = Boolean(look?.body?.sleeping_since);
+  //: Exploration is a body state (D-152): the scout left on their own, and
+  //: while in the field, in-person is closed, as in sleep. Return -- by a button on the map.
+  const exploring = Boolean(look?.survey);
+  const away = ongoing || exploring;
 
   useEffect(() => {
     if (!look) return;
-    //: В пути опрашиваем чаще: приход должен быть виден сразу.
-    const timer = setInterval(() => void refresh().catch(() => {}), идёт ? 2000 : 5000);
+    //: En route we poll more often: the arrival must be seen at once.
+    const timer = setInterval(() => void refresh().catch(() => {}), ongoing ? 2000 : 5000);
     return () => clearInterval(timer);
-  }, [look, идёт, refresh]);
+  }, [look, ongoing, refresh]);
 
-  //: Вышел в дорогу или в разведку — присутственные табы закрываются сами:
-  //: тебя в узле нет.
+  //: Set out on the road or exploring -- in-person tabs close by themselves:
+  //: you are not in the node.
   useEffect(() => {
-    if (отлучился) setView("map");
-  }, [отлучился]);
+    if (away) setView("map");
+  }, [away]);
 
-  //: Жетон прошлого входа проверяется — экран входа не мигает (D-187).
+  //: The last login's token is being checked -- the login screen does not flicker (D-187).
   if (!look && resuming) {
     return (
       <main className="entry auth">
@@ -206,37 +206,37 @@ export default function App() {
     );
   }
 
-  //: Кабинет аккаунта — на месте голого имени в шапке (D-187).
-  const кто = (
+  //: The account panel -- in place of the bare name in the header (D-187).
+  const who = (
     <button
       className="who"
-      onClick={() => setКабинет(true)}
+      onClick={() => setAccount_(true)}
       title="аккаунт: персонаж, пароль, выход"
     >
       {look.identity}
       {look.profile?.surname ? ` ${look.profile.surname}` : ""}
     </button>
   );
-  const окно_кабинета = кабинет && look.profile && (
+  const accountWindow = account_ && look.profile && (
     <Account
       key={look.profile.email ?? look.identity}
       profile={look.profile}
       session={session.current}
       busy={busy}
       act={act}
-      onClose={() => setКабинет(false)}
+      onClose={() => setAccount_(false)}
       onLogout={logout}
     />
   );
 
-  //: Тела нет — личность в облаке (D-012). Присутственного экрана в этом
-  //: положении не существует вовсе: смотреть на локацию некому. Сайдбар при
-  //: этом остаётся: счёт, ордера и знания принадлежат личности, а не телу.
+  //: No body -- the identity is in the cloud (D-012). No in-person screen
+  //: exists in this state at all: nobody to look at the location. The sidebar
+  //: stays: account, orders and knowledge belong to the identity, not the body.
   if (look.body === null) {
     return (
       <main>
         <header>
-          {кто}
+          {who}
           <span>в облаке</span>
           <button className="quiet" onClick={() => void refresh()}>
             обновить
@@ -250,51 +250,51 @@ export default function App() {
             </div>
           </div>
         </div>
-        {окно_кабинета}
+        {accountWindow}
         {trouble && <p className="trouble">{trouble}</p>}
       </main>
     );
   }
 
-  const станции = look.node?.stations ?? [];
-  //: Панель на каждый станок, у которого здесь есть что делать. Ручной крафт
-  //: ушёл в сайдбар, во вкладку «крафт»: верёвку вьют где стоят, и станок
-  //: этому не нужен. Общей «мастерской» нет: станок задаёт, чем место
-  //: является (D-106), и три станка во дворе — это три разных дела.
-  const станки_с_делом = станции.filter(
-    (имя) => craftableAt(книга, имя, look.knows).length > 0,
+  const stations = look.node?.stations ?? [];
+  //: A panel for every machine that has something to do here. Manual craft
+  //: went to the sidebar, the "craft" tab: rope is twisted where you stand,
+  //: and no machine is needed for that. There is no common "workshop": the
+  //: machine sets what a place is (D-106), and three machines in the yard are three different jobs.
+  const busyMachines = stations.filter(
+    (name) => craftableAt(book, name, look.knows).length > 0,
   );
-  const есть = {
-    жила: Boolean(look.veins?.length),
-    станки: станки_с_делом.length > 0,
-    терминал: станции.includes(TERMINAL),
-    библиотека: Boolean(look.node?.library),
-    пашня: (look.node?.fertility ?? 0) > 0,
-    очаг: станции.includes("Очаг"),
-    двор: станции.includes("Монетный станок"),
-    питомник: станции.includes("Селекционный питомник"),
-    //: Власть присутственна: администрация показывается там, где она стоит,
-    //: а не в сайдбаре (D-155).
-    ратуша: Boolean(look.city?.hall),
+  const has = {
+    vein: Boolean(look.veins?.length),
+    machines: busyMachines.length > 0,
+    terminal: stations.includes(TERMINAL),
+    library: Boolean(look.node?.library),
+    farmland: (look.node?.fertility ?? 0) > 0,
+    hearth: stations.includes("Очаг"),
+    yard: stations.includes("Монетный станок"),
+    nursery: stations.includes("Селекционный питомник"),
+    //: Authority is in-person: the administration is shown where it stands,
+    //: not in the sidebar (D-155).
+    townhall: Boolean(look.city?.hall),
   };
-  //: Энергия из локаций ушла в сайдбар, во вкладку «хозяйство» (D-149): пул
-  //: общий на город, счёт за быт — деньги, а не материя, и плашка «Энергия»
-  //: в каждой локации не сообщала ничего о самой локации.
-  const пусто =
-    !есть.жила && !есть.станки && !есть.терминал && !есть.библиотека && !есть.пашня &&
-    !есть.ратуша;
+  //: Energy moved from locations to the sidebar, the "holdings" tab (D-149):
+  //: the pool is shared per city, the household bill is money, not matter,
+  //: and an "Energy" strip in every location said nothing about the location itself.
+  const empty =
+    !has.vein && !has.machines && !has.terminal && !has.library && !has.farmland &&
+    !has.townhall;
 
   return (
     <main>
       <header>
-        {кто}
+        {who}
         <span>
-          {идёт
+          {ongoing
             ? `в пути: ${look.travel!.final ?? look.travel!.to}`
-            : в_разведке
+            : exploring
               ? `в разведке от: ${look.node?.name}`
               : look.node?.name}
-          {спит ? " · спит" : ""}
+          {asleep ? " · спит" : ""}
         </span>
         <nav className="row tabs">
           {VIEWS.map((option) => (
@@ -302,9 +302,10 @@ export default function App() {
               key={option.id}
               className={view === option.id ? "" : "quiet"}
               onClick={() => setView(option.id)}
-              //: Присутственные табы в пути и в разведке недоступны — тебя
-              //: нет в узле (D-107, D-152).
-              disabled={option.id !== "map" && отлучился}
+              //: In-person tabs are unavailable en route and while exploring --
+              //: you are not in the node (D-107, D-152).
+
+              disabled={option.id !== "map" && away}
             >
               {option.label}
             </button>
@@ -314,7 +315,7 @@ export default function App() {
             становиться недоступным, а непрочитанное — обязательным (D-182). */}
         <button
           className="quiet"
-          onClick={() => setВступление(true)}
+          onClick={() => setIntro(true)}
           title="кто вы и с чего начать"
         >
           ?
@@ -325,10 +326,10 @@ export default function App() {
       </header>
 
       <div className="frame">
-        <Sidebar look={look} session={session.current} busy={busy} act={act} книга={книга} />
+        <Sidebar look={look} session={session.current} busy={busy} act={act} book={book} />
 
         <div className="main">
-          {(view === "map" || отлучился) && (
+          {(view === "map" || away) && (
             <GraphMap
               look={look}
               session={session.current}
@@ -338,29 +339,29 @@ export default function App() {
             />
           )}
 
-          {view === "place" && !отлучился && (
+          {view === "place" && !away && (
             <>
               <div className="panels">
-                {есть.пашня && (
+                {has.farmland && (
                   <Farm look={look} act={act} session={session.current} busy={busy} />
                 )}
-                {есть.питомник && (
+                {has.nursery && (
                   <Nursery look={look} act={act} session={session.current} busy={busy} />
                 )}
-                {есть.жила && (
+                {has.vein && (
                   <Mine look={look} act={act} session={session.current} pow={pow} busy={busy} />
                 )}
                 {/* Буровая показывает себя сама: панель молчит, если в узле
                     нет ни установки, ни станка в руках (D-115). */}
                 <Rig look={look} act={act} session={session.current} busy={busy} />
-                {есть.очаг && (
+                {has.hearth && (
                   <Kitchen look={look} act={act} session={session.current} busy={busy} />
                 )}
-                {станки_с_делом.map((имя) => (
+                {busyMachines.map((name) => (
                   <Workshop
-                    key={имя}
-                    станок={имя}
-                    книга={книга}
+                    key={name}
+                    machine={name}
+                    book={book}
                     look={look}
                     act={act}
                     session={session.current}
@@ -369,14 +370,14 @@ export default function App() {
                 ))}
                 {/* Что здесь стоит и чьё это место. Станок из рук ставят
                     отсюда же: место для такой кнопки — участок, а не станок. */}
-                <Place look={look} act={act} session={session.current} busy={busy} книга={книга} />
-                {есть.библиотека && (
+                <Place look={look} act={act} session={session.current} busy={busy} book={book} />
+                {has.library && (
                   <Library look={look} act={act} session={session.current} busy={busy} />
                 )}
-                {есть.ратуша && (
+                {has.townhall && (
                   <Admin look={look} act={act} session={session.current} busy={busy} />
                 )}
-                {есть.двор && (
+                {has.yard && (
                   <Mint
                     look={look}
                     act={act}
@@ -385,7 +386,7 @@ export default function App() {
                     busy={busy}
                   />
                 )}
-                {есть.терминал && (
+                {has.terminal && (
                   <Market
                     look={look}
                     act={act}
@@ -394,7 +395,7 @@ export default function App() {
                     busy={busy}
                   />
                 )}
-                {пусто && (
+                {empty && (
                   <section>
                     <h2>{look.node?.name}</h2>
                     <p className="note">
@@ -413,7 +414,7 @@ export default function App() {
             </>
           )}
 
-          {view === "circles" && !отлучился && (
+          {view === "circles" && !away && (
             <>
               <Circles
                 session={session.current}
@@ -432,8 +433,8 @@ export default function App() {
         </div>
       </div>
 
-      {вступление && <Intro onClose={() => setВступление(false)} />}
-      {окно_кабинета}
+      {intro && <Intro onClose={() => setIntro(false)} />}
+      {accountWindow}
 
       {trouble && <p className="trouble">{trouble}</p>}
       <footer>

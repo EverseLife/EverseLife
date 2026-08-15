@@ -1,37 +1,38 @@
-"""Буровая установка: непрерывная добыча без игрока (D-115).
+"""Drilling rig: continuous mining without the player (D-115).
 
-Эндгейм добычи и второй после автоматического станка переход от труда к
-капиталу. Устроена так, чтобы **не убить живого шахтёра**: машина проигрывает
-человеку по всем показателям, кроме одного — она не спит.
+The endgame of mining and, after the automatic machine, the second transition
+from labour to capital. Built so as **not to kill the live miner**: the
+machine loses to a human on every measure but one -- it does not sleep.
 
-| | Человек | Буровая |
+| | Human | Rig |
 |---|---|---|
-| Выход | `mining.iron_per_hour` | `rig.output_per_hour`, заметно меньше |
-| Качество | по жиле, до её богатства | не выше `rig.quality_cap` |
-| Жилу выедает | по добытому | вдвое (`rig.depletion_multiplier`) |
-| Требует присутствия | постоянно | только чтобы вывезти бункер |
+| Output | `mining.iron_per_hour` | `rig.output_per_hour`, noticeably less |
+| Quality | by the vein, up to its richness | not above `rig.quality_cap` |
+| Eats the vein | by what is mined | twice (`rig.depletion_multiplier`) |
+| Requires presence | constantly | only to empty the hopper |
 
-Ремесленная добыча остаётся способом получить **хорошую руду**, буровая —
-способом получить **много средней**.
+Craft mining remains the way to get **good ore**, the rig the way to get
+**a lot of average**.
 
-## Три обязательства, и все три требуют людей
+## Three obligations, and all three require people
 
-**Топливо.** `rig.fuel_per_hour` угля из узла, где установка стоит. Кончилось —
-встала: отсюда постоянный контракт с углевозом, а не «бесплатная руда».
+**Fuel.** `rig.fuel_per_hour` of coal from the node where the rig stands.
+Ran out -- it stopped: hence a standing contract with a coal hauler rather
+than "free ore".
 
-**Опустошение.** Бункер вмещает `rig.hopper_capacity` **часов работы**. Полон —
-установка стоит, пока хозяин (или его возчик) не приедет и не заберёт. Ногами:
-материя перемещается только физически (D-047).
+**Emptying.** The hopper holds `rig.hopper_capacity` **hours of work**. Full
+-- the rig stands until the owner (or their carter) comes and takes it. On
+foot: matter moves only physically (D-047).
 
-**Обслуживание.** `rig.wear_per_day` износа в сутки. Заброшенная разваливается,
-и чинится она тем же ремонтом, что всякая вещь.
+**Maintenance.** `rig.wear_per_day` of wear per day. An abandoned one falls
+apart, and it is repaired by the same repair as any thing.
 
-## Чего здесь пока нет
+## What is not here yet
 
-* **Лицензии города и налога на добычу** (D-115): установка занимает узел и
-  подчиняется городу — с Э3, вместе с самим городом;
-* **Глубоких шахт** с их расходом энергии (`energy.deep_mine_draw`): это
-  отдельная механика, а не свойство буровой.
+* **City licence and mining tax** (D-115): the rig occupies a node and is
+  subject to the city -- from E3, together with the city itself;
+* **Deep mines** with their energy draw (`energy.deep_mine_draw`): that is a
+  separate mechanic, not a property of the rig.
 """
 
 from __future__ import annotations
@@ -59,9 +60,9 @@ from src.units import (
     amount_float,
 )
 
-#: Станок из `build/recipes.json`. Веха лестницы: реально доступна к концу Э2.75.
+#: Machine from `build/recipes.json`. A ladder milestone: really reachable by the end of E2.75.
 RIG = "Буровая установка"
-#: Топливо установки. Уголь возят люди — в этом всё предприятие.
+#: The rig's fuel. People haul coal -- that is the whole enterprise.
 FUEL = "Уголь"
 
 
@@ -74,11 +75,11 @@ class NoRig(RigError):
 
 
 class NotYours(RigError):
-    """Чужая установка: вывозит бункер хозяин либо его возчик по договору."""
+    """Somebody else's rig: the hopper is emptied by the owner or their carter by contract."""
 
 
 def hopper_capacity(constants: Constants) -> float:
-    """Ёмкость бункера в единицах руды: вольт задаёт её **часами работы**."""
+    """Hopper capacity in ore units: the vault sets it in **hours of work**."""
     return constants[R.RIG_HOPPER_CAPACITY] * constants[R.RIG_OUTPUT_PER_HOUR]
 
 
@@ -90,7 +91,7 @@ async def place(
     *,
     now: datetime | None = None,
 ) -> RigRow:
-    """Поставить установку на жилу. Присутственно: станок ставят руками."""
+    """Place a rig on a vein. In person: a machine is placed by hand."""
     moment = now or datetime.now(UTC)
     if body.state is not BodyState.ALIVE:
         raise RigError("мёртвое тело не работает")
@@ -101,16 +102,16 @@ async def place(
     if vein.node_id != body.node_id:
         raise RigError("жила не здесь: установку ставят на месте")
 
-    существует = (
+    exists = (
         await session.execute(select(RigRow).where(RigRow.item_id == item.id))
     ).scalar_one_or_none()
-    if существует is not None:
-        return существует
+    if exists is not None:
+        return exists
 
-    #: Станок переезжает из рук в узел: он стационарный по определению.
+    #: The machine moves from the hands into the node: it is stationary by definition.
     node = await session.get(Node, body.node_id)
-    двор = await world.node_container(session, node)
-    item.container_id = двор.id
+    yard = await world.node_container(session, node)
+    item.container_id = yard.id
 
     rig = RigRow(
         item_id=item.id,
@@ -142,70 +143,70 @@ async def advance(
     *,
     now: datetime | None = None,
 ) -> float:
-    """Доработать установку до «сейчас». Возвращает добытое за это время.
+    """Advance the rig up to "now". Returns what was mined in that time.
 
-    Три ограничителя, и любой из них останавливает машину: место в бункере,
-    уголь в узле и остаток жилы. Ни один не является ошибкой — это и есть
-    обязательства предприятия.
+    Three limiters, and any of them stops the machine: room in the hopper,
+    coal in the node and the vein's remainder. None is an error -- these are
+    the enterprise's obligations.
     """
     moment = now or datetime.now(UTC)
-    часов = (moment - rig.counted_at).total_seconds() / SECONDS_PER_HOUR
-    if часов <= 0:
+    hours = (moment - rig.counted_at).total_seconds() / SECONDS_PER_HOUR
+    if hours <= 0:
         return 0.0
 
-    станок = await session.get(Item, rig.item_id)
+    machine = await session.get(Item, rig.item_id)
     vein = await session.get(Vein, rig.vein_id)
-    if станок is None or vein is None:  # pragma: no cover — станок могли разобрать
+    if machine is None or vein is None:  # pragma: no cover -- the machine may have been dismantled
         rig.counted_at = moment
         await session.flush()
         return 0.0
 
-    #: Выход установки задан вольтом и от её состояния не зависит: изношенная
-    #: машина не копает меньше — она копает **хуже**, и это видно в качестве
-    #: руды при вывозе (15-quality: станок задаёт потолок).
-    место = max(0.0, hopper_capacity(constants) - float(rig.hopper))
-    выход_в_час = constants[R.RIG_OUTPUT_PER_HOUR]
+    #: The rig's output is set by the vault and does not depend on its
+    #: condition: a worn machine does not dig less -- it digs **worse**, and
+    #: that shows in ore quality on emptying (15-quality: the machine sets the ceiling).
+    place = max(0.0, hopper_capacity(constants) - float(rig.hopper))
+    output_per_hour = constants[R.RIG_OUTPUT_PER_HOUR]
 
-    #: Уголь: сколько часов установка вообще могла жечь.
-    топливо = constants[R.RIG_FUEL_PER_HOUR]
-    двор = await world.node_container(session, await session.get(Node, rig.node_id))
-    угля = await _coal_available(session, двор.id)
-    часов_по_топливу = угля / топливо if топливо > 0 else часов
-    часов_по_бункеру = место / выход_в_час if выход_в_час > 0 else 0.0
-    часов_по_жиле = (
+    #: Coal: how many hours the rig could burn at all.
+    fuel = constants[R.RIG_FUEL_PER_HOUR]
+    yard = await world.node_container(session, await session.get(Node, rig.node_id))
+    coal = await _coal_available(session, yard.id)
+    hours_by_fuel = coal / fuel if fuel > 0 else hours
+    hours_by_bunker = place / output_per_hour if output_per_hour > 0 else 0.0
+    hours_by_vein = (
         amount_float(vein.remaining)
-        / (выход_в_час * constants[R.RIG_DEPLETION_MULTIPLIER])
-        if выход_в_час > 0
+        / (output_per_hour * constants[R.RIG_DEPLETION_MULTIPLIER])
+        if output_per_hour > 0
         else 0.0
     )
-    рабочих = max(0.0, min(часов, часов_по_топливу, часов_по_бункеру, часов_по_жиле))
+    workers = max(0.0, min(hours, hours_by_fuel, hours_by_bunker, hours_by_vein))
 
-    добыто = 0.0
-    if рабочих > 0:
-        добыто = выход_в_час * рабочих
-        await _burn(session, двор.id, топливо * рабочих)
-        #: Жилу машина выедает вдвое быстрее: капитал ускоряет истощение мира.
-        из_жилы = amount(добыто * constants[R.RIG_DEPLETION_MULTIPLIER])
-        было = vein.extracted
-        vein.extracted += min(из_жилы, vein.remaining)
-        vein.remaining = max(0, vein.remaining - из_жилы)
-        _deplete(constants, vein, moment, было)
-        rig.hopper = Decimal(str(float(rig.hopper) + добыто))
+    mined = 0.0
+    if workers > 0:
+        mined = output_per_hour * workers
+        await _burn(session, yard.id, fuel * workers)
+        #: The machine eats the vein twice as fast: capital speeds up the world's depletion.
+        from_vein = amount(mined * constants[R.RIG_DEPLETION_MULTIPLIER])
+        before = vein.extracted
+        vein.extracted += min(from_vein, vein.remaining)
+        vein.remaining = max(0, vein.remaining - from_vein)
+        _deplete(constants, vein, moment, before)
+        rig.hopper = Decimal(str(float(rig.hopper) + mined))
 
-    #: Износ идёт по времени, а не по добытому: заброшенная разваливается.
-    сутки = constants[R.TIME_DAY_TERRA]
-    if часов > 0:
+    #: Wear goes by time, not by what is mined: an abandoned one falls apart.
+    day = constants[R.TIME_DAY_TERRA]
+    if hours > 0:
         await wear.spend(
             session,
             constants,
-            станок,
-            constants[R.RIG_WEAR_PER_DAY] * часов / сутки,
+            machine,
+            constants[R.RIG_WEAR_PER_DAY] * hours / day,
             cause="работа буровой",
         )
 
     rig.counted_at = moment
     await session.flush()
-    return добыто
+    return mined
 
 
 async def empty_hopper(
@@ -216,10 +217,10 @@ async def empty_hopper(
     *,
     now: datetime | None = None,
 ) -> float:
-    """Вывезти бункер. Присутственно и ногами: иначе машина стоит.
+    """Empty the hopper. In person and on foot: otherwise the machine stands.
 
-    Качество — по жиле, но **не выше `rig.quality_cap`**: человек подстраивается
-    под пласт, машина работает по настройке (D-058, D-115).
+    Quality by the vein, but **not above `rig.quality_cap`**: a human adapts to
+    the seam, a machine works by its setting (D-058, D-115).
     """
     moment = now or datetime.now(UTC)
     if body.state is not BodyState.ALIVE:
@@ -231,37 +232,37 @@ async def empty_hopper(
         raise NotYours("чужая установка: вывоз — по договору с хозяином (D-116)")
 
     await advance(session, constants, rig, now=moment)
-    взято = float(rig.hopper)
-    if взято <= 0:
+    taken = float(rig.hopper)
+    if taken <= 0:
         return 0.0
 
     vein = await session.get(Vein, rig.vein_id)
-    #: Бункер вывозят руками, а руки не бездонны: без повозки бункер не
-    #: вывезти целиком, и это работа для возчика (D-146).
+    #: The hopper is emptied by hand, and hands are not bottomless: without a
+    #: wagon the hopper cannot be emptied whole, and that is work for a carter (D-146).
     if vein is not None:
         from src.constants import current_catalog
         from src.engine import gear
 
         await gear.check_carry(
-            session, constants, current_catalog(), body, vein.resource, взято
+            session, constants, current_catalog(), body, vein.resource, taken
         )
 
-    станок = await session.get(Item, rig.item_id)
-    #: Три потолка, и берётся наименьший: жила даёт не больше своего богатства,
-    #: машина — не больше `rig.quality_cap` (она работает по настройке), а
-    #: изношенная машина — не больше своего действующего качества (D-129).
-    качество = min(
+    machine = await session.get(Item, rig.item_id)
+    #: Three ceilings, and the lowest is taken: the vein gives no more than its
+    #: richness, the machine no more than `rig.quality_cap` (it works by its
+    #: setting), and a worn machine no more than its effective quality (D-129).
+    quality = min(
         constants[R.RIG_QUALITY_CAP],
         max(SCALE_MIN, min(SCALE_MAX, float(vein.richness) if vein else SCALE_MIN)),
-        wear.effective(constants, станок),
+        wear.effective(constants, machine),
     )
-    карман = await world.body_container(session, body)
+    pocket = await world.body_container(session, body)
     session.add(
         Item(
-            container_id=карман.id,
+            container_id=pocket.id,
             type_key=vein.resource if vein else FUEL,
-            amount=amount(взято),
-            quality=Decimal(str(качество)),
+            amount=amount(taken),
+            quality=Decimal(str(quality)),
         )
     )
     rig.hopper = Decimal(0)
@@ -274,40 +275,40 @@ async def empty_hopper(
         node_id=rig.node_id,
         work="rig",
         rig=str(rig.id),
-        got=взято,
-        quality=качество,
+        got=taken,
+        quality=quality,
     )
-    return взято
+    return taken
 
 
 async def tick_rigs(
     session: AsyncSession, constants: Constants, *, now: datetime | None = None
 ) -> float:
-    """Доработать все установки мира. Машина не спит — в этом вся её сила."""
+    """Advance all rigs of the world. The machine does not sleep -- that is its whole strength."""
     moment = now or datetime.now(UTC)
     rigs = (await session.execute(select(RigRow))).scalars().all()
-    итог = 0.0
+    result = 0.0
     for rig in rigs:
-        итог += await advance(session, constants, rig, now=moment)
-    return итог
+        result += await advance(session, constants, rig, now=moment)
+    return result
 
 
 async def status(
     session: AsyncSession, constants: Constants, node_id: uuid.UUID
 ) -> list[dict]:
-    """Что стоит в узле и в каком оно состоянии — для сцены локации."""
+    """What stands in the node and in what condition -- for the location scene."""
     rigs = (
         await session.execute(select(RigRow).where(RigRow.node_id == node_id))
     ).scalars().all()
     out: list[dict] = []
     for rig in rigs:
         await advance(session, constants, rig)
-        станок = await session.get(Item, rig.item_id)
+        machine = await session.get(Item, rig.item_id)
         vein = await session.get(Vein, rig.vein_id)
-        двор = await world.node_container(
+        yard = await world.node_container(
             session, await session.get(Node, rig.node_id)
         )
-        уголь = await _coal_available(session, двор.id)
+        coal_ = await _coal_available(session, yard.id)
         out.append(
             {
                 "id": str(rig.id),
@@ -315,52 +316,52 @@ async def status(
                 "hopper": float(rig.hopper),
                 "capacity": hopper_capacity(constants),
                 "full": float(rig.hopper) >= hopper_capacity(constants),
-                "fuel": уголь,
-                "hours_of_fuel": уголь / constants[R.RIG_FUEL_PER_HOUR],
-                "condition": float(станок.condition) if станок else 0.0,
+                "fuel": coal_,
+                "hours_of_fuel": coal_ / constants[R.RIG_FUEL_PER_HOUR],
+                "condition": float(machine.condition) if machine else 0.0,
                 "vein_left": amount_float(vein.remaining) if vein else 0.0,
             }
         )
     return out
 
 
-# --- внутреннее -------------------------------------------------------------
+# --- internal ----------------------------------------------------------------
 
 
 async def _coal_available(session: AsyncSession, container_id: uuid.UUID) -> float:
-    стопки = (
+    stacks = (
         await session.execute(
             select(Item).where(Item.container_id == container_id, Item.type_key == FUEL)
         )
     ).scalars().all()
-    return sum(amount_float(стопка.amount) for стопка in стопки)
+    return sum(amount_float(stack.amount) for stack in stacks)
 
 
-async def _burn(session: AsyncSession, container_id: uuid.UUID, сколько: float) -> None:
-    осталось = amount(сколько)
-    стопки = (
+async def _burn(session: AsyncSession, container_id: uuid.UUID, qty: float) -> None:
+    left = amount(qty)
+    stacks = (
         await session.execute(
             select(Item).where(Item.container_id == container_id, Item.type_key == FUEL)
         )
     ).scalars().all()
-    for стопка in стопки:
-        if осталось <= 0:
+    for stack in stacks:
+        if left <= 0:
             break
-        взять = min(осталось, стопка.amount)
-        if взять == стопка.amount:
-            await session.delete(стопка)
+        take = min(left, stack.amount)
+        if take == stack.amount:
+            await session.delete(stack)
         else:
-            стопка.amount -= взять
-        осталось -= взять
+            stack.amount -= take
+        left -= take
     await session.flush()
 
 
 def _deplete(
     constants: Constants, vein: Vein, moment: datetime, extracted_before: int
 ) -> None:
-    """Жила беднеет теми же ступенями, что и от кирки: правило одно на всех."""
-    from src.engine.mining import _deplete as по_общему_правилу
+    """The vein depletes in the same tiers as from a pickaxe: one rule for all."""
+    from src.engine.mining import _deplete as by_general_rule
 
-    по_общему_правилу(constants, vein, moment, extracted_before)
+    by_general_rule(constants, vein, moment, extracted_before)
 
 

@@ -1,21 +1,21 @@
 /**
- * Библиотека: каталог рецептов с поиском и страницами (D-053, D-076).
+ * The Library: a recipe catalog with search and pages (D-053, D-076).
  *
- * Взять может любой: бесплатно, без условий, без гражданства — Библиотека не
- * отказывает никому. Единственное её ограничение географическое: **удалённо она
- * не работает**, и потому эта таблица видна только тому, кто в ней стоит.
+ * Anyone may take: free, unconditional, without citizenship -- the Library
+ * refuses nobody. Its only restriction is geographic: **it does not work
+ * remotely**, so this table is visible only to whoever stands in it.
  *
- * Хранилище знаний растёт, и без порядка превращается в свалку из тысячи
- * рецептов с именами вроде «гвоздь 2 финальный» — за этим в игре смотрит
- * Мудрец. Здесь та же задача решается тем, что доступно клиенту: поиск по
- * названию, станку и входам плюс страницы.
+ * The knowledge store grows, and without order turns into a dump of a
+ * thousand recipes with names like "nail 2 final" -- in the game the Sage
+ * watches over that. Here the same task is solved with what the client has:
+ * search by name, machine and inputs plus pages.
  */
 
 import { useEffect, useState } from "react";
 import * as api from "../api";
 import type { Look, Session } from "../api";
 
-/** Сколько строк каталога показывать за раз. Величина показа, а не игры. */
+/** How many catalog rows to show at a time. A display quantity, not a game one. */
 const PAGE = 8;
 
 type Props = {
@@ -26,29 +26,29 @@ type Props = {
 };
 
 export function Library({ look, session, busy, act }: Props) {
-  const [книга, setКнига] = useState<any>(null);
-  const [культуры, setКультуры] = useState<{ id: string; name: string }[]>([]);
-  const [поиск, setПоиск] = useState("");
-  const [страница, setСтраница] = useState(0);
+  const [book, setBook] = useState<any>(null);
+  const [crops, setCrops] = useState<{ id: string; name: string }[]>([]);
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(0);
 
   useEffect(() => {
-    void api.recipes().then(setКнига);
-    void api.plants().then((p) => setКультуры(p.plants));
+    void api.recipes().then(setBook);
+    void api.plants().then((p) => setCrops(p.plants));
   }, []);
 
-  const все: any[] = книга?.recipes ?? [];
-  const запрос = поиск.trim().toLowerCase();
-  const найдено = все.filter(
-    (рецепт) =>
-      !запрос ||
-      рецепт.name.toLowerCase().includes(запрос) ||
-      (рецепт.station ?? "").toLowerCase().includes(запрос) ||
-      рецепт.inputs.some((вход: string) => вход.toLowerCase().includes(запрос)),
+  const all: any[] = book?.recipes ?? [];
+  const query = search.trim().toLowerCase();
+  const found = all.filter(
+    (recipe) =>
+      !query ||
+      recipe.name.toLowerCase().includes(query) ||
+      (recipe.station ?? "").toLowerCase().includes(query) ||
+      recipe.inputs.some((entry: string) => entry.toLowerCase().includes(query)),
   );
 
-  const страниц = Math.max(1, Math.ceil(найдено.length / PAGE));
-  const текущая = Math.min(страница, страниц - 1);
-  const видно = найдено.slice(текущая * PAGE, текущая * PAGE + PAGE);
+  const pages = Math.max(1, Math.ceil(found.length / PAGE));
+  const current = Math.min(page, pages - 1);
+  const shown = found.slice(current * PAGE, current * PAGE + PAGE);
 
   return (
     <section>
@@ -56,15 +56,15 @@ export function Library({ look, session, busy, act }: Props) {
       <div className="row">
         <input
           type="search"
-          value={поиск}
+          value={search}
           placeholder="рецепт, станок или вход"
           onChange={(e) => {
-            setПоиск(e.target.value);
-            setСтраница(0);
+            setSearch(e.target.value);
+            setPage(0);
           }}
         />
         <span className="note">
-          {найдено.length} из {все.length}
+          {found.length} из {all.length}
         </span>
       </div>
 
@@ -79,20 +79,20 @@ export function Library({ look, session, busy, act }: Props) {
           </tr>
         </thead>
         <tbody>
-          {видно.map((рецепт) => (
-            <tr key={рецепт.name}>
-              <td>{рецепт.name}</td>
-              <td className="num">{рецепт.level}</td>
-              <td className="note">{рецепт.station ?? "—"}</td>
-              <td className="note">{рецепт.inputs.join(", ") || "—"}</td>
+          {shown.map((recipe) => (
+            <tr key={recipe.name}>
+              <td>{recipe.name}</td>
+              <td className="num">{recipe.level}</td>
+              <td className="note">{recipe.station ?? "—"}</td>
+              <td className="note">{recipe.inputs.join(", ") || "—"}</td>
               <td>
-                {look.knows.includes(рецепт.name) ? (
+                {look.knows.includes(recipe.name) ? (
                   <span className="note">знаю</span>
                 ) : (
                   <button
                     className="quiet"
                     onClick={() =>
-                      act(() => session.send("library.copy", { recipe: рецепт.name }))
+                      act(() => session.send("library.copy", { recipe: recipe.name }))
                     }
                     disabled={busy}
                   >
@@ -102,7 +102,7 @@ export function Library({ look, session, busy, act }: Props) {
               </td>
             </tr>
           ))}
-          {видно.length === 0 && (
+          {shown.length === 0 && (
             <tr>
               <td colSpan={5} className="note">
                 ничего не нашлось
@@ -115,42 +115,42 @@ export function Library({ look, session, busy, act }: Props) {
       <div className="row">
         <button
           className="quiet"
-          onClick={() => setСтраница(текущая - 1)}
-          disabled={текущая === 0}
+          onClick={() => setPage(current - 1)}
+          disabled={current === 0}
         >
           ←
         </button>
         <span className="note">
-          страница {текущая + 1} из {страниц}
+          страница {current + 1} из {pages}
         </span>
         <button
           className="quiet"
-          onClick={() => setСтраница(текущая + 1)}
-          disabled={текущая >= страниц - 1}
+          onClick={() => setPage(current + 1)}
+          disabled={current >= pages - 1}
         >
           →
         </button>
       </div>
       <h3>Агротехника</h3>
       <div className="row">
-        {культуры.map((культура) => {
-          const изучена = (look.agrotech ?? []).includes(культура.id);
+        {crops.map((crop) => {
+          const learned = (look.agrotech ?? []).includes(crop.id);
           return (
             <button
-              key={культура.id}
+              key={crop.id}
               className="quiet"
               onClick={() =>
-                act(() => session.send("breed.agrotech", { culture: культура.id }))
+                act(() => session.send("breed.agrotech", { culture: crop.id }))
               }
-              disabled={busy || изучена}
+              disabled={busy || learned}
               title={
-                изучена
+                learned
                   ? "агротехника уже в личности"
                   : "взять норму культуры: бесплатно, навсегда"
               }
             >
-              {культура.name}
-              {изучена ? " ✓" : ""}
+              {crop.name}
+              {learned ? " ✓" : ""}
             </button>
           );
         })}

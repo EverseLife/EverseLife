@@ -1,31 +1,31 @@
-"""Задание глашатая: отнести новое из журнала событий в Discord.
+"""The herald's job: carry news from the event journal to Discord.
 
-Устроено как тик мира (`engine/tick.py`): задание ставит следующее себя же и
-несёт курсор в своей полезной нагрузке. Отдельной таблицы под «докуда дочитано»
-нет намеренно — состояние ленты не состояние мира, и переживать вайп ленты
-никому не больно.
+Built like the world tick (`engine/tick.py`): the job queues the next itself
+and carries the cursor in its payload. There is deliberately no separate
+table for "how far was read" -- the feed's state is not the world's state,
+and nobody is hurt if the feed's state is wiped.
 
-Три решения, о которых легко забыть через полгода:
+Three decisions easy to forget in half a year:
 
-* **Первый проход не досылает историю.** Курсора нет — значит лента начинается
-  здесь: вываливать в канал весь журнал мира при первом запуске незачем. По
-  той же причине простой глашатая не досылается: это лента, а не журнал, а
-  журнал в базе и никуда не денется.
-* **Отправка идёт внутри транзакции задания.** Сеть под открытой транзакцией —
-  плата за то, что курсор и отправка фиксируются вместе. Проход ограничен
-  `HERALD_BATCH` событиями и `HERALD_TIMEOUT` секундами, поэтому транзакция
-  короткая. Обратная сторона честная: если Discord ответил, а фиксация не
-  прошла, повтор задания пришлёт те же строки второй раз. Дубль в ленте
-  дешевле пропуска.
-* **Молчание при пустой настройке — не остановка.** Без вебхука задание всё
-  равно двигает курсор: иначе включённый через месяц глашатай начал бы с
-  месячного хвоста.
+* **The first pass does not resend history.** No cursor -- so the feed starts
+  here: no point dumping the world's whole journal into the channel on first
+  start. For the same reason herald downtime is not resent: this is a feed,
+  not a journal, and the journal is in the database and is not going anywhere.
+* **Sending happens inside the job's transaction.** Network under an open
+  transaction is the price for the cursor and the send being committed
+  together. A pass is bounded by `HERALD_BATCH` events and `HERALD_TIMEOUT`
+  seconds, so the transaction is short. The flip side is honest: if Discord
+  answered but the commit failed, the job retry sends the same lines a second
+  time. A duplicate in the feed is cheaper than a gap.
+* **Silence on empty config is not a stop.** Without a webhook the job still
+  moves the cursor: otherwise a herald switched on a month later would start
+  with a month's tail.
 
-Известная неточность, записанная нарочно: курсор идёт по `event.id`, а номер
-события берётся из последовательности **до** фиксации. Событие, получившее
-номер раньше, но зафиксированное позже потолка прохода, в ленту не попадёт.
-Для журнала это было бы браком, для ленты — нет: журнал полон и лежит в базе,
-а лента ничего не доказывает.
+A known inaccuracy, recorded on purpose: the cursor goes by `event.id`, and
+the event number is taken from the sequence **before** commit. An event that
+got its number earlier but committed after the pass ceiling will not make it
+into the feed. For a journal that would be a defect, for a feed it is not:
+the journal is complete and lies in the database, and the feed proves nothing.
 """
 
 from __future__ import annotations
@@ -51,7 +51,7 @@ Sender = Callable[[str, str], Awaitable[None]]
 
 
 def _slot(moment: datetime) -> int:
-    """Номер интервала от эпохи — он же ключ идемпотентности."""
+    """The interval number since the epoch -- also the idempotency key."""
     return int(moment.timestamp() // HERALD_PERIOD.total_seconds())
 
 
@@ -66,53 +66,54 @@ async def run_once(
     url: str,
     sender: Sender = send,
 ) -> int:
-    """Один проход ленты. Возвращает новый курсор.
+    """One pass of the feed. Returns the new cursor.
 
-    Курсор двигается до последнего события журнала, а не до последнего
-    **опубликованного**: иначе каждый следующий проход перечитывал бы всё
-    молчаливое, накопившееся с тех пор, — а молчаливого в журнале большинство.
+    The cursor moves to the journal's last event, not the last **published**
+    one: otherwise every next pass would reread all the silent ones accumulated
+    since -- and most of the journal is silent.
     """
-    потолок = await _last_event_id(session)
+    ceiling = await _last_event_id(session)
     if after is None:
-        log.info("глашатай начинает ленту с события %s", потолок)
-        return потолок
+        log.info("herald starts the feed from event %s", ceiling)
+        return ceiling
     if not url:
-        return потолок
+        return ceiling
 
-    события = (
+    events_ = (
         await session.execute(
             select(Event)
-            .where(Event.id > after, Event.id <= потолок, Event.kind.in_(PUBLIC))
+            .where(Event.id > after, Event.id <= ceiling, Event.kind.in_(PUBLIC))
             .order_by(Event.id)
             .limit(HERALD_BATCH)
         )
     ).scalars().all()
 
-    строки = await compose(session, события)
-    for кусок in chunks(строки):
-        await sender(url, кусок)
-    if строки:
-        log.info("глашатай отнёс %s строк хроники", len(строки))
+    lines = await compose(session, events_)
+    for piece in chunks(lines):
+        await sender(url, piece)
+    if lines:
+        log.info("herald delivered %s chronicle lines", len(lines))
 
-    #: Партия упёрлась в предел — значит за потолком осталось ещё; курсор
-    #: встаёт на последнее взятое, и остаток уедет следующим проходом.
-    if len(события) >= HERALD_BATCH:
-        return события[-1].id
-    return потолок
+    #: The batch hit the limit -- so there is more beyond the ceiling; the
+    #: cursor stops at the last taken, and the rest goes with the next pass.
+    if len(events_) >= HERALD_BATCH:
+        return events_[-1].id
+    return ceiling
 
 
 @handler(JobKind.HERALD_POST)
 async def post(session: AsyncSession, job: Job) -> None:
-    рубеж = await run_once(
+    boundary = await run_once(
         session,
         after=None if job.payload.get("after") is None else int(job.payload["after"]),
         url=settings().discord_webhook,
     )
-    #: Следующее звено — не раньше, чем сейчас. Часы мира догоняют пропущенное
-    #: тик за тиком, а ленте догонять нечего: за сутки простоя она иначе
-    #: прокрутила бы семьсот пустых звеньев, чтобы прийти в ту же точку.
-    следующее = max(job.run_at + HERALD_PERIOD, datetime.now(UTC))
-    await _schedule(session, следующее, after=рубеж)
+    #: The next link -- not earlier than now. The world clock catches up on
+    #: what was missed tick by tick, but the feed has nothing to catch up on:
+    #: after a day of downtime it would otherwise spin seven hundred empty
+    #: links to reach the same point.
+    next_ = max(job.run_at + HERALD_PERIOD, datetime.now(UTC))
+    await _schedule(session, next_, after=boundary)
 
 
 async def _schedule(session: AsyncSession, run_at: datetime, *, after: int) -> None:
@@ -126,13 +127,14 @@ async def _schedule(session: AsyncSession, run_at: datetime, *, after: int) -> N
 
 
 async def ensure_scheduled(session: AsyncSession, now: datetime | None = None) -> None:
-    """Завести глашатая при старте воркера.
+    """Start the herald at worker startup.
 
-    Пока цепочка жива, ключ текущего интервала уже занят её звеном, и второго
-    глашатая здесь не появится. Если цепочка когда-то оборвалась насовсем
-    (задание сдалось после всех попыток), этот вызов заводит её заново —
-    с чистого листа, без хвоста за время простоя.
+    While the chain is alive, the current interval's key is already taken by
+    its link, and no second herald appears here. If the chain ever broke for
+    good (the job gave up after all attempts), this call starts it anew --
+    from a clean slate, without a tail for the downtime.
     """
+
     moment = now or datetime.now(UTC)
     await enqueue(
         session,

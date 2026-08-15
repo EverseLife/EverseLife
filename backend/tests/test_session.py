@@ -1,11 +1,11 @@
-"""Сквозная проверка: полная сессия добычи через сессию клиента.
+"""End-to-end check: a full mining session through the client session.
 
-Главное здесь — последняя проверка. Скрытое число не должно утекать наружу
-**ни в одном ответе**, а не только в том, о котором мы подумали.
+The main thing here is the last check. The hidden number must not leak out
+**in any reply**, not only the one we thought of.
 
-Тест синхронный целиком: `TestClient` держит собственный цикл событий, и
-готовить мир async-фикстурой рядом с ним — верный способ получить два цикла
-и невоспроизводимые падения. Мир готовится отдельным прогоном.
+The test is synchronous throughout: `TestClient` holds its own event loop,
+and preparing the world with an async fixture next to it is a sure way to get
+two loops and irreproducible failures. The world is prepared in a separate run.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from src.models import Account, Base
 from tests.conftest import TEST_DATABASE_URL
 
 
-async def _подготовить_мир() -> dict:
+async def _prepare_world() -> dict:
     engine = create_async_engine(TEST_DATABASE_URL)
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.drop_all)
@@ -36,15 +36,15 @@ async def _подготовить_мир() -> dict:
     async with async_sessionmaker(engine, expire_on_commit=False)() as db:
         node = await world.create_node(db, "terra.mine", "Забой", area_m2=100)
         vein = await world.create_vein(db, node, "Железная руда", richness=60, remaining=100_000)
-        метка = uuid.uuid4().hex[:6]
+        stamp = uuid.uuid4().hex[:6]
         identity = await world.create_identity(
-            db, f"Тэрн-{метка}", email=f"tern-{метка}@example.com", password="kirka-i-krep"
+            db, f"Тэрн-{stamp}", email=f"tern-{stamp}@example.com", password="kirka-i-krep"
         )
         body = await world.print_body(db, identity, node)
-        сумка = await world.body_container(db, body)
-        await world.grant_item(db, сумка, "Шахтная крепь", amount=5, origin="сценарий теста")
+        bag = await world.body_container(db, body)
+        await world.grant_item(db, bag, "Шахтная крепь", amount=5, origin="сценарий теста")
         account = await db.get(Account, identity.account_id)
-        готово = {
+        ready_ = {
             "name": identity.name,
             "email": account.email,
             "password": "kirka-i-krep",
@@ -54,20 +54,20 @@ async def _подготовить_мир() -> dict:
         await db.commit()
 
     await engine.dispose()
-    return готово
+    return ready_
 
 
 @pytest.fixture
-def шахтёр(loaded) -> dict:
+def miner(loaded) -> dict:
     try:
-        return asyncio.run(_подготовить_мир())
+        return asyncio.run(_prepare_world())
     except Exception as exc:  # noqa: BLE001
         pytest.skip(f"нет тестовой базы ({TEST_DATABASE_URL}): {exc}")
 
 
 @pytest.fixture
-def дёшево(constants: Constants) -> Constants:
-    """Плата устройства по карману набору тестов — через горячую подмену."""
+def cheap_pow(constants: Constants) -> Constants:
+    """A device fee the test suite can afford -- via hot override."""
     cheap = constants.with_overrides({"pow.memory_per_session": 8, "pow.argon_iterations": 1})
     HOLDER.set(cheap)
     try:
@@ -77,7 +77,7 @@ def дёшево(constants: Constants) -> Constants:
 
 
 @pytest.fixture
-def client(шахтёр, monkeypatch):
+def client(miner, monkeypatch):
     monkeypatch.setenv("OCTOVERSE_DATABASE_URL", TEST_DATABASE_URL)
 
     from src.db import base as db_base
@@ -95,205 +95,205 @@ def client(шахтёр, monkeypatch):
     db_base._sessionmaker = None
 
 
-def _вход(шахтёр: dict) -> dict:
-    """Опознание почтой и паролем (D-187): имени для входа больше нет."""
-    return {"cmd": "hello", "email": шахтёр["email"], "password": шахтёр["password"]}
+def _input(miner: dict) -> dict:
+    """Identification by email and password (D-187): there is no login name any more."""
+    return {"cmd": "hello", "email": miner["email"], "password": miner["password"]}
 
 
-def _забой(ws, шахтёр: dict, cheap: Constants) -> dict:
+def _face(ws, miner: dict, cheap: Constants) -> dict:
     ws.send_json({"cmd": "pow.challenge"})
-    задача = ws.receive_json()
-    ответ = device.solve(cheap, шахтёр["account"], bytes.fromhex(задача["nonce"]))
+    task = ws.receive_json()
+    answer = device.solve(cheap, miner["account"], bytes.fromhex(task["nonce"]))
     ws.send_json(
         {
             "cmd": "mine.start",
-            "vein": шахтёр["vein"],
-            "challenge": задача["challenge"],
-            "answer": ответ.hex(),
+            "vein": miner["vein"],
+            "challenge": task["challenge"],
+            "answer": answer.hex(),
         }
     )
     return ws.receive_json()
 
 
-def test_полная_сессия_добычи(client, шахтёр, дёшево, constants: Constants) -> None:
-    ответы = []
+def test_full_mining_session(client, miner, cheap_pow, constants: Constants) -> None:
+    answers = []
     with client.websocket_connect("/session/ws") as ws:
-        ws.send_json(_вход(шахтёр))
-        привет = ws.receive_json()
-        ответы.append(привет)
-        assert привет["hello"] == шахтёр["name"]
-        assert привет["body"]
+        ws.send_json(_input(miner))
+        hello = ws.receive_json()
+        answers.append(hello)
+        assert hello["hello"] == miner["name"]
+        assert hello["body"]
 
-        ответы.append(_забой(ws, шахтёр, дёшево))
-        assert ответы[-1]["sign"], "признак идёт строкой, а не числом"
-        assert ответы[-1]["mined"] == 0
+        answers.append(_face(ws, miner, cheap_pow))
+        assert answers[-1]["sign"], "признак идёт строкой, а не числом"
+        assert answers[-1]["mined"] == 0
 
         for _ in range(4):
             ws.send_json({"cmd": "mine.swing"})
-            ответы.append(ws.receive_json())
+            answers.append(ws.receive_json())
 
-        assert ответы[-1]["mined"] > 0
-        assert ответы[-1]["swings"] == 4
-        assert ответы[-1]["stamina"] < constants[R.BODY_STAMINA_MAX]
+        assert answers[-1]["mined"] > 0
+        assert answers[-1]["swings"] == 4
+        assert answers[-1]["stamina"] < constants[R.BODY_STAMINA_MAX]
 
         ws.send_json({"cmd": "mine.timber"})
-        ответы.append(ws.receive_json())
-        assert ответы[-1]["timbers"] == 1
+        answers.append(ws.receive_json())
+        assert answers[-1]["timbers"] == 1
 
         ws.send_json({"cmd": "mine.pace", "pace": "fast"})
-        ответы.append(ws.receive_json())
-        assert ответы[-1]["pace"] == "fast"
+        answers.append(ws.receive_json())
+        assert answers[-1]["pace"] == "fast"
 
         ws.send_json({"cmd": "mine.leave"})
-        уход = ws.receive_json()
-        ответы.append(уход)
-        assert уход["haul"] > 0
+        care = ws.receive_json()
+        answers.append(care)
+        assert care["haul"] > 0
 
-    #: Наружу уходят только поля `Sight` плюс имя сессии. Ничего, из чего
-    #: выводится устойчивость свода, в ответах нет — и это проверяется по
-    #: всему, что ушло клиенту, а не по одному полю.
-    разрешено = {
+    #: Only `Sight` fields plus the session name go out. Nothing from which
+    #: roof stability could be derived is in the replies -- and that is checked
+    #: over everything sent to the client, not one field.
+    allowed_ = {
         "sign", "mined", "swings", "timbers", "stamina", "pace", "state", "session",
         "hello", "body", "node", "constants", "challenge", "nonce", "left", "haul",
-        #: Жетон сессии — опознание, а не игра (D-187).
+        #: The session token is identification, not game (D-187).
         "token",
-        #: Свой аккаунт клиент знает: без него он не посчитает плату устройства,
-        #: а считает её именно он (D-112). К скрытому числу это отношения не имеет.
+        #: The client knows its own account: without it it cannot compute the
+        #: device fee, and it is the one computing it (D-112). Unrelated to the hidden number.
         "account",
     }
-    for ответ in ответы:
-        assert set(ответ) <= разрешено, f"лишние поля в ответе: {set(ответ) - разрешено}"
-    assert "roof" not in json.dumps(ответы, ensure_ascii=False)
+    for answer in answers:
+        assert set(answer) <= allowed_, f"лишние поля в ответе: {set(answer) - allowed_}"
+    assert "roof" not in json.dumps(answers, ensure_ascii=False)
 
 
-def test_без_платы_устройства_забой_не_открыть(client, шахтёр, дёшево) -> None:
-    """Оценка Argon2id — предусловие сессии, а не украшение (D-110)."""
+def test_face_not_opened_without_device_fee(client, miner, cheap_pow) -> None:
+    """The Argon2id estimate is a precondition of the session, not decoration (D-110)."""
     with client.websocket_connect("/session/ws") as ws:
-        ws.send_json(_вход(шахтёр))
+        ws.send_json(_input(miner))
         ws.receive_json()
 
         ws.send_json({"cmd": "pow.challenge"})
-        задача = ws.receive_json()
+        task = ws.receive_json()
         ws.send_json(
             {
                 "cmd": "mine.start",
-                "vein": шахтёр["vein"],
-                "challenge": задача["challenge"],
+                "vein": miner["vein"],
+                "challenge": task["challenge"],
                 "answer": "00" * 32,
             }
         )
         assert "refused" in ws.receive_json()
 
 
-def test_разведка_называет_цену_захода_до_выхода(
-    client, шахтёр, constants: Constants
+def test_exploration_names_run_price_before_leaving(
+    client, miner, constants: Constants
 ) -> None:
-    """Цена захода — свойство места (D-156), и клиент узнаёт её до выхода.
+    """The run's price is a property of the place (D-156), and the client learns it before leaving.
 
-    Нехоженая окрестность обязана отдавать находку за минуты: разведка — первое
-    осмысленное действие новичка, и шесть часов ожидания её убивают.
+    Untrodden surroundings must give a find in minutes: exploration is a
+    newcomer's first meaningful action, and six hours of waiting kill it.
     """
     with client.websocket_connect("/session/ws") as ws:
-        ws.send_json(_вход(шахтёр))
+        ws.send_json(_input(miner))
         ws.receive_json()
 
         ws.send_json({"cmd": "explore.goals"})
-        прогноз = ws.receive_json()["outlook"]
-        заход = constants[R.EXPLORE_ATTEMPT_MINUTES]
-        assert прогноз["explored"] == 0
-        assert прогноз["minutes"] == {"min": заход.min, "max": заход.max}
-        assert прогноз["chance"] == constants[R.EXPLORE_FIND_CHANCE]
-        assert 0 < прогноз["stamina"] < constants[R.EXPLORE_ATTEMPT_STAMINA]
+        forecast = ws.receive_json()["outlook"]
+        run = constants[R.EXPLORE_ATTEMPT_MINUTES]
+        assert forecast["explored"] == 0
+        assert forecast["minutes"] == {"min": run.min, "max": run.max}
+        assert forecast["chance"] == constants[R.EXPLORE_FIND_CHANCE]
+        assert 0 < forecast["stamina"] < constants[R.EXPLORE_ATTEMPT_STAMINA]
 
 
-def test_команда_без_знакомства_отклоняется(client, шахтёр) -> None:
+def test_command_without_hello_rejected(client, miner) -> None:
     with client.websocket_connect("/session/ws") as ws:
         ws.send_json({"cmd": "mine.swing"})
         assert ws.receive_json()["refused"] == "сначала hello"
 
 
-def test_неизвестная_команда_не_роняет_сессию(client, шахтёр) -> None:
+def test_unknown_command_does_not_drop_session(client, miner) -> None:
     with client.websocket_connect("/session/ws") as ws:
-        ws.send_json(_вход(шахтёр))
+        ws.send_json(_input(miner))
         ws.receive_json()
         ws.send_json({"cmd": "выдумка"})
         assert "нет такой команды" in ws.receive_json()["refused"]
-        #: Сессия жива — отказ по правилам не то же самое, что сбой.
+        #: The session is alive -- a refusal by the rules is not the same as a failure.
         ws.send_json({"cmd": "mine.swing"})
         assert "refused" in ws.receive_json()
 
 
-def test_вход_по_имени_упразднён(client, шахтёр) -> None:
-    """Опознание — почта и пароль (D-187): имя больше никого не впускает."""
+def test_login_by_name_abolished(client, miner) -> None:
+    """Identification is email and password (D-187): a name no longer lets anyone in."""
     with client.websocket_connect("/session/ws") as ws:
-        ws.send_json({"cmd": "hello", "name": шахтёр["name"]})
+        ws.send_json({"cmd": "hello", "name": miner["name"]})
         assert "не подходят" in ws.receive_json()["refused"]
-        ws.send_json({"cmd": "hello", "email": шахтёр["email"], "password": "не тот"})
+        ws.send_json({"cmd": "hello", "email": miner["email"], "password": "не тот"})
         assert "не подходят" in ws.receive_json()["refused"]
 
 
-def test_жетон_опознаёт_вместо_пароля(client, шахтёр) -> None:
-    """Пароль вводится один раз: переподключение идёт жетоном, выход его отзывает."""
+def test_token_identifies_instead_of_password(client, miner) -> None:
+    """The password is entered once: reconnection goes by token, logout revokes it."""
     with client.websocket_connect("/session/ws") as ws:
-        ws.send_json(_вход(шахтёр))
-        жетон = ws.receive_json()["token"]
-        assert жетон
+        ws.send_json(_input(miner))
+        token = ws.receive_json()["token"]
+        assert token
 
     with client.websocket_connect("/session/ws") as ws:
-        ws.send_json({"cmd": "hello", "token": жетон})
-        assert ws.receive_json()["hello"] == шахтёр["name"]
+        ws.send_json({"cmd": "hello", "token": token})
+        assert ws.receive_json()["hello"] == miner["name"]
         ws.send_json({"cmd": "account.profile"})
-        профиль = ws.receive_json()["profile"]
-        assert профиль["email"] == шахтёр["email"]
-        assert профиль["line"] == "human"
+        profile = ws.receive_json()["profile"]
+        assert profile["email"] == miner["email"]
+        assert profile["line"] == "human"
         ws.send_json({"cmd": "account.update", "surname": "Каменный", "age": 40, "about": "шахтёр"})
         assert ws.receive_json()["profile"]["surname"] == "Каменный"
         ws.send_json({"cmd": "account.logout"})
         assert ws.receive_json()["bye"] is True
 
     with client.websocket_connect("/session/ws") as ws:
-        ws.send_json({"cmd": "hello", "token": жетон})
+        ws.send_json({"cmd": "hello", "token": token})
         assert "истекла" in ws.receive_json()["refused"]
 
 
-def test_регистрация_четырьмя_полями_и_нимфы_недоступны(client, шахтёр) -> None:
-    """Регистрация одной командой: почта, пароль, линия, персонаж, дверь (D-187)."""
-    метка = uuid.uuid4().hex[:6]
-    заявка = {
+def test_registration_with_four_fields_and_nymphs_unavailable(client, miner) -> None:
+    """Registration in one command: email, password, line, character, door (D-187)."""
+    stamp = uuid.uuid4().hex[:6]
+    order = {
         "cmd": "join",
-        "email": f"Novice-{метка}@Example.com",
+        "email": f"Novice-{stamp}@Example.com",
         "password": "vosem-znakov",
         "password_again": "vosem-znakov",
         "line": "human",
-        "name": f"Новичок-{метка}",
+        "name": f"Новичок-{stamp}",
         "surname": "Первый",
         "age": 22,
         "about": "только что напечатан",
     }
     with client.websocket_connect("/session/ws") as ws:
-        ws.send_json(заявка | {"line": "nymph"})
+        ws.send_json(order | {"line": "nymph"})
         assert "в разработке" in ws.receive_json()["refused"]
-        ws.send_json(заявка | {"password_again": "другой"})
+        ws.send_json(order | {"password_again": "другой"})
         assert "не совпадают" in ws.receive_json()["refused"]
-        ws.send_json(заявка | {"password": "kor", "password_again": "kor"})
+        ws.send_json(order | {"password": "kor", "password_again": "kor"})
         assert "короче" in ws.receive_json()["refused"]
-        ws.send_json(заявка)
-        ответ = ws.receive_json()
-        assert ответ["hello"] == заявка["name"] and ответ["token"]
+        ws.send_json(order)
+        answer = ws.receive_json()
+        assert answer["hello"] == order["name"] and answer["token"]
         ws.send_json({"cmd": "account.profile"})
-        профиль = ws.receive_json()["profile"]
-        #: Почта хранится в нижнем регистре: один адрес — один аккаунт.
-        assert профиль["email"] == заявка["email"].lower()
-        assert профиль["age"] == 22
-        #: Занятую почту второй раз не заводят.
-        ws.send_json(заявка | {"name": f"Другой-{метка}"})
+        profile = ws.receive_json()["profile"]
+        #: Email is stored lower-cased: one address -- one account.
+        assert profile["email"] == order["email"].lower()
+        assert profile["age"] == 22
+        #: A taken email is not registered a second time.
+        ws.send_json(order | {"name": f"Другой-{stamp}"})
         assert "занята" in ws.receive_json()["refused"]
 
     with client.websocket_connect("/session/ws") as ws:
-        ws.send_json({"cmd": "hello", "email": заявка["email"], "password": заявка["password"]})
-        assert ws.receive_json()["hello"] == заявка["name"]
+        ws.send_json({"cmd": "hello", "email": order["email"], "password": order["password"]})
+        assert ws.receive_json()["hello"] == order["name"]
 
-    линии = client.get("/public/lines").json()["lines"]
-    assert [линия["id"] for линия in линии] == ["human", "nymph"]
-    assert линии[0]["playable"] and not линии[1]["playable"]
-    assert линии[0]["players"] >= 2
+    lines_ = client.get("/public/lines").json()["lines"]
+    assert [credit_line["id"] for credit_line in lines_] == ["human", "nymph"]
+    assert lines_[0]["playable"] and not lines_[1]["playable"]
+    assert lines_[0]["players"] >= 2

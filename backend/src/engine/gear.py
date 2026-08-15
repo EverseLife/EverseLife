@@ -1,38 +1,39 @@
-"""Носимое: масса, предел и слоты снаряжения (D-146, D-129).
+"""Carried load: mass, limit and gear slots (D-146, D-129).
 
-Предел носимого записан в вольте с самого начала — `inventory.carry_mass`, «всё
-сверх — только транспортом», — но у предметов не было массы, и он ничего не
-значил. Игрок носил в кармане тысячу руды, и география, ради которой всё
-строилось, ничего не стоила.
+The carry limit was in the vault from the very start -- `inventory.carry_mass`,
+"everything above -- only by vehicle" -- but items had no mass, and it meant
+nothing. A player carried a thousand ore in the pocket, and the geography
+everything was built for cost nothing.
 
-## Как считается
+## How it is computed
 
-**Нагрузка** — сумма масс всего, что в руках, включая надетое: экзоскелет не
-становится невесомым оттого, что его надели.
+**Load** is the sum of masses of everything in the hands, including what is
+worn: an exoskeleton does not become weightless because it is put on.
 
-**Предел** — `inventory.carry_mass` плюс `inventory.carry_bonus` за каждую
-надетую вещь. Рюкзак и экзоскелет поднимают его, одежда и броня слот занимают,
-но переносимого не добавляют — их эффект приедет со средой и боем.
+**Limit** is `inventory.carry_mass` plus `inventory.carry_bonus` per worn
+thing. A backpack and an exoskeleton raise it, clothes and armour take the
+slot but add nothing to carry -- their effect arrives with environment and combat.
 
-**Слот один на вещь.** Без слотов игрок надел бы три рюкзака, и предел перестал
-бы существовать; слот — это и есть ограничение, а не украшение интерфейса.
+**One slot per thing.** Without slots a player would wear three backpacks and
+the limit would cease to exist; the slot is the constraint itself, not an
+interface decoration.
 
-## Где предел проверяется
+## Where the limit is checked
 
-Там, где игрок **берёт вещь в руки**: покупка из терминала, уборка урожая,
-вывоз бункера. Это не сообщение об ошибке, а причина существования повозок,
-караванов и профессии возчика.
+Where the player **takes a thing in hand**: purchase from the terminal,
+harvest, emptying a hopper. This is not an error message but the reason
+wagons, caravans and the carter's profession exist.
 
-Изготовленное у станка под предел не попадает: оно ложится там, где сделано, и
-станет ношей только когда его возьмут. Так же и с добытым в забое — оно
-остаётся в забое, пока за ним не пришли.
+What is made at a machine does not fall under the limit: it lies where it was
+made and becomes a load only when taken. Likewise with what is mined at the
+face -- it stays at the face until somebody comes for it.
 
-## Чего здесь пока нет
+## What is not here yet
 
-* **Объёма.** `inventory.carry_volume` в вольте есть, объёма у предметов —
-  нет. Заводить его в коде значило бы придумать данные, которых нет (D-065);
-* **Транспорта.** Он и есть ответ на предел (D-107), и приедет со своей
-  механикой: у груза наконец появилась масса, а `transport.mass_*` ждали её.
+* **Volume.** `inventory.carry_volume` exists in the vault, items have no
+  volume. Creating it in code would mean inventing data that does not exist (D-065);
+* **Transport.** It is the answer to the limit (D-107) and arrives with its
+  own mechanic: cargo finally has mass, and `transport.mass_*` were waiting for it.
 """
 
 from __future__ import annotations
@@ -58,55 +59,55 @@ class GearError(Exception):
 
 
 class NotGear(GearError):
-    """Эту вещь не надевают: слот у предмета берётся из данных вольта."""
+    """This thing is not worn: an item's slot comes from vault data."""
 
 
 class Overloaded(GearError):
-    """Больше предела в руки не берут. Всё сверх — только транспортом."""
+    """No more than the limit is taken in hand. Everything above -- only by vehicle."""
 
 
 def mass_of(catalog: Catalog, type_key: str, quantity: float) -> float:
-    """Масса такого количества этого предмета, кг."""
+    """The mass of this much of this item, kg."""
     return catalog.recipes.mass_of(type_key) * quantity
 
 
 async def load_of(
     session: AsyncSession, catalog: Catalog, body: Body
 ) -> float:
-    """Сколько тело несёт сейчас, кг. Надетое считается вместе со всем."""
-    карман = await world.body_container(session, body)
-    вещи = (
-        await session.execute(select(Item).where(Item.container_id == карман.id))
+    """How much the body carries now, kg. What is worn counts along with everything."""
+    pocket = await world.body_container(session, body)
+    things = (
+        await session.execute(select(Item).where(Item.container_id == pocket.id))
     ).scalars().all()
     return sum(
-        mass_of(catalog, вещь.type_key, amount_float(вещь.amount)) for вещь in вещи
+        mass_of(catalog, thing.type_key, amount_float(thing.amount)) for thing in things
     )
 
 
 async def equipped(session: AsyncSession, body: Body) -> dict[str, Item]:
-    """Что надето: слот → вещь."""
-    строки = (
+    """What is worn: slot -> thing."""
+    lines = (
         await session.execute(select(Equipped).where(Equipped.body_id == body.id))
     ).scalars().all()
-    итог: dict[str, Item] = {}
-    for строка in строки:
-        вещь = await session.get(Item, строка.item_id)
-        if вещь is not None:
-            итог[строка.slot] = вещь
-    return итог
+    result: dict[str, Item] = {}
+    for line in lines:
+        thing = await session.get(Item, line.item_id)
+        if thing is not None:
+            result[line.slot] = thing
+    return result
 
 
 async def capacity(
     session: AsyncSession, constants: Constants, catalog: Catalog, body: Body
 ) -> float:
-    """Предел носимого с учётом надетого, кг."""
-    бонусы = constants[R.INVENTORY_CARRY_BONUS]
-    надето = await equipped(session, body)
-    прибавка = sum(
-        бонусы.get(catalog.recipes.resolve(вещь.type_key), 0.0)
-        for вещь in надето.values()
+    """The carry limit with worn gear in mind, kg."""
+    bonuses = constants[R.INVENTORY_CARRY_BONUS]
+    worn = await equipped(session, body)
+    increment = sum(
+        bonuses.get(catalog.recipes.resolve(thing.type_key), 0.0)
+        for thing in worn.values()
     )
-    return constants[R.INVENTORY_CARRY_MASS] + прибавка
+    return constants[R.INVENTORY_CARRY_MASS] + increment
 
 
 async def check_carry(
@@ -117,16 +118,17 @@ async def check_carry(
     type_key: str,
     quantity: float,
 ) -> None:
-    """Влезет ли это в руки. Не влезло — не берут, и это не ошибка, а вес."""
-    добавка = mass_of(catalog, type_key, quantity)
-    if добавка <= 0:
+    """Whether this fits in the hands. Did not fit -- not taken, and that is not an error but
+    weight."""
+    bonus = mass_of(catalog, type_key, quantity)
+    if bonus <= 0:
         return
-    несёт = await load_of(session, catalog, body)
-    предел = await capacity(session, constants, catalog, body)
-    if несёт + добавка > предел:
+    carries = await load_of(session, catalog, body)
+    limit = await capacity(session, constants, catalog, body)
+    if carries + bonus > limit:
         raise Overloaded(
-            f"не унести: в руках {несёт:.1f} кг из {предел:.0f}, "
-            f"а это ещё {добавка:.1f} кг. Всё сверх — только транспортом"
+            f"не унести: в руках {carries:.1f} кг из {limit:.0f}, "
+            f"а это ещё {bonus:.1f} кг. Всё сверх — только транспортом"
         )
 
 
@@ -139,10 +141,10 @@ async def equip(
     *,
     now: datetime | None = None,
 ) -> str:
-    """Надеть вещь. Слот занят — прежняя снимается сама.
+    """Wear a thing. Slot taken -- the previous one comes off by itself.
 
-    Присутственное только в том смысле, что вещь должна быть в руках: надеть
-    рюкзак, лежащий в другом городе, нельзя.
+    In-person only in the sense that the thing must be in the hands: a
+    backpack lying in another city cannot be put on.
     """
     if body.state is not BodyState.ALIVE:
         raise GearError("мёртвое тело не одевается")
@@ -151,22 +153,22 @@ async def equip(
     slot = catalog.recipes.slot_of(item.type_key)
     if slot is None:
         raise NotGear(f"{item.type_key!r} не надевается: у него нет слота")
-    if slot not in catalog.recipes.gear_slots:  # pragma: no cover — данные вольта
+    if slot not in catalog.recipes.gear_slots:  # pragma: no cover -- vault data
         raise NotGear(f"слота {slot!r} в мире нет")
 
-    карман = await world.body_container(session, body)
-    if item.container_id != карман.id:
+    pocket = await world.body_container(session, body)
+    if item.container_id != pocket.id:
         raise GearError("вещь не в руках: надевают своё")
 
-    прежнее = (
+    previous_ = (
         await session.execute(
             select(Equipped).where(Equipped.body_id == body.id, Equipped.slot == slot)
         )
     ).scalar_one_or_none()
-    if прежнее is not None:
-        if прежнее.item_id == item.id:
+    if previous_ is not None:
+        if previous_.item_id == item.id:
             return slot
-        await session.delete(прежнее)
+        await session.delete(previous_)
         await session.flush()
 
     session.add(Equipped(body_id=body.id, slot=slot, item_id=item.id))
@@ -186,37 +188,38 @@ async def equip(
 async def unequip(
     session: AsyncSession, body: Body, slot: str
 ) -> Item | None:
-    """Снять надетое из слота. Вещь остаётся в руках — она и так была там."""
-    строка = (
+    """Take off what is worn from a slot. The thing stays in the hands -- it was there anyway."""
+    line = (
         await session.execute(
             select(Equipped).where(Equipped.body_id == body.id, Equipped.slot == slot)
         )
     ).scalar_one_or_none()
-    if строка is None:
+    if line is None:
         return None
-    вещь = await session.get(Item, строка.item_id)
-    await session.delete(строка)
+    thing = await session.get(Item, line.item_id)
+    await session.delete(line)
     await session.flush()
     await events.record(
         session,
         EventKind.GEAR_UNEQUIPPED,
         actor_identity_id=body.identity_id,
         node_id=body.node_id,
-        item_id=str(строка.item_id),
+        item_id=str(line.item_id),
         slot=slot,
     )
-    return вещь
+    return thing
 
 
 async def drop_missing(session: AsyncSession, item_id: uuid.UUID) -> None:
-    """Снять запись о надетом, если вещи больше нет.
+    """Remove the worn record if the thing is gone.
 
-    Вещь может кончиться износом или уехать на рынок — слот не должен помнить
-    то, чего нет.
+    A thing may run out by wear or go to the market -- the slot must not
+    remember what does not exist.
     """
-    строка = (
+
+    line = (
         await session.execute(select(Equipped).where(Equipped.item_id == item_id))
     ).scalar_one_or_none()
-    if строка is not None:
-        await session.delete(строка)
+    if line is not None:
+        await session.delete(line)
         await session.flush()

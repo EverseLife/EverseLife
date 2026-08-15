@@ -1,15 +1,15 @@
-"""HTTP-поверхность сервера.
+"""The server's HTTP surface.
 
-Граница здесь архитектурная, а не настроечная (01-tech-notes, паттерн 6;
-60-meta/01-anti-cheat):
+The boundary here is architectural, not configurational (01-tech-notes,
+pattern 6; 60-meta/01-anti-cheat):
 
-* **публичным может быть только чтение** — цены, справочники, кодекс;
-* **API действий не существует.** Присутственное действие идёт только через
-  сессию клиента. Стоит появиться удобному REST для «сделать удар», и добыча
-  превращается в скрипт.
+* **only reads may be public** -- prices, catalogs, the code;
+* **there is no action API.** An in-person action goes only through the
+  client session. As soon as a convenient REST for "make a swing" appears,
+  mining turns into a script.
 
-Поэтому в этом модуле не будет ни одного POST, меняющего мир. Действия живут
-на WebSocket-сессии и требуют платы устройства (D-110).
+So this module will not have a single POST that changes the world. Actions
+live on the WebSocket session and require the device fee (D-110).
 """
 
 from __future__ import annotations
@@ -21,9 +21,9 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from src import herald  # noqa: F401 — регистрирует обработчик хроники
+from src import herald  # noqa: F401 -- registers the chronicle handler
 from src.constants import HOLDER, Catalog, bootstrap, current_catalog
-from src.engine import tick  # noqa: F401 — регистрирует обработчики заданий
+from src.engine import tick  # noqa: F401 -- registers job handlers
 from src.engine.jobs import require_handlers
 from src.settings import settings
 
@@ -31,7 +31,7 @@ log = logging.getLogger(__name__)
 
 
 def catalog() -> Catalog:
-    """Каталоги процесса. Загружены при старте, живут в памяти."""
+    """The process's catalogs. Loaded at startup, live in memory."""
     return current_catalog()
 
 
@@ -41,11 +41,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logging.basicConfig(level=conf.log_level)
 
     constants, loaded = bootstrap(conf.vault_build_path)
-    #: Обработчик, которого нет, обязан падать при старте, а не в тике.
+    #: A missing handler must fail at startup, not in a tick.
     require_handlers()
 
     log.info(
-        "константы загружены: %s (отпечаток %s), рецептов %s",
+        "constants loaded: %s (fingerprint %s), %s recipes",
         constants.source,
         constants.digest,
         len(loaded.recipes.recipes),
@@ -67,9 +67,9 @@ def create_app() -> FastAPI:
     from src.api import session
     from src.api.routes import public
 
-    #: Клиент живёт на своём порту и ходит сюда за справочниками и стаканами.
-    #: Порт клиента с чужой машины заранее не известен, поэтому кроме списка
-    #: есть образец адреса локальной сети (`settings.allowed_origin_regex`).
+    #: The client lives on its own port and comes here for catalogs and books.
+    #: The client's port on another machine is not known in advance, so besides
+    #: the list there is a local-network address pattern (`settings.allowed_origin_regex`).
     conf = settings()
     app.add_middleware(
         CORSMiddleware,
@@ -80,10 +80,10 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(public.router)
-    #: Единственная поверхность, где игрок действует. HTTP-методов у неё нет.
+    #: The only surface where the player acts. It has no HTTP methods.
     app.include_router(session.router)
 
-    @app.get("/health", tags=["служебное"])
+    @app.get("/health", tags=["housekeeping"])
     async def health() -> dict[str, object]:
         return {
             "ok": True,

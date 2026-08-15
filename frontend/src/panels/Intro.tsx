@@ -1,20 +1,22 @@
 /**
- * Слово при пробуждении (D-182).
+ * The word on waking (D-182).
  *
- * NPC нет, квестов нет, и объяснить напечатанному, кто он и почему мир пуст,
- * больше некому. Это единственное место, где игра говорит о себе сама, — и
- * потому оно жёстко ограничено: **ни одной тайны лора**. Здесь только то, что
- * напечатанный и так знает о себе. Что случилось с Предтечами, чей образец
- * печатает машина и что лежит подо льдом Авроры — не наше дело: лор выдаётся
- * фрагментами и добывается (10-world/01).
+ * There are no NPCs, no quests, and nobody else to explain to the printed who
+ * they are and why the world is empty. This is the only place where the game
+ * speaks about itself -- and therefore it is strictly bounded: **not a single
+ * lore secret**. Here only what the printed already knows about themselves.
+ * What happened to the Forerunners, whose sample the machine prints and what
+ * lies under Aurora's ice is not our business: lore is given out in fragments
+ * and is mined (10-world/01).
  *
- * Второй половиной идут три первых шага. Это не квест и не проверяемая
- * цепочка, а ответ на вопрос «чем заняться» — тот самый путь, которым новичок
- * окупает себя за пару часов (60-meta/00).
+ * The second half is the first three steps. Not a quest and not a checked
+ * chain but an answer to "what to do" -- the very path by which a newcomer
+ * pays for themselves in a couple of hours (60-meta/00).
  *
- * Окно закрывается кнопкой и открывается снова из шапки: прочитанное один раз
- * не должно становиться недоступным, а непрочитанное — обязательным.
+ * The window closes with a button and opens again from the header: what was
+ * read once must not become unavailable, and what was not read -- mandatory.
  */
+
 
 type Props = {
   onClose: () => void;

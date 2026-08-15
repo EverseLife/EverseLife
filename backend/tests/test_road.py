@@ -1,11 +1,11 @@
-"""Дороги как работа на ребре (D-107, D-158).
+"""Roads as work on an edge (D-107, D-158).
 
-Проверяется то, ради чего дорога вообще введена:
+Checked is what the road was introduced for at all:
 
-* покрытие поднимается **на ступень** за полотно и время, а не кнопкой;
-* уложенная дорога открывает обозу путь, которого до неё не было;
-* без содержания дорога зарастает и возвращается в бездорожье;
-* подсыпка стоит ровно в той доле, в какой дорога просела.
+* the surface rises **by a tier** for surface material and time, not by a button;
+* a laid road opens the convoy a path that did not exist before it;
+* without maintenance a road overgrows and returns to offroad;
+* resurfacing costs exactly the share by which the road sagged.
 """
 
 from __future__ import annotations
@@ -24,28 +24,28 @@ from src.models.world import Edge, Surface
 from src.units import SCALE_MAX
 
 
-async def _ребро(
-    session: AsyncSession, *, surface: Surface = Surface.TRAIL, полотна: float = 0
+async def _edge(
+    session: AsyncSession, *, surface: Surface = Surface.TRAIL, surface_amount: float = 0
 ):
-    метка = uuid.uuid4().hex[:8]
-    здесь = await world.create_node(session, f"terra.rda.{метка}", "Здесь", area_m2=100)
-    там = await world.create_node(session, f"terra.rdb.{метка}", "Там", area_m2=100)
-    ребро = await travel.connect(
-        session, здесь, там, base_seconds=600, surface=surface
+    stamp = uuid.uuid4().hex[:8]
+    here = await world.create_node(session, f"terra.rda.{stamp}", "Здесь", area_m2=100)
+    there = await world.create_node(session, f"terra.rdb.{stamp}", "Там", area_m2=100)
+    edge = await travel.connect(
+        session, here, there, base_seconds=600, surface=surface
     )
-    identity = await world.create_identity(session, f"Дорожник-{метка}")
-    body = await world.print_body(session, identity, здесь)
-    if полотна:
-        карман = await world.body_container(session, body)
+    identity = await world.create_identity(session, f"Дорожник-{stamp}")
+    body = await world.print_body(session, identity, here)
+    if surface_amount:
+        pocket = await world.body_container(session, body)
         await world.grant_item(
-            session, карман, road.SURFACE_GOODS, amount=полотна,
+            session, pocket, road.SURFACE_GOODS, amount=surface_amount,
             origin="сценарий теста",
         )
-    return здесь, там, body, ребро
+    return here, there, body, edge
 
 
-async def _доделать(session: AsyncSession, job) -> None:
-    """Прокрутить работу до конца — так же, как это сделал бы воркер."""
+async def _finish(session: AsyncSession, job) -> None:
+    """Run the work to the end -- the same way the worker would."""
     from src.models.job import JobState
 
     await road.finished(session, job)
@@ -53,200 +53,201 @@ async def _доделать(session: AsyncSession, job) -> None:
     await session.flush()
 
 
-# --- укладка ----------------------------------------------------------------
+# --- laying ------------------------------------------------------------------
 
 
-async def test_дорога_ложится_за_полотно_и_время(
+async def test_road_laid_for_surface_and_time(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    норма = constants[R.ROAD_SURFACE_PER_EDGE]
-    _, _, body, ребро = await _ребро(session, полотна=норма)
-    ушёл = datetime.now(UTC)
+    norm = constants[R.ROAD_SURFACE_PER_EDGE]
+    _, _, body, edge = await _edge(session, surface_amount=norm)
+    gone = datetime.now(UTC)
 
-    job = await road.lay(session, constants, catalog, body, ребро, now=ушёл)
+    job = await road.lay(session, constants, catalog, body, edge, now=gone)
 
-    assert ребро.surface is Surface.TRAIL, "до срока дорога не готова"
-    assert job.run_at - ушёл == timedelta(hours=constants[R.ROAD_BUILD_HOURS])
+    assert edge.surface is Surface.TRAIL, "до срока дорога не готова"
+    assert job.run_at - gone == timedelta(hours=constants[R.ROAD_BUILD_HOURS])
     assert await road._surface_at_hand(session, body) == pytest.approx(0), (
         "полотно списывается вперёд, как материалы партии"
     )
 
-    await _доделать(session, job)
-    assert ребро.surface is Surface.ROAD
-    assert float(ребро.condition) == pytest.approx(SCALE_MAX)
+    await _finish(session, job)
+    assert edge.surface is Surface.ROAD
+    assert float(edge.condition) == pytest.approx(SCALE_MAX)
 
 
-async def test_без_полотна_дорогу_не_кладут(
+async def test_no_road_without_surface(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Дорога — это материалы, а не намерение."""
-    норма = constants[R.ROAD_SURFACE_PER_EDGE]
-    _, _, body, ребро = await _ребро(session, полотна=норма / 2)
+    """A road is materials, not intent."""
+    norm = constants[R.ROAD_SURFACE_PER_EDGE]
+    _, _, body, edge = await _edge(session, surface_amount=norm / 2)
     with pytest.raises(road.NoSurfaceGoods):
-        await road.lay(session, constants, catalog, body, ребро)
-    assert await road._surface_at_hand(session, body) == pytest.approx(норма / 2), (
+        await road.lay(session, constants, catalog, body, edge)
+    assert await road._surface_at_hand(session, body) == pytest.approx(norm / 2), (
         "отказ не съедает половину полотна"
     )
 
 
-async def test_кладут_стоя_в_конце_ребра(
+async def test_laid_standing_at_edge_end(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Дорогу кладут ногами: удалённой стройки в этом мире нет (D-044)."""
-    норма = constants[R.ROAD_SURFACE_PER_EDGE]
-    _, _, body, _ = await _ребро(session, полотна=норма)
-    _, _, _, чужое = await _ребро(session)
+    """A road is laid on foot: there is no remote construction in this world (D-044)."""
+    norm = constants[R.ROAD_SURFACE_PER_EDGE]
+    _, _, body, _ = await _edge(session, surface_amount=norm)
+    _, _, _, foreign_thing = await _edge(session)
     with pytest.raises(road.NotHere):
-        await road.lay(session, constants, catalog, body, чужое)
+        await road.lay(session, constants, catalog, body, foreign_thing)
 
 
-async def test_ступени_идут_по_одной(
+async def test_tiers_go_one_at_a_time(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Бездорожье → дорога → тракт, и каждая ступень — отдельный проект."""
-    норма = constants[R.ROAD_SURFACE_PER_EDGE]
-    _, _, body, ребро = await _ребро(session, полотна=норма * 3)
+    """Offroad -> road -> highway, and each tier is a separate project."""
+    norm = constants[R.ROAD_SURFACE_PER_EDGE]
+    _, _, body, edge = await _edge(session, surface_amount=norm * 3)
 
-    await _доделать(session, await road.lay(session, constants, catalog, body, ребро))
-    assert ребро.surface is Surface.ROAD
-    await _доделать(session, await road.lay(session, constants, catalog, body, ребро))
-    assert ребро.surface is Surface.PAVED
+    await _finish(session, await road.lay(session, constants, catalog, body, edge))
+    assert edge.surface is Surface.ROAD
+    await _finish(session, await road.lay(session, constants, catalog, body, edge))
+    assert edge.surface is Surface.PAVED
 
     with pytest.raises(road.TopSurface):
-        await road.lay(session, constants, catalog, body, ребро)
+        await road.lay(session, constants, catalog, body, edge)
 
 
-async def test_две_бригады_одну_дорогу_не_кладут(
+async def test_two_crews_do_not_lay_same_road(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    норма = constants[R.ROAD_SURFACE_PER_EDGE]
-    _, _, body, ребро = await _ребро(session, полотна=норма * 2)
-    await road.lay(session, constants, catalog, body, ребро)
+    norm = constants[R.ROAD_SURFACE_PER_EDGE]
+    _, _, body, edge = await _edge(session, surface_amount=norm * 2)
+    await road.lay(session, constants, catalog, body, edge)
     with pytest.raises(road.AlreadyWorking):
-        await road.lay(session, constants, catalog, body, ребро)
+        await road.lay(session, constants, catalog, body, edge)
 
 
-# --- ради чего всё это (D-157) ----------------------------------------------
+# --- what all this is for (D-157) --------------------------------------------
 
 
-async def test_уложенная_дорога_открывает_путь_обозу(
+async def test_laid_road_opens_way_for_convoy(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Разведка растит карту, дорога делает её проезжей."""
-    норма = constants[R.ROAD_SURFACE_PER_EDGE]
-    здесь, там, body, ребро = await _ребро(session, полотна=норма)
-    двор = await world.node_container(session, здесь)
-    телега = await world.grant_item(
-        session, двор, "Повозка", amount=1, origin="сценарий теста"
+    """Exploration grows the map, the road makes it passable."""
+    norm = constants[R.ROAD_SURFACE_PER_EDGE]
+    here, there, body, edge = await _edge(session, surface_amount=norm)
+    yard = await world.node_container(session, here)
+    cart = await world.grant_item(
+        session, yard, "Повозка", amount=1, origin="сценарий теста"
     )
-    await transport.harness(session, constants, catalog, body, телега)
+    await transport.harness(session, constants, catalog, body, cart)
 
     with pytest.raises(transport.Impassable):
-        await travel.depart(session, constants, body, там)
+        await travel.depart(session, constants, body, there)
 
-    await _доделать(session, await road.lay(session, constants, catalog, body, ребро))
+    await _finish(session, await road.lay(session, constants, catalog, body, edge))
 
-    переход = await travel.depart(session, constants, body, там)
-    assert переход is not None, "по уложенной дороге обоз идёт"
-
-
-# --- зарастание -------------------------------------------------------------
+    transit = await travel.depart(session, constants, body, there)
+    assert transit is not None, "по уложенной дороге обоз идёт"
 
 
-async def test_без_содержания_дорога_зарастает(
+# --- overgrowing -------------------------------------------------------------
+
+
+async def test_road_overgrows_without_maintenance(
     session: AsyncSession, constants: Constants
 ) -> None:
-    """Заброшенная дорога возвращается в бездорожье — это сток, а не поломка."""
-    _, _, _, ребро = await _ребро(session, surface=Surface.ROAD)
-    шаг = constants[R.ROAD_DECAY_RATE]
+    """An abandoned road returns to offroad -- that is a sink, not a breakage."""
+    _, _, _, edge = await _edge(session, surface=Surface.ROAD)
+    step = constants[R.ROAD_DECAY_RATE]
 
     await road.decay(session, constants)
-    assert float(ребро.condition) == pytest.approx(SCALE_MAX - шаг)
+    assert float(edge.condition) == pytest.approx(SCALE_MAX - step)
 
-    #: Досрочно доводим до края: сто суток в тесте никто ждать не станет.
-    ребро.condition = Decimal(str(шаг))
+    #: We bring it to the edge early: nobody will wait a hundred days in a test.
+    edge.condition = Decimal(str(step))
     await session.flush()
-    заросло = await road.decay(session, constants)
-    assert заросло == 1
-    assert ребро.surface is Surface.TRAIL
-    assert float(ребро.condition) == pytest.approx(SCALE_MAX), (
+    overgrown = await road.decay(session, constants)
+    assert overgrown == 1
+    assert edge.surface is Surface.TRAIL
+    assert float(edge.condition) == pytest.approx(SCALE_MAX), (
         "ступень ниже начинает со свежего состояния, а не с нуля"
     )
 
 
-async def test_бездорожье_не_зарастает_дальше(
+async def test_offroad_does_not_overgrow_further(
     session: AsyncSession, constants: Constants
 ) -> None:
-    """Ниже тропы ступеней нет, и суточный проход её не трогает."""
-    _, _, _, ребро = await _ребро(session, surface=Surface.TRAIL)
-    было = float(ребро.condition)
+    """There are no tiers below the trail, and the daily pass does not touch it."""
+    _, _, _, edge = await _edge(session, surface=Surface.TRAIL)
+    before = float(edge.condition)
     assert await road.decay(session, constants) == 0
-    assert float(ребро.condition) == было
+    assert float(edge.condition) == before
 
 
-async def test_подсыпка_стоит_доли_укладки(
+async def test_resurfacing_costs_fraction_of_laying(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Провалившаяся наполовину требует половины: иначе содержать невыгодно."""
-    норма = constants[R.ROAD_SURFACE_PER_EDGE]
-    _, _, body, ребро = await _ребро(session, surface=Surface.ROAD, полотна=норма)
-    ребро.condition = Decimal(str(SCALE_MAX / 2))
+    """One that sagged by half needs half: otherwise maintaining is not worthwhile."""
+    norm = constants[R.ROAD_SURFACE_PER_EDGE]
+    _, _, body, edge = await _edge(session, surface=Surface.ROAD, surface_amount=norm)
+    edge.condition = Decimal(str(SCALE_MAX / 2))
     await session.flush()
 
-    assert road.needed(constants, ребро, mend=True) == pytest.approx(норма / 2)
-    job = await road.lay(session, constants, catalog, body, ребро, mend=True)
-    assert await road._surface_at_hand(session, body) == pytest.approx(норма / 2), (
+    assert road.needed(constants, edge, mend=True) == pytest.approx(norm / 2)
+    job = await road.lay(session, constants, catalog, body, edge, mend=True)
+    assert await road._surface_at_hand(session, body) == pytest.approx(norm / 2), (
         "подсыпка берёт половину, а не всё"
     )
 
-    await _доделать(session, job)
-    assert ребро.surface is Surface.ROAD, "подсыпка не поднимает ступень"
-    assert float(ребро.condition) == pytest.approx(SCALE_MAX)
+    await _finish(session, job)
+    assert edge.surface is Surface.ROAD, "подсыпка не поднимает ступень"
+    assert float(edge.condition) == pytest.approx(SCALE_MAX)
 
 
-async def test_целой_дороге_подсыпать_нечего(
+async def test_nothing_to_resurface_on_intact_road(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    норма = constants[R.ROAD_SURFACE_PER_EDGE]
-    _, _, body, ребро = await _ребро(session, surface=Surface.ROAD, полотна=норма)
+    norm = constants[R.ROAD_SURFACE_PER_EDGE]
+    _, _, body, edge = await _edge(session, surface=Surface.ROAD, surface_amount=norm)
     with pytest.raises(road.RoadError):
-        await road.lay(session, constants, catalog, body, ребро, mend=True)
+        await road.lay(session, constants, catalog, body, edge, mend=True)
 
 
-# --- работа идёт офлайн -----------------------------------------------------
+# --- the work runs offline ---------------------------------------------------
 
 
-async def test_дорога_ложится_заданием_журнала(
+async def test_road_laid_by_journal_job(
     factory: async_sessionmaker[AsyncSession], constants: Constants, catalog: Catalog
 ) -> None:
-    """Закрыл вкладку — дорога всё равно ляжет."""
+    """Closed the tab -- the road is laid anyway."""
     async with factory() as session, session.begin():
-        _, _, body, ребро = await _ребро(
-            session, полотна=constants[R.ROAD_SURFACE_PER_EDGE]
+        _, _, body, edge = await _edge(
+            session, surface_amount=constants[R.ROAD_SURFACE_PER_EDGE]
         )
-        job = await road.lay(session, constants, catalog, body, ребро)
-        срок, ребро_id = job.run_at, ребро.id
+        job = await road.lay(session, constants, catalog, body, edge)
+        term, edge_id = job.run_at, edge.id
 
-    assert await jobs.run_one(factory, now=срок - timedelta(minutes=1)) is None
-    задание = await jobs.run_one(factory, now=срок)
-    assert задание is not None and задание.kind == "road.work"
+    assert await jobs.run_one(factory, now=term - timedelta(minutes=1)) is None
+    job_row = await jobs.run_one(factory, now=term)
+    assert job_row is not None and job_row.kind == "road.work"
 
     async with factory() as session:
-        ребро = await session.get(Edge, ребро_id)
-        assert ребро.surface is Surface.ROAD
+        edge = await session.get(Edge, edge_id)
+        assert edge.surface is Surface.ROAD
 
 
-async def test_полотно_вообще_изготавливается(
+async def test_surface_is_craftable_at_all(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """«Стройка» — работа на месте, а не станок (D-158).
+    """"Construction" is on-site work, not a machine (D-158).
 
-    До этого решения всё семейство «стройки» — от полотна до мастерской — не
-    изготавливалось вовсе: движок искал в узле предмет с таким именем.
+    Before this decision the whole "construction" family -- from surface to a
+    workshop -- was not makeable at all: the engine looked for an item with that name in the node.
     """
+
     from src.engine import craft
 
-    рецепт = catalog.recipes.recipe(road.SURFACE_GOODS)
-    assert рецепт.station == craft.SITE, "полотно собирают на месте"
-    способ = craft.procedure(catalog, road.SURFACE_GOODS)
-    assert способ.station is None, "станка для этого не нужно"
+    recipe = catalog.recipes.recipe(road.SURFACE_GOODS)
+    assert recipe.station == craft.SITE, "полотно собирают на месте"
+    method = craft.procedure(catalog, road.SURFACE_GOODS)
+    assert method.station is None, "станка для этого не нужно"

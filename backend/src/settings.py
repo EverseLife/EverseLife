@@ -14,30 +14,31 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    #: Каталог `build/` вольта гейм-дизайна. Markdown вольта движок не читает
-    #: никогда — только этот каталог (CLAUDE.md вольта). Путь считается от
-    #: `backend/`, а вольт лежит рядом с репозиторием игры, отсюда два шага вверх.
+    #: The game-design vault's `build/` directory. The engine never reads the
+    #: vault's Markdown -- only this directory (vault CLAUDE.md). The path is
+    #: relative to `backend/`, and the vault lies next to the game repo, hence two steps up.
     vault_build: Path = Path("../../octoverse-game-design/build")
 
     database_url: str = "postgresql+asyncpg://octoverse:octoverse@localhost:5432/octoverse"
     redis_url: str = "redis://localhost:6379/0"
 
-    #: Сколько заданий журнала воркер берёт за один проход.
+    #: How many journal jobs the worker takes per pass.
     job_batch: int = 64
 
-    #: Откуда пускать браузерный клиент. По умолчанию — только dev-сервер
-    #: фронтенда на этой же машине: пускать кого попало в сессию игрока незачем.
+    #: Where the browser client is allowed from. By default only the frontend
+    #: dev server on this same machine: no reason to let just anyone into a player's session.
     allowed_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
 
-    #: Плюс к списку — вся локальная сеть: играть заходят с телефона и соседней
-    #: машины, а их адреса заранее не известны. Диапазоны частные (RFC 1918),
-    #: поэтому из интернета так не зайти. Настоящее опознание приедет к Э7.
+    #: Plus the list -- the whole local network: people come to play from a
+    #: phone and the neighbouring machine, and their addresses are not known in
+    #: advance. The ranges are private (RFC 1918), so one cannot enter this way
+    #: from the internet. Real identification arrives by E7.
     #:
-    #: Отдельно 26.0.0.0/8 — сеть Radmin VPN, через которую играют не соседи по
-    #: комнате. Диапазон **не** частный: он просто не маршрутизируется в
-    #: интернете, и попасть в него можно только вступив в саму сеть VPN. То
-    #: есть здесь мы полагаемся на её список участников, а не на топологию, —
-    #: и это ещё одна причина, по которой заглушка опознания живёт ровно до Э7.
+    #: Separately 26.0.0.0/8 -- the Radmin VPN network through which people who
+    #: are not roommates play. The range is **not** private: it simply is not
+    #: routed on the internet, and one can get into it only by joining the VPN
+    #: itself. I.e. here we rely on its member list, not on topology -- one more
+    #: reason the identification stub lives exactly until E7.
     allowed_origin_regex: str = (
         r"^http://("
         r"localhost"
@@ -49,9 +50,10 @@ class Settings(BaseSettings):
         r")(:\d+)?$"
     )
 
-    #: Вебхук канала хроники в Discord (`herald/`). Пусто — глашатай молчит, и
-    #: это обычное состояние: сервер сообщества есть у боевой альфы, а не у
-    #: каждой копии на чьём-то ноутбуке.
+    #: The Discord chronicle channel webhook (`herald/`). Empty -- the herald is
+    #: silent, and that is the normal state: the production alpha has a
+    #: community server, not every copy on somebody's laptop.
+
     discord_webhook: str = ""
 
     log_level: str = "INFO"

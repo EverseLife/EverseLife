@@ -1,12 +1,12 @@
-"""ore species: «Руда» becomes «Железная руда»
+"""ore species: "Ore" becomes "Iron ore"
 
-Породы руды (D-151). Мир вечный, вайпов не бывает (D-007) — значит
-переименование сырья обязано доехать до уже существующих миров, а не остаться
-правилом для новых. Иначе руда в сундуках перестала бы плавиться вовсе: у
-плавки теперь свой вход у каждого металла.
+Ore species (D-151). The world is eternal, no wipes (D-007) -- so the
+renaming of raw material must reach already existing worlds rather than
+remain a rule for new ones. Otherwise ore in chests would stop smelting at
+all: smelting now has its own input for each metal.
 
-Переименовывается **состояние**, а не журналы: события и проводки неизменяемы
-по построению, и в них «Руда» остаётся навсегда — такой она и была в тот день.
+**State** is renamed, not journals: events and postings are immutable by
+construction, and in them the old name stays forever -- that is what it was that day.
 
 Revision ID: f7b2c40de915
 Revises: d4c1a90f2b73
@@ -26,7 +26,7 @@ depends_on: str | Sequence[str] | None = None
 OLD = "Руда"
 NEW = "Железная руда"
 
-#: Где лежит имя товара в состоянии мира.
+#: Where the goods name lies in the world state.
 TABLES = (
     ("item", "type_key"),
     ("market_order", "type_key"),
@@ -42,8 +42,9 @@ def upgrade() -> None:
         op.execute(
             f"UPDATE {table} SET {column} = '{NEW}' WHERE {column} = '{OLD}'"  # noqa: S608
         )
-    #: Угольная балка стала шахтой: место то же, название честнее — там шахта,
-    #: а не овраг, и к ней ведёт дорога.
+    #: The coal gully became a mine: same place, more honest title -- there is
+    #: a mine there, not a ravine, and a road leads to it.
+
     op.execute(
         "UPDATE node SET name = 'Угольная шахта' "
         "WHERE key = 'terra.coal' AND name = 'Угольная балка'"

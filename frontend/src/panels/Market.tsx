@@ -1,13 +1,14 @@
 /**
- * Рынок: стакан узла (D-003, D-047, D-127).
+ * Market: the node's order book (D-003, D-047, D-127).
  *
- * Разделение, ради которого всё и сделано: **товар физически, распоряжение
- * удалённо**. Загрузить и забрать — ногами, ордер — откуда угодно, купить —
- * стоя здесь.
+ * The separation all this was made for: **goods physically, disposing
+ * remotely**. Loading and taking -- on foot, an order -- from anywhere,
+ * buying -- standing here.
  *
- * Компоновка — два столбца во всю ширину сцены: слева стакан и сделки, справа
- * свой товар. Быстрая сделка бьёт по лучшей цене стакана; своя цена — для
- * тех, кто готов ждать. Клик по строке товара выбирает позицию в стакане.
+ * The layout is two columns across the whole scene: the book and deals on the
+ * left, own goods on the right. A quick deal hits the book's best price; a
+ * custom price is for those ready to wait. A click on a goods row selects the
+ * position in the book.
  */
 
 import { useEffect, useState } from "react";
@@ -22,70 +23,71 @@ type Props = {
   act: (what: () => Promise<unknown>) => Promise<void>;
 };
 
-type Позиция = { goods: string; tier: string };
+type Position = { goods: string; tier: string };
 
-/** Количество без вранья: дробное показывается дробным, целое — целым. */
-const ровно = (сколько: number) =>
-  сколько.toFixed(3).replace(/\.?0+$/, "") || "0";
+/** A quantity without lies: fractional is shown fractional, whole -- whole. */
+const exactly = (qty: number) =>
+  qty.toFixed(3).replace(/\.?0+$/, "") || "0";
 
 export function Market({ look, session, busy, act }: Props) {
-  const [позиции, setПозиции] = useState<Позиция[]>([]);
-  const [выбор, setВыбор] = useState<Позиция | null>(null);
-  const [стакан, setСтакан] = useState<Book | null>(null);
-  const [цена, setЦена] = useState(3);
-  const [объём, setОбъём] = useState(1);
-  //: Чужие заявки на продажу в этом узле — то, что можно забронировать.
-  const [чужие, setЧужие] = useState<
+  const [positions, setPositions] = useState<Position[]>([]);
+  const [choice, setChoice] = useState<Position | null>(null);
+  const [orderBook, setOrderBook] = useState<Book | null>(null);
+  const [price, setPrice] = useState(3);
+  const [volume, setVolume] = useState(1);
+  //: Other people's sell orders in this node -- what can be reserved.
+  const [foreign, setForeign] = useState<
     { id: string; goods: string; tier: string; price: number; left: number }[]
   >([]);
 
-  const узел = look.node?.key;
+  const node = look.node?.key;
 
   useEffect(() => {
-    if (!узел) return;
-    void api.positions(узел).then(({ positions }) => {
-      setПозиции(positions);
-      setВыбор((прежний) => прежний ?? positions[0] ?? null);
+    if (!node) return;
+    void api.positions(node).then(({ positions }) => {
+      setPositions(positions);
+      setChoice((previous) => previous ?? positions[0] ?? null);
     });
-  }, [узел, look]);
+  }, [node, look]);
 
   useEffect(() => {
-    if (!узел || !выбор) return;
-    void api.book(узел, выбор.goods, выбор.tier).then(setСтакан);
-  }, [узел, выбор, look]);
+    if (!node || !choice) return;
+    void api.book(node, choice.goods, choice.tier).then(setOrderBook);
+  }, [node, choice, look]);
 
   useEffect(() => {
     void session
       .send("market.offers")
-      .then((ответ) => setЧужие(ответ.offers as typeof чужие))
-      .catch(() => setЧужие([]));
+      .then((answer) => setForeign(answer.offers as typeof foreign))
+      .catch(() => setForeign([]));
   }, [session, look]);
 
-  //: Позиции стакана — товар плюс ступень качества: «руда, хорошая» это
-  //: отдельная строка, а не диапазон (D-058). К торгуемым добавляется своё:
-  //: продавать можно и то, чем тут ещё не торговали.
-  const карман = look.inventory ?? [];
-  const терминал = look.stall ?? [];
-  const все: Позиция[] = [
-    ...позиции,
-    ...[...карман, ...терминал]
-      .filter((т) => т.quality !== null)
-      .map((т) => ({ goods: т.goods, tier: т.tier })),
+  //: Book positions are goods plus quality tier: "ore, good" is a separate
+  //: row, not a range (D-058). Own goods are added to the traded ones: one
+  //: may also sell what has not been traded here yet.
+  const pocket = look.inventory ?? [];
+  const terminal = look.stall ?? [];
+  const all: Position[] = [
+    ...positions,
+    ...[...pocket, ...terminal]
+      .filter((t) => t.quality !== null)
+      .map((t) => ({ goods: t.goods, tier: t.tier })),
   ].filter(
-    (п, i, всё) => всё.findIndex((д) => д.goods === п.goods && д.tier === п.tier) === i,
+    (p, i, everything) => everything.findIndex((d) => d.goods === p.goods && d.tier === p.tier) === i,
   );
 
-  const лучшая_продажа = стакан?.asks[0] ?? null; // почём продают: тут покупают
-  const лучшая_покупка = стакан?.bids[0] ?? null; // почём берут: тут продают
+  const bestSell = orderBook?.asks[0] ?? null; // what they sell at: buy here
+  const bestBuy = orderBook?.bids[0] ?? null; // what they take at: sell here
 
-  const сделка = (side: "market.buy" | "market.sell", price: number) =>
+
+  const deal = (side: "market.buy" | "market.sell", price: number) =>
     act(() =>
       session.send(side, {
-        ...(side === "market.sell" ? { node: узел } : {}),
-        goods: выбор!.goods,
-        tier: выбор!.tier,
+        ...(side === "market.sell" ? { node: node } : {}),
+        goods: choice!.goods,
+        tier: choice!.tier,
         price,
-        amount: объём,
+        amount: volume,
       }),
     );
 
@@ -96,15 +98,15 @@ export function Market({ look, session, busy, act }: Props) {
         <div>
           <div className="row">
             <select
-              value={выбор ? `${выбор.goods}|${выбор.tier}` : ""}
+              value={choice ? `${choice.goods}|${choice.tier}` : ""}
               onChange={(e) => {
                 const [goods, tier] = e.target.value.split("|");
-                setВыбор({ goods, tier });
+                setChoice({ goods, tier });
               }}
             >
-              {все.map((п) => (
-                <option key={`${п.goods}|${п.tier}`} value={`${п.goods}|${п.tier}`}>
-                  {п.goods}, {п.tier}
+              {all.map((p) => (
+                <option key={`${p.goods}|${p.tier}`} value={`${p.goods}|${p.tier}`}>
+                  {p.goods}, {p.tier}
                 </option>
               ))}
             </select>
@@ -112,13 +114,13 @@ export function Market({ look, session, busy, act }: Props) {
               type="number"
               step="1"
               min="1"
-              value={объём}
-              onChange={(e) => setОбъём(Number(e.target.value))}
+              value={volume}
+              onChange={(e) => setVolume(Number(e.target.value))}
               title="объём сделки"
             />
           </div>
 
-          {стакан && (стакан.asks.length > 0 || стакан.bids.length > 0) ? (
+          {orderBook && (orderBook.asks.length > 0 || orderBook.bids.length > 0) ? (
             <table className="book">
               <thead>
                 <tr>
@@ -128,17 +130,17 @@ export function Market({ look, session, busy, act }: Props) {
                 </tr>
               </thead>
               <tbody>
-                {[...стакан.asks].reverse().map((у) => (
-                  <tr key={`a${у.price}`}>
+                {[...orderBook.asks].reverse().map((u) => (
+                  <tr key={`a${u.price}`}>
                     <td />
-                    <td className="num">{api.tk(у.price)}</td>
-                    <td className="num">{у.amount}</td>
+                    <td className="num">{api.tk(u.price)}</td>
+                    <td className="num">{u.amount}</td>
                   </tr>
                 ))}
-                {стакан.bids.map((у) => (
-                  <tr key={`b${у.price}`}>
-                    <td className="num">{у.amount}</td>
-                    <td className="num">{api.tk(у.price)}</td>
+                {orderBook.bids.map((u) => (
+                  <tr key={`b${u.price}`}>
+                    <td className="num">{u.amount}</td>
+                    <td className="num">{api.tk(u.price)}</td>
                     <td />
                   </tr>
                 ))}
@@ -147,24 +149,24 @@ export function Market({ look, session, busy, act }: Props) {
           ) : (
             <p className="note">по этой позиции стакан пуст: цену назначает первый</p>
           )}
-          {стакан?.last != null && (
-            <p className="note">последняя сделка: {api.tk(стакан.last)} ₭</p>
+          {orderBook?.last != null && (
+            <p className="note">последняя сделка: {api.tk(orderBook.last)} ₭</p>
           )}
 
           <div className="row">
             <button
-              onClick={() => сделка("market.buy", лучшая_продажа!.price)}
-              disabled={busy || !выбор || !лучшая_продажа}
+              onClick={() => deal("market.buy", bestSell!.price)}
+              disabled={busy || !choice || !bestSell}
               title="купить по лучшей цене продавцов"
             >
-              Быстро купить{лучшая_продажа ? ` · ${api.tk(лучшая_продажа.price)} ₭` : ""}
+              Быстро купить{bestSell ? ` · ${api.tk(bestSell.price)} ₭` : ""}
             </button>
             <button
-              onClick={() => сделка("market.sell", лучшая_покупка!.price)}
-              disabled={busy || !выбор || !лучшая_покупка}
+              onClick={() => deal("market.sell", bestBuy!.price)}
+              disabled={busy || !choice || !bestBuy}
               title="продать по лучшей цене покупателей; товар должен лежать в терминале"
             >
-              Быстро продать{лучшая_покупка ? ` · ${api.tk(лучшая_покупка.price)} ₭` : ""}
+              Быстро продать{bestBuy ? ` · ${api.tk(bestBuy.price)} ₭` : ""}
             </button>
           </div>
           <p className="note">
@@ -177,21 +179,21 @@ export function Market({ look, session, busy, act }: Props) {
               type="number"
               step="0.1"
               min="0"
-              value={цена}
-              onChange={(e) => setЦена(Number(e.target.value))}
+              value={price}
+              onChange={(e) => setPrice(Number(e.target.value))}
               title="цена за единицу, ₭"
             />
             <button
               className="quiet"
-              onClick={() => сделка("market.buy", api.minor(цена))}
-              disabled={busy || !выбор}
+              onClick={() => deal("market.buy", api.minor(price))}
+              disabled={busy || !choice}
             >
               Купить
             </button>
             <button
               className="quiet"
-              onClick={() => сделка("market.sell", api.minor(цена))}
-              disabled={busy || !выбор}
+              onClick={() => deal("market.sell", api.minor(price))}
+              disabled={busy || !choice}
             >
               Продать
             </button>
@@ -203,28 +205,28 @@ export function Market({ look, session, busy, act }: Props) {
 
           {/* Бронь — единственное исключение из «купить только стоя здесь»:
               купец, собираясь в дорогу, резервирует партию задатком (D-047). */}
-          {чужие.length > 0 && (
+          {foreign.length > 0 && (
             <>
               <h3>Забронировать</h3>
               <table>
                 <tbody>
-                  {чужие.map((предложение) => (
-                    <tr key={предложение.id}>
+                  {foreign.map((offer) => (
+                    <tr key={offer.id}>
                       <td>
-                        {предложение.goods}, {предложение.tier}
+                        {offer.goods}, {offer.tier}
                       </td>
-                      <td className="num">{api.tk(предложение.price)} ₭</td>
+                      <td className="num">{api.tk(offer.price)} ₭</td>
                       {/* Дробный остаток нельзя округлять до нуля: «0» рядом с
                           живой кнопкой — обман, а не краткость. */}
-                      <td className="num">{ровно(предложение.left)}</td>
+                      <td className="num">{exactly(offer.left)}</td>
                       <td>
                         <button
                           className="quiet"
                           onClick={() =>
                             act(() =>
                               session.send("market.reserve", {
-                                order: предложение.id,
-                                amount: Math.min(объём, предложение.left),
+                                order: offer.id,
+                                amount: Math.min(volume, offer.left),
                               }),
                             )
                           }
@@ -247,16 +249,16 @@ export function Market({ look, session, busy, act }: Props) {
 
           {/* Свои брони в этом узле выкупаются здесь же. */}
           {look.reservations
-            .filter((бронь) => бронь.node_key === узел)
-            .map((бронь) => (
-              <div className="row" key={бронь.id}>
+            .filter((reservation) => reservation.node_key === node)
+            .map((reservation) => (
+              <div className="row" key={reservation.id}>
                 <span>
-                  бронь: {бронь.goods} · {бронь.amount} по {api.tk(бронь.price)} ₭
+                  бронь: {reservation.goods} · {reservation.amount} по {api.tk(reservation.price)} ₭
                 </span>
                 <button
                   onClick={() =>
                     act(() =>
-                      session.send("market.redeem", { reservation: бронь.id }),
+                      session.send("market.redeem", { reservation: reservation.id }),
                     )
                   }
                   disabled={busy}
@@ -269,35 +271,35 @@ export function Market({ look, session, busy, act }: Props) {
 
         <div>
           <h3>Карман</h3>
-          <Свои
-            things={карман}
-            выбор={выбор}
-            пометить={setВыбор}
-            кнопка="Загрузить"
-            действие={(т) =>
-              act(() => session.send("market.load", { goods: т.goods, amount: т.amount }))
+          <Own
+            things={pocket}
+            choice={choice}
+            mark={setChoice}
+            button="Загрузить"
+            action={(t) =>
+              act(() => session.send("market.load", { goods: t.goods, amount: t.amount }))
             }
             busy={busy}
-            пусто="в кармане пусто"
+            empty="в кармане пусто"
           />
 
           <h3>Терминал</h3>
-          <Свои
-            things={терминал}
-            выбор={выбор}
-            пометить={setВыбор}
-            кнопка="Забрать"
-            действие={(т) =>
+          <Own
+            things={terminal}
+            choice={choice}
+            mark={setChoice}
+            button="Забрать"
+            action={(t) =>
               act(() =>
                 session.send("market.take", {
-                  goods: т.goods,
-                  tier: т.tier,
-                  amount: т.amount,
+                  goods: t.goods,
+                  tier: t.tier,
+                  amount: t.amount,
                 }),
               )
             }
             busy={busy}
-            пусто="в терминале ничего вашего"
+            empty="в терминале ничего вашего"
           />
           <p className="note">
             Продаётся то, что в терминале; купленное забирается отсюда же
@@ -309,50 +311,50 @@ export function Market({ look, session, busy, act }: Props) {
   );
 }
 
-function Свои({
+function Own({
   things,
-  выбор,
-  пометить,
-  кнопка,
-  действие,
+  choice,
+  mark,
+  button,
+  action,
   busy,
-  пусто,
+  empty,
 }: {
   things: Thing[];
-  выбор: Позиция | null;
-  пометить: (п: Позиция) => void;
-  кнопка: string;
-  действие: (т: Thing) => void;
+  choice: Position | null;
+  mark: (p: Position) => void;
+  button: string;
+  action: (t: Thing) => void;
   busy: boolean;
-  пусто: string;
+  empty: string;
 }) {
-  if (things.length === 0) return <p className="note">{пусто}</p>;
+  if (things.length === 0) return <p className="note">{empty}</p>;
   return (
     <table>
       <tbody>
-        {things.map((т) => {
-          const выбрано = выбор?.goods === т.goods && выбор?.tier === т.tier;
+        {things.map((t) => {
+          const selected = choice?.goods === t.goods && choice?.tier === t.tier;
           return (
             <tr
-              key={т.id}
-              className={`pick ${выбрано ? "picked" : ""}`}
-              onClick={() => пометить({ goods: т.goods, tier: т.tier })}
+              key={t.id}
+              className={`pick ${selected ? "picked" : ""}`}
+              onClick={() => mark({ goods: t.goods, tier: t.tier })}
             >
-              <td>{т.flavor ?? т.goods}</td>
-              <td className="num">{т.amount}</td>
+              <td>{t.flavor ?? t.goods}</td>
+              <td className="num">{t.amount}</td>
               <td className="note">
-                {т.quality === null ? "" : `${т.quality.toFixed(0)} · ${т.tier}`}
+                {t.quality === null ? "" : `${t.quality.toFixed(0)} · ${t.tier}`}
               </td>
               <td>
                 <button
                   className="quiet"
                   onClick={(e) => {
                     e.stopPropagation();
-                    действие(т);
+                    action(t);
                   }}
                   disabled={busy}
                 >
-                  {кнопка}
+                  {button}
                 </button>
               </td>
             </tr>

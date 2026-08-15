@@ -1,15 +1,15 @@
-"""Монета: чеканка и переплавка (D-016, D-086).
+"""Coin: minting and melting (D-016, D-086).
 
-Проверяется то, ради чего монета вообще введена отдельно от счёта:
+Checked is what the coin was introduced separately from the account for at all:
 
-* монета — предмет, а не запись: у неё клеймо, проба и место в кармане;
-* проба одна на весь мир — `coin.default_fineness` (900‰), выбора у эмитента
-  нет: состав задан количествами рецепта — 0.9 аффинажа и 0.1 железа;
-* партия доходит до кошелька через журнал заданий — монеты не пропадают;
-* переплавка возвращает аффинированный металл за вычетом угара, лигатура
-  теряется;
-* чеканят только у монетного станка и только своим металлом;
-* монета не ходит общей дверью крафта: у неё своя.
+* a coin is an item, not an entry: it has a mark, a fineness and a place in the pocket;
+* one fineness for the whole world -- `coin.default_fineness` (900 per mille),
+  the issuer has no choice: the composition is set by recipe amounts -- 0.9
+  refined and 0.1 iron;
+* the batch reaches the purse through the job journal -- coins do not vanish;
+* melting returns the refined metal minus loss, the alloy is lost;
+* minting happens only at the mint press and only with one's own metal;
+* the coin does not go through craft's common door: it has its own.
 """
 
 from __future__ import annotations
@@ -34,28 +34,28 @@ GOLD_METAL = "Аффинированное золото"
 IRON = "Слиток железа"
 
 
-async def _двор(session: AsyncSession, *, металла: float = 100, железа: float = 100):
-    метка = uuid.uuid4().hex[:8]
-    node = await world.create_node(session, f"terra.mint.{метка}", "Двор", area_m2=100)
-    двор = await world.node_container(session, node)
-    await world.grant_item(session, двор, coin.MINT, quality=60, origin="тест")
-    identity = await world.create_identity(session, f"Чеканщик-{метка}")
+async def _yard(session: AsyncSession, *, metal_: float = 100, iron: float = 100):
+    stamp = uuid.uuid4().hex[:8]
+    node = await world.create_node(session, f"terra.mint.{stamp}", "Двор", area_m2=100)
+    yard = await world.node_container(session, node)
+    await world.grant_item(session, yard, coin.MINT, quality=60, origin="тест")
+    identity = await world.create_identity(session, f"Чеканщик-{stamp}")
     body = await world.print_body(session, identity, node)
-    карман = await world.body_container(session, body)
-    if металла:
+    pocket = await world.body_container(session, body)
+    if metal_:
         await world.grant_item(
-            session, карман, GOLD_METAL, amount=металла, quality=60, origin="тест"
+            session, pocket, GOLD_METAL, amount=metal_, quality=60, origin="тест"
         )
-    if железа:
+    if iron:
         await world.grant_item(
-            session, карман, IRON, amount=железа, quality=55, origin="тест"
+            session, pocket, IRON, amount=iron, quality=55, origin="тест"
         )
     await world.learn(session, identity, GOLD)
     return node, identity, body
 
 
-async def _довести(session: AsyncSession, batch: CraftBatch) -> None:
-    """Досрочно завершить **эту** партию руками теста — как сделал бы воркер."""
+async def _bring_to(session: AsyncSession, batch: CraftBatch) -> None:
+    """Finish **this** batch early by the test's hands -- as the worker would."""
     job = (
         await session.execute(
             select(Job).where(Job.dedup_key == f"craft.batch:{batch.id}")
@@ -65,208 +65,208 @@ async def _довести(session: AsyncSession, batch: CraftBatch) -> None:
     await craft.finish(session, job)
 
 
-async def _монеты(session: AsyncSession, body) -> list[Item]:
-    карман = await world.body_container(session, body)
+async def _coins(session: AsyncSession, body) -> list[Item]:
+    pocket = await world.body_container(session, body)
     rows = await session.execute(
-        select(Item).where(Item.container_id == карман.id, Item.type_key == GOLD)
+        select(Item).where(Item.container_id == pocket.id, Item.type_key == GOLD)
     )
     return list(rows.scalars().all())
 
 
-# --- чеканка ----------------------------------------------------------------
+# --- minting -----------------------------------------------------------------
 
 
-async def test_чеканка_тратит_состав_рецепта(
+async def test_minting_spends_recipe_composition(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """0.9 аффинажа и 0.1 железа на монету — из количеств рецепта, не из головы."""
-    _, _, body = await _двор(session)
+    """0.9 refined and 0.1 iron per coin -- from recipe amounts, not from imagination."""
+    _, _, body = await _yard(session)
     batch = await coin.mint(session, constants, catalog, body, GOLD, 10)
 
-    состав = coin.per_coin(catalog, GOLD)
-    assert состав == {GOLD_METAL: pytest.approx(0.9), IRON: pytest.approx(0.1)}
-    assert batch.spent[GOLD_METAL] == pytest.approx(10 * состав[GOLD_METAL])
-    assert batch.spent[IRON] == pytest.approx(10 * состав[IRON])
-    #: Проба не выбирается: она одна на весь мир.
+    composition = coin.per_coin(catalog, GOLD)
+    assert composition == {GOLD_METAL: pytest.approx(0.9), IRON: pytest.approx(0.1)}
+    assert batch.spent[GOLD_METAL] == pytest.approx(10 * composition[GOLD_METAL])
+    assert batch.spent[IRON] == pytest.approx(10 * composition[IRON])
+    #: Fineness is not chosen: it is one for the whole world.
     assert float(batch.fineness) == constants[R.COIN_DEFAULT_FINENESS]
 
 
-async def test_монета_приходит_с_клеймом_и_пробой_а_качества_у_неё_нет(
+async def test_coin_arrives_with_mark_and_fineness_but_no_quality(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Монету описывает содержание металла, а не шкала качества."""
-    _, identity, body = await _двор(session)
+    """A coin is described by its metal content, not by the quality scale."""
+    _, identity, body = await _yard(session)
     batch = await coin.mint(session, constants, catalog, body, GOLD, 5)
-    await _довести(session, batch)
+    await _bring_to(session, batch)
 
-    (стопка,) = await _монеты(session, body)
-    assert amount_float(стопка.amount) == 5
-    assert float(стопка.fineness) == constants[R.COIN_DEFAULT_FINENESS]
-    assert стопка.quality is None, "у монеты нет качества: есть проба"
-    assert стопка.maker_identity_id == identity.id, "клеймо эмитента"
+    (stack,) = await _coins(session, body)
+    assert amount_float(stack.amount) == 5
+    assert float(stack.fineness) == constants[R.COIN_DEFAULT_FINENESS]
+    assert stack.quality is None, "у монеты нет качества: есть проба"
+    assert stack.maker_identity_id == identity.id, "клеймо эмитента"
 
 
-async def test_монеты_не_пропадают_на_пути_через_журнал(
+async def test_coins_not_lost_on_way_through_journal(
     factory: async_sessionmaker[AsyncSession], constants: Constants, catalog: Catalog
 ) -> None:
-    """Регресс на «при чеканке монеты пропадают»: полный путь через воркер.
+    """Regression for "coins vanish on minting": the full path through the worker.
 
-    Металл списан при запуске, монеты приходят выполнением задания — тем же
-    кодом, каким их довёл бы настоящий воркер, включая повтор задания: второй
-    прогон не создаёт вторых монет и не съедает первых.
+    Metal is written off at start, coins arrive by job execution -- by the same
+    code the real worker would deliver them with, including a job retry: a
+    second run creates no second coins and eats no first ones.
     """
     async with factory() as session, session.begin():
-        _, _, body = await _двор(session)
+        _, _, body = await _yard(session)
         batch = await coin.mint(session, constants, catalog, body, GOLD, 7)
-        batch_id, body_id, срок = batch.id, body.id, batch.ready_at
+        batch_id, body_id, term = batch.id, body.id, batch.ready_at
 
-    выполнено = await jobs.run_one(factory, now=срок)
-    assert выполнено is not None and выполнено.last_error is None
+    fulfilled = await jobs.run_one(factory, now=term)
+    assert fulfilled is not None and fulfilled.last_error is None
 
-    #: Повтор того же задания — вторых монет не даёт.
-    assert await jobs.run_one(factory, now=срок) is None
+    #: A repeat of the same job gives no second coins.
+    assert await jobs.run_one(factory, now=term) is None
 
     async with factory() as session:
         from src.models.identity import Body
 
         body = await session.get(Body, body_id)
-        монеты = await _монеты(session, body)
-        assert sum(amount_float(m.amount) for m in монеты) == 7
+        coins = await _coins(session, body)
+        assert sum(amount_float(m.amount) for m in coins) == 7
         batch = await session.get(CraftBatch, batch_id)
         assert batch.state.value == "done"
 
 
-async def test_станок_занят_чеканкой(
+async def test_machine_busy_with_minting(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Чеканка — работа у станка: вторая партия на том же станке не идёт (D-150)."""
-    _, _, body = await _двор(session)
+    """Minting is work at a machine: a second batch on the same machine does not go (D-150)."""
+    _, _, body = await _yard(session)
     await coin.mint(session, constants, catalog, body, GOLD, 2)
     with pytest.raises(craft.Busy):
         await coin.mint(session, constants, catalog, body, GOLD, 2)
 
 
-async def test_без_монетного_станка_не_чеканят(
+async def test_no_minting_without_mint_press(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Станок в узле — то же условие, что у всякого крафта."""
-    метка = uuid.uuid4().hex[:6]
-    node = await world.create_node(session, f"terra.bare.{метка}", "Голо", area_m2=50)
-    identity = await world.create_identity(session, f"Босой-{метка}")
+    """A machine in the node -- the same condition as for any craft."""
+    stamp = uuid.uuid4().hex[:6]
+    node = await world.create_node(session, f"terra.bare.{stamp}", "Голо", area_m2=50)
+    identity = await world.create_identity(session, f"Босой-{stamp}")
     body = await world.print_body(session, identity, node)
-    карман = await world.body_container(session, body)
-    await world.grant_item(session, карман, GOLD_METAL, amount=50, quality=60, origin="тест")
-    await world.grant_item(session, карман, IRON, amount=50, quality=60, origin="тест")
+    pocket = await world.body_container(session, body)
+    await world.grant_item(session, pocket, GOLD_METAL, amount=50, quality=60, origin="тест")
+    await world.grant_item(session, pocket, IRON, amount=50, quality=60, origin="тест")
     await world.learn(session, identity, GOLD)
 
     with pytest.raises(craft.NoStation):
         await coin.mint(session, constants, catalog, body, GOLD, 1)
 
 
-async def test_без_металла_не_чеканят(
+async def test_no_minting_without_metal(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Материя не создаётся: нет золота — нет и монеты (И1)."""
-    _, _, body = await _двор(session, металла=1)
+    """Matter is not created: no gold -- no coin (I1)."""
+    _, _, body = await _yard(session, metal_=1)
     with pytest.raises(craft.NotEnough):
         await coin.mint(session, constants, catalog, body, GOLD, 5)
 
 
-async def test_без_железа_не_чеканят(
+async def test_no_minting_without_iron(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Лигатура — такой же вход: без 0.1 железа на монету партия не начнётся."""
-    _, _, body = await _двор(session, железа=0)
+    """The alloy is an input like any other: without 0.1 iron per coin the batch does not start."""
+    _, _, body = await _yard(session, iron=0)
     with pytest.raises(craft.NotEnough):
         await coin.mint(session, constants, catalog, body, GOLD, 5)
 
 
-async def test_дробной_монеты_не_бывает(
+async def test_no_fractional_coin(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    _, _, body = await _двор(session)
+    _, _, body = await _yard(session)
     with pytest.raises(coin.CoinError):
         await coin.mint(session, constants, catalog, body, GOLD, 2.5)
 
 
-# --- переплавка -------------------------------------------------------------
+# --- melting -----------------------------------------------------------------
 
 
-async def test_переплавка_возвращает_аффинаж_минус_угар(
+async def test_melting_returns_refined_minus_loss(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Возврат — доля `craft.recycle_return` от 0.9 на монету; железо — угар."""
-    _, _, body = await _двор(session, металла=100)
+    """The return is the `craft.recycle_return` share of 0.9 per coin; iron is loss."""
+    _, _, body = await _yard(session, metal_=100)
     batch = await coin.mint(session, constants, catalog, body, GOLD, 4)
-    await _довести(session, batch)
-    (стопка,) = await _монеты(session, body)
+    await _bring_to(session, batch)
+    (stack,) = await _coins(session, body)
 
-    было = await _в_кармане(session, body, GOLD_METAL)
-    плавка = await coin.melt(session, constants, catalog, body, стопка, 4)
-    await _довести(session, плавка)
+    before = await _in_pocket(session, body, GOLD_METAL)
+    smelting = await coin.melt(session, constants, catalog, body, stack, 4)
+    await _bring_to(session, smelting)
 
-    стало = await _в_кармане(session, body, GOLD_METAL)
-    доля = constants[R.CRAFT_RECYCLE_RETURN] / PERCENT
-    assert стало - было == pytest.approx(4 * 0.9 * доля, abs=0.01)
+    after = await _in_pocket(session, body, GOLD_METAL)
+    share = constants[R.CRAFT_RECYCLE_RETURN] / PERCENT
+    assert after - before == pytest.approx(4 * 0.9 * share, abs=0.01)
 
 
-async def test_плавят_только_часть_стопки(
+async def test_only_part_of_stack_melted(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Монеты лежат стопкой, и переплавка одной не уничтожает остальные."""
-    _, _, body = await _двор(session)
+    """Coins lie in a stack, and melting one does not destroy the rest."""
+    _, _, body = await _yard(session)
     batch = await coin.mint(session, constants, catalog, body, GOLD, 6)
-    await _довести(session, batch)
-    (стопка,) = await _монеты(session, body)
+    await _bring_to(session, batch)
+    (stack,) = await _coins(session, body)
 
-    await coin.melt(session, constants, catalog, body, стопка, 2)
-    осталось = sum(amount_float(item.amount) for item in await _монеты(session, body))
-    assert осталось == 4
+    await coin.melt(session, constants, catalog, body, stack, 2)
+    left = sum(amount_float(item.amount) for item in await _coins(session, body))
+    assert left == 4
 
 
-async def test_нельзя_переплавить_больше_чем_есть(
+async def test_cannot_melt_more_than_have(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    _, _, body = await _двор(session)
+    _, _, body = await _yard(session)
     batch = await coin.mint(session, constants, catalog, body, GOLD, 2)
-    await _довести(session, batch)
-    (стопка,) = await _монеты(session, body)
+    await _bring_to(session, batch)
+    (stack,) = await _coins(session, body)
 
     with pytest.raises(coin.CoinError):
-        await coin.melt(session, constants, catalog, body, стопка, 3)
+        await coin.melt(session, constants, catalog, body, stack, 3)
 
 
-# --- одна дверь -------------------------------------------------------------
+# --- one door ----------------------------------------------------------------
 
 
-async def test_монету_не_делают_обычной_партией(
+async def test_coin_not_made_by_ordinary_batch(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Иначе в мире было бы два способа чеканить."""
-    _, _, body = await _двор(session)
+    """Otherwise there would be two ways to mint in the world."""
+    _, _, body = await _yard(session)
     with pytest.raises(craft.Unmakeable):
         await craft.plan(session, constants, catalog, body, GOLD, 1)
 
 
-async def test_монету_не_разбирают_обычной_переработкой(
+async def test_coin_not_recycled_by_ordinary_recycling(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Общая переработка вернула бы металл по норме рецепта, не по составу."""
-    _, _, body = await _двор(session)
+    """General recycling would return metal by the recipe norm, not by composition."""
+    _, _, body = await _yard(session)
     batch = await coin.mint(session, constants, catalog, body, GOLD, 3)
-    await _довести(session, batch)
-    (стопка,) = await _монеты(session, body)
+    await _bring_to(session, batch)
+    (stack,) = await _coins(session, body)
 
     with pytest.raises(craft.Unmakeable):
-        await craft.recycle(session, constants, catalog, body, стопка)
+        await craft.recycle(session, constants, catalog, body, stack)
 
 
-async def _в_кармане(session: AsyncSession, body, type_key: str) -> float:
-    карман = await world.body_container(session, body)
+async def _in_pocket(session: AsyncSession, body, type_key: str) -> float:
+    pocket = await world.body_container(session, body)
     rows = (
         await session.execute(
             select(Item).where(
-                Item.container_id == карман.id, Item.type_key == type_key
+                Item.container_id == pocket.id, Item.type_key == type_key
             )
         )
     ).scalars().all()

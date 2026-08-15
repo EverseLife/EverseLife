@@ -1,12 +1,13 @@
-"""Учёт процентов отдельно от тела долга и возврат дохода городам (D-171).
+"""Interest accounted separately from principal, and income returned to cities (D-171).
 
-У выданных до этой правки процентов не начислено: счётчики стартуют с нуля.
+For loans issued before this change no interest is accrued: the counters start from zero.
 
 
 Revision ID: f780e65acdde
 Revises: d42986d7abed
 Create Date: 2026-08-14 17:28:38.071128
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence

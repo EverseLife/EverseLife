@@ -7,7 +7,7 @@ from alembic import context
 from sqlalchemy.ext.asyncio import async_engine_from_config
 from sqlalchemy.pool import NullPool
 
-from src.models import Base  # noqa: F401 — наполняет metadata
+from src.models import Base  # noqa: F401 -- fills metadata
 from src.settings import settings
 
 config = context.config

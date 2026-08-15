@@ -1,41 +1,41 @@
-"""«Свод» — механика добычи Э1 (D-143).
+""""Roof" -- the E1 mining mechanic (D-143).
 
-Три кнопки, одно скрытое число, две-три развилки за сессию. Бить, ставить
-крепь, уйти; плюс рычаг темпа. Устойчивость свода игроку не показывается
-никогда — наружу идёт строка признака, и она врёт на `mine.sign_noise`.
+Three buttons, one hidden number, two or three forks per session. Dig, set a
+support, leave; plus a pace lever. Roof stability is never shown to the player
+-- a sign string goes out, and it lies by `mine.sign_noise`.
 
-## Откуда взялась каждая формула
+## Where each formula came from
 
-В вольте заданы числа, но не порядок шагов: формулы — дело движка
-(CLAUDE.md вольта). Ниже — вывод каждой, чтобы её можно было сверить с D-143,
-а не принимать на веру.
+The vault sets numbers but not the order of steps: formulas are the engine's
+business (vault CLAUDE.md). Below is the derivation of each so it can be
+checked against D-143 rather than taken on faith.
 
-**Длина удара.** `mine.roof_per_swing` описан так: «без единой крепи свод
-держит около шестнадцати ударов, это и есть длина короткой сессии», а
-`mining.iron_per_hour` — «единиц за час активной добычи». Значит полная сессия
-без крепи и есть тот самый час, а один удар — его доля:
+**Swing length.** `mine.roof_per_swing` is described as: "without a single
+support the roof holds about sixteen swings, that is the length of a short
+session", and `mining.iron_per_hour` as "units per hour of active mining". So
+a full session without support is that very hour, and one swing is its share:
 
     swing_hours = mine.roof_per_swing / mine.roof_start
 
-**Выход за удар.** Час добычи даёт `mining.iron_per_hour` на жиле обычного
-богатства. Обычное — это `mining.rich_threshold`, граница между богатой и
-бедной. Отсюда выход пропорционален богатству относительно этой границы:
+**Yield per swing.** An hour of mining gives `mining.iron_per_hour` on a vein
+of ordinary richness. Ordinary is `mining.rich_threshold`, the boundary
+between rich and poor. Hence yield is proportional to richness relative to
+that boundary:
 
-    выход = mining.iron_per_hour × swing_hours × richness / mining.rich_threshold
+    yield = mining.iron_per_hour * swing_hours * richness / mining.rich_threshold
 
-**Стартовая устойчивость.** «Богатая жила даёт меньше — за богатство платят
-риском». Шкала между двумя уже заданными величинами: бедная жила стартует с
-`mine.roof_start`, богатая — с `mine.roof_timber_cap`, выше которого крепь всё
-равно не поднимает:
+**Starting stability.** "A rich vein gives less -- richness is paid for with
+risk". A scale between two already given quantities: a poor vein starts at
+`mine.roof_start`, a rich one at `mine.roof_timber_cap`, above which support
+does not raise it anyway:
 
-    свод = mine.roof_start − (mine.roof_start − mine.roof_timber_cap) × richness / 100
+    roof = mine.roof_start - (mine.roof_start - mine.roof_timber_cap) * richness / 100
 
-**Темп.** «Быстрый темп — во столько раз больше и выхода, и просадки свода, и
-расхода выносливости». Один множитель `mine.pace_k` на все три величины.
+**Pace.** "Fast pace -- that many times more yield, roof sag and stamina
+spend". One multiplier `mine.pace_k` for all three quantities.
 
-Ни одного числа сверх вольта здесь не появилось, и появиться не должно: если
-формуле не хватает величины, её заводят в `data/constants.yaml`, а не в код
-(D-065).
+Not one number beyond the vault appeared here, and none must: if a formula
+lacks a quantity, it is added to `data/constants.yaml`, not to code (D-065).
 """
 
 from __future__ import annotations
@@ -66,7 +66,7 @@ class MiningError(Exception):
 
 
 class NotHere(MiningError):
-    """Тело не в том узле, где жила. Материя требует присутствия (D-044)."""
+    """The body is not in the vein's node. Matter requires presence (D-044)."""
 
 
 class SessionClosed(MiningError):
@@ -74,24 +74,24 @@ class SessionClosed(MiningError):
 
 
 class NoTimber(MiningError):
-    """Крепи нет. Она стоит бруса и верёвки — в этом весь смысл выбора."""
+    """No support. It costs timber and rope -- that is the whole point of the choice."""
 
 
 class NoStrength(MiningError):
-    """Сил на удар нет. Добыча — работа тела, а тело с нулём не работает."""
+    """No strength for a swing. Mining is the body's work, and a body at zero does not work."""
 
 
 class VeinDepleted(MiningError):
-    """Жила выработана. Жилы конечны, и это неотменяемо (столп П2)."""
+    """The vein is worked out. Veins are finite, and that is irrevocable (pillar P2)."""
 
 
-#: Имя шахтной крепи в `build/recipes.json`.
+#: Name of the mine support in `build/recipes.json`.
 TIMBER = "Шахтная крепь"
 
 
 @dataclass(frozen=True, slots=True)
 class Sight:
-    """Всё, что игрок видит о сессии. Числа свода здесь нет и быть не может."""
+    """Everything the player sees about the session. The roof number is not here and cannot be."""
 
     sign: str
     mined: float
@@ -103,12 +103,12 @@ class Sight:
 
 
 def swing_hours(constants: Constants) -> float:
-    """Доля часа, приходящаяся на один удар."""
+    """The share of an hour that one swing takes."""
     return constants[R.MINE_ROOF_PER_SWING] / constants[R.MINE_ROOF_START]
 
 
 def starting_roof(constants: Constants, richness: float) -> float:
-    """За богатство платят риском: чем жирнее жила, тем короче сессия."""
+    """Richness is paid for with risk: the fatter the vein, the shorter the session."""
     floor = constants[R.MINE_ROOF_TIMBER_CAP]
     ceiling = constants[R.MINE_ROOF_START]
     return ceiling - (ceiling - floor) * richness / SCALE_MAX
@@ -121,11 +121,11 @@ def pace_factor(constants: Constants, pace: Pace) -> float:
 def swing_cost(
     constants: Constants, body: Body, pace: Pace, moment: datetime
 ) -> float:
-    """Цена одного удара выносливостью — та же формула, что и списание.
+    """The stamina price of one swing -- the same formula as the write-off.
 
-    Считается до удара: тело с нулём не бьёт по жиле, а спит либо ест (D-148).
-    Иначе выносливость перестаёт быть ограничением вовсе: пол в ноле, а руда
-    идёт.
+    Computed before the swing: a body at zero does not hit the vein, it sleeps
+    or eats (D-148). Otherwise stamina stops being a constraint at all: the
+    floor is at zero, and the ore keeps coming.
     """
     return (
         constants[R.BODY_DRAIN_RATE].min
@@ -136,13 +136,14 @@ def swing_cost(
 
 
 def sign_of(constants: Constants, roof: float, noise: random.Random) -> str:
-    """Признак строкой, и он врёт.
+    """The sign as a string, and it lies.
 
-    Без шума полосы обратимы в арифметику, и скрытого числа больше нет (D-143).
+    Without noise the bands are invertible into arithmetic, and the hidden
+    number is gone (D-143).
     """
     spread = constants[R.MINE_SIGN_NOISE]
     apparent = roof + noise.uniform(-spread, spread)
-    #: Полоса задана нижней границей; берём самую высокую из подходящих.
+    #: A band is given by its lower bound; take the highest of those that fit.
     bands = sorted(constants[R.MINE_SIGN_BANDS].items(), key=lambda pair: pair[1], reverse=True)
     for name, floor in bands:
         if apparent >= floor:
@@ -151,11 +152,11 @@ def sign_of(constants: Constants, roof: float, noise: random.Random) -> str:
 
 
 async def crowd_factor(constants: Constants, session: AsyncSession, vein: Vein) -> float:
-    """Соседи по жиле (D-099).
+    """Neighbours on the vein (D-099).
 
-    Движок не делит добычу — делёж остаётся договором. Но выход зависит от
-    того, сколько человек работает на жиле: богатая делится хуже, бедная лучше.
-    Одна строка баланса, два противоположных социальных режима.
+    The engine does not split the yield -- splitting remains a contract. But
+    the yield depends on how many people work the vein: a rich one shares
+    worse, a poor one better. One line of balance, two opposite social modes.
     """
     others = await session.scalar(
         select(func.count())
@@ -167,17 +168,17 @@ async def crowd_factor(constants: Constants, session: AsyncSession, vein: Vein) 
         return 1.0
 
     if float(vein.richness) > constants[R.MINING_RICH_THRESHOLD]:
-        #: За богатую жилу дерутся: каждый лишний бьёт по всем.
+        #: A rich vein is fought over: every extra person hurts everyone.
         penalty = constants[R.MINING_CROWD_RICH_PENALTY] * neighbours / PERCENT
         return max(0.0, 1.0 - penalty)
 
-    #: Бедная кормит артель, но не бесконечную.
+    #: A poor one feeds a crew, but not an endless one.
     counted = min(neighbours, int(constants[R.MINING_CROWD_BONUS_CAP]) - 1)
     return 1.0 + constants[R.MINING_CROWD_POOR_BONUS] * counted / PERCENT
 
 
 async def session_container(session: AsyncSession, mining: MiningSession) -> Container:
-    """Добытое за сессию лежит отдельно: уходишь — забираешь, обрушилось — теряешь."""
+    """What was mined during the session lies apart: leave -- take it, collapse -- lose it."""
     stmt = select(Container).where(
         Container.kind == ContainerKind.MINING_SESSION, Container.owner_id == mining.id
     )
@@ -198,7 +199,7 @@ async def start(
     tool_item_id: uuid.UUID | None = None,
     pace: Pace = Pace.STEADY,
 ) -> MiningSession:
-    """Открыть сессию. Плата устройства проверяется до вызова (`engine.pow`)."""
+    """Open a session. The device fee is checked before the call (`engine.pow`)."""
     if body.node_id != vein.node_id:
         raise NotHere("до жилы надо дойти ногами")
     if body.state is not BodyState.ALIVE:
@@ -206,22 +207,22 @@ async def start(
     await travel.require_here(session, body)
     if vein.remaining <= 0:
         raise VeinDepleted(f"жила {vein.id} выработана")
-    #: Каторжный забой — только для тех, кого держит тюрьма (D-174, D-176):
-    #: постороннему её жила не видна и не отдаётся.
+    #: The penal face is only for those the prison holds (D-174, D-176): its
+    #: vein is neither visible nor given to an outsider.
     from src.engine import justice
 
-    узел = await session.get(Node, body.node_id)
+    node = await session.get(Node, body.node_id)
     if (
-        узел is not None
-        and await justice.is_prison(session, узел)
+        node is not None
+        and await justice.is_prison(session, node)
         and not await justice.held(session, constants, body.identity_id)
     ):
         raise SessionClosed("каторжный забой работает только на заключённых")
-    #: Сессия не открывается телом, которому нечем ударить даже раз.
-    первый_удар = swing_cost(constants, body, pace, datetime.now(UTC))
-    if float(body.stamina) < первый_удар:
+    #: A session is not opened by a body that cannot swing even once.
+    first_hit = swing_cost(constants, body, pace, datetime.now(UTC))
+    if float(body.stamina) < first_hit:
         raise NoStrength(
-            f"на удар нужно {первый_удар:.2f} выносливости, а есть "
+            f"на удар нужно {first_hit:.2f} выносливости, а есть "
             f"{float(body.stamina):.2f}: сначала сон или обед"
         )
 
@@ -265,29 +266,29 @@ async def swing(
     rng: random.Random | None = None,
     now: datetime | None = None,
 ) -> Sight:
-    """Бить: сырьё, износ, просадка свода.
+    """Dig: raw material, wear, roof sag.
 
-    Обрушение при устойчивости ≤ 0 стоит **всего добытого за сессию** — в этом
-    и состоит ставка, растущая по ходу дела.
+    A collapse at stability <= 0 costs **everything mined during the session**
+    -- that is the stake, growing as things go.
     """
     noise = rng or random.Random()
     moment = now or datetime.now(UTC)
     body, vein = await _require_active(session, mining)
 
-    #: Удар стоит выносливости, и тело с нулём не бьёт: жила не добывается
-    #: бесплатной силой воли. Проверка — до всех эффектов, чтобы отказ ничего
-    #: не менял в мире.
-    цена_удара = swing_cost(constants, body, mining.pace, moment)
-    if float(body.stamina) < цена_удара:
+    #: A swing costs stamina, and a body at zero does not swing: the vein is
+    #: not mined by free willpower. The check comes before all effects so that a
+    #: refusal changes nothing in the world.
+    hit_price = swing_cost(constants, body, mining.pace, moment)
+    if float(body.stamina) < hit_price:
         raise NoStrength(
-            f"на удар нужно {цена_удара:.2f} выносливости, а есть "
+            f"на удар нужно {hit_price:.2f} выносливости, а есть "
             f"{float(body.stamina):.2f}: сначала сон или обед"
         )
 
     factor = pace_factor(constants, mining.pace)
     crowd = await crowd_factor(constants, session, vein)
 
-    #: Час добычи даёт `mining.iron_per_hour` на жиле обычного богатства.
+    #: An hour of mining gives `mining.iron_per_hour` on a vein of ordinary richness.
     per_swing = (
         constants[R.MINING_IRON_PER_HOUR]
         * swing_hours(constants)
@@ -303,7 +304,7 @@ async def swing(
     vein.extracted += mined
     _deplete(constants, vein, moment, extracted_before)
 
-    #: Качество сырья определяется жилой (15-quality).
+    #: Raw material quality is determined by the vein (15-quality).
     container = await session_container(session, mining)
     quality = min(SCALE_MAX, max(SCALE_MIN, float(vein.richness)))
     session.add(
@@ -315,7 +316,7 @@ async def swing(
         )
     )
 
-    #: Сытость замедляет расход: горячее не добавляет запаса (D-119).
+    #: Satiety slows the spend: hot food does not add reserve (D-119).
     body.stamina = Decimal(
         str(
             max(
@@ -353,11 +354,11 @@ async def swing(
 async def timber(
     session: AsyncSession, constants: Constants, mining: MiningSession
 ) -> Sight:
-    """Ставить крепь: тратит брус и ход, возвращает устойчивость до потолка.
+    """Set a support: spends timber and a turn, restores stability up to the ceiling.
 
-    Выгодно ли крепить — зависит от цены крепи против цены сырья, а она плавает
-    вместе с рынком. Заученной последовательности не существует, потому что
-    оптимум двигается (D-143).
+    Whether shoring pays depends on the price of support against the price of
+    raw material, and that floats with the market. There is no memorised
+    sequence because the optimum moves (D-143).
     """
     body, _ = await _require_active(session, mining)
 
@@ -410,13 +411,13 @@ async def leave(
     *,
     now: datetime | None = None,
 ) -> float:
-    """Уйти: добытое переезжает в инвентарь. Возвращает объём добычи."""
+    """Leave: what was mined moves to the inventory. Returns the mined volume."""
     moment = now or datetime.now(UTC)
     body, vein = await _require_active(session, mining)
 
-    #: Тюремная отработка (D-174): в тюремном узле добыча несостоятельного
-    #: достаётся городу, а долг гасится казной по справочной цене. Казна пуста
-    #: или цены нет — руда остаётся заключённому, и он продаёт её сам.
+    #: Prison labour (D-174): in a prison node the insolvent's yield goes to
+    #: the city, and the debt is repaid by the treasury at the reference price.
+    #: Treasury empty or no price -- the ore stays with the prisoner, who sells it themselves.
     haul = await _prison_workoff(session, constants, mining, body, now=moment)
     if haul is None:
         haul = await _carry_out(session, mining, body)
@@ -442,14 +443,14 @@ async def leave(
 async def sight(
     session: AsyncSession, constants: Constants, mining: MiningSession
 ) -> Sight:
-    """Посмотреть на забой. Переспрашивать бессмысленно: признак не меняется."""
+    """Look at the face. Asking again is pointless: the sign does not change."""
     body = await session.get(Body, mining.body_id)
     if body is None:  # pragma: no cover
         raise MiningError("сессия без тела")
     return await _sight(session, constants, mining, body)
 
 
-# --- внутреннее -------------------------------------------------------------
+# --- internal ----------------------------------------------------------------
 
 
 async def _require_active(
@@ -467,9 +468,9 @@ async def _require_active(
 
 
 def _deplete(constants: Constants, vein: Vein, moment: datetime, extracted_before: int) -> None:
-    """Жила беднеет ступенями по мере выработки.
+    """The vein depletes in tiers as it is worked out.
 
-    Шахтёрские города возникают, богатеют и умирают — как в реальности (D-101).
+    Mining towns arise, grow rich and die -- as in reality (D-101).
     """
     step = amount(constants[R.VEIN_DEPLETION_STEP])
     crossed = vein.extracted // step - extracted_before // step
@@ -481,11 +482,12 @@ def _deplete(constants: Constants, vein: Vein, moment: datetime, extracted_befor
 
 
 def _noise_of(mining: MiningSession) -> random.Random:
-    """Шум признака, привязанный к состоянию забоя, а не к моменту чтения.
+    """Sign noise bound to the face's state, not the moment of reading.
 
-    Иначе признак читается сколько угодно раз подряд, и среднее по прочтениям
-    выдаёт скрытое число с любой точностью. Свод меняется только от удара и
-    крепи — значит и признак обязан меняться только вместе с ними (D-143).
+    Otherwise the sign can be read any number of times in a row, and the
+    average of readings yields the hidden number to any precision. The roof
+    changes only from a swing and a support -- so the sign must change only
+    with them (D-143).
     """
     return random.Random(f"{mining.id}:{mining.swings}:{mining.timbers}")
 
@@ -520,11 +522,11 @@ async def _tool(session: AsyncSession, mining: MiningSession) -> Item | None:
 async def _wear_tool_for_session(
     session: AsyncSession, constants: Constants, tool: Item | None, *, extra: float
 ) -> None:
-    """Инструмент изнашивается за сессию, а не за удар.
+    """The tool wears per session, not per swing.
 
-    Отсюда ориентир приёмки: инструмент кончается за `100 / wear.tool_per_session`
-    сессий (07-implementation-map) — обычного качества, потому что хорошая кирка
-    служит дольше ровно во столько раз, во сколько она лучше (`engine.wear`).
+    Hence the acceptance benchmark: a tool runs out in `100 / wear.tool_per_session`
+    sessions (07-implementation-map) -- of ordinary quality, because a good
+    pickaxe lasts longer exactly as many times as it is better (`engine.wear`).
     """
     await wear.spend(
         session,
@@ -559,7 +561,7 @@ async def _collapse(
     noise: random.Random,
     moment: datetime,
 ) -> Sight:
-    """Обрушение: теряется всё добытое за сессию, плюс износ и, может быть, рана."""
+    """Collapse: everything mined during the session is lost, plus wear and maybe a wound."""
     container = await session_container(session, mining)
     lost_items = (
         await session.execute(select(Item).where(Item.container_id == container.id))
@@ -572,9 +574,10 @@ async def _collapse(
         session, constants, await _tool(session, mining), extra=constants[R.MINE_COLLAPSE_WEAR]
     )
 
-    #: Обвал убивает — одинаково новичка и старожила (08-danger, D-111). Среда
-    #: в альфе единственный источник смерти, и без этого броска гибель в игре
-    #: не наступает вовсе. Реже, чем ранит: смерть не рядовой исход дня.
+    #: A cave-in kills -- newcomer and oldtimer alike (08-danger, D-111). The
+    #: environment is the only source of death in the alpha, and without this
+    #: roll death in the game never comes. Rarer than it wounds: death is not an
+    #: ordinary end of the day.
     killed = noise.uniform(0, PERCENT) < constants[R.MINE_COLLAPSE_DEATH_CHANCE]
     wounded = not killed and noise.uniform(0, PERCENT) < constants[
         R.MINE_COLLAPSE_WOUND_CHANCE
@@ -605,8 +608,8 @@ async def _collapse(
         killed=killed,
     )
     if killed:
-        #: Сводка собирается **до** гибели: игрок обязан увидеть, чем кончилась
-        #: сессия, а не пустой экран. Тело после этого уже мертво.
+        #: The summary is assembled **before** death: the player must see how
+        #: the session ended, not an empty screen. The body is dead after that.
         sight = await _sight(session, constants, mining, body)
         from src.engine import death
 
@@ -623,11 +626,11 @@ async def _prison_workoff(
     *,
     now: datetime,
 ) -> float | None:
-    """Отдать добычу города́м и зачесть долг, если это тюрьма (D-174).
+    """Give the yield to the city and credit the debt, if this is a prison (D-174).
 
-    Возвращает объём добычи, если отработка состоялась, и None, если это
-    обычный забой либо зачесть нечем: тогда добытое идёт заключённому обычным
-    порядком — ловушки без выхода вольт запрещает (D-063).
+    Returns the mined volume if the labour counted, and None if this is an
+    ordinary face or there is nothing to credit with: then the yield goes to
+    the prisoner in the usual way -- the vault forbids traps without exit (D-063).
     """
     from src.engine import bank, customs, justice
     from src.engine import city as town
@@ -639,42 +642,43 @@ async def _prison_workoff(
         return None
     if await bank.restrained(session, constants, body.identity_id, now=now) is None:
         return None
-    город = await town.of_node(session, node)
-    if город is None:
+    city = await town.of_node(session, node)
+    if city is None:
         return None
 
-    контейнер = await session_container(session, mining)
+    container = await session_container(session, mining)
     items = (
-        await session.execute(select(Item).where(Item.container_id == контейнер.id))
+        await session.execute(select(Item).where(Item.container_id == container.id))
     ).scalars().all()
     if not items:
         return 0.0
 
-    #: Справочная цена — медиана настоящих сделок: её не выставить сговором.
-    #: Нет цены — нет зачёта: сначала рынок, потом каторга (D-174).
-    стоимость = 0
+    #: The reference price is the median of real deals: it cannot be set by
+    #: collusion. No price -- no credit: first the market, then the penal colony (D-174).
+    cost = 0
     for item in items:
-        цена = await customs.reference_price(
-            session, constants, город, item.type_key, now=now
+        price = await customs.reference_price(
+            session, constants, city, item.type_key, now=now
         )
-        if цена is None:
+        if price is None:
             return None
-        стоимость += int(цена * amount_float(item.amount))
-    if стоимость <= 0:
+        cost += int(price * amount_float(item.amount))
+    if cost <= 0:
         return None
 
-    зачтено = await bank.prison_credit(
-        session, constants, город, body.identity_id, стоимость, now=now
+    credited = await bank.prison_credit(
+        session, constants, city, body.identity_id, cost, now=now
     )
-    if зачтено <= 0:
-        #: Казна пуста — руда остаётся заключённому: тюрьма — вложение города,
-        #: и неплатёжеспособный город каторгой не зарабатывает.
+    if credited <= 0:
+        #: The treasury is empty -- the ore stays with the prisoner: a prison is
+        #: the city's investment, and an insolvent city earns nothing from penal labour.
+
         return None
 
-    двор = await node_container(session, node)
+    yard = await node_container(session, node)
     haul = 0.0
     for item in items:
         haul += amount_float(item.amount)
-        item.container_id = двор.id
+        item.container_id = yard.id
     await session.flush()
     return haul

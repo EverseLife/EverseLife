@@ -1,35 +1,39 @@
-"""Монета: чеканка и переплавка (D-016, D-086).
+"""Coin: minting and melting (D-016, D-086).
 
-Денег в мире две формы, и они устроены принципиально по-разному
-(30-economy/01-currency):
+Money in the world has two forms, and they are built in fundamentally
+different ways (30-economy/01-currency):
 
-* **Терракоин** — электронная запись на счёте. Невесом, мгновенен, существует
-  только как чей-то долг. Живёт в двойной записи (`engine/ledger.py`);
-* **Монета** — предмет. Лежит в кармане, гибнет вместе с телом, ходит там, где
-  нет терминала.
+* **Terracoin** -- an electronic entry on an account. Weightless, instant,
+  exists only as somebody's debt. Lives in double-entry bookkeeping
+  (`engine/ledger.py`);
+* **Coin** -- an item. Lies in a pocket, perishes with the body, circulates
+  where there is no terminal.
 
-Здесь — вторая. Монета намеренно не является счётом: она проходит по тем же
-путям, что кирка и мешок зерна, потому что она такая же материя.
+This module is about the second one. The coin is deliberately not an account:
+it travels the same paths as a pickaxe or a sack of grain, because it is the
+same kind of matter.
 
-## Проба одна и решена вольтом
+## One fineness, decided by the vault
 
-Проба монеты — `coin.default_fineness` (900‰), и **эмитент её не выбирает**:
-состав монеты задан количествами рецепта — 0.9 аффинированного металла и 0.1
-слитка железа лигатурой на монету. Механика занижения пробы убрана: разной
-пробы в мире не существует, и монета всегда содержит то, что обещает.
+Coin fineness is `coin.default_fineness` (900 per mille), and **the issuer does
+not choose it**: the coin's composition is fixed by the recipe amounts -- 0.9 of
+refined metal and 0.1 of iron ingot as alloy per coin. The debasement mechanic
+is gone: there is no varying fineness in the world, and a coin always contains
+what it promises.
 
-**Клеймо — это `maker_identity_id`**, то самое поле, которым подписана всякая
-вещь мастера (D-058): монета помнит чеканщика тем же способом, что кирка
-помнит кузнеца.
+**The mark is `maker_identity_id`**, the very field that signs every item a
+craftsman makes (D-058): the coin remembers its minter the same way a pickaxe
+remembers its smith.
 
-**Переплавка возвращает аффинированный металл** — долей
-`craft.recycle_return`, как всякая переработка. Лигатура — угар: выковыривать
-десятую часть железа из сплава дороже самого железа.
+**Melting returns the refined metal** -- by the `craft.recycle_return` share,
+like every recycling. The alloy is lost: picking a tenth of iron out of the
+alloy costs more than the iron itself.
 
-## Чего здесь нет и почему
+## What is not here and why
 
-* **Курса ТК к монете движок не знает** и знать не должен: соотношение решает
-  рынок игроков (D-016), а стакан для монеты — тот же самый, что для руды.
+* **The engine knows no TC-to-coin exchange rate** and must not: the ratio is
+  set by the player market (D-016), and the order book for coins is the same
+  one used for ore.
 """
 
 from __future__ import annotations
@@ -52,7 +56,7 @@ from src.models.inventory import Container, Item
 from src.models.job import JobKind
 from src.units import PERCENT, amount, amount_float
 
-#: Станок из `build/recipes.json`. Чеканят только там, где он стоит.
+#: Machine from `build/recipes.json`. Minting happens only where it stands.
 MINT = "Монетный станок"
 
 
@@ -61,28 +65,28 @@ class CoinError(Exception):
 
 
 class NotCoin(CoinError):
-    """Это не монета. Монета — предмет вида `money` из `build/recipes.json`."""
+    """Not a coin. A coin is an item of kind `money` from `build/recipes.json`."""
 
 
 def is_coin(catalog: Catalog, type_key: str) -> bool:
-    """Монета ли это. Решают данные: вид рецепта `money` (D-090)."""
+    """Whether this is a coin. Data decides: recipe kind `money` (D-090)."""
     try:
         return catalog.recipes.recipe(type_key).kind is ItemKind.MONEY
     except ConstantError:
-        #: Сырьё рецептом не описано — деньгами оно тем более не бывает.
+        #: Raw material with no recipe is certainly not money either.
         return False
 
 
 def fineness_of(constants: Constants) -> float:
-    """Проба монеты, ‰. Одна на весь мир: механики занижения нет."""
+    """Coin fineness, per mille. One for the whole world: no debasement mechanic."""
     return constants[R.COIN_DEFAULT_FINENESS]
 
 
 def per_coin(catalog: Catalog, coin: str) -> dict[str, float]:
-    """Состав монеты: имя входа → сколько на одну монету.
+    """Coin composition: input name -> amount per coin.
 
-    Берётся из количеств рецепта (0.9 аффинажа + 0.1 железа), а не из констант:
-    состав — это и есть рецепт, второй таблицы быть не должно (D-065).
+    Taken from the recipe amounts (0.9 refined + 0.1 iron), not from constants:
+    the composition *is* the recipe, there must be no second table (D-065).
     """
     recipe = catalog.recipes.recipe(coin)
     if recipe.kind is not ItemKind.MONEY:
@@ -95,8 +99,8 @@ def per_coin(catalog: Catalog, coin: str) -> dict[str, float]:
 
 
 def metal_of(catalog: Catalog, coin: str) -> str:
-    """Аффинированный металл монеты — первый вход рецепта. Он же возвращается
-    переплавкой; лигатура (железо) — угар."""
+    """The coin's refined metal -- the first recipe input. It is what melting
+    returns; the alloy (iron) is lost."""
     recipe = catalog.recipes.recipe(coin)
     if recipe.kind is not ItemKind.MONEY:
         raise NotCoin(f"{recipe.name!r} — не монета")
@@ -106,15 +110,16 @@ def metal_of(catalog: Catalog, coin: str) -> str:
 
 
 def melt_return(constants: Constants, catalog: Catalog, coin: str, count: float) -> float:
-    """Сколько аффинированного металла вернёт переплавка.
+    """How much refined metal melting returns.
 
-    Доля металла в монете — из рецепта, угар — общий для всякой переработки
-    `craft.recycle_return`: своего числа для монеты вольт не задаёт (D-065).
+    The metal share in the coin comes from the recipe, the loss is the common
+    one for all recycling, `craft.recycle_return`: the vault sets no separate
+    number for coins (D-065).
     """
-    состав = per_coin(catalog, coin)
-    металл = metal_of(catalog, coin)
+    composition = per_coin(catalog, coin)
+    metal = metal_of(catalog, coin)
     share = constants[R.CRAFT_RECYCLE_RETURN] / PERCENT
-    return count * состав.get(металл, 0.0) * share
+    return count * composition.get(metal, 0.0) * share
 
 
 async def mint(
@@ -127,19 +132,20 @@ async def mint(
     *,
     now: datetime | None = None,
 ) -> CraftBatch:
-    """Отчеканить партию монет.
+    """Mint a batch of coins.
 
-    Присутственное и длительное, как всякая работа у станка: монетный станок
-    стоит в узле, металл и лигатура списываются сразу, монеты приходят по
-    сроку заданием журнала. Проба всегда `coin.default_fineness` — выбора нет.
+    In-person and long-running, like every work at a machine: the mint press
+    stands in the node, metal and alloy are written off at once, coins arrive on
+    schedule as a journal job. Fineness is always `coin.default_fineness` --
+    there is no choice.
     """
     moment = now or datetime.now(UTC)
     if body.state is not BodyState.ALIVE:
         raise CoinError("мёртвое тело не чеканит")
     await travel.require_here(session, body)
 
-    #: Импорт внутри: `craft` знает про монету только через этот модуль, а не
-    #: наоборот, — иначе вышел бы круг.
+    #: Import inside: `craft` knows about coins only through this module, not
+    #: the other way round -- otherwise there would be a cycle.
     from src.engine import craft
 
     recipe = catalog.recipes.recipe(coin)
@@ -153,28 +159,29 @@ async def mint(
     if count > constants[R.CRAFT_BATCH_MAX]:
         raise craft.TooBig(f"партия больше craft.batch_max: {count}")
 
-    состав = per_coin(catalog, coin)
+    composition = per_coin(catalog, coin)
     proc = craft.Procedure(
         output=recipe.name,
         station=catalog.recipes.resolve(recipe.station) if recipe.station else None,
         tools=(),
-        inputs=tuple(состав),
-        per_unit=состав,
+        inputs=tuple(composition),
+        per_unit=composition,
         step_hours=craft.step_hours(catalog, recipe),
         mix=False,
         needs_recipe=True,
     )
     station = await craft._station_item(session, body, proc)  # noqa: SLF001
 
-    нужно = {имя: сколько * count for имя, сколько in состав.items()}
-    карман = await body_container(session, body)
-    stock = await craft._stock(session, карман, tuple(нужно))  # noqa: SLF001
-    picks = craft._pick(stock, нужно)  # noqa: SLF001
+    needed = {name: qty * count for name, qty in composition.items()}
+    pocket = await body_container(session, body)
+    stock = await craft._stock(session, pocket, tuple(needed))  # noqa: SLF001
+    picks = craft._pick(stock, needed)  # noqa: SLF001
 
     scale = constants[R.QUALITY_SCALE]
-    #: Качество металла монете не передаётся: её описывает проба. Число живёт
-    #: в партии лишь потому, что поле общее для всех работ у станка.
-    качество_металла = craft._material_quality(picks, scale.max)  # noqa: SLF001
+    #: Metal quality is not passed on to the coin: fineness describes it. The
+    #: number lives in the batch only because the field is shared by all work
+    #: at a machine.
+    metal_quality = craft._material_quality(picks, scale.max)  # noqa: SLF001
     for pick in picks:
         if pick.item.amount > pick.take:
             pick.item.amount -= pick.take
@@ -185,23 +192,23 @@ async def mint(
     minutes = craft.batch_minutes(
         constants, proc, count, wear.effective(constants, station)
     )
-    проба = fineness_of(constants)
+    fineness = fineness_of(constants)
     batch = CraftBatch(
         body_id=body.id,
         node_id=body.node_id,
         output=recipe.name,
         units=amount(count),
         station_item_id=None if station is None else station.id,
-        quality=Decimal(str(качество_металла)),
+        quality=Decimal(str(metal_quality)),
         spread=Decimal(str(scale.min)),
-        spent=нужно,
-        fineness=Decimal(str(проба)),
+        spent=needed,
+        fineness=Decimal(str(fineness)),
         ready_at=moment + timedelta(minutes=minutes),
     )
     session.add(batch)
     await session.flush()
-    #: Станок занят чеканкой, как всякой работой (D-150): без этого две партии
-    #: шли бы на одном станке одновременно.
+    #: The machine is busy with minting like with any work (D-150): otherwise
+    #: two batches would run on the same machine at once.
     await craft._occupy(session, station, body, batch.ready_at)  # noqa: SLF001
 
     event = await events.record(
@@ -213,8 +220,8 @@ async def mint(
         work="mint",
         output=recipe.name,
         units=count,
-        fineness=проба,
-        spent=нужно,
+        fineness=fineness,
+        spent=needed,
     )
     await enqueue(
         session,
@@ -238,10 +245,10 @@ async def melt(
     *,
     now: datetime | None = None,
 ) -> CraftBatch:
-    """Переплавить монеты обратно в аффинированный металл.
+    """Melt coins back into refined metal.
 
-    Отдельная работа, а не общая переработка: монеты лежат стопкой, и
-    разбирать надо часть, а не всю.
+    A separate work rather than the general recycling: coins lie in a stack,
+    and only part of it needs taking apart, not the whole.
     """
     moment = now or datetime.now(UTC)
     if body.state is not BodyState.ALIVE:
@@ -253,17 +260,17 @@ async def melt(
     if not is_coin(catalog, item.type_key):
         raise NotCoin(f"{item.type_key!r} — не монета: это переработка, а не переплавка")
 
-    карман = await body_container(session, body)
-    if item.container_id != карман.id:
+    pocket = await body_container(session, body)
+    if item.container_id != pocket.id:
         raise CoinError("монета не в руках: плавят своё")
-    сколько = amount(count)
-    if сколько <= 0 or сколько > item.amount:
+    qty = amount(count)
+    if qty <= 0 or qty > item.amount:
         raise CoinError(f"столько монет нет: в стопке {amount_float(item.amount)}")
 
-    станок = catalog.recipes.recipe(item.type_key).station
+    machine = catalog.recipes.recipe(item.type_key).station
     proc = craft.Procedure(
         output=item.type_key,
-        station=catalog.recipes.resolve(станок) if станок else None,
+        station=catalog.recipes.resolve(machine) if machine else None,
         tools=(),
         inputs=(),
         per_unit={},
@@ -271,12 +278,13 @@ async def melt(
         mix=False,
         needs_recipe=False,
     )
-    #: Плавят там же, где чеканят: разбирают и чинят у того станка, где делают.
+    #: Melting happens where minting does: things are taken apart and repaired
+    #: at the machine that makes them.
     station = await craft._station_item(session, body, proc)  # noqa: SLF001
 
-    проба = fineness_of(constants) if item.fineness is None else float(item.fineness)
-    if item.amount > сколько:
-        item.amount -= сколько
+    fineness = fineness_of(constants) if item.fineness is None else float(item.fineness)
+    if item.amount > qty:
+        item.amount -= qty
     else:
         await session.delete(item)
     await session.flush()
@@ -295,7 +303,7 @@ async def melt(
         quality=Decimal(str(scale.min)),
         spread=Decimal(str(scale.min)),
         spent={item.type_key: count},
-        fineness=Decimal(str(проба)),
+        fineness=Decimal(str(fineness)),
         ready_at=moment + timedelta(minutes=minutes),
     )
     session.add(batch)
@@ -311,7 +319,7 @@ async def melt(
         work="melt",
         output=item.type_key,
         units=count,
-        fineness=проба,
+        fineness=fineness,
     )
     await enqueue(
         session,
@@ -332,21 +340,23 @@ async def finish_melt(
     batch: CraftBatch,
     where: Container,
 ) -> list[float]:
-    """Переплавка окончена: вернулся аффинированный металл, лигатура — угар."""
-    металл = metal_of(catalog, batch.output)
-    вернулось = melt_return(constants, catalog, batch.output, amount_float(batch.units))
-    if вернулось <= 0:  # pragma: no cover — партия из нуля не запускается
+    """Melting is done: refined metal came back, the alloy is lost."""
+    metal = metal_of(catalog, batch.output)
+    returned = melt_return(constants, catalog, batch.output, amount_float(batch.units))
+    if returned <= 0:  # pragma: no cover -- a batch of zero never starts
         return []
 
-    #: Качество металла из монеты неизвестно: монета его не помнит, а вольт
-    #: качества металлу в монете не назначает. Берём середину шкалы — то же,
-    #: что движок делает со всяким сырьём без истории.
+    #: The metal quality of a coin is unknown: the coin does not remember it and
+    #: the vault assigns no quality to metal inside a coin. Take the middle of
+    #: the scale -- the same thing the engine does with any raw material without
+    #: a history.
+
     scale = constants[R.QUALITY_SCALE]
     session.add(
         Item(
             container_id=where.id,
-            type_key=металл,
-            amount=amount(вернулось),
+            type_key=metal,
+            amount=amount(returned),
             quality=Decimal(str(scale.mid)),
         )
     )
@@ -356,7 +366,7 @@ async def finish_melt(
         type_key=batch.output,
         cause="переплавка монеты",
         units=amount_float(batch.units),
-        returned=вернулось,
+        returned=returned,
     )
     await session.flush()
     return [scale.mid]

@@ -1,12 +1,13 @@
-"""Партия крафта — длительное действие, живущее без игрока.
+"""A craft batch -- a long-running action living without the player.
 
-Партия запускается присутственно (станок, инструмент и входы в узле), а идёт
-офлайн: вход списан сразу, изделие появляется по сроку через журнал заданий
-(06-actions, класс «длительное»).
+A batch is started in person (machine, tool and inputs in the node) and runs
+offline: the input is written off at once, the product appears on schedule via
+the job journal (06-actions, class "long-running").
 
-Прогноз качества считается **до** списания материалов и хранится здесь же:
-игрок увидел число до партии (D-092), и результат обязан быть выведен из того
-же прогноза, а не посчитан заново по изменившимся с тех пор константам.
+The quality forecast is computed **before** materials are written off and
+stored right here: the player saw the number before the batch (D-092), and the
+result must be derived from that same forecast, not recomputed from constants
+that changed since.
 """
 
 from __future__ import annotations
@@ -28,18 +29,18 @@ class BatchState(StrEnum):
 
 
 class BatchKind(StrEnum):
-    """Три длительные работы за одним верстаком (06-actions, крафт)."""
+    """Three long-running works at one workbench (06-actions, craft)."""
 
-    #: Запустить партию: из материалов выходят изделия.
+    #: Start a batch: products come out of materials.
     MAKE = "make"
-    #: Починить: состояние возвращается, потолок падает — вещь всё равно конечна.
+    #: Repair: condition comes back, the ceiling drops -- the thing is finite anyway.
     REPAIR = "repair"
-    #: Переработать: вещь разбирается на часть материалов, разница — сток.
+    #: Recycle: the thing is taken apart for part of the materials, the difference is a sink.
     RECYCLE = "recycle"
 
 
 class CraftBatch(Base):
-    """Одна запущенная партия."""
+    """One started batch."""
 
     __tablename__ = "craft_batch"
     __table_args__ = (
@@ -50,37 +51,38 @@ class CraftBatch(Base):
 
     id: Mapped[uuid.UUID] = uuid_pk()
     body_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("body.id"), nullable=False)
-    #: Где стоит станок. Изделие появляется здесь же, а не в кармане мастера.
+    #: Where the machine stands. The product appears right here, not in the master's pocket.
     node_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("node.id"), nullable=False)
 
     kind: Mapped[BatchKind] = enum_column(
         BatchKind, "craft_batch_kind", nullable=False, default=BatchKind.MAKE
     )
-    #: Что делается — имя рецепта либо выхода операции из `build/recipes.json`.
-    #: У починки и переработки это тип вещи, над которой работают.
+    #: What is being made -- the recipe name or the operation output from
+    #: `build/recipes.json`. For repair and recycling it is the type of the thing worked on.
     output: Mapped[str] = mapped_column(nullable=False)
-    #: Вещь, которую чинят или разбирают. У обычной партии пусто.
+    #: The thing being repaired or taken apart. Empty for an ordinary batch.
     target_item_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
-    #: Сколько единиц выхода, во внутренних единицах (`units.AMOUNT_SCALE`).
+    #: How many units of output, in internal units (`units.AMOUNT_SCALE`).
     units: Mapped[int] = mapped_column(BigInteger, nullable=False)
 
     station_item_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
     tool_item_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
 
-    #: Прогноз, показанный игроку до партии. Результат — он же плюс разброс.
+    #: The forecast shown to the player before the batch. The result is it plus spread.
     quality: Mapped[float] = mapped_column(Numeric(6, 2), nullable=False)
-    #: Полуширина разброса: узкая при верных пропорциях, широкая при промахе.
+    #: Spread half-width: narrow with correct proportions, wide on a miss.
     spread: Mapped[float] = mapped_column(Numeric(6, 2), nullable=False)
 
-    #: Что списано на партию: имя входа → количество. Для журнала и разбора.
+    #: What was written off for the batch: input name -> amount. For the journal and examination.
     spent: Mapped[dict[str, Any]] = mapped_column(nullable=False, default=dict)
 
-    #: У котла: вид блюда (сочетание) и доля закрытых ролей (D-119, D-128).
+    #: For a pot: dish kind (combination) and share of filled roles (D-119, D-128).
     flavor: Mapped[str | None] = mapped_column(nullable=True)
     roles_filled: Mapped[float | None] = mapped_column(Numeric(4, 2), nullable=True)
 
-    #: У монетного двора: проба, с которой чеканят (D-016). Она же решает,
-    #: сколько металла вернёт переплавка этой партии.
+    #: For the mint: the fineness minted at (D-016). It also decides how much
+    #: metal melting this batch returns.
+
     fineness: Mapped[float | None] = mapped_column(Numeric(5, 1), nullable=True)
 
     state: Mapped[BatchState] = enum_column(

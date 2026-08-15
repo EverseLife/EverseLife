@@ -1,65 +1,67 @@
-"""Стакан заявок узла (D-003, D-047, D-127).
+"""The node's order book (D-003, D-047, D-127).
 
-Книга заявок местная и только местная: единая цена схлопнула бы географию и
-убила бы перевозчика вместе с арбитражем (столп П3). Движок товар не оценивает
-— он сводит встречные заявки, и цена есть то, что кто-то согласился заплатить
-(D-002).
+The order book is local and only local: a single price would collapse
+geography and kill the hauler along with arbitrage (pillar P3). The engine does
+not value goods -- it matches opposing orders, and the price is what somebody
+agreed to pay (D-002).
 
-## Что где происходит
+## What happens where
 
-| Действие | Где | Почему |
+| Action | Where | Why |
 |---|---|---|
-| Загрузить товар в терминал | присутственно | материя перемещается только физически |
-| Выставить, снять ордер на продажу | удалённо | товар привезён, дальше он биржевой актив |
-| Купить | присутственно | иначе игрок скупает всё везде, не вставая |
-| Забрать купленное | присутственно | то же правило материи |
-| Смотреть стаканы любых городов | удалённо | цены знают все (D-047) |
+| Load goods into the terminal | in person | matter moves only physically |
+| List, cancel a sell order | remote | the goods are delivered, from then on an exchange asset |
+| Buy | in person | otherwise a player buys everything everywhere without standing up |
+| Take bought goods | in person | the same rule of matter |
+| View any city's books | remote | everyone knows the prices (D-047) |
 
-Покупка — это выставление лимитной заявки на покупку, и потому она требует
-присутствия: удалённая покупка превратила бы стаканы в фикцию из зависших
-резервов. Остаток неисполненной заявки висит в стакане, деньги под него
-заморожены, товар при исполнении ложится в терминал — забирать ногами.
+Buying means placing a limit buy order, and therefore requires presence: remote
+buying would turn the books into a fiction of stuck reserves. The unfilled
+remainder rests in the book, money is frozen under it, on fill the goods land
+in the terminal -- to be taken on foot.
 
-## Откуда взялась каждая формула
+## Where each formula came from
 
-**Ступень, а не число.** Товар торгуется позициями вида «железная руда,
-хорошая»: ступени берутся из `quality.tiers` (D-058). Непрерывная шкала сделала
-бы книгу нечитаемой и убила бы ликвидность.
+**A tier, not a number.** Goods trade as positions like "iron ore, good": tiers
+come from `quality.tiers` (D-058). A continuous scale would make the book
+unreadable and kill liquidity.
 
-**Приоритет.** Лучшая цена, при равной цене — кто раньше встал. Сделка идёт по
-цене **стоявшего в стакане**: он назвал условие первым, пришедший его принял.
-Рыночных заявок нет вовсе — только лимитные, так проще и честнее
-(30-economy/02, открытые вопросы).
+**Priority.** Best price; at equal price, whoever came first. A deal goes at
+the price of **the one resting in the book**: they named the terms first, the
+newcomer accepted. There are no market orders at all -- only limit ones,
+simpler and fairer (30-economy/02, open questions).
 
-**Деньги.** Покупатель замораживает `цена × объём` при постановке заявки.
-Исполнилось дешевле — разница возвращается сразу: заморожено ровно столько,
-сколько может понадобиться, и ни монетой больше.
+**Money.** The buyer freezes `price * volume` on placing the order. Filled
+cheaper -- the difference is returned at once: exactly as much is frozen as
+may be needed, and not a coin more.
 
-**Налог и комиссия.** `tax_trade` платит **продавец** долей от выручки в момент
-исполнения (D-127): покупатель видит в стакане цену, и это и есть цена.
-Комиссия терминала — `market.default_fee`, пока город не задал свою. Обе идут
-в казну города, которому принадлежит узел; **нет города — нет и удержаний**:
-деньги не могут исчезать в никуда (И2).
+**Tax and commission.** `tax_trade` is paid by the **seller** as a share of
+proceeds at fill time (D-127): the buyer sees the price in the book, and that
+is the price. Terminal commission is `market.default_fee` until the city sets
+its own. Both go to the treasury of the city that owns the node; **no city --
+no withholdings**: money cannot vanish into nowhere (I2).
 
-**Срок.** Ордер живёт `market.order_lifetime` терранских суток и снимается
-заданием журнала, а не проверкой при чтении: истечение обязано случиться даже
-если в стакан никто не заглядывает.
+**Term.** An order lives `market.order_lifetime` Terran days and is cancelled
+by a journal job, not by a check on read: expiry must happen even if nobody
+looks into the book.
 
-**Бронь с задатком** — единственное исключение из «купить только стоя здесь»
-(D-047). Купец резервирует партию издалека, вносит `market.reservation_deposit`
-и обязан забрать за `market.reservation_period` суток; не забрал — задаток
-остаётся продавцу, товар возвращается в стакан. Мёртвых резервов не возникает
-потому, что у брони есть цена и срок.
+**Reservation with a deposit** is the only exception to "buy only standing
+here" (D-047). A merchant reserves a lot from afar, pays
+`market.reservation_deposit` and must collect within
+`market.reservation_period` days; if not, the deposit stays with the seller and
+the goods return to the book. Dead reserves do not arise because a reservation
+has a price and a term.
 
-**В руки берут не больше предела** (D-146): забрать купленное мешает не жадность
-терминала, а масса. Всё сверх — только транспортом.
+**No more than the limit is taken in hand** (D-146): what stops you taking
+bought goods is not the terminal's greed but mass. Everything beyond -- only by
+vehicle.
 
-## Чего здесь пока нет
+## What is not here yet
 
-* **Потолок цены, норма отпуска, пошлины** (D-122, D-123) — код-законы города,
-  приезжают с городами на Э3;
-* **Осиротевший терминал** (D-100) — требует содержания построек, то есть
-  зданий и казны.
+* **Price ceiling, sales norm, duties** (D-122, D-123) -- city code-laws,
+  arrive with cities on E3;
+* **Orphaned terminal** (D-100) -- requires building maintenance, i.e.
+  buildings and a treasury.
 """
 
 from __future__ import annotations
@@ -99,11 +101,11 @@ class MarketError(Exception):
 
 
 class NoTerminal(MarketError):
-    """В узле нет терминала. Маркетплейс в городе один (D-100)."""
+    """No terminal in the node. One marketplace per city (D-100)."""
 
 
 class NotHere(MarketError):
-    """Тело не в том узле. Материя требует присутствия (D-044)."""
+    """The body is in the wrong node. Matter requires presence (D-044)."""
 
 
 class NotYours(MarketError):
@@ -111,24 +113,24 @@ class NotYours(MarketError):
 
 
 class NoGoods(MarketError):
-    """Товара в терминале нет либо он уже отдан под другой ордер."""
+    """The goods are not in the terminal, or already committed to another order."""
 
 
 class BadOrder(MarketError):
-    """Заявка бессмысленна: нулевой объём, нулевая цена, чужая ступень."""
+    """The order is meaningless: zero volume, zero price, foreign tier."""
 
 
 class NoMoney(MarketError):
-    """Нечем платить. Это ситуация в игре, а не ошибка сервера."""
+    """Nothing to pay with. This is an in-game situation, not a server error."""
 
 
-#: Имя терминала в `build/recipes.json`. Один на город (D-100).
+#: Terminal name in `build/recipes.json`. One per city (D-100).
 TERMINAL = "Терминал маркетплейса"
 
 
 @dataclass(frozen=True, slots=True)
 class Level:
-    """Одна ступенька стакана: цена и весь объём по ней."""
+    """One rung of the book: a price and the whole volume at it."""
 
     price: int
     amount: float
@@ -136,7 +138,7 @@ class Level:
 
 @dataclass(frozen=True, slots=True)
 class Book:
-    """Стакан по одной позиции: товар плюс ступень качества."""
+    """The book for one position: goods plus quality tier."""
 
     node: uuid.UUID
     type_key: str
@@ -154,7 +156,7 @@ class Book:
 
 @dataclass(frozen=True, slots=True)
 class Fill:
-    """Что произошло при постановке заявки."""
+    """What happened on placing an order."""
 
     order: Order
     trades: tuple[Trade, ...] = field(default_factory=tuple)
@@ -164,29 +166,29 @@ class Fill:
         return amount_float(sum(trade.amount for trade in self.trades))
 
 
-# --- ступени ----------------------------------------------------------------
+# --- tiers -------------------------------------------------------------------
 
 
 def tier_of(constants: Constants, quality: float | None) -> str:
-    """Ступень качества товара. Пять ступеней — витрина стакана (D-058).
+    """The goods' quality tier. Five tiers are the book's shop window (D-058).
 
-    Полоса тянется от своего начала до начала следующей: границы в данных
-    целые (…39, 40…), а качество дробное, и 39.5 обязано попадать в нижнюю
-    полосу, а не проваливаться между ними.
+    A band stretches from its own start to the start of the next: bounds in the
+    data are integers (..39, 40..), quality is fractional, and 39.5 must fall
+    into the lower band rather than drop between them.
     """
     tiers = constants[R.QUALITY_TIERS]
     if quality is None:
-        #: У энергии и денег качества нет вовсе — вся такая позиция одна.
+        #: Energy and money have no quality at all -- the whole position is one.
         return tiers[0].name
     fitting = [tier for tier in sorted(tiers, key=lambda t: t.frm) if tier.frm <= quality]
     return fitting[-1].name if fitting else tiers[0].name
 
 
-# --- терминал ---------------------------------------------------------------
+# --- terminal ----------------------------------------------------------------
 
 
 async def terminal(session: AsyncSession, node: Node) -> Item:
-    """Терминал узла. Нет терминала — нет и торговли, как нет её в чистом поле."""
+    """The node's terminal. No terminal -- no trade, as there is none in an open field."""
     where = await node_container(session, node)
     found = (
         await session.execute(
@@ -199,7 +201,7 @@ async def terminal(session: AsyncSession, node: Node) -> Item:
 
 
 async def stall(session: AsyncSession, node: Node, identity_id: uuid.UUID) -> Container:
-    """Место личности в терминале узла: её загруженный товар и её покупки."""
+    """The identity's cell in the node's terminal: its loaded goods and its purchases."""
     stmt = select(Container).where(
         Container.kind == ContainerKind.MARKET,
         Container.owner_id == identity_id,
@@ -222,7 +224,7 @@ async def load(
     type_key: str,
     quantity: float,
 ) -> float:
-    """Загрузить товар в терминал. Присутственное: везут ногами."""
+    """Load goods into the terminal. In person: goods are carried on foot."""
     node = await _node_of(session, body)
     await terminal(session, node)
     inventory = await body_container(session, body)
@@ -250,7 +252,7 @@ async def take(
     *,
     tier: str | None = None,
 ) -> float:
-    """Забрать своё из терминала. Отданное под ордер не отдаётся дважды."""
+    """Take your own from the terminal. What is committed to an order is not given twice."""
     node = await _node_of(session, body)
     await terminal(session, node)
     stock = await stall(session, node, body.identity_id)
@@ -261,7 +263,7 @@ async def take(
     if want <= 0:
         raise NoGoods(f"свободного «{type_key}» в терминале нет: всё под ордерами")
 
-    #: В руки берут не больше предела: за остальным приходят с повозкой (D-146).
+    #: No more than the limit is taken in hand: for the rest come with a wagon (D-146).
     from src.constants import current_catalog
     from src.engine import gear
 
@@ -281,7 +283,7 @@ async def take(
     return amount_float(moved)
 
 
-# --- ордера -----------------------------------------------------------------
+# --- orders ------------------------------------------------------------------
 
 
 async def sell(
@@ -297,7 +299,7 @@ async def sell(
     quantity: float,
     now: datetime | None = None,
 ) -> Fill:
-    """Выставить заявку на продажу. Удалённое: товар уже привезён (D-047)."""
+    """List a sell order. Remote: the goods are already delivered (D-047)."""
     await terminal(session, node)
     want = amount(quantity)
     _sane(price, want)
@@ -326,10 +328,10 @@ async def buy(
     quantity: float,
     now: datetime | None = None,
 ) -> Fill:
-    """Купить: лимитная заявка от присутствующего тела.
+    """Buy: a limit order from a present body.
 
-    Присутствие требуется именно здесь. Разреши покупку удалённо — и стаканы
-    всех городов будут скуплены не вставая с места (D-047).
+    Presence is required precisely here. Allow remote buying -- and the books
+    of all cities get bought out without leaving one's seat (D-047).
     """
     if body.state is not BodyState.ALIVE:
         raise NotHere("мёртвое тело не торгует")
@@ -361,16 +363,17 @@ async def reserve(
     *,
     now: datetime | None = None,
 ) -> Reservation:
-    """Забронировать партию из чужой заявки на продажу (D-047).
+    """Reserve a lot from somebody else's sell order (D-047).
 
-    Удалённое действие — и единственное исключение из правила «купить можно
-    только стоя здесь». Купец, собираясь в дорогу, резервирует партию, вносит
-    `market.reservation_deposit` от суммы и обязан забрать до срока
-    `market.reservation_period`. Не забрал — задаток остаётся продавцу.
+    A remote action -- and the only exception to the rule "buy only standing
+    here". A merchant preparing for the road reserves a lot, pays
+    `market.reservation_deposit` of the sum and must collect before the
+    `market.reservation_period` deadline. Did not collect -- the deposit stays
+    with the seller.
 
-    Товар при этом **выходит из стакана**, но остаётся в ячейке продавца: он
-    никуда не едет, пока за ним не приехали. Мёртвых резервов не возникает
-    ровно потому, что у брони есть срок и цена.
+    The goods **leave the book** but stay in the seller's cell: they go nowhere
+    until somebody comes for them. Dead reserves do not arise exactly because a
+    reservation has a term and a price.
     """
     moment = now or datetime.now(UTC)
     if order.side is not OrderSide.SELL:
@@ -390,25 +393,25 @@ async def reserve(
         )
 
     cost = _cost(order.price, want)
-    задаток = int(cost * constants[R.MARKET_RESERVATION_DEPOSIT] / PERCENT)
-    счёт = await ledger.account_for(session, AccountKind.IDENTITY, identity.id)
+    deposit = int(cost * constants[R.MARKET_RESERVATION_DEPOSIT] / PERCENT)
+    account = await ledger.account_for(session, AccountKind.IDENTITY, identity.id)
     escrow = await ledger.account_for(session, AccountKind.ESCROW, identity.id)
     await ledger.transfer(
         session,
         PostingReason.ESCROW_HOLD,
-        debit=счёт.id,
+        debit=account.id,
         credit=escrow.id,
-        amount=задаток,
+        amount=deposit,
         memo={"бронь": order.type_key, "цена": money_str(order.price)},
     )
 
-    #: Товар уходит из книги: чужой стакан не должен показывать то, что уже
-    #: обещано другому.
+    #: The goods leave the book: somebody else's book must not show what is
+    #: already promised to another.
     order.amount_left -= want
-    срок = timedelta(
+    term = timedelta(
         hours=constants[R.MARKET_RESERVATION_PERIOD] * constants[R.TIME_DAY_TERRA]
     )
-    бронь = Reservation(
+    reservation = Reservation(
         order_id=order.id,
         node_id=order.node_id,
         buyer_identity_id=identity.id,
@@ -417,10 +420,10 @@ async def reserve(
         tier=order.tier,
         price=order.price,
         amount=want,
-        deposit=задаток,
-        expires_at=moment + срок,
+        deposit=deposit,
+        expires_at=moment + term,
     )
-    session.add(бронь)
+    session.add(reservation)
     await session.flush()
 
     event = await events.record(
@@ -428,22 +431,22 @@ async def reserve(
         EventKind.RESERVATION_HELD,
         actor_identity_id=identity.id,
         node_id=order.node_id,
-        reservation_id=str(бронь.id),
+        reservation_id=str(reservation.id),
         order_id=str(order.id),
         type_key=order.type_key,
         amount=amount_float(want),
-        deposit=задаток,
-        expires_at=бронь.expires_at.isoformat(),
+        deposit=deposit,
+        expires_at=reservation.expires_at.isoformat(),
     )
     await enqueue(
         session,
         JobKind.MARKET_RESERVATION_EXPIRY,
-        бронь.expires_at,
-        payload={"reservation": str(бронь.id)},
-        dedup_key=f"market.reservation:{бронь.id}",
+        reservation.expires_at,
+        payload={"reservation": str(reservation.id)},
+        dedup_key=f"market.reservation:{reservation.id}",
         cause_event_id=event.id,
     )
-    return бронь
+    return reservation
 
 
 async def redeem(
@@ -455,10 +458,10 @@ async def redeem(
     *,
     now: datetime | None = None,
 ) -> Trade:
-    """Выкупить бронь: доплатить остаток и забрать товар. Присутственно.
+    """Redeem a reservation: pay the remainder and take the goods. In person.
 
-    Приехать обязательно — в этом весь смысл: бронь не отменяет географию, она
-    позволяет её планировать.
+    Coming is mandatory -- that is the whole point: a reservation does not
+    cancel geography, it lets you plan it.
     """
     moment = now or datetime.now(UTC)
     await travel.require_here(session, body)
@@ -475,39 +478,39 @@ async def redeem(
     await terminal(session, node)
 
     cost = _cost(reservation.price, reservation.amount)
-    остаток = cost - reservation.deposit
-    счёт = await ledger.account_for(
+    remainder = cost - reservation.deposit
+    account = await ledger.account_for(
         session, AccountKind.IDENTITY, reservation.buyer_identity_id
     )
     escrow = await ledger.account_for(
         session, AccountKind.ESCROW, reservation.buyer_identity_id
     )
-    if остаток > 0:
+    if remainder > 0:
         await ledger.transfer(
             session,
             PostingReason.ESCROW_HOLD,
-            debit=счёт.id,
+            debit=account.id,
             credit=escrow.id,
-            amount=остаток,
+            amount=remainder,
             memo={"выкуп брони": reservation.type_key},
         )
 
-    #: Товар едет из ячейки продавца в ячейку покупателя, оставаясь в
-    #: терминале: забирать его всё равно ногами (D-047).
-    продавец = await stall(session, node, reservation.seller_identity_id)
-    покупатель = await stall(session, node, reservation.buyer_identity_id)
+    #: The goods travel from the seller's cell to the buyer's, staying in the
+    #: terminal: they are still taken on foot (D-047).
+    seller = await stall(session, node, reservation.seller_identity_id)
+    buyer = await stall(session, node, reservation.buyer_identity_id)
     moved = await _move(
-        session, продавец, покупатель, reservation.type_key, reservation.amount,
+        session, seller, buyer, reservation.type_key, reservation.amount,
         tier=reservation.tier, constants=constants,
     )
-    if moved < reservation.amount:  # pragma: no cover — товар держится бронью
+    if moved < reservation.amount:  # pragma: no cover -- the goods are held by the reservation
         raise NoGoods("товар исчез из терминала между бронью и выкупом")
 
     tax_rate, fee_rate = await _charges(session, constants, catalog, node)
     tax = int(cost * tax_rate / PERCENT)
     fee = int(cost * fee_rate / PERCENT)
 
-    #: Бронь — сделка без встречной заявки: покупатель не выставлял ордер.
+    #: A reservation is a deal without an opposing order: the buyer placed none.
     trade = Trade(
         node_id=node.id,
         buy_order_id=None,
@@ -540,16 +543,16 @@ async def redeem(
         fee=fee,
     )
 
-    продавец_счёт = await ledger.account_for(
+    seller_acct = await ledger.account_for(
         session, AccountKind.IDENTITY, reservation.seller_identity_id
     )
     postings = [
         ledger.Posting(escrow.id, -cost),
-        ledger.Posting(продавец_счёт.id, cost - tax - fee),
+        ledger.Posting(seller_acct.id, cost - tax - fee),
     ]
     if tax or fee:
-        #: Счёт казны заведён на узле-представителе города: там же, где пул
-        #: энергии, и это один и тот же счёт (D-154).
+        #: The treasury account is created on the city's delegate node: the
+        #: same place as the energy pool, and it is one and the same account (D-154).
         postings.append(ledger.Posting((await _treasury(session, node)).id, tax + fee))
     await ledger.post(
         session,
@@ -563,52 +566,52 @@ async def redeem(
 
 @handler(JobKind.MARKET_RESERVATION_EXPIRY)
 async def lapse(session: AsyncSession, job: Job) -> None:
-    """Срок брони вышел: задаток продавцу, товар обратно в стакан (D-047)."""
-    бронь = await session.get(Reservation, uuid.UUID(job.payload["reservation"]))
-    if бронь is None:  # pragma: no cover
+    """The reservation term is up: deposit to the seller, goods back to the book (D-047)."""
+    reservation = await session.get(Reservation, uuid.UUID(job.payload["reservation"]))
+    if reservation is None:  # pragma: no cover
         raise MarketError(f"задание {job.id}: брони нет")
-    if бронь.state is not ReservationState.HELD:
+    if reservation.state is not ReservationState.HELD:
         return
 
     escrow = await ledger.account_for(
-        session, AccountKind.ESCROW, бронь.buyer_identity_id
+        session, AccountKind.ESCROW, reservation.buyer_identity_id
     )
-    продавец = await ledger.account_for(
-        session, AccountKind.IDENTITY, бронь.seller_identity_id
+    seller = await ledger.account_for(
+        session, AccountKind.IDENTITY, reservation.seller_identity_id
     )
-    #: Задаток — плата за то, что товар ждал: он остаётся продавцу.
+    #: The deposit is payment for the goods having waited: it stays with the seller.
     await ledger.transfer(
         session,
         PostingReason.ESCROW_RELEASE,
         debit=escrow.id,
-        credit=продавец.id,
-        amount=бронь.deposit,
-        memo={"просроченная бронь": бронь.type_key},
+        credit=seller.id,
+        amount=reservation.deposit,
+        memo={"просроченная бронь": reservation.type_key},
     )
 
-    #: Товар возвращается в книгу, если заявка ещё жива. Снятая заявка держит
-    #: его в ячейке продавца — он и так у себя.
-    order = await session.get(Order, бронь.order_id)
+    #: The goods return to the book if the order is still alive. A cancelled
+    #: order keeps them in the seller's cell -- they are at home anyway.
+    order = await session.get(Order, reservation.order_id)
     if order is not None and order.state is OrderState.ACTIVE:
-        order.amount_left += бронь.amount
+        order.amount_left += reservation.amount
 
-    бронь.state = ReservationState.LAPSED
-    бронь.closed_at = job.run_at
+    reservation.state = ReservationState.LAPSED
+    reservation.closed_at = job.run_at
     await session.flush()
     await events.record(
         session,
         EventKind.RESERVATION_LAPSED,
-        actor_identity_id=бронь.buyer_identity_id,
-        node_id=бронь.node_id,
-        reservation_id=str(бронь.id),
-        deposit=бронь.deposit,
+        actor_identity_id=reservation.buyer_identity_id,
+        node_id=reservation.node_id,
+        reservation_id=str(reservation.id),
+        deposit=reservation.deposit,
     )
 
 
 async def cancel(
     session: AsyncSession, order: Order, *, by: uuid.UUID, now: datetime | None = None
 ) -> Order:
-    """Снять ордер. Удалённое действие: распоряжение присутствия не требует."""
+    """Cancel an order. A remote action: disposing requires no presence."""
     if order.identity_id != by:
         raise NotYours("чужой ордер")
     if order.state is not OrderState.ACTIVE:
@@ -626,7 +629,7 @@ async def cancel(
 
 @handler(JobKind.MARKET_ORDER_EXPIRY)
 async def expire(session: AsyncSession, job: Job) -> None:
-    """Срок ордера вышел. Истечение — событие мира, а не следствие чтения."""
+    """The order term is up. Expiry is a world event, not a consequence of reading."""
     order = await session.get(Order, uuid.UUID(job.payload["order"]))
     if order is None:  # pragma: no cover
         raise MarketError(f"задание {job.id}: ордера нет")
@@ -643,13 +646,13 @@ async def expire(session: AsyncSession, job: Job) -> None:
     )
 
 
-# --- чтение -----------------------------------------------------------------
+# --- reading -----------------------------------------------------------------
 
 
 async def book(
     session: AsyncSession, node: Node, type_key: str, tier: str, *, depth: int
 ) -> Book:
-    """Стакан по позиции. Публичен: цены знают все (D-047)."""
+    """The book by position. Public: everyone knows the prices (D-047)."""
     bids = await _levels(session, node, type_key, tier, OrderSide.BUY, depth=depth)
     asks = await _levels(session, node, type_key, tier, OrderSide.SELL, depth=depth)
     last = await session.scalar(
@@ -664,7 +667,7 @@ async def book(
 
 
 async def positions(session: AsyncSession, node: Node) -> tuple[tuple[str, str], ...]:
-    """Какие позиции вообще торгуются в узле: товар плюс ступень."""
+    """Which positions trade in the node at all: goods plus tier."""
     rows = await session.execute(
         select(Order.type_key, Order.tier)
         .where(Order.node_id == node.id, Order.state == OrderState.ACTIVE)
@@ -674,7 +677,7 @@ async def positions(session: AsyncSession, node: Node) -> tuple[tuple[str, str],
     return tuple((row[0], row[1]) for row in rows)
 
 
-# --- внутреннее -------------------------------------------------------------
+# --- internal ----------------------------------------------------------------
 
 
 def _sane(price: int, want: int) -> None:
@@ -685,12 +688,12 @@ def _sane(price: int, want: int) -> None:
 
 
 def _cost(price: int, quantity: int) -> int:
-    """Во что обойдётся объём по цене. Целое: копейка не теряется."""
+    """What a volume costs at a price. Integer: not a cent is lost."""
     return price * quantity // AMOUNT_SCALE
 
 
 async def _node_of(session: AsyncSession, body: Body) -> Node:
-    """Узел, в котором тело **стоит**. В пути его нет нигде (D-107)."""
+    """The node the body **stands** in. In transit it is nowhere (D-107)."""
     await travel.require_here(session, body)
     node = await session.get(Node, body.node_id)
     if node is None:  # pragma: no cover
@@ -760,7 +763,7 @@ async def _match(
     *,
     now: datetime | None,
 ) -> Fill:
-    """Свести заявку со встречными: лучшая цена, при равной — кто раньше встал."""
+    """Match the order with opposing ones: best price; at equal price, whoever came first."""
     moment = now or datetime.now(UTC)
     trades: list[Trade] = []
 
@@ -777,7 +780,7 @@ async def _match(
 
 
 async def _counterparts(session: AsyncSession, order: Order) -> Sequence[Order]:
-    """Встречные заявки, годные по цене, в порядке исполнения."""
+    """Opposing orders acceptable by price, in fill order."""
     other = OrderSide.SELL if order.side is OrderSide.BUY else OrderSide.BUY
     stmt = select(Order).where(
         Order.node_id == order.node_id,
@@ -786,8 +789,8 @@ async def _counterparts(session: AsyncSession, order: Order) -> Sequence[Order]:
         Order.side == other,
         Order.state == OrderState.ACTIVE,
         Order.id != order.id,
-        #: Со своей же заявкой сделка бессмысленна: деньги и товар вернулись бы
-        #: к тому же владельцу, а оборот города вырос бы на пустом месте.
+        #: A deal with one's own order is meaningless: money and goods would
+        #: return to the same owner, and city turnover would grow out of nothing.
         Order.identity_id != order.identity_id,
     )
     if order.side is OrderSide.BUY:
@@ -807,9 +810,9 @@ async def _execute(
     maker: Order,
     moment: datetime,
 ) -> Trade:
-    """Одна сделка: товар покупателю, деньги продавцу, налог городу."""
+    """One deal: goods to the buyer, money to the seller, tax to the city."""
     quantity = min(taker.amount_left, maker.amount_left)
-    #: Цена стоявшего в стакане: он назвал условие первым.
+    #: The price of the one resting in the book: they named the terms first.
     price = maker.price
     cost = _cost(price, quantity)
 
@@ -820,15 +823,15 @@ async def _execute(
     if node is None:  # pragma: no cover
         raise MarketError("ордер вне узла")
 
-    #: Товар едет из ячейки продавца в ячейку покупателя, оставаясь в терминале:
-    #: забирать его всё равно ногами (D-047).
+    #: The goods travel from the seller's cell to the buyer's, staying in the
+    #: terminal: they are still taken on foot (D-047).
     seller_stall = await stall(session, node, sell_order.identity_id)
     buyer_stall = await stall(session, node, buy_order.identity_id)
     moved = await _move(
         session, seller_stall, buyer_stall, taker.type_key, quantity,
         tier=taker.tier, constants=constants,
     )
-    if moved < quantity:  # pragma: no cover — товар держится ордером
+    if moved < quantity:  # pragma: no cover -- the goods are held by the order
         raise NoGoods("товар исчез из терминала между проверкой и сделкой")
 
     tax_rate, fee_rate = await _charges(session, constants, catalog, node)
@@ -869,8 +872,8 @@ async def _execute(
         fee=fee,
     )
     await _settle(session, buy_order, sell_order, node, cost, tax, fee, event_id=event.id)
-    #: Купили дешевле, чем были готовы платить, — разница освобождается сразу,
-    #: а не ждёт закрытия ордера. Заморожено ровно то, что может понадобиться.
+    #: Bought cheaper than one was ready to pay -- the difference is released at
+    #: once rather than waiting for the order to close. Exactly what may be needed is frozen.
     await _release(session, buy_order, buy_order.escrowed - _cost(buy_order.price,
                                                                  buy_order.amount_left))
     return trade
@@ -887,18 +890,18 @@ async def _settle(
     *,
     event_id: int,
 ) -> None:
-    """Расчёт по сделке: из эскроу покупателя продавцу, налог и комиссия — городу.
+    """Settlement of a deal: from the buyer's escrow to the seller, tax and commission to the city.
 
-    Продавец получает ровно то, что заплатил покупатель, минус налог и комиссия
-    (И2). Ни одна монета не появляется и не исчезает.
+    The seller gets exactly what the buyer paid, minus tax and commission (I2).
+    Not a coin appears or vanishes.
     """
     escrow = await ledger.account_for(session, AccountKind.ESCROW, buy_order.identity_id)
     seller = await ledger.account_for(session, AccountKind.IDENTITY, sell_order.identity_id)
 
     postings = [ledger.Posting(escrow.id, -cost), ledger.Posting(seller.id, cost - tax - fee)]
     if tax or fee:
-        #: Счёт казны заведён на узле-представителе города: там же, где пул
-        #: энергии, и это один и тот же счёт (D-154).
+        #: The treasury account is created on the city's delegate node: the
+        #: same place as the energy pool, and it is one and the same account (D-154).
         postings.append(ledger.Posting((await _treasury(session, node)).id, tax + fee))
 
     await ledger.post(
@@ -912,7 +915,7 @@ async def _settle(
 
 
 async def _hold(session: AsyncSession, order: Order, sum_minor: int) -> None:
-    """Заморозить деньги покупателя под заявку."""
+    """Freeze the buyer's money under an order."""
     account = await ledger.account_for(session, AccountKind.IDENTITY, order.identity_id)
     escrow = await ledger.account_for(session, AccountKind.ESCROW, order.identity_id)
     await ledger.transfer(
@@ -928,7 +931,7 @@ async def _hold(session: AsyncSession, order: Order, sum_minor: int) -> None:
 
 
 async def _release(session: AsyncSession, order: Order, sum_minor: int | None = None) -> None:
-    """Вернуть покупателю замороженное — всё либо названную часть."""
+    """Return the frozen money to the buyer -- all of it or a named part."""
     back = order.escrowed if sum_minor is None else min(sum_minor, order.escrowed)
     if back <= 0:
         return
@@ -956,40 +959,41 @@ async def _close(
 
 
 async def _treasury(session: AsyncSession, node: Node):
-    """Счёт казны города, которому принадлежит узел.
+    """The treasury account of the city that owns the node.
 
-    Владелец узла хранится идентификатором города, а счёт казны заведён на его
-    узле-представителе — там, где живёт и пул энергии. Одно место на все
-    городские деньги: иначе налоги и тариф попадали бы в разные карманы.
+    The node's owner is stored as a city id, and the treasury account is
+    created on its delegate node -- where the energy pool lives too. One place
+    for all city money: otherwise taxes and tariff would land in different pockets.
     """
     from src.engine import city as town
 
-    город = await town.by_id(session, node.owner_city_id)
-    if город is None:  # pragma: no cover — владелец без города это баг
+    city = await town.by_id(session, node.owner_city_id)
+    if city is None:  # pragma: no cover -- an owner without a city is a bug
         raise MarketError(f"узел {node.key} принадлежит несуществующему городу")
-    return await town.treasury(session, город)
+    return await town.treasury(session, city)
 
 
 async def _charges(
     session: AsyncSession, constants: Constants, catalog: Catalog, node: Node
 ) -> tuple[float, float]:
-    """Ставка налога с продажи и комиссии терминала для узла.
+    """The sales tax rate and terminal commission for the node.
 
-    Ставку назначает **город** (D-127, D-154): движок берёт действующее
-    значение его код-закона `tax_trade`. Город, ничего не решивший, живёт на
-    умолчании `laws.json` — новый город работает, ничего не заполняя (D-130).
-    Комиссия — `market.default_fee`, пока владелец терминала не задал свою.
+    The **city** sets the rate (D-127, D-154): the engine takes the value in
+    force of its code-law `tax_trade`. A city that decided nothing lives on the
+    `laws.json` default -- a new city works without filling in anything (D-130).
+    Commission is `market.default_fee` until the terminal owner sets its own.
 
-    **Узел ничей — удержаний нет вовсе.** Не потому что так задумано, а потому
-    что платить их некому: деньги не могут исчезать в никуда (И2).
+    **The node is unowned -- no withholdings at all.** Not because it is meant
+    that way, but because there is nobody to pay them to: money cannot vanish
+    into nowhere (I2).
     """
     from src.engine import city as town
 
     if node.owner_city_id is None:
         return 0.0, 0.0
-    город = await town.by_id(session, node.owner_city_id)
+    city = await town.by_id(session, node.owner_city_id)
     return (
-        town.law_number(constants, catalog, город, "tax_trade"),
+        town.law_number(constants, catalog, city, "tax_trade"),
         constants[R.MARKET_DEFAULT_FEE],
     )
 
@@ -1002,7 +1006,7 @@ async def _free(
     type_key: str,
     tier: str | None,
 ) -> int:
-    """Сколько товара в терминале не отдано под ордера."""
+    """How much of the goods in the terminal is not committed to orders."""
     stock = await stall(session, node, identity_id)
     items = await _stacks(session, stock, type_key, tier, constants)
     have = sum(item.amount for item in items)
@@ -1027,7 +1031,7 @@ async def _stacks(
     tier: str | None,
     constants: Constants,
 ) -> list[Item]:
-    """Стопки нужного товара, худшие первыми: хорошее приберегают."""
+    """Stacks of the needed goods, worst first: the good ones are saved."""
     rows = (
         (
             await session.execute(
@@ -1060,7 +1064,7 @@ async def _move(
     tier: str | None,
     constants: Constants,
 ) -> int:
-    """Переложить товар из контейнера в контейнер, разделяя стопки по надобности."""
+    """Move goods from container to container, splitting stacks as needed."""
     left = quantity
     for item in await _stacks(session, source, type_key, tier, constants):
         if left <= 0:
@@ -1069,9 +1073,10 @@ async def _move(
         if take == item.amount:
             item.container_id = target.id
         else:
-            #: Отделённая часть — та же вещь: у неё те же клеймо, срок, вид
-            #: блюда и проба. Потерять их при делении стопки значило бы
-            #: обезличить товар на прилавке.
+            #: The split-off part is the same thing: same mark, shelf life, dish
+            #: kind and fineness. Losing them when splitting a stack would
+            #: depersonalise the goods on the counter.
+
             item.amount -= take
             session.add(
                 Item(

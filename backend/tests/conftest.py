@@ -12,15 +12,15 @@ from src.constants import Catalog, Constants, bootstrap
 from src.models import Base
 
 BACKEND = Path(__file__).resolve().parents[1]
-#: Вольт лежит рядом с репозиторием игры, а сервер — в его подкаталоге `backend/`.
+#: The vault lies next to the game repo, and the server in its `backend/` subdirectory.
 VAULT_BUILD = Path(
     os.environ.get(
         "OCTOVERSE_VAULT_BUILD", BACKEND / ".." / ".." / "octoverse-game-design" / "build"
     )
 )
 
-#: База для тестов. Если её нет — тесты, которым она нужна, пропускаются,
-#: а чистая логика проверяется всё равно.
+#: The test database. If it is absent, tests that need it are skipped, and
+#: pure logic is checked anyway.
 TEST_DATABASE_URL = os.environ.get(
     "OCTOVERSE_TEST_DATABASE_URL",
     "postgresql+asyncpg://octoverse:octoverse@localhost:5432/octoverse_test",
@@ -44,10 +44,10 @@ def catalog(loaded: tuple[Constants, Catalog]) -> Catalog:
 
 @pytest_asyncio.fixture
 async def session(loaded) -> AsyncIterator[AsyncSession]:
-    """Чистая база на каждый тест.
+    """A clean database for every test.
 
-    Схема создаётся из моделей, а не миграциями: миграции проверяются отдельно
-    (`test_migrations.py`), а здесь важна скорость.
+    The schema is created from models, not by migrations: migrations are
+    checked separately (`test_migrations.py`), and speed matters here.
     """
     engine = create_async_engine(TEST_DATABASE_URL, poolclass=None)
     try:
@@ -66,7 +66,7 @@ async def session(loaded) -> AsyncIterator[AsyncSession]:
 
 @pytest_asyncio.fixture
 async def factory(loaded) -> AsyncIterator[async_sessionmaker[AsyncSession]]:
-    """Фабрика сессий поверх той же чистой базы — для журнала заданий."""
+    """A session factory over the same clean database -- for the job journal."""
     engine = create_async_engine(TEST_DATABASE_URL)
     try:
         async with engine.begin() as connection:

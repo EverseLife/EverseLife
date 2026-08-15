@@ -1,13 +1,13 @@
-"""Суточные агрегаты мира (D-139, 60-meta/04).
+"""The world's daily aggregates (D-139, 60-meta/04).
 
-**Считает движок, а не дашборд.** Причина не в удобстве: торговая сводка города
-— игровой экран с той же агрегацией (D-124), и вторая копия формул в панелях
-разошлась бы с первой. Здесь складываются суточные значения; панель их только
-показывает.
+**The engine computes, not the dashboard.** The reason is not convenience:
+the city's trade summary is a game screen with the same aggregation (D-124),
+and a second copy of the formulas in panels would diverge from the first.
+Daily values are stored here; the panel only shows them.
 
-Здесь же лежит то, ради чего всё это заводится: **память о вчера**. Проверка
-вида «запас растёт две недели подряд» требует помнить предыдущий результат, а
-живая выборка этого не умеет.
+Here also lies what all this is created for: **the memory of yesterday**. A
+check like "stock grows two weeks in a row" needs the previous result
+remembered, and a live query cannot do that.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ from src.db.base import Base, created_column, uuid_pk
 
 
 class DailyMetric(Base):
-    """Одно измерение за сутки: ключ и значение."""
+    """One measurement per day: key and value."""
 
     __tablename__ = "daily_metric"
     __table_args__ = (
@@ -31,9 +31,9 @@ class DailyMetric(Base):
     )
 
     id: Mapped[uuid.UUID] = uuid_pk()
-    #: Сутки, за которые снято измерение.
+    #: The day the measurement was taken for.
     day: Mapped[date] = mapped_column(nullable=False)
-    #: Имя измерения: `money.total`, `stock.Руда`, `price.Уголь` и так далее.
+    #: The measurement name: `money.total`, `stock.<ore>`, `price.<coal>` and so on.
     key: Mapped[str] = mapped_column(nullable=False)
     value: Mapped[float] = mapped_column(Numeric(18, 4), nullable=False)
 

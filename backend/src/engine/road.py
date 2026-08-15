@@ -1,43 +1,44 @@
-"""Дороги: покрытие как работа на ребре (D-107, D-158).
+"""Roads: surface as work on an edge (D-107, D-158).
 
-Разведка растит карту (D-156), обоз возит по ней груз (D-157) — и на стыке
-обнаруживается дыра: до найденного узла ведёт бездорожье, а бездорожье
-транспорт не пускает вовсе. Карта росла **непроезжей**, и превратить тропу в
-дорогу было нечем.
+Exploration grows the map (D-156), the convoy hauls cargo along it (D-157) --
+and at the junction a hole appears: offroad leads to the found node, and
+offroad lets no vehicle through at all. The map grew **impassable**, and there
+was nothing to turn a trail into a road with.
 
-## Укладка
+## Laying
 
-Тот, кто стоит в одном из концов ребра, тратит `road.surface_per_edge`
-дорожного полотна и `road.build_hours` времени, и покрытие поднимается **на
-ступень**:
+Whoever stands at one end of the edge spends `road.surface_per_edge` of road
+surface and `road.build_hours` of time, and the surface rises **by a tier**:
 
-    бездорожье → дорога → мощёный тракт
+    offroad -> road -> paved highway
 
-Каждая ступень — отдельный проект и отдельные сорок единиц полотна. Работа идёт
-заданием журнала, как всякая длительная: полотно списывается сразу, дорога
-ложится по сроку, и закрытая вкладка ей не мешает.
+Each tier is a separate project and a separate forty units of surface. The
+work runs as a journal job, like every long-running one: the surface is
+written off at once, the road is laid on schedule, and a closed tab does not
+stop it.
 
-## Зарастание
+## Overgrowing
 
-У покрытия есть состояние 0…100. Оно падает на `road.decay_rate` в сутки, и на
-нуле покрытие опускается на ступень: тракт становится дорогой, дорога —
-тропой. Заброшенная дорога возвращается в бездорожье примерно за сто суток.
+A surface has a condition 0..100. It falls by `road.decay_rate` per day, and
+at zero the surface drops a tier: a highway becomes a road, a road a trail. An
+abandoned road returns to offroad in about a hundred days.
 
-**Подсыпка** поднимает состояние обратно и стоит полотна ровно в той доле, в
-какой дорога просела: провалившаяся наполовину требует половины укладки.
+**Resurfacing** raises the condition back and costs surface in exactly the
+share by which the road sagged: one that sagged by half needs half a laying.
 
-## Почему на ребре, а не на узле
+## Why on the edge, not the node
 
-Дорога-постройка на узле сделала бы связность свойством точки, и география
-свелась бы к «развитым» и «неразвитым» местам. Дорога на ребре — это отношение
-между двумя местами: за него можно драться, его можно перерезать, и оно
-достаётся тому, кто вложился в **направление**, а не в точку.
+A road-as-building on a node would make connectivity a property of a point,
+and geography would reduce to "developed" and "undeveloped" places. A road on
+an edge is a relation between two places: it can be fought over, it can be
+cut, and it goes to whoever invested in a **direction**, not a point.
 
-## Чего здесь нет
+## What is not here
 
-**Владения ребром и пошлины.** `road.toll_max` в вольте есть, но брать плату
-за проезд некому: у дороги нет хозяина, а заводить его молча — значит решить
-за гейм-дизайн, кому достаётся общая работа. Ждёт своего решения (D-107).
+**Edge ownership and tolls.** `road.toll_max` exists in the vault, but there
+is nobody to charge for passage: the road has no owner, and creating one
+silently would decide for game design who gets the shared work. Awaits its
+decision (D-107).
 """
 
 from __future__ import annotations
@@ -60,10 +61,10 @@ from src.models.job import Job, JobKind, JobState
 from src.models.world import Edge, Node, Surface
 from src.units import AMOUNT_SCALE, SCALE_MAX, SCALE_MIN, amount, amount_float
 
-#: Расходник вольта, из которого делается покрытие (D-107).
+#: The vault consumable the surface is made of (D-107).
 SURFACE_GOODS = "Дорожное полотно"
 
-#: Ступени покрытия снизу вверх. Порядок — это и есть лестница укладки.
+#: Surface tiers from bottom to top. The order is the laying ladder itself.
 LADDER = (Surface.TRAIL, Surface.ROAD, Surface.PAVED)
 
 
@@ -72,37 +73,37 @@ class RoadError(Exception):
 
 
 class NotHere(RoadError):
-    """Ребро не отсюда. Дорогу кладут ногами, стоя в одном из её концов."""
+    """The edge is not from here. A road is laid on foot, standing at one of its ends."""
 
 
 class TopSurface(RoadError):
-    """Выше тракта покрытия нет: лестница кончилась."""
+    """There is no surface above a highway: the ladder ended."""
 
 
 class NoSurfaceGoods(RoadError):
-    """Полотна не хватает. Дорога — это материалы, а не намерение."""
+    """Not enough surface. A road is materials, not intent."""
 
 
 class AlreadyWorking(RoadError):
-    """На этом ребре уже идёт работа. Две бригады одну дорогу не кладут."""
+    """Work is already going on this edge. Two crews do not lay one road."""
 
 
 def next_step(surface: Surface) -> Surface:
-    """Следующая ступень покрытия. Тракт — потолок."""
-    место = LADDER.index(surface)
-    if место + 1 >= len(LADDER):
+    """The next surface tier. The highway is the ceiling."""
+    place = LADDER.index(surface)
+    if place + 1 >= len(LADDER):
         raise TopSurface("мощёный тракт — верх лестницы: выше класть нечего")
-    return LADDER[место + 1]
+    return LADDER[place + 1]
 
 
 def lower_step(surface: Surface) -> Surface | None:
-    """Ступень вниз: заросшая дорога. Ниже бездорожья ничего нет."""
-    место = LADDER.index(surface)
-    return LADDER[место - 1] if место > 0 else None
+    """A tier down: an overgrown road. There is nothing below offroad."""
+    place = LADDER.index(surface)
+    return LADDER[place - 1] if place > 0 else None
 
 
 async def pending(session: AsyncSession, edge: Edge) -> Job | None:
-    """Идущая работа на этом ребре, если она есть."""
+    """The ongoing work on this edge, if any."""
     return (
         await session.execute(
             select(Job).where(
@@ -115,16 +116,16 @@ async def pending(session: AsyncSession, edge: Edge) -> Job | None:
 
 
 def needed(constants: Constants, edge: Edge, *, mend: bool) -> float:
-    """Сколько полотна возьмёт работа: укладка — полную норму, подсыпка — долю.
+    """How much surface the work takes: laying -- the full norm, resurfacing -- a share.
 
-    Провалившаяся наполовину дорога требует половины укладки: платить за
-    содержание как за стройку значило бы сделать содержание невыгодным всегда.
+    A road that sagged by half needs half a laying: paying for maintenance as
+    for construction would make maintenance never worthwhile.
     """
-    норма = constants[R.ROAD_SURFACE_PER_EDGE]
+    norm = constants[R.ROAD_SURFACE_PER_EDGE]
     if not mend:
-        return норма
-    просело = (SCALE_MAX - float(edge.condition)) / SCALE_MAX
-    return норма * просело
+        return norm
+    sagged = (SCALE_MAX - float(edge.condition)) / SCALE_MAX
+    return norm * sagged
 
 
 async def lay(
@@ -137,10 +138,10 @@ async def lay(
     mend: bool = False,
     now: datetime | None = None,
 ) -> Job:
-    """Уложить ступень покрытия либо подсыпать просевшую дорогу.
+    """Lay a surface tier or resurface a sagged road.
 
-    Полотно списывается вперёд, как материалы партии: работа, на которую не
-    хватило материала, не начинается вовсе.
+    Surface is written off up front, like batch materials: work that lacked
+    material does not start at all.
     """
     from src.engine import travel
 
@@ -156,56 +157,56 @@ async def lay(
             raise RoadError("дорога цела: подсыпать нечего")
         if edge.surface is Surface.TRAIL:
             raise RoadError("бездорожью подсыпать нечего: сначала уложить дорогу")
-        цель = edge.surface
+        goal = edge.surface
     else:
-        цель = next_step(edge.surface)
+        goal = next_step(edge.surface)
     if await pending(session, edge) is not None:
         raise AlreadyWorking("на этом ребре уже идёт работа: дождитесь конца")
 
-    #: Проверка идёт до списания: отказ не должен съедать половину полотна.
-    нужно = needed(constants, edge, mend=mend)
-    в_руках = await _surface_at_hand(session, body)
-    if в_руках + _EPS < нужно:
+    #: The check comes before the write-off: a refusal must not eat half the surface.
+    need_amount = needed(constants, edge, mend=mend)
+    in_hands = await _surface_at_hand(session, body)
+    if in_hands + _EPS < need_amount:
         raise NoSurfaceGoods(
-            f"нужно {нужно:.0f} «{SURFACE_GOODS}», а в руках {в_руках:.0f}: "
+            f"нужно {need_amount:.0f} «{SURFACE_GOODS}», а в руках {in_hands:.0f}: "
             "дорога — это материалы, а не намерение"
         )
-    списано = await _take_surface(session, body, нужно)
+    written_off = await _take_surface(session, body, need_amount)
 
-    готово = moment + timedelta(hours=constants[R.ROAD_BUILD_HOURS])
+    ready_ = moment + timedelta(hours=constants[R.ROAD_BUILD_HOURS])
     event = await events.record(
         session,
         EventKind.ROAD_WORK_STARTED,
         actor_identity_id=body.identity_id,
         node_id=body.node_id,
         edge_id=str(edge.id),
-        surface=цель.value,
+        surface=goal.value,
         mend=mend,
-        spent=списано,
-        ready_at=готово.isoformat(),
+        spent=written_off,
+        ready_at=ready_.isoformat(),
     )
     job = await enqueue(
         session,
         JobKind.ROAD_WORK,
-        готово,
-        payload={"edge": str(edge.id), "surface": цель.value, "mend": mend},
+        ready_,
+        payload={"edge": str(edge.id), "surface": goal.value, "mend": mend},
         dedup_key=f"road.work:{edge.id}:{event.id}",
         cause_event_id=event.id,
         body_id=body.id,
     )
-    if job is None:  # pragma: no cover — ключ уникален по событию
+    if job is None:  # pragma: no cover -- the key is unique per event
         raise AlreadyWorking("работа уже поставлена")
     return job
 
 
 @handler(JobKind.ROAD_WORK)
 async def finished(session: AsyncSession, job: Job) -> None:
-    """Работа окончена: покрытие поднялось, состояние — как новое."""
+    """Work is done: the surface rose, the condition is as new."""
     edge = await session.get(Edge, uuid.UUID(job.payload["edge"]))
-    if edge is None:  # pragma: no cover — ребро вечно, как и карта
+    if edge is None:  # pragma: no cover -- an edge is eternal, like the map
         raise RoadError(f"задание {job.id}: ребра нет")
 
-    было = edge.surface
+    before = edge.surface
     edge.surface = Surface(job.payload["surface"])
     edge.condition = Decimal(str(SCALE_MAX))
     await session.flush()
@@ -214,61 +215,60 @@ async def finished(session: AsyncSession, job: Job) -> None:
         session,
         EventKind.ROAD_LAID,
         edge_id=str(edge.id),
-        was=было.value,
+        was=before.value,
         surface=edge.surface.value,
         mend=bool(job.payload.get("mend")),
     )
 
 
 async def decay(session: AsyncSession, constants: Constants) -> int:
-    """Суточное зарастание. Возвращает число рёбер, потерявших ступень.
+    """Daily overgrowing. Returns the number of edges that lost a tier.
 
-    Дорога, которой не занимаются, возвращается в бездорожье примерно за сто
-    суток. Это тот самый постоянный сток материалов, ради которого содержание
-    вообще существует (D-107).
+    A road nobody tends returns to offroad in about a hundred days. That is
+    the very constant sink of materials which maintenance exists for at all (D-107).
     """
-    рёбра = (
+    edges = (
         await session.execute(select(Edge).where(Edge.surface != Surface.TRAIL))
     ).scalars().all()
 
-    шаг = constants[R.ROAD_DECAY_RATE]
-    заросло = 0
-    for ребро in рёбра:
-        осталось = float(ребро.condition) - шаг
-        if осталось > SCALE_MIN:
-            ребро.condition = Decimal(str(осталось))
+    step = constants[R.ROAD_DECAY_RATE]
+    overgrown = 0
+    for edge in edges:
+        left = float(edge.condition) - step
+        if left > SCALE_MIN:
+            edge.condition = Decimal(str(left))
             continue
-        ниже = lower_step(ребро.surface)
-        if ниже is None:  # pragma: no cover — тропа отобрана запросом
+        below = lower_step(edge.surface)
+        if below is None:  # pragma: no cover -- the trail is filtered out by the query
             continue
-        было = ребро.surface
-        ребро.surface = ниже
-        #: Просевшее покрытие обнажает то, что под ним: новая ступень начинает
-        #: со свежего состояния, а не с нуля — иначе дорога сыпалась бы до
-        #: бездорожья за двое суток.
-        ребро.condition = Decimal(str(SCALE_MAX))
-        заросло += 1
+        before = edge.surface
+        edge.surface = below
+        #: A sagged surface exposes what is under it: the new tier starts with
+        #: fresh condition, not zero -- otherwise a road would crumble down to
+        #: offroad in two days.
+        edge.condition = Decimal(str(SCALE_MAX))
+        overgrown += 1
         await events.record(
             session,
             EventKind.ROAD_DECAYED,
-            edge_id=str(ребро.id),
-            was=было.value,
-            surface=ниже.value,
+            edge_id=str(edge.id),
+            was=before.value,
+            surface=below.value,
         )
     await session.flush()
-    return заросло
+    return overgrown
 
 
 async def view(
     session: AsyncSession, constants: Constants, body: Body
 ) -> list[dict]:
-    """Рёбра из этого узла глазами клиента: что уложено и что можно уложить."""
+    """Edges from this node through the client's eyes: what is laid and what can be laid."""
     from src.engine import travel
 
     node = await session.get(Node, body.node_id)
-    if node is None:  # pragma: no cover — тело всегда стоит в узле
+    if node is None:  # pragma: no cover -- a body always stands in a node
         return []
-    рёбра = (
+    edges = (
         await session.execute(
             select(Edge).where(
                 or_(Edge.node_a_id == node.id, Edge.node_b_id == node.id)
@@ -276,79 +276,79 @@ async def view(
         )
     ).scalars().all()
 
-    в_руках = await _surface_at_hand(session, body)
-    итог: list[dict] = []
-    for ребро in рёбра:
-        другой = await session.get(
-            Node, ребро.node_b_id if ребро.node_a_id == node.id else ребро.node_a_id
+    in_hands = await _surface_at_hand(session, body)
+    result: list[dict] = []
+    for edge in edges:
+        other = await session.get(
+            Node, edge.node_b_id if edge.node_a_id == node.id else edge.node_a_id
         )
-        if другой is None:  # pragma: no cover — ребро в никуда это баг
+        if other is None:  # pragma: no cover -- an edge to nowhere is a bug
             continue
         try:
-            дальше: str | None = next_step(ребро.surface).value
-            нужно: float | None = needed(constants, ребро, mend=False)
+            further: str | None = next_step(edge.surface).value
+            need_amount: float | None = needed(constants, edge, mend=False)
         except TopSurface:
-            дальше, нужно = None, None
-        подсыпать = (
+            further, need_amount = None, None
+        resurface = (
             None
-            if ребро.surface is Surface.TRAIL or float(ребро.condition) >= SCALE_MAX
-            else needed(constants, ребро, mend=True)
+            if edge.surface is Surface.TRAIL or float(edge.condition) >= SCALE_MAX
+            else needed(constants, edge, mend=True)
         )
-        итог.append(
+        result.append(
             {
-                "edge": str(ребро.id),
-                "to": другой.name,
-                "surface": ребро.surface.value,
-                "condition": float(ребро.condition),
-                "seconds": round(travel.edge_seconds(constants, ребро)),
-                "next": дальше,
-                "needs": нужно,
-                "mend_needs": подсыпать,
-                "at_hand": в_руках,
-                "working": await pending(session, ребро) is not None,
+                "edge": str(edge.id),
+                "to": other.name,
+                "surface": edge.surface.value,
+                "condition": float(edge.condition),
+                "seconds": round(travel.edge_seconds(constants, edge)),
+                "next": further,
+                "needs": need_amount,
+                "mend_needs": resurface,
+                "at_hand": in_hands,
+                "working": await pending(session, edge) is not None,
             }
         )
-    return sorted(итог, key=lambda путь: путь["to"])
+    return sorted(result, key=lambda path: path["to"])
 
 
-#: Полотно дробится на тысячные, как всякое сырьё: сравнение «хватило ли»
-#: обязано терпеть последний разряд, иначе ровно сорок единиц окажутся
-#: недостаточными из-за представления.
+#: Surface splits into thousandths, like every raw material: the "was it
+#: enough" comparison must tolerate the last digit, otherwise exactly forty
+#: units turn out insufficient due to representation.
 _EPS = 1 / AMOUNT_SCALE
 
 
 async def _surface_at_hand(session: AsyncSession, body: Body) -> float:
-    карман = await world.body_container(session, body)
-    стопки = (
+    pocket = await world.body_container(session, body)
+    stacks = (
         await session.execute(
             select(Item).where(
-                Item.container_id == карман.id, Item.type_key == SURFACE_GOODS
+                Item.container_id == pocket.id, Item.type_key == SURFACE_GOODS
             )
         )
     ).scalars().all()
-    return sum(amount_float(стопка.amount) for стопка in стопки)
+    return sum(amount_float(stack.amount) for stack in stacks)
 
 
-async def _take_surface(session: AsyncSession, body: Body, нужно: float) -> float:
-    """Списать полотно из рук. Возвращает, сколько удалось взять."""
-    карман = await world.body_container(session, body)
-    стопки = (
+async def _take_surface(session: AsyncSession, body: Body, need_amount: float) -> float:
+    """Write off surface from the hands. Returns how much could be taken."""
+    pocket = await world.body_container(session, body)
+    stacks = (
         await session.execute(
             select(Item).where(
-                Item.container_id == карман.id, Item.type_key == SURFACE_GOODS
+                Item.container_id == pocket.id, Item.type_key == SURFACE_GOODS
             )
         )
     ).scalars().all()
-    осталось = amount(нужно)
-    взято = 0
-    for стопка in стопки:
-        if осталось <= 0:
+    left = amount(need_amount)
+    taken = 0
+    for stack in stacks:
+        if left <= 0:
             break
-        сколько = min(осталось, стопка.amount)
-        стопка.amount -= сколько
-        взято += сколько
-        осталось -= сколько
-        if стопка.amount <= 0:
-            await session.delete(стопка)
+        qty = min(left, stack.amount)
+        stack.amount -= qty
+        taken += qty
+        left -= qty
+        if stack.amount <= 0:
+            await session.delete(stack)
     await session.flush()
-    return amount_float(взято)
+    return amount_float(taken)

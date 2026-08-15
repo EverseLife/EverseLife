@@ -1,12 +1,14 @@
-"""Аккаунт: почта, пароль, жетон сессии, кабинет (D-187).
+"""Account: email, password, session token, account panel (D-187).
 
-Аккаунт — оплата и устройство, личность — игра (05-domain-model). Здесь нет
-ни одного игрового правила: только опознание и самоописание персонажа. Всё,
-что решает движок — имя, репутация, гражданство, — живёт в `world` и `city`.
+The account is payment and device, the identity is the game (05-domain-model).
+There is not a single game rule here: only identification and the character's
+self-description. Everything the engine decides -- name, reputation,
+citizenship -- lives in `world` and `city`.
 
-Пароль хранится хэшем Argon2id той же библиотекой, что считает плату
-устройства (`engine/pow.py`): второй криптографии проекту не нужно. Жетон
-сессии выдаётся при входе и хранится **хэшем**: утёкшая таблица не даёт войти.
+The password is stored as an Argon2id hash by the same library that computes
+the device fee (`engine/pow.py`): the project needs no second cryptography.
+The session token is issued at login and stored **as a hash**: a leaked table
+does not let anyone in.
 """
 
 from __future__ import annotations
@@ -36,17 +38,17 @@ from src.runtime import (
 
 
 class AccountError(Exception):
-    """Отказ опознания или кабинета. Не ошибка сервера."""
+    """A refusal of identification or the account panel. Not a server error."""
 
 
-#: Достаточно, чтобы отсечь опечатки; настоящую проверку сделает письмо, когда
-#: появится рассылка. Строже — значит отказывать живым адресам.
+#: Enough to cut off typos; the real check will be done by a letter once mail
+#: delivery exists. Stricter would mean refusing live addresses.
 _EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 _hasher = PasswordHasher()
 
-#: Линии персонажа для экрана выбора: имя, чем отличается, играбельна ли.
-#: Текст — из установки мира (10-world/00, 10-world/03), не тайна лора.
+#: Character lines for the selection screen: name, how it differs, whether
+#: playable. The text is from the world setting (10-world/00, 10-world/03), not a lore secret.
 LINES: list[dict[str, Any]] = [
     {
         "id": Line.HUMAN.value,
@@ -82,11 +84,11 @@ LINES: list[dict[str, Any]] = [
 ]
 
 
-# --- почта и пароль ---------------------------------------------------------
+# --- email and password ------------------------------------------------------
 
 
 def normalize_email(raw: Any) -> str:
-    """Почта приводится к нижнему регистру: один адрес — один аккаунт."""
+    """Email is lower-cased: one address -- one account."""
     email = str(raw or "").strip().lower()
     if not email or not _EMAIL.match(email):
         raise AccountError("почта выглядит неправильно")
@@ -122,7 +124,7 @@ async def by_email(session: AsyncSession, email: str) -> Account | None:
 async def set_credentials(
     session: AsyncSession, account: Account, email: str, password: str
 ) -> None:
-    """Назначить почту и пароль. Занятая чужим аккаунтом почта — отказ."""
+    """Set email and password. An email taken by another account -- refusal."""
     email = normalize_email(email)
     other = await by_email(session, email)
     if other is not None and other.id != account.id:
@@ -133,13 +135,13 @@ async def set_credentials(
 
 
 async def login(session: AsyncSession, email: Any, password: Any) -> Account:
-    """Опознать по почте и паролю. Отказ один и тот же на оба случая: чужой
-    адрес и чужой пароль отличать снаружи не нужно."""
+    """Identify by email and password. The same refusal for both cases: a
+    foreign address and a wrong password need not be told apart from outside."""
     try:
-        адрес = normalize_email(email)
+        address = normalize_email(email)
     except AccountError:
         raise AccountError("почта или пароль не подходят") from None
-    account = await by_email(session, адрес)
+    account = await by_email(session, address)
     if account is None or account.disabled_at is not None:
         raise AccountError("почта или пароль не подходят")
     if not verify_password(account, str(password or "")):
@@ -147,7 +149,7 @@ async def login(session: AsyncSession, email: Any, password: Any) -> Account:
     return account
 
 
-# --- жетон сессии -------------------------------------------------------------
+# --- session token -----------------------------------------------------------
 
 
 def _digest(token: str) -> str:
@@ -155,7 +157,7 @@ def _digest(token: str) -> str:
 
 
 async def issue_token(session: AsyncSession, account: Account) -> str:
-    """Новый жетон. Наружу уходит сам жетон, в базе остаётся его хэш."""
+    """A new token. The token itself goes out, its hash stays in the database."""
     token = secrets.token_urlsafe(LOGIN_TOKEN_BYTES)
     session.add(
         LoginToken(
@@ -169,7 +171,7 @@ async def issue_token(session: AsyncSession, account: Account) -> str:
 
 
 async def by_token(session: AsyncSession, token: Any) -> Account:
-    """Аккаунт по жетону. Просроченный и отозванный — тот же отказ."""
+    """The account by token. Expired and revoked -- the same refusal."""
     raw = str(token or "")
     if not raw:
         raise AccountError("жетон пуст")
@@ -191,7 +193,7 @@ async def by_token(session: AsyncSession, token: Any) -> Account:
 
 
 async def revoke_token(session: AsyncSession, token: Any) -> None:
-    """Выход: жетон больше не опознаёт. Чужой или неизвестный — молча."""
+    """Logout: the token no longer identifies. Somebody else's or unknown -- silently."""
     found = (
         await session.execute(
             select(LoginToken).where(LoginToken.token_hash == _digest(str(token or "")))
@@ -203,25 +205,25 @@ async def revoke_token(session: AsyncSession, token: Any) -> None:
 
 
 async def revoke_all(session: AsyncSession, account: Account) -> None:
-    """Смена пароля отзывает все жетоны: старые сессии не переживают её."""
+    """A password change revokes all tokens: old sessions do not survive it."""
     now = datetime.now(UTC)
-    for жетон in (
+    for token in (
         await session.execute(
             select(LoginToken).where(
                 LoginToken.account_id == account.id, LoginToken.revoked_at.is_(None)
             )
         )
     ).scalars():
-        жетон.revoked_at = now
+        token.revoked_at = now
     await session.flush()
 
 
-# --- персонаж ---------------------------------------------------------------
+# --- character ---------------------------------------------------------------
 
 
 def check_name(raw: Any) -> str:
-    """Имя — единственное, что движок считает своим (D-011): уникально и
-    несменяемо. Проверка длины и непустоты — здесь, уникальности — в `world.spawn`."""
+    """The name is the only thing the engine considers its own (D-011): unique and
+    unchangeable. Length and non-emptiness are checked here, uniqueness in `world.spawn`."""
     name = " ".join(str(raw or "").split())
     if not name:
         raise AccountError("имя не названо")
@@ -231,7 +233,7 @@ def check_name(raw: Any) -> str:
 
 
 def check_profile(message: dict[str, Any]) -> dict[str, Any]:
-    """Фамилия, возраст, описание — самоописание, но в пределах."""
+    """Surname, age, description -- self-description, but within limits."""
     surname = " ".join(str(message.get("surname") or "").split())
     if len(surname) > CHARACTER_SURNAME_LIMIT:
         raise AccountError(f"фамилия длиннее {CHARACTER_SURNAME_LIMIT} знаков")
@@ -251,7 +253,7 @@ def check_profile(message: dict[str, Any]) -> dict[str, Any]:
 
 
 def check_line(raw: Any) -> Line:
-    """Линия: в альфе играбельна одна (D-104). Нимфы — «ещё в разработке»."""
+    """Line: one is playable in the alpha (D-104). Nymphs are "still in development"."""
     try:
         line = Line(str(raw or Line.HUMAN.value))
     except ValueError:
@@ -269,7 +271,7 @@ def apply_profile(identity: Identity, profile: dict[str, Any]) -> None:
 
 
 def profile(account: Account, identity: Identity) -> dict[str, Any]:
-    """Кабинет: что игрок видит о себе. Игрового здесь нет."""
+    """Account panel: what the player sees about themselves. Nothing game-related here."""
     return {
         "email": account.email,
         "name": identity.name,
@@ -282,7 +284,7 @@ def profile(account: Account, identity: Identity) -> dict[str, Any]:
 
 
 async def lines(session: AsyncSession) -> list[dict[str, Any]]:
-    """Линии с числом играющих: экран выбора обязан показывать живой мир."""
+    """Lines with the number of players: the selection screen must show a living world."""
     counts = dict(
         (
             await session.execute(
@@ -297,6 +299,6 @@ async def lines(session: AsyncSession) -> list[dict[str, Any]]:
 
 async def account_of(session: AsyncSession, identity: Identity) -> Account:
     account = await session.get(Account, identity.account_id)
-    if account is None:  # pragma: no cover — личность без аккаунта это баг
+    if account is None:  # pragma: no cover -- an identity without an account is a bug
         raise RuntimeError(f"у личности {identity.id} нет аккаунта")
     return account

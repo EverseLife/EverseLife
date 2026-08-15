@@ -1,15 +1,15 @@
 /**
- * Левый сайдбар — то, что работает через Сеть (D-050).
+ * The left sidebar -- what works over the Net (D-050).
  *
- * Организующий принцип интерфейса — тот же, что у мира: **сайдбар — удалённое,
- * основное окно — присутственное**. Всё, что здесь лежит, доступно откуда
- * угодно, хоть с дороги: счёт, дела, свои ордера, знания. Игрок усваивает
- * устройство мира, просто пользуясь интерфейсом.
+ * The interface's organising principle is the same as the world's: **the
+ * sidebar is remote, the main window is in-person**. Everything lying here is
+ * available from anywhere, even from the road: account, jobs, own orders,
+ * knowledge. The player absorbs the world's structure just by using the interface.
  *
- * Из табов вольта собраны те, за которыми уже есть механика: персонаж,
- * инвентарь, дела, торговля, знания, хозяйство. Управление городом отсюда
- * ушло в администрацию: власть присутственна (D-155). Банк и обязательства
- * приедут со своими системами (Э3–Э4).
+ * From the vault's tabs those with mechanics behind them are assembled:
+ * character, inventory, jobs, trade, knowledge, holdings. City governing left
+ * here for the administration: authority is in-person (D-155). Bank and
+ * obligations arrive with their systems (E3-E4).
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -25,8 +25,8 @@ type Props = {
   session: Session;
   busy: boolean;
   act: (what: () => Promise<unknown>) => Promise<void>;
-  /** Справочник вольта — для вкладки «крафт»: что делается руками. */
-  книга?: any;
+  /** The vault catalog -- for the "craft" tab: what is made by hand. */
+  book?: any;
 };
 
 const TABS = [
@@ -38,27 +38,27 @@ const TABS = [
   "знания",
   "хозяйство",
 ] as const;
-//: Государственные вкладки: цифры экономики и населения — для тех, кто
-//: правит. Показываются только гос.должностям; та же сводка присутственно
-//: видна в узле с администрацией (D-140, D-154).
+//: State tabs: economy and population figures -- for those who govern. Shown
+//: only to state officials; the same summary is visible in person in the node
+//: with the administration (D-140, D-154).
 const STATE_TABS = ["экономика", "население"] as const;
 type Tab = (typeof TABS)[number] | (typeof STATE_TABS)[number];
 
-export function Sidebar({ look, session, busy, act, книга }: Props) {
+export function Sidebar({ look, session, busy, act, book }: Props) {
   const [tab, setTab] = useState<Tab>("персонаж");
 
-  //: Гос.должность — это хоть одно полномочие в городе (D-155).
-  const чиновник = (look.city?.powers?.length ?? 0) > 0;
-  const вкладки: readonly Tab[] = чиновник ? [...TABS, ...STATE_TABS] : TABS;
-  const текущая: Tab = вкладки.includes(tab) ? tab : "персонаж";
+  //: A state office is at least one power in a city (D-155).
+  const official = (look.city?.powers?.length ?? 0) > 0;
+  const tabs: readonly Tab[] = official ? [...TABS, ...STATE_TABS] : TABS;
+  const current: Tab = tabs.includes(tab) ? tab : "персонаж";
 
   return (
     <aside className="sidebar">
       <nav className="row tabs">
-        {вкладки.map((name) => (
+        {tabs.map((name) => (
           <button
             key={name}
-            className={текущая === name ? "" : "quiet"}
+            className={current === name ? "" : "quiet"}
             onClick={() => setTab(name)}
           >
             {name}
@@ -66,43 +66,43 @@ export function Sidebar({ look, session, busy, act, книга }: Props) {
         ))}
       </nav>
 
-      {текущая === "персонаж" && (
+      {current === "персонаж" && (
         <Character look={look} session={session} busy={busy} act={act} />
       )}
-      {текущая === "инвентарь" && (
+      {current === "инвентарь" && (
         <Inventory look={look} session={session} busy={busy} act={act} />
       )}
       {/* Ручной крафт живёт в сайдбаре: верёвку вьют там, где стоят, и станок
           этому месту не нужен. Запуск всё равно присутственный: в пути и во
           сне сервер откажет. */}
-      {текущая === "крафт" && (
+      {current === "крафт" && (
         <Workshop
-          станок={null}
-          книга={книга}
+          machine={null}
+          book={book}
           look={look}
           act={act}
           session={session}
           busy={busy}
         />
       )}
-      {текущая === "дела" && <Doings look={look} />}
-      {текущая === "торговля" && (
+      {current === "дела" && <Doings look={look} />}
+      {current === "торговля" && (
         <Trade look={look} session={session} busy={busy} act={act} />
       )}
-      {текущая === "знания" && <Knowledge look={look} />}
+      {current === "знания" && <Knowledge look={look} />}
       {/* Хозяйство — деньги и документы, а не материя: счета за быт и ценные
           бумаги живут в Сети (D-116, D-149). */}
-      {текущая === "хозяйство" && (
+      {current === "хозяйство" && (
         <>
           <Holdings look={look} session={session} busy={busy} act={act} />
           {/* Банк — тоже Сеть: кредит берут и гасят откуда угодно (D-167). */}
           <Bank session={session} busy={busy} act={act} />
         </>
       )}
-      {текущая === "экономика" && (
+      {current === "экономика" && (
         <Economy look={look} session={session} busy={busy} />
       )}
-      {текущая === "население" && (
+      {current === "население" && (
         <Population look={look} session={session} busy={busy} />
       )}
 
@@ -114,11 +114,11 @@ export function Sidebar({ look, session, busy, act, книга }: Props) {
 }
 
 function Character({ look, session, busy, act }: Props) {
-  const спит_с = look.body?.sleeping_since ?? null;
-  const сыт =
+  const sleepingSince = look.body?.sleeping_since ?? null;
+  const fed =
     look.body?.satiated_until != null &&
     new Date(look.body.satiated_until).getTime() > Date.now();
-  const кровать = (look.node?.stations ?? []).includes("Кровать");
+  const bed_ = (look.node?.stations ?? []).includes("Кровать");
   return (
     <div>
       <p className="sign">{look.identity}</p>
@@ -134,14 +134,14 @@ function Character({ look, session, busy, act }: Props) {
           </tr>
           <tr>
             <td>сытость</td>
-            <td className="num">{сыт ? "сыт: расход ниже" : "—"}</td>
+            <td className="num">{fed ? "сыт: расход ниже" : "—"}</td>
           </tr>
           <tr>
             <td>тело</td>
             <td className="num">
               {look.body === null
                 ? "нет"
-                : спит_с
+                : sleepingSince
                   ? "спит"
                   : look.survey
                     ? "в разведке"
@@ -157,13 +157,13 @@ function Character({ look, session, busy, act }: Props) {
           ложатся там, где стоят, и в пути не ложатся (D-091). */}
       {look.body !== null && (
         <div className="row">
-          {спит_с ? (
+          {sleepingSince ? (
             <>
               <button onClick={() => act(() => session.send("rest.wake"))} disabled={busy}>
                 Проснуться
               </button>
               <span className="note">
-                спит уже <Slept since={спит_с} /> · начислится при пробуждении
+                спит уже <Slept since={sleepingSince} /> · начислится при пробуждении
               </span>
             </>
           ) : (
@@ -172,12 +172,12 @@ function Character({ look, session, busy, act }: Props) {
                 onClick={() => act(() => session.send("rest.sleep"))}
                 disabled={busy || Boolean(look.travel)}
               >
-                {кровать ? "Лечь в кровать" : "Лечь спать"}
+                {bed_ ? "Лечь в кровать" : "Лечь спать"}
               </button>
               <span className="note">
                 {look.travel
                   ? "в пути не ложатся"
-                  : кровать
+                  : bed_
                     ? "кровать здесь: сон быстрее"
                     : "кровати нет: сон медленнее"}
               </span>
@@ -195,43 +195,43 @@ function Character({ look, session, busy, act }: Props) {
 }
 
 function Slept({ since }: { since: string }) {
-  const [минут, setМинут] = useState(() => elapsedMinutes(since));
+  const [minutes, setMinutes] = useState(() => elapsedMinutes(since));
   useEffect(() => {
-    const timer = setInterval(() => setМинут(elapsedMinutes(since)), 10_000);
+    const timer = setInterval(() => setMinutes(elapsedMinutes(since)), 10_000);
     return () => clearInterval(timer);
   }, [since]);
-  if (минут < 1) return <b>меньше минуты</b>;
-  if (минут < 60) return <b>{Math.floor(минут)} мин</b>;
-  return <b>{(минут / 60).toFixed(1)} ч</b>;
+  if (minutes < 1) return <b>меньше минуты</b>;
+  if (minutes < 60) return <b>{Math.floor(minutes)} мин</b>;
+  return <b>{(minutes / 60).toFixed(1)} ч</b>;
 }
 
 const elapsedMinutes = (since: string) =>
   (Date.now() - new Date(since).getTime()) / 60_000;
 
 function Inventory({ look, session, busy, act }: Props) {
-  const носимое = look.carry;
+  const carried = look.carry;
   return (
     <div>
       {/* Предел носимого — не украшение, а причина существования повозок:
           игрок обязан видеть его числом до того, как упрётся (D-146). */}
-      {носимое && (
+      {carried && (
         <>
           <p className="sign">
-            в руках {носимое.load.toFixed(1)} из {носимое.capacity.toFixed(0)} кг
+            в руках {carried.load.toFixed(1)} из {carried.capacity.toFixed(0)} кг
           </p>
           <div className="row">
-            {носимое.slots.map((слот) => {
-              const надето = носимое.equipped[слот];
+            {carried.slots.map((slot) => {
+              const worn = carried.equipped[slot];
               return (
-                <span key={слот} className="note">
-                  {слот}:{" "}
-                  {надето ? (
+                <span key={slot} className="note">
+                  {slot}:{" "}
+                  {worn ? (
                     <>
-                      {надето.goods}{" "}
+                      {worn.goods}{" "}
                       <button
                         className="quiet"
                         onClick={() =>
-                          act(() => session.send("gear.unequip", { slot: слот }))
+                          act(() => session.send("gear.unequip", { slot: slot }))
                         }
                         disabled={busy}
                       >
@@ -269,25 +269,25 @@ function Inventory({ look, session, busy, act }: Props) {
 }
 
 function Doings({ look }: { look: Look }) {
-  const пусто = look.batches.length === 0 && !look.travel;
+  const empty = look.batches.length === 0 && !look.travel;
   return (
     <div>
       {look.travel && (
         <p>
           в пути: {look.travel.final ?? look.travel.to} · придём{" "}
-          {осталось(look.travel.arrives_at)}
+          {left(look.travel.arrives_at)}
           {look.travel.final ? " в следующий узел" : ""}
         </p>
       )}
-      {look.batches.map((дело) => (
-        <p key={дело.id}>
-          {дело.work === "make" ? дело.output
-            : дело.work === "repair" ? `починка: ${дело.output}`
-            : `переработка: ${дело.output}`}{" "}
-          · {осталось(дело.ready_at)}
+      {look.batches.map((job) => (
+        <p key={job.id}>
+          {job.work === "make" ? job.output
+            : job.work === "repair" ? `починка: ${job.output}`
+            : `переработка: ${job.output}`}{" "}
+          · {left(job.ready_at)}
         </p>
       ))}
-      {пусто && <p className="note">ничего не идёт</p>}
+      {empty && <p className="note">ничего не идёт</p>}
       <p className="note">
         Длительные действия идут сами, в том числе пока вы офлайн: их двигает
         мир, а не браузер.
@@ -304,11 +304,11 @@ function Trade({ look, session, busy, act }: Props) {
       {look.reservations.length > 0 && (
         <>
           <h3>Брони</h3>
-          {look.reservations.map((бронь) => (
-            <p key={бронь.id}>
-              {бронь.goods}, {бронь.tier} · {бронь.amount} по {api.tk(бронь.price)} ₭ ·{" "}
-              {бронь.node} · задаток {api.tk(бронь.deposit)} ₭ ·{" "}
-              <b>забрать {осталось(бронь.expires_at)}</b>
+          {look.reservations.map((reservation) => (
+            <p key={reservation.id}>
+              {reservation.goods}, {reservation.tier} · {reservation.amount} по {api.tk(reservation.price)} ₭ ·{" "}
+              {reservation.node} · задаток {api.tk(reservation.deposit)} ₭ ·{" "}
+              <b>забрать {left(reservation.expires_at)}</b>
             </p>
           ))}
           <p className="note">
@@ -321,15 +321,15 @@ function Trade({ look, session, busy, act }: Props) {
       {look.orders.length === 0 ? (
         <p className="note">своих ордеров нет</p>
       ) : (
-        look.orders.map((ордер) => (
-          <div className="row" key={ордер.id}>
+        look.orders.map((order) => (
+          <div className="row" key={order.id}>
             <span>
-              {ордер.side === "buy" ? "куплю" : "продам"} {ордер.goods}, {ордер.tier} ·{" "}
-              {ордер.left} по {api.tk(ордер.price)} ₭
+              {order.side === "buy" ? "куплю" : "продам"} {order.goods}, {order.tier} ·{" "}
+              {order.left} по {api.tk(order.price)} ₭
             </span>
             <button
               className="quiet"
-              onClick={() => act(() => session.send("market.cancel", { order: ордер.id }))}
+              onClick={() => act(() => session.send("market.cancel", { order: order.id }))}
               disabled={busy}
             >
               Снять
@@ -350,7 +350,7 @@ function Knowledge({ look }: { look: Look }) {
       {look.knows.length === 0 ? (
         <p className="note">пока ничего: рецепты берут в Библиотеке</p>
       ) : (
-        look.knows.map((имя) => <p key={имя}>{имя}</p>)
+        look.knows.map((name) => <p key={name}>{name}</p>)
       )}
       <p className="note">
         Знание живёт в личности и не теряется ни смертью, ни судом (И8).
@@ -379,7 +379,7 @@ function Things({
             <td>
               {thing.flavor ?? thing.goods}
               {thing.spoils_at && (
-                <span className="note"> · {срокПорчи(thing.spoils_at)}</span>
+                <span className="note"> · {spoilAt(thing.spoils_at)}</span>
               )}
             </td>
             <td className="num">{thing.amount}</td>
@@ -414,24 +414,25 @@ function Things({
   );
 }
 
-function срокПорчи(когда: string): string {
-  const часов = (new Date(когда).getTime() - Date.now()) / 3_600_000;
-  if (часов <= 0) return "испортилось";
-  if (часов < 24) return `испортится через ${Math.round(часов)} ч`;
-  return `годно ${Math.round(часов / 24)} сут.`;
+function spoilAt(when: string): string {
+  const hours = (new Date(when).getTime() - Date.now()) / 3_600_000;
+  if (hours <= 0) return "испортилось";
+  if (hours < 24) return `испортится через ${Math.round(hours)} ч`;
+  return `годно ${Math.round(hours / 24)} сут.`;
 }
 
-function осталось(когда: string): string {
-  const секунды = Math.round((new Date(когда).getTime() - Date.now()) / 1000);
-  if (секунды <= 0) return "вот-вот";
-  return `через ${api.spell(секунды)}`;
+function left(when: string): string {
+  const seconds = Math.round((new Date(when).getTime() - Date.now()) / 1000);
+  if (seconds <= 0) return "вот-вот";
+  return `через ${api.spell(seconds)}`;
 }
 
-/** Банк: ставка, свои займы, кредит и погашение (D-030, D-087, D-167).
+/** Bank: rate, own loans, credit and repayment (D-030, D-087, D-167).
  *
- * Ставка показана вместе с объяснением, откуда она взялась: алгоритм обязан
- * быть не только детерминированным, но и читаемым — иначе спорить с денежной
- * политикой нечем. Резерв и оборотная масса публичны по той же причине.
+ * The rate is shown together with an explanation of where it came from: the
+ * algorithm must be not only deterministic but readable -- otherwise there is
+ * nothing to argue monetary policy with. Reserve and circulating supply are
+ * public for the same reason.
  */
 function Bank({
   session,
@@ -442,54 +443,54 @@ function Bank({
   busy: boolean;
   act: (what: () => Promise<unknown>) => Promise<void>;
 }) {
-  const [банк, setБанк] = useState<any>(null);
-  const [сколько, setСколько] = useState(50);
+  const [bank, setBank] = useState<any>(null);
+  const [qty, setQty] = useState(50);
 
-  const обновить = useCallback(async () => {
+  const refresh = useCallback(async () => {
     try {
-      setБанк(await session.send("bank.view"));
+      setBank(await session.send("bank.view"));
     } catch {
-      setБанк(null);
+      setBank(null);
     }
   }, [session]);
   useEffect(() => {
-    void обновить();
-  }, [обновить]);
+    void refresh();
+  }, [refresh]);
 
-  if (!банк) return null;
-  const го = (what: () => Promise<unknown>) => act(async () => {
+  if (!bank) return null;
+  const go = (what: () => Promise<unknown>) => act(async () => {
     await what();
-    await обновить();
+    await refresh();
   });
 
   return (
     <section>
       <h2>Банк</h2>
       <p>
-        ключевая ставка <b>{Number(банк.rate).toFixed(2)}%</b>
-        {банк.why && <span className="note"> · {банк.why}</span>}
+        ключевая ставка <b>{Number(bank.rate).toFixed(2)}%</b>
+        {bank.why && <span className="note"> · {bank.why}</span>}
       </p>
       <Council session={session} busy={busy} act={act} />
       <p className="note">
-        в обороте {api.tk(банк.circulating)} ₭ · в резерве {api.tk(банк.reserve)} ₭
+        в обороте {api.tk(bank.circulating)} ₭ · в резерве {api.tk(bank.reserve)} ₭
       </p>
       <p>
-        ваш лимит <b>{api.tk(банк.limit)} ₭</b>
-        <span className="note"> · {банк.limit_why}</span>
+        ваш лимит <b>{api.tk(bank.limit)} ₭</b>
+        <span className="note"> · {bank.limit_why}</span>
       </p>
 
-      {(банк.loans ?? []).length > 0 && (
+      {(bank.loans ?? []).length > 0 && (
         <table>
           <tbody>
-            {банк.loans.map((заём: any) => (
-              <tr key={заём.id}>
+            {bank.loans.map((loan: any) => (
+              <tr key={loan.id}>
                 <td>
-                  {api.tk(заём.outstanding)} ₭
-                  <span className="note"> из {api.tk(заём.principal)} ₭ под {Number(заём.rate).toFixed(1)}%</span>
+                  {api.tk(loan.outstanding)} ₭
+                  <span className="note"> из {api.tk(loan.principal)} ₭ под {Number(loan.rate).toFixed(1)}%</span>
                 </td>
                 <td>
                   <button
-                    onClick={() => го(() => session.send("bank.repay", { loan: заём.id }))}
+                    onClick={() => go(() => session.send("bank.repay", { loan: loan.id }))}
                     disabled={busy}
                   >
                     Погасить
@@ -505,13 +506,13 @@ function Bank({
         <input
           type="number"
           min={1}
-          value={сколько}
-          onChange={(e) => setСколько(Number(e.target.value))}
+          value={qty}
+          onChange={(e) => setQty(Number(e.target.value))}
           title="сколько занять, ₭"
         />
         <button
-          onClick={() => го(() => session.send("bank.borrow", { amount: сколько }))}
-          disabled={busy || сколько <= 0}
+          onClick={() => go(() => session.send("bank.borrow", { amount: qty }))}
+          disabled={busy || qty <= 0}
         >
           Взять кредит
         </button>
@@ -524,12 +525,14 @@ function Bank({
   );
 }
 
-/** Совет городов и ставка (D-087, D-172).
+/** The Council of cities and the rate (D-087, D-172).
  *
- * Пока городов с администрацией меньше порога, ставку считает алгоритм, и это
- * окно просто говорит, сколько осталось. После порога — голос города в
- * коридоре вокруг рекомендации: Совет спорит с алгоритмом, а не заменяет его.
+ * While there are fewer cities with an administration than the threshold, the
+ * algorithm computes the rate, and this window just says how many are left.
+ * After the threshold -- the city's vote in the corridor around the
+ * recommendation: the Council argues with the algorithm, not replaces it.
  */
+
 function Council({
   session,
   busy,
@@ -539,45 +542,45 @@ function Council({
   busy: boolean;
   act: (what: () => Promise<unknown>) => Promise<void>;
 }) {
-  const [совет, setСовет] = useState<any>(null);
-  const [ставка, setСтавка] = useState<number | null>(null);
+  const [council, setCouncil] = useState<any>(null);
+  const [rate, setRate] = useState<number | null>(null);
 
   useEffect(() => {
-    void session.send("bank.council").then(setСовет).catch(() => setСовет(null));
+    void session.send("bank.council").then(setCouncil).catch(() => setCouncil(null));
   }, [session]);
 
-  if (!совет) return null;
-  if (!совет.council_decides) {
+  if (!council) return null;
+  if (!council.council_decides) {
     return (
       <p className="note">
-        {совет.locked_until
-          ? `ставка возвращена алгоритму до ${new Date(совет.locked_until).toLocaleString()}: инфляция за тревожной чертой`
-          : `ставку считает алгоритм: городов с администрацией ${совет.cities_with_hall} из ${совет.handover_at}, дальше решает Совет городов`}
+        {council.locked_until
+          ? `ставка возвращена алгоритму до ${new Date(council.locked_until).toLocaleString()}: инфляция за тревожной чертой`
+          : `ставку считает алгоритм: городов с администрацией ${council.cities_with_hall} из ${council.handover_at}, дальше решает Совет городов`}
       </p>
     );
   }
 
-  const желаемая = ставка ?? Number(совет.advised);
+  const desired_ = rate ?? Number(council.advised);
   return (
     <div className="row">
       <input
         type="number"
         step={0.5}
-        min={Number(совет.advised) - Number(совет.corridor)}
-        max={Number(совет.advised) + Number(совет.corridor)}
-        value={желаемая}
-        onChange={(e) => setСтавка(Number(e.target.value))}
-        title={`коридор ±${совет.corridor} вокруг рекомендации ${Number(совет.advised).toFixed(2)}%`}
+        min={Number(council.advised) - Number(council.corridor)}
+        max={Number(council.advised) + Number(council.corridor)}
+        value={desired_}
+        onChange={(e) => setRate(Number(e.target.value))}
+        title={`коридор ±${council.corridor} вокруг рекомендации ${Number(council.advised).toFixed(2)}%`}
       />
       <button
-        onClick={() => act(() => session.send("bank.council_rate", { rate: желаемая }))}
+        onClick={() => act(() => session.send("bank.council_rate", { rate: desired_ }))}
         disabled={busy}
       >
         Голос города за ставку
       </button>
       <span className="note">
-        алгоритм советует {Number(совет.advised).toFixed(2)}% · коридор ±
-        {совет.corridor} · голос подаёт держатель права «законы» (D-172)
+        алгоритм советует {Number(council.advised).toFixed(2)}% · коридор ±
+        {council.corridor} · голос подаёт держатель права «законы» (D-172)
       </span>
     </div>
   );

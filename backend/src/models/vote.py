@@ -1,8 +1,9 @@
-"""Голосование граждан: срок, ценз, кворум, порог (D-036, D-161).
+"""Citizens' vote: term, census, quorum, threshold (D-036, D-161).
 
-Устав описывает процедуру пятью вопросами, и все они снимаются **в момент
-открытия**: устав, изменённый посреди голосования, не переписывает правила уже
-идущего. Иначе правитель, видя, что проигрывает, поднимал бы порог на ходу.
+The charter describes the procedure with five questions, and all of them are
+captured **at opening**: a charter changed mid-poll does not rewrite the rules
+of one already running. Otherwise a ruler who sees they are losing would raise
+the threshold on the fly.
 """
 
 from __future__ import annotations
@@ -19,18 +20,19 @@ from src.db.base import Base, created_column, enum_column, uuid_pk
 
 
 class VoteKind(StrEnum):
-    """Предмет голосования. Машина одна, предметы разные."""
+    """The subject of a vote. One machine, different subjects."""
 
-    #: Утверждение код-закона (`law_approval: citizens`).
+    #: Approval of a code-law (`law_approval: citizens`).
     LAW = "law"
-    #: Выборы правителя (`ruler_selection: elected_citizens`). Бюллетень
-    #: называет кандидата, а не «да/нет» (D-162).
+    #: Ruler election (`ruler_selection: elected_citizens`). The ballot names
+    #: a candidate, not "yes/no" (D-162).
     ELECTION = "election"
-    #: Отзыв правителя (`ruler_recall: by_citizens`): «да/нет» по человеку.
+    #: Ruler recall (`ruler_recall: by_citizens`): "yes/no" on a person.
     RECALL = "recall"
-    #: Правка самого устава (`charter_amendment`): свой порог, не `law_threshold`.
+    #: Amendment of the charter itself (`charter_amendment`): its own threshold, not
+    #: `law_threshold`.
     CHARTER = "charter"
-    #: Выборы в совет: побеждают столько кандидатов, сколько мест (D-164).
+    #: Council election: as many candidates win as there are seats (D-164).
     COUNCIL = "council"
 
 
@@ -47,22 +49,22 @@ class Vote(Base):
     id: Mapped[uuid.UUID] = uuid_pk()
     city_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("city.id"), nullable=False)
     kind: Mapped[VoteKind] = enum_column(VoteKind, "vote_kind", nullable=False)
-    #: Что решается: у закона — `{"law": id, "value": …}`.
+    #: What is decided: for a law -- `{"law": id, "value": ...}`.
     subject: Mapped[dict[str, Any]] = mapped_column(nullable=False, default=dict)
     opened_by_identity_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("identity.id"), nullable=True
     )
 
-    #: Условия сняты при открытии и дальше не меняются (D-161).
+    #: Conditions captured at opening and not changed afterwards (D-161).
     threshold: Mapped[str] = mapped_column(nullable=False)
     quorum_share: Mapped[float] = mapped_column(Numeric(6, 2), nullable=False, default=0)
-    #: Сколько человек имели право голоса на момент созыва: от них считается
-    #: кворум. Иначе принятый в граждане завтра меняет вчерашний расклад.
+    #: How many people had a vote at convening: the quorum is counted from
+    #: them. Otherwise somebody admitted tomorrow changes yesterday's tally.
     electorate: Mapped[int] = mapped_column(nullable=False, default=0)
 
-    #: Кто голосует: `citizens` либо `council` (D-164). Снимается при созыве,
-    #: как и всё прочее: роспуск совета посреди голосования не превращает его
-    #: в общегородское.
+    #: Who votes: `citizens` or `council` (D-164). Captured at convening like
+    #: everything else: dissolving the council mid-poll does not turn it into a
+    #: city-wide one.
     voters: Mapped[str] = mapped_column(nullable=False, default="citizens")
 
     state: Mapped[VoteState] = enum_column(
@@ -74,7 +76,7 @@ class Vote(Base):
 
 
 class Ballot(Base):
-    """Голос. Открытый: поимённо видно, кто как проголосовал (D-161)."""
+    """A vote. Open: it is visible by name who voted how (D-161)."""
 
     __tablename__ = "ballot"
     __table_args__ = (
@@ -87,10 +89,10 @@ class Ballot(Base):
     identity_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("identity.id"), nullable=False
     )
-    #: «Да/нет» у закона и отзыва. На выборах не значит ничего: там предмет —
-    #: человек, и его называет `choice_identity_id`.
+    #: "Yes/no" for a law and a recall. Means nothing in an election: there
+    #: the subject is a person, named by `choice_identity_id`.
     yes: Mapped[bool] = mapped_column(nullable=False)
-    #: За кого голос на выборах (D-162).
+    #: Whom the vote is for in an election (D-162).
     choice_identity_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("identity.id"), nullable=True
     )

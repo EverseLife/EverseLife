@@ -1,8 +1,8 @@
-"""Глашатай: что мир объявляет вслух — и чего не объявляет никогда.
+"""The herald: what the world announces aloud -- and what it never announces.
 
-Проверяется прежде всего граница, а не доставка. Сломанная доставка видна сразу
-и чинится за вечер; сломанная граница обнаруживается в тот день, когда в общий
-канал уедет чужой кошелёк, и обратно её уже не соберёшь.
+Checked above all is the boundary, not delivery. Broken delivery is seen at
+once and fixed in an evening; a broken boundary is discovered the day
+somebody's wallet goes into the common channel, and it cannot be put back together.
 """
 
 from __future__ import annotations
@@ -24,11 +24,11 @@ from src.models.world import Layer
 from src.runtime import DISCORD_CONTENT_LIMIT
 
 NOW = datetime(2026, 8, 15, 12, 0, tzinfo=UTC)
-ВЕБХУК = "https://discord.invalid/api/webhooks/тест"
+WEBHOOK = "https://discord.invalid/api/webhooks/тест"
 
-#: То, чему наружу хода нет ни при каких настройках: деньги, вещи, тело,
-#: разговоры, знания и репорты. Список нарочно избыточен — он и есть договор.
-ЛИЧНОЕ = {
+#: What never goes out under any settings: money, things, body, conversations,
+#: knowledge and reports. The list is deliberately redundant -- it is the contract.
+PRIVATE = {
     EventKind.LEDGER_POSTED,
     EventKind.TRADE_EXECUTED,
     EventKind.ITEM_MOVED,
@@ -46,90 +46,90 @@ NOW = datetime(2026, 8, 15, 12, 0, tzinfo=UTC)
 }
 
 
-async def _узел(session: AsyncSession, имя: str = "Медный склон"):
-    метка = uuid.uuid4().hex[:8]
-    планета = await world.create_node(
-        session, f"terra.{метка}", "Терра", area_m2=1, layer=Layer.SPACE
+async def _node(session: AsyncSession, name: str = "Медный склон"):
+    stamp = uuid.uuid4().hex[:8]
+    planet = await world.create_node(
+        session, f"terra.{stamp}", "Терра", area_m2=1, layer=Layer.SPACE
     )
     return await world.create_node(
-        session, f"terra.{метка}.core", имя, area_m2=100, parent=планета
+        session, f"terra.{stamp}.core", name, area_m2=100, parent=planet
     )
 
 
-# --- граница ----------------------------------------------------------------
+# --- boundary ----------------------------------------------------------------
 
 
-def test_личное_наружу_не_уходит() -> None:
-    утечка = chronicle.PUBLIC & {str(kind) for kind in ЛИЧНОЕ}
-    assert not утечка, (
+def test_private_does_not_go_out() -> None:
+    leak = chronicle.PUBLIC & {str(kind) for kind in PRIVATE}
+    assert not leak, (
         "эти события личные: деньги, вещи, тело и разговоры остаются в игре. "
-        f"Наружу собрались: {sorted(утечка)}"
+        f"Наружу собрались: {sorted(leak)}"
     )
 
 
-def test_список_белый() -> None:
-    """Вид события, которому не написали строку, молчит сам собой."""
+def test_list_is_allowlist() -> None:
+    """An event kind with no line written for it is silent by itself."""
     assert {str(kind) for kind in chronicle.LINES} == chronicle.PUBLIC
     assert str(EventKind.TICK_RAN) not in chronicle.PUBLIC
 
 
-def test_упоминания_отключены() -> None:
-    """Город можно назвать `@everyone` — и это не должно дёргать сервер."""
-    тело = webhook.payload("основан город @everyone")
-    assert тело["allowed_mentions"] == {"parse": []}
+def test_mentions_disabled() -> None:
+    """A city can be called `@everyone` -- and that must not ping the server."""
+    body = webhook.payload("основан город @everyone")
+    assert body["allowed_mentions"] == {"parse": []}
 
 
-def test_разметка_в_чужом_имени_обезврежена() -> None:
-    строка = chronicle.plain("**@everyone** `код`")
-    assert "**@" not in строка
-    assert строка.count("\\") >= 4
+def test_markup_in_foreign_name_neutralised() -> None:
+    line = chronicle.plain("**@everyone** `код`")
+    assert "**@" not in line
+    assert line.count("\\") >= 4
 
 
-def test_длинная_лента_режется_по_пределу_discord() -> None:
-    строки = ["ю" * 900] * 5
-    куски = webhook.chunks(строки)
-    assert len(куски) > 1, "пять таких строк в одно сообщение не влезают"
-    assert all(len(кусок) <= DISCORD_CONTENT_LIMIT for кусок in куски)
-    assert sum(кусок.count("ю") for кусок in куски) == 4500, "ни одна строка не потеряна"
+def test_long_feed_cut_by_discord_limit() -> None:
+    lines = ["ю" * 900] * 5
+    pieces = webhook.chunks(lines)
+    assert len(pieces) > 1, "пять таких строк в одно сообщение не влезают"
+    assert all(len(piece) <= DISCORD_CONTENT_LIMIT for piece in pieces)
+    assert sum(piece.count("ю") for piece in pieces) == 4500, "ни одна строка не потеряна"
 
 
-# --- строки хроники ---------------------------------------------------------
+# --- chronicle lines ---------------------------------------------------------
 
 
-async def test_основание_города_называет_город_и_место(
+async def test_city_founding_names_city_and_place(
     session: AsyncSession, catalog: Catalog
 ) -> None:
-    узел = await _узел(session)
-    кто = await world.create_identity(session, f"Ким-{uuid.uuid4().hex[:6]}")
-    событие = await events.record(
+    node = await _node(session)
+    who = await world.create_identity(session, f"Ким-{uuid.uuid4().hex[:6]}")
+    event = await events.record(
         session,
         EventKind.CITY_FOUNDED,
-        actor_identity_id=кто.id,
-        node_id=узел.id,
+        actor_identity_id=who.id,
+        node_id=node.id,
         city_id=str(uuid.uuid4()),
         name="Рудный",
         founded_by_player=True,
     )
 
-    строки = await chronicle.compose(session, [событие])
+    lines = await chronicle.compose(session, [event])
 
-    assert len(строки) == 1
-    assert "Рудный" in строки[0]
-    assert "Медный склон" in строки[0]
-    assert кто.name in строки[0]
+    assert len(lines) == 1
+    assert "Рудный" in lines[0]
+    assert "Медный склон" in lines[0]
+    assert who.name in lines[0]
 
 
-async def test_находка_разведки_не_называет_породу(
+async def test_exploration_find_does_not_name_species(
     session: AsyncSession, catalog: Catalog
 ) -> None:
-    """Порода жилы — плата разведчику за риск, а не новость для всех."""
-    узел = await _узел(session, "Пойма")
-    кто = await world.create_identity(session, f"Вей-{uuid.uuid4().hex[:6]}")
-    событие = await events.record(
+    """The vein's species is the scout's pay for risk, not news for everyone."""
+    node = await _node(session, "Пойма")
+    who = await world.create_identity(session, f"Вей-{uuid.uuid4().hex[:6]}")
+    event = await events.record(
         session,
         EventKind.EXPLORE_FOUND,
-        actor_identity_id=кто.id,
-        node_id=узел.id,
+        actor_identity_id=who.id,
+        node_id=node.id,
         from_node="terra.city",
         found="terra.wild",
         name="Пойма",
@@ -137,90 +137,90 @@ async def test_находка_разведки_не_называет_пород�
         minutes=12,
     )
 
-    строка = (await chronicle.compose(session, [событие]))[0]
+    line = (await chronicle.compose(session, [event]))[0]
 
-    assert "Пойма" in строка
-    assert "медь" not in строка
+    assert "Пойма" in line
+    assert "медь" not in line
 
 
-async def test_молчаливое_событие_строки_не_даёт(
+async def test_silent_event_gives_no_line(
     session: AsyncSession, catalog: Catalog
 ) -> None:
-    событие = await events.record(session, EventKind.TICK_RAN, kind_of_tick="world")
-    assert await chronicle.compose(session, [событие]) == []
+    event = await events.record(session, EventKind.TICK_RAN, kind_of_tick="world")
+    assert await chronicle.compose(session, [event]) == []
 
 
-# --- проход ленты -----------------------------------------------------------
+# --- feed pass ---------------------------------------------------------------
 
 
-async def test_первый_проход_историю_не_досылает(
+async def test_first_pass_does_not_resend_history(
     session: AsyncSession, catalog: Catalog
 ) -> None:
-    узел = await _узел(session)
-    событие = await events.record(
-        session, EventKind.CITY_FOUNDED, node_id=узел.id, name="Рудный"
+    node = await _node(session)
+    event = await events.record(
+        session, EventKind.CITY_FOUNDED, node_id=node.id, name="Рудный"
     )
 
-    отправленное: list[str] = []
+    sent: list[str] = []
 
-    async def _шлёт(url: str, text: str) -> None:
-        отправленное.append(text)
+    async def _sends(url: str, text: str) -> None:
+        sent.append(text)
 
-    рубеж = await run_once(session, after=None, url=ВЕБХУК, sender=_шлёт)
+    boundary = await run_once(session, after=None, url=WEBHOOK, sender=_sends)
 
-    assert отправленное == [], "лента начинается сейчас, а не с сотворения мира"
-    assert рубеж == событие.id
+    assert sent == [], "лента начинается сейчас, а не с сотворения мира"
+    assert boundary == event.id
 
 
-async def test_проход_шлёт_и_двигает_курсор(
+async def test_pass_sends_and_moves_cursor(
     session: AsyncSession, catalog: Catalog
 ) -> None:
-    узел = await _узел(session)
-    событие = await events.record(
-        session, EventKind.CITY_FOUNDED, node_id=узел.id, name="Рудный"
+    node = await _node(session)
+    event = await events.record(
+        session, EventKind.CITY_FOUNDED, node_id=node.id, name="Рудный"
     )
 
-    отправленное: list[str] = []
+    sent: list[str] = []
 
-    async def _шлёт(url: str, text: str) -> None:
-        отправленное.append(text)
+    async def _sends(url: str, text: str) -> None:
+        sent.append(text)
 
-    рубеж = await run_once(session, after=0, url=ВЕБХУК, sender=_шлёт)
+    boundary = await run_once(session, after=0, url=WEBHOOK, sender=_sends)
 
-    assert len(отправленное) == 1
-    assert "Рудный" in отправленное[0]
-    assert рубеж == событие.id
+    assert len(sent) == 1
+    assert "Рудный" in sent[0]
+    assert boundary == event.id
 
-    #: Второй проход с новым курсором молчит: то же событие не уходит дважды.
-    отправленное.clear()
-    assert await run_once(session, after=рубеж, url=ВЕБХУК, sender=_шлёт) == рубеж
-    assert отправленное == []
+    #: A second pass with the new cursor is silent: the same event does not go twice.
+    sent.clear()
+    assert await run_once(session, after=boundary, url=WEBHOOK, sender=_sends) == boundary
+    assert sent == []
 
 
-async def test_без_вебхука_курсор_всё_равно_едет(
+async def test_cursor_moves_even_without_webhook(
     session: AsyncSession, catalog: Catalog
 ) -> None:
-    """Иначе включённый через месяц глашатай начал бы с месячного хвоста."""
-    узел = await _узел(session)
-    событие = await events.record(
-        session, EventKind.CITY_FOUNDED, node_id=узел.id, name="Рудный"
+    """Otherwise a herald switched on a month later would start with a month's tail."""
+    node = await _node(session)
+    event = await events.record(
+        session, EventKind.CITY_FOUNDED, node_id=node.id, name="Рудный"
     )
 
-    assert await run_once(session, after=0, url="") == событие.id
+    assert await run_once(session, after=0, url="") == event.id
 
 
-async def test_глашатай_ставит_следующее_звено(
+async def test_herald_queues_next_link(
     factory: async_sessionmaker[AsyncSession],
 ) -> None:
     async with factory() as session, session.begin():
         await herald.ensure_scheduled(session, NOW)
 
-    сделано = await jobs.run_one(factory, now=NOW)
-    assert сделано is not None
-    assert сделано.state is JobState.DONE
+    done = await jobs.run_one(factory, now=NOW)
+    assert done is not None
+    assert done.state is JobState.DONE
 
     async with factory() as session:
-        стоит = (
+        costs = (
             await session.execute(
                 select(Job).where(
                     Job.state == JobState.PENDING, Job.kind == JobKind.HERALD_POST
@@ -228,6 +228,6 @@ async def test_глашатай_ставит_следующее_звено(
             )
         ).scalars().all()
 
-    assert len(стоит) == 1, "лента обязана продолжаться сама"
-    assert стоит[0].run_at > NOW
-    assert стоит[0].payload.get("after") is not None, "курсор едет в задании"
+    assert len(costs) == 1, "лента обязана продолжаться сама"
+    assert costs[0].run_at > NOW
+    assert costs[0].payload.get("after") is not None, "курсор едет в задании"

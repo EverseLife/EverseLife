@@ -1,14 +1,15 @@
-"""Гибернация: сон восстанавливает выносливость офлайн (D-091).
+"""Hibernation: sleep restores stamina offline (D-091).
 
-Выносливость — единственный ресурс тела, и тратится она работой. Восстановление
-задано вольтом двумя числами: `body.hibernation_rate` единиц в час и множитель
-`body.hibernation_home_k`, если спишь дома. «Дома» здесь означает кровать в
-локации — своей постройки ещё нет (Э3), и пока кровать и есть весь дом.
+Stamina is the body's only resource, and it is spent by work. Recovery is set
+by the vault with two numbers: `body.hibernation_rate` units per hour and the
+multiplier `body.hibernation_home_k` if you sleep at home. "At home" here
+means a bed in the location -- there are no own buildings yet (E3), and for
+now the bed is the whole home.
 
-Начисление идёт **при пробуждении**, по фактически проспанному времени: сон —
-длительное действие, он продолжается, пока игрок офлайн, и никакого тика ему не
-нужно. Спящее тело недоступно для всего присутственного — этим сон и платит:
-проспал — партию выкупили.
+Crediting happens **on waking**, by the time actually slept: sleep is a
+long-running action, it continues while the player is offline, and it needs
+no tick. A sleeping body is unavailable for everything in-person -- that is
+how sleep pays: overslept -- the lot got bought.
 """
 
 from __future__ import annotations
@@ -27,7 +28,7 @@ from src.models.identity import Body, BodyState
 from src.models.inventory import Item
 from src.units import SECONDS_PER_HOUR
 
-#: Имя кровати в `build/recipes.json`.
+#: The bed's name in `build/recipes.json`.
 BED = "Кровать"
 
 
@@ -36,7 +37,7 @@ class RestError(Exception):
 
 
 class NotTired(RestError):
-    """Выносливость полная: ложиться незачем, и сервер не даст спать впрок."""
+    """Stamina is full: no reason to lie down, and the server will not let you sleep in advance."""
 
 
 class NotSleeping(RestError):
@@ -50,11 +51,11 @@ async def sleep(
     *,
     now: datetime | None = None,
 ) -> Body:
-    """Лечь. Присутственное: спят телом, а не распоряжением."""
+    """Lie down. In person: one sleeps with the body, not by order."""
     moment = now or datetime.now(UTC)
     if body.state is not BodyState.ALIVE:
         raise RestError("мёртвое тело не спит — оно мертво")
-    #: Спящему `require_here` откажет сам: сон стоит на той же двери, что дорога.
+    #: `require_here` will refuse a sleeper itself: sleep stands at the same door as the road.
     await travel.require_here(session, body)
     if float(body.stamina) >= constants[R.BODY_STAMINA_MAX]:
         raise NotTired("выносливость полная: ложиться незачем")
@@ -80,11 +81,11 @@ async def wake(
     *,
     now: datetime | None = None,
 ) -> float:
-    """Проснуться. Возвращает, сколько выносливости вернул сон.
+    """Wake up. Returns how much stamina the sleep restored.
 
-    Начисление по фактическому времени: `body.hibernation_rate` в час, дома —
-    в `body.hibernation_home_k` раз быстрее. Потолок — `body.stamina_max`:
-    спать впрок нельзя.
+    Credited by actual time: `body.hibernation_rate` per hour, at home
+    `body.hibernation_home_k` times faster. The ceiling is `body.stamina_max`:
+    no sleeping in advance.
     """
     moment = now or datetime.now(UTC)
     if body.sleeping_since is None:
@@ -99,7 +100,7 @@ async def wake(
     before = float(body.stamina)
     after = min(cap, before + hours * rate)
 
-    #: Точность хранения задаёт колонка (Numeric 6,2), а не округление в коде.
+    #: Storage precision is set by the column (Numeric 6,2), not by rounding in code.
     body.stamina = Decimal(str(after))
     body.sleeping_since = None
     body.sleeping_home = False
@@ -117,7 +118,7 @@ async def wake(
 
 
 async def _bed_here(session: AsyncSession, body: Body) -> bool:
-    """Есть ли в локации кровать. Пока нет своих построек — кровать и есть дом."""
+    """Whether there is a bed in the location. Until own buildings exist, the bed is the home."""
     from src.models.world import Node
 
     node = await session.get(Node, body.node_id)

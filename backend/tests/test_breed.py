@@ -1,14 +1,14 @@
-"""Селекция: семена, сорта, скрещивание, вырождение (D-057, D-067).
+"""Breeding: seeds, cultivars, crossing, degradation (D-057, D-067).
 
-Проверяется то, ради чего система введена: **преимущество опытного фермера без
-навыков и уровней**.
+Checked is what the system was introduced for: **an experienced farmer's
+advantage without skills and levels**.
 
-* сеют семенами, а не урожаем: у партии есть сорт и своя сила;
-* уборка оставляет своё семя долей `farm.harvest_seed_share`;
-* отбор держит фонд, без отбора он вырождается, а гибрид ещё и расщепляется;
-* скрещивание идёт полный цикл, стоит семян и требует питомника;
-* слишком похожий сорт **не всходит** — гейт в биологии, а не в интерфейсе;
-* сорт называет автор, и только когда тот стал постоянным.
+* one sows with seeds, not harvest: the batch has a cultivar and its own strength;
+* harvest leaves own seed by the `farm.harvest_seed_share` share;
+* selection holds the fund, without it the fund degrades, and a hybrid also segregates;
+* crossing takes a full cycle, costs seeds and needs a nursery;
+* a too similar cultivar **does not sprout** -- the gate is in biology, not the interface;
+* the author names the cultivar, and only once it became stable.
 """
 
 from __future__ import annotations
@@ -32,288 +32,288 @@ from src.units import PERCENT, amount_float
 SPELT = "spelt"
 
 
-async def _ферма(session: AsyncSession, *, площадь: float = 100, питомник: bool = False):
-    метка = uuid.uuid4().hex[:8]
+async def _farm(session: AsyncSession, *, area: float = 100, nursery: bool = False):
+    stamp = uuid.uuid4().hex[:8]
     node = await world.create_node(
-        session, f"terra.field.{метка}", "Поле", area_m2=площадь * 4,
+        session, f"terra.field.{stamp}", "Поле", area_m2=area * 4,
         properties={"вода": "река", "плодородие": 60},
     )
-    if питомник:
-        двор = await world.node_container(session, node)
-        await world.grant_item(session, двор, breed.NURSERY, quality=60, origin="тест")
-    identity = await world.create_identity(session, f"Фермер-{метка}")
+    if nursery:
+        yard = await world.node_container(session, node)
+        await world.grant_item(session, yard, breed.NURSERY, quality=60, origin="тест")
+    identity = await world.create_identity(session, f"Фермер-{stamp}")
     body = await world.print_body(session, identity, node)
     node.owner_identity_id = identity.id
     await session.flush()
     return node, identity, body
 
 
-async def _семена(
-    session: AsyncSession, catalog: Catalog, body, сорт: Variety, сколько=500, сила=PERCENT
+async def _seeds(
+    session: AsyncSession, catalog: Catalog, body, cultivar: Variety, qty=500, strength=PERCENT
 ) -> Item:
-    карман = await world.body_container(session, body)
-    return await breed.seed_lot(session, catalog, карман.id, сорт, сколько, сила)
+    pocket = await world.body_container(session, body)
+    return await breed.seed_lot(session, catalog, pocket.id, cultivar, qty, strength)
 
 
-async def _до_уборки(
-    session: AsyncSession, constants: Constants, catalog: Catalog, body, семена: Item,
-    *, площадь: float = 100, уходов: int | None = None,
+async def _until_harvest(
+    session: AsyncSession, constants: Constants, catalog: Catalog, body, seeds: Item,
+    *, area: float = 100, care_count: int | None = None,
 ):
-    """Разметить, вспахать, посеять и довести делянку до спелости."""
-    plot = await farm.mark(session, constants, body, name="Делянка", area=площадь)
+    """Survey, plough, sow and bring the plot to ripeness."""
+    plot = await farm.mark(session, constants, body, name="Делянка", area=area)
     plot.state = PlotState.PLOWED
     await session.flush()
-    await farm.sow(session, constants, catalog, body, plot, семена)
+    await farm.sow(session, constants, catalog, body, plot, seeds)
 
     plant = catalog.plants.by_id(plot.culture_id)
-    #: Уход руками теста: сам обход проверяется в тестах земледелия.
-    plot.care_credits = int(plant.cycle_days) if уходов is None else уходов
-    момент = datetime.now(UTC) + timedelta(
+    #: Care by the test's hands: the round itself is checked in the farming tests.
+    plot.care_credits = int(plant.cycle_days) if care_count is None else care_count
+    moment = datetime.now(UTC) + timedelta(
         hours=plant.cycle_days * constants[R.TIME_DAY_TERRA] + 1
     )
-    return plot, момент
+    return plot, moment
 
 
-# --- семена -----------------------------------------------------------------
+# --- seeds -------------------------------------------------------------------
 
 
-async def test_сеют_семенами_а_не_урожаем(
+async def test_sow_with_seeds_not_harvest(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Семена — предмет: их покупают, крадут и теряют со смертью (D-057)."""
-    _, _, body = await _ферма(session)
-    сорт = await breed.landrace(session, catalog, SPELT)
-    семена = await _семена(session, catalog, body, сорт)
-    было = семена.amount
+    """Seeds are an item: they are bought, stolen and lost with death (D-057)."""
+    _, _, body = await _farm(session)
+    cultivar = await breed.landrace(session, catalog, SPELT)
+    seeds = await _seeds(session, catalog, body, cultivar)
+    before = seeds.amount
 
     plot = await farm.mark(session, constants, body, name="Делянка", area=50)
     plot.state = PlotState.PLOWED
     await session.flush()
-    await farm.sow(session, constants, catalog, body, plot, семена)
+    await farm.sow(session, constants, catalog, body, plot, seeds)
 
-    assert plot.variety_id == сорт.id, "сорт переехал на делянку"
-    ушло = amount_float(было - семена.amount)
-    assert ушло == pytest.approx(constants[R.FARM_SEED_RATE] * 50)
+    assert plot.variety_id == cultivar.id, "сорт переехал на делянку"
+    went = amount_float(before - seeds.amount)
+    assert went == pytest.approx(constants[R.FARM_SEED_RATE] * 50)
 
 
-async def test_урожаем_не_посеешь(
+async def test_cannot_sow_harvest(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Зерно — еда, а не посевной материал: у него нет сорта."""
-    _, _, body = await _ферма(session)
-    карман = await world.body_container(session, body)
-    зерно = await world.grant_item(
-        session, карман, "Зерно", amount=500, quality=50, origin="тест"
+    """Grain is food, not sowing material: it has no cultivar."""
+    _, _, body = await _farm(session)
+    pocket = await world.body_container(session, body)
+    grain = await world.grant_item(
+        session, pocket, "Зерно", amount=500, quality=50, origin="тест"
     )
     plot = await farm.mark(session, constants, body, name="Делянка", area=50)
     plot.state = PlotState.PLOWED
     await session.flush()
 
     with pytest.raises(breed.NotSeeds):
-        await farm.sow(session, constants, catalog, body, plot, зерно)
+        await farm.sow(session, constants, catalog, body, plot, grain)
 
 
-async def test_уборка_оставляет_своё_семя(
+async def test_harvest_leaves_own_seed(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Доля урожая уходит в фонд, а не на продажу (`farm.harvest_seed_share`)."""
-    _, _, body = await _ферма(session)
-    сорт = await breed.landrace(session, catalog, SPELT)
-    семена = await _семена(session, catalog, body, сорт)
-    plot, момент = await _до_уборки(session, constants, catalog, body, семена)
+    """A share of the harvest goes to the fund, not for sale (`farm.harvest_seed_share`)."""
+    _, _, body = await _farm(session)
+    cultivar = await breed.landrace(session, catalog, SPELT)
+    seeds = await _seeds(session, catalog, body, cultivar)
+    plot, moment = await _until_harvest(session, constants, catalog, body, seeds)
 
-    собрано = await farm.harvest(
-        session, constants, catalog, body, plot, select_seed=True, now=момент
+    collected = await farm.harvest(
+        session, constants, catalog, body, plot, select_seed=True, now=moment
     )
     plant = catalog.plants.by_id(SPELT)
-    карман = await world.body_container(session, body)
-    фонд = (
+    pocket = await world.body_container(session, body)
+    fund = (
         await session.execute(
             select(Item).where(
-                Item.container_id == карман.id, Item.type_key == plant.seed
+                Item.container_id == pocket.id, Item.type_key == plant.seed
             )
         )
     ).scalars().all()
-    новое = sum(amount_float(и.amount) for и in фонд if и.id != семена.id)
-    assert новое == pytest.approx(
-        собрано * constants[R.FARM_HARVEST_SEED_SHARE] / PERCENT, rel=0.01
+    new_ = sum(amount_float(i_.amount) for i_ in fund if i_.id != seeds.id)
+    assert new_ == pytest.approx(
+        collected * constants[R.FARM_HARVEST_SEED_SHARE] / PERCENT, rel=0.01
     )
 
 
-# --- вырождение -------------------------------------------------------------
+# --- degradation -------------------------------------------------------------
 
 
-async def test_без_отбора_фонд_вырождается_а_с_отбором_держится(
+async def test_fund_degrades_without_selection_holds_with_it(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Семенной фонд требует ухода: иначе культуру заводят раз и навсегда."""
-    сорт = await breed.landrace(session, catalog, SPELT)
-    падение = constants[R.BREED_DEGRADATION_PER_GEN]
+    """The seed fund needs care: otherwise a crop is established once and for all."""
+    cultivar = await breed.landrace(session, catalog, SPELT)
+    drop = constants[R.BREED_DEGRADATION_PER_GEN]
 
-    с_отбором = breed.next_vigor(constants, сорт, PERCENT, selected=True)
-    без_отбора = breed.next_vigor(constants, сорт, PERCENT, selected=False)
-    assert с_отбором == PERCENT
-    assert без_отбора == pytest.approx(PERCENT + падение)
-    assert падение < 0, "вольт задал потерю отрицательной — движок её складывает"
+    with_selection = breed.next_vigor(constants, cultivar, PERCENT, selected=True)
+    without_selection = breed.next_vigor(constants, cultivar, PERCENT, selected=False)
+    assert with_selection == PERCENT
+    assert without_selection == pytest.approx(PERCENT + drop)
+    assert drop < 0, "вольт задал потерю отрицательной — движок её складывает"
 
 
-async def test_семена_гибрида_расщепляются_сильнее(
+async def test_hybrid_seeds_segregate_more(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Гибрид хорош один раз: покупатель вернётся — в этом и бизнес (D-057)."""
-    сорт = await breed.landrace(session, catalog, SPELT)
-    гибрид = Variety(
-        culture_id=SPELT, name=None, generation=1, stable=False, traits=сорт.traits
+    """A hybrid is good once: the buyer will come back -- that is the business (D-057)."""
+    cultivar = await breed.landrace(session, catalog, SPELT)
+    hybrid = Variety(
+        culture_id=SPELT, name=None, generation=1, stable=False, traits=cultivar.traits
     )
-    session.add(гибрид)
+    session.add(hybrid)
     await session.flush()
 
-    у_сорта = breed.next_vigor(constants, сорт, PERCENT, selected=False)
-    у_гибрида = breed.next_vigor(constants, гибрид, PERCENT, selected=False)
-    assert у_гибрида < у_сорта
-    assert у_гибрида == pytest.approx(
+    of_cultivar = breed.next_vigor(constants, cultivar, PERCENT, selected=False)
+    of_hybrid = breed.next_vigor(constants, hybrid, PERCENT, selected=False)
+    assert of_hybrid < of_cultivar
+    assert of_hybrid == pytest.approx(
         PERCENT + constants[R.BREED_DEGRADATION_PER_GEN] + constants[R.BREED_HYBRID_DECAY]
     )
 
 
-async def test_слабое_семя_даёт_меньше_урожая(
+async def test_weak_seed_yields_less(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Сила партии — не украшение: она прямо в урожае."""
-    _, _, полный = await _ферма(session)
-    _, _, слабый = await _ферма(session)
-    сорт = await breed.landrace(session, catalog, SPELT)
+    """Batch strength is not decoration: it is directly in the harvest."""
+    _, _, full = await _farm(session)
+    _, _, weak = await _farm(session)
+    cultivar = await breed.landrace(session, catalog, SPELT)
 
-    много = await _семена(session, catalog, полный, сорт, сила=PERCENT)
-    мало = await _семена(session, catalog, слабый, сорт, сила=PERCENT / 2)
+    many = await _seeds(session, catalog, full, cultivar, strength=PERCENT)
+    little = await _seeds(session, catalog, weak, cultivar, strength=PERCENT / 2)
 
-    plot_а, момент_а = await _до_уборки(session, constants, catalog, полный, много)
-    plot_б, момент_б = await _до_уборки(session, constants, catalog, слабый, мало)
-    урожай_а = await farm.harvest(
-        session, constants, catalog, полный, plot_а, now=момент_а
+    plot_a, moment_a = await _until_harvest(session, constants, catalog, full, many)
+    plot_b, moment_b = await _until_harvest(session, constants, catalog, weak, little)
+    harvest_a = await farm.harvest(
+        session, constants, catalog, full, plot_a, now=moment_a
     )
-    урожай_б = await farm.harvest(
-        session, constants, catalog, слабый, plot_б, now=момент_б
+    harvest_b = await farm.harvest(
+        session, constants, catalog, weak, plot_b, now=moment_b
     )
-    assert урожай_б == pytest.approx(урожай_а / 2, rel=0.01)
+    assert harvest_b == pytest.approx(harvest_a / 2, rel=0.01)
 
 
-# --- скрещивание ------------------------------------------------------------
+# --- crossing ----------------------------------------------------------------
 
 
-async def test_скрещивание_идёт_цикл_и_требует_питомника(
+async def test_crossing_takes_cycle_and_needs_nursery(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Селекция — занятие на недели: результат приходит не сразу."""
-    _, _, без_питомника = await _ферма(session)
-    сорт = await breed.landrace(session, catalog, SPELT)
-    a = await _семена(session, catalog, без_питомника, сорт)
-    b = await _семена(session, catalog, без_питомника, сорт)
+    """Breeding is an occupation of weeks: the result does not come at once."""
+    _, _, without_nursery = await _farm(session)
+    cultivar = await breed.landrace(session, catalog, SPELT)
+    a = await _seeds(session, catalog, without_nursery, cultivar)
+    b = await _seeds(session, catalog, without_nursery, cultivar)
     with pytest.raises(breed.NoNursery):
-        await breed.cross(session, constants, catalog, без_питомника, a, b)
+        await breed.cross(session, constants, catalog, without_nursery, a, b)
 
-    _, _, селекционер = await _ферма(session, питомник=True)
-    один = await _семена(session, catalog, селекционер, сорт)
-    другой = await _семена(session, catalog, селекционер, сорт)
-    #: Момент задаётся явно: `started_at` ставит база, а её `now()` заморожен
-    #: на транзакцию — сравнивать его с часами теста бессмысленно.
-    начало = datetime.now(UTC)
-    питомник = await breed.cross(
-        session, constants, catalog, селекционер, один, другой, now=начало
+    _, _, breeder = await _farm(session, nursery=True)
+    one = await _seeds(session, catalog, breeder, cultivar)
+    other = await _seeds(session, catalog, breeder, cultivar)
+    #: The moment is set explicitly: the database sets `started_at`, and its
+    #: `now()` is frozen for the transaction -- comparing it with the test clock is pointless.
+    start = datetime.now(UTC)
+    nursery = await breed.cross(
+        session, constants, catalog, breeder, one, other, now=start
     )
 
     plant = catalog.plants.by_id(SPELT)
-    цикл = timedelta(hours=plant.cycle_days * constants[R.TIME_DAY_TERRA])
-    assert питомник.ready_at == начало + цикл
+    cycle = timedelta(hours=plant.cycle_days * constants[R.TIME_DAY_TERRA])
+    assert nursery.ready_at == start + cycle
     with pytest.raises(breed.BreedError):
         await breed.gather_cross(
-            session, constants, catalog, селекционер, питомник,
-            now=питомник.started_at,
+            session, constants, catalog, breeder, nursery,
+            now=nursery.started_at,
         )
 
 
-async def test_слишком_похожий_сорт_не_всходит(
+async def test_too_similar_cultivar_does_not_sprout(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Гейт встроен в биологию: селекционер получает пустую грядку (D-067)."""
-    _, _, body = await _ферма(session, питомник=True)
-    сорт = await breed.landrace(session, catalog, SPELT)
-    a = await _семена(session, catalog, body, сорт)
-    b = await _семена(session, catalog, body, сорт)
+    """The gate is built into biology: the breeder gets an empty bed (D-067)."""
+    _, _, body = await _farm(session, nursery=True)
+    cultivar = await breed.landrace(session, catalog, SPELT)
+    a = await _seeds(session, catalog, body, cultivar)
+    b = await _seeds(session, catalog, body, cultivar)
 
-    #: Родители — один и тот же базовый сорт: потомок неотличим от него.
-    питомник = await breed.cross(session, constants, catalog, body, a, b)
-    вышло = await breed.gather_cross(
-        session, constants, catalog, body, питомник,
-        now=питомник.ready_at, rng=random.Random(1),
+    #: The parents are one and the same base cultivar: the offspring is indistinguishable from it.
+    nursery = await breed.cross(session, constants, catalog, body, a, b)
+    came_out = await breed.gather_cross(
+        session, constants, catalog, body, nursery,
+        now=nursery.ready_at, rng=random.Random(1),
     )
-    assert вышло is None, "неотличимое не прорастает"
-    assert питомник.done and питомник.result_variety_id is None
+    assert came_out is None, "неотличимое не прорастает"
+    assert nursery.done and nursery.result_variety_id is None
 
 
-async def test_разные_родители_дают_новый_сорт(
+async def test_different_parents_give_new_cultivar(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Признаки — среднее родителей с отклонением: формула вольта дословно."""
-    _, identity, body = await _ферма(session, питомник=True)
-    базовый = await breed.landrace(session, catalog, SPELT)
-    #: Второй родитель заметно другой — такой в мире появляется отбором.
-    другой = Variety(
+    """Traits are the parents' mean with deviation: the vault formula verbatim."""
+    _, identity, body = await _farm(session, nursery=True)
+    base = await breed.landrace(session, catalog, SPELT)
+    #: The second parent is noticeably different -- such appears in the world by selection.
+    other = Variety(
         culture_id=SPELT,
         name="Скороспелка",
         generation=0,
         stable=True,
-        traits={**базовый.traits, "yield_per_m2": базовый.traits["yield_per_m2"] * 2,
-                "cycle_days": базовый.traits["cycle_days"] / 2},
+        traits={**base.traits, "yield_per_m2": base.traits["yield_per_m2"] * 2,
+                "cycle_days": base.traits["cycle_days"] / 2},
     )
-    session.add(другой)
+    session.add(other)
     await session.flush()
 
-    a = await _семена(session, catalog, body, базовый)
-    b = await _семена(session, catalog, body, другой)
-    питомник = await breed.cross(session, constants, catalog, body, a, b)
-    гибрид = await breed.gather_cross(
-        session, constants, catalog, body, питомник,
-        now=питомник.ready_at, rng=random.Random(7),
+    a = await _seeds(session, catalog, body, base)
+    b = await _seeds(session, catalog, body, other)
+    nursery = await breed.cross(session, constants, catalog, body, a, b)
+    hybrid = await breed.gather_cross(
+        session, constants, catalog, body, nursery,
+        now=nursery.ready_at, rng=random.Random(7),
     )
 
-    assert гибрид is not None, "разные родители дают различимое потомство"
-    assert гибрид.author_identity_id == identity.id
-    assert not гибрид.stable, "первое поколение — гибрид, а не сорт"
-    #: Каждый признак — между родительскими, с отклонением по вольту.
-    отклонение = breed._drift_share(constants)  # noqa: SLF001
-    for ключ in ("yield_per_m2", "cycle_days"):
-        один, два = базовый.traits[ключ], другой.traits[ключ]
-        середина = (один + два) / 2
-        разброс = abs(один - два)
-        assert abs(гибрид.traits[ключ] - середина) <= разброс * отклонение * 2 + 1e-6
+    assert hybrid is not None, "разные родители дают различимое потомство"
+    assert hybrid.author_identity_id == identity.id
+    assert not hybrid.stable, "первое поколение — гибрид, а не сорт"
+    #: Each trait is between the parents', with deviation per the vault.
+    deviation = breed._drift_share(constants)  # noqa: SLF001
+    for key in ("yield_per_m2", "cycle_days"):
+        one, two = base.traits[key], other.traits[key]
+        middle = (one + two) / 2
+        spread_ = abs(one - two)
+        assert abs(hybrid.traits[key] - middle) <= spread_ * deviation * 2 + 1e-6
 
 
-async def test_имя_даётся_только_постоянному_сорту_и_только_автором(
+async def test_name_only_for_stable_cultivar_and_only_by_author(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Имя автора закрепляется навсегда — как клеймо мастера за изделием."""
-    _, _, автор = await _ферма(session)
-    _, _, чужой = await _ферма(session)
-    базовый = await breed.landrace(session, catalog, SPELT)
-    гибрид = Variety(
+    """The author's name is attached forever -- like a craftsman's mark on a product."""
+    _, _, author = await _farm(session)
+    _, _, foreign = await _farm(session)
+    base = await breed.landrace(session, catalog, SPELT)
+    hybrid = Variety(
         culture_id=SPELT, name=None, generation=1, stable=False,
-        traits=базовый.traits, author_identity_id=автор.identity_id,
+        traits=base.traits, author_identity_id=author.identity_id,
     )
-    session.add(гибрид)
+    session.add(hybrid)
     await session.flush()
 
     with pytest.raises(breed.NotStable):
-        await breed.name_variety(session, автор, гибрид, "Тэрновка")
+        await breed.name_variety(session, author, hybrid, "Тэрновка")
 
-    #: Поколения отбора доводят гибрид до постоянства.
-    порог = constants[R.BREED_GENERATIONS_TO_STABILIZE]
-    for _ in range(int(порог.max)):
-        await breed.select_generation(session, constants, гибрид)
-    assert гибрид.stable
+    #: Generations of selection bring the hybrid to constancy.
+    threshold = constants[R.BREED_GENERATIONS_TO_STABILIZE]
+    for _ in range(int(threshold.max)):
+        await breed.select_generation(session, constants, hybrid)
+    assert hybrid.stable
 
     with pytest.raises(breed.BreedError):
-        await breed.name_variety(session, чужой, гибрид, "Чужовка")
+        await breed.name_variety(session, foreign, hybrid, "Чужовка")
 
-    await breed.name_variety(session, автор, гибрид, "Тэрновка")
-    assert гибрид.name == "Тэрновка"
+    await breed.name_variety(session, author, hybrid, "Тэрновка")
+    assert hybrid.name == "Тэрновка"

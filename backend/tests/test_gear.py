@@ -1,13 +1,13 @@
-"""Носимое: масса, предел и слоты снаряжения (D-146).
+"""Carried load: mass, limit and gear slots (D-146).
 
-Предел носимого был записан константой с самого начала, но у предметов не было
-массы — и игрок носил в кармане тысячу руды. Проверяется то, ради чего масса
-вводилась:
+The carry limit was written as a constant from the very start, but items had
+no mass -- and the player carried a thousand ore in the pocket. Checked is
+what mass was introduced for:
 
-* у предмета есть вес, и он приходит из данных вольта, а не из кода;
-* в руки не берут больше предела — ни с рынка, ни из бункера;
-* рюкзак и экзоскелет предел поднимают, одежда и броня — нет;
-* слот один на вещь: три рюкзака не наденешь, иначе предела не существует.
+* an item has weight, and it comes from vault data, not code;
+* no more than the limit is taken in hand -- neither from the market nor from the hopper;
+* a backpack and an exoskeleton raise the limit, clothes and armour do not;
+* one slot per thing: you cannot wear three backpacks, otherwise the limit does not exist.
 """
 
 from __future__ import annotations
@@ -27,158 +27,158 @@ CLOTHES = "Одежда"
 ARMOUR = "Броня"
 
 
-async def _тело(session: AsyncSession):
-    метка = uuid.uuid4().hex[:8]
-    node = await world.create_node(session, f"terra.gear.{метка}", "Узел", area_m2=100)
-    identity = await world.create_identity(session, f"Носильщик-{метка}")
+async def _body(session: AsyncSession):
+    stamp = uuid.uuid4().hex[:8]
+    node = await world.create_node(session, f"terra.gear.{stamp}", "Узел", area_m2=100)
+    identity = await world.create_identity(session, f"Носильщик-{stamp}")
     body = await world.print_body(session, identity, node)
     return node, identity, body
 
 
-async def _дать(session: AsyncSession, body, что: str, сколько: float = 1):
-    карман = await world.body_container(session, body)
+async def _give(session: AsyncSession, body, what: str, qty: float = 1):
+    pocket = await world.body_container(session, body)
     return await world.grant_item(
-        session, карман, что, amount=сколько, quality=60, origin="тест"
+        session, pocket, what, amount=qty, quality=60, origin="тест"
     )
 
 
-# --- масса ------------------------------------------------------------------
+# --- mass --------------------------------------------------------------------
 
 
-def test_масса_приходит_из_данных(catalog: Catalog) -> None:
-    """Вес — содержание вольта, а не число в коде (D-065, D-146)."""
-    книга = catalog.recipes
-    assert книга.mass_of(BACKPACK) > 0
-    assert книга.mass_of(EXO) > книга.mass_of(BACKPACK), "экзоскелет тяжелее рюкзака"
-    #: Незнакомое имя массы не имеет: дыра должна быть видна, а не занулена.
-    assert книга.mass_of("Философский камень") == 0
+def test_mass_comes_from_data(catalog: Catalog) -> None:
+    """Weight is vault content, not a number in code (D-065, D-146)."""
+    book = catalog.recipes
+    assert book.mass_of(BACKPACK) > 0
+    assert book.mass_of(EXO) > book.mass_of(BACKPACK), "экзоскелет тяжелее рюкзака"
+    #: An unknown name has no mass: the hole must be visible, not zeroed.
+    assert book.mass_of("Философский камень") == 0
 
 
-async def test_нагрузка_считает_всё_включая_надетое(
+async def test_load_counts_everything_including_worn(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Экзоскелет не становится невесомым оттого, что его надели."""
-    _, _, body = await _тело(session)
-    рюкзак = await _дать(session, body, BACKPACK)
-    await gear.equip(session, constants, catalog, body, рюкзак)
+    """An exoskeleton does not become weightless because it is put on."""
+    _, _, body = await _body(session)
+    backpack = await _give(session, body, BACKPACK)
+    await gear.equip(session, constants, catalog, body, backpack)
 
-    несёт = await gear.load_of(session, catalog, body)
-    assert несёт == pytest.approx(catalog.recipes.mass_of(BACKPACK))
-
-
-# --- предел -----------------------------------------------------------------
+    carries = await gear.load_of(session, catalog, body)
+    assert carries == pytest.approx(catalog.recipes.mass_of(BACKPACK))
 
 
-async def test_больше_предела_в_руки_не_берут(
+# --- limit -------------------------------------------------------------------
+
+
+async def test_no_more_than_limit_taken_in_hands(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Не сообщение об ошибке, а причина существования повозок."""
-    _, _, body = await _тело(session)
-    предел = constants[R.INVENTORY_CARRY_MASS]
-    камень = "Камень"
-    сколько = предел / catalog.recipes.mass_of(камень) + 1
+    """Not an error message but the reason wagons exist."""
+    _, _, body = await _body(session)
+    limit = constants[R.INVENTORY_CARRY_MASS]
+    stone = "Камень"
+    qty = limit / catalog.recipes.mass_of(stone) + 1
 
     with pytest.raises(gear.Overloaded):
-        await gear.check_carry(session, constants, catalog, body, камень, сколько)
+        await gear.check_carry(session, constants, catalog, body, stone, qty)
 
 
-async def test_рюкзак_поднимает_предел_а_одежда_нет(
+async def test_backpack_raises_limit_but_clothes_do_not(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Слот занимают оба, но переносимое добавляет только носильное."""
-    _, _, body = await _тело(session)
-    базовый = await gear.capacity(session, constants, catalog, body)
-    assert базовый == pytest.approx(constants[R.INVENTORY_CARRY_MASS])
+    """Both take the slot, but only carrying gear adds to what can be carried."""
+    _, _, body = await _body(session)
+    base = await gear.capacity(session, constants, catalog, body)
+    assert base == pytest.approx(constants[R.INVENTORY_CARRY_MASS])
 
-    одежда = await _дать(session, body, CLOTHES)
-    await gear.equip(session, constants, catalog, body, одежда)
+    clothes = await _give(session, body, CLOTHES)
+    await gear.equip(session, constants, catalog, body, clothes)
     assert await gear.capacity(session, constants, catalog, body) == pytest.approx(
-        базовый
+        base
     ), "одежда переносимого не добавляет"
 
-    рюкзак = await _дать(session, body, BACKPACK)
-    await gear.equip(session, constants, catalog, body, рюкзак)
-    бонусы = constants[R.INVENTORY_CARRY_BONUS]
+    backpack = await _give(session, body, BACKPACK)
+    await gear.equip(session, constants, catalog, body, backpack)
+    bonuses = constants[R.INVENTORY_CARRY_BONUS]
     assert await gear.capacity(session, constants, catalog, body) == pytest.approx(
-        базовый + бонусы[BACKPACK]
+        base + bonuses[BACKPACK]
     )
 
 
-async def test_экзоскелет_поднимает_сильнее_рюкзака(
+async def test_exoskeleton_raises_more_than_backpack(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Капитал в снаряжении: экзоскелет — верх ветки носимого."""
-    бонусы = constants[R.INVENTORY_CARRY_BONUS]
-    assert бонусы[EXO] > бонусы[BACKPACK]
+    """Capital in gear: the exoskeleton is the top of the carrying branch."""
+    bonuses = constants[R.INVENTORY_CARRY_BONUS]
+    assert bonuses[EXO] > bonuses[BACKPACK]
 
-    _, _, body = await _тело(session)
-    рюкзак = await _дать(session, body, BACKPACK)
-    экзо = await _дать(session, body, EXO)
-    await gear.equip(session, constants, catalog, body, рюкзак)
-    await gear.equip(session, constants, catalog, body, экзо)
+    _, _, body = await _body(session)
+    backpack = await _give(session, body, BACKPACK)
+    exo = await _give(session, body, EXO)
+    await gear.equip(session, constants, catalog, body, backpack)
+    await gear.equip(session, constants, catalog, body, exo)
 
-    #: Слоты разные — спина и каркас, — значит работают оба.
+    #: The slots differ -- back and frame -- so both work.
     assert await gear.capacity(session, constants, catalog, body) == pytest.approx(
-        constants[R.INVENTORY_CARRY_MASS] + бонусы[BACKPACK] + бонусы[EXO]
+        constants[R.INVENTORY_CARRY_MASS] + bonuses[BACKPACK] + bonuses[EXO]
     )
 
 
-# --- слоты ------------------------------------------------------------------
+# --- slots -------------------------------------------------------------------
 
 
-async def test_слот_один_на_вещь(
+async def test_one_slot_per_thing(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Иначе игрок надевает три рюкзака и предела больше не существует."""
-    _, _, body = await _тело(session)
-    первый = await _дать(session, body, BACKPACK)
-    второй = await _дать(session, body, BACKPACK)
+    """Otherwise the player wears three backpacks and the limit no longer exists."""
+    _, _, body = await _body(session)
+    first = await _give(session, body, BACKPACK)
+    second = await _give(session, body, BACKPACK)
 
-    await gear.equip(session, constants, catalog, body, первый)
-    await gear.equip(session, constants, catalog, body, второй)
+    await gear.equip(session, constants, catalog, body, first)
+    await gear.equip(session, constants, catalog, body, second)
 
-    надето = await gear.equipped(session, body)
-    assert list(надето) == ["спина"], "в слоте одна вещь"
-    assert надето["спина"].id == второй.id, "новая вытеснила прежнюю"
-    бонусы = constants[R.INVENTORY_CARRY_BONUS]
+    worn = await gear.equipped(session, body)
+    assert list(worn) == ["спина"], "в слоте одна вещь"
+    assert worn["спина"].id == second.id, "новая вытеснила прежнюю"
+    bonuses = constants[R.INVENTORY_CARRY_BONUS]
     assert await gear.capacity(session, constants, catalog, body) == pytest.approx(
-        constants[R.INVENTORY_CARRY_MASS] + бонусы[BACKPACK]
+        constants[R.INVENTORY_CARRY_MASS] + bonuses[BACKPACK]
     ), "два рюкзака не складываются"
 
 
-async def test_броня_и_одежда_делят_один_слот(
+async def test_armour_and_clothes_share_one_slot(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Тело одно: надел броню — снял одежду."""
-    _, _, body = await _тело(session)
-    одежда = await _дать(session, body, CLOTHES)
-    броня = await _дать(session, body, ARMOUR)
+    """One body: put on armour -- took off clothes."""
+    _, _, body = await _body(session)
+    clothes = await _give(session, body, CLOTHES)
+    armour = await _give(session, body, ARMOUR)
 
-    await gear.equip(session, constants, catalog, body, одежда)
-    await gear.equip(session, constants, catalog, body, броня)
-    надето = await gear.equipped(session, body)
-    assert надето["тело"].type_key == ARMOUR
+    await gear.equip(session, constants, catalog, body, clothes)
+    await gear.equip(session, constants, catalog, body, armour)
+    worn = await gear.equipped(session, body)
+    assert worn["тело"].type_key == ARMOUR
 
 
-async def test_не_снаряжение_не_надевается(
+async def test_non_gear_not_wearable(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Слот берётся из данных: у кирки его нет, и надеть её нельзя."""
-    _, _, body = await _тело(session)
-    кирка = await _дать(session, body, "Железная кирка")
+    """The slot comes from data: a pickaxe has none, and it cannot be worn."""
+    _, _, body = await _body(session)
+    pickaxe = await _give(session, body, "Железная кирка")
     with pytest.raises(gear.NotGear):
-        await gear.equip(session, constants, catalog, body, кирка)
+        await gear.equip(session, constants, catalog, body, pickaxe)
 
 
-async def test_снятое_перестаёт_поднимать_предел(
+async def test_removed_stops_raising_limit(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    _, _, body = await _тело(session)
-    рюкзак = await _дать(session, body, BACKPACK)
-    await gear.equip(session, constants, catalog, body, рюкзак)
-    снято = await gear.unequip(session, body, "спина")
+    _, _, body = await _body(session)
+    backpack = await _give(session, body, BACKPACK)
+    await gear.equip(session, constants, catalog, body, backpack)
+    removed = await gear.unequip(session, body, "спина")
 
-    assert снято is not None and снято.id == рюкзак.id
+    assert removed is not None and removed.id == backpack.id
     assert await gear.capacity(session, constants, catalog, body) == pytest.approx(
         constants[R.INVENTORY_CARRY_MASS]
     )

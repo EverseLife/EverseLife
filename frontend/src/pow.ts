@@ -1,18 +1,18 @@
 /**
- * Плата устройства (D-110, D-112).
+ * The device fee (D-110, D-112).
  *
- * Одна оценка Argon2id на сессию добычи. Работа фиксированная: не «сколько
- * успел», а ровно один проход. Мощность даёт доступ, но не преимущество —
- * быстрее посчитал, раньше начал; выход определяют решения в забое.
+ * One Argon2id estimate per mining session. The work is fixed: not "as much
+ * as you managed" but exactly one pass. Power gives access but not advantage
+ * -- computed faster, started earlier; yield is determined by decisions at the face.
  *
- * Числа берутся из `/public/constants`, а не отсюда: сервер проверяет ответ
- * той же оценкой, и разойтись им нельзя (D-065).
+ * The numbers come from `/public/constants`, not from here: the server checks
+ * the answer with the same estimate, and they may not diverge (D-065).
  */
 
 import { argon2id } from "hash-wasm";
 
 const KIB_PER_MIB = 1024;
-/** Длина ответа в байтах — величина протокола, а не баланса. */
+/** The answer length in bytes -- a protocol quantity, not a balance one. */
 const HASH_BYTES = 32;
 const PARALLELISM = 1;
 
@@ -22,7 +22,7 @@ function bytes(hex: string): Uint8Array {
   return out;
 }
 
-/** UUID аккаунта — те же 16 байт, что сервер кладёт в секрет оценки. */
+/** The account UUID -- the same 16 bytes the server puts into the estimate's secret. */
 function accountBytes(uuid: string): Uint8Array {
   return bytes(uuid.replace(/-/g, ""));
 }
@@ -37,9 +37,10 @@ export function powSettings(values: Record<string, any>): PowSettings {
 }
 
 /**
- * Посчитать ответ. Считается заметное время и греет устройство — так и задумано:
- * это налог на масштаб, а не на игрока.
+ * Compute the answer. It takes noticeable time and heats the device -- as
+ * intended: this is a tax on scale, not on the player.
  */
+
 export async function solve(
   account: string,
   nonceHex: string,

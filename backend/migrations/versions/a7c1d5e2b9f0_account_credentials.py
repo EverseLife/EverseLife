@@ -1,10 +1,11 @@
-"""Аккаунт: почта, пароль, жетоны сессии; личность: линия и самоописание (D-187).
+"""Account: email, password, session tokens; identity: line and self-description (D-187).
 
 
 Revision ID: a7c1d5e2b9f0
 Revises: 384bc599a596
 Create Date: 2026-08-15 18:20:00.000000
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence

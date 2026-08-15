@@ -1,30 +1,31 @@
-"""Чат локации: разговор в комнате (D-043, D-050).
+"""Location chat: conversation in a room (D-043, D-050).
 
-Слышат находящиеся рядом, вышел — вышел из разговора, истории нет. Внутри
-локации — кружки: группы видны, их содержание — нет, но реплика из кружка
-с небольшой вероятностью долетает до остальных.
+Those nearby hear; left -- left the conversation; there is no history. Inside
+a location -- circles: groups are visible, their content is not, but a remark
+from a circle reaches the others with a small probability.
 
-## Откуда взялась формула утечки
+## Where the leak formula came from
 
-Вероятность зависит **только от обстановки** — никаких характеристик персонажа
-(D-058). Все слагаемые названы вольтом, движку осталось их сложить:
+The probability depends **only on the setting** -- no character stats (D-058).
+All terms are named by the vault, the engine only had to add them up:
 
-    шанс% = (chat.leak_base
-             + chat.leak_per_person × (людей в локации − chat.leak_crowd_free)
-             + chat.leak_group_size × (размер кружка − chat.leak_group_free))
-            × chat.leak_location_modifier[тип места]
-            × chat.leak_quiet_multiplier   — если вполголоса
+    chance% = (chat.leak_base
+               + chat.leak_per_person * (people in location - chat.leak_crowd_free)
+               + chat.leak_group_size * (circle size - chat.leak_group_free))
+              * chat.leak_location_modifier[place type]
+              * chat.leak_quiet_multiplier   -- if in an undertone
 
-Долетевшая реплика — одна фраза без контекста, с указанием кружка-источника:
-ровно то, из чего растут домыслы и слухи.
+A leaked remark is one phrase without context, with the source circle named:
+exactly what conjecture and rumour grow from.
 
-## Чего здесь нет и не будет
+## What is not here and will not be
 
-* **Истории.** Сервер не хранит сказанное (D-070): таблица сообщений — буфер
-  доставки, подметаемый тиком. Сказанное переживает разговор только записью,
-  а запись — предмет и городская постройка (D-081), их ещё нет;
-* **Модерации движком.** Живое общение вне юрисдикции городов, мут — санкция
-  городского канала, который приезжает с городами (Э3).
+* **History.** The server does not store what was said (D-070): the message
+  table is a delivery buffer swept by the tick. What was said outlives the
+  conversation only as a record, and a record is an item and a city building
+  (D-081), which do not exist yet;
+* **Engine moderation.** Live talk is outside city jurisdiction; a mute is a
+  sanction of the city channel, which arrives with cities (E3).
 """
 
 from __future__ import annotations
@@ -53,28 +54,28 @@ class ChatError(Exception):
 
 
 class NotInRoom(ChatError):
-    """Разговор в комнате требует быть в комнате."""
+    """Talking in a room requires being in the room."""
 
 
 @dataclass(frozen=True, slots=True)
 class Line:
-    """Реплика, как её слышит читающий."""
+    """A remark as the reader hears it."""
 
     id: str
     who: str
     kind: Utterance
     quiet: bool
     text: str
-    #: Услышано краем уха из чужого кружка: без контекста, одной фразой.
+    #: Overheard from somebody else's circle: without context, one phrase.
     overheard: bool
-    #: Имя кружка-источника, если долетело из кружка.
+    #: The source circle's name, if it leaked from a circle.
     source: str | None
     at: datetime
 
 
 @dataclass(frozen=True, slots=True)
 class Circle:
-    """Кружок, как его видят снаружи: состав виден, содержание — нет."""
+    """A circle as seen from outside: membership visible, content not."""
 
     id: str
     name: str | None
@@ -88,7 +89,7 @@ async def leak_chance(
     node: Node,
     group_size: int,
 ) -> float:
-    """Вероятность, что реплика из кружка долетит до остальных, в процентах."""
+    """The probability that a remark from a circle reaches the others, in percent."""
     in_room = await _people_in(session, node)
     crowd = max(0, in_room - int(constants[R.CHAT_LEAK_CROWD_FREE]))
     loud = max(0, group_size - int(constants[R.CHAT_LEAK_GROUP_FREE]))
@@ -110,7 +111,7 @@ async def say(
     quiet: bool = False,
     rng: random.Random | None = None,
 ) -> ChatMessage:
-    """Сказать. Присутственное: разговор в комнате требует быть в комнате."""
+    """Say. In person: talking in a room requires being in the room."""
     if body.state is not BodyState.ALIVE:
         raise ChatError("мёртвые не разговаривают")
     await travel.require_here(session, body)
@@ -126,7 +127,7 @@ async def say(
     leaked = False
     if membership is not None:
         group = await session.get(ChatGroup, membership.group_id)
-        #: Кружок остался в другой локации — человек из него вышел ногами.
+        #: The circle stayed in another location -- the person walked out of it.
         if group is None or group.node_id != body.node_id:
             await leave_groups(session, body.identity_id)
         else:
@@ -159,15 +160,15 @@ async def hear(
     *,
     now: datetime | None = None,
 ) -> list[Line]:
-    """Что слышно отсюда: общий разговор, свой кружок и долетевшие обрывки.
+    """What is heard from here: the common talk, own circle and leaked fragments.
 
-    Слышно только с момента прихода в локацию: вышел из мастерской — вышел из
-    разговора, и вернувшись, продолжения не услышишь.
+    Heard only since arriving in the location: left the workshop -- left the
+    conversation, and on return you will not hear the continuation.
     """
     await travel.require_here(session, body)
     moment = now or datetime.now(UTC)
-    #: Горизонт — поле тела, а не вывод из истории переходов: у напечатанного
-    #: или перенесённого правкой мира тела истории нет, а горизонт обязан быть.
+    #: The horizon is a body field, not derived from transit history: a printed
+    #: body or one moved by a world edit has no history, and the horizon must exist.
     horizon = max(body.node_since, moment - CHAT_BUFFER)
 
     membership = await _membership(session, body.identity_id)
@@ -181,13 +182,13 @@ async def hear(
             ChatMessage.node_id == body.node_id,
             ChatMessage.at >= horizon,
             or_(
-                #: Общий разговор локации слышат все, кто в ней.
+                #: The location's common talk is heard by everyone in it.
                 ChatMessage.group_id.is_(None),
-                #: Свой кружок.
+                #: Own circle.
                 ChatMessage.group_id == my_group
                 if my_group is not None
                 else ChatMessage.group_id.is_(None),
-                #: Чужой кружок — только то, что долетело.
+                #: Somebody else's circle -- only what leaked.
                 ChatMessage.leaked.is_(True),
             ),
         )
@@ -212,7 +213,7 @@ async def hear(
 
 
 async def circles(session: AsyncSession, body: Body) -> list[Circle]:
-    """Кружки локации: видно, кто с кем шепчется, но не о чём (D-043)."""
+    """The location's circles: visible who whispers with whom, but not about what (D-043)."""
     membership = await _membership(session, body.identity_id)
     my_group = membership.group_id if membership is not None else None
 
@@ -232,7 +233,7 @@ async def circles(session: AsyncSession, body: Body) -> list[Circle]:
             )
         ).scalars().all()
         if not names:
-            #: Опустевший кружок расходится сам.
+            #: An emptied circle disbands by itself.
             await session.delete(group)
             continue
         out.append(
@@ -250,7 +251,7 @@ async def circles(session: AsyncSession, body: Body) -> list[Circle]:
 async def gather(
     session: AsyncSession, body: Body, *, name: str | None = None
 ) -> ChatGroup:
-    """Собрать кружок. Вход свободный: подошедшего видно всем."""
+    """Gather a circle. Entry is free: whoever comes up is seen by all."""
     await travel.require_here(session, body)
     group = ChatGroup(node_id=body.node_id, name=name)
     session.add(group)
@@ -270,13 +271,13 @@ async def join(session: AsyncSession, body: Body, group_id: uuid.UUID) -> None:
 
 
 async def leave_groups(session: AsyncSession, identity_id: uuid.UUID) -> None:
-    """Выйти из кружка. Зовётся и уходом ногами: вышел — вышел из разговора."""
+    """Leave a circle. Also called by walking away: left -- left the conversation."""
     await session.execute(delete(ChatMember).where(ChatMember.identity_id == identity_id))
     await session.flush()
 
 
 async def prune(session: AsyncSession, *, now: datetime | None = None) -> int:
-    """Подмести буфер доставки. Истории нет — есть недолгая память комнаты."""
+    """Sweep the delivery buffer. There is no history -- only the room's short memory."""
     moment = now or datetime.now(UTC)
     result = await session.execute(
         delete(ChatMessage).where(ChatMessage.at < moment - CHAT_BUFFER)
@@ -284,7 +285,7 @@ async def prune(session: AsyncSession, *, now: datetime | None = None) -> int:
     return result.rowcount or 0
 
 
-# --- внутреннее -------------------------------------------------------------
+# --- internal ----------------------------------------------------------------
 
 
 async def _membership(session: AsyncSession, identity_id: uuid.UUID) -> ChatMember | None:
@@ -302,7 +303,7 @@ async def _group_size(session: AsyncSession, group_id: uuid.UUID) -> int:
 
 
 async def _people_in(session: AsyncSession, node: Node) -> int:
-    """Сколько живых тел стоит в локации. Идущие мимо не в комнате."""
+    """How many living bodies stand in the location. Those passing by are not in the room."""
     return int(
         await session.scalar(
             select(func.count())
@@ -316,11 +317,12 @@ async def _people_in(session: AsyncSession, node: Node) -> int:
 async def _place_modifier(
     constants: Constants, session: AsyncSession, node: Node
 ) -> float:
-    """Тип места: шумная кузница глушит, тихая библиотека выдаёт.
+    """Place type: a noisy forge muffles, a quiet library gives away.
 
-    Таблица вольта ключуется словами («кузница», «библиотека») — место узнаётся
-    по тому, что в нём стоит, а не по отдельному полю типа.
+    The vault table is keyed by words ("forge", "library") -- the place is
+    recognised by what stands in it, not by a separate type field.
     """
+
     table = constants[R.CHAT_LEAK_LOCATION_MODIFIER]
     if node.properties.get("library") and "библиотека" in table:
         return table["библиотека"]

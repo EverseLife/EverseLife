@@ -1,38 +1,42 @@
-"""Стартовый мир альфы: столица Терры, какой она встречает первого игрока.
+"""The alpha's starting world: Terra's capital as it greets the first player.
 
-Запуск из `backend/`: `python -m src.seed`. Повторный запуск ничего не портит —
-мир создаётся один раз и дальше живёт своей жизнью.
+Run from `backend/`: `python -m src.seed`. Running again breaks nothing -- the
+world is created once and lives its own life from then on.
 
-**Это сценарий разработки, а не часть игры.** Всё, что он кладёт в руки, идёт
-через `world.grant_item` с явным основанием: материя в мире не появляется
-безымянно (столп П1), и такой приход обязан быть виден в телеметрии.
+**This is a development scenario, not part of the game.** Everything it puts
+into hands goes through `world.grant_item` with an explicit ground: matter does
+not appear in the world anonymously (pillar P1), and such an arrival must be
+visible in telemetry.
 
-## Форма мира
+## The shape of the world
 
-Город — не место, а **группа локаций, связанных короткими рёбрами** (D-045,
-D-089). Отсюда стартовая карта: ядро с Принтером Предтеч, первое кольцо с
-Библиотекой, терминалом и администрацией, второе с кузнечным двором и
-свободными участками под дома, забой у стены и отдельный узел «выход из
-города» (D-097), за которым начинается настоящая логистика.
+A city is not a place but **a group of locations connected by short edges**
+(D-045, D-089). Hence the starting map: a core with the Forerunners' Printer, a
+first ring with the Library, the terminal and the administration, a second with
+the forge yard and free plots for houses, a face by the wall and a separate
+"city exit" node (D-097), beyond which real logistics begins.
 
-Шаг внутри города — секунды (`travel.city_step`), выезд за стены — `даль 1`,
-то есть `travel.frontier_step` по **дороге**, а не по бездорожью: по ней возят
-уголь, и город, который топит электростанцию, эту дорогу себе построил. Дальше
-каждое кольцо дали дороже предыдущего (D-180) — вот и вся география: за станком
-сходить дёшево, за углём выехать, до фронтира снаряжать экспедицию.
+A step inside the city is seconds (`travel.city_step`), leaving the walls is
+`distance 1`, i.e. `travel.frontier_step` by **road**, not offroad: coal is
+hauled along it, and a city that fuels a power station built itself that road.
+Beyond that every ring of distance is pricier than the previous (D-180) --
+that is all the geography: going for a machine is cheap, going for coal is a
+trip, reaching the frontier means fitting out an expedition.
 
-Столица заводится **городом-институтом** (D-154): у неё есть устав, код-законы
-и казна, а первый игрок становится её президентом. Всё, что власть потом
-меняет, она меняет сама — сид только ставит начальное положение.
+The capital is created as an **institutional city** (D-154): it has a charter,
+code-laws and a treasury, and the first player becomes its president.
+Everything the authority changes afterwards it changes itself -- the seed only
+sets the initial position.
 
-Два допущения на время разработки, и оба честно названы:
+Two assumptions for development time, both honestly named:
 
-* **деньги выданы городу, а не игроку** — банка и кредита нет до Э4, а без
-  денег в казне не с чего платить подъёмные. Выпуск идёт через счёт `genesis`,
-  то есть виден в проверке инвариантов. Игроки печатаются с нулём и получают
-  подъёмные по решению города (D-153);
-* **уголь выдан Тэрну** — угольная шахта на карте есть, но идти за ним двадцать
-  минут, а посмотреть плавку хочется сегодня.
+* **money is given to the city, not the player** -- there is no bank or credit
+  before E4, and without money in the treasury there is nothing to pay the
+  settlement grant from. Issue goes through the `genesis` account, i.e. it is
+  visible in the invariant check. Players print with zero and get the grant by
+  the city's decision (D-153);
+* **coal is given to Tern** -- there is a coal mine on the map, but it is a
+  twenty-minute walk, and one wants to see smelting today.
 """
 
 from __future__ import annotations
@@ -59,21 +63,22 @@ from src.units import PERCENT, money
 log = logging.getLogger("octoverse.seed")
 
 CORE = "terra.capital.core"
-#: Порода, а не «руда вообще» (D-151): у железа и меди разные жилы.
+#: A species, not "ore in general" (D-151): iron and copper have different veins.
 IRON = "Железная руда"
 COPPER = "Медная руда"
 COAL = "Уголь"
 PICK = "Железная кирка"
 TIMBER = "Шахтная крепь"
-#: Деньги кладутся **в казну столицы**, а не в карман игроку (D-153). Игрок
-#: печатается с нулём и получает подъёмные по решению города — то есть по
-#: механике, а не по сценарию.
+#: Money goes **into the capital's treasury**, not the player's pocket (D-153).
+#: The player prints with zero and gets the settlement grant by the city's
+#: decision -- i.e. by mechanic, not by script.
 CITY_TREASURY_START = 5_000
-#: Подъёмные, которые столица решила платить. Это решение власти, записанное
-#: сидом за неимением живого президента в первую секунду мира.
+#: The settlement grant the capital decided to pay. An authority decision
+#: written by the seed for lack of a live president in the world's first second.
 NEWCOMER_GRANT = "120"
-#: Почта и пароль стартовых личностей — тестовые данные разработки (D-187):
-#: под ними разработчики входят в альфу. В бою пароли меняются из кабинета.
+#: Email and password of the starting identities are development test data
+#: (D-187): developers log into the alpha with them. In production passwords
+#: are changed from the account panel.
 FOUNDERS = {
     "Тэрн": {
         "email": "tern@octoverse.world",
@@ -93,486 +98,492 @@ FOUNDERS = {
 
 
 async def seed(session: AsyncSession) -> Node:
-    """Создать стартовый мир, если его ещё нет, иначе — довести до сегодняшнего."""
+    """Create the starting world if it does not exist yet, otherwise bring it up to date."""
     existing = (
         await session.execute(select(Node).where(Node.key == CORE))
     ).scalar_one_or_none()
     if existing is not None:
-        log.info("стартовый мир уже есть: %s", existing.key)
-        await догнать(session, existing)
+        log.info("the starting world already exists: %s", existing.key)
+        await catch_up(session, existing)
         return existing
 
     constants = current()
-    бросок = random.Random(CORE)
-    шаг = constants[R.TRAVEL_CITY_STEP]
+    dice = random.Random(CORE)
+    step = constants[R.TRAVEL_CITY_STEP]
 
-    #: Слои — абстракция показа над одним графом (D-045): Терра видна из
-    #: космоса, столица — с планеты, застройка — в городе. Ходят по листьям.
-    терра = await world.create_node(
+    #: Layers are a display abstraction over one graph (D-045): Terra is seen
+    #: from space, the capital from the planet, the built-up area in the city.
+    #: One walks on the leaves.
+    terra = await world.create_node(
         session, "terra", "Терра", area_m2=1,
         layer=Layer.SPACE, properties={},
     )
-    столица = await world.create_node(
+    capital = await world.create_node(
         session, "terra.capital", "Столица Терры", area_m2=1,
-        layer=Layer.PLANET, parent=терра, properties={},
+        layer=Layer.PLANET, parent=terra, properties={},
     )
 
-    #: Ядро: к биопринтеру приходит каждый умерший, поэтому город начинается с него.
-    #: Свойство «предтечи» — не украшение: по нему движок узнаёт ту самую вечную
-    #: машину, которая печатает бесплатно и медленно (D-028).
-    ядро = await world.create_node(
+    #: The core: every dead person comes to the bioprinter, so the city starts
+    #: with it. The "forerunners" property is not decoration: by it the engine
+    #: recognises that eternal machine which prints for free and slowly (D-028).
+    core = await world.create_node(
         session, CORE, "Ядро: Принтер Предтеч", area_m2=120,
-        parent=столица, properties={"кольцо": 0, "лес": False, "предтечи": True},
+        parent=capital, properties={"кольцо": 0, "лес": False, "предтечи": True},
     )
-    библиотека = await world.create_node(
+    library = await world.create_node(
         session, "terra.capital.library", "Библиотека", area_m2=200,
-        parent=столица, properties={"library": True, "кольцо": 1},
+        parent=capital, properties={"library": True, "кольцо": 1},
     )
-    рынок = await world.create_node(
+    marketplace = await world.create_node(
         session, "terra.capital.market", "Торговый двор", area_m2=200,
-        parent=столица, properties={"кольцо": 1},
+        parent=capital, properties={"кольцо": 1},
     )
-    кузница = await world.create_node(
+    forge = await world.create_node(
         session, "terra.capital.forge", "Кузнечный двор", area_m2=260,
-        parent=столица, properties={"кольцо": 2},
+        parent=capital, properties={"кольцо": 2},
     )
-    забой = await world.create_node(
+    face = await world.create_node(
         session, "terra.capital.pit", "Забой у стены", area_m2=300,
-        parent=столица, properties={"кольцо": 3},
+        parent=capital, properties={"кольцо": 3},
     )
-    #: Администрация — узел, в котором стоит станок «Администрация»: чем
-    #: здание является, задаёт станок в нём (D-106). Власть тоже где-то живёт.
-    ратуша = await world.create_node(
+    #: The administration is the node where the "Administration" machine
+    #: stands: what a building is, is set by the machine in it (D-106).
+    #: Authority lives somewhere too.
+    townhall = await world.create_node(
         session, "terra.capital.hall", "Администрация", area_m2=180,
-        parent=столица, properties={"кольцо": 1},
+        parent=capital, properties={"кольцо": 1},
     )
-    ворота = await world.create_node(
+    gate = await world.create_node(
         session, "terra.capital.gate", "Выход из города", area_m2=80,
-        parent=столица, properties={"кольцо": 3, "выход": True},
+        parent=capital, properties={"кольцо": 3, "выход": True},
     )
-    #: Первое кольцо за стенами: даль 1 (D-180) — двадцать секунд ходу, а не
-    #: двадцать минут. Ближний ресурс возят каждый день, и в этом весь смысл.
-    шахта = await world.create_node(
+    #: The first ring beyond the walls: distance 1 (D-180) -- twenty seconds of
+    #: walking, not twenty minutes. Near resources are hauled daily, and that is the whole point.
+    mine_ = await world.create_node(
         session, "terra.coal", "Угольная шахта", area_m2=400,
-        layer=Layer.PLANET, parent=терра,
+        layer=Layer.PLANET, parent=terra,
         properties={"лес": True, "вода": "нет", travel.REACH: 1},
     )
-    #: Каторга столицы (D-174, D-176): жила, принтер и терминал за одной
-    #: стеной. Тюрьмой узел делает станок «Каторга», а не свойство: власть
-    #: строит новые каторги сама, как всякое здание.
-    тюрьма = await world.create_node(
+    #: The capital's penal colony (D-174, D-176): a vein, a printer and a
+    #: terminal behind one wall. The "Penal colony" machine makes the node a
+    #: prison, not a property: the authority builds new penal colonies itself,
+    #: like any building.
+    prison = await world.create_node(
         session, "terra.capital.jail", "Каторжный забой", area_m2=120,
-        parent=столица, properties={"кольцо": 3},
+        parent=capital, properties={"кольцо": 3},
     )
-    #: Свободные участки второго кольца: город раздаёт их жителям (D-089), и
-    #: только на своей земле ремесленник ставит свой станок (D-150).
-    участки = [
+    #: Free plots of the second ring: the city hands them out to residents
+    #: (D-089), and only on own land does a craftsman place their machine (D-150).
+    plots = [
         await world.create_node(
-            session, f"terra.capital.lot{номер}", f"Свободный участок {номер}",
-            area_m2=бросок.uniform(*_кольцо(constants)),
-            parent=столица, properties={"кольцо": 2, "участок": True},
+            session, f"terra.capital.lot{number}", f"Свободный участок {number}",
+            area_m2=dice.uniform(*_ring(constants)),
+            parent=capital, properties={"кольцо": 2, "участок": True},
         )
-        for номер in (1, 2, 3)
+        for number in (1, 2, 3)
     ]
-    #: Пашня — за городом: земля в кольцах слишком дорога для полбы (D-089).
-    #: Свойства места разыграны рукой сида — генератор узлов приедет с
-    #: разведкой (D-126, D-132).
-    пойма = await world.create_node(
+    #: Arable land is outside the city: land in the rings is too expensive for
+    #: spelt (D-089). Place properties are rolled by the seed's hand -- the node
+    #: generator arrives with exploration (D-126, D-132).
+    floodplain = await world.create_node(
         session, "terra.floodplain", "Пойма у реки", area_m2=400,
-        layer=Layer.PLANET, parent=терра,
+        layer=Layer.PLANET, parent=terra,
         properties={"вода": "река", "плодородие": 55, travel.REACH: 1},
     )
 
-    #: Внутри города — короткие рёбра, снаружи — настоящий переход.
-    for один, другой in (
-        (ядро, библиотека),
-        (ядро, рынок),
-        (ядро, ратуша),
-        (библиотека, рынок),
-        (библиотека, ратуша),
-        (рынок, кузница),
-        (кузница, забой),
-        (ядро, ворота),
-        (забой, ворота),
-        *((кузница, участок) for участок in участки),
+    #: Inside the city -- short edges, outside -- a real transit.
+    for one, other in (
+        (core, library),
+        (core, marketplace),
+        (core, townhall),
+        (library, marketplace),
+        (library, townhall),
+        (marketplace, forge),
+        (forge, face),
+        (core, gate),
+        (face, gate),
+        *((forge, plot) for plot in plots),
     ):
         await travel.connect(
-            session, один, другой,
-            base_seconds=бросок.uniform(шаг.min, шаг.max),
+            session, one, other,
+            base_seconds=dice.uniform(step.min, step.max),
             surface=Surface.PAVED,
         )
-    #: К шахте и пойме ведёт дорога, а не бездорожье: по ней возят уголь и
-    #: хлеб, и город эти дороги себе построил. Длина — по дали узла (D-180).
-    for куда in (шахта, пойма):
+    #: A road leads to the mine and the floodplain, not offroad: coal and bread
+    #: are hauled along it, and the city built itself these roads. Length by
+    #: the node's distance (D-180).
+    for dest in (mine_, floodplain):
         await travel.connect(
-            session, ворота, куда,
-            base_seconds=travel.frontier_seconds(constants, travel.reach_of(куда)),
+            session, gate, dest,
+            base_seconds=travel.frontier_seconds(constants, travel.reach_of(dest)),
             surface=Surface.ROAD,
         )
     await travel.connect(
-        session, ворота, тюрьма,
-        base_seconds=бросок.uniform(шаг.min, шаг.max),
+        session, gate, prison,
+        base_seconds=dice.uniform(step.min, step.max),
         surface=Surface.PAVED,
     )
 
-    #: Порода у каждой жилы своя (D-151): железо у стены, уголь и попутная медь
-    #: в шахте. Медный узел и железный — разные места с разной ценой.
-    await world.create_vein(session, забой, IRON, richness=62, remaining=50_000)
-    await world.create_vein(session, шахта, COAL, richness=48, remaining=30_000)
-    await world.create_vein(session, шахта, COPPER, richness=41, remaining=18_000)
-    await world.create_vein(session, тюрьма, IRON, richness=35, remaining=20_000)
-    await _станок(session, тюрьма, death.PRINTER, 50)
-    await _станок(session, тюрьма, market.TERMINAL, 50)
-    await _станок(session, тюрьма, justice.KATORGA, 55)
+    #: Every vein has its own species (D-151): iron by the wall, coal and
+    #: incidental copper in the mine. The copper node and the iron one are
+    #: different places with different prices.
+    await world.create_vein(session, face, IRON, richness=62, remaining=50_000)
+    await world.create_vein(session, mine_, COAL, richness=48, remaining=30_000)
+    await world.create_vein(session, mine_, COPPER, richness=41, remaining=18_000)
+    await world.create_vein(session, prison, IRON, richness=35, remaining=20_000)
+    await _machine(session, prison, death.PRINTER, 50)
+    await _machine(session, prison, market.TERMINAL, 50)
+    await _machine(session, prison, justice.KATORGA, 55)
 
-    await _станок(session, ратуша, "Администрация", 65)
-    #: Библиотека — станок (D-176): окно знаний показывается там, где он стоит.
-    await _станок(session, библиотека, world.LIBRARY, 70)
-    #: Принтер Предтеч: бесплатно и двенадцать часов (D-028). Он же — единственная
-    #: дверь в мир, которая не закрывается никогда, и потому стоит в ядре.
-    await _станок(session, ядро, death.PRINTER, 90)
-    #: Городской принтер при кузнице: минуты вместо часов, но за энергию и
-    #: железо. Город продаёт не жизнь, а скорость (D-028, D-033).
-    await _станок(session, кузница, death.PRINTER, 60)
-    await _станок(session, рынок, market.TERMINAL, 70)
-    #: Монетный станок при торговом дворе: монету чеканят там, где ей ходить
-    #: (D-016). Постройка городская.
-    await _станок(session, рынок, "Монетный станок", 60)
-    await _станок(session, кузница, "Плавильная печь", 55)
-    await _станок(session, кузница, "Верстак", 60)
-    await _станок(session, кузница, "Кузница", 65)
-    #: Кровать при мастерской: своих построек нет до Э3, мастер живёт при деле.
-    await _станок(session, кузница, "Кровать", 50)
-    #: Сундук при кузнице (D-181): городская мастерская — первое место, где
-    #: игрок увидит, что нажитое можно положить, а не таскать в руках.
-    await _станок(session, кузница, "Сундук", 55)
-    #: Электростанция городская (D-082): стоит в застройке и питает весь город
-    #: из одного пула. Уголь к ней возят игроки — без подвоза она мертва.
-    await _станок(session, кузница, "Угольная станция", 60)
-    двор_кузницы = await world.node_container(session, кузница)
+    await _machine(session, townhall, "Администрация", 65)
+    #: The library is a machine (D-176): the knowledge window is shown where it stands.
+    await _machine(session, library, world.LIBRARY, 70)
+    #: The Forerunners' Printer: free and twelve hours (D-028). It is also the
+    #: only door into the world that never closes, hence it stands in the core.
+    await _machine(session, core, death.PRINTER, 90)
+    #: The city printer at the forge: minutes instead of hours, but for energy
+    #: and iron. The city sells not life but speed (D-028, D-033).
+    await _machine(session, forge, death.PRINTER, 60)
+    await _machine(session, marketplace, market.TERMINAL, 70)
+    #: The mint press at the trading yard: coins are minted where they will
+    #: circulate (D-016). A civic building.
+    await _machine(session, marketplace, "Монетный станок", 60)
+    await _machine(session, forge, "Плавильная печь", 55)
+    await _machine(session, forge, "Верстак", 60)
+    await _machine(session, forge, "Кузница", 65)
+    #: A bed at the workshop: no own buildings before E3, the master lives at work.
+    await _machine(session, forge, "Кровать", 50)
+    #: A chest at the forge (D-181): the city workshop is the first place where
+    #: the player sees that possessions can be put down rather than carried.
+    await _machine(session, forge, "Сундук", 55)
+    #: The power station is civic (D-082): it stands in the built-up area and
+    #: feeds the whole city from one pool. Players haul coal to it -- without
+    #: supply it is dead.
+    await _machine(session, forge, "Угольная станция", 60)
+    forge_yard = await world.node_container(session, forge)
     await world.grant_item(
-        session, двор_кузницы, COAL, amount=200, quality=55,
+        session, forge_yard, COAL, amount=200, quality=55,
         origin="стартовый мир: первый подвоз угля на станцию",
     )
-    #: Запас железа в принтере: город обязан его держать, иначе печатать не из
-    #: чего (D-013). Дальше пополняют игроки — это и делает приток населения
-    #: политическим вопросом, а не фоном.
+    #: An iron stock in the printer: the city must keep it, otherwise there is
+    #: nothing to print from (D-013). From then on players replenish it -- that
+    #: is what makes population inflow a political question, not a backdrop.
     await world.grant_item(
-        session, двор_кузницы, death.IRON, amount=50, quality=55,
+        session, forge_yard, death.IRON, amount=50, quality=55,
         origin="стартовый мир: запас процессоров в биопринтере",
     )
 
-    #: Столица — город-институт (D-154): устав из умолчаний вольта, казна и
-    #: код-законы. Всё, что здесь ставится, власть потом меняет сама.
-    город = await town.found(session, current_catalog(), столица, столица.name)
-    #: Тюрьма — тоже земля города (D-176): государственная локация не бывает
-    #: «свободным участком».
-    for узел in (ядро, библиотека, рынок, кузница, забой, ратуша, ворота, тюрьма, *участки):
-        узел.owner_city_id = город.id
+    #: The capital is an institutional city (D-154): a charter from vault
+    #: defaults, a treasury and code-laws. Everything set here the authority changes itself later.
+    city = await town.found(session, current_catalog(), capital, capital.name)
+    #: The prison is city land too (D-176): a state location is never a "free plot".
+    for node in (core, library, marketplace, forge, face, townhall, gate, prison, *plots):
+        node.owner_city_id = city.id
     await session.flush()
-    await _казна(session, город)
-    #: Первое решение города: платить новичкам подъёмные. Записано сидом за
-    #: неимением живого президента в первую секунду мира — дальше это обычный
-    #: код-закон, и меняется он из администрации (D-153).
-    город.laws = {"newcomer_grant": NEWCOMER_GRANT}
+    await _treasury(session, city)
+    #: The city's first decision: pay newcomers a settlement grant. Written by
+    #: the seed for lack of a live president in the world's first second --
+    #: from then on it is an ordinary code-law, changed from the administration (D-153).
+    city.laws = {"newcomer_grant": NEWCOMER_GRANT}
     await session.flush()
 
-    #: Пул города заводится сразу: он есть у города по построению (D-071).
+    #: The city pool is created at once: a city has one by construction (D-071).
     from src.engine import energy
 
     await energy.ensure_pools(session, constants)
 
-    тэрн, тело_тэрна = await world.spawn(session, "Тэрн", ядро, **_учётка("Тэрн"))
-    #: Первый игрок и есть основатель: власть в городе появляется вместе с
-    #: первым человеком, а не отдельным сценарием (D-154).
-    await town.install_founder(session, город, тэрн)
-    карман = await world.body_container(session, тело_тэрна)
+    tern, tern_body = await world.spawn(session, "Тэрн", core, **_acct("Тэрн"))
+    #: The first player is the founder: authority in the city appears with the
+    #: first person, not by a separate script (D-154).
+    await town.install_founder(session, city, tern)
+    pocket = await world.body_container(session, tern_body)
     await world.grant_item(
-        session, карман, PICK, quality=55, origin="стартовый мир: снаряжение шахтёра"
+        session, pocket, PICK, quality=55, origin="стартовый мир: снаряжение шахтёра"
     )
     await world.grant_item(
-        session, карман, TIMBER, amount=10, quality=50, origin="стартовый мир: снаряжение шахтёра"
+        session, pocket, TIMBER, amount=10, quality=50, origin="стартовый мир: снаряжение шахтёра"
     )
     await world.grant_item(
-        session, карман, COAL, amount=30, quality=58, origin="стартовый мир: запас угля"
+        session, pocket, COAL, amount=30, quality=58, origin="стартовый мир: запас угля"
     )
-    #: Семенной фонд новичка: семена — предмет, отдельный от урожая (D-057).
-    #: Сорт базовый, ничей: с него начинают все, а дальше фермер либо ведёт
-    #: отбор, либо смотрит, как фонд вырождается.
+    #: The newcomer's seed fund: seeds are an item separate from the harvest
+    #: (D-057). The cultivar is a base one, nobody's: everyone starts from it,
+    #: and then the farmer either selects or watches the fund degrade.
     from src.engine import breed
 
-    for культура, сколько in (("spelt", 300), ("turnip", 200)):
-        сорт = await breed.landrace(session, current_catalog(), культура)
+    for crop, qty in (("spelt", 300), ("turnip", 200)):
+        cultivar = await breed.landrace(session, current_catalog(), crop)
         await breed.seed_lot(
-            session, current_catalog(), карман.id, сорт, сколько, PERCENT
+            session, current_catalog(), pocket.id, cultivar, qty, PERCENT
         )
-    #: Кухня новичка: готовка не требует ни земли, ни капитала (D-119) —
-    #: очаг на пойме, утварь и продукты в карман.
-    await _станок(session, пойма, "Очаг", 70)
-    #: Питомник при пойме: скрещивание требует места, как всякая работа (D-057).
-    await _станок(session, пойма, "Селекционный питомник", 60)
+    #: The newcomer's kitchen: cooking needs neither land nor capital (D-119)
+    #: -- a hearth on the floodplain, utensils and products in the pocket.
+    await _machine(session, floodplain, "Очаг", 70)
+    #: A nursery by the floodplain: crossing needs a place, like all work (D-057).
+    await _machine(session, floodplain, "Селекционный питомник", 60)
     await world.grant_item(
-        session, карман, "Глиняный горшок", quality=65, origin="стартовый мир: утварь"
+        session, pocket, "Глиняный горшок", quality=65, origin="стартовый мир: утварь"
     )
-    for продукт, сколько, качество in (
+    for product, qty, quality in (
         ("Бобы", 10, 60), ("Овощи", 10, 55), ("Масло", 3, 50), ("Соль", 3, 50),
     ):
         await world.grant_item(
-            session, карман, продукт, amount=сколько, quality=качество,
+            session, pocket, product, amount=qty, quality=quality,
             origin="стартовый мир: продукты",
         )
 
-    #: Аффинированный металл Тэрну: золотоносной породы в стартовых жилах нет,
-    #: а посмотреть на чеканку и на пробу хочется сегодня — то же допущение,
-    #: что с углём.
-    for металл, сколько in (("Аффинированное золото", 20), ("Аффинированное серебро", 60)):
+    #: Refined metal to Tern: there is no gold-bearing species in the starting
+    #: veins, and one wants to look at minting and fineness today -- the same
+    #: assumption as with coal.
+    for metal, qty in (("Аффинированное золото", 20), ("Аффинированное серебро", 60)):
         await world.grant_item(
-            session, карман, металл, amount=сколько, quality=60,
+            session, pocket, metal, amount=qty, quality=60,
             origin="стартовый мир: металл на пробу",
         )
 
-    хём, тело_хёма = await world.spawn(session, "Хём", рынок, **_учётка("Хём"))
-    карман_хёма = await world.body_container(session, тело_хёма)
+    hyom, hyom_body = await world.spawn(session, "Хём", marketplace, **_acct("Хём"))
+    hyom_pocket = await world.body_container(session, hyom_body)
     await world.grant_item(
-        session, карман_хёма, IRON, amount=30, quality=64,
+        session, hyom_pocket, IRON, amount=30, quality=64,
         origin="стартовый мир: запас торговца",
     )
-    #: Чтобы в стакане было на что посмотреть с первой минуты.
-    await market.load(session, constants, тело_хёма, IRON, 30)
+    #: So that there is something to look at in the book from the first minute.
+    await market.load(session, constants, hyom_body, IRON, 30)
     await market.sell(
-        session, constants, current_catalog(), хём, рынок,
+        session, constants, current_catalog(), hyom, marketplace,
         type_key=IRON,
         tier=market.tier_of(constants, 64),
         price=money(3),
         quantity=30,
     )
 
-    #: Аккумулятор Тэрну: энергия не лежит в мешке, её возят в нём (D-071).
+    #: A battery to Tern: energy does not lie in a sack, it is carried in one (D-071).
     await world.grant_item(
-        session, карман, "Аккумулятор", quality=55,
+        session, pocket, "Аккумулятор", quality=55,
         origin="стартовый мир: аккумулятор",
     )
 
-    #: Здания городских узлов: станок ставится в здание и занимает площадь
-    #: (D-106), и сид обязан дать зданию встать раньше, чем станку. Городская
-    #: застройка считается застроенной целиком.
-    await _здания(session)
+    #: Buildings of city nodes: a machine is placed in a building and takes area
+    #: (D-106), and the seed must let the building stand before the machine.
+    #: The city's built-up area counts as fully built.
+    await _buildings(session)
 
     await tick.ensure_scheduled(session)
-    #: Счётчик быта тикает наравне с часами мира: содержание идёт временем и
-    #: без игроков (D-149).
+    #: The household meter ticks with the world clock: maintenance runs by
+    #: time and without players (D-149).
     await utility.ensure_scheduled(session)
     log.info(
-        "стартовый мир создан: столица Терры с администрацией, шахта, игроки Тэрн и Хём"
+        "starting world created: Terra's capital with administration, mine, players Tern and Hyom"
     )
-    return ядро
+    return core
 
 
-async def догнать(session: AsyncSession, ядро: Node) -> None:
-    """Довести уже существующий мир до сегодняшнего устройства.
+async def catch_up(session: AsyncSession, core: Node) -> None:
+    """Bring an already existing world up to today's layout.
 
-    Мир вечный, вайпов не бывает (D-007): «пересоздайте базу» — не ответ. Сюда
-    попадает то, что нельзя доложить миграцией, потому что это не схема, а
-    содержание: город как институт, здание администрации, свободные участки.
+    The world is eternal, there are no wipes (D-007): "recreate the database"
+    is not an answer. Here goes what cannot be added by a migration because it
+    is content, not schema: the city as an institution, the administration
+    building, free plots.
 
-    Всё до одного шага идемпотентно: повторный запуск ничего не удваивает.
+    Every step is idempotent: running again doubles nothing.
     """
     constants = current()
-    бросок = random.Random(f"{CORE}:догнать")
-    шаг = constants[R.TRAVEL_CITY_STEP]
+    dice = random.Random(f"{CORE}:догнать")
+    step = constants[R.TRAVEL_CITY_STEP]
 
-    столица = await session.get(Node, ядро.parent_id)
-    if столица is None:  # pragma: no cover — ядро без города это баг
+    capital = await session.get(Node, core.parent_id)
+    if capital is None:  # pragma: no cover -- a core without a city is a bug
         return
 
-    #: Вход по почте и паролю (D-187): личности, заведённые до него, получают
-    #: тестовые учётки сида. Только те, у кого почты ещё нет — назначенное
-    #: руками или из кабинета догон не трогает.
-    await _учётки_догоном(session)
+    #: Login by email and password (D-187): identities created before it get
+    #: the seed's test accounts. Only those without an email yet -- anything
+    #: set by hand or from the account panel the catch-up does not touch.
+    await _accounts_catch_up(session)
 
-    город = await town.by_node(session, столица.id)
-    if город is None:
-        город = await town.found(session, current_catalog(), столица, столица.name)
-        город.laws = {"newcomer_grant": NEWCOMER_GRANT}
-        await _казна(session, город)
-        log.info("город основан на существующем мире: %s", город.name)
+    city = await town.by_node(session, capital.id)
+    if city is None:
+        city = await town.found(session, current_catalog(), capital, capital.name)
+        city.laws = {"newcomer_grant": NEWCOMER_GRANT}
+        await _treasury(session, city)
+        log.info("city founded on the existing world: %s", city.name)
 
-    #: Городская земля: застройка столицы принадлежит городу, и с неё же он
-    #: получает налоги и на неё же тратит энергию (D-149).
-    дети = (
-        await session.execute(select(Node).where(Node.parent_id == столица.id))
+    #: Civic land: the capital's built-up area belongs to the city, and from it
+    #: the city collects taxes and on it spends energy (D-149).
+    children = (
+        await session.execute(select(Node).where(Node.parent_id == capital.id))
     ).scalars().all()
-    for узел in дети:
-        if узел.owner_city_id is None and узел.owner_identity_id is None:
-            узел.owner_city_id = город.id
+    for node in children:
+        if node.owner_city_id is None and node.owner_identity_id is None:
+            node.owner_city_id = city.id
     await session.flush()
 
-    #: Права дробятся (D-155), и у должностей, заведённых до этого, набор
-    #: старый: `dashboard`, `charter` и `land` в нём просто отсутствуют. У
-    #: основателя полномочия полны по построению — дополняем, а не переписываем.
-    for пост in await town.offices(session, город):
-        if пост.identity_id == город.founder_identity_id:
-            пост.powers = list(town.FOUNDER_POWERS)
+    #: Rights are split (D-155), and offices created before that have the old
+    #: set: `dashboard`, `charter` and `land` are simply absent from it. The
+    #: founder's powers are full by construction -- we add rather than rewrite.
+    for office in await town.offices(session, city):
+        if office.identity_id == city.founder_identity_id:
+            office.powers = list(town.FOUNDER_POWERS)
     await session.flush()
 
-    #: Президент: первый игрок мира. Власть появляется вместе с человеком, а
-    #: не отдельным сценарием (D-154).
-    if город.founder_identity_id is None:
-        первый = (
+    #: The president: the world's first player. Authority appears with the
+    #: person, not by a separate script (D-154).
+    if city.founder_identity_id is None:
+        first = (
             await session.execute(select(Identity).order_by(Identity.created_at))
         ).scalars().first()
-        if первый is not None:
-            await town.install_founder(session, город, первый)
+        if first is not None:
+            await town.install_founder(session, city, first)
 
-    #: Принтер Предтеч и городской принтер: без них смерть стала бы билетом в
-    #: один конец, а мир существует дольше, чем механика печати (D-028).
-    свойства = dict(ядро.properties or {})
-    if not свойства.get(death.PRECURSOR):
-        свойства[death.PRECURSOR] = True
-        ядро.properties = свойства
-    await _станок_если_нет(session, ядро, death.PRINTER, 90)
+    #: The Forerunners' Printer and the city printer: without them death would
+    #: be a one-way ticket, and the world exists longer than the print mechanic (D-028).
+    props = dict(core.properties or {})
+    if not props.get(death.PRECURSOR):
+        props[death.PRECURSOR] = True
+        core.properties = props
+    await _machine_if_missing(session, core, death.PRINTER, 90)
 
-    ратуша = await _узел_если_нет(
-        session, "terra.capital.hall", "Администрация", 180, столица, {"кольцо": 1}
+    townhall = await _node_if_missing(
+        session, "terra.capital.hall", "Администрация", 180, capital, {"кольцо": 1}
     )
-    if ратуша is not None:
-        await _станок(session, ратуша, "Администрация", 65)
-        ратуша.owner_city_id = город.id
+    if townhall is not None:
+        await _machine(session, townhall, "Администрация", 65)
+        townhall.owner_city_id = city.id
         await travel.connect(
-            session, ядро, ратуша,
-            base_seconds=бросок.uniform(шаг.min, шаг.max), surface=Surface.PAVED,
+            session, core, townhall,
+            base_seconds=dice.uniform(step.min, step.max), surface=Surface.PAVED,
         )
 
-    #: Библиотека и каторга — станки (D-176): миры, обставленные до этого,
-    #: получают их задним числом, и «свободный участок» на их месте исчезает.
-    библиотека = (
+    #: The library and the penal colony are machines (D-176): worlds furnished
+    #: before that get them retroactively, and the "free plot" in their place disappears.
+    library = (
         await session.execute(
             select(Node).where(Node.key == "terra.capital.library")
         )
     ).scalar_one_or_none()
-    if библиотека is not None:
-        await _станок_если_нет(session, библиотека, world.LIBRARY, 70)
-    #: Каторга столицы (D-174, D-176): мир, заведённый до неё, получает узел
-    #: целиком — жила, принтер, терминал и сам станок «Каторга».
-    новая_тюрьма = await _узел_если_нет(
-        session, "terra.capital.jail", "Каторжный забой", 120, столица,
+    if library is not None:
+        await _machine_if_missing(session, library, world.LIBRARY, 70)
+    #: The capital's penal colony (D-174, D-176): a world created before it gets
+    #: the node whole -- vein, printer, terminal and the "Penal colony" machine itself.
+    new_prison = await _node_if_missing(
+        session, "terra.capital.jail", "Каторжный забой", 120, capital,
         {"кольцо": 3},
     )
-    тюрьма = новая_тюрьма or (
+    prison = new_prison or (
         await session.execute(
             select(Node).where(Node.key == "terra.capital.jail")
         )
     ).scalar_one_or_none()
-    if тюрьма is not None:
-        тюрьма.owner_city_id = город.id
-        await _станок_если_нет(session, тюрьма, justice.KATORGA, 55)
-        await _станок_если_нет(session, тюрьма, death.PRINTER, 50)
-        await _станок_если_нет(session, тюрьма, market.TERMINAL, 50)
-    if новая_тюрьма is not None:
-        await world.create_vein(session, новая_тюрьма, IRON, richness=35, remaining=20_000)
-        выход = (
+    if prison is not None:
+        prison.owner_city_id = city.id
+        await _machine_if_missing(session, prison, justice.KATORGA, 55)
+        await _machine_if_missing(session, prison, death.PRINTER, 50)
+        await _machine_if_missing(session, prison, market.TERMINAL, 50)
+    if new_prison is not None:
+        await world.create_vein(session, new_prison, IRON, richness=35, remaining=20_000)
+        output_ = (
             await session.execute(
                 select(Node).where(Node.key == "terra.capital.gate")
             )
         ).scalar_one_or_none()
-        if выход is not None:
+        if output_ is not None:
             await travel.connect(
-                session, выход, новая_тюрьма,
-                base_seconds=бросок.uniform(шаг.min, шаг.max),
+                session, output_, new_prison,
+                base_seconds=dice.uniform(step.min, step.max),
                 surface=Surface.PAVED,
             )
 
-    кузница = (
+    forge = (
         await session.execute(
             select(Node).where(Node.key == "terra.capital.forge")
         )
     ).scalar_one_or_none()
-    if кузница is not None:
-        await _станок_если_нет(session, кузница, death.PRINTER, 60)
-        #: Сундук при кузнице (D-181): миры, заведённые до хранилищ, получают
-        #: его задним числом — иначе положить вещи по-прежнему негде.
-        await _станок_если_нет(session, кузница, "Сундук", 55)
-        двор = await world.node_container(session, кузница)
-        if not await _есть_в(session, двор, death.IRON):
+    if forge is not None:
+        await _machine_if_missing(session, forge, death.PRINTER, 60)
+        #: A chest at the forge (D-181): worlds created before storages get it
+        #: retroactively -- otherwise there is still nowhere to put things.
+        await _machine_if_missing(session, forge, "Сундук", 55)
+        yard = await world.node_container(session, forge)
+        if not await _present_in(session, yard, death.IRON):
             await world.grant_item(
-                session, двор, death.IRON, amount=50, quality=55,
+                session, yard, death.IRON, amount=50, quality=55,
                 origin="догоняющий сид: запас процессоров в биопринтере",
             )
-    for номер in (1, 2, 3):
-        участок = await _узел_если_нет(
-            session, f"terra.capital.lot{номер}", f"Свободный участок {номер}",
-            бросок.uniform(*_кольцо(constants)), столица,
+    for number in (1, 2, 3):
+        plot = await _node_if_missing(
+            session, f"terra.capital.lot{number}", f"Свободный участок {number}",
+            dice.uniform(*_ring(constants)), capital,
             {"кольцо": 2, "участок": True},
         )
-        if участок is not None:
-            участок.owner_city_id = город.id
-            if кузница is not None:
+        if plot is not None:
+            plot.owner_city_id = city.id
+            if forge is not None:
                 await travel.connect(
-                    session, кузница, участок,
-                    base_seconds=бросок.uniform(шаг.min, шаг.max),
+                    session, forge, plot,
+                    base_seconds=dice.uniform(step.min, step.max),
                     surface=Surface.PAVED,
                 )
 
-    #: Даль узлов и длина выездов (D-180): первое кольцо за стенами — двадцать
-    #: секунд ходу, а не двадцать минут. Мир, заведённый до этого решения,
-    #: получает даль задним числом, и его рёбра пересчитываются по ней.
-    ворота = (
+    #: Node distance and exit lengths (D-180): the first ring beyond the walls
+    #: is twenty seconds of walking, not twenty minutes. A world created before
+    #: this decision gets distance retroactively, and its edges are recomputed by it.
+    gate = (
         await session.execute(select(Node).where(Node.key == "terra.capital.gate"))
     ).scalar_one_or_none()
-    for ключ in ("terra.coal", "terra.floodplain"):
-        узел = (
-            await session.execute(select(Node).where(Node.key == ключ))
+    for key in ("terra.coal", "terra.floodplain"):
+        node = (
+            await session.execute(select(Node).where(Node.key == key))
         ).scalar_one_or_none()
-        if узел is None or ворота is None:
+        if node is None or gate is None:
             continue
-        if travel.reach_of(узел) == 0:
-            узел.properties = {**(узел.properties or {}), travel.REACH: 1}
-        ребро = (
+        if travel.reach_of(node) == 0:
+            node.properties = {**(node.properties or {}), travel.REACH: 1}
+        edge = (
             await session.execute(
                 select(Edge).where(
-                    ((Edge.node_a_id == ворота.id) & (Edge.node_b_id == узел.id))
-                    | ((Edge.node_a_id == узел.id) & (Edge.node_b_id == ворота.id))
+                    ((Edge.node_a_id == gate.id) & (Edge.node_b_id == node.id))
+                    | ((Edge.node_a_id == node.id) & (Edge.node_b_id == gate.id))
                 )
             )
         ).scalars().first()
-        секунд = travel.frontier_seconds(constants, travel.reach_of(узел))
-        if ребро is None:
+        seconds = travel.frontier_seconds(constants, travel.reach_of(node))
+        if edge is None:
             await travel.connect(
-                session, ворота, узел, base_seconds=секунд, surface=Surface.ROAD
+                session, gate, node, base_seconds=seconds, surface=Surface.ROAD
             )
         else:
-            ребро.base_seconds = int(секунд)
-            ребро.surface = Surface.ROAD
+            edge.base_seconds = int(seconds)
+            edge.surface = Surface.ROAD
 
-    #: Монетный двор переименован в монетный станок, а пробу отменили: монета
-    #: всегда 900-й (D-016). Существующие станки узнают новое имя здесь.
-    переименовать = (
+    #: The mint yard was renamed to mint press, and fineness was abolished: a
+    #: coin is always 900 (D-016). Existing machines learn the new name here.
+    rename = (
         await session.execute(
             select(Item).where(Item.type_key == "Монетный двор")
         )
     ).scalars().all()
-    for станок in переименовать:
-        станок.type_key = "Монетный станок"
+    for machine in rename:
+        machine.type_key = "Монетный станок"
 
-    #: Здания под уже стоящими станками: станок живёт в здании (D-106), и
-    #: узлы, обставленные до зданий, получают их задним числом.
-    await _здания(session)
+    #: Buildings under already standing machines: a machine lives in a building
+    #: (D-106), and nodes furnished before buildings get them retroactively.
+    await _buildings(session)
 
-    #: Бумаги задним числом: земля, занятая до реформы титулов, тоже оформлена
-    #: документом (D-116). Только там, где бумаги ещё нет: повторный запуск не
-    #: трогает выставленные на продажу.
+    #: Deeds retroactively: land taken before the title reform is documented
+    #: too (D-116). Only where there is no deed yet: a repeated run does not
+    #: touch those listed for sale.
     from src.engine import estate
     from src.models.estate import Deed
 
-    владения = (
+    holdings = (
         await session.execute(select(Node).where(Node.owner_identity_id.is_not(None)))
     ).scalars().all()
-    for узел in владения:
-        есть_бумага = await session.scalar(
-            select(Deed.id).where(Deed.node_id == узел.id).limit(1)
+    for node in holdings:
+        has_deed = await session.scalar(
+            select(Deed.id).where(Deed.node_id == node.id).limit(1)
         )
-        if есть_бумага is None:
-            await estate.issue_deed(session, узел, узел.owner_identity_id)
+        if has_deed is None:
+            await estate.issue_deed(session, node, node.owner_identity_id)
 
     from src.engine import energy
 
@@ -583,52 +594,52 @@ async def догнать(session: AsyncSession, ядро: Node) -> None:
     await session.flush()
 
 
-def _учётка(имя: str) -> dict:
-    """Почта, пароль и самоописание стартовой личности из `FOUNDERS`."""
-    данные = FOUNDERS[имя]
+def _acct(name: str) -> dict:
+    """Email, password and self-description of a starting identity from `FOUNDERS`."""
+    data = FOUNDERS[name]
     return {
-        "email": данные["email"],
-        "password": данные["password"],
+        "email": data["email"],
+        "password": data["password"],
         "profile": {
-            "surname": данные["surname"],
-            "age": данные["age"],
-            "about": данные["about"],
+            "surname": data["surname"],
+            "age": data["age"],
+            "about": data["about"],
         },
     }
 
 
-async def _учётки_догоном(session: AsyncSession) -> None:
+async def _accounts_catch_up(session: AsyncSession) -> None:
     from src.engine import account as accounts
     from src.models.identity import Account, Identity
 
-    for имя in FOUNDERS:
-        личность = (
-            await session.execute(select(Identity).where(Identity.name == имя))
+    for name in FOUNDERS:
+        identity = (
+            await session.execute(select(Identity).where(Identity.name == name))
         ).scalar_one_or_none()
-        if личность is None:
+        if identity is None:
             continue
-        аккаунт = await session.get(Account, личность.account_id)
-        if аккаунт is None or аккаунт.email:
+        acct_ = await session.get(Account, identity.account_id)
+        if acct_ is None or acct_.email:
             continue
-        учётка = _учётка(имя)
-        await accounts.set_credentials(session, аккаунт, учётка["email"], учётка["password"])
-        if not личность.surname and not личность.about:
-            accounts.apply_profile(личность, учётка["profile"])
-        log.info("учётка назначена догоном: %s → %s", имя, учётка["email"])
+        acct = _acct(name)
+        await accounts.set_credentials(session, acct_, acct["email"], acct["password"])
+        if not identity.surname and not identity.about:
+            accounts.apply_profile(identity, acct["profile"])
+        log.info("account assigned in catch-up: %s -> %s", name, acct["email"])
     await session.flush()
 
 
-async def _здания(session: AsyncSession) -> None:
-    """Поставить здание всюду, где стоит станок либо мебель, а здания нет.
+async def _buildings(session: AsyncSession) -> None:
+    """Place a building wherever a machine or furniture stands and there is no building.
 
-    Идемпотентно: второй запуск ничего не добавляет. Площадь — весь участок:
-    городская застройка и есть здание, двора у неё нет.
+    Idempotent: a second run adds nothing. The area is the whole plot: the
+    city's built-up area is the building, it has no yard.
     """
     from src.constants.catalog import ItemKind
     from src.engine import estate
     from src.models.inventory import Container, ContainerKind
 
-    книга = current_catalog().recipes
+    book = current_catalog().recipes
     rows = (
         await session.execute(
             select(Node, Item.type_key)
@@ -637,45 +648,45 @@ async def _здания(session: AsyncSession) -> None:
             .where(Container.kind == ContainerKind.NODE)
         )
     ).all()
-    обставлены: dict[str, Node] = {}
-    for узел, вещь in rows:
+    furnished: dict[str, Node] = {}
+    for node, thing in rows:
         try:
-            рецепт = книга.recipe(вещь)
-        except Exception:  # noqa: BLE001 — сырьё рецептом не описано
+            recipe = book.recipe(thing)
+        except Exception:  # noqa: BLE001 -- raw material has no recipe
             continue
-        if рецепт.kind in (ItemKind.STATION, ItemKind.FURNITURE):
-            обставлены[узел.key] = узел
-    for узел in обставлены.values():
-        if await estate.built_area(session, узел) <= 0:
+        if recipe.kind in (ItemKind.STATION, ItemKind.FURNITURE):
+            furnished[node.key] = node
+    for node in furnished.values():
+        if await estate.built_area(session, node) <= 0:
             from src.models.estate import Building
 
-            session.add(Building(node_id=узел.id, area_m2=float(узел.area_m2)))
+            session.add(Building(node_id=node.id, area_m2=float(node.area_m2)))
     await session.flush()
 
 
-async def _станок_если_нет(
-    session: AsyncSession, node: Node, имя: str, качество: float
+async def _machine_if_missing(
+    session: AsyncSession, node: Node, name: str, quality: float
 ) -> None:
-    """Поставить станок, если его в узле ещё нет. Второго не заводит."""
-    двор = await world.node_container(session, node)
-    if not await _есть_в(session, двор, имя):
+    """Place a machine if the node does not have it yet. Does not create a second one."""
+    yard = await world.node_container(session, node)
+    if not await _present_in(session, yard, name):
         await world.grant_item(
-            session, двор, имя, quality=качество, origin="догоняющий сид"
+            session, yard, name, quality=quality, origin="догоняющий сид"
         )
 
 
-async def _есть_в(session: AsyncSession, container, имя: str) -> bool:
+async def _present_in(session: AsyncSession, container, name: str) -> bool:
     from src.models.inventory import Item
 
     found = await session.scalar(
         select(Item.id)
-        .where(Item.container_id == container.id, Item.type_key == имя)
+        .where(Item.container_id == container.id, Item.type_key == name)
         .limit(1)
     )
     return found is not None
 
 
-async def _узел_если_нет(
+async def _node_if_missing(
     session: AsyncSession,
     key: str,
     name: str,
@@ -683,43 +694,45 @@ async def _узел_если_нет(
     parent: Node,
     properties: dict,
 ) -> Node | None:
-    """Завести узел, если его ещё нет. Иначе — ничего: мир не переписывают."""
-    существующий = (
+    """Create a node if it does not exist yet. Otherwise nothing: the world is not rewritten."""
+    existing_ = (
         await session.execute(select(Node).where(Node.key == key))
     ).scalar_one_or_none()
-    if существующий is not None:
+    if existing_ is not None:
         return None
     return await world.create_node(
         session, key, name, area_m2=area, parent=parent, properties=properties
     )
 
 
-def _кольцо(constants) -> tuple[float, float]:
-    """Разброс площади участка первого кольца (D-125). Числа — из вольта."""
-    площадь = constants[R.LAND_AREA_RING1]
-    return площадь.min, площадь.max
+def _ring(constants) -> tuple[float, float]:
+    """Plot area spread of the first ring (D-125). Numbers come from the vault."""
+    area = constants[R.LAND_AREA_RING1]
+    return area.min, area.max
 
 
-async def _станок(session: AsyncSession, node: Node, имя: str, качество: float) -> None:
-    двор = await world.node_container(session, node)
-    await world.grant_item(session, двор, имя, quality=качество, origin="стартовый мир")
+async def _machine(session: AsyncSession, node: Node, name: str, quality: float) -> None:
+    yard = await world.node_container(session, node)
+    await world.grant_item(session, yard, name, quality=quality, origin="стартовый мир")
 
 
-async def _казна(session: AsyncSession, город) -> None:
-    """Положить в казну столицы стартовые деньги.
+async def _treasury(session: AsyncSession, city) -> None:
+    """Put the starting money into the capital's treasury.
 
-    Единственное допущение сида про деньги, и оно честное: подъёмные платятся
-    **из казны**, а взяться в казне первого города им неоткуда — налоги ещё не
-    собраны. Прирост денежной массы идёт через `genesis`, то есть виден в
-    проверке инвариантов (И1).
+    The seed's only assumption about money, and it is honest: the settlement
+    grant is paid **from the treasury**, and there is nowhere for it to come
+    from in the first city's treasury -- taxes are not collected yet. Growth of
+    the money supply goes through `genesis`, i.e. it is visible in the
+    invariant check (I1).
     """
-    казна = await town.treasury(session, город)
+
+    treasury = await town.treasury(session, city)
     genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
     await ledger.transfer(
         session,
         PostingReason.GENESIS,
         debit=genesis.id,
-        credit=казна.id,
+        credit=treasury.id,
         amount=money(CITY_TREASURY_START),
         memo={"основание": "стартовый мир: казна столицы"},
     )

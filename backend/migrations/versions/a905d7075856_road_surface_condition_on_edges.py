@@ -1,7 +1,7 @@
-"""Состояние покрытия на ребре (D-158).
+"""Surface condition on an edge (D-158).
 
-Уже проложенные дороги считаются целыми: мир не обязан просыпаться заросшим
-из-за того, что у карты появился второй слой состояния.
+Already laid roads count as intact: the world need not wake up overgrown
+because the map got a second layer of state.
 
 Revision ID: a905d7075856
 Revises: 9d0898d6862a
@@ -30,8 +30,9 @@ def upgrade() -> None:
             server_default='100',
         ),
     )
-    #: Умолчание нужно было только для существующих строк: дальше состояние
-    #: задаёт движок, а не база.
+    #: The default was needed only for existing rows: from then on the engine
+    #: sets the condition, not the database.
+
     op.alter_column('edge', 'condition', server_default=None)
 
 

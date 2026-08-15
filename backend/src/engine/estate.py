@@ -1,31 +1,32 @@
-"""Недвижимость: выкуп участка, ценная бумага, здание (D-089, D-106, D-116, D-125).
+"""Real estate: plot purchase, deed, building (D-089, D-106, D-116, D-125).
 
-## Выкуп городской земли
+## Buying civic land
 
-Пустой городской узел вправе купить **любой** игрок — землю больше не только
-раздаёт власть. Цену за квадратный метр назначает государство код-законом
-`land_price`; с каждым кольцом от биопринтера — центра города — участок
-дешевеет на `land.price_decay_per_ring`. Удалённость меряется по графу: шагами
-от узла с биопринтером, а не свойством, записанным при генерации. Выручка идёт
-в казну города: город продаёт свою землю, а не движок.
+An empty civic node may be bought by **any** player -- land is no longer only
+handed out by the authority. The price per square metre is set by the state
+via the code-law `land_price`; with each ring from the bioprinter -- the city
+centre -- a plot gets cheaper by `land.price_decay_per_ring`. Distance is
+measured over the graph: in steps from the node with the bioprinter, not by a
+property written at generation. Proceeds go to the city treasury: the city
+sells its land, not the engine.
 
-## Ценная бумага
+## Deed
 
-Владение оформляется бумагой (`models/estate.Deed`) — электронным документом.
-Бумага живёт в Сети: гибель тела её не трогает, распоряжаются ею удалённо, как
-счётом и ордерами. Продажа — договор купли-продажи: владелец выставляет цену
-(всем либо адресно), покупатель платит — и бумага вместе с участком переходит
-к нему одной транзакцией. Эскроу не нужен: и деньги, и титул меняют владельца
-в один момент.
+Ownership is documented by a deed (`models/estate.Deed`) -- an electronic
+document. The deed lives in the Net: the body's death does not touch it, it
+is managed remotely, like the account and orders. Sale is a sale contract: the
+holder lists a price (open or addressed), the buyer pays -- and the deed
+together with the plot passes to them in one transaction. No escrow is needed:
+both money and title change hands at one moment.
 
-## Здание
+## Building
 
-На пустом участке сначала строят здание, и только в здании ставят станки:
-станок занимает `build.slots_per_area` квадратных метров, так что площадь дома
-— это его вместимость, а не украшение (D-106). Стройка — работа: материалы
-первой ступени прочности (`build.materials_per_m2`) списываются сразу, здание
-встаёт по сроку `build.labor_per_m2` часов на метр — заданием журнала, как
-всякое длительное дело.
+On an empty plot a building is built first, and only in a building are
+machines placed: a machine takes `build.slots_per_area` square metres, so a
+house's area is its capacity, not decoration (D-106). Construction is work:
+materials of the first durability tier (`build.materials_per_m2`) are written
+off at once, the building rises on schedule at `build.labor_per_m2` hours per
+metre -- as a journal job, like every long-running task.
 """
 
 from __future__ import annotations
@@ -57,7 +58,7 @@ class EstateError(Exception):
 
 
 class NotForSale(EstateError):
-    """Эта земля не продаётся: она либо занята, либо не городская."""
+    """This land is not for sale: it is either occupied or not civic."""
 
 
 class NotEnoughMoney(EstateError):
@@ -65,58 +66,58 @@ class NotEnoughMoney(EstateError):
 
 
 class NotOwner(EstateError):
-    """Землёй распоряжается хозяин, а городской — власть с правом `land`."""
+    """The owner disposes of land; of civic land -- the authority with the `land` right."""
 
 
 class BadName(EstateError):
-    """Имя пустое либо длиннее разумного. Табличка — не письмо."""
+    """The name is empty or longer than reasonable. A nameplate is not a letter."""
 
 
 class NoBuilding(EstateError):
-    """Здания на участке нет: сначала строят, потом ставят станки (D-106)."""
+    """No building on the plot: build first, then place machines (D-106)."""
 
 
 class NoRoom(EstateError):
-    """В здании нет места: станки занимают площадь, и она кончилась."""
+    """No room in the building: machines take area, and it ran out."""
 
 
-# --- цена земли (D-089) ------------------------------------------------------
+# --- land price (D-089) ------------------------------------------------------
 
 
 async def rings_from_center(session: AsyncSession, node: Node) -> int:
-    """Удалённость участка от центра города — шагами графа от биопринтера.
+    """The plot's distance from the city centre -- in graph steps from the bioprinter.
 
-    Центр — узел, где стоит биопринтер (у столицы — Принтер Предтеч); город
-    растёт кольцами вокруг него, и ценность земли падает с каждым кольцом.
-    Меряем по рёбрам, а не по свойству «кольцо»: свойство — запись при
-    генерации, а рёбра — то, как по городу реально ходят.
+    The centre is the node where the bioprinter stands (for the capital -- the
+    Forerunners' Printer); the city grows in rings around it, and land value
+    falls with each ring. Measured by edges, not by the "ring" property: the
+    property is a record at generation, edges are how people really walk the city.
     """
     from src.engine import world
 
-    центр = await world.spawn_point(session)
-    if центр is None or центр.id == node.id:
+    center = await world.spawn_point(session)
+    if center is None or center.id == node.id:
         return 0
 
-    #: Поиск в ширину по рёбрам. Граф мал; станет велик — появится повод
-    #: считать заранее, а не на каждый запрос.
-    рёбра = (await session.execute(select(Edge))).scalars().all()
-    соседи: dict[uuid.UUID, list[uuid.UUID]] = {}
-    for ребро in рёбра:
-        соседи.setdefault(ребро.node_a_id, []).append(ребро.node_b_id)
-        соседи.setdefault(ребро.node_b_id, []).append(ребро.node_a_id)
+    #: Breadth-first search over edges. The graph is small; when it grows large
+    #: there will be a reason to precompute rather than count per request.
+    edges = (await session.execute(select(Edge))).scalars().all()
+    neighbours: dict[uuid.UUID, list[uuid.UUID]] = {}
+    for edge in edges:
+        neighbours.setdefault(edge.node_a_id, []).append(edge.node_b_id)
+        neighbours.setdefault(edge.node_b_id, []).append(edge.node_a_id)
 
-    видели = {центр.id}
-    очередь: deque[tuple[uuid.UUID, int]] = deque([(центр.id, 0)])
-    while очередь:
-        узел, шагов = очередь.popleft()
-        if узел == node.id:
-            return шагов
-        for сосед in соседи.get(узел, ()):  # noqa: B007
-            if сосед not in видели:
-                видели.add(сосед)
-                очередь.append((сосед, шагов + 1))
-    #: До узла нет дороги — земля на отшибе, дальше самого дальнего кольца.
-    return len(видели)
+    seen = {center.id}
+    queue: deque[tuple[uuid.UUID, int]] = deque([(center.id, 0)])
+    while queue:
+        ring_node, step_count = queue.popleft()
+        if ring_node == node.id:
+            return step_count
+        for neighbour in neighbours.get(ring_node, ()):  # noqa: B007
+            if neighbour not in seen:
+                seen.add(neighbour)
+                queue.append((neighbour, step_count + 1))
+    #: No road to the node -- the land is on the outskirts, beyond the farthest ring.
+    return len(seen)
 
 
 async def price_of(
@@ -126,43 +127,44 @@ async def price_of(
     city: City,
     node: Node,
 ) -> int:
-    """Цена участка минорными единицами: ставка города × спад × площадь.
+    """The plot price in minor units: city rate x decay x area.
 
-    Ставку у центра назначает город код-законом `land_price` (ТК/м²); с каждым
-    кольцом от биопринтера цена падает на `land.price_decay_per_ring`.
+    The rate at the centre is set by the city via the code-law `land_price`
+    (TC/m2); with each ring from the bioprinter the price falls by
+    `land.price_decay_per_ring`.
     """
     from src.engine import city as town
 
-    ставка = town.law_number(constants, catalog, city, "land_price")
-    if ставка <= 0:
+    rate = town.law_number(constants, catalog, city, "land_price")
+    if rate <= 0:
         raise NotForSale("город не назначил цену земли: код-закон `land_price` пуст")
-    спад = 1 - constants[R.LAND_PRICE_DECAY_PER_RING] / PERCENT
-    колец = await rings_from_center(session, node)
-    за_метр = ставка * (спад ** колец)
-    return max(1, money(за_метр * float(node.area_m2)))
+    decline = 1 - constants[R.LAND_PRICE_DECAY_PER_RING] / PERCENT
+    ring_count = await rings_from_center(session, node)
+    per_metre = rate * (decline ** ring_count)
+    return max(1, money(per_metre * float(node.area_m2)))
 
 
 async def is_vacant(session: AsyncSession, constants: Constants, node: Node) -> bool:
-    """Пустой ли узел: продаётся только земля без ничего.
+    """Whether the node is empty: only land with nothing on it is sold.
 
-    Городская застройка (кузница, рынок, администрация) и узлы с жилой этой
-    кнопкой не продаются: это не «пустой участок», а работающее имущество
-    города, и распоряжаться им — дело власти, а не прейскуранта.
+    The city's buildings (forge, market, administration) and nodes with a vein
+    are not sold by this button: they are not an "empty plot" but working city
+    property, and disposing of it is the authority's business, not a price list's.
     """
     if await built_area(session, node) > 0:
         return False
-    #: Транзитные ворота города — общая дорога, а не участок (D-176).
+    #: The city's transit gate is a common road, not a plot (D-176).
     if (node.properties or {}).get("выход"):
         return False
-    _, занято = await slots(session, constants, node)
-    if занято > 0:
+    _, occupied = await slots(session, constants, node)
+    if occupied > 0:
         return False
     from src.models.world import Vein
 
-    жила = await session.scalar(
+    vein = await session.scalar(
         select(Vein.id).where(Vein.node_id == node.id).limit(1)
     )
-    return жила is None
+    return vein is None
 
 
 async def buy(
@@ -172,11 +174,11 @@ async def buy(
     body: Body,
     node: Node,
 ) -> Deed:
-    """Выкупить пустой городской участок. Присутственно: землю смотрят ногами.
+    """Buy an empty civic plot. In person: land is inspected on foot.
 
-    Деньги уходят в казну города, покупателю выдаётся ценная бумага. Дикую
-    землю не покупают — её занимают (`world.claim_node`): вне города некому
-    назначить цену и некуда платить.
+    Money goes to the city treasury, the buyer is issued a deed. Wild land is
+    not bought -- it is taken (`world.claim_node`): outside a city there is
+    nobody to set a price and nowhere to pay.
     """
     from src.engine import city as town
 
@@ -194,58 +196,59 @@ async def buy(
             "узел не пустой: застройку и жилы города прейскурант не продаёт"
         )
 
-    город = await town.by_id(session, node.owner_city_id)
-    if город is None:  # pragma: no cover — городская земля без города это баг
+    city = await town.by_id(session, node.owner_city_id)
+    if city is None:  # pragma: no cover -- civic land without a city is a bug
         raise NotForSale("узел приписан к несуществующему городу")
 
-    #: Кто вправе занимать участки в кольцах, отвечает код-закон `build_permit`
-    #: (D-089). По умолчанию — граждане, и до D-160 это читалось как «все».
+    #: Who may take plots in the rings is answered by the code-law `build_permit`
+    #: (D-089). By default -- citizens, and before D-160 that read as "everyone".
     if not town.may_take_city_land(
-        catalog, город, await town.is_citizen(session, body.identity_id, город)
+        catalog, city, await town.is_citizen(session, body.identity_id, city)
     ):
         raise NotForSale(
-            f"«{город.name}» продаёт землю не всякому: код-закон build_permit — "
-            f"«{town.law(catalog, город, 'build_permit')}». Вступите в граждане"
+            f"«{city.name}» продаёт землю не всякому: код-закон build_permit — "
+            f"«{town.law(catalog, city, 'build_permit')}». Вступите в граждане"
         )
 
-    цена = await price_of(session, constants, catalog, город, node)
-    счёт = await ledger.account_for(session, AccountKind.IDENTITY, body.identity_id)
-    остаток = await ledger.balance(session, счёт.id)
-    if остаток < цена:
+    price = await price_of(session, constants, catalog, city, node)
+    account = await ledger.account_for(session, AccountKind.IDENTITY, body.identity_id)
+    remainder = await ledger.balance(session, account.id)
+    if remainder < price:
         raise NotEnoughMoney(
-            f"участок стоит {цена} минорных единиц, а на счету {остаток}"
+            f"участок стоит {price} минорных единиц, а на счету {remainder}"
         )
 
-    казна = await town.treasury(session, город)
+    treasury = await town.treasury(session, city)
     await ledger.transfer(
         session,
         PostingReason.TRADE,
-        debit=счёт.id,
-        credit=казна.id,
-        amount=цена,
-        memo={"выкуп участка": node.key, "город": город.name},
+        debit=account.id,
+        credit=treasury.id,
+        amount=price,
+        memo={"выкуп участка": node.key, "город": city.name},
     )
 
     node.owner_identity_id = body.identity_id
-    deed = await issue_deed(session, node, body.identity_id, paid=цена)
+    deed = await issue_deed(session, node, body.identity_id, paid=price)
 
     await events.record(
         session,
         EventKind.LAND_BOUGHT,
         actor_identity_id=body.identity_id,
         node_id=node.id,
-        city_id=str(город.id),
-        price=цена,
+        city_id=str(city.id),
+        price=price,
         deed_id=str(deed.id),
     )
     return deed
 
 
 async def may_name(session: AsyncSession, body: Body, node: Node) -> bool:
-    """Вправе ли это тело дать узлу имя (D-178).
+    """Whether this body may name the node (D-178).
 
-    Своей землёй распоряжается хозяин, городской — власть с правом `land`: тем
-    же, которым она эту землю раздаёт (D-089). Ничья земля имени не носит.
+    The owner disposes of their own land, of civic land -- the authority with
+    the `land` right: the same one it hands out that land with (D-089).
+    Unowned land bears no name.
     """
     from src.engine import city as town
     from src.models.city import Power
@@ -254,19 +257,19 @@ async def may_name(session: AsyncSession, body: Body, node: Node) -> bool:
         return node.owner_identity_id == body.identity_id
     if node.owner_city_id is None:
         return False
-    город = await town.by_id(session, node.owner_city_id)
-    return город is not None and await town.may(
-        session, body.identity_id, город, Power.LAND
+    city = await town.by_id(session, node.owner_city_id)
+    return city is not None and await town.may(
+        session, body.identity_id, city, Power.LAND
     )
 
 
 async def rename(
     session: AsyncSession, body: Body, node: Node, name: str
 ) -> Node:
-    """Дать участку имя. Табличку прибивают на месте, а не из Сети (D-178).
+    """Name a plot. The nameplate is nailed on the spot, not from the Net (D-178).
 
-    Меняется подпись, а не ключ узла: на `terra.capital.lot2` ссылаются бумаги,
-    рёбра и события, и переименование не вправе их порвать.
+    The label changes, not the node key: `terra.capital.lot2` is referenced by
+    deeds, edges and events, and renaming may not break them.
     """
     from src.runtime import LAND_NAME_LIMIT
 
@@ -281,42 +284,42 @@ async def rename(
             "правом на участки"
         )
 
-    название = name.strip()
-    if not название:
+    title = name.strip()
+    if not title:
         raise BadName("у участка должно быть имя")
-    if len(название) > LAND_NAME_LIMIT:
+    if len(title) > LAND_NAME_LIMIT:
         raise BadName(f"имя длиннее {LAND_NAME_LIMIT} знаков")
 
-    было, node.name = node.name, название
+    before, node.name = node.name, title
     await session.flush()
     await events.record(
         session,
         EventKind.LAND_RENAMED,
         actor_identity_id=body.identity_id,
         node_id=node.id,
-        was=было,
-        now=название,
+        was=before,
+        now=title,
     )
     return node
 
 
-# --- ценная бумага (D-116) ---------------------------------------------------
+# --- deed (D-116) ------------------------------------------------------------
 
 
 async def issue_deed(
     session: AsyncSession, node: Node, owner_id: uuid.UUID, *, paid: int = 0
 ) -> Deed:
-    """Выдать бумагу на участок. Одна на узел: повторная выдача переписывает
-    владельца — это смена титула, а не вторая бумага."""
-    существующая = (
+    """Issue a deed for a plot. One per node: a repeated issue rewrites the
+    holder -- that is a change of title, not a second deed."""
+    existing = (
         await session.execute(select(Deed).where(Deed.node_id == node.id))
     ).scalar_one_or_none()
-    if существующая is not None:
-        существующая.owner_identity_id = owner_id
-        существующая.sale_price = None
-        существующая.sale_to_identity_id = None
+    if existing is not None:
+        existing.owner_identity_id = owner_id
+        existing.sale_price = None
+        existing.sale_to_identity_id = None
         await session.flush()
-        return существующая
+        return existing
 
     deed = Deed(node_id=node.id, owner_identity_id=owner_id, paid=paid)
     session.add(deed)
@@ -340,9 +343,9 @@ async def offer_deed(
     *,
     to: Identity | None = None,
 ) -> Deed:
-    """Выставить бумагу на продажу: всем либо адресно. Удалённое действие.
+    """List a deed for sale: open or addressed. A remote action.
 
-    Ноль ценой снимает бумагу с продажи.
+    A zero price takes the deed off sale.
     """
     if deed.owner_identity_id != identity.id:
         raise EstateError("бумага не ваша: продают своё")
@@ -369,11 +372,11 @@ async def offer_deed(
 async def buy_deed(
     session: AsyncSession, buyer: Identity, deed: Deed
 ) -> Deed:
-    """Купить выставленную бумагу: деньги продавцу, титул покупателю.
+    """Buy a listed deed: money to the seller, title to the buyer.
 
-    Договор купли-продажи одной транзакцией: эскроу не нужен, потому что и
-    деньги, и бумага меняют владельца в один момент. Удалённое действие —
-    документы живут в Сети.
+    A sale contract in one transaction: no escrow is needed because both money
+    and deed change hands at one moment. A remote action -- documents live in
+    the Net.
     """
     if deed.sale_price is None:
         raise NotForSale("бумага не выставлена на продажу")
@@ -382,30 +385,30 @@ async def buy_deed(
     if deed.sale_to_identity_id is not None and deed.sale_to_identity_id != buyer.id:
         raise NotForSale("договор адресный: бумага обещана другому")
 
-    цена = int(deed.sale_price)
-    счёт = await ledger.account_for(session, AccountKind.IDENTITY, buyer.id)
-    остаток = await ledger.balance(session, счёт.id)
-    if остаток < цена:
-        raise NotEnoughMoney(f"бумага стоит {цена}, а на счету {остаток}")
+    price = int(deed.sale_price)
+    account = await ledger.account_for(session, AccountKind.IDENTITY, buyer.id)
+    remainder = await ledger.balance(session, account.id)
+    if remainder < price:
+        raise NotEnoughMoney(f"бумага стоит {price}, а на счету {remainder}")
 
-    продавец = await ledger.account_for(
+    seller = await ledger.account_for(
         session, AccountKind.IDENTITY, deed.owner_identity_id
     )
     await ledger.transfer(
         session,
         PostingReason.TRADE,
-        debit=счёт.id,
-        credit=продавец.id,
-        amount=цена,
+        debit=account.id,
+        credit=seller.id,
+        amount=price,
         memo={"договор купли-продажи": str(deed.id)},
     )
 
-    прежний = deed.owner_identity_id
+    previous = deed.owner_identity_id
     deed.owner_identity_id = buyer.id
     deed.sale_price = None
     deed.sale_to_identity_id = None
 
-    #: Титул и есть владение: узел переходит вместе с бумагой.
+    #: The title is the ownership: the node passes together with the deed.
     node = await session.get(Node, deed.node_id)
     if node is not None:
         node.owner_identity_id = buyer.id
@@ -417,8 +420,8 @@ async def buy_deed(
         actor_identity_id=buyer.id,
         node_id=deed.node_id,
         deed_id=str(deed.id),
-        price=цена,
-        seller=str(прежний),
+        price=price,
+        seller=str(previous),
     )
     return deed
 
@@ -434,7 +437,7 @@ async def deeds_of(session: AsyncSession, identity_id: uuid.UUID) -> list[Deed]:
 
 
 async def deeds_on_sale(session: AsyncSession, identity_id: uuid.UUID) -> list[Deed]:
-    """Бумаги, которые этой личности можно купить: открытые и адресованные ей."""
+    """Deeds this identity may buy: open ones and those addressed to it."""
     rows = (
         await session.execute(
             select(Deed).where(
@@ -450,7 +453,7 @@ async def deeds_on_sale(session: AsyncSession, identity_id: uuid.UUID) -> list[D
     ]
 
 
-# --- здание (D-106, D-125) ---------------------------------------------------
+# --- building (D-106, D-125) -------------------------------------------------
 
 
 async def buildings_of(session: AsyncSession, node: Node) -> list[Building]:
@@ -473,32 +476,32 @@ async def built_area(session: AsyncSession, node: Node) -> float:
 async def slots(
     session: AsyncSession, constants: Constants, node: Node
 ) -> tuple[int, int]:
-    """Вместимость и занятость: (мест всего, мест занято).
+    """Capacity and occupancy: (total places, occupied places).
 
-    Место — `build.slots_per_area` квадратных метров здания; занимают его
-    станки и мебель, стоящие в узле.
+    A place is `build.slots_per_area` square metres of the building; it is
+    taken by machines and furniture standing in the node.
     """
     from src.constants import current_catalog
     from src.constants.catalog import ItemKind
     from src.engine import world
 
-    площадь = await built_area(session, node)
-    всего = int(площадь // constants[R.BUILD_SLOTS_PER_AREA])
+    area = await built_area(session, node)
+    in_total = int(area // constants[R.BUILD_SLOTS_PER_AREA])
 
-    книга = current_catalog().recipes
-    двор = await world.node_container(session, node)
-    вещи = (
-        await session.execute(select(Item).where(Item.container_id == двор.id))
+    book = current_catalog().recipes
+    yard = await world.node_container(session, node)
+    things = (
+        await session.execute(select(Item).where(Item.container_id == yard.id))
     ).scalars().all()
-    занято = 0
-    for вещь in вещи:
+    occupied = 0
+    for thing in things:
         try:
-            рецепт = книга.recipe(вещь.type_key)
-        except Exception:  # noqa: BLE001 — сырьё у станка рецептом не описано
+            recipe = book.recipe(thing.type_key)
+        except Exception:  # noqa: BLE001 -- raw material at the machine has no recipe
             continue
-        if рецепт.kind in (ItemKind.STATION, ItemKind.FURNITURE):
-            занято += 1
-    return всего, занято
+        if recipe.kind in (ItemKind.STATION, ItemKind.FURNITURE):
+            occupied += 1
+    return in_total, occupied
 
 
 async def construct(
@@ -510,10 +513,10 @@ async def construct(
     *,
     now: datetime | None = None,
 ) -> Job:
-    """Построить здание на своём участке. Материалы сразу, здание — по сроку.
+    """Build a building on your own plot. Materials at once, the building on schedule.
 
-    Первая ступень прочности: дерево и верёвка (`build.materials_per_m2`).
-    Городская земля строится городом — здесь только своя (D-089).
+    The first durability tier: wood and rope (`build.materials_per_m2`). Civic
+    land is built by the city -- here only your own (D-089).
     """
     moment = now or datetime.now(UTC)
     if body.state is not BodyState.ALIVE:
@@ -526,30 +529,30 @@ async def construct(
     if area <= 0:
         raise EstateError("здание нулевой площади — это двор, он уже есть")
 
-    занято = await built_area(session, node)
-    if занято + area > float(node.area_m2):
+    occupied = await built_area(session, node)
+    if occupied + area > float(node.area_m2):
         raise NoRoom(
-            f"на участке {float(node.area_m2):.0f} м², застроено {занято:.0f}: "
+            f"на участке {float(node.area_m2):.0f} м², застроено {occupied:.0f}: "
             f"ещё {area:.0f} не помещается"
         )
 
-    #: Материалы — из вольта, на метр застройки. Списываются сразу: стройка
-    #: началась, и брус уже в стене, а не в мешке.
+    #: Materials come from the vault, per metre of floor. Written off at once:
+    #: construction has started, and the timber is already in the wall, not in the sack.
     from src.engine import craft, world
 
-    нормы = constants[R.BUILD_MATERIALS_PER_M2]
-    нужно = {имя: float(сколько) * area for имя, сколько in нормы.items()}
-    карман = await world.body_container(session, body)
-    запас = await craft._stock(session, карман, tuple(нужно))  # noqa: SLF001
-    for pick in craft._pick(запас, нужно):  # noqa: SLF001
+    norms = constants[R.BUILD_MATERIALS_PER_M2]
+    needed = {name: float(qty) * area for name, qty in norms.items()}
+    pocket = await world.body_container(session, body)
+    stock = await craft._stock(session, pocket, tuple(needed))  # noqa: SLF001
+    for pick in craft._pick(stock, needed):  # noqa: SLF001
         if pick.item.amount > pick.take:
             pick.item.amount -= pick.take
         else:
             await session.delete(pick.item)
     await session.flush()
 
-    минут = area * constants[R.BUILD_LABOR_PER_M2] * MINUTES_PER_HOUR
-    срок = moment + timedelta(minutes=минут)
+    minutes = area * constants[R.BUILD_LABOR_PER_M2] * MINUTES_PER_HOUR
+    term = moment + timedelta(minutes=minutes)
     event = await events.record(
         session,
         EventKind.CRAFT_STARTED,
@@ -557,26 +560,26 @@ async def construct(
         node_id=node.id,
         work="build",
         area=area,
-        spent=нужно,
-        ready_at=срок.isoformat(),
+        spent=needed,
+        ready_at=term.isoformat(),
     )
     job = await enqueue(
         session,
         JobKind.BUILD_FINISH,
-        срок,
+        term,
         payload={"node": str(node.id), "area": area, "identity": str(body.identity_id)},
         dedup_key=f"build:{node.id}:{event.id}",
         cause_event_id=event.id,
         body_id=body.id,
     )
-    if job is None:  # pragma: no cover — ключ уникален по событию
+    if job is None:  # pragma: no cover -- the key is unique per event
         raise EstateError("стройка уже поставлена")
     return job
 
 
 @handler(JobKind.BUILD_FINISH)
 async def finish_build(session: AsyncSession, job: Job) -> None:
-    """Стройка окончена: здание встало на участок."""
+    """Construction is over: the building stands on the plot."""
     node = await session.get(Node, uuid.UUID(job.payload["node"]))
     if node is None:  # pragma: no cover
         raise EstateError(f"стройка {job.id} ссылается в никуда")

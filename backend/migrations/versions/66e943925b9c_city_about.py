@@ -1,9 +1,10 @@
-"""Слово города новичку: текст на карточке двери (D-183).
+"""The city's word to newcomers: the text on the door card (D-183).
 
 Revision ID: 66e943925b9c
 Revises: 89582287840b
 Create Date: 2026-08-15 14:00:36.123958
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence

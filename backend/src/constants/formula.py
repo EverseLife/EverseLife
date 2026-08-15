@@ -1,18 +1,20 @@
-"""Вычисление формул вольта.
+"""Evaluation of vault formulas.
 
-Часть величин задана в `build/constants.json` не числом, а выражением:
+Some quantities are given in `build/constants.json` not as a number but as an
+expression:
 
     quality.durability_factor = "base_life * (0.5 + quality / 80)"
 
-Соблазн велик — прочитать выражение глазами и переписать его кодом. Так делать
-нельзя: числа `0.5` и `80` тогда переезжают в движок, и правка баланса начинает
-требовать выката версии, чего D-065 прямо запрещает. Поэтому выражение
-**вычисляется**, а движок отвечает только за то, какие имена в него подставить.
+The temptation is great -- read the expression by eye and rewrite it in code.
+That is not allowed: the numbers `0.5` and `80` would then move into the
+engine, and a balance edit would start requiring a release, which D-065
+directly forbids. So the expression is **evaluated**, and the engine is
+responsible only for which names to substitute into it.
 
-Вычисляется не всё подряд. Разрешены арифметика, скобки и подстановка имён —
-ничего больше: ни вызовов, ни обращений к атрибутам, ни индексов. Формула вида
-`sum(... for n in 1..floors)` честно отвергается как невычислимая, потому что
-она и есть описание алгоритма, который движок обязан написать сам.
+Not everything is evaluated. Arithmetic, parentheses and name substitution are
+allowed -- nothing else: no calls, no attribute access, no indexing. A formula
+like `sum(... for n in 1..floors)` is honestly rejected as unevaluable,
+because it is a description of an algorithm the engine must write itself.
 """
 
 from __future__ import annotations
@@ -23,7 +25,7 @@ from typing import Any
 
 from src.constants.spec import ConstantError
 
-#: Операции, которые может содержать формула баланса. Список закрыт намеренно.
+#: Operations a balance formula may contain. The list is closed on purpose.
 BINARY = {
     ast.Add: operator.add,
     ast.Sub: operator.sub,
@@ -36,11 +38,11 @@ UNARY = {ast.UAdd: operator.pos, ast.USub: operator.neg}
 
 
 class NotComputable(ConstantError):
-    """Формула описывает алгоритм, а не выражение. Её пишет движок."""
+    """The formula describes an algorithm, not an expression. The engine writes it."""
 
 
 def evaluate(text: str, **names: float) -> float:
-    """Посчитать формулу вольта, подставив названные величины."""
+    """Evaluate a vault formula, substituting the named quantities."""
     try:
         tree = ast.parse(text, mode="eval")
     except SyntaxError as broken:

@@ -1,12 +1,12 @@
-"""Переход между узлами (D-045, D-107).
+"""Transit between nodes (D-045, D-107).
 
-Проверяется то, ради чего карта — граф, а не сетка:
+Checked is what makes the map a graph rather than a grid:
 
-* по прямой не ходят: нет ребра — нет пути;
-* покрытие решает время, и бездорожье дороже дороги;
-* переход занимает время и приходит **заданием журнала**, а не проверкой при
-  чтении: закрыл вкладку — всё равно придёшь;
-* пока идёшь, тебя нет: присутственное закрыто всё до одного.
+* nobody walks in a straight line: no edge -- no path;
+* surface decides time, and offroad is pricier than a road;
+* a transit takes time and arrives **by a journal job**, not by a check on
+  read: closed the tab -- you still arrive;
+* while walking you are absent: everything in-person is closed.
 """
 
 from __future__ import annotations
@@ -25,120 +25,120 @@ from src.models.travel import TravelState
 from src.models.world import Surface
 
 
-async def _два_узла(session: AsyncSession, *, surface: Surface = Surface.ROAD, секунд=30):
-    метка = uuid.uuid4().hex[:8]
-    здесь = await world.create_node(session, f"terra.here.{метка}", "Здесь", area_m2=100)
-    там = await world.create_node(session, f"terra.there.{метка}", "Там", area_m2=100)
-    await travel.connect(session, здесь, там, base_seconds=секунд, surface=surface)
-    identity = await world.create_identity(session, f"Ходок-{метка}")
-    body = await world.print_body(session, identity, здесь)
-    return здесь, там, body
+async def _two_nodes(session: AsyncSession, *, surface: Surface = Surface.ROAD, seconds=30):
+    stamp = uuid.uuid4().hex[:8]
+    here = await world.create_node(session, f"terra.here.{stamp}", "Здесь", area_m2=100)
+    there = await world.create_node(session, f"terra.there.{stamp}", "Там", area_m2=100)
+    await travel.connect(session, here, there, base_seconds=seconds, surface=surface)
+    identity = await world.create_identity(session, f"Ходок-{stamp}")
+    body = await world.print_body(session, identity, here)
+    return here, there, body
 
 
-# --- граф -------------------------------------------------------------------
+# --- graph -------------------------------------------------------------------
 
 
-async def test_по_прямой_не_ходят(session: AsyncSession, constants: Constants) -> None:
-    """Ребра нет — пути нет. На этом держатся мосты, перевалы и засады."""
-    здесь, _, body = await _два_узла(session)
-    далеко = await world.create_node(session, "terra.faraway", "Далеко", area_m2=100)
+async def test_no_walking_in_straight_line(session: AsyncSession, constants: Constants) -> None:
+    """No edge -- no path. Bridges, passes and ambushes rest on this."""
+    here, _, body = await _two_nodes(session)
+    far_away = await world.create_node(session, "terra.faraway", "Далеко", area_m2=100)
     with pytest.raises(travel.NoEdge):
-        await travel.depart(session, constants, body, далеко)
+        await travel.depart(session, constants, body, far_away)
 
 
-async def test_ребро_ненаправленное(session: AsyncSession, constants: Constants) -> None:
-    """Дорога одинакова в обе стороны, и второй строки для этого не нужно."""
-    здесь, там, _ = await _два_узла(session)
-    отсюда = await travel.exits(session, constants, здесь)
-    оттуда = await travel.exits(session, constants, там)
-    assert [путь.key for путь in отсюда] == [там.key]
-    assert [путь.key for путь in оттуда] == [здесь.key]
+async def test_edge_undirected(session: AsyncSession, constants: Constants) -> None:
+    """The road is the same both ways, and no second row is needed for that."""
+    here, there, _ = await _two_nodes(session)
+    from_here = await travel.exits(session, constants, here)
+    from_there = await travel.exits(session, constants, there)
+    assert [path.key for path in from_here] == [there.key]
+    assert [path.key for path in from_there] == [here.key]
 
 
-async def test_бездорожье_дольше_дороги(session: AsyncSession, constants: Constants) -> None:
-    """Покрытие решает и время, и саму возможность проехать (D-107)."""
-    _, _, тело_по_дороге = await _два_узла(session, surface=Surface.ROAD)
-    дорога = (await travel.exits(session, constants, await _узел(session, тело_по_дороге)))[0]
+async def test_offroad_slower_than_road(session: AsyncSession, constants: Constants) -> None:
+    """Surface decides both time and the very possibility to drive through (D-107)."""
+    _, _, body_by_road = await _two_nodes(session, surface=Surface.ROAD)
+    road = (await travel.exits(session, constants, await _node(session, body_by_road)))[0]
 
-    _, _, тело_по_бездорожью = await _два_узла(session, surface=Surface.TRAIL)
-    тропа = (await travel.exits(session, constants, await _узел(session, тело_по_бездорожью)))[0]
+    _, _, body_offroad = await _two_nodes(session, surface=Surface.TRAIL)
+    trail = (await travel.exits(session, constants, await _node(session, body_offroad)))[0]
 
-    _, _, тело_по_тракту = await _два_узла(session, surface=Surface.PAVED)
-    тракт = (await travel.exits(session, constants, await _узел(session, тело_по_тракту)))[0]
+    _, _, body_by_highway = await _two_nodes(session, surface=Surface.PAVED)
+    highway = (await travel.exits(session, constants, await _node(session, body_by_highway)))[0]
 
-    assert тропа.seconds > дорога.seconds > тракт.seconds
-    assert тропа.seconds == pytest.approx(дорога.seconds * constants[R.ROAD_TRAIL_MULTIPLIER])
-
-
-# --- переход ----------------------------------------------------------------
+    assert trail.seconds > road.seconds > highway.seconds
+    assert trail.seconds == pytest.approx(road.seconds * constants[R.ROAD_TRAIL_MULTIPLIER])
 
 
-async def test_переход_занимает_время(session: AsyncSession, constants: Constants) -> None:
-    """Дорога стоит времени — иначе география исчезает вместе с перевозчиком."""
-    здесь, там, body = await _два_узла(session, секунд=30)
-    переход = await travel.depart(session, constants, body, там)
+# --- transit -----------------------------------------------------------------
+
+
+async def test_transit_takes_time(session: AsyncSession, constants: Constants) -> None:
+    """The road costs time -- otherwise geography disappears along with the hauler."""
+    here, there, body = await _two_nodes(session, seconds=30)
+    transit = await travel.depart(session, constants, body, there)
     await session.commit()
 
-    assert переход.arrives_at > переход.started_at
-    assert body.node_id == здесь.id, "тело ещё не там: телепорта нет"
-    assert переход.state is TravelState.GOING
+    assert transit.arrives_at > transit.started_at
+    assert body.node_id == here.id, "тело ещё не там: телепорта нет"
+    assert transit.state is TravelState.GOING
 
 
-async def test_приход_случается_заданием(
+async def test_arrival_happens_by_job(
     factory: async_sessionmaker[AsyncSession], constants: Constants
 ) -> None:
-    """Закрыл вкладку — всё равно придёшь: приход обязан быть в журнале."""
+    """Closed the tab -- you still arrive: the arrival must be in the journal."""
     async with factory() as session, session.begin():
-        _, там, body = await _два_узла(session, секунд=30)
-        переход = await travel.depart(session, constants, body, там)
-        срок, body_id, там_id = переход.arrives_at, body.id, там.id
+        _, there, body = await _two_nodes(session, seconds=30)
+        transit = await travel.depart(session, constants, body, there)
+        term, body_id, there_id = transit.arrives_at, body.id, there.id
 
-    #: До срока задание не берётся.
-    assert await jobs.run_one(factory, now=срок - timedelta(seconds=5)) is None
-    задание = await jobs.run_one(factory, now=срок)
-    assert задание is not None and задание.kind == "travel.leg"
+    #: Before the deadline the job is not taken.
+    assert await jobs.run_one(factory, now=term - timedelta(seconds=5)) is None
+    job = await jobs.run_one(factory, now=term)
+    assert job is not None and job.kind == "travel.leg"
 
     async with factory() as session:
         body = await session.get(Body, body_id)
-        assert body.node_id == там_id
+        assert body.node_id == there_id
         going = await travel.current(session, body)
         assert going is None, "переход закрыт"
 
 
-async def test_автопуть_строит_маршрут_и_идёт_сам(
+async def test_autopath_builds_route_and_walks_itself(
     factory: async_sessionmaker[AsyncSession], constants: Constants
 ) -> None:
-    """Клик в дальний узел: первый отрезок выходится сейчас, хвост — планом,
-    и приход каждого отрезка сам выводит тело в следующий (D-045)."""
+    """A click on a far node: the first leg is walked now, the tail as a plan,
+    and each leg's arrival itself sends the body into the next (D-045)."""
     async with factory() as session, session.begin():
-        метка = uuid.uuid4().hex[:8]
-        a = await world.create_node(session, f"terra.pa.{метка}", "А", area_m2=100)
-        b = await world.create_node(session, f"terra.pb.{метка}", "Б", area_m2=100)
-        c = await world.create_node(session, f"terra.pc.{метка}", "В", area_m2=100)
+        stamp = uuid.uuid4().hex[:8]
+        a = await world.create_node(session, f"terra.pa.{stamp}", "А", area_m2=100)
+        b = await world.create_node(session, f"terra.pb.{stamp}", "Б", area_m2=100)
+        c = await world.create_node(session, f"terra.pc.{stamp}", "В", area_m2=100)
         await travel.connect(session, a, b, base_seconds=30)
         await travel.connect(session, b, c, base_seconds=30)
-        identity = await world.create_identity(session, f"Путник-{метка}")
+        identity = await world.create_identity(session, f"Путник-{stamp}")
         body = await world.print_body(session, identity, a)
 
-        переход = await travel.depart(session, constants, body, c)
-        assert переход.to_node_id == b.id, "первый отрезок — в соседа по маршруту"
-        assert переход.plan == [str(c.id)], "хвост маршрута лежит планом"
-        срок1, body_id, b_id, c_id = переход.arrives_at, body.id, b.id, c.id
+        transit = await travel.depart(session, constants, body, c)
+        assert transit.to_node_id == b.id, "первый отрезок — в соседа по маршруту"
+        assert transit.plan == [str(c.id)], "хвост маршрута лежит планом"
+        term1, body_id, b_id, c_id = transit.arrives_at, body.id, b.id, c.id
 
-    #: Первый отрезок пришёл — второй вышел сам, без клика.
-    задание = await jobs.run_one(factory, now=срок1)
-    assert задание is not None and задание.kind == "travel.leg"
+    #: The first leg arrived -- the second set out by itself, without a click.
+    job = await jobs.run_one(factory, now=term1)
+    assert job is not None and job.kind == "travel.leg"
 
     async with factory() as session:
         body = await session.get(Body, body_id)
         assert body.node_id == b_id, "тело в промежуточном узле"
-        дальше = await travel.current(session, body)
-        assert дальше is not None and дальше.to_node_id == c_id
-        assert not дальше.plan, "последний отрезок — без хвоста"
-        срок2 = дальше.arrives_at
+        further = await travel.current(session, body)
+        assert further is not None and further.to_node_id == c_id
+        assert not further.plan, "последний отрезок — без хвоста"
+        term2 = further.arrives_at
 
-    задание = await jobs.run_one(factory, now=срок2)
-    assert задание is not None
+    job = await jobs.run_one(factory, now=term2)
+    assert job is not None
 
     async with factory() as session:
         body = await session.get(Body, body_id)
@@ -146,178 +146,179 @@ async def test_автопуть_строит_маршрут_и_идёт_сам(
         assert await travel.current(session, body) is None
 
 
-async def test_автопуть_выбирает_быстрейший_путь(
+async def test_autopath_picks_fastest_route(
     session: AsyncSession, constants: Constants
 ) -> None:
-    """Маршрут считается по времени с покрытием, а не по числу узлов."""
-    метка = uuid.uuid4().hex[:8]
-    a = await world.create_node(session, f"terra.qa.{метка}", "А", area_m2=100)
-    b = await world.create_node(session, f"terra.qb.{метка}", "Б", area_m2=100)
-    c = await world.create_node(session, f"terra.qc.{метка}", "В", area_m2=100)
-    d = await world.create_node(session, f"terra.qd.{метка}", "Г", area_m2=100)
-    #: Два пути в d: длинный «прямой» через c и короткий крюк через b.
+    """The route is computed by time with surface, not by node count."""
+    stamp = uuid.uuid4().hex[:8]
+    a = await world.create_node(session, f"terra.qa.{stamp}", "А", area_m2=100)
+    b = await world.create_node(session, f"terra.qb.{stamp}", "Б", area_m2=100)
+    c = await world.create_node(session, f"terra.qc.{stamp}", "В", area_m2=100)
+    d = await world.create_node(session, f"terra.qd.{stamp}", "Г", area_m2=100)
+    #: Two paths to d: a long "direct" one via c and a short detour via b.
     await travel.connect(session, a, c, base_seconds=500, surface=Surface.TRAIL)
     await travel.connect(session, c, d, base_seconds=500, surface=Surface.TRAIL)
     await travel.connect(session, a, b, base_seconds=30, surface=Surface.PAVED)
     await travel.connect(session, b, d, base_seconds=30, surface=Surface.PAVED)
 
-    легло = await travel.route(session, constants, a.id, d.id)
-    assert легло == [b.id, d.id], "быстрый тракт бьёт короткое бездорожье"
+    laid = await travel.route(session, constants, a.id, d.id)
+    assert laid == [b.id, d.id], "быстрый тракт бьёт короткое бездорожье"
 
 
-async def test_автопуть_в_несвязанный_узел_отказывает(
+async def test_autopath_to_disconnected_node_refuses(
     session: AsyncSession, constants: Constants
 ) -> None:
-    _, _, body = await _два_узла(session)
-    остров = await world.create_node(
+    _, _, body = await _two_nodes(session)
+    island = await world.create_node(
         session, f"terra.isle.{uuid.uuid4().hex[:6]}", "Остров", area_m2=100
     )
     with pytest.raises(travel.NoRoute):
-        await travel.depart(session, constants, body, остров)
+        await travel.depart(session, constants, body, island)
 
 
-async def test_в_двух_дорогах_сразу_не_ходят(
+async def test_cannot_walk_two_roads_at_once(
     session: AsyncSession, constants: Constants
 ) -> None:
-    _, там, body = await _два_узла(session)
-    await travel.depart(session, constants, body, там)
+    _, there, body = await _two_nodes(session)
+    await travel.depart(session, constants, body, there)
     with pytest.raises(travel.AlreadyGoing):
-        await travel.depart(session, constants, body, там)
+        await travel.depart(session, constants, body, there)
 
 
-# --- пока идёшь, тебя нет ---------------------------------------------------
+# --- while walking you are absent --------------------------------------------
 
 
-async def test_в_пути_не_добывают(session: AsyncSession, constants: Constants) -> None:
-    """Материя требует присутствия, а присутствия сейчас нет (D-044)."""
-    здесь, там, body = await _два_узла(session)
-    жила = await world.create_vein(session, здесь, "Железная руда", richness=60, remaining=1000)
-    await travel.depart(session, constants, body, там)
+async def test_no_mining_en_route(session: AsyncSession, constants: Constants) -> None:
+    """Matter requires presence, and there is no presence now (D-044)."""
+    here, there, body = await _two_nodes(session)
+    vein = await world.create_vein(session, here, "Железная руда", richness=60, remaining=1000)
+    await travel.depart(session, constants, body, there)
 
     with pytest.raises(travel.InTransit):
-        await mining.start(session, constants, body, жила)
+        await mining.start(session, constants, body, vein)
 
 
-async def test_в_пути_не_грузят_и_не_покупают(
+async def test_no_loading_or_buying_en_route(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    здесь, там, body = await _два_узла(session)
-    двор = await world.node_container(session, здесь)
-    await world.grant_item(session, двор, market.TERMINAL, quality=70, origin="тест")
-    карман = await world.body_container(session, body)
-    await world.grant_item(session, карман, "Железная руда", amount=5, quality=60, origin="тест")
+    here, there, body = await _two_nodes(session)
+    yard = await world.node_container(session, here)
+    await world.grant_item(session, yard, market.TERMINAL, quality=70, origin="тест")
+    pocket = await world.body_container(session, body)
+    await world.grant_item(session, pocket, "Железная руда", amount=5, quality=60, origin="тест")
 
-    await travel.depart(session, constants, body, там)
+    await travel.depart(session, constants, body, there)
     with pytest.raises(travel.InTransit):
         await market.load(session, constants, body, "Железная руда", 5)
 
 
-async def test_в_пути_не_копируют_рецепт(
+async def test_no_recipe_copying_en_route(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Библиотека не работает удалённо — и на полпути к ней тоже (D-053)."""
-    здесь, там, body = await _два_узла(session)
-    здесь.properties = {"library": True}
+    """The library does not work remotely -- nor halfway to it (D-053)."""
+    here, there, body = await _two_nodes(session)
+    here.properties = {"library": True}
     await session.flush()
 
-    await travel.depart(session, constants, body, там)
+    await travel.depart(session, constants, body, there)
     with pytest.raises(travel.InTransit):
         await craft.copy_recipe(session, catalog, body, "Гвозди")
 
 
-async def test_в_пути_не_запускают_партию(
+async def test_no_batch_start_en_route(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    здесь, там, body = await _два_узла(session)
-    двор = await world.node_container(session, здесь)
-    await world.grant_item(session, двор, "Верстак", quality=60, origin="тест")
+    here, there, body = await _two_nodes(session)
+    yard = await world.node_container(session, here)
+    await world.grant_item(session, yard, "Верстак", quality=60, origin="тест")
     identity_id = body.identity_id
     from src.models.identity import Identity
 
     identity = await session.get(Identity, identity_id)
     await world.learn(session, identity, "Гвозди")
-    карман = await world.body_container(session, body)
-    await world.grant_item(session, карман, "Слиток железа", amount=5, quality=60, origin="тест")
+    pocket = await world.body_container(session, body)
+    await world.grant_item(session, pocket, "Слиток железа", amount=5, quality=60, origin="тест")
 
-    await travel.depart(session, constants, body, там)
+    await travel.depart(session, constants, body, there)
     with pytest.raises(travel.InTransit):
         await craft.plan(session, constants, catalog, body, "Гвозди", 1)
 
 
-# --- дорога стоит выносливости (D-147) --------------------------------------
+# --- the road costs stamina (D-147) ------------------------------------------
 
 
-async def test_дорога_стоит_выносливости(
+async def test_road_costs_stamina(
     session: AsyncSession, constants: Constants
 ) -> None:
-    """Время — плохая цена: закрыл вкладку и пришёл. Вторую платит тело."""
-    _, там, body = await _два_узла(session, секунд=3600)
-    было = float(body.stamina)
-    await travel.depart(session, constants, body, там)
-    #: Час дороги — ровно ставка вольта за час. Расход идёт от времени, а не
-    #: от числа переходов: иначе шаг по кварталу дороже перехода через степь.
+    """Time is a poor price: close the tab and you have arrived. The body pays the second."""
+    _, there, body = await _two_nodes(session, seconds=3600)
+    before = float(body.stamina)
+    await travel.depart(session, constants, body, there)
+    #: An hour of road is exactly the vault rate per hour. The spend goes by
+    #: time, not by transit count: otherwise a step across the quarter is pricier than crossing the
+    #: steppe.
     assert float(body.stamina) == pytest.approx(
-        было - constants[R.TRAVEL_STAMINA_PER_HOUR]
+        before - constants[R.TRAVEL_STAMINA_PER_HOUR]
     )
 
 
-async def test_шаг_по_городу_почти_ничего_не_стоит(
+async def test_step_across_city_costs_almost_nothing(
     session: AsyncSession, constants: Constants
 ) -> None:
-    """Секунды дороги — доли единицы: география не наказывает за шаг."""
-    _, там, body = await _два_узла(session, секунд=6)
-    было = float(body.stamina)
-    await travel.depart(session, constants, body, там)
-    потрачено = было - float(body.stamina)
-    assert 0 < потрачено < constants[R.TRAVEL_STAMINA_PER_HOUR]
+    """Seconds of road are fractions of a unit: geography does not punish a step."""
+    _, there, body = await _two_nodes(session, seconds=6)
+    before = float(body.stamina)
+    await travel.depart(session, constants, body, there)
+    spent_ = before - float(body.stamina)
+    assert 0 < spent_ < constants[R.TRAVEL_STAMINA_PER_HOUR]
 
 
-async def test_без_сил_не_выходят(
+async def test_no_leaving_without_strength(
     session: AsyncSession, constants: Constants
 ) -> None:
-    """Выйти в дорогу, на которую не хватает сил, нельзя — как и начать партию."""
+    """One cannot set out on a road there is not enough strength for -- like starting a batch."""
     from decimal import Decimal
 
-    _, там, body = await _два_узла(session, секунд=36_000)
+    _, there, body = await _two_nodes(session, seconds=36_000)
     body.stamina = Decimal("1")
     await session.flush()
     with pytest.raises(travel.NoStrength):
-        await travel.depart(session, constants, body, там)
+        await travel.depart(session, constants, body, there)
     assert await travel.current(session, body) is None, "отказ не оставляет перехода"
 
 
-async def test_с_транспортом_дорога_телу_ничего_не_стоит(
+async def test_with_vehicle_road_costs_body_nothing(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Везёт транспорт, а не ноги (D-147, D-129).
+    """The vehicle carries, not the legs (D-147, D-129).
 
-    Транспорт при этом **впряжён**, а не лежит в кармане: тачка тяжелее предела
-    носимого, и в руках её не бывает вовсе (D-157).
+    The vehicle is **harnessed**, not in the pocket: a barrow is heavier than
+    the carry limit and is never in the hands at all (D-157).
     """
     from src.engine import transport
 
-    здесь, там, body = await _два_узла(session, секунд=3600)
-    двор = await world.node_container(session, здесь)
-    тачка = await world.grant_item(session, двор, "Тачка", quality=60, origin="тест")
-    await transport.harness(session, constants, catalog, body, тачка)
+    here, there, body = await _two_nodes(session, seconds=3600)
+    yard = await world.node_container(session, here)
+    barrow = await world.grant_item(session, yard, "Тачка", quality=60, origin="тест")
+    await transport.harness(session, constants, catalog, body, barrow)
 
-    было = float(body.stamina)
-    await travel.depart(session, constants, body, там)
-    assert float(body.stamina) == pytest.approx(было)
+    before = float(body.stamina)
+    await travel.depart(session, constants, body, there)
+    assert float(body.stamina) == pytest.approx(before)
 
 
-async def test_цена_дороги_видна_до_выхода(constants: Constants) -> None:
-    """Игрок обязан видеть цену до решения, а не после."""
-    час = 3600
-    пешком = travel.stamina_cost(constants, час, transport=False)
-    с_повозкой = travel.stamina_cost(constants, час, transport=True)
-    assert пешком == pytest.approx(constants[R.TRAVEL_STAMINA_PER_HOUR])
-    assert с_повозкой == pytest.approx(
-        пешком * constants[R.TRANSPORT_STAMINA_K]
+async def test_road_price_visible_before_leaving(constants: Constants) -> None:
+    """The player must see the price before the decision, not after."""
+    hour = 3600
+    walking = travel.stamina_cost(constants, hour, transport=False)
+    with_wagon = travel.stamina_cost(constants, hour, transport=True)
+    assert walking == pytest.approx(constants[R.TRAVEL_STAMINA_PER_HOUR])
+    assert with_wagon == pytest.approx(
+        walking * constants[R.TRANSPORT_STAMINA_K]
     )
 
 
-async def _узел(session: AsyncSession, body: Body):
+async def _node(session: AsyncSession, body: Body):
     from src.models.world import Node
 
     node = await session.get(Node, body.node_id)

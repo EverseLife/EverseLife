@@ -1,80 +1,83 @@
-"""Переход между узлами (D-045, D-097, D-107).
+"""Transit between nodes (D-045, D-097, D-107).
 
-Карта — **взвешенный граф**, а не сетка: отсюда узкие места, мосты и перевалы,
-за которые стоит драться. Перейти можно только по существующему ребру и только
-ногами: телепорта в этом мире нет ни для людей, ни для вещей.
+The map is a **weighted graph**, not a grid: hence chokepoints, bridges and
+passes worth fighting over. One can move only along an existing edge and only
+on foot: this world has no teleport, neither for people nor for things.
 
-## Откуда взялось время перехода
+## Where transit time comes from
 
-**Покрытие решает всё.** `road.*_multiplier` заданы как множители времени
-относительно дороги-эталона: бездорожье вдвое-втрое дольше, мощёный тракт
-быстрее. Значит время перехода — это собственное время ребра, помноженное на
-покрытие:
+**Surface decides everything.** `road.*_multiplier` are given as time
+multipliers relative to the reference road: offroad is two to three times
+longer, a paved highway faster. So transit time is the edge's own time times
+the surface:
 
-    время = base_seconds × road.<покрытие>_multiplier
+    time = base_seconds * road.<surface>_multiplier
 
-Собственное время ребра разыгрывается при появлении карты: внутри города — из
-`travel.city_step`, за стенами — от **дали** узла (D-180). Хранится в секундах,
-чтобы шаг по кварталу и переход через степь не жили в разных единицах.
+An edge's own time is rolled when the map appears: inside a city from
+`travel.city_step`, beyond the walls from the node's **distance** (D-180).
+Stored in seconds so that a step across the quarter and a crossing of the
+steppe do not live in different units.
 
-## Даль: чем дальше от города, тем дороже шаг (D-180)
+## Distance: the farther from a city, the pricier the step (D-180)
 
-Даль — свойство узла: сколько переходов он от городской земли. Застройка — 0,
-первое кольцо за стенами — 1, находка от узла дали `d` — `d + 1`. Длина
-перехода к нему:
+Distance is a node property: how many transits it is from civic land. Built-up
+area is 0, the first ring beyond the walls is 1, a find from a node of distance
+`d` is `d + 1`. The transit length to it:
 
-    base_seconds = travel.frontier_step × travel.frontier_growth ^ (d − 1)
+    base_seconds = travel.frontier_step * travel.frontier_growth ^ (d - 1)
 
-Освоенная округа тем самым ближе неизведанной: ближнюю шахту обходят за
-двадцать секунд, дальний фронтир требует экспедиции. Даль хранится в узле, а
-не считается по графу: карта растёт ветками, и пересчитывать «сколько шагов до
-ближайшего города» пришлось бы при каждой находке.
+The settled surroundings are thereby closer than the unexplored: the near mine
+is walked to in twenty seconds, the far frontier requires an expedition.
+Distance is stored in the node rather than computed over the graph: the map
+grows in branches, and "how many steps to the nearest city" would have to be
+recomputed on every find.
 
-## Дорога стоит выносливости (D-147)
+## The road costs stamina (D-147)
 
-Время — плохая цена: закрыл вкладку и пришёл. Поэтому у перехода есть вторая
-цена, и платит её тело:
+Time is a poor price: close the tab and you have arrived. So a transit has a
+second price, and the body pays it:
 
-    расход = travel.stamina_per_hour × часы дороги × сытость
+    spend = travel.stamina_per_hour * road hours * satiety
 
-Расход идёт **от времени**, а не от числа переходов: иначе шаг по кварталу
-стоил бы столько же, сколько переход через степь, и география вывернулась бы
-наизнанку. Число малое — час ходьбы в несколько раз дешевле часа у забоя:
-дорога утомляет, но не заменяет работу.
+The spend goes **by time**, not by number of transits: otherwise a step across
+the quarter would cost as much as a crossing of the steppe, and geography would
+turn inside out. The number is small -- an hour of walking is several times
+cheaper than an hour at the face: the road tires but does not replace work.
 
-С обозом расход множится на `transport.stamina_k` = 0: везёт транспорт, а не
-ноги.
+With a convoy the spend is multiplied by `transport.stamina_k` = 0: the
+vehicle carries, not the legs.
 
-## Обоз меняет и скорость, и саму карту (D-107, D-157)
+## A convoy changes both speed and the map itself (D-107, D-157)
 
-Впряжённый транспорт (`engine.transport`) делает три вещи разом: везёт груз в
-трюме, идёт в `transport.speed_k` раз быстрее пешего — и **сужает граф**.
-Бездорожье транспорт не пускает вовсе, тяжёлому нужен мощёный тракт, поэтому
-автопуть с обозом строится по проходимым рёбрам, а упершийся в непроходимое
-маршрут останавливается на последнем узле — там же, где он останавливается на
-нехватке сил и на таможне.
+A harnessed vehicle (`engine.transport`) does three things at once: carries
+cargo in the hold, goes `transport.speed_k` times faster than on foot -- and
+**narrows the graph**. Offroad lets no vehicle through at all, a heavy one
+needs a paved highway, so autopath with a convoy is built over passable edges,
+and a route that runs into the impassable stops at the last node -- the same
+place it stops for lack of strength and at customs.
 
-Отсюда следствие, ради которого всё и сделано: **дорога — предусловие
-торговли, а не удобство.**
+Hence the consequence all this was made for: **the road is a precondition of
+trade, not a convenience.**
 
-Списывается **вперёд**, как материалы партии: выйти в дорогу, на которую не
-хватает сил, нельзя. На автопути это значит, что маршрут обрывается там,
-докуда хватило, — тело остаётся в узле, а не падает посреди перегона.
+Written off **up front**, like batch materials: one cannot set out on a road
+there is not enough strength for. On autopath this means the route breaks off
+where strength sufficed -- the body stays in a node rather than dropping in the
+middle of a leg.
 
-## Граница считается на выходе (D-123)
+## The border is settled at departure (D-123)
 
-Пошлина, запрет и беспошлинная норма живут в `engine.customs`, а здесь стоит
-единственная точка, где тело меняет город. Считается **до** выхода: не хватило
-на пошлину — переход не начинается вовсе, и долга при этом не возникает.
+Duty, ban and duty-free norm live in `engine.customs`; here stands the single
+point where a body changes city. Settled **before** leaving: not enough for the
+duty -- the transit does not start at all, and no debt arises.
 
-## Пока идёшь — тебя нет
+## While walking -- you are absent
 
-Присутственные действия закрыты все до одного: добыча, крафт, погрузка,
-покупка, копирование рецепта. Удалённое (ордера, счёт, переписка) работает —
-информация идёт по Сети, материя требует присутствия (D-044, D-047).
+In-person actions are closed, every one: mining, craft, loading, buying,
+copying a recipe. Remote (orders, account, correspondence) works --
+information travels over the Net, matter requires presence (D-044, D-047).
 
-Это и есть цена дороги: пока ты в пути, партию выкупят, а цену собьют. Знать
-цену — не значит получить товар.
+That is the price of the road: while you are on the way, the lot gets bought
+and the price beaten down. Knowing the price is not getting the goods.
 """
 
 from __future__ import annotations
@@ -106,15 +109,15 @@ class TravelError(Exception):
 
 
 class NoEdge(TravelError):
-    """Ребра нет. По прямой в этом мире не ходят."""
+    """No edge. Nobody walks in a straight line in this world."""
 
 
 class NoRoute(NoEdge):
-    """Пути нет вовсе: узлы не связаны рёбрами даже через другие узлы."""
+    """No path at all: the nodes are not connected by edges even through other nodes."""
 
 
 class InTransit(TravelError):
-    """Тело в пути. Материя требует присутствия, а присутствия сейчас нет."""
+    """The body is in transit. Matter requires presence, and there is no presence now."""
 
 
 class AlreadyGoing(TravelError):
@@ -122,16 +125,16 @@ class AlreadyGoing(TravelError):
 
 
 class Imprisoned(TravelError):
-    """Заключение: тело держат узлом до срока (D-095, D-166)."""
+    """Imprisonment: the body is held to the node until the term (D-095, D-166)."""
 
 
 class NoStrength(TravelError):
-    """Сил на дорогу не хватает. Сначала поесть или поспать (D-147)."""
+    """Not enough strength for the road. Eat or sleep first (D-147)."""
 
 
 @dataclass(frozen=True, slots=True)
 class Exit:
-    """Куда отсюда можно и сколько это стоит времени."""
+    """Where one can go from here and how much time it costs."""
 
     edge_id: uuid.UUID
     node_id: uuid.UUID
@@ -139,13 +142,13 @@ class Exit:
     name: str
     surface: Surface
     seconds: float
-    #: Состояние покрытия, 0…100 (D-158): дорога без содержания зарастает, и
-    #: видеть это игрок обязан заранее — обоз встанет там, где она заросла.
+    #: Surface condition, 0..100 (D-158): a road without maintenance overgrows,
+    #: and the player must see that in advance -- the convoy will stop where it overgrew.
     condition: float
 
 
 def surface_multiplier(constants: Constants, surface: Surface) -> float:
-    """Множитель времени по покрытию. Дорога — эталон (D-107)."""
+    """Time multiplier by surface. The road is the reference (D-107)."""
     if surface is Surface.TRAIL:
         return constants[R.ROAD_TRAIL_MULTIPLIER]
     if surface is Surface.PAVED:
@@ -157,31 +160,31 @@ def edge_seconds(constants: Constants, edge: Edge) -> float:
     return edge.base_seconds * surface_multiplier(constants, edge.surface)
 
 
-#: Свойство узла «даль» (D-180): сколько переходов он от городской земли.
-#: У застройки её нет вовсе, и это то же самое, что ноль.
+#: The node property "distance" (D-180): how many transits it is from civic
+#: land. Built-up area has none at all, and that is the same as zero.
 REACH = "даль"
 
 
 def reach_of(node: Node) -> int:
-    """Даль узла. Городская земля и всё, что заведено до D-180, — ноль."""
+    """The node's distance. Civic land and everything created before D-180 -- zero."""
     return int((node.properties or {}).get(REACH, 0) or 0)
 
 
 def frontier_seconds(constants: Constants, reach: int) -> float:
-    """Длина перехода к узлу этой дали (D-180).
+    """Transit length to a node of this distance (D-180).
 
-    Первое кольцо за стенами стоит `travel.frontier_step`, каждое следующее —
-    в `travel.frontier_growth` раз дороже предыдущего. Освоенная округа тем
-    самым ближе неизведанной, и это единственная причина, по которой ближний
-    ресурс возят каждый день, а дальний — экспедицией.
+    The first ring beyond the walls costs `travel.frontier_step`, each next one
+    `travel.frontier_growth` times more than the previous. The settled
+    surroundings are thereby closer than the unexplored, and that is the only
+    reason a near resource is hauled daily and a far one by expedition.
     """
-    шаг = constants[R.TRAVEL_FRONTIER_STEP]
-    рост = constants[R.TRAVEL_FRONTIER_GROWTH]
-    return шаг * рост ** max(0, reach - 1)
+    step = constants[R.TRAVEL_FRONTIER_STEP]
+    growth = constants[R.TRAVEL_FRONTIER_GROWTH]
+    return step * growth ** max(0, reach - 1)
 
 
 async def exits(session: AsyncSession, constants: Constants, node: Node) -> tuple[Exit, ...]:
-    """Куда ведут рёбра из узла. Ребро ненаправленное, поэтому смотрим оба конца."""
+    """Where the edges from the node lead. An edge is undirected, so we look at both ends."""
     rows = (
         (
             await session.execute(
@@ -197,7 +200,7 @@ async def exits(session: AsyncSession, constants: Constants, node: Node) -> tupl
     for edge in rows:
         other_id = edge.node_b_id if edge.node_a_id == node.id else edge.node_a_id
         other = await session.get(Node, other_id)
-        if other is None:  # pragma: no cover — ребро в никуда это баг
+        if other is None:  # pragma: no cover -- an edge to nowhere is a bug
             continue
         found.append(
             Exit(
@@ -214,12 +217,12 @@ async def exits(session: AsyncSession, constants: Constants, node: Node) -> tupl
 
 
 async def has_transport(session: AsyncSession, body: Body) -> bool:
-    """Везёт ли тело обоз. Транспорт **впряжён**, а не лежит в кармане (D-157).
+    """Whether the body drives a convoy. The vehicle is **harnessed**, not in the pocket (D-157).
 
-    Раньше здесь искалась повозка в руках, и это было бессмыслицей: повозка
-    тяжелее предела носимого и в руки не берётся вовсе. Тянуть её можно только
-    впрягшись, и упряжка — единственный признак, по которому дорога отличает
-    возчика от пешего.
+    Previously a wagon was looked for in the hands, and that was nonsense: a
+    wagon is heavier than the carry limit and is not taken in hand at all. It
+    can be pulled only when harnessed, and the harness is the only sign by
+    which the road tells a carter from a walker.
     """
     from src.engine import transport
 
@@ -227,19 +230,19 @@ async def has_transport(session: AsyncSession, body: Body) -> bool:
 
 
 def stamina_cost(constants: Constants, seconds: float, *, transport: bool) -> float:
-    """Во что обойдётся телу дорога такой длины.
+    """What a road of this length costs the body.
 
-    Расход считается от времени, а не от числа переходов (D-147): иначе шаг по
-    кварталу стоил бы столько же, сколько переход через степь.
+    The spend is computed by time, not by number of transits (D-147): otherwise
+    a step across the quarter would cost as much as a crossing of the steppe.
     """
-    расход = constants[R.TRAVEL_STAMINA_PER_HOUR] * seconds / SECONDS_PER_HOUR
+    spend = constants[R.TRAVEL_STAMINA_PER_HOUR] * seconds / SECONDS_PER_HOUR
     if transport:
-        расход *= constants[R.TRANSPORT_STAMINA_K]
-    return расход
+        spend *= constants[R.TRANSPORT_STAMINA_K]
+    return spend
 
 
 async def current(session: AsyncSession, body: Body) -> Travel | None:
-    """Идущий переход этого тела, если он есть."""
+    """This body's ongoing transit, if any."""
     stmt = select(Travel).where(
         Travel.body_id == body.id, Travel.state == TravelState.GOING
     )
@@ -247,21 +250,21 @@ async def current(session: AsyncSession, body: Body) -> Travel | None:
 
 
 class Asleep(TravelError):
-    """Тело спит. Та же недоступность, что и дорога, только добровольная."""
+    """The body sleeps. The same unavailability as the road, only voluntary."""
 
 
 class InField(TravelError):
-    """Тело в разведке: оно ушло само и вернётся по сроку либо по отмене."""
+    """The body is exploring: it left on its own and returns on schedule or by cancel."""
 
 
 async def require_here(session: AsyncSession, body: Body) -> None:
-    """Проверка присутствия — одна на все присутственные действия.
+    """The presence check -- one for all in-person actions.
 
-    Дорога обязана стоить времени по-настоящему: иначе выход из узла становится
-    бесплатным, и география, ради которой всё и сделано, исчезает. Сон стоит на
-    той же двери: спящий недоступен для всего присутственного (D-091) — этим
-    гибернация и платит за восстановление. Разведка стоит на ней же (D-152):
-    разведчик уходит сам, и пока он в поле, в узле его нет.
+    The road must really cost time: otherwise leaving a node becomes free, and
+    the geography all this was made for disappears. Sleep stands at the same
+    door: a sleeper is unavailable for everything in-person (D-091) -- that is
+    how hibernation pays for recovery. Exploration stands at it too (D-152):
+    the scout leaves in person, and while in the field is not in the node.
     """
     if body.sleeping_since is not None:
         raise Asleep("тело спит: сначала проснуться")
@@ -273,10 +276,10 @@ async def require_here(session: AsyncSession, body: Body) -> None:
         )
     from src.engine import explore
 
-    заход = await explore.pending(session, body)
-    if заход is not None:
+    run = await explore.pending(session, body)
+    if run is not None:
         raise InField(
-            f"тело в разведке и вернётся в {заход.run_at.isoformat()}: "
+            f"тело в разведке и вернётся в {run.run_at.isoformat()}: "
             "отменить заход — «вернуться» на карте"
         )
 
@@ -289,16 +292,16 @@ async def route(
     *,
     vehicle: str | None = None,
 ) -> list[uuid.UUID]:
-    """Кратчайший по времени путь между узлами: список узлов, без начального.
+    """The fastest path by time between nodes: a list of nodes, without the start.
 
-    Автопуть (D-045) — удобство, а не новая физика: маршрут состоит из тех же
-    рёбер, идётся тем же временем и может быть пройден руками отрезок за
-    отрезком. Дейкстра по секундам с учётом покрытия; граф целиком в памяти —
-    он мал, а станет велик, тогда и появится повод для индексов.
+    Autopath (D-045) is a convenience, not new physics: the route consists of
+    the same edges, is walked in the same time and can be walked by hand leg by
+    leg. Dijkstra by seconds with surface in mind; the whole graph in memory --
+    it is small, and when it grows large there will be a reason for indexes.
 
-    С обозом граф беднее: бездорожье транспорт не пускает вовсе, а тяжёлому
-    нужен мощёный тракт (D-107). Маршрут строится по проходимым рёбрам — вести
-    возчика в тупик, чтобы там остановиться, незачем.
+    With a convoy the graph is poorer: offroad lets no vehicle through at all,
+    and a heavy one needs a paved highway (D-107). The route is built over
+    passable edges -- no point leading a carter into a dead end to stop there.
     """
     from src.engine import transport
 
@@ -356,114 +359,114 @@ async def depart(
     now: datetime | None = None,
     _plan: list[uuid.UUID] | None = None,
 ) -> Travel:
-    """Выйти в узел. В несоседний — автопутём: маршрут строится сам (D-045).
+    """Go to a node. To a non-adjacent one by autopath: the route builds itself (D-045).
 
-    Дальше переход идёт сам, в том числе офлайн: каждый отрезок — задание
-    журнала, и приход отрезка сам выводит тело в следующий.
+    From then on the transit goes by itself, including offline: each leg is a
+    journal job, and the leg's arrival itself sends the body into the next.
     """
     moment = now or datetime.now(UTC)
     if body.state is not BodyState.ALIVE:
         raise TravelError("мёртвое тело никуда не идёт")
     if await current(session, body) is not None:
         raise AlreadyGoing("тело уже в пути")
-    #: Выйти в дорогу — присутственное начало, и дверь у него **та же**, что у
-    #: всех присутственных действий: спящий не идёт (D-091), разведчик не идёт
-    #: (D-152) — его в узле нет, он в поле. Держать этот список отдельной
-    #: копией значило бы рано или поздно забыть в ней строку: разведчик как раз
-    #: и уходил пешком, оставаясь «в поле».
+    #: Setting out is an in-person start, and its door is **the same** as for
+    #: all in-person actions: a sleeper does not go (D-091), a scout does not go
+    #: (D-152) -- they are not in the node, they are in the field. Keeping this
+    #: list as a separate copy would mean forgetting a line in it sooner or
+    #: later: the scout did exactly that, walking away while staying "in the field".
     await require_here(session, body)
     if target.id == body.node_id:
         raise NoEdge("это тот же узел")
 
-    #: Заключение — принудительное ограничение перемещения узлом (D-095,
-    #: D-166). Исполняет его движок, а не стража: приговор не зависит от того,
-    #: онлайн ли кто-нибудь.
+    #: Imprisonment is a forced restriction of movement to the node (D-095,
+    #: D-166). The engine enforces it, not guards: the verdict does not depend
+    #: on whether anyone is online.
     from src.engine import justice
 
-    сидит = await justice.imprisoned(session, body.identity_id)
-    if сидит is not None:
+    sits = await justice.imprisoned(session, body.identity_id)
+    if sits is not None:
         raise Imprisoned(
             "заключение: выходить из узла запрещено до "
-            + (сидит.until.isoformat() if сидит.until else "решения суда")
+            + (sits.until.isoformat() if sits.until else "решения суда")
         )
 
-    #: Несостоятельность держит в узле так же, но накладывает её не власть, а
-    #: банковская система: это физика мира, а не приговор (D-063, D-168).
+    #: Insolvency holds in the node the same way, but it is imposed not by the
+    #: authority but by the banking system: world physics, not a verdict (D-063, D-168).
     from src.engine import bank
 
-    держит = await bank.restrained(session, constants, body.identity_id, now=moment)
-    if держит is not None:
+    holds = await bank.restrained(session, constants, body.identity_id, now=moment)
+    if holds is not None:
         raise Imprisoned(
             "долг не обслуживается: выходить из узла нельзя, пока не "
             "рассчитаетесь. Заплатить за вас вправе кто угодно"
         )
 
-    #: Обоз меняет и скорость, и саму проходимость рёбер (D-107, D-157).
+    #: A convoy changes both speed and the passability of edges (D-107, D-157).
     from src.engine import transport
 
-    обоз = await transport.harnessed(session, body)
+    convoy = await transport.harnessed(session, body)
 
     plan = list(_plan or [])
     edge = await _edge_between(session, body.node_id, target.id)
     if edge is None:
-        #: Соседнего ребра нет — строим маршрут. Первый отрезок выходится
-        #: сейчас, хвост ложится в план и идётся приходами отрезков.
+        #: No adjacent edge -- build a route. The first leg is walked now, the
+        #: tail goes into the plan and is walked by leg arrivals.
         legs = await route(
             session,
             constants,
             body.node_id,
             target.id,
-            vehicle=None if обоз is None else обоз.type_key,
+            vehicle=None if convoy is None else convoy.type_key,
         )
         edge = await _edge_between(session, body.node_id, legs[0])
-        assert edge is not None  # noqa: S101 — маршрут состоит из рёбер
+        assert edge is not None  # noqa: S101 -- a route consists of edges
         next_node = await session.get(Node, legs[0])
-        if next_node is None:  # pragma: no cover — маршрут по живым узлам
+        if next_node is None:  # pragma: no cover -- the route is over live nodes
             raise TravelError("маршрут ведёт в исчезнувший узел")
         target = next_node
         plan = legs[1:] + plan
 
-    #: Вышел из мастерской — вышел из разговора: кружок не ходит следом (D-043).
+    #: Left the workshop -- left the conversation: the circle does not follow (D-043).
     from src.engine import chat
 
     await chat.leave_groups(session, body.identity_id)
 
     seconds = edge_seconds(constants, edge)
-    if обоз is not None:
-        #: Покрытие решает не только время, но и саму возможность проехать.
-        if not transport.passable(constants, edge.surface, обоз.type_key):
+    if convoy is not None:
+        #: Surface decides not only time but the very possibility to drive through.
+        if not transport.passable(constants, edge.surface, convoy.type_key):
             raise transport.Impassable(
-                f"«{обоз.type_key}» здесь не пройдёт: "
+                f"«{convoy.type_key}» здесь не пройдёт: "
                 f"{edge.surface.value} транспорт не пускает. "
                 "Распрягитесь либо ищите дорогу (D-107)"
             )
-        seconds /= transport.speed(constants, обоз.type_key)
+        seconds /= transport.speed(constants, convoy.type_key)
 
-    #: Граница считается **до** выхода: обе стороны уже известны, а платить на
-    #: приходе значило бы пускать в город то, за что заплатить нечем (D-123).
+    #: The border is settled **before** leaving: both sides are already known,
+    #: and paying on arrival would let into the city what cannot be paid for (D-123).
     from src.constants import current_catalog
     from src.engine import customs
 
-    откуда_узел = await session.get(Node, body.node_id)
-    if откуда_узел is not None:
+    origin_node = await session.get(Node, body.node_id)
+    if origin_node is not None:
         await customs.cross(
-            session, constants, current_catalog(), body, откуда_узел, target,
+            session, constants, current_catalog(), body, origin_node, target,
             now=moment,
         )
 
-    #: Дорога стоит выносливости, и платится она вперёд (D-147). Сытость
-    #: замедляет расход ровно так же, как на работе: обед — это обед.
+    #: The road costs stamina, and it is paid up front (D-147). Satiety slows
+    #: the spend exactly as at work: lunch is lunch.
     from src.engine import food
 
-    расход = stamina_cost(
+    spend = stamina_cost(
         constants, seconds, transport=await has_transport(session, body)
     ) * food.drain_multiplier(constants, body, moment)
-    if расход > float(body.stamina):
+    if spend > float(body.stamina):
         raise NoStrength(
-            f"на дорогу нужно {расход:.1f} выносливости, а есть "
+            f"на дорогу нужно {spend:.1f} выносливости, а есть "
             f"{float(body.stamina):.1f}: сначала поесть или поспать"
         )
-    body.stamina = Decimal(str(float(body.stamina) - расход))
+    body.stamina = Decimal(str(float(body.stamina) - spend))
 
     travel = Travel(
         body_id=body.id,
@@ -485,7 +488,7 @@ async def depart(
         to_node=target.key,
         seconds=seconds,
         surface=edge.surface.value,
-        stamina=расход,
+        stamina=spend,
     )
     await enqueue(
         session,
@@ -501,12 +504,12 @@ async def depart(
 
 @handler(JobKind.TRAVEL_LEG)
 async def arrive(session: AsyncSession, job: Job) -> None:
-    """Пришёл. Тело переезжает в новый узел вместе со всем, что несёт."""
+    """Arrived. The body moves to the new node together with everything it carries."""
     travel = await session.get(Travel, uuid.UUID(job.payload["travel"]))
     if travel is None:  # pragma: no cover
         raise TravelError(f"задание {job.id}: перехода нет")
     if travel.state is not TravelState.GOING:
-        #: Повтор задания после сбоя вторым приходом не станет.
+        #: A job retry after a failure does not become a second arrival.
         return
 
     body = await session.get(Body, travel.body_id)
@@ -514,10 +517,10 @@ async def arrive(session: AsyncSession, job: Job) -> None:
     if body is None or target is None:  # pragma: no cover
         raise TravelError(f"переход {travel.id} ссылается в никуда")
 
-    #: Инвентарь ехать не нужно: он привязан к телу, а не к месту. Товар,
-    #: оставленный в терминале, остаётся там — вещи не ездят за хозяином.
+    #: The inventory need not travel: it is bound to the body, not the place.
+    #: Goods left in a terminal stay there -- things do not follow their owner.
     body.node_id = target.id
-    #: Горизонт чата: раньше прихода тело здесь ничего не слышало (D-043).
+    #: Chat horizon: before arrival the body heard nothing here (D-043).
     body.node_since = job.run_at
     travel.state = TravelState.ARRIVED
     travel.arrived_at = job.run_at
@@ -531,27 +534,27 @@ async def arrive(session: AsyncSession, job: Job) -> None:
         travel_id=str(travel.id),
     )
 
-    #: Обоз приехал вместе с телом и на этом отрезке износился (D-157).
-    #: Разбитый в ноль встаёт здесь, а груз остаётся лежать в узле.
+    #: The convoy arrived with the body and wore on this leg (D-157). One worn
+    #: to zero stops here, and the cargo stays lying in the node.
     from src.constants import current, current_catalog
     from src.engine import transport
 
-    обоз = await transport.harnessed(session, body)
-    сломался = False
-    if обоз is not None:
-        await transport.follow(session, обоз, target)
-        сломался = await transport.wear_leg(
-            session, current(), current_catalog(), body, обоз, target
+    convoy = await transport.harnessed(session, body)
+    broke = False
+    if convoy is not None:
+        await transport.follow(session, convoy, target)
+        broke = await transport.wear_leg(
+            session, current(), current_catalog(), body, convoy, target
         )
-        if сломался:
+        if broke:
             travel.plan = None
             await session.flush()
 
-    #: Автопуть: приход отрезка сам выводит тело в следующий (D-045). Маршрут
-    #: не короче дороги руками — он лишь избавляет от будильника на каждом узле.
+    #: Autopath: a leg's arrival itself sends the body into the next (D-045).
+    #: The route is no shorter than by hand -- it only spares an alarm at every node.
     if travel.plan:
         next_node = await session.get(Node, uuid.UUID(travel.plan[0]))
-        if next_node is None:  # pragma: no cover — маршрут по живым узлам
+        if next_node is None:  # pragma: no cover -- the route is over live nodes
             raise TravelError(f"переход {travel.id}: план ведёт в исчезнувший узел")
         rest = [uuid.UUID(raw) for raw in travel.plan[1:]]
         from src.engine import customs
@@ -564,19 +567,20 @@ async def arrive(session: AsyncSession, job: Job) -> None:
             NoStrength,
             customs.CustomsError,
             transport.Impassable,
-        ) as остановка:
-            #: Маршрут обрывается здесь — сил не хватило (D-147), граница не
-            #: пропустила груз (D-123) либо дорога не пускает обоз (D-107).
-            #: Тело остаётся в узле, а не падает посреди перегона: дошёл,
-            #: докуда пустили, дальше решает игрок.
+        ) as stop:
+            #: The route breaks off here -- not enough strength (D-147), the
+            #: border did not let the cargo through (D-123), or the road does
+            #: not let the convoy through (D-107). The body stays in the node
+            #: rather than dropping mid-leg: got as far as allowed, the player
+            #: decides the rest.
             await events.record(
                 session,
                 EventKind.TRAVEL_ARRIVED,
                 actor_identity_id=body.identity_id,
                 node_id=target.id,
                 travel_id=str(travel.id),
-                route_stopped=type(остановка).__name__,
-                why=str(остановка),
+                route_stopped=type(stop).__name__,
+                why=str(stop),
             )
 
 
@@ -588,7 +592,7 @@ async def connect(
     base_seconds: float,
     surface: Surface = Surface.ROAD,
 ) -> Edge:
-    """Связать два узла ребром. Ненаправленным — дорога одинакова в обе стороны."""
+    """Connect two nodes with an edge. Undirected -- the road is the same both ways."""
     existing = await _edge_between(session, a.id, b.id)
     if existing is not None:
         return existing
@@ -616,7 +620,7 @@ async def _edge_between(
 
 
 async def neighbours(session: AsyncSession, node: Node) -> Sequence[Node]:  # pragma: no cover
-    """Соседи узла — для карты и будущего автопути (D-045)."""
+    """The node's neighbours -- for the map and the future autopath (D-045)."""
     edges = (
         (
             await session.execute(

@@ -1,8 +1,8 @@
-# Граница мира: TLS, клиент, сервер.
+# The world's edge: TLS, client, server.
 #
-# Сертификат Caddy берёт сам (ACME, HTTP-01) и сам продлевает — отдельного
-# certbot и задания в cron не нужно. Условие одно: домен из `DOMAIN` указывает
-# A-записью на этот сервер, а порты 80 и 443 открыты.
+# Caddy obtains the certificate itself (ACME, HTTP-01) and renews it itself --
+# no separate certbot or cron job is needed. One condition: the domain from
+# `DOMAIN` points to this server with an A record, and ports 80 and 443 are open.
 
 {
 	email {$ACME_EMAIL}
@@ -11,27 +11,27 @@
 {$DOMAIN} {
 	encode zstd gzip
 
-	# Сервер игры. Префикс снимается: наружу `/api/public/...`, внутрь
-	# `/public/...`. Сюда же уходит сокет сессии (`/api/session/ws`) —
-	# обновление соединения Caddy проносит сам.
+	# The game server. The prefix is stripped: outside `/api/public/...`,
+	# inside `/public/...`. The session socket (`/api/session/ws`) goes here
+	# too -- Caddy carries the connection upgrade itself.
 	handle_path /api/* {
 		reverse_proxy backend:8000
 	}
 
-	# Всё остальное — собранный клиент.
+	# Everything else -- the built client.
 	handle {
 		reverse_proxy frontend:80
 	}
 
-	# Опознания в альфе нет: любой может назваться любым именем (заглушка до
-	# Э7). Пока это так, закрытую альфу разумно прикрыть дверью с паролем —
-	# снять решётку # и подставить хэш от
-	# `docker run --rm caddy:2-alpine caddy hash-password`.
+	# There is no identification in the alpha: anyone can call themselves any
+	# name (a stub until E7). While that is so, it is sensible to put the
+	# closed alpha behind a password door -- remove the # and substitute the
+	# hash from `docker run --rm caddy:2-alpine caddy hash-password`.
 	#
-	# Важно: пароль на границе прикрывает страницу и чтение, но браузеры
-	# по-разному ведут себя с сокетом — если после входа сессия не поднимается,
-	# исключите из двери путь сокета (`@ws path /api/session/ws`) либо
-	# ограничьте доступ по адресу в брандмауэре.
+	# Important: a password at the edge covers the page and reads, but browsers
+	# behave differently with the socket -- if the session does not come up
+	# after login, exclude the socket path from the door (`@ws path /api/session/ws`)
+	# or restrict access by address in the firewall.
 	# basic_auth {
 	# 	alpha $2a$14$...
 	# }
@@ -42,11 +42,11 @@
 	}
 }
 
-# Лендинг с приёмом заявок на бету. Пока в `.env` не задан LANDING_DOMAIN,
-# умолчание `landing.localhost` держит блок на внутреннем сертификате и Caddy
-# не ходит за настоящим. Чтобы открыть octoverse.world:
-#   1. A-запись `octoverse.world` → адрес этого сервера;
-#   2. `LANDING_DOMAIN=octoverse.world` в `.env`;
+# The landing with beta signup intake. Until LANDING_DOMAIN is set in `.env`,
+# the default `landing.localhost` keeps the block on an internal certificate
+# and Caddy does not go for a real one. To open octoverse.world:
+#   1. an A record `octoverse.world` -> this server's address;
+#   2. `LANDING_DOMAIN=octoverse.world` in `.env`;
 #   3. `docker compose up -d --force-recreate caddy`.
 {$LANDING_DOMAIN} {
 	encode zstd gzip
@@ -59,8 +59,9 @@
 	}
 }
 
-# `www.` живёт отдельной строкой: ему нужны своя A-запись и свой сертификат.
-# Заведёте запись в DNS — снять решётки, и www поедет на голый домен.
+# `www.` lives as a separate line: it needs its own A record and its own
+# certificate. Once the DNS record exists -- remove the hashes, and www redirects to the bare domain.
+
 # www.{$LANDING_DOMAIN} {
 # 	redir https://{$LANDING_DOMAIN}{uri} permanent
 # }

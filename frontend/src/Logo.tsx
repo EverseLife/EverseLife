@@ -1,7 +1,8 @@
 /**
- * Знак OctoVerse для экранов входа (D-187). Тот же контур, что на лендинге,
- * но цветом текста: тема переключается сама, а не рисует белое на белом.
+ * The OctoVerse logo for the login screens (D-187). The same outline as on the
+ * landing page, but in text colour: the theme switches by itself rather than drawing white on white.
  */
+
 export function Logo({ height = 40 }: { height?: number }) {
   return (
     <svg

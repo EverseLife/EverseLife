@@ -1,70 +1,72 @@
-"""Администрация города: должность, право, казна (D-127, D-130, D-154, D-155).
+"""City administration: office, right, treasury (D-127, D-130, D-154, D-155).
 
-Устав и код-законы лежали данными с D-130, но менять их было некому: «власть
-города» не существовала как сущность. Здесь появляются ровно три вещи и ни
-одной больше.
+The charter and code-laws had lain as data since D-130, but nobody could change
+them: "city authority" did not exist as an entity. Exactly three things appear
+here and not one more.
 
-**Должность** — запись «личность занимает пост в городе». Как пост называется,
-решает город: движку всё равно, президент это или министр экономики.
+**Office** -- a record "identity holds a post in the city". What the post is
+called is the city's decision: the engine does not care whether it is a
+president or a minister of economy.
 
-**Право** — то, что проверяет движок, и оно бывает точечным:
+**Right** -- what the engine checks, and it can be narrow:
 
-    law:import_duty   править один код-закон
-    laws              все код-законы разом; покрывает любой law:<id>
-    charter           отвечать на вопросы устава
-    treasury          тратить казну
-    offices           назначать и снимать должности
-    land              раздавать городские участки
-    dashboard         полный срез экономической панели
-    justice           суд и санкции (объявлено, механика отдельно)
+    law:import_duty   edit one code-law
+    laws              all code-laws at once; covers any law:<id>
+    charter           answer charter questions
+    treasury          spend the treasury
+    offices           appoint and dismiss offices
+    land              allot civic plots
+    dashboard         full snapshot of the economic panel
+    justice           court and sanctions (declared, mechanics separate)
 
-Список конкретных законов в коде **не написан**: он ровно тот, что лежит в
-`data/laws.yaml` вольта. Заведут новый код-закон — под него сразу появится
-право. Ветвлений по названию должности здесь нет и не будет: иначе каждая новая
-форма правления потребовала бы выката версии (01-tech-notes, паттерн 3).
+The list of specific laws is **not written** in code: it is exactly the one in
+the vault's `data/laws.yaml`. Add a new code-law and a right for it appears at
+once. There is and will be no branching on office titles here: otherwise every
+new form of government would need a release (01-tech-notes, pattern 3).
 
-**Казна** — существующий счёт `city_treasury`. Тратит тот, у кого `treasury`;
-каждая трата — обычная проводка с основанием, то есть видна.
+**Treasury** -- the existing `city_treasury` account. Whoever has `treasury`
+spends it; each spend is an ordinary posting with a ground, i.e. visible.
 
-## Власть присутственна (D-155)
+## Authority is in-person (D-155)
 
-Решения принимаются **в администрации** города: изменение закона, ответ устава,
-назначение, трата казны, раздача участков. Власть, осуществимая из-за океана,
-не нуждается ни в столице, ни в дорогах к ней, а захват власти становится
-вопросом одного нажатия, а не географии.
+Decisions are made **in the city administration**: changing a law, answering
+the charter, appointing, spending the treasury, allotting plots. Authority that
+can be exercised from across the ocean needs neither a capital nor roads to it,
+and seizing power becomes a matter of one click rather than geography.
 
-Чтение панели при этом остаётся удалённым (D-140): цифры — информация, она идёт
-по Сети. Присутствие нужно, чтобы **решать**, а не чтобы смотреть.
+Reading the panel stays remote (D-140): figures are information, they travel
+over the Net. Presence is needed to **decide**, not to look.
 
-## Откуда берётся значение закона
+## Where a law's value comes from
 
-Три источника, и порядок между ними жёсткий:
+Three sources, and the order between them is strict:
 
-1. решение города — то, что власть записала в `city.laws`;
-2. умолчание вольта — `laws.json`, чтобы новый город работал, ничего не
-   заполняя (D-130);
-3. константа вольта, если умолчание записано ссылкой вида `` `energy.tariff_default` ``.
+1. the city's decision -- what the authority wrote into `city.laws`;
+2. the vault default -- `laws.json`, so a new city works without filling in
+   anything (D-130);
+3. a vault constant, if the default is written as a reference like
+   `` `energy.tariff_default` ``.
 
-Город, не решивший ничего, живёт на умолчаниях. Это не «настройки по
-умолчанию», а стартовое состояние: как только власть решила иначе, умолчание
-перестаёт значить что-либо.
+A city that decided nothing lives on defaults. These are not "default
+settings" but the starting state: as soon as the authority decides otherwise,
+the default stops meaning anything.
 
-## Смена власти (D-160, D-161, D-162)
+## Change of power (D-160, D-161, D-162)
 
-Гражданство, голосование и выборы живут рядом: реестр граждан здесь,
-процедура — в `engine/vote.py`. Отсюда правитель определяется двумя способами:
-назначением (умолчание «основатель бессрочно») и **выборами**, если устав
-ответил `ruler_selection: elected_citizens`. Отзыв снимает должность, и город
-тут же идёт на выборы.
+Citizenship, polls and elections live next door: the citizen register is here,
+the procedure is in `engine/vote.py`. From here the ruler is determined in two
+ways: by appointment (default "founder indefinitely") and by **election**, if
+the charter answered `ruler_selection: elected_citizens`. A recall vacates the
+office and the city goes straight to an election.
 
-Правитель для движка — не пост с именем, а **должность с самым широким
-набором прав**: ветвлений по названию здесь нет и не будет (D-154).
+For the engine the ruler is not a named post but **the office with the widest
+set of rights**: no branching on titles here, ever (D-154).
 
-## Чего здесь нет
+## What is not here
 
-Совета (`council_exists`), жребия и наследования власти, а также правки самого
-устава голосованием. Устав их описывает, данные лежат, механика приедет своей
-задачей.
+The council (`council_exists`), sortition and inheritance of power, and
+amending the charter itself by vote. The charter describes them, the data is
+there, the mechanics will arrive as their own task.
 """
 
 from __future__ import annotations
@@ -104,32 +106,33 @@ class NoCity(CityError):
 
 
 class NotAllowed(CityError):
-    """Полномочия нет. Власть — это запись, а не уверенность в себе."""
+    """No power. Authority is a record, not self-confidence."""
 
 
 class NotEnoughTreasury(CityError):
-    """В казне столько нет. Пустая казна — политическое событие."""
+    """The treasury does not have that much. An empty treasury is a political event."""
 
 
 class NotReady(CityError):
-    """Города ещё нет: не хватает построек, без которых он не город (D-023)."""
+    """No city yet: buildings are missing without which it is not a city (D-023)."""
 
 
 class NotYours(CityError):
-    """Город закладывают на своей земле. Чужой двор для этого не годится."""
+    """A city is founded on your own land. Somebody else's yard will not do."""
 
 
-#: Полномочия основателя. Город возникает управляемым: если бы основатель
-#: получал пустой набор, первый же город оказался бы без власти вовсе (D-130).
+#: The founder's powers. A city arises governed: if the founder got an empty
+#: set, the very first city would have no authority at all (D-130).
 FOUNDER_POWERS: tuple[str, ...] = tuple(power.value for power in Power)
 FOUNDER_TITLE = "Президент"
 
-#: Станок, делающий узел администрацией: чем здание является, задаёт станок в
-#: нём (D-106). Имя — из `build/recipes.json`, а не из головы.
+#: The machine that makes a node an administration: what a building is, is set
+#: by the machine in it (D-106). The name comes from `build/recipes.json`, not
+#: from imagination.
 HALL = "Администрация"
 
 
-# --- поиск ------------------------------------------------------------------
+# --- lookup ------------------------------------------------------------------
 
 
 async def by_id(session: AsyncSession, city_id: uuid.UUID) -> City | None:
@@ -137,36 +140,36 @@ async def by_id(session: AsyncSession, city_id: uuid.UUID) -> City | None:
 
 
 async def by_node(session: AsyncSession, node_id: uuid.UUID) -> City | None:
-    """Город, чей узел-представитель это."""
+    """The city whose delegate node this is."""
     return (
         await session.execute(select(City).where(City.node_id == node_id))
     ).scalar_one_or_none()
 
 
 async def of_node(session: AsyncSession, node: Node) -> City | None:
-    """Город, на территории которого стоит узел.
+    """The city on whose territory the node stands.
 
-    Территория города — его дети в иерархии показа (D-045). Пойма и шахта висят
-    прямо на планете и ничьей властью не накрыты — там законов нет, и это не
-    недоделка, а география.
+    A city's territory is its children in the display hierarchy (D-045). The
+    floodplain and the mine hang directly on the planet and are covered by no
+    authority -- there are no laws there, and that is geography, not an omission.
     """
     if node.owner_city_id is not None:
         return await by_id(session, node.owner_city_id)
-    #: Узел-представитель — территория собственного города (D-159). Иначе
-    #: стоящий в нём человек формально вне города, и присутственная власть в
-    #: только что основанном городе оказывается недоступна.
-    свой = await by_node(session, node.id)
-    if свой is not None:
-        return свой
+    #: The delegate node is the territory of its own city (D-159). Otherwise a
+    #: person standing in it is formally outside the city, and in-person
+    #: authority in a just-founded city turns out to be unreachable.
+    own = await by_node(session, node.id)
+    if own is not None:
+        return own
     if node.parent_id is None:
         return None
-    родитель = await session.get(Node, node.parent_id)
-    if родитель is None or родитель.layer is not Layer.PLANET:
+    parent = await session.get(Node, node.parent_id)
+    if parent is None or parent.layer is not Layer.PLANET:
         return None
-    return await by_node(session, родитель.id)
+    return await by_node(session, parent.id)
 
 
-# --- основание и должности --------------------------------------------------
+# --- founding and offices ----------------------------------------------------
 
 
 async def found(
@@ -176,14 +179,14 @@ async def found(
     name: str,
     founder: Identity | None = None,
 ) -> City:
-    """Основать город на узле-представителе. Повторно — вернуть существующий.
+    """Found a city on a delegate node. Repeated -- return the existing one.
 
-    Устав заполняется умолчаниями `laws.json`: город возникает работающим, а не
-    пустой анкетой на сорок вопросов (D-130).
+    The charter is filled with `laws.json` defaults: the city arises working,
+    not as an empty questionnaire of forty questions (D-130).
     """
-    существующий = await by_node(session, node.id)
-    if существующий is not None:
-        return существующий
+    existing_ = await by_node(session, node.id)
+    if existing_ is not None:
+        return existing_
 
     city = City(
         node_id=node.id,
@@ -217,12 +220,12 @@ async def found(
     return city
 
 
-#: Без чего город не город (D-023, D-159). Список — четыре роли, а не четыре
-#: имени: источник энергии годится любой, лишь бы пул кто-то наполнял.
-#: Склада здесь нет не потому, что он не нужен, а потому что предмета «склад»
-#: вольт не описывает: требовать несуществующее движок не вправе.
+#: What a city cannot be without (D-023, D-159). The list is four roles, not
+#: four names: any energy source will do, as long as somebody fills the pool.
+#: There is no warehouse here not because it is unneeded but because the vault
+#: describes no "warehouse" item: the engine may not require the nonexistent.
 def foundation_needs() -> tuple[tuple[str, tuple[str, ...]], ...]:
-    """Что обязано стоять в узле до основания: роль → чем закрывается."""
+    """What must stand in the node before founding: role -> what satisfies it."""
     from src.engine import death, energy, market
 
     return (
@@ -236,22 +239,22 @@ def foundation_needs() -> tuple[tuple[str, tuple[str, ...]], ...]:
 async def missing_for_foundation(
     session: AsyncSession, node: Node
 ) -> tuple[str, ...]:
-    """Чего не хватает узлу, чтобы стать городом. Пусто — можно основывать."""
+    """What the node lacks to become a city. Empty -- founding is possible."""
     from src.engine.world import node_container
     from src.models.inventory import Item
 
-    двор = await node_container(session, node)
-    стоит = set(
+    yard = await node_container(session, node)
+    costs = set(
         (
             await session.execute(
-                select(Item.type_key).where(Item.container_id == двор.id).distinct()
+                select(Item.type_key).where(Item.container_id == yard.id).distinct()
             )
         )
         .scalars()
         .all()
     )
     return tuple(
-        роль for роль, чем in foundation_needs() if not set(чем) & стоит
+        role for role, with_what in foundation_needs() if not set(with_what) & costs
     )
 
 
@@ -262,15 +265,16 @@ async def establish(
     body,
     name: str,
 ) -> City:
-    """Основать город на своём узле планеты (D-023, D-098, D-159).
+    """Found a city on your own planet node (D-023, D-098, D-159).
 
-    Порог входа — постройки, а не монета: `city.foundation_cost` в вольте это
-    оценка материалов и труда, платить её некому и незачем. Дорогое основание
-    отсекает города-однодневки, и каждое основание становится событием.
+    The entry threshold is buildings, not a coin: `city.foundation_cost` in the
+    vault is an estimate of materials and labour, there is nobody to pay it to
+    and no reason. Expensive founding cuts off fly-by-night cities, and every
+    founding becomes an event.
 
-    Земля под городом перестаёт быть частной: узел записывается за городом, а
-    ценная бумага на него гасится — городскую землю раздаёт власть, а не
-    рынок (D-089).
+    The land under the city stops being private: the node is registered to the
+    city and the deed for it is cancelled -- civic land is handed out by the
+    authority, not the market (D-089).
     """
     from src.engine import travel
     from src.models.identity import BodyState
@@ -280,7 +284,7 @@ async def establish(
     await travel.require_here(session, body)
 
     node = await session.get(Node, body.node_id)
-    if node is None:  # pragma: no cover — тело всегда стоит в узле
+    if node is None:  # pragma: no cover -- a body always stands in a node
         raise CityError("тело вне узла")
     if node.layer is not Layer.PLANET:
         raise CityError(
@@ -295,23 +299,23 @@ async def establish(
     if node.owner_city_id is not None:
         raise CityError("это уже городская земля")
 
-    не_хватает = await missing_for_foundation(session, node)
-    if не_хватает:
+    shortfall = await missing_for_foundation(session, node)
+    if shortfall:
         raise NotReady(
-            "для города не хватает: " + ", ".join(не_хватает) +
+            "для города не хватает: " + ", ".join(shortfall) +
             ". Порог входа — постройки, а не монета (D-023)"
         )
 
-    название = name.strip()
-    if not название:
+    title = name.strip()
+    if not title:
         raise CityError("у города должно быть имя")
 
     identity = await session.get(Identity, body.identity_id)
-    city = await found(session, catalog, node, название, founder=identity)
+    city = await found(session, catalog, node, title, founder=identity)
 
-    #: Локация становится территорией города (40-society/00). Бумага на неё
-    #: гасится: городская земля бумагой не торгуется, иначе появился бы
-    #: теневой способ сменить хозяина города мимо устава (D-159).
+    #: The location becomes city territory (40-society/00). The deed for it is
+    #: cancelled: civic land is not traded by deed, otherwise there would be a
+    #: shadow way to change the city's owner past the charter (D-159).
     node.owner_city_id = city.id
     node.owner_identity_id = None
     await _retire_deed(session, node, city)
@@ -323,22 +327,22 @@ async def establish(
         actor_identity_id=body.identity_id,
         node_id=node.id,
         city_id=str(city.id),
-        name=название,
+        name=title,
         founded_by_player=True,
     )
     return city
 
 
 async def _retire_deed(session: AsyncSession, node: Node, city: City) -> None:
-    """Погасить бумагу на узел, ушедший городу."""
+    """Cancel the deed for a node that went to the city."""
     from src.models.estate import Deed
 
-    бумага = (
+    deed = (
         await session.execute(select(Deed).where(Deed.node_id == node.id))
     ).scalar_one_or_none()
-    if бумага is None:
+    if deed is None:
         return
-    await session.delete(бумага)
+    await session.delete(deed)
     await session.flush()
     await events.record(
         session,
@@ -371,11 +375,11 @@ async def _office(
 
 
 async def install_founder(session: AsyncSession, city: City, who: Identity) -> Office:
-    """Поставить основателя во главе города.
+    """Put the founder at the head of the city.
 
-    Единственный способ завести власть там, где её ещё нет: у города без
-    должностей нет никого, кто мог бы назначить первого. Дальше власть
-    передаётся только назначением либо уставом.
+    The only way to establish authority where there is none yet: a city without
+    offices has nobody who could appoint the first. From then on authority is
+    passed only by appointment or by charter.
     """
     if city.founder_identity_id is not None:
         raise CityError(f"у города «{city.name}» уже есть основатель")
@@ -399,7 +403,7 @@ async def install_founder(session: AsyncSession, city: City, who: Identity) -> O
 
 
 async def offices(session: AsyncSession, city: City) -> list[Office]:
-    """Действующие должности города. Сложенные остаются в журнале, но не здесь."""
+    """The city's current offices. Vacated ones stay in the journal but not here."""
     rows = (
         await session.execute(
             select(Office).where(
@@ -413,22 +417,22 @@ async def offices(session: AsyncSession, city: City) -> list[Office]:
 async def powers_of(
     session: AsyncSession, identity_id: uuid.UUID, city: City
 ) -> set[str]:
-    """Права этой личности в этом городе, строками (D-155).
+    """This identity's rights in this city, as strings (D-155).
 
-    Право бывает крупным (`treasury`) и точечным (`law:import_duty`). Движок
-    хранит их одинаково — строкой, — потому что список конкретных законов
-    приходит из вольта и в коде его нет.
+    A right can be broad (`treasury`) or narrow (`law:import_duty`). The engine
+    stores them the same way -- as a string -- because the list of specific laws
+    comes from the vault and is not in code.
     """
-    найдено: set[str] = set()
+    found: set[str] = set()
     for office in await offices(session, city):
         if office.identity_id != identity_id:
             continue
-        найдено.update(str(raw) for raw in office.powers or ())
-    return найдено
+        found.update(str(raw) for raw in office.powers or ())
+    return found
 
 
 def covers(held: set[str], needed: str) -> bool:
-    """Покрывает ли набор прав требуемое. `laws` покрывает любой `law:<id>`."""
+    """Whether the set of rights covers the required one. `laws` covers any `law:<id>`."""
     if needed in held:
         return True
     return needed.startswith(LAW_SCOPE) and Power.LAWS.value in held
@@ -437,17 +441,17 @@ def covers(held: set[str], needed: str) -> bool:
 async def may(
     session: AsyncSession, identity_id: uuid.UUID, city: City, power: Power | str
 ) -> bool:
-    нужно = power.value if isinstance(power, Power) else str(power)
-    return covers(await powers_of(session, identity_id, city), нужно)
+    needed = power.value if isinstance(power, Power) else str(power)
+    return covers(await powers_of(session, identity_id, city), needed)
 
 
 async def require(
     session: AsyncSession, identity_id: uuid.UUID, city: City, power: Power | str
 ) -> None:
-    нужно = power.value if isinstance(power, Power) else str(power)
-    if not await may(session, identity_id, city, нужно):
+    needed = power.value if isinstance(power, Power) else str(power)
+    if not await may(session, identity_id, city, needed):
         raise NotAllowed(
-            f"нет права «{нужно}» в городе «{city.name}»: "
+            f"нет права «{needed}» в городе «{city.name}»: "
             "власть — это должность, а не намерение"
         )
 
@@ -455,13 +459,13 @@ async def require(
 async def require_at_hall(
     session: AsyncSession, body, city: City
 ) -> None:
-    """Управление делается **в администрации** этого города (D-155).
+    """Governing is done **in the administration** of this city (D-155).
 
-    Власть, которую можно осуществлять из-за океана, не нуждается ни в
-    столице, ни в дорогах к ней: администрация становится декорацией, а
-    захват власти — вопросом одного нажатия, а не географии.
+    Authority that can be exercised from across the ocean needs neither a
+    capital nor roads to it: the administration becomes decoration, and seizing
+    power a matter of one click rather than geography.
 
-    Читать панель это не касается: цифры идут по Сети (D-140).
+    Reading the panel is unaffected: figures travel over the Net (D-140).
     """
     from src.engine import travel, utility, world
     from src.models.identity import BodyState
@@ -479,13 +483,13 @@ async def require_at_hall(
         raise NotAllowed(
             f"это не территория города «{city.name}»: власть осуществляется у себя"
         )
-    двор = await world.node_container(session, node)
-    стоит = await session.scalar(
+    yard = await world.node_container(session, node)
+    costs = await session.scalar(
         select(Item.id)
-        .where(Item.container_id == двор.id, Item.type_key == HALL)
+        .where(Item.container_id == yard.id, Item.type_key == HALL)
         .limit(1)
     )
-    if стоит is None:
+    if costs is None:
         raise NotAllowed(
             "здесь нет администрации: решения города принимаются в ней (D-155)"
         )
@@ -505,28 +509,28 @@ async def appoint(
     powers: tuple[str, ...],
     body=None,
 ) -> Office:
-    """Назначить должность. Присутственно: решения принимаются в ратуше (D-155).
+    """Appoint to an office. In person: decisions are made in the town hall (D-155).
 
-    Отдать можно только то, что есть у самого — с учётом покрытия: держащий
-    `laws` вправе выдать `law:toll`, держащий `law:toll` — нет. Иначе любой,
-    кому дали `offices`, назначил бы себе всё остальное.
+    Only what you have yourself can be given -- with coverage in mind: a holder
+    of `laws` may grant `law:toll`, a holder of `law:toll` may not. Otherwise
+    anyone given `offices` would appoint themselves everything else.
     """
     await require_at_hall(session, body, city)
     await require(session, by.id, city, Power.OFFICES)
-    свои = await powers_of(session, by.id, city)
-    лишние = {право for право in powers if not covers(свои, право)}
-    if лишние:
+    own_items = await powers_of(session, by.id, city)
+    extra = {right for right in powers if not covers(own_items, right)}
+    if extra:
         raise NotAllowed(
             "нельзя передать то, чего нет у себя: "
-            + ", ".join(sorted(лишние))
+            + ", ".join(sorted(extra))
         )
     if not powers:
         raise CityError("должность без полномочий — это не должность")
 
-    #: Повторное назначение переписывает должность, а не заводит вторую.
-    for прежняя in await offices(session, city):
-        if прежняя.identity_id == whom.id:
-            прежняя.revoked_at = datetime.now(UTC)
+    #: Re-appointment rewrites the office rather than creating a second one.
+    for prior in await offices(session, city):
+        if prior.identity_id == whom.id:
+            prior.revoked_at = datetime.now(UTC)
     await session.flush()
 
     office = await _office(
@@ -548,7 +552,8 @@ async def appoint(
 async def revoke(
     session: AsyncSession, by: Identity, city: City, office: Office, *, body=None
 ) -> Office:
-    """Снять должность. Основателя снять нельзя: это дело устава, а не движка."""
+    """Vacate an office. The founder cannot be removed: that is the charter's business, not the
+    engine's."""
     await require_at_hall(session, body, city)
     await require(session, by.id, city, Power.OFFICES)
     if office.city_id != city.id:
@@ -572,28 +577,28 @@ async def revoke(
     return office
 
 
-# --- законы и устав ---------------------------------------------------------
+# --- laws and charter --------------------------------------------------------
 
 
 def law(catalog: Catalog, city: City, law_id: str):
-    """Значение код-закона: решение города, иначе умолчание вольта.
+    """A code-law's value: the city's decision, otherwise the vault default.
 
-    Возвращается **как есть**. Закон бывает не только числом и словом: у
-    пошлины это карта «товар → ставка и норма» (D-123), и приводить её к
-    строке значило бы ломать закон ради единообразия. Потребитель разбирает
-    своё значение сам — ветвлений по типу закона здесь нет (D-094).
+    Returned **as is**. A law is not only a number or a word: for duty it is a
+    map "goods -> rate and norm" (D-123), and casting it to a string would break
+    the law for the sake of uniformity. The consumer parses its own value -- no
+    branching on law type here (D-094).
     """
-    свои = city.laws or {}
-    if law_id in свои:
-        return свои[law_id]
+    own_items = city.laws or {}
+    if law_id in own_items:
+        return own_items[law_id]
     return catalog.laws.code_law_defaults().get(law_id)
 
 
 def law_number(
     constants: Constants, catalog: Catalog, city: City | None, law_id: str
 ) -> float:
-    """То же число. Умолчание вида `` `energy.tariff_default` `` разворачивается
-    в константу вольта: закон вправе ссылаться на неё, движок — нет (D-065)."""
+    """The same as a number. A default like `` `energy.tariff_default` `` expands
+    into a vault constant: a law may reference it, the engine may not (D-065)."""
     raw = (
         catalog.laws.code_law_defaults().get(law_id)
         if city is None
@@ -609,8 +614,8 @@ def law_number(
     try:
         return float(text)
     except ValueError:
-        #: «нет», «пусто», «свободный» — закон, заданный не числом. Для
-        #: числового потребителя это ноль, и это честнее исключения.
+        #: "no", "empty", "free" -- a law given not as a number. For a numeric
+        #: consumer that is zero, and that is more honest than an exception.
         return 0.0
 
 
@@ -625,42 +630,45 @@ async def set_law(
     *,
     body=None,
 ) -> City:
-    """Записать код-закон. Проверяется только полномочие и существование закона.
+    """Write a code-law. Only the power and the law's existence are checked.
 
-    Значение движок не осмысляет: закон — интерпретируемые данные, и ветвления
-    по его смыслу живут у потребителя (налог у стакана, тариф у пула), а не
-    здесь. Единственное исключение — тариф: он лежит в пуле отдельной колонкой,
-    и её надо подвинуть, иначе решение власти не доедет до счётчика.
+    The engine does not interpret the value: a law is interpreted data, and
+    branching on its meaning lives at the consumer (tax at the order book,
+    tariff at the pool), not here. The one exception is the tariff: it lies in
+    the pool as a separate column, and that column has to be moved, otherwise
+    the authority's decision never reaches the meter.
     """
     await require_at_hall(session, body, city)
-    известные = {закон.id for закон in catalog.laws.code_laws}
-    if law_id not in известные:
+    known = {law.id for law in catalog.laws.code_laws}
+    if law_id not in known:
         raise CityError(f"нет такого код-закона: {law_id}")
-    #: Право точечное: «министр экономики» правит пошлины и не трогает налог
-    #: (D-155). Держащий `laws` покрыт этой же проверкой. Устав может добавить
-    #: к власти совет: «вносит закон совет» — значит законодателей столько,
-    #: сколько мест, и правитель среди них не единственный (D-164).
+    #: The right is narrow: the "minister of economy" edits duties and does not
+    #: touch the tax (D-155). A `laws` holder is covered by the same check. The
+    #: charter may add a council to the authority: "the council proposes laws"
+    #: means as many legislators as seats, and the ruler is not the only one
+    #: among them (D-164).
     from src.engine import vote as ballots
 
     if not await ballots.may_propose(session, city, by.id):
         await require(session, by.id, city, f"{LAW_SCOPE}{law_id}")
 
-    #: Устав может отдать утверждение гражданам (D-161). Тогда власть не
-    #: меняет закон, а созывает голосование: право вносить закон и право его
-    #: утвердить — разные вещи, и это ровно то, что спрашивает `law_approval`.
-    #: Утверждать может и совет, и все граждане — устав решает, кто именно
-    #: (D-161, D-164). Правитель в обоих случаях созывает, а не решает.
+    #: The charter may hand approval to the citizens (D-161). Then the authority
+    #: does not change the law but convenes a poll: the right to propose a law
+    #: and the right to approve it are different things, and that is exactly
+    #: what `law_approval` asks. Both the council and all citizens may approve
+    #: -- the charter decides which (D-161, D-164). In both cases the ruler
+    #: convenes rather than decides.
     from src.models.vote import VoteKind
 
-    голосуют = ballots.voters_for(city, VoteKind.LAW)
-    if ballots.by_citizens(city) or голосуют == ballots.COUNCIL_VOTERS:
+    voters = ballots.voters_for(city, VoteKind.LAW)
+    if ballots.by_citizens(city) or voters == ballots.COUNCIL_VOTERS:
         await ballots.open_law(session, constants, city, by, law_id, value)
         return city
 
-    законы = dict(city.laws or {})
-    было = законы.get(law_id)
-    законы[law_id] = value
-    city.laws = законы
+    laws = dict(city.laws or {})
+    before = laws.get(law_id)
+    laws[law_id] = value
+    city.laws = laws
     await session.flush()
 
     if law_id == "energy_tariff":
@@ -673,7 +681,7 @@ async def set_law(
         node_id=city.node_id,
         city_id=str(city.id),
         law=law_id,
-        was=было,
+        was=before,
         now=value,
     )
     return city
@@ -682,7 +690,7 @@ async def set_law(
 async def _apply_tariff(
     session: AsyncSession, constants: Constants, catalog: Catalog, city: City
 ) -> None:
-    """Довести тариф до пула: у пула он лежит колонкой (D-085)."""
+    """Push the tariff through to the pool: the pool holds it as a column (D-085)."""
     from decimal import Decimal
 
     from src.models.energy import EnergyPool
@@ -710,27 +718,27 @@ async def set_charter(
     *,
     body=None,
 ) -> City:
-    """Ответить на вопрос устава. Вопрос и вариант обязаны существовать в вольте."""
+    """Answer a charter question. The question and the option must exist in the vault."""
     await require_at_hall(session, body, city)
     await require(session, by.id, city, Power.CHARTER)
-    вопрос = next((q for q in catalog.laws.charter if q.id == question_id), None)
-    if вопрос is None:
+    question = next((q for q in catalog.laws.charter if q.id == question_id), None)
+    if question is None:
         raise CityError(f"нет такого вопроса устава: {question_id}")
-    вариант = next((o for o in вопрос.options if o.id == option_id), None)
-    if вариант is None:
+    option = next((o for o in question.options if o.id == option_id), None)
+    if option is None:
         raise CityError(f"нет такого варианта: {option_id}")
-    if вариант.requires_option is not None:
-        #: Вариант, зависящий от другого ответа, без него бессмыслен: «совет
-        #: решает» при отсутствующем совете — это не устав, а описка.
-        нужен = (city.charter or {}).get(вариант.requires_option)
-        if нужен in (None, "none"):
+    if option.requires_option is not None:
+        #: An option that depends on another answer is meaningless without it:
+        #: "the council decides" with no council is a typo, not a charter.
+        needed_ = (city.charter or {}).get(option.requires_option)
+        if needed_ in (None, "none"):
             raise CityError(
-                f"вариант «{вариант.label}» требует ответа на «{вариант.requires_option}»"
+                f"вариант «{option.label}» требует ответа на «{option.requires_option}»"
             )
 
-    #: Устав правится по процедуре, которую сам же и называет (D-163):
-    #: `never` — не правится вовсе, две трети либо единогласие — голосованием
-    #: граждан. Иначе правитель единолично запрещал бы собственный отзыв.
+    #: The charter is amended by the procedure it names itself (D-163): `never`
+    #: -- not amended at all, two thirds or unanimity -- by a citizens' vote.
+    #: Otherwise the ruler could single-handedly forbid their own recall.
     from src.constants import current
     from src.engine import vote as ballots
 
@@ -742,13 +750,13 @@ async def set_charter(
         )
         return city
 
-    устав = dict(city.charter or {})
-    устав[question_id] = option_id
-    city.charter = устав
+    charter = dict(city.charter or {})
+    charter[question_id] = option_id
+    city.charter = charter
     if param is not None:
-        параметры = dict(city.charter_params or {})
-        параметры[question_id] = param
-        city.charter_params = параметры
+        params = dict(city.charter_params or {})
+        params[question_id] = param
+        city.charter_params = params
     await session.flush()
 
     await events.record(
@@ -764,7 +772,7 @@ async def set_charter(
     return city
 
 
-#: Условия печати — то, что новичок принимает, выбрав дверь города (D-184).
+#: Print conditions -- what a newcomer accepts by choosing the city's door (D-184).
 SPAWN_CITIZENSHIP = "spawn_citizenship"
 SPAWN_TERM = "spawn_term"
 TRADE_TAX = "tax_trade"
@@ -773,16 +781,16 @@ TRADE_TAX = "tax_trade"
 def spawn_terms(
     constants: Constants, catalog: Catalog, city: City | None
 ) -> tuple[bool, float]:
-    """Условия печати города: обязательно ли гражданство и на сколько суток.
+    """The city's print conditions: whether citizenship is mandatory and for how many days.
 
-    Срок без обязательного гражданства ни к чему не относится и потому равен
-    нулю: держать нечего, если никто никуда не вступал.
+    A term without mandatory citizenship refers to nothing and is therefore
+    zero: there is nothing to hold if nobody joined anything.
     """
     if city is None:
         return False, 0.0
-    решение = str(law(catalog, city, SPAWN_CITIZENSHIP) or "").strip().lower()
-    обязательно = решение.startswith("обяз")
-    if not обязательно:
+    decision = str(law(catalog, city, SPAWN_CITIZENSHIP) or "").strip().lower()
+    required = decision.startswith("обяз")
+    if not required:
         return False, 0.0
     return True, max(law_number(constants, catalog, city, SPAWN_TERM), 0.0)
 
@@ -796,59 +804,60 @@ async def bind(
     *,
     now: datetime | None = None,
 ) -> Citizen | None:
-    """Исполнить условия печати: зачислить в граждане на срок (D-184).
+    """Fulfil the print conditions: enrol as a citizen for a term (D-184).
 
-    Приёма не требуется: согласие человек дал выбором двери, и спрашивать его
-    второй раз незачем. Срок **записывается сюда**, а не вычитывается из закона
-    потом: город, поднявший срок задним числом, не удлиняет уже взятое
-    обязательство.
+    No admission is needed: the person consented by choosing the door, and there
+    is no reason to ask twice. The term **is written here** rather than read
+    from the law later: a city that raises the term retroactively does not
+    lengthen an obligation already taken.
 
-    Ничего не делает, если город условия не ставит либо человек уже где-то
-    состоит: печать не вправе сорваться из-за кадрового вопроса.
+    Does nothing if the city sets no conditions or the person already belongs
+    somewhere: a print may not fail over a personnel question.
     """
-    обязательно, суток = spawn_terms(constants, catalog, city)
-    if not обязательно:
+    required, days = spawn_terms(constants, catalog, city)
+    if not required:
         return None
     if await citizenship(session, who.id) is not None:
         return None
 
-    момент = now or datetime.now(UTC)
+    moment = now or datetime.now(UTC)
     return await _enroll(
         session,
         city,
         who.id,
         why="печать",
-        bound_until=None if суток <= 0 else момент + timedelta(days=суток),
+        bound_until=None if days <= 0 else moment + timedelta(days=days),
     )
 
 
 async def describe(
     session: AsyncSession, by: Identity, city: City, text: str, *, body=None
 ) -> City:
-    """Написать слово города новичку — то, что стоит на карточке двери (D-183).
+    """Write the city's word to newcomers -- what stands on the door card (D-183).
 
-    Правит его тот, кто принимает в граждане (D-160): объявление — вербовка, и
-    распоряжаться им должен тот, кто отвечает за приток людей, а не казначей.
-    Присутственно, как всякое решение города (D-155).
+    It is edited by whoever admits citizens (D-160): the announcement is
+    recruitment, and whoever answers for the inflow of people should control
+    it, not the treasurer. In person, like every city decision (D-155).
 
-    Движок **не разбирает** написанное и ничего по нему не исполняет. «Участок
-    каждому» — обещание, а не код-закон; не сдержали — это иск (D-004), а не
-    ошибка движка. Иначе пришлось бы либо читать обещания кодом, либо запретить
-    их вовсе, оставив город без голоса.
+    The engine **does not parse** what is written and executes nothing from it.
+    "A plot for everyone" is a promise, not a code-law; if it is not kept that
+    is a lawsuit (D-004), not an engine error. Otherwise we would have to
+    either read promises with code or forbid them altogether, leaving the city
+    without a voice.
     """
     from src.runtime import CITY_ABOUT_LIMIT
 
     await require_at_hall(session, body, city)
     await require(session, by.id, city, Power.CITIZENS)
 
-    слово = text.strip()
-    if len(слово) > CITY_ABOUT_LIMIT:
+    word = text.strip()
+    if len(word) > CITY_ABOUT_LIMIT:
         raise CityError(
             f"слово города длиннее {CITY_ABOUT_LIMIT} знаков: карточку читают "
             "за десять секунд"
         )
 
-    было, city.about = city.about, слово
+    before, city.about = city.about, word
     await session.flush()
     await events.record(
         session,
@@ -856,13 +865,13 @@ async def describe(
         actor_identity_id=by.id,
         node_id=city.node_id,
         city_id=str(city.id),
-        was=было,
-        now=слово,
+        was=before,
+        now=word,
     )
     return city
 
 
-# --- казна ------------------------------------------------------------------
+# --- treasury ----------------------------------------------------------------
 
 
 async def treasury(session: AsyncSession, city: City):
@@ -870,8 +879,8 @@ async def treasury(session: AsyncSession, city: City):
 
 
 async def treasury_balance(session: AsyncSession, city: City) -> int:
-    счёт = await treasury(session, city)
-    return await ledger.balance(session, счёт.id)
+    account = await treasury(session, city)
+    return await ledger.balance(session, account.id)
 
 
 async def spend(
@@ -884,30 +893,30 @@ async def spend(
     memo: str = "",
     body=None,
 ) -> int:
-    """Заплатить из казны личности. Возвращает уплаченное минорными единицами.
+    """Pay an identity from the treasury. Returns what was paid in minor units.
 
-    Ни жалованье, ни награда, ни подряд отдельными механиками не являются:
-    все они — это перевод из казны с названным основанием. Названия придумывают
-    люди, движку достаточно проводки.
+    Neither salary, nor reward, nor contract are separate mechanics: all of
+    them are a transfer from the treasury with a named ground. People invent
+    the names; the engine only needs the posting.
     """
     await require_at_hall(session, body, city)
     await require(session, by.id, city, Power.TREASURY)
     if amount <= 0:
         raise CityError("трата на ноль — это не трата")
 
-    счёт_казны = await treasury(session, city)
-    остаток = await ledger.balance(session, счёт_казны.id)
-    if остаток < amount:
+    treasury_account = await treasury(session, city)
+    remainder = await ledger.balance(session, treasury_account.id)
+    if remainder < amount:
         raise NotEnoughTreasury(
-            f"в казне {money_str(остаток)} ₭, а нужно {money_str(amount)} ₭"
+            f"в казне {money_str(remainder)} ₭, а нужно {money_str(amount)} ₭"
         )
 
-    кому = await ledger.account_for(session, AccountKind.IDENTITY, to.id)
+    to_whom = await ledger.account_for(session, AccountKind.IDENTITY, to.id)
     await ledger.transfer(
         session,
         PostingReason.SALARY,
-        debit=счёт_казны.id,
-        credit=кому.id,
+        debit=treasury_account.id,
+        credit=to_whom.id,
         amount=amount,
         memo={"город": city.name, "кому": to.name, "основание": memo},
     )
@@ -924,7 +933,7 @@ async def spend(
     return amount
 
 
-# --- подъёмные новичку (D-153) ----------------------------------------------
+# --- settlement grant for newcomers (D-153) ---------------------------------
 
 
 async def welcome(
@@ -934,46 +943,47 @@ async def welcome(
     city: City,
     who: Identity,
 ) -> int:
-    """Выдать подъёмные новичку. Возвращает выданное, ноль — норма.
+    """Pay the settlement grant to a newcomer. Returns what was paid; zero is normal.
 
-    Это **перевод, а не эмиссия**: в мире не появляется ни монеты. Город платит
-    из своей казны потому, что новый житель — это ВВП: он покупает, продаёт и
-    платит налоги. Окупается ли вложение — решает город, а не движок.
+    This is **a transfer, not an emission**: not a coin appears in the world.
+    The city pays from its treasury because a new resident is GDP: they buy,
+    sell and pay taxes. Whether the investment pays off is the city's decision,
+    not the engine's.
 
-    Один раз на личность в одном городе. Переехал — вправе получить в новом:
-    так города и конкурируют за людей.
+    Once per identity in one city. Moved -- entitled to receive it in the new
+    one: that is how cities compete for people.
     """
-    сколько = money(law_number(constants, catalog, city, "newcomer_grant"))
-    if сколько <= 0:
+    qty = money(law_number(constants, catalog, city, "newcomer_grant"))
+    if qty <= 0:
         return 0
 
-    было = (
+    before = (
         await session.execute(
             select(CityGrant).where(
                 CityGrant.city_id == city.id, CityGrant.identity_id == who.id
             )
         )
     ).scalar_one_or_none()
-    if было is not None:
+    if before is not None:
         return 0
 
-    счёт_казны = await treasury(session, city)
-    остаток = await ledger.balance(session, счёт_казны.id)
-    if остаток < сколько:
-        #: Пустая казна не платит. Это не ошибка новичка и не повод печатать
-        #: деньги: город просто беден, и это видно.
+    treasury_account = await treasury(session, city)
+    remainder = await ledger.balance(session, treasury_account.id)
+    if remainder < qty:
+        #: An empty treasury does not pay. This is not the newcomer's fault and
+        #: not a reason to print money: the city is simply poor, and that shows.
         return 0
 
-    кому = await ledger.account_for(session, AccountKind.IDENTITY, who.id)
+    to_whom = await ledger.account_for(session, AccountKind.IDENTITY, who.id)
     await ledger.transfer(
         session,
         PostingReason.SALARY,
-        debit=счёт_казны.id,
-        credit=кому.id,
-        amount=сколько,
+        debit=treasury_account.id,
+        credit=to_whom.id,
+        amount=qty,
         memo={"подъёмные": city.name, "кому": who.name},
     )
-    session.add(CityGrant(city_id=city.id, identity_id=who.id, amount=сколько))
+    session.add(CityGrant(city_id=city.id, identity_id=who.id, amount=qty))
     await session.flush()
 
     await events.record(
@@ -982,12 +992,12 @@ async def welcome(
         actor_identity_id=who.id,
         node_id=city.node_id,
         city_id=str(city.id),
-        amount=сколько,
+        amount=qty,
     )
-    return сколько
+    return qty
 
 
-# --- земля города -----------------------------------------------------------
+# --- city land ---------------------------------------------------------------
 
 
 async def allot(
@@ -999,12 +1009,12 @@ async def allot(
     *,
     body=None,
 ) -> Node:
-    """Выделить городской участок жителю (D-089).
+    """Allot a civic plot to a resident (D-089).
 
-    Городскую землю не занимают — её даёт город: кто вправе занимать участки в
-    кольцах, отвечает код-закон `build_permit`. Движок проверяет право `land`:
-    раздача земли — отдельное решение, а не законотворчество и не трата казны
-    (D-155).
+    Civic land is not taken -- the city gives it: who may take plots in the
+    rings is answered by the code-law `build_permit`. The engine checks the
+    `land` right: allotting land is a separate decision, neither lawmaking nor
+    treasury spending (D-155).
     """
     await require_at_hall(session, body, city)
     await require(session, by.id, city, Power.LAND)
@@ -1016,7 +1026,7 @@ async def allot(
     node.owner_identity_id = to.id
     await session.flush()
 
-    #: Выданный участок оформляется бумагой, как и купленный (D-116).
+    #: An allotted plot is documented by a deed, like a bought one (D-116).
     from src.engine import estate
 
     await estate.issue_deed(session, node, to.id)
@@ -1035,18 +1045,19 @@ async def allot(
 async def survey(
     session: AsyncSession, constants: Constants, catalog: Catalog, city: City
 ) -> dict:
-    """Сводка города: устав, законы, должности, казна. Удалённое чтение.
+    """City summary: charter, laws, offices, treasury. Remote read.
 
-    Что видно и кому — вопрос устава (`treasury_publicity`), и он лежит рядом.
-    Сегодня движок отдаёт всё: скрывать казну не от кого, пока нет второго
-    города, а притворяться, что приватность работает, хуже, чем её не иметь.
+    What is visible and to whom is a charter question (`treasury_publicity`),
+    and it lies right here. Today the engine gives out everything: there is
+    nobody to hide the treasury from until there is a second city, and
+    pretending privacy works is worse than not having it.
     """
-    люди = {}
+    people = {}
     for office in await offices(session, city):
-        личность = await session.get(Identity, office.identity_id)
-        люди[str(office.id)] = {
+        identity = await session.get(Identity, office.identity_id)
+        people[str(office.id)] = {
             "id": str(office.id),
-            "who": "?" if личность is None else личность.name,
+            "who": "?" if identity is None else identity.name,
             "identity": str(office.identity_id),
             "title": office.title,
             "powers": list(office.powers or ()),
@@ -1055,41 +1066,41 @@ async def survey(
     return {
         "id": str(city.id),
         "name": city.name,
-        #: Слово города новичку (D-183): его правит власть, а видят все.
+        #: The city's word to newcomers (D-183): the authority edits it, everyone sees it.
         "about": city.about,
         "node": (await session.get(Node, city.node_id)).key,
         "treasury": await treasury_balance(session, city),
-        "offices": list(люди.values()),
+        "offices": list(people.values()),
         "charter": dict(city.charter or {}),
         "charter_params": dict(city.charter_params or {}),
-        #: Вопросы устава словами: клиент не обязан знать, что `ruler_recall` —
-        #: это «можно ли отозвать правителя досрочно». Текст живёт в вольте.
+        #: Charter questions in words: the client need not know that
+        #: `ruler_recall` means "can the ruler be recalled early". The text lives in the vault.
         "charter_questions": [
             {
-                "id": вопрос.id,
-                "section": вопрос.section,
-                "question": вопрос.question,
+                "id": question.id,
+                "section": question.section,
+                "question": question.question,
                 "options": [
-                    {"id": вариант.id, "label": вариант.label} for вариант in вопрос.options
+                    {"id": option.id, "label": option.label} for option in question.options
                 ],
             }
-            for вопрос in catalog.laws.charter
+            for question in catalog.laws.charter
         ],
-        #: Законы отдаются **действующими**: своё решение либо умолчание вольта.
-        #: Клиенту не нужно знать, откуда взялось значение, — ему нужно знать,
-        #: по какому правилу он живёт.
+        #: Laws are given out **as in force**: the own decision or the vault
+        #: default. The client need not know where the value came from -- it
+        #: needs to know which rule it lives by.
         "laws": {
-            закон.id: {
-                "name": закон.name,
-                "unit": закон.unit,
-                "note": закон.note,
-                #: Умолчание вида `` `energy.tariff_default` `` разворачивается
-                #: в число: игрок обязан видеть действующую ставку, а не ссылку
-                #: на константу вольта.
-                "value": _shown(constants, catalog, city, закон.id),
-                "own": закон.id in (city.laws or {}),
+            law.id: {
+                "name": law.name,
+                "unit": law.unit,
+                "note": law.note,
+                #: A default like `` `energy.tariff_default` `` expands into a
+                #: number: the player must see the rate in force, not a
+                #: reference to a vault constant.
+                "value": _shown(constants, catalog, city, law.id),
+                "own": law.id in (city.laws or {}),
             }
-            for закон in catalog.laws.code_laws
+            for law in catalog.laws.code_laws
         },
     }
 
@@ -1101,8 +1112,8 @@ def _shown(
     if raw is None:
         return None
     if isinstance(raw, (dict, list)):
-        #: Составной закон (пошлина) уходит клиенту как есть: показывать его
-        #: строкой — значит заставлять клиент разбирать её обратно.
+        #: A composite law (duty) goes to the client as is: showing it as a
+        #: string would force the client to parse it back.
         import json
 
         return json.dumps(raw, ensure_ascii=False)
@@ -1113,37 +1124,37 @@ def _shown(
 
 
 def _plain(value: float) -> str:
-    """Число без хвоста нулей: тариф «5», а не «5.0»."""
-    целое = int(value)
-    return str(целое) if value == целое else str(value)
+    """A number without trailing zeros: tariff "5", not "5.0"."""
+    whole = int(value)
+    return str(whole) if value == whole else str(value)
 
 
-# --- гражданство (D-160) ------------------------------------------------------
+# --- citizenship (D-160) -----------------------------------------------------
 
-#: Вопрос устава «как принимают в граждане» и его варианты (`laws.json`).
+#: The charter question "how are citizens admitted" and its options (`laws.json`).
 ADMISSION = "citizenship_admission"
 OPEN, APPLICATION, INVITE = "open", "application", "invite"
 
 
 class NotCitizen(CityError):
-    """Это положено гражданам. Кому именно — решает город, а не движок."""
+    """This is for citizens. Who exactly is decided by the city, not the engine."""
 
 
 class AlreadyCitizen(CityError):
-    """Гражданство одно на человека: сначала выйти из прежнего города."""
+    """One citizenship per person: leave the previous city first."""
 
 
 class Bound(CityError):
-    """Срок обязательства, принятого при печати, ещё не вышел (D-184)."""
+    """The term of the obligation taken at printing has not expired yet (D-184)."""
 
 
 def admission(city: City) -> str:
-    """Как этот город принимает в граждане: ответ устава либо «свободно»."""
+    """How this city admits citizens: the charter's answer, or "open"."""
     return str((city.charter or {}).get(ADMISSION) or OPEN)
 
 
 async def citizenship(session: AsyncSession, identity_id: uuid.UUID) -> Citizen | None:
-    """Гражданство личности, если оно есть. Оно одно — так устроена запись."""
+    """The identity's citizenship, if any. There is one -- that is how the record works."""
     return (
         await session.execute(select(Citizen).where(Citizen.identity_id == identity_id))
     ).scalar_one_or_none()
@@ -1152,8 +1163,8 @@ async def citizenship(session: AsyncSession, identity_id: uuid.UUID) -> Citizen 
 async def is_citizen(
     session: AsyncSession, identity_id: uuid.UUID, city: City
 ) -> bool:
-    запись = await citizenship(session, identity_id)
-    return запись is not None and запись.city_id == city.id
+    entry = await citizenship(session, identity_id)
+    return entry is not None and entry.city_id == city.id
 
 
 async def citizens_of(session: AsyncSession, city: City) -> list[Citizen]:
@@ -1180,7 +1191,7 @@ async def request_of(
 async def requests_of(
     session: AsyncSession, city: City
 ) -> list[CitizenshipRequest]:
-    """Очередь: кто просится и кого позвали. Справка, а не решение."""
+    """The queue: who applies and who was invited. Reference, not a decision."""
     return list(
         (
             await session.execute(
@@ -1193,46 +1204,46 @@ async def requests_of(
 async def join(
     session: AsyncSession, body, city: City
 ) -> Citizen | CitizenshipRequest:
-    """Проситься в граждане. Что выйдет — решает устав города (D-160).
+    """Apply for citizenship. What comes of it is decided by the city charter (D-160).
 
-    Присутственно, в администрации: в граждане записываются там же, где город
-    принимает всякое решение (D-155). Возвращается либо гражданство, либо
-    заявка — по ответу устава на `citizenship_admission`.
+    In person, in the administration: citizens are enrolled where the city
+    makes every decision (D-155). Returns either citizenship or an application
+    -- per the charter's answer to `citizenship_admission`.
     """
     from src.engine import travel
 
     await travel.require_here(session, body)
     await require_at_hall(session, body, city)
 
-    имеющееся = await citizenship(session, body.identity_id)
-    if имеющееся is not None:
-        if имеющееся.city_id == city.id:
+    existing_amount = await citizenship(session, body.identity_id)
+    if existing_amount is not None:
+        if existing_amount.city_id == city.id:
             raise AlreadyCitizen("вы уже гражданин этого города")
         raise AlreadyCitizen(
             "гражданство одно на человека: сначала выйти из прежнего города"
         )
 
-    порядок = admission(city)
-    зов = await request_of(session, body.identity_id, city)
-    #: Приглашение бьёт порядок: позвали — значит принимают, каким бы строгим
-    #: устав ни был.
-    if порядок == OPEN or (зов is not None and зов.kind == INVITE):
-        if зов is not None:
-            await session.delete(зов)
-        return await _enroll(session, city, body.identity_id, why=порядок)
+    order_of = admission(city)
+    call = await request_of(session, body.identity_id, city)
+    #: An invitation beats the order: invited means admitted, however strict
+    #: the charter.
+    if order_of == OPEN or (call is not None and call.kind == INVITE):
+        if call is not None:
+            await session.delete(call)
+        return await _enroll(session, city, body.identity_id, why=order_of)
 
-    if порядок == INVITE:
+    if order_of == INVITE:
         raise NotAllowed(
             "в этот город принимают только по приглашению: ждите зова власти"
         )
 
-    #: Остаётся заявка: она ложится и ждёт решения власти.
-    if зов is not None:
-        return зов
-    заявка = CitizenshipRequest(
+    #: An application remains: it is filed and waits for the authority's decision.
+    if call is not None:
+        return call
+    order = CitizenshipRequest(
         identity_id=body.identity_id, city_id=city.id, kind=APPLICATION
     )
-    session.add(заявка)
+    session.add(order)
     await session.flush()
     await events.record(
         session,
@@ -1242,24 +1253,24 @@ async def join(
         city_id=str(city.id),
         kind_of_request=APPLICATION,
     )
-    return заявка
+    return order
 
 
 async def invite(
     session: AsyncSession, by: Identity, city: City, who: Identity
 ) -> CitizenshipRequest:
-    """Позвать в граждане. Приглашение ждёт, пока человек придёт и примет."""
+    """Invite to citizenship. The invitation waits until the person comes and accepts."""
     await require(session, by.id, city, Power.CITIZENS)
     if await is_citizen(session, who.id, city):
         raise AlreadyCitizen(f"{who.name} уже гражданин")
 
-    существует = await request_of(session, who.id, city)
-    if существует is not None:
-        return существует
-    зов = CitizenshipRequest(
+    exists = await request_of(session, who.id, city)
+    if exists is not None:
+        return exists
+    call = CitizenshipRequest(
         identity_id=who.id, city_id=city.id, kind=INVITE, by_identity_id=by.id
     )
-    session.add(зов)
+    session.add(call)
     await session.flush()
     await events.record(
         session,
@@ -1270,20 +1281,20 @@ async def invite(
         who=who.name,
         kind_of_request=INVITE,
     )
-    return зов
+    return call
 
 
 async def admit(
     session: AsyncSession, by: Identity, city: City, who: Identity
 ) -> Citizen:
-    """Одобрить заявку. Право `citizens`: кадры города — это тоже власть."""
+    """Approve an application. Right `citizens`: the city's personnel is authority too."""
     await require(session, by.id, city, Power.CITIZENS)
-    заявка = await request_of(session, who.id, city)
-    if заявка is None or заявка.kind != APPLICATION:
+    order = await request_of(session, who.id, city)
+    if order is None or order.kind != APPLICATION:
         raise CityError("заявки от этого человека нет")
     if await citizenship(session, who.id) is not None:
         raise AlreadyCitizen(f"{who.name} уже состоит в городе")
-    await session.delete(заявка)
+    await session.delete(order)
     return await _enroll(session, city, who.id, why=APPLICATION, by=by.id)
 
 
@@ -1294,63 +1305,64 @@ async def leave(
     *,
     now: datetime | None = None,
 ) -> Citizen:
-    """Заявить о выходе. Гражданство спадёт через `city.exit_delay` (D-160).
+    """Declare leaving. Citizenship lapses after `city.exit_delay` (D-160).
 
-    Удалённое: заявление идёт по Сети. Задержка существует затем, чтобы нельзя
-    было выйти из города прямо перед приговором.
+    Remote: the declaration goes over the Net. The delay exists so that one
+    cannot leave the city right before a verdict.
     """
     from src.constants import registry as R
     from src.engine.jobs import enqueue
     from src.models.job import JobKind
 
     moment = now or datetime.now(UTC)
-    запись = await citizenship(session, identity.id)
-    if запись is None:
+    entry = await citizenship(session, identity.id)
+    if entry is None:
         raise NotCitizen("вы нигде не состоите")
-    if запись.leaving_at is not None:
-        return запись
-    #: Обязательство, принятое при печати (D-184), держит до своего срока.
-    #: Держит оно человека, а не город: изгнание обрывает его в любой миг.
-    if запись.bound_until is not None and запись.bound_until > moment:
+    if entry.leaving_at is not None:
+        return entry
+    #: The obligation taken at printing (D-184) holds until its term. It holds
+    #: the person, not the city: exile cuts it at any moment.
+    if entry.bound_until is not None and entry.bound_until > moment:
         raise Bound(
             "гражданство взято условием печати и держит до "
-            f"{запись.bound_until:%d.%m %H:%M} UTC. Этот срок вы приняли, "
+            f"{entry.bound_until:%d.%m %H:%M} UTC. Этот срок вы приняли, "
             "выбрав дверь города"
         )
 
-    запись.leaving_at = moment + timedelta(days=constants[R.CITY_EXIT_DELAY])
+    entry.leaving_at = moment + timedelta(days=constants[R.CITY_EXIT_DELAY])
     await session.flush()
     event = await events.record(
         session,
         EventKind.CITIZENSHIP_LEAVING,
         actor_identity_id=identity.id,
-        city_id=str(запись.city_id),
-        leaves_at=запись.leaving_at.isoformat(),
+        city_id=str(entry.city_id),
+        leaves_at=entry.leaving_at.isoformat(),
     )
     await enqueue(
         session,
         JobKind.CITIZENSHIP_EXIT,
-        запись.leaving_at,
-        payload={"citizen": str(запись.id)},
-        dedup_key=f"citizenship.exit:{запись.id}",
+        entry.leaving_at,
+        payload={"citizen": str(entry.id)},
+        dedup_key=f"citizenship.exit:{entry.id}",
         cause_event_id=event.id,
     )
-    return запись
+    return entry
 
 
 async def exile(
     session: AsyncSession, by: Identity, city: City, who: Identity
 ) -> None:
-    """Изгнать из города. Санкция, а не кадровое решение: право `justice`.
+    """Exile from the city. A sanction, not a personnel decision: right `justice`.
 
-    Варианты устава `court` и `citizens_vote` не исполняются, пока нет суда и
-    голосований: движок проверяет право, а кто им обладает — дело города.
+    The charter options `court` and `citizens_vote` are not enforced while there
+    is no court and no polls: the engine checks the right, and who holds it is
+    the city's business.
     """
     await require(session, by.id, city, Power.JUSTICE)
-    запись = await citizenship(session, who.id)
-    if запись is None or запись.city_id != city.id:
+    entry = await citizenship(session, who.id)
+    if entry is None or entry.city_id != city.id:
         raise NotCitizen(f"{who.name} не гражданин этого города")
-    await session.delete(запись)
+    await session.delete(entry)
     await session.flush()
     await events.record(
         session,
@@ -1371,10 +1383,10 @@ async def _enroll(
     by: uuid.UUID | None = None,
     bound_until: datetime | None = None,
 ) -> Citizen:
-    запись = Citizen(
+    entry = Citizen(
         identity_id=identity_id, city_id=city.id, bound_until=bound_until
     )
-    session.add(запись)
+    session.add(entry)
     await session.flush()
     await events.record(
         session,
@@ -1385,96 +1397,99 @@ async def _enroll(
         how=why,
         bound_until=None if bound_until is None else bound_until.isoformat(),
     )
-    return запись
+    return entry
 
 
 def may_take_city_land(catalog: Catalog, city: City, citizen: bool) -> bool:
-    """Вправе ли этот человек занимать городские участки (`build_permit`).
+    """Whether this person may take civic plots (`build_permit`).
 
-    Значение закона — слово города, а не перечисление движка: варианты живут в
-    вольте и растут без правки кода (D-094), поэтому читается написанное.
+    The law's value is the city's word, not an engine enumeration: options live
+    in the vault and grow without code changes (D-094), so what is written is
+    read.
     """
-    решение = str(law(catalog, city, "build_permit") or "").strip().lower()
-    if not решение:
+    decision = str(law(catalog, city, "build_permit") or "").strip().lower()
+    if not decision:
         return True
-    if решение.startswith("никто") or решение in ("нет", "-"):
+    if decision.startswith("никто") or decision in ("нет", "-"):
         return False
-    if "гражд" in решение:
+    if "гражд" in decision:
         return citizen
     return True
 
 
 @handler(JobKind.CITIZENSHIP_EXIT)
 async def exited(session: AsyncSession, job: Job) -> None:
-    """Срок вышел: гражданство спадает (D-160).
+    """The term is up: citizenship lapses (D-160).
 
-    Заявление можно было отозвать — тогда записи уже нет либо срок снят, и
-    задание не делает ничего: повтор после сбоя вторым выходом не станет.
+    The declaration could have been withdrawn -- then the record is gone or the
+    term is cleared, and the job does nothing: a retry after a failure does not
+    become a second exit.
     """
-    запись = await session.get(Citizen, uuid.UUID(job.payload["citizen"]))
-    if запись is None or запись.leaving_at is None:
+    entry = await session.get(Citizen, uuid.UUID(job.payload["citizen"]))
+    if entry is None or entry.leaving_at is None:
         return
-    город = await by_id(session, запись.city_id)
-    await session.delete(запись)
+    city = await by_id(session, entry.city_id)
+    await session.delete(entry)
     await session.flush()
     await events.record(
         session,
         EventKind.CITIZENSHIP_ENDED,
-        actor_identity_id=запись.identity_id,
-        city_id=str(запись.city_id),
+        actor_identity_id=entry.identity_id,
+        city_id=str(entry.city_id),
         why="выход по заявлению",
-        city=None if город is None else город.name,
+        city=None if city is None else city.name,
     )
 
 
-# --- смена власти (D-162) -----------------------------------------------------
+# --- change of power (D-162) -------------------------------------------------
 
 
 async def ruler(session: AsyncSession, city: City) -> Office | None:
-    """Действующий правитель: должность с самым широким набором прав.
+    """The current ruler: the office with the widest set of rights.
 
-    Движок знает права, а не посты (D-154): «правитель» — это тот, у кого
-    больше всего власти, а как он называется, решает город. При равенстве —
-    тот, кто назначен раньше: старшинство разрешает спор без выдумок.
+    The engine knows rights, not posts (D-154): the "ruler" is whoever has the
+    most authority, and what they are called is the city's decision. On a tie
+    -- whoever was appointed earlier: seniority settles the dispute without
+    inventions.
     """
-    посты = (
+    offices = (
         await session.execute(
             select(Office).where(
                 Office.city_id == city.id, Office.revoked_at.is_(None)
             )
         )
     ).scalars().all()
-    if not посты:
+    if not offices:
         return None
-    return sorted(посты, key=lambda пост: (-len(пост.powers or []), пост.created_at))[0]
+    return sorted(offices, key=lambda office: (-len(office.powers or []), office.created_at))[0]
 
 
 async def hand_over(session: AsyncSession, city: City, who: Identity) -> Office:
-    """Передать власть избранному (D-162).
+    """Hand authority to the elected (D-162).
 
-    Новый правитель получает набор прежнего, а не абстрактную «власть»: движок
-    знает права, а не посты. Прежняя должность складывается — не удаляется:
-    кто чем распоряжался в прошлом месяце, вопрос суда.
+    The new ruler receives the previous one's set, not an abstract "authority":
+    the engine knows rights, not posts. The previous office is vacated -- not
+    deleted: who controlled what last month is a matter for the court.
     """
-    прежний = await ruler(session, city)
-    права = tuple(прежний.powers or ()) if прежний is not None else FOUNDER_POWERS
-    название = прежний.title if прежний is not None else FOUNDER_TITLE
+    previous = await ruler(session, city)
+    rights = tuple(previous.powers or ()) if previous is not None else FOUNDER_POWERS
+    title = previous.title if previous is not None else FOUNDER_TITLE
 
-    if прежний is not None:
-        if прежний.identity_id == who.id:
-            return прежний
-        прежний.revoked_at = datetime.now(UTC)
+    if previous is not None:
+        if previous.identity_id == who.id:
+            return previous
+        previous.revoked_at = datetime.now(UTC)
         await session.flush()
         await events.record(
             session,
             EventKind.CITY_OFFICE_REVOKED,
             node_id=city.node_id,
             city_id=str(city.id),
-            title=прежний.title,
+            title=previous.title,
             why="выборы",
         )
 
-    пост = await _office(session, city, who.id, title=название, powers=права, by=None)
+    office = await _office(session, city, who.id, title=title, powers=rights, by=None)
     await events.record(
         session,
         EventKind.CITY_OFFICE_APPOINTED,
@@ -1482,34 +1497,34 @@ async def hand_over(session: AsyncSession, city: City, who: Identity) -> Office:
         node_id=city.node_id,
         city_id=str(city.id),
         whom=who.name,
-        title=название,
-        powers=list(права),
+        title=title,
+        powers=list(rights),
         elected=True,
     )
-    await schedule_term(session, city, пост)
-    return пост
+    await schedule_term(session, city, office)
+    return office
 
 
 async def schedule_term(
     session: AsyncSession, city: City, office: Office, *, now: datetime | None = None
 ) -> None:
-    """Поставить срок полномочий, если устав его назначил (D-163).
+    """Set the term of office, if the charter set one (D-163).
 
-    `ruler_term: fixed` в сутках: по сроку должность снимается сама. Иначе
-    «избирается на тридцать суток» значит «пока сам не вспомнит».
+    `ruler_term: fixed` in days: on the term the office is vacated by itself.
+    Otherwise "elected for thirty days" means "until they remember themselves".
     """
     from src.engine import vote as ballots
 
     if ballots.answer(city, ballots.TERM, "unlimited") != ballots.FIXED_TERM:
         return
-    суток = ballots.param(city, ballots.TERM)
-    if суток <= 0:
+    days = ballots.param(city, ballots.TERM)
+    if days <= 0:
         return
-    конец = (now or datetime.now(UTC)) + timedelta(days=суток)
+    end = (now or datetime.now(UTC)) + timedelta(days=days)
     await enqueue(
         session,
         JobKind.RULER_TERM,
-        конец,
+        end,
         payload={"city": str(city.id), "office": str(office.id)},
         dedup_key=f"city.term:{office.id}",
     )
@@ -1517,15 +1532,15 @@ async def schedule_term(
 
 @handler(JobKind.RULER_TERM)
 async def term_ended(session: AsyncSession, job: Job) -> None:
-    """Срок вышел: должность снимается, и город идёт на выборы, если умеет."""
+    """The term is up: the office is vacated, and the city goes to an election if it can."""
     from src.constants import current
     from src.engine import vote as ballots
 
     office = await session.get(Office, uuid.UUID(job.payload["office"]))
     city = await by_id(session, uuid.UUID(job.payload["city"]))
     if office is None or city is None or office.revoked_at is not None:
-        #: Должность сложена раньше срока — отзывом либо выборами. Повтор
-        #: задания после сбоя второй отставкой не станет.
+        #: The office was vacated before the term -- by recall or election. A
+        #: job retry after a failure does not become a second resignation.
         return
 
     office.revoked_at = job.run_at
@@ -1543,18 +1558,18 @@ async def term_ended(session: AsyncSession, job: Job) -> None:
 
 
 async def dismiss(session: AsyncSession, city: City) -> Office | None:
-    """Снять правителя: отзыв прошёл. Город остаётся без власти до выборов."""
-    прежний = await ruler(session, city)
-    if прежний is None:
+    """Remove the ruler: the recall passed. The city stays without authority until the election."""
+    previous = await ruler(session, city)
+    if previous is None:
         return None
-    прежний.revoked_at = datetime.now(UTC)
+    previous.revoked_at = datetime.now(UTC)
     await session.flush()
     await events.record(
         session,
         EventKind.CITY_OFFICE_REVOKED,
         node_id=city.node_id,
         city_id=str(city.id),
-        title=прежний.title,
+        title=previous.title,
         why="отзыв",
     )
-    return прежний
+    return previous

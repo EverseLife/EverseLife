@@ -1,15 +1,16 @@
-"""Энергия города: общий пул (D-071, D-082).
+"""City energy: the shared pool (D-071, D-082).
 
-Внутри города энергию никуда не подводят: всё, что стоит на его территории,
-питается из **одного пула**. Отдельных подключений, проводов и линий между
-узлами города нет и не будет — упрощено распределение, а не дефицит.
+Inside a city energy is not routed anywhere: everything standing on its
+territory feeds from **one pool**. There are and will be no separate
+connections, wires or lines between city nodes -- distribution is simplified,
+not scarce.
 
-**Пул принадлежит городу**, а города как института ещё нет: он приезжает с
-Э3 вместе с уставом и казной. До тех пор пул живёт на узле-представителе
-города — том самом, чьими детьми в иерархии показа является городская
-застройка (`Node.parent_id`). Территория города = его дети, и это ровно то,
-чем город и является на карте сегодня. С появлением `City` пул переедет на
-него без изменения смысла: перепривязать ключ.
+**The pool belongs to the city**, and the city as an institution does not
+exist yet: it arrives with E3 together with the charter and treasury. Until
+then the pool lives on the city's delegate node -- the very one whose children
+in the display hierarchy are the city's built-up area (`Node.parent_id`). City
+territory = its children, and that is exactly what a city is on the map today.
+When `City` appears the pool moves to it without a change of meaning: rebind the key.
 """
 
 from __future__ import annotations
@@ -24,24 +25,25 @@ from src.db.base import Base, created_column, uuid_pk
 
 
 class EnergyPool(Base):
-    """Заряд города и момент, до которого он посчитан."""
+    """The city's charge and the moment up to which it is computed."""
 
     __tablename__ = "energy_pool"
 
     id: Mapped[uuid.UUID] = uuid_pk()
-    #: Узел-представитель города. Один пул на город.
+    #: The city's delegate node. One pool per city.
     node_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("node.id"), nullable=False, unique=True
     )
 
-    #: Сколько энергии в пуле сейчас.
+    #: How much energy is in the pool now.
     stored: Mapped[float] = mapped_column(Numeric(14, 3), nullable=False, default=0)
-    #: До какого момента выработка уже начислена. Производство идёт временем, а
-    #: не кликом: тик доводит пул до «сейчас» и двигает эту метку.
+    #: Up to what moment generation is already credited. Production runs by
+    #: time, not by click: the tick brings the pool up to "now" and moves this stamp.
     counted_at: Mapped[datetime] = created_column()
 
-    #: Тариф отпуска, ТК за 100 энергии. Уставом города правится с Э3 (D-085);
-    #: до тех пор здесь лежит умолчание вольта, и оно же видно игрокам.
+    #: Release tariff, TC per 100 energy. Edited by the city charter from E3
+    #: (D-085); until then the vault default lies here, and players see it too.
+
     tariff: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)
 
     created_at: Mapped[datetime] = created_column()

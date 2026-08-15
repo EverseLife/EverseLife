@@ -1,5 +1,5 @@
-# Контекст сборки образа сервера — корень репозитория (нужен `vault/`).
-# Всё, что не код сервера и не слепок вольта, сюда ехать не должно.
+# The server image build context is the repository root (`vault/` is needed).
+# Everything that is neither server code nor the vault snapshot must not go here.
 
 .git
 .github
@@ -11,7 +11,7 @@
 .ruff_cache
 .mypy_cache
 
-# Клиент собирается своим образом, из своего контекста.
+# The client is built by its own image, from its own context.
 frontend
 
 backend/.venv

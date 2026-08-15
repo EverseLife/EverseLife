@@ -1,10 +1,11 @@
 /**
- * Монетный станок: чеканка и переплавка (D-016, D-086).
+ * The mint press: minting and melting (D-016, D-086).
  *
- * Монета — предмет, а не счёт: она лежит в кармане, гибнет с телом и ходит
- * там, где нет терминала. Проба одна на весь мир — 900‰: состав задан
- * рецептом (0.9 аффинированного металла и 0.1 слитка железа лигатурой), и
- * механики занижения не существует — монета всегда содержит то, что обещает.
+ * A coin is an item, not an account: it lies in the pocket, perishes with the
+ * body and circulates where there is no terminal. One fineness for the whole
+ * world -- 900 per mille: the composition is set by the recipe (0.9 refined
+ * metal and 0.1 iron ingot as alloy), and there is no debasement mechanic --
+ * a coin always contains what it promises.
  */
 
 import { useMemo, useState } from "react";
@@ -25,32 +26,34 @@ const COINS: { coin: string; metal: string }[] = [
 ];
 
 export function Mint({ look, session, values, busy, act }: Props) {
-  const умеет = COINS.filter((к) => look.knows.includes(к.coin));
-  const [монета, setМонета] = useState(умеет[0]?.coin ?? COINS[0].coin);
-  const выбранная = COINS.find((к) => к.coin === монета) ?? COINS[0];
-  const [сколько, setСколько] = useState(10);
+  const canDo = COINS.filter((k) => look.knows.includes(k.coin));
+  const [coin, setCoin] = useState(canDo[0]?.coin ?? COINS[0].coin);
+  const chosen = COINS.find((k) => k.coin === coin) ?? COINS[0];
+  const [qty, setQty] = useState(10);
 
-  const проба = Number(values?.["coin.default_fineness"] ?? 900);
+  const fineness = Number(values?.["coin.default_fineness"] ?? 900);
 
-  const в_руках = useMemo(() => {
-    const сумма = (имя: string) =>
+  const inHands = useMemo(() => {
+    const amount = (name: string) =>
       look.inventory
-        .filter((т) => т.goods === имя)
-        .reduce((итог, т) => итог + т.amount, 0);
-    return { металл: сумма(выбранная.metal), железо: сумма(IRON) };
-  }, [look.inventory, выбранная.metal]);
+        .filter((t) => t.goods === name)
+        .reduce((result, t) => result + t.amount, 0);
+    return { metal: amount(chosen.metal), iron: amount(IRON) };
+  }, [look.inventory, chosen.metal]);
 
-  //: Состав монеты — из рецепта вольта: 0.9 аффинажа + 0.1 железа. Числа
-  //: продублированы здесь только для прогноза до нажатия; тратит сервер по
-  //: рецепту, и рассинхрон честно откажет, а не молча спишет другое.
-  const надо_металла = сколько * 0.9;
-  const надо_железа = сколько * 0.1;
-  const хватает =
-    надо_металла <= в_руках.металл && надо_железа <= в_руках.железо;
+  //: The coin's composition comes from the vault recipe: 0.9 refined + 0.1
+  //: iron. The numbers are duplicated here only for the forecast before the
+  //: click; the server spends by the recipe, and a mismatch honestly refuses
+  //: rather than silently writing off something else.
 
-  const кошелёк = look.inventory.filter((т) => т.fineness != null);
+  const metalNeeded = qty * 0.9;
+  const ironNeeded = qty * 0.1;
+  const enough =
+    metalNeeded <= inHands.metal && ironNeeded <= inHands.iron;
 
-  if (умеет.length === 0) {
+  const purse = look.inventory.filter((t) => t.fineness != null);
+
+  if (canDo.length === 0) {
     return (
       <section>
         <h2>Монетный станок</h2>
@@ -67,54 +70,54 @@ export function Mint({ look, session, values, busy, act }: Props) {
       <h2>Монетный станок</h2>
 
       <div className="row">
-        <select value={монета} onChange={(e) => setМонета(e.target.value)}>
-          {умеет.map((к) => (
-            <option key={к.coin}>{к.coin}</option>
+        <select value={coin} onChange={(e) => setCoin(e.target.value)}>
+          {canDo.map((k) => (
+            <option key={k.coin}>{k.coin}</option>
           ))}
         </select>
         <input
           type="number"
           min="1"
           step="1"
-          value={сколько}
-          onChange={(e) => setСколько(Number(e.target.value))}
+          value={qty}
+          onChange={(e) => setQty(Number(e.target.value))}
           title="сколько монет"
         />
-        <span className="note">проба {проба} ‰ — одна на весь мир</span>
+        <span className="note">проба {fineness} ‰ — одна на весь мир</span>
       </div>
 
       <p className="note">
-        Уйдёт {надо_металла.toFixed(1)} «{выбранная.metal}» (в руках{" "}
-        {в_руках.металл.toFixed(1)}) и {надо_железа.toFixed(1)} «{IRON}» (в руках{" "}
-        {в_руках.железо.toFixed(1)}). Лигатура — десятая часть железа: монета
+        Уйдёт {metalNeeded.toFixed(1)} «{chosen.metal}» (в руках{" "}
+        {inHands.metal.toFixed(1)}) и {ironNeeded.toFixed(1)} «{IRON}» (в руках{" "}
+        {inHands.iron.toFixed(1)}). Лигатура — десятая часть железа: монета
         всегда 900-й пробы.
       </p>
 
       <button
         onClick={() =>
-          act(() => session.send("coin.mint", { coin: монета, count: сколько }))
+          act(() => session.send("coin.mint", { coin: coin, count: qty }))
         }
-        disabled={busy || !хватает || сколько <= 0}
+        disabled={busy || !enough || qty <= 0}
       >
         Чеканить
       </button>
-      {!хватает && (
+      {!enough && (
         <p className="note">металла или железа не хватает: партия не начнётся</p>
       )}
 
-      {кошелёк.length > 0 && (
+      {purse.length > 0 && (
         <>
           <h3>Кошелёк</h3>
           <table>
             <tbody>
-              {кошелёк.map((монета) => (
-                <Строка
-                  key={монета.id}
-                  вещь={монета}
+              {purse.map((coin) => (
+                <Row
+                  key={coin.id}
+                  thing={coin}
                   busy={busy}
-                  плавить={(сколько) =>
+                  melt={(qty) =>
                     act(() =>
-                      session.send("coin.melt", { item: монета.id, count: сколько }),
+                      session.send("coin.melt", { item: coin.id, count: qty }),
                     )
                   }
                 />
@@ -131,25 +134,25 @@ export function Mint({ look, session, values, busy, act }: Props) {
   );
 }
 
-function Строка({
-  вещь,
+function Row({
+  thing,
   busy,
-  плавить,
+  melt,
 }: {
-  вещь: Thing;
+  thing: Thing;
   busy: boolean;
-  плавить: (сколько: number) => void;
+  melt: (qty: number) => void;
 }) {
   return (
     <tr>
-      <td>{вещь.goods}</td>
-      <td className="num">{вещь.amount}</td>
+      <td>{thing.goods}</td>
+      <td className="num">{thing.amount}</td>
       <td className="note">
-        проба {вещь.fineness}
-        {вещь.maker ? ` · клеймо ${вещь.maker}` : ""}
+        проба {thing.fineness}
+        {thing.maker ? ` · клеймо ${thing.maker}` : ""}
       </td>
       <td>
-        <button className="quiet" onClick={() => плавить(вещь.amount)} disabled={busy}>
+        <button className="quiet" onClick={() => melt(thing.amount)} disabled={busy}>
           Переплавить
         </button>
       </td>

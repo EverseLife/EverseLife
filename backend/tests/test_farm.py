@@ -1,13 +1,13 @@
-"""Земледелие делянками (D-118, D-105).
+"""Farming by plots (D-118, D-105).
 
-Проверяется то, ради чего система устроена именно так:
+Checked is what the system is built this way for:
 
-* земля конечна: сумма делянок не больше площади узла;
-* цикл честный: не вспахано — не посеешь, не дозрело — не уберёшь;
-* небрежность режет урожай на `farm.neglect_penalty` за сутки, но не обнуляет;
-* монокультура истощает, бобы возвращают, пар лечит по времени;
-* перекройка границ не лечит землю: наследование при делении и слиянии;
-* у реки поливают из реки, в сухом месте воду носят руками.
+* land is finite: the sum of plots is no more than the node's area;
+* the cycle is honest: not ploughed -- cannot sow, not ripe -- cannot harvest;
+* neglect cuts the harvest by `farm.neglect_penalty` per day but does not zero it;
+* monoculture depletes, beans restore, fallow heals over time;
+* redrawing borders does not heal the land: inheritance on split and merge;
+* by a river one waters from the river, in a dry place water is carried by hand.
 """
 
 from __future__ import annotations
@@ -30,101 +30,101 @@ SPELT = "spelt"
 BEANS = "beans"
 
 
-async def _хутор(session: AsyncSession, *, вода: str = "река", плодородие: float = 55,
+async def _farmstead(session: AsyncSession, *, water: str = "река", fertility: float = 55,
                  area: float = 200):
-    метка = uuid.uuid4().hex[:8]
+    stamp = uuid.uuid4().hex[:8]
     node = await world.create_node(
-        session, f"terra.farm.{метка}", "Хутор", area_m2=area,
-        properties={"вода": вода, "плодородие": плодородие},
+        session, f"terra.farm.{stamp}", "Хутор", area_m2=area,
+        properties={"вода": water, "плодородие": fertility},
     )
-    identity = await world.create_identity(session, f"Фермер-{метка}")
+    identity = await world.create_identity(session, f"Фермер-{stamp}")
     body = await world.print_body(session, identity, node)
-    #: Хозяйство ведёт владелец: фермер фикстуры свой участок уже занял.
+    #: The holder runs the estate: the fixture's farmer has already taken their plot.
     node.owner_identity_id = identity.id
     await session.flush()
     return node, identity, body
 
 
-async def _зерно(session: AsyncSession, body, каталог: Catalog, culture: str, сколько=200):
-    """Семенной фонд базового сорта: сеют семенами, а не урожаем (D-057)."""
+async def _grain(session: AsyncSession, body, cat: Catalog, culture: str, qty=200):
+    """The base cultivar's seed fund: one sows with seeds, not harvest (D-057)."""
     from src.engine import breed
     from src.units import PERCENT
 
-    сорт = await breed.landrace(session, каталог, culture)
-    карман = await world.body_container(session, body)
+    cultivar = await breed.landrace(session, cat, culture)
+    pocket = await world.body_container(session, body)
     return await breed.seed_lot(
-        session, каталог, карман.id, сорт, сколько, PERCENT
+        session, cat, pocket.id, cultivar, qty, PERCENT
     )
 
 
-async def _готовая(session, constants, catalog, body, *, area=10.0, culture=SPELT):
-    """Делянка, доведённая до посева, минуя ожидание пахоты."""
+async def _ready(session, constants, catalog, body, *, area=10.0, culture=SPELT):
+    """A plot brought to sowing, skipping the wait for ploughing."""
     plot = await farm.mark(session, constants, body, name="грядка", area=area)
     plot.state = PlotState.PLOWED
     await session.flush()
-    семена = await _зерно(session, body, catalog, culture)
-    return await farm.sow(session, constants, catalog, body, plot, семена)
+    seeds = await _grain(session, body, catalog, culture)
+    return await farm.sow(session, constants, catalog, body, plot, seeds)
 
 
-def _день(constants: Constants) -> timedelta:
+def _day(constants: Constants) -> timedelta:
     return timedelta(hours=constants[R.TIME_DAY_TERRA])
 
 
-# --- земля ------------------------------------------------------------------
+# --- land --------------------------------------------------------------------
 
 
-async def test_земля_узла_конечна(session: AsyncSession, constants: Constants) -> None:
-    _, _, body = await _хутор(session, area=20)
+async def test_node_land_is_finite(session: AsyncSession, constants: Constants) -> None:
+    _, _, body = await _farmstead(session, area=20)
     await farm.mark(session, constants, body, name="первая", area=15)
     with pytest.raises(farm.NoLand):
         await farm.mark(session, constants, body, name="вторая", area=10)
 
 
-async def test_мельче_минимума_не_межуют(session: AsyncSession, constants: Constants) -> None:
-    _, _, body = await _хутор(session)
+async def test_no_survey_below_minimum(session: AsyncSession, constants: Constants) -> None:
+    _, _, body = await _farmstead(session)
     with pytest.raises(farm.TooSmall):
         await farm.mark(session, constants, body, name="лоскут",
                         area=constants[R.FARM_PLOT_MIN_AREA] - 1)
 
 
-async def test_без_плодородия_земля_не_родит(
+async def test_land_bears_nothing_without_fertility(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Плодородие — свойство места (D-126): нет свойства — нет урожая."""
-    _, _, body = await _хутор(session, плодородие=0)
-    plot = await _готовая(session, constants, catalog, body)
+    """Fertility is a place property (D-126): no property -- no harvest."""
+    _, _, body = await _farmstead(session, fertility=0)
+    plot = await _ready(session, constants, catalog, body)
     plant = catalog.plants.by_id(SPELT)
-    спелость = farm.ripe_at(constants, plot, plant)
-    собрано = await farm.harvest(session, constants, catalog, body, plot, now=спелость)
-    assert собрано == 0
+    ripeness = farm.ripe_at(constants, plot, plant)
+    collected = await farm.harvest(session, constants, catalog, body, plot, now=ripeness)
+    assert collected == 0
 
 
-# --- цикл -------------------------------------------------------------------
+# --- cycle -------------------------------------------------------------------
 
 
-async def test_цикл_честный(session: AsyncSession, constants: Constants,
+async def test_cycle_is_honest(session: AsyncSession, constants: Constants,
                             catalog: Catalog) -> None:
-    _, _, body = await _хутор(session)
+    _, _, body = await _farmstead(session)
     plot = await farm.mark(session, constants, body, name="грядка", area=10)
-    семена = await _зерно(session, body, catalog, SPELT)
+    seeds = await _grain(session, body, catalog, SPELT)
 
     with pytest.raises(farm.WrongState):
-        await farm.sow(session, constants, catalog, body, plot, семена)
+        await farm.sow(session, constants, catalog, body, plot, seeds)
 
     plot.state = PlotState.PLOWED
     await session.flush()
-    await farm.sow(session, constants, catalog, body, plot, семена)
+    await farm.sow(session, constants, catalog, body, plot, seeds)
 
     with pytest.raises(farm.WrongState):
-        #: Не дозрело — не уберёшь.
+        #: Not ripe -- cannot harvest.
         await farm.harvest(session, constants, catalog, body, plot)
 
 
-async def test_вспашка_идёт_заданием(
+async def test_ploughing_goes_by_job(
     factory: async_sessionmaker[AsyncSession], constants: Constants
 ) -> None:
     async with factory() as session, session.begin():
-        _, _, body = await _хутор(session)
+        _, _, body = await _farmstead(session)
         plot = await farm.plow(
             session, constants, body,
             await farm.mark(session, constants, body, name="грядка", area=10),
@@ -132,191 +132,191 @@ async def test_вспашка_идёт_заданием(
         assert plot.state is PlotState.PLOWING
         plot_id = plot.id
 
-    задание = await jobs.run_one(factory, now=datetime.now(UTC) + timedelta(hours=1))
-    assert задание is not None and задание.kind == "farm.plow"
+    job = await jobs.run_one(factory, now=datetime.now(UTC) + timedelta(hours=1))
+    assert job is not None and job.kind == "farm.plow"
 
     async with factory() as session:
         plot = await session.get(Plot, plot_id)
         assert plot.state is PlotState.PLOWED
 
 
-async def test_посев_расходует_семена(
+async def test_sowing_spends_seeds(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Семена — предмет со своей нормой высева на метр (D-057)."""
-    _, _, body = await _хутор(session)
+    """Seeds are an item with their own sowing norm per metre (D-057)."""
+    _, _, body = await _farmstead(session)
     plant = catalog.plants.by_id(SPELT)
     plot = await farm.mark(session, constants, body, name="грядка", area=10)
     plot.state = PlotState.PLOWED
     await session.flush()
 
-    мало = await _зерно(session, body, catalog, SPELT, сколько=1)
+    little = await _grain(session, body, catalog, SPELT, qty=1)
     with pytest.raises(farm.NoSeeds):
-        await farm.sow(session, constants, catalog, body, plot, мало)
+        await farm.sow(session, constants, catalog, body, plot, little)
 
-    семена = await _зерно(session, body, catalog, SPELT, сколько=100)
-    await farm.sow(session, constants, catalog, body, plot, семена)
+    seeds = await _grain(session, body, catalog, SPELT, qty=100)
+    await farm.sow(session, constants, catalog, body, plot, seeds)
 
-    карман = await world.body_container(session, body)
-    осталось = await session.scalar(
+    pocket = await world.body_container(session, body)
+    left = await session.scalar(
         select(func.coalesce(func.sum(Item.amount), 0)).where(
-            Item.container_id == карман.id, Item.type_key == plant.seed
+            Item.container_id == pocket.id, Item.type_key == plant.seed
         )
     )
-    #: Мешок из первой попытки остался нетронутым: партия не начинается,
-    #: если семян не хватает.
-    assert amount_float(int(осталось)) == pytest.approx(
+    #: The sack from the first attempt stayed untouched: the batch does not
+    #: start if seeds are short.
+    assert amount_float(int(left)) == pytest.approx(
         101 - constants[R.FARM_SEED_RATE] * 10
     )
 
 
-async def test_урожай_из_формулы_вольта(
+async def test_harvest_from_vault_formula(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Площадь × выведенная урожайность × плодородие × уход — и ничего сверх."""
-    _, _, body = await _хутор(session, плодородие=55)
+    """Area x derived yield x fertility x care -- and nothing beyond."""
+    _, _, body = await _farmstead(session, fertility=55)
     plant = catalog.plants.by_id(SPELT)
-    plot = await _готовая(session, constants, catalog, body, area=10)
+    plot = await _ready(session, constants, catalog, body, area=10)
 
-    #: Полный уход: обходим каждые сутки цикла.
-    посеяно = plot.sown_at
-    for день in range(int(plant.cycle_days)):
+    #: Full care: we do the round every day of the cycle.
+    sown = plot.sown_at
+    for day_ in range(int(plant.cycle_days)):
         await farm.care(session, constants, body, plot,
-                        now=посеяно + _день(constants) * день)
+                        now=sown + _day(constants) * day_)
 
-    спелость = farm.ripe_at(constants, plot, plant)
-    собрано = await farm.harvest(session, constants, catalog, body, plot, now=спелость)
+    ripeness = farm.ripe_at(constants, plot, plant)
+    collected = await farm.harvest(session, constants, catalog, body, plot, now=ripeness)
     await session.commit()
 
-    ожидание = 10 * plant.yield_per_m2 * (55 / plant.requires.fertility)
-    assert собрано == pytest.approx(ожидание, rel=0.01)
+    expected = 10 * plant.yield_per_m2 * (55 / plant.requires.fertility)
+    assert collected == pytest.approx(expected, rel=0.01)
 
-    #: Собранная стопка — не мешок семян: ищем по качеству урожая, а оно
-    #: равно плодородию, взятому по полному уходу.
-    карман = await world.body_container(session, body)
-    стопки = (
+    #: The collected stack is not a seed sack: we search by harvest quality,
+    #: and it equals fertility taken by full care.
+    pocket = await world.body_container(session, body)
+    stacks = (
         await session.execute(
-            select(Item).where(Item.container_id == карман.id, Item.type_key == plant.gives)
+            select(Item).where(Item.container_id == pocket.id, Item.type_key == plant.gives)
         )
     ).scalars().all()
-    качества = {None if s.quality is None else float(s.quality) for s in стопки}
-    assert 55.0 in качества, f"среди стопок нет урожая: {качества}"
+    qualities = {None if s.quality is None else float(s.quality) for s in stacks}
+    assert 55.0 in qualities, f"среди стопок нет урожая: {qualities}"
 
 
-async def test_небрежность_режет_но_не_обнуляет(
+async def test_neglect_cuts_but_does_not_zero(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """За отпуск не наказывают: доля, а не ноль (D-118)."""
-    _, _, body = await _хутор(session)
+    """A holiday is not punished: a share, not zero (D-118)."""
+    _, _, body = await _farmstead(session)
     plant = catalog.plants.by_id(SPELT)
-    plot = await _готовая(session, constants, catalog, body, area=10)
-    спелость = farm.ripe_at(constants, plot, plant)
+    plot = await _ready(session, constants, catalog, body, area=10)
+    ripeness = farm.ripe_at(constants, plot, plant)
 
-    #: Ни одного обхода за весь цикл.
-    заброшено = await farm.harvest(session, constants, catalog, body, plot, now=спелость)
+    #: Not a single round for the whole cycle.
+    abandoned = await farm.harvest(session, constants, catalog, body, plot, now=ripeness)
 
-    доля = 1 - constants[R.FARM_NEGLECT_PENALTY] * plant.cycle_days / 100
-    полный = 10 * plant.yield_per_m2 * (55 / plant.requires.fertility)
-    assert заброшено == pytest.approx(max(0.0, полный * доля), rel=0.01)
+    share = 1 - constants[R.FARM_NEGLECT_PENALTY] * plant.cycle_days / 100
+    full = 10 * plant.yield_per_m2 * (55 / plant.requires.fertility)
+    assert abandoned == pytest.approx(max(0.0, full * share), rel=0.01)
 
 
-async def test_уход_суточный_а_не_почасовой(
+async def test_care_is_daily_not_hourly(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    _, _, body = await _хутор(session)
-    plot = await _готовая(session, constants, catalog, body)
+    _, _, body = await _farmstead(session)
+    plot = await _ready(session, constants, catalog, body)
     await farm.care(session, constants, body, plot, now=plot.sown_at)
     with pytest.raises(farm.WrongState):
         await farm.care(session, constants, body, plot,
                         now=plot.sown_at + timedelta(hours=1))
 
 
-async def test_в_сухом_месте_воду_носят_руками(
+async def test_water_carried_by_hand_in_dry_place(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """У реки — из реки; иначе вода — товар (D-126)."""
-    _, _, body = await _хутор(session, вода="нет")
-    plot = await _готовая(session, constants, catalog, body, area=10)
+    """By a river -- from the river; otherwise water is a commodity (D-126)."""
+    _, _, body = await _farmstead(session, water="нет")
+    plot = await _ready(session, constants, catalog, body, area=10)
 
     with pytest.raises(farm.NoWater):
         await farm.care(session, constants, body, plot, now=plot.sown_at)
 
-    карман = await world.body_container(session, body)
-    await world.grant_item(session, карман, farm.WATER, amount=100, origin="тест")
+    pocket = await world.body_container(session, body)
+    await world.grant_item(session, pocket, farm.WATER, amount=100, origin="тест")
     await farm.care(session, constants, body, plot, now=plot.sown_at)
 
-    осталось = await session.scalar(
+    left = await session.scalar(
         select(func.coalesce(func.sum(Item.amount), 0)).where(
-            Item.container_id == карман.id, Item.type_key == farm.WATER
+            Item.container_id == pocket.id, Item.type_key == farm.WATER
         )
     )
-    assert amount_float(int(осталось)) == pytest.approx(
+    assert amount_float(int(left)) == pytest.approx(
         100 - constants[R.FARM_WATER_PER_M2] * 10
     )
 
 
-# --- земля помнит -----------------------------------------------------------
+# --- the land remembers ------------------------------------------------------
 
 
-async def test_монокультура_истощает_а_бобы_возвращают(
+async def test_monoculture_depletes_and_beans_restore(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    _, _, body = await _хутор(session, плодородие=55)
+    _, _, body = await _farmstead(session, fertility=55)
     plant = catalog.plants.by_id(SPELT)
-    plot = await _готовая(session, constants, catalog, body, area=10)
-    момент = farm.ripe_at(constants, plot, plant)
+    plot = await _ready(session, constants, catalog, body, area=10)
+    moment = farm.ripe_at(constants, plot, plant)
 
-    #: Первый цикл: культура сменилась (с «ничего»), истощения нет.
-    await farm.harvest(session, constants, catalog, body, plot, now=момент)
+    #: First cycle: the crop changed (from "nothing"), no depletion.
+    await farm.harvest(session, constants, catalog, body, plot, now=moment)
     assert float(plot.fertility) == pytest.approx(55)
 
-    #: Второй цикл той же культуры подряд — истощение.
+    #: Second cycle of the same crop in a row -- depletion.
     plot.state = PlotState.PLOWED
     plot.idle_since = None
     await session.flush()
-    ещё = await _зерно(session, body, catalog, SPELT)
-    await farm.sow(session, constants, catalog, body, plot, ещё, now=момент)
-    момент = farm.ripe_at(constants, plot, plant)
-    await farm.harvest(session, constants, catalog, body, plot, now=момент)
+    more = await _grain(session, body, catalog, SPELT)
+    await farm.sow(session, constants, catalog, body, plot, more, now=moment)
+    moment = farm.ripe_at(constants, plot, plant)
+    await farm.harvest(session, constants, catalog, body, plot, now=moment)
     assert float(plot.fertility) == pytest.approx(55 - constants[R.FARM_SOIL_DEPLETION])
     assert plot.same_culture_cycles == 2
 
-    #: Бобы возвращают своё `restores_fertility` из данных.
-    бобы = catalog.plants.by_id(BEANS)
-    assert бобы.restores_fertility > 0, "иначе севообороту не на чем держаться"
+    #: Beans return their `restores_fertility` from the data.
+    beans = catalog.plants.by_id(BEANS)
+    assert beans.restores_fertility > 0, "иначе севообороту не на чем держаться"
     plot.state = PlotState.PLOWED
     plot.idle_since = None
     await session.flush()
-    бобовые_семена = await _зерно(session, body, catalog, BEANS)
-    await farm.sow(session, constants, catalog, body, plot, бобовые_семена, now=момент)
-    момент = farm.ripe_at(constants, plot, бобы)
-    было = float(plot.fertility)
-    await farm.harvest(session, constants, catalog, body, plot, now=момент)
-    assert float(plot.fertility) == pytest.approx(было + бобы.restores_fertility)
+    bean_seeds = await _grain(session, body, catalog, BEANS)
+    await farm.sow(session, constants, catalog, body, plot, bean_seeds, now=moment)
+    moment = farm.ripe_at(constants, plot, beans)
+    before = float(plot.fertility)
+    await farm.harvest(session, constants, catalog, body, plot, now=moment)
+    assert float(plot.fertility) == pytest.approx(before + beans.restores_fertility)
     assert plot.same_culture_cycles == 1
 
 
-async def test_пар_лечит_по_времени(
+async def test_fallow_heals_over_time(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Начисление по факту простоя: тик земле не нужен, как и сну."""
-    _, _, body = await _хутор(session, плодородие=30)
+    """Credited by elapsed idle time: the land needs no tick, like sleep."""
+    _, _, body = await _farmstead(session, fertility=30)
     plot = await farm.mark(session, constants, body, name="пар", area=10)
     plot.fertility = 30
     await session.flush()
 
-    двое_суток = datetime.now(UTC) + _день(constants) * 2
-    await farm.plow(session, constants, body, plot, now=двое_суток)
+    two_days = datetime.now(UTC) + _day(constants) * 2
+    await farm.plow(session, constants, body, plot, now=two_days)
     assert float(plot.fertility) == pytest.approx(
         30 + constants[R.FARM_FALLOW_RECOVERY] * 2, rel=0.01
     )
 
 
-async def test_перекройка_не_лечит_землю(
+async def test_resurvey_does_not_heal_land(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Деление наследует как есть, слияние — взвешенно и с тяжёлой историей."""
-    _, _, body = await _хутор(session, area=200, плодородие=50)
+    """A split inherits as is, a merge -- weighted and with the heavy history."""
+    _, _, body = await _farmstead(session, area=200, fertility=50)
     plot = await farm.mark(session, constants, body, name="целое", area=100)
     plot.fertility = 20
     plot.last_culture = SPELT
@@ -324,106 +324,106 @@ async def test_перекройка_не_лечит_землю(
     plot.idle_since = None
     await session.flush()
 
-    кусок = await farm.split(session, constants, body, plot, 40, name="отрез")
-    assert float(кусок.fertility) == pytest.approx(20), "деление не сбрасывает истощение"
-    assert кусок.same_culture_cycles == 3
+    piece = await farm.split(session, constants, body, plot, 40, name="отрез")
+    assert float(piece.fertility) == pytest.approx(20), "деление не сбрасывает истощение"
+    assert piece.same_culture_cycles == 3
     assert float(plot.area_m2) == pytest.approx(60)
 
-    #: Свежая делянка + истощённая: слияние взвешивает, история — тяжёлая.
-    кусок.fertility = 80
-    кусок.last_culture = None
-    кусок.same_culture_cycles = 0
-    кусок.idle_since = None
+    #: A fresh plot + a depleted one: the merge weighs, the history is the heavy one.
+    piece.fertility = 80
+    piece.last_culture = None
+    piece.same_culture_cycles = 0
+    piece.idle_since = None
     await session.flush()
-    целое = await farm.merge(session, constants, body, plot, кусок)
-    assert float(целое.area_m2) == pytest.approx(100)
-    assert float(целое.fertility) == pytest.approx((20 * 60 + 80 * 40) / 100)
-    assert целое.last_culture == SPELT and целое.same_culture_cycles == 3
+    whole = await farm.merge(session, constants, body, plot, piece)
+    assert float(whole.area_m2) == pytest.approx(100)
+    assert float(whole.fertility) == pytest.approx((20 * 60 + 80 * 40) / 100)
+    assert whole.last_culture == SPELT and whole.same_culture_cycles == 3
 
 
-async def test_засеянное_не_перекраивают(
+async def test_sown_land_not_resurveyed(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    _, _, body = await _хутор(session)
-    plot = await _готовая(session, constants, catalog, body, area=20)
+    _, _, body = await _farmstead(session)
+    plot = await _ready(session, constants, catalog, body, area=20)
     with pytest.raises(farm.WrongState):
         await farm.split(session, constants, body, plot, 10, name="кусок")
 
 
-async def test_чужую_делянку_не_трогают(
+async def test_foreign_patch_left_alone(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Наём — это доступ плюс доля, через договор (D-116), а не через кнопку."""
-    node, _, хозяин = await _хутор(session)
-    plot = await farm.mark(session, constants, хозяин, name="своя", area=10)
+    """Hiring is access plus a share, by contract (D-116), not by a button."""
+    node, _, owner = await _farmstead(session)
+    plot = await farm.mark(session, constants, owner, name="своя", area=10)
 
-    гость = await world.create_identity(session, f"Гость-{uuid.uuid4().hex[:6]}")
-    тело_гостя = await world.print_body(session, гость, node)
+    guest = await world.create_identity(session, f"Гость-{uuid.uuid4().hex[:6]}")
+    guest_body = await world.print_body(session, guest, node)
     with pytest.raises(farm.NotYours):
-        await farm.plow(session, constants, тело_гостя, plot)
+        await farm.plow(session, constants, guest_body, plot)
 
 
-async def test_сводка_считает_потери_в_день_набегания(
+async def test_summary_counts_losses_on_accrual_day(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """«Минус половина урожая» видно сразу, а не сюрпризом при уборке.
+    """"Minus half the harvest" is seen at once, not as a surprise at harvest.
 
-    Числами — тому, кто знает агротехнику: без неё та же делянка показывает
-    симптом, а не счёт потерь (D-057, проверяется в `test_agrotech`).
+    In numbers -- to whoever knows the agrotech: without it the same plot
+    shows a symptom, not a loss count (D-057, checked in `test_agrotech`).
     """
     from src.models.identity import KnowledgeKind
 
-    _, identity, body = await _хутор(session)
+    _, identity, body = await _farmstead(session)
     await world.learn(session, identity, SPELT, kind=KnowledgeKind.AGROTECH)
-    plot = await _готовая(session, constants, catalog, body)
-    plot.sown_at = datetime.now(UTC) - _день(constants) * 2 - timedelta(hours=1)
+    plot = await _ready(session, constants, catalog, body)
+    plot.sown_at = datetime.now(UTC) - _day(constants) * 2 - timedelta(hours=1)
     await session.flush()
 
-    сводка = await farm.survey(session, constants, catalog, identity.id)
-    assert len(сводка) == 1
-    assert сводка[0]["missed_days"] == 2
-    assert сводка[0]["asks_care"] is True
+    summary = await farm.survey(session, constants, catalog, identity.id)
+    assert len(summary) == 1
+    assert summary[0]["missed_days"] == 2
+    assert summary[0]["asks_care"] is True
 
 
-async def test_чужой_участок_не_межуют(
+async def test_foreign_plot_not_surveyed(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Хозяйство ведёт владелец: сначала займи землю (06-farming)."""
-    node, _, _ = await _хутор(session)
-    гость = await world.create_identity(session, f"Гость-{uuid.uuid4().hex[:6]}")
-    тело = await world.print_body(session, гость, node)
+    """The holder runs the estate: take the land first (06-farming)."""
+    node, _, _ = await _farmstead(session)
+    guest = await world.create_identity(session, f"Гость-{uuid.uuid4().hex[:6]}")
+    body = await world.print_body(session, guest, node)
     with pytest.raises(farm.NotYours):
-        await farm.mark(session, constants, тело, name="самозахват", area=10)
+        await farm.mark(session, constants, body, name="самозахват", area=10)
 
 
-async def test_участок_занимают_ногами_и_один_раз(
+async def test_plot_taken_on_foot_and_once(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Занять можно дикий узел; занятое и городское — нельзя."""
-    метка = uuid.uuid4().hex[:8]
-    дикий = await world.create_node(
-        session, f"terra.wild.{метка}", "Дикий угол", area_m2=100,
+    """A wild node can be taken; an occupied one and a civic one cannot."""
+    stamp = uuid.uuid4().hex[:8]
+    wild = await world.create_node(
+        session, f"terra.wild.{stamp}", "Дикий угол", area_m2=100,
         properties={"плодородие": 40},
     )
-    первый = await world.create_identity(session, f"Первый-{метка}")
-    тело = await world.print_body(session, первый, дикий)
+    first = await world.create_identity(session, f"Первый-{stamp}")
+    body = await world.print_body(session, first, wild)
 
-    await world.claim_node(session, тело, дикий)
-    assert дикий.owner_identity_id == первый.id
-    #: Теперь разметка работает.
-    await farm.mark(session, constants, тело, name="своя", area=10)
+    await world.claim_node(session, body, wild)
+    assert wild.owner_identity_id == first.id
+    #: Now surveying works.
+    await farm.mark(session, constants, body, name="своя", area=10)
 
-    второй = await world.create_identity(session, f"Второй-{метка}")
-    тело2 = await world.print_body(session, второй, дикий)
+    second = await world.create_identity(session, f"Второй-{stamp}")
+    body2 = await world.print_body(session, second, wild)
     with pytest.raises(world.LandError):
-        await world.claim_node(session, тело2, дикий)
+        await world.claim_node(session, body2, wild)
 
-    городской = await world.create_node(
-        session, f"terra.town.{метка}", "Городская земля", area_m2=100,
+    civic = await world.create_node(
+        session, f"terra.town.{stamp}", "Городская земля", area_m2=100,
     )
-    городской.owner_city_id = uuid.uuid4()
-    тело3 = await world.print_body(
-        session, await world.create_identity(session, f"Третий-{метка}"), городской
+    civic.owner_city_id = uuid.uuid4()
+    body3 = await world.print_body(
+        session, await world.create_identity(session, f"Третий-{stamp}"), civic
     )
     with pytest.raises(world.LandError):
-        await world.claim_node(session, тело3, городской)
+        await world.claim_node(session, body3, civic)

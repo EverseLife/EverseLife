@@ -1,8 +1,8 @@
-"""Запись в журнал событий.
+"""Writing to the event journal.
 
-Событие пишется **в той же транзакции**, что и его последствия. Иначе журнал
-рассинхронизируется с миром ровно в тот момент, когда он нужнее всего —
-при разборе спорной ситуации.
+An event is written **in the same transaction** as its consequences.
+Otherwise the journal desynchronises from the world exactly when it is needed
+most -- when examining a disputed situation.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ async def record(
     node_id: uuid.UUID | None = None,
     **payload: Any,
 ) -> Event:
-    """Записать событие. Возвращает объект — на него ссылаются проводки."""
+    """Record an event. Returns the object -- postings reference it."""
     event = Event(
         kind=str(kind),
         actor_identity_id=actor_identity_id,
@@ -33,7 +33,8 @@ async def record(
         constants_digest=HOLDER.current().digest if HOLDER.is_loaded() else None,
     )
     session.add(event)
-    #: flush, а не commit: событие обязано получить id внутри общей транзакции,
-    #: но фиксируется вместе со своими последствиями.
+    #: flush, not commit: the event must get an id inside the shared
+    #: transaction but is committed together with its consequences.
+
     await session.flush()
     return event

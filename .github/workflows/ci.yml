@@ -1,7 +1,7 @@
-# Проверка, сборка образов и выкладка альфы.
+# Checks, image builds and alpha deployment.
 #
-# Порядок один и тот же для всех: тесты → образы → сервер. На сервер уезжает
-# только то, что прошло тесты, и только с ветки main.
+# The order is the same for everyone: tests -> images -> server. Only what
+# passed the tests goes to the server, and only from the main branch.
 
 name: CI
 
@@ -12,18 +12,18 @@ on:
   workflow_dispatch:
 
 concurrency:
-  # Новый толчок в ту же ветку отменяет прошлый прогон: держать очередь из
-  # выкладок незачем.
+  # A new push to the same branch cancels the previous run: no reason to keep
+  # a queue of deployments.
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 env:
-  # Слепок вольта едет вместе с кодом: и тесты, и образ считают мир по нему.
+  # The vault snapshot travels with the code: both tests and the image compute the world by it.
   OCTOVERSE_VAULT_BUILD: ${{ github.workspace }}/vault
 
 jobs:
   backend:
-    name: Сервер
+    name: Server
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -54,26 +54,26 @@ jobs:
           enable-cache: true
           cache-dependency-glob: backend/uv.lock
 
-      - name: Окружение по замку
+      - name: Environment by lock
         run: uv sync --frozen --extra dev
 
-      - name: База для тестов
+      - name: Test database
         env:
           PGPASSWORD: octoverse
         run: psql -h localhost -U octoverse -d postgres -c 'CREATE DATABASE octoverse_test'
 
-      - name: Разбор кода
+      - name: Lint
         run: uv run ruff check .
 
-      - name: Миграции накатываются
+      - name: Migrations apply
         run: uv run alembic upgrade head
 
-      # Полный прогон ~8 минут: он и есть главная защита мира от вайпа.
-      - name: Тесты
+      # The full run is ~8 minutes: it is the main protection of the world from a wipe.
+      - name: Tests
         run: uv run pytest -q
 
   frontend:
-    name: Клиент
+    name: Client
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -92,7 +92,7 @@ jobs:
       - run: npm run build
 
   images:
-    name: Образы
+    name: Images
     needs: [backend, frontend]
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
@@ -110,8 +110,8 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Контекст сервера — корень: в образ едет `vault/`.
-      - name: Сервер
+      # The server context is the root: `vault/` goes into the image.
+      - name: Server
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -123,7 +123,7 @@ jobs:
           cache-from: type=gha,scope=backend
           cache-to: type=gha,scope=backend,mode=max
 
-      - name: Клиент
+      - name: Client
         uses: docker/build-push-action@v6
         with:
           context: frontend
@@ -134,7 +134,7 @@ jobs:
           cache-from: type=gha,scope=frontend
           cache-to: type=gha,scope=frontend,mode=max
 
-      - name: Лендинг
+      - name: Landing
         uses: docker/build-push-action@v6
         with:
           context: landing
@@ -146,10 +146,10 @@ jobs:
           cache-to: type=gha,scope=landing,mode=max
 
   deploy:
-    name: Выкладка
+    name: Deploy
     needs: images
-    # Пока на Actions не заведена переменная DEPLOY_ENABLED=true, шаг молчит:
-    # форк и чужая копия репозитория не должны стучаться на чей-то сервер.
+    # Until the DEPLOY_ENABLED=true variable is set on Actions, the step is
+    # silent: a fork and somebody's copy of the repo must not knock on somebody's server.
     if: vars.DEPLOY_ENABLED == 'true'
     runs-on: ubuntu-latest
     environment: production
@@ -161,13 +161,13 @@ jobs:
       SSH_USER: ${{ secrets.DEPLOY_USER }}
       SSH_PORT: ${{ secrets.DEPLOY_PORT || '22' }}
       DIR: ${{ vars.DEPLOY_PATH || '/opt/octoverse' }}
-      # Вебхук канала выкладок. Объявлен на уровне задания, потому что шаг
-      # проверяет его в собственном `if`, а туда видно только `env`.
+      # The deploy channel webhook. Declared at job level because the step
+      # checks it in its own `if`, and only `env` is visible there.
       DISCORD_HOOK: ${{ secrets.DISCORD_DEPLOY_WEBHOOK }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Ключ и известные хосты
+      - name: Key and known hosts
         env:
           KEY: ${{ secrets.DEPLOY_SSH_KEY }}
           KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
@@ -178,24 +178,24 @@ jobs:
           if [ -n "$KNOWN_HOSTS" ]; then
             printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
           else
-            # Слабее: отпечаток берётся у самого сервера. Годится на первый
-            # раз, дальше положите его в секрет DEPLOY_KNOWN_HOSTS.
+            # Weaker: the fingerprint is taken from the server itself. Fine for
+            # the first time; afterwards put it into the DEPLOY_KNOWN_HOSTS secret.
             ssh-keyscan -p "$SSH_PORT" -H "$SSH_HOST" >> ~/.ssh/known_hosts 2>/dev/null
           fi
           chmod 600 ~/.ssh/known_hosts
 
-      # Состав и настройки границы правятся в репозитории, а не на сервере.
-      # `.env` с паролями остаётся нетронутым: его туда никто не кладёт.
-      - name: Отвезти состав
+      # The compose file and edge settings are edited in the repository, not on
+      # the server. `.env` with passwords stays untouched: nobody puts it there.
+      - name: Ship the compose file
         run: |
           scp -i ~/.ssh/id_deploy -P "$SSH_PORT" \
             deploy/compose.yaml deploy/Caddyfile \
             "$SSH_USER@$SSH_HOST:$DIR/"
 
-      # Сценарий уезжает на сервер потоком ввода, а не строкой команды: пропуск
-      # к реестру не должен светиться в списке процессов чужой машины. Живёт он
-      # ровно этот прогон — на сервере ничего не оседает.
-      - name: Поднять
+      # The script goes to the server as stdin, not as a command line: the
+      # registry token must not show in the process list of somebody's machine.
+      # It lives exactly this run -- nothing settles on the server.
+      - name: Bring up
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GHCR_USER: ${{ github.actor }}
@@ -205,29 +205,29 @@ jobs:
           cd "$DIR"
           echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
           docker compose pull
-          # Схема накатывается службой migrate до старта сервера, поднимать
-          # руками ничего не нужно.
+          # The schema is applied by the migrate service before the server
+          # starts; nothing needs bringing up by hand.
           docker compose up -d --remove-orphans
           docker logout ghcr.io
           docker image prune -f
           docker compose ps
           REMOTE
 
-      - name: Сервер отвечает
+      - name: Server responds
         if: vars.DEPLOY_DOMAIN != ''
         run: |
           for i in $(seq 1 20); do
             if curl -fsS "https://${{ vars.DEPLOY_DOMAIN }}/api/health" > /dev/null; then
-              echo "живой"; exit 0
+              echo "alive"; exit 0
             fi
             sleep 5
           done
-          echo "сервер не ответил на /api/health"; exit 1
+          echo "the server did not answer on /api/health"; exit 1
 
-      # Итог выкладки — в канал сообщества. Без секрета шаг молчит: чужая копия
-      # репозитория не должна стучаться в чей-то Discord. `always()` — чтобы
-      # неудача сообщалась тоже, иначе канал врал бы молчанием.
-      - name: Сказать в Discord
+      # The deploy result goes to the community channel. Without the secret the
+      # step is silent: somebody's copy of the repo must not knock on somebody's
+      # Discord. `always()` -- so that failure is reported too, otherwise the channel would lie by silence.
+      - name: Tell Discord
         if: always() && env.DISCORD_HOOK != ''
         env:
           STATUS: ${{ job.status }}
@@ -237,8 +237,9 @@ jobs:
           SHORT="${GITHUB_SHA:0:7}"
           if [ "$STATUS" = "success" ]; then
             LINE="✅ Альфа обновлена: \`$SHORT\`"
-            # Отдельным `if`, а не `&&`: шаг идёт под `bash -e`, и пустой
-            # домен уронил бы его прямо здесь, ничего не отправив.
+            # A separate `if`, not `&&`: the step runs under `bash -e`, and an
+            # empty domain would fail it right here, sending nothing.
+
             if [ -n "$DOMAIN" ]; then
               LINE="$LINE — https://$DOMAIN"
             fi

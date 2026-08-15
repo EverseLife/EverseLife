@@ -1,12 +1,12 @@
-"""Проводки: единственный способ, которым в игре двигаются деньги.
+"""Postings: the only way money moves in the game.
 
-Правило одно и оно жёсткое: **сумма проводок операции равна нулю**. Деньги
-переходят, а не появляются (инвариант И2, D-127). Функция `post` не умеет
-списать, не зачислив, — просто потому что не принимает такой аргумент.
+One rule, and it is strict: **the postings of an operation sum to zero**.
+Money moves, it does not appear (invariant I2, D-127). The `post` function
+cannot debit without crediting -- simply because it accepts no such argument.
 
-Прирост денежной массы возможен только через счёт `genesis`, и это отдельная
-операция с отдельным основанием: её видно в журнале, по ней бьёт проверка
-инвариантов, и объяснить её обязан человек.
+Growth of the money supply is possible only through the `genesis` account,
+and that is a separate operation with a separate ground: it is visible in the
+journal, the invariant check flags it, and a human must explain it.
 """
 
 from __future__ import annotations
@@ -33,16 +33,16 @@ class LedgerError(Exception):
 
 
 class Unbalanced(LedgerError):
-    """Проводки не сходятся в ноль. Это баг движка, а не ситуация в игре."""
+    """The postings do not sum to zero. This is an engine bug, not an in-game situation."""
 
 
 class InsufficientFunds(LedgerError):
-    """На счёте нет денег. Это как раз ситуация в игре, и она нормальна."""
+    """No money on the account. This is exactly an in-game situation, and it is normal."""
 
 
 @dataclass(frozen=True, slots=True)
 class Posting:
-    """Одна сторона операции. Знак: списание отрицательно."""
+    """One side of an operation. Sign: a debit is negative."""
 
     account_id: uuid.UUID
     amount: int
@@ -54,7 +54,7 @@ async def account_for(
     owner_id: uuid.UUID | None,
     currency: Currency = Currency.TK,
 ) -> LedgerAccount:
-    """Найти счёт или завести его. Счёт сам по себе денег не создаёт."""
+    """Find an account or create it. An account by itself creates no money."""
     stmt = select(LedgerAccount).where(
         LedgerAccount.kind == kind,
         LedgerAccount.owner_id == owner_id,
@@ -70,7 +70,7 @@ async def account_for(
 
 
 async def balance(session: AsyncSession, account_id: uuid.UUID) -> int:
-    """Баланс — производная от журнала, а не хранимое поле."""
+    """The balance is derived from the journal, not a stored field."""
     stmt = select(func.coalesce(func.sum(LedgerEntry.amount), 0)).where(
         LedgerEntry.account_id == account_id
     )
@@ -86,11 +86,11 @@ async def post(
     memo: dict | None = None,
     allow_overdraft: bool = False,
 ) -> LedgerTransaction:
-    """Провести операцию целиком.
+    """Post a whole operation.
 
-    `allow_overdraft` существует для долга перед городом: штраф списывается
-    даже с пустого счёта и превращается в долг (санкция `fine`). Во всех
-    остальных случаях уход в минус — ошибка вызывающего кода.
+    `allow_overdraft` exists for debt to the city: a fine is written off even
+    from an empty account and turns into debt (the `fine` sanction). In all
+    other cases going negative is a bug of the calling code.
     """
     if not postings:
         raise Unbalanced("операция без проводок")
@@ -132,7 +132,7 @@ async def transfer(
     memo: dict | None = None,
     allow_overdraft: bool = False,
 ) -> LedgerTransaction:
-    """Частый случай: переложить из кармана в карман."""
+    """The common case: move from pocket to pocket."""
     if amount <= 0:
         raise LedgerError(f"перевод должен быть положительным, получено {amount}")
     return await post(
@@ -153,8 +153,8 @@ async def _check_funds(session: AsyncSession, postings: Sequence[Posting]) -> No
 
     for account_id, delta in spending.items():
         account = await session.get(LedgerAccount, account_id)
-        #: Genesis — единственный счёт, которому позволено быть в минусе:
-        #: его отрицательный баланс и есть выпущенная денежная масса.
+        #: Genesis is the only account allowed to be negative: its negative
+        #: balance is the issued money supply.
         if account is not None and account.kind is AccountKind.GENESIS:
             continue
         current = await balance(session, account_id)
@@ -165,11 +165,12 @@ async def _check_funds(session: AsyncSession, postings: Sequence[Posting]) -> No
 
 
 async def money_supply(session: AsyncSession, currency: Currency = Currency.TK) -> int:
-    """Сколько денег в мире.
+    """How much money is in the world.
 
-    Равно минус балансу genesis-счетов. Проверка И2 в телеметрии: величина
-    меняется только вместе с явной операцией выпуска.
+    Equals minus the balance of genesis accounts. The I2 check in telemetry:
+    the quantity changes only together with an explicit issue operation.
     """
+
     stmt = (
         select(func.coalesce(func.sum(LedgerEntry.amount), 0))
         .join(LedgerAccount, LedgerAccount.id == LedgerEntry.account_id)

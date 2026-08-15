@@ -1,8 +1,8 @@
-"""Каталоги мира: рецепты, культуры, законы.
+"""World catalogs: recipes, crops, laws.
 
-Всё это движок читает из `build/*.json` и никогда не хранит у себя. Модели ниже
-— это разбор готового, а не вторая спецификация: если поля разошлись с вольтом,
-прав вольт (07-implementation-map).
+The engine reads all of this from `build/*.json` and never stores it itself.
+The models below are a parse of the finished thing, not a second
+specification: if fields diverge from the vault, the vault is right (07-implementation-map).
 """
 
 from __future__ import annotations
@@ -18,11 +18,11 @@ from src.constants.spec import ConstantError
 
 
 class ItemKind(StrEnum):
-    """Поведение предмета в движке (D-090)."""
+    """The item's behaviour in the engine (D-090)."""
 
     STATION = "station"
-    #: Мебель обустраивает здание, но станком не является: на ней не работают.
-    #: Кровать — гибернация, стеллаж — хранение.
+    #: Furniture furnishes a building but is not a machine: nobody works at it.
+    #: A bed is hibernation, a shelf is storage.
     FURNITURE = "furniture"
     TOOL = "tool"
     GEAR = "gear"
@@ -44,14 +44,14 @@ class Recipe(Strict):
     key: bool = False
     mix: bool = False
     roles: bool = False
-    #: Съедобность и «горячее» — из данных, а не из догадок движка (D-119).
+    #: Edibility and "hot" come from data, not from the engine's guesses (D-119).
     food: bool = False
     hot: bool = False
-    #: В какой слот надевается: `спина`, `тело`, `каркас`. У не-снаряжения
-    #: пусто — надеть кирку нельзя (D-146).
+    #: Which slot it is worn in: `back`, `body`, `frame`. Empty for non-gear --
+    #: a pickaxe cannot be worn (D-146).
     slot: str | None = None
-    #: Сколько килограммов вмещает как хранилище (D-181). Пусто — вещь не
-    #: хранилище: сундуком её делает число в вольте, а не имя в коде.
+    #: How many kilograms it holds as a storage (D-181). Empty -- the thing is
+    #: not a storage: a number in the vault makes it a chest, not a name in code.
     store: float | None = None
     inputs: tuple[str, ...] = ()
     amounts: dict[str, float] = Field(default_factory=dict)
@@ -61,19 +61,20 @@ class Recipe(Strict):
 
     @property
     def is_assembly(self) -> bool:
-        """Сборка — не смесь и не блюдо: качество определяют одни входы (D-092)."""
+        """An assembly is neither a mix nor a dish: quality is determined by inputs alone
+        (D-092)."""
         return not self.mix and not self.roles
 
 
 class Operation(Strict):
-    """Операция без рецепта: то, что умеет каждый (20-systems/03-crafting)."""
+    """An operation without a recipe: what everyone can do (20-systems/03-crafting)."""
 
     name: str
     requires: tuple[str, ...] = ()
     gives: tuple[str, ...] = ()
     consumes: tuple[str, ...] = ()
-    #: Свойство узла, где операция возможна (D-177): «Рубка дерева» → `лес`.
-    #: Пусто — операция не привязана к месту.
+    #: Node property where the operation is possible (D-177): "Felling" -> `forest`.
+    #: Empty -- the operation is not tied to a place.
     place: str | None = None
     amounts: dict[str, dict[str, float]] = Field(default_factory=dict)
     hours_per_unit: dict[str, float] = Field(default_factory=dict)
@@ -86,18 +87,18 @@ class RecipeBook(Strict):
     tool_classes: dict[str, tuple[str, ...]] = Field(default_factory=dict)
     operations: tuple[Operation, ...] = ()
     raw: tuple[str, ...] = ()
-    #: Что годится в котёл сверх съедобных рецептов: сырьё и полуфабрикаты.
+    #: What goes into the pot beyond edible recipes: raw material and semi-finished goods.
     edible: tuple[str, ...] = ()
-    #: Слоты снаряжения: в каждый надевается одна вещь (D-146).
+    #: Gear slots: one thing is worn in each (D-146).
     gear_slots: tuple[str, ...] = ()
-    #: Масса единицы, кг. Задана данными: вывести её из количеств входов
-    #: нельзя — те заданы трудом, а не составом (D-146).
+    #: Unit mass, kg. Given by data: it cannot be derived from input amounts --
+    #: those are given by labour, not composition (D-146).
     mass: dict[str, float] = Field(default_factory=dict)
     labor_hours: dict[str, float] = Field(default_factory=dict)
     recipes: tuple[Recipe, ...] = ()
 
     def resolve(self, name: str) -> str:
-        """Синоним → каноническое имя. «Железо» и «Слиток железа» — одно."""
+        """Synonym -> canonical name. "Iron" and "Iron ingot" are one."""
         return self.synonyms.get(name, name)
 
     def recipe(self, name: str) -> Recipe:
@@ -111,7 +112,7 @@ class RecipeBook(Strict):
         return self.resolve(name) in set(self.raw)
 
     def labor_of(self, name: str) -> float:
-        """Часы труда в единице — основа цены-ориентира и оценки пошлин."""
+        """Labour hours in a unit -- the basis of the reference price and duty valuation."""
         canonical = self.resolve(name)
         if canonical not in self.labor_hours:
             raise ConstantError(f"нет трудоёмкости {name!r} в build/recipes.json")
@@ -121,26 +122,26 @@ class RecipeBook(Strict):
         return self.tool_classes.get(tool_class, ())
 
     def mass_of(self, name: str, *, default: float = 0.0) -> float:
-        """Масса единицы предмета, кг (D-146).
+        """Unit mass of an item, kg (D-146).
 
-        Незнакомое каталогу имя массы не имеет — и это не ноль «на всякий
-        случай», а видимая дыра: через предмет без массы пронесут что угодно.
-        Возвращается `default`, а сколько таких предметов в мире, показывает
-        телеметрия.
+        A name unknown to the catalog has no mass -- and that is not a zero
+        "just in case" but a visible hole: anything can be carried through an
+        item without mass. `default` is returned, and telemetry shows how many
+        such items there are in the world.
         """
         return self.mass.get(self.resolve(name), default)
 
     def slot_of(self, name: str) -> str | None:
-        """В какой слот надевается вещь. Пусто — не снаряжение."""
+        """Which slot the thing is worn in. Empty -- not gear."""
         found = self._by_name.get(self.resolve(name))
         return found.slot if found is not None else None
 
     def is_ingredient(self, name: str) -> bool:
-        """Годится ли в котёл: съедобность — данные, а не догадка по имени.
+        """Whether it goes into the pot: edibility is data, not a guess by name.
 
-        Продукт — это либо съедобный рецепт (`food: true`), либо имя из списка
-        `edible` в данных вольта. Годность конкретной роли — тоже содержание,
-        но его пока нет: продукт годится в любую роль (16-cooking).
+        A product is either an edible recipe (`food: true`) or a name from the
+        `edible` list in vault data. Suitability for a specific role is content
+        too, but it does not exist yet: a product suits any role (16-cooking).
         """
         canonical = self.resolve(name)
         if canonical in self.edible:
@@ -172,8 +173,8 @@ class Plant(Strict):
     id: str
     name: str
     gives: str
-    #: Чем сеют. Семена — предмет, отдельный от продукта: их покупают, крадут
-    #: и теряют со смертью, а агротехнику — нет (D-057).
+    #: What is sown with. Seeds are an item separate from the product: they are
+    #: bought, stolen and lost with death, while agrotech is not (D-057).
     seed: str
     byproduct: str | None = None
     cycle_days: float
@@ -202,9 +203,9 @@ class CharterOption(Strict):
     label: str
     note: str | None = None
     default: bool = False
-    #: Вариант с числовым параметром: «порог, %», «срок, суток».
+    #: An option with a numeric parameter: "threshold, %", "term, days".
     param: str | None = None
-    #: Вариант доступен только если выбран другой вариант устава.
+    #: The option is available only if another charter option is chosen.
     requires_option: str | None = None
 
 
@@ -213,7 +214,7 @@ class CharterQuestion(Strict):
     section: str
     question: str
     note: str | None = None
-    #: Вопрос имеет смысл только при определённых ответах на другие вопросы.
+    #: The question makes sense only with certain answers to other questions.
     requires: dict[str, tuple[str, ...]] = Field(default_factory=dict)
     options: tuple[CharterOption, ...] = ()
 
@@ -223,7 +224,7 @@ class CharterQuestion(Strict):
 
 
 class CodeLaw(Strict):
-    """Параметрический закон: значение, а не текст (D-094, D-130)."""
+    """A parametric law: a value, not text (D-094, D-130)."""
 
     id: str
     name: str
@@ -246,7 +247,7 @@ class LawBook(Strict):
     sanctions: tuple[Sanction, ...] = ()
 
     def charter_defaults(self) -> dict[str, str]:
-        """Устав нового города: город возникает работающим (D-130)."""
+        """A new city's charter: the city arises working (D-130)."""
         out: dict[str, str] = {}
         for question in self.charter:
             default = question.default_option
@@ -259,7 +260,7 @@ class LawBook(Strict):
 
 
 class Catalog(Strict):
-    """Всё, что движок читает из вольта, кроме плоских констант."""
+    """Everything the engine reads from the vault except flat constants."""
 
     recipes: RecipeBook
     plants: PlantCatalog
@@ -267,12 +268,13 @@ class Catalog(Strict):
 
 
 class CatalogHolder:
-    """Каталоги процесса. Загружаются при старте и живут в памяти.
+    """The process's catalogs. Loaded at startup and live in memory.
 
-    Отдельная ячейка нужна по той же причине, что и у констант: движок не
-    ходит в файлы по требованию, а каталог нужен и заданиям журнала, где
-    приложения FastAPI нет вовсе.
+    A separate cell is needed for the same reason as for constants: the engine
+    does not go to files on demand, and the catalog is needed by journal jobs
+    too, where there is no FastAPI application at all.
     """
+
 
     def __init__(self) -> None:
         self._current: Catalog | None = None

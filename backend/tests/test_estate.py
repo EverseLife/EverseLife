@@ -1,14 +1,14 @@
-"""Недвижимость: выкуп участка, ценная бумага, здание (D-089, D-106, D-116).
+"""Real estate: plot purchase, deed, building (D-089, D-106, D-116).
 
-Проверяется то, ради чего система введена:
+Checked is what the system was introduced for:
 
-* пустой городской участок покупает тот, кому позволяет код-закон
-  `build_permit` (по умолчанию — граждане, D-160), цена — от удалённости до
-  биопринтера, выручка — в казну города;
-* владение оформляется ценной бумагой; бумага продаётся договором
-  купли-продажи, и титул на узел переходит вместе с ней;
-* здание строится на своём участке из материалов и по сроку; станок без
-  здания не встаёт (см. `test_station`).
+* an empty civic plot is bought by whoever the code-law `build_permit`
+  allows (citizens by default, D-160), the price depends on the distance to
+  the bioprinter, the proceeds go to the city treasury;
+* ownership is documented by a deed; the deed is sold by a sale contract, and
+  the title to the node passes with it;
+* a building is built on one's own plot from materials and on schedule; a
+  machine without a building does not stand (see `test_station`).
 """
 
 from __future__ import annotations
@@ -31,323 +31,323 @@ from src.models.world import Layer, Node, Surface
 from src.units import PERCENT, money
 
 
-async def _город(session: AsyncSession, catalog: Catalog):
-    """Городок: ядро с Принтером Предтеч и два участка на первом-втором шаге."""
+async def _city(session: AsyncSession, catalog: Catalog):
+    """A town: a core with the Forerunners' Printer and two plots at the first and second step."""
     from src.engine import travel
 
-    метка = uuid.uuid4().hex[:8]
-    планета = await world.create_node(
-        session, f"terra.{метка}", "Терра", area_m2=1, layer=Layer.SPACE
+    stamp = uuid.uuid4().hex[:8]
+    planet = await world.create_node(
+        session, f"terra.{stamp}", "Терра", area_m2=1, layer=Layer.SPACE
     )
-    представитель = await world.create_node(
-        session, f"terra.town.{метка}", "Городок", area_m2=1,
-        layer=Layer.PLANET, parent=планета,
+    delegate = await world.create_node(
+        session, f"terra.town.{stamp}", "Городок", area_m2=1,
+        layer=Layer.PLANET, parent=planet,
     )
-    ядро = await world.create_node(
-        session, f"terra.town.{метка}.core", "Ядро", area_m2=100,
-        parent=представитель, properties={"кольцо": 0, "предтечи": True},
+    core = await world.create_node(
+        session, f"terra.town.{stamp}.core", "Ядро", area_m2=100,
+        parent=delegate, properties={"кольцо": 0, "предтечи": True},
     )
-    #: Биопринтер, от которого меряется удалённость: центр города (D-089).
-    двор_ядра = await world.node_container(session, ядро)
-    await world.grant_item(session, двор_ядра, world.BIOPRINTER, quality=60, origin="тест")
+    #: The bioprinter distance is measured from: the city centre (D-089).
+    core_yard = await world.node_container(session, core)
+    await world.grant_item(session, core_yard, world.BIOPRINTER, quality=60, origin="тест")
 
-    ближний = await world.create_node(
-        session, f"terra.town.{метка}.lot1", "Ближний участок", area_m2=100,
-        parent=представитель, properties={"участок": True},
+    near = await world.create_node(
+        session, f"terra.town.{stamp}.lot1", "Ближний участок", area_m2=100,
+        parent=delegate, properties={"участок": True},
     )
-    дальний = await world.create_node(
-        session, f"terra.town.{метка}.lot2", "Дальний участок", area_m2=100,
-        parent=представитель, properties={"участок": True},
+    far = await world.create_node(
+        session, f"terra.town.{stamp}.lot2", "Дальний участок", area_m2=100,
+        parent=delegate, properties={"участок": True},
     )
-    await travel.connect(session, ядро, ближний, base_seconds=30, surface=Surface.PAVED)
-    await travel.connect(session, ближний, дальний, base_seconds=30, surface=Surface.PAVED)
+    await travel.connect(session, core, near, base_seconds=30, surface=Surface.PAVED)
+    await travel.connect(session, near, far, base_seconds=30, surface=Surface.PAVED)
 
-    город = await town.found(session, catalog, представитель, "Городок")
-    for узел in (ядро, ближний, дальний):
-        узел.owner_city_id = город.id
+    city = await town.found(session, catalog, delegate, "Городок")
+    for node in (core, near, far):
+        node.owner_city_id = city.id
     await session.flush()
-    return город, ядро, ближний, дальний
+    return city, core, near, far
 
 
-async def _покупатель(
+async def _buyer(
     session: AsyncSession,
-    где: Node,
+    where: Node,
     *,
-    денег: float = 1_000,
-    город=None,
-    гражданин: bool = True,
+    funds: float = 1_000,
+    city=None,
+    citizen: bool = True,
 ):
-    """Покупатель. По умолчанию гражданин: землю продают своим (D-160)."""
-    метка = uuid.uuid4().hex[:6]
-    identity = await world.create_identity(session, f"Покупатель-{метка}")
-    body = await world.print_body(session, identity, где)
-    if гражданин and город is not None:
-        session.add(Citizen(identity_id=identity.id, city_id=город.id))
+    """The buyer. A citizen by default: land is sold to one's own (D-160)."""
+    stamp = uuid.uuid4().hex[:6]
+    identity = await world.create_identity(session, f"Покупатель-{stamp}")
+    body = await world.print_body(session, identity, where)
+    if citizen and city is not None:
+        session.add(Citizen(identity_id=identity.id, city_id=city.id))
         await session.flush()
-    if денег:
-        счёт = await ledger.account_for(session, AccountKind.IDENTITY, identity.id)
+    if funds:
+        account = await ledger.account_for(session, AccountKind.IDENTITY, identity.id)
         genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
         await ledger.transfer(
-            session, PostingReason.GENESIS, debit=genesis.id, credit=счёт.id,
-            amount=money(денег), memo={},
+            session, PostingReason.GENESIS, debit=genesis.id, credit=account.id,
+            amount=money(funds), memo={},
         )
     return identity, body
 
 
-# --- цена и выкуп (D-089) ----------------------------------------------------
+# --- price and purchase (D-089) ----------------------------------------------
 
 
-async def test_дальний_участок_дешевле_ближнего(
+async def test_far_plot_cheaper_than_near(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Цена падает с каждым кольцом от биопринтера — центра города."""
-    город, _, ближний, дальний = await _город(session, catalog)
-    близко = await estate.price_of(session, constants, catalog, город, ближний)
-    далеко = await estate.price_of(session, constants, catalog, город, дальний)
+    """The price falls with each ring from the bioprinter -- the city centre."""
+    city, _, near, far = await _city(session, catalog)
+    close = await estate.price_of(session, constants, catalog, city, near)
+    far_away = await estate.price_of(session, constants, catalog, city, far)
 
-    assert близко > далеко > 0
-    спад = 1 - constants[R.LAND_PRICE_DECAY_PER_RING] / PERCENT
-    assert далеко == pytest.approx(близко * спад, rel=0.01)
+    assert close > far_away > 0
+    decline = 1 - constants[R.LAND_PRICE_DECAY_PER_RING] / PERCENT
+    assert far_away == pytest.approx(close * decline, rel=0.01)
 
 
-async def test_выкуп_отдаёт_деньги_в_казну_и_выдаёт_бумагу(
+async def test_purchase_pays_treasury_and_issues_deed(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Город продаёт свою землю: выручка — казне, покупателю — титул."""
-    город, _, ближний, _ = await _город(session, catalog)
-    identity, body = await _покупатель(session, ближний, город=город)
+    """The city sells its land: proceeds to the treasury, title to the buyer."""
+    city, _, near, _ = await _city(session, catalog)
+    identity, body = await _buyer(session, near, city=city)
 
-    было_в_казне = await town.treasury_balance(session, город)
-    deed = await estate.buy(session, constants, catalog, body, ближний)
+    treasury_before_ = await town.treasury_balance(session, city)
+    deed = await estate.buy(session, constants, catalog, body, near)
 
-    assert ближний.owner_identity_id == identity.id
+    assert near.owner_identity_id == identity.id
     assert deed.owner_identity_id == identity.id
     assert deed.paid > 0
-    assert await town.treasury_balance(session, город) == было_в_казне + deed.paid
+    assert await town.treasury_balance(session, city) == treasury_before_ + deed.paid
 
 
-async def test_без_денег_не_покупают(
+async def test_no_purchase_without_money(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    город, _, ближний, _ = await _город(session, catalog)
-    _, body = await _покупатель(session, ближний, денег=0, город=город)
+    city, _, near, _ = await _city(session, catalog)
+    _, body = await _buyer(session, near, funds=0, city=city)
     with pytest.raises(estate.NotEnoughMoney):
-        await estate.buy(session, constants, catalog, body, ближний)
+        await estate.buy(session, constants, catalog, body, near)
 
 
-async def test_занятый_участок_не_продаётся(
+async def test_occupied_plot_not_for_sale(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    город, _, ближний, _ = await _город(session, catalog)
-    первый, тело_первого = await _покупатель(session, ближний, город=город)
-    await estate.buy(session, constants, catalog, тело_первого, ближний)
+    city, _, near, _ = await _city(session, catalog)
+    first, first_body = await _buyer(session, near, city=city)
+    await estate.buy(session, constants, catalog, first_body, near)
 
-    _, тело_второго = await _покупатель(session, ближний, город=город)
+    _, second_body = await _buyer(session, near, city=city)
     with pytest.raises(estate.NotForSale):
-        await estate.buy(session, constants, catalog, тело_второго, ближний)
+        await estate.buy(session, constants, catalog, second_body, near)
 
 
-# --- имя участка (D-178) -----------------------------------------------------
+# --- plot name (D-178) -------------------------------------------------------
 
 
-async def test_хозяин_даёт_участку_имя(
+async def test_owner_names_plot(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Купил — назвал. Ключ узла при этом прежний: на него ссылаются бумаги."""
-    город, _, ближний, _ = await _город(session, catalog)
-    _, тело = await _покупатель(session, ближний, город=город)
-    await estate.buy(session, constants, catalog, тело, ближний)
-    ключ = ближний.key
+    """Bought -- named. The node key stays the same: deeds reference it."""
+    city, _, near, _ = await _city(session, catalog)
+    _, body = await _buyer(session, near, city=city)
+    await estate.buy(session, constants, catalog, body, near)
+    key = near.key
 
-    await estate.rename(session, тело, ближний, "  Кузня у ворот  ")
+    await estate.rename(session, body, near, "  Кузня у ворот  ")
 
-    assert ближний.name == "Кузня у ворот", "пробелы по краям обрезаются"
-    assert ближний.key == ключ, "ключ узла переименованием не трогают"
+    assert near.name == "Кузня у ворот", "пробелы по краям обрезаются"
+    assert near.key == key, "ключ узла переименованием не трогают"
 
 
-async def test_чужой_участок_переименовать_нельзя(
+async def test_cannot_rename_foreign_plot(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Табличку на чужом доме не меняют — даже стоя рядом."""
-    город, _, ближний, _ = await _город(session, catalog)
-    _, хозяин = await _покупатель(session, ближний, город=город)
-    await estate.buy(session, constants, catalog, хозяин, ближний)
-    было = ближний.name
+    """The nameplate on somebody's house is not changed -- even standing nearby."""
+    city, _, near, _ = await _city(session, catalog)
+    _, owner = await _buyer(session, near, city=city)
+    await estate.buy(session, constants, catalog, owner, near)
+    before = near.name
 
-    _, прохожий = await _покупатель(session, ближний, город=город)
+    _, passerby = await _buyer(session, near, city=city)
     with pytest.raises(estate.NotOwner):
-        await estate.rename(session, прохожий, ближний, "Моё теперь")
-    assert ближний.name == было
+        await estate.rename(session, passerby, near, "Моё теперь")
+    assert near.name == before
 
 
-async def test_власть_называет_городскую_землю_но_не_частную(
+async def test_authority_names_city_land_not_private(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Право `land` — про городские участки, а не про чужой двор (D-089)."""
-    город, ядро, ближний, дальний = await _город(session, catalog)
-    правитель, тело_правителя = await _покупатель(session, дальний, город=город)
-    await town.install_founder(session, город, правитель)
+    """The `land` right is about civic plots, not somebody's yard (D-089)."""
+    city, core, near, far = await _city(session, catalog)
+    ruler, ruler_body = await _buyer(session, far, city=city)
+    await town.install_founder(session, city, ruler)
 
-    await estate.rename(session, тело_правителя, дальний, "Площадь совета")
-    assert дальний.name == "Площадь совета"
+    await estate.rename(session, ruler_body, far, "Площадь совета")
+    assert far.name == "Площадь совета"
 
-    #: Тот же правитель на выкупленном участке — уже не власть, а гость.
-    _, хозяин = await _покупатель(session, ближний, город=город)
-    await estate.buy(session, constants, catalog, хозяин, ближний)
-    тело_правителя.node_id = ближний.id
+    #: The same ruler on a bought plot is no longer authority but a guest.
+    _, owner = await _buyer(session, near, city=city)
+    await estate.buy(session, constants, catalog, owner, near)
+    ruler_body.node_id = near.id
     await session.flush()
     with pytest.raises(estate.NotOwner):
-        await estate.rename(session, тело_правителя, ближний, "Городское теперь")
+        await estate.rename(session, ruler_body, near, "Городское теперь")
 
 
-async def test_имя_не_бывает_пустым_и_бесконечным(
+async def test_name_neither_empty_nor_endless(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
     from src.runtime import LAND_NAME_LIMIT
 
-    город, _, ближний, _ = await _город(session, catalog)
-    _, тело = await _покупатель(session, ближний, город=город)
-    await estate.buy(session, constants, catalog, тело, ближний)
+    city, _, near, _ = await _city(session, catalog)
+    _, body = await _buyer(session, near, city=city)
+    await estate.buy(session, constants, catalog, body, near)
 
     with pytest.raises(estate.BadName):
-        await estate.rename(session, тело, ближний, "   ")
+        await estate.rename(session, body, near, "   ")
     with pytest.raises(estate.BadName):
-        await estate.rename(session, тело, ближний, "я" * (LAND_NAME_LIMIT + 1))
+        await estate.rename(session, body, near, "я" * (LAND_NAME_LIMIT + 1))
 
 
-# --- бумага и договор купли-продажи (D-116) ----------------------------------
+# --- deed and sale contract (D-116) ------------------------------------------
 
 
-async def test_бумага_продаётся_и_титул_переходит_с_ней(
+async def test_deed_sold_and_title_passes_with_it(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    город, _, ближний, _ = await _город(session, catalog)
-    продавец, тело_продавца = await _покупатель(session, ближний, город=город)
-    deed = await estate.buy(session, constants, catalog, тело_продавца, ближний)
+    city, _, near, _ = await _city(session, catalog)
+    seller, seller_body = await _buyer(session, near, city=city)
+    deed = await estate.buy(session, constants, catalog, seller_body, near)
 
-    покупатель, _ = await _покупатель(session, ближний, денег=500)
-    цена = money(100)
-    await estate.offer_deed(session, продавец, deed, цена)
-    await estate.buy_deed(session, покупатель, deed)
+    buyer, _ = await _buyer(session, near, funds=500)
+    price = money(100)
+    await estate.offer_deed(session, seller, deed, price)
+    await estate.buy_deed(session, buyer, deed)
 
-    assert deed.owner_identity_id == покупатель.id
+    assert deed.owner_identity_id == buyer.id
     assert deed.sale_price is None, "после сделки бумага снята с продажи"
-    await session.refresh(ближний)
-    assert ближний.owner_identity_id == покупатель.id, "титул ходит с бумагой"
+    await session.refresh(near)
+    assert near.owner_identity_id == buyer.id, "титул ходит с бумагой"
 
-    счёт = await ledger.account_for(session, AccountKind.IDENTITY, продавец.id)
-    assert await ledger.balance(session, счёт.id) > 0, "деньги дошли продавцу"
+    account = await ledger.account_for(session, AccountKind.IDENTITY, seller.id)
+    assert await ledger.balance(session, account.id) > 0, "деньги дошли продавцу"
 
 
-async def test_адресный_договор_чужому_не_продаёт(
+async def test_addressed_contract_does_not_sell_to_stranger(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Бумага, обещанная одному, второму не отдаётся."""
-    город, _, ближний, _ = await _город(session, catalog)
-    продавец, тело = await _покупатель(session, ближний, город=город)
-    deed = await estate.buy(session, constants, catalog, тело, ближний)
+    """A deed promised to one is not given to another."""
+    city, _, near, _ = await _city(session, catalog)
+    seller, body = await _buyer(session, near, city=city)
+    deed = await estate.buy(session, constants, catalog, body, near)
 
-    свой, _ = await _покупатель(session, ближний, денег=500)
-    чужой, _ = await _покупатель(session, ближний, денег=500)
-    await estate.offer_deed(session, продавец, deed, money(50), to=свой)
+    own, _ = await _buyer(session, near, funds=500)
+    foreign, _ = await _buyer(session, near, funds=500)
+    await estate.offer_deed(session, seller, deed, money(50), to=own)
 
     with pytest.raises(estate.NotForSale):
-        await estate.buy_deed(session, чужой, deed)
-    await estate.buy_deed(session, свой, deed)
-    assert deed.owner_identity_id == свой.id
+        await estate.buy_deed(session, foreign, deed)
+    await estate.buy_deed(session, own, deed)
+    assert deed.owner_identity_id == own.id
 
 
-async def test_занятая_дикая_земля_тоже_даёт_бумагу(
+async def test_occupied_wild_land_also_gives_deed(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Титул один для всех дорог к земле: занял — бумага, купил — бумага."""
-    метка = uuid.uuid4().hex[:6]
-    дикий = await world.create_node(
-        session, f"terra.wild.{метка}", "Дикий", area_m2=200, layer=Layer.PLANET
+    """The title is one for all roads to land: took -- a deed, bought -- a deed."""
+    stamp = uuid.uuid4().hex[:6]
+    wild = await world.create_node(
+        session, f"terra.wild.{stamp}", "Дикий", area_m2=200, layer=Layer.PLANET
     )
-    identity, body = await _покупатель(session, дикий, денег=0)
-    await world.claim_node(session, body, дикий)
+    identity, body = await _buyer(session, wild, funds=0)
+    await world.claim_node(session, body, wild)
 
     deed = (
-        await session.execute(select(Deed).where(Deed.node_id == дикий.id))
+        await session.execute(select(Deed).where(Deed.node_id == wild.id))
     ).scalar_one()
     assert deed.owner_identity_id == identity.id
     assert deed.paid == 0
 
 
-# --- здание (D-106, D-125) ---------------------------------------------------
+# --- building (D-106, D-125) -------------------------------------------------
 
 
-async def test_стройка_списывает_материалы_и_ставит_здание_по_сроку(
+async def test_construction_spends_materials_and_places_building_on_term(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    метка = uuid.uuid4().hex[:6]
-    участок = await world.create_node(
-        session, f"terra.plot.{метка}", "Участок", area_m2=100, layer=Layer.PLANET
+    stamp = uuid.uuid4().hex[:6]
+    plot = await world.create_node(
+        session, f"terra.plot.{stamp}", "Участок", area_m2=100, layer=Layer.PLANET
     )
-    identity, body = await _покупатель(session, участок, денег=0)
-    await world.claim_node(session, body, участок)
+    identity, body = await _buyer(session, plot, funds=0)
+    await world.claim_node(session, body, plot)
 
-    карман = await world.body_container(session, body)
-    нормы = constants[R.BUILD_MATERIALS_PER_M2]
-    площадь = 20.0
-    for имя, на_метр in нормы.items():
+    pocket = await world.body_container(session, body)
+    norms = constants[R.BUILD_MATERIALS_PER_M2]
+    area = 20.0
+    for name, per_metre_ in norms.items():
         await world.grant_item(
-            session, карман, имя, amount=float(на_метр) * площадь + 1,
+            session, pocket, name, amount=float(per_metre_) * area + 1,
             quality=60, origin="тест",
         )
 
-    job = await estate.construct(session, constants, body, участок, площадь)
-    assert await estate.built_area(session, участок) == 0, "здание не мгновенно"
+    job = await estate.construct(session, constants, body, plot, area)
+    assert await estate.built_area(session, plot) == 0, "здание не мгновенно"
 
-    #: Срок — труд сборки: `build.labor_per_m2` часов на метр.
-    минут = площадь * constants[R.BUILD_LABOR_PER_M2] * 60
+    #: The term is the assembly labour: `build.labor_per_m2` hours per metre.
+    minutes = area * constants[R.BUILD_LABOR_PER_M2] * 60
     assert (job.run_at - datetime.now(UTC)).total_seconds() / 60 == pytest.approx(
-        минут, rel=0.05
+        minutes, rel=0.05
     )
 
     await estate.finish_build(session, job)
-    assert await estate.built_area(session, участок) == pytest.approx(площадь)
+    assert await estate.built_area(session, plot) == pytest.approx(area)
 
 
-async def test_без_материалов_стройка_не_начинается(
+async def test_construction_does_not_start_without_materials(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
     from src.engine import craft
 
-    метка = uuid.uuid4().hex[:6]
-    участок = await world.create_node(
-        session, f"terra.plot.{метка}", "Участок", area_m2=100, layer=Layer.PLANET
+    stamp = uuid.uuid4().hex[:6]
+    plot = await world.create_node(
+        session, f"terra.plot.{stamp}", "Участок", area_m2=100, layer=Layer.PLANET
     )
-    _, body = await _покупатель(session, участок, денег=0)
-    await world.claim_node(session, body, участок)
+    _, body = await _buyer(session, plot, funds=0)
+    await world.claim_node(session, body, plot)
     with pytest.raises(craft.NotEnough):
-        await estate.construct(session, constants, body, участок, 20)
+        await estate.construct(session, constants, body, plot, 20)
 
 
-async def test_здание_не_больше_участка(
+async def test_building_no_larger_than_plot(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    метка = uuid.uuid4().hex[:6]
-    участок = await world.create_node(
-        session, f"terra.plot.{метка}", "Участок", area_m2=50, layer=Layer.PLANET
+    stamp = uuid.uuid4().hex[:6]
+    plot = await world.create_node(
+        session, f"terra.plot.{stamp}", "Участок", area_m2=50, layer=Layer.PLANET
     )
-    _, body = await _покупатель(session, участок, денег=0)
-    await world.claim_node(session, body, участок)
+    _, body = await _buyer(session, plot, funds=0)
+    await world.claim_node(session, body, plot)
     with pytest.raises(estate.NoRoom):
-        await estate.construct(session, constants, body, участок, 60)
+        await estate.construct(session, constants, body, plot, 60)
 
 
-async def test_на_чужом_не_строят(
+async def test_no_building_on_foreign_land(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    метка = uuid.uuid4().hex[:6]
-    участок = await world.create_node(
-        session, f"terra.plot.{метка}", "Участок", area_m2=100, layer=Layer.PLANET
+    stamp = uuid.uuid4().hex[:6]
+    plot = await world.create_node(
+        session, f"terra.plot.{stamp}", "Участок", area_m2=100, layer=Layer.PLANET
     )
-    хозяин, тело_хозяина = await _покупатель(session, участок, денег=0)
-    await world.claim_node(session, тело_хозяина, участок)
+    owner, owner_body = await _buyer(session, plot, funds=0)
+    await world.claim_node(session, owner_body, plot)
 
-    _, чужое_тело = await _покупатель(session, участок, денег=0)
+    _, foreign_body = await _buyer(session, plot, funds=0)
     with pytest.raises(estate.EstateError):
-        await estate.construct(session, constants, чужое_тело, участок, 10)
+        await estate.construct(session, constants, foreign_body, plot, 10)

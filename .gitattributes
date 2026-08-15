@@ -1,4 +1,4 @@
-# LF везде — как в вольте. Иначе diff состоит из переводов строк, а не из кода.
+# LF everywhere -- as in the vault. Otherwise the diff consists of line endings, not code.
 * text=auto eol=lf
 *.png binary
 *.jpg binary

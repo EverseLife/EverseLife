@@ -1,13 +1,14 @@
-"""Когда по займу платили в последний раз (D-168).
+"""When the loan was last paid (D-168).
 
-У выданных до этой правки просрочка считается от текущего момента: наказывать
-за прошлое, которого движок не помнит, нечестно.
+For loans issued before this change overdue is counted from the current
+moment: punishing for a past the engine does not remember is dishonest.
 
 
 Revision ID: c49909ff6fcd
 Revises: 740e3d7e7692
 Create Date: 2026-08-14 15:49:26.672150
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence

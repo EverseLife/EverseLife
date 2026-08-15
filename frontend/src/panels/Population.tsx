@@ -1,10 +1,11 @@
 /**
- * Население — государственная вкладка сайдбара (D-140, D-154).
+ * Population -- a state tab of the sidebar (D-140, D-154).
  *
- * Видна только гос.должностям: кто живёт, кто правит, сколько людей в городе
- * и в мире. Назначать и снимать — в администрации (D-155); отсюда только
- * смотрят.
+ * Visible only to state officials: who lives, who governs, how many people
+ * are in the city and in the world. Appointing and dismissing is in the
+ * administration (D-155); from here one only looks.
  */
+
 
 import { useCallback, useEffect, useState } from "react";
 import type { CityPanel, CityView, Look, Session } from "../api";
@@ -12,22 +13,22 @@ import type { CityPanel, CityView, Look, Session } from "../api";
 type Props = { look: Look; session: Session; busy: boolean };
 
 export function Population({ look, session, busy }: Props) {
-  const [мишень, setМишень] = useState("");
-  const [город, setГород] = useState<CityView | null>(null);
-  const [панель, setПанель] = useState<CityPanel | null>(null);
-  const [мир, setМир] = useState<Record<string, number>>({});
+  const [target, setTarget] = useState("");
+  const [city, setCity] = useState<CityView | null>(null);
+  const [panel, setPanel] = useState<CityPanel | null>(null);
+  const [world, setWorld] = useState<Record<string, number>>({});
 
   const reload = useCallback(async () => {
     try {
-      const сводка = await session.send("city.survey");
-      setГород((сводка.city as CityView) ?? null);
-      const срез = await session.send("city.panel");
-      setПанель((срез.panel as CityPanel) ?? null);
-      const метрики = await session.send("world.metrics");
-      setМир((метрики.metrics as Record<string, number>) ?? {});
+      const summary = await session.send("city.survey");
+      setCity((summary.city as CityView) ?? null);
+      const snapshot = await session.send("city.panel");
+      setPanel((snapshot.panel as CityPanel) ?? null);
+      const metrics = await session.send("world.metrics");
+      setWorld((metrics.metrics as Record<string, number>) ?? {});
     } catch {
-      setГород(null);
-      setПанель(null);
+      setCity(null);
+      setPanel(null);
     }
   }, [session]);
 
@@ -35,28 +36,28 @@ export function Population({ look, session, busy }: Props) {
     void reload();
   }, [reload, look.node?.key]);
 
-  if (!город) {
+  if (!city) {
     return <p className="note">Вы вне города: за стенами законов нет.</p>;
   }
 
   return (
     <div>
-      <p className="sign">{город.name}</p>
+      <p className="sign">{city.name}</p>
       <table>
         <tbody>
           <tr>
             <td>личностей в мире</td>
-            <td className="num">{мир["people"] ?? 0}</td>
+            <td className="num">{world["people"] ?? 0}</td>
           </tr>
-          {панель && (
+          {panel && (
             <>
               <tr>
                 <td>тел в городе</td>
-                <td className="num">{панель.people.here}</td>
+                <td className="num">{panel.people.here}</td>
               </tr>
               <tr>
                 <td>напечатано за окно</td>
-                <td className="num">{панель.people.printed}</td>
+                <td className="num">{panel.people.printed}</td>
               </tr>
             </>
           )}
@@ -64,40 +65,40 @@ export function Population({ look, session, busy }: Props) {
       </table>
 
       <h3>Должности</h3>
-      {город.offices.length === 0 ? (
+      {city.offices.length === 0 ? (
         <p className="note">должностей нет</p>
       ) : (
-        город.offices.map((пост) => (
-          <p key={пост.id}>
-            <b>{пост.title}</b> · {пост.who}
-            <span className="note"> · {пост.powers.join(", ")}</span>
+        city.offices.map((office) => (
+          <p key={office.id}>
+            <b>{office.title}</b> · {office.who}
+            <span className="note"> · {office.powers.join(", ")}</span>
           </p>
         ))
       )}
 
       <h3>Жители</h3>
-      <p className="note">{город.citizens.join(" · ") || "пока никого"}</p>
+      <p className="note">{city.citizens.join(" · ") || "пока никого"}</p>
 
       {/* Дефектная печать (D-173): по лору принтер иногда печатает людей без
           интеллекта. Репорт снижает доверие и кредит, а не убивает: необратимую
           переработку делает только внеигровой саппорт. */}
       <div className="row">
         <input
-          value={мишень}
-          onChange={(e) => setМишень(e.target.value)}
+          value={target}
+          onChange={(e) => setTarget(e.target.value)}
           placeholder="имя дефектной печати"
         />
         <button
           className="quiet"
-          onClick={() => void session.send("person.report", { who: мишень })}
-          disabled={busy || !мишень.trim()}
+          onClick={() => void session.send("person.report", { who: target })}
+          disabled={busy || !target.trim()}
         >
           Сообщить
         </button>
         <button
           className="quiet"
-          onClick={() => void session.send("person.unreport", { who: мишень })}
-          disabled={busy || !мишень.trim()}
+          onClick={() => void session.send("person.unreport", { who: target })}
+          disabled={busy || !target.trim()}
           title="отозвать свой репорт"
         >
           Отозвать

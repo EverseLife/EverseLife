@@ -1,12 +1,13 @@
 /**
- * Забой: «Свод» (D-143).
+ * The face: "Roof" (D-143).
  *
- * Три кнопки и рычаг темпа. Устойчивость свода не показывается никогда — её
- * нет в ответе вовсе, а признак врёт на `mine.sign_noise` и **не меняется,
- * пока не ударишь**: иначе среднее по прочтениям выдало бы скрытое число.
+ * Three buttons and a pace lever. Roof stability is never shown -- it is not
+ * in the reply at all, and the sign lies by `mine.sign_noise` and **does not
+ * change until you swing**: otherwise the average of readings would yield the hidden number.
  *
- * Сессия открывается только после платы устройства, и считает её браузер.
+ * The session opens only after the device fee, and the browser computes it.
  */
+
 
 import { useState } from "react";
 import type { Look, Session, Sight } from "../api";
@@ -21,40 +22,40 @@ type Props = {
 };
 
 export function Mine({ look, session, pow, busy, act }: Props) {
-  const [считаю, setСчитаю] = useState(false);
-  const сцена = look.mining as Sight | null | undefined;
-  const жила = look.veins?.[0];
+  const [computing, setComputing] = useState(false);
+  const scene = look.mining as Sight | null | undefined;
+  const vein = look.veins?.[0];
 
-  const начать = () =>
+  const start = () =>
     act(async () => {
-      if (!жила || !pow) throw new Error("здесь нет жилы");
-      setСчитаю(true);
+      if (!vein || !pow) throw new Error("здесь нет жилы");
+      setComputing(true);
       try {
-        const задача = await session.send("pow.challenge");
-        const ответ = await solve(session.account, String(задача.nonce), pow);
+        const challenge = await session.send("pow.challenge");
+        const answer = await solve(session.account, String(challenge.nonce), pow);
         await session.send("mine.start", {
-          challenge: задача.challenge,
-          answer: ответ,
-          vein: жила.id,
+          challenge: challenge.challenge,
+          answer: answer,
+          vein: vein.id,
           tool: look.inventory.find((t) => t.goods.includes("кирка"))?.id,
         });
       } finally {
-        setСчитаю(false);
+        setComputing(false);
       }
     });
 
   return (
     <section>
       <h2>Забой</h2>
-      {!сцена && (
+      {!scene && (
         <>
           <p className="note">
-            {жила
-              ? `Жила: ${жила.resource}, богатство ${жила.richness.toFixed(0)}`
+            {vein
+              ? `Жила: ${vein.resource}, богатство ${vein.richness.toFixed(0)}`
               : "В этом узле жилы нет"}
           </p>
-          <button onClick={начать} disabled={busy || считаю || !жила}>
-            {считаю ? "считаю плату устройства…" : "Начать сессию"}
+          <button onClick={start} disabled={busy || computing || !vein}>
+            {computing ? "считаю плату устройства…" : "Начать сессию"}
           </button>
           <p className="note">
             Одна оценка Argon2id на сессию: {pow?.memoryMib} МБ, {pow?.iterations} прохода.
@@ -63,27 +64,27 @@ export function Mine({ look, session, pow, busy, act }: Props) {
         </>
       )}
 
-      {сцена && (
+      {scene && (
         <>
-          <p className="sign">{сцена.sign}</p>
+          <p className="sign">{scene.sign}</p>
           <table>
             <tbody>
               <tr>
                 <td>добыто</td>
-                <td className="num">{сцена.mined.toFixed(3)}</td>
+                <td className="num">{scene.mined.toFixed(3)}</td>
               </tr>
               <tr>
                 <td>ударов</td>
-                <td className="num">{сцена.swings}</td>
+                <td className="num">{scene.swings}</td>
               </tr>
               <tr>
                 <td>крепей</td>
-                <td className="num">{сцена.timbers}</td>
+                <td className="num">{scene.timbers}</td>
               </tr>
             </tbody>
           </table>
 
-          {сцена.state === "active" ? (
+          {scene.state === "active" ? (
             <div className="row">
               <button onClick={() => act(() => session.send("mine.swing"))} disabled={busy}>
                 Бить
@@ -99,18 +100,18 @@ export function Mine({ look, session, pow, busy, act }: Props) {
                 onClick={() =>
                   act(() =>
                     session.send("mine.pace", {
-                      pace: сцена.pace === "fast" ? "steady" : "fast",
+                      pace: scene.pace === "fast" ? "steady" : "fast",
                     }),
                   )
                 }
                 disabled={busy}
               >
-                темп: {сцена.pace === "fast" ? "быстрый" : "ровный"}
+                темп: {scene.pace === "fast" ? "быстрый" : "ровный"}
               </button>
             </div>
           ) : (
             <p className="trouble">
-              {сцена.state === "collapsed"
+              {scene.state === "collapsed"
                 ? "Обрушение. Всё добытое за сессию потеряно."
                 : "Сессия закрыта."}
             </p>

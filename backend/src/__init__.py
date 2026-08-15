@@ -1,9 +1,10 @@
-"""OctoVerse — игровой сервер.
+"""OctoVerse -- the game server.
 
-Спецификация чисел и рецептов живёт не здесь, а в вольте гейм-дизайна
-(`../octoverse-game-design`), откуда движок читает только `build/*.json`.
-Этот репозиторий отвечает на вопрос «как именно сделано», вольт — на вопрос
-«что должно быть верно и почему».
+The specification of numbers and recipes lives not here but in the game-design
+vault (`../octoverse-game-design`), from which the engine reads only
+`build/*.json`. This repository answers "how exactly it is done", the vault
+answers "what must be true and why".
 """
+
 
 __version__ = "0.0.1"

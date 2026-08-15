@@ -1,11 +1,12 @@
-# Образ клиента: сборка Vite и отдача статики nginx.
-# Контекст — `frontend/`:
+# The client image: Vite build and static serving by nginx.
+# The context is `frontend/`:
 #
 #   docker build -t octoverse-frontend frontend
 #
-# Адрес сервера в образ не зашит: собранный клиент ходит на тот же источник,
-# откуда открыт (`/api`), — см. `src/api.ts`. Поэтому один образ годится и для
-# боевого домена, и для пробного.
+# The server address is not baked into the image: the built client goes to the
+# same origin it was opened from (`/api`) -- see `src/api.ts`. So one image
+# suits both the production domain and a trial one.
+
 
 FROM node:24-alpine AS builder
 

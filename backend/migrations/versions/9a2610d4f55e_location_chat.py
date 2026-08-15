@@ -48,8 +48,9 @@ def upgrade() -> None:
     sa.Column('quiet', sa.Boolean(), nullable=False),
     sa.Column('text', sa.String(), nullable=False),
     sa.Column('leaked', sa.Boolean(), nullable=False),
-    # clock_timestamp(), а не now(): now() у Постгреса заморожен на транзакцию,
-    # а репликам нужен настенный порядок (см. models/chat.py).
+    # clock_timestamp(), not now(): Postgres freezes now() for the transaction,
+    # and remarks need wall-clock order (see models/chat.py).
+
     sa.Column('at', sa.DateTime(timezone=True), server_default=sa.text('clock_timestamp()'), nullable=False),
     sa.ForeignKeyConstraint(['group_id'], ['chat_group.id'], name=op.f('fk_chat_message_group_id_chat_group'), ondelete='CASCADE'),
     sa.ForeignKeyConstraint(['identity_id'], ['identity.id'], name=op.f('fk_chat_message_identity_id_identity')),

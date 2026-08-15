@@ -1,68 +1,71 @@
-"""Крафт: партия, качество, потери (D-092, D-133).
+"""Craft: batch, quality, losses (D-092, D-133).
 
-Пять условий одновременно, и все обязательны: знание, станок, инструмент,
-входы, место (20-systems/03-crafting). Партия запускается присутственно и идёт
-офлайн; вход списывается сразу, изделие появляется по сроку.
+Five conditions at once, all mandatory: knowledge, machine, tool, inputs, place
+(20-systems/03-crafting). A batch is started in person and runs offline; the
+input is written off at once, the product appears on schedule.
 
-## Откуда взялась каждая формула
+## Where each formula came from
 
-Числа заданы вольтом, порядок шагов — дело движка (CLAUDE.md вольта). Ниже
-вывод каждой формулы, чтобы её можно было сверить с D-092 и D-133, а не
-принимать на веру.
+Numbers are set by the vault, the order of steps is the engine's business
+(vault CLAUDE.md). Below is the derivation of each formula so it can be checked
+against D-092 and D-133 rather than taken on faith.
 
-**Время партии.** `craft.time_per_unit` — «базовое время партии на единицу
-выхода», `craft.time_growth_per_level` — «во столько раз дольше делается изделие
-с каждым переделом вглубь». Обе величины вольт уже свёл в `labor_hours`:
-трудоёмкость изделия равна собственному времени передела плюс труд входов.
-Значит собственное время достаётся вычитанием и **не выводится в коде заново**:
+**Batch time.** `craft.time_per_unit` is "base batch time per unit of output",
+`craft.time_growth_per_level` is "how many times longer a product takes with
+each processing level deeper". The vault has already folded both into
+`labor_hours`: a product's labour equals its own processing time plus the
+labour of its inputs. So the own time is obtained by subtraction and **is not
+re-derived in code**:
 
-    шаг(изделие) = labor_hours(изделие) − Σ amounts[j] × labor_hours(j)
+    step(product) = labor_hours(product) - sum(amounts[j] * labor_hours(j))
 
-У операции без рецепта своё время задано прямо — `hours_per_unit[выход]`.
+An operation without a recipe has its own time set directly --
+`hours_per_unit[output]`.
 
-**Скорость станка.** `craft.station_speed_k` — «множитель времени от качества
-станка; разбитая наковальня работает медленно». Значит худший станок работает
-по верхней границе множителя, лучший — по нижней:
+**Machine speed.** `craft.station_speed_k` is "time multiplier from machine
+quality; a broken anvil works slowly". So the worst machine works at the upper
+bound of the multiplier, the best at the lower:
 
-    k = max − (max − min) × качество_станка / шкала
+    k = max - (max - min) * machine_quality / scale
 
-**Потолок качества.** Наименьшее из качества станка и инструмента: ограничивает
-самое слабое звено (15-quality). Чего нет — то не ограничивает: рецепт «Руками»
-без инструмента упирается только в сырьё.
+**Quality ceiling.** The lesser of machine and tool quality: the weakest link
+limits (15-quality). What is absent does not limit: a "By hand" recipe without a
+tool is bounded only by the raw material.
 
-**Приближение к потолку.** У сборки его определяют одни входы, у смеси — входы
-и точность пропорции, с весами `quality.material_weight` и
-`quality.ratio_weight` (D-092).
+**Approach to the ceiling.** For an assembly it is set by inputs alone, for a
+mix by inputs and proportion accuracy, with weights `quality.material_weight`
+and `quality.ratio_weight` (D-092).
 
-**Оптимум пропорции у смеси.** «Бедной руде нужно больше угля и флюса, чистой —
-меньше». Количества из `recipes.json` — норма для обычного сырья, то есть для
-середины шкалы качества; отклонение от неё симметрично:
+**Optimal proportion for a mix.** "Poor ore needs more coal and flux, pure ore
+less". Amounts from `recipes.json` are the norm for ordinary raw material, i.e.
+for the middle of the quality scale; deviation from it is symmetric:
 
-    оптимум[добавка] = amounts[добавка] × (1 + (середина − качество основы) / шкала)
+    optimum[additive] = amounts[additive] * (1 + (middle - base_quality) / scale)
 
-Основа — первый вход рецепта. Бедная основа требует до полутора норм добавок,
-отличная — до половины.
+The base is the recipe's first input. A poor base needs up to one and a half
+norms of additives, an excellent one down to half.
 
-**Потери и разброс.** `craft.waste_share` при верной работе,
-`craft.waste_bad_ratio` при промахе; `quality.spread_good_ratio` и
-`quality.spread_bad_ratio` — так же. Порога «попал / не попал» в вольте нет, и
-выдумывать его здесь нельзя: обе величины идут по точности непрерывно.
+**Losses and spread.** `craft.waste_share` for correct work,
+`craft.waste_bad_ratio` for a miss; `quality.spread_good_ratio` and
+`quality.spread_bad_ratio` likewise. There is no "hit / miss" threshold in the
+vault, and inventing one here is not allowed: both quantities follow accuracy
+continuously.
 
-**Премия ремесла.** `quality.hand_craft_bonus` — «до +10 за точное попадание в
-пропорции». Только у смеси: у сборки пропорций нет вовсе, и премия там была бы
-прибавкой из воздуха.
+**Craft premium.** `quality.hand_craft_bonus` is "up to +10 for hitting the
+proportions exactly". Only for a mix: an assembly has no proportions at all, and
+the premium there would be a bonus out of thin air.
 
-Ни одного числа сверх вольта здесь не появилось. Не хватает величины — её
-заводят в `data/constants.yaml`, а не в код (D-065).
+Not one number beyond the vault appeared here. If a quantity is missing, it is
+added to `data/constants.yaml`, not to code (D-065).
 
-## Чего здесь пока нет
+## What is not here yet
 
-* **Блюда по ролям** (`roles: true`) — приезжают с готовкой на Э2 (D-119,
-  D-128) вместе с `cook.*`;
-* **Автоматический станок** — на Э2.5 вместе с энергией (D-035), тогда же
-  включится `craft.auto_speed_k`;
-* **Изобретение, ремонт и переработка** — отдельные действия реестра со своими
-  константами.
+* **Dishes by roles** (`roles: true`) -- arrive with cooking on E2 (D-119,
+  D-128) together with `cook.*`;
+* **Automatic machine** -- on E2.5 together with energy (D-035), when
+  `craft.auto_speed_k` switches on;
+* **Invention, repair and recycling** -- separate registry actions with their
+  own constants.
 """
 
 from __future__ import annotations
@@ -98,11 +101,11 @@ class CraftError(Exception):
 
 
 class NotLearned(CraftError):
-    """Рецепта нет в личности. Знание берётся в Библиотеке бесплатно (D-053)."""
+    """The recipe is not in the identity. Knowledge is taken in the Library for free (D-053)."""
 
 
 class NoStation(CraftError):
-    """Станка нет в узле. Требование места и делает крафт градообразующим."""
+    """The machine is not in the node. The place requirement is what makes craft city-forming."""
 
 
 class NoTool(CraftError):
@@ -110,91 +113,95 @@ class NoTool(CraftError):
 
 
 class NoLibrary(CraftError):
-    """Библиотеки в узле нет. Единственное её ограничение — географическое."""
+    """No library in the node. Its only restriction is geographic."""
 
 
 class NotEnough(CraftError):
-    """Не хватает входов. Материя не создаётся (И1)."""
+    """Not enough inputs. Matter is not created (I1)."""
 
 
 class NoStrength(CraftError):
-    """Сил не хватает. Работа платится телом, а не только материалами (D-148)."""
+    """Not enough strength. Work is paid with the body, not only with materials (D-148)."""
 
 
 class Busy(CraftError):
-    """Станок занят другим работником. Мест столько, сколько станков (D-150)."""
+    """The machine is taken by another worker. As many places as machines (D-150)."""
 
 
 class CutOff(CraftError):
-    """Узел отключён за неуплату: станки не работают, пока долг не закрыт (D-149)."""
+    """The node is disconnected for non-payment: machines do not work until the debt is settled
+    (D-149)."""
 
 
 class Unmakeable(CraftError):
-    """Так не делают: нет такого способа, либо механика ещё не приехала."""
+    """Not done that way: no such method, or the mechanic has not arrived yet."""
 
 
 class TooBig(CraftError):
-    """Партия больше `craft.batch_max`."""
+    """The batch is larger than `craft.batch_max`."""
 
 
 class NotIngredient(CraftError):
-    """В роль положили несъедобное. Что продукт — решают данные (16-cooking)."""
+    """Something inedible was put in a role. What counts as a product is decided by data
+    (16-cooking)."""
 
 
-#: Станция «Руками» из `build/recipes.json` — это отсутствие станка, а не станок.
+#: The "By hand" station from `build/recipes.json` is the absence of a machine, not a machine.
 HANDS = "Руками"
 
-#: «Стройка» — тоже не станок, а работа на месте (D-158). Предмета с таким
-#: именем в данных вольта нет и быть не может: так помечено всё, что собирают
-#: на участке, — от дорожного полотна до мастерской. Требовать под это станок
-#: значило бы запретить целое семейство рецептов, что и было до D-158.
+#: "Construction" is not a machine either but on-site work (D-158). There is
+#: and cannot be an item with that name in the vault data: it marks everything
+#: assembled on a plot -- from road surface to a workshop. Requiring a machine
+#: for it would forbid a whole family of recipes, which is what happened
+#: before D-158.
 SITE = "Стройка"
 
-#: Что читается как «станка не нужно». Список из двух, и оба — из данных.
+#: What reads as "no machine needed". A list of two, both from data.
 BENCHLESS = (HANDS, SITE)
 
-#: Автоматический станок (D-035, D-058). Промышленный уклад: работает вдвое
-#: быстрее, потолок задаёт он сам, инструмент ему не нужен, результат ровный —
-#: и за это он ест энергию из городского пула по тарифу.
+#: Automatic machine (D-035, D-058). The industrial mode: works twice as fast,
+#: sets the ceiling itself, needs no tool, gives an even result -- and for that
+#: it eats energy from the city pool at the tariff.
 #:
-#: Какие переделы автоматизируются, вольт не перечисляет, поэтому автомат
-#: подставляется вместо любого станка рецепта — по решению самого мастера, а
-#: не молча: «поставить на автомат» это выбор между качеством и объёмом.
+#: The vault does not list which processes are automated, so the automaton is
+#: substituted for any recipe machine -- by the master's own decision, not
+#: silently: "put on automatic" is a choice between quality and volume.
 AUTO_BENCH = "Автоматический станок"
 
 
 @dataclass(frozen=True, slots=True)
 class Procedure:
-    """Способ что-то изготовить: рецепт либо операция без рецепта.
+    """A way to make something: a recipe, or an operation without a recipe.
 
-    Дальше движку безразлично, откуда способ взялся, — кроме одного: рецепт
-    требует знания, операция не требует его никогда (20-systems/03-crafting).
+    From here on the engine does not care where the method came from -- except
+    for one thing: a recipe requires knowledge, an operation never does
+    (20-systems/03-crafting).
     """
 
     output: str
-    #: Имя станка либо None, если делается руками.
+    #: Machine name, or None if done by hand.
     station: str | None
-    #: Что должно быть в руках: имя предмета либо класс инструмента.
+    #: What must be in the hands: an item name or a tool class.
     tools: tuple[str, ...]
     inputs: tuple[str, ...]
-    #: Сколько чего на единицу выхода.
+    #: How much of what per unit of output.
     per_unit: dict[str, float]
-    #: Собственное время передела, часов на единицу.
+    #: Own processing time, hours per unit.
     step_hours: float
-    #: Смесь: состав задан пропорцией, и точность попадания влияет на качество.
+    #: Mix: composition is given as a proportion, and hit accuracy affects quality.
     mix: bool
     needs_recipe: bool
-    #: Свойство узла, где способ возможен (D-177): «Рубка дерева» → `лес`.
-    #: Пусто — способ не привязан к месту.
+    #: Node property where the method is possible (D-177): "Felling" -> `forest`.
+    #: Empty -- the method is not tied to a place.
     place: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class Plan:
-    """Прогноз партии — то, что игрок видит **до** того, как потрачены материалы.
+    """Batch forecast -- what the player sees **before** materials are spent.
 
-    Качество показано точным числом: без него игрок не свяжет действие с
-    результатом и не выведет ни одной пропорции (D-092).
+    Quality is shown as an exact number: without it the player cannot connect
+    action with result and will not derive a single proportion (D-092).
     """
 
     output: str
@@ -202,23 +209,23 @@ class Plan:
     quality: float
     spread: float
     ceiling: float
-    #: Точность попадания в пропорцию, 0…1. У сборки всегда 1: пропорций нет.
+    #: Proportion hit accuracy, 0..1. Always 1 for an assembly: no proportions.
     accuracy: float
-    #: Доля потерь на угар и брак, процентов от входов.
+    #: Loss share for waste and scrap, percent of inputs.
     waste: float
     minutes: float
     consumes: dict[str, float] = field(default_factory=dict)
-    #: Промышленный уклад: партия идёт на автомате (D-035, D-058).
+    #: Industrial mode: the batch runs on the automaton (D-035, D-058).
     auto: bool = False
-    #: Сколько энергии съест автомат за партию и во что это обойдётся по
-    #: тарифу города. У ручной партии — ноль: верстак не потребляет ничего.
+    #: How much energy the automaton eats per batch and what that costs at the
+    #: city tariff. Zero for a manual batch: a workbench consumes nothing.
     energy: float = 0.0
     energy_cost: int = 0
 
 
 @dataclass(frozen=True, slots=True)
 class _Pick:
-    """Стопка, из которой берут, и сколько именно берут."""
+    """The stack taken from, and exactly how much is taken."""
 
     item: Item
     take: int
@@ -226,7 +233,7 @@ class _Pick:
 
 @dataclass(frozen=True, slots=True)
 class _Ready:
-    """Разобранная заявка на партию: прогноз плюс то, что под него отложено."""
+    """A parsed batch request: the forecast plus what was set aside for it."""
 
     plan: Plan
     picks: tuple[_Pick, ...]
@@ -234,11 +241,11 @@ class _Ready:
     auto: bool = False
 
 
-# --- способ изготовления ----------------------------------------------------
+# --- method of making ---------------------------------------------------------
 
 
 def procedure(catalog: Catalog, output: str) -> Procedure:
-    """Найти способ изготовить `output` — сперва среди рецептов, потом операций."""
+    """Find a way to make `output` -- first among recipes, then operations."""
     book = catalog.recipes
     name = book.resolve(output)
     found = next((recipe for recipe in book.recipes if recipe.name == name), None)
@@ -262,9 +269,9 @@ def _from_recipe(catalog: Catalog, recipe: Recipe) -> Procedure:
     book = catalog.recipes
     return Procedure(
         output=recipe.name,
-        #: Станок тоже ходит через синонимы: в рецептах он зовётся «Печью», а
-        #: в узле стоит «Плавильная печь». Без разрешения имени вся химия и
-        #: аффинаж оказывались неизготовимы — станка с таким именем нет нигде.
+        #: The machine also goes through synonyms: recipes call it "Furnace",
+        #: while in the node stands a "Smelting furnace". Without name resolution
+        #: all chemistry and refining were unmakeable -- no machine has that name.
         station=None if recipe.station in (None, *BENCHLESS) else book.resolve(recipe.station),
         tools=(),
         inputs=tuple(book.resolve(name) for name in recipe.inputs),
@@ -280,8 +287,9 @@ def _from_operation(catalog: Catalog, operation: Operation, output: str) -> Proc
     per_unit = {
         book.resolve(name): value for name, value in operation.amounts.get(output, {}).items()
     }
-    #: Операция без расходов — добыча. С полем `place` это добыча места (D-177):
-    #: рубка леса идёт партией без входов. Без поля — чужая механика (жила).
+    #: An operation without spends is extraction. With a `place` field it is
+    #: place extraction (D-177): felling runs as a batch without inputs.
+    #: Without the field it is somebody else's mechanic (a vein).
     if not per_unit and operation.place is None:
         raise Unmakeable(
             f"операция «{operation.name}» ничего не расходует: это добыча, а не крафт"
@@ -294,7 +302,7 @@ def _from_operation(catalog: Catalog, operation: Operation, output: str) -> Proc
         if book.tools_of_class(canonical):
             tools.append(canonical)
         elif book.is_raw(canonical):
-            #: «Жила» в требованиях добычи — не оборудование, а сама механика.
+            #: "Vein" in extraction requirements is not equipment but the mechanic itself.
             continue
         elif book.recipe(canonical).kind is ItemKind.STATION:
             station = canonical
@@ -315,10 +323,11 @@ def _from_operation(catalog: Catalog, operation: Operation, output: str) -> Proc
 
 
 def step_hours(catalog: Catalog, recipe: Recipe) -> float:
-    """Собственное время передела: трудоёмкость изделия минус труд его входов.
+    """Own processing time: the product's labour minus the labour of its inputs.
 
-    Вольт уже свёл сюда и `craft.time_per_unit`, и рост от глубины передела
-    (D-133). Выводить их заново значило бы держать вторую копию формулы.
+    The vault has already folded `craft.time_per_unit` and growth by processing
+    depth into this (D-133). Re-deriving them would mean keeping a second copy
+    of the formula.
     """
     book = catalog.recipes
     spent = sum(value * book.labor_of(name) for name, value in recipe.amounts.items())
@@ -333,9 +342,9 @@ def batch_minutes(
     *,
     auto: bool = False,
 ) -> float:
-    """Сколько идёт партия. Разбитая наковальня работает медленно.
+    """How long a batch takes. A broken anvil works slowly.
 
-    Автомат берёт объёмом: `craft.auto_speed_k` — во столько раз он быстрее.
+    The automaton wins on volume: `craft.auto_speed_k` -- that many times faster.
     """
     speed = constants[R.CRAFT_STATION_SPEED_K]
     scale = constants[R.QUALITY_SCALE]
@@ -344,15 +353,15 @@ def batch_minutes(
     return minutes / constants[R.CRAFT_AUTO_SPEED_K] if auto else minutes
 
 
-# --- качество ---------------------------------------------------------------
+# --- quality -----------------------------------------------------------------
 
 
 def optimal_amounts(
     constants: Constants, proc: Procedure, units: float, base_quality: float
 ) -> dict[str, float]:
-    """Оптимальная пропорция для **этого** сырья.
+    """The optimal proportion for **this** raw material.
 
-    У сборки её нет: верстак — это бревно и верёвка, третьего не дано.
+    An assembly has none: a workbench is a log and a rope, nothing in between.
     """
     nominal = {name: value * units for name, value in proc.per_unit.items()}
     if not proc.mix or not proc.inputs:
@@ -367,7 +376,7 @@ def optimal_amounts(
 
 
 def ratio_accuracy(actual: dict[str, float], optimal: dict[str, float]) -> float:
-    """Насколько попали в пропорцию: 1 — точно, 0 — мимо совсем."""
+    """How well the proportion was hit: 1 -- exactly, 0 -- missed entirely."""
     errors = [
         abs(actual.get(name, 0.0) - want) / want for name, want in optimal.items() if want > 0
     ]
@@ -377,11 +386,11 @@ def ratio_accuracy(actual: dict[str, float], optimal: dict[str, float]) -> float
 
 
 def waste_share(constants: Constants, accuracy: float) -> float:
-    """Потери на угар и брак, процентов от входов.
+    """Losses for waste and scrap, percent of inputs.
 
-    Порога «попал / не попал» в вольте нет, поэтому потери идут по точности
-    непрерывно: от `craft.waste_share` при верной работе до
-    `craft.waste_bad_ratio` при полном промахе.
+    There is no "hit / miss" threshold in the vault, so losses follow accuracy
+    continuously: from `craft.waste_share` for correct work to
+    `craft.waste_bad_ratio` for a complete miss.
     """
     good = constants[R.CRAFT_WASTE_SHARE]
     bad = constants[R.CRAFT_WASTE_BAD_RATIO]
@@ -389,7 +398,7 @@ def waste_share(constants: Constants, accuracy: float) -> float:
 
 
 def spread_of(constants: Constants, accuracy: float) -> float:
-    """Разброс результата: узкий при верных пропорциях, широкий при промахе."""
+    """Result spread: narrow with correct proportions, wide on a miss."""
     good = constants[R.QUALITY_SPREAD_GOOD_RATIO]
     bad = constants[R.QUALITY_SPREAD_BAD_RATIO]
     return good + (bad - good) * (1 - accuracy)
@@ -404,7 +413,7 @@ def forecast_quality(
     accuracy: float,
     auto: bool = False,
 ) -> float:
-    """Прогноз качества: потолок и то, насколько близко к нему подошли."""
+    """Quality forecast: the ceiling and how close to it we came."""
     scale = constants[R.QUALITY_SCALE]
     if proc.mix:
         closeness = (
@@ -414,9 +423,10 @@ def forecast_quality(
     else:
         closeness = material
     value = ceiling * closeness / scale.max
-    #: Премия ремесла: мастер видит, что руда сегодня хуже обычной, и меняет
-    #: пропорции под неё. Станок работает по своей настройке всегда (15-quality),
-    #: поэтому автомату премия не полагается — в этом и всё различие укладов.
+    #: Craft premium: the master sees today's ore is worse than usual and
+    #: adjusts proportions for it. A machine always works by its setting
+    #: (15-quality), so the automaton gets no premium -- that is the whole
+    #: difference between the modes.
     if proc.mix and not auto:
         value += constants[R.QUALITY_HAND_CRAFT_BONUS] * accuracy
     return scale.clamp(min(value, quality_cap(constants, proc, ceiling, auto=auto)))
@@ -425,7 +435,7 @@ def forecast_quality(
 def quality_cap(
     constants: Constants, proc: Procedure, ceiling: float, *, auto: bool = False
 ) -> float:
-    """Выше потолка поднимает только премия ремесла, и только у смеси."""
+    """Only the craft premium rises above the ceiling, and only for a mix."""
     scale = constants[R.QUALITY_SCALE]
     bonus = (
         constants[R.QUALITY_HAND_CRAFT_BONUS] if proc.mix and not auto else 0.0
@@ -433,7 +443,7 @@ def quality_cap(
     return min(scale.max, ceiling + bonus)
 
 
-# --- партия -----------------------------------------------------------------
+# --- batch -------------------------------------------------------------------
 
 
 async def plan(
@@ -448,7 +458,7 @@ async def plan(
     proportions: dict[str, float] | None = None,
     auto: bool = False,
 ) -> Plan:
-    """Прогноз до партии. Ничего не меняет и ничего не резервирует."""
+    """Forecast before a batch. Changes nothing and reserves nothing."""
     ready = await _prepare(
         session,
         constants,
@@ -476,7 +486,7 @@ async def start(
     auto: bool = False,
     now: datetime | None = None,
 ) -> CraftBatch:
-    """Запустить партию: вход списывается сразу, изделие приходит по сроку."""
+    """Start a batch: the input is written off at once, the product arrives on schedule."""
     moment = now or datetime.now(UTC)
     ready = await _prepare(
         session,
@@ -491,8 +501,8 @@ async def start(
     )
     forecast = ready.plan
 
-    #: Энергия автомата списывается вперёд, как и материалы: город отпускает
-    #: её по тарифу, и платит тот, кто жжёт (D-085, D-135).
+    #: The automaton's energy is written off up front, like materials: the city
+    #: releases it at the tariff, and whoever burns it pays (D-085, D-135).
     if forecast.energy > 0:
         from src.engine import energy as power
 
@@ -536,8 +546,8 @@ async def start(
         spent=forecast.consumes,
         waste=forecast.waste,
     )
-    #: Партия — обычное задание журнала: переживает перезапуск процесса и
-    #: выполняется ровно один раз (01-tech-notes, паттерн 1).
+    #: A batch is an ordinary journal job: it survives a process restart and
+    #: runs exactly once (01-tech-notes, pattern 1).
     await enqueue(
         session,
         JobKind.CRAFT_BATCH,
@@ -550,8 +560,8 @@ async def start(
     return batch
 
 
-#: Класс утвари из `build/recipes.json`: горшок и котёл задают потолок наравне
-#: с очагом (D-119). Утварь — инструмент, а не тара.
+#: Utensil class from `build/recipes.json`: pot and cauldron set the ceiling
+#: alongside the hearth (D-119). A utensil is a tool, not a container.
 UTENSILS = "Утварь"
 
 
@@ -565,22 +575,23 @@ async def cook(
     *,
     now: datetime | None = None,
 ) -> CraftBatch:
-    """Сварить котёл: `cook.pot_portions` порций разом, поток, а не заказ.
+    """Cook a pot: `cook.pot_portions` portions at once, a flow rather than an order.
 
-    Состав задан ролями (D-119): в роль кладут продукт, какой достали, по
-    одной единице на котёл. Качество — по D-128, дословно:
+    The composition is given by roles (D-119): into a role goes whatever product
+    was found, one unit per pot. Quality per D-128, verbatim:
 
-        потолок  = min(качество очага, качество утвари)
-        основа   = Σ(качество входа × вес роли) ÷ Σ(весов закрытых ролей)
-        качество = потолок × основа/100 × (1 − штраф × число пустых ролей)
+        ceiling  = min(hearth quality, utensil quality)
+        base     = sum(input quality * role weight) / sum(weights of filled roles)
+        quality  = ceiling * base/100 * (1 - penalty * number of empty roles)
 
-    Незакрытая роль бьёт сильнее плохого продукта: дешёвый жир лучше, чем
-    никакого жира. Сочетание решает **вид** блюда, а не качество — по виду
-    работает разнообразие рациона, никакой таблицы совместимости нет.
+    An unfilled role hurts more than a bad product: cheap fat is better than
+    no fat. The combination decides the dish's **kind**, not its quality --
+    dietary variety works by kind, there is no compatibility table.
 
-    Что вообще продукт — решают данные: съедобные рецепты и список `edible`
-    вольта. Годность конкретной роли — тоже содержание, но его пока нет:
-    продукт идёт в любую роль, а кирка не идёт ни в какую (16-cooking).
+    What counts as a product at all is decided by data: edible recipes and the
+    vault's `edible` list. Suitability for a specific role is content too, but
+    it does not exist yet: a product goes into any role, a pickaxe into none
+    (16-cooking).
     """
     moment = now or datetime.now(UTC)
     if body.state is not BodyState.ALIVE:
@@ -593,7 +604,7 @@ async def cook(
     if not await _knows(session, body, recipe.name):
         raise NotLearned(f"рецепт {recipe.name!r} не скопирован в личность")
 
-    #: Роли — из констант вольта, с весами. Лишняя роль в заявке — ошибка.
+    #: Roles come from vault constants, with weights. An extra role in the request is an error.
     weights = constants[R.COOK_ROLE_WEIGHTS]
     unknown = set(filling) - set(weights)
     if unknown:
@@ -613,7 +624,7 @@ async def cook(
     tools = await _tool_items(session, catalog, body, proc, None)
     ceiling = min(wear.effective(constants, item) for item in [station, *tools])
 
-    #: В каждую закрытую роль идёт единица продукта на котёл целиком.
+    #: Into each filled role goes one unit of product per whole pot.
     pocket = await body_container(session, body)
     scale = constants[R.QUALITY_SCALE]
     one = amount(1)
@@ -662,8 +673,9 @@ async def cook(
         quality=_num(quality),
         spread=_num(constants[R.QUALITY_SPREAD_GOOD_RATIO]),
         spent=consumed,
-        #: Вид решает сочетание: «похлёбка · бобы, овощи» и «похлёбка · репа» —
-        #: разные блюда для рациона, хоть рецепт один (D-060 не нарушен).
+        #: The combination decides the kind: "stew - beans, vegetables" and
+        #: "stew - turnip" are different dishes for the diet, though the recipe
+        #: is one (D-060 not violated).
         flavor=f"{recipe.name} · {', '.join(sorted(products))}",
         roles_filled=_num(len(products) / len(weights)),
         ready_at=moment + timedelta(minutes=minutes),
@@ -705,15 +717,15 @@ async def repair(
     *,
     now: datetime | None = None,
 ) -> CraftBatch:
-    """Починить вещь.
+    """Repair a thing.
 
-    Ремонт возвращает состояние, но **снижает потолок**: после починки состояние
-    уже не поднимется до прежнего максимума. Так вещь остаётся конечной (столп
-    П2), а починка — осмысленным выбором между «дёшево сейчас» и «дорого, зато
-    новое» (15-quality).
+    Repair restores condition but **lowers the ceiling**: after a repair the
+    condition no longer rises to the previous maximum. So the thing stays
+    finite (pillar P2), and repair a meaningful choice between "cheap now" and
+    "expensive but new" (15-quality).
 
-    Стоит `craft.repair_cost_share` от новой вещи — и материалами, и временем:
-    вольт даёт одну долю, и второй здесь взяться неоткуда.
+    Costs `craft.repair_cost_share` of a new thing -- in materials and in time:
+    the vault gives one share, and there is nowhere for a second one to come from.
     """
     share = constants[R.CRAFT_REPAIR_COST_SHARE] / PERCENT
     return await _work_on(
@@ -730,11 +742,12 @@ async def recycle(
     *,
     now: datetime | None = None,
 ) -> CraftBatch:
-    """Разобрать вещь на часть материалов.
+    """Take a thing apart for part of the materials.
 
-    Возврат всегда меньше вложенного, разница — сток (20-systems/03). Качество
-    переходит на материалы долей `quality.recycle_carryover`: разобранная
-    хорошая вещь даёт сырьё получше, но хуже, чем было.
+    The return is always less than invested, the difference is a sink
+    (20-systems/03). Quality carries over to the materials by
+    `quality.recycle_carryover`: a good thing taken apart gives better raw
+    material, but worse than it was.
     """
     from src.engine import coin
 
@@ -751,12 +764,12 @@ async def recycle(
 
 @handler(JobKind.CRAFT_BATCH)
 async def finish(session: AsyncSession, job: Job) -> None:
-    """Работа окончена: изделия, починенная вещь либо горсть материалов."""
+    """Work is done: products, a repaired thing, or a handful of materials."""
     batch = await session.get(CraftBatch, uuid.UUID(job.payload["batch"]))
-    if batch is None:  # pragma: no cover — задание без партии это баг
+    if batch is None:  # pragma: no cover -- a job without a batch is a bug
         raise CraftError(f"задание {job.id}: партии нет")
     if batch.state is not BatchState.RUNNING:
-        #: Задание могло повториться после сбоя — второй партии из этого не выйдет.
+        #: The job may have repeated after a failure -- no second batch comes of it.
         return
 
     constants, catalog = current(), current_catalog()
@@ -765,8 +778,8 @@ async def finish(session: AsyncSession, job: Job) -> None:
     if body is None or node is None:  # pragma: no cover
         raise CraftError(f"партия {batch.id} ссылается в никуда")
 
-    #: Мастер стоит у станка — забирает сам; ушёл или погиб — сделанное остаётся
-    #: у станка. Материя не исчезает вместе с тем, кто её заказал.
+    #: The master stands at the machine -- takes it themselves; left or died --
+    #: the output stays at the machine. Matter does not vanish with whoever ordered it.
     at_bench = body.state is BodyState.ALIVE and body.node_id == batch.node_id
     where = (
         await body_container(session, body) if at_bench else await node_container(session, node)
@@ -780,7 +793,7 @@ async def finish(session: AsyncSession, job: Job) -> None:
         made = await _finish_make(session, constants, catalog, batch, body, where, job.run_at)
 
     await _wear_station(session, constants, batch)
-    #: Работа кончилась — станок свободен и ждёт следующего (D-150).
+    #: The work is over -- the machine is free and waits for the next (D-150).
     await _release(session, batch.station_item_id)
 
     batch.state = BatchState.DONE
@@ -809,24 +822,26 @@ async def _finish_make(
     where: Container,
     moment: datetime,
 ) -> list[float]:
-    """Партия: изделия с клеймом и разбросом качества вокруг обещанного."""
-    #: Зерно от партии: повтор задания после сбоя даёт то же самое, а не новый
-    #: бросок. Разброс — свойство партии, а не удача воркера.
+    """The batch: products with a mark and a quality spread around the promised value."""
+    #: The seed comes from the batch: a job retry after a failure gives the
+    #: same thing, not a new roll. Spread is a property of the batch, not the
+    #: worker's luck.
     noise = random.Random(str(batch.id))
     scale = constants[R.QUALITY_SCALE]
     spread = float(batch.spread)
     units = amount_float(batch.units)
 
-    #: У монеты качества нет вовсе: её описывает проба, и приходит она с
-    #: партии вместе с клеймом чеканщика (D-016).
+    #: A coin has no quality at all: fineness describes it, and it comes off the
+    #: batch together with the minter's mark (D-016).
     from src.engine import coin
 
-    монета = coin.is_coin(catalog, batch.output)
+    coin_ = coin.is_coin(catalog, batch.output)
 
-    #: Еда получает срок жизни при изготовлении: готовое из котла портится в
-    #: `cook.spoilage_multiplier` раз быстрее, сухое — с базовой скоростью.
-    #: Выход операции (слиток, щебень) рецептом не описан вовсе — и это норма,
-    #: а не повод уронить партию: плавка идёт без рецепта (20-systems/03).
+    #: Food gets a shelf life at making: cooked from the pot spoils
+    #: `cook.spoilage_multiplier` times faster, dry at the base speed. An
+    #: operation's output (ingot, gravel) has no recipe at all -- and that is
+    #: normal, not a reason to drop the batch: smelting runs without a recipe
+    #: (20-systems/03).
     try:
         recipe = catalog.recipes.recipe(batch.output)
     except ConstantError:
@@ -844,13 +859,13 @@ async def _finish_make(
     made: list[float] = []
     for piece in _pieces(catalog, batch.output, units):
         quality = scale.clamp(float(batch.quality) + noise.uniform(-spread, spread))
-        made.append(float(batch.fineness) if монета else quality)
+        made.append(float(batch.fineness) if coin_ else quality)
         session.add(
             Item(
                 container_id=where.id,
                 type_key=batch.output,
                 amount=amount(piece),
-                quality=None if монета else _num(quality),
+                quality=None if coin_ else _num(quality),
                 fineness=batch.fineness,
                 maker_identity_id=body.identity_id,
                 made_at=moment,
@@ -866,11 +881,11 @@ async def _finish_make(
 async def _finish_repair(
     session: AsyncSession, constants: Constants, batch: CraftBatch
 ) -> list[float]:
-    """Починка: состояние вернулось, потолок опустился."""
+    """Repair: condition came back, the ceiling dropped."""
     item = await _target(session, batch)
     scale = constants[R.QUALITY_SCALE]
-    #: `quality.repair_ceiling_loss` задан отрицательным — складываем, а не
-    #: вычитаем: знак принадлежит вольту, а не движку.
+    #: `quality.repair_ceiling_loss` is given negative -- we add rather than
+    #: subtract: the sign belongs to the vault, not the engine.
     cap = scale.clamp(float(item.condition_cap) + constants[R.QUALITY_REPAIR_CEILING_LOSS])
     item.condition_cap = _num(cap)
     item.condition = _num(cap)
@@ -885,11 +900,11 @@ async def _finish_recycle(
     batch: CraftBatch,
     where: Container,
 ) -> list[float]:
-    """Переработка: вещи больше нет, а материалы вернулись не все."""
+    """Recycling: the thing is gone, and not all materials came back."""
     from src.engine import coin
 
-    #: Монета плавится по своей пробе, а не по норме рецепта: в испорченной
-    #: металла ровно столько, сколько в неё положили (D-016).
+    #: A coin melts by its fineness, not by the recipe norm: a spoiled one has
+    #: exactly as much metal as was put into it (D-016).
     if coin.is_coin(catalog, batch.output):
         return await coin.finish_melt(session, constants, catalog, batch, where)
 
@@ -942,10 +957,10 @@ async def _work_on(
     *,
     now: datetime | None,
 ) -> CraftBatch:
-    """Общий ход починки и переработки: обе — работа над готовой вещью.
+    """The common flow of repair and recycling: both are work on a finished thing.
 
-    Обе идут у того же станка, что и изготовление: разбирают и чинят там же,
-    где делают.
+    Both go at the same machine as making: things are taken apart and repaired
+    where they are made.
     """
     moment = now or datetime.now(UTC)
     if body.state is not BodyState.ALIVE:
@@ -1015,19 +1030,19 @@ async def _work_on(
 async def copy_recipe(
     session: AsyncSession, catalog: Catalog, body: Body, key: str
 ) -> Knowledge | None:
-    """Скопировать рецепт из Библиотеки.
+    """Copy a recipe from the Library.
 
-    Бесплатно деньгами, без условий и без гражданства — и **не работает
-    удалённо**: единственное ограничение Библиотеки географическое (D-053).
+    Free of money, unconditional and without citizenship -- and **does not work
+    remotely**: the Library's only restriction is geographic (D-053).
 
-    Но не даром: копирование стоит `craft.copy_stamina` выносливости (D-148).
-    Платит тело, а не счёт, — и знание остаётся общественным благом, переставая
-    при этом быть кнопкой «выучить весь список за один заход».
+    But not for nothing: copying costs `craft.copy_stamina` stamina (D-148).
+    The body pays, not the account -- and knowledge stays a public good while no
+    longer being a "learn the whole list in one go" button.
     """
     constants = current()
     await travel.require_here(session, body)
     node = await session.get(Node, body.node_id)
-    #: Библиотека — станок (D-176): рецепты берут там, где он стоит.
+    #: The library is a machine (D-176): recipes are taken where it stands.
     if node is None or not await world_engine.is_library(session, node):
         raise NoLibrary("Библиотека не работает удалённо: за знанием надо прийти")
 
@@ -1036,22 +1051,22 @@ async def copy_recipe(
     if identity is None:  # pragma: no cover
         raise CraftError("тело без личности")
 
-    #: Уже известное не переписывают: за одно и то же тело не платит дважды.
+    #: What is already known is not rewritten: the same body does not pay twice.
     if await _knows(session, body, recipe.name):
         return None
 
-    расход = constants[R.CRAFT_COPY_STAMINA]
-    if расход > float(body.stamina):
+    spend = constants[R.CRAFT_COPY_STAMINA]
+    if spend > float(body.stamina):
         raise NoStrength(
-            f"на переписывание нужно {расход:.0f} выносливости, а есть "
+            f"на переписывание нужно {spend:.0f} выносливости, а есть "
             f"{float(body.stamina):.1f}: знание бесплатно, но работа — нет"
         )
-    body.stamina = Decimal(str(float(body.stamina) - расход))
+    body.stamina = Decimal(str(float(body.stamina) - spend))
     await session.flush()
     return await learn(session, identity, recipe.name)
 
 
-# --- внутреннее -------------------------------------------------------------
+# --- internal ----------------------------------------------------------------
 
 
 async def _prepare(
@@ -1066,11 +1081,11 @@ async def _prepare(
     proportions: dict[str, float] | None,
     auto: bool = False,
 ) -> _Ready:
-    """Общий ход прогноза и запуска.
+    """The common flow of forecast and start.
 
-    Одна функция на оба случая намеренно: прогноз, посчитанный не тем же кодом,
-    что и партия, рано или поздно разойдётся с ней — и обещание «игрок видит
-    точное число до партии» перестанет быть правдой (D-092).
+    One function for both cases deliberately: a forecast computed by code other
+    than the batch's will sooner or later diverge from it -- and the promise
+    "the player sees the exact number before the batch" stops being true (D-092).
     """
     if body.state is not BodyState.ALIVE:
         raise CraftError("мёртвое тело не работает")
@@ -1086,22 +1101,22 @@ async def _prepare(
     if proc.needs_recipe and not await _knows(session, body, proc.output):
         raise NotLearned(f"рецепт {proc.output!r} не скопирован в личность")
 
-    #: Добыча места (D-177): идёт там, где у узла есть названное свойство, и
-    #: только на своей либо ничьей земле — чужой лес принадлежит хозяину.
+    #: Place extraction (D-177): runs where the node has the named property,
+    #: and only on own or unowned land -- somebody else's forest belongs to its owner.
     if proc.place is not None:
         node = await session.get(Node, body.node_id)
         if node is None or not (node.properties or {}).get(proc.place):
             raise CraftError(f"здесь нет: {proc.place}")
-        чужой = (
+        foreign = (
             node.owner_identity_id is not None
             and node.owner_identity_id != body.identity_id
         ) or (node.owner_identity_id is None and node.owner_city_id is not None)
-        if чужой:
+        if foreign:
             raise CraftError(f"{proc.place} на чужой земле: рубить может хозяин")
 
     if auto:
-        #: Промышленный уклад: потолок задаёт станок, инструмент не нужен вовсе,
-        #: пропорции — его настройка, а не решение мастера (D-058).
+        #: Industrial mode: the machine sets the ceiling, no tool is needed at
+        #: all, proportions are its setting, not the master's decision (D-058).
         station = await _named_station(session, body, AUTO_BENCH)
         tools: list[Item] = []
     else:
@@ -1109,8 +1124,8 @@ async def _prepare(
         tools = await _tool_items(session, catalog, body, proc, tool_item_id)
 
     scale = constants[R.QUALITY_SCALE]
-    #: Ограничивает **действующее** качество: разбитая наковальня даёт худший
-    #: результат, а не только внезапно ломается (`engine.wear`).
+    #: Limits **effective** quality: a broken anvil gives a worse result, not
+    #: just breaks suddenly (`engine.wear`).
     limiters = [wear.effective(constants, item) for item in [station, *tools] if item is not None]
     ceiling = min(limiters) if limiters else scale.max
 
@@ -1123,30 +1138,30 @@ async def _prepare(
         if proportions and not auto
         else {name: value * units for name, value in proc.per_unit.items()}
     )
-    #: У автомата пропорция — его настройка, сделанная однажды: он работает по
-    #: норме рецепта всегда и потому попадает в неё ровно (D-058).
+    #: For the automaton the proportion is its setting, made once: it always
+    #: works by the recipe norm and therefore hits it exactly (D-058).
     accuracy = 1.0 if auto or not proc.mix else ratio_accuracy(actual, optimal)
 
     waste = waste_share(constants, accuracy)
-    #: Угар — доля **входов**, поэтому он берётся сверх нормы, а не из выхода:
-    #: партия из десяти гвоздей не даёт девять с половиной гвоздей.
+    #: Waste is a share of the **inputs**, so it is taken on top of the norm,
+    #: not out of the output: a batch of ten nails does not give nine and a half nails.
     required = {name: value / (1 - waste / PERCENT) for name, value in actual.items()}
 
     picks = _pick(stock, required)
     minutes = batch_minutes(
         constants, proc, units, wear.effective(constants, station), auto=auto
     )
-    #: Автомат ест энергию за время работы. Ручной верстак не потребляет
-    #: ничего: ремесло остаётся доступным тому, у кого нет денег на счета.
+    #: The automaton eats energy for its working time. A manual workbench
+    #: consumes nothing: craft stays available to those with no money for bills.
     from src.engine import energy as power
 
-    энергии = (
+    energy = (
         constants[R.ENERGY_AUTO_BENCH_DRAW] * minutes / MINUTES_PER_HOUR if auto else 0.0
     )
-    цена_энергии = 0
-    if энергии > 0:
+    energy_price = 0
+    if energy > 0:
         node = await session.get(Node, body.node_id)
-        цена_энергии = await power.price_of(session, constants, node, энергии)
+        energy_price = await power.price_of(session, constants, node, energy)
 
     forecast = Plan(
         output=proc.output,
@@ -1166,8 +1181,8 @@ async def _prepare(
         minutes=minutes,
         consumes=dict(required),
         auto=auto,
-        energy=энергии,
-        energy_cost=цена_энергии,
+        energy=energy,
+        energy_cost=energy_price,
     )
     return _Ready(plan=forecast, picks=tuple(picks), station=station, auto=auto)
 
@@ -1182,27 +1197,27 @@ async def _knows(session: AsyncSession, body: Body, key: str) -> bool:
 
 
 async def _named_station(session: AsyncSession, body: Body, name: str) -> Item:
-    """Станок с этим именем в узле, лучший из свободных."""
+    """The machine with this name in the node, the best of the free ones."""
     return await _pick_station(session, body, name)
 
 
 async def _station_item(session: AsyncSession, body: Body, proc: Procedure) -> Item | None:
-    """Станок стоит в узле — именно это делает крафт градообразующим."""
+    """The machine stands in the node -- exactly this makes craft city-forming."""
     if proc.station is None:
         return None
     return await _pick_station(session, body, proc.station)
 
 
 async def _pick_station(session: AsyncSession, body: Body, name: str) -> Item:
-    """Лучший **свободный** станок с этим именем в узле (D-150).
+    """The best **free** machine with this name in the node (D-150).
 
-    Станок занимает один работник: пока идёт партия, второму он не отдаётся.
-    Отсюда следствие, ради которого правило и заведено, — городская мастерская
-    перестаёт быть бесплатным цехом на весь город, и ремесленнику становится
-    нужен свой станок у себя дома.
+    A machine is taken by one worker: while a batch runs it is not given to a
+    second. Hence the consequence the rule exists for -- the city workshop
+    stops being a free shop floor for the whole town, and the craftsman comes
+    to need a machine of their own at home.
 
-    Отключённый за неуплату узел не работает вовсе (D-149): счётчик — такое же
-    условие работы, как сам станок.
+    A node disconnected for non-payment does not work at all (D-149): the meter
+    is as much a condition of work as the machine itself.
     """
     from src.engine import utility
 
@@ -1216,37 +1231,37 @@ async def _pick_station(session: AsyncSession, body: Body, name: str) -> Item:
 
     where = await node_container(session, node)
     moment = datetime.now(UTC)
-    стоят = (
+    standing = (
         await session.execute(
             select(Item)
             .where(Item.container_id == where.id, Item.type_key == name)
             .order_by(Item.quality.desc())
         )
     ).scalars().all()
-    if not стоят:
+    if not standing:
         raise NoStation(f"в узле нет станка «{name}»")
 
-    свой = False
-    for станок in стоят:
-        #: Занят — значит занят, в том числе тем же мастером: за станком идёт
-        #: одна работа, а не столько, сколько успел заказать хозяин.
-        #: Метка страхует от вечной занятости: партия могла исчезнуть мимо
-        #: своего задания, и станок не обязан простаивать из-за этого вечно.
-        if станок.busy_body_id is not None and (
-            станок.busy_until is None or станок.busy_until > moment
+    own = False
+    for machine in standing:
+        #: Taken means taken, including by the same master: one work goes at a
+        #: machine, not as many as the owner managed to order. The stamp
+        #: insures against eternal occupancy: the batch could have vanished
+        #: past its job, and the machine need not idle forever because of that.
+        if machine.busy_body_id is not None and (
+            machine.busy_until is None or machine.busy_until > moment
         ):
-            свой = свой or станок.busy_body_id == body.id
+            own = own or machine.busy_body_id == body.id
             continue
-        return станок
+        return machine
     raise Busy(
         f"«{name}» занят"
-        + (" вашей же работой: дождитесь конца партии" if свой else
+        + (" вашей же работой: дождитесь конца партии" if own else
            ": за станком работает один. Свой станок ставят у себя")
     )
 
 
 async def _occupy(session: AsyncSession, station: Item | None, body: Body, until) -> None:
-    """Занять станок на время работы (D-150)."""
+    """Occupy the machine for the duration of the work (D-150)."""
     if station is None:
         return
     station.busy_body_id = body.id
@@ -1255,11 +1270,11 @@ async def _occupy(session: AsyncSession, station: Item | None, body: Body, until
 
 
 async def _release(session: AsyncSession, station_item_id) -> None:
-    """Освободить станок. Вызывается вместе с завершением работы."""
+    """Free the machine. Called together with the completion of the work."""
     if station_item_id is None:
         return
     station = await session.get(Item, station_item_id)
-    if station is None:  # pragma: no cover — станок могли разобрать
+    if station is None:  # pragma: no cover -- the machine may have been dismantled
         return
     station.busy_body_id = None
     station.busy_until = None
@@ -1273,7 +1288,7 @@ async def _tool_items(
     proc: Procedure,
     tool_item_id: uuid.UUID | None,
 ) -> list[Item]:
-    """Инструмент носится с собой и участвует в потолке качества."""
+    """The tool is carried along and takes part in the quality ceiling."""
     inventory = await body_container(session, body)
     found: list[Item] = []
 
@@ -1302,11 +1317,11 @@ async def _tool_items(
 async def _stock(
     session: AsyncSession, container: Container, names: Iterable[str]
 ) -> dict[str, list[Item]]:
-    """Что лежит по каждому входу, худшее первым.
+    """What lies for each input, worst first.
 
-    Порядок не случаен: в дело идёт то, что похуже, а чистое сырьё остаётся на
-    ту партию, ради которой его добывали. Выбор стопки руками приедет вместе с
-    интерфейсом.
+    The order is not accidental: the worse goes into the work, and the pure raw
+    material stays for the batch it was mined for. Picking a stack by hand will
+    arrive with the interface.
     """
     out: dict[str, list[Item]] = {}
     for name in names:
@@ -1326,7 +1341,7 @@ async def _stock(
 
 
 def _base_quality(proc: Procedure, stock: dict[str, list[Item]], default: float) -> float:
-    """Качество основы — первого входа. От него зависит оптимум пропорции."""
+    """Base quality -- of the first input. The proportion optimum depends on it."""
     if not proc.inputs:
         return default
     graded = [item for item in stock.get(proc.inputs[0], []) if item.quality is not None]
@@ -1337,7 +1352,7 @@ def _base_quality(proc: Procedure, stock: dict[str, list[Item]], default: float)
 
 
 def _pick(stock: dict[str, list[Item]], required: dict[str, float]) -> list[_Pick]:
-    """Набрать нужное по стопкам. Не хватило — партия не начнётся вовсе."""
+    """Gather what is needed from the stacks. Not enough -- the batch does not start at all."""
     picks: list[_Pick] = []
     for name, want in required.items():
         left = amount(want)
@@ -1353,10 +1368,10 @@ def _pick(stock: dict[str, list[Item]], required: dict[str, float]) -> list[_Pic
 
 
 def _material_quality(picks: Sequence[_Pick], default: float) -> float:
-    """Качество входов, взвешенное по количеству.
+    """Input quality, weighted by amount.
 
-    Вход без качества — вода, энергия, монета — в среднее не входит: качества у
-    него нет вовсе, а не ноль (15-quality, открытые вопросы).
+    An input without quality -- water, energy, coin -- is not in the average:
+    it has no quality at all, rather than zero (15-quality, open questions).
     """
     graded = [pick for pick in picks if pick.item.quality is not None]
     total = sum(pick.take for pick in graded)
@@ -1366,11 +1381,11 @@ def _material_quality(picks: Sequence[_Pick], default: float) -> float:
 
 
 async def _wear_station(session: AsyncSession, constants: Constants, batch: CraftBatch) -> None:
-    """Станок изнашивается за партию: содержание обязательно (D-129)."""
+    """The machine wears per batch: maintenance is mandatory (D-129)."""
     if batch.station_item_id is None:
         return
     station = await session.get(Item, batch.station_item_id)
-    if station is None:  # pragma: no cover — станок могли разобрать
+    if station is None:  # pragma: no cover -- the machine may have been dismantled
         return
     await wear.spend(
         session,
@@ -1382,10 +1397,10 @@ async def _wear_station(session: AsyncSession, constants: Constants, batch: Craf
 
 
 def _pieces(catalog: Catalog, output: str, units: float) -> list[float]:
-    """Во что превращается партия: одна стопка сырья или столько-то изделий.
+    """What the batch turns into: one stack of raw material or so many products.
 
-    Сырьё складывается, изделия нет (04-items), и у каждого изделия свой бросок
-    разброса — потому что клеймо и качество у каждого своё (D-058).
+    Raw material stacks, products do not (04-items), and every product has its
+    own spread roll -- because each has its own mark and quality (D-058).
     """
     if _stackable(catalog, output):
         return [units]
@@ -1396,11 +1411,11 @@ def _stackable(catalog: Catalog, output: str) -> bool:
     try:
         kind = catalog.recipes.recipe(output).kind
     except ConstantError:
-        #: Выход операции рецептом не описан — это сырьё, и оно складывается.
+        #: An operation's output has no recipe -- it is raw material, and it stacks.
         return True
     return kind in (ItemKind.MATERIAL, ItemKind.CONSUMABLE, ItemKind.MONEY)
 
 
 def _num(value: float) -> Decimal:
-    """Число на шкале 0…100 в том виде, в каком его хранит база."""
+    """A number on the 0..100 scale in the form the database stores it."""
     return Decimal(str(value))

@@ -1,17 +1,17 @@
-"""Город как институт: устав, код-законы, должности, счётчик (D-036, D-130, D-154).
+"""The city as an institution: charter, code-laws, offices, meter (D-036, D-130, D-154).
 
-До этого «город» существовал только как узел-представитель на карте: у него
-была казна, но не было никого, кто вправе ею распорядиться. Здесь появляется
-недостающее, и ровно три вещи:
+Before this a "city" existed only as a delegate node on the map: it had a
+treasury but nobody entitled to dispose of it. Here the missing part appears,
+and exactly three things:
 
-* **город** — устав (ответы на вопросы `laws.json`) и код-законы (значения);
-* **должность** — «личность вправе делать вот это в вот этом городе»;
-* **счётчик** — сколько узел должен за быт и до какого момента посчитан.
+* **city** -- the charter (answers to `laws.json` questions) and code-laws (values);
+* **office** -- "an identity may do this in this city";
+* **meter** -- how much a node owes for household and up to what moment it is billed.
 
-Ветвлений по названию должности в движке нет и не будет: движок знает
-полномочия, а как называется занимающий их пост — дело города (D-154). Иначе
-каждая новая форма правления потребовала бы выката версии, и вся идея «игроки
-пишут правила» умерла бы вместе с ней.
+There is and will be no branching on office titles in the engine: the engine
+knows powers, and what the post holding them is called is the city's business
+(D-154). Otherwise every new form of government would need a release, and the
+whole idea "players write the rules" would die with it.
 """
 
 from __future__ import annotations
@@ -28,75 +28,75 @@ from src.db.base import Base, created_column, uuid_pk
 
 
 class Power(StrEnum):
-    """Крупное полномочие власти (D-154, D-155).
+    """A broad power of authority (D-154, D-155).
 
-    Полное право — **строка**, и крупными значениями оно не исчерпывается:
-    `law:<id>` открывает ровно один код-закон, а `laws` покрывает их все.
-    Список конкретных законов движок не держит: он ровно тот, что лежит в
-    `data/laws.yaml` вольта. «Министр экономики» — это набор прав, которому
-    город дал имя, и ветвлений по названию должности в коде нет.
+    A full right is a **string**, and it is not exhausted by the broad values:
+    `law:<id>` opens exactly one code-law, and `laws` covers them all. The
+    engine keeps no list of specific laws: it is exactly the one in the vault's
+    `data/laws.yaml`. A "minister of economy" is a set of rights the city gave
+    a name to, and there is no branching on office titles in code.
     """
 
-    #: Править **все** код-законы. Покрывает любое `law:<id>`.
+    #: Edit **all** code-laws. Covers any `law:<id>`.
     LAWS = "laws"
-    #: Отвечать на вопросы устава.
+    #: Answer charter questions.
     CHARTER = "charter"
-    #: Распоряжаться казной: платить из неё.
+    #: Dispose of the treasury: pay from it.
     TREASURY = "treasury"
-    #: Назначать и снимать должности.
+    #: Appoint and dismiss offices.
     OFFICES = "offices"
-    #: Раздавать городские участки жителям (D-089).
+    #: Allot civic plots to residents (D-089).
     LAND = "land"
-    #: Полный срез экономической панели: публичный виден всем и так (D-140).
+    #: Full snapshot of the economic panel: the public one is visible to all anyway (D-140).
     DASHBOARD = "dashboard"
-    #: Суд и санкции. Полномочие объявлено, механика приедет со своей системой.
+    #: Court and sanctions. The power is declared, the mechanics arrive with their own system.
     JUSTICE = "justice"
-    #: Принимать в граждане и отказывать (D-160). Изгнание идёт не отсюда, а по
-    #: `justice`: изгнание — санкция, а не кадровое решение.
+    #: Admit citizens and refuse (D-160). Exile does not go from here but by
+    #: `justice`: exile is a sanction, not a personnel decision.
     CITIZENS = "citizens"
 
 
-#: Приставка права на один закон: `law:import_duty`. Отделена двоеточием,
-#: потому что идентификаторы законов приходят из вольта и точек не содержат.
+#: Prefix of the right to one law: `law:import_duty`. Separated by a colon
+#: because law identifiers come from the vault and contain no dots.
 LAW_SCOPE = "law:"
 
 
 class City(Base):
-    """Город. Живёт на узле-представителе: его территория — дети этого узла."""
+    """The city. Lives on the delegate node: its territory is that node's children."""
 
     __tablename__ = "city"
 
     id: Mapped[uuid.UUID] = uuid_pk()
-    #: Узел-представитель города на планетном слое (D-045). Один город — один узел.
+    #: The city's delegate node on the planet layer (D-045). One city -- one node.
     node_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("node.id"), nullable=False, unique=True
     )
     name: Mapped[str] = mapped_column(nullable=False)
-    #: Слово города новичку: что он о себе объявляет на карточке двери (D-183).
-    #: Обещание, а не договор — движок его не исполняет и не разбирает.
+    #: The city's word to newcomers: what it announces about itself on the door
+    #: card (D-183). A promise, not a contract -- the engine neither enforces nor parses it.
     about: Mapped[str] = mapped_column(nullable=False, default="", server_default="")
-    #: Основатель. По умолчанию он же и правитель — так устав и говорит (D-130).
+    #: The founder. By default also the ruler -- that is what the charter says (D-130).
     founder_identity_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("identity.id"), nullable=True
     )
 
-    #: Ответы устава: `{вопрос: вариант}`. Заполняется умолчаниями `laws.json`
-    #: при основании — город возникает работающим, а не пустым (D-130).
+    #: Charter answers: `{question: option}`. Filled with `laws.json` defaults
+    #: at founding -- the city arises working, not empty (D-130).
     charter: Mapped[dict[str, Any]] = mapped_column(nullable=False, default=dict)
-    #: Числовые параметры вариантов устава: `{вопрос: значение}`.
+    #: Numeric parameters of charter options: `{question: value}`.
     charter_params: Mapped[dict[str, Any]] = mapped_column(nullable=False, default=dict)
-    #: Код-законы: `{закон: значение строкой}`. Строкой — потому что закон
-    #: бывает и числом, и словом, а ветвлений по типу закона в коде нет (D-094).
+    #: Code-laws: `{law: value as string}`. As a string because a law can be a
+    #: number or a word, and there is no branching on law type in code (D-094).
     laws: Mapped[dict[str, Any]] = mapped_column(nullable=False, default=dict)
 
     created_at: Mapped[datetime] = created_column()
 
 
 class Office(Base):
-    """Должность: личность и то, что ей позволено в этом городе.
+    """Office: an identity and what it is allowed in this city.
 
-    Сложенная должность не удаляется, а помечается сроком: кто чем распоряжался
-    в прошлом месяце — вопрос суда, и ответ на него обязан сохраниться.
+    A vacated office is not deleted but marked with a date: who controlled what
+    last month is a matter for the court, and the answer must be preserved.
     """
 
     __tablename__ = "city_office"
@@ -109,26 +109,26 @@ class Office(Base):
     city_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("city.id"), nullable=False)
     identity_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("identity.id"), nullable=False)
 
-    #: Как должность называется в этом городе. Движку всё равно: он смотрит
-    #: в полномочия, а «президент» или «старейшина» — дело города.
+    #: What the office is called in this city. The engine does not care: it
+    #: looks at powers, and "president" or "elder" is the city's business.
     title: Mapped[str] = mapped_column(nullable=False)
-    #: Полномочия списком значений `Power`.
+    #: Powers as a list of `Power` values.
     powers: Mapped[dict[str, Any]] = mapped_column(nullable=False, default=list)
 
     appointed_by_identity_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("identity.id"), nullable=True
     )
     created_at: Mapped[datetime] = created_column()
-    #: Пусто — должность действует.
+    #: Empty -- the office is in force.
     revoked_at: Mapped[datetime | None] = mapped_column(nullable=True)
 
 
 class CityGrant(Base):
-    """Подъёмные, выданные городом личности (D-153).
+    """Settlement grant paid by a city to an identity (D-153).
 
-    Отдельная строка, а не флаг на личности: подъёмные платит **город**, и
-    один и тот же человек, переехав, вправе получить их в другом городе — но
-    не дважды в одном. Запись и есть это правило.
+    A separate row, not a flag on the identity: the **city** pays the grant,
+    and the same person, having moved, may receive it in another city -- but
+    not twice in one. The record is that rule.
     """
 
     __tablename__ = "city_grant"
@@ -139,16 +139,16 @@ class CityGrant(Base):
     id: Mapped[uuid.UUID] = uuid_pk()
     city_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("city.id"), nullable=False)
     identity_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("identity.id"), nullable=False)
-    #: Сколько выдано, минорными единицами.
+    #: How much was paid, in minor units.
     amount: Mapped[int] = mapped_column(BigInteger, nullable=False)
     created_at: Mapped[datetime] = created_column()
 
 
 class UtilityMeter(Base):
-    """Счётчик узла: быт идёт временем, счёт приходит раз в период (D-135, D-149).
+    """The node's meter: household runs by time, the bill comes once a period (D-135, D-149).
 
-    Счётчик заводится на **занятый** узел — свой либо городской. У ничьего узла
-    счётчика нет: выставлять счёт некому, а исчезать деньгам некуда (И2).
+    A meter is opened on an **occupied** node -- own or civic. An unowned node
+    has no meter: there is nobody to bill, and money has nowhere to vanish (I2).
     """
 
     __tablename__ = "utility_meter"
@@ -158,30 +158,31 @@ class UtilityMeter(Base):
         ForeignKey("node.id"), nullable=False, unique=True
     )
 
-    #: До какого момента быт уже посчитан. Двигается заданием журнала.
+    #: Up to what moment household is already billed. Moved by a journal job.
     counted_at: Mapped[datetime] = created_column()
-    #: Неоплаченное, минорными единицами. Долг не сгорает и не растёт процентом:
-    #: проценты — дело банка (Э4), а не коммунальной службы.
+    #: Unpaid, in minor units. Debt neither expires nor grows by interest:
+    #: interest is the bank's business (E4), not the utility service's.
     debt: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
-    #: Отключён за неуплату: станки узла не работают, пока долг не закрыт.
-    #: Отобрать узел за долг движок не вправе — это решение суда (D-149).
+    #: Disconnected for non-payment: the node's machines do not work until the
+    #: debt is settled. The engine may not take the node for debt -- that is a court decision
+    #: (D-149).
     cut_off: Mapped[bool] = mapped_column(nullable=False, default=False)
-    #: Сколько энергии ушло на быт за последний период — для показа владельцу.
+    #: How much energy went to household over the last period -- for showing the holder.
     last_energy: Mapped[float] = mapped_column(Numeric(12, 3), nullable=False, default=0)
 
     created_at: Mapped[datetime] = created_column()
 
 
 class Citizen(Base):
-    """Гражданство: личность состоит в городе (D-160).
+    """Citizenship: the identity belongs to a city (D-160).
 
-    **Одно на человека.** Двойное гражданство запрещено уставом мира, а не
-    договорённостью, — поэтому ограничение стоит в базе: вторая запись на ту же
-    личность невозможна физически.
+    **One per person.** Dual citizenship is forbidden by the world's charter,
+    not by agreement -- so the constraint is in the database: a second record
+    for the same identity is physically impossible.
 
-    Выход свободен, но не мгновенен: заявление ставит `leaving_at`, и запись
-    держится до срока. Задержка существует ровно затем, чтобы нельзя было выйти
-    из города прямо перед приговором.
+    Leaving is free but not instant: the declaration sets `leaving_at`, and the
+    record holds until then. The delay exists exactly so that one cannot leave
+    the city right before a verdict.
     """
 
     __tablename__ = "citizen"
@@ -195,24 +196,25 @@ class Citizen(Base):
         ForeignKey("identity.id"), nullable=False
     )
     city_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("city.id"), nullable=False)
-    #: С какого момента: по нему считается ценз проживания (`vote_qualification`).
+    #: Since when: the residency census (`vote_qualification`) is counted from it.
     since: Mapped[datetime] = created_column()
-    #: Когда гражданство спадёт по заявлению о выходе. Пусто — не выходит.
+    #: When citizenship lapses by the exit declaration. Empty -- not leaving.
     leaving_at: Mapped[datetime | None] = mapped_column(nullable=True)
-    #: До какого срока гражданство не складывается: условие печати, принятое
-    #: выбором двери (D-184). Записывается в момент печати и позже не меняется —
-    #: город, поднявший срок задним числом, не удлиняет чужое обязательство.
-    #: Пусто — обязательства нет, уйти можно в тот же день.
+    #: Until when citizenship cannot be given up: a print condition accepted by
+    #: choosing the door (D-184). Written at print time and not changed later --
+    #: a city that raises the term retroactively does not lengthen somebody's
+    #: obligation. Empty -- no obligation, one may leave the same day.
     bound_until: Mapped[datetime | None] = mapped_column(nullable=True)
     created_at: Mapped[datetime] = created_column()
 
 
 class CitizenshipRequest(Base):
-    """Заявка в граждане либо приглашение (D-160).
+    """A citizenship application or an invitation (D-160).
 
-    Одна и та же запись: разница только в том, кто её начал. `application` —
-    человек попросил и ждёт власть; `invite` — власть позвала и ждёт человека.
-    Второй таблицы для этого не нужно, а два имени в коде разошлись бы.
+    One and the same record: the difference is only who started it.
+    `application` -- the person asked and waits for the authority; `invite` --
+    the authority called and waits for the person. No second table is needed
+    for this, and two names in code would diverge.
     """
 
     __tablename__ = "citizenship_request"
@@ -226,9 +228,9 @@ class CitizenshipRequest(Base):
         ForeignKey("identity.id"), nullable=False
     )
     city_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("city.id"), nullable=False)
-    #: `application` — от человека, `invite` — от власти.
+    #: `application` -- from the person, `invite` -- from the authority.
     kind: Mapped[str] = mapped_column(nullable=False)
-    #: Кто позвал, если это приглашение.
+    #: Who invited, if this is an invitation.
     by_identity_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("identity.id"), nullable=True
     )
@@ -236,14 +238,14 @@ class CitizenshipRequest(Base):
 
 
 class CouncilSeat(Base):
-    """Место в совете города (D-164).
+    """A seat on the city council (D-164).
 
-    Совет — набор мест, а не звание: звание пришлось бы проверять по названию
-    должности, а движок названий не знает и знать не должен (D-154). Место
-    либо есть, либо нет.
+    The council is a set of seats, not a rank: a rank would have to be checked
+    by office title, and the engine does not know titles and must not (D-154).
+    A seat either exists or not.
 
-    Сложенное место не удаляется, а помечается сроком: кто голосовал в совете
-    в прошлом месяце — вопрос суда, и ответ обязан сохраниться.
+    A vacated seat is not deleted but marked with a date: who voted on the
+    council last month is a matter for the court, and the answer must be preserved.
     """
 
     __tablename__ = "council_seat"
@@ -254,8 +256,8 @@ class CouncilSeat(Base):
     identity_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("identity.id"), nullable=False
     )
-    #: Как получено место: выборами либо назначением.
+    #: How the seat was obtained: by election or appointment.
     how: Mapped[str] = mapped_column(nullable=False)
     created_at: Mapped[datetime] = created_column()
-    #: Пусто — место занято.
+    #: Empty -- the seat is occupied.
     vacated_at: Mapped[datetime | None] = mapped_column(nullable=True)

@@ -1,13 +1,13 @@
-"""Стакан заявок (D-003, D-047, D-127).
+"""The order book (D-003, D-047, D-127).
 
-Проверяется то, ради чего рынок написан именно так:
+Checked is what the market was written this way for:
 
-* движок товар не оценивает — цену называют люди (D-002);
-* материя требует присутствия, распоряжение — нет: загрузка и покупка ногами,
-  ордера откуда угодно;
-* деньги переходят, а не появляются: сумма проводок сделки равна нулю (И2);
-* налог с продажи платит продавец, покупатель платит ровно цену стакана (D-127);
-* ордер живёт по сроку и снимается заданием, а не проверкой при чтении.
+* the engine does not value goods -- people name the price (D-002);
+* matter requires presence, disposing does not: loading and buying on foot,
+  orders from anywhere;
+* money moves, it does not appear: a deal's postings sum to zero (I2);
+* the seller pays the sales tax, the buyer pays exactly the book price (D-127);
+* an order lives by term and is cancelled by a job, not by a check on read.
 """
 
 from __future__ import annotations
@@ -31,423 +31,423 @@ ORE = "Железная руда"
 TERMINAL = market.TERMINAL
 
 
-async def _город(session: AsyncSession, *, city=None):
-    """Узел с терминалом. Маркетплейс в городе один (D-100)."""
-    метка = uuid.uuid4().hex[:8]
-    node = await world.create_node(session, f"terra.market.{метка}", "Торг", area_m2=100)
+async def _city(session: AsyncSession, *, city=None):
+    """A node with a terminal. One marketplace per city (D-100)."""
+    stamp = uuid.uuid4().hex[:8]
+    node = await world.create_node(session, f"terra.market.{stamp}", "Торг", area_m2=100)
     node.owner_city_id = None if city is None else city.id
-    двор = await world.node_container(session, node)
-    await world.grant_item(session, двор, TERMINAL, quality=70, origin="сценарий теста")
+    yard = await world.node_container(session, node)
+    await world.grant_item(session, yard, TERMINAL, quality=70, origin="сценарий теста")
     return node
 
 
-async def _власть(session: AsyncSession, catalog: Catalog):
-    """Город-институт: ставку налога назначает он, а не вольт (D-154)."""
+async def _authority(session: AsyncSession, catalog: Catalog):
+    """An institutional city: it sets the tax rate, not the vault (D-154)."""
     from src.engine import city as town
     from src.models.world import Layer
 
-    метка = uuid.uuid4().hex[:8]
-    представитель = await world.create_node(
-        session, f"terra.city.{метка}", "Город", area_m2=1, layer=Layer.PLANET
+    stamp = uuid.uuid4().hex[:8]
+    delegate = await world.create_node(
+        session, f"terra.city.{stamp}", "Город", area_m2=1, layer=Layer.PLANET
     )
-    return await town.found(session, catalog, представитель, "Город")
+    return await town.found(session, catalog, delegate, "Город")
 
 
-async def _торговец(session: AsyncSession, node, имя: str, *, денег: float = 0):
-    identity = await world.create_identity(session, f"{имя}-{uuid.uuid4().hex[:6]}")
+async def _trader(session: AsyncSession, node, name: str, *, funds: float = 0):
+    identity = await world.create_identity(session, f"{name}-{uuid.uuid4().hex[:6]}")
     body = await world.print_body(session, identity, node)
-    if денег:
-        счёт = await ledger.account_for(session, AccountKind.IDENTITY, identity.id)
+    if funds:
+        account = await ledger.account_for(session, AccountKind.IDENTITY, identity.id)
         genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
         await ledger.transfer(
             session,
             PostingReason.GENESIS,
             debit=genesis.id,
-            credit=счёт.id,
-            amount=money(денег),
+            credit=account.id,
+            amount=money(funds),
         )
     return identity, body
 
 
-async def _с_товаром(session: AsyncSession, constants: Constants, node, имя: str,
-                     *, сколько: float = 10, качество: float = 65):
-    identity, body = await _торговец(session, node, имя)
-    карман = await world.body_container(session, body)
+async def _with_goods(session: AsyncSession, constants: Constants, node, name: str,
+                     *, qty: float = 10, quality: float = 65):
+    identity, body = await _trader(session, node, name)
+    pocket = await world.body_container(session, body)
     await world.grant_item(
-        session, карман, ORE, amount=сколько, quality=качество, origin="сценарий теста"
+        session, pocket, ORE, amount=qty, quality=quality, origin="сценарий теста"
     )
-    await market.load(session, constants, body, ORE, сколько)
+    await market.load(session, constants, body, ORE, qty)
     return identity, body
 
 
-async def _баланс(session: AsyncSession, identity_id: uuid.UUID) -> int:
-    счёт = await ledger.account_for(session, AccountKind.IDENTITY, identity_id)
-    return await ledger.balance(session, счёт.id)
+async def _balance(session: AsyncSession, identity_id: uuid.UUID) -> int:
+    account = await ledger.account_for(session, AccountKind.IDENTITY, identity_id)
+    return await ledger.balance(session, account.id)
 
 
-# --- ступени ----------------------------------------------------------------
+# --- tiers -------------------------------------------------------------------
 
 
-def test_товар_торгуется_ступенями(constants: Constants) -> None:
-    """Непрерывная шкала сделала бы книгу нечитаемой и убила ликвидность (D-058)."""
-    ступени = {market.tier_of(constants, q) for q in (0, 25, 50, 75, 100)}
-    assert len(ступени) == len(constants[R.QUALITY_TIERS])
+def test_goods_traded_in_tiers(constants: Constants) -> None:
+    """A continuous scale would make the book unreadable and kill liquidity (D-058)."""
+    tiers = {market.tier_of(constants, q) for q in (0, 25, 50, 75, 100)}
+    assert len(tiers) == len(constants[R.QUALITY_TIERS])
     assert market.tier_of(constants, 63) == market.tier_of(constants, 64), (
         "соседние числа обязаны попадать в одну позицию стакана"
     )
-    #: Границы полос в данных целые, качество дробное: 39.5 не проваливается
-    #: между «…39» и «40…», а падает в нижнюю полосу.
+    #: Band bounds in the data are integers, quality is fractional: 39.5 does
+    #: not fall between "..39" and "40.." but into the lower band.
     assert market.tier_of(constants, 39.5) == market.tier_of(constants, 39)
 
 
-def test_у_безкачественного_товара_одна_позиция(constants: Constants) -> None:
-    """У энергии и денег качества нет вовсе — не ноль, а нет."""
+def test_qualityless_goods_have_one_position(constants: Constants) -> None:
+    """Energy and money have no quality at all -- not zero, but none."""
     assert market.tier_of(constants, None) == constants[R.QUALITY_TIERS][0].name
 
 
-# --- присутствие ------------------------------------------------------------
+# --- presence ----------------------------------------------------------------
 
 
-async def test_без_терминала_торговли_нет(
+async def test_no_trade_without_terminal(
     session: AsyncSession, constants: Constants
 ) -> None:
-    """Маркетплейс — постройка, а не право. Нет её — нет и рынка."""
+    """A marketplace is a building, not a right. No building -- no market."""
     node = await world.create_node(session, f"terra.field.{uuid.uuid4().hex[:6]}", "Поле",
                                    area_m2=100)
-    _, body = await _торговец(session, node, "Селянин")
+    _, body = await _trader(session, node, "Селянин")
     with pytest.raises(market.NoTerminal):
         await market.load(session, constants, body, ORE, 1)
 
 
-async def test_загруженное_лежит_в_терминале_а_не_в_кармане(
+async def test_loaded_lies_in_terminal_not_pocket(
     session: AsyncSession, constants: Constants
 ) -> None:
-    """Продавец один раз привозит товар, дальше управляет им удалённо (D-047)."""
-    node = await _город(session)
-    identity, body = await _с_товаром(session, constants, node, "Возчик", сколько=10)
+    """The seller delivers goods once and manages them remotely from then on (D-047)."""
+    node = await _city(session)
+    identity, body = await _with_goods(session, constants, node, "Возчик", qty=10)
     await session.commit()
 
-    карман = await world.body_container(session, body)
-    в_кармане = await session.scalar(
+    pocket = await world.body_container(session, body)
+    in_pocket = await session.scalar(
         select(func.coalesce(func.sum(Item.amount), 0)).where(
-            Item.container_id == карман.id, Item.type_key == ORE
+            Item.container_id == pocket.id, Item.type_key == ORE
         )
     )
-    ячейка = await market.stall(session, node, identity.id)
-    в_терминале = await session.scalar(
+    cell = await market.stall(session, node, identity.id)
+    in_terminal = await session.scalar(
         select(func.coalesce(func.sum(Item.amount), 0)).where(
-            Item.container_id == ячейка.id, Item.type_key == ORE
+            Item.container_id == cell.id, Item.type_key == ORE
         )
     )
-    assert в_кармане == 0
-    assert amount_float(int(в_терминале)) == pytest.approx(10)
+    assert in_pocket == 0
+    assert amount_float(int(in_terminal)) == pytest.approx(10)
 
 
-async def test_отданное_под_ордер_не_забрать(
+async def test_committed_to_order_cannot_be_taken_back(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Иначе один и тот же мешок продаётся дважды."""
-    node = await _город(session)
-    identity, body = await _с_товаром(session, constants, node, "Хитрец", сколько=10,
-                                      качество=65)
-    ступень = market.tier_of(constants, 65)
+    """Otherwise the same sack is sold twice."""
+    node = await _city(session)
+    identity, body = await _with_goods(session, constants, node, "Хитрец", qty=10,
+                                      quality=65)
+    tier = market.tier_of(constants, 65)
     await market.sell(session, constants, catalog, identity, node,
-                      type_key=ORE, tier=ступень, price=money(5), quantity=8)
+                      type_key=ORE, tier=tier, price=money(5), quantity=8)
 
-    забрал = await market.take(session, constants, body, ORE, 10)
-    assert забрал == pytest.approx(2), "свободны только те две, что не под ордером"
-
-
-# --- сведение заявок --------------------------------------------------------
+    took = await market.take(session, constants, body, ORE, 10)
+    assert took == pytest.approx(2), "свободны только те две, что не под ордером"
 
 
-async def test_сделка_идёт_по_цене_стоявшего_в_стакане(
+# --- order matching ----------------------------------------------------------
+
+
+async def test_deal_at_price_of_resting_order(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Он назвал условие первым, пришедший его принял."""
-    node = await _город(session)
-    ступень = market.tier_of(constants, 65)
-    продавец, _ = await _с_товаром(session, constants, node, "Продавец", сколько=10)
-    покупатель, тело = await _торговец(session, node, "Покупатель", денег=100)
+    """They named the terms first, the newcomer accepted."""
+    node = await _city(session)
+    tier = market.tier_of(constants, 65)
+    seller, _ = await _with_goods(session, constants, node, "Продавец", qty=10)
+    buyer, body = await _trader(session, node, "Покупатель", funds=100)
 
-    await market.sell(session, constants, catalog, продавец, node,
-                      type_key=ORE, tier=ступень, price=money(4), quantity=10)
-    #: Покупатель готов дать больше — и платит меньше, потому что стоял не он.
-    сделка = await market.buy(session, constants, catalog, тело,
-                              type_key=ORE, tier=ступень, price=money(6), quantity=4)
+    await market.sell(session, constants, catalog, seller, node,
+                      type_key=ORE, tier=tier, price=money(4), quantity=10)
+    #: The buyer is ready to give more -- and pays less, because it was not them resting.
+    deal = await market.buy(session, constants, catalog, body,
+                              type_key=ORE, tier=tier, price=money(6), quantity=4)
     await session.commit()
 
-    assert сделка.traded == pytest.approx(4)
-    assert сделка.trades[0].price == money(4)
+    assert deal.traded == pytest.approx(4)
+    assert deal.trades[0].price == money(4)
 
 
-async def test_деньги_переходят_а_не_появляются(
+async def test_money_moves_not_appears(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Инвариант И2 держит вся конструкция денег."""
-    node = await _город(session)
-    ступень = market.tier_of(constants, 65)
-    продавец, _ = await _с_товаром(session, constants, node, "Кузнец", сколько=10)
-    покупатель, тело = await _торговец(session, node, "Купец", денег=100)
-    масса_до = await ledger.money_supply(session)
+    """Invariant I2 is held by the whole money construction."""
+    node = await _city(session)
+    tier = market.tier_of(constants, 65)
+    seller, _ = await _with_goods(session, constants, node, "Кузнец", qty=10)
+    buyer, body = await _trader(session, node, "Купец", funds=100)
+    mass_before = await ledger.money_supply(session)
 
-    await market.sell(session, constants, catalog, продавец, node,
-                      type_key=ORE, tier=ступень, price=money(5), quantity=10)
-    await market.buy(session, constants, catalog, тело,
-                     type_key=ORE, tier=ступень, price=money(5), quantity=10)
+    await market.sell(session, constants, catalog, seller, node,
+                      type_key=ORE, tier=tier, price=money(5), quantity=10)
+    await market.buy(session, constants, catalog, body,
+                     type_key=ORE, tier=tier, price=money(5), quantity=10)
     await session.commit()
 
-    assert await _баланс(session, продавец.id) == money(50)
-    assert await _баланс(session, покупатель.id) == money(50)
-    assert await ledger.money_supply(session) == масса_до, "денежная масса не выросла"
+    assert await _balance(session, seller.id) == money(50)
+    assert await _balance(session, buyer.id) == money(50)
+    assert await ledger.money_supply(session) == mass_before, "денежная масса не выросла"
 
 
-async def test_купленное_ждёт_в_терминале_и_забирается_ногами(
+async def test_bought_waits_in_terminal_and_taken_on_foot(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Материя перемещается только физически (D-047)."""
-    node = await _город(session)
-    ступень = market.tier_of(constants, 65)
-    продавец, _ = await _с_товаром(session, constants, node, "Шахтёр", сколько=10)
-    покупатель, тело = await _торговец(session, node, "Скупщик", денег=100)
+    """Matter moves only physically (D-047)."""
+    node = await _city(session)
+    tier = market.tier_of(constants, 65)
+    seller, _ = await _with_goods(session, constants, node, "Шахтёр", qty=10)
+    buyer, body = await _trader(session, node, "Скупщик", funds=100)
 
-    await market.sell(session, constants, catalog, продавец, node,
-                      type_key=ORE, tier=ступень, price=money(5), quantity=10)
-    await market.buy(session, constants, catalog, тело,
-                     type_key=ORE, tier=ступень, price=money(5), quantity=6)
+    await market.sell(session, constants, catalog, seller, node,
+                      type_key=ORE, tier=tier, price=money(5), quantity=10)
+    await market.buy(session, constants, catalog, body,
+                     type_key=ORE, tier=tier, price=money(5), quantity=6)
 
-    ячейка = await market.stall(session, node, покупатель.id)
-    лежит = await session.scalar(
+    cell = await market.stall(session, node, buyer.id)
+    lies = await session.scalar(
         select(func.coalesce(func.sum(Item.amount), 0)).where(
-            Item.container_id == ячейка.id, Item.type_key == ORE
+            Item.container_id == cell.id, Item.type_key == ORE
         )
     )
-    assert amount_float(int(лежит)) == pytest.approx(6)
+    assert amount_float(int(lies)) == pytest.approx(6)
 
-    забрал = await market.take(session, constants, тело, ORE, 6)
+    took = await market.take(session, constants, body, ORE, 6)
     await session.commit()
-    assert забрал == pytest.approx(6)
+    assert took == pytest.approx(6)
 
 
-async def test_излишек_заморозки_возвращается_сразу(
+async def test_frozen_surplus_returned_immediately(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Заморожено ровно то, что может понадобиться, и ни монетой больше."""
-    node = await _город(session)
-    ступень = market.tier_of(constants, 65)
-    продавец, _ = await _с_товаром(session, constants, node, "Рудокоп", сколько=10)
-    покупатель, тело = await _торговец(session, node, "Богач", денег=100)
+    """Exactly what may be needed is frozen, and not a coin more."""
+    node = await _city(session)
+    tier = market.tier_of(constants, 65)
+    seller, _ = await _with_goods(session, constants, node, "Рудокоп", qty=10)
+    buyer, body = await _trader(session, node, "Богач", funds=100)
 
-    await market.sell(session, constants, catalog, продавец, node,
-                      type_key=ORE, tier=ступень, price=money(4), quantity=10)
-    await market.buy(session, constants, catalog, тело,
-                     type_key=ORE, tier=ступень, price=money(6), quantity=10)
+    await market.sell(session, constants, catalog, seller, node,
+                      type_key=ORE, tier=tier, price=money(4), quantity=10)
+    await market.buy(session, constants, catalog, body,
+                     type_key=ORE, tier=tier, price=money(6), quantity=10)
     await session.commit()
 
-    #: Заплатил по четыре, хотя готов был по шесть: двадцать вернулись сразу.
-    assert await _баланс(session, покупатель.id) == money(60)
-    эскроу = await ledger.account_for(session, AccountKind.ESCROW, покупатель.id)
-    assert await ledger.balance(session, эскроу.id) == 0
+    #: Paid four apiece though ready to pay six: twenty came back at once.
+    assert await _balance(session, buyer.id) == money(60)
+    escrow = await ledger.account_for(session, AccountKind.ESCROW, buyer.id)
+    assert await ledger.balance(session, escrow.id) == 0
 
 
-async def test_налог_платит_продавец(
+async def test_seller_pays_tax(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Покупатель видит в стакане цену — и это и есть цена (D-127)."""
-    город = await _власть(session, catalog)
-    node = await _город(session, city=город)
-    ступень = market.tier_of(constants, 65)
-    продавец, _ = await _с_товаром(session, constants, node, "Обложенный", сколько=10)
-    покупатель, тело = await _торговец(session, node, "Приезжий", денег=100)
+    """The buyer sees the price in the book -- and that is the price (D-127)."""
+    city = await _authority(session, catalog)
+    node = await _city(session, city=city)
+    tier = market.tier_of(constants, 65)
+    seller, _ = await _with_goods(session, constants, node, "Обложенный", qty=10)
+    buyer, body = await _trader(session, node, "Приезжий", funds=100)
 
-    ставка = float(catalog.laws.code_law_defaults()["tax_trade"])
-    комиссия = constants[R.MARKET_DEFAULT_FEE]
-    assert ставка > 0
+    rate = float(catalog.laws.code_law_defaults()["tax_trade"])
+    commission = constants[R.MARKET_DEFAULT_FEE]
+    assert rate > 0
 
-    await market.sell(session, constants, catalog, продавец, node,
-                      type_key=ORE, tier=ступень, price=money(5), quantity=10)
-    await market.buy(session, constants, catalog, тело,
-                     type_key=ORE, tier=ступень, price=money(5), quantity=10)
+    await market.sell(session, constants, catalog, seller, node,
+                      type_key=ORE, tier=tier, price=money(5), quantity=10)
+    await market.buy(session, constants, catalog, body,
+                     type_key=ORE, tier=tier, price=money(5), quantity=10)
     await session.commit()
 
-    цена = money(50)
-    удержано = int(цена * ставка / 100) + int(цена * комиссия / 100)
-    assert await _баланс(session, покупатель.id) == money(100) - цена, (
+    price = money(50)
+    withheld = int(price * rate / 100) + int(price * commission / 100)
+    assert await _balance(session, buyer.id) == money(100) - price, (
         "покупатель платит ровно цену стакана"
     )
-    assert await _баланс(session, продавец.id) == цена - удержано
+    assert await _balance(session, seller.id) == price - withheld
 
-    #: Казна одна на город и живёт на его узле-представителе: туда же идёт
-    #: выручка с тарифа за энергию (D-154).
+    #: The treasury is one per city and lives on its delegate node: the energy
+    #: tariff proceeds go there too (D-154).
     from src.engine import city as town
 
-    казна = await town.treasury(session, город)
-    assert await ledger.balance(session, казна.id) == удержано
+    treasury = await town.treasury(session, city)
+    assert await ledger.balance(session, treasury.id) == withheld
 
 
-async def test_ничей_узел_ничего_не_удерживает(
+async def test_ownerless_node_withholds_nothing(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Платить некому — значит и удерживать нечего: деньги не исчезают (И2)."""
-    node = await _город(session)
-    ступень = market.tier_of(constants, 65)
-    продавец, _ = await _с_товаром(session, constants, node, "Вольный", сколько=5)
-    _, тело = await _торговец(session, node, "Вольный покупатель", денег=100)
+    """Nobody to pay -- so nothing to withhold: money does not vanish (I2)."""
+    node = await _city(session)
+    tier = market.tier_of(constants, 65)
+    seller, _ = await _with_goods(session, constants, node, "Вольный", qty=5)
+    _, body = await _trader(session, node, "Вольный покупатель", funds=100)
 
-    await market.sell(session, constants, catalog, продавец, node,
-                      type_key=ORE, tier=ступень, price=money(5), quantity=5)
-    await market.buy(session, constants, catalog, тело,
-                     type_key=ORE, tier=ступень, price=money(5), quantity=5)
+    await market.sell(session, constants, catalog, seller, node,
+                      type_key=ORE, tier=tier, price=money(5), quantity=5)
+    await market.buy(session, constants, catalog, body,
+                     type_key=ORE, tier=tier, price=money(5), quantity=5)
     await session.commit()
 
-    assert await _баланс(session, продавец.id) == money(25)
+    assert await _balance(session, seller.id) == money(25)
 
 
-async def test_со_своей_заявкой_сделки_не_будет(
+async def test_no_deal_with_own_order(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Иначе оборот города накручивается на пустом месте."""
-    node = await _город(session)
-    ступень = market.tier_of(constants, 65)
-    сам, тело = await _с_товаром(session, constants, node, "Сам себе", сколько=5)
-    счёт = await ledger.account_for(session, AccountKind.IDENTITY, сам.id)
+    """Otherwise city turnover is inflated out of nothing."""
+    node = await _city(session)
+    tier = market.tier_of(constants, 65)
+    self_, body = await _with_goods(session, constants, node, "Сам себе", qty=5)
+    account = await ledger.account_for(session, AccountKind.IDENTITY, self_.id)
     genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
     await ledger.transfer(session, PostingReason.GENESIS, debit=genesis.id,
-                          credit=счёт.id, amount=money(100))
+                          credit=account.id, amount=money(100))
 
-    await market.sell(session, constants, catalog, сам, node,
-                      type_key=ORE, tier=ступень, price=money(5), quantity=5)
-    сделка = await market.buy(session, constants, catalog, тело,
-                              type_key=ORE, tier=ступень, price=money(5), quantity=5)
-    assert сделка.traded == 0
+    await market.sell(session, constants, catalog, self_, node,
+                      type_key=ORE, tier=tier, price=money(5), quantity=5)
+    deal = await market.buy(session, constants, catalog, body,
+                              type_key=ORE, tier=tier, price=money(5), quantity=5)
+    assert deal.traded == 0
 
 
-async def test_без_денег_не_купишь(
+async def test_cannot_buy_without_money(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Это ситуация в игре, а не ошибка сервера."""
-    node = await _город(session)
-    ступень = market.tier_of(constants, 65)
-    продавец, _ = await _с_товаром(session, constants, node, "Торговец", сколько=5)
-    _, тело = await _торговец(session, node, "Нищий")
+    """This is an in-game situation, not a server error."""
+    node = await _city(session)
+    tier = market.tier_of(constants, 65)
+    seller, _ = await _with_goods(session, constants, node, "Торговец", qty=5)
+    _, body = await _trader(session, node, "Нищий")
 
-    await market.sell(session, constants, catalog, продавец, node,
-                      type_key=ORE, tier=ступень, price=money(5), quantity=5)
+    await market.sell(session, constants, catalog, seller, node,
+                      type_key=ORE, tier=tier, price=money(5), quantity=5)
     with pytest.raises(market.NoMoney):
-        await market.buy(session, constants, catalog, тело,
-                         type_key=ORE, tier=ступень, price=money(5), quantity=5)
+        await market.buy(session, constants, catalog, body,
+                         type_key=ORE, tier=tier, price=money(5), quantity=5)
 
 
-async def test_остаток_заявки_висит_в_стакане(
+async def test_order_remainder_rests_in_book(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Книга даёт асинхронность: продал, пока спал."""
-    node = await _город(session)
-    ступень = market.tier_of(constants, 65)
-    продавец, _ = await _с_товаром(session, constants, node, "Оптовик", сколько=4)
-    _, тело = await _торговец(session, node, "Ждущий", денег=100)
+    """The book gives asynchrony: sold while asleep."""
+    node = await _city(session)
+    tier = market.tier_of(constants, 65)
+    seller, _ = await _with_goods(session, constants, node, "Оптовик", qty=4)
+    _, body = await _trader(session, node, "Ждущий", funds=100)
 
-    await market.sell(session, constants, catalog, продавец, node,
-                      type_key=ORE, tier=ступень, price=money(5), quantity=4)
-    сделка = await market.buy(session, constants, catalog, тело,
-                              type_key=ORE, tier=ступень, price=money(5), quantity=10)
+    await market.sell(session, constants, catalog, seller, node,
+                      type_key=ORE, tier=tier, price=money(5), quantity=4)
+    deal = await market.buy(session, constants, catalog, body,
+                              type_key=ORE, tier=tier, price=money(5), quantity=10)
     await session.commit()
 
-    assert сделка.traded == pytest.approx(4)
-    assert сделка.order.state is OrderState.ACTIVE
-    assert amount_float(сделка.order.amount_left) == pytest.approx(6)
+    assert deal.traded == pytest.approx(4)
+    assert deal.order.state is OrderState.ACTIVE
+    assert amount_float(deal.order.amount_left) == pytest.approx(6)
 
-    стакан = await market.book(session, node, ORE, ступень, depth=10)
-    assert стакан.bids and стакан.bids[0].amount == pytest.approx(6)
-    assert not стакан.asks
-    assert стакан.last == money(5)
+    book_ = await market.book(session, node, ORE, tier, depth=10)
+    assert book_.bids and book_.bids[0].amount == pytest.approx(6)
+    assert not book_.asks
+    assert book_.last == money(5)
 
 
-async def test_снятый_ордер_возвращает_заморозку(
+async def test_cancelled_order_returns_frozen(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    node = await _город(session)
-    ступень = market.tier_of(constants, 65)
-    покупатель, тело = await _торговец(session, node, "Передумавший", денег=100)
+    node = await _city(session)
+    tier = market.tier_of(constants, 65)
+    buyer, body = await _trader(session, node, "Передумавший", funds=100)
 
-    сделка = await market.buy(session, constants, catalog, тело,
-                              type_key=ORE, tier=ступень, price=money(5), quantity=10)
-    assert await _баланс(session, покупатель.id) == money(50)
+    deal = await market.buy(session, constants, catalog, body,
+                              type_key=ORE, tier=tier, price=money(5), quantity=10)
+    assert await _balance(session, buyer.id) == money(50)
 
-    await market.cancel(session, сделка.order, by=покупатель.id)
+    await market.cancel(session, deal.order, by=buyer.id)
     await session.commit()
-    assert await _баланс(session, покупатель.id) == money(100)
+    assert await _balance(session, buyer.id) == money(100)
 
 
-async def test_чужой_ордер_не_снять(
+async def test_foreign_order_cannot_be_cancelled(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    node = await _город(session)
-    ступень = market.tier_of(constants, 65)
-    _, тело = await _торговец(session, node, "Свой", денег=100)
-    чужой, _ = await _торговец(session, node, "Чужой")
+    node = await _city(session)
+    tier = market.tier_of(constants, 65)
+    _, body = await _trader(session, node, "Свой", funds=100)
+    foreign, _ = await _trader(session, node, "Чужой")
 
-    сделка = await market.buy(session, constants, catalog, тело,
-                              type_key=ORE, tier=ступень, price=money(5), quantity=1)
+    deal = await market.buy(session, constants, catalog, body,
+                              type_key=ORE, tier=tier, price=money(5), quantity=1)
     with pytest.raises(market.NotYours):
-        await market.cancel(session, сделка.order, by=чужой.id)
+        await market.cancel(session, deal.order, by=foreign.id)
 
 
-# --- срок -------------------------------------------------------------------
+# --- term --------------------------------------------------------------------
 
 
-async def test_ордер_истекает_заданием(
+async def test_order_expires_by_job(
     factory: async_sessionmaker[AsyncSession], constants: Constants, catalog: Catalog
 ) -> None:
-    """Истечение — событие мира, а не следствие того, что кто-то заглянул."""
+    """Expiry is a world event, not a consequence of somebody looking in."""
     async with factory() as session, session.begin():
-        node = await _город(session)
-        ступень = market.tier_of(constants, 65)
-        покупатель, тело = await _торговец(session, node, "Терпеливый", денег=100)
-        сделка = await market.buy(session, constants, catalog, тело,
-                                  type_key=ORE, tier=ступень, price=money(5), quantity=10)
-        срок, order_id, identity_id = сделка.order.expires_at, сделка.order.id, покупатель.id
+        node = await _city(session)
+        tier = market.tier_of(constants, 65)
+        buyer, body = await _trader(session, node, "Терпеливый", funds=100)
+        deal = await market.buy(session, constants, catalog, body,
+                                  type_key=ORE, tier=tier, price=money(5), quantity=10)
+        term, order_id, identity_id = deal.order.expires_at, deal.order.id, buyer.id
 
-    ожидание = timedelta(
+    expected = timedelta(
         hours=constants[R.MARKET_ORDER_LIFETIME] * constants[R.TIME_DAY_TERRA]
     )
-    assert срок - ожидание < datetime.now(UTC) + timedelta(minutes=1)
+    assert term - expected < datetime.now(UTC) + timedelta(minutes=1)
 
-    #: До срока ордер живёт.
-    assert await jobs.run_one(factory, now=срок - timedelta(hours=1)) is None
-    задание = await jobs.run_one(factory, now=срок)
-    assert задание is not None and задание.kind == "market.order_expiry"
+    #: Before the term the order lives.
+    assert await jobs.run_one(factory, now=term - timedelta(hours=1)) is None
+    job = await jobs.run_one(factory, now=term)
+    assert job is not None and job.kind == "market.order_expiry"
 
     async with factory() as session:
         order = await session.get(Order, order_id)
         assert order is not None and order.state is OrderState.EXPIRED
-        счёт = await ledger.account_for(session, AccountKind.IDENTITY, identity_id)
-        assert await ledger.balance(session, счёт.id) == money(100), (
+        account = await ledger.account_for(session, AccountKind.IDENTITY, identity_id)
+        assert await ledger.balance(session, account.id) == money(100), (
             "заморозка вернулась целиком"
         )
 
 
-async def test_сделка_остаётся_в_журнале(
+async def test_deal_stays_in_journal(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Ордер можно снять, сделку — нет: по ней считается оборот города (D-100)."""
-    node = await _город(session)
-    ступень = market.tier_of(constants, 65)
-    продавец, _ = await _с_товаром(session, constants, node, "Летописец", сколько=3)
-    _, тело = await _торговец(session, node, "Свидетель", денег=100)
+    """An order can be cancelled, a deal cannot: city turnover is computed from it (D-100)."""
+    node = await _city(session)
+    tier = market.tier_of(constants, 65)
+    seller, _ = await _with_goods(session, constants, node, "Летописец", qty=3)
+    _, body = await _trader(session, node, "Свидетель", funds=100)
 
-    await market.sell(session, constants, catalog, продавец, node,
-                      type_key=ORE, tier=ступень, price=money(7), quantity=3)
-    await market.buy(session, constants, catalog, тело,
-                     type_key=ORE, tier=ступень, price=money(7), quantity=3)
+    await market.sell(session, constants, catalog, seller, node,
+                      type_key=ORE, tier=tier, price=money(7), quantity=3)
+    await market.buy(session, constants, catalog, body,
+                     type_key=ORE, tier=tier, price=money(7), quantity=3)
     await session.commit()
 
-    сделок = await session.scalar(
+    deal_count = await session.scalar(
         select(func.count()).select_from(Trade).where(Trade.node_id == node.id)
     )
-    assert сделок == 1
-    ордера = (
+    assert deal_count == 1
+    orders_ = (
         await session.execute(select(Order).where(Order.node_id == node.id))
     ).scalars().all()
-    assert {o.side for o in ордера} == {OrderSide.BUY, OrderSide.SELL}
-    assert all(o.state is OrderState.FILLED for o in ордера)
+    assert {o.side for o in orders_} == {OrderSide.BUY, OrderSide.SELL}
+    assert all(o.state is OrderState.FILLED for o in orders_)

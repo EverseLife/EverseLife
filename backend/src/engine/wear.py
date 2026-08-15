@@ -1,32 +1,34 @@
-"""Износ: почему вещи кончаются (D-129, D-058, 15-quality).
+"""Wear: why things run out (D-129, D-058, 15-quality).
 
-Столп П2 требует, чтобы предмет был конечен. Отсюда четыре потока износа, и
-каждый параметризован вольтом отдельно: инструмент за сессию добычи, станок за
-партию, снаряжение за сутки ношения, транспорт за переход.
+Pillar P2 requires an item to be finite. Hence four wear streams, each
+parameterised by the vault separately: a tool per mining session, a machine
+per batch, gear per day of wearing, a vehicle per transit.
 
-## Два числа на предмете, и их путают чаще всего
+## Two numbers on an item, and they are confused most often
 
-| | Качество | Состояние |
+| | Quality | Condition |
 |---|---|---|
-| Что означает | каким предмет сделан | насколько изношен сейчас |
-| Меняется | никогда | постоянно, от использования |
+| What it means | how well the item is made | how worn it is now |
+| Changes | never | constantly, from use |
 
-**Качество определяет, как быстро падает состояние.** Множитель срока службы
-задан формулой `quality.durability_factor` — и она именно вычисляется, а не
-переписывается кодом: иначе её числа переехали бы в движок (D-065).
+**Quality determines how fast condition falls.** The service-life multiplier is
+given by the formula `quality.durability_factor` -- and it is precisely
+evaluated, not rewritten in code: otherwise its numbers would move into the
+engine (D-065).
 
-**Состояние определяет, насколько предмет хорош сейчас.** Действующее качество
-инструмента и станка — качество, взятое по доле оставшегося состояния. Без
-этого износ был бы просто счётчиком до поломки, а «содержание обязательно»
-осталось бы словами: разбитая наковальня обязана давать худший результат, а не
-только внезапно ломаться.
+**Condition determines how good the item is now.** The effective quality of a
+tool and a machine is quality taken by the share of remaining condition.
+Without that wear would be just a countdown to breakage, and "maintenance is
+mandatory" would remain words: a broken anvil must give a worse result, not
+just break suddenly.
 
-**Дошло до нуля — вещь кончилась.** Не «работает с нулевой отдачей», а исчезает:
-ориентир приёмки прямой — инструмент кончается за `100 / wear.tool_per_session`
-сессий (07-implementation-map).
+**Reached zero -- the thing is finished.** Not "works with zero output" but
+disappears: the acceptance benchmark is direct -- a tool runs out in
+`100 / wear.tool_per_session` sessions (07-implementation-map).
 
-Среда ускоряет износ снаряжения множителем `wear.environment_k`. Это и делает
-Пироксис дорогим сам по себе, без единой специальной механики (D-129).
+The environment speeds up gear wear by the `wear.environment_k` multiplier.
+That is what makes Pyroxis expensive by itself, without a single special
+mechanic (D-129).
 """
 
 from __future__ import annotations
@@ -46,7 +48,7 @@ from src.models.identity import Body, BodyState
 from src.models.inventory import Container, ContainerKind, Item
 from src.models.world import Node
 
-#: Имя планеты в `wear.environment_k` — ключи там человеческие, как в вольте.
+#: The planet name in `wear.environment_k` -- the keys there are human, as in the vault.
 PLANET_NAMES = {
     "terra": "Терра",
     "aquatica": "Акватика",
@@ -56,24 +58,24 @@ PLANET_NAMES = {
 
 
 def life_factor(constants: Constants, quality: float | None) -> float:
-    """Во сколько раз дольше служит вещь такого качества.
+    """How many times longer a thing of this quality lasts.
 
-    Формула берётся из вольта и вычисляется. Единица на входе означает «срок
-    службы обычной вещи»: наружу идёт множитель, а не абсолютный срок.
+    The formula is taken from the vault and evaluated. One on input means "the
+    service life of an ordinary thing": a multiplier goes out, not an absolute term.
     """
     scale = constants[R.QUALITY_SCALE]
     value = scale.mid if quality is None else quality
     factor = constants[R.QUALITY_DURABILITY_FACTOR].value(base_life=1, quality=value)
-    if factor <= 0:  # pragma: no cover — защита от правки формулы в ноль
+    if factor <= 0:  # pragma: no cover -- guard against the formula being edited to zero
         raise ConstantError("quality.durability_factor даёт неположительный срок службы")
     return factor
 
 
 def effective(constants: Constants, item: Item | None) -> float:
-    """Действующее качество вещи: каким сделана, с поправкой на износ.
+    """The thing's effective quality: how it was made, adjusted for wear.
 
-    Изношенная вещь работает хуже новой той же выделки — отсюда и смысл
-    содержания. Целая вещь работает ровно на своё качество.
+    A worn thing works worse than a new one of the same make -- hence the point
+    of maintenance. An intact thing works exactly at its quality.
     """
     scale = constants[R.QUALITY_SCALE]
     if item is None:
@@ -85,10 +87,10 @@ def effective(constants: Constants, item: Item | None) -> float:
 def spent_on(
     constants: Constants, item: Item | None, base: float, *, environment: float = 1.0
 ) -> float:
-    """Сколько состояния съест такой износ у этой вещи.
+    """How much condition such wear eats on this thing.
 
-    Хорошая вещь изнашивается медленнее ровно во столько раз, во сколько дольше
-    служит, — второй формулы для этого не нужно.
+    A good thing wears slower exactly as many times as it lasts longer -- no
+    second formula is needed for that.
     """
     if item is None:
         return 0.0
@@ -98,11 +100,11 @@ def spent_on(
 def wears_out(
     constants: Constants, item: Item | None, base: float, *, environment: float = 1.0
 ) -> bool:
-    """Кончится ли вещь от такого износа — до того, как он списан.
+    """Whether the thing will be finished by such wear -- before it is written off.
 
-    Нужно тем, кто обязан прибраться **перед** исчезновением вещи: обоз
-    выгружает груз в узел раньше, чем повозки не станет (D-157). Считает та же
-    формула, что и списывает: разойтись им нельзя.
+    Needed by those who must tidy up **before** the thing disappears: the
+    convoy unloads cargo into the node before the wagon is gone (D-157). The
+    same formula computes as writes off: they may not diverge.
     """
     if item is None:
         return False
@@ -122,7 +124,7 @@ async def spend(
     cause: str,
     actor_identity_id=None,
 ) -> bool:
-    """Списать износ. Возвращает True, если вещь на этом кончилась."""
+    """Write off wear. Returns True if the thing is finished by it."""
     if item is None:
         return False
     scale = constants[R.QUALITY_SCALE]
@@ -160,10 +162,10 @@ async def spend(
 async def daily_gear_wear(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> int:
-    """Суточный износ снаряжения на живых телах. Возвращает число кончившихся вещей.
+    """Daily gear wear on living bodies. Returns the number of things finished.
 
-    Снаряжение изнашивается от ношения, а не от применения (сток С2), и среда
-    решает, насколько быстро: на Пироксисе вчетверо.
+    Gear wears from wearing, not from use (sink S2), and the environment
+    decides how fast: fourfold on Pyroxis.
     """
     rows = (
         (
@@ -202,7 +204,7 @@ async def daily_gear_wear(
 
 
 def _is_gear(catalog: Catalog, type_key: str) -> bool:
-    """Снаряжение и тара носятся и изнашиваются; сырьё и еда — нет (D-090)."""
+    """Gear and containers are worn and wear out; raw material and food do not (D-090)."""
     try:
         return catalog.recipes.recipe(type_key).kind is ItemKind.GEAR
     except ConstantError:

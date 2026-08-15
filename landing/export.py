@@ -1,7 +1,8 @@
-"""Выгрузка заявок в CSV на стандартный вывод.
+"""Export signups as CSV to standard output.
 
     docker compose exec landing python export.py > signups.csv
 """
+
 
 import csv
 import os

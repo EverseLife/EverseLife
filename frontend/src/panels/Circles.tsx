@@ -1,13 +1,13 @@
 /**
- * Кружки — таб основного окна (D-043).
+ * Circles -- a tab of the main window (D-043).
  *
- * В одной мастерской восемь человек обсуждают разное: кружок позволяет
- * говорить о своём, не мешая остальным. **Группы видны, их содержание — нет**:
- * снаружи видно, кто с кем шепчется, и это сильный социальный сигнал — «эти
- * о чём-то договариваются».
+ * In one workshop eight people discuss different things: a circle lets one
+ * talk about one's own without disturbing the rest. **Groups are visible,
+ * their content is not**: from outside one sees who whispers with whom, and
+ * that is a strong social signal -- "these ones are arranging something".
  *
- * Таб присутственный, как и сам разговор: в пути кружков нет, потому что нет
- * и комнаты, в которой они собираются.
+ * The tab is in-person, like the conversation itself: en route there are no
+ * circles, because there is no room in which they gather.
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -17,7 +17,7 @@ type Props = {
   session: Session;
   busy: boolean;
   act: (what: () => Promise<unknown>) => Promise<void>;
-  /** Ключ локации: сменилась — кружки другие. */
+  /** The location key: changed -- the circles are different. */
   place: string;
 };
 

@@ -1,7 +1,7 @@
-"""Схема хранения.
+"""The storage schema.
 
-Порядок импорта важен: Alembic видит таблицы через `Base.metadata`, а она
-наполняется импортом модулей.
+Import order matters: Alembic sees tables through `Base.metadata`, and it is
+filled by importing the modules.
 """
 
 from __future__ import annotations
@@ -57,7 +57,7 @@ from src.models.travel import Harness, Travel, TravelState
 from src.models.vote import Ballot, Vote, VoteKind, VoteState
 from src.models.world import Edge, Node, Planet, Surface, Vein
 
-#: Правила, которые держит сама база, вешаются сразу после объявления таблиц.
+#: The rules the database itself holds are attached right after the tables are declared.
 ddl.attach(Base.metadata)
 
 __all__ = [

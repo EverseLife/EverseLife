@@ -1,11 +1,12 @@
-"""Суд: жалоба, дело, приговор, исполнение (D-095, D-117, D-166).
+"""Court: complaint, case, verdict, enforcement (D-095, D-117, D-166).
 
-Проверяется то, ради чего суд введён:
+Checked is what the court was introduced for:
 
-* жалоба стоит пошлины, и пошлина идёт в казну города, а не в никуда;
-* судит тот, кому город дал право `justice`, — и только он;
-* приговор исполняется движком **сразу**, без стражи и без чужого участия;
-* санкция, которую движок не умеет исполнять, отвергается вслух.
+* a complaint costs a fee, and the fee goes to the city treasury, not into nowhere;
+* whoever the city gave the `justice` right judges -- and only they;
+* the verdict is enforced by the engine **at once**, without guards and without
+  anybody's participation;
+* a sanction the engine cannot enforce is rejected aloud.
 """
 
 from __future__ import annotations
@@ -27,157 +28,157 @@ from src.models.world import Layer
 from src.units import money
 
 
-async def _суд(session: AsyncSession, catalog: Catalog):
-    """Город с судьёй, истцом и ответчиком при деньгах."""
-    метка = uuid.uuid4().hex[:8]
-    планета = await world.create_node(
-        session, f"terra.{метка}", "Терра", area_m2=1, layer=Layer.SPACE
+async def _court(session: AsyncSession, catalog: Catalog):
+    """A city with a judge, a plaintiff and a defendant with money."""
+    stamp = uuid.uuid4().hex[:8]
+    planet = await world.create_node(
+        session, f"terra.{stamp}", "Терра", area_m2=1, layer=Layer.SPACE
     )
-    представитель = await world.create_node(
-        session, f"terra.city.{метка}", "Суд", area_m2=1,
-        layer=Layer.PLANET, parent=планета,
+    delegate = await world.create_node(
+        session, f"terra.city.{stamp}", "Суд", area_m2=1,
+        layer=Layer.PLANET, parent=planet,
     )
-    ядро = await world.create_node(
-        session, f"terra.city.{метка}.core", "Ядро", area_m2=100,
-        parent=представитель, properties={"кольцо": 0},
+    core = await world.create_node(
+        session, f"terra.city.{stamp}.core", "Ядро", area_m2=100,
+        parent=delegate, properties={"кольцо": 0},
     )
-    город = await town.found(session, catalog, представитель, "Судоград")
-    ядро.owner_city_id = город.id
+    city = await town.found(session, catalog, delegate, "Судоград")
+    core.owner_city_id = city.id
     await session.flush()
 
-    судья, _ = await _житель(session, ядро, город, "Судья", денег=0)
-    await town.install_founder(session, город, судья)
-    истец, _ = await _житель(session, ядро, город, "Истец", денег=100)
-    ответчик, тело = await _житель(session, ядро, город, "Ответчик", денег=50)
-    return город, ядро, судья, истец, ответчик, тело
+    judge, _ = await _resident(session, core, city, "Судья", funds=0)
+    await town.install_founder(session, city, judge)
+    plaintiff, _ = await _resident(session, core, city, "Истец", funds=100)
+    defendant, body = await _resident(session, core, city, "Ответчик", funds=50)
+    return city, core, judge, plaintiff, defendant, body
 
 
-async def _тело(session: AsyncSession, кто):
+async def _body(session: AsyncSession, who):
     from src.engine import death
 
-    return await death.alive_body(session, кто.id)
+    return await death.alive_body(session, who.id)
 
 
-async def _житель(
-    session: AsyncSession, узел, город, имя: str, *, денег: float = 0
+async def _resident(
+    session: AsyncSession, node, city, name: str, *, funds: float = 0
 ):
-    identity = await world.create_identity(session, f"{имя}-{uuid.uuid4().hex[:6]}")
-    body = await world.print_body(session, identity, узел)
-    session.add(Citizen(identity_id=identity.id, city_id=город.id))
-    if денег:
-        счёт = await ledger.account_for(session, AccountKind.IDENTITY, identity.id)
+    identity = await world.create_identity(session, f"{name}-{uuid.uuid4().hex[:6]}")
+    body = await world.print_body(session, identity, node)
+    session.add(Citizen(identity_id=identity.id, city_id=city.id))
+    if funds:
+        account = await ledger.account_for(session, AccountKind.IDENTITY, identity.id)
         genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
         await ledger.transfer(
             session, PostingReason.GENESIS,
-            debit=genesis.id, credit=счёт.id, amount=money(денег), memo={},
+            debit=genesis.id, credit=account.id, amount=money(funds), memo={},
         )
     await session.flush()
     return identity, body
 
 
-# --- жалоба -----------------------------------------------------------------
+# --- complaint ---------------------------------------------------------------
 
 
-async def test_пошлина_уходит_в_казну(
+async def test_fee_goes_to_treasury(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Хороший суд выгоден городу — в этом и смысл пошлины (D-117)."""
-    город, _, _, истец, ответчик, _ = await _суд(session, catalog)
-    было = await town.treasury_balance(session, город)
+    """A good court is profitable for the city -- that is the point of the fee (D-117)."""
+    city, _, _, plaintiff, defendant, _ = await _court(session, catalog)
+    before = await town.treasury_balance(session, city)
 
-    дело = await justice.sue(
-        session, constants, город, истец, ответчик, "увёл повозку"
+    case = await justice.sue(
+        session, constants, city, plaintiff, defendant, "увёл повозку"
     )
 
-    стало = await town.treasury_balance(session, город)
-    assert стало - было == money(constants[R.JUSTICE_COURT_FEE])
-    assert дело.state is CaseState.OPEN
+    after = await town.treasury_balance(session, city)
+    assert after - before == money(constants[R.JUSTICE_COURT_FEE])
+    assert case.state is CaseState.OPEN
 
 
-async def test_без_денег_на_пошлину_не_судятся(
+async def test_no_suit_without_money_for_fee(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    город, ядро, _, _, ответчик, _ = await _суд(session, catalog)
-    нищий, _ = await _житель(session, ядро, город, "Нищий", денег=0)
+    city, core, _, _, defendant, _ = await _court(session, catalog)
+    pauper, _ = await _resident(session, core, city, "Нищий", funds=0)
     with pytest.raises(justice.CannotPayFee):
-        await justice.sue(session, constants, город, нищий, ответчик, "обидел")
+        await justice.sue(session, constants, city, pauper, defendant, "обидел")
 
 
-async def test_срок_давности_вышел(
+async def test_limitation_period_expired(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Суд — не архив обид."""
-    город, _, _, истец, ответчик, _ = await _суд(session, catalog)
-    давно = datetime.now(UTC) - timedelta(
+    """The court is not an archive of grudges."""
+    city, _, _, plaintiff, defendant, _ = await _court(session, catalog)
+    long_ago = datetime.now(UTC) - timedelta(
         days=constants[R.JUSTICE_CLAIM_WINDOW] + 1
     )
     with pytest.raises(justice.TooLate):
         await justice.sue(
-            session, constants, город, истец, ответчик, "старая обида",
-            happened_at=давно,
+            session, constants, city, plaintiff, defendant, "старая обида",
+            happened_at=long_ago,
         )
 
 
-# --- приговор ---------------------------------------------------------------
+# --- verdict -----------------------------------------------------------------
 
 
-async def test_судит_только_имеющий_право(
+async def test_only_holder_of_right_judges(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    город, ядро, _, истец, ответчик, _ = await _суд(session, catalog)
-    дело = await justice.sue(session, constants, город, истец, ответчик, "спор")
-    посторонний, _ = await _житель(session, ядро, город, "Посторонний")
+    city, core, _, plaintiff, defendant, _ = await _court(session, catalog)
+    case = await justice.sue(session, constants, city, plaintiff, defendant, "спор")
+    stranger, _ = await _resident(session, core, city, "Посторонний")
 
     with pytest.raises(justice.NotJudge):
         await justice.judge(
-            session, constants, catalog, посторонний, дело, sanction=justice.FINE
+            session, constants, catalog, stranger, case, sanction=justice.FINE
         )
 
 
-async def test_штраф_взыскивается_в_казну_а_остаток_становится_долгом(
+async def test_fine_collected_to_treasury_and_remainder_becomes_debt(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    город, _, судья, истец, ответчик, _ = await _суд(session, catalog)
-    дело = await justice.sue(session, constants, город, истец, ответчик, "порча")
-    было = await town.treasury_balance(session, город)
+    city, _, judge, plaintiff, defendant, _ = await _court(session, catalog)
+    case = await justice.sue(session, constants, city, plaintiff, defendant, "порча")
+    before = await town.treasury_balance(session, city)
 
-    #: У ответчика полсотни, штраф — восемьдесят: взыскано сколько есть.
-    наказание = await justice.judge(
-        session, constants, catalog, судья, дело, sanction=justice.FINE, amount=80
+    #: The defendant has fifty, the fine is eighty: collected what there is.
+    penalty = await justice.judge(
+        session, constants, catalog, judge, case, sanction=justice.FINE, amount=80
     )
 
-    счёт = await ledger.account_for(session, AccountKind.IDENTITY, ответчик.id)
-    assert await ledger.balance(session, счёт.id) == 0, "взыскано всё, что было"
-    assert await town.treasury_balance(session, город) - было == money(50)
-    assert наказание.debt == money(30), "остаток записан долгом"
-    assert дело.state is CaseState.JUDGED
+    account = await ledger.account_for(session, AccountKind.IDENTITY, defendant.id)
+    assert await ledger.balance(session, account.id) == 0, "взыскано всё, что было"
+    assert await town.treasury_balance(session, city) - before == money(50)
+    assert penalty.debt == money(30), "остаток записан долгом"
+    assert case.state is CaseState.JUDGED
 
 
-async def test_заключение_держит_тело_в_узле(
+async def test_imprisonment_holds_body_in_node(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Исполняет движок, а не стража: приговор не зависит от того, кто онлайн."""
-    город, ядро, судья, истец, ответчик, тело = await _суд(session, catalog)
-    куда = await world.create_node(
+    """The engine enforces, not guards: the verdict does not depend on who is online."""
+    city, core, judge, plaintiff, defendant, body = await _court(session, catalog)
+    dest = await world.create_node(
         session, f"terra.far.{uuid.uuid4().hex[:6]}", "Прочь", area_m2=100
     )
-    await travel.connect(session, ядро, куда, base_seconds=60)
+    await travel.connect(session, core, dest, base_seconds=60)
 
-    дело = await justice.sue(session, constants, город, истец, ответчик, "снос")
-    наказание = await justice.judge(
-        session, constants, catalog, судья, дело, sanction=justice.PRISON, days=3
+    case = await justice.sue(session, constants, city, plaintiff, defendant, "снос")
+    penalty = await justice.judge(
+        session, constants, catalog, judge, case, sanction=justice.PRISON, days=3
     )
-    assert наказание.until is not None
+    assert penalty.until is not None
 
     with pytest.raises(travel.Imprisoned):
-        await travel.depart(session, constants, тело, куда)
+        await travel.depart(session, constants, body, dest)
 
-    #: Срок вышел — задание журнала снимает санкцию, и дорога открыта.
+    #: The term is up -- the journal job lifts the sanction, and the road is open.
     from sqlalchemy import select
 
     from src.models.job import Job, JobKind, JobState
 
-    задание = (
+    job = (
         await session.execute(
             select(Job).where(
                 Job.kind == JobKind.SANCTION_LIFT.value,
@@ -185,94 +186,94 @@ async def test_заключение_держит_тело_в_узле(
             )
         )
     ).scalars().first()
-    assert задание is not None
-    await justice.lift(session, задание)
-    assert await justice.imprisoned(session, ответчик.id) is None
-    assert await travel.depart(session, constants, тело, куда) is not None
+    assert job is not None
+    await justice.lift(session, job)
+    assert await justice.imprisoned(session, defendant.id) is None
+    assert await travel.depart(session, constants, body, dest) is not None
 
 
-async def test_заключение_не_дольше_потолка(
+async def test_imprisonment_no_longer_than_ceiling(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    город, _, судья, истец, ответчик, _ = await _суд(session, catalog)
-    дело = await justice.sue(session, constants, город, истец, ответчик, "снос")
-    сейчас = datetime.now(UTC)
-    наказание = await justice.judge(
-        session, constants, catalog, судья, дело,
-        sanction=justice.PRISON, days=999, now=сейчас,
+    city, _, judge, plaintiff, defendant, _ = await _court(session, catalog)
+    case = await justice.sue(session, constants, city, plaintiff, defendant, "снос")
+    now_ = datetime.now(UTC)
+    penalty = await justice.judge(
+        session, constants, catalog, judge, case,
+        sanction=justice.PRISON, days=999, now=now_,
     )
-    потолок = сейчас + timedelta(days=constants[R.JUSTICE_PRISON_MAX])
-    assert наказание.until == потолок
+    ceiling = now_ + timedelta(days=constants[R.JUSTICE_PRISON_MAX])
+    assert penalty.until == ceiling
 
 
-async def test_изгнание_по_приговору_снимает_гражданство(
+async def test_exile_by_verdict_removes_citizenship(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Высылка, а не смерть: изгнанный спокойно живёт в другом городе."""
-    город, _, судья, истец, ответчик, _ = await _суд(session, catalog)
-    дело = await justice.sue(session, constants, город, истец, ответчик, "измена")
+    """Banishment, not death: the exiled lives quietly in another city."""
+    city, _, judge, plaintiff, defendant, _ = await _court(session, catalog)
+    case = await justice.sue(session, constants, city, plaintiff, defendant, "измена")
     await justice.judge(
-        session, constants, catalog, судья, дело, sanction=justice.EXILE
+        session, constants, catalog, judge, case, sanction=justice.EXILE
     )
-    assert await town.citizenship(session, ответчик.id) is None
+    assert await town.citizenship(session, defendant.id) is None
 
 
-async def test_неисполнимая_санкция_отвергается_вслух(
+async def test_unenforceable_sanction_rejected_aloud(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Приговор без исполнения хуже, чем отказ от приговора (D-166)."""
-    город, _, судья, истец, ответчик, _ = await _суд(session, catalog)
-    дело = await justice.sue(session, constants, город, истец, ответчик, "спор")
+    """A verdict without enforcement is worse than refusing a verdict (D-166)."""
+    city, _, judge, plaintiff, defendant, _ = await _court(session, catalog)
+    case = await justice.sue(session, constants, city, plaintiff, defendant, "спор")
     with pytest.raises(justice.Unenforceable):
         await justice.judge(
-            session, constants, catalog, судья, дело, sanction="confiscation"
+            session, constants, catalog, judge, case, sanction="confiscation"
         )
-    assert дело.state is CaseState.OPEN, "дело осталось нерассмотренным"
+    assert case.state is CaseState.OPEN, "дело осталось нерассмотренным"
 
 
-async def test_оправдание_тоже_приговор(
+async def test_acquittal_is_also_verdict(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Висящих дел не бывает: каждое кончается решением."""
-    город, _, судья, истец, ответчик, _ = await _суд(session, catalog)
-    дело = await justice.sue(session, constants, город, истец, ответчик, "напраслина")
-    наказание = await justice.judge(
-        session, constants, catalog, судья, дело, verdict="не доказано"
+    """There are no hanging cases: each ends with a decision."""
+    city, _, judge, plaintiff, defendant, _ = await _court(session, catalog)
+    case = await justice.sue(session, constants, city, plaintiff, defendant, "напраслина")
+    penalty = await justice.judge(
+        session, constants, catalog, judge, case, verdict="не доказано"
     )
-    assert наказание is None
-    assert дело.state is CaseState.DISMISSED
-    assert дело.verdict == "не доказано"
-    assert not await justice.active(session, ответчик.id)
+    assert penalty is None
+    assert case.state is CaseState.DISMISSED
+    assert case.verdict == "не доказано"
+    assert not await justice.active(session, defendant.id)
 
 
-async def test_дважды_одно_дело_не_судят(
+async def test_same_case_not_tried_twice(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    город, _, судья, истец, ответчик, _ = await _суд(session, catalog)
-    дело = await justice.sue(session, constants, город, истец, ответчик, "спор")
-    await justice.judge(session, constants, catalog, судья, дело)
+    city, _, judge, plaintiff, defendant, _ = await _court(session, catalog)
+    case = await justice.sue(session, constants, city, plaintiff, defendant, "спор")
+    await justice.judge(session, constants, catalog, judge, case)
     with pytest.raises(justice.JusticeError):
         await justice.judge(
-            session, constants, catalog, судья, дело, sanction=justice.FINE, amount=1
+            session, constants, catalog, judge, case, sanction=justice.FINE, amount=1
         )
 
 
-async def test_право_суда_отдаётся_отдельно(
+async def test_court_right_granted_separately(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """`justice` — точечное право: судья не обязан быть правителем (D-155)."""
-    город, ядро, судья, истец, ответчик, _ = await _суд(session, catalog)
-    мировой, _ = await _житель(session, ядро, город, "Мировой")
-    #: Назначение присутственно (D-155): судья идёт в администрацию.
-    двор = await world.node_container(session, ядро)
-    await world.grant_item(session, двор, town.HALL, quality=60, origin="тест")
-    тело_судьи = await _тело(session, судья)
+    """`justice` is a narrow right: the judge need not be the ruler (D-155)."""
+    city, core, judge, plaintiff, defendant, _ = await _court(session, catalog)
+    magistrate, _ = await _resident(session, core, city, "Мировой")
+    #: Appointment is in-person (D-155): the judge goes to the administration.
+    yard = await world.node_container(session, core)
+    await world.grant_item(session, yard, town.HALL, quality=60, origin="тест")
+    judge_body = await _body(session, judge)
     await town.appoint(
-        session, судья, город, мировой, title="Мировой судья",
-        powers=[Power.JUSTICE.value], body=тело_судьи,
+        session, judge, city, magistrate, title="Мировой судья",
+        powers=[Power.JUSTICE.value], body=judge_body,
     )
-    дело = await justice.sue(session, constants, город, истец, ответчик, "спор")
+    case = await justice.sue(session, constants, city, plaintiff, defendant, "спор")
     await justice.judge(
-        session, constants, catalog, мировой, дело, sanction=justice.FINE, amount=10
+        session, constants, catalog, magistrate, case, sanction=justice.FINE, amount=10
     )
-    assert дело.state is CaseState.JUDGED
+    assert case.state is CaseState.JUDGED

@@ -1,10 +1,10 @@
-"""Воркер: разбирает журнал заданий и тем самым двигает мир.
+"""The worker: drains the job journal and thereby moves the world.
 
-Запуск из `backend/`: `python -m src.worker`.
+Run from `backend/`: `python -m src.worker`.
 
-Воркеров может быть сколько угодно: `FOR UPDATE SKIP LOCKED` разводит их без
-координации. Останов в любой момент безопасен — незавершённое задание
-откатывается целиком и будет взято снова.
+There can be any number of workers: `FOR UPDATE SKIP LOCKED` separates them
+without coordination. Stopping at any moment is safe -- an unfinished job
+rolls back whole and will be taken again.
 """
 
 from __future__ import annotations
@@ -36,21 +36,22 @@ async def main() -> None:
 
     constants, _ = bootstrap(conf.vault_build_path)
     require_handlers()
-    log.info("константы %s, отпечаток %s", constants.source, constants.digest)
+    log.info("constants %s, fingerprint %s", constants.source, constants.digest)
 
     factory = session_factory()
     worker_id = f"{socket.gethostname()}/{os.getpid()}"
 
     async with factory() as session, session.begin():
         await tick.ensure_scheduled(session)
-        #: Счётчик быта тикает своим ритмом (`energy.meter_period`), но
-        #: заводится здесь же: содержание узлов не должно зависеть от того,
-        #: запускал ли кто-то сид (D-149).
+        #: The household meter ticks at its own rhythm (`energy.meter_period`)
+        #: but is started right here: node maintenance must not depend on
+        #: whether somebody ran the seed (D-149).
         await utility.ensure_scheduled(session)
-        #: Хроника наружу. Без вебхука в настройках задание просто молчит, но
-        #: заводится всё равно: включение сводится к одной переменной среды.
+        #: The chronicle going out. Without a webhook in settings the job is
+        #: simply silent, but it is started anyway: enabling comes down to one env variable.
+
         await herald.ensure_scheduled(session)
-    log.info("часы мира заведены, воркер %s", worker_id)
+    log.info("world clock started, worker %s", worker_id)
 
     stopping = asyncio.Event()
     loop = asyncio.get_running_loop()
@@ -66,7 +67,7 @@ async def main() -> None:
                     await asyncio.wait_for(stopping.wait(), timeout=WORKER_IDLE_SLEEP)
     finally:
         await dispose()
-        log.info("воркер остановлен")
+        log.info("worker stopped")
 
 
 if __name__ == "__main__":

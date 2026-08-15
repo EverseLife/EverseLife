@@ -1,14 +1,15 @@
 /**
- * Облако: тела нет, личность есть (D-012, D-028, D-033).
+ * The cloud: no body, the identity exists (D-012, D-028, D-033).
  *
- * Экран показывает ровно то, что сейчас имеет смысл, — где напечататься и
- * почём. Никаких «вы погибли, нажмите ОК»: наказание уже случилось, и оно
- * экономическое, а не «сиди в углу».
+ * The screen shows exactly what makes sense now -- where to print and for how
+ * much. No "you died, press OK": the punishment already happened, and it is
+ * economic, not "sit in the corner".
  *
- * Главное, что этот экран обязан сообщать без слов: **бесплатная дверь есть
- * всегда**. Город продаёт скорость, а не жизнь, и заложника из личности
- * сделать нельзя — она в Сети, а не в чужом принтере.
+ * The main thing this screen must convey without words: **there is always a
+ * free door**. The city sells speed, not life, and the identity cannot be
+ * made a hostage -- it is in the Net, not in somebody's printer.
  */
+
 
 import * as api from "../api";
 import type { Look, Printer as Door, Session } from "../api";
@@ -21,8 +22,8 @@ type Props = {
 };
 
 export function Printer({ look, session, busy, act }: Props) {
-  const идёт = look.printing ?? null;
-  const двери: Door[] = look.printers ?? [];
+  const ongoing = look.printing ?? null;
+  const doors: Door[] = look.printers ?? [];
 
   return (
     <section>
@@ -32,9 +33,9 @@ export function Printer({ look, session, busy, act }: Props) {
         то, что тело несло, — и треть этого осталась лежать на месте гибели.
       </p>
 
-      {идёт ? (
-        <p className="sign">печать идёт · тело будет {осталось(идёт.ready_at)}</p>
-      ) : двери.length === 0 ? (
+      {ongoing ? (
+        <p className="sign">печать идёт · тело будет {left(ongoing.ready_at)}</p>
+      ) : doors.length === 0 ? (
         <p className="trouble">
           В мире нет ни одного биопринтера. Это ситуация, которой быть не
           должно: вход в игру не блокируется никогда (D-028).
@@ -42,30 +43,30 @@ export function Printer({ look, session, busy, act }: Props) {
       ) : (
         <table>
           <tbody>
-            {двери.map((дверь) => (
-              <tr key={дверь.node}>
+            {doors.map((door) => (
+              <tr key={door.node}>
                 <td>
-                  {дверь.name}
-                  {дверь.city && <span className="note"> · {дверь.city}</span>}
-                  {дверь.precursor && <span className="note"> · Предтечи</span>}
+                  {door.name}
+                  {door.city && <span className="note"> · {door.city}</span>}
+                  {door.precursor && <span className="note"> · Предтечи</span>}
                 </td>
-                <td className="num">{срок(дверь.minutes)}</td>
+                <td className="num">{term(door.minutes)}</td>
                 <td className="num">
-                  {дверь.precursor
+                  {door.precursor
                     ? "бесплатно"
-                    : дверь.at_city_expense
+                    : door.at_city_expense
                       ? "за счёт города"
-                      : `${api.tk(дверь.cost)} ₭`}
+                      : `${api.tk(door.cost)} ₭`}
                 </td>
                 <td className="note">
-                  {дверь.precursor
+                  {door.precursor
                     ? "энергии и железа не требует"
-                    : `${дверь.energy.toFixed(0)} энергии · железа ${дверь.iron.toFixed(0)} из ${дверь.iron_here.toFixed(0)}`}
+                    : `${door.energy.toFixed(0)} энергии · железа ${door.iron.toFixed(0)} из ${door.iron_here.toFixed(0)}`}
                 </td>
                 <td>
                   <button
                     onClick={() =>
-                      act(() => session.send("body.print", { node: дверь.node }))
+                      act(() => session.send("body.print", { node: door.node }))
                     }
                     disabled={busy}
                   >
@@ -88,14 +89,14 @@ export function Printer({ look, session, busy, act }: Props) {
   );
 }
 
-function срок(минут: number): string {
-  if (минут < 60) return `${Math.round(минут)} мин`;
-  return `${(минут / 60).toFixed(0)} ч`;
+function term(minutes: number): string {
+  if (minutes < 60) return `${Math.round(minutes)} мин`;
+  return `${(minutes / 60).toFixed(0)} ч`;
 }
 
-function осталось(когда: string): string {
-  const минут = (new Date(когда).getTime() - Date.now()) / 60_000;
-  if (минут <= 0) return "вот-вот";
-  if (минут < 60) return `через ${Math.round(минут)} мин`;
-  return `через ${(минут / 60).toFixed(1)} ч`;
+function left(when: string): string {
+  const minutes = (new Date(when).getTime() - Date.now()) / 60_000;
+  if (minutes <= 0) return "вот-вот";
+  if (minutes < 60) return `через ${Math.round(minutes)} мин`;
+  return `через ${(minutes / 60).toFixed(1)} ч`;
 }

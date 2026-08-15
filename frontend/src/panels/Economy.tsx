@@ -1,11 +1,12 @@
 /**
- * Экономика — государственная вкладка сайдбара (D-124, D-140).
+ * Economy -- a state tab of the sidebar (D-124, D-140).
  *
- * Видна только гос.должностям: цифры, которыми правят, — казна, панель
- * города, действующие законы и сводка мира. Чтение удалённое (D-140);
- * **менять** законы отсюда нельзя — власть присутственна и решает в
- * администрации (D-155).
+ * Visible only to state officials: the figures one governs by -- the
+ * treasury, the city panel, laws in force and the world summary. Reading is
+ * remote (D-140); **changing** laws from here is not allowed -- authority is
+ * in-person and decides in the administration (D-155).
  */
+
 
 import { useCallback, useEffect, useState } from "react";
 import * as api from "../api";
@@ -15,21 +16,21 @@ import { Panel } from "./Admin";
 type Props = { look: Look; session: Session; busy: boolean };
 
 export function Economy({ look, session, busy }: Props) {
-  const [город, setГород] = useState<CityView | null>(null);
-  const [панель, setПанель] = useState<CityPanel | null>(null);
-  const [мир, setМир] = useState<Record<string, number>>({});
+  const [city, setCity] = useState<CityView | null>(null);
+  const [panel, setPanel] = useState<CityPanel | null>(null);
+  const [world, setWorld] = useState<Record<string, number>>({});
 
   const reload = useCallback(async () => {
     try {
-      const сводка = await session.send("city.survey");
-      setГород((сводка.city as CityView) ?? null);
-      const срез = await session.send("city.panel");
-      setПанель((срез.panel as CityPanel) ?? null);
-      const метрики = await session.send("world.metrics");
-      setМир((метрики.metrics as Record<string, number>) ?? {});
+      const summary = await session.send("city.survey");
+      setCity((summary.city as CityView) ?? null);
+      const snapshot = await session.send("city.panel");
+      setPanel((snapshot.panel as CityPanel) ?? null);
+      const metrics = await session.send("world.metrics");
+      setWorld((metrics.metrics as Record<string, number>) ?? {});
     } catch {
-      setГород(null);
-      setПанель(null);
+      setCity(null);
+      setPanel(null);
     }
   }, [session]);
 
@@ -37,50 +38,50 @@ export function Economy({ look, session, busy }: Props) {
     void reload();
   }, [reload, look.node?.key]);
 
-  if (!город) {
+  if (!city) {
     return <p className="note">Вы вне города: за стенами законов нет.</p>;
   }
 
-  const цены = Object.entries(мир).filter(([к]) => к.startsWith("price."));
+  const prices = Object.entries(world).filter(([k]) => k.startsWith("price."));
 
   return (
     <div>
       <p className="sign">
-        {город.name} · казна {api.tk(город.treasury)} ₭
+        {city.name} · казна {api.tk(city.treasury)} ₭
       </p>
-      <Panel панель={панель} />
+      <Panel panel={panel} />
 
       <h3>Деньги мира</h3>
       <table>
         <tbody>
           <tr>
             <td>масса ТК</td>
-            <td className="num">{(мир["money.total"] ?? 0).toFixed(2)}</td>
+            <td className="num">{(world["money.total"] ?? 0).toFixed(2)}</td>
           </tr>
           <tr>
             <td>медиана счёта</td>
-            <td className="num">{(мир["money.median"] ?? 0).toFixed(2)}</td>
+            <td className="num">{(world["money.median"] ?? 0).toFixed(2)}</td>
           </tr>
           <tr>
             <td>неравенство (Джини)</td>
-            <td className="num">{(мир["money.gini"] ?? 0).toFixed(2)}</td>
+            <td className="num">{(world["money.gini"] ?? 0).toFixed(2)}</td>
           </tr>
           <tr>
             <td>сделок за сутки</td>
-            <td className="num">{мир["trades.count"] ?? 0}</td>
+            <td className="num">{world["trades.count"] ?? 0}</td>
           </tr>
         </tbody>
       </table>
 
-      {цены.length > 0 && (
+      {prices.length > 0 && (
         <>
           <h3>Цены за сутки</h3>
           <table>
             <tbody>
-              {цены.map(([ключ, цена]) => (
-                <tr key={ключ}>
-                  <td>{ключ.slice("price.".length)}</td>
-                  <td className="num">{цена.toFixed(2)} ₭</td>
+              {prices.map(([key, price]) => (
+                <tr key={key}>
+                  <td>{key.slice("price.".length)}</td>
+                  <td className="num">{price.toFixed(2)} ₭</td>
                 </tr>
               ))}
             </tbody>
@@ -91,16 +92,16 @@ export function Economy({ look, session, busy }: Props) {
       <h3>По каким правилам живём</h3>
       <table>
         <tbody>
-          {Object.entries(город.laws)
-            .filter(([, закон]) => закон.value && закон.value !== "нет")
-            .map(([ключ, закон]) => (
-              <tr key={ключ}>
-                <td title={закон.note ?? ""}>{закон.name}</td>
+          {Object.entries(city.laws)
+            .filter(([, law]) => law.value && law.value !== "нет")
+            .map(([key, law]) => (
+              <tr key={key}>
+                <td title={law.note ?? ""}>{law.name}</td>
                 <td className="num">
-                  <b>{закон.value}</b>
-                  {закон.unit && <span className="note"> {закон.unit}</span>}
+                  <b>{law.value}</b>
+                  {law.unit && <span className="note"> {law.unit}</span>}
                 </td>
-                <td className="note">{закон.own ? "решение города" : "умолчание"}</td>
+                <td className="note">{law.own ? "решение города" : "умолчание"}</td>
               </tr>
             ))}
         </tbody>

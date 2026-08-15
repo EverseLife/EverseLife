@@ -1,13 +1,13 @@
-"""Плата устройства (D-110, D-112, D-113).
+"""The device fee (D-110, D-112, D-113).
 
-Тесты гоняют Argon2id на **дешёвых** параметрах — через тот самый механизм
-правок, которым админ-панель меняет баланс без выката версии. Заодно это
-проверка, что горячая подмена констант работает на живом коде, а не только
-в тесте загрузчика.
+The tests run Argon2id on **cheap** parameters -- through the very edit
+mechanism by which the admin panel changes balance without a release. That
+also checks that hot constant override works on live code, not only in the
+loader test.
 
-Боевые `pow.*` не трогаются: 64 МБ и три прохода на каждый вызов сделали бы
-набор тестов непригодным для запуска на каждом коммите — а это ровно та цена,
-которую платит ферма, и в этом весь смысл платы.
+Production `pow.*` is left alone: 64 MB and three passes per call would make
+the test suite unfit for running on every commit -- and that is exactly the
+price a farm pays, and the whole point of the fee.
 """
 
 from __future__ import annotations
@@ -29,87 +29,88 @@ NOW = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
 
 @pytest.fixture
 def cheap(constants: Constants) -> Constants:
-    """Та же задача, но по карману набору тестов."""
+    """The same challenge, but affordable for the test suite."""
     return constants.with_overrides({"pow.memory_per_session": 8, "pow.argon_iterations": 1})
 
 
-async def _аккаунт(session: AsyncSession) -> Account:
+async def _account_(session: AsyncSession) -> Account:
     identity = await world.create_identity(session, f"Игрок-{uuid.uuid4().hex[:8]}")
     account = await session.get(Account, identity.account_id)
     assert account is not None
     return account
 
 
-async def test_верный_ответ_открывает_сессию(session: AsyncSession, cheap: Constants) -> None:
-    account = await _аккаунт(session)
-    задача = await device.issue(session, cheap, account.id, now=NOW)
+async def test_correct_answer_opens_session(session: AsyncSession, cheap: Constants) -> None:
+    account = await _account_(session)
+    task = await device.issue(session, cheap, account.id, now=NOW)
 
-    #: Ровно это клиент считает в Web Worker, не блокируя интерфейс.
-    ответ = device.solve(cheap, account.id, задача.nonce)
-    await device.verify(session, cheap, задача, ответ, now=NOW)
+    #: Exactly this the client computes in a Web Worker without blocking the interface.
+    answer = device.solve(cheap, account.id, task.nonce)
+    await device.verify(session, cheap, task, answer, now=NOW)
 
-    assert задача.solved_at == NOW
+    assert task.solved_at == NOW
 
 
-async def test_чужой_ответ_не_проходит(session: AsyncSession, cheap: Constants) -> None:
-    account = await _аккаунт(session)
-    задача = await device.issue(session, cheap, account.id, now=NOW)
+async def test_foreign_answer_does_not_pass(session: AsyncSession, cheap: Constants) -> None:
+    account = await _account_(session)
+    task = await device.issue(session, cheap, account.id, now=NOW)
 
     with pytest.raises(device.WrongAnswer):
-        await device.verify(session, cheap, задача, b"\x00" * 32, now=NOW)
+        await device.verify(session, cheap, task, b"\x00" * 32, now=NOW)
 
 
-async def test_счёт_привязан_к_аккаунту(session: AsyncSession, cheap: Constants) -> None:
-    """Иначе ферма считала бы один раз и предъявляла ответ тысячей персонажей."""
-    первый = await _аккаунт(session)
-    второй = await _аккаунт(session)
-    задача = await device.issue(session, cheap, первый.id, now=NOW)
+async def test_account_bound_to_login(session: AsyncSession, cheap: Constants) -> None:
+    """Otherwise a farm would compute once and present the answer with a thousand characters."""
+    first = await _account_(session)
+    second = await _account_(session)
+    task = await device.issue(session, cheap, first.id, now=NOW)
 
-    чужой = device.solve(cheap, второй.id, задача.nonce)
+    foreign = device.solve(cheap, second.id, task.nonce)
     with pytest.raises(device.WrongAnswer):
-        await device.verify(session, cheap, задача, чужой, now=NOW)
+        await device.verify(session, cheap, task, foreign, now=NOW)
 
 
-async def test_задача_одноразовая(session: AsyncSession, cheap: Constants) -> None:
-    """Платить надо за каждую сессию: работа фиксированная, а не «сколько успел»."""
-    account = await _аккаунт(session)
-    задача = await device.issue(session, cheap, account.id, now=NOW)
-    ответ = device.solve(cheap, account.id, задача.nonce)
+async def test_challenge_is_single_use(session: AsyncSession, cheap: Constants) -> None:
+    """Every session must be paid for: the work is fixed, not "as much as you managed"."""
+    account = await _account_(session)
+    task = await device.issue(session, cheap, account.id, now=NOW)
+    answer = device.solve(cheap, account.id, task.nonce)
 
-    await device.verify(session, cheap, задача, ответ, now=NOW)
+    await device.verify(session, cheap, task, answer, now=NOW)
     with pytest.raises(device.WrongAnswer, match="уже предъявлена"):
-        await device.verify(session, cheap, задача, ответ, now=NOW)
+        await device.verify(session, cheap, task, answer, now=NOW)
 
 
-async def test_задачи_разные_каждый_раз(session: AsyncSession, cheap: Constants) -> None:
-    account = await _аккаунт(session)
+async def test_challenges_differ_each_time(session: AsyncSession, cheap: Constants) -> None:
+    account = await _account_(session)
     nonces = {
         (await device.issue(session, cheap, account.id, now=NOW)).nonce for _ in range(5)
     }
     assert len(nonces) == 5
 
 
-async def test_частота_стартов_ограничена(session: AsyncSession, cheap: Constants) -> None:
-    """Проверка стоит серверу столько же, сколько счёт клиенту (`pow.verify_cost`)."""
-    account = await _аккаунт(session)
+async def test_start_rate_limited(session: AsyncSession, cheap: Constants) -> None:
+    """Verification costs the server as much as the fee costs the client (`pow.verify_cost`)."""
+    account = await _account_(session)
     for _ in range(POW_STARTS_PER_WINDOW):
         await device.issue(session, cheap, account.id, now=NOW)
 
     with pytest.raises(device.TooManyStarts):
         await device.issue(session, cheap, account.id, now=NOW)
 
-    #: Окно скользит: за его пределами счётчик уже не мешает.
-    позже = NOW + POW_WINDOW + timedelta(minutes=1)
-    assert await device.issue(session, cheap, account.id, now=позже)
+    #: The window slides: beyond it the counter no longer interferes.
+    later = NOW + POW_WINDOW + timedelta(minutes=1)
+    assert await device.issue(session, cheap, account.id, now=later)
 
 
-async def test_сложность_не_подстраивается_под_устройство(constants: Constants) -> None:
-    """Иначе ферма объявит себя слабой (01-tech-notes).
+async def test_difficulty_does_not_adapt_to_device(constants: Constants) -> None:
+    """Otherwise a farm would declare itself weak (01-tech-notes).
 
-    Параметры счёта берутся из констант и одинаковы для телефона и для сервера:
-    в подписи `solve` нет ни одного входа про устройство.
+    The computation parameters come from constants and are the same for a
+    phone and for the server: `solve`'s signature has not a single input about the device.
     """
+
     import inspect
 
-    параметры = set(inspect.signature(device.solve).parameters)
-    assert параметры == {"constants", "account_id", "nonce"}
+    params = set(inspect.signature(device.solve).parameters)
+    assert params == {"constants", "account_id", "nonce"}

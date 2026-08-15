@@ -1,11 +1,11 @@
-"""Журнал приёмов пищи (D-105).
+"""The meal journal (D-105).
 
-Разнообразие рациона считается **по съеденному, а не по запасам**: набить сумку
-тремя видами еды недостаточно, надо их есть. Отсюда таблица: последние
-`food.variety_window` приёмов, и если среди них не меньше
-`food.variety_min_kinds` разных видов — работает надбавка.
+Dietary variety is counted **by what was eaten, not by stocks**: stuffing the
+bag with three kinds of food is not enough, they have to be eaten. Hence the
+table: the last `food.variety_window` meals, and if among them there are at
+least `food.variety_min_kinds` different kinds, the bonus works.
 
-Журнал принадлежит личности: вкус — память человека, а не желудка.
+The journal belongs to the identity: taste is a person's memory, not the stomach's.
 """
 
 from __future__ import annotations
@@ -25,6 +25,6 @@ class Meal(Base):
 
     id: Mapped[uuid.UUID] = uuid_pk()
     identity_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("identity.id"), nullable=False)
-    #: Вид съеденного: у сухого — тип предмета, у блюда — сочетание (D-128).
+    #: The kind of what was eaten: for dry food the item type, for a dish the combination (D-128).
     flavor: Mapped[str] = mapped_column(nullable=False)
     at: Mapped[datetime] = created_column()

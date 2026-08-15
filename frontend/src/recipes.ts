@@ -1,62 +1,62 @@
 /**
- * Чтение справочника вольта на стороне клиента.
+ * Reading the vault catalog on the client side.
  *
- * Ровно одна задача: ответить, **что делается на этом станке**. Список
- * рецептов приходит из `build/recipes.json`, поэтому новый станок или рецепт
- * появляется в интерфейсе сам, без правки клиента (D-090, D-133).
+ * Exactly one task: answer **what is made at this machine**. The recipe list
+ * comes from `build/recipes.json`, so a new machine or recipe appears in the
+ * interface by itself, without a client change (D-090, D-133).
  */
 
-/** Канон имени станка: «Печь» и «Плавильная печь» — одно и то же. */
-function канон(книга: any, имя: string | null): string | null {
-  if (imя_пусто(имя)) return null;
-  const синонимы: Record<string, string> = книга?.synonyms ?? {};
-  return синонимы[имя as string] ?? (имя as string);
+/** The canonical machine name: "Furnace" and "Smelting furnace" are one and the same. */
+function canon(book: any, name: string | null): string | null {
+  if (emptyName(name)) return null;
+  const synonyms: Record<string, string> = book?.synonyms ?? {};
+  return synonyms[name as string] ?? (name as string);
 }
 
-const imя_пусто = (имя: string | null) => имя === null || имя === "Руками";
+const emptyName = (name: string | null) => name === null || name === "Руками";
 
-/** Что игрок может сделать на этом станке (`null` — руками). */
+/** What the player can make at this machine (`null` -- by hand). */
 export function craftableAt(
-  книга: any,
-  станок: string | null,
-  знает: string[],
+  book: any,
+  machine: string | null,
+  knows: string[],
 ): string[] {
-  if (!книга) return [];
+  if (!book) return [];
 
-  //: У блюда и монеты своя дверь: котёл считает роли, монетный двор — пробу.
-  //: Признак — из данных вольта (`roles`, `kind`), а не из списка имён.
-  const особые = new Set<string>(
-    (книга.recipes ?? [])
-      .filter((р: any) => р.roles || р.kind === "money")
-      .map((р: any) => р.name),
+  //: A dish and a coin have their own door: the pot counts roles, the mint the
+  //: fineness. The sign comes from vault data (`roles`, `kind`), not a name list.
+  const special = new Set<string>(
+    (book.recipes ?? [])
+      .filter((r: any) => r.roles || r.kind === "money")
+      .map((r: any) => r.name),
   );
 
-  const рецепты = (книга.recipes ?? [])
+  const recipes = (book.recipes ?? [])
     .filter(
-      (р: any) =>
-        канон(книга, р.station) === станок &&
-        !особые.has(р.name) &&
-        знает.includes(р.name),
+      (r: any) =>
+        canon(book, r.station) === machine &&
+        !special.has(r.name) &&
+        knows.includes(r.name),
     )
-    .map((р: any) => р.name as string);
+    .map((r: any) => r.name as string);
 
-  //: Операции без рецепта умеет каждый: плавка — граница между «добыл» и
-  //: «сделал», и запирать её за знанием значило бы остановить экономику.
-  const операции = (книга.operations ?? [])
+  //: Operations without a recipe everyone can do: smelting is the boundary
+  //: between "mined" and "made", and locking it behind knowledge would stop the economy.
+  const operations = (book.operations ?? [])
     .filter(
       (o: any) =>
         (o.consumes ?? []).length > 0 &&
-        (o.requires ?? []).some((чем: string) => канон(книга, чем) === станок),
+        (o.requires ?? []).some((withWhat: string) => canon(book, withWhat) === machine),
     )
     .flatMap((o: any) => o.gives as string[]);
 
-  return [...new Set([...рецепты, ...операции])]
-    .filter((имя) => !особые.has(имя))
+  return [...new Set([...recipes, ...operations])]
+    .filter((name) => !special.has(name))
     .sort();
 }
 
-/** На каком станке делается эта вещь. Нужен, чтобы чинить у своего станка. */
-export function stationOf(книга: any, имя: string): string | null {
-  const рецепт = (книга?.recipes ?? []).find((р: any) => р.name === имя);
-  return рецепт ? канон(книга, рецепт.station) : null;
+/** At which machine this thing is made. Needed to repair at one's own machine. */
+export function stationOf(book: any, name: string): string | null {
+  const recipe = (book?.recipes ?? []).find((r: any) => r.name === name);
+  return recipe ? canon(book, recipe.station) : null;
 }

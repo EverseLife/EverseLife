@@ -1,22 +1,25 @@
-"""Наблюдение за миром, а не правила мира.
+"""Observing the world, not the world's rules.
 
-Здесь живёт то, что **измеряет**: суточные агрегаты и проверки инвариантов.
-Отдельно от `engine/` намеренно и по двум причинам.
+What **measures** lives here: daily aggregates and invariant checks. Separate
+from `engine/` deliberately and for two reasons.
 
-Первая — смысловая: движок решает, что происходит, телеметрия только смотрит.
-Модуль, который считает медиану и коэффициент Джини, ничего в мире не меняет.
+The first is semantic: the engine decides what happens, telemetry only
+watches. A module that computes a median and a Gini coefficient changes
+nothing in the world.
 
-Вторая — практическая: `engine/` проверяется на отсутствие числовых литералов
-(D-065), потому что число в правилах — это балансное решение, спрятанное от
-вольта. В измерении числа другой природы: делить пополам ради медианы и
-переводить в проценты — это арифметика, а не баланс. Держать их под тем же
-запретом значило бы либо ослабить проверку правил, либо прятать статистику за
-константами вольта, которых там нет и быть не должно.
+The second is practical: `engine/` is checked for the absence of numeric
+literals (D-065), because a number in the rules is a balance decision hidden
+from the vault. In measurement numbers are of another nature: halving for a
+median and converting to percent is arithmetic, not balance. Keeping them
+under the same ban would mean either weakening the rules check or hiding
+statistics behind vault constants that are not there and must not be.
 
-**Балансные пороги телеметрии — по-прежнему дело вольта.** Порога «запас растёт
-больше N% в неделю» здесь нет именно поэтому: вольт его не задал, и выдумывать
-его в коде нельзя ни в правилах, ни в наблюдении.
+**Telemetry's balance thresholds are still the vault's business.** That is
+exactly why there is no threshold "stock grows more than N% a week" here: the
+vault did not set it, and inventing it in code is not allowed, neither in
+rules nor in observation.
 """
+
 
 from __future__ import annotations
 

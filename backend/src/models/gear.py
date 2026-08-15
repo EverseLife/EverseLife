@@ -1,11 +1,11 @@
-"""Надетое снаряжение: слоты тела (D-146).
+"""Worn gear: body slots (D-146).
 
-В каждый слот надевается одна вещь. Слот — это и есть ограничение: без него
-игрок надел бы три рюкзака, и предел носимого перестал бы существовать.
+One thing is worn in each slot. The slot is the constraint itself: without it
+a player would wear three backpacks, and the carry limit would cease to exist.
 
-Надетое **остаётся в инвентаре** и весит вместе со всем прочим: экзоскелет не
-становится невесомым оттого, что его надели. Слот решает не «где лежит», а
-«работает ли»: только надетое поднимает предел.
+What is worn **stays in the inventory** and weighs along with everything else:
+an exoskeleton does not become weightless because it is put on. The slot
+decides not "where it lies" but "whether it works": only what is worn raises the limit.
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ from src.db.base import Base, created_column, uuid_pk
 
 
 class Equipped(Base):
-    """Что надето на теле и в каком слоте."""
+    """What is worn on the body and in which slot."""
 
     __tablename__ = "equipped"
     __table_args__ = (
@@ -30,7 +30,7 @@ class Equipped(Base):
 
     id: Mapped[uuid.UUID] = uuid_pk()
     body_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("body.id"), nullable=False)
-    #: Имя слота из `build/recipes.json`: движок их не выдумывает.
+    #: Slot name from `build/recipes.json`: the engine does not invent them.
     slot: Mapped[str] = mapped_column(nullable=False)
     item_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False, unique=True)
 

@@ -1,17 +1,17 @@
-"""Книга заявок узла (D-003, D-047).
+"""The node's order book (D-003, D-047).
 
-Глобального рынка нет и не будет: каждый маркетплейс — **отдельная книга в
-конкретной локации** (столп П3). Цена — это то, что кто-то реально готов
-заплатить, а не оценка движка: любая оценка товара движком есть скрытый NPC
-(D-002).
+There is and will be no global market: each marketplace is **a separate book
+in a specific location** (pillar P3). The price is what somebody is really
+ready to pay, not the engine's valuation: any valuation of goods by the engine
+is a hidden NPC (D-002).
 
-Разделение, на котором держится вся конструкция: **материя требует присутствия,
-распоряжение — нет**. Товар лежит в терминале физически, а ордер живёт на
-сервере и управляется откуда угодно, хоть с другой планеты.
+The separation the whole construction rests on: **matter requires presence,
+disposing does not**. Goods lie in the terminal physically, while an order
+lives on the server and is managed from anywhere, even another planet.
 
-Торгуется товар **по ступеням качества** (D-058): «железная руда, хорошая» —
-отдельная позиция в стакане. Непрерывная шкала сделала бы книгу нечитаемой и
-убила бы ликвидность: никто не купит партию качества 63, если рядом лежит 64.
+Goods trade **by quality tiers** (D-058): "iron ore, good" is a separate
+position in the book. A continuous scale would make the book unreadable and
+kill liquidity: nobody buys a lot of quality 63 if 64 lies next to it.
 """
 
 from __future__ import annotations
@@ -33,32 +33,33 @@ class OrderSide(StrEnum):
 
 class OrderState(StrEnum):
     ACTIVE = "active"
-    #: Исполнен целиком.
+    #: Filled entirely.
     FILLED = "filled"
-    #: Снят владельцем.
+    #: Cancelled by the owner.
     CANCELLED = "cancelled"
-    #: Истёк срок `market.order_lifetime`.
+    #: The `market.order_lifetime` term expired.
     EXPIRED = "expired"
 
 
 class ReservationState(StrEnum):
     HELD = "held"
-    #: Выкуплена: покупатель приехал и доплатил остаток.
+    #: Redeemed: the buyer came and paid the remainder.
     REDEEMED = "redeemed"
-    #: Срок вышел: задаток остался продавцу, товар вернулся в стакан.
+    #: The term is up: the deposit stayed with the seller, the goods returned to the book.
     LAPSED = "lapsed"
 
 
 class Reservation(Base):
-    """Бронь с задатком и сроком (D-047).
+    """A reservation with a deposit and a term (D-047).
 
-    Купить удалённо нельзя: иначе игрок скупает всё везде, товар зависает в
-    резерве, а стаканы становятся фикцией. Разумное исключение — бронь: купец,
-    собираясь в дорогу, резервирует партию, вносит `market.reservation_deposit`
-    и обязан забрать до срока `market.reservation_period`.
+    Remote buying is not allowed: otherwise a player buys everything everywhere,
+    goods hang in reserve, and the books become a fiction. The reasonable
+    exception is a reservation: a merchant preparing for the road reserves a
+    lot, pays `market.reservation_deposit` and must collect before the
+    `market.reservation_period` deadline.
 
-    Не забрал — **задаток остаётся продавцу**, товар возвращается в стакан. Это
-    даёт торговцам планировать рейсы, не создавая мёртвых резервов.
+    Did not collect -- **the deposit stays with the seller**, the goods return
+    to the book. This lets traders plan trips without creating dead reserves.
     """
 
     __tablename__ = "market_reservation"
@@ -81,7 +82,7 @@ class Reservation(Base):
 
     type_key: Mapped[str] = mapped_column(nullable=False)
     tier: Mapped[str] = mapped_column(nullable=False)
-    #: Цена зафиксирована броней: за это и вносится задаток.
+    #: The price is fixed by the reservation: that is what the deposit is paid for.
     price: Mapped[int] = mapped_column(BigInteger, nullable=False)
     amount: Mapped[int] = mapped_column(BigInteger, nullable=False)
     deposit: Mapped[int] = mapped_column(BigInteger, nullable=False)
@@ -100,11 +101,11 @@ class Reservation(Base):
 
 
 class Order(Base):
-    """Лимитная заявка. Рыночных нет намеренно: проще и честнее."""
+    """A limit order. There are no market ones on purpose: simpler and fairer."""
 
     __tablename__ = "market_order"
     __table_args__ = (
-        #: Рабочая выборка стакана: узел, товар, ступень, сторона.
+        #: The book's working selection: node, goods, tier, side.
         Index("ix_market_order_book", "node_id", "type_key", "tier", "side", "state"),
         Index("ix_market_order_owner", "identity_id", "state"),
         CheckConstraint("price > 0", name="price_positive"),
@@ -113,22 +114,22 @@ class Order(Base):
 
     id: Mapped[uuid.UUID] = uuid_pk()
     node_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("node.id"), nullable=False)
-    #: Ордер принадлежит личности, а не телу: тело смертно, обязательства нет.
+    #: The order belongs to the identity, not the body: the body is mortal, obligations are not.
     identity_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("identity.id"), nullable=False)
 
     side: Mapped[OrderSide] = enum_column(OrderSide, "order_side", nullable=False)
     type_key: Mapped[str] = mapped_column(nullable=False)
-    #: Ступень качества из `quality.tiers` — отдельная позиция стакана (D-058).
+    #: Quality tier from `quality.tiers` -- a separate book position (D-058).
     tier: Mapped[str] = mapped_column(nullable=False)
 
-    #: Цена за единицу товара, минорные единицы денег (`units.MONEY_SCALE`).
+    #: Price per unit of goods, minor units of money (`units.MONEY_SCALE`).
     price: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    #: Объём во внутренних единицах количества (`units.AMOUNT_SCALE`).
+    #: Volume in internal amount units (`units.AMOUNT_SCALE`).
     amount_total: Mapped[int] = mapped_column(BigInteger, nullable=False)
     amount_left: Mapped[int] = mapped_column(BigInteger, nullable=False)
 
-    #: Сколько денег ещё заморожено под этот ордер. Только у покупки: продавец
-    #: замораживает товар, покупатель — деньги.
+    #: How much money is still frozen under this order. Only for a buy: the
+    #: seller freezes goods, the buyer money.
     escrowed: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
 
     state: Mapped[OrderState] = enum_column(
@@ -141,11 +142,11 @@ class Order(Base):
 
 
 class Trade(Base):
-    """Состоявшаяся сделка.
+    """A concluded deal.
 
-    Хранится отдельно от ордеров: по ней считаются оборот города (D-100),
-    справочная цена для пошлин (D-123) и торговая сводка (D-124). Ордер можно
-    снять, сделку — нет.
+    Stored separately from orders: city turnover (D-100), the reference price
+    for duties (D-123) and the trade summary (D-124) are computed from it. An
+    order can be cancelled, a deal cannot.
     """
 
     __tablename__ = "market_trade"
@@ -155,8 +156,8 @@ class Trade(Base):
 
     id: Mapped[uuid.UUID] = uuid_pk()
     node_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("node.id"), nullable=False)
-    #: У выкупленной брони встречной заявки нет вовсе: покупатель не выставлял
-    #: ордер, он приехал и забрал зарезервированное (D-047).
+    #: A redeemed reservation has no opposing order at all: the buyer placed
+    #: no order, they came and took what was reserved (D-047).
     buy_order_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("market_order.id"), nullable=True
     )
@@ -169,7 +170,7 @@ class Trade(Base):
     price: Mapped[int] = mapped_column(BigInteger, nullable=False)
     amount: Mapped[int] = mapped_column(BigInteger, nullable=False)
 
-    #: Налог с продажи платит продавец (D-127), комиссия — владельцу терминала.
+    #: The sales tax is paid by the seller (D-127), the commission by the terminal owner.
     tax: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     fee: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
 
