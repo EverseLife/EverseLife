@@ -28,6 +28,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants
+from src.constants import registry as R
 from src.engine import events, travel, world
 from src.models.event import EventKind
 from src.models.identity import Body, BodyState
@@ -189,6 +190,133 @@ async def take(
         amount=carried,
     )
     return carried
+
+
+# --- the floor of a place (D-192) --------------------------------------------
+
+
+class NoRoom(StorageError):
+    """No space left here. Area is finite: build more, use chests or haul away."""
+
+
+async def lying(session: AsyncSession, node: Node) -> list[Item]:
+    """What lies loose in the node -- goods, not equipment.
+
+    Machines and furniture stand here too, but they are shown by their own
+    windows and pay for their place by slots (D-106).
+    """
+    from src.constants import current_catalog
+    from src.engine import estate
+
+    catalog = current_catalog()
+    yard = await world.node_container(session, node)
+    things = (
+        await session.execute(select(Item).where(Item.container_id == yard.id))
+    ).scalars().all()
+    return [
+        thing
+        for thing in things
+        if not estate._equipment(catalog, thing.type_key)
+        and not is_storage(catalog, thing.type_key)
+    ]
+
+
+async def drop(
+    session: AsyncSession,
+    constants: Constants,
+    catalog: Catalog,
+    body: Body,
+    item: Item,
+    quantity: float | None = None,
+) -> float:
+    """Put a thing down here: under the roof if there is one, in the yard if not.
+
+    Cargo takes area (D-192), and area is finite -- that is what makes a
+    warehouse a decision rather than a formality.
+    """
+    from src.engine import estate, gear
+
+    if body.state is not BodyState.ALIVE:
+        raise StorageError("мёртвое тело ничего не кладёт")
+    await travel.require_here(session, body)
+
+    node = await session.get(Node, body.node_id)
+    if node is None:  # pragma: no cover -- a body without a node is a bug
+        raise StorageError("тело вне узла")
+    pocket = await world.body_container(session, body)
+    if item.container_id != pocket.id:
+        raise StorageError("кладут из рук")
+
+    qty = amount_float(item.amount) if quantity is None else quantity
+    if qty <= 0:
+        raise StorageError("класть нечего")
+
+    area = await estate.space(session, constants, node)
+    needed = gear.mass_of(catalog, item.type_key, qty) / constants[R.BUILD_FLOOR_PER_M2]
+    if needed > area["free"]:
+        raise NoRoom(
+            f"здесь свободно {area['free']:.1f} м², а под это нужно {needed:.1f} м². "
+            "Стройте больше, ставьте сундуки либо увозите"
+        )
+
+    yard = await world.node_container(session, node)
+    put_down = await world.move_stack(session, item, yard, qty)
+    await events.record(
+        session,
+        EventKind.ITEM_DROPPED,
+        actor_identity_id=body.identity_id,
+        node_id=node.id,
+        type_key=item.type_key,
+        amount=put_down,
+        roofed=area["roofed"] > 0,
+    )
+    return put_down
+
+
+async def pick(
+    session: AsyncSession,
+    constants: Constants,
+    catalog: Catalog,
+    body: Body,
+    item: Item,
+    quantity: float | None = None,
+) -> float:
+    """Pick up what lies here. Somebody's floor is not touched (D-192)."""
+    from src.engine import gear, station
+
+    if body.state is not BodyState.ALIVE:
+        raise StorageError("мёртвое тело ничего не поднимает")
+    await travel.require_here(session, body)
+
+    node = await session.get(Node, body.node_id)
+    if node is None:  # pragma: no cover
+        raise StorageError("тело вне узла")
+    yard = await world.node_container(session, node)
+    if item.container_id != yard.id:
+        raise StorageError("этой вещи здесь не лежит")
+
+    #: Unowned land keeps nothing for anybody: what was left in the open field
+    #: is a find. On owned land the floor follows the node's right.
+    owned = node.owner_identity_id is not None or node.owner_city_id is not None
+    if owned and not await station.may_build(session, body, node):
+        raise NotYours("это лежит не у вас: чужое не берут")
+
+    qty = amount_float(item.amount) if quantity is None else quantity
+    if qty <= 0:
+        raise StorageError("поднимать нечего")
+    await gear.check_carry(session, constants, catalog, body, item.type_key, qty)
+
+    pocket = await world.body_container(session, body)
+    taken = await world.move_stack(session, item, pocket, qty)
+    await events.record(
+        session,
+        EventKind.ITEM_PICKED,
+        actor_identity_id=body.identity_id,
+        node_id=node.id,
+        type_key=item.type_key,
+        amount=taken,
+    )
+    return taken
 
 
 async def _allowed(

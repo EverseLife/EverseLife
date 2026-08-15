@@ -144,6 +144,84 @@ async def test_full_chest_not_carried_away(
     assert chest.container_id == pocket.id
 
 
+async def test_dropped_lies_here_and_is_picked_up(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Put a thing down and take it back: the floor of a place is a place (D-192)."""
+    node, _, body = await _yard(session)
+    thing = await _goods(session, body, 10)
+
+    put_down = await storage.drop(session, constants, catalog, body, thing, 6)
+    assert put_down == pytest.approx(6)
+    lying = await storage.lying(session, node)
+    assert sum(float(one.amount) / 1000 for one in lying) == pytest.approx(6)
+
+    taken = await storage.pick(session, constants, catalog, body, lying[0], 2)
+    assert taken == pytest.approx(2)
+
+
+async def test_cargo_takes_area_and_area_runs_out(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Area is finite, and that is what makes a warehouse a decision (D-192)."""
+    from src.constants import registry as R
+    from src.engine import estate, gear
+
+    node, _, body = await _yard(session)
+    room = await estate.space(session, constants, node)
+    per_piece = gear.mass_of(catalog, GOODS, 1)
+    over = room["free"] * constants[R.BUILD_FLOOR_PER_M2] / per_piece + 10
+    thing = await _goods(session, body, over)
+
+    with pytest.raises(storage.NoRoom):
+        await storage.drop(session, constants, catalog, body, thing, over)
+
+
+async def test_chest_saves_the_floor(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """A chest does not take floor for what is inside -- that is its whole point."""
+    from src.engine import estate
+
+    node, _, body = await _yard(session)
+    chest = await _chest(session, node)
+    thing = await _goods(session, body, 20)
+
+    await storage.put(session, constants, catalog, body, chest, thing, 20)
+    room = await estate.space(session, constants, node)
+    assert room["cargo_mass"] == 0, "уложенное в сундук не лежит на полу"
+    #: The chest itself is furniture and pays for its place by a slot.
+    assert room["slots_used"] == 1
+
+
+async def test_foreign_floor_is_not_touched(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Somebody's floor follows the node's right; an open field keeps nothing."""
+    node, _, owner = await _yard(session)
+    own_goods = await _goods(session, owner, 4)
+    await storage.drop(session, constants, catalog, owner, own_goods, 4)
+    lying = (await storage.lying(session, node))[0]
+
+    stamp = uuid.uuid4().hex[:6]
+    guest = await world.create_identity(session, f"Гость-{stamp}")
+    guest_body = await world.print_body(session, guest, node)
+    with pytest.raises(storage.NotYours):
+        await storage.pick(session, constants, catalog, guest_body, lying, 1)
+
+    #: Unowned land: what was left in the open field is a find, not property.
+    wild = await world.create_node(
+        session, f"terra.wild.{uuid.uuid4().hex[:8]}", "Пустошь", area_m2=400
+    )
+    finder = await world.print_body(session, guest, wild)
+    dropped = await world.grant_item(
+        session,
+        await world.node_container(session, wild),
+        GOODS, amount=3, quality=55, origin="тест",
+    )
+    assert await storage.pick(session, constants, catalog, finder, dropped, 3) == 3
+
+
 async def test_hands_limit_stays_on_withdrawal(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:

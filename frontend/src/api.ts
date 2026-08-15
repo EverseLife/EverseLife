@@ -312,6 +312,22 @@ export type Look = {
   furniture?: Bench[];
   /** The node's storages and what lies in them (D-181). */
   storages?: Storage[];
+  /** The floor of the place: what lies here and how much room is left (D-192). */
+  floor?: {
+    space: {
+      /** Capacity: the building's area, or the whole plot without one, m². */
+      area: number;
+      roofed: number;
+      used: number;
+      cargo_mass: number;
+      free: number;
+      slots: number;
+      slots_used: number;
+    };
+    things: Thing[];
+    /** Whether the viewer may take from here. */
+    mine: boolean;
+  };
   /** Own deeds for plots: electronic documents of the Net (D-116). */
   deeds?: DeedView[];
   inventory: Thing[];

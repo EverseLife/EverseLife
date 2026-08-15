@@ -579,6 +579,24 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
     #: whoever may dispose of the node: a foreign chest is not inspected, just as
     #: it is not opened -- breaking it open is a matter for the court (D-166).
     seen["storages"] = await _storages(db, constants, node, body)
+    #: What lies loose here and how much room is left (D-192). Lying goods are
+    #: visible to everyone -- they lie in plain sight; taking them follows the
+    #: right to the node, and on unowned land anything left is a find.
+    loose = {str(thing.id) for thing in await storage.lying(db, node)}
+    seen["floor"] = {
+        "space": await estate.space(db, constants, node),
+        #: Only what lies loose: machines, furniture and chests have their own
+        #: windows and pay for their place differently (D-106, D-181).
+        "things": [
+            thing
+            for thing in await _things(
+                db, constants, await world.node_container(db, node)
+            )
+            if thing["id"] in loose
+        ],
+        "mine": await station.may_build(db, body, node)
+        or (node.owner_identity_id is None and node.owner_city_id is None),
+    }
     #: Own deeds and deeds listed for sale: electronic documents live in the
     #: Net and are visible from everywhere (D-116).
     seen["deeds"] = await _deeds(db, identity.id)
@@ -1423,6 +1441,38 @@ async def _body_print(state: dict, db: AsyncSession, message: dict) -> dict:
         "printing": {"node": node.key, "ready_at": job.run_at.isoformat()},
         "money": await _money(db, identity.id),
     }
+
+
+async def _ground_drop(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Put a thing down here: under the roof if there is one, in the yard if not."""
+    body = await _alive(state, db)
+    item = await _own_item(db, body, message["item"])
+    qty = message.get("amount")
+    try:
+        put_down = await storage.drop(
+            db, current(), current_catalog(), body, item,
+            None if qty is None else float(qty),
+        )
+    except storage.StorageError as refusal:
+        raise Refused(str(refusal)) from refusal
+    return {"dropped": put_down, "goods": item.type_key}
+
+
+async def _ground_pick(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Pick up what lies here. Somebody else's floor is not touched (D-192)."""
+    body = await _alive(state, db)
+    item = await db.get(Item, uuid.UUID(message["item"]))
+    if item is None:
+        raise Refused("нет такой вещи")
+    qty = message.get("amount")
+    try:
+        taken = await storage.pick(
+            db, current(), current_catalog(), body, item,
+            None if qty is None else float(qty),
+        )
+    except storage.StorageError as refusal:
+        raise Refused(str(refusal)) from refusal
+    return {"picked": taken, "goods": item.type_key}
 
 
 async def _finance_statement(state: dict, db: AsyncSession, message: dict) -> dict:
@@ -2292,6 +2342,8 @@ _COMMANDS = {
     "energy.fuel": _energy_fuel,
     "finance.statement": _finance_statement,
     "finance.transfer": _finance_transfer,
+    "ground.drop": _ground_drop,
+    "ground.pick": _ground_pick,
     "road.lay": _road_lay,
     "road.here": _road_here,
     "transport.harness": _transport_harness,

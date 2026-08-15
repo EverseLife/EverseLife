@@ -328,6 +328,54 @@ async def test_empty_run_leaves_in_place(
             assert body.node_id == gate.id, "пустой заход не двигает тело"
 
 
+async def test_woods_are_found_when_asked_for(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Asked for woods -- got woods (D-191): felling needs a place that has them (D-177)."""
+    _, gate, body = await _scout(session)
+    groves = []
+    for _ in range(20):
+        body.stamina = Decimal(str(constants[R.BODY_STAMINA_MAX]))
+        body.node_id = gate.id
+        await session.flush()
+        await explore.survey(session, constants, body, goal=explore.FOREST)
+        await _return(session, body)
+        node = await session.get(Node, body.node_id)
+        if node.key.startswith("terra.wild."):
+            groves.append(node)
+
+    assert groves, "twenty runs for woods gave not a single grove"
+    for grove in groves:
+        assert grove.properties.get(explore.WOODS) is True
+
+
+async def test_woods_grow_by_themselves(constants: Constants) -> None:
+    """The world gets forested without asking: `explore.forest_share` of finds."""
+    import random
+
+    from src.units import PERCENT
+
+    places = [
+        explore._properties(constants, random.Random(seed), vein=False)
+        for seed in range(300)
+    ]
+    wooded = sum(1 for place in places if place[explore.WOODS])
+    share = wooded / len(places) * PERCENT
+    #: A roll is a roll: the order of magnitude is checked, not an exact number.
+    assert abs(share - constants[R.EXPLORE_FOREST_SHARE]) < 15
+
+
+async def test_aiming_for_woods_narrows_the_chance(
+    constants: Constants, catalog: Catalog
+) -> None:
+    """What is asked for narrows the chance by exactly the world's forest cover."""
+    from src.units import PERCENT
+
+    aim = explore._aim(constants, catalog, explore.FOREST, None)
+    assert aim == pytest.approx(constants[R.EXPLORE_FOREST_SHARE] / PERCENT)
+    assert aim < explore._aim(constants, catalog, explore.SITE, None)
+
+
 async def test_species_taken_from_vault(
     constants: Constants, catalog: Catalog
 ) -> None:

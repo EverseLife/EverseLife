@@ -119,6 +119,10 @@ class EventKind(StrEnum):
     STORAGE_PUT = "storage.put"
     STORAGE_TAKEN = "storage.taken"
 
+    #: Put down on the floor of a place and picked up from it (D-192).
+    ITEM_DROPPED = "item.dropped"
+    ITEM_PICKED = "item.picked"
+
     # exploration (D-152)
     EXPLORE_STARTED = "explore.started"
     EXPLORE_FOUND = "explore.found"

@@ -289,6 +289,9 @@ LAND_PRICE_DECAY_PER_RING = Num("land.price_decay_per_ring")
 # --- Buildings and construction (D-106, D-125, D-131) -----------------------
 #: How much building area one work place takes: a machine or furniture.
 BUILD_SLOTS_PER_AREA = Num("build.slots_per_area")
+#: How much cargo fits on a square metre of floor (D-192). What lies in a chest
+#: takes no floor: that is the whole point of a chest.
+BUILD_FLOOR_PER_M2 = Num("build.floor_per_m2")
 #: Materials of the first durability tier per square metre of floor.
 BUILD_MATERIALS_PER_M2 = Table("build.materials_per_m2")
 #: Assembly labour: hours per square metre. Construction is work, not a button.
@@ -323,6 +326,9 @@ EXPLORE_FIND_CHANCE = Num("explore.find_chance")
 EXPLORE_FIND_DECAY = Num("explore.find_decay")
 EXPLORE_FIND_FLOOR = Num("explore.find_floor")
 EXPLORE_VEIN_SHARE = Num("explore.vein_share")
+#: Forest cover of the world (D-191): the share of finds carrying woods, and
+#: the same share narrows the chance when the woods are what you asked for.
+EXPLORE_FOREST_SHARE = Num("explore.forest_share")
 EXPLORE_NODE_AREA = Span("explore.node_area")
 #: The transit length to a find is set by the node's distance (D-180), not by a
 #: separate exploration quantity: `explore.distance` is abolished.

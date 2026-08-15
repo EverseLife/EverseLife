@@ -103,7 +103,13 @@ FOUND_HERE = "разведано"
 LOT = "lot"
 SITE = "site"
 VEIN = "vein"
-GOALS = (LOT, SITE, VEIN)
+#: Woods to fell (D-191). The find is an ordinary wild node -- what makes it a
+#: forest is the same place property the felling reads (D-177).
+FOREST = "forest"
+GOALS = (LOT, SITE, VEIN, FOREST)
+
+#: The place property both the search and the felling operation look at.
+WOODS = "лес"
 
 
 class ExploreError(Exception):
@@ -463,6 +469,11 @@ def _aim(
     relative to the fastest. No second rarity table -- it would diverge from
     the first (D-151).
     """
+    #: Woods asked for are found as often as the world is wooded (D-191): one
+    #: number rules both the chance random finds carry a forest and the price
+    #: of aiming for one.
+    if goal == FOREST:
+        return constants[R.EXPLORE_FOREST_SHARE] / PERCENT
     if goal != VEIN or requested is None:
         return 1.0
     paces = constants[R.HARVEST_RATES]
@@ -517,28 +528,33 @@ async def _place(
 
     root = await _planet_root(session, origin)
     area = constants[R.EXPLORE_NODE_AREA]
+    names = {SITE: "Место под город", FOREST: "Роща"}
     return await world.create_node(
         session,
         key,
-        "Место под город" if goal == SITE else "Дикий участок",
+        names.get(goal, "Дикий участок"),
         area_m2=dice.uniform(area.min, area.max),
         layer=Layer.PLANET,
         parent=root,
         planet=origin.planet,
         #: Distance grows by a step from the node we left from (D-180): the
         #: frontier recedes by itself as it is pushed.
-        properties=_properties(constants, dice, vein=vein)
+        properties=_properties(constants, dice, vein=vein, woods=goal == FOREST)
         | {travel.REACH: travel.reach_of(origin) + 1},
     )
 
 
 def _properties(
-    constants: Constants, dice: random.Random, *, vein: bool
+    constants: Constants, dice: random.Random, *, vein: bool, woods: bool = False
 ) -> dict:
     """Place properties under a common merit budget (D-126).
 
     There is no perfect place: a river eats part of the budget, and the more
     water, the less is left for fertility.
+
+    Woods grow by themselves on `explore.forest_share` of finds (D-191), and
+    always where the woods are what the scout went looking for: the world gets
+    forested without anybody asking, and timber becomes geography.
     """
     budget = constants[R.SITE_QUALITY_BUDGET]
     river = dice.random() * PERCENT < constants[R.SITE_RIVER_SHARE]
@@ -553,6 +569,7 @@ def _properties(
         "плодородие": 0 if vein else round(PERCENT * for_land / budget),
         "температура": round(dice.uniform(temperature.min, temperature.max)),
         "осадки": round(dice.uniform(rainfall.min, rainfall.max)),
+        WOODS: woods or dice.random() * PERCENT < constants[R.EXPLORE_FOREST_SHARE],
         "дикий": True,
     }
 

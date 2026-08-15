@@ -870,6 +870,8 @@ function Search({
   const [speciesList, setSpeciesList] = useState<string[]>([]);
   const [species, setSpecies] = useState("");
   const [forecast, setForecast] = useState<Outlook | null>(null);
+  //: Отдельный прогноз для леса: он сужает шанс на лесистость мира (D-191).
+  const [woods, setWoods] = useState<Outlook | null>(null);
   const run = look.survey ?? null;
 
   useEffect(() => {
@@ -885,6 +887,12 @@ function Search({
         setSpeciesList([]);
         setForecast(null);
       });
+    //: Лес сужает шанс на лесистость мира (D-191), и это должно быть видно
+    //: до выхода — как и с редкой породой.
+    void session
+      .send("explore.goals", { goal: "forest" })
+      .then((answer) => setWoods((answer.outlook as Outlook | null) ?? null))
+      .catch(() => setWoods(null));
     //: Заход меняет счёт находок узла, поэтому прогноз пересчитывается и по
     //: возвращении разведчика, а не только при переходе.
   }, [session, look.node?.key, run?.returns_at, species]);
@@ -937,11 +945,25 @@ function Search({
               <option key={name}>{name}</option>
             ))}
           </select>
+          {/* Лес ищут так же, как жилу: он свойство места, и рубка читает то
+              же свойство (D-177, D-191). */}
+          <button
+            onClick={() => seek("forest")}
+            disabled={busy}
+            title={
+              woods
+                ? `шанс ${woods.chance >= 1 ? Math.round(woods.chance) : woods.chance.toFixed(1)}%: лес ищется дольше прочего`
+                : "рубить древесину можно там, где лес"
+            }
+          >
+            Уйти искать лес
+          </button>
           <Hint>
             Разведчик уходит сам и до возвращения недоступен, как во сне.
             Кончатся силы — доспит в поле и продолжит. Нашёл — там и остаётся
             (D-185); чем дальше от города находка, тем длиннее к ней дорога
-            (D-180).
+            (D-180). Лес попадается и сам собой, но заказанный ищется дольше
+            (D-191).
           </Hint>
         </>
       )}

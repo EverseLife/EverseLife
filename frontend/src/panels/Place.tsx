@@ -49,6 +49,8 @@ export function Place({ look, session, busy, act, book }: Props) {
         <Convoy look={look} session={session} busy={busy} act={act} />
         {/* Лес ничейного узла рубит любой пришедший (D-177). */}
         <Gather look={look} session={session} busy={busy} act={act} book={book} />
+        {/* На ничьей земле лежащее свободно: брошенное в поле — находка (D-192). */}
+        <Floor look={look} session={session} busy={busy} act={act} />
         <section>
         <h2>Участок</h2>
         <p className="note">
@@ -116,7 +118,128 @@ export function Place({ look, session, busy, act, book }: Props) {
         note="Мебель обустраивает быт: кровать — сон быстрее, сундук — хранение. На ней не работают."
       />
       <Storages look={look} session={session} busy={busy} act={act} />
+      <Floor look={look} session={session} busy={busy} act={act} />
     </>
+  );
+}
+
+/** The floor of the place: what lies here and how much room is left (D-192).
+ *
+ * Putting a thing down is the first thing a person back from the mine does, and
+ * until now there was nowhere to put it: only a chest, a hold or the market.
+ * Cargo takes area, area is finite, and a chest saves it -- hence three honest
+ * answers to "where do I keep this": build more, buy chests, haul away.
+ */
+function Floor({ look, session, busy, act }: Omit<Props, "book">) {
+  const [parts, setParts] = useState<Record<string, number | null>>({});
+  const floor = look.floor;
+  if (!floor) return null;
+
+  const setPart = (id: string, value: number | null) =>
+    setParts((before) => ({ ...before, [id]: value }));
+  const room = floor.space;
+  const inHands = look.inventory;
+  const roofed = room.roofed > 0;
+
+  return (
+    <section>
+      <h2>{roofed ? "В здании" : "На земле"}</h2>
+      <p className="note">
+        занято {room.used.toFixed(1)} из {room.area.toFixed(0)} м²
+        {room.cargo_mass > 0 && ` · груза ${room.cargo_mass.toFixed(1)} кг`}
+        {room.slots_used > 0 && ` · оборудования ${room.slots_used}`}
+      </p>
+
+      {floor.things.length > 0 ? (
+        <table>
+          <tbody>
+            {floor.things.map((thing) => (
+              <tr key={thing.id}>
+                <td>{thing.flavor ?? thing.goods}</td>
+                <td className="note">
+                  {thing.amount.toFixed(1)} ·{" "}
+                  {(thing.mass * thing.amount).toFixed(1)} кг
+                </td>
+                <td>
+                  {floor.mine && (
+                    <Amount
+                      value={parts[thing.id] ?? null}
+                      max={thing.amount}
+                      onChange={(value) => setPart(thing.id, value)}
+                    />
+                  )}
+                </td>
+                <td>
+                  {floor.mine && (
+                    <button
+                      className="quiet"
+                      onClick={() =>
+                        act(() =>
+                          session.send("ground.pick", {
+                            item: thing.id,
+                            amount: chosen(parts[thing.id] ?? null, thing.amount),
+                          }),
+                        )
+                      }
+                      disabled={busy}
+                      title="поднять в руки — сколько унесёте"
+                    >
+                      Поднять
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : (
+        <p className="note">пусто</p>
+      )}
+
+      {inHands.length > 0 && (
+        <table>
+          <tbody>
+            {inHands.map((thing) => (
+              <tr key={thing.id}>
+                <td>{thing.goods}</td>
+                <td className="note">
+                  {thing.amount.toFixed(1)} ·{" "}
+                  {(thing.mass * thing.amount).toFixed(1)} кг
+                </td>
+                <td>
+                  <Amount
+                    value={parts[thing.id] ?? null}
+                    max={thing.amount}
+                    onChange={(value) => setPart(thing.id, value)}
+                  />
+                </td>
+                <td>
+                  <button
+                    className="quiet"
+                    onClick={() =>
+                      act(() =>
+                        session.send("ground.drop", {
+                          item: thing.id,
+                          amount: chosen(parts[thing.id] ?? null, thing.amount),
+                        }),
+                      )
+                    }
+                    disabled={busy}
+                  >
+                    Положить
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      <p className="note">
+        {floor.mine
+          ? "Лежащее занимает площадь; в сундуке — не занимает (D-192)."
+          : "Чужое место: смотреть можно, брать — нет."}
+      </p>
+    </section>
   );
 }
 

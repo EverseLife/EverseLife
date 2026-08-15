@@ -50,7 +50,7 @@ from src.models.inventory import Item
 from src.models.job import Job, JobKind
 from src.models.ledger import AccountKind, PostingReason
 from src.models.world import Edge, Node
-from src.units import MINUTES_PER_HOUR, PERCENT, money
+from src.units import MINUTES_PER_HOUR, PERCENT, amount_float, money
 
 
 class EstateError(Exception):
@@ -471,6 +471,68 @@ async def built_area(session: AsyncSession, node: Node) -> float:
         )
     )
     return float(total or 0)
+
+
+async def floor_mass(session: AsyncSession, node: Node) -> float:
+    """How many kilograms lie on the node's floor (D-192).
+
+    Only what lies loose: goods inside a chest are counted by the chest, not by
+    the floor -- that is what a chest is for (D-181).
+    """
+    from src.constants import current_catalog
+    from src.engine import gear, storage, world
+
+    catalog = current_catalog()
+    yard = await world.node_container(session, node)
+    things = (
+        await session.execute(select(Item).where(Item.container_id == yard.id))
+    ).scalars().all()
+    return sum(
+        gear.mass_of(catalog, thing.type_key, amount_float(thing.amount))
+        for thing in things
+        if not _equipment(catalog, thing.type_key)
+        and not storage.is_storage(catalog, thing.type_key)
+    )
+
+
+def _equipment(catalog, type_key: str) -> bool:
+    """Machines and furniture pay for their place by slots, not by weight."""
+    from src.constants.catalog import ItemKind
+
+    try:
+        return catalog.recipes.recipe(type_key).kind in (
+            ItemKind.STATION,
+            ItemKind.FURNITURE,
+        )
+    except Exception:  # noqa: BLE001 -- raw material has no recipe, and that is normal
+        return False
+
+
+async def space(
+    session: AsyncSession, constants: Constants, node: Node
+) -> dict[str, float]:
+    """The node's area budget: what it holds and what is already taken (D-192).
+
+    A building is the roof over the goods; without one they lie in the yard,
+    and the yard is finite too. Equipment pays `build.slots_per_area` per
+    piece, loose cargo pays by weight through `build.floor_per_m2`.
+    """
+    total_slots, taken_slots = await slots(session, constants, node)
+    roofed = await built_area(session, node)
+    #: No building -- the yard is the floor: the whole plot minus nothing.
+    capacity = roofed if roofed > 0 else float(node.area_m2)
+    lying = await floor_mass(session, node)
+    by_cargo = lying / constants[R.BUILD_FLOOR_PER_M2]
+    by_equipment = taken_slots * constants[R.BUILD_SLOTS_PER_AREA]
+    return {
+        "area": capacity,
+        "roofed": roofed,
+        "used": by_equipment + by_cargo,
+        "cargo_mass": lying,
+        "free": max(0.0, capacity - by_equipment - by_cargo),
+        "slots": float(total_slots),
+        "slots_used": float(taken_slots),
+    }
 
 
 async def slots(
