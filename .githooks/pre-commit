@@ -1,0 +1,50 @@
+#!/bin/sh
+# Pre-commit: run the same lint CI runs, so a red run never starts.
+#
+# Enable once per clone:
+#
+#   git config core.hooksPath .githooks
+#
+# Emergency bypass: git commit --no-verify
+
+set -eu
+
+repo=$(git rev-parse --show-toplevel)
+cd "$repo/backend"
+
+# The project venv first: it holds the ruff version pinned by uv.lock, the very
+# one CI runs. Everything else is a fallback for a fresh clone.
+if [ -x .venv/Scripts/python.exe ]; then
+    lint=".venv/Scripts/python.exe -m ruff check ."
+elif [ -x .venv/bin/python ]; then
+    lint=".venv/bin/python -m ruff check ."
+elif command -v ruff > /dev/null 2>&1; then
+    lint="ruff check ."
+elif command -v uv > /dev/null 2>&1; then
+    lint="uv run --frozen ruff check ."
+else
+    echo "pre-commit: ruff not found -- create backend/.venv or install ruff" >&2
+    exit 1
+fi
+
+if ! $lint; then
+    echo >&2
+    echo "pre-commit: lint failed, CI would stop here too" >&2
+    echo "pre-commit: most of it fixes itself -- cd backend && ruff check . --fix" >&2
+    exit 1
+fi
+
+# A warning, not a veto: the vault snapshot lagging behind the vault breaks
+# every test at constants load, and by the CI log that looks like anything but
+# a stale file. The vault lives next to the repository and may be absent -- on
+# a machine without it there is nothing to compare.
+vault="$repo/../octoverse-game-design/build"
+if [ -d "$vault" ]; then
+    for name in constants laws plants recipes; do
+        if [ -f "$vault/$name.json" ] \
+            && ! cmp -s "$repo/vault/$name.json" "$vault/$name.json"; then
+            echo "pre-commit: vault/$name.json lags behind the vault --" \
+                "run deploy/sync-vault.ps1" >&2
+        fi
+    done
+fi

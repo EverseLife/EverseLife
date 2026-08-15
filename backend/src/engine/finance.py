@@ -33,7 +33,7 @@ from src.models.ledger import (
     LedgerTransaction,
     PostingReason,
 )
-from src.runtime import TRANSFER_MEMO_LIMIT, STATEMENT_DEPTH
+from src.runtime import STATEMENT_DEPTH, TRANSFER_MEMO_LIMIT
 from src.units import money_str
 
 

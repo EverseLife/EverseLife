@@ -115,6 +115,7 @@
   "build.reinforce_from_floor": 5,
   "build.reinforce_k": 1.5,
   "build.slots_per_area": 10,
+  "build.floor_per_m2": 20,
   "build.cost_per_area": {
     "formula": "materials_per_m2 * footprint * strength_k * sum(build.floor_cost_growth^(n-1) * (build.reinforce_k if n >= build.reinforce_from_floor else 1) for n in 1..floors)"
   },
@@ -425,6 +426,7 @@
   "explore.find_decay": 0.88,
   "explore.find_floor": 15,
   "explore.vein_share": 40,
+  "explore.forest_share": 35,
   "explore.node_area": {
     "min": 120,
     "max": 600

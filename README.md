@@ -69,6 +69,13 @@ API:
 docker compose exec postgres psql -U octoverse -c "CREATE DATABASE octoverse_test OWNER octoverse;"
 ```
 
+Один раз на копию репозитория — включить хук: он гоняет перед коммитом тот же
+`ruff check .`, что и CI, и предупреждает, если слепок вольта отстал от вольта.
+
+```bash
+git config core.hooksPath .githooks
+```
+
 ---
 
 ## Выкладка
