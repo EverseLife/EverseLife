@@ -15,6 +15,9 @@
 import { useState } from "react";
 import * as api from "../api";
 import type { Bench, Look, Session, Vehicle } from "../api";
+import { Amount } from "../Amount";
+import { chosen } from "../amounts";
+import { when } from "../clock";
 
 type Props = {
   look: Look;
@@ -124,13 +127,13 @@ export function Place({ look, session, busy, act, book }: Props) {
  * authority (D-181). The limit is the same as for hands and hold -- kilograms.
  */
 function Storages({ look, session, busy, act }: Omit<Props, "book">) {
-  const [qty, setQty] = useState<Record<string, number>>({});
+  //: How much of a stack to move, per item. Empty means the whole of it.
+  const [parts, setParts] = useState<Record<string, number | null>>({});
   const chests = look.storages ?? [];
   if (chests.length === 0) return null;
 
-  const count = (id: string, total: number) => qty[id] ?? total;
-  const assign = (id: string, value: number) =>
-    setQty((before) => ({ ...before, [id]: value }));
+  const setPart = (id: string, value: number | null) =>
+    setParts((before) => ({ ...before, [id]: value }));
   //: Everything in the hands makes sense to put away: nothing is weightless in this world.
   const inHands = look.inventory;
 
@@ -154,12 +157,10 @@ function Storages({ look, session, busy, act }: Omit<Props, "book">) {
                         <td>{thing.goods}</td>
                         <td className="note">{thing.amount.toFixed(1)}</td>
                         <td>
-                          <input
-                            type="number"
-                            min={0}
+                          <Amount
+                            value={parts[thing.id] ?? null}
                             max={thing.amount}
-                            value={count(thing.id, thing.amount)}
-                            onChange={(e) => assign(thing.id, Number(e.target.value))}
+                            onChange={(value) => setPart(thing.id, value)}
                           />
                         </td>
                         <td>
@@ -170,7 +171,7 @@ function Storages({ look, session, busy, act }: Omit<Props, "book">) {
                                 session.send("storage.take", {
                                   storage: chest.id,
                                   item: thing.id,
-                                  amount: count(thing.id, thing.amount),
+                                  amount: chosen(parts[thing.id] ?? null, thing.amount),
                                 }),
                               )
                             }
@@ -187,26 +188,43 @@ function Storages({ look, session, busy, act }: Omit<Props, "book">) {
               )}
               {chest.content.length === 0 && <p className="note">пусто</p>}
               {inHands.length > 0 && (
-                <div className="row">
-                  {inHands.map((thing) => (
-                    <button
-                      key={thing.id}
-                      className="quiet"
-                      onClick={() =>
-                        act(() =>
-                          session.send("storage.put", {
-                            storage: chest.id,
-                            item: thing.id,
-                          }),
-                        )
-                      }
-                      disabled={busy}
-                      title={`${(thing.mass * thing.amount).toFixed(1)} кг`}
-                    >
-                      Положить: {thing.goods}
-                    </button>
-                  ))}
-                </div>
+                <table>
+                  <tbody>
+                    {inHands.map((thing) => (
+                      <tr key={thing.id}>
+                        <td>{thing.goods}</td>
+                        <td className="note">
+                          {thing.amount.toFixed(1)} ·{" "}
+                          {(thing.mass * thing.amount).toFixed(1)} кг
+                        </td>
+                        <td>
+                          <Amount
+                            value={parts[thing.id] ?? null}
+                            max={thing.amount}
+                            onChange={(value) => setPart(thing.id, value)}
+                          />
+                        </td>
+                        <td>
+                          <button
+                            className="quiet"
+                            onClick={() =>
+                              act(() =>
+                                session.send("storage.put", {
+                                  storage: chest.id,
+                                  item: thing.id,
+                                  amount: chosen(parts[thing.id] ?? null, thing.amount),
+                                }),
+                              )
+                            }
+                            disabled={busy}
+                          >
+                            Положить
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               )}
               <p className="note">
                 Дом хранит то, что не увезти в руках; полный сундук не уносят
@@ -425,14 +443,10 @@ function Citizenship({ look, session, busy, act }: Omit<Props, "book">) {
       {own ? (
         <p>
           состоите в <b>{own.city}</b>
-          {own.leaving_at && (
-            <> · выходите: гражданство спадёт {new Date(own.leaving_at).toLocaleString()}</>
-          )}
+          {own.leaving_at && <> · выходите: гражданство спадёт {when(own.leaving_at)}</>}
           {/* Обязательство, принятое при печати (D-184): срок виден заранее,
               а не открывается отказом при попытке выйти. */}
-          {linked && (
-            <> · обязательство до {new Date(own.bound_until!).toLocaleString()}</>
-          )}
+          {linked && <> · обязательство кончится {when(own.bound_until)}</>}
         </p>
       ) : (
         <p className="note">Вы нигде не состоите: гость платит пошлины, но не налоги.</p>
@@ -558,12 +572,12 @@ function Foundation({ look, session, busy, act }: Omit<Props, "book">) {
 function Convoy({ look, session, busy, act }: Omit<Props, "book">) {
   const convoy = look.convoy ?? null;
   const standing = (look.vehicles ?? []).filter((t) => !t.taken);
-  const [qty, setQty] = useState<Record<string, number>>({});
+  //: How much of a stack to move, per item. Empty means the whole of it.
+  const [parts, setParts] = useState<Record<string, number | null>>({});
   if (!convoy && standing.length === 0) return null;
 
-  const count = (id: string, total: number) => qty[id] ?? total;
-  const assign = (id: string, value: number) =>
-    setQty((before) => ({ ...before, [id]: value }));
+  const setPart = (id: string, value: number | null) =>
+    setParts((before) => ({ ...before, [id]: value }));
 
   //: What in the hands has weight: no point loading the weightless, it rides anyway.
   const inHands = look.inventory.filter((thing) => thing.mass > 0);
@@ -588,12 +602,10 @@ function Convoy({ look, session, busy, act }: Omit<Props, "book">) {
                     <td>{thing.type_key}</td>
                     <td className="note">{thing.amount.toFixed(1)}</td>
                     <td>
-                      <input
-                        type="number"
-                        min={0}
+                      <Amount
+                        value={parts[thing.id] ?? null}
                         max={thing.amount}
-                        value={count(thing.id, thing.amount)}
-                        onChange={(e) => assign(thing.id, Number(e.target.value))}
+                        onChange={(value) => setPart(thing.id, value)}
                       />
                     </td>
                     <td>
@@ -603,7 +615,7 @@ function Convoy({ look, session, busy, act }: Omit<Props, "book">) {
                           act(() =>
                             session.send("transport.unload", {
                               item: thing.id,
-                              amount: count(thing.id, thing.amount),
+                              amount: chosen(parts[thing.id] ?? null, thing.amount),
                             }),
                           )
                         }
@@ -619,21 +631,42 @@ function Convoy({ look, session, busy, act }: Omit<Props, "book">) {
             </table>
           )}
           {inHands.length > 0 && (
-            <div className="row">
-              {inHands.map((thing) => (
-                <button
-                  key={thing.id}
-                  className="quiet"
-                  onClick={() =>
-                    act(() => session.send("transport.load", { item: thing.id }))
-                  }
-                  disabled={busy}
-                  title={`${(thing.mass * thing.amount).toFixed(1)} кг`}
-                >
-                  Погрузить: {thing.goods}
-                </button>
-              ))}
-            </div>
+            <table>
+              <tbody>
+                {inHands.map((thing) => (
+                  <tr key={thing.id}>
+                    <td>{thing.goods}</td>
+                    <td className="note">
+                      {thing.amount.toFixed(1)} ·{" "}
+                      {(thing.mass * thing.amount).toFixed(1)} кг
+                    </td>
+                    <td>
+                      <Amount
+                        value={parts[thing.id] ?? null}
+                        max={thing.amount}
+                        onChange={(value) => setPart(thing.id, value)}
+                      />
+                    </td>
+                    <td>
+                      <button
+                        className="quiet"
+                        onClick={() =>
+                          act(() =>
+                            session.send("transport.load", {
+                              item: thing.id,
+                              amount: chosen(parts[thing.id] ?? null, thing.amount),
+                            }),
+                          )
+                        }
+                        disabled={busy}
+                      >
+                        Погрузить
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           )}
           <div className="row">
             <button

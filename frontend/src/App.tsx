@@ -34,6 +34,7 @@ import { Market } from "./panels/Market";
 import { Mine } from "./panels/Mine";
 import { Mint } from "./panels/Mint";
 import { Nursery } from "./panels/Nursery";
+import { Plant } from "./panels/Plant";
 import { Printer } from "./panels/Printer";
 import { Register } from "./panels/Register";
 import { Rig } from "./panels/Rig";
@@ -41,6 +42,7 @@ import { Sidebar } from "./panels/Sidebar";
 import { Place } from "./panels/Place";
 import { Workshop } from "./panels/Workshop";
 import { craftableAt } from "./recipes";
+import { hands, stamp, worldTime } from "./clock";
 import { powSettings, type PowSettings } from "./pow";
 
 /** The terminal is the market building, everything else in the node is machines (D-090, D-100). */
@@ -273,6 +275,9 @@ export default function App() {
     hearth: stations.includes("Очаг"),
     yard: stations.includes("Монетный станок"),
     nursery: stations.includes("Селекционный питомник"),
+    //: A fuel station has its own window: it needs hauling, and hauling needs
+    //: a hopper (D-189).
+    plant: stations.includes("Угольная станция"),
     //: Authority is in-person: the administration is shown where it stands,
     //: not in the sidebar (D-155).
     townhall: Boolean(look.city?.hall),
@@ -296,6 +301,9 @@ export default function App() {
               : look.node?.name}
           {asleep ? " · спит" : ""}
         </span>
+        {/* Local time of the planet: its day is 38 hours and matches nobody's
+            wall clock on purpose (D-029). */}
+        {look.clock && <WorldClock clock={look.clock} />}
         <nav className="row tabs">
           {VIEWS.map((option) => (
             <button
@@ -356,6 +364,9 @@ export default function App() {
                 <Rig look={look} act={act} session={session.current} busy={busy} />
                 {has.hearth && (
                   <Kitchen look={look} act={act} session={session.current} busy={busy} />
+                )}
+                {has.plant && (
+                  <Plant look={look} act={act} session={session.current} busy={busy} />
                 )}
                 {busyMachines.map((name) => (
                   <Workshop
@@ -442,5 +453,27 @@ export default function App() {
         D-055): здесь намеренно один шрифт и одна рамка.
       </footer>
     </main>
+  );
+}
+
+/** Local clock of the planet in the header (D-029).
+ *
+ * A Terran day is 38 hours, so the hands drift against the player's own clock
+ * -- that drift is the point: the world lives by its own time, not by the
+ * time zone of whoever is looking.
+ */
+function WorldClock({ clock }: { clock: NonNullable<Look["clock"]> }) {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    //: A world minute is a real minute: half-minute ticking is enough for the
+    //: hands never to lag behind by a visible amount.
+    const timer = setInterval(() => setNow(new Date()), 30_000);
+    return () => clearInterval(timer);
+  }, []);
+  return (
+    <span className="clock" title={`местное время: ${stamp(clock, now)}`}>
+      {hands(clock, now)}
+      <span className="note"> · сутки {worldTime(clock, now).day}</span>
+    </span>
   );
 }

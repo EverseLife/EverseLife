@@ -13,6 +13,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { Look, Session, Thing } from "../api";
+import { when } from "../clock";
 
 type Props = {
   look: Look;
@@ -101,7 +102,7 @@ export function Nursery({ look, session, busy, act }: Props) {
           <h3>В питомнике</h3>
           {beds.map((bed) => (
             <div className="row" key={bed.id}>
-              <span>всходы к {new Date(bed.ready_at).toLocaleString()}</span>
+              <span>всходы {when(bed.ready_at)}</span>
               <button
                 onClick={() =>
                   go(async () => {

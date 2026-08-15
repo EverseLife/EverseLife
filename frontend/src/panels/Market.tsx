@@ -14,6 +14,8 @@
 import { useEffect, useState } from "react";
 import * as api from "../api";
 import type { Book, Look, Session, Thing } from "../api";
+import { Amount } from "../Amount";
+import { chosen } from "../amounts";
 
 type Props = {
   look: Look;
@@ -276,8 +278,8 @@ export function Market({ look, session, busy, act }: Props) {
             choice={choice}
             mark={setChoice}
             button="Загрузить"
-            action={(t) =>
-              act(() => session.send("market.load", { goods: t.goods, amount: t.amount }))
+            action={(t, amount) =>
+              act(() => session.send("market.load", { goods: t.goods, amount }))
             }
             busy={busy}
             empty="в кармане пусто"
@@ -289,12 +291,12 @@ export function Market({ look, session, busy, act }: Props) {
             choice={choice}
             mark={setChoice}
             button="Забрать"
-            action={(t) =>
+            action={(t, amount) =>
               act(() =>
                 session.send("market.take", {
                   goods: t.goods,
                   tier: t.tier,
-                  amount: t.amount,
+                  amount,
                 }),
               )
             }
@@ -324,16 +326,21 @@ function Own({
   choice: Position | null;
   mark: (p: Position) => void;
   button: string;
-  action: (t: Thing) => void;
+  action: (t: Thing, amount: number) => void;
   busy: boolean;
   empty: string;
 }) {
+  //: How much of each stack to move. Empty means the whole of it: selling
+  //: everything is the common case, selling part of it is the one that used
+  //: to be impossible (D-047).
+  const [parts, setParts] = useState<Record<string, number | null>>({});
   if (things.length === 0) return <p className="note">{empty}</p>;
   return (
     <table>
       <tbody>
         {things.map((t) => {
           const selected = choice?.goods === t.goods && choice?.tier === t.tier;
+          const part = chosen(parts[t.id] ?? null, t.amount);
           return (
             <tr
               key={t.id}
@@ -345,14 +352,23 @@ function Own({
               <td className="note">
                 {t.quality === null ? "" : `${t.quality.toFixed(0)} · ${t.tier}`}
               </td>
+              <td onClick={(e) => e.stopPropagation()}>
+                <Amount
+                  value={parts[t.id] ?? null}
+                  max={t.amount}
+                  onChange={(value) =>
+                    setParts((was) => ({ ...was, [t.id]: value }))
+                  }
+                />
+              </td>
               <td>
                 <button
                   className="quiet"
                   onClick={(e) => {
                     e.stopPropagation();
-                    action(t);
+                    action(t, part);
                   }}
-                  disabled={busy}
+                  disabled={busy || part <= 0}
                 >
                   {button}
                 </button>

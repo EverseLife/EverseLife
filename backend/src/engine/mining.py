@@ -114,6 +114,29 @@ def starting_roof(constants: Constants, richness: float) -> float:
     return ceiling - (ceiling - floor) * richness / SCALE_MAX
 
 
+def roof_of(constants: Constants, vein: Vein) -> float:
+    """The working's current stability (D-188).
+
+    Stored on the vein and shared by everyone who digs it (D-099): one miner
+    shakes the roof -- it is dangerous for the next. An untouched vein has none
+    yet, and its first session starts from richness.
+    """
+    if vein.roof is None:
+        return starting_roof(constants, float(vein.richness))
+    return float(vein.roof)
+
+
+async def remember_roof(
+    session: AsyncSession, mining: MiningSession, *, roof: float | None = None
+) -> None:
+    """Write the session's roof back into the vein, so leaving does not reset it."""
+    vein = await session.get(Vein, mining.vein_id)
+    if vein is None:  # pragma: no cover -- a session without a vein is a bug
+        return
+    vein.roof = None if roof is None else Decimal(str(roof))
+    await session.flush()
+
+
 def pace_factor(constants: Constants, pace: Pace) -> float:
     return constants[R.MINE_PACE_K] if pace is Pace.FAST else 1.0
 
@@ -234,11 +257,14 @@ async def start(
     if existing:
         raise SessionClosed("у тела уже открыта сессия: в двух забоях сразу не бьют")
 
+    #: The roof belongs to the working, not to the session (D-188): rock does
+    #: not knit back together while the miner is away. An untouched vein starts
+    #: from its richness, a shaken one meets the next miner as it was left.
     mining = MiningSession(
         body_id=body.id,
         vein_id=vein.id,
         pace=pace,
-        roof=Decimal(str(starting_roof(constants, float(vein.richness)))),
+        roof=Decimal(str(roof_of(constants, vein))),
         tool_item_id=tool_item_id,
     )
     session.add(mining)
@@ -332,6 +358,9 @@ async def swing(
 
     mining.swings += 1
     mining.roof = Decimal(str(float(mining.roof) - constants[R.MINE_ROOF_PER_SWING] * factor))
+    #: The working remembers every swing (D-188): the sag stays after the miner
+    #: leaves, so "leave and re-enter" no longer resets the risk.
+    await remember_roof(session, mining, roof=float(mining.roof))
     await session.flush()
 
     await events.record(
@@ -383,6 +412,9 @@ async def timber(
     raised = min(cap, float(mining.roof) + constants[R.MINE_ROOF_PER_TIMBER])
     mining.roof = Decimal(str(raised))
     mining.timbers += 1
+    #: A support stands after the shift ends (D-188): that is what makes timber
+    #: an investment in the working rather than a consumable of one visit.
+    await remember_roof(session, mining, roof=raised)
     await session.flush()
 
     await events.record(
@@ -594,6 +626,9 @@ async def _collapse(
 
     mining.state = SessionState.COLLAPSED
     mining.ended_at = moment
+    #: The rubble is cleared and the working starts over (D-188): otherwise a
+    #: collapsed vein would be locked forever, and veins are finite already (P2).
+    await remember_roof(session, mining, roof=None)
     await session.flush()
 
     await events.record(

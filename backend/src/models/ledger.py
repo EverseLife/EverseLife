@@ -71,6 +71,8 @@ class PostingReason(StrEnum):
     SEIGNIORAGE = "seigniorage"
     #: The city's margin on its borrower's interest (D-175).
     BANK_MARGIN = "bank_margin"
+    #: A person-to-person transfer: pay for work, chip in, return a debt (D-190).
+    TRANSFER = "transfer"
 
 
 class LedgerAccount(Base):

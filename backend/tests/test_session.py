@@ -166,6 +166,30 @@ def test_full_mining_session(client, miner, cheap_pow, constants: Constants) -> 
     assert "roof" not in json.dumps(answers, ensure_ascii=False)
 
 
+def test_look_answers_and_carries_the_clock(client, miner, constants: Constants) -> None:
+    """`look` is the client's main reply, and nothing in it may explode.
+
+    The window into the world is asked for on every refresh: a failure here
+    logs the player out rather than showing an error, so the reply is checked
+    whole. The clock is part of it (D-029): the origin of the count and the
+    length of a day, from which the client draws the hands itself.
+    """
+    with client.websocket_connect("/session/ws") as ws:
+        ws.send_json(_input(miner))
+        ws.receive_json()
+
+        ws.send_json({"cmd": "look"})
+        answer = ws.receive_json()
+
+    assert "refused" not in answer, answer
+    seen = answer["look"]
+    assert seen["node"] and seen["body"], "тело в узле, а окно в мир пустое"
+
+    clock = seen["clock"]
+    assert clock["epoch"], "часам нужна точка отсчёта"
+    assert clock["day_hours"] == constants[R.TIME_DAY_TERRA]
+
+
 def test_face_not_opened_without_device_fee(client, miner, cheap_pow) -> None:
     """The Argon2id estimate is a precondition of the session, not decoration (D-110)."""
     with client.websocket_connect("/session/ws") as ws:

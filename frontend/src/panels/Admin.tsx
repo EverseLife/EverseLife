@@ -28,6 +28,7 @@ import type {
   SanctionKind,
   Session,
 } from "../api";
+import { when } from "../clock";
 
 type Props = {
   look: Look;
@@ -867,7 +868,7 @@ function Votes({
                 {threshold[convening.threshold] ?? convening.threshold}
                 {convening.quorum > 0 && ` · кворум ${convening.quorum}%`}
               </td>
-              <td className="note">до {new Date(convening.closes_at).toLocaleString()}</td>
+              <td className="note">закроется {when(convening.closes_at)}</td>
               <td>
                 {convening.kind === "election" || convening.kind === "council" ? (
                   <>

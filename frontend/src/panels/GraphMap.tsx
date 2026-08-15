@@ -68,10 +68,16 @@ type Mass = { x: number; y: number; vx: number; vy: number; pinned: boolean };
 const SPRING = 0.014;
 const REPULSE = 7500;
 const REPULSE_RADIUS = 250;
-const CENTERING = 0.005;
 const DAMPING = 0.8;
 const SLEEP_SPEED = 0.02;
 const MAX_SPEED = 4;
+//: Nodes are pulled together by edges and nothing else: what is not connected
+//: is not attracted. A common pull to the centre used to gather unrelated
+//: nodes into one clot, and the map lied about the shape of the world.
+//: Instead of that pull -- soft walls: they keep a lone component in frame
+//: without dragging it towards anybody.
+const WALL_PUSH = 0.02;
+const WALL_MARGIN = 60;
 
 /**
  * Layout memory: a node that once settled remembers its place by key --
@@ -286,12 +292,19 @@ export function GraphMap({ look, session, busy, act, onEnter }: Props) {
           }
         }
       }
-      //: Toward the centre -- weakly: lone components do not drift beyond the horizon.
+      //: Soft walls instead of a pull to the centre: inside the frame a node is
+      //: free, and what is not connected by an edge is not dragged anywhere.
       let speed = 0;
       for (const [, body] of items) {
         if (!body.pinned) {
-          body.vx += (W / 2 - body.x) * CENTERING;
-          body.vy += (H / 2 - body.y) * CENTERING;
+          if (body.x < WALL_MARGIN) body.vx += (WALL_MARGIN - body.x) * WALL_PUSH;
+          if (body.x > W - WALL_MARGIN) {
+            body.vx -= (body.x - (W - WALL_MARGIN)) * WALL_PUSH;
+          }
+          if (body.y < WALL_MARGIN) body.vy += (WALL_MARGIN - body.y) * WALL_PUSH;
+          if (body.y > H - WALL_MARGIN) {
+            body.vy -= (body.y - (H - WALL_MARGIN)) * WALL_PUSH;
+          }
           body.vx *= DAMPING;
           body.vy *= DAMPING;
           //: Speed ceiling: a jerk is damped into a step rather than smeared into a jump.

@@ -39,6 +39,12 @@ CHAT_TEXT_LIMIT = 1000
 #: map label, and there is nothing to balance here.
 LAND_NAME_LIMIT = 40
 
+#: Transfer ground length and statement depth (D-190). Display hygiene: a
+#: payment line is read at a glance, and a statement is the latest operations
+#: rather than the whole journal since day one.
+TRANSFER_MEMO_LIMIT = 140
+STATEMENT_DEPTH = 50
+
 #: The herald (`herald/`): how often the worker carries the chronicle out and
 #: how many events it processes per pass. A process property, not a game one
 #: -- the feed affects nothing in the world, and it cannot be "balanced".

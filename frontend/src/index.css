@@ -99,6 +99,11 @@ header nav.tabs {
   font-weight: bold;
 }
 
+/* Часы планеты: цифры не должны прыгать при смене минуты. */
+.clock {
+  font-variant-numeric: tabular-nums;
+}
+
 /* The frame: sidebar on the left (the Net), main window on the right (in-person).
    Both columns each scroll on their own -- header and bottom always in place. */
 .frame {

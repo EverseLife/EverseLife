@@ -104,6 +104,8 @@ class EventKind(StrEnum):
     ENERGY_PRODUCED = "energy.produced"
     ENERGY_CHARGED = "energy.charged"
     ENERGY_DRAWN = "energy.drawn"
+    #: Fuel poured into a station standing in the node (D-189).
+    ENERGY_FUELLED = "energy.fuelled"
     # node meter and maintenance (D-135, D-149)
     UTILITY_METERED = "utility.metered"
     UTILITY_PAID = "utility.paid"
@@ -189,6 +191,8 @@ class EventKind(StrEnum):
 
     # money
     LEDGER_POSTED = "ledger.posted"
+    #: A transfer from account to account between identities (D-190).
+    MONEY_TRANSFERRED = "money.transferred"
 
 
 class Event(Base):

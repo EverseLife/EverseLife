@@ -28,7 +28,7 @@ from dataclasses import asdict
 from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import current, current_catalog
@@ -47,6 +47,7 @@ from src.engine import (
     estate,
     explore,
     farm,
+    finance,
     food,
     gear,
     justice,
@@ -87,7 +88,7 @@ from src.models.rig import Rig as RigRow
 from src.models.vote import Vote
 from src.models.world import Edge, Layer, Node, Vein
 from src.telemetry import metrics
-from src.units import amount_float, money_str
+from src.units import amount_float, money, money_str
 
 log = logging.getLogger(__name__)
 
@@ -542,6 +543,12 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
     #: real (D-152).
     run = await explore.pending(db, body)
     seen["survey"] = None if run is None else {"returns_at": run.run_at.isoformat()}
+
+    #: Local clock of the planet: a Terran day is `time.day_terra` hours long
+    #: (D-029), and the world has been running since its first node appeared.
+    #: The client counts the hands itself -- the server names the origin, so
+    #: everyone reads one and the same hour.
+    seen["clock"] = await _clock(db, constants, node)
 
     seen["exits"] = [
         {
@@ -1418,6 +1425,54 @@ async def _body_print(state: dict, db: AsyncSession, message: dict) -> dict:
     }
 
 
+async def _finance_statement(state: dict, db: AsyncSession, message: dict) -> dict:
+    """The account statement: the latest operations of this identity (D-190)."""
+    return {
+        "money": await _money(db, state["identity_id"]),
+        "entries": await finance.statement(db, state["identity_id"]),
+    }
+
+
+async def _finance_transfer(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Send money to another identity. Remote: the account is the Network."""
+    identity = await _identity(state, db)
+    try:
+        sent = await finance.transfer(
+            db,
+            identity,
+            str(message.get("to") or ""),
+            money(float(message.get("amount") or 0)),
+            memo=str(message.get("memo") or ""),
+        )
+    except finance.FinanceError as refusal:
+        raise Refused(str(refusal)) from refusal
+    return {"sent": sent, "money": await _money(db, state["identity_id"])}
+
+
+async def _energy_plant(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Station of this node: fuel stock, hourly draw and output (D-189)."""
+    body = await _alive(state, db)
+    node = await db.get(Node, body.node_id)
+    if node is None:  # pragma: no cover
+        raise Refused("тело вне узла")
+    return {"plant": await energy.plant_view(db, current(), node)}
+
+
+async def _energy_fuel(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Pour fuel into the station standing here. Anyone with coal may (D-189)."""
+    body = await _alive(state, db)
+    item = await _own_item(db, body, message["item"])
+    сколько = message.get("amount")
+    try:
+        залито = await energy.fuel(
+            db, current(), body, item,
+            None if сколько is None else float(сколько),
+        )
+    except energy.EnergyError as refusal:
+        raise Refused(str(refusal)) from refusal
+    return {"fuelled": залито, "goods": item.type_key}
+
+
 async def _storage_put(state: dict, db: AsyncSession, message: dict) -> dict:
     """Put a thing from the hands into the node storage (D-181)."""
     body = await _alive(state, db)
@@ -2233,6 +2288,10 @@ _COMMANDS = {
     "station.take": _station_take,
     "storage.put": _storage_put,
     "storage.take": _storage_take,
+    "energy.plant": _energy_plant,
+    "energy.fuel": _energy_fuel,
+    "finance.statement": _finance_statement,
+    "finance.transfer": _finance_transfer,
     "road.lay": _road_lay,
     "road.here": _road_here,
     "transport.harness": _transport_harness,
@@ -2388,6 +2447,24 @@ async def _bench(
             }
         )
     return sorted(out, key=lambda machine: machine["goods"])
+
+
+async def _clock(db: AsyncSession, constants, node: Node) -> dict[str, Any]:
+    """The planet's local clock: where the count starts and how long a day is.
+
+    The origin is when the world's first node appeared: the world is eternal
+    and has no wipes (D-007), so that moment is stable forever. Day length is
+    the vault's (D-029) -- Terra's day is 38 hours, and none of them match the
+    player's own clock on purpose.
+    """
+    from src.constants import registry as R
+
+    origin = await db.scalar(select(func.min(Node.created_at)))
+    return {
+        "planet": node.planet.value,
+        "epoch": None if origin is None else origin.isoformat(),
+        "day_hours": constants[R.TIME_DAY_TERRA],
+    }
 
 
 async def _storages(

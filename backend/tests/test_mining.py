@@ -235,6 +235,84 @@ async def test_support_holds_roof_but_not_forever(
     assert float(sess.roof) == pytest.approx(constants[R.MINE_ROOF_TIMBER_CAP])
 
 
+async def test_roof_survives_leaving(session: AsyncSession, constants: Constants) -> None:
+    """Leaving the pit no longer resets the risk (D-188).
+
+    That was the hole: dig down to "it creaks", press "leave", come back --
+    and the roof was whole again, so support was never needed.
+    """
+    _, vein, body = await _face(session, richness=60)
+    await _tool(session, body)
+
+    first = await mining.start(session, constants, body, vein)
+    for _ in range(5):
+        await mining.swing(session, constants, first)
+    shaken = float(first.roof)
+    await mining.leave(session, constants, first)
+
+    second = await mining.start(session, constants, body, vein)
+    assert float(second.roof) == pytest.approx(shaken), "свод забоя обнулился уходом"
+
+
+async def test_support_stays_after_the_shift(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """A support is an investment in the working, not a consumable of one visit."""
+    _, vein, body = await _face(session, richness=60)
+    container = await world.body_container(session, body)
+    await world.grant_item(session, container, mining.TIMBER, amount=5, origin="сценарий теста")
+    await _tool(session, body)
+
+    first = await mining.start(session, constants, body, vein)
+    await mining.swing(session, constants, first)
+    await mining.timber(session, constants, first)
+    shored = float(first.roof)
+    await mining.leave(session, constants, first)
+
+    second = await mining.start(session, constants, body, vein)
+    assert float(second.roof) == pytest.approx(shored)
+
+
+async def test_collapse_starts_the_working_over(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """The rubble is cleared: a collapsed vein is not locked forever (P2, D-188)."""
+    _, vein, body = await _face(session, richness=60)
+    await _tool(session, body)
+
+    sess = await mining.start(session, constants, body, vein)
+    sess.roof = 1
+    await session.flush()
+    await mining.swing(session, constants, sess)
+    assert sess.state is SessionState.COLLAPSED
+
+    await session.refresh(vein)
+    assert vein.roof is None, "после обвала забой начинается заново"
+    fresh = await mining.start(session, constants, body, vein)
+    assert float(fresh.roof) == pytest.approx(
+        mining.starting_roof(constants, float(vein.richness))
+    )
+
+
+async def test_shaken_working_is_shared(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """The roof is common to everyone digging the vein (D-099, D-188)."""
+    node, vein, first_body = await _face(session, richness=60)
+    await _tool(session, first_body)
+    first = await mining.start(session, constants, first_body, vein)
+    for _ in range(4):
+        await mining.swing(session, constants, first)
+    shaken = float(first.roof)
+    await mining.leave(session, constants, first)
+
+    stamp = uuid.uuid4().hex[:6]
+    neighbour = await world.create_identity(session, f"Сосед-{stamp}")
+    neighbour_body = await world.print_body(session, neighbour, node)
+    second = await mining.start(session, constants, neighbour_body, vein)
+    assert float(second.roof) == pytest.approx(shaken), "сосед пришёл в целый забой"
+
+
 async def test_cannot_shore_without_support(session: AsyncSession, constants: Constants) -> None:
     """Support costs timber and rope -- that is the whole point of the choice."""
     _, vein, body = await _face(session)

@@ -160,5 +160,11 @@ class Vein(Base):
     #: How much has been extracted in total -- depletion tiers are counted from it.
     extracted: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
 
+    #: HIDDEN roof stability of the working (D-188). It belongs to the vein, not
+    #: to a session: rock does not knit back together while the miner is away,
+    #: and leaving the pit used to reset the risk to zero. Empty means untouched
+    #: -- the first session starts it from richness. Never leaves the API.
+    roof: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
+
     created_at: Mapped[datetime] = created_column()
     depleted_at: Mapped[datetime | None] = mapped_column(nullable=True)

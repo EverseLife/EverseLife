@@ -206,6 +206,95 @@ async def _burn_coal(
     return to_burn * constants[R.ENERGY_PER_COAL]
 
 
+# --- fuel station (D-189) -----------------------------------------------------
+
+
+async def plant_view(
+    session: AsyncSession, constants: Constants, node: Node
+) -> dict | None:
+    """What the station looks like from the outside: stock, draw, output.
+
+    Supply is a matter of agreement between the city and the haulers, and both
+    sides must see the same number -- hence the stock and the hours it lasts.
+    """
+    from src.units import amount_float
+
+    yard = await world.node_container(session, node)
+    machines = (
+        await session.execute(select(Item).where(Item.container_id == yard.id))
+    ).scalars().all()
+    plants = [thing for thing in machines if thing.type_key == COAL_PLANT]
+    if not plants:
+        return None
+
+    stock = sum(
+        amount_float(stack.amount)
+        for stack in machines
+        if stack.type_key == COAL
+    )
+    draw = constants[R.ENERGY_COAL_PLANT_FUEL_DRAW] * len(plants)
+    return {
+        "station": COAL_PLANT,
+        "count": len(plants),
+        "fuel": COAL,
+        "stock": round(stock, 1),
+        #: Per hour: how much it eats and how much it gives while it eats.
+        "draw": draw,
+        "output": constants[R.ENERGY_COAL_PLANT_RATE] * len(plants),
+        "hours_left": round(stock / draw, 1) if draw > 0 else None,
+    }
+
+
+async def fuel(
+    session: AsyncSession,
+    constants: Constants,
+    body: Body,
+    item: Item,
+    quantity: float | None = None,
+) -> float:
+    """Pour fuel from the hands into the station standing here (D-189).
+
+    Anyone who came with coal may do it: hauling fuel is the supply mechanic
+    itself, not a privilege of the authority. There is no way back -- pouring
+    in is a handover, otherwise the city's fuel pile would be a common pocket.
+    """
+    from src.units import amount_float
+
+    if body.state is not BodyState.ALIVE:
+        raise EnergyError("мёртвое тело ничего не грузит")
+    await travel.require_here(session, body)
+
+    node = await session.get(Node, body.node_id)
+    if node is None:  # pragma: no cover -- a body without a node is a bug
+        raise EnergyError("тело вне узла")
+    view = await plant_view(session, constants, node)
+    if view is None:
+        raise EnergyError("здесь нет станции, которой нужно топливо")
+    if item.type_key != view["fuel"]:
+        raise EnergyError(
+            f"«{item.type_key}» не горит в «{view['station']}»: нужен {view['fuel'].lower()}"
+        )
+
+    pocket = await world.body_container(session, body)
+    if item.container_id != pocket.id:
+        raise EnergyError("топливо грузят из рук")
+    qty = amount_float(item.amount) if quantity is None else quantity
+    if qty <= 0:
+        raise EnergyError("грузить нечего")
+
+    yard = await world.node_container(session, node)
+    poured = await world.move_stack(session, item, yard, qty)
+    await events.record(
+        session,
+        EventKind.ENERGY_FUELLED,
+        actor_identity_id=body.identity_id,
+        node_id=node.id,
+        type_key=item.type_key,
+        amount=poured,
+    )
+    return poured
+
+
 # --- battery -----------------------------------------------------------------
 
 
