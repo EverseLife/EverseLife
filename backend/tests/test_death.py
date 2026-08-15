@@ -341,3 +341,63 @@ async def test_принтеры_видны_из_облака(
     assert ключи[кузница.key]["iron"] == constants[R.DEATH_IRON_COST]
     #: Быстрая дверь первой: сравнивать двери игрок должен по сроку.
     assert двери[0]["node"] == кузница.key
+
+
+# --- вход новичка (D-013, D-182) --------------------------------------------
+
+
+async def test_двери_новичка_показывают_город_а_не_цену(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Первое тело бесплатно везде (D-040), значит выбирают не цену, а людей."""
+    город, ядро, кузница = await _мир(session, catalog)
+    город.laws = {"newcomer_grant": "50"}
+    await _житель(session, ядро, "Старожил")
+    await session.flush()
+
+    двери = await world.doors(session, constants, catalog)
+    ключи = {дверь["node"]: дверь for дверь in двери}
+    assert set(ключи) == {ядро.key, кузница.key}
+    assert ключи[кузница.key]["city"] == "Столица"
+    assert ключи[кузница.key]["grant"] == money(50)
+    #: Ни цены, ни срока: новичку они не назначаются, и врать о них нельзя.
+    assert "cost" not in ключи[ядро.key] and "minutes" not in ключи[ядро.key]
+    #: Принтер Предтеч последним: запасная дверь без жителей и без казны.
+    assert двери[-1]["node"] == ядро.key and двери[-1]["precursor"] is True
+
+
+async def test_каторга_новичку_дверью_не_является(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Тюремный принтер печатает только удерживаемых (D-174) и в мир не ведёт."""
+    from src.engine import justice
+
+    _, ядро, _ = await _мир(session, catalog)
+    тюрьма = await world.create_node(
+        session, f"terra.jail.{uuid.uuid4().hex[:6]}", "Каторга", area_m2=100
+    )
+    двор = await world.node_container(session, тюрьма)
+    await world.grant_item(session, двор, death.PRINTER, quality=40, origin="тест")
+    await world.grant_item(session, двор, justice.KATORGA, quality=40, origin="тест")
+    await session.flush()
+
+    ключи = {дверь["node"] for дверь in await world.doors(session, constants, catalog)}
+    assert тюрьма.key not in ключи
+    assert await world.door(session, тюрьма.key) is None
+    #: Обычная дверь по ключу открывается — иначе выбирать было бы нечего.
+    assert (await world.door(session, ядро.key)) is not None
+
+
+async def test_дверью_зовётся_только_узел_с_принтером(
+    session: AsyncSession, catalog: Catalog
+) -> None:
+    """Чужой ключ и узел без принтера отказывают одинаково: печатать негде."""
+    _, _, кузница = await _мир(session, catalog)
+    поле = await world.create_node(
+        session, f"terra.field.{uuid.uuid4().hex[:6]}", "Пойма", area_m2=400
+    )
+    await session.flush()
+
+    assert await world.door(session, поле.key) is None
+    assert await world.door(session, "нет-такого-узла") is None
+    assert (await world.door(session, кузница.key)) is not None

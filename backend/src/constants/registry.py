@@ -27,7 +27,9 @@ BODY_HIBERNATION_HOME_K = Num("body.hibernation_home_k")
 # --- Карта и переходы (D-045, D-089, D-107, D-147) -------------------------
 TRAVEL_CITY_STEP = Span("travel.city_step")
 TRAVEL_INTRA_CITY = Span("travel.intra_city")
-TRAVEL_INTER_NODE = Span("travel.inter_node")
+#: Даль узла (D-180): первое кольцо за стенами и рост каждого следующего.
+TRAVEL_FRONTIER_STEP = Num("travel.frontier_step")
+TRAVEL_FRONTIER_GROWTH = Num("travel.frontier_growth")
 TRAVEL_STAMINA_PER_HOUR = Num("travel.stamina_per_hour")
 TRANSPORT_STAMINA_K = Num("transport.stamina_k")
 # --- Транспорт (D-107, D-129, D-157) ---------------------------------------
@@ -320,7 +322,8 @@ EXPLORE_FIND_DECAY = Num("explore.find_decay")
 EXPLORE_FIND_FLOOR = Num("explore.find_floor")
 EXPLORE_VEIN_SHARE = Num("explore.vein_share")
 EXPLORE_NODE_AREA = Span("explore.node_area")
-EXPLORE_DISTANCE = Span("explore.distance")
+#: Длину перехода к находке задаёт даль узла (D-180), а не отдельная величина
+#: разведки: `explore.distance` упразднён.
 EXPLORE_VEIN_RICHNESS = Span("explore.vein_richness")
 EXPLORE_VEIN_STOCK = Span("explore.vein_stock")
 

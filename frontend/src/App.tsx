@@ -23,8 +23,10 @@ import { Session, type Look } from "./api";
 import { Admin } from "./panels/Admin";
 import { Chat } from "./panels/Chat";
 import { Circles } from "./panels/Circles";
+import { Doors } from "./panels/Doors";
 import { Farm } from "./panels/Farm";
 import { GraphMap } from "./panels/GraphMap";
+import { Intro } from "./panels/Intro";
 import { Kitchen } from "./panels/Kitchen";
 import { Library } from "./panels/Library";
 import { Market } from "./panels/Market";
@@ -59,11 +61,17 @@ export default function App() {
   const [pow, setPow] = useState<PowSettings | null>(null);
   const [name, setName] = useState(NAMES[0]);
   const [новичок, setНовичок] = useState("");
+  //: Двери показываются вторым шагом входа: сперва имя, потом город (D-182).
+  const [двери, setДвери] = useState<api.Door[] | null>(null);
+  const [вступление, setВступление] = useState(false);
   const [trouble, setTrouble] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [view, setView] = useState<View>("map");
 
   const refresh = useCallback(async () => {
+    //: Пока личность не названа, обновлять нечего: сессии ещё нет. Иначе
+    //: первый же шаг входа — чтение дверей — упирался бы в «нет сессии».
+    if (!session.current.name) return;
     setLook(await session.current.look());
   }, []);
 
@@ -84,23 +92,32 @@ export default function App() {
     [refresh],
   );
 
+  /** Справочники вольта: их ждут и панели станков, и прогноз качества. */
+  const справочники = useCallback(async () => {
+    const { values } = await api.constants();
+    setValues(values);
+    setPow(powSettings(values));
+    setКнига(await api.recipes());
+  }, []);
+
   const enter = () =>
     act(async () => {
-      const { values } = await api.constants();
-      setValues(values);
-      setPow(powSettings(values));
-      setКнига(await api.recipes());
+      await справочники();
       await session.current.open(name);
     });
 
-  /** Новый игрок: печатается у биопринтера с нулём на счету (D-153). */
-  const join = () =>
+  /** Новичок сперва выбирает дверь: где появиться — его решение (D-182). */
+  const кДверям = () =>
+    act(async () => setДвери((await api.doors()).doors));
+
+  /** Печать у выбранной двери: ноль на счету, подъёмные — дело города (D-153).
+   *  Следом слово Предтеч: объяснить, кто он, больше некому (D-182). */
+  const join = (дверь: string) =>
     act(async () => {
-      const { values } = await api.constants();
-      setValues(values);
-      setPow(powSettings(values));
-      setКнига(await api.recipes());
-      await session.current.create(новичок);
+      await справочники();
+      await session.current.create(новичок, дверь);
+      setДвери(null);
+      setВступление(true);
     });
 
   const идёт = Boolean(look?.travel);
@@ -122,6 +139,22 @@ export default function App() {
   useEffect(() => {
     if (отлучился) setView("map");
   }, [отлучился]);
+
+  //: Второй шаг входа: имя названо, осталось выбрать дверь (D-013, D-182).
+  if (!look && двери) {
+    return (
+      <>
+        <Doors
+          двери={двери}
+          имя={новичок}
+          busy={busy}
+          onPick={join}
+          onBack={() => setДвери(null)}
+        />
+        {trouble && <p className="trouble">{trouble}</p>}
+      </>
+    );
+  }
 
   if (!look) {
     return (
@@ -157,13 +190,14 @@ export default function App() {
             value={новичок}
             onChange={(e) => setНовичок(e.target.value)}
           />
-          <button onClick={join} disabled={busy || !новичок.trim()}>
+          <button onClick={кДверям} disabled={busy || !новичок.trim()}>
             Новый персонаж
           </button>
         </div>
         <p className="note">
-          Новый персонаж печатается с нулём на счету; подъёмные платит город
-          (D-153). Опознание по имени — заглушка разработки (D-027).
+          Новый персонаж сам выбирает, в каком городе напечататься; на счету
+          ноль, подъёмные платит город (D-153). Опознание по имени — заглушка
+          разработки (D-027).
         </p>
         {trouble && <p className="trouble">{trouble}</p>}
       </main>
@@ -250,6 +284,15 @@ export default function App() {
             </button>
           ))}
         </nav>
+        {/* Вступление под рукой всегда: прочитанное однажды не должно
+            становиться недоступным, а непрочитанное — обязательным (D-182). */}
+        <button
+          className="quiet"
+          onClick={() => setВступление(true)}
+          title="кто вы и с чего начать"
+        >
+          ?
+        </button>
         <button className="quiet" onClick={() => void refresh()}>
           обновить
         </button>
@@ -362,6 +405,8 @@ export default function App() {
           )}
         </div>
       </div>
+
+      {вступление && <Intro onClose={() => setВступление(false)} />}
 
       {trouble && <p className="trouble">{trouble}</p>}
       <footer>

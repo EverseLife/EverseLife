@@ -65,6 +65,9 @@ class JobKind(StrEnum):
     RATE_REVIEW = "bank.rate_review"
     #: Возврат процентного дохода городам: раз в `bank.seigniorage_period`.
     SEIGNIORAGE = "bank.seigniorage"
+    #: Хроника мира наружу, в Discord: раз в `HERALD_PERIOD` (`src/herald/`).
+    #: Мир от неё не зависит — задание только читает журнал событий.
+    HERALD_POST = "herald.post"
 
 
 class Job(Base):

@@ -72,6 +72,9 @@ class City(Base):
         ForeignKey("node.id"), nullable=False, unique=True
     )
     name: Mapped[str] = mapped_column(nullable=False)
+    #: Слово города новичку: что он о себе объявляет на карточке двери (D-183).
+    #: Обещание, а не договор — движок его не исполняет и не разбирает.
+    about: Mapped[str] = mapped_column(nullable=False, default="", server_default="")
     #: Основатель. По умолчанию он же и правитель — так устав и говорит (D-130).
     founder_identity_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("identity.id"), nullable=True
@@ -196,6 +199,11 @@ class Citizen(Base):
     since: Mapped[datetime] = created_column()
     #: Когда гражданство спадёт по заявлению о выходе. Пусто — не выходит.
     leaving_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    #: До какого срока гражданство не складывается: условие печати, принятое
+    #: выбором двери (D-184). Записывается в момент печати и позже не меняется —
+    #: город, поднявший срок задним числом, не удлиняет чужое обязательство.
+    #: Пусто — обязательства нет, уйти можно в тот же день.
+    bound_until: Mapped[datetime | None] = mapped_column(nullable=True)
     created_at: Mapped[datetime] = created_column()
 
 

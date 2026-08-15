@@ -27,6 +27,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as api from "../api";
+import { Hint } from "../Hint";
 import {
   SURFACE,
   spell,
@@ -93,11 +94,16 @@ const DASH: Record<string, string | undefined> = { trail: "4 6" };
 
 export function GraphMap({ look, session, busy, act, onEnter }: Props) {
   const [map, setMap] = useState<WorldMap | null>(null);
+  const here = look.node?.key ?? "";
+  //: Карта растёт разведкой (D-152), и найденный узел обязан появиться сам.
+  //: Перечитываем её, когда меняется то, из-за чего карта могла измениться:
+  //: свой узел, набор выходов из него и возвращение разведчика. Одной
+  //: загрузки при первом показе хватало ровно до первой находки.
+  const выходы = (look.exits ?? []).map((путь) => путь.key).join("|");
+  const в_разведке = look.survey?.returns_at ?? "";
   useEffect(() => {
     void api.worldMap().then(setMap);
-  }, []);
-
-  const here = look.node?.key ?? "";
+  }, [here, выходы, в_разведке]);
   const идёт = look.travel ?? null;
   const byKey = useMemo(() => {
     const out: Record<string, MapNode> = {};
@@ -538,9 +544,10 @@ export function GraphMap({ look, session, busy, act, onEnter }: Props) {
             {option.label}
           </button>
         ))}
-        <span className="note">
-          узлы можно таскать; фон — панорама, колесо — зум
-        </span>
+        <Hint>
+          Узлы можно таскать мышью, фон — панорама, колесо — зум. Слои: космос,
+          планета, город — один и тот же граф с разной высоты (D-045).
+        </Hint>
       </nav>
 
       {visible.length === 0 ? (
@@ -647,14 +654,16 @@ export function GraphMap({ look, session, busy, act, onEnter }: Props) {
                 Войти
               </button>
             )}
-            {/* Цена дороги телом (D-147): её видно до выхода, а не после. */}
+            {/* Цена дороги телом (D-147): её видно до выхода, а не после, —
+                но списком она занимала полполосы, и теперь лежит в подсказке. */}
             {!look.survey && (look.exits ?? []).length > 0 && (
-              <span className="note">
-                выносливость:{" "}
+              <Hint>
+                Дорога стоит выносливости (D-147):{" "}
                 {(look.exits ?? [])
                   .map((путь) => `${путь.name} ${цена(путь.stamina)}`)
                   .join(" · ")}
-              </span>
+                . Идти можно в любой узел — маршрут строится сам (D-045).
+              </Hint>
             )}
           </>
         )}
@@ -666,13 +675,16 @@ export function GraphMap({ look, session, busy, act, onEnter }: Props) {
       {/* Дорога — работа на ребре, и место ей там же, где рёбра видны (D-158). */}
       {!идёт && !look.survey && <Roads look={look} session={session} busy={busy} act={act} />}
 
-      <p className="note">
-        {идёт
-          ? "Пока идёшь, тебя нет нигде: присутственное закрыто (D-107)."
-          : look.survey
-            ? "Разведчик в поле: тело недоступно, как во сне (D-152)."
-            : "Идти можно в любой узел: маршрут строится сам (D-045)."}
-      </p>
+      {/* Осталось только то, что меняется: пока идёшь или разведываешь,
+          присутственное закрыто, и это стоит сказать прямо. Объяснения
+          устройства мира ушли в подсказки. */}
+      {(идёт || look.survey) && (
+        <p className="note">
+          {идёт
+            ? "Пока идёшь, тебя нет нигде: присутственное закрыто (D-107)."
+            : "Разведчик в поле: тело недоступно, как во сне (D-152)."}
+        </p>
+      )}
     </section>
   );
 }
@@ -744,9 +756,11 @@ function Roads({
           )}
         </span>
       ))}
-      <span className="note">
-        Без содержания дорога зарастает; обоз по бездорожью не идёт (D-107).
-      </span>
+      <Hint>
+        Покрытие поднимается на ступень за полотно и время: бездорожье → дорога
+        → мощёный тракт. Без содержания дорога зарастает обратно, а по
+        бездорожью обоз не идёт вовсе (D-107, D-158).
+      </Hint>
     </div>
   );
 }
@@ -798,7 +812,9 @@ function Search({
 
   useEffect(() => {
     void session
-      .send("explore.goals")
+      //: Прогноз просится под выбранную породу: редкая ищется хуже частой
+      //: (D-151), и «шанс 90%» рядом с заказом золота был бы обманом.
+      .send("explore.goals", порода ? { goal: "vein", resource: порода } : {})
       .then((ответ) => {
         setПороды((ответ.resources as string[]) ?? []);
         setПрогноз((ответ.outlook as Outlook | null) ?? null);
@@ -809,7 +825,7 @@ function Search({
       });
     //: Заход меняет счёт находок узла, поэтому прогноз пересчитывается и по
     //: возвращении разведчика, а не только при переходе.
-  }, [session, look.node?.key, заход?.returns_at]);
+  }, [session, look.node?.key, заход?.returns_at, порода]);
 
   if (!заход && layer !== "city" && layer !== "planet") return null;
 
@@ -829,20 +845,21 @@ function Search({
           >
             Вернуться сейчас
           </button>
-          <span className="note">
+          <Hint>
             Повернуть назад можно в любой момент: находки не будет, потраченные
             силы не вернутся.
-          </span>
+          </Hint>
         </>
       ) : layer === "city" ? (
         <>
           <button onClick={() => искать("lot")} disabled={busy}>
             Уйти искать участок
           </button>
-          <span className="note">
+          <Hint>
             Найденный участок встанет городской землёй: её выкупают у города
-            (D-089).
-          </span>
+            (D-089). Разведчик уходит сам, до возвращения недоступен, как во
+            сне, и остаётся на находке (D-185).
+          </Hint>
         </>
       ) : (
         <>
@@ -858,10 +875,12 @@ function Search({
               <option key={имя}>{имя}</option>
             ))}
           </select>
-          <span className="note">
-            Разведчик уходит сам и до возвращения недоступен, как во сне. Кончатся
-            силы — доспит в поле и продолжит.
-          </span>
+          <Hint>
+            Разведчик уходит сам и до возвращения недоступен, как во сне.
+            Кончатся силы — доспит в поле и продолжит. Нашёл — там и остаётся
+            (D-185); чем дальше от города находка, тем длиннее к ней дорога
+            (D-180).
+          </Hint>
         </>
       )}
       {!заход && прогноз && <Forecast прогноз={прогноз} />}
@@ -873,10 +892,17 @@ function Search({
 function Forecast({ прогноз }: { прогноз: Outlook }) {
   const { min, max } = прогноз.minutes;
   const срок = min === max ? долго(min) : размах(min, max);
+  //: Шанс может быть долей процента — округление до целого показало бы ноль
+  //: там, где искать всё-таки можно.
+  const шанс = прогноз.chance >= 1
+    ? Math.round(прогноз.chance)
+    : прогноз.chance.toFixed(1);
   return (
     <span className="note">
-      заход отсюда: {срок} · шанс {Math.round(прогноз.chance)}% · до{" "}
-      {цена(прогноз.stamina)} выносливости
+      заход отсюда: {срок} · шанс {шанс}% · до {цена(прогноз.stamina)}{" "}
+      выносливости
+      {прогноз.resource && (прогноз.aim ?? 1) < 1 &&
+        ` · ${прогноз.resource.toLowerCase()} редка: шанс уже в ${(1 / (прогноз.aim ?? 1)).toFixed(0)} раз`}
       {прогноз.explored > 0 &&
         ` · окрестность исхожена: находок отсюда ${прогноз.explored}`}
     </span>

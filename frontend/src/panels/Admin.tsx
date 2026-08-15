@@ -133,6 +133,14 @@ export function Admin({ look, session, busy, act }: Props) {
             )}
           </p>
 
+          <Word
+            город={город}
+            может={может("citizens") && решает}
+            session={session}
+            go={го}
+            busy={busy}
+          />
+
           <h3>Должности</h3>
           {город.offices.length === 0 ? (
             <p className="note">должностей нет</p>
@@ -376,6 +384,68 @@ export function Admin({ look, session, busy, act }: Props) {
         </>
       )}
     </section>
+  );
+}
+
+/** Слово города новичку — то, что стоит на карточке двери (D-183).
+ *
+ * Правит его тот, кто принимает в граждане: объявление это вербовка. Движок
+ * написанное не исполняет — обещание здесь обязывает людей, а не код. */
+function Word({
+  город,
+  может,
+  session,
+  go,
+  busy,
+}: {
+  город: CityView;
+  может: boolean;
+  session: Session;
+  go: (what: () => Promise<unknown>) => void;
+  busy: boolean;
+}) {
+  const [текст, setТекст] = useState<string | null>(null);
+  const набрано = текст ?? город.about;
+
+  return (
+    <div>
+      <h3>Слово городу</h3>
+      {город.about ? (
+        <p className="say">«{город.about}»</p>
+      ) : (
+        <p className="note">город молчит: новичок видит одни числа</p>
+      )}
+      {может && (
+        <>
+          <div className="row">
+            <textarea
+              className="word"
+              value={набрано}
+              maxLength={api.CITY_ABOUT_LIMIT}
+              placeholder="чем город зовёт новичка"
+              onChange={(e) => setТекст(e.target.value)}
+            />
+          </div>
+          <div className="row">
+            <button
+              onClick={() =>
+                go(async () => {
+                  await session.send("city.about", { text: набрано });
+                  setТекст(null);
+                })
+              }
+              disabled={busy || набрано === город.about}
+            >
+              Объявить
+            </button>
+            <span className="note">
+              {набрано.length} из {api.CITY_ABOUT_LIMIT} знаков · видно всем,
+              кто выбирает, где напечататься
+            </span>
+          </div>
+        </>
+      )}
+    </div>
   );
 }
 

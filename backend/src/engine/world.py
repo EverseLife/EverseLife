@@ -16,7 +16,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.constants import current
+from src.constants import Catalog, Constants, current
 from src.constants import registry as R
 from src.engine import events
 from src.models.event import EventKind
@@ -24,6 +24,7 @@ from src.models.identity import Account, Body, BodyState, Identity, Knowledge, K
 from src.models.inventory import Container, ContainerKind, Item
 from src.models.world import Layer, Node, Planet, Vein
 from src.units import amount as to_amount
+from src.units import money as to_money
 
 
 async def create_node(
@@ -184,6 +185,103 @@ async def spawn_point(session: AsyncSession) -> Node | None:
     return узлы[0] if узлы else None
 
 
+async def doors(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> list[dict[str, Any]]:
+    """Двери в мир для новичка: где стоит биопринтер и к каким людям выходишь.
+
+    Ни цены, ни срока здесь нет намеренно: **первое тело печатается сразу и
+    бесплатно** у любой двери (D-040), и двенадцать часов Принтера Предтеч к
+    нему не применяются. Значит, выбор новичка — не про деньги, а про город:
+    сколько там людей и платит ли он подъёмные (D-182).
+
+    Тюремный принтер не показывается: он печатает только тех, кого тюрьма
+    держит, и дверью в мир не является (D-174).
+    """
+    from src.engine import city as town
+    from src.engine import justice
+    from src.engine.death import PRECURSOR
+
+    из_узла = (
+        await session.execute(
+            select(Node)
+            .join(Container, Container.owner_id == Node.id)
+            .join(Item, Item.container_id == Container.id)
+            .where(Container.kind == ContainerKind.NODE, Item.type_key == BIOPRINTER)
+            .distinct()
+        )
+    ).scalars().all()
+
+    список: list[dict[str, Any]] = []
+    for узел in из_узла:
+        if await justice.is_prison(session, узел):
+            continue
+        город = await town.of_node(session, узел)
+        предтечи = bool(узел.properties.get(PRECURSOR))
+        #: Условия печати (D-184): их движок исполняет, значит показывать их
+        #: обязан **до** выбора, а не после первой продажи. У Предтеч условий
+        #: нет и быть не может: машина ничья, и город её условиями не обвешивает
+        #: — иначе в мире с одним городом безусловной двери не осталось бы.
+        гражданство, срок = (
+            (False, 0.0) if предтечи else town.spawn_terms(constants, catalog, город)
+        )
+        список.append(
+            {
+                "node": узел.key,
+                "name": узел.name,
+                "city": None if город is None else город.name,
+                #: Слово города — обещание, а не договор (D-183): движок его не
+                #: разбирает и не исполняет. Пусто — карточка молчит.
+                "about": "" if город is None else город.about,
+                #: Принтер Предтеч — вечная машина настоящих людей, и это
+                #: единственная дверь, которая не зависит от чьей-то казны.
+                "precursor": предтечи,
+                "citizens": 0 if город is None else len(await town.citizens_of(session, город)),
+                #: Подъёмные — обещание города, а не выдача движка (D-153):
+                #: платит казна, и город вправе не платить вовсе. Минорными
+                #: единицами, как всякая цена наружу.
+                "grant": (
+                    0
+                    if город is None
+                    else to_money(town.law_number(constants, catalog, город, "newcomer_grant"))
+                ),
+                #: Обязательное гражданство и его срок в сутках.
+                "citizenship": гражданство,
+                "term": срок,
+                #: Налог с продажи — тот самый, который движок удержит при
+                #: первой же сделке. Условие жизни здесь, а не двери.
+                "tax": (
+                    0.0
+                    if город is None
+                    else town.law_number(constants, catalog, город, town.TRADE_TAX)
+                ),
+            }
+        )
+    #: Города впереди, Принтер Предтеч последним: у него нет ни жителей, ни
+    #: подъёмных, и как запасная дверь он читается лучше в конце списка.
+    return sorted(список, key=lambda дверь: (дверь["precursor"], дверь["name"]))
+
+
+async def door(session: AsyncSession, key: str) -> Node | None:
+    """Узел двери по ключу — или ничего, если печататься там нельзя.
+
+    Проверяется то же, что показано в `doors`: чужой ключ, узел без принтера и
+    тюремный принтер новичку одинаково недоступны.
+    """
+    узел = (
+        await session.execute(select(Node).where(Node.key == key))
+    ).scalar_one_or_none()
+    if узел is None:
+        return None
+    if not await has_station(session, узел, BIOPRINTER):
+        return None
+    from src.engine import justice
+
+    if await justice.is_prison(session, узел):
+        return None
+    return узел
+
+
 async def spawn(session: AsyncSession, name: str, node: Node) -> tuple[Identity, Body]:
     """Новый игрок: личность, тело у биопринтера и **ноль на счету** (D-153).
 
@@ -194,6 +292,10 @@ async def spawn(session: AsyncSession, name: str, node: Node) -> tuple[Identity,
     Почему город на это идёт: новый житель — это ВВП. Он покупает, продаёт и
     платит налоги, значит подъёмные окупаются. Богатый город переманивает
     новичков, бедный не может себе этого позволить.
+
+    Здесь же исполняются **условия печати** (D-184): гражданство и его срок,
+    если город их поставил. Человек принял их выбором двери, и приниматься они
+    обязаны в тот же миг, что и тело, — иначе условие остаётся объявлением.
     """
     from src.constants import current_catalog
     from src.engine import city as town
@@ -209,7 +311,15 @@ async def spawn(session: AsyncSession, name: str, node: Node) -> tuple[Identity,
 
     город = await town.of_node(session, node)
     if город is not None:
-        await town.welcome(session, current(), current_catalog(), город, identity)
+        from src.engine.death import PRECURSOR
+
+        constants, catalog = current(), current_catalog()
+        #: Условия ставит тот, чья машина. Принтер Предтеч ничей: город, на чьей
+        #: земле он стоит, не вправе обвешивать его гражданством (D-184).
+        if not node.properties.get(PRECURSOR):
+            #: Сперва гражданство, потом подъёмные: город платит своему.
+            await town.bind(session, constants, catalog, город, identity)
+        await town.welcome(session, constants, catalog, город, identity)
     return identity, body
 
 
@@ -263,6 +373,53 @@ async def is_library(session: AsyncSession, node: Node) -> bool:
     if (node.properties or {}).get("library"):
         return True
     return await has_station(session, node, LIBRARY)
+
+
+async def move_stack(
+    session: AsyncSession, item: Item, target: Container, quantity: float
+) -> float:
+    """Переложить стопку или её часть в другой контейнер.
+
+    Отделённая часть — **та же вещь**: клеймо, срок, состояние, проба, сорт и
+    заряд едут вместе с ней. Потерять их при делении стопки значило бы
+    обезличить товар: полсотни семян сорта превратились бы в полсотни семян
+    вообще.
+
+    Одна функция на весь мир перекладываний — трюм, сундук, терминал: у каждой
+    своей копии рано или поздно отстаёт список полей, и вещь тихо теряет часть
+    себя на одном из путей.
+    """
+    from src.units import AMOUNT_SCALE
+    from src.units import amount as to_units
+
+    сколько = min(to_units(quantity), item.amount)
+    if сколько >= item.amount:
+        item.container_id = target.id
+    else:
+        item.amount -= сколько
+        session.add(
+            Item(
+                container_id=target.id,
+                type_key=item.type_key,
+                amount=сколько,
+                quality=item.quality,
+                condition=item.condition,
+                condition_cap=item.condition_cap,
+                maker_identity_id=item.maker_identity_id,
+                made_at=item.made_at,
+                made_node_id=item.made_node_id,
+                spoils_at=item.spoils_at,
+                flavor=item.flavor,
+                roles_filled=item.roles_filled,
+                fineness=item.fineness,
+                variety_id=item.variety_id,
+                vigor=item.vigor,
+                charge=item.charge,
+                charged_at=item.charged_at,
+            )
+        )
+    await session.flush()
+    return сколько / AMOUNT_SCALE
 
 
 async def learn(

@@ -113,6 +113,10 @@ class EventKind(StrEnum):
     STATION_PLACED = "station.placed"
     STATION_TAKEN = "station.taken"
 
+    # хранилища: сундук и стеллаж (D-181)
+    STORAGE_PUT = "storage.put"
+    STORAGE_TAKEN = "storage.taken"
+
     # разведка (D-152)
     EXPLORE_STARTED = "explore.started"
     EXPLORE_FOUND = "explore.found"
@@ -132,6 +136,10 @@ class EventKind(StrEnum):
     CITY_OFFICE_REVOKED = "city.office_revoked"
     CITY_TREASURY_SPENT = "city.treasury_spent"
     CITY_GRANT_PAID = "city.grant_paid"
+    #: Город переписал своё слово новичку (D-183). В журнале оно потому, что
+    #: обещание на карточке — основание иска, и «что было написано тогда»
+    #: обязано сохраниться.
+    CITY_DESCRIBED = "city.described"
     #: Гражданство (D-160): попросили либо позвали, приняли, выходят, кончилось.
     CITIZENSHIP_REQUESTED = "city.citizenship_requested"
     CITIZENSHIP_GRANTED = "city.citizenship_granted"

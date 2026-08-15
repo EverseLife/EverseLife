@@ -49,6 +49,10 @@ class Busy(StationError):
     """Станок занят работой: унести его из-под работающего нельзя."""
 
 
+class NotEmpty(StationError):
+    """В хранилище лежат вещи: сначала разбирают, потом уносят (D-181)."""
+
+
 def is_station(catalog: Catalog, type_key: str) -> bool:
     try:
         return catalog.recipes.recipe(type_key).kind is ItemKind.STATION
@@ -172,6 +176,16 @@ async def take(
         raise NotYours("узел не ваш: чужое оборудование не уносят")
     if item.busy_body_id is not None:
         raise Busy("за станком работают: дождитесь конца партии")
+    #: Полный сундук не уносят (D-181): иначе «забрать мебель» стало бы
+    #: способом унести в кармане тонну груза мимо предела носимого (D-146).
+    from src.engine import storage
+
+    if storage.is_storage(catalog, item.type_key) and not await storage.is_empty(
+        session, item
+    ):
+        raise NotEmpty(
+            f"в «{item.type_key}» лежат вещи: сначала разберите, потом уносите"
+        )
 
     карман = await world.body_container(session, body)
     item.container_id = карман.id

@@ -271,6 +271,7 @@ Settings → Secrets and variables → Actions.
 | `DEPLOY_SSH_KEY` | закрытый ключ выкладки целиком, вместе со строками `BEGIN`/`END` |
 | `DEPLOY_PORT` | порт SSH, если не 22 (необязательно) |
 | `DEPLOY_KNOWN_HOSTS` | строка из `ssh-keyscan` для сервера (необязательно, но лучше завести) |
+| `DISCORD_DEPLOY_WEBHOOK` | вебхук канала выкладок в Discord (необязательно; без него шаг молчит) |
 
 Переменные (вкладка Variables):
 
@@ -329,6 +330,17 @@ docker compose exec landing python export.py > signups.csv
 ```
 
 Подробности — в [landing/README.md](landing/README.md).
+
+## Discord
+
+Три ленты наружу: хроника мира из воркера, счётчик заявок из лендинга, итог
+выкладки из CI. Включаются тремя вебхуками — `OCTOVERSE_DISCORD_WEBHOOK` и
+`LANDING_DISCORD_WEBHOOK` в `/opt/octoverse/.env`, секрет
+`DISCORD_DEPLOY_WEBHOOK` на GitHub. Пока их нет, всё молчит и ничего не
+ломается.
+
+Порядок и проверка — в [community/discord-bridge.md](community/discord-bridge.md),
+устройство сервера сообщества — в [community/discord.md](community/discord.md).
 
 ## Числа игры
 

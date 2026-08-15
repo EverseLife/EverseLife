@@ -61,7 +61,7 @@ from src.models.identity import Body, BodyState
 from src.models.inventory import Container, ContainerKind, Item
 from src.models.travel import Harness
 from src.models.world import Node, Surface
-from src.units import AMOUNT_SCALE, amount, amount_float
+from src.units import amount_float
 
 
 class TransportError(Exception):
@@ -471,32 +471,9 @@ async def view(
 async def _move(
     session: AsyncSession, item: Item, target: Container, quantity: float
 ) -> float:
-    """Переложить стопку или её часть в другой контейнер.
+    """Переложить стопку или её часть в трюм либо из трюма.
 
-    Отделённая часть — та же вещь: клеймо, срок, состояние и проба едут вместе
-    с ней. Потерять их при делении стопки значило бы обезличить товар.
+    Само перекладывание — общее для всего мира (`world.move_stack`): у трюма,
+    сундука и терминала оно обязано вести себя одинаково.
     """
-    сколько = min(amount(quantity), item.amount)
-    if сколько >= item.amount:
-        item.container_id = target.id
-    else:
-        item.amount -= сколько
-        session.add(
-            Item(
-                container_id=target.id,
-                type_key=item.type_key,
-                amount=сколько,
-                quality=item.quality,
-                condition=item.condition,
-                condition_cap=item.condition_cap,
-                maker_identity_id=item.maker_identity_id,
-                made_at=item.made_at,
-                made_node_id=item.made_node_id,
-                spoils_at=item.spoils_at,
-                flavor=item.flavor,
-                roles_filled=item.roles_filled,
-                fineness=item.fineness,
-            )
-        )
-    await session.flush()
-    return сколько / AMOUNT_SCALE
+    return await world.move_stack(session, item, target, quantity)

@@ -21,6 +21,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from src import herald  # noqa: F401 — регистрирует обработчик хроники
 from src.constants import HOLDER, Catalog, bootstrap, current_catalog
 from src.engine import tick  # noqa: F401 — регистрирует обработчики заданий
 from src.engine.jobs import require_handlers

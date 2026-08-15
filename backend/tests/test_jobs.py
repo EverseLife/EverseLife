@@ -14,6 +14,7 @@ import pytest
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from src import herald  # noqa: F401 — регистрирует обработчик хроники
 from src.engine import jobs, tick
 from src.models.event import Event
 from src.models.job import Job, JobKind, JobState
@@ -153,7 +154,13 @@ async def test_два_воркера_не_берут_одно_задание(
 
 
 async def test_все_виды_заданий_имеют_обработчик() -> None:
-    """Задание без обработчика — отложенное расхождение мира с самим собой."""
+    """Задание без обработчика — отложенное расхождение мира с самим собой.
+
+    Обработчики регистрируются импортом, и здесь импортируется ровно то же,
+    что импортирует воркер: движок и глашатай. Появится третий пакет с
+    заданиями — его сюда придётся дописать, и это правильная цена за то, что
+    проверка идёт при старте, а не в тике посреди ночи.
+    """
     jobs.require_handlers()
 
 

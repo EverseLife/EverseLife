@@ -339,6 +339,59 @@ tr.picked td:first-child {
   margin-top: 0;
 }
 
+/* Подсказка по требованию: на виду значок, объяснение — по наведению.
+   Раскрытая не двигает раскладку: она absolute над содержимым. */
+.hint {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.2em;
+  height: 1.2em;
+  flex: none;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  font-size: 0.75rem;
+  opacity: 0.6;
+  cursor: help;
+  user-select: none;
+}
+/* `:focus`, а не только `:focus-visible`: на телефоне наведения нет вовсе, и
+   тап по значку — единственный способ раскрыть подсказку. */
+.hint:hover,
+.hint:focus {
+  opacity: 1;
+}
+/* Раскрывается вниз, а не вверх: панель карты обрезает содержимое по себе
+   (`overflow: hidden`), и подсказка у её верхнего края уходила под обрез. */
+.hint-body {
+  position: absolute;
+  top: calc(100% + 0.4rem);
+  left: 0;
+  z-index: 5;
+  display: none;
+  width: max-content;
+  max-width: min(26rem, 80vw);
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--line);
+  /* Непрозрачный фон: подсказка ложится поверх карты и текста под ней. */
+  background: Canvas;
+  color: CanvasText;
+  font-size: 0.8rem;
+  line-height: 1.35;
+  text-align: left;
+  cursor: auto;
+}
+.hint:hover .hint-body,
+.hint:focus .hint-body {
+  display: block;
+}
+/* В нижней полосе карты места вниз уже нет — там подсказка раскрывается вверх. */
+.map-bar .hint-body {
+  top: auto;
+  bottom: calc(100% + 0.4rem);
+}
+
 /* Ошибка — всегда на виду: полоса под каркасом, а не в глубине прокрутки. */
 .trouble {
   flex: none;
@@ -367,6 +420,70 @@ main.entry {
 .entry > * {
   width: min(34rem, 100%);
   margin-inline: auto;
+}
+
+/* Двери в мир: карточки рядом, чтобы города сравнивались взглядом (D-182).
+   Экран входа сужен до 34rem — дверям этого мало, они шире своей колонки. */
+.entry > .doors {
+  width: min(52rem, 100%);
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(16rem, 100%), 1fr));
+  gap: 0.75rem;
+  align-items: start;
+  margin: 0.75rem auto;
+}
+
+/* Слово города (D-183): чужая речь, а не строка движка. Отбивается курсивом
+   и линией слева — тем же приёмом, что и подслушанная реплика в чате. */
+.say {
+  margin: 0.5rem 0;
+  padding-left: 0.6rem;
+  border-left: 3px solid var(--line);
+  font-style: italic;
+}
+
+/* Поле для этого же слова: те же поля ввода, но текст многострочный. */
+textarea.word {
+  font: inherit;
+  width: 100%;
+  min-height: 4.5rem;
+  padding: 0.25rem 0.6rem;
+  border: 1px solid currentColor;
+  background-color: Field;
+  color: FieldText;
+  resize: vertical;
+}
+
+/* Вступление: занавес поверх мира. Мир при этом виден по краям — читать
+   необязательно, и закрытое окно ничего не ломает. */
+.veil {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: color-mix(in srgb, Canvas 82%, transparent);
+}
+.intro {
+  width: min(38rem, 100%);
+  max-height: 100%;
+  overflow-y: auto;
+  /* Непрозрачный фон и полный тон рамки: это единственное окно, которое
+     говорит от лица игры, и оно не должно сливаться с панелями под ним. */
+  background: Canvas;
+  border-color: currentColor;
+}
+.intro p {
+  margin: 0.5rem 0;
+}
+.intro ol {
+  margin: 0.35rem 0;
+  padding-left: 1.2rem;
+}
+.intro li {
+  margin: 0.35rem 0;
 }
 
 /* --- карта-граф ---------------------------------------------------------- */

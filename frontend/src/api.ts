@@ -170,7 +170,12 @@ export type Outlook = {
   minutes: { min: number; max: number };
   /** Наибольшая цена выносливостью — по самому долгому заходу. */
   stamina: number;
+  /** Шанс с учётом заказанной породы: редкая ищется хуже (D-151). */
   chance: number;
+  /** Во сколько раз заказ породы сузил шанс; 1 — заказа не было. */
+  aim?: number;
+  /** Какая порода заказана, если заказана. */
+  resource?: string | null;
 };
 
 export type Look = {
@@ -241,6 +246,8 @@ export type Look = {
     since: string;
     /** Заявление о выходе подано: гражданство спадёт к этому сроку. */
     leaving_at: string | null;
+    /** Обязательство, принятое условием печати: до этого срока не выйти (D-184). */
+    bound_until: string | null;
   } | null;
   /** Идущий заход разведки, если он есть (D-152). */
   survey?: { returns_at: string } | null;
@@ -261,6 +268,8 @@ export type Look = {
   bench?: Bench[];
   /** Мебель узла: кровать и стеллаж — не станки, окно у них своё (D-090). */
   furniture?: Bench[];
+  /** Хранилища узла и что в них лежит (D-181). */
+  storages?: Storage[];
   /** Свои ценные бумаги на участки: электронные документы Сети (D-116). */
   deeds?: DeedView[];
   inventory: Thing[];
@@ -299,6 +308,23 @@ export type Bench = {
   charge: number | null;
 };
 
+/** Хранилище узла: сундук либо стеллаж (D-181).
+ *
+ * Сам сундук виден всякому — он стоит в комнате; содержимое приходит только
+ * тому, кто вправе его открыть, у остальных `content` пуст.
+ */
+export type Storage = {
+  id: string;
+  goods: string;
+  /** Вместимость, кг. */
+  capacity: number;
+  /** Сколько килограммов уже занято. */
+  mass: number;
+  /** Вправе ли смотрящий класть и забирать. */
+  mine: boolean;
+  content: Thing[];
+};
+
 /** Дверь в мир: где напечатать тело и почём (D-028, D-033). */
 export type Printer = {
   node: string;
@@ -313,6 +339,29 @@ export type Printer = {
   iron_here: number;
   /** Город печатает за свой счёт: код-закон `body_print` (D-032). */
   at_city_expense: boolean;
+};
+
+/** Дверь для новичка: где напечататься впервые (D-013, D-182).
+ *
+ * Ни цены, ни срока: первое тело печатается сразу и бесплатно у любой двери
+ * (D-040). Выбор здесь — про людей, а не про деньги.
+ */
+export type Door = {
+  node: string;
+  name: string;
+  city: string | null;
+  /** Слово города новичку: его обещание, а не договор (D-183). Пусто — молчит. */
+  about: string;
+  /** Условия печати — их движок исполняет (D-184): гражданство в момент
+   *  печати, его срок в сутках и налог с продажи, %. */
+  citizenship: boolean;
+  term: number;
+  tax: number;
+  /** Принтер Предтеч: вечная машина, ничьей казны не требует. */
+  precursor: boolean;
+  citizens: number;
+  /** Подъёмные из устава города, в минорных единицах. Ноль — не платит. */
+  grant: number;
 };
 
 /** Свой узел и счёт за быт (D-149). */
@@ -350,6 +399,8 @@ export type Office = {
 export type CityView = {
   id: string;
   name: string;
+  /** Слово города новичку: пишет власть, видят все (D-183). */
+  about: string;
   node: string;
   treasury: number;
   offices: Office[];
@@ -453,6 +504,10 @@ export const POWERS: Record<string, string> = {
 
 /** Право на один закон: `law:import_duty` (D-155). */
 export const LAW_SCOPE = "law:";
+
+/** Предел слова города (D-183). Считает сервер (`runtime.CITY_ABOUT_LIMIT`);
+ *  здесь он затем, чтобы поле не давало набрать заведомо отказанное. */
+export const CITY_ABOUT_LIMIT = 300;
 
 export const SURFACE: Record<Exit["surface"], string> = {
   trail: "бездорожье",
@@ -590,14 +645,19 @@ export class Session {
     return this.greet("hello", name);
   }
 
-  /** Новый игрок: личности ещё нет — её печатают у биопринтера (D-153). */
-  async create(name: string): Promise<Record<string, unknown>> {
+  /** Новый игрок: личности ещё нет — её печатают у выбранной двери (D-153,
+   * D-182). Дверь называется ключом узла: где появиться, решает игрок. */
+  async create(name: string, node: string): Promise<Record<string, unknown>> {
     await this.connect();
-    return this.greet("join", name);
+    return this.greet("join", name, { node });
   }
 
-  private async greet(cmd: string, name: string): Promise<Record<string, unknown>> {
-    const hello = await this.send(cmd, { name });
+  private async greet(
+    cmd: string,
+    name: string,
+    args: Record<string, unknown> = {},
+  ): Promise<Record<string, unknown>> {
+    const hello = await this.send(cmd, { name, ...args });
     this.account = String(hello.account ?? "");
     this.name = String(hello.hello ?? name);
     return hello;
@@ -650,6 +710,8 @@ export const constants = () => read<{ digest: string; values: Record<string, any
   "/public/constants",
 );
 export const recipes = () => read<any>("/public/recipes");
+/** Двери в мир: читаются до опознания — личности у новичка ещё нет. */
+export const doors = () => read<{ doors: Door[] }>("/public/doors");
 export const tiers = () => read<{ tiers: { from: number; to: number; name: string }[] }>(
   "/public/quality/tiers",
 );

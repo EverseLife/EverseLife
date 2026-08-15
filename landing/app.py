@@ -9,11 +9,13 @@
 и ограничение частоты с адреса.
 """
 
+import json
 import os
 import re
 import sqlite3
 import threading
 import time
+import urllib.request
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -33,6 +35,10 @@ EMAIL_MAX = 254
 #: процесса — этого достаточно, у лендинга один процесс.
 RATE_WINDOW_SECONDS = 60.0
 RATE_MAX_PER_WINDOW = 5
+
+#: Вебхук служебного канала в Discord. Пусто — лендинг молчит.
+DISCORD_WEBHOOK = os.environ.get("LANDING_DISCORD_WEBHOOK", "")
+NOTIFY_TIMEOUT = 10.0
 
 app = FastAPI(openapi_url=None, docs_url=None, redoc_url=None)
 
@@ -76,6 +82,36 @@ def _rate_limited(ip: str) -> bool:
         return False
 
 
+def _notify(total: int) -> None:
+    """Сказать в служебный канал Discord, что заявок стало больше.
+
+    Адреса здесь нет и не будет. Заявка — чужая почта, а канал видят
+    посторонние: наружу идёт только счётчик, а сами адреса забираются с
+    сервера выгрузкой (`export.py`). Молчащий вебхук заявку не роняет —
+    она к этому моменту уже записана.
+    """
+    if not DISCORD_WEBHOOK:
+        return
+    body = json.dumps(
+        {
+            "content": f"📨 Заявка на бету. Всего: {total}.",
+            "allowed_mentions": {"parse": []},
+        },
+        ensure_ascii=False,
+    ).encode("utf-8")
+    request = urllib.request.Request(
+        DISCORD_WEBHOOK,
+        data=body,
+        headers={"Content-Type": "application/json", "User-Agent": "OctoVerse-Landing"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=NOTIFY_TIMEOUT) as answer:
+            answer.read()
+    except OSError:
+        pass
+
+
 class Signup(BaseModel):
     email: str
     #: Приманка: поле скрыто на странице, человек его не заполнит.
@@ -114,10 +150,18 @@ def signup(body: Signup, request: Request) -> JSONResponse:
     conn = _connect()
     try:
         with conn:
-            conn.execute(
+            курсор = conn.execute(
                 "INSERT OR IGNORE INTO signups (email, created_at, ip) VALUES (?, ?, ?)",
                 (email, datetime.now(UTC).isoformat(timespec="seconds"), ip),
             )
+            #: Повтор той же почты не новость: считаем и сообщаем только про
+            #: действительно новую запись.
+            новая = курсор.rowcount == 1
+            всего = conn.execute("SELECT COUNT(*) FROM signups").fetchone()[0]
     finally:
         conn.close()
+
+    if новая:
+        #: Отдельным потоком: ответ заявителю не должен ждать чужой сети.
+        threading.Thread(target=_notify, args=(всего,), daemon=True).start()
     return JSONResponse({"ok": True})

@@ -50,6 +50,9 @@ class Recipe(Strict):
     #: В какой слот надевается: `спина`, `тело`, `каркас`. У не-снаряжения
     #: пусто — надеть кирку нельзя (D-146).
     slot: str | None = None
+    #: Сколько килограммов вмещает как хранилище (D-181). Пусто — вещь не
+    #: хранилище: сундуком её делает число в вольте, а не имя в коде.
+    store: float | None = None
     inputs: tuple[str, ...] = ()
     amounts: dict[str, float] = Field(default_factory=dict)
     manual_amounts: bool = False

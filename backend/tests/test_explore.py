@@ -207,6 +207,99 @@ async def test_находка_встаёт_на_карту_ребром(
         assert рёбра, "находка без дороги — это телепорт"
 
 
+async def test_даль_растёт_и_дорога_дорожает(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Фронтир удаляется сам: находка от узла дали `d` встаёт на `d + 1`, и
+    дорога к ней ровно во столько раз длиннее, во сколько велит вольт (D-180).
+    """
+    from src.engine import travel
+
+    _, ворота, body = await _разведчик(session)
+    #: Между заходами возвращаемся к воротам: удачный уводит на находку
+    #: (D-185), а здесь проверяется первое кольцо от одного и того же узла.
+    for _ in range(12):
+        body.stamina = Decimal(str(constants[R.BODY_STAMINA_MAX]))
+        body.node_id = ворота.id
+        await session.flush()
+        await explore.survey(session, constants, body, goal=explore.SITE)
+        await _вернуть(session, body)
+
+    находки = [
+        узел
+        for узел in (await session.execute(select(Node))).scalars().all()
+        if узел.key.startswith("terra.wild.")
+    ]
+    assert находки, "двенадцать заходов подряд не дали ничего"
+
+    #: Ворота города — даль 0, значит всё найденное отсюда встаёт на дали 1.
+    for находка in находки:
+        assert travel.reach_of(находка) == travel.reach_of(ворота) + 1
+        ребро = (
+            await session.execute(
+                select(Edge).where(
+                    (Edge.node_a_id == находка.id) | (Edge.node_b_id == находка.id)
+                )
+            )
+        ).scalars().first()
+        ожидаем = travel.frontier_seconds(constants, travel.reach_of(находка))
+        assert ребро.base_seconds == pytest.approx(ожидаем, rel=0.01)
+
+    #: Следующее кольцо дороже предыдущего — в этом весь смысл дали.
+    шаги = [travel.frontier_seconds(constants, d) for d in (1, 2, 3, 4)]
+    assert шаги == sorted(шаги) and шаги[0] < шаги[-1]
+    рост = constants[R.TRAVEL_FRONTIER_GROWTH]
+    assert шаги[1] == pytest.approx(шаги[0] * рост)
+
+
+async def test_разведчик_остаётся_на_находке(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Нашёл — значит стоишь там, и следующий заход идёт уже оттуда (D-185).
+
+    Отсюда цепочка: даль растёт шаг за шагом, а не звездой из одной точки.
+    """
+    from src.engine import travel
+
+    _, ворота, body = await _разведчик(session)
+    дали: list[int] = []
+    for _ in range(14):
+        body.stamina = Decimal(str(constants[R.BODY_STAMINA_MAX]))
+        await session.flush()
+        стояли = body.node_id
+        await explore.survey(session, constants, body, goal=explore.SITE)
+        await _вернуть(session, body)
+        if body.node_id != стояли:
+            узел = await session.get(Node, body.node_id)
+            assert узел.key.startswith("terra.wild."), "ушли не на находку"
+            дали.append(travel.reach_of(узел))
+
+    assert дали, "четырнадцать заходов подряд не дали ни одной находки"
+    #: Каждая следующая находка дальше предыдущей: фронтир двигают ногами.
+    assert дали == sorted(дали)
+    assert дали[0] == travel.reach_of(ворота) + 1
+
+
+async def test_пустой_заход_оставляет_на_месте(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Идти было некуда: узел не появился, и разведчик там же, где вышел."""
+    _, ворота, body = await _разведчик(session)
+    #: Исхоженная окрестность отдаёт находку редко — тут это и нужно.
+    await _исходить(session, ворота, находок=200)
+
+    for _ in range(6):
+        body.stamina = Decimal(str(constants[R.BODY_STAMINA_MAX]))
+        body.node_id = ворота.id
+        await session.flush()
+        было = len((await session.execute(select(Node))).scalars().all())
+        await explore.survey(session, constants, body, goal=explore.SITE)
+        await _вернуть(session, body)
+        стало = len((await session.execute(select(Node))).scalars().all())
+        if стало == было:
+            assert body.node_id == ворота.id, "пустой заход не двигает тело"
+
+
 async def test_порода_берётся_из_вольта(
     constants: Constants, catalog: Catalog
 ) -> None:
@@ -318,12 +411,18 @@ async def test_шанс_не_падает_ниже_пола(
 async def test_находка_истощает_место_а_пустой_заход_нет(
     session: AsyncSession, constants: Constants
 ) -> None:
-    """Счёт растёт от удач: невезение не наказывает дважды."""
+    """Счёт растёт от удач: невезение не наказывает дважды.
+
+    Удачный заход уводит разведчика на находку (D-185), поэтому между
+    заходами тело возвращается к воротам — иначе истощался бы уже новый узел,
+    а проверяем мы именно счёт исходного места.
+    """
     _, ворота, body = await _разведчик(session)
     было = explore.found_here(ворота)
     находок = 0
     for _ in range(6):
         body.stamina = Decimal(str(constants[R.BODY_STAMINA_MAX]))
+        body.node_id = ворота.id
         await session.flush()
         await explore.survey(session, constants, body)
         узлов = len((await session.execute(select(Node))).scalars().all())

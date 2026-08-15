@@ -87,7 +87,7 @@ from src.models.event import EventKind
 from src.models.identity import Body, BodyState
 from src.models.job import Job, JobKind, JobState
 from src.models.world import Layer, Node, Surface
-from src.units import MINUTES_PER_HOUR, PERCENT, SECONDS_PER_HOUR
+from src.units import MINUTES_PER_HOUR, PERCENT
 
 #: Операция вольта, по которой движок узнаёт, что в этом мире вообще добывают.
 MINING_OPERATION = "Добыча"
@@ -281,16 +281,16 @@ async def returned(session: AsyncSession, job: Job) -> None:
         найдено.name = f"Жила: {порода.lower()}"
         await session.flush()
 
-    #: Участок в городе — шаг по кварталу, находка за стеной — дорога.
+    #: Участок в городе — шаг по кварталу, находка за стеной — тропа, и её
+    #: длину задаёт даль находки (D-180): чем дальше от города, тем дороже шаг.
     if цель == LOT:
         шаг = constants[R.TRAVEL_CITY_STEP]
         секунд = бросок.uniform(шаг.min, шаг.max)
         покрытие = Surface.PAVED
         минут = секунд / MINUTES_PER_HOUR
     else:
-        расстояние = constants[R.EXPLORE_DISTANCE]
-        минут = бросок.uniform(расстояние.min, расстояние.max)
-        секунд = минут * SECONDS_PER_HOUR / MINUTES_PER_HOUR
+        секунд = travel.frontier_seconds(constants, travel.reach_of(найдено))
+        минут = секунд / MINUTES_PER_HOUR
         покрытие = Surface.TRAIL
     await travel.connect(
         session, откуда, найдено, base_seconds=секунд, surface=покрытие
@@ -301,6 +301,22 @@ async def returned(session: AsyncSession, job: Job) -> None:
     #: исчерпывает, иначе невезение наказывало бы дважды.
     откуда.properties = {**(откуда.properties or {}), FOUND_HERE: found_here(откуда) + 1}
     await session.flush()
+
+    #: Нашёл — значит стоишь там (D-185): разведчик дошёл до места ногами, и
+    #: возвращать его в узел выхода значило бы отменить пройденный путь.
+    #: Обратная дорога — его решение, и тропу он себе уже проложил.
+    body.node_id = найдено.id
+    body.node_since = job.run_at
+    await session.flush()
+
+    #: Обоз приходит следом, как при обычном переходе (D-157): иначе он
+    #: остался бы стоять в узле выхода, а тело оказалось бы «впряжено» в
+    #: повозку за полкарты отсюда.
+    from src.engine import transport
+
+    обоз = await transport.harnessed(session, body)
+    if обоз is not None:
+        await transport.follow(session, обоз, найдено)
 
     await events.record(
         session,
@@ -383,12 +399,19 @@ def _stamina(constants: Constants, минут: float) -> float:
 
 
 async def outlook(
-    session: AsyncSession, constants: Constants, body: Body
+    session: AsyncSession,
+    constants: Constants,
+    body: Body,
+    *,
+    goal: str = SITE,
+    resource: str | None = None,
 ) -> dict | None:
     """Во что обойдётся заход отсюда — до выхода.
 
     Цена разведки меняется от места к месту (D-156), а цена, которую нельзя
-    увидеть заранее, читается как случайность движка.
+    увидеть заранее, читается как случайность движка. Прицельность считается
+    здесь же: заказанная порода ищется тем хуже, чем она реже (D-151), и
+    показывать «шанс 90%» тому, кто идёт за золотом, значило бы врать.
     """
     узел = await session.get(Node, body.node_id)
     if узел is None:  # pragma: no cover — тело всегда стоит в узле
@@ -397,12 +420,17 @@ async def outlook(
     истощение = constants[R.EXPLORE_EFFORT_GROWTH] ** found_here(узел)
     короткий = min(_cap(constants), заход.min * истощение)
     длинный = min(_cap(constants), заход.max * истощение)
+    прицел = _aim(constants, current_catalog(), goal, resource)
     return {
         "explored": found_here(узел),
         "minutes": {"min": короткий, "max": длинный},
         #: Наибольшая из возможных: игрок должен знать потолок, а не среднее.
         "stamina": _stamina(constants, длинный),
-        "chance": chance(constants, узел),
+        "chance": chance(constants, узел) * прицел,
+        #: Во сколько раз заказ породы сузил шанс: игрок видит не только
+        #: «мало», но и почему мало (D-151).
+        "aim": прицел,
+        "resource": resource,
     }
 
 
@@ -488,7 +516,10 @@ async def _place(
         layer=Layer.PLANET,
         parent=корень,
         planet=откуда.planet,
-        properties=_properties(constants, бросок, vein=vein),
+        #: Даль растёт на шаг от того узла, откуда вышли (D-180): фронтир
+        #: удаляется сам, по мере того как его двигают.
+        properties=_properties(constants, бросок, vein=vein)
+        | {travel.REACH: travel.reach_of(откуда) + 1},
     )
 
 

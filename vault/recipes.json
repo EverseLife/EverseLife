@@ -84,7 +84,11 @@
         "Оловянная руда",
         "Свинцовая руда",
         "Камень",
-        "Уголь"
+        "Уголь",
+        "Золотоносная порода",
+        "Серебряная порода",
+        "Вольфрам",
+        "Никель"
       ],
       "consumes": [],
       "place": null,
@@ -94,7 +98,11 @@
         "Оловянная руда": {},
         "Свинцовая руда": {},
         "Камень": {},
-        "Уголь": {}
+        "Уголь": {},
+        "Золотоносная порода": {},
+        "Серебряная порода": {},
+        "Вольфрам": {},
+        "Никель": {}
       },
       "hours_per_unit": {
         "Железная руда": 0.0167,
@@ -102,7 +110,11 @@
         "Оловянная руда": 0.0333,
         "Свинцовая руда": 0.025,
         "Камень": 0.0125,
-        "Уголь": 0.0167
+        "Уголь": 0.0167,
+        "Золотоносная порода": 0.25,
+        "Серебряная порода": 0.0833,
+        "Вольфрам": 0.1667,
+        "Никель": 0.1
       },
       "yield": {},
       "manual_amounts": {
@@ -111,7 +123,11 @@
         "Оловянная руда": false,
         "Свинцовая руда": false,
         "Камень": false,
-        "Уголь": false
+        "Уголь": false,
+        "Золотоносная порода": false,
+        "Серебряная порода": false,
+        "Вольфрам": false,
+        "Никель": false
       }
     },
     {
@@ -489,6 +505,7 @@
     "Стальная рама": 1.0,
     "Стекло": 1.0,
     "Стеллаж": 40.0,
+    "Сундук": 40.0,
     "Сушёные овощи": 0.5,
     "Тачка": 80.0,
     "Текстолит": 1.0,
@@ -663,6 +680,7 @@
     "Стальная рама": 0.565,
     "Стекло": 0.19,
     "Стеллаж": 0.61,
+    "Сундук": 0.771,
     "Сушёные овощи": 0.2,
     "Тачка": 0.668,
     "Текстолит": 0.514,
@@ -700,6 +718,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Волокно"
       ],
@@ -721,6 +740,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Дерево",
         "Волокно",
@@ -746,6 +766,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Камень",
         "Дерево",
@@ -771,6 +792,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Камень",
         "Дерево",
@@ -796,6 +818,7 @@
       "food": false,
       "hot": false,
       "slot": "спина",
+      "store": null,
       "inputs": [
         "Волокно"
       ],
@@ -817,6 +840,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Глина"
       ],
@@ -838,6 +862,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Бревно",
         "Верёвка"
@@ -861,6 +886,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Камень",
         "Глина"
@@ -884,6 +910,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Камень",
         "Глина"
@@ -907,6 +934,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Дерево"
       ],
@@ -928,6 +956,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Дерево"
       ],
@@ -949,6 +978,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Волокно"
       ],
@@ -970,6 +1000,7 @@
       "food": false,
       "hot": false,
       "slot": "спина",
+      "store": null,
       "inputs": [
         "Ткань",
         "Верёвка"
@@ -993,6 +1024,7 @@
       "food": false,
       "hot": false,
       "slot": "спина",
+      "store": null,
       "inputs": [
         "Ткань",
         "Верёвка",
@@ -1018,6 +1050,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Доски",
         "Верёвка"
@@ -1041,6 +1074,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Доски",
         "Верёвка"
@@ -1064,6 +1098,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Брус",
         "Верёвка"
@@ -1087,6 +1122,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Доски",
         "Брус",
@@ -1112,6 +1148,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Брус",
         "Ткань",
@@ -1137,6 +1174,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": 120,
       "inputs": [
         "Доски",
         "Гвозди"
@@ -1150,6 +1188,32 @@
       "station": "Верстак"
     },
     {
+      "name": "Сундук",
+      "level": 2,
+      "section": null,
+      "kind": "furniture",
+      "key": false,
+      "mix": false,
+      "roles": false,
+      "food": false,
+      "hot": false,
+      "slot": null,
+      "store": 300,
+      "inputs": [
+        "Доски",
+        "Скобы",
+        "Верёвка"
+      ],
+      "amounts": {
+        "Доски": 2,
+        "Скобы": 1.0,
+        "Верёвка": 1.0
+      },
+      "manual_amounts": false,
+      "labor_hours": 0.771,
+      "station": "Верстак"
+    },
+    {
       "name": "Кузница",
       "level": 3,
       "section": null,
@@ -1160,6 +1224,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Камень",
         "Глина",
@@ -1185,6 +1250,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Ткань",
         "Брус",
@@ -1210,6 +1276,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Слиток железа",
         "Уголь",
@@ -1235,6 +1302,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Слиток железа"
       ],
@@ -1256,6 +1324,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Слиток железа"
       ],
@@ -1277,6 +1346,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Слиток железа",
         "Рукоять"
@@ -1300,6 +1370,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Сталь",
         "Рукоять"
@@ -1323,6 +1394,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Сталь",
         "Рукоять"
@@ -1346,6 +1418,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Сталь",
         "Рукоять"
@@ -1369,6 +1442,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Сталь",
         "Рукоять"
@@ -1392,6 +1466,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Сталь",
         "Рукоять"
@@ -1415,6 +1490,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Сталь"
       ],
@@ -1436,6 +1512,7 @@
       "food": false,
       "hot": false,
       "slot": "тело",
+      "store": null,
       "inputs": [
         "Сталь",
         "Ткань",
@@ -1461,6 +1538,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Медный слиток"
       ],
@@ -1482,6 +1560,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Сталь"
       ],
@@ -1503,6 +1582,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Сталь",
         "Брус"
@@ -1526,6 +1606,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Сталь",
         "Рукоять"
@@ -1549,6 +1630,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Брус",
         "Доски",
@@ -1576,6 +1658,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Стекло",
         "Сталь",
@@ -1603,6 +1686,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Органические отходы",
         "Вода"
@@ -1626,6 +1710,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Селитра",
         "Известь"
@@ -1649,6 +1734,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Камень",
         "Брус",
@@ -1674,6 +1760,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Зерно"
       ],
@@ -1695,6 +1782,7 @@
       "food": true,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Мука",
         "Вода"
@@ -1718,6 +1806,7 @@
       "food": true,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Мясо",
         "Соль"
@@ -1741,6 +1830,7 @@
       "food": true,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Овощи"
       ],
@@ -1762,6 +1852,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Сено",
         "Солома"
@@ -1785,6 +1876,7 @@
       "food": false,
       "hot": false,
       "slot": "тело",
+      "store": null,
       "inputs": [
         "Ткань",
         "Верёвка"
@@ -1808,6 +1900,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Масличные семена"
       ],
@@ -1829,6 +1922,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Сахарный стебель"
       ],
@@ -1850,6 +1944,7 @@
       "food": true,
       "hot": true,
       "slot": null,
+      "store": null,
       "inputs": [
         "Бобы",
         "Овощи",
@@ -1875,6 +1970,7 @@
       "food": true,
       "hot": true,
       "slot": null,
+      "store": null,
       "inputs": [
         "Мясо",
         "Овощи",
@@ -1900,6 +1996,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Целебные травы",
         "Вода"
@@ -1923,6 +2020,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Ткань"
       ],
@@ -1944,6 +2042,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Бинт",
         "Отвар"
@@ -1967,6 +2066,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Целебные травы",
         "Спирт"
@@ -1990,6 +2090,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Брус",
         "Доски",
@@ -2015,6 +2116,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Брус",
         "Ткань",
@@ -2040,6 +2142,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Кирпич",
         "Сталь",
@@ -2065,6 +2168,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Сталь",
         "Брус"
@@ -2088,6 +2192,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Медный слиток"
       ],
@@ -2109,6 +2214,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Кварцевый песок",
         "Уголь"
@@ -2132,6 +2238,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Сера",
         "Вода"
@@ -2155,6 +2262,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Свинец",
         "Серная кислота",
@@ -2180,6 +2288,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Стекло",
         "Масло",
@@ -2205,6 +2314,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Глина"
       ],
@@ -2226,6 +2336,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Известняк"
       ],
@@ -2247,6 +2358,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Известь",
         "Песок",
@@ -2272,6 +2384,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Камень"
       ],
@@ -2293,6 +2406,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Щебень",
         "Крошка"
@@ -2316,6 +2430,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Кирпич",
         "Брус",
@@ -2341,6 +2456,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Брус",
         "Доски",
@@ -2368,6 +2484,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Брус",
         "Доски",
@@ -2393,6 +2510,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Кирпич",
         "Раствор",
@@ -2420,6 +2538,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Кирпич",
         "Брус",
@@ -2447,6 +2566,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Кирпич",
         "Раствор",
@@ -2472,6 +2592,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Сталь",
         "Брус"
@@ -2495,6 +2616,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Сталь",
         "Брус",
@@ -2520,6 +2642,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Золотоносная порода",
         "Уголь"
@@ -2543,6 +2666,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Серебряная порода",
         "Уголь"
@@ -2566,6 +2690,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Аффинированное золото",
         "Слиток железа"
@@ -2589,6 +2714,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Аффинированное серебро",
         "Слиток железа"
@@ -2612,6 +2738,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Кирпич",
         "Известь",
@@ -2639,6 +2766,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Сталь",
         "Брус",
@@ -2664,6 +2792,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Медный слиток"
       ],
@@ -2685,6 +2814,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Вольфрам",
         "Сталь"
@@ -2708,6 +2838,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Сталь",
         "Брус",
@@ -2733,6 +2864,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Сталь",
         "Брус",
@@ -2760,6 +2892,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Сталь"
       ],
@@ -2781,6 +2914,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Стальная рама",
         "Привод",
@@ -2808,6 +2942,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Железо",
         "Никель"
@@ -2831,6 +2966,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Сталь",
         "Провод",
@@ -2856,6 +2992,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Медь",
         "Сталь",
@@ -2881,6 +3018,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Стальная рама",
         "Электродвигатель",
@@ -2908,6 +3046,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Стальная рама",
         "Электродвигатель",
@@ -2935,6 +3074,7 @@
       "food": false,
       "hot": false,
       "slot": "каркас",
+      "store": null,
       "inputs": [
         "Стальная рама",
         "Электродвигатель",
@@ -2962,6 +3102,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Кварцевый песок",
         "Уголь",
@@ -2987,6 +3128,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Кремний"
       ],
@@ -3008,6 +3150,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Ткань",
         "Смола"
@@ -3031,6 +3174,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Текстолит",
         "Медная фольга"
@@ -3054,6 +3198,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Стекло",
         "Сталь",
@@ -3083,6 +3228,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Кремниевая пластина",
         "Аффинированное золото",
@@ -3108,6 +3254,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Микросхема",
         "Стекло",
@@ -3133,6 +3280,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Микросхема",
         "Печатная плата",
@@ -3160,6 +3308,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Сталь"
       ],
@@ -3181,6 +3330,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Стекло",
         "Сталь",
@@ -3206,6 +3356,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Аккумулятор",
         "Провод",
@@ -3231,6 +3382,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Стальная рама",
         "Био-камера",
@@ -3258,6 +3410,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Сталь",
         "Провод",
@@ -3283,6 +3436,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Брус",
         "Сталь"
@@ -3306,6 +3460,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Доски",
         "Брус",
@@ -3333,6 +3488,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Ткань",
         "Верёвка",
@@ -3358,6 +3514,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Сталь",
         "Доски",
@@ -3383,6 +3540,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Доски",
         "Медь",
@@ -3408,6 +3566,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Сахар",
         "Вода"
@@ -3431,6 +3590,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Сталь",
         "Провод",
@@ -3456,6 +3616,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Вода",
         "Энергия"
@@ -3479,6 +3640,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Селитра",
         "Энергия"
@@ -3502,6 +3664,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Спирт",
         "Окислитель"
@@ -3525,6 +3688,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Сталь",
         "Никель"
@@ -3548,6 +3712,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Глина",
         "Известь"
@@ -3571,6 +3736,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Сталь",
         "Никель"
@@ -3594,6 +3760,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Сталь",
         "Никель",
@@ -3619,6 +3786,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Точная деталь",
         "Сталь",
@@ -3644,6 +3812,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Камера сгорания",
         "Насос",
@@ -3671,6 +3840,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Стальная рама",
         "Обшивка",
@@ -3696,6 +3866,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Процессорный блок",
         "Датчик",
@@ -3721,6 +3892,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Баллон высокого давления",
         "Кислород",
@@ -3748,6 +3920,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Кирпич",
         "Сталь",
@@ -3775,6 +3948,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Раствор",
         "Каменный блок",
@@ -3802,6 +3976,7 @@
       "food": false,
       "hot": false,
       "slot": null,
+      "store": null,
       "inputs": [
         "Корпус",
         "Двигатель I класса",

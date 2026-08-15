@@ -99,6 +99,20 @@ async def world_map() -> dict[str, Any]:
         }
 
 
+@router.get("/doors")
+async def doors() -> dict[str, Any]:
+    """Где новичок может напечататься: город, жители, подъёмные (D-013, D-182).
+
+    Читается **до всякого опознания**: выбор двери — первое, что человек делает
+    в игре, и личности у него в этот момент ещё нет.
+    """
+    from src.api.app import catalog
+    from src.engine import world
+
+    async with session_factory()() as db:
+        return {"doors": await world.doors(db, current(), catalog())}
+
+
 @router.get("/market/{node_key}")
 async def market_positions(node_key: str) -> dict[str, Any]:
     """Что вообще торгуется в узле: товар плюс ступень качества.

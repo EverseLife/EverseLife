@@ -764,6 +764,104 @@ async def set_charter(
     return city
 
 
+#: Условия печати — то, что новичок принимает, выбрав дверь города (D-184).
+SPAWN_CITIZENSHIP = "spawn_citizenship"
+SPAWN_TERM = "spawn_term"
+TRADE_TAX = "tax_trade"
+
+
+def spawn_terms(
+    constants: Constants, catalog: Catalog, city: City | None
+) -> tuple[bool, float]:
+    """Условия печати города: обязательно ли гражданство и на сколько суток.
+
+    Срок без обязательного гражданства ни к чему не относится и потому равен
+    нулю: держать нечего, если никто никуда не вступал.
+    """
+    if city is None:
+        return False, 0.0
+    решение = str(law(catalog, city, SPAWN_CITIZENSHIP) or "").strip().lower()
+    обязательно = решение.startswith("обяз")
+    if not обязательно:
+        return False, 0.0
+    return True, max(law_number(constants, catalog, city, SPAWN_TERM), 0.0)
+
+
+async def bind(
+    session: AsyncSession,
+    constants: Constants,
+    catalog: Catalog,
+    city: City,
+    who: Identity,
+    *,
+    now: datetime | None = None,
+) -> Citizen | None:
+    """Исполнить условия печати: зачислить в граждане на срок (D-184).
+
+    Приёма не требуется: согласие человек дал выбором двери, и спрашивать его
+    второй раз незачем. Срок **записывается сюда**, а не вычитывается из закона
+    потом: город, поднявший срок задним числом, не удлиняет уже взятое
+    обязательство.
+
+    Ничего не делает, если город условия не ставит либо человек уже где-то
+    состоит: печать не вправе сорваться из-за кадрового вопроса.
+    """
+    обязательно, суток = spawn_terms(constants, catalog, city)
+    if not обязательно:
+        return None
+    if await citizenship(session, who.id) is not None:
+        return None
+
+    момент = now or datetime.now(UTC)
+    return await _enroll(
+        session,
+        city,
+        who.id,
+        why="печать",
+        bound_until=None if суток <= 0 else момент + timedelta(days=суток),
+    )
+
+
+async def describe(
+    session: AsyncSession, by: Identity, city: City, text: str, *, body=None
+) -> City:
+    """Написать слово города новичку — то, что стоит на карточке двери (D-183).
+
+    Правит его тот, кто принимает в граждане (D-160): объявление — вербовка, и
+    распоряжаться им должен тот, кто отвечает за приток людей, а не казначей.
+    Присутственно, как всякое решение города (D-155).
+
+    Движок **не разбирает** написанное и ничего по нему не исполняет. «Участок
+    каждому» — обещание, а не код-закон; не сдержали — это иск (D-004), а не
+    ошибка движка. Иначе пришлось бы либо читать обещания кодом, либо запретить
+    их вовсе, оставив город без голоса.
+    """
+    from src.runtime import CITY_ABOUT_LIMIT
+
+    await require_at_hall(session, body, city)
+    await require(session, by.id, city, Power.CITIZENS)
+
+    слово = text.strip()
+    if len(слово) > CITY_ABOUT_LIMIT:
+        raise CityError(
+            f"слово города длиннее {CITY_ABOUT_LIMIT} знаков: карточку читают "
+            "за десять секунд"
+        )
+
+    было, city.about = city.about, слово
+    await session.flush()
+    await events.record(
+        session,
+        EventKind.CITY_DESCRIBED,
+        actor_identity_id=by.id,
+        node_id=city.node_id,
+        city_id=str(city.id),
+        was=было,
+        now=слово,
+    )
+    return city
+
+
 # --- казна ------------------------------------------------------------------
 
 
@@ -957,6 +1055,8 @@ async def survey(
     return {
         "id": str(city.id),
         "name": city.name,
+        #: Слово города новичку (D-183): его правит власть, а видят все.
+        "about": city.about,
         "node": (await session.get(Node, city.node_id)).key,
         "treasury": await treasury_balance(session, city),
         "offices": list(люди.values()),
@@ -1031,6 +1131,10 @@ class NotCitizen(CityError):
 
 class AlreadyCitizen(CityError):
     """Гражданство одно на человека: сначала выйти из прежнего города."""
+
+
+class Bound(CityError):
+    """Срок обязательства, принятого при печати, ещё не вышел (D-184)."""
 
 
 def admission(city: City) -> str:
@@ -1205,6 +1309,14 @@ async def leave(
         raise NotCitizen("вы нигде не состоите")
     if запись.leaving_at is not None:
         return запись
+    #: Обязательство, принятое при печати (D-184), держит до своего срока.
+    #: Держит оно человека, а не город: изгнание обрывает его в любой миг.
+    if запись.bound_until is not None and запись.bound_until > moment:
+        raise Bound(
+            "гражданство взято условием печати и держит до "
+            f"{запись.bound_until:%d.%m %H:%M} UTC. Этот срок вы приняли, "
+            "выбрав дверь города"
+        )
 
     запись.leaving_at = moment + timedelta(days=constants[R.CITY_EXIT_DELAY])
     await session.flush()
@@ -1257,8 +1369,11 @@ async def _enroll(
     *,
     why: str,
     by: uuid.UUID | None = None,
+    bound_until: datetime | None = None,
 ) -> Citizen:
-    запись = Citizen(identity_id=identity_id, city_id=city.id)
+    запись = Citizen(
+        identity_id=identity_id, city_id=city.id, bound_until=bound_until
+    )
     session.add(запись)
     await session.flush()
     await events.record(
@@ -1268,6 +1383,7 @@ async def _enroll(
         node_id=city.node_id,
         city_id=str(city.id),
         how=why,
+        bound_until=None if bound_until is None else bound_until.isoformat(),
     )
     return запись
 

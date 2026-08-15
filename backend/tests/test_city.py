@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import timedelta
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -249,6 +250,68 @@ async def test_подъёмные_по_умолчанию_нулевые(
     identity, _ = await world.spawn(session, f"Новичок-{uuid.uuid4().hex[:6]}", ядро)
     счёт = await ledger.account_for(session, AccountKind.IDENTITY, identity.id)
     assert await ledger.balance(session, счёт.id) == 0
+
+
+# --- слово города новичку (D-183) -------------------------------------------
+
+
+async def test_слово_города_пишет_власть_и_видит_новичок(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Объявление — вербовка: правит его тот, кто принимает в граждане."""
+    город, ядро = await _столица(session, catalog)
+    президент, тело = await _житель(session, ядро, "Президент")
+    await town.install_founder(session, город, президент)
+    #: Пока не написали — город молчит, и движок за него не сочиняет.
+    assert город.about == ""
+    двор = await world.node_container(session, ядро)
+    await world.grant_item(session, двор, world.BIOPRINTER, quality=50, origin="тест")
+
+    await town.describe(
+        session, президент, город, "  Шахта, кузня и работа с первого дня.  ",
+        body=тело,
+    )
+    assert город.about == "Шахта, кузня и работа с первого дня."
+
+    двери = await world.doors(session, constants, catalog)
+    сказано = {дверь["node"]: дверь["about"] for дверь in двери}
+    assert сказано[ядро.key] == "Шахта, кузня и работа с первого дня."
+
+
+async def test_слово_города_чужому_не_даётся(
+    session: AsyncSession, catalog: Catalog
+) -> None:
+    """Право `citizens`, а не «я тут живу»: власть — это должность (D-155)."""
+    город, ядро = await _столица(session, catalog)
+    президент, тело_президента = await _житель(session, ядро, "Президент")
+    await town.install_founder(session, город, президент)
+    казначей, тело_казначея = await _житель(session, ядро, "Казначей")
+    await town.appoint(
+        session, президент, город, казначей,
+        title="Казначей", powers=(Power.TREASURY.value,), body=тело_президента,
+    )
+
+    with pytest.raises(town.NotAllowed):
+        await town.describe(
+            session, казначей, город, "казна щедра", body=тело_казначея
+        )
+
+
+async def test_слово_города_ограничено_длиной(
+    session: AsyncSession, catalog: Catalog
+) -> None:
+    """Карточку сравнивают взглядом: страницу текста на неё не кладут."""
+    from src.runtime import CITY_ABOUT_LIMIT
+
+    город, ядро = await _столица(session, catalog)
+    президент, тело = await _житель(session, ядро, "Президент")
+    await town.install_founder(session, город, президент)
+
+    with pytest.raises(town.CityError):
+        await town.describe(
+            session, президент, город, "а" * (CITY_ABOUT_LIMIT + 1), body=тело
+        )
+    assert город.about == ""
 
 
 # --- земля города -----------------------------------------------------------
@@ -619,6 +682,148 @@ async def test_выход_свободен_но_с_задержкой(
     assert задание is not None
     await town.exited(session, задание)
     assert await town.citizenship(session, identity.id) is None
+
+
+async def test_условие_печати_даёт_гражданство_на_срок(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Согласие дано выбором двери: приёма не требуется, срок держит (D-184)."""
+    from datetime import UTC, datetime
+
+    город, ядро = await _столица(session, catalog)
+    город.laws = {"spawn_citizenship": "обязательно", "spawn_term": "3"}
+    await session.flush()
+
+    печатался = datetime.now(UTC)
+    новичок = await world.create_identity(session, f"Связанный-{uuid.uuid4().hex[:6]}")
+    запись = await town.bind(
+        session, constants, catalog, город, новичок, now=печатался
+    )
+    assert запись is not None and await town.is_citizen(session, новичок.id, город)
+    assert запись.bound_until == печатался + timedelta(days=3)
+
+    #: До срока выйти нельзя: это и есть исполнение условия.
+    with pytest.raises(town.Bound):
+        await town.leave(
+            session, constants, новичок, now=печатался + timedelta(days=2)
+        )
+    #: После срока — обычный выход с задержкой (D-160).
+    ушёл = await town.leave(
+        session, constants, новичок, now=печатался + timedelta(days=4)
+    )
+    assert ушёл.leaving_at is not None
+
+
+async def test_обязательство_держит_человека_а_не_город(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Изгнание рвёт срок: иначе город не избавится от того, кого сам связал."""
+    from datetime import UTC, datetime
+
+    город, ядро = await _столица(session, catalog)
+    президент, _ = await _житель(session, ядро, "Президент")
+    await town.install_founder(session, город, президент)
+    город.laws = {"spawn_citizenship": "обязательно", "spawn_term": "10"}
+    await session.flush()
+
+    новичок = await world.create_identity(session, f"Лишний-{uuid.uuid4().hex[:6]}")
+    await town.bind(session, constants, catalog, город, новичок, now=datetime.now(UTC))
+
+    await town.exile(session, президент, город, новичок)
+    assert await town.citizenship(session, новичок.id) is None
+
+
+async def test_город_без_условий_никого_не_связывает(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Умолчание вольта — «нет»: печать гражданства не даёт и не требует."""
+    город, ядро = await _столица(session, catalog)
+    двор = await world.node_container(session, ядро)
+    await world.grant_item(session, двор, world.BIOPRINTER, quality=50, origin="тест")
+
+    новичок, _ = await world.spawn(
+        session, f"Вольный-{uuid.uuid4().hex[:6]}", ядро
+    )
+    assert await town.citizenship(session, новичок.id) is None
+
+    дверь = next(
+        д for д in await world.doors(session, constants, catalog)
+        if д["node"] == ядро.key
+    )
+    assert дверь["citizenship"] is False and дверь["term"] == 0
+
+
+async def test_печать_у_предтеч_условий_не_несёт(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Машина ничья: город её гражданством не обвешивает (D-028, D-184).
+
+    Иначе в мире с одним городом безусловной двери не осталось бы вовсе, и
+    «отказаться можно всегда» перестало бы работать.
+    """
+    from src.engine import death
+
+    город, ядро = await _столица(session, catalog)
+    ядро.properties = {**ядро.properties, death.PRECURSOR: True}
+    город.laws = {"spawn_citizenship": "обязательно", "spawn_term": "5"}
+    двор = await world.node_container(session, ядро)
+    await world.grant_item(session, двор, world.BIOPRINTER, quality=50, origin="тест")
+    await session.flush()
+
+    вольный, _ = await world.spawn(
+        session, f"Ничей-{uuid.uuid4().hex[:6]}", ядро
+    )
+    assert await town.citizenship(session, вольный.id) is None
+
+    дверь = next(
+        д for д in await world.doors(session, constants, catalog)
+        if д["node"] == ядро.key
+    )
+    assert дверь["precursor"] is True
+    assert дверь["citizenship"] is False and дверь["term"] == 0
+
+
+async def test_условия_печати_видны_до_выбора(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Что движок исполнит, новичок обязан прочесть на карточке, а не в отказе."""
+    город, ядро = await _столица(session, catalog)
+    город.laws = {
+        "spawn_citizenship": "обязательно",
+        "spawn_term": "7",
+        "tax_trade": "12",
+    }
+    двор = await world.node_container(session, ядро)
+    await world.grant_item(session, двор, world.BIOPRINTER, quality=50, origin="тест")
+    await session.flush()
+
+    дверь = next(
+        д for д in await world.doors(session, constants, catalog)
+        if д["node"] == ядро.key
+    )
+    assert дверь["citizenship"] is True
+    assert дверь["term"] == 7
+    assert дверь["tax"] == 12
+
+
+async def test_печать_связывает_новичка_сразу(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Условие исполняется в тот же миг, что и тело: иначе это объявление."""
+    город, ядро = await _столица(session, catalog)
+    город.laws = {"spawn_citizenship": "обязательно", "spawn_term": "2"}
+    двор = await world.node_container(session, ядро)
+    await world.grant_item(session, двор, world.BIOPRINTER, quality=50, origin="тест")
+    await session.flush()
+
+    новичок, _ = await world.spawn(
+        session, f"Принятый-{uuid.uuid4().hex[:6]}", ядро
+    )
+    запись = await town.citizenship(session, новичок.id)
+    assert запись is not None and запись.city_id == город.id
+    assert запись.bound_until is not None
+    with pytest.raises(town.Bound):
+        await town.leave(session, constants, новичок)
 
 
 async def test_изгнание_идёт_по_праву_суда(

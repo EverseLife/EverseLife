@@ -49,6 +49,11 @@ class Settings(BaseSettings):
         r")(:\d+)?$"
     )
 
+    #: Вебхук канала хроники в Discord (`herald/`). Пусто — глашатай молчит, и
+    #: это обычное состояние: сервер сообщества есть у боевой альфы, а не у
+    #: каждой копии на чьём-то ноутбуке.
+    discord_webhook: str = ""
+
     log_level: str = "INFO"
 
     @property

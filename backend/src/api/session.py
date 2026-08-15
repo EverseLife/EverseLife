@@ -54,6 +54,7 @@ from src.engine import (
     rig,
     road,
     station,
+    storage,
     transport,
     travel,
     utility,
@@ -207,7 +208,11 @@ async def _hello(state: dict, db: AsyncSession, message: dict) -> dict:
 
 
 async def _join(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Новая личность и первое тело у биопринтера.
+    """Новая личность и первое тело у выбранного биопринтера.
+
+    **Где печататься — решает игрок** (D-013, D-182): дверь называется ключом
+    узла из `/public/doors`. Без неё печатаем у первого попавшегося принтера —
+    так входят старые клиенты, а не так задуман вход.
 
     На счету **ноль**: мир денег не выдаёт (D-153). Если город, где стоит
     биопринтер, решил платить подъёмные, они придут из его казны — и это будет
@@ -217,7 +222,13 @@ async def _join(state: dict, db: AsyncSession, message: dict) -> dict:
     if not name:
         raise Refused("имя не названо")
 
-    где = await world.spawn_point(db)
+    ключ = str(message.get("node") or "").strip()
+    if ключ:
+        где = await world.door(db, ключ)
+        if где is None:
+            raise Refused(f"у двери {ключ!r} не печатают")
+    else:
+        где = await world.spawn_point(db)
     if где is None:
         raise Refused("мир ещё не создан: печататься негде")
     try:
@@ -410,6 +421,12 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
             "leaving_at": (
                 None if своё.leaving_at is None else своё.leaving_at.isoformat()
             ),
+            #: Обязательство, принятое условием печати (D-184): до этого срока
+            #: гражданство не складывается. Показывать его обязаны заранее —
+            #: человек не должен узнавать о сроке из отказа.
+            "bound_until": (
+                None if своё.bound_until is None else своё.bound_until.isoformat()
+            ),
         }
     #: Основание города (D-023, D-159): показывается только там, где оно вообще
     #: возможно — на своём узле планеты вне чужого города. Список недостающего
@@ -457,6 +474,10 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
     #: Мебель отдельно от станков: за ней не работают, она обустраивает быт,
     #: и клиент показывает её своим окном.
     seen["furniture"] = await _bench(db, node, body, furniture=True)
+    #: Хранилища узла и что в них лежит (D-181). Содержимое видно только тому,
+    #: кто вправе распоряжаться узлом: чужой сундук не просматривают, как не
+    #: открывают, — вскрыть его дело суда (D-166).
+    seen["storages"] = await _storages(db, constants, node, body)
     #: Свои ценные бумаги и бумаги, выставленные на продажу: электронные
     #: документы живут в Сети и видны отовсюду (D-116).
     seen["deeds"] = await _deeds(db, identity.id)
@@ -1298,6 +1319,42 @@ async def _body_print(state: dict, db: AsyncSession, message: dict) -> dict:
     }
 
 
+async def _storage_put(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Положить вещь из рук в хранилище узла (D-181)."""
+    body = await _alive(state, db)
+    сундук = await db.get(Item, uuid.UUID(message["storage"]))
+    if сундук is None:
+        raise Refused("нет такого хранилища")
+    item = await _own_item(db, body, message["item"])
+    сколько = message.get("amount")
+    try:
+        положено = await storage.put(
+            db, current(), current_catalog(), body, сундук, item,
+            None if сколько is None else float(сколько),
+        )
+    except storage.StorageError as refusal:
+        raise Refused(str(refusal)) from refusal
+    return {"stored": положено, "goods": item.type_key}
+
+
+async def _storage_take(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Забрать вещь из хранилища в руки. Предел носимого при этом остаётся."""
+    body = await _alive(state, db)
+    сундук = await db.get(Item, uuid.UUID(message["storage"]))
+    item = await db.get(Item, uuid.UUID(message["item"]))
+    if сундук is None or item is None:
+        raise Refused("нет такой вещи")
+    сколько = message.get("amount")
+    try:
+        взято = await storage.take(
+            db, current(), current_catalog(), body, сундук, item,
+            None if сколько is None else float(сколько),
+        )
+    except storage.StorageError as refusal:
+        raise Refused(str(refusal)) from refusal
+    return {"taken": взято, "goods": item.type_key}
+
+
 async def _station_place(state: dict, db: AsyncSession, message: dict) -> dict:
     """Поставить станок в узел. Присутственно и только у себя (D-150)."""
     body = await _alive(state, db)
@@ -1424,10 +1481,22 @@ async def _explore_goals(state: dict, db: AsyncSession, message: dict) -> dict:
     #: Список целей — справка, и мёртвому она тоже положена: прогноза у него
     #: просто нет, потому что выходить в поле некому.
     body = await _body(db, state["identity_id"])
+    #: Прогноз считается под ту цель, которую игрок выбрал прямо сейчас:
+    #: заказанная порода сужает шанс (D-151), и это обязано быть видно до
+    #: выхода, а не выясняться двадцатью пустыми заходами.
+    порода = message.get("resource") or None
+    цель = str(message.get("goal") or explore.SITE)
     return {
         "goals": list(explore.GOALS),
         "resources": list(explore.mineable(current_catalog())),
-        "outlook": None if body is None else await explore.outlook(db, current(), body),
+        "outlook": (
+            None if body is None
+            else await explore.outlook(
+                db, current(), body,
+                goal=цель,
+                resource=None if порода is None else str(порода),
+            )
+        ),
     }
 
 
@@ -1898,6 +1967,17 @@ async def _city_charter(state: dict, db: AsyncSession, message: dict) -> dict:
     return {"question": message["question"], "option": message["option"]}
 
 
+async def _city_about(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Переписать слово города новичку (D-183)."""
+    identity = await _identity(state, db)
+    город = await _city(state, db, message)
+    await town.describe(
+        db, identity, город, str(message.get("text") or ""),
+        body=await _body(db, identity.id),
+    )
+    return {"about": город.about}
+
+
 async def _city_appoint(state: dict, db: AsyncSession, message: dict) -> dict:
     """Назначить должность. Отдать можно только то, что есть у себя."""
     identity = await _identity(state, db)
@@ -2046,6 +2126,8 @@ _COMMANDS = {
     "body.print": _body_print,
     "station.place": _station_place,
     "station.take": _station_take,
+    "storage.put": _storage_put,
+    "storage.take": _storage_take,
     "road.lay": _road_lay,
     "road.here": _road_here,
     "transport.harness": _transport_harness,
@@ -2088,6 +2170,7 @@ _COMMANDS = {
     "city.panel": _city_panel,
     "city.law": _city_law,
     "city.charter": _city_charter,
+    "city.about": _city_about,
     "city.appoint": _city_appoint,
     "city.revoke": _city_revoke,
     "city.spend": _city_spend,
@@ -2199,6 +2282,44 @@ async def _bench(
             }
         )
     return sorted(out, key=lambda станок: станок["goods"])
+
+
+async def _storages(
+    db: AsyncSession, constants, node: Node, body: Body
+) -> list[dict[str, Any]]:
+    """Хранилища узла с содержимым (D-181).
+
+    Само наличие сундука видно всем — он стоит в комнате. Что внутри, видит
+    только тот, кто вправе его открыть: иначе «посмотреть» стало бы обходом
+    правила «не лезть в чужое».
+    """
+    catalog = current_catalog()
+    где = await world.node_container(db, node)
+    вещи = (
+        await db.execute(select(Item).where(Item.container_id == где.id))
+    ).scalars().all()
+    можно = await station.may_build(db, body, node)
+
+    out: list[dict[str, Any]] = []
+    for вещь in вещи:
+        предел = storage.capacity(catalog, вещь.type_key)
+        if not предел:
+            continue
+        out.append(
+            {
+                "id": str(вещь.id),
+                "goods": вещь.type_key,
+                "capacity": предел,
+                "mass": round(await storage.stored_mass(db, catalog, вещь), 2),
+                "mine": можно,
+                "content": (
+                    await _things(db, constants, await storage.inside(db, вещь))
+                    if можно
+                    else []
+                ),
+            }
+        )
+    return sorted(out, key=lambda сундук: сундук["goods"])
 
 
 async def _vehicles(db: AsyncSession, constants, node: Node) -> list[dict[str, Any]]:

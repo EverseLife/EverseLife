@@ -18,6 +18,9 @@ x-server: &server
     OCTOVERSE_VAULT_BUILD: /vault
     OCTOVERSE_LOG_LEVEL: ${OCTOVERSE_LOG_LEVEL:-INFO}
     OCTOVERSE_JOB_BATCH: ${OCTOVERSE_JOB_BATCH:-64}
+    #: Хроника мира в Discord (`src/herald/`). Пусто — глашатай молчит; лента
+    #: наружу, внутрь из Discord не приходит ничего.
+    OCTOVERSE_DISCORD_WEBHOOK: ${OCTOVERSE_DISCORD_WEBHOOK:-}
     #: Клиент открыт по своему домену — только его и пускаем в сессию.
     OCTOVERSE_ALLOWED_ORIGINS: '["https://${DOMAIN:?нужен DOMAIN}"]'
     #: Образец адресов локальной сети из разработки в бою не нужен: `^$` не
@@ -81,6 +84,10 @@ services:
   # `.env`, Caddy держит его на внутреннем имени и наружу не отдаёт.
   landing:
     image: ghcr.io/${GHCR_OWNER:-sumrak10}/octoverse-landing:${TAG:-latest}
+    environment:
+      #: Служебный канал: «пришла ещё одна заявка, всего столько-то». Почта
+      #: заявителя туда не уходит и уходить не должна.
+      LANDING_DISCORD_WEBHOOK: ${LANDING_DISCORD_WEBHOOK:-}
     volumes:
       - landing_data:/data
     restart: unless-stopped

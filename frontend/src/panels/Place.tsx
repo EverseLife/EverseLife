@@ -111,8 +111,112 @@ export function Place({ look, session, busy, act, книга }: Props) {
         busy={busy}
         act={act}
         книга={книга}
-        пояснение="Мебель обустраивает быт: кровать — сон быстрее, стеллаж — хранение. На ней не работают."
+        пояснение="Мебель обустраивает быт: кровать — сон быстрее, сундук — хранение. На ней не работают."
       />
+      <Storages look={look} session={session} busy={busy} act={act} />
+    </>
+  );
+}
+
+/** Хранилища узла: сундук, стеллаж и всё, у чего в вольте есть вместимость.
+ *
+ * Сам сундук виден всякому — он стоит в комнате. Открыть его вправе тот, кто
+ * распоряжается узлом: хозяин, а на городской земле — власть (D-181). Предел
+ * один и тот же, что у рук и у трюма, — килограммы.
+ */
+function Storages({ look, session, busy, act }: Omit<Props, "книга">) {
+  const [сколько, setСколько] = useState<Record<string, number>>({});
+  const сундуки = look.storages ?? [];
+  if (сундуки.length === 0) return null;
+
+  const число = (id: string, всего: number) => сколько[id] ?? всего;
+  const задать = (id: string, значение: number) =>
+    setСколько((было) => ({ ...было, [id]: значение }));
+  //: Класть имеет смысл всё, что в руках: невесомого в этом мире нет.
+  const в_руках = look.inventory;
+
+  return (
+    <>
+      {сундуки.map((сундук) => (
+        <section key={сундук.id}>
+          <h2>{сундук.goods}</h2>
+          <p className="note">
+            занято {сундук.mass.toFixed(1)} из {сундук.capacity.toFixed(0)} кг
+          </p>
+          {!сундук.mine ? (
+            <p className="note">Чужое хранилище: что внутри — не ваше дело.</p>
+          ) : (
+            <>
+              {сундук.content.length > 0 && (
+                <table>
+                  <tbody>
+                    {сундук.content.map((вещь) => (
+                      <tr key={вещь.id}>
+                        <td>{вещь.goods}</td>
+                        <td className="note">{вещь.amount.toFixed(1)}</td>
+                        <td>
+                          <input
+                            type="number"
+                            min={0}
+                            max={вещь.amount}
+                            value={число(вещь.id, вещь.amount)}
+                            onChange={(e) => задать(вещь.id, Number(e.target.value))}
+                          />
+                        </td>
+                        <td>
+                          <button
+                            className="quiet"
+                            onClick={() =>
+                              act(() =>
+                                session.send("storage.take", {
+                                  storage: сундук.id,
+                                  item: вещь.id,
+                                  amount: число(вещь.id, вещь.amount),
+                                }),
+                              )
+                            }
+                            disabled={busy}
+                            title="забрать в руки — сколько унесёте"
+                          >
+                            Забрать
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+              {сундук.content.length === 0 && <p className="note">пусто</p>}
+              {в_руках.length > 0 && (
+                <div className="row">
+                  {в_руках.map((вещь) => (
+                    <button
+                      key={вещь.id}
+                      className="quiet"
+                      onClick={() =>
+                        act(() =>
+                          session.send("storage.put", {
+                            storage: сундук.id,
+                            item: вещь.id,
+                          }),
+                        )
+                      }
+                      disabled={busy}
+                      title={`${(вещь.mass * вещь.amount).toFixed(1)} кг`}
+                    >
+                      Положить: {вещь.goods}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <p className="note">
+                Дом хранит то, что не увезти в руках; полный сундук не уносят
+                (D-181).
+              </p>
+            </>
+          )}
+        </section>
+      ))}
     </>
   );
 }
@@ -311,6 +415,10 @@ function Citizenship({ look, session, busy, act }: Omit<Props, "книга">) {
     application: "по заявке с одобрением",
     invite: "только по приглашению",
   };
+  //: Гражданство, взятое условием печати, до срока не складывается (D-184).
+  const связан = Boolean(
+    своё?.bound_until && new Date(своё.bound_until) > new Date(),
+  );
 
   return (
     <section>
@@ -320,6 +428,11 @@ function Citizenship({ look, session, busy, act }: Omit<Props, "книга">) {
           состоите в <b>{своё.city}</b>
           {своё.leaving_at && (
             <> · выходите: гражданство спадёт {new Date(своё.leaving_at).toLocaleString()}</>
+          )}
+          {/* Обязательство, принятое при печати (D-184): срок виден заранее,
+              а не открывается отказом при попытке выйти. */}
+          {связан && (
+            <> · обязательство до {new Date(своё.bound_until!).toLocaleString()}</>
           )}
         </p>
       ) : (
@@ -358,11 +471,21 @@ function Citizenship({ look, session, busy, act }: Omit<Props, "книга">) {
 
       {своё && !своё.leaving_at && (
         <div className="row">
-          <button onClick={() => act(() => session.send("city.leave", {}))} disabled={busy}>
+          <button
+            onClick={() => act(() => session.send("city.leave", {}))}
+            disabled={busy || связан}
+            title={
+              связан
+                ? "срок обязательства вы приняли, выбрав дверь этого города"
+                : "заявление уходит по Сети"
+            }
+          >
             Выйти из гражданства
           </button>
           <span className="note">
-            Выход не мгновенен: гражданство спадёт по сроку (D-160).
+            {связан
+              ? "Обязательство печати держит до своего срока (D-184)."
+              : "Выход не мгновенен: гражданство спадёт по сроку (D-160)."}
           </span>
         </div>
       )}

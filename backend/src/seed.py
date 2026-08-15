@@ -15,11 +15,11 @@ D-089). Отсюда стартовая карта: ядро с Принтеро
 свободными участками под дома, забой у стены и отдельный узел «выход из
 города» (D-097), за которым начинается настоящая логистика.
 
-Шаг внутри города — секунды (`travel.city_step`), дорога к угольной шахте —
-`travel.inter_node.min` минут по **дороге**, а не по бездорожью: по ней возят
-уголь, и город, который топит электростанцию, эту дорогу себе построил.
-Разница между шагом и переходом и есть вся география: за станком сходить
-дёшево, за углём — выезд.
+Шаг внутри города — секунды (`travel.city_step`), выезд за стены — `даль 1`,
+то есть `travel.frontier_step` по **дороге**, а не по бездорожью: по ней возят
+уголь, и город, который топит электростанцию, эту дорогу себе построил. Дальше
+каждое кольцо дали дороже предыдущего (D-180) — вот и вся география: за станком
+сходить дёшево, за углём выехать, до фронтира снаряжать экспедицию.
 
 Столица заводится **городом-институтом** (D-154): у неё есть устав, код-законы
 и казна, а первый игрок становится её президентом. Всё, что власть потом
@@ -54,7 +54,7 @@ from src.models.inventory import Item
 from src.models.ledger import AccountKind, PostingReason
 from src.models.world import Edge, Layer, Node, Surface
 from src.settings import settings
-from src.units import MINUTES_PER_HOUR, PERCENT, money
+from src.units import PERCENT, money
 
 log = logging.getLogger("octoverse.seed")
 
@@ -72,7 +72,6 @@ CITY_TREASURY_START = 5_000
 #: Подъёмные, которые столица решила платить. Это решение власти, записанное
 #: сидом за неимением живого президента в первую секунду мира.
 NEWCOMER_GRANT = "120"
-SECONDS_PER_MINUTE = MINUTES_PER_HOUR
 
 
 async def seed(session: AsyncSession) -> Node:
@@ -88,7 +87,6 @@ async def seed(session: AsyncSession) -> Node:
     constants = current()
     бросок = random.Random(CORE)
     шаг = constants[R.TRAVEL_CITY_STEP]
-    переход = constants[R.TRAVEL_INTER_NODE]
 
     #: Слои — абстракция показа над одним графом (D-045): Терра видна из
     #: космоса, столица — с планеты, застройка — в городе. Ходят по листьям.
@@ -134,9 +132,12 @@ async def seed(session: AsyncSession) -> Node:
         session, "terra.capital.gate", "Выход из города", area_m2=80,
         parent=столица, properties={"кольцо": 3, "выход": True},
     )
+    #: Первое кольцо за стенами: даль 1 (D-180) — двадцать секунд ходу, а не
+    #: двадцать минут. Ближний ресурс возят каждый день, и в этом весь смысл.
     шахта = await world.create_node(
         session, "terra.coal", "Угольная шахта", area_m2=400,
-        layer=Layer.PLANET, parent=терра, properties={"лес": True, "вода": "нет"},
+        layer=Layer.PLANET, parent=терра,
+        properties={"лес": True, "вода": "нет", travel.REACH: 1},
     )
     #: Каторга столицы (D-174, D-176): жила, принтер и терминал за одной
     #: стеной. Тюрьмой узел делает станок «Каторга», а не свойство: власть
@@ -160,7 +161,8 @@ async def seed(session: AsyncSession) -> Node:
     #: разведкой (D-126, D-132).
     пойма = await world.create_node(
         session, "terra.floodplain", "Пойма у реки", area_m2=400,
-        layer=Layer.PLANET, parent=терра, properties={"вода": "река", "плодородие": 55},
+        layer=Layer.PLANET, parent=терра,
+        properties={"вода": "река", "плодородие": 55, travel.REACH: 1},
     )
 
     #: Внутри города — короткие рёбра, снаружи — настоящий переход.
@@ -181,19 +183,14 @@ async def seed(session: AsyncSession) -> Node:
             base_seconds=бросок.uniform(шаг.min, шаг.max),
             surface=Surface.PAVED,
         )
-    #: К шахте ведёт дорога, а не бездорожье: по ней возят уголь на городскую
-    #: станцию, и город эту дорогу себе построил. Двадцать минут вместо часа с
-    #: лишним — расстояние, которое ходят каждый день, а не раз в неделю.
-    await travel.connect(
-        session, ворота, шахта,
-        base_seconds=переход.min * SECONDS_PER_MINUTE,
-        surface=Surface.ROAD,
-    )
-    await travel.connect(
-        session, ворота, пойма,
-        base_seconds=переход.min * SECONDS_PER_MINUTE,
-        surface=Surface.ROAD,
-    )
+    #: К шахте и пойме ведёт дорога, а не бездорожье: по ней возят уголь и
+    #: хлеб, и город эти дороги себе построил. Длина — по дали узла (D-180).
+    for куда in (шахта, пойма):
+        await travel.connect(
+            session, ворота, куда,
+            base_seconds=travel.frontier_seconds(constants, travel.reach_of(куда)),
+            surface=Surface.ROAD,
+        )
     await travel.connect(
         session, ворота, тюрьма,
         base_seconds=бросок.uniform(шаг.min, шаг.max),
@@ -228,6 +225,9 @@ async def seed(session: AsyncSession) -> Node:
     await _станок(session, кузница, "Кузница", 65)
     #: Кровать при мастерской: своих построек нет до Э3, мастер живёт при деле.
     await _станок(session, кузница, "Кровать", 50)
+    #: Сундук при кузнице (D-181): городская мастерская — первое место, где
+    #: игрок увидит, что нажитое можно положить, а не таскать в руках.
+    await _станок(session, кузница, "Сундук", 55)
     #: Электростанция городская (D-082): стоит в застройке и питает весь город
     #: из одного пула. Уголь к ней возят игроки — без подвоза она мертва.
     await _станок(session, кузница, "Угольная станция", 60)
@@ -362,7 +362,6 @@ async def догнать(session: AsyncSession, ядро: Node) -> None:
     constants = current()
     бросок = random.Random(f"{CORE}:догнать")
     шаг = constants[R.TRAVEL_CITY_STEP]
-    переход = constants[R.TRAVEL_INTER_NODE]
 
     столица = await session.get(Node, ядро.parent_id)
     if столица is None:  # pragma: no cover — ядро без города это баг
@@ -467,6 +466,9 @@ async def догнать(session: AsyncSession, ядро: Node) -> None:
     ).scalar_one_or_none()
     if кузница is not None:
         await _станок_если_нет(session, кузница, death.PRINTER, 60)
+        #: Сундук при кузнице (D-181): миры, заведённые до хранилищ, получают
+        #: его задним числом — иначе положить вещи по-прежнему негде.
+        await _станок_если_нет(session, кузница, "Сундук", 55)
         двор = await world.node_container(session, кузница)
         if not await _есть_в(session, двор, death.IRON):
             await world.grant_item(
@@ -488,25 +490,35 @@ async def догнать(session: AsyncSession, ядро: Node) -> None:
                     surface=Surface.PAVED,
                 )
 
-    #: Дорога к шахте: двадцать минут по дороге вместо часа с лишним по
-    #: бездорожью. Уголь возят каждый день, и город эту дорогу себе построил.
-    шахта = (
-        await session.execute(select(Node).where(Node.key == "terra.coal"))
-    ).scalar_one_or_none()
+    #: Даль узлов и длина выездов (D-180): первое кольцо за стенами — двадцать
+    #: секунд ходу, а не двадцать минут. Мир, заведённый до этого решения,
+    #: получает даль задним числом, и его рёбра пересчитываются по ней.
     ворота = (
         await session.execute(select(Node).where(Node.key == "terra.capital.gate"))
     ).scalar_one_or_none()
-    if шахта is not None and ворота is not None:
+    for ключ in ("terra.coal", "terra.floodplain"):
+        узел = (
+            await session.execute(select(Node).where(Node.key == ключ))
+        ).scalar_one_or_none()
+        if узел is None or ворота is None:
+            continue
+        if travel.reach_of(узел) == 0:
+            узел.properties = {**(узел.properties or {}), travel.REACH: 1}
         ребро = (
             await session.execute(
                 select(Edge).where(
-                    ((Edge.node_a_id == ворота.id) & (Edge.node_b_id == шахта.id))
-                    | ((Edge.node_a_id == шахта.id) & (Edge.node_b_id == ворота.id))
+                    ((Edge.node_a_id == ворота.id) & (Edge.node_b_id == узел.id))
+                    | ((Edge.node_a_id == узел.id) & (Edge.node_b_id == ворота.id))
                 )
             )
         ).scalars().first()
-        if ребро is not None:
-            ребро.base_seconds = int(переход.min * SECONDS_PER_MINUTE)
+        секунд = travel.frontier_seconds(constants, travel.reach_of(узел))
+        if ребро is None:
+            await travel.connect(
+                session, ворота, узел, base_seconds=секунд, surface=Surface.ROAD
+            )
+        else:
+            ребро.base_seconds = int(секунд)
             ребро.surface = Surface.ROAD
 
     #: Монетный двор переименован в монетный станок, а пробу отменили: монета

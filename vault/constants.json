@@ -375,10 +375,8 @@
     "min": 20,
     "max": 60
   },
-  "travel.inter_node": {
-    "min": 20,
-    "max": 120
-  },
+  "travel.frontier_step": 20,
+  "travel.frontier_growth": 1.8,
   "travel.interplanetary": {
     "min": 2,
     "max": 8
@@ -430,10 +428,6 @@
   "explore.node_area": {
     "min": 120,
     "max": 600
-  },
-  "explore.distance": {
-    "min": 15,
-    "max": 90
   },
   "explore.vein_richness": {
     "min": 20,

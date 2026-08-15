@@ -161,6 +161,9 @@ jobs:
       SSH_USER: ${{ secrets.DEPLOY_USER }}
       SSH_PORT: ${{ secrets.DEPLOY_PORT || '22' }}
       DIR: ${{ vars.DEPLOY_PATH || '/opt/octoverse' }}
+      # Вебхук канала выкладок. Объявлен на уровне задания, потому что шаг
+      # проверяет его в собственном `if`, а туда видно только `env`.
+      DISCORD_HOOK: ${{ secrets.DISCORD_DEPLOY_WEBHOOK }}
     steps:
       - uses: actions/checkout@v4
 
@@ -220,3 +223,28 @@ jobs:
             sleep 5
           done
           echo "сервер не ответил на /api/health"; exit 1
+
+      # Итог выкладки — в канал сообщества. Без секрета шаг молчит: чужая копия
+      # репозитория не должна стучаться в чей-то Discord. `always()` — чтобы
+      # неудача сообщалась тоже, иначе канал врал бы молчанием.
+      - name: Сказать в Discord
+        if: always() && env.DISCORD_HOOK != ''
+        env:
+          STATUS: ${{ job.status }}
+          DOMAIN: ${{ vars.DEPLOY_DOMAIN }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          SHORT="${GITHUB_SHA:0:7}"
+          if [ "$STATUS" = "success" ]; then
+            LINE="✅ Альфа обновлена: \`$SHORT\`"
+            # Отдельным `if`, а не `&&`: шаг идёт под `bash -e`, и пустой
+            # домен уронил бы его прямо здесь, ничего не отправив.
+            if [ -n "$DOMAIN" ]; then
+              LINE="$LINE — https://$DOMAIN"
+            fi
+          else
+            LINE="❌ Выкладка не удалась на \`$SHORT\`. Журнал: $RUN_URL"
+          fi
+          jq -n --arg content "$LINE" \
+            '{content: $content, allowed_mentions: {parse: []}}' \
+            | curl -sS -H 'Content-Type: application/json' -d @- "$DISCORD_HOOK" > /dev/null

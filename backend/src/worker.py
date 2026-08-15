@@ -16,6 +16,7 @@ import os
 import signal
 import socket
 
+from src import herald
 from src.constants import bootstrap
 from src.db.base import dispose, session_factory
 from src.engine import tick, utility
@@ -46,6 +47,9 @@ async def main() -> None:
         #: заводится здесь же: содержание узлов не должно зависеть от того,
         #: запускал ли кто-то сид (D-149).
         await utility.ensure_scheduled(session)
+        #: Хроника наружу. Без вебхука в настройках задание просто молчит, но
+        #: заводится всё равно: включение сводится к одной переменной среды.
+        await herald.ensure_scheduled(session)
     log.info("часы мира заведены, воркер %s", worker_id)
 
     stopping = asyncio.Event()
