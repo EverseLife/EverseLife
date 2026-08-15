@@ -364,12 +364,14 @@ async def depart(
     moment = now or datetime.now(UTC)
     if body.state is not BodyState.ALIVE:
         raise TravelError("мёртвое тело никуда не идёт")
-    #: Выйти в дорогу — присутственное начало: спящий не идёт, идущий не выходит
-    #: дважды. Та же дверь, что и у всех присутственных.
-    if body.sleeping_since is not None:
-        raise Asleep("тело спит: сначала проснуться")
     if await current(session, body) is not None:
         raise AlreadyGoing("тело уже в пути")
+    #: Выйти в дорогу — присутственное начало, и дверь у него **та же**, что у
+    #: всех присутственных действий: спящий не идёт (D-091), разведчик не идёт
+    #: (D-152) — его в узле нет, он в поле. Держать этот список отдельной
+    #: копией значило бы рано или поздно забыть в ней строку: разведчик как раз
+    #: и уходил пешком, оставаясь «в поле».
+    await require_here(session, body)
     if target.id == body.node_id:
         raise NoEdge("это тот же узел")
 

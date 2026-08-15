@@ -72,6 +72,24 @@ CITY_TREASURY_START = 5_000
 #: Подъёмные, которые столица решила платить. Это решение власти, записанное
 #: сидом за неимением живого президента в первую секунду мира.
 NEWCOMER_GRANT = "120"
+#: Почта и пароль стартовых личностей — тестовые данные разработки (D-187):
+#: под ними разработчики входят в альфу. В бою пароли меняются из кабинета.
+FOUNDERS = {
+    "Тэрн": {
+        "email": "tern@octoverse.world",
+        "password": "tern-terra-2026",
+        "surname": "Первопечатный",
+        "age": 34,
+        "about": "Шахтёр и основатель столицы: первый, кого напечатала машина.",
+    },
+    "Хём": {
+        "email": "hem@octoverse.world",
+        "password": "hem-terra-2026",
+        "surname": "Торговый",
+        "age": 29,
+        "about": "Торговец у терминала: первый стакан столицы — его железо.",
+    },
+}
 
 
 async def seed(session: AsyncSession) -> Node:
@@ -264,7 +282,7 @@ async def seed(session: AsyncSession) -> Node:
 
     await energy.ensure_pools(session, constants)
 
-    тэрн, тело_тэрна = await world.spawn(session, "Тэрн", ядро)
+    тэрн, тело_тэрна = await world.spawn(session, "Тэрн", ядро, **_учётка("Тэрн"))
     #: Первый игрок и есть основатель: власть в городе появляется вместе с
     #: первым человеком, а не отдельным сценарием (D-154).
     await town.install_founder(session, город, тэрн)
@@ -313,7 +331,7 @@ async def seed(session: AsyncSession) -> Node:
             origin="стартовый мир: металл на пробу",
         )
 
-    хём, тело_хёма = await world.spawn(session, "Хём", рынок)
+    хём, тело_хёма = await world.spawn(session, "Хём", рынок, **_учётка("Хём"))
     карман_хёма = await world.body_container(session, тело_хёма)
     await world.grant_item(
         session, карман_хёма, IRON, amount=30, quality=64,
@@ -366,6 +384,11 @@ async def догнать(session: AsyncSession, ядро: Node) -> None:
     столица = await session.get(Node, ядро.parent_id)
     if столица is None:  # pragma: no cover — ядро без города это баг
         return
+
+    #: Вход по почте и паролю (D-187): личности, заведённые до него, получают
+    #: тестовые учётки сида. Только те, у кого почты ещё нет — назначенное
+    #: руками или из кабинета догон не трогает.
+    await _учётки_догоном(session)
 
     город = await town.by_node(session, столица.id)
     if город is None:
@@ -557,6 +580,41 @@ async def догнать(session: AsyncSession, ядро: Node) -> None:
     await utility.ensure_meters(session, constants)
     await tick.ensure_scheduled(session)
     await utility.ensure_scheduled(session)
+    await session.flush()
+
+
+def _учётка(имя: str) -> dict:
+    """Почта, пароль и самоописание стартовой личности из `FOUNDERS`."""
+    данные = FOUNDERS[имя]
+    return {
+        "email": данные["email"],
+        "password": данные["password"],
+        "profile": {
+            "surname": данные["surname"],
+            "age": данные["age"],
+            "about": данные["about"],
+        },
+    }
+
+
+async def _учётки_догоном(session: AsyncSession) -> None:
+    from src.engine import account as accounts
+    from src.models.identity import Account, Identity
+
+    for имя in FOUNDERS:
+        личность = (
+            await session.execute(select(Identity).where(Identity.name == имя))
+        ).scalar_one_or_none()
+        if личность is None:
+            continue
+        аккаунт = await session.get(Account, личность.account_id)
+        if аккаунт is None or аккаунт.email:
+            continue
+        учётка = _учётка(имя)
+        await accounts.set_credentials(session, аккаунт, учётка["email"], учётка["password"])
+        if not личность.surname and not личность.about:
+            accounts.apply_profile(личность, учётка["profile"])
+        log.info("учётка назначена догоном: %s → %s", имя, учётка["email"])
     await session.flush()
 
 

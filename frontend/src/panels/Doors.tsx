@@ -15,6 +15,7 @@
  * исполняет, и человек обязан видеть их до нажатия, а не узнавать из отказа.
  */
 
+import { useMemo, useState } from "react";
 import * as api from "../api";
 import type { Door } from "../api";
 
@@ -22,28 +23,58 @@ type Props = {
   двери: Door[];
   имя: string;
   busy: boolean;
+  trouble?: string | null;
   onPick: (node: string) => void;
   onBack: () => void;
 };
 
-export function Doors({ двери, имя, busy, onPick, onBack }: Props) {
+export function Doors({ двери, имя, busy, trouble, onPick, onBack }: Props) {
+  //: Список приходит уже отсортированным — людные города впереди (D-187), —
+  //: а поиск сужает его по имени города или узла. Пустой поиск — весь список.
+  const [query, setQuery] = useState("");
+  const видимые = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return двери;
+    return двери.filter(
+      (д) =>
+        д.name.toLowerCase().includes(q) ||
+        (д.city ?? "").toLowerCase().includes(q) ||
+        (д.precursor && "предтеч".includes(q)),
+    );
+  }, [двери, query]);
+
   return (
-    <main className="entry">
+    <section className="wide doors-step">
       <h1>Где вас напечатать</h1>
-      <p className="note">
+      <p className="note center">
         {имя}, тела у вас ещё нет — есть выбор машины, которая его соберёт.
         Первое тело печатается сразу и бесплатно везде; дальше за скорость
         платят (D-040).
       </p>
+
+      <div className="row search">
+        <input
+          type="search"
+          placeholder="найти город"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          aria-label="поиск города"
+        />
+        <span className="note">
+          {видимые.length} из {двери.length} · сортировка по людям в городе
+        </span>
+      </div>
 
       {двери.length === 0 ? (
         <p className="trouble">
           В мире нет ни одного биопринтера. Этого положения быть не должно: вход
           в игру не блокируется никогда (D-028).
         </p>
+      ) : видимые.length === 0 ? (
+        <p className="note center">Ничего не нашлось — попробуйте иначе.</p>
       ) : (
         <div className="doors">
-          {двери.map((дверь) => (
+          {видимые.map((дверь) => (
             <section key={дверь.node}>
               {/* В заголовке — чем эта дверь отличается от соседней. Город
                   вынесен в строку: у столицы дверей две, и одинаковые
@@ -61,7 +92,11 @@ export function Doors({ двери, имя, busy, onPick, onBack }: Props) {
                     <td className="num">{дверь.city ?? "вне города"}</td>
                   </tr>
                   <tr>
-                    <td>жителей</td>
+                    <td>людей сейчас</td>
+                    <td className="num">{дверь.city ? дверь.population : "—"}</td>
+                  </tr>
+                  <tr>
+                    <td>граждан</td>
                     <td className="num">{дверь.city ? дверь.citizens : "—"}</td>
                   </tr>
                   <tr>
@@ -121,12 +156,13 @@ export function Doors({ двери, имя, busy, onPick, onBack }: Props) {
         В кавычках — слово самого города. Это обещание живых людей, и движок за
         него не отвечает: не сдержали — дело суда (D-183).
       </p>
+      {trouble && <p className="trouble">{trouble}</p>}
       <div className="row">
         <button className="quiet" onClick={onBack} disabled={busy}>
           ← назад
         </button>
       </div>
-    </main>
+    </section>
   );
 }
 

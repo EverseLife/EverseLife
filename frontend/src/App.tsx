@@ -19,21 +19,23 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as api from "./api";
-import { Session, type Look } from "./api";
+import { Session, type Enrollment, type Look } from "./api";
+import { Account } from "./panels/Account";
 import { Admin } from "./panels/Admin";
 import { Chat } from "./panels/Chat";
 import { Circles } from "./panels/Circles";
-import { Doors } from "./panels/Doors";
 import { Farm } from "./panels/Farm";
 import { GraphMap } from "./panels/GraphMap";
 import { Intro } from "./panels/Intro";
 import { Kitchen } from "./panels/Kitchen";
 import { Library } from "./panels/Library";
+import { Login } from "./panels/Login";
 import { Market } from "./panels/Market";
 import { Mine } from "./panels/Mine";
 import { Mint } from "./panels/Mint";
 import { Nursery } from "./panels/Nursery";
 import { Printer } from "./panels/Printer";
+import { Register } from "./panels/Register";
 import { Rig } from "./panels/Rig";
 import { Sidebar } from "./panels/Sidebar";
 import { Place } from "./panels/Place";
@@ -41,7 +43,6 @@ import { Workshop } from "./panels/Workshop";
 import { craftableAt } from "./recipes";
 import { powSettings, type PowSettings } from "./pow";
 
-const NAMES = ["Тэрн", "Хём"];
 /** Терминал — постройка рынка, всё прочее в узле это станки (D-090, D-100). */
 const TERMINAL = "Терминал маркетплейса";
 
@@ -59,10 +60,12 @@ export default function App() {
   //: Справочник вольта нужен сразу нескольким панелям станков: грузим один раз.
   const [книга, setКнига] = useState<any>(null);
   const [pow, setPow] = useState<PowSettings | null>(null);
-  const [name, setName] = useState(NAMES[0]);
-  const [новичок, setНовичок] = useState("");
-  //: Двери показываются вторым шагом входа: сперва имя, потом город (D-182).
-  const [двери, setДвери] = useState<api.Door[] | null>(null);
+  //: Экран до входа: логин либо регистрация (D-187). Жетон прошлого входа
+  //: пробуется молча: пока он проверяется, экран входа не мигает.
+  const [screen, setScreen] = useState<"login" | "register">("login");
+  const [resuming, setResuming] = useState(() => Boolean(Session.remembered()));
+  const resumed = useRef(false);
+  const [кабинет, setКабинет] = useState(false);
   const [вступление, setВступление] = useState(false);
   const [trouble, setTrouble] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -100,24 +103,50 @@ export default function App() {
     setКнига(await api.recipes());
   }, []);
 
-  const enter = () =>
+  const enter = (email: string, password: string) =>
     act(async () => {
       await справочники();
-      await session.current.open(name);
+      await session.current.open(email, password);
     });
 
-  /** Новичок сперва выбирает дверь: где появиться — его решение (D-182). */
-  const кДверям = () =>
-    act(async () => setДвери((await api.doors()).doors));
+  //: Автовход жетоном (D-187): F5 не спрашивает пароль. Отказ — молча на экран
+  //: входа: истёкший жетон — не ошибка пользователя.
+  useEffect(() => {
+    const token = Session.remembered();
+    //: Один подъём на страницу: StrictMode в разработке зовёт эффект дважды,
+    //: а два сокета с одним жетоном — это гонка, а не вход.
+    if (!token || resumed.current) return;
+    resumed.current = true;
+    void (async () => {
+      try {
+        await справочники();
+        await session.current.resume(token);
+        await refresh();
+      } catch {
+        /* жетон истёк или отозван — обычный вход */
+      } finally {
+        setResuming(false);
+      }
+    })();
+  }, [справочники, refresh]);
 
-  /** Печать у выбранной двери: ноль на счету, подъёмные — дело города (D-153).
-   *  Следом слово Предтеч: объяснить, кто он, больше некому (D-182). */
-  const join = (дверь: string) =>
+  /** Регистрация: четыре шага клиента — одна команда сервера (D-187). Печать у
+   *  выбранной двери: ноль на счету, подъёмные — дело города (D-153). Следом
+   *  слово Предтеч: объяснить, кто он, больше некому (D-182). */
+  const join = (заявка: Enrollment) =>
     act(async () => {
       await справочники();
-      await session.current.create(новичок, дверь);
-      setДвери(null);
+      await session.current.create(заявка);
       setВступление(true);
+    });
+
+  /** Выход: жетон отозван, экран входа. */
+  const logout = () =>
+    act(async () => {
+      await session.current.logout();
+      setКабинет(false);
+      setLook(null);
+      setScreen("login");
     });
 
   const идёт = Boolean(look?.travel);
@@ -140,69 +169,65 @@ export default function App() {
     if (отлучился) setView("map");
   }, [отлучился]);
 
-  //: Второй шаг входа: имя названо, осталось выбрать дверь (D-013, D-182).
-  if (!look && двери) {
+  //: Жетон прошлого входа проверяется — экран входа не мигает (D-187).
+  if (!look && resuming) {
     return (
-      <>
-        <Doors
-          двери={двери}
-          имя={новичок}
-          busy={busy}
-          onPick={join}
-          onBack={() => setДвери(null)}
-        />
-        {trouble && <p className="trouble">{trouble}</p>}
-      </>
+      <main className="entry auth">
+        <p className="note center">…</p>
+      </main>
+    );
+  }
+
+  if (!look && screen === "register") {
+    return (
+      <Register
+        busy={busy}
+        trouble={trouble}
+        onSubmit={join}
+        onBack={() => {
+          setTrouble(null);
+          setScreen("login");
+        }}
+      />
     );
   }
 
   if (!look) {
     return (
-      <main className="entry">
-        <h1>OctoVerse — альфа</h1>
-        <p className="note">
-          Стартовый мир: столица Терры с администрацией и свободными участками,
-          угольная шахта и пойма за воротами. Кто дальше — решают игроки: карта
-          прирастает разведкой, а не патчем.
-        </p>
-        {/* Имя вводится, а не выбирается из списка: игроки заводятся в игре, и
-            выпадающий список из двух стартовых имён перестал бы работать с
-            первым же новым персонажем. Подсказка — те самые двое из сида. */}
-        <div className="row">
-          <input
-            list="жители"
-            placeholder="имя"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-          />
-          <datalist id="жители">
-            {NAMES.map((n) => (
-              <option key={n} value={n} />
-            ))}
-          </datalist>
-          <button onClick={enter} disabled={busy || !name.trim()}>
-            Войти
-          </button>
-        </div>
-        <div className="row">
-          <input
-            placeholder="новое имя"
-            value={новичок}
-            onChange={(e) => setНовичок(e.target.value)}
-          />
-          <button onClick={кДверям} disabled={busy || !новичок.trim()}>
-            Новый персонаж
-          </button>
-        </div>
-        <p className="note">
-          Новый персонаж сам выбирает, в каком городе напечататься; на счету
-          ноль, подъёмные платит город (D-153). Опознание по имени — заглушка
-          разработки (D-027).
-        </p>
-        {trouble && <p className="trouble">{trouble}</p>}
-      </main>
+      <Login
+        busy={busy}
+        trouble={trouble}
+        onLogin={enter}
+        onRegister={() => {
+          setTrouble(null);
+          setScreen("register");
+        }}
+      />
     );
   }
+
+  //: Кабинет аккаунта — на месте голого имени в шапке (D-187).
+  const кто = (
+    <button
+      className="who"
+      onClick={() => setКабинет(true)}
+      title="аккаунт: персонаж, пароль, выход"
+    >
+      {look.identity}
+      {look.profile?.surname ? ` ${look.profile.surname}` : ""}
+    </button>
+  );
+  const окно_кабинета = кабинет && look.profile && (
+    <Account
+      key={look.profile.email ?? look.identity}
+      profile={look.profile}
+      session={session.current}
+      busy={busy}
+      act={act}
+      onClose={() => setКабинет(false)}
+      onLogout={logout}
+    />
+  );
 
   //: Тела нет — личность в облаке (D-012). Присутственного экрана в этом
   //: положении не существует вовсе: смотреть на локацию некому. Сайдбар при
@@ -211,7 +236,7 @@ export default function App() {
     return (
       <main>
         <header>
-          <span className="who">{look.identity}</span>
+          {кто}
           <span>в облаке</span>
           <button className="quiet" onClick={() => void refresh()}>
             обновить
@@ -225,6 +250,7 @@ export default function App() {
             </div>
           </div>
         </div>
+        {окно_кабинета}
         {trouble && <p className="trouble">{trouble}</p>}
       </main>
     );
@@ -261,7 +287,7 @@ export default function App() {
   return (
     <main>
       <header>
-        <span className="who">{look.identity}</span>
+        {кто}
         <span>
           {идёт
             ? `в пути: ${look.travel!.final ?? look.travel!.to}`
@@ -407,6 +433,7 @@ export default function App() {
       </div>
 
       {вступление && <Intro onClose={() => setВступление(false)} />}
+      {окно_кабинета}
 
       {trouble && <p className="trouble">{trouble}</p>}
       <footer>

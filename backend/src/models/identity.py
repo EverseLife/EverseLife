@@ -26,13 +26,49 @@ from src.db.base import Base, created_column, enum_column, uuid_pk
 
 
 class Account(Base):
-    """Оплата и устройство. Игровых свойств не имеет намеренно."""
+    """Оплата и устройство. Игровых свойств не имеет намеренно.
+
+    Опознаётся почтой и паролем (D-187). Пароль лежит хэшем Argon2id — тем же
+    алгоритмом, что и плата устройства, чтобы не тащить вторую библиотеку.
+    Почта пуста только у аккаунтов, заведённых до D-187: сид назначает её
+    догоном, и после него пустых не остаётся.
+    """
 
     __tablename__ = "account"
 
     id: Mapped[uuid.UUID] = uuid_pk()
+    #: Почта хранится приведённой к нижнему регистру: `Tern@` и `tern@` — один
+    #: человек, и уникальность обязана это видеть.
+    email: Mapped[str | None] = mapped_column(unique=True, nullable=True)
+    password_hash: Mapped[str | None] = mapped_column(nullable=True)
     created_at: Mapped[datetime] = created_column()
     disabled_at: Mapped[datetime | None] = mapped_column(nullable=True)
+
+
+class LoginToken(Base):
+    """Жетон сессии: клиент держит его вместо пароля (D-187).
+
+    Переподключение сокета и обновление страницы опознаются жетоном, а пароль
+    вводится один раз. В базе лежит **хэш** жетона: утёкшая таблица не даёт
+    войти. Выход из кабинета жетон отзывает.
+    """
+
+    __tablename__ = "login_token"
+    __table_args__ = (Index("ix_login_token_account", "account_id"),)
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    account_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("account.id"), nullable=False)
+    token_hash: Mapped[str] = mapped_column(unique=True, nullable=False)
+    created_at: Mapped[datetime] = created_column()
+    expires_at: Mapped[datetime] = mapped_column(nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(nullable=True)
+
+
+class Line(StrEnum):
+    """Линия персонажа (D-015, D-104). В альфе играбельна одна."""
+
+    HUMAN = "human"
+    NYMPH = "nymph"
 
 
 class Identity(Base):
@@ -46,6 +82,15 @@ class Identity(Base):
     )
     #: Имя сменить нельзя — на этом держится репутация (40-society/05).
     name: Mapped[str] = mapped_column(unique=True, nullable=False)
+    #: Фамилия, возраст и описание — самоописание, движку безразличны и
+    #: меняются игроком в кабинете (D-187). Возраст — число, а не дата: тело у
+    #: напечатанного всегда новое.
+    surname: Mapped[str] = mapped_column(nullable=False, default="", server_default="")
+    age: Mapped[int | None] = mapped_column(nullable=True)
+    about: Mapped[str] = mapped_column(nullable=False, default="", server_default="")
+    line: Mapped[Line] = enum_column(
+        Line, "identity_line", nullable=False, default=Line.HUMAN, server_default="human"
+    )
     citizenship_city_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
     created_at: Mapped[datetime] = created_column()
 

@@ -14,9 +14,9 @@
 (`craft.plan`) и запуск (`craft.start`) разбирают заявку одним и тем же кодом —
 иначе игрок видел бы одно число, а получал другое (D-092).
 
-**Опознание аккаунта — заглушка разработки.** Настоящая аутентификация
-приезжает вместе с подпиской (Э7, D-027), и притворяться, что она уже есть,
-хуже, чем честно назвать заглушку заглушкой.
+**Опознание аккаунта — почта и пароль** (D-187): `hello` принимает либо их,
+либо жетон, выданный прежним входом. Подписка (Э7, D-027) привяжется к тому же
+аккаунту.
 """
 
 from __future__ import annotations
@@ -32,6 +32,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import current, current_catalog
 from src.db.base import session_factory
+from src.engine import (
+    account as accounts,
+)
 from src.engine import (
     bank,
     breed,
@@ -156,6 +159,8 @@ async def play(socket: WebSocket) -> None:
                 answer = {"refused": str(refusal)}
             except device.PowError as refusal:
                 answer = {"refused": str(refusal)}
+            except accounts.AccountError as refusal:
+                answer = {"refused": str(refusal)}
             await socket.send_json(answer)
     except WebSocketDisconnect:
         #: Уход игрока не закрывает сессию добычи: она живёт до «уйти» либо
@@ -186,20 +191,34 @@ async def _dispatch(state: dict[str, Any], message: dict[str, Any]) -> dict[str,
 
 
 async def _hello(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Заглушка опознания: клиент называет личность по имени."""
-    name = message.get("name")
+    """Опознание: почта и пароль либо жетон прежнего входа (D-187).
+
+    Пароль вводится один раз: в ответ уходит жетон, и переподключение сокета
+    или обновление страницы опознаются им. Жетон живёт `LOGIN_TOKEN_TTL` и
+    отзывается выходом из кабинета.
+    """
+    token = message.get("token")
+    if token:
+        account = await accounts.by_token(db, token)
+        выдан = str(token)
+    else:
+        account = await accounts.login(db, message.get("email"), message.get("password"))
+        выдан = await accounts.issue_token(db, account)
+
     identity = (
-        await db.execute(select(Identity).where(Identity.name == name))
+        await db.execute(select(Identity).where(Identity.account_id == account.id))
     ).scalar_one_or_none()
     if identity is None:
-        raise Refused(f"нет личности {name!r}")
+        raise Refused("у аккаунта нет личности: регистрация не завершена")
 
     state["identity_id"] = identity.id
+    state["token"] = выдан
     body = await _body(db, identity.id)
     return {
         "hello": identity.name,
+        "token": выдан,
         #: Клиент считает плату устройства сам, а в оценку входит его аккаунт
-        #: (D-112). Это не пропуск: опознание всё равно заглушка до Э7.
+        #: (D-112).
         "account": str(identity.account_id),
         "body": None if body is None else str(body.id),
         "node": None if body is None else str(body.node_id),
@@ -208,7 +227,12 @@ async def _hello(state: dict, db: AsyncSession, message: dict) -> dict:
 
 
 async def _join(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Новая личность и первое тело у выбранного биопринтера.
+    """Регистрация: аккаунт, личность и первое тело у выбранной двери (D-187).
+
+    Клиент ведёт игрока четырьмя шагами — почта и пароль, линия, персонаж,
+    дверь, — но серверу они приходят одной командой: половины аккаунта не
+    бывает. Всё проверяется до первой записи, и отказ на любом поле оставляет
+    базу нетронутой.
 
     **Где печататься — решает игрок** (D-013, D-182): дверь называется ключом
     узла из `/public/doors`. Без неё печатаем у первого попавшегося принтера —
@@ -218,9 +242,15 @@ async def _join(state: dict, db: AsyncSession, message: dict) -> dict:
     биопринтер, решил платить подъёмные, они придут из его казны — и это будет
     видно в ответе. Ноль в ответе тоже честный: город беден или не платит.
     """
-    name = str(message.get("name") or "").strip()
-    if not name:
-        raise Refused("имя не названо")
+    email = accounts.normalize_email(message.get("email"))
+    password = accounts.check_password(message.get("password"))
+    if message.get("password_again") is not None and message["password_again"] != password:
+        raise Refused("пароли не совпадают")
+    if await accounts.by_email(db, email) is not None:
+        raise Refused("эта почта уже занята")
+    line = accounts.check_line(message.get("line"))
+    name = accounts.check_name(message.get("name"))
+    profile = accounts.check_profile(message)
 
     ключ = str(message.get("node") or "").strip()
     if ключ:
@@ -232,19 +262,77 @@ async def _join(state: dict, db: AsyncSession, message: dict) -> dict:
     if где is None:
         raise Refused("мир ещё не создан: печататься негде")
     try:
-        identity, body = await world.spawn(db, name, где)
+        identity, body = await world.spawn(
+            db, name, где, email=email, password=password, line=line, profile=profile
+        )
     except ValueError as refusal:
         raise Refused(str(refusal)) from refusal
 
+    account = await accounts.account_of(db, identity)
+    выдан = await accounts.issue_token(db, account)
     state["identity_id"] = identity.id
+    state["token"] = выдан
     return {
         "hello": identity.name,
+        "token": выдан,
         "account": str(identity.account_id),
         "body": str(body.id),
         "node": str(body.node_id),
         "money": await _money(db, identity.id),
         "constants": current().digest,
     }
+
+
+async def _account_profile(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Кабинет: что аккаунт знает о себе (D-187)."""
+    identity = await _identity(state, db)
+    account = await accounts.account_of(db, identity)
+    return {"profile": accounts.profile(account, identity)}
+
+
+async def _account_update(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Сменить фамилию, возраст, описание. Имя не меняется (D-011)."""
+    identity = await _identity(state, db)
+    accounts.apply_profile(identity, accounts.check_profile(message))
+    await db.flush()
+    account = await accounts.account_of(db, identity)
+    return {"profile": accounts.profile(account, identity)}
+
+
+async def _account_password(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Сменить пароль: старый обязателен, все прежние сессии отзываются, а этой
+    выдаётся новый жетон."""
+    identity = await _identity(state, db)
+    account = await accounts.account_of(db, identity)
+    if not accounts.verify_password(account, str(message.get("old") or "")):
+        raise Refused("старый пароль не подходит")
+    новый = accounts.check_password(message.get("new"))
+    if message.get("new_again") is not None and message["new_again"] != новый:
+        raise Refused("пароли не совпадают")
+    account.password_hash = accounts.hash_password(новый)
+    await accounts.revoke_all(db, account)
+    выдан = await accounts.issue_token(db, account)
+    state["token"] = выдан
+    return {"token": выдан}
+
+
+async def _account_email(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Сменить почту: подтверждается паролем."""
+    identity = await _identity(state, db)
+    account = await accounts.account_of(db, identity)
+    пароль = str(message.get("password") or "")
+    if not accounts.verify_password(account, пароль):
+        raise Refused("пароль не подходит")
+    await accounts.set_credentials(db, account, str(message.get("email") or ""), пароль)
+    return {"profile": accounts.profile(account, identity)}
+
+
+async def _account_logout(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Выход: жетон этой сессии отзывается, сокет забывает личность."""
+    await accounts.revoke_token(db, message.get("token") or state.get("token"))
+    state["identity_id"] = None
+    state["token"] = None
+    return {"bye": True}
 
 
 async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
@@ -260,6 +348,8 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
 
     seen: dict[str, Any] = {
         "identity": identity.name,
+        #: Кабинет в шапке клиента (D-187): самоописание рядом с именем.
+        "profile": accounts.profile(await accounts.account_of(db, identity), identity),
         "money": await _money(db, identity.id),
         "knows": await _knowledge(db, identity.id),
         #: Взятая агротехника — отдельным списком: клиент показывает в
@@ -2064,6 +2154,11 @@ async def _citizens(db: AsyncSession) -> list[str]:
 
 _COMMANDS = {
     "look": _look,
+    "account.profile": _account_profile,
+    "account.update": _account_update,
+    "account.password": _account_password,
+    "account.email": _account_email,
+    "account.logout": _account_logout,
     "pow.challenge": _challenge,
     "mine.start": _mine_start,
     "mine.swing": _mine_swing,

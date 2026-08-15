@@ -37,6 +37,29 @@
       ],
       "cwd": "backend",
       "port": 8000
+    },
+    {
+      "name": "backend-проверка",
+      "runtimeExecutable": ".venv/Scripts/python.exe",
+      "runtimeArgs": [
+        "-m",
+        "uvicorn",
+        "src.api.app:app",
+        "--port",
+        "8001"
+      ],
+      "cwd": "backend",
+      "port": 8001
+    },
+    {
+      "name": "frontend-проверка",
+      "runtimeExecutable": "powershell",
+      "runtimeArgs": [
+        "-Command",
+        "$env:VITE_API = 'http://localhost:8001'; npm run dev -- --port 5174 --strictPort"
+      ],
+      "cwd": "frontend",
+      "port": 5174
     }
   ]
 }

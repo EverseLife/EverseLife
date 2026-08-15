@@ -113,6 +113,19 @@ async def doors() -> dict[str, Any]:
         return {"doors": await world.doors(db, current(), catalog())}
 
 
+@router.get("/lines")
+async def lines() -> dict[str, Any]:
+    """Линии персонажа и сколько за каждую играют (D-015, D-104, D-187).
+
+    Читается при регистрации, до опознания. Нимфы в списке есть и помечены
+    неиграбельными: обещание, а не заглушка-обманка (10-world/03).
+    """
+    from src.engine import account
+
+    async with session_factory()() as db:
+        return {"lines": await account.lines(db)}
+
+
 @router.get("/market/{node_key}")
 async def market_positions(node_key: str) -> dict[str, Any]:
     """Что вообще торгуется в узле: товар плюс ступень качества.

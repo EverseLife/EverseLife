@@ -178,8 +178,46 @@ export type Outlook = {
   resource?: string | null;
 };
 
+/** Кабинет аккаунта (D-187): самоописание рядом с именем. Игрового здесь нет. */
+export type Profile = {
+  email: string | null;
+  /** Имя уникально и несменяемо (D-011): на нём репутация. */
+  name: string;
+  surname: string;
+  age: number | null;
+  about: string;
+  line: "human" | "nymph";
+  since: string;
+};
+
+/** Линия персонажа на экране выбора: в альфе играбельна одна (D-104). */
+export type Line = {
+  id: "human" | "nymph";
+  name: string;
+  world: string;
+  playable: boolean;
+  summary: string;
+  traits: string[];
+  /** Сколько за неё играют: живой мир видно числом. */
+  players: number;
+};
+
+/** Заявка на регистрацию: четыре шага клиента — одна команда сервера. */
+export type Enrollment = {
+  email: string;
+  password: string;
+  password_again: string;
+  line: Line["id"];
+  name: string;
+  surname: string;
+  age: number | null;
+  about: string;
+  node: string;
+};
+
 export type Look = {
   identity: string;
+  profile: Profile;
   money: string;
   knows: string[];
   /** Взятая агротехника: культуры, чью норму личность уже изучила (D-057). */
@@ -360,6 +398,8 @@ export type Door = {
   /** Принтер Предтеч: вечная машина, ничьей казны не требует. */
   precursor: boolean;
   citizens: number;
+  /** Живых тел на земле города сейчас — кого встретишь, а не кто прописан. */
+  population: number;
   /** Подъёмные из устава города, в минорных единицах. Ноль — не платит. */
   grant: number;
 };
@@ -600,11 +640,18 @@ type Waiting = {
   reject: (error: Error) => void;
 };
 
+/** Где лежит жетон сессии между обновлениями страницы (D-187). */
+const TOKEN_KEY = "octoverse.token";
+
 /** Сессия клиента. Держит сокет и очередь «команда → ответ».
  *
  * Сокет живёт не вечно: сервер и прокси режут простой. Порванная сессия
  * поднимается сама — команда, заставшая мёртвый сокет, сначала
- * переподключается и опознаётся прежним именем, и только потом уходит.
+ * переподключается и опознаётся жетоном, и только потом уходит.
+ *
+ * Опознание — почта и пароль (D-187). Пароль вводится один раз: сервер отдаёт
+ * жетон, он живёт в `localStorage`, и по нему сессия поднимается после F5 и
+ * после обрыва. Выход из кабинета жетон отзывает и забывает.
  */
 export class Session {
   private socket: WebSocket | null = null;
@@ -612,6 +659,26 @@ export class Session {
   private reviving: Promise<void> | null = null;
   account = "";
   name = "";
+  token = "";
+
+  /** Жетон прошлого входа, если он есть: с него начинается автовход. */
+  static remembered(): string {
+    try {
+      return localStorage.getItem(TOKEN_KEY) ?? "";
+    } catch {
+      return "";
+    }
+  }
+
+  private remember(token: string): void {
+    this.token = token;
+    try {
+      if (token) localStorage.setItem(TOKEN_KEY, token);
+      else localStorage.removeItem(TOKEN_KEY);
+    } catch {
+      /* приватный режим: жетон живёт только в памяти */
+    }
+  }
 
   /** Поднять сокет. Опознание — отдельным шагом: новичка ещё некем опознать. */
   private async connect(): Promise<void> {
@@ -640,33 +707,60 @@ export class Session {
     };
   }
 
-  async open(name: string): Promise<Record<string, unknown>> {
+  /** Вход почтой и паролем. */
+  async open(email: string, password: string): Promise<Record<string, unknown>> {
     await this.connect();
-    return this.greet("hello", name);
+    return this.greet("hello", { email, password });
   }
 
-  /** Новый игрок: личности ещё нет — её печатают у выбранной двери (D-153,
-   * D-182). Дверь называется ключом узла: где появиться, решает игрок. */
-  async create(name: string, node: string): Promise<Record<string, unknown>> {
+  /** Вход жетоном прошлого раза: F5 не спрашивает пароль. */
+  async resume(token: string): Promise<Record<string, unknown>> {
     await this.connect();
-    return this.greet("join", name, { node });
+    try {
+      return await this.greet("hello", { token });
+    } catch (error) {
+      //: Отозванный или истёкший жетон забываем сразу — иначе каждый вход
+      //: начинался бы с одного и того же отказа.
+      if (error instanceof Refused) this.remember("");
+      throw error;
+    }
+  }
+
+  /** Регистрация (D-187): личности ещё нет — её печатают у выбранной двери
+   * (D-153, D-182). Четыре шага клиента уходят одной командой. */
+  async create(заявка: Enrollment): Promise<Record<string, unknown>> {
+    await this.connect();
+    return this.greet("join", { ...заявка });
+  }
+
+  /** Выход: жетон отозван и забыт, сокет закрыт. */
+  async logout(): Promise<void> {
+    try {
+      if (this.socket?.readyState === WebSocket.OPEN) await this.send("account.logout");
+    } catch {
+      /* отзыв — вежливость: забыть жетон важнее, чем дождаться ответа */
+    }
+    this.remember("");
+    this.name = "";
+    this.account = "";
+    await this.close();
   }
 
   private async greet(
     cmd: string,
-    name: string,
     args: Record<string, unknown> = {},
   ): Promise<Record<string, unknown>> {
-    const hello = await this.send(cmd, { name, ...args });
+    const hello = await this.send(cmd, args);
     this.account = String(hello.account ?? "");
-    this.name = String(hello.hello ?? name);
+    this.name = String(hello.hello ?? "");
+    if (typeof hello.token === "string") this.remember(hello.token);
     return hello;
   }
 
   async send(cmd: string, args: Record<string, unknown> = {}): Promise<Record<string, unknown>> {
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
-      //: Опознаться пока некем: сессии ещё не было, чинить нечего.
-      if (!this.name) throw new Error("нет сессии");
+      //: Опознаться пока нечем: сессии ещё не было, чинить нечего.
+      if (!this.token) throw new Error("нет сессии");
       await this.revive();
     }
     const socket = this.socket!;
@@ -681,7 +775,7 @@ export class Session {
     this.reviving ??= (async () => {
       try {
         await this.connect();
-        await this.greet("hello", this.name);
+        await this.greet("hello", { token: this.token });
       } finally {
         this.reviving = null;
       }
@@ -712,6 +806,8 @@ export const constants = () => read<{ digest: string; values: Record<string, any
 export const recipes = () => read<any>("/public/recipes");
 /** Двери в мир: читаются до опознания — личности у новичка ещё нет. */
 export const doors = () => read<{ doors: Door[] }>("/public/doors");
+/** Линии персонажа и число играющих — тоже до опознания (D-187). */
+export const lines = () => read<{ lines: Line[] }>("/public/lines");
 export const tiers = () => read<{ tiers: { from: number; to: number; name: string }[] }>(
   "/public/quality/tiers",
 );

@@ -26,6 +26,8 @@ from src.models.identity import (
     Identity,
     Knowledge,
     KnowledgeKind,
+    Line,
+    LoginToken,
     Wound,
 )
 from src.models.inventory import Container, ContainerKind, Item
@@ -95,6 +97,8 @@ __all__ = [
     "LedgerAccount",
     "LedgerEntry",
     "LedgerTransaction",
+    "Line",
+    "LoginToken",
     "Meal",
     "MiningSession",
     "Node",

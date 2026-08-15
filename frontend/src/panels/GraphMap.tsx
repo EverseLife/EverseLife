@@ -478,14 +478,48 @@ export function GraphMap({ look, session, busy, act, onEnter }: Props) {
     return out;
   }, [map]);
 
-  const [tick, setTick] = useState(0);
-  const timer = useRef<number>(0);
+  /**
+   * Ходок движется кадрами, а не рендерами.
+   *
+   * Раньше его позицию пересчитывал таймер раз в полсекунды — на переходе в
+   * шесть секунд это дюжина скачков вместо движения. Теперь кружок двигается
+   * прямо в `requestAnimationFrame`, минуя React: React перерисовывает карту,
+   * когда карта изменилась, а не шестьдесят раз в секунду ради одной точки.
+   *
+   * Концы отрезка берутся из тел симуляции на каждом кадре: узлы под ходоком
+   * могут ещё расходиться пружинами, и точка обязана держаться ребра.
+   */
+  const walkerRef = useRef<SVGCircleElement | null>(null);
   useEffect(() => {
     if (!идёт) return;
-    timer.current = window.setInterval(() => setTick((t) => t + 1), 500);
-    return () => clearInterval(timer.current);
-  }, [идёт?.arrives_at]);
-  void tick;
+    let raf = 0;
+    const шаг = () => {
+      const круг = walkerRef.current;
+      const from = bodies.current.get(repr(идёт.from_key, текущийСлой) ?? "");
+      const to = bodies.current.get(repr(идёт.to_key, текущийСлой) ?? "");
+      if (круг && from && to) {
+        const t0 = new Date(идёт.started_at).getTime();
+        const t1 = new Date(идёт.arrives_at).getTime();
+        const доля = Math.min(1, Math.max(0, (Date.now() - t0) / Math.max(1, t1 - t0)));
+        круг.setAttribute("cx", String(from.x + (to.x - from.x) * доля));
+        круг.setAttribute("cy", String(from.y + (to.y - from.y) * доля));
+      }
+      raf = requestAnimationFrame(шаг);
+    };
+    raf = requestAnimationFrame(шаг);
+    return () => cancelAnimationFrame(raf);
+    //: В зависимостях поля перехода, а не сам `идёт`: объект приходит новым с
+    //: каждым опросом сервера, и эффект пересоздавался бы дважды в секунду —
+    //: то самое дёрганье, от которого мы уходим. Все читаемые поля перечислены,
+    //: поэтому замыкание не устаревает; линтеру этого не доказать.
+  }, [
+    идёт?.from_key,
+    идёт?.to_key,
+    идёт?.started_at,
+    идёт?.arrives_at,
+    текущийСлой,
+    repr,
+  ]);
 
   if (!map) {
     return (
@@ -519,7 +553,7 @@ export function GraphMap({ look, session, busy, act, onEnter }: Props) {
   const идти = (node: MapNode) => {
     const target =
       walkTargets[node.key]?.key ?? (группы.has(node.key) ? null : node.key);
-    if (target && !идёт && !busy) {
+    if (target && !идёт && !look.survey && !busy) {
       void act(() => session.send("travel.go", { node: target }));
     }
   };
@@ -586,8 +620,12 @@ export function GraphMap({ look, session, busy, act, onEnter }: Props) {
             const p = at(node.key);
             if (!p) return null;
             const mine = node.key === myRepr;
+            //: Разведчик никуда не идёт: он в поле, и в узле его нет (D-152).
+            //: Кнопка, которую сервер всё равно отвергнет, — обещание, которое
+            //: интерфейс не вправе давать.
             const near =
               !идёт &&
+              !look.survey &&
               !mine &&
               (группы.has(node.key) ? Boolean(walkTargets[node.key]) : true);
             const group = группы.has(node.key);
@@ -627,7 +665,16 @@ export function GraphMap({ look, session, busy, act, onEnter }: Props) {
             );
           })}
 
-          {walker && <circle cx={walker.x} cy={walker.y} r={5} className="walker" />}
+          {/* Первый кадр рисуется по расчёту, дальше кружок ведёт rAF. */}
+          {walker && (
+            <circle
+              ref={walkerRef}
+              cx={walker.x}
+              cy={walker.y}
+              r={5}
+              className="walker"
+            />
+          )}
         </svg>
       )}
 

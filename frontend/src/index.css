@@ -637,3 +637,379 @@ textarea.word {
   border-style: solid;
   border-color: currentColor;
 }
+
+/* --- вход, регистрация, кабинет (D-187) ---------------------------------- */
+
+/* Экран входа: знак сверху, карточка по центру, дорога к регистрации снизу. */
+main.entry.auth {
+  gap: 0.75rem;
+  overflow-y: auto;
+}
+.entry.auth > * {
+  width: min(26rem, 100%);
+}
+/* Широкие шаги — линии и двери — не влезают в узкую колонку. */
+.entry.auth > .wide,
+.entry.auth > .doors-step {
+  width: min(56rem, 100%);
+  border: none;
+  padding: 0;
+}
+.entry.auth h1 {
+  margin: 0 0 0.75rem;
+  font-size: 1.25rem;
+  text-align: center;
+}
+.entry.auth .center {
+  text-align: center;
+}
+.brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+  margin-bottom: 0.5rem;
+}
+.brand .logo {
+  max-width: 100%;
+  height: auto;
+}
+.brand .note {
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+}
+
+/* Карточка формы: подписи над полями, поля во всю ширину. */
+.card {
+  border: 1px solid var(--line);
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+.card.flat {
+  border: none;
+  padding: 0.5rem 0 0;
+}
+.card label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+.card label > span {
+  font-size: 0.8rem;
+  opacity: 0.7;
+}
+.card input,
+.card textarea,
+.card .secret {
+  width: 100%;
+  box-sizing: border-box;
+}
+.card textarea {
+  font: inherit;
+  padding: 0.25rem 0.6rem;
+  border: 1px solid currentColor;
+  background-color: Field;
+  color: FieldText;
+  resize: vertical;
+}
+.card input[type="number"] {
+  width: 8rem;
+}
+.card .row {
+  margin-bottom: 0;
+  justify-content: space-between;
+}
+.card .row > button[type="submit"] {
+  margin-left: auto;
+}
+.card .trouble {
+  margin: 0;
+}
+
+/* Кнопка-ссылка: текст, а не рамка. */
+button.link {
+  border: none;
+  box-shadow: none;
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+  text-decoration-color: var(--line);
+}
+button.link:not(:disabled):hover {
+  background: none;
+  text-decoration-color: currentColor;
+}
+
+/* Поле пароля с глазом. Глаз стоит внутри поля справа; блик пробегает по
+   полю при каждом переключении; буквы проявляются из точек через размытие. */
+.secret {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+}
+.secret input {
+  flex: 1;
+  padding-right: 2.6rem;
+  transition: letter-spacing 0.3s ease;
+}
+.secret.shut input {
+  letter-spacing: 0.12em;
+}
+.secret.open input {
+  animation: secret-reveal 0.45s ease-out;
+}
+@keyframes secret-reveal {
+  from {
+    filter: blur(3px);
+    opacity: 0.4;
+  }
+  to {
+    filter: blur(0);
+    opacity: 1;
+  }
+}
+.secret.invalid input {
+  border-color: currentColor;
+  border-style: dashed;
+}
+.secret-flash {
+  position: absolute;
+  inset: 1px 2.5rem 1px 1px;
+  pointer-events: none;
+  background: linear-gradient(
+    100deg,
+    transparent 30%,
+    color-mix(in srgb, currentColor 22%, transparent) 50%,
+    transparent 70%
+  );
+  background-size: 250% 100%;
+  background-position: 120% 0;
+  opacity: 0;
+  animation: secret-flash 0.55s ease-out;
+}
+@keyframes secret-flash {
+  0% {
+    background-position: 120% 0;
+    opacity: 1;
+  }
+  100% {
+    background-position: -120% 0;
+    opacity: 0;
+  }
+}
+button.eye {
+  position: absolute;
+  top: 50%;
+  right: 0.35rem;
+  transform: translateY(-50%);
+  padding: 0.1rem 0.25rem;
+  border: none;
+  box-shadow: none;
+  line-height: 0;
+  color: inherit;
+}
+button.eye:not(:disabled):hover {
+  background: none;
+}
+button.eye:not(:disabled):active {
+  transform: translateY(-50%) translateY(1px);
+}
+.eye svg {
+  display: block;
+  overflow: visible;
+}
+/* Веко опускается сверху: масштаб по вертикали от верхнего края миндалины.
+   Открытый глаз под ним и закрытый поверх — меняются местами плавно. */
+.eye-lid {
+  transform-origin: 16px 2px;
+  transform: scaleY(0);
+  transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.secret.shut .eye-lid {
+  transform: scaleY(1.05);
+}
+.eye-open {
+  transition: opacity 0.2s ease 0.1s;
+}
+.secret.shut .eye-open {
+  opacity: 0;
+  transition-delay: 0s;
+}
+.eye-iris {
+  transition: transform 0.25s ease-out;
+}
+.eye-shut {
+  opacity: 0;
+  transform: translateY(-3px);
+  transition:
+    opacity 0.2s ease,
+    transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.secret.shut .eye-shut {
+  opacity: 1;
+  transform: translateY(0);
+  transition-delay: 0.12s;
+}
+/* Открытый глаз моргает время от времени: живой, а не пиктограмма. Моргает
+   вся открытая группа сжатием по вертикали — веко занято переходом, и
+   анимация на нём спорила бы с ним за transform. */
+.secret.open .eye-open {
+  transform-origin: 16px 11px;
+  animation: eye-blink 6s ease-in-out 2s infinite;
+}
+@keyframes eye-blink {
+  0%,
+  93%,
+  100% {
+    transform: scaleY(1);
+  }
+  96% {
+    transform: scaleY(0.08);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .secret input,
+  .secret-flash,
+  .eye-lid,
+  .eye-open,
+  .eye-shut,
+  .eye-iris {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+/* Шаги регистрации: четыре номера в строку, текущий выделен. */
+.steps {
+  display: flex;
+  justify-content: center;
+  gap: 0.75rem 1.25rem;
+  flex-wrap: wrap;
+  list-style: none;
+  padding: 0;
+  margin: 0 auto 0.5rem;
+  font-size: 0.85rem;
+  opacity: 0.85;
+}
+.steps li {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  opacity: 0.55;
+}
+.steps li.now {
+  opacity: 1;
+  font-weight: bold;
+}
+.steps li.done {
+  opacity: 0.8;
+}
+.steps .n {
+  display: inline-grid;
+  place-items: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  font-size: 0.75rem;
+}
+.steps li.now .n {
+  background: currentColor;
+  color: Canvas;
+}
+.steps li.done .n {
+  border-style: dashed;
+}
+
+/* Линии персонажа: две карточки рядом; недоступная — приглушена. */
+.lines {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(18rem, 100%), 1fr));
+  gap: 0.75rem;
+  align-items: stretch;
+  margin: 0.75rem 0;
+}
+.line {
+  display: flex;
+  flex-direction: column;
+}
+.line ul {
+  margin: 0.35rem 0;
+  padding-left: 1.1rem;
+  font-size: 0.9rem;
+}
+.line li {
+  margin: 0.2rem 0;
+}
+.line table {
+  margin-top: auto;
+}
+.line.soon {
+  border-style: dashed;
+  opacity: 0.6;
+}
+.line.picked {
+  border-color: currentColor;
+  box-shadow: inset 0 0 0 1px currentColor;
+}
+.soon-tag {
+  display: inline-block;
+  padding: 0.25rem 0.6rem;
+  border: 1px dashed currentColor;
+  opacity: 0.8;
+  font-style: italic;
+}
+
+/* Двери внутри регистрации: та же сетка, что и раньше. */
+.doors-step .doors {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(16rem, 100%), 1fr));
+  gap: 0.75rem;
+  align-items: start;
+  margin: 0.75rem 0;
+}
+.doors-step .search {
+  justify-content: center;
+}
+.doors-step .search input {
+  width: min(20rem, 100%);
+}
+
+/* Имя в шапке — теперь кнопка кабинета, но выглядит как имя. */
+header button.who {
+  border: none;
+  box-shadow: none;
+  padding: 0 0.15rem;
+  font-weight: bold;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 0.2em;
+}
+header button.who:not(:disabled):hover {
+  background: var(--wash);
+}
+
+/* Кабинет: то же окно, что и вступление, но со вкладками. */
+.intro.account > header {
+  border: none;
+  padding: 0;
+  gap: 0.5rem 0.75rem;
+}
+.intro.account > header h2 {
+  margin: 0;
+}
+.intro.account > header button {
+  margin-left: auto;
+}
+.intro.account nav.tabs {
+  margin: 0.5rem 0;
+}
+.intro.account > footer {
+  margin-top: 1rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--line);
+  opacity: 1;
+  font-size: inherit;
+}

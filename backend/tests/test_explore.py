@@ -141,6 +141,34 @@ async def test_разведчик_недоступен_как_спящий(
         await travel.require_here(session, body)
 
 
+async def test_разведчик_никуда_не_уходит_ногами(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """Тело в поле — идти ему неоткуда: его нет в узле (D-152).
+
+    Выход в дорогу проверяется той же дверью, что и всякое присутственное
+    действие: держать для него отдельный список условий значит однажды забыть
+    в нём строку — ровно так разведчик и уходил гулять по карте.
+    """
+    from src.engine import travel
+
+    планета, ворота, body = await _разведчик(session)
+    соседний = await world.create_node(
+        session, f"terra.next.{uuid.uuid4().hex[:8]}", "Соседний", area_m2=100,
+        layer=Layer.PLANET, parent=планета,
+    )
+    await travel.connect(session, ворота, соседний, base_seconds=30)
+
+    await explore.survey(session, constants, body)
+    with pytest.raises(travel.InField):
+        await travel.depart(session, constants, body, соседний)
+    assert body.node_id == ворота.id, "тело сдвинулось, оставаясь в разведке"
+
+    #: Отменил заход — и дорога снова открыта.
+    await explore.cancel(session, body)
+    await travel.depart(session, constants, body, соседний)
+
+
 async def test_отмена_возвращает_разведчика_сразу(
     session: AsyncSession, constants: Constants
 ) -> None:

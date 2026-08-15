@@ -13,14 +13,22 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants, current
 from src.constants import registry as R
 from src.engine import events
 from src.models.event import EventKind
-from src.models.identity import Account, Body, BodyState, Identity, Knowledge, KnowledgeKind
+from src.models.identity import (
+    Account,
+    Body,
+    BodyState,
+    Identity,
+    Knowledge,
+    KnowledgeKind,
+    Line,
+)
 from src.models.inventory import Container, ContainerKind, Item
 from src.models.world import Layer, Node, Planet, Vein
 from src.units import amount as to_amount
@@ -110,13 +118,31 @@ async def create_vein(
     return vein
 
 
-async def create_identity(session: AsyncSession, name: str) -> Identity:
-    """Аккаунт и личность. Один аккаунт — одна личность (D-011)."""
+async def create_identity(
+    session: AsyncSession,
+    name: str,
+    *,
+    email: str | None = None,
+    password: str | None = None,
+    line: Line = Line.HUMAN,
+    profile: dict[str, Any] | None = None,
+) -> Identity:
+    """Аккаунт и личность. Один аккаунт — одна личность (D-011).
+
+    Почта и пароль — опознание аккаунта (D-187); без них личность заводится
+    только сидом и тестами. Фамилия, возраст, описание — самоописание.
+    """
+    from src.engine import account as accounts
+
     account = Account()
     session.add(account)
     await session.flush()
+    if email is not None or password is not None:
+        await accounts.set_credentials(session, account, email or "", password or "")
 
-    identity = Identity(account_id=account.id, name=name)
+    identity = Identity(account_id=account.id, name=name, line=line)
+    if profile:
+        accounts.apply_profile(identity, profile)
     session.add(identity)
     await session.flush()
 
@@ -237,6 +263,10 @@ async def doors(
                 #: единственная дверь, которая не зависит от чьей-то казны.
                 "precursor": предтечи,
                 "citizens": 0 if город is None else len(await town.citizens_of(session, город)),
+                #: Сколько людей сейчас стоит на земле города: живых тел, а не
+                #: паспортов. Новичку важнее, кого он встретит, чем кто где
+                #: прописан (D-187).
+                "population": 0 if город is None else await population(session, город.node_id),
                 #: Подъёмные — обещание города, а не выдача движка (D-153):
                 #: платит казна, и город вправе не платить вовсе. Минорными
                 #: единицами, как всякая цена наружу.
@@ -257,9 +287,26 @@ async def doors(
                 ),
             }
         )
-    #: Города впереди, Принтер Предтеч последним: у него нет ни жителей, ни
-    #: подъёмных, и как запасная дверь он читается лучше в конце списка.
-    return sorted(список, key=lambda дверь: (дверь["precursor"], дверь["name"]))
+    #: Людные города впереди, Принтер Предтеч последним: у него нет ни жителей,
+    #: ни подъёмных, и как запасная дверь он читается лучше в конце списка.
+    return sorted(
+        список,
+        key=lambda дверь: (дверь["precursor"], -дверь["population"], дверь["name"]),
+    )
+
+
+async def population(session: AsyncSession, city_node_id: uuid.UUID) -> int:
+    """Живые тела на территории города — узлах под его узлом-представителем."""
+    return int(
+        (
+            await session.execute(
+                select(func.count())
+                .select_from(Body)
+                .join(Node, Node.id == Body.node_id)
+                .where(Node.parent_id == city_node_id, Body.state == BodyState.ALIVE)
+            )
+        ).scalar_one()
+    )
 
 
 async def door(session: AsyncSession, key: str) -> Node | None:
@@ -282,7 +329,16 @@ async def door(session: AsyncSession, key: str) -> Node | None:
     return узел
 
 
-async def spawn(session: AsyncSession, name: str, node: Node) -> tuple[Identity, Body]:
+async def spawn(
+    session: AsyncSession,
+    name: str,
+    node: Node,
+    *,
+    email: str | None = None,
+    password: str | None = None,
+    line: Line = Line.HUMAN,
+    profile: dict[str, Any] | None = None,
+) -> tuple[Identity, Body]:
     """Новый игрок: личность, тело у биопринтера и **ноль на счету** (D-153).
 
     Мир денег не выдаёт: любой такой выпуск был бы эмиссией, размывающей деньги
@@ -306,7 +362,9 @@ async def spawn(session: AsyncSession, name: str, node: Node) -> tuple[Identity,
     if существует is not None:
         raise ValueError(f"имя {name!r} уже занято: имя сменить нельзя (D-011)")
 
-    identity = await create_identity(session, name)
+    identity = await create_identity(
+        session, name, email=email, password=password, line=line, profile=profile
+    )
     body = await print_body(session, identity, node)
 
     город = await town.of_node(session, node)
