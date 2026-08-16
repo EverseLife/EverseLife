@@ -296,6 +296,17 @@ BUILD_FLOOR_PER_M2 = Num("build.floor_per_m2")
 BUILD_MATERIALS_PER_M2 = Table("build.materials_per_m2")
 #: Assembly labour: hours per square metre. Construction is work, not a button.
 BUILD_LABOR_PER_M2 = Num("build.labor_per_m2")
+#: Height (D-125, D-145). Floors stand on one footprint, so a house grows
+#: upwards where the plot does not grow sideways -- and each next floor costs
+#: `floor_cost_growth` times more than the one below it. From
+#: `reinforce_from_floor` upwards a frame is needed, and that is `reinforce_k`
+#: on top. The ceiling of height and the material multiplier come from the
+#: durability tier: a timber house does not become an eight-storey one.
+BUILD_FLOOR_COST_GROWTH = Num("build.floor_cost_growth")
+BUILD_REINFORCE_FROM_FLOOR = Num("build.reinforce_from_floor")
+BUILD_REINFORCE_K = Num("build.reinforce_k")
+BUILD_STRENGTH_K = Table("build.strength_k")
+BUILD_FLOORS_BY_STRENGTH = Table("build.floors_by_strength")
 
 # --- City economic panel (D-124, D-140) -------------------------------------
 #: Summary step. Deliberately slower than the market: instant data would give
@@ -329,6 +340,11 @@ EXPLORE_VEIN_SHARE = Num("explore.vein_share")
 #: Forest cover of the world (D-191): the share of finds carrying woods, and
 #: the same share narrows the chance when the woods are what you asked for.
 EXPLORE_FOREST_SHARE = Num("explore.forest_share")
+#: Stony and meadow places (D-196): stone and wild flax are gathered by hand.
+EXPLORE_STONES_SHARE = Num("explore.stones_share")
+EXPLORE_MEADOW_SHARE = Num("explore.meadow_share")
+#: How many times slower bare hands are than a tool (D-196).
+HARVEST_BAREHAND_K = Num("harvest.barehand_k")
 EXPLORE_NODE_AREA = Span("explore.node_area")
 #: The transit length to a find is set by the node's distance (D-180), not by a
 #: separate exploration quantity: `explore.distance` is abolished.

@@ -123,6 +123,89 @@ def test_place_extraction_goes_as_batch(catalog: Catalog) -> None:
     assert not method.needs_recipe
 
 
+def test_wood_has_two_ways_and_the_worker_picks(catalog: Catalog) -> None:
+    """Felling and deadwood give the same wood, and the way is named (D-196).
+
+    Without a named way the resolver took the first operation, and gathering by
+    hand was unreachable -- the axe stayed locked behind the axe.
+    """
+    felling = craft.procedure(catalog, "Дерево", way="Рубка дерева")
+    assert "Топор" in felling.tools
+
+    deadwood = craft.procedure(catalog, "Дерево", way="Сбор валежника")
+    assert deadwood.tools == (), "валежник собирают руками"
+    assert deadwood.place == "лес"
+    assert deadwood.step_hours > felling.step_hours, "руками дольше, чем топором"
+
+
+def test_unknown_way_is_refused(catalog: Catalog) -> None:
+    """A made-up way is not silently replaced by any other."""
+    with pytest.raises(craft.Unmakeable):
+        craft.procedure(catalog, "Дерево", way="Телекинез")
+
+
+def test_stone_axe_ladder_needs_no_tools(catalog: Catalog) -> None:
+    """The whole ladder from bare hands to the first axe (D-196).
+
+    Every step is either gathering at a place or handwork: if any of them asks
+    for a machine or a tool, the world cannot be started from scratch.
+    """
+    for output, way in (
+        ("Дерево", "Сбор валежника"),
+        ("Камень", "Сбор камней"),
+        ("Дикий лён", "Сбор льна"),
+    ):
+        step = craft.procedure(catalog, output, way=way)
+        assert step.tools == () and step.station is None, output
+        assert step.place is not None, output
+
+    for output in ("Волокно", "Верёвка", "Каменный топор"):
+        step = craft.procedure(catalog, output)
+        assert step.station is None, f"{output} должен собираться руками"
+
+    axe = craft.procedure(catalog, "Каменный топор")
+    assert set(axe.inputs) == {"Камень", "Дерево", "Верёвка"}
+
+
+async def test_barehanded_gathering_starts_on_wild_land(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """A newcomer with nothing in hands starts the world: a grove, hands, wood."""
+    stamp = uuid.uuid4().hex[:8]
+    grove = await world.create_node(
+        session,
+        f"terra.grove.{stamp}",
+        "Роща",
+        area_m2=10_000,
+        properties={"лес": True},
+    )
+    identity = await world.create_identity(session, f"Новичок-{stamp}")
+    body = await world.print_body(session, identity, grove)
+
+    batch = await craft.start(
+        session, constants, catalog, body, "Дерево", 3, way="Сбор валежника"
+    )
+    assert batch.state is BatchState.RUNNING
+    assert batch.ready_at > batch.started_at
+
+
+async def test_gathering_asks_for_the_right_place(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Flax grows in a meadow: in a grove there is nothing to gather (D-177)."""
+    stamp = uuid.uuid4().hex[:8]
+    grove = await world.create_node(
+        session, f"terra.grove.{stamp}", "Роща", area_m2=10_000, properties={"лес": True}
+    )
+    identity = await world.create_identity(session, f"Новичок-{stamp}")
+    body = await world.print_body(session, identity, grove)
+
+    with pytest.raises(craft.CraftError):
+        await craft.start(
+            session, constants, catalog, body, "Дикий лён", 1, way="Сбор льна"
+        )
+
+
 def test_dishes_wait_for_cooking(catalog: Catalog) -> None:
     """Roles arrive together with cooking on E2 (D-119), and pretending is not allowed."""
     with pytest.raises(craft.Unmakeable):
@@ -136,8 +219,13 @@ def test_time_grows_with_processing_depth(catalog: Catalog, constants: Constants
     assert pickaxe > nails > 0
 
     #: The own step of the first processing level is exactly `craft.time_per_unit`.
+    #: Fiber, not rope: since D-196 the flax goes raw -> fiber -> rope, and rope
+    #: became the second level -- which is exactly what the ladder should charge for.
+    fiber = craft.step_hours(catalog, catalog.recipes.recipe("Волокно"))
+    assert fiber * 60 == pytest.approx(constants[R.CRAFT_TIME_PER_UNIT], rel=0.05)
+
     rope = craft.step_hours(catalog, catalog.recipes.recipe("Верёвка"))
-    assert rope * 60 == pytest.approx(constants[R.CRAFT_TIME_PER_UNIT], rel=0.05)
+    assert rope > fiber, "верёвка теперь глубже волокна"
 
 
 def test_broken_machine_works_slowly(catalog: Catalog, constants: Constants) -> None:

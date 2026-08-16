@@ -94,6 +94,39 @@ async def test_founder_gets_full_authority(
         await town.install_founder(session, city, president)
 
 
+async def test_founder_is_a_citizen_of_own_city(
+    session: AsyncSession, catalog: Catalog
+) -> None:
+    """A ruler must not be a stranger at home (D-195).
+
+    Without citizenship they could not vote, borrowed at a newcomer's rate and
+    paid a visitor's duties in the city they themselves founded.
+    """
+    city, core = await _capital(session, catalog)
+    president, _ = await _resident(session, core, "Президент")
+    await town.install_founder(session, city, president)
+
+    assert await town.is_citizen(session, president.id, city)
+
+
+async def test_founding_ends_the_previous_citizenship(
+    session: AsyncSession, catalog: Catalog
+) -> None:
+    """There is one citizenship per person (D-160): "left and founded my own"."""
+    from src.models.city import Citizen
+
+    old_city, old_core = await _capital(session, catalog)
+    person, _ = await _resident(session, old_core, "Переселенец")
+    session.add(Citizen(identity_id=person.id, city_id=old_city.id))
+    await session.flush()
+
+    new_city, _ = await _capital(session, catalog)
+    await town.install_founder(session, new_city, person)
+
+    assert await town.is_citizen(session, person.id, new_city)
+    assert not await town.is_citizen(session, person.id, old_city)
+
+
 async def test_law_not_edited_without_power(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
@@ -335,15 +368,17 @@ async def test_city_hands_out_plots(
     plot.owner_city_id = city.id
     await session.flush()
 
-    #: Civic land cannot be taken by hand -- that is what makes it civic.
     body.node_id = plot.id
-    with pytest.raises(world.LandError):
-        await world.claim_node(session, body, plot)
-
     await town.allot(
         session, president, city, plot, resident, body=president_body
     )
     assert plot.owner_identity_id == resident.id
+
+    #: And an allotted plot is not handed out a second time: it is title, not a
+    #: queue. Taking land by hand is gone entirely (D-198).
+    other, _ = await _resident(session, core, "Второй")
+    with pytest.raises(world.LandError):
+        await world.grant_node(session, plot, other)
 
 
 # --- narrow rights and presence (D-155) --------------------------------------
@@ -462,7 +497,7 @@ async def test_disconnected_administration_does_not_govern(
 
 
 async def _wasteland(session: AsyncSession, name: str = "Основатель"):
-    """Own node on the planet: found by exploration and taken in person."""
+    """Nobody's node on the planet: found by exploration, owned by no one (D-198)."""
     stamp = uuid.uuid4().hex[:8]
     planet = await world.create_node(
         session, f"terra.{stamp}", "Терра", area_m2=1, layer=Layer.SPACE
@@ -472,7 +507,6 @@ async def _wasteland(session: AsyncSession, name: str = "Основатель"):
         layer=Layer.PLANET, parent=planet, properties={"дикий": True},
     )
     identity, body = await _resident(session, place, name)
-    await world.claim_node(session, body, place)
     return place, identity, body
 
 
@@ -528,18 +562,38 @@ async def test_no_city_without_buildings(
 
 
 async def test_no_city_founded_on_foreign_land(
-    session: AsyncSession, constants: Constants, catalog: Catalog
+    session: AsyncSession, constants: Constants, catalog: Catalog, own_plot
 ) -> None:
-    place, _, body = await _wasteland(session)
+    """A city is not founded over a living owner's head.
+
+    Nobody's land needs no title (D-198) -- so the plot here is deliberately
+    civic and held by someone: only then is there somebody else's land at all.
+    """
+    place, holder, body = await _wasteland(session)
     await _build_up(session, place)
+    await own_plot(place, holder)
+    place.owner_city_id = None
+    await session.flush()
     _, alien = await _resident(session, place, "Чужак")
 
     with pytest.raises(town.NotYours):
         await town.establish(session, constants, catalog, alien, "Чужеград")
 
 
-async def test_land_under_city_goes_to_city(
+async def test_city_founded_on_nobodys_land(
     session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Land outside a city is never privatized, and founding does not ask for title (D-198)."""
+    place, _, body = await _wasteland(session)
+    await _build_up(session, place)
+    assert place.owner_identity_id is None
+
+    city = await town.establish(session, constants, catalog, body, "Новоград")
+    assert place.owner_city_id == city.id
+
+
+async def test_land_under_city_goes_to_city(
+    session: AsyncSession, constants: Constants, catalog: Catalog, own_plot
 ) -> None:
     """The location becomes city territory, and the deed is cancelled (D-159)."""
     from sqlalchemy import select
@@ -548,10 +602,15 @@ async def test_land_under_city_goes_to_city(
 
     place, identity, body = await _wasteland(session)
     await _build_up(session, place)
+    #: A held plot: the founder's own yard with a deed on it -- that is the
+    #: paper the founding has to cancel.
+    await own_plot(place, identity)
+    place.owner_city_id = None
+    await session.flush()
     deed = (
         await session.execute(select(Deed).where(Deed.node_id == place.id))
     ).scalar_one_or_none()
-    assert deed is not None, "занятие участка выдаёт бумагу (D-116)"
+    assert deed is not None, "выдача участка сопровождается бумагой (D-116)"
 
     city = await town.establish(session, constants, catalog, body, "Новоград")
 

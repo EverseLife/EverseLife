@@ -25,16 +25,22 @@ GOODS = "Брус"
 
 
 async def _yard(session: AsyncSession):
-    """Own plot with a building: a chest is placed in a house, not under the open sky."""
+    """Own plot with a building: a chest is placed in a house, not under the open sky.
+
+    The plot is civic and handed over to the owner: outside a city land is
+    never privatized (D-198), and there both floor and chest are open to all --
+    which is exactly what these tests must not be checking.
+    """
     stamp = uuid.uuid4().hex[:8]
     node = await world.create_node(
         session, f"terra.home.{stamp}", "Дом", area_m2=200
     )
+    node.owner_city_id = uuid.uuid4()
     session.add(Building(node_id=node.id, area_m2=200))
     await session.flush()
     identity = await world.create_identity(session, f"Хозяин-{stamp}")
     body = await world.print_body(session, identity, node)
-    await world.claim_node(session, body, node)
+    await world.grant_node(session, node, identity)
     return node, identity, body
 
 

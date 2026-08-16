@@ -98,7 +98,7 @@ from src.engine import events
 from src.engine.jobs import enqueue, handler
 from src.models.event import EventKind
 from src.models.identity import Body, BodyState
-from src.models.job import Job, JobKind
+from src.models.job import Job, JobKind, JobState
 from src.models.travel import Travel, TravelState
 from src.models.world import Edge, Node, Surface
 from src.units import SECONDS_PER_HOUR
@@ -291,6 +291,7 @@ async def route(
     to_node_id: uuid.UUID,
     *,
     vehicle: str | None = None,
+    traveller: uuid.UUID | None = None,
 ) -> list[uuid.UUID]:
     """The fastest path by time between nodes: a list of nodes, without the start.
 
@@ -303,11 +304,43 @@ async def route(
     and a heavy one needs a paved highway (D-107). The route is built over
     passable edges -- no point leading a carter into a dead end to stop there.
     """
-    from src.engine import transport
+    from src.engine import access, transport
+
+    #: Somebody else's closed yard is not a road (D-199): the route goes around
+    #: it rather than breaking off at the fence. The destination itself is
+    #: checked separately -- a refusal there must name the reason, not report
+    #: "no road at all".
+    #:
+    #: Two ways to be barred, and both must be here: a shut gate, and a name in
+    #: the roster of an open yard. Filtering by `gated` alone let a blacklisted
+    #: traveller be routed straight through the yard that named them.
+    barred: set[uuid.UUID] = set()
+    if traveller is not None:
+        from src.models.world import NodePass
+
+        named = select(NodePass.node_id).where(NodePass.identity_id == traveller)
+        candidates = await session.execute(
+            select(Node).where(
+                Node.owner_identity_id.is_not(None),
+                Node.gated | Node.id.in_(named),
+            )
+        )
+        for plot in candidates.scalars():
+            #: Neither end of the road is filtered out. The destination gets its
+            #: own refusal, which names the reason instead of reporting "no road
+            #: at all"; and the node one is standing in must stay passable even
+            #: when the gate has shut behind -- the gate stops arrivals, never
+            #: departures, otherwise a guest is locked in with their body.
+            if plot.id in (from_node_id, to_node_id):
+                continue
+            if not await access.may_enter(session, plot, traveller):
+                barred.add(plot.id)
 
     edges = (await session.execute(select(Edge))).scalars().all()
     graph: dict[uuid.UUID, list[tuple[uuid.UUID, float]]] = {}
     for edge in edges:
+        if edge.node_a_id in barred or edge.node_b_id in barred:
+            continue
         if vehicle is not None and not transport.passable(
             constants, edge.surface, vehicle
         ):
@@ -401,6 +434,12 @@ async def depart(
             "рассчитаетесь. Заплатить за вас вправе кто угодно"
         )
 
+    #: Somebody else's shut yard is refused at departure, not at the fence
+    #: (D-199): a road one cannot finish is not worth setting out on.
+    from src.engine import access
+
+    await access.require_entry(session, target, body)
+
     #: A convoy changes both speed and the passability of edges (D-107, D-157).
     from src.engine import transport
 
@@ -417,6 +456,7 @@ async def depart(
             body.node_id,
             target.id,
             vehicle=None if convoy is None else convoy.type_key,
+            traveller=body.identity_id,
         )
         edge = await _edge_between(session, body.node_id, legs[0])
         assert edge is not None  # noqa: S101 -- a route consists of edges
@@ -500,6 +540,57 @@ async def depart(
         body_id=body.id,
     )
     return travel
+
+
+class NotGoing(TravelError):
+    """The body is not on the road: there is nothing to turn back from."""
+
+
+async def turn_back(
+    session: AsyncSession, body: Body, *, now: datetime | None = None
+) -> Travel:
+    """Turn back from the road: the body stays where it left from (D-194).
+
+    There is no half of an edge in this world -- a node is the unit of place,
+    so cancelling returns rather than stops midway. What was spent is not
+    returned: stamina was written off up front and time has passed.
+
+    The autopath tail goes with it: otherwise the body would walk on along a
+    plan its owner has already cancelled.
+    """
+    moment = now or datetime.now(UTC)
+    going = await current(session, body)
+    if going is None:
+        raise NotGoing("тело не в пути: возвращаться неоткуда")
+
+    going.state = TravelState.CANCELLED
+    going.plan = None
+    going.arrived_at = moment
+    await session.flush()
+
+    #: The leg's job is dropped so that the arrival does not fire on schedule.
+    legs = (
+        await session.execute(
+            select(Job).where(
+                Job.kind == JobKind.TRAVEL_LEG.value,
+                Job.state == JobState.PENDING,
+                Job.payload["travel"].astext == str(going.id),
+            )
+        )
+    ).scalars().all()
+    for leg in legs:
+        leg.state = JobState.CANCELLED
+        leg.finished_at = moment
+    await session.flush()
+
+    await events.record(
+        session,
+        EventKind.TRAVEL_CANCELLED,
+        actor_identity_id=body.identity_id,
+        node_id=body.node_id,
+        travel_id=str(going.id),
+    )
+    return going
 
 
 @handler(JobKind.TRAVEL_LEG)

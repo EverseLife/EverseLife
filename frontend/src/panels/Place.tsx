@@ -18,6 +18,7 @@ import type { Bench, Look, Session, Vehicle } from "../api";
 import { Amount } from "../Amount";
 import { chosen } from "../amounts";
 import { when } from "../clock";
+import { Farm } from "./Farm";
 
 type Props = {
   look: Look;
@@ -51,21 +52,24 @@ export function Place({ look, session, busy, act, book }: Props) {
         <Gather look={look} session={session} busy={busy} act={act} book={book} />
         {/* На ничьей земле лежащее свободно: брошенное в поле — находка (D-192). */}
         <Floor look={look} session={session} busy={busy} act={act} />
+        {/* Строить за городом может всякий, хоть земля и остаётся ничьей
+            (D-198): дом принадлежит построившему, земля под ним — никому. */}
+        {wild && <House look={look} session={session} busy={busy} act={act} />}
+        {/* Поле на ничьей земле тоже открыто: кто вспахал, тот и хозяйничает. */}
+        {wild && look.node?.fertility ? (
+          <Farm look={look} session={session} busy={busy} act={act} />
+        ) : null}
         <section>
         <h2>Участок</h2>
         <p className="note">
           {look.node?.name} · {look.node?.area.toFixed(0)} м² · ничей
         </p>
         {wild ? (
-          <div className="row">
-            <button onClick={() => act(() => session.send("land.claim"))} disabled={busy}>
-              Занять участок
-            </button>
-            <span className="note">
-              Бесплатно и присутственно; бумага на владение появится в
-              «хозяйстве» (D-116).
-            </span>
-          </div>
+          <p className="note">
+            Земля за городом ничья и таковой остаётся: бумагу на владение
+            выдаёт город, а здесь его нет (D-198). Работать и строить тут
+            может всякий — поставленное принадлежит поставившему.
+          </p>
         ) : price !== null ? (
           <div className="row">
             <button onClick={() => act(() => session.send("land.buy"))} disabled={busy}>
@@ -90,7 +94,15 @@ export function Place({ look, session, busy, act, book }: Props) {
   return (
     <>
       <Plot look={look} session={session} busy={busy} act={act} />
-      {(mine || hasPower) && <Building look={look} session={session} busy={busy} act={act} />}
+      {(mine || wild || hasPower) && (
+        <House look={look} session={session} busy={busy} act={act} />
+      )}
+      {/* Земледелие стоит рядом с домом, а не только во вкладке: где владеешь
+          землёй — там ею и распоряжаешься. Вне города поле открыто всякому
+          (D-198), и окно там тоже к месту. */}
+      {(mine || wild) && look.node?.fertility ? (
+        <Farm look={look} session={session} busy={busy} act={act} />
+      ) : null}
       <Gather look={look} session={session} busy={busy} act={act} book={book} />
       <Foundation look={look} session={session} busy={busy} act={act} />
       <Citizenship look={look} session={session} busy={busy} act={act} />
@@ -383,6 +395,7 @@ function Plot({ look, session, busy, act }: Omit<Props, "book">) {
       <h2>Участок</h2>
       <p className="note">
         {node.name} · {node.area.toFixed(0)} м² · {whose}
+        {node.gated && " · двор заперт"}
         {node.cut_off && " · отключён за неуплату"}
       </p>
       {node.may_name && (
@@ -412,63 +425,217 @@ function Plot({ look, session, busy, act }: Omit<Props, "book">) {
           </span>
         </div>
       )}
+      {node.mine && <Gate look={look} session={session} busy={busy} act={act} />}
     </section>
   );
 }
 
-/** Own plot's building: how much is built, how many places, construction. */
-function Building({ look, session, busy, act }: Omit<Props, "book">) {
+/** The gate of one's own yard: open or shut, and one roster (D-199).
+ *
+ * The list is deliberately single: with the yard open the named do not get in,
+ * with it shut only they do. Two lists would need rules for contradictions
+ * between them -- and every such rule is one more thing to learn.
+ */
+function Gate({ look, session, busy, act }: Omit<Props, "book">) {
+  const node = look.node;
+  const [who, setWho] = useState("");
+  if (!node) return null;
+
+  const roster = node.roster ?? [];
+  const shut = Boolean(node.gated);
+
+  return (
+    <>
+      <div className="row">
+        <button
+          onClick={() => act(() => session.send("gate.set", { closed: !shut }))}
+          disabled={busy}
+        >
+          {shut ? "Открыть двор" : "Запереть двор"}
+        </button>
+        <span className="note">
+          {shut
+            ? "Заперт: входят только названные ниже. Хозяин — всегда."
+            : "Открыт: входят все, кроме названных ниже."}
+          {" Выйти можно всегда: захлопнуть двор при госте нельзя."}
+        </span>
+      </div>
+      <div className="row">
+        <input
+          value={who}
+          onChange={(e) => setWho(e.target.value)}
+          placeholder="имя"
+          title={shut ? "кого пускать" : "кого не пускать"}
+        />
+        <button
+          onClick={() =>
+            act(async () => {
+              await session.send("gate.list", { who: who.trim() });
+              setWho("");
+            })
+          }
+          disabled={busy || !who.trim()}
+        >
+          {shut ? "Пускать" : "Не пускать"}
+        </button>
+        {roster.length > 0 && (
+          <span className="note">
+            {shut ? "Пускаем: " : "Не пускаем: "}
+            {roster.map((name) => (
+              <button
+                key={name}
+                onClick={() =>
+                  act(() => session.send("gate.list", { who: name, strike: true }))
+                }
+                disabled={busy}
+                title="убрать из списка"
+              >
+                {name} ✕
+              </button>
+            ))}
+          </span>
+        )}
+      </div>
+    </>
+  );
+}
+
+/** The house: what stands, what is being raised, and what a new one costs.
+ *
+ * Storeys are the whole point of the window (D-125, D-145): the plot limits
+ * the footprint, not the workshop -- a house grows upwards where the ground
+ * does not grow sideways. The bill is shown **before** the work and against
+ * what is in hand, so that "wood 12 of 30" is read at the plan and not
+ * discovered at the click.
+ */
+function House({ look, session, busy, act }: Omit<Props, "book">) {
   const home = look.node?.building;
   const plot = look.node?.area ?? 0;
   const [area, setArea] = useState(20);
+  const [floors, setFloors] = useState(1);
+  const [bill, setBill] = useState<any>(null);
   if (!home) return null;
 
-  const free = Math.max(0, plot - home.area);
+  const free = Math.max(0, plot - home.ground);
+  const going = home.building ?? [];
+
+  const count = async () => {
+    setBill(await session.send("build.estimate", { area, floors, strength: 1 }));
+  };
+
+  const short = (bill?.materials ?? []).filter((m: any) => m.have < m.need);
 
   return (
     <section>
-      <h2>Здание</h2>
+      <h2>Дом</h2>
       {home.area > 0 ? (
         <p>
-          застроено <b>{home.area.toFixed(0)} м²</b> · мест под оборудование{" "}
+          жилой площади <b>{home.area.toFixed(0)} м²</b> в{" "}
+          <b>{home.floors}</b> эт. на {home.ground.toFixed(0)} м² земли · мест
+          под оборудование{" "}
           <b>
             {home.used} из {home.slots}
           </b>
         </p>
       ) : (
         <p className="note">
-          Здания нет — только двор. Станки и мебель ставят в здание: сначала
-          строят (D-106).
+          Дома нет — только двор. Станки и мебель ставят в дом: сначала строят
+          (D-106).
         </p>
       )}
-      {look.node?.mine && free > 0 && (
-        <div className="row">
-          <input
-            type="number"
-            min={1}
-            max={Math.floor(free)}
-            value={area}
-            onChange={(e) => setArea(Number(e.target.value))}
-            title="площадь пристройки, м²"
-          />
-          <button
-            onClick={() => act(() => session.send("build.construct", { area: area }))}
-            disabled={busy || area <= 0 || area > free}
-          >
-            Строить {area} м²
-          </button>
-          <span className="note">
-            Материалы спишутся сразу, здание встанет по сроку. Свободно{" "}
-            {free.toFixed(0)} м² двора.
-          </span>
-        </div>
+
+      {going.length > 0 && (
+        <p className="note">
+          Строится: {going.map((w) => `${w.area.toFixed(0)} м² в ${w.floors} эт.`).join(", ")}
+          {" · готово "}
+          {when(going[0].ready_at)}. Материалы уже в стене.
+        </p>
+      )}
+
+      {/* Ничью землю за городом строит всякий пришедший (D-198): окно нужно и
+          там, иначе правило есть, а руки к нему не приложить. */}
+      {(look.node?.mine || look.node?.wild) && free > 0 && (
+        <>
+          <div className="row">
+            <input
+              type="number"
+              min={1}
+              max={Math.floor(free)}
+              value={area}
+              onChange={(e) => setArea(Number(e.target.value))}
+              title="пятно застройки, м²"
+            />
+            <input
+              type="number"
+              min={1}
+              value={floors}
+              onChange={(e) => setFloors(Number(e.target.value))}
+              title="этажей"
+            />
+            <button onClick={() => act(count)} disabled={busy || area <= 0}>
+              Посчитать смету
+            </button>
+            <span className="note">
+              {area} м² × {floors} эт. = {area * floors} м² жилой площади.
+              Свободно {free.toFixed(0)} м² двора.
+            </span>
+          </div>
+
+          {bill && (
+            <>
+              <table>
+                <tbody>
+                  {bill.materials.map((m: any) => (
+                    <tr key={m.goods}>
+                      <td>{m.goods}</td>
+                      <td className={m.have < m.need ? "note" : undefined}>
+                        {m.have.toFixed(1)} из {m.need.toFixed(1)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div className="row">
+                <button
+                  onClick={() =>
+                    act(async () => {
+                      await session.send("build.construct", {
+                        area,
+                        floors,
+                        strength: 1,
+                      });
+                      setBill(null);
+                    })
+                  }
+                  disabled={busy || short.length > 0 || area > free}
+                >
+                  Строить {area} м² в {floors} эт.
+                </button>
+                <span className="note">
+                  {short.length > 0
+                    ? `Не хватает: ${short.map((m: any) => m.goods).join(", ")}`
+                    : `Работы на ${(bill.minutes / 60).toFixed(1)} ч; выше ${bill.max_floors} эт. дерево не держит.`}
+                </span>
+              </div>
+            </>
+          )}
+        </>
       )}
     </section>
   );
 }
 
-/** Human-readable titles of place signs: while there is one sign -- forest. */
-const PLACES: Record<string, string> = { forest: "Лес" };
+/** Human-readable titles of place signs.
+ *
+ * The keys are the node properties themselves, and those come from the vault
+ * in Russian -- they are game data, not identifiers. A key translated to
+ * English silently stopped matching and the window showed the raw property.
+ */
+const PLACES: Record<string, string> = {
+  лес: "Лес",
+  камни: "Камни",
+  луг: "Луг",
+};
 
 /** Place extraction (D-177): felling -- and future gathering -- without a machine.
  *
@@ -492,11 +659,19 @@ function Gather({ look, session, busy, act, book }: Props) {
     inHands.has(withWhat) ||
     ((book?.tool_classes?.[withWhat] ?? []) as string[]).some((i) => inHands.has(i));
 
+  //: One sign -- one window, even when several operations hang on it: in a
+  //: forest you both fell trees and gather deadwood (D-196), and two sections
+  //: titled "Лес" one under the other read as a bug.
+  const bySign = new Map<string, any[]>();
+  for (const operation of operations) {
+    bySign.set(operation.place, [...(bySign.get(operation.place) ?? []), operation]);
+  }
+
   return (
     <>
-      {operations.map((operation: any) => (
-        <section key={operation.name}>
-          <h2>{PLACES[operation.place] ?? operation.place}</h2>
+      {[...bySign].map(([sign, ways]) => (
+        <section key={sign}>
+          <h2>{PLACES[sign] ?? sign}</h2>
           <div className="row">
             <input
               type="number"
@@ -505,30 +680,40 @@ function Gather({ look, session, busy, act, book }: Props) {
               onChange={(e) => setQty(Number(e.target.value))}
               title="сколько добыть"
             />
-            {(operation.gives as string[]).map((exit) => {
-              const fits = (operation.requires as string[]).every(hasMeans);
-              return (
-                <button
-                  key={exit}
-                  onClick={() =>
-                    act(() =>
-                      session.send("craft.start", { output: exit, units: qty }),
-                    )
-                  }
-                  disabled={busy || qty <= 0 || !fits}
-                  title={
-                    fits
-                      ? `партия пойдёт временем, готовое — в «делах»`
-                      : `нужен: ${(operation.requires as string[]).join(", ")}`
-                  }
-                >
-                  {operation.name}: {exit}
-                </button>
-              );
-            })}
+            {ways.flatMap((operation: any) =>
+              (operation.gives as string[]).map((exit) => {
+                const needs = operation.requires as string[];
+                const fits = needs.every(hasMeans);
+                return (
+                  <button
+                    key={`${operation.name}:${exit}`}
+                    onClick={() =>
+                      act(() =>
+                        session.send("craft.start", {
+                          output: exit,
+                          units: qty,
+                          //: Wood comes both from felling and from deadwood --
+                          //: the button says which one it is (D-196).
+                          way: operation.name,
+                        }),
+                      )
+                    }
+                    disabled={busy || qty <= 0 || !fits}
+                    title={
+                      fits
+                        ? needs.length > 0
+                          ? `нужен ${needs.join(", ")}; готовое — в «делах»`
+                          : "голыми руками, потому и дольше; готовое — в «делах»"
+                        : `нужен: ${needs.join(", ")}`
+                    }
+                  >
+                    {operation.name}: {exit}
+                  </button>
+                );
+              }),
+            )}
             <span className="note">
-              Нужен {(operation.requires as string[]).join(", ")}; партия идёт
-              временем, готовое забирается в «делах».
+              Партия идёт временем, готовое забирается в «делах».
             </span>
           </div>
         </section>

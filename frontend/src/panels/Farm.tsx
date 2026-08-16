@@ -2,8 +2,9 @@
  * Plots -- the location scene (D-118).
  *
  * Everything here is in-person: land is surveyed, ploughed, sown, tended and
- * harvested on foot -- and only on your own plot. Somebody else's land shows
- * the owner, wild land offers to take it: land is not given by announcement (06-farming).
+ * harvested on foot. Somebody else's land shows the owner; nobody's land
+ * outside a city is farmed by whoever comes -- it is never privatized, and the
+ * field on it is open to all (D-198).
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -57,7 +58,10 @@ const STATE: Record<Row["state"], string> = {
 };
 
 export function Farm({ look, session, busy, act }: Props) {
-  const mine = Boolean(look.node?.mine);
+  //: Nobody's land outside a city is farmed by whoever comes (D-198): the
+  //: ground has no owner and never will, but the crop on it is somebody's.
+  const nobodys = Boolean(look.node?.wild);
+  const mine = Boolean(look.node?.mine) || nobodys;
   const owner = look.node?.owner ?? null;
   const [rows, setRows] = useState<Row[]>([]);
   const [plants, setPlants] = useState<
@@ -95,7 +99,7 @@ export function Farm({ look, session, busy, act }: Props) {
       await reload();
     });
 
-  //: The holder runs the estate: take the land first (06-farming).
+  //: The holder runs the estate: civic land is bought first (06-farming).
   if (!mine) {
     return (
       <section>
@@ -106,18 +110,10 @@ export function Farm({ look, session, busy, act }: Props) {
             плюс доля через договор (D-116).
           </p>
         ) : (
-          <>
-            <p className="note">
-              Дикий участок: плодородие {look.node?.fertility.toFixed(0)}.
-              Занять может первый дошедший — земля не даётся объявлением.
-            </p>
-            <button
-              onClick={() => act(() => session.send("land.claim"))}
-              disabled={busy}
-            >
-              Занять участок
-            </button>
-          </>
+          <p className="note">
+            Городская земля: чтобы вести здесь хозяйство, участок надо выкупить
+            в окне «Участок».
+          </p>
         )}
       </section>
     );

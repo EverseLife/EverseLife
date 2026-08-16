@@ -162,7 +162,9 @@ async def seed(session: AsyncSession) -> Node:
     mine_ = await world.create_node(
         session, "terra.coal", "Угольная шахта", area_m2=400,
         layer=Layer.PLANET, parent=terra,
-        properties={"лес": True, "вода": "нет", travel.REACH: 1},
+        #: Woods and stony ground by the shaft: the first axe is made here,
+        #: with bare hands and without anybody's help (D-196).
+        properties={"лес": True, "камни": True, "вода": "нет", travel.REACH: 1},
     )
     #: The capital's penal colony (D-174, D-176): a vein, a printer and a
     #: terminal behind one wall. The "Penal colony" machine makes the node a
@@ -188,7 +190,8 @@ async def seed(session: AsyncSession) -> Node:
     floodplain = await world.create_node(
         session, "terra.floodplain", "Пойма у реки", area_m2=400,
         layer=Layer.PLANET, parent=terra,
-        properties={"вода": "река", "плодородие": 55, travel.REACH: 1},
+        #: A meadow by the water: wild flax grows here, and fibre begins with it (D-196).
+        properties={"вода": "река", "плодородие": 55, "луг": True, travel.REACH: 1},
     )
 
     #: Inside the city -- short edges, outside -- a real transit.
@@ -434,6 +437,13 @@ async def catch_up(session: AsyncSession, core: Node) -> None:
         ).scalars().first()
         if first is not None:
             await town.install_founder(session, city, first)
+    elif await town.citizenship(session, city.founder_identity_id) is None:
+        #: A founder from before D-195 was a stranger in their own city: no
+        #: vote, a newcomer's rate at the bank. Citizenship comes to them now.
+        founder = await session.get(Identity, city.founder_identity_id)
+        if founder is not None:
+            await town._enrol_founder(session, city, founder)
+            log.info("основателю выдано гражданство догоном: %s", founder.name)
 
     #: The Forerunners' Printer and the city printer: without them death would
     #: be a one-way ticket, and the world exists longer than the print mechanic (D-028).

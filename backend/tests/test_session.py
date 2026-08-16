@@ -190,6 +190,49 @@ def test_look_answers_and_carries_the_clock(client, miner, constants: Constants)
     assert clock["day_hours"] == constants[R.TIME_DAY_TERRA]
 
 
+def test_house_bill_is_shown_before_the_work(client, miner, constants: Constants) -> None:
+    """The bill is asked for before building, and against what is in hand (D-125).
+
+    Otherwise the shortage is discovered at the click, when the materials are
+    already gone -- the one moment where it must not be discovered.
+    """
+    with client.websocket_connect("/session/ws") as ws:
+        ws.send_json(_input(miner))
+        ws.receive_json()
+
+        ws.send_json({"cmd": "build.estimate", "area": 10, "floors": 2})
+        answer = ws.receive_json()
+
+    assert "refused" not in answer, answer
+    assert answer["usable"] == 20, "два этажа по десять метров — двадцать метров пола"
+    assert answer["max_floors"] >= 1
+    assert answer["materials"], "смета без материалов — не смета"
+    for line in answer["materials"]:
+        assert {"goods", "need", "have", "mass"} <= set(line)
+
+
+def test_gate_is_not_run_by_a_passer_by(client, miner) -> None:
+    """The gate belongs to the plot's holder (D-199), and the mine is nobody's.
+
+    The refusal must come back as a refusal: an unhandled engine error here
+    would tear the socket down, and the player would see a logout instead of
+    an answer.
+    """
+    with client.websocket_connect("/session/ws") as ws:
+        ws.send_json(_input(miner))
+        ws.receive_json()
+
+        ws.send_json({"cmd": "gate.set", "closed": True})
+        answer = ws.receive_json()
+
+        #: The socket lives on: the next command still gets an answer.
+        ws.send_json({"cmd": "look"})
+        after = ws.receive_json()
+
+    assert "refused" in answer, "ворота на ничьей земле ставить нечему"
+    assert "refused" not in after, "отказ не должен рвать сессию"
+
+
 def test_face_not_opened_without_device_fee(client, miner, cheap_pow) -> None:
     """The Argon2id estimate is a precondition of the session, not decoration (D-110)."""
     with client.websocket_connect("/session/ws") as ws:

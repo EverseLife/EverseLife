@@ -396,10 +396,14 @@ async def test_foreign_plot_not_surveyed(
         await farm.mark(session, constants, body, name="самозахват", area=10)
 
 
-async def test_plot_taken_on_foot_and_once(
+async def test_land_outside_a_city_is_never_privatized(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """A wild node can be taken; an occupied one and a civic one cannot."""
+    """Nobody's land stays nobody's, and everybody farms it (D-198).
+
+    It used to be taken on foot, and the first comer locked up a whole grove
+    together with the barehand gathering on it (D-196).
+    """
     stamp = uuid.uuid4().hex[:8]
     wild = await world.create_node(
         session, f"terra.wild.{stamp}", "Дикий угол", area_m2=100,
@@ -408,22 +412,38 @@ async def test_plot_taken_on_foot_and_once(
     first = await world.create_identity(session, f"Первый-{stamp}")
     body = await world.print_body(session, first, wild)
 
-    await world.claim_node(session, body, wild)
-    assert wild.owner_identity_id == first.id
-    #: Now surveying works.
+    with pytest.raises(world.LandError):
+        await world.grant_node(session, wild, first)
+    assert wild.owner_identity_id is None
+
+    #: And yet the field is open: whoever ploughs it, farms it.
     await farm.mark(session, constants, body, name="своя", area=10)
 
     second = await world.create_identity(session, f"Второй-{stamp}")
     body2 = await world.print_body(session, second, wild)
-    with pytest.raises(world.LandError):
-        await world.claim_node(session, body2, wild)
+    await farm.mark(session, constants, body2, name="соседняя", area=10)
 
+
+async def test_civic_plot_is_handed_over_once(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Title is issued by a city, and a plot already held is not issued again."""
+    stamp = uuid.uuid4().hex[:8]
     civic = await world.create_node(
         session, f"terra.town.{stamp}", "Городская земля", area_m2=100,
+        properties={"плодородие": 40},
     )
     civic.owner_city_id = uuid.uuid4()
-    body3 = await world.print_body(
-        session, await world.create_identity(session, f"Третий-{stamp}"), civic
-    )
+    holder = await world.create_identity(session, f"Держатель-{stamp}")
+    body = await world.print_body(session, holder, civic)
+
+    await world.grant_node(session, civic, holder)
+    assert civic.owner_identity_id == holder.id
+    await farm.mark(session, constants, body, name="своя", area=10)
+
+    other = await world.create_identity(session, f"Другой-{stamp}")
+    other_body = await world.print_body(session, other, civic)
     with pytest.raises(world.LandError):
-        await world.claim_node(session, body3, civic)
+        await world.grant_node(session, civic, other)
+    with pytest.raises(farm.NotYours):
+        await farm.mark(session, constants, other_body, name="чужая", area=10)

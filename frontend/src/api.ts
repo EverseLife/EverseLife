@@ -253,14 +253,35 @@ export type Look = {
     city: boolean;
     /** Whether the viewer may name the plot (D-178). */
     may_name: boolean;
-    /** Unowned and wild: such is taken in person (D-152). */
+    /** Nobody's land outside a city: never privatized, open to all (D-198). */
     wild: boolean;
+    /** The yard is shut: entry by the roster only (D-199). Visible to everyone. */
+    gated: boolean;
+    /** The roster, by names. Only the holder sees it. */
+    roster: string[];
     /** Disconnected for non-payment: machines do not work (D-149). */
     cut_off: boolean;
     /** Plot area, m2 (D-125). */
     area: number;
-    /** Building and capacity: a machine takes area (D-106). */
-    building: { area: number; slots: number; used: number };
+    /** Building and capacity: a machine takes area (D-106).
+     *
+     * `area` is the usable area -- the sum of the floors; `ground` is what the
+     * house takes from the plot. Storeys made these two different (D-125).
+     */
+    building: {
+      area: number;
+      ground: number;
+      floors: number;
+      strength: number;
+      slots: number;
+      used: number;
+      building: {
+        area: number;
+        floors: number;
+        strength: number;
+        ready_at: string;
+      }[];
+    };
     /** Purchase price of an empty civic plot, in minor units (D-089). */
     price: number | null;
   } | null;

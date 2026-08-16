@@ -46,6 +46,48 @@ async def test_no_walking_in_straight_line(session: AsyncSession, constants: Con
         await travel.depart(session, constants, body, far_away)
 
 
+async def test_turning_back_returns_where_left_from(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """One may change one's mind: cancelling returns, it does not stop midway (D-194)."""
+    here, there, body = await _two_nodes(session)
+    await travel.depart(session, constants, body, there)
+    assert await travel.current(session, body) is not None
+
+    cancelled = await travel.turn_back(session, body)
+    assert cancelled.state is TravelState.CANCELLED
+    assert body.node_id == here.id, "отмена оставила тело на дороге"
+    #: The road is open again: the body is in the node and free for in-person things.
+    await travel.require_here(session, body)
+    await travel.depart(session, constants, body, there)
+
+
+async def test_turning_back_needs_a_road(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """Standing still, there is nothing to turn back from."""
+    _, _, body = await _two_nodes(session)
+    with pytest.raises(travel.NotGoing):
+        await travel.turn_back(session, body)
+
+
+async def test_cancelled_leg_does_not_arrive(
+    session: AsyncSession, constants: Constants, factory: async_sessionmaker
+) -> None:
+    """The leg's job is dropped: an arrival must not fire after the cancel."""
+    here, there, body = await _two_nodes(session)
+    transit = await travel.depart(session, constants, body, there)
+    due = transit.arrives_at
+    await travel.turn_back(session, body)
+    await session.commit()
+
+    #: The world is turned to the moment the arrival was due -- nothing must happen.
+    assert await jobs.run_one(factory, now=due + timedelta(seconds=1)) is None
+    async with factory() as check:
+        walked = await check.get(Body, body.id)
+        assert walked.node_id == here.id, "отменённый переход всё-таки привёл"
+
+
 async def test_edge_undirected(session: AsyncSession, constants: Constants) -> None:
     """The road is the same both ways, and no second row is needed for that."""
     here, there, _ = await _two_nodes(session)

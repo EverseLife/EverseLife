@@ -60,6 +60,8 @@ class EventKind(StrEnum):
     # movement (D-107)
     TRAVEL_STARTED = "travel.started"
     TRAVEL_ARRIVED = "travel.arrived"
+    #: Turned back from the road: the body stays where it left from (D-194).
+    TRAVEL_CANCELLED = "travel.cancelled"
 
     # roads as work on an edge (D-107, D-158)
     ROAD_WORK_STARTED = "road.work_started"
@@ -80,6 +82,9 @@ class EventKind(StrEnum):
     CRAFT_FINISHED = "craft.finished"
 
     # land and farming (D-118)
+    #: A plot handed to a person. It used to be "took wild land on foot"; since
+    #: D-198 title comes from a city only, and the name stayed for the history
+    #: already written under it.
     LAND_CLAIMED = "land.claimed"
     #: Purchase of civic land: the price by distance, proceeds to the treasury (D-089).
     LAND_BOUGHT = "land.bought"

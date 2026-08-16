@@ -34,9 +34,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import current, current_catalog
 from src.db.base import session_factory
 from src.engine import (
-    account as accounts,
-)
-from src.engine import (
+    access,
     bank,
     breed,
     chat,
@@ -65,6 +63,9 @@ from src.engine import (
     utility,
     vote,
     world,
+)
+from src.engine import (
+    account as accounts,
 )
 from src.engine import city as town
 from src.engine import pow as device
@@ -158,6 +159,11 @@ async def play(socket: WebSocket) -> None:
             except town.CityError as refusal:
                 answer = {"refused": str(refusal)}
             except estate.EstateError as refusal:
+                answer = {"refused": str(refusal)}
+            #: The gate refuses a road (D-199), and that refusal travels from
+            #: `travel.depart` -- not only from the `gate.*` commands, where it
+            #: is caught locally.
+            except access.AccessError as refusal:
                 answer = {"refused": str(refusal)}
             except device.PowError as refusal:
                 answer = {"refused": str(refusal)}
@@ -448,6 +454,14 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
         ),
         "mine": node.owner_identity_id == identity.id,
         "city": node.owner_city_id is not None,
+        #: The gate of the yard (D-199). A shut gate is visible from outside:
+        #: it is a fence, not a trap, and one learns of it before setting out.
+        "gated": bool(node.gated),
+        "roster": (
+            await access.roster(db, node)
+            if node.owner_identity_id == identity.id
+            else []
+        ),
         #: Whether the viewer may name the plot (D-178).
         "may_name": await estate.may_name(db, body, node),
         #: Wild and unowned: such a node is taken in person (06-farming, D-152).
@@ -460,10 +474,19 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
     #: Building and capacity: a machine takes area (D-106), and the player must
     #: see how many places are left before carrying a machine across town.
     total_seats, taken_seats = await estate.slots(db, constants, node)
+    houses = await estate.buildings_of(db, node)
     seen["node"]["building"] = {
         "area": await estate.built_area(db, node),
+        #: Storeys made these two different numbers (D-125): the plot is spent
+        #: by the footprint, the machines live in the usable area.
+        "ground": await estate.built_area(db, node, ground=True),
+        "floors": max((house.floors for house in houses), default=0),
+        "strength": max((house.strength for house in houses), default=0),
         "slots": total_seats,
         "used": taken_seats,
+        #: Work in progress: without it the yard looks empty right after the
+        #: materials are gone, and that reads as a loss.
+        "building": await estate.under_construction(db, node),
     }
     #: An empty civic plot is for sale: the city sets the price by distance to
     #: the bioprinter (D-089). The player must see it before buying. Buildings
@@ -754,17 +777,9 @@ async def _library_copy(state: dict, db: AsyncSession, message: dict) -> dict:
     return {"learned": key}
 
 
-async def _land_claim(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Take a plot: in person, in a wild node (06-farming)."""
-    body = await _alive(state, db)
-    node = await db.get(Node, body.node_id)
-    if node is None:  # pragma: no cover
-        raise Refused("тело вне узла")
-    try:
-        await world.claim_node(db, body, node)
-    except world.LandError as refusal:
-        raise Refused(str(refusal)) from refusal
-    return {"claimed": node.key}
+#: `land.claim` is gone (D-198): land outside a city is not privatized at all,
+#: and a command left "just in case" is a way around the rule. Civic plots are
+#: bought -- `land.buy`.
 
 
 async def _land_buy(state: dict, db: AsyncSession, message: dict) -> dict:
@@ -799,13 +814,113 @@ async def _land_rename(state: dict, db: AsyncSession, message: dict) -> dict:
 
 
 async def _build_construct(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Build a building on your own plot. Materials at once, the building on schedule."""
+    """Build a house on your own plot. Materials at once, the building on schedule.
+
+    `area` is the footprint; storeys stand on it (D-125), and the durability
+    tier sets both the bill and the ceiling of height (D-145).
+    """
     body = await _alive(state, db)
     node = await db.get(Node, body.node_id)
     if node is None:  # pragma: no cover
         raise Refused("тело вне узла")
-    job = await estate.construct(db, current(), body, node, float(message["area"]))
+    job = await estate.construct(
+        db,
+        current(),
+        body,
+        node,
+        float(message["area"]),
+        floors=int(message.get("floors", 1)),
+        strength=int(message.get("strength", 1)),
+    )
     return {"building": True, "ready_at": job.run_at.isoformat()}
+
+
+async def _build_estimate(state: dict, db: AsyncSession, message: dict) -> dict:
+    """The bill before the work: what a house of this size and height costs.
+
+    Shown together with what is already in hand -- the player must see "wood 12
+    of 30" rather than find out at the click that the timber is short.
+    """
+    from src.engine import gear
+
+    body = await _alive(state, db)
+    constants = current()
+    footprint = float(message.get("area", 0) or 0)
+    floors = int(message.get("floors", 1))
+    strength = int(message.get("strength", 1))
+    if footprint <= 0 or floors < 1:
+        raise Refused("площадь и этажность считаются от единицы")
+
+    needed = estate.estimate(
+        constants, footprint=footprint, floors=floors, strength=strength
+    )
+    pocket = await world.body_container(db, body)
+    at_hand: dict[str, float] = {}
+    for thing in await _things(db, constants, pocket):
+        at_hand[thing["goods"]] = at_hand.get(thing["goods"], 0.0) + thing["amount"]
+
+    catalog = current_catalog()
+    return {
+        "area": footprint,
+        "floors": floors,
+        "strength": strength,
+        #: The usable area is what the machines and the cargo will be measured
+        #: against; the plot is measured against the footprint alone.
+        "usable": footprint * floors,
+        "max_floors": estate.height_cap(constants, strength),
+        "minutes": estate.build_minutes(
+            constants, footprint=footprint, floors=floors, strength=strength
+        ),
+        "materials": [
+            {
+                "goods": name,
+                "need": round(qty, 2),
+                "have": round(at_hand.get(name, 0.0), 2),
+                "mass": round(gear.mass_of(catalog, name, qty), 1),
+            }
+            for name, qty in sorted(needed.items())
+        ],
+    }
+
+
+async def _gate_set(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Open or shut your own yard (D-199). In person: the gate is on the plot."""
+    from src.engine import access
+
+    body = await _alive(state, db)
+    identity = await _identity(state, db)
+    node = await db.get(Node, body.node_id)
+    if node is None:  # pragma: no cover
+        raise Refused("тело вне узла")
+    try:
+        await access.set_gate(db, node, identity, closed=bool(message["closed"]))
+    except access.AccessError as refusal:
+        raise Refused(str(refusal)) from refusal
+    return {"gated": node.gated, "roster": await access.roster(db, node)}
+
+
+async def _gate_list(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Name a person in the roster, or strike them out of it.
+
+    One roster, and the gate decides what it means: with the yard open the
+    named do not get in, with it shut only they do.
+    """
+    from src.engine import access
+
+    body = await _alive(state, db)
+    identity = await _identity(state, db)
+    node = await db.get(Node, body.node_id)
+    if node is None:  # pragma: no cover
+        raise Refused("тело вне узла")
+    who = await _identity_by_name(db, str(message["who"]))
+    try:
+        if message.get("strike"):
+            await access.remove(db, node, identity, who)
+        else:
+            await access.add(db, node, identity, who)
+    except access.AccessError as refusal:
+        raise Refused(str(refusal)) from refusal
+    return {"gated": node.gated, "roster": await access.roster(db, node)}
 
 
 async def _deed_offer(state: dict, db: AsyncSession, message: dict) -> dict:
@@ -1443,6 +1558,17 @@ async def _body_print(state: dict, db: AsyncSession, message: dict) -> dict:
     }
 
 
+async def _travel_cancel(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Turn back from the road: the body stays where it left from (D-194)."""
+    body = await _alive(state, db)
+    try:
+        await travel.turn_back(db, body)
+    except travel.TravelError as refusal:
+        raise Refused(str(refusal)) from refusal
+    node = await db.get(Node, body.node_id)
+    return {"cancelled": True, "node": None if node is None else node.key}
+
+
 async def _ground_drop(state: dict, db: AsyncSession, message: dict) -> dict:
     """Put a thing down here: under the roof if there is one, in the yard if not."""
     body = await _alive(state, db)
@@ -1986,6 +2112,15 @@ async def _bank_view(state: dict, db: AsyncSession, message: dict) -> dict:
         #: both the number and what it is made of before going for a loan.
         "limit": (limits := await bank.credit_limit(db, constants, state["identity_id"]))[0],
         "limit_why": limits[1],
+        #: The rate this borrower would actually get, named before the button
+        #: is pressed (D-193): the key rate alone told them nothing.
+        "your_rate": (
+            offer := await bank.offered_rate(
+                db, constants, current_catalog(), await _identity(state, db),
+                amount=int(message.get("amount") or 0),
+            )
+        )[0],
+        "your_rate_why": offer[1],
         "loans": loans,
     }
 
@@ -2303,10 +2438,12 @@ _COMMANDS = {
     "rig.place": _rig_place,
     "rig.status": _rig_status,
     "rig.empty": _rig_empty,
-    "land.claim": _land_claim,
     "land.buy": _land_buy,
     "land.rename": _land_rename,
     "build.construct": _build_construct,
+    "build.estimate": _build_estimate,
+    "gate.set": _gate_set,
+    "gate.list": _gate_list,
     "deed.offer": _deed_offer,
     "deed.buy": _deed_buy,
     "deed.market": _deed_market,
@@ -2344,6 +2481,7 @@ _COMMANDS = {
     "finance.transfer": _finance_transfer,
     "ground.drop": _ground_drop,
     "ground.pick": _ground_pick,
+    "travel.cancel": _travel_cancel,
     "road.lay": _road_lay,
     "road.here": _road_here,
     "transport.harness": _transport_harness,
@@ -2423,6 +2561,9 @@ def _craft_request(message: dict) -> tuple[str, float, dict[str, Any]]:
             #: "Put on automatic" is the master's decision: volume instead of
             #: quality, and an energy bill (D-035, D-058).
             "auto": bool(message.get("auto", False)),
+            #: Which operation, when several give the same thing: felling wood
+            #: with an axe or gathering deadwood by hand (D-196).
+            "way": message.get("way"),
         },
     )
 

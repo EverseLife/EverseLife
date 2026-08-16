@@ -290,10 +290,11 @@ async def establish(
         raise CityError(
             "город закладывают на узле планеты: в чужой застройке города не заводят"
         )
-    if node.owner_identity_id != body.identity_id:
-        raise NotYours(
-            "город закладывают на своей земле: сначала занять участок либо выкупить"
-        )
+    #: Nobody's land needs no title before founding -- outside a city there is
+    #: none to be had (D-198). Somebody else's plot is still somebody else's:
+    #: a city is not founded over a living owner's head.
+    if node.owner_identity_id not in (None, body.identity_id):
+        raise NotYours("это чужой участок: город на нём не закладывают")
     if await by_node(session, node.id) is not None:
         raise CityError("здесь уже стоит город")
     if node.owner_city_id is not None:
@@ -387,6 +388,11 @@ async def install_founder(session: AsyncSession, city: City, who: Identity) -> O
     office = await _office(
         session, city, who.id, title=FOUNDER_TITLE, powers=FOUNDER_POWERS, by=who.id
     )
+    #: Founding makes the founder a citizen of this city (D-195). Otherwise the
+    #: ruler is a stranger at home: no vote (the franchise is for citizens), a
+    #: newcomer's rate at the bank, a visitor's duties. Any previous
+    #: citizenship ends -- there is one per person (D-160).
+    await _enrol_founder(session, city, who)
     await session.flush()
     await events.record(
         session,
@@ -400,6 +406,35 @@ async def install_founder(session: AsyncSession, city: City, who: Identity) -> O
         founder=True,
     )
     return office
+
+
+async def _enrol_founder(session: AsyncSession, city: City, who: Identity) -> None:
+    """Make the founder a citizen of the city they have just founded (D-195)."""
+    entry = await citizenship(session, who.id)
+    if entry is not None:
+        if entry.city_id == city.id:
+            return
+        #: One citizenship per person: the previous one ends here and now.
+        await session.delete(entry)
+        await session.flush()
+        await events.record(
+            session,
+            EventKind.CITIZENSHIP_ENDED,
+            actor_identity_id=who.id,
+            city_id=str(entry.city_id),
+            reason="основал свой город",
+        )
+
+    session.add(Citizen(identity_id=who.id, city_id=city.id))
+    await session.flush()
+    await events.record(
+        session,
+        EventKind.CITIZENSHIP_GRANTED,
+        actor_identity_id=who.id,
+        node_id=city.node_id,
+        city_id=str(city.id),
+        founder=True,
+    )
 
 
 async def offices(session: AsyncSession, city: City) -> list[Office]:

@@ -85,7 +85,39 @@ class Node(Base):
     owner_identity_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("identity.id"), nullable=True
     )
+
+    #: The gate of one's own yard (D-199): closed means entry by the roster
+    #: only. Land outside a city has no owner and no gate (D-198). The gate
+    #: stops arrivals, never departures: shutting it on a guest inside would be
+    #: a way to take a body away, and death without a way out is forbidden.
+    gated: Mapped[bool] = mapped_column(
+        nullable=False, default=False, server_default="false"
+    )
+
     created_at: Mapped[datetime] = created_column()
+
+
+class NodePass(Base):
+    """One roster per plot, and the gate decides what it means (D-199).
+
+    With the gate open the roster reads as a blacklist: those named do not get
+    in. With it closed -- as a whitelist: only those named do. One list instead
+    of two: two would have to be kept free of contradictions, and every rule
+    for resolving them would be a rule the player has to learn.
+    """
+
+    __tablename__ = "node_pass"
+    __table_args__ = (
+        Index("ix_node_pass_node", "node_id"),
+        UniqueConstraint("node_id", "identity_id", name="uq_node_pass"),
+    )
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    node_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("node.id"), nullable=False)
+    identity_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("identity.id"), nullable=False
+    )
+    listed_at: Mapped[datetime] = created_column()
 
 
 class Surface(StrEnum):

@@ -257,36 +257,52 @@ async def test_addressed_contract_does_not_sell_to_stranger(
     assert deed.owner_identity_id == own.id
 
 
-async def test_occupied_wild_land_also_gives_deed(
+async def test_land_handed_over_by_a_city_gives_a_deed(
+    session: AsyncSession, constants: Constants, catalog: Catalog, own_plot
+) -> None:
+    """The title is one for all roads to land -- and all of them run through a city (D-198)."""
+    stamp = uuid.uuid4().hex[:6]
+    plot = await world.create_node(
+        session, f"terra.plot.{stamp}", "Участок", area_m2=200, layer=Layer.PLANET
+    )
+    identity, body = await _buyer(session, plot, funds=0)
+    await own_plot(plot, identity)
+
+    deed = (
+        await session.execute(select(Deed).where(Deed.node_id == plot.id))
+    ).scalar_one()
+    assert deed.owner_identity_id == identity.id
+    assert deed.paid == 0
+
+
+async def test_no_deed_outside_a_city(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """The title is one for all roads to land: took -- a deed, bought -- a deed."""
+    """Nobody's land is not privatized at all: there is nobody to issue the paper (D-198)."""
     stamp = uuid.uuid4().hex[:6]
     wild = await world.create_node(
         session, f"terra.wild.{stamp}", "Дикий", area_m2=200, layer=Layer.PLANET
     )
-    identity, body = await _buyer(session, wild, funds=0)
-    await world.claim_node(session, body, wild)
-
-    deed = (
+    identity, _ = await _buyer(session, wild, funds=0)
+    with pytest.raises(world.LandError):
+        await world.grant_node(session, wild, identity)
+    assert (
         await session.execute(select(Deed).where(Deed.node_id == wild.id))
-    ).scalar_one()
-    assert deed.owner_identity_id == identity.id
-    assert deed.paid == 0
+    ).scalar_one_or_none() is None
 
 
 # --- building (D-106, D-125) -------------------------------------------------
 
 
 async def test_construction_spends_materials_and_places_building_on_term(
-    session: AsyncSession, constants: Constants, catalog: Catalog
+    session: AsyncSession, constants: Constants, catalog: Catalog, own_plot
 ) -> None:
     stamp = uuid.uuid4().hex[:6]
     plot = await world.create_node(
         session, f"terra.plot.{stamp}", "Участок", area_m2=100, layer=Layer.PLANET
     )
     identity, body = await _buyer(session, plot, funds=0)
-    await world.claim_node(session, body, plot)
+    await own_plot(plot, identity)
 
     pocket = await world.body_container(session, body)
     norms = constants[R.BUILD_MATERIALS_PER_M2]
@@ -311,7 +327,7 @@ async def test_construction_spends_materials_and_places_building_on_term(
 
 
 async def test_construction_does_not_start_without_materials(
-    session: AsyncSession, constants: Constants, catalog: Catalog
+    session: AsyncSession, constants: Constants, catalog: Catalog, own_plot
 ) -> None:
     from src.engine import craft
 
@@ -319,34 +335,91 @@ async def test_construction_does_not_start_without_materials(
     plot = await world.create_node(
         session, f"terra.plot.{stamp}", "Участок", area_m2=100, layer=Layer.PLANET
     )
-    _, body = await _buyer(session, plot, funds=0)
-    await world.claim_node(session, body, plot)
+    identity, body = await _buyer(session, plot, funds=0)
+    await own_plot(plot, identity)
     with pytest.raises(craft.NotEnough):
         await estate.construct(session, constants, body, plot, 20)
 
 
+def test_storeys_cost_more_than_the_same_area_laid_flat(constants: Constants) -> None:
+    """Height is paid for: each next floor costs `floor_cost_growth` (D-125)."""
+    flat = estate.estimate(constants, footprint=40, floors=1, strength=1)
+    tall = estate.estimate(constants, footprint=20, floors=2, strength=1)
+
+    assert sum(tall.values()) > sum(flat.values()), (
+        "двадцать метров в два этажа дороже сорока в один: за высоту платят"
+    )
+    #: And a two-storey house takes half the ground -- that is what it is for.
+    assert estate.build_minutes(constants, footprint=20, floors=2, strength=1) > 0
+
+
+def test_tier_sets_the_ceiling_of_height(constants: Constants) -> None:
+    """Timber holds two floors, steel holds eight (D-145)."""
+    assert estate.height_cap(constants, 1) < estate.height_cap(constants, 3)
+
+
+async def test_house_taller_than_the_tier_is_refused(
+    session: AsyncSession, constants: Constants, catalog: Catalog, own_plot
+) -> None:
+    stamp = uuid.uuid4().hex[:6]
+    plot = await world.create_node(
+        session, f"terra.plot.{stamp}", "Участок", area_m2=100, layer=Layer.PLANET
+    )
+    identity, body = await _buyer(session, plot, funds=0)
+    await own_plot(plot, identity)
+
+    over = estate.height_cap(constants, 1) + 1
+    with pytest.raises(estate.TooTall):
+        await estate.construct(session, constants, body, plot, 10, floors=over)
+
+
+async def test_storeys_give_area_without_eating_the_plot(
+    session: AsyncSession, constants: Constants, catalog: Catalog, own_plot
+) -> None:
+    """A two-storey house takes ten metres of ground and gives twenty of floor."""
+    stamp = uuid.uuid4().hex[:6]
+    plot = await world.create_node(
+        session, f"terra.plot.{stamp}", "Участок", area_m2=100, layer=Layer.PLANET
+    )
+    identity, body = await _buyer(session, plot, funds=0)
+    await own_plot(plot, identity)
+
+    pocket = await world.body_container(session, body)
+    needed = estate.estimate(constants, footprint=10, floors=2, strength=1)
+    for name, quantity in needed.items():
+        await world.grant_item(
+            session, pocket, name, amount=quantity + 1, quality=60, origin="тест"
+        )
+
+    job = await estate.construct(session, constants, body, plot, 10, floors=2)
+    await estate.finish_build(session, job)
+
+    assert await estate.built_area(session, plot) == pytest.approx(20)
+    assert await estate.built_area(session, plot, ground=True) == pytest.approx(10)
+
+
 async def test_building_no_larger_than_plot(
-    session: AsyncSession, constants: Constants, catalog: Catalog
+    session: AsyncSession, constants: Constants, catalog: Catalog, own_plot
 ) -> None:
     stamp = uuid.uuid4().hex[:6]
     plot = await world.create_node(
         session, f"terra.plot.{stamp}", "Участок", area_m2=50, layer=Layer.PLANET
     )
-    _, body = await _buyer(session, plot, funds=0)
-    await world.claim_node(session, body, plot)
+    identity, body = await _buyer(session, plot, funds=0)
+    await own_plot(plot, identity)
     with pytest.raises(estate.NoRoom):
         await estate.construct(session, constants, body, plot, 60)
 
 
 async def test_no_building_on_foreign_land(
-    session: AsyncSession, constants: Constants, catalog: Catalog
+    session: AsyncSession, constants: Constants, catalog: Catalog, own_plot
 ) -> None:
     stamp = uuid.uuid4().hex[:6]
     plot = await world.create_node(
         session, f"terra.plot.{stamp}", "Участок", area_m2=100, layer=Layer.PLANET
     )
     owner, owner_body = await _buyer(session, plot, funds=0)
-    await world.claim_node(session, owner_body, plot)
+    await own_plot(plot, owner)
 
     _, foreign_body = await _buyer(session, plot, funds=0)
     with pytest.raises(estate.EstateError):

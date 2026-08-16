@@ -696,6 +696,15 @@ export function GraphMap({ look, session, busy, act, onEnter }: Props) {
       <div className="row map-bar">
         {ongoing ? (
           <span>
+            {/* Передумать можно: возвращает туда, откуда вышли (D-194). */}
+            <button
+              className="quiet"
+              onClick={() => act(() => session.send("travel.cancel"))}
+              disabled={busy}
+              title="повернуть назад: потраченное не вернётся"
+            >
+              Повернуть назад
+            </button>{" "}
             в пути: {ongoing.final ?? ongoing.to}
             {ongoing.final ? (
               <>
@@ -794,6 +803,9 @@ function Roads({
             " · идёт работа"
           ) : (
             <>
+              {/* Цена работы стоит на кнопке, а не в подсказке при наведении:
+                  выключенная кнопка без объяснения читается как поломка, а с
+                  телефона подсказку не увидеть вовсе. */}
               {path.next && path.needs !== null && (
                 <button
                   className="quiet"
@@ -801,7 +813,8 @@ function Roads({
                   disabled={busy || path.at_hand < path.needs}
                   title={`нужно ${path.needs.toFixed(0)} полотна, в руках ${path.at_hand.toFixed(0)}`}
                 >
-                  {path.surface === "trail" ? "Проложить" : "Мостить"}
+                  {path.surface === "trail" ? "Проложить" : "Мостить"} за{" "}
+                  {path.needs.toFixed(0)}
                 </button>
               )}
               {path.mend_needs !== null && (
@@ -811,8 +824,11 @@ function Roads({
                   disabled={busy || path.at_hand < path.mend_needs}
                   title={`подсыпка: ${path.mend_needs.toFixed(0)} полотна`}
                 >
-                  Подсыпать
+                  Подсыпать за {path.mend_needs.toFixed(0)}
                 </button>
+              )}
+              {path.at_hand < Math.min(path.needs ?? Infinity, path.mend_needs ?? Infinity) && (
+                <> · полотна в руках {path.at_hand.toFixed(0)}</>
               )}
             </>
           )}

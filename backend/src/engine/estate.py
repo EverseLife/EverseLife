@@ -81,6 +81,10 @@ class NoRoom(EstateError):
     """No room in the building: machines take area, and it ran out."""
 
 
+class TooTall(EstateError):
+    """Higher than the durability tier holds (D-145): a timber house is not eight storeys."""
+
+
 # --- land price (D-089) ------------------------------------------------------
 
 
@@ -176,9 +180,10 @@ async def buy(
 ) -> Deed:
     """Buy an empty civic plot. In person: land is inspected on foot.
 
-    Money goes to the city treasury, the buyer is issued a deed. Wild land is
-    not bought -- it is taken (`world.claim_node`): outside a city there is
-    nobody to set a price and nowhere to pay.
+    Money goes to the city treasury, the buyer is issued a deed. Land outside a
+    city is neither bought nor taken (D-198): there is nobody to set a price,
+    nowhere to pay and nobody to issue the paper -- yet everyone may work and
+    build on it.
     """
     from src.engine import city as town
 
@@ -190,7 +195,10 @@ async def buy(
     if node.owner_identity_id is not None:
         raise NotForSale("участок уже за кем-то")
     if node.owner_city_id is None:
-        raise NotForSale("это не городская земля: дикую занимают, а не покупают")
+        raise NotForSale(
+            "это не городская земля: за городом её не продают и не присваивают, "
+            "но работать и строить там может всякий (D-198)"
+        )
     if not await is_vacant(session, constants, node):
         raise NotForSale(
             "узел не пустой: застройку и жилы города прейскурант не продаёт"
@@ -464,13 +472,47 @@ async def buildings_of(session: AsyncSession, node: Node) -> list[Building]:
     )
 
 
-async def built_area(session: AsyncSession, node: Node) -> float:
+async def built_area(session: AsyncSession, node: Node, *, ground: bool = False) -> float:
+    """Built area of the node: usable by default, the footprint when asked.
+
+    Since storeys arrived (D-125) these are two different numbers: a two-storey
+    house of ten metres takes ten metres of the plot and gives twenty of floor.
+    Whatever is measured against the plot must ask for `ground`; machines,
+    cargo and upkeep go by the usable area.
+    """
+    column = Building.footprint_m2 if ground else Building.area_m2
     total = await session.scalar(
-        select(func.coalesce(func.sum(Building.area_m2), 0)).where(
-            Building.node_id == node.id
-        )
+        select(func.coalesce(func.sum(column), 0)).where(Building.node_id == node.id)
     )
     return float(total or 0)
+
+
+async def under_construction(session: AsyncSession, node: Node) -> list[dict]:
+    """Houses being built here right now: what and by when (D-125).
+
+    Materials are written off at the start, and until this list existed the
+    yard looked empty right after them -- as if the timber had vanished.
+    """
+    from src.models.job import Job, JobKind, JobState
+
+    rows = (
+        await session.execute(
+            select(Job).where(
+                Job.kind == JobKind.BUILD_FINISH.value,
+                Job.state == JobState.PENDING,
+            ).order_by(Job.run_at)
+        )
+    ).scalars().all()
+    return [
+        {
+            "area": float(job.payload.get("area", 0)),
+            "floors": int(job.payload.get("floors", 1)),
+            "strength": int(job.payload.get("strength", 1)),
+            "ready_at": job.run_at.isoformat(),
+        }
+        for job in rows
+        if job.payload.get("node") == str(node.id)
+    ]
 
 
 async def floor_mass(session: AsyncSession, node: Node) -> float:
@@ -566,6 +608,56 @@ async def slots(
     return in_total, occupied
 
 
+def height_cap(constants: Constants, strength: int) -> int:
+    """The ceiling of height for a durability tier (D-145).
+
+    Timber and rope hold two floors; steel, stone and glass hold eight. The
+    whole tier ladder is visible in the silhouette of a town.
+    """
+    caps = constants[R.BUILD_FLOORS_BY_STRENGTH]
+    return int(caps[str(strength)])
+
+
+def estimate(
+    constants: Constants, *, footprint: float, floors: int, strength: int
+) -> dict[str, float]:
+    """The bill of materials for a house, by the vault formula `build.cost_per_area`.
+
+    Each next floor costs `floor_cost_growth` times more than the one below --
+    height grows geometrically, and so does the price of it. From
+    `reinforce_from_floor` upwards a frame is needed, and that is `reinforce_k`
+    on top. The tier multiplies the lot: a class three times cheaper to keep
+    costs four times more to raise (D-125, D-145).
+    """
+    growth = constants[R.BUILD_FLOOR_COST_GROWTH]
+    threshold = constants[R.BUILD_REINFORCE_FROM_FLOOR]
+    frame = constants[R.BUILD_REINFORCE_K]
+    tier = float(constants[R.BUILD_STRENGTH_K][str(strength)])
+
+    #: The sum over floors, not "area times a coefficient": the eighth floor is
+    #: expensive by itself, and averaging would hide exactly that.
+    per_footprint = sum(
+        growth ** (floor - 1) * (frame if floor >= threshold else 1.0)
+        for floor in range(1, floors + 1)
+    )
+    norms = constants[R.BUILD_MATERIALS_PER_M2]
+    return {
+        name: float(qty) * footprint * tier * per_footprint
+        for name, qty in norms.items()
+    }
+
+
+def build_minutes(
+    constants: Constants, *, footprint: float, floors: int, strength: int
+) -> float:
+    """The term: assembly labour, with the same correction for height and tier."""
+    lot = estimate(constants, footprint=footprint, floors=floors, strength=strength)
+    plain = estimate(constants, footprint=footprint, floors=1, strength=1)
+    #: Effort follows the bill: what is dearer in materials is longer in hands.
+    heaviness = (sum(lot.values()) / sum(plain.values())) if sum(plain.values()) else 1.0
+    return footprint * constants[R.BUILD_LABOR_PER_M2] * MINUTES_PER_HOUR * heaviness
+
+
 async def construct(
     session: AsyncSession,
     constants: Constants,
@@ -573,12 +665,19 @@ async def construct(
     node: Node,
     area: float,
     *,
+    floors: int = 1,
+    strength: int = 1,
     now: datetime | None = None,
 ) -> Job:
-    """Build a building on your own plot. Materials at once, the building on schedule.
+    """Build a house on your own plot. Materials at once, the building on schedule.
 
-    The first durability tier: wood and rope (`build.materials_per_m2`). Civic
-    land is built by the city -- here only your own (D-089).
+    `area` is the **footprint**: the ground the house takes. Storeys stand on
+    it, and the usable area is their sum -- that is how a plot stops being a
+    hard limit on a workshop (D-125, D-145).
+
+    The first durability tier is wood and rope (`build.materials_per_m2`).
+    Civic land is built by the city -- here only your own (D-089); land outside
+    a city has no owner and is open to all (D-198).
     """
     moment = now or datetime.now(UTC)
     if body.state is not BodyState.ALIVE:
@@ -586,12 +685,22 @@ async def construct(
     await travel.require_here(session, body)
     if body.node_id != node.id:
         raise EstateError("строят ногами: дойдите до участка")
-    if node.owner_identity_id != body.identity_id:
+    nobodys = node.owner_identity_id is None and node.owner_city_id is None
+    if not nobodys and node.owner_identity_id != body.identity_id:
         raise EstateError("участок не ваш: строят у себя")
     if area <= 0:
         raise EstateError("здание нулевой площади — это двор, он уже есть")
+    if floors < 1:
+        raise EstateError("дом без этажей — это яма")
 
-    occupied = await built_area(session, node)
+    cap = height_cap(constants, strength)
+    if floors > cap:
+        raise TooTall(
+            f"ступень прочности {strength} держит {cap} этажей, просят {floors}: "
+            "выше — только на прочном классе"
+        )
+
+    occupied = await built_area(session, node, ground=True)
     if occupied + area > float(node.area_m2):
         raise NoRoom(
             f"на участке {float(node.area_m2):.0f} м², застроено {occupied:.0f}: "
@@ -602,8 +711,7 @@ async def construct(
     #: construction has started, and the timber is already in the wall, not in the sack.
     from src.engine import craft, world
 
-    norms = constants[R.BUILD_MATERIALS_PER_M2]
-    needed = {name: float(qty) * area for name, qty in norms.items()}
+    needed = estimate(constants, footprint=area, floors=floors, strength=strength)
     pocket = await world.body_container(session, body)
     stock = await craft._stock(session, pocket, tuple(needed))  # noqa: SLF001
     for pick in craft._pick(stock, needed):  # noqa: SLF001
@@ -613,7 +721,9 @@ async def construct(
             await session.delete(pick.item)
     await session.flush()
 
-    minutes = area * constants[R.BUILD_LABOR_PER_M2] * MINUTES_PER_HOUR
+    minutes = build_minutes(
+        constants, footprint=area, floors=floors, strength=strength
+    )
     term = moment + timedelta(minutes=minutes)
     event = await events.record(
         session,
@@ -622,6 +732,8 @@ async def construct(
         node_id=node.id,
         work="build",
         area=area,
+        floors=floors,
+        strength=strength,
         spent=needed,
         ready_at=term.isoformat(),
     )
@@ -629,7 +741,13 @@ async def construct(
         session,
         JobKind.BUILD_FINISH,
         term,
-        payload={"node": str(node.id), "area": area, "identity": str(body.identity_id)},
+        payload={
+            "node": str(node.id),
+            "area": area,
+            "floors": floors,
+            "strength": strength,
+            "identity": str(body.identity_id),
+        },
         dedup_key=f"build:{node.id}:{event.id}",
         cause_event_id=event.id,
         body_id=body.id,
@@ -645,7 +763,17 @@ async def finish_build(session: AsyncSession, job: Job) -> None:
     node = await session.get(Node, uuid.UUID(job.payload["node"]))
     if node is None:  # pragma: no cover
         raise EstateError(f"стройка {job.id} ссылается в никуда")
-    building = Building(node_id=node.id, area_m2=float(job.payload["area"]))
+    #: Old jobs from before storeys carry no `floors`: one floor, first tier.
+    footprint = float(job.payload["area"])
+    floors = int(job.payload.get("floors", 1))
+    building = Building(
+        node_id=node.id,
+        #: Usable area is the sum of the floors; the ground taken is the footprint.
+        area_m2=footprint * floors,
+        footprint_m2=footprint,
+        floors=floors,
+        strength=int(job.payload.get("strength", 1)),
+    )
     session.add(building)
     await session.flush()
 
@@ -655,5 +783,6 @@ async def finish_build(session: AsyncSession, job: Job) -> None:
         actor_identity_id=uuid.UUID(job.payload["identity"]),
         node_id=node.id,
         building_id=str(building.id),
-        area=float(job.payload["area"]),
+        area=float(building.area_m2),
+        floors=floors,
     )

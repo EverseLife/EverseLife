@@ -78,3 +78,24 @@ async def factory(loaded) -> AsyncIterator[async_sessionmaker[AsyncSession]]:
 
     yield async_sessionmaker(engine, expire_on_commit=False)
     await engine.dispose()
+
+
+@pytest.fixture
+def own_plot(session: AsyncSession):
+    """Hand a plot to a person the only way the world allows (D-198).
+
+    Title to land is issued by a city, so the plot first becomes civic and only
+    then somebody's. Tests used to call `world.claim_node` -- taking wild land
+    on foot -- and that road no longer exists.
+    """
+    import uuid
+
+    from src.engine import world
+
+    async def give(node, identity):
+        if node.owner_city_id is None:
+            node.owner_city_id = uuid.uuid4()
+            await session.flush()
+        return await world.grant_node(session, node, identity)
+
+    return give

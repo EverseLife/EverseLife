@@ -28,11 +28,13 @@ export function Bank({ session, busy, act }: Props) {
 
   const refresh = useCallback(async () => {
     try {
-      setBank(await session.send("bank.view"));
+      //: Ставку просим под ту сумму, которую человек собрался брать: линия
+      //: города конечна, и после неё цена другая (D-193).
+      setBank(await session.send("bank.view", { amount: qty }));
     } catch {
       setBank(null);
     }
-  }, [session]);
+  }, [session, qty]);
   useEffect(() => {
     void refresh();
   }, [refresh]);
@@ -51,6 +53,13 @@ export function Bank({ session, busy, act }: Props) {
         ключевая ставка <b>{Number(bank.rate).toFixed(2)}%</b>
         {bank.why && <span className="note"> · {bank.why}</span>}
       </p>
+      {/* Своя ставка называется до кнопки, а не после (D-193). */}
+      {bank.your_rate !== undefined && (
+        <p>
+          вам дадут под <b>{Number(bank.your_rate).toFixed(2)}%</b>
+          <span className="note"> · {bank.your_rate_why}</span>
+        </p>
+      )}
       <Council session={session} busy={busy} act={act} />
       <p className="note">
         в обороте {api.tk(bank.circulating)} ₭ · в резерве {api.tk(bank.reserve)} ₭

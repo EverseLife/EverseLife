@@ -82,13 +82,17 @@ async def may_build(session: AsyncSession, body: Body, node: Node) -> bool:
     ownership is checked first: the authority disposes of the city's buildings,
     not of somebody's house inside the city. Taking what is not yours is a
     matter for the court (D-166).
+
+    Land outside a city belongs to nobody and is never privatized (D-198), yet
+    work on it is open to everyone: whoever comes may put up a machine. What is
+    placed belongs to whoever placed it -- the ground under it, to nobody.
     """
     from src.engine import city as town
 
     if node.owner_identity_id is not None:
         return node.owner_identity_id == body.identity_id
     if node.owner_city_id is None:
-        return False
+        return True
     city = await town.by_id(session, node.owner_city_id)
     return city is not None and await town.may(
         session, body.identity_id, city, Power.LAWS

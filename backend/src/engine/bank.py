@@ -701,25 +701,50 @@ async def _turnover_by_city(
     with real goods (D-171).
     """
     from src.engine import city as town
+    from src.models.event import Event, EventKind
     from src.models.market import Trade
     from src.models.world import Node
+
+    by_city: dict[uuid.UUID, int] = {}
+    whose: dict[uuid.UUID, uuid.UUID | None] = {}
+
+    async def city_of(node_id: uuid.UUID | None) -> uuid.UUID | None:
+        if node_id is None:
+            return None
+        if node_id not in whose:
+            node = await session.get(Node, node_id)
+            city = None if node is None else await town.of_node(session, node)
+            whose[node_id] = None if city is None else city.id
+        return whose[node_id]
 
     deals = (
         await session.execute(select(Trade).where(Trade.at >= since))
     ).scalars().all()
-    by_city: dict[uuid.UUID, int] = {}
-    whose: dict[uuid.UUID, uuid.UUID | None] = {}
     for deal in deals:
-        if deal.node_id not in whose:
-            node = await session.get(Node, deal.node_id)
-            city = None if node is None else await town.of_node(session, node)
-            whose[deal.node_id] = None if city is None else city.id
-        city_id = whose[deal.node_id]
+        city_id = await city_of(deal.node_id)
         if city_id is None:
             continue
         by_city[city_id] = by_city.get(city_id, 0) + int(
             deal.price * amount_float(deal.amount)
         )
+
+    #: Land is turnover too (D-193): buying a plot from the city and selling a
+    #: deed between people are real money for real property, and for the city's
+    #: line they count the same as a stall on the market.
+    land = (
+        await session.execute(
+            select(Event).where(
+                Event.at >= since,
+                Event.kind.in_((EventKind.LAND_BOUGHT.value, EventKind.DEED_SOLD.value)),
+            )
+        )
+    ).scalars().all()
+    for record in land:
+        city_id = await city_of(record.node_id)
+        if city_id is None:
+            continue
+        paid = record.payload.get("price") or record.payload.get("paid") or 0
+        by_city[city_id] = by_city.get(city_id, 0) + int(paid)
     return by_city
 
 
@@ -1032,6 +1057,52 @@ def city_margin(constants: Constants, catalog, city) -> float:
     except (TypeError, ValueError):
         margin = 0.0
     return max(0.0, min(constants[R.BANK_CITY_MARGIN_CAP], margin))
+
+
+async def offered_rate(
+    session: AsyncSession,
+    constants: Constants,
+    catalog,
+    who: Identity,
+    *,
+    amount: int = 0,
+    now: datetime | None = None,
+) -> tuple[float, str]:
+    """The rate this borrower would actually get, and why (D-193).
+
+    The same arithmetic as `borrow`, only without taking the money: a rate that
+    turns up after the fact reads as a swindle even when it is computed right.
+    """
+    from src.engine import city as town
+
+    moment = now or datetime.now(UTC)
+    key = await key_rate(session, constants)
+    entry = await town.citizenship(session, who.id)
+    if entry is None:
+        premium = constants[R.BANK_RISK_PREMIUM].max
+        return key + premium, (
+            f"ключевая {key:.2f}% + {premium:.2f}% за риск: без гражданства "
+            "занимают напрямую у столицы (D-175)"
+        )
+
+    city = await town.by_id(session, entry.city_id)
+    if city is None:  # pragma: no cover -- citizenship into nowhere is a bug
+        return key, f"ключевая {key:.2f}%"
+
+    permitted, _, free = await city_line(session, constants, city, now=moment)
+    if amount <= free:
+        margin = city_margin(constants, catalog, city)
+        return key + margin, (
+            f"ключевая {key:.2f}% + маржа города {margin:.2f}% "
+            f"({city.name}); линии свободно {money_str(free)} ₭"
+        )
+
+    premium = constants[R.BANK_RISK_PREMIUM].max
+    return key + premium, (
+        f"ключевая {key:.2f}% + {premium:.2f}% за риск: линия города "
+        f"{city.name} исчерпана — разрешено {money_str(permitted)} ₭ от оборота, "
+        f"свободно {money_str(free)} ₭. Линию поднимают сделки на его земле (D-193)"
+    )
 
 
 async def city_outstanding(session: AsyncSession, city) -> int:

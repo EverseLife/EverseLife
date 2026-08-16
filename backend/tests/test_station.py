@@ -121,20 +121,40 @@ async def test_machine_freed_when_batch_ends(
 
 
 async def test_machine_placed_at_own_place(
-    session: AsyncSession, catalog: Catalog
+    session: AsyncSession, catalog: Catalog, own_plot
 ) -> None:
     """You cannot build up somebody else's node: that is the point of a home."""
     node = await _workshop(session, machine_count=0)
     identity, body = await _master(session, node, "Хозяин")
+    stranger, stranger_body = await _master(session, node, "Чужой")
     pocket = await world.body_container(session, body)
     machine = await world.grant_item(
         session, pocket, BENCH, quality=60, origin="тест"
     )
 
+    await own_plot(node, stranger)
     with pytest.raises(station.NotYours):
         await station.place(session, catalog, body, machine)
 
-    await world.claim_node(session, body, node)
+    #: The plot changes hands -- and only then does the machine stand.
+    node.owner_identity_id = identity.id
+    await session.flush()
+    await station.place(session, catalog, body, machine)
+    yard = await world.node_container(session, node)
+    assert machine.container_id == yard.id
+
+
+async def test_machine_stands_on_nobodys_land(
+    session: AsyncSession, catalog: Catalog
+) -> None:
+    """Land outside a city has no owner, and work on it is open to all (D-198)."""
+    node = await _workshop(session, machine_count=0)
+    assert node.owner_identity_id is None and node.owner_city_id is None
+
+    _, body = await _master(session, node, "Пришлый")
+    pocket = await world.body_container(session, body)
+    machine = await world.grant_item(session, pocket, BENCH, quality=60, origin="тест")
+
     await station.place(session, catalog, body, machine)
     yard = await world.node_container(session, node)
     assert machine.container_id == yard.id
@@ -184,7 +204,6 @@ async def test_machine_not_placed_without_building(
         session, f"terra.bare.{stamp}", "Пустырь", area_m2=200
     )
     identity, body = await _master(session, node, "Хозяин")
-    await world.claim_node(session, body, node)
     pocket = await world.body_container(session, body)
     machine = await world.grant_item(session, pocket, BENCH, quality=60, origin="тест")
 
@@ -205,7 +224,6 @@ async def test_machines_take_building_area(
     session.add(Building(node_id=node.id, area_m2=10))
     await session.flush()
     identity, body = await _master(session, node, "Хозяин")
-    await world.claim_node(session, body, node)
     pocket = await world.body_container(session, body)
 
     first = await world.grant_item(session, pocket, BENCH, quality=60, origin="тест")
@@ -222,7 +240,6 @@ async def test_furniture_placed_like_machine_but_as_furniture(
     """A bed is furniture, not a machine (D-090): placed in a building the same way."""
     node = await _workshop(session, machine_count=0)
     _, body = await _master(session, node, "Хозяин")
-    await world.claim_node(session, body, node)
     pocket = await world.body_container(session, body)
     bed = await world.grant_item(session, pocket, "Кровать", quality=60, origin="тест")
 
@@ -238,7 +255,6 @@ async def test_non_machine_not_placed_in_node(
 ) -> None:
     node = await _workshop(session, machine_count=0)
     _, body = await _master(session, node, "Хозяин")
-    await world.claim_node(session, body, node)
     pocket = await world.body_container(session, body)
     sack = (
         await world.grant_item(
@@ -255,7 +271,6 @@ async def test_busy_machine_not_carried_away(
     """A machine cannot be carried out from under a worker -- even your own."""
     node = await _workshop(session)
     _, master = await _master(session, node, "Мастер")
-    await world.claim_node(session, master, node)
     batch = await craft.start(session, constants, catalog, master, MAKE, 1)
 
     machine = await session.get(Item, batch.station_item_id)

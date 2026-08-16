@@ -244,17 +244,31 @@ class _Ready:
 # --- method of making ---------------------------------------------------------
 
 
-def procedure(catalog: Catalog, output: str) -> Procedure:
-    """Find a way to make `output` -- first among recipes, then operations."""
+def procedure(catalog: Catalog, output: str, *, way: str | None = None) -> Procedure:
+    """Find a way to make `output` -- first among recipes, then operations.
+
+    One thing can come from several operations: wood is both felled with an axe
+    and gathered as deadwood by hand (D-196). Which one is the worker's choice,
+    not the resolver's, so `way` names the operation. Without it the first
+    listed wins -- the vault lists the proper, faster way first.
+    """
     book = catalog.recipes
     name = book.resolve(output)
     found = next((recipe for recipe in book.recipes if recipe.name == name), None)
     if found is not None:
         return _from_recipe(catalog, found)
 
-    for operation in book.operations:
-        if name in {book.resolve(gives) for gives in operation.gives}:
-            return _from_operation(catalog, operation, name)
+    ways = [
+        operation
+        for operation in book.operations
+        if name in {book.resolve(gives) for gives in operation.gives}
+    ]
+    if way is not None:
+        ways = [operation for operation in ways if operation.name == way]
+        if not ways:
+            raise Unmakeable(f"{output!r} не делается способом {way!r}")
+    if ways:
+        return _from_operation(catalog, ways[0], name)
     raise Unmakeable(f"{output!r} не делается ни по рецепту, ни операцией")
 
 
@@ -309,13 +323,22 @@ def _from_operation(catalog: Catalog, operation: Operation, output: str) -> Proc
         else:
             tools.append(canonical)
 
+    #: Bare hands are slower than a tool (D-196): gathering deadwood, stones and
+    #: flax breaks the "axe from wood, wood from axe" circle without replacing
+    #: proper extraction.
+    hours = operation.hours_per_unit.get(output, 0.0)
+    if not tools and station is None and operation.place is not None:
+        from src.constants import current
+
+        hours *= current()[R.HARVEST_BAREHAND_K]
+
     return Procedure(
         output=output,
         station=station,
         tools=tuple(tools),
         inputs=tuple(per_unit),
         per_unit=per_unit,
-        step_hours=operation.hours_per_unit.get(output, 0.0),
+        step_hours=hours,
         mix=False,
         needs_recipe=False,
         place=operation.place,
@@ -457,6 +480,7 @@ async def plan(
     tool_item_id: uuid.UUID | None = None,
     proportions: dict[str, float] | None = None,
     auto: bool = False,
+    way: str | None = None,
 ) -> Plan:
     """Forecast before a batch. Changes nothing and reserves nothing."""
     ready = await _prepare(
@@ -469,6 +493,7 @@ async def plan(
         tool_item_id=tool_item_id,
         proportions=proportions,
         auto=auto,
+        way=way,
     )
     return ready.plan
 
@@ -484,6 +509,7 @@ async def start(
     tool_item_id: uuid.UUID | None = None,
     proportions: dict[str, float] | None = None,
     auto: bool = False,
+    way: str | None = None,
     now: datetime | None = None,
 ) -> CraftBatch:
     """Start a batch: the input is written off at once, the product arrives on schedule."""
@@ -498,6 +524,7 @@ async def start(
         tool_item_id=tool_item_id,
         proportions=proportions,
         auto=auto,
+        way=way,
     )
     forecast = ready.plan
 
@@ -1080,6 +1107,7 @@ async def _prepare(
     tool_item_id: uuid.UUID | None,
     proportions: dict[str, float] | None,
     auto: bool = False,
+    way: str | None = None,
 ) -> _Ready:
     """The common flow of forecast and start.
 
@@ -1095,7 +1123,7 @@ async def _prepare(
     if units > constants[R.CRAFT_BATCH_MAX]:
         raise TooBig(f"партия больше craft.batch_max: {units}")
 
-    proc = procedure(catalog, output)
+    proc = procedure(catalog, output, way=way)
     if not _stackable(catalog, proc.output) and units != int(units):
         raise CraftError(f"{proc.output!r} — изделие, а не сырьё: партия считается штуками")
     if proc.needs_recipe and not await _knows(session, body, proc.output):

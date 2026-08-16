@@ -64,36 +64,37 @@ class LandError(Exception):
     pass
 
 
-async def claim_node(session: AsyncSession, body: Body, node: Node) -> Node:
-    """Take a plot: in person, in a wild node (06-farming).
+async def grant_node(session: AsyncSession, node: Node, owner: Identity) -> Node:
+    """Hand a plot to a person: title plus the deed for it (D-116, D-198).
 
-    Civic land is not taken -- it is bought or rented from the city (E3). The
-    estate on a plot is run only by the holder: hiring is access plus a share
-    by contract (D-116), not shared land.
+    Land outside a city is not taken by anybody -- there used to be
+    `claim_node`, which took a wild node on foot and issued a deed for it. That
+    let the first comer lock up a grove, a meadow or a stony slope whole, and
+    barehand gathering with it (D-196): somebody else's place gives no work.
+    Title is issued by a city and only by a city, so the plot arrives here
+    already civic -- through purchase (`estate.buy`) or the founding of a city.
+
+    Working on nobody's land stays open to everyone: build, fell, gather, drop
+    things on the ground. The ban is on the title, not on the labour.
     """
-    from src.engine import travel
-
-    await travel.require_here(session, body)
-    if body.node_id != node.id:
-        raise LandError("участок занимают ногами: дойдите до него")
-    if node.owner_city_id is not None:
-        raise LandError("это городская земля: её покупают или арендуют, а не занимают")
-    if node.owner_identity_id is not None:
-        raise LandError("участок уже занят")
-
-    node.owner_identity_id = body.identity_id
-    await session.flush()
-
-    #: Ownership is documented by a deed: an electronic document that is then
-    #: sold by a sale contract (D-116).
     from src.engine import estate
 
-    await estate.issue_deed(session, node, body.identity_id)
+    if node.owner_city_id is None:
+        raise LandError(
+            "землю за городом не присваивают: бумагу на владение выдаёт город, "
+            "а здесь его нет. Строить и работать тут может всякий"
+        )
+    if node.owner_identity_id is not None:
+        raise LandError("участок уже за кем-то")
+
+    node.owner_identity_id = owner.id
+    await session.flush()
+    await estate.issue_deed(session, node, owner.id)
 
     await events.record(
         session,
         EventKind.LAND_CLAIMED,
-        actor_identity_id=body.identity_id,
+        actor_identity_id=owner.id,
         node_id=node.id,
     )
     return node

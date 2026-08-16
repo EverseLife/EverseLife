@@ -139,11 +139,16 @@ async def mark(
     node = await session.get(Node, body.node_id)
     if node is None:  # pragma: no cover
         raise FarmError("тело вне узла")
-    #: The plot's holder runs the estate: take the land first (06-farming).
+    #: The plot's holder runs the estate: buy the land first (06-farming).
     #: Hiring is access plus a share by contract (D-116), not shared land.
-    if node.owner_identity_id != body.identity_id:
+    #:
+    #: Land outside a city belongs to nobody and never will (D-198), and there
+    #: the field is open: whoever ploughs it, farms it. The plot record still
+    #: has an owner -- the crop is somebody's -- but the ground under it is not.
+    nobody = node.owner_identity_id is None and node.owner_city_id is None
+    if not nobody and node.owner_identity_id != body.identity_id:
         raise NotYours(
-            "участок не ваш: землю сначала занимают, а чужую — арендуют по договору"
+            "участок не ваш: городскую землю выкупают, а чужую — арендуют по договору"
         )
 
     taken = float(

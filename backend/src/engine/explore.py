@@ -110,6 +110,10 @@ GOALS = (LOT, SITE, VEIN, FOREST)
 
 #: The place property both the search and the felling operation look at.
 WOODS = "лес"
+#: Stony ground and meadow (D-196): stone and wild flax are gathered by hand,
+#: and that is the first step of the whole ladder.
+STONES = "камни"
+MEADOW = "луг"
 
 
 class ExploreError(Exception):
@@ -570,6 +574,10 @@ def _properties(
         "температура": round(dice.uniform(temperature.min, temperature.max)),
         "осадки": round(dice.uniform(rainfall.min, rainfall.max)),
         WOODS: woods or dice.random() * PERCENT < constants[R.EXPLORE_FOREST_SHARE],
+        #: Stones and meadow fall out on their own, like woods (D-196): one
+        #: goes for stone and for flax in different directions.
+        STONES: dice.random() * PERCENT < constants[R.EXPLORE_STONES_SHARE],
+        MEADOW: dice.random() * PERCENT < constants[R.EXPLORE_MEADOW_SHARE],
         "дикий": True,
     }
 
