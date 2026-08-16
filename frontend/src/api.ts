@@ -618,6 +618,8 @@ export type Batch = {
   output: string;
   units: number;
   quality: number;
+  /** When it started: the deadline bar shows a share, and a share needs a beginning. */
+  started_at: string;
   ready_at: string;
 };
 
@@ -660,6 +662,8 @@ export type Reservation = {
   deposit: number;
   node: string;
   node_key: string;
+  /** When it was taken -- the other end of the term for the deadline bar. */
+  placed_at: string;
   expires_at: string;
 };
 

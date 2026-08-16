@@ -21,11 +21,20 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel
 
 DB_PATH = Path(os.environ.get("LANDING_DB", "/data/signups.db"))
 INDEX = Path(__file__).parent / "index.html"
+
+#: Self-hosted typefaces (Onest, IBM Plex Mono, Literata -- all OFL), subset to
+#: Latin + Cyrillic. Served from our own domain: no CDN, no third-party
+#: requests. Only the names listed here are reachable, so a path can never
+#: walk out of the folder.
+FONTS_DIR = Path(__file__).parent / "fonts"
+FONTS = {p.name for p in FONTS_DIR.glob("*.woff2")} if FONTS_DIR.is_dir() else set()
+#: The files are immutable per deploy; a new version gets a new name.
+FONT_CACHE = "public, max-age=31536000, immutable"
 
 #: Email: non-empty before @, non-empty after, a dot in the domain. Stricter is
 #: not needed -- the real check happens when a letter goes to the address.
@@ -127,6 +136,17 @@ def index() -> FileResponse:
 @app.get("/favicon.svg")
 def favicon() -> FileResponse:
     return FileResponse(INDEX.parent / "favicon.svg", media_type="image/svg+xml")
+
+
+@app.get("/fonts/{name}")
+def font(name: str) -> Response:
+    if name not in FONTS:
+        return JSONResponse({"ok": False, "error": "not found"}, status_code=404)
+    return FileResponse(
+        FONTS_DIR / name,
+        media_type="font/woff2",
+        headers={"Cache-Control": FONT_CACHE},
+    )
 
 
 @app.get("/health")

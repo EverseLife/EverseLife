@@ -44,6 +44,7 @@ import { Workshop } from "./panels/Workshop";
 import { craftableAt } from "./recipes";
 import { hands, stamp, worldTime } from "./clock";
 import { powSettings, type PowSettings } from "./pow";
+import { wearPlanet } from "./theme";
 
 /** The terminal is the market building, everything else in the node is machines (D-090, D-100). */
 const TERMINAL = "Терминал маркетплейса";
@@ -157,6 +158,14 @@ export default function App() {
   //: while in the field, in-person is closed, as in sleep. Return -- by a button on the map.
   const exploring = Boolean(look?.survey);
   const away = ongoing || exploring;
+
+  //: The base tone belongs to the planet you stand on (D-074, D-080): arriving
+  //: repaints the screen, and that is the fair price of a week through the
+  //: void. Before login nobody stands anywhere -- the theme stays the default.
+  useEffect(() => {
+    if (!look) return;
+    wearPlanet(look.clock?.planet ?? null);
+  }, [look]);
 
   useEffect(() => {
     if (!look) return;

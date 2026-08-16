@@ -7,6 +7,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app.py export.py index.html favicon.svg ./
+COPY fonts/ ./fonts/
 
 # Signups live in SQLite on a volume: the container is disposable, the database is not.
 ENV LANDING_DB=/data/signups.db

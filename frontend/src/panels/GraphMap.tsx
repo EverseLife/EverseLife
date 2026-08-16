@@ -28,6 +28,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as api from "../api";
+import { Deadline } from "../Deadline";
 import { Hint } from "../Hint";
 import {
   SURFACE,
@@ -708,12 +709,14 @@ export function GraphMap({ look, session, busy, act, onEnter }: Props) {
             в пути: {ongoing.final ?? ongoing.to}
             {ongoing.final ? (
               <>
-                {" "}· сейчас — отрезок до «{ongoing.to}», <Countdown to={ongoing.arrives_at} />
+                {" "}· сейчас — отрезок до «{ongoing.to}»,{" "}
+                <Deadline until={ongoing.arrives_at} since={ongoing.started_at} label="переход" />
                 {(ongoing.legs_left ?? 0) > 1 && ` · впереди ещё ${ongoing.legs_left! - 1} узл.`}
               </>
             ) : (
               <>
-                {" "}· придём через <Countdown to={ongoing.arrives_at} />
+                {" "}· придём через{" "}
+                <Deadline until={ongoing.arrives_at} since={ongoing.started_at} label="переход" />
               </>
             )}
           </span>
@@ -850,18 +853,6 @@ const SURFACE_LABEL: Record<RoadWork["surface"], string> = {
   paved: "тракт",
 };
 
-function Countdown({ to }: { to: string }) {
-  const [left, setLeft] = useState(() => (new Date(to).getTime() - Date.now()) / 1000);
-  useEffect(() => {
-    const timer = setInterval(
-      () => setLeft((new Date(to).getTime() - Date.now()) / 1000),
-      1000,
-    );
-    return () => clearInterval(timer);
-  }, [to]);
-  return <b>{left <= 0 ? "вот-вот" : spell(left)}</b>;
-}
-
 /** Exploration from the map: the goal depends on the layer the player looks at (D-152).
  *
  * The scout **leaves in person**: while the run goes, the body is in the field
@@ -923,7 +914,7 @@ function Search({
       {run ? (
         <>
           <span className="note">
-            вы в разведке · вернётесь <Countdown to={run.returns_at} />
+            вы в разведке · вернётесь <Deadline until={run.returns_at} label="разведка" />
           </span>
           <button
             onClick={() => act(() => session.send("explore.cancel"))}

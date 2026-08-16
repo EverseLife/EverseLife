@@ -283,8 +283,14 @@ async def test_collapse_starts_the_working_over(
     sess = await mining.start(session, constants, body, vein)
     sess.roof = 1
     await session.flush()
-    await mining.swing(session, constants, sess)
+    #: A collapse rolls for death and then for a wound (`_collapse`), and a dead
+    #: body cannot open a working. The upper bound of the scale misses both
+    #: rolls, so this test is about the rubble, not about luck.
+    unharmed = random.Random()
+    unharmed.uniform = lambda a, b: b  # noqa: ARG005 -- always the upper bound
+    await mining.swing(session, constants, sess, rng=unharmed)
     assert sess.state is SessionState.COLLAPSED
+    assert body.state is BodyState.ALIVE
 
     await session.refresh(vein)
     assert vein.roof is None, "после обвала забой начинается заново"

@@ -9,6 +9,27 @@
 заявка молча схлопывается (`UNIQUE` по почте), и наружу это не видно — чужой
 почтой нельзя проверить, подписан ли её хозяин.
 
+## Шрифты
+
+Те же три гарнитуры, что и в клиенте (D-075): Onest — интерфейс и заголовки,
+IBM Plex Mono — числа и служебные подписи, Literata — голос мира. Все три под
+OFL, лежат в `fonts/` подрезанными под латиницу и кириллицу (woff2, ~210 КБ на
+пять файлов) и отдаются со своего домена маршрутом `/fonts/{name}` — сторонних
+CDN нет. Лицензии `OFL-*.txt` лежат рядом, этого требует сама лицензия.
+
+Пересобрать из исходников (`google/fonts`: `ofl/onest`, `ofl/ibmplexmono`,
+`ofl/literata`):
+
+```bash
+pip install fonttools brotli
+pyftsubset "Onest[wght].ttf" --output-file=fonts/onest.woff2 --flavor=woff2 --layout-features='*' \
+  --unicodes="U+0000-00FF,U+0400-045F,U+2010-2027,U+2190-2199,U+20A0-20BF,U+2116,U+2212"
+```
+
+Literata перед подрезкой зафиксирована по оптическому размеру
+(`fonttools varLib.instancer "Literata[opsz,wght].ttf" opsz=14 wght=400:700`),
+иначе два файла весили бы по четверти мегабайта.
+
 ## Локально
 
 ```bash

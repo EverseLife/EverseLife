@@ -1,28 +1,41 @@
 /*
- * The demo's styling is deliberately ascetic.
+ * The client's styling. Values live in `theme.css` and nowhere else -- this
+ * file may not contain a colour literal (D-055).
  *
- * The game's visual language is separate work (D-049, D-055, D-072), and the
- * pilot screen tests an untested decision: marking interactivity **without
- * colour**. So there is still one font, one border and no colour coding of meaning.
+ * The visual language is "an operator's workstation": dense, fast, calm. Its
+ * four signatures, each of them functional rather than decorative:
  *
- * There is a hierarchy nonetheless -- it is made by density, not colour:
- * structural lines are translucent, the interactive is full tone. The frame is
- * elastic: the app takes the whole screen, the sidebar and the scene each
- * scroll on their own, the chat is pinned to the bottom of the scene. On
- * narrow screens the frame unravels into the ordinary document flow -- there
- * separate scroll areas only get in the way.
+ *   1. **Colour means, it does not decorate.** The base is near-monochrome and
+ *      tinted by the planet you stand on; colour appears only where the colour
+ *      code gives it meaning. When 95% of the screen is neutral, an alarming
+ *      colour is seen for real -- and in a game where property is lost, that is
+ *      worth more than any picture;
+ *   2. **The accent is another person.** Nothing but the presence and actions
+ *      of living people is painted with it -- not buttons, not links, not the
+ *      selected state. Those are marked by contrast, border and underline;
+ *   3. **A line, not a box.** No shadows, no cards, no rounded bubbles: zones
+ *      are divided by a 1px hairline, and radius never exceeds 2px on controls.
+ *      This buys the vertical space that dense tables always lack;
+ *   4. **The deadline bar** -- one element for every term in the world, from a
+ *      production batch to a court's window. Eight systems speaking one visual
+ *      word is what makes the game recognisable on a screenshot.
+ *
+ * The frame is elastic: the app takes the whole screen, the sidebar and the
+ * scene each scroll on their own, the chat is pinned to the bottom of the
+ * scene. On narrow screens the frame unravels into the ordinary document flow.
  */
 
+@import "./theme.css";
+
 :root {
-  color-scheme: light dark;
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-family: var(--font-ui);
   font-size: 15px;
   line-height: 1.5;
-  /* Structural lines: translucent currentColor. Full tone is left for the
-     interactive -- buttons and the selected. */
-  --line: color-mix(in srgb, currentColor 35%, transparent);
-  --hairline: color-mix(in srgb, currentColor 16%, transparent);
-  --wash: color-mix(in srgb, currentColor 8%, transparent);
+  /* Structural lines. Between zones is heavier than inside one: the eye reads
+     the screen's division before it reads a table's rows. */
+  --line: var(--base-700);
+  --hairline: var(--base-600);
+  --wash: var(--base-800);
 }
 @media (max-width: 40rem) {
   :root {
@@ -43,11 +56,18 @@ body,
 
 body {
   margin: 0;
-  /* The system background/text pair: the same canvas the system draws input
-     fields on -- and the theme switches by itself. */
-  background: Canvas;
-  color: CanvasText;
+  /* The ground is the planet's, and the tokens are already resolved by the
+     time the first frame paints: `data-planet` is set before React mounts. */
+  background: var(--base-900);
+  color: var(--base-200);
   overflow-wrap: break-word;
+}
+
+/* Headings take the full tone; running text stays a step below it. */
+h1,
+h2,
+h3 {
+  color: var(--base-50);
 }
 
 h1 {
@@ -99,9 +119,10 @@ header nav.tabs {
   font-weight: bold;
 }
 
-/* Часы планеты: цифры не должны прыгать при смене минуты. */
+/* The planet's clock: digits must not jump as the minute changes. Family and
+   tabular numerals come from the shared figure rule below. */
 .clock {
-  font-variant-numeric: tabular-nums;
+  color: var(--base-400);
 }
 
 /* The frame: sidebar on the left (the Net), main window on the right (in-person).
@@ -199,55 +220,75 @@ select,
 input {
   font: inherit;
   padding: 0.25rem 0.6rem;
-  border: 1px solid currentColor;
+  border: 1px solid var(--base-600);
+  border-radius: var(--r-control);
   background: transparent;
-  color: inherit;
+  color: var(--base-200);
   max-width: 100%;
 }
 
 /*
- * The `select` option list is drawn by the system, not the page, and a
- * transparent background comes out white for it -- together with inherited
- * white text. Hence white on white in the dark theme. Cured only one way: the
- * field and its options get **system** colours, not ours -- then they match
- * what the system draws them on.
+ * `option` is drawn by the system, not by the page, so it is given the field's
+ * own pair explicitly. Left to inherit, it used to come out white on white in
+ * the dark theme -- the system painted its own background under our text.
  */
 select,
-input {
-  background-color: Field;
-  color: FieldText;
-}
-
+input,
 option {
-  background-color: Field;
-  color: FieldText;
+  background-color: var(--base-800);
+  color: var(--base-50);
 }
 
 /*
- * The main button is "thicker" than the quiet one, but the thickness comes from
- * an inner shadow, not the border: a class change (tabs!) must not shift the layout by a pixel.
+ * The main button is inverse and high-contrast, the quiet one is a hairline
+ * frame. Interactivity is marked by contrast and border, never by the accent:
+ * the accent means a living person and nothing else.
  */
 button:not(:disabled) {
   cursor: pointer;
-  box-shadow: inset 0 0 0 1px currentColor;
 }
-button:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
+button:not(.quiet):not(.link) {
+  background-color: var(--base-50);
+  color: var(--base-900);
+  border-color: var(--base-50);
+  font-weight: 600;
 }
 button.quiet {
-  border-style: dashed;
-  box-shadow: none;
+  background-color: transparent;
+  color: var(--base-200);
+  border-color: var(--base-600);
+  font-weight: 400;
 }
-button:not(:disabled):hover {
+/*
+ * A refusal is shown together with its reason next to the control, so the
+ * disabled state only has to read as "not now" -- but it still has to be read.
+ * Muting by opacity is what made that impossible: it composites against
+ * whatever lies beneath, stacks with any other opacity on the way up, and
+ * lands wherever it lands. The muted tone is a token instead, and the token is
+ * the one CI proves legible on every surface of every theme.
+ */
+button:not(.link):disabled {
+  background-color: transparent;
+  color: var(--base-400);
+  border-color: var(--base-700);
+  font-weight: 400;
+  cursor: not-allowed;
+}
+button:not(.quiet):not(.link):not(:disabled):hover {
+  filter: brightness(0.9);
+}
+button.quiet:not(:disabled):hover {
   background-color: var(--wash);
+  color: var(--base-50);
+  border-color: var(--base-400);
 }
 button:not(:disabled):active {
   transform: translateY(1px);
 }
 
+/* Keyboard focus is visible always and explicitly: full-tone, 2px (D-077). */
 :focus-visible {
-  outline: 2px solid currentColor;
+  outline: 2px solid var(--base-50);
   outline-offset: 2px;
 }
 
@@ -276,12 +317,24 @@ tbody tr:last-child td {
 }
 th {
   font-weight: normal;
-  opacity: 0.7;
+  color: var(--base-400);
   border-bottom: 1px solid var(--line);
+}
+/*
+ * Every figure is monospaced with tabular numerals (D-075). The game is an
+ * economic one: a column of prices has to line up by digit, or the order book
+ * is unreadable. The side effect is that a number is recognised as a number
+ * wherever it stands.
+ */
+.num,
+.clock,
+.money,
+input[type="number"] {
+  font-family: var(--font-num);
+  font-variant-numeric: tabular-nums;
 }
 .num {
   text-align: right;
-  font-variant-numeric: tabular-nums;
 }
 
 .book td:nth-child(2) {
@@ -333,8 +386,101 @@ tr.picked td:first-child {
   margin: 0.5rem 0;
 }
 
+/*
+ * A refusal in place of the action it refuses (01-interaction-model).
+ *
+ * A grey button without a reason reads as a broken client, and a reason hidden
+ * in a `title` does not exist at all on a phone. So the reason stands where the
+ * hand was going, in the warning tone -- not as an alarm: nothing was lost, the
+ * thing simply cannot be done yet.
+ */
+.reason {
+  margin: 0.35rem 0;
+  padding: 0.1rem 0 0.1rem 0.6rem;
+  border-left: 2px solid var(--warning);
+  font-size: 0.85rem;
+  color: var(--base-200);
+}
+
+/* --- the deadline bar (brief signature 4) --------------------------------- */
+
+.deadline {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+.deadline.row {
+  flex: 1 1 8rem;
+}
+.deadline-bar {
+  flex: 1 1 4rem;
+  min-width: 3rem;
+  height: 2px;
+  background: var(--base-700);
+  overflow: hidden;
+}
+.deadline-bar i {
+  display: block;
+  height: 2px;
+  background: var(--base-400);
+}
+/* The remainder speaks twice -- by colour and by the word next to it -- because
+   meaning is never carried by colour alone (D-077). */
+.deadline.near .deadline-bar i {
+  background: var(--warning);
+}
+.deadline.near .deadline-left {
+  color: var(--warning);
+}
+.deadline.over .deadline-bar i {
+  background: var(--danger);
+}
+.deadline.over .deadline-left {
+  color: var(--danger);
+}
+.deadline-left {
+  flex: none;
+  font-family: var(--font-num);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.8rem;
+  color: var(--base-400);
+}
+/* The step is a second either way; the transition only smooths between steps,
+   so dropping it leaves the bar correct and merely less fluid. */
+@media (prefers-reduced-motion: no-preference) {
+  .deadline-bar i {
+    transition: width 1s linear;
+  }
+}
+
+/* A line of business: title, remark, bar, action. */
+.doing {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  flex-wrap: wrap;
+  min-height: var(--row-h);
+  padding: 0.15rem 0;
+  border-bottom: 1px solid var(--hairline);
+}
+.doing:last-child {
+  border-bottom: none;
+}
+.doing-what {
+  color: var(--base-50);
+}
+.doing-aside {
+  font-size: 0.8rem;
+  color: var(--base-400);
+}
+.doing-act {
+  flex: none;
+  margin-left: auto;
+}
+
 .note {
-  opacity: 0.7;
+  color: var(--base-400);
   font-size: 0.8rem;
   line-height: 1.35;
   margin: 0.2rem 0;
@@ -357,7 +503,7 @@ tr.picked td:first-child {
   border: 1px solid var(--line);
   border-radius: 50%;
   font-size: 0.75rem;
-  opacity: 0.6;
+  color: var(--base-400);
   cursor: help;
   user-select: none;
 }
@@ -380,8 +526,8 @@ tr.picked td:first-child {
   padding: 0.4rem 0.6rem;
   border: 1px solid var(--line);
   /* Opaque background: the hint lies over the map and the text under it. */
-  background: Canvas;
-  color: CanvasText;
+  background: var(--base-900);
+  color: var(--base-200);
   font-size: 0.8rem;
   line-height: 1.35;
   text-align: left;
@@ -400,7 +546,7 @@ tr.picked td:first-child {
 /* An error is always in view: a strip under the frame, not deep in the scroll. */
 .trouble {
   flex: none;
-  border: 2px solid currentColor;
+  border: 2px solid var(--danger);
   background-color: var(--wash);
   padding: 0.4rem 0.6rem;
   margin: 0.5rem 0 0;
@@ -413,7 +559,7 @@ tr.picked td:first-child {
 footer {
   flex: none;
   margin-top: 0.5rem;
-  opacity: 0.6;
+  color: var(--base-400);
   font-size: 0.8rem;
 }
 
@@ -440,11 +586,15 @@ main.entry {
 
 /* The city's word (D-183): somebody's speech, not an engine line. Set off by
    italics and a line on the left -- the same device as an overheard remark in chat. */
+/* The city's word (D-183) is somebody's speech, not an engine line -- so it is
+   set in the world's antiqua, like everything spoken inside the world. */
 .say {
   margin: 0.5rem 0;
   padding-left: 0.6rem;
   border-left: 3px solid var(--line);
+  font-family: var(--font-world);
   font-style: italic;
+  color: var(--base-200);
 }
 
 /* The field for that same word: the same input fields, but multi-line text. */
@@ -453,9 +603,9 @@ textarea.word {
   width: 100%;
   min-height: 4.5rem;
   padding: 0.25rem 0.6rem;
-  border: 1px solid currentColor;
-  background-color: Field;
-  color: FieldText;
+  border: 1px solid var(--base-600);
+  background-color: var(--base-800);
+  color: var(--base-50);
   resize: vertical;
 }
 
@@ -469,7 +619,7 @@ textarea.word {
   align-items: center;
   justify-content: center;
   padding: 1rem;
-  background: color-mix(in srgb, Canvas 82%, transparent);
+  background: color-mix(in srgb, var(--base-950) 82%, transparent);
 }
 .intro {
   width: min(38rem, 100%);
@@ -477,8 +627,8 @@ textarea.word {
   overflow-y: auto;
   /* Opaque background and full-tone border: this is the only window that
      speaks on the game's behalf, and it must not merge with the panels under it. */
-  background: Canvas;
-  border-color: currentColor;
+  background: var(--base-900);
+  border-color: var(--base-50);
 }
 .intro p {
   margin: 0.5rem 0;
@@ -531,9 +681,8 @@ textarea.word {
 }
 
 .edge {
-  stroke: currentColor;
+  stroke: var(--base-600);
   stroke-width: 1;
-  opacity: 0.55;
 }
 .edge.paved {
   stroke-width: 2.5;
@@ -547,11 +696,11 @@ textarea.word {
   text-anchor: middle;
 }
 .edge-label {
-  opacity: 0.55;
+  fill: var(--base-400);
 }
 
 .node circle {
-  fill: Canvas;
+  fill: var(--base-900);
   stroke: currentColor;
   stroke-width: 1.5;
 }
@@ -575,9 +724,8 @@ textarea.word {
 /* A group node: the second ring says "there is something to expand inside". */
 .node .halo {
   fill: none;
-  stroke: currentColor;
+  stroke: var(--base-600);
   stroke-width: 1;
-  opacity: 0.45;
   stroke-dasharray: 3 4;
 }
 @media (prefers-reduced-motion: no-preference) {
@@ -620,18 +768,42 @@ textarea.word {
   }
 }
 
-.line {
+/*
+ * The talk's four voices (D-075, 02-channels).
+ *
+ * The typeface does the separating, and it must be visible from an arm's
+ * length: speech and action are the world and are set in the antiqua,
+ * out-of-game is the interface's own grotesque and muted. Without that,
+ * roleplay is indistinguishable from a remark by a player -- and metagame
+ * leaks into the world, up to and including a court case.
+ *
+ * The rules are scoped to `.chat-lines`: `.line` also names a character-line
+ * card on the registration screen, and the two must not collide.
+ */
+.chat-lines .line {
   margin: 0.25rem 0;
+  font-family: var(--font-world);
 }
-.line.action {
+/* The speaker is a living person -- the only thing the accent ever marks. */
+.chat-lines .line b {
+  color: var(--accent);
+  font-weight: 600;
+}
+.chat-lines .line.action {
   font-style: italic;
+  color: var(--base-200);
 }
-.line.ooc {
-  opacity: 0.55;
+.chat-lines .line.ooc {
+  font-family: var(--font-ui);
+  font-size: 0.9em;
+  color: var(--base-400);
 }
-.line.overheard {
-  opacity: 0.75;
-  border-left: 3px dotted currentColor;
+.chat-lines .line.ooc b {
+  color: var(--base-400);
+}
+.chat-lines .line.overheard {
+  color: var(--base-400);
+  border-left: 3px dotted var(--base-600);
   padding-left: 0.5rem;
 }
 
@@ -646,7 +818,7 @@ textarea.word {
 }
 .circle.mine {
   border-style: solid;
-  border-color: currentColor;
+  border-color: var(--base-50);
 }
 
 /* --- login, registration, account panel (D-187) -------------------------- */
@@ -709,7 +881,7 @@ main.entry.auth {
 }
 .card label > span {
   font-size: 0.8rem;
-  opacity: 0.7;
+  color: var(--base-400);
 }
 .card input,
 .card textarea,
@@ -720,9 +892,9 @@ main.entry.auth {
 .card textarea {
   font: inherit;
   padding: 0.25rem 0.6rem;
-  border: 1px solid currentColor;
-  background-color: Field;
-  color: FieldText;
+  border: 1px solid var(--base-600);
+  background-color: var(--base-800);
+  color: var(--base-50);
   resize: vertical;
 }
 .card input[type="number"] {
@@ -750,7 +922,7 @@ button.link {
 }
 button.link:not(:disabled):hover {
   background: none;
-  text-decoration-color: currentColor;
+  text-decoration-color: var(--base-50);
 }
 
 /* The password field with an eye. The eye stands inside the field on the
@@ -782,7 +954,7 @@ button.link:not(:disabled):hover {
   }
 }
 .secret.invalid input {
-  border-color: currentColor;
+  border-color: var(--base-50);
   border-style: dashed;
 }
 .secret-flash {
@@ -792,7 +964,7 @@ button.link:not(:disabled):hover {
   background: linear-gradient(
     100deg,
     transparent 30%,
-    color-mix(in srgb, currentColor 22%, transparent) 50%,
+    color-mix(in srgb, var(--base-50) 22%, transparent) 50%,
     transparent 70%
   );
   background-size: 250% 100%;
@@ -902,33 +1074,32 @@ button.eye:not(:disabled):active {
   padding: 0;
   margin: 0 auto 0.5rem;
   font-size: 0.85rem;
-  opacity: 0.85;
 }
 .steps li {
   display: flex;
   align-items: center;
   gap: 0.4rem;
-  opacity: 0.55;
+  color: var(--base-400);
 }
 .steps li.now {
-  opacity: 1;
+  color: var(--base-50);
   font-weight: bold;
 }
 .steps li.done {
-  opacity: 0.8;
+  color: var(--base-200);
 }
 .steps .n {
   display: inline-grid;
   place-items: center;
   width: 1.5rem;
   height: 1.5rem;
-  border: 1px solid currentColor;
+  border: 1px solid var(--base-600);
   border-radius: 50%;
   font-size: 0.75rem;
 }
 .steps li.now .n {
-  background: currentColor;
-  color: Canvas;
+  background: var(--base-50);
+  color: var(--base-900);
 }
 .steps li.done .n {
   border-style: dashed;
@@ -957,19 +1128,22 @@ button.eye:not(:disabled):active {
 .line table {
   margin-top: auto;
 }
-.line.soon {
+/* A promise, not a stub (D-104): the card is muted by tone and a dashed
+   border, never by opacity -- its own hint would go under the floor. */
+.line.soon,
+.line.soon .note {
   border-style: dashed;
-  opacity: 0.6;
+  color: var(--base-400);
 }
 .line.picked {
-  border-color: currentColor;
-  box-shadow: inset 0 0 0 1px currentColor;
+  border-color: var(--base-50);
+  box-shadow: inset 0 0 0 1px var(--base-50);
 }
 .soon-tag {
   display: inline-block;
   padding: 0.25rem 0.6rem;
-  border: 1px dashed currentColor;
-  opacity: 0.8;
+  border: 1px dashed var(--base-600);
+  color: var(--base-400);
   font-style: italic;
 }
 

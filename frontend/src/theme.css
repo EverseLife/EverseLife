@@ -1,0 +1,206 @@
+/*
+ * The token layer of the visual language (D-055, D-072, D-074, D-075, D-080).
+ *
+ * This file holds **values only** -- no component ever styles itself here, and
+ * nothing outside this file may write a colour literal. That rule is what makes
+ * the two promises of the brief cheap to keep:
+ *
+ *   1. the light theme is obtained by swapping tokens, without touching markup;
+ *   2. **another planet is obtained the same way** -- markup, layout, density
+ *      and element positions never change. A player arriving on Aquatica does
+ *      not relearn the screen: they see the same screen in a different light.
+ *
+ * ## Why the base is tinted by the planet
+ *
+ * The interface reports **where you are**, not who you are. A Nymph living on
+ * Terra sees the Terran theme: she is in a foreign world, and the world reminds
+ * her of it. Flight repaints the screen, and that is the fair price of a week
+ * through the void.
+ *
+ * The tone is deep and dirty on purpose. The closer the base gets to a pure
+ * blue or green, the faster the interface turns into a spacecraft HUD -- and
+ * this is a game about labour, money and arguments.
+ *
+ * ## The invariant that makes colour a language
+ *
+ * Roles never swap between themes. `--accent` always means a living person and
+ * nothing else, `--danger` is always alarm, and no semantic colour may sit
+ * close to the base of its own theme. It is this invariant -- not any
+ * particular hex -- that lets a player read colour without reading labels.
+ *
+ * Terra and Aquatica come from `07-design-brief.md` section 3, with one
+ * correction: the vault's own `--base-400` fails the vault's own 4.5:1
+ * requirement (Terra 4.29 on `--base-800`, Aquatica 3.73). Both are lifted two
+ * steps. Pyroxis, Aurora and the void are derived by the rules of that same
+ * section and are pending approval.
+ *
+ * Every pair is checked by `scripts/check-tokens.mjs`, which runs in CI: the
+ * number of checks grows with the number of planets, so it cannot be done by eye.
+ */
+
+:root {
+  /* --- three voices (D-075) -------------------------------------------
+     Interface is a grotesque, every figure is monospaced with tabular
+     numerals, and the world -- speech, action, place descriptions, texts of
+     laws -- is an antiqua. The last one is not decoration: it is what keeps
+     metagame from leaking into the world at a glance (02-channels).
+
+     The faces are named first and fall back to what the system has. They are
+     not yet served from our own domain -- see `fonts/README.md`. Third-party
+     CDNs are excluded by the brief: an external dependency and third-party
+     data collection for nothing. */
+  --font-ui: Onest, "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-num: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --font-world: Literata, "PT Serif", Georgia, "Times New Roman", serif;
+
+  /* --- grid, form, density (brief section 5) --------------------------
+     Grid step 4px. Radius 2px on controls, 0 on zones; 4px exists for
+     popovers only. One shadow in the whole system, and only popovers get it. */
+  --s1: 4px;
+  --s2: 8px;
+  --s3: 12px;
+  --s4: 16px;
+  --s5: 24px;
+  --s6: 32px;
+
+  --r-control: 2px;
+  --r-zone: 0;
+  --r-pop: 4px;
+
+  --shadow-pop: 0 4px 16px rgb(0 0 0 / 0.45);
+
+  /* Density is a setting, not a reward (00-ux-principles). Row heights and
+     padding change; the type size never does -- otherwise "dense" becomes
+     unreadable rather than dense. */
+  --row-h: 32px;
+  --pad: var(--s2);
+}
+:root[data-density="plain"] { --row-h: 40px; --pad: var(--s3); }
+:root[data-density="dense"] { --row-h: 24px; --pad: var(--s1); }
+
+/* On a phone the finger target is 44px whatever the density says. */
+@media (pointer: coarse) {
+  :root { --row-h: 44px; }
+  :root[data-density="dense"] { --row-h: 44px; }
+}
+
+/* ===================================================================
+   Palettes. Each planet declares two full sets -- `--d-*` dark and
+   `--l-*` light -- and never touches `--base-*` itself. The choice
+   between the sets is made once, below, for all planets at once: adding
+   a planet is one block, not three.
+   =================================================================== */
+
+/* --- Terra: deep blue. The alpha's home theme (brief section 3). ----- */
+:root, :root[data-planet="terra"] {
+  --d-950: #070B14; --d-900: #0E1524; --d-850: #141D30; --d-800: #1C273D;
+  --d-700: #2A3852; --d-600: #3B4B68; --d-400: #8794AE; --d-200: #C2CADA;
+  --d-50:  #EDF1F8;
+  --d-accent: #B98CFF; --d-warning: #E0A458; --d-danger: #E8574C; --d-success: #56C48A;
+
+  --l-950: #FFFFFF; --l-900: #F4F6FA; --l-850: #E9EDF4; --l-800: #DFE5EF;
+  --l-700: #CFD6E2; --l-600: #B6C0D0; --l-400: #566178; --l-200: #33405A;
+  --l-50:  #0E1524;
+  --l-accent: #6A3BC4; --l-warning: #7E5208; --l-danger: #B0231A; --l-success: #1B6E44;
+}
+
+/* --- Aquatica: deep green. "Completion" leaves green for cyan, because
+       green on a green base is not a signal (brief section 3). --------- */
+:root[data-planet="aquatica"] {
+  --d-950: #050C09; --d-900: #0B1712; --d-850: #102019; --d-800: #172B22;
+  --d-700: #223B30; --d-600: #2F4E41; --d-400: #859C8F; --d-200: #BFCEC4;
+  --d-50:  #EAF2EC;
+  --d-accent: #FF8FBF; --d-warning: #E8B45C; --d-danger: #E8574C; --d-success: #6FD8E8;
+
+  --l-950: #FFFFFF; --l-900: #F3F7F3; --l-850: #E7EFE8; --l-800: #DCE6DE;
+  --l-700: #CDD9CF; --l-600: #B0C2B5; --l-400: #4E5E52; --l-200: #2E453A;
+  --l-50:  #0B1712;
+  --l-accent: #A81858; --l-warning: #7A5408; --l-danger: #B0231A; --l-success: #0D6070;
+}
+
+/* --- Pyroxis: warm graphite -- ash and basalt.
+       The volcano begs for red, but red and orange mean alarm and wear. The
+       world burns; the interface stays ash, and red on it still means trouble.
+       The base being warm, "warning" moves into yellow and "alarm" gets
+       brighter: an orange on ash stops being a signal. ------------------- */
+:root[data-planet="pyroxis"] {
+  --d-950: #0A0807; --d-900: #14100E; --d-850: #1B1613; --d-800: #251E1A;
+  --d-700: #352C26; --d-600: #493D35; --d-400: #9C8E82; --d-200: #DBD2CB;
+  --d-50:  #F6F1ED;
+  --d-accent: #C79BFF; --d-warning: #F0C75E; --d-danger: #FF6F5E; --d-success: #5FD08D;
+
+  --l-950: #FFFFFF; --l-900: #F7F4F1; --l-850: #EDE8E3; --l-800: #E4DDD6;
+  --l-700: #D8D0C8; --l-600: #C0B4A8; --l-400: #655B52; --l-200: #443B33;
+  --l-50:  #14100E;
+  --l-accent: #6A3BC4; --l-warning: #74520A; --l-danger: #B32517; --l-success: #1B6E44;
+}
+
+/* --- Aurora: cold blue-steel, darker and colder than Terra. A planet of
+       ruins and ice: above `--base-800` there is almost nothing. The accent
+       leaves violet for pink -- violet on a cold blue base stops being far
+       from it, and the accent must never sit near the base. -------------- */
+:root[data-planet="aurora"] {
+  --d-950: #03060A; --d-900: #080D15; --d-850: #0C131E; --d-800: #121B29;
+  --d-700: #1B2637; --d-600: #27354A; --d-400: #7A8AA0; --d-200: #B9C5D6;
+  --d-50:  #E8EEF6;
+  --d-accent: #FF9BD4; --d-warning: #E0A458; --d-danger: #F0574C; --d-success: #5CCB90;
+
+  --l-950: #FFFFFF; --l-900: #F2F5FA; --l-850: #E5EAF3; --l-800: #DAE1EC;
+  --l-700: #C9D2E0; --l-600: #AFBACB; --l-400: #54617A; --l-200: #2C3950;
+  --l-50:  #080D15;
+  --l-accent: #A81B72; --l-warning: #7E5208; --l-danger: #B0231A; --l-success: #17734A;
+}
+
+/* --- The void: a ship is not a planet. The darkest and least saturated
+       base of all, and the semantic colours are damped with it: in transit
+       the interface is poorer in colour than anywhere else. -------------- */
+:root[data-planet="void"] {
+  --d-950: #020304; --d-900: #07090B; --d-850: #0B0E11; --d-800: #111519;
+  --d-700: #1A1F25; --d-600: #262D35; --d-400: #7C848E; --d-200: #C2C8CF;
+  --d-50:  #EEF1F4;
+  --d-accent: #AE8CE8; --d-warning: #D2A163; --d-danger: #DE6055; --d-success: #5FBE8C;
+
+  --l-950: #FFFFFF; --l-900: #F5F6F7; --l-850: #E8EAEC; --l-800: #E0E3E6;
+  --l-700: #D2D6DA; --l-600: #B7BCC2; --l-400: #5A6167; --l-200: #343A40;
+  --l-50:  #07090B;
+  --l-accent: #5D3BAE; --l-warning: #6F4E0C; --l-danger: #A9271C; --l-success: #1B6640;
+}
+
+/* ===================================================================
+   Choosing the set. Dark is the design's home, light is mandatory
+   (brief section 3). The system decides by default, and `data-light`
+   overrides it in either direction -- so a future setting is one
+   attribute, not a rewrite.
+   =================================================================== */
+
+:root {
+  --base-950: var(--d-950); --base-900: var(--d-900); --base-850: var(--d-850);
+  --base-800: var(--d-800); --base-700: var(--d-700); --base-600: var(--d-600);
+  --base-400: var(--d-400); --base-200: var(--d-200); --base-50:  var(--d-50);
+  --accent: var(--d-accent); --warning: var(--d-warning);
+  --danger: var(--d-danger); --success: var(--d-success);
+
+  color-scheme: dark;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-light="dark"]) {
+    --base-950: var(--l-950); --base-900: var(--l-900); --base-850: var(--l-850);
+    --base-800: var(--l-800); --base-700: var(--l-700); --base-600: var(--l-600);
+    --base-400: var(--l-400); --base-200: var(--l-200); --base-50:  var(--l-50);
+    --accent: var(--l-accent); --warning: var(--l-warning);
+    --danger: var(--l-danger); --success: var(--l-success);
+
+    color-scheme: light;
+  }
+}
+
+:root[data-light="light"] {
+  --base-950: var(--l-950); --base-900: var(--l-900); --base-850: var(--l-850);
+  --base-800: var(--l-800); --base-700: var(--l-700); --base-600: var(--l-600);
+  --base-400: var(--l-400); --base-200: var(--l-200); --base-50:  var(--l-50);
+  --accent: var(--l-accent); --warning: var(--l-warning);
+  --danger: var(--l-danger); --success: var(--l-success);
+
+  color-scheme: light;
+}

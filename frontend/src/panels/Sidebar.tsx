@@ -15,6 +15,7 @@
 import { useEffect, useState } from "react";
 import * as api from "../api";
 import type { Look, Session } from "../api";
+import { Doing } from "../Deadline";
 import { Economy } from "./Economy";
 import { Finance } from "./Finance";
 import { Holdings } from "./Holdings";
@@ -273,24 +274,38 @@ function Inventory({ look, session, busy, act }: Props) {
   );
 }
 
+/** Everything running, one line each with its deadline bar.
+ *
+ * The main screen of an asynchronous game: what is going on and how long is
+ * left. Every term in the world is drawn by the same element, so a batch, a
+ * road and a reservation are read the same way and compared at a glance.
+ */
 function Doings({ look }: { look: Look }) {
   const empty = look.batches.length === 0 && !look.travel;
   return (
     <div>
       {look.travel && (
-        <p>
-          в пути: {look.travel.final ?? look.travel.to} · придём{" "}
-          {left(look.travel.arrives_at)}
-          {look.travel.final ? " в следующий узел" : ""}
-        </p>
+        <Doing
+          what={`в пути: ${look.travel.final ?? look.travel.to}`}
+          until={look.travel.arrives_at}
+          since={look.travel.started_at}
+          aside={look.travel.final ? "до следующего узла" : undefined}
+        />
       )}
       {look.batches.map((job) => (
-        <p key={job.id}>
-          {job.work === "make" ? job.output
-            : job.work === "repair" ? `починка: ${job.output}`
-            : `переработка: ${job.output}`}{" "}
-          · {left(job.ready_at)}
-        </p>
+        <Doing
+          key={job.id}
+          what={
+            job.work === "make"
+              ? job.output
+              : job.work === "repair"
+                ? `починка: ${job.output}`
+                : `переработка: ${job.output}`
+          }
+          until={job.ready_at}
+          since={job.started_at}
+          aside={job.work === "make" ? `качество ${job.quality.toFixed(0)}` : undefined}
+        />
       ))}
       {empty && <p className="note">ничего не идёт</p>}
       <p className="note">
@@ -310,11 +325,16 @@ function Trade({ look, session, busy, act }: Props) {
         <>
           <h3>Брони</h3>
           {look.reservations.map((reservation) => (
-            <p key={reservation.id}>
-              {reservation.goods}, {reservation.tier} · {reservation.amount} по {api.tk(reservation.price)} ₭ ·{" "}
-              {reservation.node} · задаток {api.tk(reservation.deposit)} ₭ ·{" "}
-              <b>забрать {left(reservation.expires_at)}</b>
-            </p>
+            <Doing
+              key={reservation.id}
+              what={`${reservation.goods}, ${reservation.tier}`}
+              until={reservation.expires_at}
+              since={reservation.placed_at}
+              aside={
+                `${reservation.amount} по ${api.tk(reservation.price)} ₭ · ` +
+                `${reservation.node} · задаток ${api.tk(reservation.deposit)} ₭`
+              }
+            />
           ))}
           <p className="note">
             Забирают ногами: приезжайте в узел и выкупайте. Срок вышел — задаток
@@ -426,9 +446,4 @@ function spoilAt(when: string): string {
   return `годно ${Math.round(hours / 24)} сут.`;
 }
 
-function left(when: string): string {
-  const seconds = Math.round((new Date(when).getTime() - Date.now()) / 1000);
-  if (seconds <= 0) return "вот-вот";
-  return `через ${api.spell(seconds)}`;
-}
 

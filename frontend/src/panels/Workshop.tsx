@@ -16,7 +16,7 @@
  * forecast, not instead of it.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import * as api from "../api";
 import type { Look, Plan, Session } from "../api";
 import { craftableAt, stationOf } from "../recipes";
@@ -37,24 +37,65 @@ export function Workshop({ look, session, busy, act, machine, book }: Props) {
   const [what, setWhat] = useState<string | null>(null);
   const [qty, setQty] = useState(1);
   const [forecast, setForecast] = useState<Plan | null>(null);
+  //: Why there is no forecast. A batch that cannot be counted is nearly always
+  //: a batch that cannot be started -- missing materials, a busy machine, a
+  //: node cut off for debt -- and the player is owed the reason where they
+  //: stand, not a grey button.
+  const [refusal, setRefusal] = useState<string | null>(null);
   //: "Put on automatic" is a choice of mode: volume and an energy bill against
   //: quality and attention (D-035, D-058).
   const [automaton, setAutomaton] = useState(false);
 
-  if (known.length === 0) return null;
-  const selected = what && known.includes(what) ? what : known[0];
-  const myMachine = (look.bench ?? []).filter((b) => b.goods === machine);
+  //: Computed before the early return below: a hook may not be called
+  //: conditionally, and the forecast effect needs both of these.
+  const selected = what && known.includes(what) ? what : (known[0] ?? null);
   const automated = machine === "Автоматический станок";
 
-  const doForecast = () =>
-    act(async () => {
-      const answer = await session.send("craft.plan", {
-        output: selected,
-        units: qty,
-        auto: automaton && automated,
-      });
-      setForecast(answer.plan as Plan);
-    });
+  /**
+   * The forecast counts itself while the player is still choosing.
+   *
+   * It used to sit behind a "Прогноз" button, and that click stood between the
+   * intention and the number: comparing two recipes cost three presses each,
+   * so nobody compared and nobody derived a proportion -- the very thing the
+   * exact forecast exists for (D-092). Now the number simply follows the choice.
+   *
+   * The pause debounces the arrow keys on the quantity field; a stale answer
+   * from a superseded request is dropped rather than shown.
+   */
+  useEffect(() => {
+    if (selected === null) return;
+    let dropped = false;
+    const timer = setTimeout(() => {
+      void session
+        .send("craft.plan", {
+          output: selected,
+          units: qty,
+          auto: automaton && automated,
+        })
+        .then((answer) => {
+          if (dropped) return;
+          setForecast(answer.plan as Plan);
+          setRefusal(null);
+        })
+        //: A refusal is not shouted at the bottom of the screen: it belongs
+        //: next to the machine it came from, and the engine's wording already
+        //: explains what is missing.
+        .catch((trouble: unknown) => {
+          if (dropped) return;
+          setForecast(null);
+          setRefusal(trouble instanceof Error ? trouble.message : String(trouble));
+        });
+    }, 300);
+    return () => {
+      dropped = true;
+      clearTimeout(timer);
+    };
+  }, [session, selected, qty, automaton, automated]);
+
+  //: Nothing is made at this machine with what the player knows -- the panel
+  //: stays silent rather than showing an empty list of recipes.
+  if (selected === null) return null;
+  const myMachine = (look.bench ?? []).filter((b) => b.goods === machine);
 
   const launch = () =>
     act(async () => {
@@ -105,13 +146,7 @@ export function Workshop({ look, session, busy, act, machine, book }: Props) {
       ))}
 
       <div className="row">
-        <select
-          value={selected}
-          onChange={(e) => {
-            setWhat(e.target.value);
-            setForecast(null);
-          }}
-        >
+        <select value={selected} onChange={(e) => setWhat(e.target.value)}>
           {known.map((name) => (
             <option key={name}>{name}</option>
           ))}
@@ -120,54 +155,52 @@ export function Workshop({ look, session, busy, act, machine, book }: Props) {
           type="number"
           min={1}
           value={qty}
-          onChange={(e) => {
-            setQty(Number(e.target.value));
-            setForecast(null);
-          }}
+          onChange={(e) => setQty(Number(e.target.value))}
         />
-        <button onClick={doForecast} disabled={busy}>
-          Прогноз
-        </button>
         {automated && (
           <label className="note">
             <input
               type="checkbox"
               checked={automaton}
-              onChange={(e) => {
-                setAutomaton(e.target.checked);
-                setForecast(null);
-              }}
+              onChange={(e) => setAutomaton(e.target.checked)}
             />{" "}
             на автомате
           </label>
         )}
       </div>
 
-      {forecast && (
-        <div className="plan">
-          <p>
-            качество <b>{forecast.quality.toFixed(1)}</b> ± {forecast.spread.toFixed(1)}
-            {" · "}потолок {forecast.ceiling.toFixed(0)}
-            {" · "}{forecast.minutes.toFixed(1)} мин
-            {" · "}потери {forecast.waste.toFixed(1)}%
-          </p>
-          <p className="note">
-            уйдёт:{" "}
-            {Object.entries(forecast.consumes)
-              .map(([name, qty]) => `${name} ${qty.toFixed(2)}`)
-              .join(", ")}
-            {forecast.auto && forecast.energy > 0 && (
-              <>
-                {" "}· энергии {forecast.energy.toFixed(0)} на{" "}
-                {api.tk(forecast.energy_cost)} ₭ по тарифу города
-              </>
-            )}
-          </p>
-          <button onClick={launch} disabled={busy}>
-            Запустить партию
-          </button>
-        </div>
-      )}
+      <div className="plan">
+        {forecast ? (
+          <>
+            <p>
+              качество <b className="num">{forecast.quality.toFixed(1)}</b> ±{" "}
+              <span className="num">{forecast.spread.toFixed(1)}</span>
+              {" · "}потолок <span className="num">{forecast.ceiling.toFixed(0)}</span>
+              {" · "}<span className="num">{forecast.minutes.toFixed(1)}</span> мин
+              {" · "}потери <span className="num">{forecast.waste.toFixed(1)}</span>%
+            </p>
+            <p className="note">
+              уйдёт:{" "}
+              {Object.entries(forecast.consumes)
+                .map(([name, qty]) => `${name} ${qty.toFixed(2)}`)
+                .join(", ")}
+              {forecast.auto && forecast.energy > 0 && (
+                <>
+                  {" "}· энергии {forecast.energy.toFixed(0)} на{" "}
+                  {api.tk(forecast.energy_cost)} ₭ по тарифу города
+                </>
+              )}
+            </p>
+          </>
+        ) : refusal ? (
+          <p className="reason">{refusal}</p>
+        ) : (
+          <p className="note">Прогноз считается сам, пока вы выбираете.</p>
+        )}
+        <button onClick={launch} disabled={busy || !forecast}>
+          Запустить партию
+        </button>
+      </div>
 
       {repair.length > 0 && (
         <>

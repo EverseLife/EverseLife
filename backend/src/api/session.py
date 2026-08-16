@@ -2885,6 +2885,9 @@ async def _reservations(db: AsyncSession, identity_id: uuid.UUID) -> list[dict[s
             "deposit": reservation.deposit,
             "node": name,
             "node_key": key,
+            #: When it was taken, so the deadline bar has a beginning to
+            #: measure the remainder against -- the same reason as for a batch.
+            "placed_at": reservation.created_at.isoformat(),
             "expires_at": reservation.expires_at.isoformat(),
         }
         for reservation, name, key in rows
@@ -2907,6 +2910,11 @@ async def _batches(db: AsyncSession, identity_id: uuid.UUID) -> list[dict[str, A
             "output": batch.output,
             "units": amount_float(batch.units),
             "quality": float(batch.quality),
+            #: Both ends of the term, not just the far one: the deadline bar
+            #: shows a share of the whole, and a share needs a beginning. Sent
+            #: rather than remembered by the client -- a browser that reloads
+            #: must not forget how long the batch has been running.
+            "started_at": batch.started_at.isoformat(),
             "ready_at": batch.ready_at.isoformat(),
         }
         for batch in rows
