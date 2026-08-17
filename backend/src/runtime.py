@@ -88,3 +88,8 @@ POW_PARALLELISM = 1
 
 POW_STARTS_PER_WINDOW = 20
 POW_WINDOW = timedelta(minutes=10)
+
+#: How many past events the return summary carries. A display depth, not a
+#: property of the world: the journal keeps everything, and a screen meant to be
+#: read in ten seconds cannot.
+SUMMARY_LIMIT = 40

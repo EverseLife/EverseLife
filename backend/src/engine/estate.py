@@ -197,7 +197,7 @@ async def buy(
     if node.owner_city_id is None:
         raise NotForSale(
             "это не городская земля: за городом её не продают и не присваивают, "
-            "но работать и строить там может всякий (D-198)"
+            "но работать и строить там может всякий"
         )
     if not await is_vacant(session, constants, node):
         raise NotForSale(

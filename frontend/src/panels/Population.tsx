@@ -9,6 +9,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { CityPanel, CityView, Look, Session } from "../api";
+import { Rule } from "../Rule";
 
 type Props = { look: Look; session: Session; busy: boolean };
 
@@ -112,9 +113,8 @@ export function Population({ look, session, busy }: Props) {
       <button className="quiet" onClick={() => void reload()} disabled={busy}>
         Пересчитать
       </button>
-      <p className="note">
-        Назначать и снимать — в администрации: власть присутственна (D-155).
-      </p>
+      <Rule>        Назначать и снимать — в администрации: власть присутственна.
+      </Rule>
     </div>
   );
 }

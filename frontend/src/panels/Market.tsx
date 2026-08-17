@@ -16,6 +16,8 @@ import * as api from "../api";
 import type { Book, Look, Session, Thing } from "../api";
 import { Amount } from "../Amount";
 import { chosen } from "../amounts";
+import { Rule } from "../Rule";
+import { Refusal, useActions } from "../actions";
 
 type Props = {
   look: Look;
@@ -31,7 +33,12 @@ type Position = { goods: string; tier: string };
 const exactly = (qty: number) =>
   qty.toFixed(3).replace(/\.?0+$/, "") || "0";
 
-export function Market({ look, session, busy, act }: Props) {
+export function Market({ look, session }: Omit<Props, "busy" | "act">) {
+  //: This panel's own waiting and its own refusal: one action here
+  //: must not grey out the chat, the map and somebody else's orders.
+  const acting = useActions();
+  const { busy, act } = acting;
+
   const [positions, setPositions] = useState<Position[]>([]);
   const [choice, setChoice] = useState<Position | null>(null);
   const [orderBook, setOrderBook] = useState<Book | null>(null);
@@ -95,6 +102,7 @@ export function Market({ look, session, busy, act }: Props) {
 
   return (
     <section className="wide">
+      <Refusal of={acting} />
       <h2>Рынок</h2>
       <div className="market-grid">
         <div>
@@ -242,10 +250,9 @@ export function Market({ look, session, busy, act }: Props) {
                   ))}
                 </tbody>
               </table>
-              <p className="note">
-                Бронируют издалека, забирают ногами; не забрал в срок — задаток
+              <Rule>                Бронируют издалека, забирают ногами; не забрал в срок — задаток
                 у продавца.
-              </p>
+              </Rule>
             </>
           )}
 
@@ -303,10 +310,9 @@ export function Market({ look, session, busy, act }: Props) {
             busy={busy}
             empty="в терминале ничего вашего"
           />
-          <p className="note">
-            Продаётся то, что в терминале; купленное забирается отсюда же
-            (D-047). Клик по строке выбирает позицию.
-          </p>
+          <Rule>            Продаётся то, что в терминале; купленное забирается отсюда же
+. Клик по строке выбирает позицию.
+          </Rule>
         </div>
       </div>
     </section>

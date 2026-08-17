@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useState } from "react";
 import * as api from "../api";
 import type { Look, Session } from "../api";
+import { Refusal, useActions } from "../actions";
 
 type Props = {
   look: Look;
@@ -57,7 +58,12 @@ const STATE: Record<Row["state"], string> = {
   sown: "растёт",
 };
 
-export function Farm({ look, session, busy, act }: Props) {
+export function Farm({ look, session }: Omit<Props, "busy" | "act">) {
+  //: This panel's own waiting and its own refusal: one action here
+  //: must not grey out the chat, the map and somebody else's orders.
+  const acting = useActions();
+  const { busy, act } = acting;
+
   //: Nobody's land outside a city is farmed by whoever comes (D-198): the
   //: ground has no owner and never will, but the crop on it is somebody's.
   const nobodys = Boolean(look.node?.wild);
@@ -103,11 +109,12 @@ export function Farm({ look, session, busy, act }: Props) {
   if (!mine) {
     return (
       <section>
+        <Refusal of={acting} />
         <h2>Земля</h2>
         {owner ? (
           <p className="note">
             Участок {owner}. Чужим хозяйством не управляют: наём — это доступ
-            плюс доля через договор (D-116).
+            плюс доля через договор.
           </p>
         ) : (
           <p className="note">
@@ -259,18 +266,18 @@ export function Farm({ look, session, busy, act }: Props) {
       <p className="note">
         Рост идёт офлайн, уход — раз в сутки и только ногами: пропущенные сутки
         режут урожай, но не обнуляют его. Монокультура истощает землю,
-        чередование и пар лечат — межа помнит, что на ней росло (D-118).
+        чередование и пар лечат — межа помнит, что на ней росло.
       </p>
       <p className="note">
         Сеют семенами: у партии свой сорт и своя сила, и урожай считается по
         ним. Часть урожая остаётся своим семенем — с отбором фонд держится, без
-        отбора вырождается, а гибрид ещё и расщепляется (D-057, D-067).
+        отбора вырождается, а гибрид ещё и расщепляется.
       </p>
       {rows.some((row) => row.state === "sown" && row.agrotech === false) && (
         <p className="note">
           Агротехники этого сорта вы не знаете: видно симптом, а не норма.
           Базовые восемь лежат в Библиотеке бесплатно; агротехнику выведенного
-          сорта знает только его автор (D-057).
+          сорта знает только его автор.
         </p>
       )}
     </section>

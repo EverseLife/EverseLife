@@ -12,6 +12,7 @@ import { useCallback, useEffect, useState } from "react";
 import * as api from "../api";
 import type { CityPanel, CityView, Look, Session } from "../api";
 import { Panel } from "./Admin";
+import { Rule } from "../Rule";
 
 type Props = { look: Look; session: Session; busy: boolean };
 
@@ -110,10 +111,9 @@ export function Economy({ look, session, busy }: Props) {
       <button className="quiet" onClick={() => void reload()} disabled={busy}>
         Пересчитать
       </button>
-      <p className="note">
-        Менять законы — в администрации: власть присутственна (D-155). Вкладка
+      <Rule>        Менять законы — в администрации: власть присутственна. Вкладка
         видна только должностям: это цифры, которыми правят.
-      </p>
+      </Rule>
     </div>
   );
 }

@@ -12,6 +12,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { Circle, Session } from "../api";
+import { Rule } from "../Rule";
+import { Refusal, useActions } from "../actions";
 
 type Props = {
   session: Session;
@@ -21,7 +23,12 @@ type Props = {
   place: string;
 };
 
-export function Circles({ session, busy, act, place }: Props) {
+export function Circles({ session, place }: Omit<Props, "busy" | "act">) {
+  //: This panel's own waiting and its own refusal: one action here
+  //: must not grey out the chat, the map and somebody else's orders.
+  const acting = useActions();
+  const { busy, act } = acting;
+
   const [circles, setCircles] = useState<Circle[]>([]);
   const [name, setName] = useState("");
 
@@ -45,6 +52,7 @@ export function Circles({ session, busy, act, place }: Props) {
 
   return (
     <section>
+      <Refusal of={acting} />
       <h2>Кружки</h2>
 
       {circles.length === 0 && (
@@ -103,12 +111,11 @@ export function Circles({ session, busy, act, place }: Props) {
       <p className="note">
         Пока вы в кружке, ваши реплики слышат только его участники — но с шансом
         утечки: людность, размер кружка и тип места решают, долетит ли фраза до
-        чужих ушей. Вполголоса — тише, но и своих слышно хуже (D-043).
+        чужих ушей. Вполголоса — тише, но и своих слышно хуже.
       </p>
-      <p className="note">
-        Подошедшего к кружку видно всем. Вход свободный: закрытых кружков нет —
-        приватность в этом мире стоит места, а не кнопки (D-081).
-      </p>
+      <Rule>        Подошедшего к кружку видно всем. Вход свободный: закрытых кружков нет —
+        приватность в этом мире стоит места, а не кнопки.
+      </Rule>
     </section>
   );
 }

@@ -13,6 +13,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Look, Session } from "../api";
 import { длительность } from "../clock";
+import { Refusal, useActions } from "../actions";
 
 type Props = {
   look: Look;
@@ -34,7 +35,12 @@ type Plant = {
 
 const SECONDS_PER_HOUR = 3600;
 
-export function Plant({ look, session, busy, act }: Props) {
+export function Plant({ look, session }: Omit<Props, "busy" | "act">) {
+  //: This panel's own waiting and its own refusal: one action here
+  //: must not grey out the chat, the map and somebody else's orders.
+  const acting = useActions();
+  const { busy, act } = acting;
+
   const [plant, setPlant] = useState<Plant | null>(null);
   const [qty, setQty] = useState<number | null>(null);
 
@@ -63,6 +69,7 @@ export function Plant({ look, session, busy, act }: Props) {
 
   return (
     <section>
+      <Refusal of={acting} />
       <h2>{plant.station}</h2>
       <p>
         топлива <b>{plant.stock.toFixed(1)}</b> · хватит на{" "}
@@ -103,13 +110,13 @@ export function Plant({ look, session, busy, act }: Props) {
             Засыпать {plant.fuel.toLowerCase()}
           </button>
           <span className="note">
-            Засыпанное — городу: обратно топливо не берут (D-189).
+            Засыпанное — городу: обратно топливо не берут.
           </span>
         </div>
       ) : (
         <p className="note">
           {plant.fuel} в руках нет. Станция стоит на подвозе: без топлива город
-          сидит без энергии (D-082).
+          сидит без энергии.
         </p>
       )}
     </section>

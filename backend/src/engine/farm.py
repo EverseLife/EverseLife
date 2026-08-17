@@ -666,12 +666,12 @@ async def _here(session: AsyncSession, body: Body) -> None:
 
 def _owned(plot: Plot, body: Body) -> None:
     if plot.owner_identity_id != body.identity_id:
-        raise NotYours("чужая делянка: аренда и наём — через договор (D-116)")
+        raise NotYours("чужая делянка: аренда и наём — через договор")
 
 
 def _recuttable(plot: Plot) -> None:
     if plot.state not in (PlotState.IDLE, PlotState.PLOWED):
-        raise WrongState("перекроить можно только незасеянное (D-118)")
+        raise WrongState("перекроить можно только незасеянное")
 
 
 def _ground_fertility(node: Node) -> float:

@@ -40,6 +40,8 @@ import {
   type Session,
   type WorldMap,
 } from "../api";
+import { Refusal, useActions } from "../actions";
+import { Rule } from "../Rule";
 
 type Props = {
   look: Look;
@@ -100,7 +102,12 @@ function seedPoint(key: string): { x: number; y: number } {
 
 const DASH: Record<string, string | undefined> = { trail: "4 6" };
 
-export function GraphMap({ look, session, busy, act, onEnter }: Props) {
+export function GraphMap({ look, session, onEnter }: Omit<Props, "busy" | "act">) {
+  //: The map itself performs nothing: it draws, pans and picks. Every action --
+  //: setting off, laying a road, going out to explore -- belongs to the
+  //: inspector beside it, which keeps its own waiting and its own refusal.
+  const { busy } = useActions();
+
   const [map, setMap] = useState<WorldMap | null>(null);
   const here = look.node?.key ?? "";
   //: The map grows by exploration (D-152), and a found node must appear by
@@ -133,8 +140,13 @@ export function GraphMap({ look, session, busy, act, onEnter }: Props) {
 
   //: The default layer is the one you stand on; explicit expansion lives until the transit.
   const [layer, setLayer] = useState<LayerId | null>(null);
+  //: The node the inspector talks about. Where you stand, until you pick another.
+  const [picked, setPicked] = useState<string | null>(null);
   const [cityFocus, setCityFocus] = useState<string | null>(null);
-  useEffect(() => setCityFocus(null), [here]);
+  useEffect(() => {
+    setCityFocus(null);
+    setPicked(null);
+  }, [here]);
 
   const cities = useMemo(() => {
     const out = new Set<string>();
@@ -566,18 +578,9 @@ export function GraphMap({ look, session, busy, act, onEnter }: Props) {
     }
   };
 
-  const walk = (node: MapNode) => {
-    const target =
-      walkTargets[node.key]?.key ?? (groups.has(node.key) ? null : node.key);
-    if (target && !ongoing && !look.survey && !busy) {
-      void act(() => session.send("travel.go", { node: target }));
-    }
-  };
-
   const click = (node: MapNode) => {
     if (busy) return;
-    if (groups.has(node.key)) expand(node);
-    else walk(node);
+    setPicked(node.key);
   };
 
   const vb = `${camera.x} ${camera.y} ${W / camera.scale} ${H / camera.scale}`;
@@ -596,10 +599,14 @@ export function GraphMap({ look, session, busy, act, onEnter }: Props) {
         ))}
         <Hint>
           Узлы можно таскать мышью, фон — панорама, колесо — зум. Слои: космос,
-          планета, город — один и тот же граф с разной высоты (D-045).
+          планета, город — один и тот же граф с разной высоты.
         </Hint>
       </nav>
 
+      {/* The face and its inspector stand side by side: the map keeps the whole
+          height it can get, and what used to be three strips beneath it is now
+          one column that speaks about the node you picked. */}
+      <div className="map-face">
       {visible.length === 0 ? (
         <p className="note">На этом слое пока ничего нет.</p>
       ) : (
@@ -645,38 +652,25 @@ export function GraphMap({ look, session, busy, act, onEnter }: Props) {
               !mine &&
               (groups.has(node.key) ? Boolean(walkTargets[node.key]) : true);
             const group = groups.has(node.key);
+            const chosen = node.key === picked;
             return (
               <g
                 key={node.key}
-                className={`node ${mine ? "me" : ""} ${near || group ? "near" : ""}`}
+                className={`node ${mine ? "me" : ""} ${near || group ? "near" : ""}${
+                  chosen ? " picked" : ""
+                }`}
                 onPointerDown={grabNode(node.key)}
                 onPointerMove={movePointer}
                 onPointerUp={releasePointer(node)}
               >
                 <circle cx={p.x} cy={p.y} r={mine ? 14 : group ? 12 : 10} />
                 {group && <circle cx={p.x} cy={p.y} r={mine ? 18 : 16} className="halo" />}
+                {chosen && (
+                  <circle cx={p.x} cy={p.y} r={mine ? 20 : 18} className="ring" />
+                )}
                 <text x={p.x} y={p.y - 20} className="node-label">
                   {node.name}
                 </text>
-                {group && currentLayer !== "city" && (
-                  <text x={p.x} y={p.y + 30} className="node-hint">
-                    раскрыть
-                  </text>
-                )}
-                {near && (
-                  <text
-                    x={p.x}
-                    y={p.y + (group ? 44 : 30)}
-                    className="node-hint"
-                    onPointerDown={(e) => e.stopPropagation()}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      walk(node);
-                    }}
-                  >
-                    идти
-                  </text>
-                )}
               </g>
             );
           })}
@@ -694,74 +688,187 @@ export function GraphMap({ look, session, busy, act, onEnter }: Props) {
         </svg>
       )}
 
-      <div className="row map-bar">
-        {ongoing ? (
-          <span>
-            {/* Передумать можно: возвращает туда, откуда вышли (D-194). */}
-            <button
-              className="quiet"
-              onClick={() => act(() => session.send("travel.cancel"))}
-              disabled={busy}
-              title="повернуть назад: потраченное не вернётся"
-            >
-              Повернуть назад
-            </button>{" "}
-            в пути: {ongoing.final ?? ongoing.to}
-            {ongoing.final ? (
-              <>
-                {" "}· сейчас — отрезок до «{ongoing.to}»,{" "}
-                <Deadline until={ongoing.arrives_at} since={ongoing.started_at} label="переход" />
-                {(ongoing.legs_left ?? 0) > 1 && ` · впереди ещё ${ongoing.legs_left! - 1} узл.`}
-              </>
-            ) : (
-              <>
-                {" "}· придём через{" "}
-                <Deadline until={ongoing.arrives_at} since={ongoing.started_at} label="переход" />
-              </>
-            )}
-          </span>
-        ) : (
-          <>
-            <span className="sign">{look.node?.name}</span>
-            {!look.survey && (
-              <button onClick={onEnter} disabled={busy}>
-                Войти
-              </button>
-            )}
-            {/* Цена дороги телом (D-147): её видно до выхода, а не после, —
-                но списком она занимала полполосы, и теперь лежит в подсказке. */}
-            {!look.survey && (look.exits ?? []).length > 0 && (
-              <Hint>
-                Дорога стоит выносливости (D-147):{" "}
-                {(look.exits ?? [])
-                  .map((path) => `${path.name} ${price(path.stamina)}`)
-                  .join(" · ")}
-                . Идти можно в любой узел — маршрут строится сам (D-045).
-              </Hint>
-            )}
-          </>
-        )}
+      <Inspector
+        look={look}
+        session={session}
+        picked={picked}
+        byKey={byKey}
+        groups={groups}
+        walkTargets={walkTargets}
+        onExpand={expand}
+        onEnter={onEnter}
+        layer={currentLayer}
+      />
       </div>
-      {/* Разведка живёт на карте: искать новое место логично там, где карта
-          видна. Что искать — зависит от слоя: в городе ищут участок, на
-          планете — место под город или жилу названной породы (D-152). */}
-      {!ongoing && <Search look={look} session={session} busy={busy} act={act} layer={currentLayer} />}
-      {/* Дорога — работа на ребре, и место ей там же, где рёбра видны (D-158). */}
-      {!ongoing && !look.survey && <Roads look={look} session={session} busy={busy} act={act} />}
-
-      {/* Осталось только то, что меняется: пока идёшь или разведываешь,
-          присутственное закрыто, и это стоит сказать прямо. Объяснения
-          устройства мира ушли в подсказки. */}
-      {(ongoing || look.survey) && (
-        <p className="note">
-          {ongoing
-            ? "Пока идёшь, тебя нет нигде: присутственное закрыто (D-107)."
-            : "Разведчик в поле: тело недоступно, как во сне (D-152)."}
-        </p>
-      )}
     </section>
   );
 }
+
+
+/**
+ * The column beside the map: everything about the node you picked.
+ *
+ * It replaces three strips that used to live under the map and took 178px of
+ * the 605px the scene had -- the map, which is the game's whole navigation
+ * surface, was left with barely half the window. Worse, the strips spoke about
+ * everything at once: every road from here, every exit, exploration. The column
+ * speaks about one node, which is what a person looking at a map wants.
+ *
+ * Where you stand, the column offers entering and exploring. Anywhere else --
+ * the road there, what it costs the body, and what the surface between here and
+ * there is worth laying.
+ */
+function Inspector({
+  look,
+  session,
+  picked,
+  byKey,
+  groups,
+  walkTargets,
+  onExpand,
+  onEnter,
+  layer,
+}: {
+  look: Look;
+  session: Session;
+  picked: string | null;
+  byKey: Record<string, MapNode>;
+  groups: Set<string>;
+  walkTargets: Record<string, { key: string; seconds: number }>;
+  onExpand: (node: MapNode) => void;
+  onEnter: () => void;
+  layer: LayerId;
+}) {
+  const acting = useActions();
+  const { busy, act } = acting;
+  const here = look.node?.key ?? "";
+  const ongoing = look.travel ?? null;
+
+  //: On the road the column reports the road: nothing else can be done from it.
+  if (ongoing) {
+    return (
+      <aside className="inspect">
+        <h3>В пути</h3>
+        <p className="sign">{ongoing.final ?? ongoing.to}</p>
+        <p className="note">
+          {ongoing.final ? `сейчас — отрезок до «${ongoing.to}»` : "прямой переход"}
+          {(ongoing.legs_left ?? 0) > 1 && ` · впереди ещё ${ongoing.legs_left! - 1} узл.`}
+        </p>
+        <Deadline until={ongoing.arrives_at} since={ongoing.started_at} label="переход" />
+        <div className="row">
+          <button
+            className="quiet"
+            onClick={() => act(() => session.send("travel.cancel"))}
+            disabled={busy}
+          >
+            Повернуть назад
+          </button>
+        </div>
+        <Refusal of={acting} />
+        <Rule>
+          Пока идёшь, тебя нет нигде: добыча, крафт, погрузка и покупка закрыты,
+          а счёт и ордера работают. Повернуть назад можно в любой момент —
+          вернёшься туда, откуда вышел, а потраченное не вернётся.
+        </Rule>
+      </aside>
+    );
+  }
+
+  const node = picked ? byKey[picked] : null;
+  const mine = !node || node.key === here || walkTargets[node.key]?.key === here;
+
+  //: Standing here: the way in, and the way out into the unknown.
+  if (!node || mine) {
+    return (
+      <aside className="inspect">
+        <h3>Вы здесь</h3>
+        <p className="sign">{look.node?.name}</p>
+        {!look.survey && (
+          <div className="row">
+            <button onClick={onEnter} disabled={busy}>
+              Войти
+            </button>
+          </div>
+        )}
+        <Search look={look} session={session} busy={busy} act={act} layer={layer} />
+        <Refusal of={acting} />
+      </aside>
+    );
+  }
+
+  const step = walkTargets[node.key];
+  const exit = (look.exits ?? []).find((path) => path.key === step?.key);
+  const group = groups.has(node.key);
+  const reachable = !look.survey && (group ? Boolean(step) : true);
+
+  return (
+    <aside className="inspect">
+      <h3>{node.name}</h3>
+      <p className="note">
+        {LAYER_NAME[node.layer] ?? node.layer}
+        {group ? " · есть что раскрыть" : ""}
+      </p>
+
+      {exit ? (
+        <table>
+          <tbody>
+            <tr>
+              <td>дорога</td>
+              <td className="num">{spell(exit.seconds)}</td>
+            </tr>
+            <tr>
+              <td>стоит тела</td>
+              <td className="num">{price(exit.stamina)}</td>
+            </tr>
+          </tbody>
+        </table>
+      ) : (
+        <p className="note">
+          Соседним не является: маршрут построится сам, по проходимым рёбрам.
+        </p>
+      )}
+
+      <div className="row">
+        {reachable && (
+          <button
+            onClick={() =>
+              act(() =>
+                session.send("travel.go", { node: step?.key ?? node.key }),
+              )
+            }
+            disabled={busy}
+          >
+            Идти
+          </button>
+        )}
+        {group && (
+          <button className="quiet" onClick={() => onExpand(node)} disabled={busy}>
+            Раскрыть
+          </button>
+        )}
+      </div>
+      {look.survey && (
+        <p className="reason">Разведчик в поле: тело недоступно, как во сне.</p>
+      )}
+
+      <Roads look={look} session={session} busy={busy} act={act} only={node.name} />
+      <Refusal of={acting} />
+      <Rule>
+        Идти можно в любой узел: маршрут строится сам по времени с учётом
+        покрытия, каждый отрезок — отдельное задание, и приход сам выводит в
+        следующий. По прямой не ходят: нет ребра — нет пути.
+      </Rule>
+    </aside>
+  );
+}
+
+/** The layer in words: the player reads a place, not an enum. */
+const LAYER_NAME: Record<string, string> = {
+  space: "в космосе",
+  planet: "на планете",
+  city: "в городе",
+  location: "внутри места",
+};
 
 /** Roads from this node: what is laid, what sagged and what it costs (D-158).
  *
@@ -775,11 +882,14 @@ function Roads({
   session,
   busy,
   act,
+  only,
 }: {
   look: Look;
   session: Session;
   busy: boolean;
   act: (what: () => Promise<unknown>) => Promise<void>;
+  /** Show the road to this neighbour alone: the column speaks about one node. */
+  only?: string;
 }) {
   const [roads, setRoads] = useState<RoadWork[]>([]);
 
@@ -792,13 +902,14 @@ function Roads({
     //: ступень меняет и покрытие, и остаток полотна в руках.
   }, [session, look.node?.key, look.inventory]);
 
-  if (roads.length === 0) return null;
+  const shown = only ? roads.filter((path) => path.to === only) : roads;
+  if (shown.length === 0) return null;
   const work_ = (edge: string, mend: boolean) =>
     act(() => session.send("road.lay", { edge, mend }));
 
   return (
-    <div className="row map-bar">
-      {roads.map((path) => (
+    <div className="row roads">
+      {shown.map((path) => (
         <span key={path.edge} className="note">
           {path.to}: {SURFACE_LABEL[path.surface]}
           {path.surface !== "trail" && ` ${path.condition.toFixed(0)}%`}
@@ -840,7 +951,7 @@ function Roads({
       <Hint>
         Покрытие поднимается на ступень за полотно и время: бездорожье → дорога
         → мощёный тракт. Без содержания дорога зарастает обратно, а по
-        бездорожью обоз не идёт вовсе (D-107, D-158).
+        бездорожью обоз не идёт вовсе.
       </Hint>
     </div>
   );
@@ -910,7 +1021,7 @@ function Search({
     act(() => session.send("explore.survey", { goal, resource }));
 
   return (
-    <div className="row map-bar">
+    <div className="row search">
       {run ? (
         <>
           <span className="note">
@@ -934,8 +1045,8 @@ function Search({
           </button>
           <Hint>
             Найденный участок встанет городской землёй: её выкупают у города
-            (D-089). Разведчик уходит сам, до возвращения недоступен, как во
-            сне, и остаётся на находке (D-185).
+. Разведчик уходит сам, до возвращения недоступен, как во
+            сне, и остаётся на находке.
           </Hint>
         </>
       ) : (
@@ -968,9 +1079,8 @@ function Search({
           <Hint>
             Разведчик уходит сам и до возвращения недоступен, как во сне.
             Кончатся силы — доспит в поле и продолжит. Нашёл — там и остаётся
-            (D-185); чем дальше от города находка, тем длиннее к ней дорога
-            (D-180). Лес попадается и сам собой, но заказанный ищется дольше
-            (D-191).
+; чем дальше от города находка, тем длиннее к ней дорога
+. Лес попадается и сам собой, но заказанный ищется дольше.
           </Hint>
         </>
       )}

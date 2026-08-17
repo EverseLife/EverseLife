@@ -154,10 +154,16 @@ header nav.tabs {
   gap: 0.75rem;
 }
 .main > .panels,
+.main > .stand,
 .main > section:not(.chat):not(.map-pane) {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+}
+/* The stand scrolls inside its open surface, not as a whole: the row of
+   objects must stay put while the surface under it moves. */
+.main > .stand {
+  overflow: hidden;
 }
 .chat {
   flex: none;
@@ -180,6 +186,7 @@ header nav.tabs {
   }
   .main,
   .main > .panels,
+  .main > .stand,
   .main > section:not(.chat):not(.map-pane) {
     min-height: auto;
     overflow: visible;
@@ -189,6 +196,119 @@ header nav.tabs {
 
 .tabs button {
   text-transform: lowercase;
+}
+/* A counter on a tab means "there is something here waiting", so it rides the
+   tab itself rather than making the player open all six to find out. */
+.tally {
+  margin-left: 0.35rem;
+  font-family: var(--font-num);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.75rem;
+}
+.tabs button.quiet .tally {
+  color: var(--base-400);
+}
+/* A count of what is waiting on a term: the warning tone, because something is
+   running out. Never the accent -- that means a person, and a deadline is not one. */
+.tally.alarm {
+  color: var(--warning);
+  font-weight: 600;
+}
+
+/* --- the phone's four zones (brief section 9) -----------------------------
+ *
+ * The same four zones as the desktop's, one at a time, chosen from a bar where
+ * a thumb reaches. Before this the frame simply unravelled into document flow:
+ * the sidebar slid under the map, the chat ended up 1303px down, and the layout
+ * that teaches the world's structure stopped existing exactly where half the
+ * sessions happen.
+ */
+.bottom {
+  position: fixed;
+  inset: auto 0 0 0;
+  z-index: 8;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  background: var(--base-850);
+  border-top: 1px solid var(--base-700);
+  /* The phone's own bar sits below ours on most of them. */
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+.bottom button {
+  min-height: 52px;
+  border: 0;
+  border-radius: 0;
+  border-right: 1px solid var(--base-700);
+  background: transparent;
+  color: var(--base-400);
+  font-weight: 400;
+}
+.bottom button:last-child {
+  border-right: 0;
+}
+.bottom button[aria-pressed="true"] {
+  background: var(--base-800);
+  color: var(--base-50);
+  font-weight: 600;
+  box-shadow: inset 0 2px 0 var(--base-50);
+}
+
+/* One zone at a time: the other is not there to lay out. */
+.frame.one {
+  display: block;
+}
+
+/* Room for the bar, so the last line of a section is not under it. */
+@media (max-width: 56rem) {
+  main {
+    padding-bottom: calc(56px + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+/* --- what needs you, on return ------------------------------------------- */
+
+.needs {
+  display: flex;
+  flex-direction: column;
+}
+.need {
+  display: grid;
+  grid-template-columns: 4.5rem 1fr;
+  align-items: baseline;
+  gap: 0.2rem 0.6rem;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid var(--hairline);
+}
+.need:last-of-type {
+  border-bottom: 0;
+}
+.need .deadline {
+  grid-column: 2;
+}
+.need-kind {
+  font-family: var(--font-num);
+  font-size: 0.76rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--base-400);
+  border: 1px solid var(--base-600);
+  border-radius: var(--r-control);
+  padding: 0.05rem 0.3rem;
+  text-align: center;
+}
+/* A case is the only one of the four that ends in a sanction whether or not it
+   was noticed, so it is the only one that speaks in the alarm tone. */
+.need-kind.case {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+.need-kind.debt {
+  color: var(--warning);
+  border-color: var(--warning);
+}
+.need-what {
+  color: var(--base-50);
 }
 
 .panels {
@@ -200,9 +320,105 @@ header nav.tabs {
   align-content: start;
 }
 
+/* --- the stand: a place and its objects -----------------------------------
+ *
+ * A closed row is not a title -- it is a status line, and that is the whole
+ * point: watch everything at once, work at one thing. The open surface takes
+ * whatever is left, and scrolls on its own so the row never leaves the screen.
+ */
+.stand {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  gap: 0.75rem;
+}
+.stand-open {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+.stand-back {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.objects {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line);
+}
+.obj {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 0.15rem 0.75rem;
+  width: 100%;
+  min-height: var(--row-h);
+  padding: 0.3rem 0.7rem;
+  text-align: left;
+  font: inherit;
+  color: var(--base-200);
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--hairline);
+  border-radius: 0;
+  cursor: pointer;
+}
+.obj:last-child {
+  border-bottom: 0;
+}
+.obj:hover {
+  background: var(--wash);
+  color: var(--base-50);
+}
+/* The chosen row is marked by a full-tone bar and weight, never by the accent:
+   the accent means a living person, and a furnace is not one. */
+.obj[aria-pressed="true"] {
+  background: var(--wash);
+  color: var(--base-50);
+  box-shadow: inset 2px 0 0 var(--base-50);
+}
+.obj[aria-pressed="true"] .obj-name {
+  font-weight: 600;
+}
+.obj-state {
+  font-family: var(--font-num);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.8rem;
+  color: var(--base-400);
+  text-align: right;
+  white-space: nowrap;
+}
+.obj-why {
+  grid-column: 1 / -1;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: var(--warning);
+}
+.obj-bar {
+  grid-column: 1 / -1;
+}
+.obj.off .obj-name {
+  color: var(--base-400);
+}
+
+/* Narrow screen: the row and the open surface simply follow one another. */
+@media (max-width: 56rem) {
+  .stand,
+  .stand-open {
+    min-height: auto;
+    overflow: visible;
+    flex: none;
+  }
+}
+
+/* Padding follows the density; the border and the position never do. */
 section {
   border: 1px solid var(--line);
-  padding: 0.85rem;
+  padding: var(--pad-panel);
 }
 
 .row {
@@ -247,7 +463,9 @@ option {
 button:not(:disabled) {
   cursor: pointer;
 }
-button:not(.quiet):not(.link) {
+/* `.bare` is a button that is not a button-shaped thing: a row of the stand, a
+   structural control. It gets no fill, or the screen fills with white slabs. */
+button:not(.quiet):not(.link):not(.bare) {
   background-color: var(--base-50);
   color: var(--base-900);
   border-color: var(--base-50);
@@ -274,7 +492,7 @@ button:not(.link):disabled {
   font-weight: 400;
   cursor: not-allowed;
 }
-button:not(.quiet):not(.link):not(:disabled):hover {
+button:not(.quiet):not(.link):not(.bare):not(:disabled):hover {
   filter: brightness(0.9);
 }
 button.quiet:not(:disabled):hover {
@@ -292,6 +510,28 @@ button:not(:disabled):active {
   outline-offset: 2px;
 }
 
+/*
+ * On a phone the finger's target is 44px whatever the density says. Every one
+ * of the client's controls used to be 30px, all twenty-five of them, and a
+ * significant share of sessions happen from a phone -- the vault calls it an
+ * obligatory platform, not a later one.
+ */
+@media (pointer: coarse), (max-width: 40rem) {
+  button,
+  select,
+  input:not([type="checkbox"]),
+  textarea {
+    min-height: 44px;
+  }
+  /* A link-button is a word inside a sentence: given 44px it would tear the
+     line apart. It gets the room around it instead. */
+  button.link,
+  button.eye {
+    min-height: 0;
+    padding-block: 0.5rem;
+  }
+}
+
 input[type="number"] {
   width: 6.5rem;
 }
@@ -307,7 +547,7 @@ table {
 }
 td,
 th {
-  padding: 0.25rem 0.5rem 0.25rem 0;
+  padding: var(--pad-cell) 0.5rem var(--pad-cell) 0;
   text-align: left;
   vertical-align: baseline;
   border-bottom: 1px solid var(--hairline);
@@ -384,6 +624,62 @@ tr.picked td:first-child {
   border: 1px dashed var(--line);
   padding: 0.5rem;
   margin: 0.5rem 0;
+}
+
+/*
+ * A rule of the world: behind a "?" in the ordinary densities, spelled out in
+ * the plain one. State stays a `.note` and is always in view -- the difference
+ * between the two is the whole point of the split.
+ */
+.rule {
+  font-size: 0.8rem;
+  line-height: 1.35;
+  color: var(--base-400);
+  margin: 0.35rem 0 0;
+}
+.rule > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  width: max-content;
+  cursor: help;
+  /* The default marker is a triangle that says "a list folds out"; this folds
+     out an explanation, and the "?" says so. */
+  list-style: none;
+  color: var(--base-400);
+}
+.rule > summary::-webkit-details-marker {
+  display: none;
+}
+.rule > summary > span[aria-hidden] {
+  display: inline-grid;
+  place-items: center;
+  width: 1.2em;
+  height: 1.2em;
+  flex: none;
+  border: 1px solid var(--base-600);
+  border-radius: 50%;
+  font-size: 0.75rem;
+}
+.rule > summary:hover,
+.rule > summary:focus-visible {
+  color: var(--base-200);
+}
+.rule[open] > summary {
+  margin-bottom: 0.2rem;
+}
+.rule-body {
+  max-width: 60ch;
+}
+/* In the plain density the "?" has nothing left to do: the rule is already
+   spelled out, and a control that opens what is open reads as broken. */
+:root[data-density="plain"] .rule > summary {
+  display: none;
+}
+/* Dense: the words go, the icon stays -- whoever runs twenty orders knows the
+   rules and needs the vertical space. */
+:root[data-density="dense"] .rule > summary .rule-lead {
+  display: none;
 }
 
 /*
@@ -651,6 +947,84 @@ textarea.word {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+
+/* The face and the inspector side by side. Three strips under the map used to
+   eat 178px of 605; a column beside it costs the map width, of which there is
+   more, and speaks about one node instead of everything at once. */
+.map-face {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 1fr minmax(15rem, 19rem);
+  gap: 0.75rem;
+}
+/* The svg carries an intrinsic ratio from its viewBox, and inside a grid cell
+   that ratio wins over stretching -- the map kept sizing itself to 880:540 and
+   left the rest of the cell empty. Told to fill the height, it fills it. */
+.map-face > svg {
+  align-self: stretch;
+  height: 100%;
+  min-height: 0;
+}
+.inspect {
+  border-left: 1px solid var(--line);
+  padding-left: 0.75rem;
+  overflow-y: auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.inspect h3 {
+  margin: 0;
+  text-decoration: none;
+  font-size: 1rem;
+  color: var(--base-50);
+}
+.inspect .sign {
+  margin: 0;
+  font-size: 1.05rem;
+  color: var(--base-50);
+}
+.inspect .row {
+  margin: 0.35rem 0 0;
+}
+.inspect .roads,
+.inspect .search {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.35rem;
+  margin: 0.35rem 0 0;
+}
+
+/* The picked node wears a ring: full tone, because the accent means a person. */
+.node.picked circle:first-of-type {
+  stroke-width: 3;
+}
+.node .ring {
+  fill: none;
+  stroke: var(--base-50);
+  stroke-width: 1.5;
+}
+.node {
+  cursor: pointer;
+}
+
+/* Narrow screen: the column drops under the map and the frame unravels. */
+@media (max-width: 56rem) {
+  .map-face {
+    display: flex;
+    flex-direction: column;
+    min-height: auto;
+  }
+  .inspect {
+    border-left: 0;
+    border-top: 1px solid var(--line);
+    padding-left: 0;
+    padding-top: 0.6rem;
+    overflow: visible;
+  }
 }
 
 .map-pane svg {

@@ -138,7 +138,7 @@ async def place(
     in_total, occupied = await estate.slots(session, constants, node)
     if in_total <= 0:
         raise estate.NoBuilding(
-            "на участке нет здания: сначала строят, потом обставляют (D-106)"
+            "на участке нет здания: сначала строят, потом обставляют"
         )
     if occupied >= in_total:
         from src.constants import registry as R

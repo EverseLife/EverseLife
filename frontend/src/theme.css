@@ -74,14 +74,28 @@
      unreadable rather than dense. */
   --row-h: 32px;
   --pad: var(--s2);
+  --pad-panel: 0.85rem;
+  --pad-cell: 0.25rem;
 }
-:root[data-density="plain"] { --row-h: 40px; --pad: var(--s3); }
-:root[data-density="dense"] { --row-h: 24px; --pad: var(--s1); }
+:root[data-density="plain"] {
+  --row-h: 40px;
+  --pad: var(--s3);
+  --pad-panel: 1.1rem;
+  --pad-cell: 0.45rem;
+}
+:root[data-density="dense"] {
+  --row-h: 24px;
+  --pad: var(--s1);
+  --pad-panel: 0.5rem;
+  --pad-cell: 0.1rem;
+}
 
 /* On a phone the finger target is 44px whatever the density says. */
 @media (pointer: coarse) {
-  :root { --row-h: 44px; }
-  :root[data-density="dense"] { --row-h: 44px; }
+  :root,
+  :root[data-density="dense"] {
+    --row-h: 44px;
+  }
 }
 
 /* ===================================================================

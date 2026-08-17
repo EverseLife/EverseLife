@@ -21,6 +21,8 @@ import { Finance } from "./Finance";
 import { Holdings } from "./Holdings";
 import { Population } from "./Population";
 import { Workshop } from "./Workshop";
+import { Rule } from "../Rule";
+import { Refusal, useActions } from "../actions";
 
 type Props = {
   look: Look;
@@ -31,89 +33,104 @@ type Props = {
   book?: any;
 };
 
+/**
+ * Six tabs, not ten.
+ *
+ * The vault kept this open as a question -- "nine is a lot, candidates for
+ * joining are inventory+character and bank+trade" -- and the measurement
+ * settles it: eight labels wrapped into three rows and took 111px, 18% of the
+ * sidebar's height, before a single line of content. An official had ten.
+ *
+ * They are joined the way a person thinks about them rather than the way the
+ * engine is built: what I am, what I am doing, what I own, what I know, what I
+ * keep, and the state -- if the state is any of my business.
+ */
 const TABS = [
-  "персонаж",
-  "инвентарь",
-  "крафт",
-  "дела",
-  "торговля",
-  //: Money is its own kind of business (D-190): the account, the statement,
-  //: transfers and credit. It used to hide inside "хозяйство" behind meter
-  //: bills, where nobody looks for a bank.
-  "финансы",
-  "знания",
-  "хозяйство",
+  { id: "me", label: "я", of: "персонаж и что в руках" },
+  { id: "work", label: "дело", of: "что идёт и что можно сделать руками" },
+  { id: "money", label: "деньги", of: "счёт, выписка, кредит, свои ордера" },
+  { id: "knows", label: "знания", of: "известные рецепты" },
+  { id: "estate", label: "хозяйство", of: "сеть, счета за быт, бумаги" },
 ] as const;
-//: State tabs: economy and population figures -- for those who govern. Shown
-//: only to state officials; the same summary is visible in person in the node
-//: with the administration (D-140, D-154).
-const STATE_TABS = ["экономика", "население"] as const;
-type Tab = (typeof TABS)[number] | (typeof STATE_TABS)[number];
+//: The state tab: figures for whoever governs. Shown only to office holders;
+//: the same summary is visible in person in the node with the administration.
+const STATE_TAB = { id: "state", label: "город", of: "экономика и население" } as const;
+type Tab = (typeof TABS)[number]["id"] | (typeof STATE_TAB)["id"];
 
-export function Sidebar({ look, session, busy, act, book }: Props) {
-  const [tab, setTab] = useState<Tab>("персонаж");
+export function Sidebar({ look, session, book }: Omit<Props, "busy" | "act">) {
+  //: This panel's own waiting and its own refusal: one action here
+  //: must not grey out the chat, the map and somebody else's orders.
+  const acting = useActions();
+  const { busy, act } = acting;
+
+  const [tab, setTab] = useState<Tab>("me");
 
   //: A state office is at least one power in a city (D-155).
   const official = (look.city?.powers?.length ?? 0) > 0;
-  const tabs: readonly Tab[] = official ? [...TABS, ...STATE_TABS] : TABS;
-  const current: Tab = tabs.includes(tab) ? tab : "персонаж";
+  const tabs = official ? [...TABS, STATE_TAB] : TABS;
+  const current: Tab = tabs.some((t) => t.id === tab) ? tab : "me";
+
+  //: A counter means "there is something here to look at", so only what can be
+  //: waited on is counted: works under way, and money somebody else owes or holds.
+  const counts: Partial<Record<Tab, number>> = {
+    work: look.batches.length + (look.travel ? 1 : 0),
+    money: look.orders.length + look.reservations.length,
+  };
 
   return (
     <aside className="sidebar">
+      <Refusal of={acting} />
       <nav className="row tabs">
-        {tabs.map((name) => (
+        {tabs.map((t) => (
           <button
-            key={name}
-            className={current === name ? "" : "quiet"}
-            onClick={() => setTab(name)}
+            key={t.id}
+            className={current === t.id ? "" : "quiet"}
+            onClick={() => setTab(t.id)}
+            title={t.of}
           >
-            {name}
+            {t.label}
+            {(counts[t.id] ?? 0) > 0 && <span className="tally">{counts[t.id]}</span>}
           </button>
         ))}
       </nav>
 
-      {current === "персонаж" && (
-        <Character look={look} session={session} busy={busy} act={act} />
-      )}
-      {current === "инвентарь" && (
-        <Inventory look={look} session={session} busy={busy} act={act} />
+      {current === "me" && (
+        <>
+          <Character look={look} session={session} busy={busy} act={act} />
+          <Inventory look={look} session={session} busy={busy} act={act} />
+        </>
       )}
       {/* Ручной крафт живёт в сайдбаре: верёвку вьют там, где стоят, и станок
           этому месту не нужен. Запуск всё равно присутственный: в пути и во
           сне сервер откажет. */}
-      {current === "крафт" && (
-        <Workshop
-          machine={null}
-          book={book}
-          look={look}
-          act={act}
-          session={session}
-          busy={busy}
-        />
+      {current === "work" && (
+        <>
+          <Doings look={look} />
+          <Workshop machine={null} book={book} look={look} session={session} />
+        </>
       )}
-      {current === "дела" && <Doings look={look} />}
-      {current === "торговля" && (
-        <Trade look={look} session={session} busy={busy} act={act} />
-      )}
-      {current === "знания" && <Knowledge look={look} />}
+      {current === "knows" && <Knowledge look={look} />}
       {/* Хозяйство — деньги и документы, а не материя: счета за быт и ценные
           бумаги живут в Сети (D-116, D-149). */}
-      {current === "финансы" && (
-        <Finance look={look} session={session} busy={busy} act={act} />
+      {current === "money" && (
+        <>
+          <Finance look={look} session={session} busy={busy} act={act} />
+          <Trade look={look} session={session} busy={busy} act={act} />
+        </>
       )}
       {/* Хозяйство — счета за быт, сеть и ценные бумаги: имущество, а не деньги. */}
-      {current === "хозяйство" && (
+      {current === "estate" && (
         <Holdings look={look} session={session} busy={busy} act={act} />
       )}
-      {current === "экономика" && (
-        <Economy look={look} session={session} busy={busy} />
-      )}
-      {current === "население" && (
-        <Population look={look} session={session} busy={busy} />
+      {current === "state" && (
+        <>
+          <Economy look={look} session={session} busy={busy} />
+          <Population look={look} session={session} busy={busy} />
+        </>
       )}
 
       <p className="note">
-        Сайдбар — это Сеть: работает откуда угодно (D-044, D-050).
+        Сайдбар — это Сеть: работает откуда угодно.
       </p>
     </aside>
   );
@@ -192,10 +209,8 @@ function Character({ look, session, busy, act }: Props) {
         </div>
       )}
 
-      <p className="note">
-        Личность бессмертна, тело — расходник; выносливость возвращает сон
-        (D-012, D-091).
-      </p>
+      <Rule>        Личность бессмертна, тело — расходник; выносливость возвращает сон.
+      </Rule>
     </div>
   );
 }
@@ -266,10 +281,9 @@ function Inventory({ look, session, busy, act }: Props) {
           <Things things={look.stall} />
         </>
       )}
-      <p className="note">
-        Смотреть можно откуда угодно; есть — из рук, и в дороге тоже. Трогать
-        остальное — только ногами (D-047).
-      </p>
+      <Rule>        Смотреть можно откуда угодно; есть — из рук, и в дороге тоже. Трогать
+        остальное — только ногами.
+      </Rule>
     </div>
   );
 }
@@ -308,10 +322,9 @@ function Doings({ look }: { look: Look }) {
         />
       ))}
       {empty && <p className="note">ничего не идёт</p>}
-      <p className="note">
-        Длительные действия идут сами, в том числе пока вы офлайн: их двигает
+      <Rule>        Длительные действия идут сами, в том числе пока вы офлайн: их двигает
         мир, а не браузер.
-      </p>
+      </Rule>
     </div>
   );
 }
@@ -336,10 +349,9 @@ function Trade({ look, session, busy, act }: Props) {
               }
             />
           ))}
-          <p className="note">
-            Забирают ногами: приезжайте в узел и выкупайте. Срок вышел — задаток
+          <Rule>            Забирают ногами: приезжайте в узел и выкупайте. Срок вышел — задаток
             остался продавцу, товар вернулся в стакан.
-          </p>
+          </Rule>
         </>
       )}
 
@@ -362,9 +374,8 @@ function Trade({ look, session, busy, act }: Props) {
           </div>
         ))
       )}
-      <p className="note">
-        Ордером распоряжаются отсюда; товар лежит в терминале (D-047).
-      </p>
+      <Rule>        Ордером распоряжаются отсюда; товар лежит в терминале.
+      </Rule>
     </div>
   );
 }
@@ -377,9 +388,8 @@ function Knowledge({ look }: { look: Look }) {
       ) : (
         look.knows.map((name) => <p key={name}>{name}</p>)
       )}
-      <p className="note">
-        Знание живёт в личности и не теряется ни смертью, ни судом (И8).
-      </p>
+      <Rule>        Знание живёт в личности и не теряется ни смертью, ни судом (И8).
+      </Rule>
     </div>
   );
 }

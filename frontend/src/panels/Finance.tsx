@@ -14,6 +14,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { Look, Session } from "../api";
 import { when } from "../clock";
 import { Bank } from "./Bank";
+import { Rule } from "../Rule";
 
 type Props = {
   look: Look;
@@ -122,7 +123,7 @@ export function Finance({ look, session, busy, act }: Props) {
         />
       </div>
       <p className="note">
-        Без комиссии и налога; отменить перевод нельзя (D-190).
+        Без комиссии и налога; отменить перевод нельзя.
       </p>
 
       <h3>Выписка</h3>
@@ -151,9 +152,8 @@ export function Finance({ look, session, busy, act }: Props) {
 
       {/* Кредит — тоже Сеть: берут и гасят откуда угодно (D-167). */}
       <Bank session={session} busy={busy} act={act} />
-      <p className="note">
-        Счёт переживает смерть тела: деньги в Сети, а не в кармане (D-012).
-      </p>
+      <Rule>        Счёт переживает смерть тела: деньги в Сети, а не в кармане.
+      </Rule>
     </div>
   );
 }

@@ -304,7 +304,7 @@ async def establish(
     if shortfall:
         raise NotReady(
             "для города не хватает: " + ", ".join(shortfall) +
-            ". Порог входа — постройки, а не монета (D-023)"
+            ". Порог входа — постройки, а не монета"
         )
 
     title = name.strip()
@@ -526,7 +526,7 @@ async def require_at_hall(
     )
     if costs is None:
         raise NotAllowed(
-            "здесь нет администрации: решения города принимаются в ней (D-155)"
+            "здесь нет администрации: решения города принимаются в ней"
         )
     if await utility.cut_off(session, node):
         raise NotAllowed(

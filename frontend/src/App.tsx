@@ -21,33 +21,22 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import * as api from "./api";
 import { Session, type Enrollment, type Look } from "./api";
 import { Account } from "./panels/Account";
-import { Admin } from "./panels/Admin";
 import { Chat } from "./panels/Chat";
 import { Circles } from "./panels/Circles";
-import { Farm } from "./panels/Farm";
 import { GraphMap } from "./panels/GraphMap";
 import { Intro } from "./panels/Intro";
-import { Kitchen } from "./panels/Kitchen";
-import { Library } from "./panels/Library";
 import { Login } from "./panels/Login";
-import { Market } from "./panels/Market";
-import { Mine } from "./panels/Mine";
-import { Mint } from "./panels/Mint";
-import { Nursery } from "./panels/Nursery";
-import { Plant } from "./panels/Plant";
 import { Printer } from "./panels/Printer";
 import { Register } from "./panels/Register";
-import { Rig } from "./panels/Rig";
 import { Sidebar } from "./panels/Sidebar";
-import { Place } from "./panels/Place";
-import { Workshop } from "./panels/Workshop";
-import { craftableAt } from "./recipes";
+import { Summary, markSeen, useDigest } from "./panels/Summary";
+import { Stand } from "./panels/Stand";
 import { hands, stamp, worldTime } from "./clock";
 import { powSettings, type PowSettings } from "./pow";
 import { wearPlanet } from "./theme";
+import { useNarrow } from "./narrow";
+import { ActionsProvider } from "./actions";
 
-/** The terminal is the market building, everything else in the node is machines (D-090, D-100). */
-const TERMINAL = "Терминал маркетплейса";
 
 const VIEWS = [
   { id: "map", label: "карта" },
@@ -55,6 +44,15 @@ const VIEWS = [
   { id: "circles", label: "кружки" },
 ] as const;
 type View = (typeof VIEWS)[number]["id"];
+
+/** The phone's four sections: the same zones, one at a time (brief section 9). */
+const ZONES = [
+  { id: "me", label: "я" },
+  { id: "here", label: "здесь" },
+  { id: "map", label: "карта" },
+  { id: "talk", label: "чат" },
+] as const;
+type Zone = (typeof ZONES)[number]["id"];
 
 export default function App() {
   const session = useRef(new Session());
@@ -70,9 +68,15 @@ export default function App() {
   const resumed = useRef(false);
   const [account_, setAccount_] = useState(false);
   const [intro, setIntro] = useState(false);
+  //: The summary is shown once on arrival, not on every refresh: a curtain that
+  //: comes back every five seconds is a fault, not a notification.
+  const [digestShown, setDigestShown] = useState(false);
   const [trouble, setTrouble] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [view, setView] = useState<View>("map");
+  //: On a phone the four zones become four sections, one at a time (03-screens).
+  const narrow = useNarrow();
+  const [where_, setWhere_] = useState<Zone>("here");
 
   const refresh = useCallback(async () => {
     //: While the identity is not named there is nothing to refresh: no session
@@ -151,6 +155,9 @@ export default function App() {
       setLook(null);
       setScreen("login");
     });
+
+  const { digest, reread } = useDigest(session.current, Boolean(look));
+  const waiting = digest?.attention.length ?? 0;
 
   const ongoing = Boolean(look?.travel);
   const asleep = Boolean(look?.body?.sleeping_since);
@@ -245,6 +252,7 @@ export default function App() {
   //: stays: account, orders and knowledge belong to the identity, not the body.
   if (look.body === null) {
     return (
+      <ActionsProvider refresh={refresh}>
       <main>
         <header>
           {who}
@@ -254,51 +262,25 @@ export default function App() {
           </button>
         </header>
         <div className="frame">
-          <Sidebar look={look} session={session.current} busy={busy} act={act} />
+          <Sidebar look={look} session={session.current} book={book} />
           <div className="main">
+            {/* No body, no place: the only thing to do here is print one. The
+                sidebar stays -- the account, the orders and the knowledge
+                belong to the identity, not to the body. */}
             <div className="panels">
-              <Printer look={look} act={act} session={session.current} busy={busy} />
+              <Printer look={look} session={session.current} />
             </div>
           </div>
         </div>
         {accountWindow}
         {trouble && <p className="trouble">{trouble}</p>}
       </main>
+      </ActionsProvider>
     );
   }
 
-  const stations = look.node?.stations ?? [];
-  //: A panel for every machine that has something to do here. Manual craft
-  //: went to the sidebar, the "craft" tab: rope is twisted where you stand,
-  //: and no machine is needed for that. There is no common "workshop": the
-  //: machine sets what a place is (D-106), and three machines in the yard are three different jobs.
-  const busyMachines = stations.filter(
-    (name) => craftableAt(book, name, look.knows).length > 0,
-  );
-  const has = {
-    vein: Boolean(look.veins?.length),
-    machines: busyMachines.length > 0,
-    terminal: stations.includes(TERMINAL),
-    library: Boolean(look.node?.library),
-    farmland: (look.node?.fertility ?? 0) > 0,
-    hearth: stations.includes("Очаг"),
-    yard: stations.includes("Монетный станок"),
-    nursery: stations.includes("Селекционный питомник"),
-    //: A fuel station has its own window: it needs hauling, and hauling needs
-    //: a hopper (D-189).
-    plant: stations.includes("Угольная станция"),
-    //: Authority is in-person: the administration is shown where it stands,
-    //: not in the sidebar (D-155).
-    townhall: Boolean(look.city?.hall),
-  };
-  //: Energy moved from locations to the sidebar, the "holdings" tab (D-149):
-  //: the pool is shared per city, the household bill is money, not matter,
-  //: and an "Energy" strip in every location said nothing about the location itself.
-  const empty =
-    !has.vein && !has.machines && !has.terminal && !has.library && !has.farmland &&
-    !has.townhall;
-
   return (
+    <ActionsProvider refresh={refresh}>
     <main>
       <header>
         {who}
@@ -313,21 +295,32 @@ export default function App() {
         {/* Local time of the planet: its day is 38 hours and matches nobody's
             wall clock on purpose (D-029). */}
         {look.clock && <WorldClock clock={look.clock} />}
-        <nav className="row tabs">
-          {VIEWS.map((option) => (
-            <button
-              key={option.id}
-              className={view === option.id ? "" : "quiet"}
-              onClick={() => setView(option.id)}
-              //: In-person tabs are unavailable en route and while exploring --
-              //: you are not in the node (D-107, D-152).
-
-              disabled={option.id !== "map" && away}
-            >
-              {option.label}
-            </button>
-          ))}
-        </nav>
+        {/* On a phone the bar at the bottom chooses the zone, and a second set
+            of the same choices in the header would only take the row. */}
+        {!narrow && (
+          <nav className="row tabs">
+            {VIEWS.map((option) => (
+              <button
+                key={option.id}
+                className={view === option.id ? "" : "quiet"}
+                onClick={() => setView(option.id)}
+                //: In-person tabs are unavailable en route and while exploring --
+                //: you are not in the node (D-107, D-152).
+                disabled={option.id !== "map" && away}
+              >
+                {option.label}
+              </button>
+            ))}
+          </nav>
+        )}
+        <button
+          className="quiet"
+          onClick={() => setDigestShown(true)}
+          title="что произошло, пока вас не было"
+        >
+          сводка
+          {waiting > 0 && <span className="tally alarm">{waiting}</span>}
+        </button>
         {/* Вступление под рукой всегда: прочитанное однажды не должно
             становиться недоступным, а непрочитанное — обязательным (D-182). */}
         <button
@@ -342,126 +335,104 @@ export default function App() {
         </button>
       </header>
 
-      <div className="frame">
-        <Sidebar look={look} session={session.current} busy={busy} act={act} book={book} />
+      <div className={`frame${narrow ? " one" : ""}`}>
+        {(!narrow || where_ === "me") && (
+          <Sidebar look={look} session={session.current} book={book} />
+        )}
 
-        <div className="main">
-          {(view === "map" || away) && (
-            <GraphMap
-              look={look}
-              session={session.current}
-              busy={busy}
-              act={act}
-              onEnter={() => setView("place")}
-            />
-          )}
-
-          {view === "place" && !away && (
-            <>
-              <div className="panels">
-                {has.farmland && (
-                  <Farm look={look} act={act} session={session.current} busy={busy} />
-                )}
-                {has.nursery && (
-                  <Nursery look={look} act={act} session={session.current} busy={busy} />
-                )}
-                {has.vein && (
-                  <Mine look={look} act={act} session={session.current} pow={pow} busy={busy} />
-                )}
-                {/* Буровая показывает себя сама: панель молчит, если в узле
-                    нет ни установки, ни станка в руках (D-115). */}
-                <Rig look={look} act={act} session={session.current} busy={busy} />
-                {has.hearth && (
-                  <Kitchen look={look} act={act} session={session.current} busy={busy} />
-                )}
-                {has.plant && (
-                  <Plant look={look} act={act} session={session.current} busy={busy} />
-                )}
-                {busyMachines.map((name) => (
-                  <Workshop
-                    key={name}
-                    machine={name}
-                    book={book}
-                    look={look}
-                    act={act}
-                    session={session.current}
-                    busy={busy}
-                  />
-                ))}
-                {/* Что здесь стоит и чьё это место. Станок из рук ставят
-                    отсюда же: место для такой кнопки — участок, а не станок. */}
-                <Place look={look} act={act} session={session.current} busy={busy} book={book} />
-                {has.library && (
-                  <Library look={look} act={act} session={session.current} busy={busy} />
-                )}
-                {has.townhall && (
-                  <Admin look={look} act={act} session={session.current} busy={busy} />
-                )}
-                {has.yard && (
-                  <Mint
-                    look={look}
-                    act={act}
-                    session={session.current}
-                    values={values}
-                    busy={busy}
-                  />
-                )}
-                {has.terminal && (
-                  <Market
-                    look={look}
-                    act={act}
-                    session={session.current}
-                    values={values}
-                    busy={busy}
-                  />
-                )}
-                {empty && (
-                  <section>
-                    <h2>{look.node?.name}</h2>
-                    <p className="note">
-                      Здесь ничего не стоит — только дороги.
-                    </p>
-                  </section>
-                )}
-              </div>
-
-              <Chat
+        {(!narrow || where_ !== "me") && (
+          <div className="main">
+            {((!narrow && (view === "map" || away)) ||
+              (narrow && where_ === "map")) && (
+              <GraphMap
+                look={look}
                 session={session.current}
-                busy={busy}
-                act={act}
-                place={look.node?.key ?? ""}
+                onEnter={() => {
+                  setView("place");
+                  setWhere_("here");
+                }}
               />
-            </>
-          )}
+            )}
 
-          {view === "circles" && !away && (
-            <>
-              <Circles
-                session={session.current}
-                busy={busy}
-                act={act}
-                place={look.node?.key ?? ""}
-              />
-              <Chat
-                session={session.current}
-                busy={busy}
-                act={act}
-                place={look.node?.key ?? ""}
-              />
-            </>
-          )}
-        </div>
+            {!away &&
+              ((!narrow && view === "place") || (narrow && where_ === "here")) && (
+                <Stand
+                  look={look}
+                  session={session.current}
+                  book={book}
+                  values={values}
+                  pow={pow}
+                />
+              )}
+
+            {/* People nearby: the groups and the talk. On a wide screen the
+                circles have a tab of their own; on a phone they share the
+                section, because both answer "who is here". */}
+            {!away &&
+              ((!narrow && view === "circles") || (narrow && where_ === "talk")) && (
+                <Circles session={session.current} place={look.node?.key ?? ""} />
+              )}
+
+            {!away &&
+              ((!narrow && view !== "map") || (narrow && where_ === "talk")) && (
+                <Chat session={session.current} place={look.node?.key ?? ""} />
+              )}
+
+            {narrow && away && where_ !== "map" && (
+              <section>
+                <h2>{ongoing ? "В пути" : "В разведке"}</h2>
+                <p className="note">
+                  {ongoing
+                    ? "Пока идёшь, тебя нет нигде: присутственное закрыто."
+                    : "Разведчик в поле: тело недоступно, как во сне."}
+                </p>
+              </section>
+            )}
+          </div>
+        )}
       </div>
 
+      {/* The four zones of the phone: the same zones as the desktop's, one at a
+          time, and the bar is where a thumb reaches (brief section 9). */}
+      {narrow && (
+        <nav className="bottom" aria-label="разделы">
+          {ZONES.map((zone) => (
+            <button
+              key={zone.id}
+              className={where_ === zone.id ? "" : "quiet"}
+              aria-pressed={where_ === zone.id}
+              onClick={() => setWhere_(zone.id)}
+            >
+              {zone.label}
+              {zone.id === "me" && waiting > 0 && (
+                <span className="tally alarm">{waiting}</span>
+              )}
+            </button>
+          ))}
+        </nav>
+      )}
+
+      {digestShown && digest && (
+        <Summary
+          digest={digest}
+          onClose={() => {
+            //: Closing is the mark: what was read is not offered again, and the
+            //: next summary counts from this moment.
+            markSeen(digest.at);
+            setDigestShown(false);
+            void reread();
+          }}
+        />
+      )}
       {intro && <Intro onClose={() => setIntro(false)} />}
       {accountWindow}
 
       {trouble && <p className="trouble">{trouble}</p>}
-      <footer>
-        Альфа в разработке. Визуальный язык — отдельная работа дизайнера (D-049,
-        D-055): здесь намеренно один шрифт и одна рамка.
-      </footer>
+      {/* The footer used to apologise for having no visual language. It has one
+          now, so the line says what is actually true of the build. */}
+      <footer>Альфа в разработке.</footer>
     </main>
+    </ActionsProvider>
   );
 }
 

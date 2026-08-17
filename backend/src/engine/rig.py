@@ -229,7 +229,7 @@ async def empty_hopper(
     if rig.node_id != body.node_id:
         raise RigError("установка не здесь: бункер вывозят ногами")
     if rig.owner_identity_id not in (None, body.identity_id):
-        raise NotYours("чужая установка: вывоз — по договору с хозяином (D-116)")
+        raise NotYours("чужая установка: вывоз — по договору с хозяином")
 
     await advance(session, constants, rig, now=moment)
     taken = float(rig.hopper)

@@ -367,7 +367,7 @@ async def spawn(
         await session.execute(select(Identity).where(Identity.name == name))
     ).scalar_one_or_none()
     if exists is not None:
-        raise ValueError(f"имя {name!r} уже занято: имя сменить нельзя (D-011)")
+        raise ValueError(f"имя {name!r} уже занято: имя сменить нельзя")
 
     identity = await create_identity(
         session, name, email=email, password=password, line=line, profile=profile

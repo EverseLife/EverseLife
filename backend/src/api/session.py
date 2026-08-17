@@ -25,13 +25,16 @@ from __future__ import annotations
 import logging
 import uuid
 from dataclasses import asdict
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src import runtime
 from src.constants import current, current_catalog
+from src.constants import registry as R
 from src.db.base import session_factory
 from src.engine import (
     access,
@@ -72,9 +75,10 @@ from src.engine import pow as device
 from src.models.chat import Utterance
 from src.models.city import Office, Power
 from src.models.craft import BatchState, CraftBatch
+from src.models.event import Event, EventKind
 from src.models.identity import Body, BodyState, Identity, Knowledge, KnowledgeKind
 from src.models.inventory import Item
-from src.models.justice import Case
+from src.models.justice import Case, CaseState
 from src.models.ledger import AccountKind
 from src.models.market import (
     Order,
@@ -1230,6 +1234,174 @@ async def _world_metrics(state: dict, db: AsyncSession, message: dict) -> dict:
         "metrics": await metrics.collect(db, constants),
         "invariants": await metrics.invariants(db, constants),
     }
+
+
+async def _world_summary(state: dict, db: AsyncSession, message: dict) -> dict:
+    """The most important screen of an asynchronous game (04-notifications).
+
+    Somebody comes back after a day away and must understand what happened in
+    ten seconds. Until now the only way was to walk eight sidebar tabs and three
+    view modes, and the mechanics that depend on being told -- a court case with
+    a reaction window, a vote with a quorum, a debt that cuts a node off -- were
+    running blind. The vault states the law plainly: any event with irreversible
+    consequences must have both a notification **and** a window to react; one
+    without the other is pointless. The windows existed; this is the other half.
+
+    Three levels, and the order is the point:
+
+    - **attention** -- where something can still be done, each with the time
+      left. Never longer than five lines: if it grows, importance is marked
+      wrong, and that is a design fault rather than a display one;
+    - **happened** -- what is done and needs no answer. Read from the event
+      journal, which records the identity even for what the worker did while
+      nobody was watching;
+    - **talk** -- a count. There is no chat history to return to (D-043): a
+      conversation in a room is not correspondence.
+
+    Remote: this is the Net, and it is read from the road as well.
+    """
+    constants = current()
+    identity = await _identity(state, db)
+    now_ = datetime.now(UTC)
+
+    #: How far back "happened" reaches. The client sends when it last looked;
+    #: without that we show a day, which is the absence the screen is built for.
+    since = now_ - timedelta(days=1)
+    if message.get("since"):
+        try:
+            told = datetime.fromisoformat(str(message["since"]))
+            since = told if told.tzinfo else told.replace(tzinfo=UTC)
+        except ValueError:
+            pass
+
+    attention: list[dict[str, Any]] = []
+
+    #: A case against you is the most urgent thing there is: it ends in a
+    #: sanction whether or not you noticed it.
+    for case in (
+        await db.execute(
+            select(Case).where(
+                Case.defendant_identity_id == identity.id,
+                Case.state == CaseState.OPEN,
+            )
+        )
+    ).scalars().all():
+        window = timedelta(days=constants[R.JUSTICE_CLAIM_WINDOW])
+        attention.append(
+            {
+                "kind": "case",
+                "what": f"против вас иск: {case.claim}",
+                "since": case.opened_at.isoformat(),
+                "until": (case.opened_at + window).isoformat(),
+            }
+        )
+
+    #: A vote you may cast and have not. Yours alone: what other cities decide
+    #: is not your business, and a feed of it would be noise.
+    own_ = await town.citizenship(db, identity.id)
+    if own_ is not None:
+        native = await town.by_id(db, own_.city_id)
+        if native is not None:
+            for poll in await vote.view(db, current_catalog(), native, identity.id):
+                if poll["may_vote"] and poll["mine"] is None and poll["choice"] is None:
+                    subject = poll.get("law") or poll["kind"]
+                    attention.append(
+                        {
+                            "kind": "vote",
+                            "what": f"голосование: {subject}",
+                            "where": native.name,
+                            "until": poll["closes_at"],
+                        }
+                    )
+
+    #: A debt cuts the node off, and the machines in it stop. Property under
+    #: threat, and nobody but the owner can clear it.
+    for holding in await utility.holdings(db, constants, identity.id):
+        if holding.get("debt", 0) > 0:
+            attention.append(
+                {
+                    "kind": "debt",
+                    "what": (
+                        f"долг за быт: {holding['name']}"
+                        + (" — узел отключён" if holding.get("cut_off") else "")
+                    ),
+                    "where": holding["name"],
+                }
+            )
+
+    #: A reservation not redeemed in time leaves the deposit with the seller.
+    for row in (
+        await db.execute(
+            select(Reservation).where(
+                Reservation.buyer_identity_id == identity.id,
+                Reservation.state == ReservationState.HELD,
+            )
+        )
+    ).scalars().all():
+        attention.append(
+            {
+                "kind": "reservation",
+                "what": f"забрать бронь: {row.type_key}",
+                "since": row.created_at.isoformat(),
+                "until": row.expires_at.isoformat(),
+            }
+        )
+
+    #: Soonest first: what expires today matters more than what expires in a week.
+    attention.sort(key=lambda line: line.get("until") or "9999")
+
+    happened = (
+        await db.execute(
+            select(Event)
+            .where(
+                Event.actor_identity_id == identity.id,
+                Event.at > since,
+                Event.kind.in_(TOLD),
+            )
+            .order_by(Event.at.desc())
+            .limit(runtime.SUMMARY_LIMIT)
+        )
+    ).scalars().all()
+
+    return {
+        "at": now_.isoformat(),
+        "attention": attention,
+        "happened": [
+            {"at": row.at.isoformat(), "kind": row.kind, "payload": row.payload}
+            for row in happened
+        ],
+    }
+
+
+#: What is worth telling about on return. The journal records everything -- the
+#: swing of a pick, every ledger posting -- and a feed of that is not a summary
+#: but a log. These are the ends of things: what finished, arrived, was found,
+#: was decided, was lost.
+TOLD = frozenset(
+    {
+        EventKind.CRAFT_FINISHED.value,
+        EventKind.TRAVEL_ARRIVED.value,
+        EventKind.PLOT_HARVESTED.value,
+        EventKind.EXPLORE_FOUND.value,
+        EventKind.EXPLORE_EMPTY.value,
+        EventKind.BODY_DIED.value,
+        EventKind.BODY_PRINTED.value,
+        EventKind.MINING_COLLAPSED.value,
+        EventKind.TRADE_EXECUTED.value,
+        EventKind.ORDER_EXPIRED.value,
+        EventKind.RESERVATION_LAPSED.value,
+        EventKind.CITY_LAW_SET.value,
+        EventKind.VOTE_CLOSED.value,
+        EventKind.CASE_JUDGED.value,
+        EventKind.SANCTION_APPLIED.value,
+        EventKind.DEBT_WITHHELD.value,
+        EventKind.UTILITY_CUT_OFF.value,
+        EventKind.TRANSPORT_BROKE.value,
+        EventKind.ROAD_LAID.value,
+        EventKind.DEED_SOLD.value,
+        EventKind.CITY_GRANT_PAID.value,
+    }
+)
 
 
 async def _market_offers(state: dict, db: AsyncSession, message: dict) -> dict:
@@ -2432,6 +2604,7 @@ _COMMANDS = {
     "gear.equip": _gear_equip,
     "gear.unequip": _gear_unequip,
     "world.metrics": _world_metrics,
+    "world.summary": _world_summary,
     "market.offers": _market_offers,
     "market.reserve": _market_reserve,
     "market.redeem": _market_redeem,
@@ -2903,6 +3076,19 @@ async def _batches(db: AsyncSession, identity_id: uuid.UUID) -> list[dict[str, A
             .where(Body.identity_id == identity_id, CraftBatch.state == BatchState.RUNNING)
         )
     ).scalars().all()
+
+    #: Which machine each batch occupies. The location screen lists the node's
+    #: objects with what each is doing, and "Кузница · гвозди ×200" cannot be
+    #: assembled without knowing that this batch is at the forge. Made by hand
+    #: has no station, and says so by staying empty.
+    benches: dict[uuid.UUID, str] = {}
+    wanted = {batch.station_item_id for batch in rows if batch.station_item_id}
+    if wanted:
+        for item in (
+            await db.execute(select(Item).where(Item.id.in_(wanted)))
+        ).scalars().all():
+            benches[item.id] = item.type_key
+
     return [
         {
             "id": str(batch.id),
@@ -2910,6 +3096,7 @@ async def _batches(db: AsyncSession, identity_id: uuid.UUID) -> list[dict[str, A
             "output": batch.output,
             "units": amount_float(batch.units),
             "quality": float(batch.quality),
+            "station": benches.get(batch.station_item_id) if batch.station_item_id else None,
             #: Both ends of the term, not just the far one: the deadline bar
             #: shows a share of the whole, and a share needs a beginning. Sent
             #: rather than remembered by the client -- a browser that reloads

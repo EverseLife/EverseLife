@@ -13,6 +13,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { Look, Session } from "../api";
+import { Rule } from "../Rule";
+import { Refusal, useActions } from "../actions";
 
 type Props = {
   look: Look;
@@ -33,7 +35,12 @@ type RigRow = {
   vein_left: number;
 };
 
-export function Rig({ look, session, busy, act }: Props) {
+export function Rig({ look, session }: Omit<Props, "busy" | "act">) {
+  //: This panel's own waiting and its own refusal: one action here
+  //: must not grey out the chat, the map and somebody else's orders.
+  const acting = useActions();
+  const { busy, act } = acting;
+
   const [rigs, setRigs] = useState<RigRow[]>([]);
   const machine = look.inventory.find((t) => t.goods === "Буровая установка");
   const vein = look.veins?.[0];
@@ -57,6 +64,7 @@ export function Rig({ look, session, busy, act }: Props) {
 
   return (
     <section>
+      <Refusal of={acting} />
       <h2>Буровая</h2>
 
       {rigs.map((u) => (
@@ -98,12 +106,11 @@ export function Rig({ look, session, busy, act }: Props) {
         </>
       )}
 
-      <p className="note">
-        Машина не спит, но проигрывает человеку во всём остальном: выход ниже,
+      <Rule>        Машина не спит, но проигрывает человеку во всём остальном: выход ниже,
         качество ограничено настройкой, жилу выедает вдвое быстрее. Уголь возят
         люди, бункер вывозят люди, износ чинят люди — капитал нанимает
         общество, а не освобождает от него.
-      </p>
+      </Rule>
     </section>
   );
 }

@@ -618,6 +618,8 @@ export type Batch = {
   output: string;
   units: number;
   quality: number;
+  /** The machine it occupies; empty for what is made by hand. */
+  station: string | null;
   /** When it started: the deadline bar shows a share, and a share needs a beginning. */
   started_at: string;
   ready_at: string;

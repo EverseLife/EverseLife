@@ -92,6 +92,8 @@ jobs:
       # Contrast of every text/background pair in every theme and lightness
       # (D-077). Five planets in two lights is 150 pairs -- not an eye's job.
       - run: npm run check:tokens
+      # Decision codes live in comments, never in a line the player reads.
+      - run: npm run check:copy
       - run: npm run build
 
   images:

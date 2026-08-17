@@ -29,6 +29,8 @@ import type {
   Session,
 } from "../api";
 import { when } from "../clock";
+import { Rule } from "../Rule";
+import { Refusal, useActions } from "../actions";
 
 type Props = {
   look: Look;
@@ -37,7 +39,12 @@ type Props = {
   act: (what: () => Promise<unknown>) => Promise<void>;
 };
 
-export function Admin({ look, session, busy, act }: Props) {
+export function Admin({ look, session }: Omit<Props, "busy" | "act">) {
+  //: This panel's own waiting and its own refusal: one action here
+  //: must not grey out the chat, the map and somebody else's orders.
+  const acting = useActions();
+  const { busy, act } = acting;
+
   const [city, setCity] = useState<CityView | null>(null);
   const [panel, setPanel] = useState<CityPanel | null>(null);
   const [polls, setPolls] = useState<CityVote[]>([]);
@@ -85,6 +92,7 @@ export function Admin({ look, session, busy, act }: Props) {
   if (!city) {
     return (
       <section>
+        <Refusal of={acting} />
         <h2>Администрация</h2>
         <p className="note">Здесь нет города: за стенами законов нет.</p>
       </section>
@@ -255,7 +263,7 @@ export function Admin({ look, session, busy, act }: Props) {
           </table>
           <p className="note">
             Право на закон точечное: «министр экономики» правит пошлины и не
-            трогает налог. Отдать можно только то, что есть у себя (D-155).
+            трогает налог. Отдать можно только то, что есть у себя.
           </p>
 
           {(["import_duty", "export_duty"] as const)
@@ -378,11 +386,10 @@ export function Admin({ look, session, busy, act }: Props) {
               })}
             </tbody>
           </table>
-          <p className="note">
-            Устав решает, кто утверждает закон: «правитель единолично» меняет
-            его сразу, «голосованием граждан» — созывает голосование (D-161).
+          <Rule>            Устав решает, кто утверждает закон: «правитель единолично» меняет
+            его сразу, «голосованием граждан» — созывает голосование.
             Выборы правителя и совет приедут своей механикой.
-          </p>
+          </Rule>
         </>
         </>
       )}
@@ -614,7 +621,7 @@ export function Panel({ panel }: { panel: CityPanel | null }) {
     return (
       <p className="trouble">
         Город слеп: администрация не стоит либо отключена за неуплату. Данные не
-        обновляются, и решения принимаются вслепую (D-140).
+        обновляются, и решения принимаются вслепую.
       </p>
     );
   }
@@ -732,15 +739,14 @@ export function Panel({ panel }: { panel: CityPanel | null }) {
       ) : (
         <p className="note">
           Казна по статьям — тем, у кого есть право «панель города». Балансы,
-          обороты и цены открыты всем: без этого спорить с властью нечем (D-140).
+          обороты и цены открыты всем: без этого спорить с властью нечем.
         </p>
       )}
 
-      <p className="note">
-        Шаг сводки медленнее рынка нарочно: мгновенные данные дали бы власти
-        торговое преимущество перед собственными купцами (D-124). Персонального
+      <Rule>        Шаг сводки медленнее рынка нарочно: мгновенные данные дали бы власти
+        торговое преимущество перед собственными купцами. Персонального
         здесь нет ни у кого — ни доходов, ни маршрутов.
-      </p>
+      </Rule>
     </div>
   );
 }
@@ -823,7 +829,7 @@ function Votes({
           )}
           <span className="note">
             Итог применяется сам: избранный получает набор прежнего правителя,
-            отзыв снимает должность и тут же созывает выборы (D-162).
+            отзыв снимает должность и тут же созывает выборы.
           </span>
         </div>
       )}
@@ -930,10 +936,9 @@ function Votes({
         </tbody>
       </table>
       )}
-      <p className="note">
-        Голос подаётся по Сети — присутствие нужно, чтобы править, а не чтобы
+      <Rule>        Голос подаётся по Сети — присутствие нужно, чтобы править, а не чтобы
         участвовать. Итог применится сам, когда выйдет срок.
-      </p>
+      </Rule>
     </>
   );
 }
@@ -1082,7 +1087,7 @@ function Court({
           Подать жалобу
         </button>
         <span className="note">
-          Жалоба стоит пошлины в казну города (D-117, D-166).
+          Жалоба стоит пошлины в казну города.
         </span>
       </div>
       {open.length > 0 && !can && (

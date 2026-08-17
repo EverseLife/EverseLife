@@ -372,7 +372,7 @@ async def route(
         raise NoRoute(
             "пути нет вовсе: узлы не связаны рёбрами"
             if vehicle is None
-            else "обозу туда дороги нет: бездорожье транспорт не пускает (D-107)"
+            else "обозу туда дороги нет: бездорожье транспорт не пускает"
         )
     path: list[uuid.UUID] = []
     cursor = to_node_id
@@ -478,7 +478,7 @@ async def depart(
             raise transport.Impassable(
                 f"«{convoy.type_key}» здесь не пройдёт: "
                 f"{edge.surface.value} транспорт не пускает. "
-                "Распрягитесь либо ищите дорогу (D-107)"
+                "Распрягитесь либо ищите дорогу"
             )
         seconds /= transport.speed(constants, convoy.type_key)
 

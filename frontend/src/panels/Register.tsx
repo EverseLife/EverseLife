@@ -182,7 +182,7 @@ export function Register({ busy, trouble, onSubmit, onBack }: Props) {
           <h1>Линия</h1>
           <p className="note center">
             Кем вы напечатаны. В альфе играбельна одна линия; вторая видна как
-            обещание, а не заглушка (D-104).
+            обещание, а не заглушка.
           </p>
           {lines === null ? (
             <p className="note center">…</p>
@@ -258,7 +258,7 @@ export function Register({ busy, trouble, onSubmit, onBack }: Props) {
           </label>
           <p className="note">
             Имя уникально и не меняется никогда: на нём держится репутация
-            (D-011). Всё остальное можно поправить потом в кабинете.
+. Всё остальное можно поправить потом в кабинете.
           </p>
           <label>
             <span>фамилия</span>

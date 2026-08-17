@@ -14,6 +14,8 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Look, Session, Thing } from "../api";
 import { when } from "../clock";
+import { Rule } from "../Rule";
+import { Refusal, useActions } from "../actions";
 
 type Props = {
   look: Look;
@@ -33,7 +35,12 @@ type Variety = {
 
 type Bed = { id: string; ready_at: string };
 
-export function Nursery({ look, session, busy, act }: Props) {
+export function Nursery({ look, session }: Omit<Props, "busy" | "act">) {
+  //: This panel's own waiting and its own refusal: one action here
+  //: must not grey out the chat, the map and somebody else's orders.
+  const acting = useActions();
+  const { busy, act } = acting;
+
   const [cultivars, setCultivars] = useState<Variety[]>([]);
   const [beds, setBeds] = useState<Bed[]>([]);
   const [first, setFirst] = useState("");
@@ -61,6 +68,7 @@ export function Nursery({ look, session, busy, act }: Props) {
 
   return (
     <section>
+      <Refusal of={acting} />
       <h2>Селекционный питомник</h2>
 
       <div className="row">
@@ -168,11 +176,10 @@ export function Nursery({ look, session, busy, act }: Props) {
               ))}
             </tbody>
           </table>
-          <p className="note">
-            Гибрид даёт отличный урожай один раз — его семена расщепляются.
+          <Rule>            Гибрид даёт отличный урожай один раз — его семена расщепляются.
             Поколения отбора доводят его до постоянного сорта, и тогда автор даёт
             ему имя навсегда.
-          </p>
+          </Rule>
         </>
       )}
     </section>

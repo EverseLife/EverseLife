@@ -12,6 +12,8 @@
 import { useState } from "react";
 import type { Look, Session, Sight } from "../api";
 import { solve, type PowSettings } from "../pow";
+import { Rule } from "../Rule";
+import { Refusal, useActions } from "../actions";
 
 type Props = {
   look: Look;
@@ -21,7 +23,12 @@ type Props = {
   act: (what: () => Promise<unknown>) => Promise<void>;
 };
 
-export function Mine({ look, session, pow, busy, act }: Props) {
+export function Mine({ look, session, pow }: Omit<Props, "busy" | "act">) {
+  //: This panel's own waiting and its own refusal: one action here
+  //: must not grey out the chat, the map and somebody else's orders.
+  const acting = useActions();
+  const { busy, act } = acting;
+
   const [computing, setComputing] = useState(false);
   const scene = look.mining as Sight | null | undefined;
   const vein = look.veins?.[0];
@@ -46,6 +53,7 @@ export function Mine({ look, session, pow, busy, act }: Props) {
 
   return (
     <section>
+      <Refusal of={acting} />
       <h2>Забой</h2>
       {!scene && (
         <>
@@ -59,7 +67,7 @@ export function Mine({ look, session, pow, busy, act }: Props) {
           </button>
           <p className="note">
             Одна оценка Argon2id на сессию: {pow?.memoryMib} МБ, {pow?.iterations} прохода.
-            Считает ваше устройство — это налог на масштаб, а не на вас (D-110).
+            Считает ваше устройство — это налог на масштаб, а не на вас.
           </p>
         </>
       )}
@@ -116,11 +124,10 @@ export function Mine({ look, session, pow, busy, act }: Props) {
                 : "Сессия закрыта."}
             </p>
           )}
-          <p className="note">
-            Крепь стоит бруса и верёвки, быстрый темп даёт больше выхода и больше
+          <Rule>            Крепь стоит бруса и верёвки, быстрый темп даёт больше выхода и больше
             просадки. Заученной последовательности нет: оптимум двигается вместе
             с ценой крепи.
-          </p>
+          </Rule>
         </>
       )}
     </section>

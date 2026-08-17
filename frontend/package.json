@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "check:tokens": "node scripts/check-tokens.mjs",
+    "check:copy": "node scripts/check-copy.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

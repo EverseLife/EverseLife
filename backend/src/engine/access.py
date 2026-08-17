@@ -58,7 +58,7 @@ async def require_holder(session: AsyncSession, node: Node, identity: Identity) 
             "это городская земля: вход на неё решают гражданством и пошлиной, "
             "а не воротами двора"
             if node.owner_city_id is not None
-            else "у этой земли нет хозяина: за городом ворот не ставят (D-198)"
+            else "у этой земли нет хозяина: за городом ворот не ставят"
         )
     if node.owner_identity_id != identity.id:
         raise NotYours("двор не ваш: воротами распоряжается хозяин")
@@ -140,5 +140,5 @@ async def require_entry(session: AsyncSession, node: Node, body: Body) -> None:
         return
     raise Barred(
         f"«{node.name}» — чужой двор, и хозяин вас туда не пускает. "
-        "Спор о входе решается иском (D-166)"
+        "Спор о входе решается иском"
     )

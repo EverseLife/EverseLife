@@ -13,6 +13,8 @@
 
 import * as api from "../api";
 import type { Look, Printer as Door, Session } from "../api";
+import { Rule } from "../Rule";
+import { Refusal, useActions } from "../actions";
 
 type Props = {
   look: Look;
@@ -21,12 +23,18 @@ type Props = {
   act: (what: () => Promise<unknown>) => Promise<void>;
 };
 
-export function Printer({ look, session, busy, act }: Props) {
+export function Printer({ look, session }: Omit<Props, "busy" | "act">) {
+  //: This panel's own waiting and its own refusal: one action here
+  //: must not grey out the chat, the map and somebody else's orders.
+  const acting = useActions();
+  const { busy, act } = acting;
+
   const ongoing = look.printing ?? null;
   const doors: Door[] = look.printers ?? [];
 
   return (
     <section>
+      <Refusal of={acting} />
       <h2>Тела нет</h2>
       <p className="note">
         Личность цела: имя, знания, счёт и обязательства пережили тело. Погибло
@@ -38,7 +46,7 @@ export function Printer({ look, session, busy, act }: Props) {
       ) : doors.length === 0 ? (
         <p className="trouble">
           В мире нет ни одного биопринтера. Это ситуация, которой быть не
-          должно: вход в игру не блокируется никогда (D-028).
+          должно: вход в игру не блокируется никогда.
         </p>
       ) : (
         <table>
@@ -79,12 +87,10 @@ export function Printer({ look, session, busy, act }: Props) {
         </table>
       )}
 
-      <p className="note">
-        Город продаёт не жизнь, а скорость: заплатил — вернулся через минуты, не
+      <Rule>        Город продаёт не жизнь, а скорость: заплатил — вернулся через минуты, не
         заплатил — через двенадцать часов у Принтера Предтеч. Поэтому у цены
-        воскрешения есть потолок, и никто не может запереть личность у себя
-        (D-028, D-033).
-      </p>
+        воскрешения есть потолок, и никто не может запереть личность у себя.
+      </Rule>
     </section>
   );
 }

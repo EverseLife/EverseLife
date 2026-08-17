@@ -110,8 +110,8 @@ export function Bank({ session, busy, act }: Props) {
           Взять кредит
         </button>
         <span className="note">
-          Залога нет: лимит выдаёт труд (D-173). Занимает ваш город со своей
-          маржой (D-175).
+          Залога нет: лимит выдаёт труд. Занимает ваш город со своей
+          маржой.
         </span>
       </div>
     </>
@@ -164,7 +164,7 @@ function Council({ session, busy, act }: Props) {
       </button>
       <span className="note">
         алгоритм советует {Number(council.advised).toFixed(2)}% · коридор ±
-        {council.corridor} · голос подаёт держатель права «законы» (D-172)
+        {council.corridor} · голос подаёт держатель права «законы»
       </span>
     </div>
   );

@@ -9,6 +9,8 @@
 
 import { type FormEvent, useState } from "react";
 import type { Profile, Session } from "../api";
+import { DENSITIES, DENSITY_NAMES, setDensity, useDensity } from "../density";
+import { Rule } from "../Rule";
 import { Secret } from "./Secret";
 
 type Props = {
@@ -24,6 +26,9 @@ const TABS = [
   { id: "who", label: "персонаж" },
   { id: "password", label: "пароль" },
   { id: "email", label: "почта" },
+  //: Display density lives with the account rather than in the game: it is how
+  //: this person reads a screen, not anything the world knows about them.
+  { id: "view", label: "вид" },
 ] as const;
 type Tab = (typeof TABS)[number]["id"];
 
@@ -114,9 +119,9 @@ export function Account({ profile, session, busy, act, onClose, onLogout }: Prop
           <form onSubmit={saveWho} className="card flat">
             <label>
               <span>имя</span>
-              <input value={profile.name} disabled title="имя не меняется (D-011)" />
+              <input value={profile.name} disabled title="имя не меняется" />
             </label>
-            <p className="note">Имя несменяемо: на нём держится репутация (D-011).</p>
+            <p className="note">Имя несменяемо: на нём держится репутация.</p>
             <label>
               <span>фамилия</span>
               <input
@@ -218,6 +223,8 @@ export function Account({ profile, session, busy, act, onClose, onLogout }: Prop
           </form>
         )}
 
+        {tab === "view" && <View />}
+
         <footer className="row">
           <button className="quiet" onClick={onLogout} disabled={busy}>
             Выйти из аккаунта
@@ -225,6 +232,38 @@ export function Account({ profile, session, busy, act, onClose, onLogout }: Prop
           <span className="note">Жетон этой сессии будет отозван.</span>
         </footer>
       </section>
+    </div>
+  );
+}
+
+/** How dense a screen this person wants. Switches freely: a setting, not a reward. */
+function View() {
+  const density = useDensity();
+  return (
+    <div className="card flat">
+      <label>
+        <span>плотность</span>
+        <div className="row" role="group" aria-label="плотность экрана">
+          {DENSITIES.map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              className={density === mode ? "" : "quiet"}
+              aria-pressed={density === mode}
+              onClick={() => setDensity(mode)}
+            >
+              {DENSITY_NAMES[mode].label}
+            </button>
+          ))}
+        </div>
+      </label>
+      <p className="note">{DENSITY_NAMES[density].about}</p>
+      <Rule>
+        Плотность меняет высоту строк и то, расписаны ли правила мира на месте.
+        Размер шрифта и расположение элементов не меняются: плотный режим —
+        это больше данных на экране, а не более мелкий текст. Переключается
+        свободно и в любую сторону.
+      </Rule>
     </div>
   );
 }

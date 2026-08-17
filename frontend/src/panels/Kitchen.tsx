@@ -12,6 +12,8 @@
 
 import { useMemo, useState } from "react";
 import type { Look, Session } from "../api";
+import { Rule } from "../Rule";
+import { Refusal, useActions } from "../actions";
 
 type Props = {
   look: Look;
@@ -23,7 +25,12 @@ type Props = {
 //: Roles are the keys of cook.role_weights; the order is constant so the form does not jump.
 const ROLES = ["основа", "наполнитель", "жир", "приправа"] as const;
 
-export function Kitchen({ look, session, busy, act }: Props) {
+export function Kitchen({ look, session }: Omit<Props, "busy" | "act">) {
+  //: This panel's own waiting and its own refusal: one action here
+  //: must not grey out the chat, the map and somebody else's orders.
+  const acting = useActions();
+  const { busy, act } = acting;
+
   //: Dishes are recipes with roles that the identity knows. The names are known
   //: from the catalog; for the alpha there are three, and the knowledge list suffices.
   const dishes = look.knows.filter((name) =>
@@ -42,10 +49,11 @@ export function Kitchen({ look, session, busy, act }: Props) {
 
   return (
     <section>
+      <Refusal of={acting} />
       <h2>Очаг</h2>
       {dishes.length === 0 ? (
         <p className="note">
-          Ни одного блюда в личности: рецепты берут в Библиотеке (D-053).
+          Ни одного блюда в личности: рецепты берут в Библиотеке.
         </p>
       ) : (
         <>
@@ -86,11 +94,10 @@ export function Kitchen({ look, session, busy, act }: Props) {
           >
             Сварить котёл
           </button>
-          <p className="note">
-            Пустая роль режет качество сильнее плохого продукта. Сочетание решает
-            вид блюда — по видам считается разнообразие рациона (D-105, D-128).
+          <Rule>            Пустая роль режет качество сильнее плохого продукта. Сочетание решает
+            вид блюда — по видам считается разнообразие рациона.
             Нужна утварь в кармане: горшок или котёл.
-          </p>
+          </Rule>
         </>
       )}
     </section>

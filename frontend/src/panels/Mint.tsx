@@ -10,6 +10,8 @@
 
 import { useMemo, useState } from "react";
 import type { Look, Session, Thing } from "../api";
+import { Rule } from "../Rule";
+import { Refusal, useActions } from "../actions";
 
 type Props = {
   look: Look;
@@ -25,7 +27,12 @@ const COINS: { coin: string; metal: string }[] = [
   { coin: "Серебряная монета", metal: "Аффинированное серебро" },
 ];
 
-export function Mint({ look, session, values, busy, act }: Props) {
+export function Mint({ look, session, values }: Omit<Props, "busy" | "act">) {
+  //: This panel's own waiting and its own refusal: one action here
+  //: must not grey out the chat, the map and somebody else's orders.
+  const acting = useActions();
+  const { busy, act } = acting;
+
   const canDo = COINS.filter((k) => look.knows.includes(k.coin));
   const [coin, setCoin] = useState(canDo[0]?.coin ?? COINS[0].coin);
   const chosen = COINS.find((k) => k.coin === coin) ?? COINS[0];
@@ -56,9 +63,10 @@ export function Mint({ look, session, values, busy, act }: Props) {
   if (canDo.length === 0) {
     return (
       <section>
+        <Refusal of={acting} />
         <h2>Монетный станок</h2>
         <p className="note">
-          Чеканить нечего: рецепт монеты берут в Библиотеке (D-053). Монета —
+          Чеканить нечего: рецепт монеты берут в Библиотеке. Монета —
           предмет, и делается она как всякий предмет, только своей дверью.
         </p>
       </section>
@@ -124,10 +132,9 @@ export function Mint({ look, session, values, busy, act }: Props) {
               ))}
             </tbody>
           </table>
-          <p className="note">
-            Переплавка вернёт аффинированный металл за вычетом угара; лигатура
+          <Rule>            Переплавка вернёт аффинированный металл за вычетом угара; лигатура
             теряется — выковыривать её дороже самого железа.
-          </p>
+          </Rule>
         </>
       )}
     </section>

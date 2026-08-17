@@ -15,6 +15,7 @@
 import { useCallback, useEffect, useState } from "react";
 import * as api from "../api";
 import type { DeedView, Holding, Look, Session, Thing } from "../api";
+import { Rule } from "../Rule";
 
 type Props = {
   look: Look;
@@ -164,10 +165,9 @@ export function Holdings({ look, session, busy, act }: Props) {
         session={session}
       />
 
-      <p className="note">
-        Городские постройки содержит казна: энергия, которую они жгут, — расход
-        города, а не посетителя (D-149).
-      </p>
+      <Rule>        Городские постройки содержит казна: энергия, которую они жгут, — расход
+        города, а не посетителя.
+      </Rule>
     </div>
   );
 }
@@ -308,11 +308,10 @@ function Deeds({
           </table>
         </>
       )}
-      <p className="note">
-        Бумага — электронный документ: живёт в Сети, переживает тело и
+      <Rule>        Бумага — электронный документ: живёт в Сети, переживает тело и
         продаётся отсюда, хоть с дороги. Титул на участок переходит вместе с
-        ней (D-116).
-      </p>
+        ней.
+      </Rule>
     </>
   );
 }

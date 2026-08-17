@@ -20,6 +20,8 @@ import { useEffect, useState } from "react";
 import * as api from "../api";
 import type { Look, Plan, Session } from "../api";
 import { craftableAt, stationOf } from "../recipes";
+import { Rule } from "../Rule";
+import { Refusal, useActions } from "../actions";
 
 type Props = {
   look: Look;
@@ -32,7 +34,12 @@ type Props = {
   book: any;
 };
 
-export function Workshop({ look, session, busy, act, machine, book }: Props) {
+export function Workshop({ look, session, machine, book }: Omit<Props, "busy" | "act">) {
+  //: This panel's own waiting and its own refusal: one action here
+  //: must not grey out the chat, the map and somebody else's orders.
+  const acting = useActions();
+  const { busy, act } = acting;
+
   const known = craftableAt(book, machine, look.knows);
   const [what, setWhat] = useState<string | null>(null);
   const [qty, setQty] = useState(1);
@@ -114,6 +121,7 @@ export function Workshop({ look, session, busy, act, machine, book }: Props) {
 
   return (
     <section>
+      <Refusal of={acting} />
       <h2>{machine ?? "Руками"}</h2>
 
       {look.node?.cut_off && machine !== null && (
@@ -228,10 +236,9 @@ export function Workshop({ look, session, busy, act, machine, book }: Props) {
         </>
       )}
 
-      <p className="note">
-        Партия идёт офлайн и видна в сайдбаре, в «делах». За станком работает
-        один: пока идёт партия, второму он не отдаётся (D-150).
-      </p>
+      <Rule>        Партия идёт офлайн и видна в сайдбаре, в «делах». За станком работает
+        один: пока идёт партия, второму он не отдаётся.
+      </Rule>
     </section>
   );
 }

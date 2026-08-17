@@ -280,7 +280,7 @@ async def order(
     moment = now or datetime.now(UTC)
     alive = await alive_body(session, identity.id)
     if alive is not None:
-        raise Alive("тело живо: второго одной личности не бывает (D-011)")
+        raise Alive("тело живо: второго одной личности не бывает")
     if await pending(session, identity.id) is not None:
         raise AlreadyPrinting("печать уже идёт")
 
@@ -366,7 +366,7 @@ async def _charge(
     if have < iron_needed:
         raise CannotPay(
             f"в принтере {have:.0f} железа из {iron_needed:.0f}: "
-            "процессор не из чего собрать (D-013)"
+            "процессор не из чего собрать"
         )
 
     from src.engine import justice

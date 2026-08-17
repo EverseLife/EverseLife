@@ -19,6 +19,8 @@ import { Amount } from "../Amount";
 import { chosen } from "../amounts";
 import { when } from "../clock";
 import { Farm } from "./Farm";
+import { Rule } from "../Rule";
+import { Refusal, useActions } from "../actions";
 
 type Props = {
   look: Look;
@@ -28,7 +30,12 @@ type Props = {
   book: any;
 };
 
-export function Place({ look, session, busy, act, book }: Props) {
+export function Place({ look, session, book }: Omit<Props, "busy" | "act">) {
+  //: This panel's own waiting and its own refusal: one action here
+  //: must not grey out the chat, the map and somebody else's orders.
+  const acting = useActions();
+  const { busy, act } = acting;
+
   const mine = Boolean(look.node?.mine);
   const wild = Boolean(look.node?.wild);
   const unowned = !look.node?.owner;
@@ -46,6 +53,7 @@ export function Place({ look, session, busy, act, book }: Props) {
   if (unowned && (wild || price !== null)) {
     return (
       <>
+        <Refusal of={acting} />
         {/* Обоз стоит где угодно: у ничьего узла тоже грузят и распрягают. */}
         <Convoy look={look} session={session} busy={busy} act={act} />
         {/* Лес ничейного узла рубит любой пришедший (D-177). */}
@@ -57,7 +65,7 @@ export function Place({ look, session, busy, act, book }: Props) {
         {wild && <House look={look} session={session} busy={busy} act={act} />}
         {/* Поле на ничьей земле тоже открыто: кто вспахал, тот и хозяйничает. */}
         {wild && look.node?.fertility ? (
-          <Farm look={look} session={session} busy={busy} act={act} />
+          <Farm look={look} session={session} />
         ) : null}
         <section>
         <h2>Участок</h2>
@@ -67,7 +75,7 @@ export function Place({ look, session, busy, act, book }: Props) {
         {wild ? (
           <p className="note">
             Земля за городом ничья и таковой остаётся: бумагу на владение
-            выдаёт город, а здесь его нет (D-198). Работать и строить тут
+            выдаёт город, а здесь его нет. Работать и строить тут
             может всякий — поставленное принадлежит поставившему.
           </p>
         ) : price !== null ? (
@@ -76,7 +84,7 @@ export function Place({ look, session, busy, act, book }: Props) {
               Выкупить за {api.tk(price)} ₭
             </button>
             <span className="note">
-              Цена от удалённости до биопринтера (D-089): деньги в казну,
+              Цена от удалённости до биопринтера: деньги в казну,
               вам — бумага на землю.
             </span>
           </div>
@@ -101,7 +109,7 @@ export function Place({ look, session, busy, act, book }: Props) {
           землёй — там ею и распоряжаешься. Вне города поле открыто всякому
           (D-198), и окно там тоже к месту. */}
       {(mine || wild) && look.node?.fertility ? (
-        <Farm look={look} session={session} busy={busy} act={act} />
+        <Farm look={look} session={session} />
       ) : null}
       <Gather look={look} session={session} busy={busy} act={act} book={book} />
       <Foundation look={look} session={session} busy={busy} act={act} />
@@ -116,7 +124,7 @@ export function Place({ look, session, busy, act, book }: Props) {
         busy={busy}
         act={act}
         book={book}
-        note="За станком работает один: пока идёт партия, второму он не отдаётся (D-150)."
+        note="За станком работает один: пока идёт партия, второму он не отдаётся."
       />
       <Equipment
         title="Мебель"
@@ -248,7 +256,7 @@ function Floor({ look, session, busy, act }: Omit<Props, "book">) {
       )}
       <p className="note">
         {floor.mine
-          ? "Лежащее занимает площадь; в сундуке — не занимает (D-192)."
+          ? "Лежащее занимает площадь; в сундуке — не занимает."
           : "Чужое место: смотреть можно, брать — нет."}
       </p>
     </section>
@@ -361,10 +369,8 @@ function Storages({ look, session, busy, act }: Omit<Props, "book">) {
                   </tbody>
                 </table>
               )}
-              <p className="note">
-                Дом хранит то, что не увезти в руках; полный сундук не уносят
-                (D-181).
-              </p>
+              <Rule>                Дом хранит то, что не увезти в руках; полный сундук не уносят.
+              </Rule>
             </>
           )}
         </section>
@@ -421,7 +427,7 @@ function Plot({ look, session, busy, act }: Omit<Props, "book">) {
             Переименовать
           </button>
           <span className="note">
-            Имя увидят все на карте; ключ участка не меняется (D-178).
+            Имя увидят все на карте; ключ участка не меняется.
           </span>
         </div>
       )}
@@ -539,8 +545,7 @@ function House({ look, session, busy, act }: Omit<Props, "book">) {
         </p>
       ) : (
         <p className="note">
-          Дома нет — только двор. Станки и мебель ставят в дом: сначала строят
-          (D-106).
+          Дома нет — только двор. Станки и мебель ставят в дом: сначала строят.
         </p>
       )}
 
@@ -805,8 +810,8 @@ function Citizenship({ look, session, busy, act }: Omit<Props, "book">) {
           </button>
           <span className="note">
             {linked
-              ? "Обязательство печати держит до своего срока (D-184)."
-              : "Выход не мгновенен: гражданство спадёт по сроку (D-160)."}
+              ? "Обязательство печати держит до своего срока."
+              : "Выход не мгновенен: гражданство спадёт по сроку."}
           </span>
         </div>
       )}
@@ -861,8 +866,8 @@ function Foundation({ look, session, busy, act }: Omit<Props, "book">) {
       </div>
       <p className="note">
         {ready
-          ? "Земля отойдёт городу, основатель получит все полномочия (D-089)."
-          : "Порог входа — постройки, а не монета (D-023)."}
+          ? "Земля отойдёт городу, основатель получит все полномочия."
+          : "Порог входа — постройки, а не монета."}
       </p>
     </section>
   );
@@ -984,7 +989,7 @@ function Convoy({ look, session, busy, act }: Omit<Props, "book">) {
               Распрячься
             </button>
             <span className="note">
-              Обоз останется здесь с грузом; по бездорожью он не идёт (D-107).
+              Обоз останется здесь с грузом; по бездорожью он не идёт.
             </span>
           </div>
         </>
@@ -1007,7 +1012,7 @@ function Convoy({ look, session, busy, act }: Omit<Props, "book">) {
             </button>
           ))}
           <span className="note">
-            Груз едет в трюме, а не в руках (D-146, D-157).
+            Груз едет в трюме, а не в руках.
           </span>
         </div>
       )}
@@ -1115,7 +1120,7 @@ function Equipment({
             </button>
           ))}
           {noRoom && (
-            <span className="note">в здании нет свободных мест (D-106)</span>
+            <span className="note">в здании нет свободных мест</span>
           )}
         </div>
       )}

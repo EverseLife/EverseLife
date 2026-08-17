@@ -12,6 +12,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChatLine, Circle, Session } from "../api";
+import { Refusal, useActions } from "../actions";
 
 type Props = {
   session: Session;
@@ -27,7 +28,12 @@ const KINDS = [
   { value: "ooc", label: "вне игры" },
 ] as const;
 
-export function Chat({ session, busy, act, place }: Props) {
+export function Chat({ session, place }: Omit<Props, "busy" | "act">) {
+  //: This panel's own waiting and its own refusal: one action here
+  //: must not grey out the chat, the map and somebody else's orders.
+  const acting = useActions();
+  const { busy, act } = acting;
+
   const [lines, setLines] = useState<ChatLine[]>([]);
   const [mine, setMine] = useState<Circle | null>(null);
   const [text, setText] = useState("");
@@ -67,6 +73,7 @@ export function Chat({ session, busy, act, place }: Props) {
 
   return (
     <section className="chat">
+      <Refusal of={acting} />
       <div className="chat-lines" ref={scroll}>
         {lines.length === 0 && (
           <p className="note">Тихо. Разговор живёт, пока ты в комнате.</p>

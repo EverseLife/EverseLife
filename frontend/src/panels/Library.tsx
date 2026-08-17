@@ -14,6 +14,8 @@
 import { useEffect, useState } from "react";
 import * as api from "../api";
 import type { Look, Session } from "../api";
+import { Rule } from "../Rule";
+import { Refusal, useActions } from "../actions";
 
 /** How many catalog rows to show at a time. A display quantity, not a game one. */
 const PAGE = 8;
@@ -25,7 +27,12 @@ type Props = {
   act: (what: () => Promise<unknown>) => Promise<void>;
 };
 
-export function Library({ look, session, busy, act }: Props) {
+export function Library({ look, session }: Omit<Props, "busy" | "act">) {
+  //: This panel's own waiting and its own refusal: one action here
+  //: must not grey out the chat, the map and somebody else's orders.
+  const acting = useActions();
+  const { busy, act } = acting;
+
   const [book, setBook] = useState<any>(null);
   const [crops, setCrops] = useState<{ id: string; name: string }[]>([]);
   const [search, setSearch] = useState("");
@@ -52,6 +59,7 @@ export function Library({ look, session, busy, act }: Props) {
 
   return (
     <section>
+      <Refusal of={acting} />
       <h2>Библиотека</h2>
       <div className="row">
         <input
@@ -157,13 +165,12 @@ export function Library({ look, session, busy, act }: Props) {
       </div>
       <p className="note">
         Агротехника базовых культур — для всех: с ней грядка показывает норму,
-        а не симптом (D-057). Взятое помечено ✓.
+        а не симптом. Взятое помечено ✓.
       </p>
 
-      <p className="note">
-        Бесплатно и без условий, но только придя (D-053); переписывание стоит
-        выносливости (D-148).
-      </p>
+      <Rule>        Бесплатно и без условий, но только придя; переписывание стоит
+        выносливости.
+      </Rule>
     </section>
   );
 }
