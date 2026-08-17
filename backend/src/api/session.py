@@ -462,11 +462,19 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
         ),
         "mine": node.owner_identity_id == identity.id,
         "city": node.owner_city_id is not None,
-        #: The gate of the yard (D-199). A shut gate is visible from outside:
-        #: it is a fence, not a trap, and one learns of it before setting out.
+        #: The location shut for entry (D-199, D-204). Visible from outside: it is
+        #: a door, not a trap, and one learns of it before setting out. Passage
+        #: through it stays open to everyone.
         "gated": bool(node.gated),
-        "roster": (
-            await access.roster(db, node)
+        #: Both lists, and only to the holder: whom they let into a shut location
+        #: and whom they let in nowhere (D-204).
+        "allowed": (
+            await access.roster(db, node, allowed=True)
+            if node.owner_identity_id == identity.id
+            else []
+        ),
+        "barred": (
+            await access.roster(db, node, allowed=False)
             if node.owner_identity_id == identity.id
             else []
         ),
@@ -611,8 +619,9 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
     #: it is not opened -- breaking it open is a matter for the court (D-166).
     seen["storages"] = await _storages(db, constants, node, body)
     #: What lies loose here and how much room is left (D-192). Lying goods are
-    #: visible to everyone -- they lie in plain sight; taking them follows the
-    #: right to the node, and on unowned land anything left is a find.
+    #: visible to everyone -- they lie in plain sight -- and taken by everyone who
+    #: got in (D-204): the shut door and the chest are the protection, not a rule
+    #: against touching. A passer-by through a shut location is not inside.
     loose = {str(thing.id) for thing in await storage.lying(db, node)}
     seen["floor"] = {
         "space": await estate.space(db, constants, node),
@@ -625,6 +634,10 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
             )
             if thing["id"] in loose
         ],
+        #: Whether this one may reach the floor at all: everybody inside may.
+        "open": await access.may_enter(db, node, identity.id),
+        #: Whose the place is -- the window says it in words, and the words differ
+        #: for the holder and for a guest.
         "mine": await station.may_build(db, body, node)
         or (node.owner_identity_id is None and node.owner_city_id is None),
     }
@@ -896,8 +909,65 @@ async def _build_estimate(state: dict, db: AsyncSession, message: dict) -> dict:
     }
 
 
+async def _lists(db: AsyncSession, node: Node) -> dict:
+    """The location's door as the client sees it: shut or not, and both lists."""
+    from src.engine import access
+
+    return {
+        "gated": node.gated,
+        "allowed": await access.roster(db, node, allowed=True),
+        "barred": await access.roster(db, node, allowed=False),
+    }
+
+
+async def _demolish_estimate(state: dict, db: AsyncSession, message: dict) -> dict:
+    """What taking the house apart costs, before the work starts (D-205).
+
+    The refusals are shown as reasons, not as one "cannot": the yard empties
+    before the demolition, and the player must see exactly what is in the way.
+    """
+    body = await _alive(state, db)
+    constants = current()
+    node = await db.get(Node, body.node_id)
+    if node is None:  # pragma: no cover
+        raise Refused("тело вне узла")
+
+    houses = await estate.buildings_of(db, node)
+    return {
+        "area": await estate.built_area(db, node),
+        "floors": max((house.floors for house in houses), default=0),
+        "minutes": estate.demolish_minutes(constants, houses),
+        "back": [
+            {"goods": name, "amount": round(qty, 2)}
+            for name, qty in sorted(estate.salvage(constants, houses).items())
+        ],
+        #: Demolition follows building: one's own plot and any nobody's land
+        #: (D-198, D-205); somebody else's civic plot -- by a court order (D-095).
+        "mine": node.owner_identity_id == body.identity_id
+        or (node.owner_identity_id is None and node.owner_city_id is None),
+        "blocking": await estate.demolish_blockers(db, constants, node),
+    }
+
+
+async def _build_demolish(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Take your own house apart. The work goes by time, the materials come at its end."""
+    body = await _alive(state, db)
+    node = await db.get(Node, body.node_id)
+    if node is None:  # pragma: no cover
+        raise Refused("тело вне узла")
+    try:
+        job = await estate.demolish(db, current(), body, node)
+    except estate.EstateError as refusal:
+        raise Refused(str(refusal)) from refusal
+    return {"demolishing": True, "ready_at": job.run_at.isoformat()}
+
+
 async def _gate_set(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Open or shut your own yard (D-199). In person: the gate is on the plot."""
+    """Shut your own location for entry, or open it (D-199, D-204).
+
+    In person: the door is on the spot. Passage through the location is not
+    touched -- shutting stops entry alone.
+    """
     from src.engine import access
 
     body = await _alive(state, db)
@@ -909,14 +979,14 @@ async def _gate_set(state: dict, db: AsyncSession, message: dict) -> dict:
         await access.set_gate(db, node, identity, closed=bool(message["closed"]))
     except access.AccessError as refusal:
         raise Refused(str(refusal)) from refusal
-    return {"gated": node.gated, "roster": await access.roster(db, node)}
+    return await _lists(db, node)
 
 
 async def _gate_list(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Name a person in the roster, or strike them out of it.
+    """Name a person in a list, or strike them out of both (D-204).
 
-    One roster, and the gate decides what it means: with the yard open the
-    named do not get in, with it shut only they do.
+    `allowed` picks the list: the white one lets into a shut location, the black
+    one lets in nowhere. A name moves between the lists -- it is never in both.
     """
     from src.engine import access
 
@@ -930,10 +1000,12 @@ async def _gate_list(state: dict, db: AsyncSession, message: dict) -> dict:
         if message.get("strike"):
             await access.remove(db, node, identity, who)
         else:
-            await access.add(db, node, identity, who)
+            await access.add(
+                db, node, identity, who, allowed=bool(message.get("allowed", True))
+            )
     except access.AccessError as refusal:
         raise Refused(str(refusal)) from refusal
-    return {"gated": node.gated, "roster": await access.roster(db, node)}
+    return await _lists(db, node)
 
 
 async def _deed_offer(state: dict, db: AsyncSession, message: dict) -> dict:
@@ -2767,6 +2839,8 @@ _COMMANDS = {
     "land.rename": _land_rename,
     "build.construct": _build_construct,
     "build.estimate": _build_estimate,
+    "build.demolish": _build_demolish,
+    "build.demolish_estimate": _demolish_estimate,
     "gate.set": _gate_set,
     "gate.list": _gate_list,
     "deed.offer": _deed_offer,

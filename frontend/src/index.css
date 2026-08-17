@@ -1174,6 +1174,16 @@ textarea.word {
   fill: var(--base-400);
 }
 
+/* The city's doors (D-206): a caption under the node, quieter than the name --
+   it explains the shape of the graph rather than naming the place. */
+.node-door {
+  fill: var(--base-400);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-anchor: middle;
+  text-transform: uppercase;
+}
+
 .node circle {
   fill: var(--base-900);
   stroke: currentColor;

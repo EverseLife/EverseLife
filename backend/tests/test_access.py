@@ -1,14 +1,19 @@
-"""The gate of one's own yard (D-199).
+"""The door of one's own location, and the two lists behind it (D-199, D-204).
 
-Checked is not "the flag is stored" but what the rule exists for:
+Checked is not "the flag is stored" but what the rules exist for:
 
-* one roster, and the gate turns its meaning over;
+* two lists: the white one gets into a shut location, the black one gets in
+  nowhere, and where they contradict each other black wins;
 * the holder cannot lock themselves out;
-* the gate stops arrivals and never departures -- otherwise shutting it on a
+* shutting stops **entry**, not passage: a route goes straight through a shut
+  location, so one holder's will never cuts a neighbour off from their home;
+* the door stops arrivals and never departures -- otherwise shutting it on a
   guest would be a way to take a body away;
-* nobody's land has no gate: there is nothing to shut and nobody to shut it
+* nobody's land has no door: there is nothing to shut and nobody to shut it
   (D-198);
-* a road into somebody's shut yard is refused before it starts.
+* a road **into** somebody's shut location is refused before it starts;
+* passage is walked to its end: one does not turn back in the middle of
+  somebody's shut location, and does not touch its floor.
 """
 
 from __future__ import annotations
@@ -44,7 +49,7 @@ async def _held(session: AsyncSession, node, identity):
     return await world.grant_node(session, node, identity)
 
 
-async def test_open_yard_lets_everyone_in_except_the_named(
+async def test_open_location_lets_everyone_in_except_the_black_list(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
     yard = await _plot(session, "yard")
@@ -54,13 +59,14 @@ async def test_open_yard_lets_everyone_in_except_the_named(
 
     assert await access.may_enter(session, yard, guest.id)
 
-    await access.add(session, yard, holder, guest)
+    await access.add(session, yard, holder, guest, allowed=False)
     assert not await access.may_enter(session, yard, guest.id)
-    #: The same roster, the gate open: this is a blacklist.
-    assert await access.roster(session, yard) == [guest.name]
+    assert await access.roster(session, yard, allowed=False) == [guest.name]
+    #: The white list stays empty: the lists are two and do not borrow names.
+    assert await access.roster(session, yard, allowed=True) == []
 
 
-async def test_shut_yard_lets_in_only_the_named(
+async def test_shut_location_lets_in_only_the_white_list(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
     yard = await _plot(session, "yard")
@@ -77,10 +83,33 @@ async def test_shut_yard_lets_in_only_the_named(
     assert not await access.may_enter(session, yard, stranger.id)
 
 
+async def test_black_list_beats_white(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """One name is in one list: naming it in the other moves it (D-204)."""
+    yard = await _plot(session, "yard")
+    holder, _ = await _person(session, yard, "holder")
+    await _held(session, yard, holder)
+    guest, _ = await _person(session, yard, "guest")
+
+    await access.set_gate(session, yard, holder, closed=True)
+    await access.add(session, yard, holder, guest, allowed=True)
+    assert await access.may_enter(session, yard, guest.id)
+
+    await access.add(session, yard, holder, guest, allowed=False)
+    assert not await access.may_enter(session, yard, guest.id)
+    assert await access.roster(session, yard, allowed=True) == []
+    assert await access.roster(session, yard, allowed=False) == [guest.name]
+
+    #: And back again: the door is not a one-way decision.
+    await access.add(session, yard, holder, guest, allowed=True)
+    assert await access.may_enter(session, yard, guest.id)
+
+
 async def test_holder_is_never_locked_out(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Neither the gate nor the roster shuts a person out of their own yard."""
+    """Neither the door nor a list shuts a person out of their own location."""
     yard = await _plot(session, "yard")
     holder, _ = await _person(session, yard, "holder")
     await _held(session, yard, holder)
@@ -92,7 +121,7 @@ async def test_holder_is_never_locked_out(
         await access.add(session, yard, holder, holder)
 
 
-async def test_nobodys_land_has_no_gate(
+async def test_nobodys_land_has_no_door(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
     """Outside a city there is no owner (D-198), so there is nothing to shut."""
@@ -104,7 +133,7 @@ async def test_nobodys_land_has_no_gate(
     assert await access.may_enter(session, grove, passerby.id)
 
 
-async def test_stranger_does_not_run_the_gate(
+async def test_stranger_does_not_run_the_door(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
     yard = await _plot(session, "yard")
@@ -114,9 +143,11 @@ async def test_stranger_does_not_run_the_gate(
 
     with pytest.raises(access.NotYours):
         await access.set_gate(session, yard, stranger, closed=True)
+    with pytest.raises(access.NotYours):
+        await access.add(session, yard, stranger, holder, allowed=False)
 
 
-async def test_shut_yard_refuses_the_road_before_it_starts(
+async def test_shut_location_refuses_the_road_before_it_starts(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
     """The refusal comes at departure and names the reason (D-199)."""
@@ -133,43 +164,66 @@ async def test_shut_yard_refuses_the_road_before_it_starts(
         await travel.depart(session, constants, walker, yard)
 
 
-async def test_route_goes_around_a_yard_that_named_you(
+async def test_route_goes_through_a_shut_location(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """A blacklisted traveller is not routed through the yard that named them.
+    """Shutting stops entry, not passage (D-204).
 
-    The gate is not the only way to be barred: with the yard open the roster is
-    a blacklist, and a route ignoring that would walk the person straight
-    through the one place they are not allowed.
+    The point of the rule is a neighbour behind somebody else's location: before
+    D-204 a shut yard was cut out of the graph, and with one road that left a
+    person unable to reach their own home.
     """
     start = await _plot(session, "start")
     yard = await _plot(session, "yard")
-    far = await _plot(session, "far")
+    home = await _plot(session, "home")
     await travel.connect(session, start, yard, base_seconds=30)
-    await travel.connect(session, yard, far, base_seconds=30)
+    await travel.connect(session, yard, home, base_seconds=30)
 
     holder, _ = await _person(session, yard, "holder")
     await _held(session, yard, holder)
     walker, walker_body = await _person(session, start, "walker")
+    await _held(session, home, walker)
 
-    #: The yard stays open, but the walker is named in the roster.
-    await access.add(session, yard, holder, walker)
+    #: Shut, and the walker is even in the black list -- passage is still passage.
+    await access.set_gate(session, yard, holder, closed=True)
+    await access.add(session, yard, holder, walker, allowed=False)
 
-    with pytest.raises(travel.NoRoute):
-        await travel.route(
-            session, constants, start.id, far.id, traveller=walker.id
-        )
-    #: For anybody else the road through the same yard is there.
-    other, _ = await _person(session, start, "other")
-    assert await travel.route(
-        session, constants, start.id, far.id, traveller=other.id
-    ) == [yard.id, far.id]
+    assert await travel.route(session, constants, start.id, home.id) == [
+        yard.id,
+        home.id,
+    ]
+    going = await travel.depart(session, constants, walker_body, home)
+    assert going is not None, "до своего дома доходят через чужую локацию"
+
+    #: Stopping there is another matter, and it is refused by name.
+    _, other = await _person(session, start, "other")
+    with pytest.raises(access.Barred):
+        await travel.depart(session, constants, other, yard)
 
 
-async def test_a_guest_walks_out_of_a_yard_shut_behind_them(
+async def test_passage_is_not_turned_back_from(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """The gate stops arrivals, never departures: no locking a body in."""
+    """Turning back in somebody's shut location would leave the body standing in it."""
+    yard = await _plot(session, "yard")
+    home = await _plot(session, "home")
+    await travel.connect(session, yard, home, base_seconds=30)
+
+    holder, _ = await _person(session, yard, "holder")
+    await _held(session, yard, holder)
+    #: The walker is standing in the shut location -- a leg of a passage through it.
+    walker, walker_body = await _person(session, yard, "walker")
+    await access.set_gate(session, yard, holder, closed=True)
+    await travel.depart(session, constants, walker_body, home)
+
+    with pytest.raises(access.Barred):
+        await travel.turn_back(session, walker_body)
+
+
+async def test_a_guest_walks_out_of_a_location_shut_behind_them(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The door stops arrivals, never departures: no locking a body in."""
     street = await _plot(session, "street")
     yard = await _plot(session, "yard")
     await travel.connect(session, street, yard, base_seconds=30)
@@ -182,11 +236,12 @@ async def test_a_guest_walks_out_of_a_yard_shut_behind_them(
     going = await travel.depart(session, constants, guest_body, street)
     assert going is not None
 
-    #: And the way out is not only the neighbouring node: a route from a yard
-    #: shut behind the guest must build, or the gate locks a body in through
+    #: And the way out is not only the neighbouring node: a route from a location
+    #: shut behind the guest must build, or the door locks a body in through
     #: autopath instead of through the rule.
     far = await _plot(session, "far")
     await travel.connect(session, street, far, base_seconds=30)
-    assert await travel.route(
-        session, constants, yard.id, far.id, traveller=guest.id
-    ) == [street.id, far.id]
+    assert await travel.route(session, constants, yard.id, far.id) == [
+        street.id,
+        far.id,
+    ]

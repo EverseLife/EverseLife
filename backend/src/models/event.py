@@ -113,6 +113,8 @@ class EventKind(StrEnum):
     DEED_RETIRED = "deed.retired"
     #: A building was built on a plot (D-106, D-125).
     BUILDING_BUILT = "building.built"
+    #: The owner took their own house apart, and part of the material came back (D-205).
+    BUILDING_DEMOLISHED = "building.demolished"
     PLOT_MARKED = "farm.marked"
     PLOT_PLOWED = "farm.plowed"
     PLOT_SOWN = "farm.sown"

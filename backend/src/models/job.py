@@ -50,6 +50,9 @@ class JobKind(StrEnum):
     BODY_PRINT = "body.print"
     #: Building construction: materials written off at once, the building rises on schedule (D-131).
     BUILD_FINISH = "build.finish"
+    #: Taking one's own house apart: the building goes when the work is done, and
+    #: part of the materials comes back with it (D-205).
+    BUILD_DEMOLISH = "build.demolish"
     #: Laying surface on an edge: the surface is written off at once, the road
     #: is laid on schedule (D-158).
     ROAD_WORK = "road.work"

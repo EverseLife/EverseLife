@@ -72,6 +72,7 @@ there, the mechanics will arrive as their own task.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
@@ -169,6 +170,41 @@ async def of_node(session: AsyncSession, node: Node) -> City | None:
     return await by_node(session, parent.id)
 
 
+async def territory(session: AsyncSession, city: City) -> Sequence[Node]:
+    """Every node of the city: the delegate, its built-up area, its land.
+
+    The same three ways of belonging `of_node` reads, only from the other end.
+    """
+    return (
+        (
+            await session.execute(
+                select(Node).where(
+                    (Node.owner_city_id == city.id)
+                    | (Node.id == city.node_id)
+                    | (Node.parent_id == city.node_id)
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+
+async def gate(session: AsyncSession, city: City) -> Node | None:
+    """The city's gate: where the built-up area meets the road beyond it (D-206).
+
+    Founding marks one, so a live city always has it. Nothing comes back only
+    for a city from before that decision which the catch-up seed has not reached
+    yet -- and then a road into it is refused rather than tied to a random node.
+    """
+    from src.engine import travel
+
+    for node in await territory(session, city):
+        if (node.properties or {}).get(travel.EXIT):
+            return node
+    return None
+
+
 # --- founding and offices ----------------------------------------------------
 
 
@@ -198,6 +234,7 @@ async def found(
     )
     session.add(city)
     await session.flush()
+    await _mark_gate(session, city, node)
 
     if founder is not None:
         await _office(
@@ -218,6 +255,27 @@ async def found(
         name=name,
     )
     return city
+
+
+async def _mark_gate(session: AsyncSession, city: City, node: Node) -> None:
+    """A founded city gets a gate at once (D-206).
+
+    Without it the city would have no door: a road from beyond the walls could
+    be tied nowhere, and exploration from inside would refuse instead of laying
+    a trail. The node the city stands on becomes the gate -- for a city founded
+    on one node it is the only node there is, and that node **is** the whole
+    city.
+
+    A city that already has a gate keeps it: the capital's gate is a node of its
+    own, and the seed marked it long before founding.
+    """
+    from src.engine import travel
+
+    ground = await territory(session, city)
+    if any((place.properties or {}).get(travel.EXIT) for place in ground):
+        return
+    node.properties = {**(node.properties or {}), travel.EXIT: True}
+    await session.flush()
 
 
 #: What a city cannot be without (D-023, D-159). The list is four roles, not

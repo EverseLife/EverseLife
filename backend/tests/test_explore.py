@@ -24,7 +24,7 @@ from src.constants import registry as R
 from src.engine import explore, world
 from src.models.job import Job, JobKind, JobState
 from src.models.world import Edge, Layer, Node, Vein
-from src.units import MINUTES_PER_HOUR, SECONDS_PER_HOUR
+from src.units import MINUTES_PER_HOUR, PERCENT, SECONDS_PER_HOUR
 
 #: Seconds in a minute -- as many as minutes in an hour.
 SECONDS_PER_MINUTE = MINUTES_PER_HOUR
@@ -59,6 +59,13 @@ async def _townsman(session: AsyncSession, catalog):
     core = await world.create_node(
         session, f"terra.city.{stamp}.core", "Ядро", area_m2=100,
         parent=delegate, properties={"кольцо": 0},
+    )
+    #: The city's gate: the one node a road beyond the walls may be tied to (D-206).
+    from src.engine import travel
+
+    await world.create_node(
+        session, f"terra.city.{stamp}.gate", "Выход из города", area_m2=80,
+        parent=delegate, properties={"кольцо": 3, travel.EXIT: True},
     )
     city = await town.found(session, catalog, delegate, "Столица")
     core.owner_city_id = city.id
@@ -578,6 +585,45 @@ async def test_plot_sought_in_city_and_is_civic(
         assert plot.owner_identity_id is None, "раздаёт её власть, а не находка"
 
 
+async def test_find_beyond_the_walls_hangs_on_the_gate(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """A trail from the city starts at the gate, not where the scout stood (D-206).
+
+    Until this, a run from the trading yard left a trail from the trading yard,
+    and the market quietly became a second way out of the city -- which is
+    exactly what happened to the capital.
+    """
+    from src.engine import city as town
+
+    city, core, body = await _townsman(session, catalog)
+    gate = await town.gate(session, city)
+    assert gate is not None and gate.id != core.id
+
+    for _ in range(12):
+        body.stamina = Decimal(str(constants[R.BODY_STAMINA_MAX]))
+        body.node_id = core.id
+        await session.flush()
+        await explore.survey(session, constants, body, goal=explore.VEIN)
+        await _return(session, body)
+
+    finds = [
+        node
+        for node in (await session.execute(select(Node))).scalars().all()
+        if node.properties.get("дикий")
+    ]
+    assert finds, "двенадцать заходов не дали ни одной находки"
+    edges = (await session.execute(select(Edge))).scalars().all()
+    for find in finds:
+        ends = {
+            edge.node_a_id if edge.node_b_id == find.id else edge.node_b_id
+            for edge in edges
+            if find.id in (edge.node_a_id, edge.node_b_id)
+        }
+        assert core.id not in ends, "тропа из города пошла мимо ворот"
+        assert gate.id in ends, "находку не привязали к воротам"
+
+
 async def test_plot_not_sought_outside_walls(
     session: AsyncSession, constants: Constants
 ) -> None:
@@ -632,3 +678,119 @@ async def test_nonexistent_species_not_sought(
         await explore.survey(
             session, constants, body, goal=explore.VEIN, resource="Мифрил"
         )
+
+
+# --- crowding of the graph (D-207) -------------------------------------------
+
+
+async def _spokes(session: AsyncSession, hub: Node, howmany: float) -> None:
+    """Hang this many nodes on the hub: a star, the shape D-207 exists against."""
+    from src.engine import travel
+
+    stamp = uuid.uuid4().hex[:6]
+    for index in range(int(howmany)):
+        spoke = await world.create_node(
+            session,
+            f"terra.spoke.{stamp}.{index}",
+            f"Луч {index}",
+            area_m2=100,
+            layer=Layer.PLANET,
+            parent=hub.parent_id and await session.get(Node, hub.parent_id),
+        )
+        await travel.connect(session, hub, spoke, base_seconds=30)
+
+
+async def test_crowded_node_searches_worse_than_a_roomy_one(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """A star of edges searches worse than a bare node (D-207).
+
+    This is what turns a city outwards: the centre saturates, and the next find
+    is sought where edges are few.
+    """
+    _, roomy, _ = await _scout(session)
+    _, crowded, _ = await _scout(session)
+
+    assert await explore.crowding(session, constants, roomy) == 1.0, (
+        "у пустого узла тесноты нет"
+    )
+    await _spokes(session, roomy, constants[R.EXPLORE_CROWDING_FREE])
+    assert await explore.crowding(session, constants, roomy) == 1.0, (
+        "перекрёсток в норме рёбер ничего не стоит"
+    )
+
+    await _spokes(session, crowded, constants[R.EXPLORE_CROWDING_FREE] + 6)
+    press = await explore.crowding(session, constants, crowded)
+    assert press < 1.0, "звезда обязана искать хуже перекрёстка"
+    assert press >= constants[R.EXPLORE_CROWDING_FLOOR] / PERCENT
+
+
+async def test_crowding_never_locks_a_place(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """The map is eternal (D-007): a crowded place searches badly, not never."""
+    _, hub, _ = await _scout(session)
+    await _spokes(session, hub, 60)
+    assert await explore.crowding(session, constants, hub) == pytest.approx(
+        constants[R.EXPLORE_CROWDING_FLOOR] / PERCENT
+    )
+
+
+async def test_neighbours_crowd_too_but_a_chain_does_not(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """Neighbours' edges count -- without the one leading back here.
+
+    Otherwise a chain of nodes would read as a cluster, and the frontier -- a line
+    of finds one after another -- would choke on itself.
+    """
+    from src.engine import travel
+
+    _, hub, _ = await _scout(session)
+    stamp = uuid.uuid4().hex[:6]
+    chain = hub
+    for index in range(6):
+        next_ = await world.create_node(
+            session, f"terra.chain.{stamp}.{index}", f"Звено {index}",
+            area_m2=100, layer=Layer.PLANET,
+        )
+        await travel.connect(session, chain, next_, base_seconds=30)
+        chain = next_
+    #: The far end of a chain: one edge of its own, one neighbour with two.
+    assert await explore.crowding(session, constants, chain) == 1.0
+
+    #: And now the neighbour becomes a cluster -- the same end gets crowded.
+    await _spokes(session, chain, constants[R.EXPLORE_CROWDING_FREE])
+    neighbour = await explore.crowding(session, constants, chain)
+    await _spokes(session, chain, 6)
+    assert await explore.crowding(session, constants, chain) < neighbour
+
+
+async def test_crowding_is_measured_at_the_anchor_not_at_the_origin(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """A wild find hangs on the city's gate (D-206), so the gate's crowding decides.
+
+    Measuring the node the scout set out from would miss exactly the star the
+    gate grows: everything beyond the walls couples to it.
+    """
+    from src.engine import travel
+
+    _, core, body = await _townsman(session, catalog)
+    gate = await travel.gate_of(session, core)
+    assert gate is not None
+
+    #: A plot is sought inside the walls and hangs where one stands.
+    assert (await explore.anchor_of(session, core, explore.LOT)).id == core.id
+    #: Everything else hangs on the gate.
+    assert (await explore.anchor_of(session, core, explore.SITE)).id == gate.id
+
+    await _spokes(session, gate, constants[R.EXPLORE_CROWDING_FREE] + 8)
+    outlook = await explore.outlook(session, constants, body, goal=explore.SITE)
+    assert outlook is not None
+    assert outlook["crowding"] < 1.0
+    assert outlook["anchor"] == gate.name
+    #: A plot in the same city is unaffected: its anchor is the node one stands in.
+    plot = await explore.outlook(session, constants, body, goal=explore.LOT)
+    assert plot is not None
+    assert plot["crowding"] == 1.0

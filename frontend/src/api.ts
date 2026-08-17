@@ -141,7 +141,10 @@ export type MapNode = {
   /** The group the node belongs to: location -> city -> planet. */
   parent: string | null;
   ring: number | null;
+  /** The city gate: every road beyond the walls starts here (D-206). */
   exit: boolean;
+  /** The spaceport: the city's second door, the one ships couple to (D-206). */
+  port: boolean;
 };
 export type MapEdge = { a: string; b: string; surface: Exit["surface"]; seconds: number };
 export type WorldMap = { nodes: MapNode[]; edges: MapEdge[] };
@@ -176,6 +179,13 @@ export type Outlook = {
   chance: number;
   /** By how much the species request narrowed the chance; 1 -- no request. */
   aim?: number;
+  /**
+   * By how much the crowding of the graph narrowed it; 1 -- roomy here (D-207).
+   * Edges pile up where everybody wants to be, and a crowded place searches worse.
+   */
+  crowding?: number;
+  /** The node a find will hang on, when it is not this one: from a city, the gate. */
+  anchor?: string | null;
   /** Which species is requested, if any. */
   resource?: string | null;
 };
@@ -255,10 +265,16 @@ export type Look = {
     may_name: boolean;
     /** Nobody's land outside a city: never privatized, open to all (D-198). */
     wild: boolean;
-    /** The yard is shut: entry by the roster only (D-199). Visible to everyone. */
+    /**
+     * The location is shut for entry: only the holder and the white list come in
+     * (D-199, D-204). Visible to everyone -- and passage through it stays open to
+     * everyone too: shutting stops entry, not passage.
+     */
     gated: boolean;
-    /** The roster, by names. Only the holder sees it. */
-    roster: string[];
+    /** The white list, by names: these enter a shut location. Only the holder sees it. */
+    allowed: string[];
+    /** The black list, by names: these enter nowhere. Black beats white (D-204). */
+    barred: string[];
     /** Disconnected for non-payment: machines do not work (D-149). */
     cut_off: boolean;
     /** Plot area, m2 (D-125). */
@@ -348,7 +364,12 @@ export type Look = {
       slots_used: number;
     };
     things: Thing[];
-    /** Whether the viewer may take from here. */
+    /**
+     * Whether the viewer may reach the floor: everyone inside may put things down
+     * and take them (D-204). False for a passer-by through a shut location.
+     */
+    open: boolean;
+    /** Whether the place itself is the viewer's: the window says so in words. */
     mine: boolean;
   };
   /** Own deeds for plots: electronic documents of the Net (D-116). */

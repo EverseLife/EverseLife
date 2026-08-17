@@ -66,6 +66,7 @@ async def world_map() -> dict[str, Any]:
     yet, and with it wild nodes and veins become visible only to those who explored them.
     """
     from src.constants import current
+    from src.engine import ship as vessels
     from src.engine import travel as roads
     from src.models.world import Edge, Node
 
@@ -74,6 +75,10 @@ async def world_map() -> dict[str, Any]:
         nodes = (await db.execute(select(Node))).scalars().all()
         edges = (await db.execute(select(Edge))).scalars().all()
         by_id = {node.id: node.key for node in nodes}
+        #: The city's two doors are shown on the map (D-206): every road beyond
+        #: the walls starts at the gate, every ship couples to the spaceport, and
+        #: a player who cannot see that reads the graph as an arbitrary tangle.
+        ports = {node.id for node in await vessels.ports(db)}
         return {
             "nodes": [
                 {
@@ -84,7 +89,8 @@ async def world_map() -> dict[str, Any]:
                     "layer": node.layer.value,
                     "parent": by_id.get(node.parent_id),
                     "ring": node.properties.get("кольцо"),
-                    "exit": bool(node.properties.get("выход")),
+                    "exit": bool(node.properties.get(roads.EXIT)),
+                    "port": node.id in ports,
                 }
                 for node in nodes
             ],

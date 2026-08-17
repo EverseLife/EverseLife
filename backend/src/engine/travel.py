@@ -90,6 +90,31 @@ An autopath tail is a different matter: a route laid before the edge went away
 is cut off at the node the body reached, the same way it is cut off by a
 customs refusal or by lack of strength. A route is a plan, not a promise.
 
+## A city touches the outside world only through its exits (D-206)
+
+The built-up area is a group of nodes joined by short edges, and until now
+nothing said **where** that group meets everything beyond it. So an edge out of
+the steppe could be welded to any node of it: a trail from the trading yard
+straight into the wild made a second gate out of a market, and the route out of
+the city stopped passing the gate at all.
+
+A city therefore has exactly two doors, and both are nodes:
+
+* **the gate** -- the node property `выход`. The one place one leaves the walls
+  on foot, and hence the one place one arrives at from outside;
+* **the spaceport** -- the node the `Космодром` machine stands in. Ship groups
+  couple to it by one edge (D-201), and a ship is the only thing that arrives
+  anywhere but the gate.
+
+The rule lives in `connect`, because an edge is created nowhere else: an edge
+between a city node and a node outside that city is allowed only at an exit.
+Inside one city nothing is checked -- a street is not a border; outside every
+city nothing is checked either -- wild land has no walls to have doors in.
+
+The spaceport is a machine rather than a second property on purpose: what a
+place is, is set by what stands in it (D-176). A city builds itself a port, and
+loses it with the machine -- without a property to keep in step.
+
 ## The border is settled at departure (D-123)
 
 Duty, ban and duty-free norm live in `engine.customs`; here stands the single
@@ -154,6 +179,15 @@ class EdgeInUse(TravelError):
     """
 
 
+class NotAnExit(TravelError):
+    """An edge across a city's boundary at a node that is not a door (D-206).
+
+    A city meets everything beyond it at the gate and at the spaceport, and
+    nowhere else. A road laid into the middle of the built-up area would be a
+    second gate made out of whatever node it happened to touch.
+    """
+
+
 class AlreadyGoing(TravelError):
     pass
 
@@ -202,6 +236,40 @@ REACH = "даль"
 def reach_of(node: Node) -> int:
     """The node's distance. Civic land and everything created before D-180 -- zero."""
     return int((node.properties or {}).get(REACH, 0) or 0)
+
+
+#: The node property marking the city's gate (D-097, D-206): the one node of
+#: the built-up area a road from beyond the walls may be tied to.
+EXIT = "выход"
+
+
+async def is_exit(session: AsyncSession, node: Node) -> bool:
+    """Whether the node is one of the city's two doors (D-206).
+
+    The gate is a property of the node, the spaceport is a machine standing in
+    it: what a place is, is set by what stands in it (D-176), so a city gets a
+    port by building one and loses it with the machine.
+    """
+    if (node.properties or {}).get(EXIT):
+        return True
+    from src.engine import ship
+    from src.engine import world as places
+
+    return await places.has_station(session, node, ship.SPACEPORT)
+
+
+async def gate_of(session: AsyncSession, node: Node) -> Node | None:
+    """The gate of the city this node stands in. Outside a city -- nothing.
+
+    This is where a road from beyond the walls is tied: exploration lays its
+    trail from here rather than from the node the scout set out from (D-206).
+    """
+    from src.engine import city as town
+
+    city = await town.of_node(session, node)
+    if city is None:
+        return None
+    return await town.gate(session, city)
 
 
 def frontier_seconds(constants: Constants, reach: int) -> float:
@@ -325,7 +393,6 @@ async def route(
     to_node_id: uuid.UUID,
     *,
     vehicle: str | None = None,
-    traveller: uuid.UUID | None = None,
 ) -> list[uuid.UUID]:
     """The fastest path by time between nodes: a list of nodes, without the start.
 
@@ -337,44 +404,18 @@ async def route(
     With a convoy the graph is poorer: offroad lets no vehicle through at all,
     and a heavy one needs a paved highway (D-107). The route is built over
     passable edges -- no point leading a carter into a dead end to stop there.
+
+    Somebody else's shut location is **not** cut out of the graph (D-204):
+    shutting stops entry, not passage, so the route goes straight through it.
+    The path therefore does not depend on who walks it -- only the destination
+    does, and it is checked by `depart`, where a refusal can name the reason
+    instead of reporting "no road at all".
     """
-    from src.engine import access, transport
-
-    #: Somebody else's closed yard is not a road (D-199): the route goes around
-    #: it rather than breaking off at the fence. The destination itself is
-    #: checked separately -- a refusal there must name the reason, not report
-    #: "no road at all".
-    #:
-    #: Two ways to be barred, and both must be here: a shut gate, and a name in
-    #: the roster of an open yard. Filtering by `gated` alone let a blacklisted
-    #: traveller be routed straight through the yard that named them.
-    barred: set[uuid.UUID] = set()
-    if traveller is not None:
-        from src.models.world import NodePass
-
-        named = select(NodePass.node_id).where(NodePass.identity_id == traveller)
-        candidates = await session.execute(
-            select(Node).where(
-                Node.owner_identity_id.is_not(None),
-                Node.gated | Node.id.in_(named),
-            )
-        )
-        for plot in candidates.scalars():
-            #: Neither end of the road is filtered out. The destination gets its
-            #: own refusal, which names the reason instead of reporting "no road
-            #: at all"; and the node one is standing in must stay passable even
-            #: when the gate has shut behind -- the gate stops arrivals, never
-            #: departures, otherwise a guest is locked in with their body.
-            if plot.id in (from_node_id, to_node_id):
-                continue
-            if not await access.may_enter(session, plot, traveller):
-                barred.add(plot.id)
+    from src.engine import transport
 
     edges = (await session.execute(select(Edge))).scalars().all()
     graph: dict[uuid.UUID, list[tuple[uuid.UUID, float]]] = {}
     for edge in edges:
-        if edge.node_a_id in barred or edge.node_b_id in barred:
-            continue
         if vehicle is not None and not transport.passable(
             constants, edge.surface, vehicle
         ):
@@ -468,8 +509,10 @@ async def depart(
             "рассчитаетесь. Заплатить за вас вправе кто угодно"
         )
 
-    #: Somebody else's shut yard is refused at departure, not at the fence
-    #: (D-199): a road one cannot finish is not worth setting out on.
+    #: Somebody else's shut location is refused at departure, not at the fence
+    #: (D-199): a road one cannot finish is not worth setting out on. Only the
+    #: destination is refused -- the legs in between are passage, and passage is
+    #: free (D-204).
     from src.engine import access
 
     await access.require_entry(session, target, body)
@@ -490,7 +533,6 @@ async def depart(
             body.node_id,
             target.id,
             vehicle=None if convoy is None else convoy.type_key,
-            traveller=body.identity_id,
         )
         edge = await _edge_between(session, body.node_id, legs[0])
         assert edge is not None  # noqa: S101 -- a route consists of edges
@@ -591,11 +633,28 @@ async def turn_back(
 
     The autopath tail goes with it: otherwise the body would walk on along a
     plan its owner has already cancelled.
+
+    One place one does not turn back from: somebody else's shut location one is
+    only passing through (D-204). Turning back there would leave the body
+    standing where the holder does not let it stop -- and standing means the
+    floor, the chest and everything else the door was shut for. Passage is
+    walked to its end.
     """
     moment = now or datetime.now(UTC)
     going = await current(session, body)
     if going is None:
         raise NotGoing("тело не в пути: возвращаться неоткуда")
+
+    from src.engine import access
+
+    here = await session.get(Node, going.from_node_id)
+    if here is not None and not await access.may_enter(
+        session, here, body.identity_id
+    ):
+        raise access.Barred(
+            f"«{here.name}» — чужая закрытая локация, и вы идёте через неё "
+            "проходом: с полпути тут не поворачивают, проход идётся до конца"
+        )
 
     going.state = TravelState.CANCELLED
     going.plan = None
@@ -725,10 +784,15 @@ async def connect(
     edge between its connector and the port node, and nothing else in the graph
     changes. Idempotent -- an existing edge is returned rather than doubled, so
     a repeated docking does not give a second way in.
+
+    An edge is created nowhere else in the engine, so this is also the one place
+    the city's boundary can be held: across it only the gate and the spaceport
+    are connected (D-206).
     """
     existing = await _edge_between(session, a.id, b.id)
     if existing is not None:
         return existing
+    await require_exit(session, a, b)
     edge = Edge(
         node_a_id=a.id,
         node_b_id=b.id,
@@ -738,6 +802,29 @@ async def connect(
     session.add(edge)
     await session.flush()
     return edge
+
+
+async def require_exit(session: AsyncSession, a: Node, b: Node) -> None:
+    """An edge across a city's boundary is allowed only at its doors (D-206).
+
+    Two ends, and each is checked on its own: a road between two cities leaves
+    one gate and arrives at another. What is not checked is an edge inside a
+    single city -- a street is not a border -- and an edge between nodes outside
+    every city: wild land has no walls, so it has no doors either.
+    """
+    from src.engine import city as town
+
+    here = await town.of_node(session, a)
+    there = await town.of_node(session, b)
+    if here is not None and there is not None and here.id == there.id:
+        return
+    for node, city in ((a, here), (b, there)):
+        if city is None or await is_exit(session, node):
+            continue
+        raise NotAnExit(
+            f"«{node.name}» — не выход из города: за стену ведут только ворота "
+            "и космодром, дорогу тянут от них"
+        )
 
 
 async def disconnect(session: AsyncSession, a: Node, b: Node) -> bool:

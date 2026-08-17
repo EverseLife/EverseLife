@@ -52,7 +52,17 @@ from src.constants import bootstrap, current, current_catalog
 from src.constants import registry as R
 from src.db.base import dispose, session_factory
 from src.engine import city as town
-from src.engine import death, justice, ledger, market, tick, travel, utility, world
+from src.engine import (
+    death,
+    justice,
+    ledger,
+    market,
+    ship,
+    tick,
+    travel,
+    utility,
+    world,
+)
 from src.models.identity import Identity
 from src.models.inventory import Item
 from src.models.ledger import AccountKind, PostingReason
@@ -63,6 +73,10 @@ from src.units import PERCENT, money
 log = logging.getLogger("octoverse.seed")
 
 CORE = "terra.capital.core"
+#: The capital's spaceport: the city's second door (D-206). A node, because
+#: ship groups couple to a node -- and the `Космодром` machine in it is what
+#: makes the node a port (D-176).
+PORT = "terra.capital.port"
 #: A species, not "ore in general" (D-151): iron and copper have different veins.
 IRON = "Железная руда"
 COPPER = "Медная руда"
@@ -153,9 +167,16 @@ async def seed(session: AsyncSession) -> Node:
         session, "terra.capital.hall", "Администрация", area_m2=180,
         parent=capital, properties={"кольцо": 1},
     )
+    #: The city's two doors (D-206). The gate is where every road beyond the
+    #: walls begins, the spaceport is where ship groups couple on; nothing else
+    #: in the built-up area touches what lies outside.
     gate = await world.create_node(
         session, "terra.capital.gate", "Выход из города", area_m2=80,
-        parent=capital, properties={"кольцо": 3, "выход": True},
+        parent=capital, properties={"кольцо": 3, travel.EXIT: True},
+    )
+    port = await world.create_node(
+        session, PORT, "Космодром", area_m2=240,
+        parent=capital, properties={"кольцо": 3},
     )
     #: The first ring beyond the walls: distance 1 (D-180) -- twenty seconds of
     #: walking, not twenty minutes. Near resources are hauled daily, and that is the whole point.
@@ -205,6 +226,7 @@ async def seed(session: AsyncSession) -> Node:
         (forge, face),
         (core, gate),
         (face, gate),
+        (gate, port),
         *((forge, plot) for plot in plots),
     ):
         await travel.connect(
@@ -239,6 +261,9 @@ async def seed(session: AsyncSession) -> Node:
     await _machine(session, prison, justice.KATORGA, 55)
 
     await _machine(session, townhall, "Администрация", 65)
+    #: The spaceport is a machine too, and it is what makes the node a port: a
+    #: ship couples to whatever the `Космодром` stands in (D-201, D-206).
+    await _machine(session, port, ship.SPACEPORT, 60)
     #: The library is a machine (D-176): the knowledge window is shown where it stands.
     await _machine(session, library, world.LIBRARY, 70)
     #: The Forerunners' Printer: free and twelve hours (D-028). It is also the
@@ -280,7 +305,12 @@ async def seed(session: AsyncSession) -> Node:
     #: defaults, a treasury and code-laws. Everything set here the authority changes itself later.
     city = await town.found(session, current_catalog(), capital, capital.name)
     #: The prison is city land too (D-176): a state location is never a "free plot".
-    for node in (core, library, marketplace, forge, face, townhall, gate, prison, *plots):
+    #: The spaceport is city land like the gate: a door of the city is not
+    #: somebody's yard, and only the authority moves the machine that makes it
+    #: one (D-176, D-206).
+    for node in (
+        core, library, marketplace, forge, face, townhall, gate, port, prison, *plots
+    ):
         node.owner_city_id = city.id
     await session.flush()
     await _treasury(session, city)
@@ -420,6 +450,12 @@ async def catch_up(session: AsyncSession, core: Node) -> None:
         if node.owner_city_id is None and node.owner_identity_id is None:
             node.owner_city_id = city.id
     await session.flush()
+
+    #: The city's doors (D-206). A world laid out before that decision has
+    #: cities without a gate, and until every one of them has it a road from
+    #: beyond the walls has nowhere to be tied. Done first, because the steps
+    #: below draw edges themselves.
+    await _gates_catch_up(session)
 
     #: Rights are split (D-155), and offices created before that have the old
     #: set: `dashboard`, `charter` and `land` are simply absent from it. The
@@ -565,6 +601,30 @@ async def catch_up(session: AsyncSession, core: Node) -> None:
             edge.base_seconds = int(seconds)
             edge.surface = Surface.ROAD
 
+    #: The capital's spaceport (D-203, D-206). A world furnished before space
+    #: had nowhere to couple a ship to at all, so the node and its machine
+    #: arrive whole -- by the gate, where the second door belongs.
+    new_port = await _node_if_missing(
+        session, PORT, "Космодром", 240, capital, {"кольцо": 3}
+    )
+    port = new_port or (
+        await session.execute(select(Node).where(Node.key == PORT))
+    ).scalar_one_or_none()
+    if port is not None:
+        port.owner_city_id = city.id
+        await _machine_if_missing(session, port, ship.SPACEPORT, 60)
+        if gate is not None:
+            await travel.connect(
+                session, gate, port,
+                base_seconds=dice.uniform(step.min, step.max),
+                surface=Surface.PAVED,
+            )
+
+    #: Roads out of the middle of a city, laid before the doors were a rule
+    #: (D-206). They are not removed: somebody walked them and somebody paved
+    #: them -- their city end simply moves to the gate.
+    await _reroute_through_gates(session)
+
     #: The mint has been renamed twice: yard -> press (D-016, together with
     #: abolishing fineness), press -> station (D-200, "станок" became "рабочая
     #: станция"). Existing machines learn the current name here; the migration
@@ -701,6 +761,89 @@ async def _present_in(session: AsyncSession, container, name: str) -> bool:
         .limit(1)
     )
     return found is not None
+
+
+async def _gates_catch_up(session: AsyncSession) -> None:
+    """Give every city a gate (D-206).
+
+    The capital has had one from the first seed; a city founded by a player
+    before this decision has none, and its own node becomes the gate -- that
+    node **is** the whole city, so it is its own door.
+    """
+    from src.models.city import City
+
+    cities = (await session.execute(select(City))).scalars().all()
+    for city in cities:
+        if await town.gate(session, city) is not None:
+            continue
+        delegate = await session.get(Node, city.node_id)
+        if delegate is None:  # pragma: no cover -- a city without a node is a bug
+            continue
+        delegate.properties = {**(delegate.properties or {}), travel.EXIT: True}
+        log.info("city %s got a gate by catch-up: %s", city.name, delegate.key)
+    await session.flush()
+
+
+async def _reroute_through_gates(session: AsyncSession) -> None:
+    """Move stray edges out of a city onto its gate (D-206).
+
+    Such an edge is a road laid before the doors became a rule: exploration used
+    to tie a find to the node the scout set out from, so a trail from the
+    trading yard into the wild made a second gate out of the market. The road
+    itself stays -- length, surface and condition are somebody's work -- only
+    its city end moves.
+
+    An edge that would collide with an existing one is removed instead: the gate
+    is already connected there, and a second road between the same two nodes
+    cannot exist.
+    """
+    edges = (await session.execute(select(Edge))).scalars().all()
+    for edge in edges:
+        ends = [
+            await session.get(Node, edge.node_a_id),
+            await session.get(Node, edge.node_b_id),
+        ]
+        if any(end is None for end in ends):  # pragma: no cover -- an edge to nowhere
+            continue
+        a, b = ends
+        cities = [await town.of_node(session, a), await town.of_node(session, b)]
+        if (
+            cities[0] is not None
+            and cities[1] is not None
+            and cities[0].id == cities[1].id
+        ):
+            continue
+        for index, (end, city) in enumerate(zip(ends, cities, strict=True)):
+            if city is None or await travel.is_exit(session, end):
+                continue
+            door = await town.gate(session, city)
+            other = ends[1 - index]
+            if door is None or door.id == other.id:  # pragma: no cover
+                continue
+            twin = (
+                await session.execute(
+                    select(Edge).where(
+                        ((Edge.node_a_id == door.id) & (Edge.node_b_id == other.id))
+                        | ((Edge.node_a_id == other.id) & (Edge.node_b_id == door.id))
+                    )
+                )
+            ).scalars().first()
+            if twin is not None:
+                await session.delete(edge)
+                log.info(
+                    "stray road from %s dropped: the gate already reaches %s",
+                    end.name, other.name,
+                )
+                break
+            if index == 0:
+                edge.node_a_id = door.id
+            else:
+                edge.node_b_id = door.id
+            ends[index] = door
+            log.info(
+                "road %s -- %s moved onto the gate %s", end.name, other.name, door.name
+            )
+    await session.flush()
 
 
 async def _node_if_missing(

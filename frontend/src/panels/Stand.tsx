@@ -41,7 +41,7 @@ import { Market } from "./Market";
 import { Mine } from "./Mine";
 import { Mint } from "./Mint";
 import { Nursery } from "./Nursery";
-import { Place } from "./Place";
+import { disposes, Ground, House, Location, Place, Stations } from "./Place";
 import { Plant } from "./Plant";
 import { Rig } from "./Rig";
 import { Ship } from "./Ship";
@@ -81,6 +81,15 @@ type Thing = {
  */
 const OPENED = new Map<string, string>();
 
+/**
+ * The place itself as a choice -- the row of objects with no window over it.
+ *
+ * Not an object's id: a node whose things are all full windows (an empty plot,
+ * a square with one terminal) has no bench to fall back to, and without this
+ * state "назад к месту" would lead back into the window it just left.
+ */
+const ROW = "row";
+
 type Props = {
   look: Look;
   session: Session;
@@ -94,10 +103,15 @@ export function Stand({ look, session, book, values, pow }: Props) {
   const [chosen, setChosen] = useState<string | null>(() => OPENED.get(here) ?? null);
 
   const things = assemble({ look, session, book, values, pow });
+  const bench = things.find((t) => t.kind === "bench");
   //: A remembered choice can vanish -- the machine was carried off while we
   //: were away. Then the first thing worth attention takes over.
+  //: `ROW` is the one choice that may open nothing: where the node has no
+  //: bench, the place is the row standing on its own.
   const open =
-    things.find((t) => t.id === chosen) ?? things.find((t) => t.kind === "bench") ?? things[0];
+    chosen === ROW
+      ? bench
+      : (things.find((t) => t.id === chosen) ?? bench ?? things[0]);
 
   const show = (id: string) => {
     setChosen(id);
@@ -119,7 +133,7 @@ export function Stand({ look, session, book, values, pow }: Props) {
     return (
       <div className="stand">
         <div className="stand-back">
-          <button className="quiet" onClick={() => show(firstBench(things)?.id ?? "")}>
+          <button type="button" className="quiet" onClick={() => show(ROW)}>
             ← назад к месту
           </button>
           <span className="note">{look.node?.name}</span>
@@ -160,9 +174,6 @@ export function Stand({ look, session, book, values, pow }: Props) {
     </div>
   );
 }
-
-const firstBench = (things: Thing[]) =>
-  things.find((t) => t.kind === "bench") ?? things[0];
 
 /**
  * The node's objects, in the order they deserve attention.
@@ -278,7 +289,10 @@ function assemble({ look, session, book, values, pow }: Props): Thing[] {
     single("ship", "Корабль", "full", () => <Ship look={look} session={session} />);
   }
 
-  if ((look.node?.fertility ?? 0) > 0) {
+  //: Plots are the holder's business: on somebody else's land one farms by
+  //: contract, not by this window (06-farming). Nobody's land outside a city is
+  //: farmed by whoever comes (D-198), and there the window is for everyone.
+  if ((look.node?.fertility ?? 0) > 0 && disposes(look)) {
     single("farm", "Делянки", "full", () => <Farm look={look} session={session} />);
   }
   if (look.node?.library) {
@@ -294,17 +308,71 @@ function assemble({ look, session, book, values, pow }: Props): Thing[] {
       mine > 0 ? `вашего товара: ${mine}` : undefined);
   }
 
-  //: The place itself, last: the plot, the building, the machines standing
-  //: here, the furniture, the chest, the floor and the convoy. Six sections of
-  //: the old screen were never six things -- they were one, the place and what
-  //: is in it.
+  //: The location's own windows, last and in one group: they are about the place
+  //: rather than about work, and a machine deserves attention before a nameplate.
+  //: Four of them are the holder's -- a guest is shown neither the door nor the
+  //: bill of a house that is not theirs -- and the floor is everyone's (D-204).
+  const own = disposes(look);
+  const owned = Boolean(look.node?.owner || look.node?.owner_city);
+  const home = look.node?.building;
+
+  if (own && owned) {
+    single(
+      "location",
+      "Локация",
+      "full",
+      () => <Location look={look} session={session} />,
+      3,
+      look.node?.gated ? "вход закрыт" : undefined,
+    );
+  }
+  if (own && home) {
+    single(
+      "house",
+      "Дом",
+      "full",
+      () => <House look={look} session={session} />,
+      3,
+      home.area > 0
+        ? `${home.area.toFixed(0)} м² в ${home.floors} эт.`
+        : home.building.length > 0
+          ? "строится"
+          : "не построен",
+    );
+  }
+  //: Machines are placed into a house, and there is nothing to place without one
+  //: (D-106): the window appears with the house, not with the plot.
+  if (own && home && home.area > 0) {
+    single(
+      "stations",
+      "Рабочие станции",
+      "full",
+      () => <Stations look={look} session={session} book={book} />,
+      3,
+      `мест ${home.used} из ${home.slots}`,
+    );
+  }
+
   const room = look.floor?.space;
+  if (look.floor) {
+    single(
+      "ground",
+      (room?.roofed ?? 0) > 0 ? "В здании" : "На земле",
+      "full",
+      () => <Ground look={look} session={session} />,
+      3,
+      room ? `${room.used.toFixed(0)} / ${room.area.toFixed(0)} м²` : undefined,
+    );
+  }
+
+  //: What is left of the place: buying an empty plot, the convoy, the furniture,
+  //: the chests, founding a city, citizenship and gathering by the sign of the
+  //: land. One window, because none of them is a place of its own.
   things.push({
     id: "place",
     name: "Место",
     kind: "full",
     rank: 3,
-    state: room ? `${room.used.toFixed(0)} / ${room.area.toFixed(0)} м²` : undefined,
     view: () => <Place look={look} session={session} book={book} />,
   });
 

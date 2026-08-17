@@ -15,7 +15,10 @@ Whether it is furniture or a machine the engine does not care: it looks at the f
 * **in person** -- nobody reaches into somebody's chest from half a map away;
 * **whoever may dispose of the node disposes** (`station.may_build`): the
   owner, and on civic land the authority. Breaking into somebody's chest is a
-  matter for the court (D-166), not a button;
+  matter for the court (D-166), not a button. The **floor** is the other way
+  round (D-204): what lies loose is put down and picked up by anyone who got in,
+  and a shut door is what keeps them out -- the chest is the protection inside an
+  open location;
 * **the limit is mass**, in the same kilograms as hands and hold: there is no
   third unit of capacity in the world;
 * **a full storage is not carried away** (`station.take`): otherwise "take
@@ -46,7 +49,10 @@ class NotStorage(StorageError):
 
 
 class NotYours(StorageError):
-    """Somebody else's chest is not opened: access follows the right to the node (D-181)."""
+    """Somebody else's chest is not opened: access follows the right to the node (D-181).
+
+    The floor refuses for another reason -- a passer-by is not inside (D-204).
+    """
 
 
 class Full(StorageError):
@@ -221,6 +227,23 @@ async def lying(session: AsyncSession, node: Node) -> list[Item]:
     ]
 
 
+async def _require_inside(session: AsyncSession, node: Node, body: Body) -> None:
+    """The floor is for those inside, not for those walking through (D-204).
+
+    Passage through a shut location is free, and a body may end up standing in
+    one -- the leg between two jobs, a route that broke where the edge vanished.
+    Standing there it is not a guest but a passer-by: the floor is not its business.
+    """
+    from src.engine import access
+
+    if await access.may_enter(session, node, body.identity_id):
+        return
+    raise NotYours(
+        f"«{node.name}» — чужая закрытая локация, вы здесь проходом: "
+        "проходом не берут и не кладут"
+    )
+
+
 async def drop(
     session: AsyncSession,
     constants: Constants,
@@ -232,7 +255,8 @@ async def drop(
     """Put a thing down here: under the roof if there is one, in the yard if not.
 
     Cargo takes area (D-192), and area is finite -- that is what makes a
-    warehouse a decision rather than a formality.
+    warehouse a decision rather than a formality. Whoever got in may put things
+    down (D-204): the door decides who is inside, not this check.
     """
     from src.engine import estate, gear
 
@@ -243,6 +267,7 @@ async def drop(
     node = await session.get(Node, body.node_id)
     if node is None:  # pragma: no cover -- a body without a node is a bug
         raise StorageError("тело вне узла")
+    await _require_inside(session, node, body)
     pocket = await world.body_container(session, body)
     if item.container_id != pocket.id:
         raise StorageError("кладут из рук")
@@ -281,8 +306,15 @@ async def pick(
     item: Item,
     quantity: float | None = None,
 ) -> float:
-    """Pick up what lies here. Somebody's floor is not touched (D-192)."""
-    from src.engine import gear, station
+    """Pick up what lies here. Whoever got in may take it (D-204).
+
+    The floor used to be closed to strangers, and that stood in for a door the
+    location did not have. Now the door is real: the holder shuts entry and keeps
+    lists (`engine/access.py`), and what lies inside is taken by anyone they let
+    in. Locked up means behind a shut door or in a chest (D-181), not behind a
+    rule saying "do not take".
+    """
+    from src.engine import gear
 
     if body.state is not BodyState.ALIVE:
         raise StorageError("мёртвое тело ничего не поднимает")
@@ -295,11 +327,7 @@ async def pick(
     if item.container_id != yard.id:
         raise StorageError("этой вещи здесь не лежит")
 
-    #: Unowned land keeps nothing for anybody: what was left in the open field
-    #: is a find. On owned land the floor follows the node's right.
-    owned = node.owner_identity_id is not None or node.owner_city_id is not None
-    if owned and not await station.may_build(session, body, node):
-        raise NotYours("это лежит не у вас: чужое не берут")
+    await _require_inside(session, node, body)
 
     qty = amount_float(item.amount) if quantity is None else quantity
     if qty <= 0:

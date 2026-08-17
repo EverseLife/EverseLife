@@ -693,6 +693,15 @@ export function GraphMap({ look, session, onEnter }: Omit<Props, "busy" | "act">
                 <text x={p.x} y={p.y - 20} className="node-label">
                   {node.name}
                 </text>
+                {/* The city's two doors (D-206): every road beyond the walls
+                    starts at the gate, every ship couples to the spaceport.
+                    Unmarked, the graph reads as an arbitrary tangle -- and it
+                    is not one. */}
+                {(node.exit || node.port) && (
+                  <text x={p.x} y={p.y + 30} className="node-door">
+                    {node.exit ? "ворота" : "космодром"}
+                  </text>
+                )}
               </g>
             );
           })}
@@ -1212,6 +1221,11 @@ function Forecast({ forecast }: { forecast: Outlook }) {
         ` · ${forecast.resource.toLowerCase()} редка: шанс уже в ${(1 / (forecast.aim ?? 1)).toFixed(0)} раз`}
       {forecast.explored > 0 &&
         ` · окрестность исхожена: находок отсюда ${forecast.explored}`}
+      {/* Теснота — свойство места, на которое игрок может ответить: отойти от
+          скопления и идти от границы. Потому она названа отдельным числом, а не
+          спрятана в общем шансе (D-207). */}
+      {(forecast.crowding ?? 1) < 1 &&
+        ` · тесно${forecast.anchor ? ` у ${forecast.anchor.toLowerCase()}` : ""}: шанс уже в ${(1 / (forecast.crowding ?? 1)).toFixed(1)} раз`}
     </span>
   );
 }

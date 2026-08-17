@@ -86,10 +86,12 @@ class Node(Base):
         ForeignKey("identity.id"), nullable=True
     )
 
-    #: The gate of one's own yard (D-199): closed means entry by the roster
-    #: only. Land outside a city has no owner and no gate (D-198). The gate
-    #: stops arrivals, never departures: shutting it on a guest inside would be
-    #: a way to take a body away, and death without a way out is forbidden.
+    #: The location is shut for entry (D-199, D-204): only the owner and the
+    #: white list come in. Land outside a city has no owner and nothing to shut
+    #: (D-198). Shutting stops **entry**, not passage: a route goes straight
+    #: through a shut location, and departures are never stopped -- shutting the
+    #: gate on a guest inside would be a way to take a body away, and death
+    #: without a way out is forbidden.
     gated: Mapped[bool] = mapped_column(
         nullable=False, default=False, server_default="false"
     )
@@ -98,12 +100,16 @@ class Node(Base):
 
 
 class NodePass(Base):
-    """One roster per plot, and the gate decides what it means (D-199).
+    """A name in one of the location's two lists (D-204).
 
-    With the gate open the roster reads as a blacklist: those named do not get
-    in. With it closed -- as a whitelist: only those named do. One list instead
-    of two: two would have to be kept free of contradictions, and every rule
-    for resolving them would be a rule the player has to learn.
+    The white list gets into a shut location, the black one gets in nowhere --
+    neither into a shut location nor into an open one. The contradiction between
+    them is resolved by one line, and it is shorter than the rule of a single
+    roster whose meaning flipped with the gate: **black beats white**.
+
+    One row per person per location: `allowed` says which list the name is in,
+    so moving somebody from one list to the other is a change of the flag rather
+    than a pair of rows that could both exist.
     """
 
     __tablename__ = "node_pass"
@@ -116,6 +122,12 @@ class NodePass(Base):
     node_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("node.id"), nullable=False)
     identity_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("identity.id"), nullable=False
+    )
+    #: Which list the name is in: the white one (entry to a shut location) or
+    #: the black one (no entry at all). The default is the white list -- the old
+    #: single roster of a shut yard meant exactly that (D-199).
+    allowed: Mapped[bool] = mapped_column(
+        nullable=False, default=True, server_default="true"
     )
     listed_at: Mapped[datetime] = created_column()
 

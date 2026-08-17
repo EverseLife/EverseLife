@@ -4,6 +4,8 @@ Checked is what the mechanic exists for:
 
 * a **vault field** makes a thing a storage, not a name in code;
 * one puts and takes in person and in one's own node; nobody reaches into somebody's chest;
+* the **floor** is the other way round (D-204): whoever got in takes from it, and
+  only a passer-by through a shut location does not;
 * the limit is mass, the same as hands and hold; the hands limit stays on withdrawal;
 * a full storage is not carried away: otherwise furniture would become a way
   around the carry limit (D-146).
@@ -200,10 +202,15 @@ async def test_chest_saves_the_floor(
     assert room["slots_used"] == 1
 
 
-async def test_foreign_floor_is_not_touched(
+async def test_the_floor_is_open_to_whoever_got_in(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Somebody's floor follows the node's right; an open field keeps nothing."""
+    """A guest takes from the floor: the door is the protection, not a rule (D-204).
+
+    Before D-204 the floor was closed to strangers, and that stood in for a door
+    the location did not have. Now the door is real, and what lies inside belongs
+    to whoever the holder lets in.
+    """
     node, _, owner = await _yard(session)
     own_goods = await _goods(session, owner, 4)
     await storage.drop(session, constants, catalog, owner, own_goods, 4)
@@ -212,8 +219,7 @@ async def test_foreign_floor_is_not_touched(
     stamp = uuid.uuid4().hex[:6]
     guest = await world.create_identity(session, f"Гость-{stamp}")
     guest_body = await world.print_body(session, guest, node)
-    with pytest.raises(storage.NotYours):
-        await storage.pick(session, constants, catalog, guest_body, lying, 1)
+    assert await storage.pick(session, constants, catalog, guest_body, lying, 1) == 1
 
     #: Unowned land: what was left in the open field is a find, not property.
     wild = await world.create_node(
@@ -226,6 +232,41 @@ async def test_foreign_floor_is_not_touched(
         GOODS, amount=3, quality=55, origin="тест",
     )
     assert await storage.pick(session, constants, catalog, finder, dropped, 3) == 3
+
+
+async def test_a_passer_by_does_not_reach_the_floor(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Passage through a shut location is not entry into it (D-204).
+
+    A body may stand in a shut location while passing through, and the floor is
+    exactly what the door was shut for: the passer-by neither takes nor puts.
+    """
+    from src.engine import access
+
+    node, holder, owner = await _yard(session)
+    own_goods = await _goods(session, owner, 4)
+    await storage.drop(session, constants, catalog, owner, own_goods, 4)
+    lying = (await storage.lying(session, node))[0]
+
+    stamp = uuid.uuid4().hex[:6]
+    walker = await world.create_identity(session, f"Прохожий-{stamp}")
+    walker_body = await world.print_body(session, walker, node)
+    await access.set_gate(session, node, holder, closed=True)
+
+    with pytest.raises(storage.NotYours):
+        await storage.pick(session, constants, catalog, walker_body, lying, 1)
+
+    pocket = await world.body_container(session, walker_body)
+    theirs = await world.grant_item(
+        session, pocket, GOODS, amount=2, quality=55, origin="тест"
+    )
+    with pytest.raises(storage.NotYours):
+        await storage.drop(session, constants, catalog, walker_body, theirs, 2)
+
+    #: Let in by name -- and the floor is theirs to use like anybody's inside.
+    await access.add(session, node, holder, walker, allowed=True)
+    assert await storage.pick(session, constants, catalog, walker_body, lying, 1) == 1
 
 
 async def test_hands_limit_stays_on_withdrawal(

@@ -307,6 +307,11 @@ BUILD_REINFORCE_FROM_FLOOR = Num("build.reinforce_from_floor")
 BUILD_REINFORCE_K = Num("build.reinforce_k")
 BUILD_STRENGTH_K = Table("build.strength_k")
 BUILD_FLOORS_BY_STRENGTH = Table("build.floors_by_strength")
+#: Demolishing a house (D-205): the work is a share of the building's labour, and
+#: a share of the bill of materials comes back. Neither is a whole: taking a
+#: house apart is quicker than raising it and never free of breakage.
+BUILD_DEMOLISH_LABOR_K = Num("build.demolish_labor_k")
+BUILD_DEMOLISH_SALVAGE = Num("build.demolish_salvage")
 
 # --- City economic panel (D-124, D-140) -------------------------------------
 #: Summary step. Deliberately slower than the market: instant data would give
@@ -336,6 +341,13 @@ EXPLORE_ATTEMPT_STAMINA = Num("explore.attempt_stamina")
 EXPLORE_FIND_CHANCE = Num("explore.find_chance")
 EXPLORE_FIND_DECAY = Num("explore.find_decay")
 EXPLORE_FIND_FLOOR = Num("explore.find_floor")
+#: Crowding of the graph (D-207): the more edges the node a find will hang on
+#: already has -- and the more its neighbours have -- the worse the search. This
+#: is what turns a city outwards instead of into a star around the bioprinter.
+EXPLORE_CROWDING_FREE = Num("explore.crowding_free")
+EXPLORE_CROWDING_NEIGHBOUR_K = Num("explore.crowding_neighbour_k")
+EXPLORE_CROWDING_DECAY = Num("explore.crowding_decay")
+EXPLORE_CROWDING_FLOOR = Num("explore.crowding_floor")
 EXPLORE_VEIN_SHARE = Num("explore.vein_share")
 #: Forest cover of the world (D-191): the share of finds carrying woods, and
 #: the same share narrows the chance when the woods are what you asked for.

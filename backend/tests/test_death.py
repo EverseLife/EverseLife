@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import city as town
-from src.engine import death, energy, ledger, world
+from src.engine import death, energy, ledger, travel, world
 from src.models.identity import Body, BodyState, Knowledge
 from src.models.inventory import Item
 from src.models.ledger import AccountKind, PostingReason
@@ -38,9 +38,12 @@ async def _world(session: AsyncSession, catalog: Catalog, *, treasury: float = 0
         session, f"terra.city.{stamp}", "Столица", area_m2=1,
         layer=Layer.PLANET, parent=planet,
     )
+    #: The core is also this city's door (D-206): the whole built-up area here
+    #: is two nodes, and a road out of it has to be tied to something.
     core = await world.create_node(
         session, f"terra.city.{stamp}.core", "Ядро", area_m2=120,
-        parent=delegate, properties={"кольцо": 0, death.PRECURSOR: True},
+        parent=delegate,
+        properties={"кольцо": 0, death.PRECURSOR: True, travel.EXIT: True},
     )
     forge = await world.create_node(
         session, f"terra.city.{stamp}.forge", "Кузница", area_m2=200,
@@ -140,7 +143,6 @@ async def test_death_en_route_cuts_transit(
     A state separate from "arrived": otherwise examining the episode shows an
     arrival where nobody arrived, and the journal job tries to deliver a corpse.
     """
-    from src.engine import travel
     from src.models.travel import Travel, TravelState
     from src.models.world import Node
 

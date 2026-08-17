@@ -6,7 +6,9 @@ Checked is what makes the map a graph rather than a grid:
 * surface decides time, and offroad is pricier than a road;
 * a transit takes time and arrives **by a journal job**, not by a check on
   read: closed the tab -- you still arrive;
-* while walking you are absent: everything in-person is closed.
+* while walking you are absent: everything in-person is closed;
+* a city touches the world beyond it only at its two doors -- the gate and the
+  spaceport (D-206).
 """
 
 from __future__ import annotations
@@ -470,3 +472,85 @@ async def _node(session: AsyncSession, body: Body):
     node = await session.get(Node, body.node_id)
     assert node is not None
     return node
+
+
+# --- the city's two doors (D-206) --------------------------------------------
+
+
+async def _city(session: AsyncSession, catalog: Catalog):
+    """A city of the capital's shape: a delegate, a gate and an ordinary node."""
+    from src.engine import city as town
+    from src.models.world import Layer
+
+    stamp = uuid.uuid4().hex[:8]
+    planet = await world.create_node(
+        session, f"terra.{stamp}", "Терра", area_m2=1, layer=Layer.SPACE
+    )
+    delegate = await world.create_node(
+        session, f"terra.town.{stamp}", "Столица", area_m2=1,
+        layer=Layer.PLANET, parent=planet,
+    )
+    gate = await world.create_node(
+        session, f"terra.town.{stamp}.gate", "Выход из города", area_m2=80,
+        parent=delegate, properties={travel.EXIT: True},
+    )
+    market_ = await world.create_node(
+        session, f"terra.town.{stamp}.market", "Торговый двор", area_m2=200,
+        parent=delegate,
+    )
+    city = await town.found(session, catalog, delegate, "Столица")
+    await session.flush()
+    wild = await world.create_node(
+        session, f"terra.wild.{stamp}", "Глухая балка", area_m2=300,
+        layer=Layer.PLANET, parent=planet,
+    )
+    return city, gate, market_, wild
+
+
+async def test_road_beyond_the_walls_starts_at_the_gate(
+    session: AsyncSession, catalog: Catalog
+) -> None:
+    """A city meets what lies outside at its doors, and nowhere else (D-206).
+
+    This is the whole reason the rule exists: a trail welded to the trading
+    yard made the market a second gate, and the route out of the city stopped
+    passing the gate at all.
+    """
+    _, gate, market_, wild = await _city(session, catalog)
+
+    with pytest.raises(travel.NotAnExit):
+        await travel.connect(session, market_, wild, base_seconds=1800)
+    #: The same road from the gate is an ordinary road.
+    await travel.connect(session, gate, wild, base_seconds=1800)
+
+
+async def test_a_street_is_not_a_border(
+    session: AsyncSession, catalog: Catalog
+) -> None:
+    """Inside one city nothing is checked: the doors face outwards."""
+    _, gate, market_, _ = await _city(session, catalog)
+    await travel.connect(session, market_, gate, base_seconds=6)
+
+
+async def test_spaceport_is_the_second_door(
+    session: AsyncSession, catalog: Catalog
+) -> None:
+    """A ship couples to the port, not to the gate (D-201, D-206).
+
+    The port is a door because a machine stands in it: what a place is, is set
+    by what stands in it (D-176), so the city gets its second door by building
+    one rather than by a second property to keep in step.
+    """
+    from src.engine import ship
+
+    _, _, market_, wild = await _city(session, catalog)
+    assert not await travel.is_exit(session, market_)
+
+    yard = await world.node_container(session, market_)
+    await world.grant_item(
+        session, yard, ship.SPACEPORT, quality=60, origin="тест"
+    )
+    assert await travel.is_exit(session, market_), (
+        "космодром делает узел выходом: к нему цепляются корабли"
+    )
+    await travel.connect(session, market_, wild, base_seconds=1800)

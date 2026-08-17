@@ -8,7 +8,10 @@ Checked is what the system was introduced for:
 * ownership is documented by a deed; the deed is sold by a sale contract, and
   the title to the node passes with it;
 * a building is built on one's own plot from materials and on schedule; a
-  machine without a building does not stand (see `test_station`).
+  machine without a building does not stand (see `test_station`);
+* one's own house is taken apart as work, part of the material comes back, and
+  the yard empties before the demolition rather than losing what stood in it
+  (D-205).
 """
 
 from __future__ import annotations
@@ -26,6 +29,7 @@ from src.engine import city as town
 from src.engine import estate, ledger, world
 from src.models.city import Citizen
 from src.models.estate import Deed
+from src.models.job import JobState
 from src.models.ledger import AccountKind, PostingReason
 from src.models.world import Layer, Node, Surface
 from src.units import PERCENT, money
@@ -424,3 +428,230 @@ async def test_no_building_on_foreign_land(
     _, foreign_body = await _buyer(session, plot, funds=0)
     with pytest.raises(estate.EstateError):
         await estate.construct(session, constants, foreign_body, plot, 10)
+
+
+# --- demolition (D-205) ------------------------------------------------------
+
+
+async def _house(
+    session: AsyncSession,
+    constants: Constants,
+    own_plot,
+    *,
+    area: float = 20.0,
+    floors: int = 1,
+    plot_area: float = 100,
+):
+    """A plot of one's own with a finished house on it."""
+    stamp = uuid.uuid4().hex[:6]
+    plot = await world.create_node(
+        session, f"terra.plot.{stamp}", "Участок", area_m2=plot_area, layer=Layer.PLANET
+    )
+    identity, body = await _buyer(session, plot, funds=0)
+    await own_plot(plot, identity)
+
+    pocket = await world.body_container(session, body)
+    for name, quantity in estate.estimate(
+        constants, footprint=area, floors=floors, strength=1
+    ).items():
+        await world.grant_item(
+            session, pocket, name, amount=quantity + 1, quality=60, origin="тест"
+        )
+    job = await estate.construct(session, constants, body, plot, area, floors=floors)
+    await estate.finish_build(session, job)
+    #: The worker closes a finished job, and here there is no worker: a job left
+    #: pending would read as a construction still going on, and demolition waits
+    #: for those.
+    job.state = JobState.DONE
+    await session.flush()
+    return plot, identity, body
+
+
+async def test_demolition_takes_time_and_returns_a_share_of_materials(
+    session: AsyncSession, constants: Constants, catalog: Catalog, own_plot
+) -> None:
+    """The house goes when the work is done, and part of the material comes back."""
+    plot, identity, body = await _house(session, constants, own_plot)
+    houses = await estate.buildings_of(session, plot)
+    back = estate.salvage(constants, houses)
+    spent = estate.estimate(constants, footprint=20.0, floors=1, strength=1)
+
+    share = constants[R.BUILD_DEMOLISH_SALVAGE]
+    for name, quantity in back.items():
+        assert quantity == pytest.approx(spent[name] * share), (
+            "возвращается доля сметы, а не смета"
+        )
+
+    job = await estate.demolish(session, constants, body, plot)
+    assert await estate.built_area(session, plot) > 0, "снос не мгновенен"
+    minutes = estate.demolish_minutes(constants, houses)
+    assert (job.run_at - datetime.now(UTC)).total_seconds() / 60 == pytest.approx(
+        minutes, rel=0.05
+    )
+    assert minutes < estate.build_minutes(
+        constants, footprint=20.0, floors=1, strength=1
+    ), "разбор быстрее сборки"
+
+    #: The owner is standing here, so the salvage goes into their hands.
+    await estate.finish_demolish(session, job)
+    assert await estate.built_area(session, plot) == 0, "участок пуст"
+
+    pocket = await world.body_container(session, body)
+    from src.models.inventory import Item
+    from src.units import amount_float
+
+    at_hand = {
+        thing.type_key: amount_float(thing.amount)
+        for thing in (
+            await session.execute(select(Item).where(Item.container_id == pocket.id))
+        ).scalars().all()
+    }
+    for name, quantity in back.items():
+        assert at_hand.get(name, 0) == pytest.approx(quantity, rel=0.01)
+
+
+async def test_demolition_waits_for_the_yard_to_empty(
+    session: AsyncSession, constants: Constants, catalog: Catalog, own_plot
+) -> None:
+    """Machines and cargo leave before the work, not after it (D-205).
+
+    Losing possessions to a button is what this order exists to prevent: after
+    the demolition a machine has nowhere to stand and the cargo has no room.
+    """
+    from src.engine import station, storage
+
+    plot, identity, body = await _house(session, constants, own_plot, area=40)
+    yard = await world.node_container(session, plot)
+    bench = await world.grant_item(
+        session, yard, "Верстак", quality=60, origin="тест"
+    )
+
+    reasons = await estate.demolish_blockers(session, constants, plot)
+    assert reasons and "оборудование" in reasons[0]
+    with pytest.raises(estate.NoRoom):
+        await estate.demolish(session, constants, body, plot)
+
+    #: Taken into the hands -- and the way is clear.
+    await station.take(session, catalog, body, bench)
+    assert await estate.demolish_blockers(session, constants, plot) == []
+    assert await estate.demolish(session, constants, body, plot) is not None
+
+    #: Cargo that fits under a roof but not in the bare yard blocks it the same
+    #: way. Two storeys on a small plot are exactly that gap: forty metres of
+    #: floor over twenty metres of ground (D-125).
+    from src.engine import gear
+
+    tight, _, owner = await _house(
+        session, constants, own_plot, area=20, floors=2, plot_area=20
+    )
+    per_m2 = constants[R.BUILD_FLOOR_PER_M2]
+    roofed = await estate.built_area(session, tight)
+    #: Halfway between what the yard holds and what the house holds.
+    kilos = (float(tight.area_m2) + roofed) / 2 * per_m2
+    quantity = kilos / gear.mass_of(catalog, "Брус", 1)
+
+    pocket = await world.body_container(session, owner)
+    goods = await world.grant_item(
+        session, pocket, "Брус", amount=quantity, quality=55, origin="тест"
+    )
+    await storage.drop(session, constants, catalog, owner, goods, quantity)
+    assert any(
+        "на полу" in reason
+        for reason in await estate.demolish_blockers(session, constants, tight)
+    )
+
+
+async def test_demolition_is_not_ordered_twice(
+    session: AsyncSession, constants: Constants, catalog: Catalog, own_plot
+) -> None:
+    """The house is one, and the salvage comes back once (I2: matter does not multiply).
+
+    Each order carries its own salvage in the payload, so two orders on one house
+    would pay for it twice -- and the second one is refused by name.
+    """
+    plot, identity, body = await _house(session, constants, own_plot)
+    first = await estate.demolish(session, constants, body, plot)
+
+    assert await estate.demolishing(session, plot)
+    with pytest.raises(estate.NoRoom):
+        await estate.demolish(session, constants, body, plot)
+
+    #: And a job that fires over an already emptied plot gives nothing at all.
+    await estate.finish_demolish(session, first)
+    pocket = await world.body_container(session, body)
+    from src.models.inventory import Item
+    from src.units import amount_float
+
+    async def at_hand() -> dict[str, float]:
+        return {
+            thing.type_key: amount_float(thing.amount)
+            for thing in (
+                await session.execute(
+                    select(Item).where(Item.container_id == pocket.id)
+                )
+            ).scalars().all()
+        }
+
+    once = await at_hand()
+    await estate.finish_demolish(session, first)
+    assert await at_hand() == once, "повторное задание материалов не удваивает"
+
+
+async def test_foreign_civic_plot_is_not_demolished(
+    session: AsyncSession, constants: Constants, catalog: Catalog, own_plot
+) -> None:
+    """Somebody else's house on civic land is taken apart by a court order (D-095)."""
+    plot, identity, body = await _house(session, constants, own_plot)
+
+    _, stranger = await _buyer(session, plot, funds=0)
+    with pytest.raises(estate.NotOwner):
+        await estate.demolish(session, constants, stranger, plot)
+
+
+async def test_beyond_the_walls_whoever_came_builds_and_takes_apart(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Land outside a city is nobody's, and work on it is open to everyone (D-198, D-205).
+
+    A homestead far from any city is the whole point of that freedom: one builds
+    without buying a plot and without taxes -- and the same freedom takes the
+    house down. There is no title beyond the walls to make one of them the owner.
+    """
+    stamp = uuid.uuid4().hex[:6]
+    wild = await world.create_node(
+        session, f"terra.wild.{stamp}", "Пустошь", area_m2=200, layer=Layer.PLANET
+    )
+    assert wild.owner_identity_id is None and wild.owner_city_id is None
+
+    settler, settler_body = await _buyer(session, wild, funds=0)
+    pocket = await world.body_container(session, settler_body)
+    for name, quantity in estate.estimate(
+        constants, footprint=20.0, floors=1, strength=1
+    ).items():
+        await world.grant_item(
+            session, pocket, name, amount=quantity + 1, quality=60, origin="тест"
+        )
+    raising = await estate.construct(session, constants, settler_body, wild, 20.0)
+    await estate.finish_build(session, raising)
+    raising.state = JobState.DONE
+    await session.flush()
+    assert await estate.built_area(session, wild) == pytest.approx(20)
+
+    #: Whoever came may take it down -- the settler themselves, or a passer-by.
+    _, passerby = await _buyer(session, wild, funds=0)
+    job = await estate.demolish(session, constants, passerby, wild)
+    await estate.finish_demolish(session, job)
+    assert await estate.built_area(session, wild) == 0
+
+
+async def test_nothing_to_demolish_on_an_empty_plot(
+    session: AsyncSession, constants: Constants, catalog: Catalog, own_plot
+) -> None:
+    stamp = uuid.uuid4().hex[:6]
+    plot = await world.create_node(
+        session, f"terra.plot.{stamp}", "Участок", area_m2=100, layer=Layer.PLANET
+    )
+    identity, body = await _buyer(session, plot, funds=0)
+    await own_plot(plot, identity)
+    with pytest.raises(estate.NoBuilding):
+        await estate.demolish(session, constants, body, plot)

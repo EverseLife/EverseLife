@@ -38,9 +38,11 @@ async def _court(session: AsyncSession, catalog: Catalog):
         session, f"terra.city.{stamp}", "Суд", area_m2=1,
         layer=Layer.PLANET, parent=planet,
     )
+    #: The core is also this city's door (D-206): its whole built-up area is one
+    #: node, and the road out of prison has to be tied to something.
     core = await world.create_node(
         session, f"terra.city.{stamp}.core", "Ядро", area_m2=100,
-        parent=delegate, properties={"кольцо": 0},
+        parent=delegate, properties={"кольцо": 0, travel.EXIT: True},
     )
     city = await town.found(session, catalog, delegate, "Судоград")
     core.owner_city_id = city.id

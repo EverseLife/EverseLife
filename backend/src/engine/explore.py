@@ -50,6 +50,21 @@ character progress and turn the world into a backdrop for grinding. A trodden
 neighbourhood grows poorer for everyone at once, and a run from a fresh find is
 cheap again -- so the map grows in breadth, not as a star from the birthplace.
 
+## Crowding turns a city outwards (D-207)
+
+Depletion is about the neighbourhood; crowding is about the **shape** of the map.
+A find is an edge, and edges pile up where everybody wants to be: at the
+bioprinter, because the centre is where one wants to live, and at the city gate,
+because everything wild couples to it (D-206). Left alone that grows a star of
+thirty edges -- a place one can neither walk through nor look at.
+
+So the chance is multiplied by the crowding of the node the find will **hang
+on**: its own edges plus its neighbours' extra ones, `explore.crowding_decay` per
+edge over `explore.crowding_free`, never below `explore.crowding_floor`. The
+centre saturates first, and the next plot is sought where edges are few -- in the
+outer rings. The city grows in rings because searching the centre stops paying,
+not because a rule forbids it.
+
 **The chance is promised at departure, not at return.** It is computed at the
 moment of leaving and travels in the job: while the scout is in the field the
 neighbours may tread the area, but the price is already named, and changing it
@@ -78,7 +93,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants, current, current_catalog
@@ -88,7 +103,7 @@ from src.engine.jobs import enqueue, handler
 from src.models.event import EventKind
 from src.models.identity import Body, BodyState
 from src.models.job import Job, JobKind, JobState
-from src.models.world import Layer, Node, Surface
+from src.models.world import Edge, Layer, Node, Surface
 from src.units import MINUTES_PER_HOUR, PERCENT
 
 #: The vault operation from which the engine learns what is mined in this world at all.
@@ -221,7 +236,18 @@ async def survey(
     #: The chance is named at departure and travels in the job: while the scout
     #: is in the field the neighbours may tread the area, but that does not change the promised
     #: price.
-    odds = chance(constants, origin) * _aim(constants, current_catalog(), goal, resource)
+    #:
+    #: Three things multiply into it, and they answer different questions: how
+    #: trodden the surroundings are (D-156), how rare the sought species is
+    #: (D-151), and how crowded the place the find will hang on already is (D-207).
+    press = await crowding(
+        session, constants, await anchor_of(session, origin, goal)
+    )
+    odds = (
+        chance(constants, origin)
+        * _aim(constants, current_catalog(), goal, resource)
+        * press
+    )
     will_return = moment + timedelta(minutes=minutes)
     event = await events.record(
         session,
@@ -234,6 +260,7 @@ async def survey(
         minutes=minutes,
         chance=odds,
         explored=found_here(origin),
+        crowding=press,
         returns_at=will_return.isoformat(),
     )
     job = await enqueue(
@@ -320,8 +347,15 @@ async def returned(session: AsyncSession, job: Job) -> None:
         seconds = travel.frontier_seconds(constants, travel.reach_of(found))
         minutes = seconds / MINUTES_PER_HOUR
         coverage = Surface.TRAIL
+    #: A plot is found inside the built-up area and hangs on the node it was
+    #: sought from; a find beyond the walls hangs on the city's **gate** (D-206).
+    #: Otherwise a scout who set out from the trading yard would leave a trail
+    #: from it into the steppe, and the market would quietly become a second gate
+    #: -- which is exactly how the capital ended up with two ways out. The same
+    #: node the chance was measured against at departure (D-207).
+    anchor = await anchor_of(session, origin, goal)
     await travel.connect(
-        session, origin, found, base_seconds=seconds, surface=coverage
+        session, anchor, found, base_seconds=seconds, surface=coverage
     )
 
     #: The surroundings became one find poorer -- for everyone who leaves from
@@ -352,6 +386,9 @@ async def returned(session: AsyncSession, job: Job) -> None:
         actor_identity_id=body.identity_id,
         node_id=found.id,
         from_node=origin.key,
+        #: Where the trail actually starts: from the city it is the gate rather
+        #: than the node the scout set out from (D-206).
+        tied_to=anchor.key,
         found=found.key,
         name=found.name,
         goal=goal,
@@ -405,6 +442,75 @@ def chance(constants: Constants, node: Node) -> float:
     )
 
 
+async def anchor_of(session: AsyncSession, origin: Node, goal: str) -> Node:
+    """The node a find from here will hang on -- and whose crowding decides the chance.
+
+    A plot lands inside the built-up area, on the very node it was sought from; a
+    find beyond the walls hangs on the city's gate (D-206). So "how crowded is
+    it here" is a question about the gate for the second case, and measuring the
+    node one set out from would miss exactly the star the gate is growing.
+    """
+    if goal == LOT:
+        return origin
+    gate = await travel.gate_of(session, origin)
+    return gate if gate is not None else origin
+
+
+async def crowding(
+    session: AsyncSession, constants: Constants, node: Node
+) -> float:
+    """Chance multiplier for the crowding of the graph around this node (D-207).
+
+    A find is an edge, and edges pile up where everybody wants to be: at the
+    bioprinter, at the city gate. Thirty edges on one node is a place one can
+    neither walk through nor look at, so the search there gets worse -- by the
+    node's own degree and by its neighbours' extra edges.
+
+    Neighbours are counted **without** the edge back here: a chain of nodes
+    creates no crowding, a cluster does. Below `explore.crowding_floor` the
+    multiplier does not fall: the map is eternal (D-007) and has no place one can
+    never search from again.
+    """
+    edges = (
+        await session.execute(
+            select(Edge).where(
+                or_(Edge.node_a_id == node.id, Edge.node_b_id == node.id)
+            )
+        )
+    ).scalars().all()
+    neighbours = {
+        edge.node_b_id if edge.node_a_id == node.id else edge.node_a_id
+        for edge in edges
+    }
+    degree = len(edges)
+
+    #: The neighbours' degrees, in one query: every endpoint that falls inside the
+    #: set is one edge of somebody in it.
+    around = 0
+    if neighbours:
+        rows = (
+            await session.execute(
+                select(Edge).where(
+                    or_(
+                        Edge.node_a_id.in_(neighbours),
+                        Edge.node_b_id.in_(neighbours),
+                    )
+                )
+            )
+        ).scalars().all()
+        incidences = sum(
+            (edge.node_a_id in neighbours) + (edge.node_b_id in neighbours)
+            for edge in rows
+        )
+        #: Minus the edges leading back here: those are already counted as `degree`.
+        around = max(0, incidences - len(neighbours))
+
+    crowd = degree + constants[R.EXPLORE_CROWDING_NEIGHBOUR_K] * around
+    over = max(0.0, crowd - constants[R.EXPLORE_CROWDING_FREE])
+    floor = constants[R.EXPLORE_CROWDING_FLOOR] / PERCENT
+    return max(floor, constants[R.EXPLORE_CROWDING_DECAY] ** over)
+
+
 def _cap(constants: Constants) -> float:
     """The run duration ceiling in minutes: depletion grows it no further."""
     return constants[R.EXPLORE_ATTEMPT_HOURS] * MINUTES_PER_HOUR
@@ -441,6 +547,11 @@ async def outlook(
     that cannot be seen in advance reads as engine randomness. Aiming is
     computed right here: a requested species is found the worse the rarer it is
     (D-151), and showing "90% chance" to someone going for gold would be a lie.
+
+    Crowding is shown apart from the chance for the same reason (D-207): "here it
+    is cramped" is a fact about the place the player can act on -- by walking a
+    day out and setting off from the frontier -- and hiding it inside one number
+    would leave only bad luck to blame.
     """
     node = await session.get(Node, body.node_id)
     if node is None:  # pragma: no cover -- a body always stands in a node
@@ -450,15 +561,21 @@ async def outlook(
     short = min(_cap(constants), run.min * depletion)
     long_ = min(_cap(constants), run.max * depletion)
     aim = _aim(constants, current_catalog(), goal, resource)
+    anchor = await anchor_of(session, node, goal)
+    press = await crowding(session, constants, anchor)
     return {
         "explored": found_here(node),
         "minutes": {"min": short, "max": long_},
         #: The largest possible: the player must know the ceiling, not the average.
         "stamina": _stamina(constants, long_),
-        "chance": chance(constants, node) * aim,
+        "chance": chance(constants, node) * aim * press,
         #: By how much the species request narrowed the chance: the player sees
         #: not only "little" but why little (D-151).
         "aim": aim,
+        #: And by how much the crowding of the place narrowed it (D-207), plus the
+        #: node the find will hang on -- from the city that is the gate, not here.
+        "crowding": press,
+        "anchor": anchor.name if anchor.id != node.id else None,
         "resource": resource,
     }
 

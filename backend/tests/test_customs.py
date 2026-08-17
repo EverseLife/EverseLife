@@ -42,9 +42,11 @@ async def _world(session: AsyncSession, catalog: Catalog):
         session, f"terra.city.{stamp}.market", "Торг", area_m2=200,
         parent=delegate,
     )
+    #: The gate says so about itself: a road beyond the walls is tied to the
+    #: city's door and to nothing else (D-206), and the border runs right here.
     gate = await world.create_node(
         session, f"terra.city.{stamp}.gate", "Ворота", area_m2=80,
-        parent=delegate,
+        parent=delegate, properties={travel.EXIT: True},
     )
     field = await world.create_node(
         session, f"terra.field.{stamp}", "Пойма", area_m2=400,
