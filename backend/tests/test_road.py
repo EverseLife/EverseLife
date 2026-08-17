@@ -250,4 +250,4 @@ async def test_surface_is_craftable_at_all(
     recipe = catalog.recipes.recipe(road.SURFACE_GOODS)
     assert recipe.station == craft.SITE, "полотно собирают на месте"
     method = craft.procedure(catalog, road.SURFACE_GOODS)
-    assert method.station is None, "станка для этого не нужно"
+    assert method.station is None, "станции для этого не нужно"

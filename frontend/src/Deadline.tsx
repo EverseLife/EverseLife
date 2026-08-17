@@ -8,7 +8,7 @@
  * "забрать через 2 ч" -- and eight systems saying the same thing eight ways add
  * up to no visual language at all.
  *
- * One element covers all of them: a 2px line, filled from the left, emptying as
+ * One element covers all of them: a 4px line, filled from the left, emptying as
  * the term runs out. Colour follows the remainder -- neutral, then a warning
  * under a fifth left, then alarm at expiry. Eight systems speaking one word is
  * what makes the game recognisable on a screenshot, and none of it is decoration.
@@ -28,8 +28,8 @@ type Props = {
   since?: string | null;
   /** What the term is about: read out to those who cannot see the bar. */
   label?: string;
-  /** A short size for a table row; the default suits a card. */
-  size?: "row" | "card";
+  /** A short size for a table row; the default is a standalone one. */
+  size?: "row" | "block";
 };
 
 /** Under this share of the term left, the bar warns; at zero it alarms. */
@@ -38,14 +38,14 @@ const WARN_BELOW = 0.2;
 /**
  * How often the bar is redrawn.
  *
- * A second is enough: the bar is two pixels tall, and nobody can see a finer
+ * A second is enough: the bar is four pixels tall, and nobody can see a finer
  * step. Under `prefers-reduced-motion` the brief asks for jumps once a second
  * -- which is what this already is, so the setting only drops the CSS
  * transition that smooths between the jumps.
  */
 const BEAT = 1000;
 
-export function Deadline({ until, since, label, size = "card" }: Props) {
+export function Deadline({ until, since, label, size = "block" }: Props) {
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
@@ -67,8 +67,12 @@ export function Deadline({ until, since, label, size = "card" }: Props) {
   const tone = left <= 0 ? "over" : share !== null && share < WARN_BELOW ? "near" : "";
   const remains = left <= 0 ? "вот-вот" : spell(left);
 
+  //: The size class is prefixed. A bare `card` collided with the login screen's
+  //: form card -- a bordered column with padding -- and the bar came out sixty
+  //: pixels tall inside it, which is what a two-pixel line looks like when
+  //: somebody else's rule decides its height.
   return (
-    <span className={`deadline ${size} ${tone}`}>
+    <span className={`deadline dl-${size} ${tone}`}>
       {share !== null && (
         <span
           className="deadline-bar"

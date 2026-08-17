@@ -250,7 +250,7 @@ async def seed(session: AsyncSession) -> Node:
     await _machine(session, marketplace, market.TERMINAL, 70)
     #: The mint press at the trading yard: coins are minted where they will
     #: circulate (D-016). A civic building.
-    await _machine(session, marketplace, "Монетный станок", 60)
+    await _machine(session, marketplace, "Монетная станция", 60)
     await _machine(session, forge, "Плавильная печь", 55)
     await _machine(session, forge, "Верстак", 60)
     await _machine(session, forge, "Кузница", 65)
@@ -565,15 +565,22 @@ async def catch_up(session: AsyncSession, core: Node) -> None:
             edge.base_seconds = int(seconds)
             edge.surface = Surface.ROAD
 
-    #: The mint yard was renamed to mint press, and fineness was abolished: a
-    #: coin is always 900 (D-016). Existing machines learn the new name here.
-    rename = (
+    #: The mint has been renamed twice: yard -> press (D-016, together with
+    #: abolishing fineness), press -> station (D-200, "станок" became "рабочая
+    #: станция"). Existing machines learn the current name here; the migration
+    #: does the same for worlds that are not reseeded.
+    renamed = {
+        "Монетный двор": "Монетная станция",
+        "Монетный станок": "Монетная станция",
+        "Автоматический станок": "Автоматическая станция",
+    }
+    stale = (
         await session.execute(
-            select(Item).where(Item.type_key == "Монетный двор")
+            select(Item).where(Item.type_key.in_(renamed))
         )
     ).scalars().all()
-    for machine in rename:
-        machine.type_key = "Монетный станок"
+    for machine in stale:
+        machine.type_key = renamed[machine.type_key]
 
     #: Buildings under already standing machines: a machine lives in a building
     #: (D-106), and nodes furnished before buildings get them retroactively.

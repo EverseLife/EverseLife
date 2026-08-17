@@ -319,6 +319,63 @@ async def pick(
     return taken
 
 
+async def hand(
+    session: AsyncSession,
+    constants: Constants,
+    catalog: Catalog,
+    giver: Body,
+    taker: Body,
+    item: Item,
+    quantity: float | None = None,
+) -> float:
+    """Hand a thing to somebody standing here.
+
+    Matter moves physically, so this is in person on both sides: the giver is
+    here and so is the taker, and there is no posting things over the Net. It is
+    the shortest path between two people that does not go through the market,
+    and the market is not always the right shape -- a gift, a wage in kind, a
+    tool lent for an hour.
+
+    The receiver's hands are not bottomless: the load limit is theirs to obey
+    (D-146), so a full pair of hands refuses the parcel instead of swallowing it.
+    """
+    from src.engine import gear
+
+    if giver.state is not BodyState.ALIVE:
+        raise StorageError("мёртвое тело ничего не передаёт")
+    if taker.state is not BodyState.ALIVE:
+        raise StorageError("мёртвому не передают")
+    if giver.id == taker.id:
+        raise StorageError("себе передавать нечего")
+    await travel.require_here(session, giver)
+    #: Both in the same room: shouting across the map is not handing over.
+    if taker.node_id != giver.node_id:
+        raise StorageError("этого человека здесь нет")
+
+    pocket = await world.body_container(session, giver)
+    if item.container_id != pocket.id:
+        raise StorageError("этой вещи у вас в руках нет")
+
+    qty = amount_float(item.amount) if quantity is None else quantity
+    if qty <= 0:
+        raise StorageError("передавать нечего")
+    await gear.check_carry(session, constants, catalog, taker, item.type_key, qty)
+
+    hands = await world.body_container(session, taker)
+    given = await world.move_stack(session, item, hands, qty)
+    await events.record(
+        session,
+        EventKind.ITEM_MOVED,
+        actor_identity_id=giver.identity_id,
+        node_id=giver.node_id,
+        type_key=item.type_key,
+        amount=given,
+        to_identity_id=str(taker.identity_id),
+        reason="передача из рук в руки",
+    )
+    return given
+
+
 async def _allowed(
     session: AsyncSession, catalog: Catalog, body: Body, chest: Item
 ) -> Node:

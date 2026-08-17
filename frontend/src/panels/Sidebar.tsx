@@ -16,6 +16,8 @@ import { useEffect, useState } from "react";
 import * as api from "../api";
 import type { Look, Session } from "../api";
 import { Doing } from "../Deadline";
+import { Glyph } from "../Glyph";
+import { Inventory } from "./Inventory";
 import { Economy } from "./Economy";
 import { Finance } from "./Finance";
 import { Holdings } from "./Holdings";
@@ -46,15 +48,23 @@ type Props = {
  * keep, and the state -- if the state is any of my business.
  */
 const TABS = [
-  { id: "me", label: "я", of: "персонаж и что в руках" },
-  { id: "work", label: "дело", of: "что идёт и что можно сделать руками" },
-  { id: "money", label: "деньги", of: "счёт, выписка, кредит, свои ордера" },
-  { id: "knows", label: "знания", of: "известные рецепты" },
-  { id: "estate", label: "хозяйство", of: "сеть, счета за быт, бумаги" },
+  { id: "me", label: "я", icon: "me", of: "персонаж: состояние, сон, счёт" },
+  //: Goods left "я" for a tab of their own: the inventory is a table with a
+  //: menu per row, and it does not share a screen with anything.
+  { id: "goods", label: "вещи", icon: "goods", of: "что в руках и что надето" },
+  { id: "work", label: "дело", icon: "work", of: "что идёт и что можно сделать руками" },
+  { id: "money", label: "деньги", icon: "money", of: "счёт, выписка, кредит, свои ордера" },
+  { id: "knows", label: "знания", icon: "knows", of: "известные рецепты" },
+  { id: "estate", label: "хозяйство", icon: "estate", of: "сеть, счета за быт, бумаги" },
 ] as const;
 //: The state tab: figures for whoever governs. Shown only to office holders;
 //: the same summary is visible in person in the node with the administration.
-const STATE_TAB = { id: "state", label: "город", of: "экономика и население" } as const;
+const STATE_TAB = {
+  id: "state",
+  label: "город",
+  icon: "state",
+  of: "экономика и население",
+} as const;
 type Tab = (typeof TABS)[number]["id"] | (typeof STATE_TAB)["id"];
 
 export function Sidebar({ look, session, book }: Omit<Props, "busy" | "act">) {
@@ -75,6 +85,7 @@ export function Sidebar({ look, session, book }: Omit<Props, "busy" | "act">) {
   const counts: Partial<Record<Tab, number>> = {
     work: look.batches.length + (look.travel ? 1 : 0),
     money: look.orders.length + look.reservations.length,
+    goods: look.inventory.length,
   };
 
   return (
@@ -88,6 +99,7 @@ export function Sidebar({ look, session, book }: Omit<Props, "busy" | "act">) {
             onClick={() => setTab(t.id)}
             title={t.of}
           >
+            <Glyph name={t.icon} />
             {t.label}
             {(counts[t.id] ?? 0) > 0 && <span className="tally">{counts[t.id]}</span>}
           </button>
@@ -95,14 +107,12 @@ export function Sidebar({ look, session, book }: Omit<Props, "busy" | "act">) {
       </nav>
 
       {current === "me" && (
-        <>
-          <Character look={look} session={session} busy={busy} act={act} />
-          <Inventory look={look} session={session} busy={busy} act={act} />
-        </>
+        <Character look={look} session={session} busy={busy} act={act} />
       )}
-      {/* Ручной крафт живёт в сайдбаре: верёвку вьют там, где стоят, и станок
-          этому месту не нужен. Запуск всё равно присутственный: в пути и во
-          сне сервер откажет. */}
+      {current === "goods" && <Inventory look={look} session={session} />}
+      {/* Ручной крафт живёт в сайдбаре: верёвку вьют там, где стоят, и рабочая
+          станция этому месту не нужна. Запуск всё равно присутственный: в пути
+          и во сне сервер откажет. */}
       {current === "work" && (
         <>
           <Doings look={look} />
@@ -229,71 +239,6 @@ function Slept({ since }: { since: string }) {
 const elapsedMinutes = (since: string) =>
   (Date.now() - new Date(since).getTime()) / 60_000;
 
-function Inventory({ look, session, busy, act }: Props) {
-  const carried = look.carry;
-  return (
-    <div>
-      {/* Предел носимого — не украшение, а причина существования повозок:
-          игрок обязан видеть его числом до того, как упрётся (D-146). */}
-      {carried && (
-        <>
-          <p className="sign">
-            в руках {carried.load.toFixed(1)} из {carried.capacity.toFixed(0)} кг
-          </p>
-          <div className="row">
-            {carried.slots.map((slot) => {
-              const worn = carried.equipped[slot];
-              return (
-                <span key={slot} className="note">
-                  {slot}:{" "}
-                  {worn ? (
-                    <>
-                      {worn.goods}{" "}
-                      <button
-                        className="quiet"
-                        onClick={() =>
-                          act(() => session.send("gear.unequip", { slot: slot }))
-                        }
-                        disabled={busy}
-                      >
-                        снять
-                      </button>
-                    </>
-                  ) : (
-                    "пусто"
-                  )}
-                </span>
-              );
-            })}
-          </div>
-        </>
-      )}
-
-      <Things
-        things={look.inventory}
-        eat={(id) => act(() => session.send("food.eat", { item: id }))}
-        equip={(id) => act(() => session.send("gear.equip", { item: id }))}
-        busy={busy}
-      />
-      {look.stall && look.stall.length > 0 && (
-        <>
-          <h3>В терминале</h3>
-          <Things things={look.stall} />
-        </>
-      )}
-      <Rule>        Смотреть можно откуда угодно; есть — из рук, и в дороге тоже. Трогать
-        остальное — только ногами.
-      </Rule>
-    </div>
-  );
-}
-
-/** Everything running, one line each with its deadline bar.
- *
- * The main screen of an asynchronous game: what is going on and how long is
- * left. Every term in the world is drawn by the same element, so a batch, a
- * road and a reservation are read the same way and compared at a glance.
- */
 function Doings({ look }: { look: Look }) {
   const empty = look.batches.length === 0 && !look.travel;
   return (
@@ -394,66 +339,5 @@ function Knowledge({ look }: { look: Look }) {
   );
 }
 
-function Things({
-  things,
-  eat,
-  equip,
-  busy,
-}: {
-  things: api.Thing[];
-  eat?: (id: string) => void;
-  equip?: (id: string) => void;
-  busy?: boolean;
-}) {
-  if (things.length === 0) return <p className="note">пусто</p>;
-  return (
-    <table>
-      <tbody>
-        {things.map((thing) => (
-          <tr key={thing.id}>
-            <td>
-              {thing.flavor ?? thing.goods}
-              {thing.spoils_at && (
-                <span className="note"> · {spoilAt(thing.spoils_at)}</span>
-              )}
-            </td>
-            <td className="num">{thing.amount}</td>
-            <td className="note">
-              {thing.fineness !== null
-                ? `проба ${thing.fineness}${thing.maker ? ` · клеймо ${thing.maker}` : ""}`
-                : thing.vigor !== null
-                  ? `${thing.variety ?? "сорт"} · сила ${thing.vigor.toFixed(0)}`
-                  : thing.charge !== null
-                    ? `заряд ${thing.charge.toFixed(0)}`
-                    : thing.quality === null
-                      ? ""
-                      : `${thing.quality.toFixed(0)} · ${thing.tier}`}
-              {thing.condition < 100 ? ` · сост. ${thing.condition.toFixed(0)}` : ""}
-            </td>
-            <td>
-              {thing.food && eat && (
-                <button className="quiet" onClick={() => eat(thing.id)} disabled={busy}>
-                  Съесть
-                </button>
-              )}
-              {thing.slot && equip && (
-                <button className="quiet" onClick={() => equip(thing.id)} disabled={busy}>
-                  Надеть
-                </button>
-              )}
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  );
-}
-
-function spoilAt(when: string): string {
-  const hours = (new Date(when).getTime() - Date.now()) / 3_600_000;
-  if (hours <= 0) return "испортилось";
-  if (hours < 24) return `испортится через ${Math.round(hours)} ч`;
-  return `годно ${Math.round(hours / 24)} сут.`;
-}
 
 

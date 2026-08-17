@@ -64,7 +64,7 @@ export function Mint({ look, session, values }: Omit<Props, "busy" | "act">) {
     return (
       <section>
         <Refusal of={acting} />
-        <h2>Монетный станок</h2>
+        <h2>Монетная станция</h2>
         <p className="note">
           Чеканить нечего: рецепт монеты берут в Библиотеке. Монета —
           предмет, и делается она как всякий предмет, только своей дверью.
@@ -75,7 +75,7 @@ export function Mint({ look, session, values }: Omit<Props, "busy" | "act">) {
 
   return (
     <section>
-      <h2>Монетный станок</h2>
+      <h2>Монетная станция</h2>
 
       <div className="row">
         <select value={coin} onChange={(e) => setCoin(e.target.value)}>

@@ -159,14 +159,14 @@ SITE = "Стройка"
 #: What reads as "no machine needed". A list of two, both from data.
 BENCHLESS = (HANDS, SITE)
 
-#: Automatic machine (D-035, D-058). The industrial mode: works twice as fast,
-#: sets the ceiling itself, needs no tool, gives an even result -- and for that
-#: it eats energy from the city pool at the tariff.
+#: The automatic workstation (D-035, D-058). The industrial mode: works twice
+#: as fast, sets the ceiling itself, needs no tool, gives an even result -- and
+#: for that it eats energy from the city pool at the tariff.
 #:
 #: The vault does not list which processes are automated, so the automaton is
-#: substituted for any recipe machine -- by the master's own decision, not
+#: substituted for any recipe station -- by the master's own decision, not
 #: silently: "put on automatic" is a choice between quality and volume.
-AUTO_BENCH = "Автоматический станок"
+AUTO_BENCH = "Автоматическая станция"
 
 
 @dataclass(frozen=True, slots=True)
@@ -1254,7 +1254,8 @@ async def _pick_station(session: AsyncSession, body: Body, name: str) -> Item:
         raise CraftError("тело вне узла")
     if await utility.cut_off(session, node):
         raise CutOff(
-            f"«{node.name}» отключён за неуплату: станки не работают, пока долг не закрыт"
+            f"«{node.name}» отключён за неуплату: рабочие станции не работают, "
+            "пока долг не закрыт"
         )
 
     where = await node_container(session, node)
@@ -1267,7 +1268,7 @@ async def _pick_station(session: AsyncSession, body: Body, name: str) -> Item:
         )
     ).scalars().all()
     if not standing:
-        raise NoStation(f"в узле нет станка «{name}»")
+        raise NoStation(f"в узле нет рабочей станции «{name}»")
 
     own = False
     for machine in standing:
@@ -1282,9 +1283,9 @@ async def _pick_station(session: AsyncSession, body: Body, name: str) -> Item:
             continue
         return machine
     raise Busy(
-        f"«{name}» занят"
+        f"«{name}» занята"
         + (" вашей же работой: дождитесь конца партии" if own else
-           ": за станком работает один. Свой станок ставят у себя")
+           ": за рабочей станцией работает один. Свою ставят у себя")
     )
 
 

@@ -1,7 +1,10 @@
-"""Machines and furniture are placed in a building and carried out of it (D-106, D-150).
+"""Workstations and furniture are placed in a building and carried out of it (D-106, D-150).
 
-A machine is placed **in a building**: on an empty plot one builds first
-(`estate.construct`) and only then furnishes. Machines and furniture take area
+In the player's language a workstation is «рабочая станция» -- it was «станок»
+until D-200; the identifier stays `station`, which reads back as the same word.
+
+A station is placed **in a building**: on an empty plot one builds first
+(`estate.construct`) and only then furnishes. Stations and furniture take area
 -- `build.slots_per_area` square metres per thing -- so a house's area is its
 capacity, not decoration.
 
@@ -10,12 +13,13 @@ The ownership rule is simple and everything rests on it:
 * **own node** -- the owner places and removes;
 * **civic node** -- whoever the city gave the `laws` power places and removes:
   what the city is built up with is the authority's decision, not a random passer-by's;
-* **unowned node** -- no way: first the plot is taken or bought.
+* **nobody's node outside a city** -- open to all: the land there has no owner
+  and never will (D-198), while what is placed belongs to whoever placed it.
 
-A machine is an item `kind: station`, furniture is `kind: furniture` from
-`build/recipes.json`. The engine keeps no list of "what is a machine": add a
+A station is an item `kind: station`, furniture is `kind: furniture` from
+`build/recipes.json`. The engine keeps no list of "what is a station": add a
 new one in the vault and it is placeable without a code change (D-090). The
-one difference between them: one works at a machine, furniture furnishes the
+one difference between them: one works at a station, furniture furnishes the
 household (a bed -- hibernation, a shelf -- storage), and the client shows
 them in separate windows.
 """
@@ -120,7 +124,8 @@ async def place(
         raise StationError("этой вещи нет в руках")
     if not placeable(catalog, item.type_key):
         raise NotStation(
-            f"«{item.type_key}» — не станок и не мебель: в здание ставят оборудование"
+            f"«{item.type_key}» — не рабочая станция и не мебель: "
+            "в здание ставят оборудование"
         )
 
     node = await session.get(Node, body.node_id)
@@ -178,11 +183,11 @@ async def take(
     if item.container_id != yard.id:
         raise StationError("этой вещи нет в этом узле")
     if not placeable(catalog, item.type_key):
-        raise NotStation(f"«{item.type_key}» — не станок и не мебель")
+        raise NotStation(f"«{item.type_key}» — не рабочая станция и не мебель")
     if not await may_build(session, body, node):
         raise NotYours("узел не ваш: чужое оборудование не уносят")
     if item.busy_body_id is not None:
-        raise Busy("за станком работают: дождитесь конца партии")
+        raise Busy("за рабочей станцией работают: дождитесь конца партии")
     #: A full chest is not carried away (D-181): otherwise "take the furniture"
     #: would become a way to carry a ton of cargo in the pocket past the carry limit (D-146).
 

@@ -1,9 +1,11 @@
 /**
- * A machine: what is made at it, who stands at it, what is repaired (D-092, D-133, D-150).
+ * A workstation: what is made at it, who stands at it, what is repaired
+ * (D-092, D-133, D-150). In the player's language it is «рабочая станция» --
+ * it used to be «станок» until D-200.
  *
- * The panel is named after the machine, not "workshop", and is shown **only
- * where this machine stands**. The reason is not styling: the machine sets
- * what a place is (D-106), and three machines in the yard are three different
+ * The panel is named after the station, not "workshop", and is shown **only
+ * where this station stands**. The reason is not styling: the station sets
+ * what a place is (D-106), and three of them in the yard are three different
  * jobs, not one recipe list half of which will refuse anyway.
  *
  * A separate case is "By hand": it needs no place, and the panel appears
@@ -56,7 +58,7 @@ export function Workshop({ look, session, machine, book }: Omit<Props, "busy" | 
   //: Computed before the early return below: a hook may not be called
   //: conditionally, and the forecast effect needs both of these.
   const selected = what && known.includes(what) ? what : (known[0] ?? null);
-  const automated = machine === "Автоматический станок";
+  const automated = machine === "Автоматическая станция";
 
   /**
    * The forecast counts itself while the player is still choosing.
@@ -126,7 +128,7 @@ export function Workshop({ look, session, machine, book }: Omit<Props, "busy" | 
 
       {look.node?.cut_off && machine !== null && (
         <p className="trouble">
-          Узел отключён за неуплату: станки не работают, пока долг не закрыт.
+          Узел отключён за неуплату: рабочие станции не работают, пока долг не закрыт.
           Счёт — в сайдбаре, во вкладке «хозяйство».
         </p>
       )}
@@ -136,7 +138,7 @@ export function Workshop({ look, session, machine, book }: Omit<Props, "busy" | 
           {station.quality === null ? "" : `качество ${station.quality.toFixed(0)}`}
           {station.condition < 100 && ` · состояние ${station.condition.toFixed(0)}`}
           {" · "}
-          {station.busy ? (station.mine ? "занят вами" : "занят другим") : "свободен"}
+          {station.busy ? (station.mine ? "занята вами" : "занята другим") : "свободна"}
           {(look.node?.mine || look.city?.powers.includes("laws")) && (
             <>
               {" "}
@@ -144,7 +146,7 @@ export function Workshop({ look, session, machine, book }: Omit<Props, "busy" | 
                 className="quiet"
                 onClick={() => act(() => session.send("station.take", { item: station.id }))}
                 disabled={busy || station.busy}
-                title="забрать станок в руки"
+                title="забрать станцию в руки"
               >
                 Забрать
               </button>
@@ -236,8 +238,8 @@ export function Workshop({ look, session, machine, book }: Omit<Props, "busy" | 
         </>
       )}
 
-      <Rule>        Партия идёт офлайн и видна в сайдбаре, в «делах». За станком работает
-        один: пока идёт партия, второму он не отдаётся.
+      <Rule>        Партия идёт офлайн и видна в сайдбаре, в «делах». За рабочей станцией
+        работает один: пока идёт партия, второму она не отдаётся.
       </Rule>
     </section>
   );

@@ -6,8 +6,8 @@
  *
  * - **state** -- what is true here and now: "кровать здесь: сон быстрее",
  *   "занято 92,5 из 260 м²". It changes, it is worth reading, it stays;
- * - **a rule of the world** -- how the world works: "за станком работает
- *   один", "сайдбар — это Сеть". It is identical on the thousandth session, and
+ * - **a rule of the world** -- how the world works: "за рабочей станцией
+ *   работает один", "сайдбар — это Сеть". It is identical on the thousandth session, and
  *   permanently under every panel it becomes a background you hunt for buttons
  *   through. Measured on one node: 35 explanations, 60% of all the text on screen.
  *

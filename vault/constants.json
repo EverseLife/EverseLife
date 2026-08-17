@@ -247,6 +247,20 @@
   "transport.upkeep_per_leg": 2,
   "transport.crew_ship": 2,
   "transport.stamina_k": 0,
+  "ship.node_mass": 2000,
+  "ship.node_area": 40,
+  "ship.foundation_hours": 8,
+  "ship.thrust": {
+    "I": 3000,
+    "II": 12000,
+    "III": 40000
+  },
+  "ship.min_thrust_ratio": 0.15,
+  "ship.reference_ratio": 0.5,
+  "ship.route_min_share": 50,
+  "ship.dock_minutes": 30,
+  "ship.fuel_per_ton_day": 6,
+  "ship.life_support_crew": 4,
   "quality.scale": {
     "min": 0,
     "max": 100

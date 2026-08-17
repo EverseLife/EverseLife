@@ -672,6 +672,11 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
             await db.execute(select(Vein).where(Vein.node_id == node.id))
         ).scalars().all()
     ]
+    #: Whether a rig stands here at all. The location screen lists the node's
+    #: objects, and it cannot list a drilling rig on the strength of an async
+    #: query -- without this the row appeared in every location in the world,
+    #: including ones where nothing drills anything.
+    seen["rig_here"] = bool(await rig.status(db, constants, node.id))
     return {"look": seen}
 
 
@@ -1402,6 +1407,67 @@ TOLD = frozenset(
         EventKind.CITY_GRANT_PAID.value,
     }
 )
+
+
+async def _people_here(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Who is standing in this location.
+
+    Needed to hand a thing to somebody: a name typed by hand would be a way to
+    give things to anyone anywhere, and the point of handing over is that both
+    people are in the same room. Those passing through are not in it -- the query
+    asks for bodies in the node, and a body in transit is nowhere.
+    """
+    body = await _alive(state, db)
+    rows = (
+        await db.execute(
+            select(Body, Identity)
+            .join(Identity, Identity.id == Body.identity_id)
+            .where(
+                Body.node_id == body.node_id,
+                Body.state == BodyState.ALIVE,
+                Body.id != body.id,
+            )
+        )
+    ).all()
+    return {
+        "people": sorted(
+            ({"body": str(who.id), "name": person.name} for who, person in rows),
+            key=lambda row: row["name"],
+        )
+    }
+
+
+async def _item_hand(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Hand a thing to somebody standing here. In person on both sides.
+
+    The hand-over speaks in the room: the chat gets an action line, because a
+    transfer between two people is a fact the others in the room can see, and a
+    silent one would be a way to move property unobserved.
+    """
+    giver = await _alive(state, db)
+    item = await _own_item(db, giver, message["item"])
+    taker = await db.get(Body, uuid.UUID(message["to"]))
+    if taker is None:
+        raise Refused("такого человека здесь нет")
+    qty = message.get("amount")
+    try:
+        given = await storage.hand(
+            db, current(), current_catalog(), giver, taker, item,
+            None if qty is None else float(qty),
+        )
+    except storage.StorageError as refusal:
+        raise Refused(str(refusal)) from refusal
+
+    who = await db.get(Identity, taker.identity_id)
+    await chat.say(
+        db,
+        current(),
+        giver,
+        f"передаёт {'—' if who is None else who.name}: {item.type_key}"
+        + (f" ×{given:g}" if given != 1 else ""),
+        kind=Utterance.ACTION,
+    )
+    return {"given": given, "goods": item.type_key}
 
 
 async def _market_offers(state: dict, db: AsyncSession, message: dict) -> dict:
@@ -2654,6 +2720,8 @@ _COMMANDS = {
     "finance.transfer": _finance_transfer,
     "ground.drop": _ground_drop,
     "ground.pick": _ground_pick,
+    "item.hand": _item_hand,
+    "people.here": _people_here,
     "travel.cancel": _travel_cancel,
     "road.lay": _road_lay,
     "road.here": _road_here,

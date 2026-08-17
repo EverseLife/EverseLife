@@ -142,10 +142,15 @@ export function GraphMap({ look, session, onEnter }: Omit<Props, "busy" | "act">
   const [layer, setLayer] = useState<LayerId | null>(null);
   //: The node the inspector talks about. Where you stand, until you pick another.
   const [picked, setPicked] = useState<string | null>(null);
+  //: A right-click menu on a node. A left click picks -- which is what makes a
+  //: click predictable -- and this is the shortcut for whoever already knows
+  //: where they are going and does not want the column in between.
+  const [menu, setMenu] = useState<{ key: string; x: number; y: number } | null>(null);
   const [cityFocus, setCityFocus] = useState<string | null>(null);
   useEffect(() => {
     setCityFocus(null);
     setPicked(null);
+    setMenu(null);
   }, [here]);
 
   const cities = useMemo(() => {
@@ -249,6 +254,18 @@ export function GraphMap({ look, session, onEnter }: Omit<Props, "busy" | "act">
       for (const [key, body] of held) REMEMBERED.set(key, { x: body.x, y: body.y });
     };
   }, []);
+
+  useEffect(() => {
+    if (!menu) return;
+    const shut = () => setMenu(null);
+    const key = (e: KeyboardEvent) => e.key === "Escape" && setMenu(null);
+    window.addEventListener("pointerdown", shut);
+    window.addEventListener("keydown", key);
+    return () => {
+      window.removeEventListener("pointerdown", shut);
+      window.removeEventListener("keydown", key);
+    };
+  }, [menu]);
 
   //: Anyone may wake the simulation (dragging, arrival), while the loop itself
   //: lives in the effect below -- the ref stitches them without recreating closures.
@@ -662,6 +679,11 @@ export function GraphMap({ look, session, onEnter }: Omit<Props, "busy" | "act">
                 onPointerDown={grabNode(node.key)}
                 onPointerMove={movePointer}
                 onPointerUp={releasePointer(node)}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  setPicked(node.key);
+                  setMenu({ key: node.key, x: e.clientX, y: e.clientY });
+                }}
               >
                 <circle cx={p.x} cy={p.y} r={mine ? 14 : group ? 12 : 10} />
                 {group && <circle cx={p.x} cy={p.y} r={mine ? 18 : 16} className="halo" />}
@@ -686,6 +708,23 @@ export function GraphMap({ look, session, onEnter }: Omit<Props, "busy" | "act">
             />
           )}
         </svg>
+      )}
+
+      {menu && (
+        <NodeMenu
+          at={menu}
+          node={byKey[menu.key]}
+          look={look}
+          session={session}
+          step={walkTargets[menu.key]}
+          group={groups.has(menu.key)}
+          onExpand={() => {
+            const it = byKey[menu.key];
+            if (it) expand(it);
+            setMenu(null);
+          }}
+          onDone={() => setMenu(null)}
+        />
       )}
 
       <Inspector
@@ -869,6 +908,73 @@ const LAYER_NAME: Record<string, string> = {
   city: "в городе",
   location: "внутри места",
 };
+
+/** The right-click menu on a node: go there, or open it up.
+ *
+ * Fixed to the pointer rather than to the node, because the node moves: the
+ * layout is a live simulation, and a menu pinned to a body would crawl away
+ * from under the hand.
+ */
+function NodeMenu({
+  at,
+  node,
+  look,
+  session,
+  step,
+  group,
+  onExpand,
+  onDone,
+}: {
+  at: { x: number; y: number };
+  node: MapNode | undefined;
+  look: Look;
+  session: Session;
+  step?: { key: string; seconds: number };
+  group: boolean;
+  onExpand: () => void;
+  onDone: () => void;
+}) {
+  const acting = useActions();
+  const { busy, act } = acting;
+  if (!node) return null;
+
+  const here = node.key === (look.node?.key ?? "");
+  const may = !look.travel && !look.survey && !here && (group ? Boolean(step) : true);
+
+  return (
+    <div
+      className="node-menu"
+      role="menu"
+      style={{ left: at.x, top: at.y }}
+      //: The window-wide listener shuts the menu; a click inside it must not.
+      onPointerDown={(e) => e.stopPropagation()}
+    >
+      <p className="menu-ask">{node.name}</p>
+      {may && (
+        <button
+          role="menuitem"
+          onClick={() =>
+            void act(async () => {
+              await session.send("travel.go", { node: step?.key ?? node.key });
+              onDone();
+            })
+          }
+          disabled={busy}
+        >
+          Идти{step ? ` · ${spell(step.seconds)}` : ""}
+        </button>
+      )}
+      {group && (
+        <button role="menuitem" className="quiet" onClick={onExpand} disabled={busy}>
+          Раскрыть
+        </button>
+      )}
+      {here && <p className="note">Вы здесь.</p>}
+      {look.travel && <p className="note">Пока идёшь, никуда не выйти.</p>}
+      <Refusal of={acting} />
+    </div>
+  );
+}
 
 /** Roads from this node: what is laid, what sagged and what it costs (D-158).
  *

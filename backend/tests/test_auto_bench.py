@@ -135,7 +135,7 @@ async def test_craft_can_outdo_machine(
 
     by_hand = await craft.plan(session, constants, catalog, body, glass, 1)
     automated = await craft.plan(session, constants, catalog, body, glass, 1, auto=True)
-    assert by_hand.quality > automated.quality, "ремесло адаптивно, станок — нет"
+    assert by_hand.quality > automated.quality, "ремесло адаптивно, станция — нет"
 
     #: And the reverse, which makes the fork honest: a careless human loses to
     #: the machine. The machine is always even -- it is never better or worse than itself.

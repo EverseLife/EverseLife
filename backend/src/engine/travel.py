@@ -64,6 +64,32 @@ there is not enough strength for. On autopath this means the route breaks off
 where strength sufficed -- the body stays in a node rather than dropping in the
 middle of a leg.
 
+## The graph changes in both directions (D-201)
+
+Until the spaceship the map only grew: exploration added nodes with edges
+(D-152), a road changed an edge's surface and overgrew without maintenance
+(D-158), but no edge ever disappeared.
+
+A ship is a **group of nodes of this same graph** with exactly one connector
+node facing outwards, and docking is one edge between that connector and the
+spaceport. So undocking is the removal of that one edge, and a flight is the
+absence of it -- not a state of the body. `connect` and `disconnect` are the
+whole of it; nothing else in the graph moves.
+
+Two rules follow, and they hold for the whole map rather than for space alone:
+
+* **an edge is removed, not flagged.** "The edge is there but you may not walk
+  it" would be a second state to account for in routing, in exploration, in
+  chat and in the search itself. An undocked ship is unreachable for exactly
+  the reason any disconnected piece of the map is: there is no path;
+* **an edge nobody walks on** -- otherwise a transit hangs between a node that
+  is no longer adjacent and a body with nowhere to arrive. Undocking waits for
+  the gangway to clear.
+
+An autopath tail is a different matter: a route laid before the edge went away
+is cut off at the node the body reached, the same way it is cut off by a
+customs refusal or by lack of strength. A route is a plan, not a promise.
+
 ## The border is settled at departure (D-123)
 
 Duty, ban and duty-free norm live in `engine.customs`; here stands the single
@@ -118,6 +144,14 @@ class NoRoute(NoEdge):
 
 class InTransit(TravelError):
     """The body is in transit. Matter requires presence, and there is no presence now."""
+
+
+class EdgeInUse(TravelError):
+    """People are walking the edge right now: it is not removed from under them (D-201).
+
+    The gangway is not pulled from under a walker. Undocking waits, and that is
+    the only precondition the removal of an edge has.
+    """
 
 
 class AlreadyGoing(TravelError):
@@ -658,12 +692,14 @@ async def arrive(session: AsyncSession, job: Job) -> None:
             NoStrength,
             customs.CustomsError,
             transport.Impassable,
+            NoEdge,
         ) as stop:
             #: The route breaks off here -- not enough strength (D-147), the
-            #: border did not let the cargo through (D-123), or the road does
-            #: not let the convoy through (D-107). The body stays in the node
-            #: rather than dropping mid-leg: got as far as allowed, the player
-            #: decides the rest.
+            #: border did not let the cargo through (D-123), the road does not
+            #: let the convoy through (D-107), or the edge itself is gone: the
+            #: ship undocked while the route was being walked (D-201). The body
+            #: stays in the node rather than dropping mid-leg: got as far as
+            #: allowed, the player decides the rest.
             await events.record(
                 session,
                 EventKind.TRAVEL_ARRIVED,
@@ -683,7 +719,13 @@ async def connect(
     base_seconds: float,
     surface: Surface = Surface.ROAD,
 ) -> Edge:
-    """Connect two nodes with an edge. Undirected -- the road is the same both ways."""
+    """Connect two nodes with an edge. Undirected -- the road is the same both ways.
+
+    The docking half of the pair (D-201): a ship couples to a spaceport by one
+    edge between its connector and the port node, and nothing else in the graph
+    changes. Idempotent -- an existing edge is returned rather than doubled, so
+    a repeated docking does not give a second way in.
+    """
     existing = await _edge_between(session, a.id, b.id)
     if existing is not None:
         return existing
@@ -696,6 +738,45 @@ async def connect(
     session.add(edge)
     await session.flush()
     return edge
+
+
+async def disconnect(session: AsyncSession, a: Node, b: Node) -> bool:
+    """Remove the edge between two nodes -- undocking (D-201).
+
+    The edge is **removed**, not flagged as closed: a second state would have
+    to be accounted for in routing, in exploration and in the node scene, and a
+    ship in flight is unreachable for exactly the reason any disconnected piece
+    of the map is -- there is no path to it.
+
+    The single precondition: **nobody is walking this edge**. A transit under
+    way would hang between a node that is no longer adjacent and a body with
+    nowhere to arrive, so undocking waits for the gangway to clear. Routes laid
+    through the edge are another matter: they break off at the node the body
+    reached, like any other route that ran into the impassable.
+
+    Returns whether there was anything to remove: undocking an undocked ship is
+    not an error, it is a no-op.
+    """
+    edge = await _edge_between(session, a.id, b.id)
+    if edge is None:
+        return False
+
+    walking = (
+        await session.execute(
+            select(Travel).where(
+                Travel.edge_id == edge.id, Travel.state == TravelState.GOING
+            )
+        )
+    ).scalars().first()
+    if walking is not None:
+        raise EdgeInUse(
+            "по переходу сейчас идут: трап из-под идущего не убирают. "
+            "Дождитесь, пока дорога освободится"
+        )
+
+    await session.delete(edge)
+    await session.flush()
+    return True
 
 
 async def _edge_between(

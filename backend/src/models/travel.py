@@ -41,7 +41,15 @@ class Travel(Base):
     body_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("body.id"), nullable=False)
     from_node_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("node.id"), nullable=False)
     to_node_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("node.id"), nullable=False)
-    edge_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("edge.id"), nullable=False)
+    #: Which edge the leg went by. Empty means the edge is gone: a ship
+    #: undocked and took its gangway with it (D-201). The edge is removed
+    #: rather than flagged, so the journal of past transits must survive its
+    #: disappearance -- from, to and the times are the record, the edge is a
+    #: pointer. A leg **under way** never loses it: `travel.disconnect` refuses
+    #: to remove an edge somebody is walking.
+    edge_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("edge.id", ondelete="SET NULL"), nullable=True
+    )
 
     state: Mapped[TravelState] = enum_column(
         TravelState, "travel_state", nullable=False, default=TravelState.GOING

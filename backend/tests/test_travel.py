@@ -22,7 +22,7 @@ from src.constants import registry as R
 from src.engine import craft, jobs, market, mining, travel, world
 from src.models.identity import Body
 from src.models.travel import TravelState
-from src.models.world import Surface
+from src.models.world import Node, Surface
 
 
 async def _two_nodes(session: AsyncSession, *, surface: Surface = Surface.ROAD, seconds=30):
@@ -110,6 +110,110 @@ async def test_offroad_slower_than_road(session: AsyncSession, constants: Consta
 
     assert trail.seconds > road.seconds > highway.seconds
     assert trail.seconds == pytest.approx(road.seconds * constants[R.ROAD_TRAIL_MULTIPLIER])
+
+
+# --- docking: the graph changes in both directions (D-201) -------------------
+
+
+async def test_undocking_removes_the_edge_and_isolates_the_ship(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """A ship is a subgraph, and a flight is the absence of one edge (D-201).
+
+    Undocking removes the edge between the connector and the spaceport, and
+    from that moment the ship is unreachable for exactly the reason any
+    disconnected piece of the map is: there is no path to it.
+    """
+    port, connector, body = await _two_nodes(session)
+
+    assert await travel.disconnect(session, port, connector) is True
+    assert await travel.exits(session, constants, port) == ()
+    assert await travel.exits(session, constants, connector) == (), (
+        "ребро ненаправленное: снялось с обеих сторон"
+    )
+    with pytest.raises(travel.NoEdge):
+        await travel.depart(session, constants, body, connector)
+
+    #: Docking is the same edge back: nothing else in the graph moved.
+    await travel.connect(session, port, connector, base_seconds=30)
+    assert [path.key for path in await travel.exits(session, constants, port)] == [
+        connector.key
+    ]
+    assert await travel.depart(session, constants, body, connector) is not None
+
+
+async def test_docking_twice_does_not_give_a_second_way_in(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """The connector is one, so the edge is one: a repeated docking is idempotent."""
+    port, connector, _ = await _two_nodes(session)
+    again = await travel.connect(session, port, connector, base_seconds=999)
+    assert len(await travel.exits(session, constants, port)) == 1
+    assert again.base_seconds == 30, "повторная стыковка не переписывает ребро"
+
+    #: Undocking an undocked ship is a no-op, not an error.
+    assert await travel.disconnect(session, port, connector) is True
+    assert await travel.disconnect(session, port, connector) is False
+
+
+async def test_edge_under_a_walker_is_not_removed(
+    factory: async_sessionmaker[AsyncSession], constants: Constants
+) -> None:
+    """The gangway is not pulled from under a walker (D-201).
+
+    A transit under way would hang between a node that is no longer adjacent
+    and a body with nowhere to arrive, so undocking waits for the edge to clear.
+    """
+    async with factory() as session, session.begin():
+        port, connector, body = await _two_nodes(session)
+        transit = await travel.depart(session, constants, body, connector)
+        term, port_id, connector_id = transit.arrives_at, port.id, connector.id
+
+        with pytest.raises(travel.EdgeInUse):
+            await travel.disconnect(session, port, connector)
+
+    #: Arrived -- nobody is on the edge any more, and it comes off.
+    assert await jobs.run_one(factory, now=term) is not None
+    async with factory() as session, session.begin():
+        port = await session.get(Node, port_id)
+        connector = await session.get(Node, connector_id)
+        assert await travel.disconnect(session, port, connector) is True
+
+
+async def test_route_breaks_off_where_the_edge_went_away(
+    factory: async_sessionmaker[AsyncSession], constants: Constants
+) -> None:
+    """A route is a plan, not a promise: the ship undocked while it was walked.
+
+    The leg already under way arrives -- the body is not dropped mid-road --
+    and the route stops at the node it reached, the same way it stops at
+    customs or for lack of strength.
+    """
+    async with factory() as session, session.begin():
+        stamp = uuid.uuid4().hex[:8]
+        city = await world.create_node(session, f"terra.sa.{stamp}", "Город", area_m2=100)
+        port = await world.create_node(session, f"terra.sb.{stamp}", "Космодром", area_m2=100)
+        aboard = await world.create_node(session, f"terra.sc.{stamp}", "Рубка", area_m2=100)
+        await travel.connect(session, city, port, base_seconds=30)
+        await travel.connect(session, port, aboard, base_seconds=30)
+        identity = await world.create_identity(session, f"Пассажир-{stamp}")
+        body = await world.print_body(session, identity, city)
+
+        transit = await travel.depart(session, constants, body, aboard)
+        assert transit.plan == [str(aboard.id)]
+        term, body_id, port_id = transit.arrives_at, body.id, port.id
+
+        #: The ship undocks while the passenger is still on the road to the port.
+        await travel.disconnect(session, port, aboard)
+
+    assert await jobs.run_one(factory, now=term) is not None
+
+    async with factory() as session:
+        body = await session.get(Body, body_id)
+        assert body.node_id == port_id, "отрезок в пути дошёл, тело не осталось на дороге"
+        assert await travel.current(session, body) is None, (
+            "маршрут оборвался там, докуда дошли: корабль улетел"
+        )
 
 
 # --- transit -----------------------------------------------------------------

@@ -116,7 +116,7 @@ export function Place({ look, session, book }: Omit<Props, "busy" | "act">) {
       <Citizenship look={look} session={session} busy={busy} act={act} />
       <Convoy look={look} session={session} busy={busy} act={act} />
       <Equipment
-        title="Станки"
+        title="Рабочие станции"
         things={look.bench ?? []}
         kind="station"
         look={look}
@@ -124,7 +124,7 @@ export function Place({ look, session, book }: Omit<Props, "busy" | "act">) {
         busy={busy}
         act={act}
         book={book}
-        note="За станком работает один: пока идёт партия, второму он не отдаётся."
+        note="За рабочей станцией работает один: пока идёт партия, второму она не отдаётся."
       />
       <Equipment
         title="Мебель"
@@ -158,7 +158,6 @@ function Floor({ look, session, busy, act }: Omit<Props, "book">) {
   const setPart = (id: string, value: number | null) =>
     setParts((before) => ({ ...before, [id]: value }));
   const room = floor.space;
-  const inHands = look.inventory;
   const roofed = room.roofed > 0;
 
   return (
@@ -202,9 +201,9 @@ function Floor({ look, session, busy, act }: Omit<Props, "book">) {
                         )
                       }
                       disabled={busy}
-                      title="поднять в руки — сколько унесёте"
+                      title="взять в руки — сколько унесёте"
                     >
-                      Поднять
+                      Взять
                     </button>
                   )}
                 </td>
@@ -216,47 +215,9 @@ function Floor({ look, session, busy, act }: Omit<Props, "book">) {
         <p className="note">пусто</p>
       )}
 
-      {inHands.length > 0 && (
-        <table>
-          <tbody>
-            {inHands.map((thing) => (
-              <tr key={thing.id}>
-                <td>{thing.goods}</td>
-                <td className="note">
-                  {thing.amount.toFixed(1)} ·{" "}
-                  {(thing.mass * thing.amount).toFixed(1)} кг
-                </td>
-                <td>
-                  <Amount
-                    value={parts[thing.id] ?? null}
-                    max={thing.amount}
-                    onChange={(value) => setPart(thing.id, value)}
-                  />
-                </td>
-                <td>
-                  <button
-                    className="quiet"
-                    onClick={() =>
-                      act(() =>
-                        session.send("ground.drop", {
-                          item: thing.id,
-                          amount: chosen(parts[thing.id] ?? null, thing.amount),
-                        }),
-                      )
-                    }
-                    disabled={busy}
-                  >
-                    Положить
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
       <p className="note">
         {floor.mine
-          ? "Лежащее занимает площадь; в сундуке — не занимает."
+          ? "Лежащее занимает площадь; в сундуке — не занимает. Положить сюда — из инвентаря."
           : "Чужое место: смотреть можно, брать — нет."}
       </p>
     </section>
@@ -545,7 +506,7 @@ function House({ look, session, busy, act }: Omit<Props, "book">) {
         </p>
       ) : (
         <p className="note">
-          Дома нет — только двор. Станки и мебель ставят в дом: сначала строят.
+          Дома нет — только двор. Рабочие станции и мебель ставят в дом: сначала строят.
         </p>
       )}
 
@@ -1071,16 +1032,16 @@ function Equipment({
                   {thing.condition < 100 && ` · сост. ${thing.condition.toFixed(0)}`}
                 </td>
                 <td className="note">
-                  {/* У аккумулятора состояние — это заряд, а не «занят»:
+                  {/* У аккумулятора состояние — это заряд, а не «занята»:
                       за ним не работают, он хранит энергию (D-179). */}
                   {thing.charge !== null
                     ? `заряд ${thing.charge.toFixed(0)} · заряжают в «хозяйстве»`
                     : kind === "station"
                       ? thing.busy
                         ? thing.mine
-                          ? "занят вами"
-                          : "занят"
-                        : "свободен"
+                          ? "занята вами"
+                          : "занята"
+                        : "свободна"
                       : ""}
                 </td>
                 <td>

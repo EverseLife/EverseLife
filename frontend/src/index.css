@@ -266,6 +266,96 @@ header nav.tabs {
   }
 }
 
+/* --- a menu: the one popping layer, and the only shadow in the system ------
+ *
+ * The brief allows exactly one shadow, and only for layers that float above the
+ * page. This is that layer: the row menu in the inventory and the right-click
+ * menu on the map are the same thing in two places.
+ */
+.menu,
+.node-menu {
+  position: absolute;
+  z-index: 9;
+  min-width: 11rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 0.2rem;
+  background: var(--base-850);
+  border: 1px solid var(--base-600);
+  border-radius: var(--r-pop);
+  box-shadow: var(--shadow-pop);
+}
+.node-menu {
+  position: fixed;
+}
+.menu button,
+.node-menu button {
+  text-align: left;
+  border: 0;
+  border-radius: var(--r-control);
+  background: transparent;
+  color: var(--base-200);
+  font-weight: 400;
+  padding: 0.3rem 0.5rem;
+  min-height: 36px;
+}
+.menu button:hover,
+.node-menu button:hover {
+  background: var(--base-800);
+  color: var(--base-50);
+}
+.menu-ask {
+  margin: 0.1rem 0.5rem 0.25rem;
+  font-family: var(--font-num);
+  font-size: 0.78rem;
+  color: var(--base-400);
+}
+
+/* The inventory: a table, and the verbs behind one mark per row. */
+.goods {
+  table-layout: auto;
+}
+.goods td.handle {
+  position: relative;
+  width: 1.8rem;
+  padding-right: 0.25rem;
+}
+button.dots {
+  width: 1.6rem;
+  min-height: 28px;
+  padding: 0;
+  color: var(--base-400);
+  font-size: 1.1rem;
+  line-height: 1;
+}
+button.dots:hover,
+button.dots[aria-expanded="true"] {
+  color: var(--base-50);
+}
+
+/* Sidebar tabs: a mark beside the label, never instead of it. */
+.tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+/* Six tabs with marks want more width than five words did, and a third row of
+   them costs more vertical space than the marks are worth. So the tabs alone
+   are tightened -- the buttons elsewhere keep their room. */
+.sidebar nav.tabs {
+  gap: 0.3rem;
+}
+.sidebar nav.tabs button {
+  padding: 0.2rem 0.4rem;
+}
+.glyph {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  display: block;
+}
+
 /* --- what needs you, on return ------------------------------------------- */
 
 .needs {
@@ -706,19 +796,28 @@ tr.picked td:first-child {
   gap: 0.5rem;
   min-width: 0;
 }
-.deadline.row {
+.deadline.dl-row {
   flex: 1 1 8rem;
 }
+/* Four pixels, not the two the brief names: at two the bar was there and
+   nobody saw it. Still a line and not a box -- it keeps the vertical space
+   dense tables need. */
 .deadline-bar {
-  flex: 1 1 4rem;
-  min-width: 3rem;
-  height: 2px;
+  flex: 1 1 6rem;
+  min-width: 4rem;
+  /* Height, not flex-basis, decides the thickness: in a column container the
+     basis would govern the height instead, which is exactly how the bar once
+     came out sixty pixels tall. */
+  height: 4px;
+  max-height: 4px;
+  align-self: center;
   background: var(--base-700);
+  border-radius: var(--r-control);
   overflow: hidden;
 }
 .deadline-bar i {
   display: block;
-  height: 2px;
+  height: 4px;
   background: var(--base-400);
 }
 /* The remainder speaks twice -- by colour and by the word next to it -- because

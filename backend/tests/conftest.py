@@ -6,7 +6,13 @@ from pathlib import Path
 
 import pytest
 import pytest_asyncio
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
+from sqlalchemy.pool import NullPool
 
 from src.constants import Catalog, Constants, bootstrap
 from src.models import Base
@@ -43,13 +49,28 @@ def catalog(loaded: tuple[Constants, Catalog]) -> Catalog:
 
 
 @pytest_asyncio.fixture
-async def session(loaded) -> AsyncIterator[AsyncSession]:
-    """A clean database for every test.
+async def database(loaded) -> AsyncIterator[AsyncEngine]:
+    """One engine and one clean schema per test.
 
-    The schema is created from models, not by migrations: migrations are
-    checked separately (`test_migrations.py`), and speed matters here.
+    The schema is created from models, not by migrations: migrations are checked
+    separately (`test_migrations.py`), and speed matters here.
+
+    **Everything that talks to the database in a test comes through here.** It
+    used to be two fixtures, each with its own engine and each rebuilding the
+    schema, and that cost the suite twenty-two failures at a time:
+    `drop_all` wants an `AccessExclusiveLock` on tables another connection is
+    already inserting into with a `RowExclusiveLock`, so Postgres picked one of
+    them and killed it. The tests were fine -- every one of them passed when run
+    alone -- which is the signature of a harness racing itself rather than a
+    defect in the code under test.
+
+    `NullPool` is the other half of the same fix. With a pool, a connection
+    outlives the test that opened it and waits in the pool holding whatever the
+    server has not reaped yet; the next test's `drop_all` then blocks on a
+    connection belonging to a test that has already finished. Without a pool a
+    connection dies with its session, and there is nothing left to fight.
     """
-    engine = create_async_engine(TEST_DATABASE_URL, poolclass=None)
+    engine = create_async_engine(TEST_DATABASE_URL, poolclass=NullPool)
     try:
         async with engine.begin() as connection:
             await connection.run_sync(Base.metadata.drop_all)
@@ -58,26 +79,27 @@ async def session(loaded) -> AsyncIterator[AsyncSession]:
         await engine.dispose()
         pytest.skip(f"нет тестовой базы ({TEST_DATABASE_URL}): {exc}")
 
-    factory = async_sessionmaker(engine, expire_on_commit=False)
-    async with factory() as db:
-        yield db
-    await engine.dispose()
+    try:
+        yield engine
+    finally:
+        await engine.dispose()
 
 
 @pytest_asyncio.fixture
-async def factory(loaded) -> AsyncIterator[async_sessionmaker[AsyncSession]]:
-    """A session factory over the same clean database -- for the job journal."""
-    engine = create_async_engine(TEST_DATABASE_URL)
-    try:
-        async with engine.begin() as connection:
-            await connection.run_sync(Base.metadata.drop_all)
-            await connection.run_sync(Base.metadata.create_all)
-    except Exception as exc:  # noqa: BLE001
-        await engine.dispose()
-        pytest.skip(f"нет тестовой базы ({TEST_DATABASE_URL}): {exc}")
+async def session(database: AsyncEngine) -> AsyncIterator[AsyncSession]:
+    """A clean database for every test."""
+    async with async_sessionmaker(database, expire_on_commit=False)() as db:
+        yield db
 
-    yield async_sessionmaker(engine, expire_on_commit=False)
-    await engine.dispose()
+
+@pytest_asyncio.fixture
+async def factory(database: AsyncEngine) -> async_sessionmaker[AsyncSession]:
+    """A session factory over the same clean database -- for the job journal.
+
+    The same engine as `session`, which is what "the same" was always meant to
+    say: a test that takes both gets one schema, not two rebuilds of it.
+    """
+    return async_sessionmaker(database, expire_on_commit=False)
 
 
 @pytest.fixture

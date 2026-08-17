@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>OctoVerse — браузерная MMO без единого NPC</title>
-<meta name="description" content="OctoVerse — браузерная MMO про экономику и власть. Ни одного NPC: каждый предмет сделан игроком, каждая цена выторгована, каждый закон написан и исполняется игроками. Оставьте почту — пришлём приглашение в бету.">
+<meta name="description" content="OctoVerse — браузерная MMO про экономику и власть. Ни одного NPC: каждый предмет сделан игроком, каждая цена выторгована, каждый закон написан и исполняется игроками. Альфа уже идёт — вход через Discord.">
 <meta property="og:title" content="OctoVerse — мир пуст, пока вы его не построите">
-<meta property="og:description" content="Браузерная MMO про экономику и власть. Ни одного NPC, ни квестов, ни уровней. Мир один и вечный. Запишитесь на бету.">
+<meta property="og:description" content="Браузерная MMO про экономику и власть. Ни одного NPC, ни квестов, ни уровней. Мир один и вечный. Альфа уже идёт — вход через Discord.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://octoverse.world/">
 <meta name="theme-color" content="#070B14">
@@ -86,6 +86,8 @@
   nav.jump a::after { content: ""; position: absolute; left: 0; right: 100%; bottom: 2px; height: 1px; background: var(--ink); transition: right .3s var(--ease); }
   nav.jump a:hover { color: var(--ink); }
   nav.jump a:hover::after { right: 0; }
+  /* An outward link says so: the mark is the only difference from an anchor. */
+  .ext::before { content: "↗"; display: inline-block; margin-right: 5px; font-size: .9em; }
   header.top .btn { margin-left: auto; }
   .btn {
     display: inline-flex; align-items: center; justify-content: center; gap: 10px;
@@ -128,24 +130,31 @@
   .hero .actions .note { font-family: var(--f-mono); font-size: 12.5px; color: var(--muted); line-height: 1.5; max-width: 34ch; }
   @keyframes fade { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
 
-  /* the system: Terra at the centre, distances as travel time (D-009) */
-  .system { position: relative; aspect-ratio: 1; width: min(100%, 560px); margin-left: auto; opacity: 0; }
+  /* The system: a star, four planets and two asteroid belts, in that order
+     outward. Each planet rides its own group rotating about the star; the
+     label rides a second group counter-rotating at the same rate, so the name
+     travels with its planet and never turns upside down. */
+  .system { width: min(100%, 560px); margin-left: auto; opacity: 0; }
   .ready .system { animation: fade 1.4s .5s var(--ease-out) forwards; }
-  .system svg { width: 100%; height: 100%; display: block; overflow: visible; }
-  .system .orbit { fill: none; stroke: var(--hair); stroke-width: 1; stroke-dasharray: 2 6; opacity: .8; }
-  .system .orbit.soft { stroke-dasharray: 1 9; opacity: .45; }
-  .system .route { fill: none; stroke: var(--line); stroke-width: 1; }
-  .system .route.dim { stroke-dasharray: 3 5; opacity: .6; }
+  .system svg { width: 100%; aspect-ratio: 1; display: block; overflow: visible; }
+  .system .orbit { fill: none; stroke: var(--hair); stroke-width: 1; stroke-dasharray: 2 7; opacity: .55; }
+  .system .belt { fill: none; stroke: var(--muted); stroke-linecap: round; transform-origin: 320px 320px; animation: spin var(--d) linear infinite; }
+  .system .transfer { fill: none; stroke: var(--hair); stroke-width: 1; stroke-dasharray: 1 12; opacity: .3; }
+  .system .craft path { fill: var(--ink); }
+  .system .craft line { stroke: var(--ink); stroke-width: 1; opacity: .3; }
+  .system .star { fill: var(--ink); }
+  .system .star-glow { fill: none; stroke: var(--ink); stroke-width: 1; opacity: .2; animation: breathe 7s ease-in-out infinite; }
+  .system .orb { transform-origin: 320px 320px; animation: spin var(--d) linear infinite; animation-delay: var(--t); }
+  .system .anti { animation: spin var(--d) linear infinite reverse; animation-delay: var(--t); }
   .system .body { transform-box: fill-box; transform-origin: center; }
-  .system .halo { fill: none; stroke-width: 1; opacity: .35; }
-  .system .lbl { font-family: var(--f-mono); font-size: 11px; fill: var(--muted); letter-spacing: .04em; }
-  .system .lbl.name { fill: var(--ink); font-size: 12px; font-weight: 500; }
-  .system .ship { fill: var(--ink); }
-  .system .ring { transform-origin: 320px 320px; animation: spin linear infinite; }
+  .system .halo { fill: none; stroke-width: 1; opacity: .35; animation: breathe 6s ease-in-out infinite; }
+  /* The dark outline keeps a name readable wherever its orbit carries it. */
+  .system .lbl { font-family: var(--f-mono); font-size: 13px; fill: var(--muted); letter-spacing: .04em; paint-order: stroke fill; stroke: var(--bg-950); stroke-width: 3.5px; stroke-linejoin: round; }
+  .system .lbl.name { fill: var(--ink); font-size: 16px; font-weight: 500; }
+  .system .lbl.off { opacity: .75; }
   @keyframes spin { to { transform: rotate(360deg); } }
-  .system .halo { animation: breathe 6s ease-in-out infinite; }
   @keyframes breathe { 0%, 100% { opacity: .18; } 50% { opacity: .5; } }
-  .system figcaption { position: absolute; left: 0; bottom: -6px; font-family: var(--f-mono); font-size: 11px; color: var(--muted); letter-spacing: .04em; }
+  .system figcaption { margin-top: 14px; font-family: var(--f-mono); font-size: 11px; line-height: 1.5; color: var(--muted); letter-spacing: .04em; }
   .cue { display: inline-flex; align-items: center; gap: 12px; margin-top: 56px; font-family: var(--f-mono); font-size: 11px; letter-spacing: .18em; text-transform: uppercase; color: var(--muted); opacity: 0; text-decoration: none; }
   .cue:hover { color: var(--ink); }
   .ready .cue { animation: fade .9s 1.2s var(--ease-out) forwards; }
@@ -163,7 +172,8 @@
   @keyframes marquee { to { transform: translateX(-50%); } }
 
   /* ── Sections ─────────────────────────────────────────────────────────── */
-  section.sec { padding: 112px 0; border-bottom: 1px solid var(--line); }
+  /* An anchor must not land under the sticky header. */
+  section.sec { padding: 112px 0; border-bottom: 1px solid var(--line); scroll-margin-top: 84px; }
   section.sec:last-of-type { border-bottom: 0; }
   .sec-head { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 24px; margin-bottom: 56px; }
   .sec-num { font-family: var(--f-mono); font-size: 12px; letter-spacing: .18em; color: var(--muted); padding-top: 14px; }
@@ -410,6 +420,11 @@
   .form-msg.ok { color: var(--success); }
   .form-msg.err { color: var(--danger); }
   .form-note { grid-column: 1 / -1; font-family: var(--f-mono); font-size: 12.5px; color: var(--muted); letter-spacing: .04em; }
+  .form-msg a, .beside a { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--hair); transition: text-decoration-color .2s; }
+  .form-msg a:hover, .beside a:hover { text-decoration-color: var(--ink); }
+  .beside { margin-top: 26px; padding-top: 22px; border-top: 1px solid var(--line); color: var(--muted); font-size: 16px; }
+  .band { display: flex; align-items: center; gap: 24px; flex-wrap: wrap; margin-top: 40px; padding-top: 32px; border-top: 1px solid var(--line); }
+  .band .note { color: var(--muted); font-size: 15px; max-width: 56ch; }
   .faq { border-top: 1px solid var(--line); }
   .faq details { border-bottom: 1px solid var(--line); }
   .faq summary { list-style: none; cursor: pointer; padding: 18px 0; display: grid; grid-template-columns: 1fr 24px; gap: 16px; align-items: center; color: var(--ink); font-weight: 600; font-size: 17px; }
@@ -422,6 +437,8 @@
   /* ── Footer, sticky call ──────────────────────────────────────────────── */
   footer { border-top: 1px solid var(--line); padding: 32px 0 44px; }
   footer .bar { display: flex; align-items: center; gap: 24px; flex-wrap: wrap; font-family: var(--f-mono); font-size: 12.5px; letter-spacing: .06em; color: var(--muted); }
+  footer .bar a.ext { text-decoration: none; }
+  footer .bar a.ext:hover { color: var(--ink); }
   footer .mark { width: 28px; color: var(--muted); }
   footer .bar .r { margin-left: auto; }
   .fab {
@@ -470,8 +487,8 @@
     table.no { table-layout: fixed; }
     table.no td:first-child { width: 42%; padding-right: 14px; overflow-wrap: anywhere; font-size: 17px; }
     table.no td:last-child { font-size: 14.5px; }
-    .system .lbl { font-size: 17px; }
-    .system .lbl.name { font-size: 19px; }
+    .system .lbl { font-size: 16px; }
+    .system .lbl.name { font-size: 20px; }
     .shot .h .tabs { display: none; }
     .fab { right: 12px; bottom: 12px; }
   }
@@ -518,6 +535,7 @@
       <a href="#world">Мир</a>
       <a href="#not">Чего нет</a>
       <a href="#status">Где мы</a>
+      <a href="#discord">Альфа</a>
     </nav>
     <a class="btn sm" href="#signup">Получить приглашение</a>
   </div>
@@ -539,49 +557,95 @@
           игроками.</p>
         <div class="actions">
           <a class="btn" href="#signup">Получить приглашение <span class="arr" aria-hidden="true">→</span></a>
+          <a class="btn ghost" href="#discord">Играть в альфу</a>
           <span class="note">Мир запускается один раз, и все начинают одновременно. Дат не называем.</span>
         </div>
         <a class="cue" href="#what" aria-label="К разделу «Что это такое»"><i aria-hidden="true"></i>что это за игра</a>
       </div>
-      <figure class="system" aria-label="Схема системы: Терра в центре, Аврора в 5–6 сутках пути, Пироксис в 7–8, Акватика в разработке">
+      <figure class="system" aria-label="Схема системы: вокруг звезды по порядку — Пироксис, пояс астероидов, Терра, Акватика, малый пояс астероидов и Аврора; между планетами идут корабли">
         <svg viewBox="0 0 640 640" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-          <g class="ring" style="animation-duration: 260s">
-            <circle class="orbit soft" cx="320" cy="320" r="112"/>
+          <!-- orbits -->
+          <circle class="orbit" cx="320" cy="320" r="60"/>
+          <circle class="orbit" cx="320" cy="320" r="136"/>
+          <circle class="orbit" cx="320" cy="320" r="172"/>
+          <circle class="orbit" cx="320" cy="320" r="220"/>
+          <!-- the belts: speckled rings, the inner rocks going round faster -->
+          <circle class="belt" cx="320" cy="320" r="90" style="--d: 64s; stroke-width: 2; stroke-dasharray: 1 11; opacity: .45"/>
+          <circle class="belt" cx="320" cy="320" r="99" style="--d: 76s; stroke-width: 3; stroke-dasharray: 1.5 9; opacity: .6"/>
+          <circle class="belt" cx="320" cy="320" r="108" style="--d: 92s; stroke-width: 2.2; stroke-dasharray: 1 13; opacity: .4"/>
+          <circle class="belt" cx="320" cy="320" r="196" style="--d: 120s; stroke-width: 1.8; stroke-dasharray: 1 15; opacity: .35"/>
+          <circle class="belt" cx="320" cy="320" r="202" style="--d: 140s; stroke-width: 2.2; stroke-dasharray: 1 12; opacity: .5"/>
+          <!-- the star -->
+          <circle class="star-glow" cx="320" cy="320" r="18"/>
+          <circle class="star-glow" cx="320" cy="320" r="27"/>
+          <circle class="star" cx="320" cy="320" r="7"/>
+          <!-- Traffic. Each lane is a transfer ellipse touching two orbits: the
+               star sits in its focus, so the shape is the one a ship actually
+               flies. Somebody built every one of these. -->
+          <g class="lane" transform="rotate(28 320 320)">
+            <path class="transfer" d="M380 320 A98 90 0 1 0 184 320 A98 90 0 1 0 380 320"/>
+            <g class="craft">
+              <line x1="-4" y1="0" x2="-16" y2="0"/>
+              <path d="M6 0 L-4 -3.4 L-2 0 L-4 3.4 Z"/>
+              <animateMotion dur="30s" repeatCount="indefinite" rotate="auto"
+                path="M380 320 A98 90 0 1 0 184 320 A98 90 0 1 0 380 320"/>
+            </g>
           </g>
-          <g class="ring" style="animation-duration: 340s; animation-direction: reverse">
-            <circle class="orbit" cx="320" cy="320" r="196"/>
+          <g class="lane" transform="rotate(-58 320 320)">
+            <path class="transfer" d="M456 320 A178 173 0 1 0 100 320 A178 173 0 1 0 456 320"/>
+            <g class="craft">
+              <line x1="-4" y1="0" x2="-16" y2="0"/>
+              <path d="M6 0 L-4 -3.4 L-2 0 L-4 3.4 Z"/>
+              <animateMotion dur="46s" repeatCount="indefinite" rotate="auto"
+                path="M456 320 A178 173 0 1 0 100 320 A178 173 0 1 0 456 320"/>
+            </g>
           </g>
-          <g class="ring" style="animation-duration: 420s">
-            <circle class="orbit" cx="320" cy="320" r="282"/>
+          <g class="lane" transform="rotate(152 320 320)">
+            <path class="transfer" d="M380 320 A140 115 0 1 0 100 320 A140 115 0 1 0 380 320"/>
+            <g class="craft">
+              <line x1="-4" y1="0" x2="-16" y2="0"/>
+              <path d="M6 0 L-4 -3.4 L-2 0 L-4 3.4 Z"/>
+              <animateMotion dur="58s" repeatCount="indefinite" rotate="auto" begin="-20s"
+                path="M380 320 A140 115 0 1 0 100 320 A140 115 0 1 0 380 320"/>
+            </g>
           </g>
-          <!-- routes: travel time is the distance (D-009) -->
-          <line class="route" id="rt-aurora" x1="320" y1="320" x2="480.6" y2="207.6"/>
-          <line class="route dim" x1="320" y1="320" x2="55.0" y2="416.4"/>
-          <line class="route dim" x1="480.6" y1="207.6" x2="55.0" y2="416.4"/>
+          <!-- Pyroxis: closest to the star, and it shows -->
+          <g class="orb" style="--d: 48s; --t: -45s">
+            <circle class="halo" cx="380" cy="320" r="14" stroke="var(--pyro)"/>
+            <circle class="body" cx="380" cy="320" r="6" fill="var(--pyro)"/>
+            <g class="anti" style="--d: 48s; --t: -45s; transform-origin: 380px 320px">
+              <text class="lbl name" x="394" y="317">Пироксис</text>
+              <text class="lbl" x="394" y="334">пироксит</text>
+            </g>
+          </g>
           <!-- Terra -->
-          <circle class="halo" cx="320" cy="320" r="22" stroke="var(--terra)"/>
-          <circle class="body" cx="320" cy="320" r="9" fill="var(--terra)"/>
-          <text class="lbl name" x="338" y="316">Терра</text>
-          <text class="lbl" x="338" y="332">сутки 38 ч · биопринтер</text>
-          <!-- Aquatica: deferred (D-104) -->
-          <circle class="body" cx="240.8" cy="399.2" r="6" fill="none" stroke="var(--aqua)" stroke-dasharray="2 3"/>
-          <text class="lbl" x="164" y="424">Акватика · в разработке</text>
+          <g class="orb" style="--d: 92s; --t: -52s">
+            <circle class="halo" cx="456" cy="320" r="18" stroke="var(--terra)"/>
+            <circle class="body" cx="456" cy="320" r="8.5" fill="var(--terra)"/>
+            <g class="anti" style="--d: 92s; --t: -52s; transform-origin: 456px 320px">
+              <text class="lbl name" x="472" y="317">Терра</text>
+              <text class="lbl" x="472" y="334">биопринтер</text>
+            </g>
+          </g>
+          <!-- Aquatica: deferred (D-104), so it is drawn as an outline -->
+          <g class="orb" style="--d: 124s; --t: -34s">
+            <circle class="body" cx="492" cy="320" r="6.5" fill="none" stroke="var(--aqua)" stroke-dasharray="2 3"/>
+            <g class="anti" style="--d: 124s; --t: -34s; transform-origin: 492px 320px">
+              <text class="lbl name off" x="506" y="317">Акватика</text>
+              <text class="lbl off" x="506" y="334">в разработке</text>
+            </g>
+          </g>
           <!-- Aurora -->
-          <circle class="halo" cx="480.6" cy="207.6" r="17" stroke="var(--aurora)"/>
-          <circle class="body" cx="480.6" cy="207.6" r="6.5" fill="var(--aurora)"/>
-          <text class="lbl name" x="496" y="203">Аврора</text>
-          <text class="lbl" x="496" y="219">5–6 суток пути · руины</text>
-          <!-- Pyroxis -->
-          <circle class="halo" cx="55" cy="416.4" r="17" stroke="var(--pyro)"/>
-          <circle class="body" cx="55" cy="416.4" r="6.5" fill="var(--pyro)"/>
-          <text class="lbl name" x="70" y="446">Пироксис</text>
-          <text class="lbl" x="70" y="462">7–8 суток пути · пироксит</text>
-          <!-- a ship on the Terra–Aurora line: someone built it -->
-          <circle class="ship" r="2.5">
-            <animateMotion dur="14s" repeatCount="indefinite" keyPoints="0;1;1;0;0" keyTimes="0;.42;.5;.92;1" calcMode="linear" path="M320 320 L480.6 207.6"/>
-          </circle>
+          <g class="orb" style="--d: 168s; --t: -149s">
+            <circle class="halo" cx="540" cy="320" r="15" stroke="var(--aurora)"/>
+            <circle class="body" cx="540" cy="320" r="6.5" fill="var(--aurora)"/>
+            <g class="anti" style="--d: 168s; --t: -149s; transform-origin: 540px 320px">
+              <text class="lbl name" x="554" y="317">Аврора</text>
+              <text class="lbl" x="554" y="334">руины</text>
+            </g>
+          </g>
         </svg>
-        <figcaption>расстояние — это время в пути</figcaption>
+        <figcaption>от звезды наружу: Пироксис · пояс астероидов · Терра · Акватика · малый пояс · Аврора. Пунктиром — трассы кораблей. Орбиты не в масштабе.</figcaption>
       </figure>
     </div>
   </section>
@@ -591,6 +655,7 @@
       <span>NPC: <b>0</b></span><span>Квестов: <b>0</b></span><span>Уровней: <b>0</b></span><span>Вайпов: <b>0</b></span>
       <span>Жилы <b>кончаются навсегда</b></span><span>Законы <b>пишут игроки</b></span><span>Обман <b>возможен</b></span>
       <span>Мир живёт, <b>пока вы спите</b></span><span>Сутки на Терре: <b>38 ч</b></span><span>Мир один <b>и вечный</b></span>
+      <span><b>Альфа уже идёт</b> — вход через Discord</span>
     </div>
   </div>
 
@@ -649,7 +714,7 @@
             <li><span class="k">03</span><span><b>Предмет</b> едет туда, где он дороже.</span></li>
             <li><span class="k">04</span><span><b>Расстояние</b> — вот почему цены в двух городах разные.</span></li>
             <li><span class="k">05</span><span>Разница цен даёт <b>прибыль</b>.</span></li>
-            <li><span class="k">06</span><span>Прибыль становится <b>капиталом</b>: станками, землёй, кораблём.</span></li>
+            <li><span class="k">06</span><span>Прибыль становится <b>капиталом</b>: рабочими станциями, землёй, кораблём.</span></li>
             <li><span class="k">07</span><span>Капитал нанимает <b>людей</b> и строит города.</span></li>
             <li><span class="k">08</span><span>Городам нужны правила — появляется <b>власть</b>.</span></li>
             <li><span class="k">09</span><span>Власть охраняет добычу и торговлю и берёт <b>налог</b> — круг замкнулся.</span></li>
@@ -703,7 +768,7 @@
               Заполняйте рынок своими товарами и забирайте маржу. Монополизируйте и вытесняйте
               конкурентов — или <b>объединяйтесь в картель</b> и максимизируйте прибыль. Сблизьтесь
               с властью и <b>получайте льготы</b>. Предел здесь один — ваше умение договариваться.</p>
-            <p class="price"><b>Цена</b>Станки не дают высокого качества. И обанкротиться здесь легко.</p>
+            <p class="price"><b>Цена</b>Рабочие станции не дают высокого качества. И обанкротиться здесь легко.</p>
           </div></div></div>
         </div>
         <div class="acc-item">
@@ -771,7 +836,10 @@
             Единственный способ покинуть планету — корабль, собранный игроками: корпус, двигатель,
             топливо, жизнеобеспечение. Это недели работы и десяток специалистов, поэтому первые
             корабли будут акционерными просто по необходимости. Двигателя II класса нет
-            в Библиотеке — его придётся изобрести, кому-то первому и себе в убыток.</p>
+            в Библиотеке — его придётся изобрести, кому-то первому и себе в убыток.
+            Сколько займёт перелёт, заранее не скажешь: планеты идут по своим орбитам, и дорога
+            между двумя из них — <b>от нескольких часов до нескольких суток</b>, смотря где они
+            сейчас стоят.</p>
         </div>
       </div>
 
@@ -813,7 +881,6 @@
             здесь друзей.</p>
           <div class="data">
             <dl>
-              <dt>путь</dt><dd>5–6 суток от Терры</dd>
               <dt>сутки</dt><dd>33 ч</dd>
               <dt>даёт</dt><dd>чертежи, катализаторы, реликвии</dd>
               <dt>опасность</dt><dd>высокая</dd>
@@ -833,10 +900,9 @@
           </div>
           <p>Лавовые поля, пепельные бури, кальдеры с богатейшими жилами. Единственный источник
             <b>пироксита</b>, без которого нет двигателей и реакторов. Извержения перекраивают
-            карту — придётся адаптироваться. Каждый килограмм оплачен неделей пути в один конец.</p>
+            карту — придётся адаптироваться. Каждый килограмм оплачен дорогой туда и обратно.</p>
           <div class="data">
             <dl>
-              <dt>путь</dt><dd>7–8 суток от Терры</dd>
               <dt>сутки</dt><dd>46 ч — самые длинные</dd>
               <dt>даёт</dt><dd>пироксит</dd>
               <dt>опасность</dt><dd>очень высокая</dd>
@@ -936,7 +1002,7 @@
           <tr><td><span>Лутбоксов и дропа</span></td><td>Ни один предмет не появляется в мире сам.</td></tr>
           <tr><td><span>Автоматической добычи</span></td><td>Добыча — единственный вход материи. Автоматизируешь её — обесценишь всё.</td></tr>
           <tr><td><span>Админов, судящих игроков</span></td><td>Правосудие внутри игры — это контент. Мы отвечаем только за правила платформы.</td></tr>
-          <tr><td><span>Вайпов и сезонов</span></td><td>Мир один и вечный.</td></tr>
+          <tr><td><span>Вайпов и сезонов</span></td><td>Мир один и вечный. Единственное исключение — <b>альфа</b>: она сгорит при старте, чтобы никто не вошёл в мир с форой.</td></tr>
         </tbody>
       </table>
       <p class="no-note">Можно скринить.</p>
@@ -1022,7 +1088,7 @@
         <li>вам нужен маркер квеста и понятная цель на вечер</li>
         <li>вы хотите играть один<span>здесь всё зависит от других людей</span></li>
         <li>вам важно, чтобы игра гарантировала честную сделку</li>
-        <li>вы ждёте боёвку, 3D и трейлер</li>
+        <li>вы ждёте боёвку, 3D и трейлер<span>их не будет, а альфа выглядит как рабочий инструмент</span></li>
         <li>вы хотите купить преимущество за деньги</li>
       </ol>
       <p class="nfy-note rv">Мы не обидимся. Игра нишевая, и эта страница обязана отсеивать не меньше, чем привлекать.</p>
@@ -1042,8 +1108,9 @@
         <div>
           <h3>Уже работает</h3>
           <ul>
+            <li><span><b>Альфа — играется прямо сейчас</b>, доступ выдаём в <a class="ext" href="https://discord.gg/eKhM3H9tKk" target="_blank" rel="noopener noreferrer">Discord</a>. Всё, что ниже, там уже крутится.</span></li>
             <li><span><b>Добыча</b> — забой со скрытой прочностью свода, крепь, обвал; разведка, которая сама рисует карту.</span></li>
-            <li><span><b>Крафт по рецептам</b> — прогноз качества до партии, износ и ремонт, автоматические станки, энергия города.</span></li>
+            <li><span><b>Крафт по рецептам</b> — прогноз качества до партии, износ и ремонт, автоматические станции, энергия города.</span></li>
             <li><span><b>Рынок</b> — стакан заявок в каждом узле, эскроу, бронь с задатком, таможня и пошлины.</span></li>
             <li><span><b>Земля и еда</b> — участки, здания и этажи, делянки, селекция семян, готовка, порча.</span></li>
             <li><span><b>Города</b> — устав, должности и права, законы, голосования, выборы, совет, суд и приговоры.</span></li>
@@ -1063,7 +1130,7 @@
         </div>
       </div>
       <p class="status-line rv">Дат мы не называем. Назовём — когда будет что показать.</p>
-      <p class="status-sub rv">Числа в этой игре берутся из журнала решений, а не выдумываются на ходу — каждая формула ведёт к записи, почему она такая.</p>
+      <p class="status-sub rv">Числа в этой игре берутся из журнала решений, а не выдумываются на ходу — каждая формула ведёт к записи, почему она такая. И часть этих решений принимается вместе с теми, кто уже играет в альфу.</p>
     </section>
 
     <!-- ── 10 · Money ──────────────────────────────────────────────────── -->
@@ -1094,10 +1161,52 @@
       </div>
     </section>
 
-    <!-- ── 11 · Signup + FAQ ───────────────────────────────────────────── -->
+    <!-- ── 11 · Discord: the alpha, and who decides what the game becomes ─ -->
+    <section class="sec" id="discord">
+      <div class="sec-head rv">
+        <span class="sec-num">11 / Discord</span>
+        <div>
+          <h2>Альфа уже идёт — и её собирают вместе с игроками</h2>
+          <p class="sec-lead">Пока мы не называем дат, игра не стоит на месте. Путь к ней один —
+            <b>Discord</b>: там выдают доступ в альфу и там же решается, какой игра станет дальше.</p>
+        </div>
+      </div>
+      <div class="grid-3 rv-stag">
+        <div class="cell">
+          <span class="n">01</span>
+          <h3>Сыграть в альфу</h3>
+          <p>Доступ выдаём в Discord. Это <b>не демонстрация и не трейлер</b>, а тот самый движок:
+            в нём уже добывают руду, торгуют в стакане, строят города, судят и голосуют.
+            <b>Всё нажитое там сгорит при старте большого мира</b> — альфа проверяет механики,
+            а не даёт фору.</p>
+        </div>
+        <div class="cell">
+          <span class="n">02</span>
+          <h3>Влиять на то, какой игра будет</h3>
+          <p>Обновления, новые механики и правки баланса обсуждаются <b>до того, как попадут
+            в мир</b>. Аргумент, который сильнее нашего, меняет решение — ради этого альфа
+            и существует.</p>
+        </div>
+        <div class="cell">
+          <span class="n">03</span>
+          <h3>Попасть в команду</h3>
+          <p>Тех, кто приносит сильные разборы и идеи, <b>мы зовём делать игру</b>. Резюме не
+            нужно — нужен разбор, после которого мы меняем своё решение. Говорим сразу:
+            <b>участие волонтёрское</b>, денег за него мы не платим. Взамен — голос в решениях
+            и имя в истории проекта.</p>
+        </div>
+      </div>
+      <div class="band rv">
+        <a class="btn" href="https://discord.gg/eKhM3H9tKk" target="_blank" rel="noopener noreferrer">Войти в Discord <span class="arr" aria-hidden="true">→</span></a>
+        <span class="note">Открытый канал. Альфа — рабочий мир: в ней проверяют механики, что-то
+          в ней ломается, и при старте большого мира она сгорает целиком.</span>
+      </div>
+    </section>
+
+    <!-- ── 12 · Signup + FAQ ───────────────────────────────────────────── -->
     <section class="sec" id="signup">
       <div class="sec-head rv">
-        <span class="sec-num">11 / Бета</span>
+        <span class="sec-num">12 / Бета</span>
         <div>
           <h2>Вселенная запускается один раз</h2>
         </div>
@@ -1115,6 +1224,9 @@
             <p class="form-msg" role="status"></p>
             <p class="form-note">Никакой рассылки. Дат не называем.</p>
           </form>
+          <p class="beside">Письмо — только про старт большого мира.
+            <a class="ext" href="https://discord.gg/eKhM3H9tKk" target="_blank" rel="noopener noreferrer">Играть и спорить о механиках</a>
+            можно уже сейчас, ждать для этого нечего.</p>
         </div>
         <div class="faq rv">
           <details>
@@ -1144,6 +1256,21 @@
             <p class="a">Мир продолжит жить. Постройки будут списывать содержание, должности
               освободятся, обязательства продолжат течь.</p>
           </details>
+          <details>
+            <summary>Можно поиграть уже сейчас?</summary>
+            <p class="a">Да, альфа работает. Доступ выдаём в
+              <a class="ext" href="https://discord.gg/eKhM3H9tKk" target="_blank" rel="noopener noreferrer">Discord</a>,
+              там же обсуждаются обновления, механики и баланс — и тех, кто приносит сильные идеи
+              и разборы, <b>мы зовём в команду волонтёрами</b>. Почта нужна только для одного
+              письма о старте большого мира.</p>
+          </details>
+          <details>
+            <summary>Прогресс из альфы перенесётся?</summary>
+            <p class="a">Нет. <b>Альфа сгорит целиком при старте большого мира</b>: ни имущества,
+              ни денег, ни репутации оттуда не переносится. Иначе первые игроки вошли бы в мир
+              с форой, а он обязан начинаться пустым для всех. Остаётся то, что унести нельзя, —
+              знание, как здесь всё устроено.</p>
+          </details>
         </div>
       </div>
     </section>
@@ -1158,6 +1285,7 @@
       </svg>
     </a>
     <span>© 2026 OctoVerse · Мир один. Навсегда.</span>
+    <a class="ext" href="https://discord.gg/eKhM3H9tKk" target="_blank" rel="noopener noreferrer">Discord</a>
     <span class="r">octoverse.world</span>
   </div>
 </footer>
@@ -1168,6 +1296,8 @@
   (() => {
     const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
     const raf = (fn) => requestAnimationFrame(fn);
+    // The ships fly on SMIL, which the CSS rule for reduced motion cannot reach.
+    if (reduced) document.querySelectorAll(".system svg").forEach((s) => s.pauseAnimations());
 
     // ── First paint: let the hero rise ─────────────────────────────────────
     document.fonts && document.fonts.ready
@@ -1397,7 +1527,9 @@
           });
           const data = await res.json().catch(() => ({}));
           if (res.ok && data.ok) {
-            msg.textContent = "Готово. Одно письмо, когда мир откроется, — и больше ничего.";
+            // Not "thank you": what happens next, and where the project lives meanwhile.
+            msg.innerHTML = 'Готово. Одно письмо, когда мир откроется, — и больше ничего. ' +
+              'До тех пор мы в <a class="ext" href="https://discord.gg/eKhM3H9tKk" target="_blank" rel="noopener noreferrer">Discord</a>.';
             msg.className = "form-msg ok"; form.email.value = "";
           } else {
             msg.textContent = data.error || "Что-то пошло не так. Попробуйте ещё раз.";

@@ -17,7 +17,7 @@
  * closed:
  *
  * - a **closed row still says what is going on** -- "свободна · кач. 55",
- *   "партия · гвозди ×200" with its deadline bar, "занят · Тэрн", "нет
+ *   "партия · гвозди ×200" with its deadline bar, "занята · Тэрн", "нет
  *   топлива". Watching everything at once is the row's job; working is the
  *   open surface's job;
  * - **order comes from state**, not from source order: what is running first,
@@ -185,8 +185,8 @@ function assemble({ look, session, book, values, pow }: Props): Thing[] {
     const it = standing(machine);
     if (!it) return undefined;
     const parts: string[] = [];
-    if (it.busy) parts.push(it.mine ? "занят вами" : "занят");
-    else parts.push("свободен");
+    if (it.busy) parts.push(it.mine ? "занята вами" : "занята");
+    else parts.push("свободна");
     if (it.quality !== null) parts.push(`кач. ${it.quality.toFixed(0)}`);
     if (it.condition < 100) parts.push(`сост. ${it.condition.toFixed(0)}`);
     return parts.join(" · ");
@@ -213,7 +213,7 @@ function assemble({ look, session, book, values, pow }: Props): Thing[] {
     "Очаг": () => <Kitchen look={look} session={session} />,
     "Селекционный питомник": () => <Nursery look={look} session={session} />,
     "Угольная станция": () => <Plant look={look} session={session} />,
-    "Монетный станок": () => <Mint look={look} session={session} values={values} />,
+    "Монетная станция": () => <Mint look={look} session={session} values={values} />,
   };
 
   //: One machine is one row, whatever can be done at it. A hearth is both a
@@ -251,8 +251,21 @@ function assemble({ look, session, book, values, pow }: Props): Thing[] {
     state?: ReactNode,
   ) => things.push({ id, name, kind, rank, state, view });
 
-  //: The rig shows itself: it is silent unless there is one here or in hand.
-  single("rig", "Буровая", "bench", () => <Rig look={look} session={session} />, 1);
+  //: A rig, only where there is one to work with: standing in the node, or in
+  //: the hands waiting to be placed on a vein. The panel used to keep itself
+  //: silent while the row above it did not, so "Буровая" stood in every
+  //: location in the world -- including those with nothing to drill.
+  const rigInHand = look.inventory.some((t) => t.goods === "Буровая установка");
+  if (look.rig_here || rigInHand) {
+    single(
+      "rig",
+      "Буровая",
+      "bench",
+      () => <Rig look={look} session={session} />,
+      1,
+      look.rig_here ? undefined : "в руках: поставить на жилу",
+    );
+  }
 
   if ((look.node?.fertility ?? 0) > 0) {
     single("farm", "Делянки", "full", () => <Farm look={look} session={session} />);

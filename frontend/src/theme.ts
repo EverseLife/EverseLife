@@ -31,8 +31,16 @@ let current: Skin | null = null;
  * is not an error worth a blank screen: an unpainted interface is worse than a
  * Terran one, so we fall back and say so in the console.
  */
-export function wearPlanet(planet: string | null | undefined): void {
-  const skin = pick(planet);
+export function wearPlanet(
+  planet: string | null | undefined,
+  aboard = false,
+): void {
+  //: A ship is not a planet but a subgraph, and its nodes keep the planet of
+  //: their home port: the length of a day and the wear of gear are counted from
+  //: it, and neither has a meaning of its own on board. So the look is taken
+  //: from a node property instead, and the theme changes on the one edge where
+  //: the connectors meet -- a step aboard, not an arrival in orbit.
+  const skin = aboard ? "void" : pick(planet);
   if (skin === current) return;
   current = skin;
   document.documentElement.dataset.planet = skin;

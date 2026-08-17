@@ -299,7 +299,7 @@ def test_craft_premium_only_for_mix(constants: Constants, catalog: Catalog) -> N
     of_assembly = craft.forecast_quality(
         constants, assembly, ceiling=scale.mid, material=scale.max, accuracy=1.0
     )
-    assert of_mix > scale.mid, "точная пропорция поднимает выше потолка станка"
+    assert of_mix > scale.mid, "точная пропорция поднимает выше потолка станции"
     assert of_assembly == pytest.approx(scale.mid), "у сборки прибавке взяться неоткуда"
     assert of_mix - scale.mid <= constants[R.QUALITY_HAND_CRAFT_BONUS]
 

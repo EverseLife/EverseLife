@@ -312,6 +312,8 @@ export type Look = {
   } | null;
   /** An ongoing exploration run, if any (D-152). */
   survey?: { returns_at: string } | null;
+  /** Does a drilling rig stand in this node: the stand shows the row by it. */
+  rig_here?: boolean;
   /** The planet's clock: where the count starts and how long a day is (D-029). */
   clock?: { planet: string; epoch: string | null; day_hours: number };
   /** Whether a city can be founded here and what is missing for that (D-159).

@@ -65,7 +65,7 @@ export function Library({ look, session }: Omit<Props, "busy" | "act">) {
         <input
           type="search"
           value={search}
-          placeholder="рецепт, станок или вход"
+          placeholder="рецепт, станция или вход"
           onChange={(e) => {
             setSearch(e.target.value);
             setPage(0);
@@ -81,7 +81,7 @@ export function Library({ look, session }: Omit<Props, "busy" | "act">) {
           <tr>
             <th>рецепт</th>
             <th>ур.</th>
-            <th>станок</th>
+            <th>станция</th>
             <th>из чего</th>
             <th />
           </tr>

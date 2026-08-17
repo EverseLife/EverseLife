@@ -171,7 +171,9 @@ export default function App() {
   //: void. Before login nobody stands anywhere -- the theme stays the default.
   useEffect(() => {
     if (!look) return;
-    wearPlanet(look.clock?.planet ?? null);
+    //: "борт" is a node property, like "лес" or "камни": the vault sets it in
+    //: data, and the client only reads it.
+    wearPlanet(look.clock?.planet ?? null, (look.node?.features ?? []).includes("борт"));
   }, [look]);
 
   useEffect(() => {
