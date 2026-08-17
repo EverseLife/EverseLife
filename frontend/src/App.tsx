@@ -430,9 +430,6 @@ export default function App() {
       {accountWindow}
 
       {trouble && <p className="trouble">{trouble}</p>}
-      {/* The footer used to apologise for having no visual language. It has one
-          now, so the line says what is actually true of the build. */}
-      <footer>Альфа в разработке.</footer>
     </main>
     </ActionsProvider>
   );

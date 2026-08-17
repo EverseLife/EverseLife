@@ -44,6 +44,7 @@ import { Nursery } from "./Nursery";
 import { Place } from "./Place";
 import { Plant } from "./Plant";
 import { Rig } from "./Rig";
+import { Ship } from "./Ship";
 import { Workshop } from "./Workshop";
 import type { PowSettings } from "../pow";
 
@@ -265,6 +266,16 @@ function assemble({ look, session, book, values, pow }: Props): Thing[] {
       1,
       look.rig_here ? undefined : "в руках: поставить на жилу",
     );
+  }
+
+  //: The ship, where there is one to command: standing at a spaceport or
+  //: aboard. Aboard the row is the ship itself -- the map is already showing
+  //: its rooms, and this panel adds what the map cannot: thrust against mass.
+  const shipHere =
+    (look.node?.stations ?? []).includes("Космодром") ||
+    (look.node?.features ?? []).includes("борт");
+  if (shipHere) {
+    single("ship", "Корабль", "full", () => <Ship look={look} session={session} />);
   }
 
   if ((look.node?.fertility ?? 0) > 0) {

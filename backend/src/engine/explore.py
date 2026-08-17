@@ -177,6 +177,18 @@ async def survey(
     if origin is None:  # pragma: no cover -- a body always stands in a node
         raise ExploreError("разведка идёт из узла, а тело стоит в никуда")
 
+    #: Not from aboard a ship (D-201). A find comes with an edge from the node
+    #: one left from, and an edge out of a ship node would be a second way in
+    #: -- the connector must stay the only one, or the inspection at the
+    #: gangway is walked around. There is no land under a hull to explore anyway.
+    from src.engine import ship as vessels
+
+    if vessels.is_aboard(origin):
+        raise ExploreError(
+            "с борта не разведывают: под кораблём земли нет. "
+            "Сойдите в порту и идите от него"
+        )
+
     #: The refusal must come at once, not on return: an impossible goal is
     #: visible before leaving, and the player must not spend stamina on it.
     if goal == LOT:

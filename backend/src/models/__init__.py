@@ -53,6 +53,7 @@ from src.models.metrics import DailyMetric
 from src.models.mining import MiningSession, Pace, PowChallenge, SessionState
 from src.models.plant import Nursery, Variety
 from src.models.rig import Rig
+from src.models.ship import Ship
 from src.models.travel import Harness, Travel, TravelState
 from src.models.vote import Ballot, Vote, VoteKind, VoteState
 from src.models.world import Edge, Node, Planet, Surface, Vein
@@ -118,6 +119,7 @@ __all__ = [
     "ReservationState",
     "Rig",
     "SessionState",
+    "Ship",
     "Surface",
     "Trade",
     "Harness",

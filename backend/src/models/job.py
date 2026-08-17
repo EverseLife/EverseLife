@@ -53,6 +53,11 @@ class JobKind(StrEnum):
     #: Laying surface on an edge: the surface is written off at once, the road
     #: is laid on schedule (D-158).
     ROAD_WORK = "road.work"
+    #: Laying a ship node: the foundation is written off at once, the node
+    #: appears on schedule (D-202).
+    SHIP_KEEL = "ship.keel"
+    #: A ship's passage: undocked here, docks there when the term is up (D-201).
+    SHIP_FLIGHT = "ship.flight"
     #: Leaving citizenship: the declaration is filed, the term is up (D-160).
     CITIZENSHIP_EXIT = "city.citizenship_exit"
     #: Vote tally: the term is up, the result applies itself (D-161).

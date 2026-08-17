@@ -340,14 +340,16 @@ button.dots[aria-expanded="true"] {
   align-items: center;
   gap: 0.3rem;
 }
-/* Six tabs with marks want more width than five words did, and a third row of
-   them costs more vertical space than the marks are worth. So the tabs alone
-   are tightened -- the buttons elsewhere keep their room. */
+/* The tabs are a plain wrapping flex row: every tab is as wide as its own word
+   plus its mark, and the row takes however many lines that needs. Squeezing the
+   padding to save a line was traded away for labels that read as words. */
 .sidebar nav.tabs {
+  display: flex;
+  flex-wrap: wrap;
   gap: 0.3rem;
 }
 .sidebar nav.tabs button {
-  padding: 0.2rem 0.4rem;
+  flex: 0 0 auto;
 }
 .glyph {
   width: 14px;

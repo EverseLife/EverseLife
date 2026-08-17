@@ -351,6 +351,35 @@ EXPLORE_NODE_AREA = Span("explore.node_area")
 EXPLORE_VEIN_RICHNESS = Span("explore.vein_richness")
 EXPLORE_VEIN_STOCK = Span("explore.vein_stock")
 
+# --- Ship as a subgraph (D-201, D-202) --------------------------------------
+#: A node aboard: its own mass and its usable area. Every node added is both a
+#: place to put things and extra mass -- that is the whole design of a ship.
+SHIP_NODE_MASS = Num("ship.node_mass")
+SHIP_NODE_AREA = Num("ship.node_area")
+SHIP_FOUNDATION_HOURS = Num("ship.foundation_hours")
+#: Thrust and class **by the engine's name**, the way capacity is by the
+#: vehicle's (`transport.capacity`): the engine keeps no list of what engines
+#: exist. Add a second-class one in the vault and it flies without a release.
+SHIP_THRUST = Table("ship.thrust")
+SHIP_ENGINE_CLASS = Table("ship.engine_class")
+#: Thrust-to-mass: below the first the ship does not undock at all, at the
+#: second the passage takes exactly the table time.
+SHIP_MIN_THRUST_RATIO = Num("ship.min_thrust_ratio")
+SHIP_REFERENCE_RATIO = Num("ship.reference_ratio")
+#: The speed ceiling: a passage never goes faster than this share of the table.
+SHIP_ROUTE_MIN_SHARE = Num("ship.route_min_share")
+#: The gangway: docking and undocking are not instant, and the edge to the port
+#: costs exactly this to walk.
+SHIP_DOCK_MINUTES = Num("ship.dock_minutes")
+SHIP_FUEL_PER_TON_DAY = Num("ship.fuel_per_ton_day")
+SHIP_LIFE_SUPPORT_CREW = Num("ship.life_support_crew")
+#: Passage times: hours between two ports of one planet, days between planets.
+#: The interplanetary key is the pair of planets in alphabetical order -- the
+#: route is undirected, like an edge of the map.
+SHIP_HOP_HOURS = Num("ship.hop_hours")
+SHIP_ROUTE_DAYS = Table("ship.route_days")
+SHIP_ROUTE_CLASS = Table("ship.route_class")
+
 # --- Place properties (D-126) -----------------------------------------------
 SITE_TEMP_RANGE = Span("site.temp_range")
 SITE_RAIN_RANGE = Span("site.rain_range")

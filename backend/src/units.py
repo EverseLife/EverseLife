@@ -43,6 +43,22 @@ MINUTES_PER_HOUR = 60.0
 #: Seconds per hour: map edges and sleep live in seconds, vault rates in hours.
 SECONDS_PER_HOUR = 3600.0
 
+#: Hours per **real** day. Ship passage tables are given in real days
+#: ("2-8 суток реального времени", 10-world/06), and this is that conversion --
+#: not the length of a Terran day, which is balance and lives in `time.day_terra`.
+HOURS_PER_DAY = 24.0
+
+#: Kilograms per tonne: item mass is in kilograms, ship fuel is charged per
+#: tonne of mass. The definition of the unit, not a property of the game.
+KG_PER_TON = 1000.0
+
+#: How many decimals a summary keeps: masses and fuel to a tenth, hours to a
+#: hundredth, dimensionless ratios to a thousandth. Presentation, not balance --
+#: there is nothing here to tune.
+ROUND_MASS = 1
+ROUND_HOURS = 2
+ROUND_RATIO = 3
+
 #: Argon2id takes memory in KiB, while `pow.memory_per_session` is given in MB.
 KIB_PER_MIB = 1024
 

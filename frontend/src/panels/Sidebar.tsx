@@ -48,12 +48,12 @@ type Props = {
  * keep, and the state -- if the state is any of my business.
  */
 const TABS = [
-  { id: "me", label: "я", icon: "me", of: "персонаж: состояние, сон, счёт" },
-  //: Goods left "я" for a tab of their own: the inventory is a table with a
-  //: menu per row, and it does not share a screen with anything.
-  { id: "goods", label: "вещи", icon: "goods", of: "что в руках и что надето" },
-  { id: "work", label: "дело", icon: "work", of: "что идёт и что можно сделать руками" },
-  { id: "money", label: "деньги", icon: "money", of: "счёт, выписка, кредит, свои ордера" },
+  { id: "me", label: "персонаж", icon: "me", of: "персонаж: состояние, сон, счёт" },
+  //: Goods left "персонаж" for a tab of their own: the inventory is a table
+  //: with a menu per row, and it does not share a screen with anything.
+  { id: "goods", label: "инвентарь", icon: "goods", of: "что в руках и что надето" },
+  { id: "work", label: "активности", icon: "work", of: "что идёт и что можно сделать руками" },
+  { id: "money", label: "финансы", icon: "money", of: "счёт, выписка, кредит, свои ордера" },
   { id: "knows", label: "знания", icon: "knows", of: "известные рецепты" },
   { id: "estate", label: "хозяйство", icon: "estate", of: "сеть, счета за быт, бумаги" },
 ] as const;
@@ -138,10 +138,6 @@ export function Sidebar({ look, session, book }: Omit<Props, "busy" | "act">) {
           <Population look={look} session={session} busy={busy} />
         </>
       )}
-
-      <p className="note">
-        Сайдбар — это Сеть: работает откуда угодно.
-      </p>
     </aside>
   );
 }

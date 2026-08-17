@@ -69,6 +69,20 @@ class EventKind(StrEnum):
     #: Overgrown: the surface dropped a tier without maintenance.
     ROAD_DECAYED = "road.decayed"
 
+    # ship as a subgraph (D-201, D-202)
+    #: A foundation laid: the ship appeared with its first node -- the connector.
+    SHIP_FOUNDED = "ship.founded"
+    #: One more node aboard: the ship grows by a node at a time.
+    SHIP_EXTENDED = "ship.extended"
+    #: The keel is laid, the node arrives on schedule -- work like any other.
+    SHIP_KEEL_LAID = "ship.keel_laid"
+    #: Undocked: the edge to the spaceport is gone, and that is the flight.
+    SHIP_UNDOCKED = "ship.undocked"
+    #: Set out for a port: fuel written off, arrival by a journal job.
+    SHIP_LAUNCHED = "ship.launched"
+    #: Docked: the edge to the port appeared, one may walk aboard again.
+    SHIP_DOCKED = "ship.docked"
+
     # transport and convoy (D-157)
     TRANSPORT_HARNESSED = "transport.harnessed"
     TRANSPORT_UNHARNESSED = "transport.unharnessed"

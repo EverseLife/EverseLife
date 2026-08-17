@@ -59,6 +59,7 @@ from src.engine import (
     rest,
     rig,
     road,
+    ship,
     station,
     storage,
     transport,
@@ -90,6 +91,7 @@ from src.models.market import (
 from src.models.mining import MiningSession, Pace, PowChallenge, SessionState
 from src.models.plant import Nursery, Variety
 from src.models.rig import Rig as RigRow
+from src.models.ship import Ship
 from src.models.vote import Vote
 from src.models.world import Edge, Layer, Node, Vein
 from src.telemetry import metrics
@@ -147,6 +149,8 @@ async def play(socket: WebSocket) -> None:
             except transport.TransportError as refusal:
                 answer = {"refused": str(refusal)}
             except road.RoadError as refusal:
+                answer = {"refused": str(refusal)}
+            except ship.ShipError as refusal:
                 answer = {"refused": str(refusal)}
             except vote.VoteError as refusal:
                 answer = {"refused": str(refusal)}
@@ -2009,6 +2013,88 @@ async def _transport_unload(state: dict, db: AsyncSession, message: dict) -> dic
     return {"unloaded": carried}
 
 
+async def _ship_found(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Lay a ship's foundation at a spaceport (D-202).
+
+    The foundation is written off at once, the first node -- the base and the
+    connector in one -- arrives on schedule, like every long-running work.
+    """
+    body = await _alive(state, db)
+    job = await ship.found(db, current(), body, str(message.get("name") or "Корабль"))
+    return {"keel": str(job.id), "ready_at": job.run_at.isoformat()}
+
+
+async def _ship_extend(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Lay one more node aboard, joined to the one you are standing in."""
+    body = await _alive(state, db)
+    job = await ship.extend(db, current(), body)
+    return {"keel": str(job.id), "ready_at": job.run_at.isoformat()}
+
+
+async def _ship_of(db: AsyncSession, body: Body, asked: str | None) -> Ship:
+    """Which ship the command is about: the named one, else the one you stand in."""
+    if asked:
+        found = await db.get(Ship, uuid.UUID(asked))
+        if found is None:
+            raise Refused("нет такого корабля")
+        return found
+    aboard = await ship.aboard_of(db, body)
+    if aboard is None:
+        raise Refused("вы не на борту: назовите корабль или поднимитесь на него")
+    return aboard
+
+
+async def _ship_view(state: dict, db: AsyncSession, message: dict) -> dict:
+    """The ship's summary: thrust, mass, thrust-to-mass and the price of every route.
+
+    Remote, and shown **before** undocking: a refusal by mass must not be a
+    surprise sprung after the hold is loaded (D-202).
+    """
+    body = await _alive(state, db)
+    asked = message.get("ship")
+    if not asked and await ship.aboard_of(db, body) is None:
+        mine = await ship.ships_of(db, body.identity_id)
+        return {
+            "ships": [
+                await ship.profile(db, current(), current_catalog(), one) for one in mine
+            ]
+        }
+    vessel = await _ship_of(db, body, asked)
+    return {"ships": [await ship.profile(db, current(), current_catalog(), vessel)]}
+
+
+async def _ship_undock(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Cast off: the edge to the port is removed, and that is the flight (D-201)."""
+    body = await _alive(state, db)
+    vessel = await _ship_of(db, body, message.get("ship"))
+    await ship.undock(db, current(), current_catalog(), body, vessel)
+    return {"undocked": vessel.name}
+
+
+async def _ship_fly(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Set out for a spaceport. Fuel now, docking by a journal job."""
+    body = await _alive(state, db)
+    vessel = await _ship_of(db, body, message.get("ship"))
+    port = (
+        await db.execute(select(Node).where(Node.key == str(message.get("port") or "")))
+    ).scalars().first()
+    if port is None:
+        raise Refused("нет такого узла")
+    job = await ship.fly(db, current(), current_catalog(), body, vessel, port)
+    return {"flight": str(job.id), "arrives_at": job.run_at.isoformat()}
+
+
+async def _ship_ports(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Where there is a spaceport at all. Public: ports are not a secret."""
+    await _alive(state, db)
+    return {
+        "ports": [
+            {"node": port.key, "name": port.name, "planet": port.planet.value}
+            for port in await ship.ports(db)
+        ]
+    }
+
+
 async def _explore_survey(state: dict, db: AsyncSession, message: dict) -> dict:
     """Go exploring for the named goal. The find arrives on schedule, including offline.
 
@@ -2725,6 +2811,12 @@ _COMMANDS = {
     "travel.cancel": _travel_cancel,
     "road.lay": _road_lay,
     "road.here": _road_here,
+    "ship.found": _ship_found,
+    "ship.extend": _ship_extend,
+    "ship.view": _ship_view,
+    "ship.undock": _ship_undock,
+    "ship.fly": _ship_fly,
+    "ship.ports": _ship_ports,
     "transport.harness": _transport_harness,
     "transport.unharness": _transport_unharness,
     "transport.load": _transport_load,
