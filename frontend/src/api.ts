@@ -161,7 +161,18 @@ export type MapNode = {
   flight: { to: string; started_at: string; arrives_at: string } | null;
 };
 export type MapEdge = { a: string; b: string; surface: Exit["surface"]; seconds: number };
-export type WorldMap = { nodes: MapNode[]; edges: MapEdge[] };
+/** A corridor between two planets: not an edge of the graph but the price of a
+ *  passage (D-037). The two ends are the vault's -- in conjunction and in
+ *  opposition -- and where between them a given hour falls is decided by where
+ *  the planets stand then. Ends by planet, not by node key. */
+export type MapRoute = {
+  a: string;
+  b: string;
+  window_hours: number;
+  apart_hours: number;
+  class: number;
+};
+export type WorldMap = { nodes: MapNode[]; edges: MapEdge[]; routes: MapRoute[] };
 
 /** A remark as heard by someone standing in the location (D-043, D-050). */
 export type ChatLine = {

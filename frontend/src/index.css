@@ -1396,6 +1396,26 @@ textarea.word {
   display: none;
 }
 
+/* A corridor between two planets: not a road but a price. Thin and quiet --
+   what matters on it is the number, and the number is what a passage costs if
+   one casts off now. */
+.corridor line {
+  stroke: var(--base-700);
+  stroke-width: 1;
+  stroke-dasharray: 1 5;
+}
+.passage {
+  fill: var(--base-400);
+  font-family: var(--font-num);
+  font-size: 10px;
+  text-anchor: middle;
+}
+/* The window is open: the planets are as close as they get, and waiting buys
+   nothing. The one place on this layer where a colour means something. */
+.passage.open {
+  fill: var(--success);
+}
+
 /* A ship: a hull, not a place. Colourless on purpose -- the tints belong to
    planets, and a ship is somebody's property passing by, not a body of the
    system. Sharp corners tell it from every circle on the map at a glance. */

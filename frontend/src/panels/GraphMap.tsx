@@ -35,6 +35,7 @@ import {
   spell,
   type Look,
   type MapNode,
+  type MapRoute,
   type Outlook,
   type RoadWork,
   type Session,
@@ -104,6 +105,33 @@ function mooring(key: string): number {
   for (const ch of key) seed = (seed * 31 + ch.charCodeAt(0)) % 997;
   return (seed / 997) * Math.PI * 2;
 }
+
+/**
+ * What a passage between two planets costs at this distance, in hours (D-037).
+ *
+ * The vault gives the two ends -- the planets on one side of the star and on
+ * opposite sides of it -- and the distance says where between them the moment
+ * falls. The same rule the engine settles a flight by, so the map's forecast
+ * and the server's price come from one formula rather than two.
+ */
+function passage(route: MapRoute, gap: number, near: number, far: number): number {
+  const share = far > near ? (gap - near) / (far - near) : 0;
+  const held = Math.min(1, Math.max(0, share));
+  return route.window_hours + (route.apart_hours - route.window_hours) * held;
+}
+
+/** A term in words: hours until they turn into days. Real time, not the planet's. */
+function term(hours: number): string {
+  if (hours < HOURS_PER_DAY) {
+    return `${hours < 10 ? hours.toFixed(1) : Math.round(hours)} ч`;
+  }
+  return `${(hours / HOURS_PER_DAY).toFixed(1)} сут`;
+}
+
+const HOURS_PER_DAY = 24;
+//: How close to the short end still counts as "the window is open". A tenth of
+//: the spread: near enough that waiting buys almost nothing.
+const WINDOW_EDGE = 0.1;
 
 /**
  * Layout memory: a node that once settled remembers its place by key --
@@ -216,6 +244,10 @@ export function GraphMap({ look, session, onEnter }: Omit<Props, "busy" | "act">
   //: Taken from the node's own planet rather than from its parent: a node
   //: found by exploration hangs on nothing, and by parent it would fall out of
   //: the layer altogether.
+  /** The planet's own node, by planet name: corridors are keyed by planet. */
+  const sphereOf = (planet: string): MapNode | undefined =>
+    (map?.nodes ?? []).find((node) => node.orbit && node.planet === planet);
+
   const mySphere = byKey[repr(here, "space") ?? ""]?.planet ?? byKey[here]?.planet ?? null;
   const sphereShown = planetFocus ?? mySphere;
 
@@ -860,6 +892,42 @@ export function GraphMap({ look, session, onEnter }: Omit<Props, "busy" | "act">
               <circle className="star" cx={STAR.x} cy={STAR.y} r={7} />
             </g>
           )}
+
+          {/* The corridors: what a passage between two planets costs right now.
+              There is no edge under them -- one does not walk the void -- so
+              they are drawn from the vault's two ends and the current distance,
+              by the same rule the engine settles a flight by (D-037). This is
+              what makes a passage something one plans: the window is worth
+              waiting for, and the map says how long. */}
+          {orbiting &&
+            (map.routes ?? []).map((route) => {
+              const one = sphereOf(route.a);
+              const other = sphereOf(route.b);
+              const here = one && at(one.key);
+              const there = other && at(other.key);
+              if (!one || !other || !here || !there) return null;
+              const gap = Math.hypot(there.x - here.x, there.y - here.y);
+              const near = Math.abs(one.orbit!.radius - other.orbit!.radius) * fit;
+              const far = (one.orbit!.radius + other.orbit!.radius) * fit;
+              const hours = passage(route, gap, near, far);
+              const open = hours - route.window_hours
+                < (route.apart_hours - route.window_hours) * WINDOW_EDGE;
+              const midX = (here.x + there.x) / 2;
+              const midY = (here.y + there.y) / 2;
+              const away = Math.hypot(midX - STAR.x, midY - STAR.y) || 1;
+              return (
+                <g key={`corridor|${route.a}|${route.b}`} className="corridor">
+                  <line x1={here.x} y1={here.y} x2={there.x} y2={there.y} />
+                  <text
+                    x={midX + ((midX - STAR.x) / away) * 14}
+                    y={midY + ((midY - STAR.y) / away) * 14}
+                    className={`passage${open ? " open" : ""}`}
+                  >
+                    {term(hours)}
+                  </text>
+                </g>
+              );
+            })}
 
           {/* The line a ship is on. There is no edge under it -- undocking took
               the only one away (D-201) -- so the corridor is drawn from the

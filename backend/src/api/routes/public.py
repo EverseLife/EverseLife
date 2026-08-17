@@ -141,6 +141,12 @@ async def world_map() -> dict[str, Any]:
                 }
                 for edge in edges
             ],
+            #: The corridors of space. Not edges of the graph -- between planets
+            #: there are none, and one does not walk there -- but what a passage
+            #: costs: the two ends from the vault, and the sky decides where
+            #: between them the moment falls (D-037). Keyed by planet, so the
+            #: client ties a corridor to the bodies it already draws.
+            "routes": vessels.corridors(constants),
         }
 
 

@@ -263,10 +263,15 @@
     "Двигатель III класса": 3
   },
   "ship.hop_hours": 6,
-  "ship.route_days": {
-    "aurora-terra": 5.5,
-    "pyroxis-terra": 7.5,
-    "aurora-pyroxis": 9.5
+  "ship.route_window_hours": {
+    "aurora-terra": 10,
+    "pyroxis-terra": 16,
+    "aurora-pyroxis": 24
+  },
+  "ship.route_apart_hours": {
+    "aurora-terra": 48,
+    "pyroxis-terra": 72,
+    "aurora-pyroxis": 84
   },
   "ship.route_class": {
     "aurora-terra": 2,

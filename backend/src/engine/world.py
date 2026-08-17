@@ -49,6 +49,17 @@ ORBIT_PHASE = "фаза"
 DEFERRED = "отложена"
 
 
+async def epoch(session: AsyncSession) -> datetime | None:
+    """When the world began: the birth of its first node.
+
+    The world is eternal and has no wipes (D-007), so that moment never moves
+    -- which is what makes it usable as the origin of every count that must
+    agree between the server and every client: the planet's clock (D-029) and
+    the angle a planet stands at on its orbit.
+    """
+    return await session.scalar(select(func.min(Node.created_at)))
+
+
 def orbit_of(node: Node) -> dict[str, float] | None:
     """The node's orbit for the client, or None if the node does not go round anything.
 

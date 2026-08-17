@@ -66,14 +66,30 @@ quietly weld the ship to a wild node past the inspection at the gangway.
 ## What the engine keeps no list of
 
 Neither engines nor routes. Thrust and class come by the item's name from
-`ship.thrust` and `ship.engine_class`, passage times from `ship.route_days`
-keyed by the pair of planets -- exactly as a vehicle's capacity comes by its
-name (D-090). A second-class engine appears in the vault and flies without a
-release.
+`ship.thrust` and `ship.engine_class`, passage times from
+`ship.route_window_hours` and `ship.route_apart_hours` keyed by the pair of
+planets -- exactly as a vehicle's capacity comes by its name (D-090). A
+second-class engine appears in the vault and flies without a release.
+
+## A passage costs what the sky costs today
+
+The two vault numbers are the **ends** of a route, not its price: planets go
+round the star at their own periods, so the way between any two of them
+stretches and shrinks by itself. In conjunction Terra and Aurora are ten hours
+apart, in opposition two days -- and everything between is the sky's doing, not
+a setting. Hence the rule the whole of space trade rests on: **a passage is
+planned.** Windows come round every two to five weeks of real time, and setting
+out at the wrong hour costs four to five times over, in hours and in fuel
+alike.
+
+The time is settled once, at casting off, and never recomputed: a sky turning
+under a ship already under way would make the passage longer than the one paid
+for.
 """
 
 from __future__ import annotations
 
+import math
 import uuid
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -384,17 +400,128 @@ def route_key(one: Planet, other: Planet) -> str:
     return "-".join(sorted((one.value, other.value)))
 
 
-def base_hours(constants: Constants, here: Planet, there: Planet) -> float | None:
+async def _sphere(session: AsyncSession, planet: Planet) -> Node | None:
+    """The planet's own node: the one carrying its orbit.
+
+    Ship delegates live on the space layer too, and they also carry a planet --
+    they are told apart by hanging on one. A planet hangs on nothing.
+    """
+    return (
+        await session.execute(
+            select(Node).where(
+                Node.layer == Layer.SPACE,
+                Node.planet == planet,
+                Node.parent_id.is_(None),
+            )
+        )
+    ).scalars().first()
+
+
+async def separation(
+    session: AsyncSession, here: Planet, there: Planet, at: datetime
+) -> tuple[float, float, float] | None:
+    """How far two planets stand apart now, and the two ends that distance lives between.
+
+    Returns `(now, together, opposite)`. Together is `|Ra - Rb|` -- the planets
+    on one side of the star, the shortest the corridor between them ever is;
+    opposite is `Ra + Rb`, the longest. None means the world has no orbits to
+    ask (an old world, a test): the caller then has nothing to modulate by.
+    """
+    one = await _sphere(session, here)
+    other = await _sphere(session, there)
+    if one is None or other is None:
+        return None
+    first = world.orbit_of(one)
+    second = world.orbit_of(other)
+    if first is None or second is None:
+        return None
+
+    origin = await world.epoch(session)
+    gone = 0.0 if origin is None else (at - origin).total_seconds()
+    days = gone / SECONDS_PER_HOUR / HOURS_PER_DAY
+
+    def place(orbit: dict[str, float]) -> tuple[float, float]:
+        angle = orbit["phase"] + math.tau * days / orbit["period_days"]
+        return orbit["radius"] * math.cos(angle), orbit["radius"] * math.sin(angle)
+
+    ax, ay = place(first)
+    bx, by = place(second)
+    radii = (first["radius"], second["radius"])
+    return math.dist((ax, ay), (bx, by)), abs(radii[0] - radii[1]), sum(radii)
+
+
+async def base_hours(
+    session: AsyncSession,
+    constants: Constants,
+    here: Planet,
+    there: Planet,
+    *,
+    at: datetime,
+) -> float | None:
     """The passage's table time at the reference thrust-to-mass, hours.
+
+    **Not a constant of the route but of the moment.** Planets go round the
+    star at their own periods, so the way between any two of them stretches and
+    shrinks by itself: the vault gives the two ends -- in conjunction and in
+    opposition -- and the sky decides where between them today falls. A ship
+    setting out at the wrong hour pays four to five times over, which is why
+    interplanetary trade goes in waves and a passage is planned rather than
+    simply started.
 
     None means there is no such route in the vault at all -- and that is a
     refusal, not a zero: the engine invents no ways between planets.
     """
     if here is there:
         return constants[R.SHIP_HOP_HOURS]
-    days = constants[R.SHIP_ROUTE_DAYS]
     key = route_key(here, there)
-    return None if key not in days else float(days[key]) * HOURS_PER_DAY
+    window = constants[R.SHIP_ROUTE_WINDOW_HOURS]
+    apart = constants[R.SHIP_ROUTE_APART_HOURS]
+    if key not in window or key not in apart:
+        return None
+
+    near, far = float(window[key]), float(apart[key])
+    spread = await separation(session, here, there, at)
+    if spread is None:
+        #: A world with no orbits to ask -- and the answer is the **long** end.
+        #: Not knowing the sky must never come out cheaper than knowing it:
+        #: were the planets ever to go missing from under this query, flights
+        #: would silently turn into bargains and nobody would notice.
+        return far
+    now, together, opposite = spread
+    if opposite <= together:  # pragma: no cover -- two planets on one orbit
+        return near
+    share = min(1, max(0, (now - together) / (opposite - together)))
+    return near + (far - near) * share
+
+
+def corridors(constants: Constants) -> list[dict[str, object]]:
+    """Every interplanetary route the vault knows: its two ends and its class.
+
+    For the map, which draws the corridors and what a passage along them costs
+    right now. The ends travel rather than the answer on purpose: the client
+    already has the orbits and winds them forward, so it can price a passage
+    for any moment -- and a player planning a run needs exactly that, not
+    today's number alone. The engine stays the authority: this is a forecast,
+    and the flight is settled by `base_hours` at the moment of casting off.
+    """
+    window = constants[R.SHIP_ROUTE_WINDOW_HOURS]
+    apart = constants[R.SHIP_ROUTE_APART_HOURS]
+    classes = constants[R.SHIP_ROUTE_CLASS]
+    lines: list[dict[str, object]] = []
+    for key in sorted(window):
+        if key not in apart:  # pragma: no cover -- the vault gives both ends
+            continue
+        first, _, second = key.partition("-")
+        lines.append(
+            {
+                "a": first,
+                "b": second,
+                "window_hours": float(window[key]),
+                "apart_hours": float(apart[key]),
+                "class": int(classes.get(key, 1)),
+            }
+        )
+    return lines
 
 
 def route_class(constants: Constants, here: Planet, there: Planet) -> int:
@@ -772,6 +899,8 @@ async def undock(
     catalog: Catalog,
     body: Body,
     ship: Ship,
+    *,
+    now: datetime | None = None,
 ) -> Ship:
     """Cast off: the edge to the port is removed, and that is the flight (D-201).
 
@@ -780,6 +909,7 @@ async def undock(
     not enough fuel even for the way back, and somebody walking the gangway
     right now -- one does not pull it from under a walker.
     """
+    moment = now or datetime.now(UTC)
     await _commanded_by(session, body, ship)
     if ship.docked_node_id is None:
         raise InFlight("корабль уже отстыкован")
@@ -811,7 +941,9 @@ async def undock(
     #: The return hop is the cheapest passage there is, so affording it
     #: guarantees at least one way home.
     weight = await mass(session, constants, catalog, ship)
-    table = base_hours(constants, connector.planet, port.planet)
+    table = await base_hours(
+        session, constants, connector.planet, port.planet, at=moment
+    )
     back = fuel_for(constants, weight, passage_hours(constants, table or 0, thrust_ratio))
     if await fuel_aboard(session, ship) + _EPS < back:
         raise NoFuel(
@@ -867,7 +999,12 @@ async def fly(
     if connector is None:  # pragma: no cover
         raise ShipError("у корабля нет коннектора")
 
-    table = base_hours(constants, connector.planet, port.planet)
+    #: The time is settled **here**, at the moment of casting off, and is not
+    #: recomputed afterwards: otherwise the sky would turn under a ship already
+    #: under way and the passage would grow longer than the one paid for.
+    table = await base_hours(
+        session, constants, connector.planet, port.planet, at=moment
+    )
     if table is None:
         raise TooFar(
             f"маршрута {connector.planet.value} — {port.planet.value} в мире нет"
@@ -1072,12 +1209,16 @@ async def profile(
         None if ship.docked_node_id is None else await session.get(Node, ship.docked_node_id)
     )
 
+    #: The prices are for **this** moment: the sky turns, and a route quoted an
+    #: hour ago is not the route one gets. The player sees what casting off now
+    #: would cost, and the window they may prefer to wait for is on the map.
+    moment = datetime.now(UTC)
     routes: list[dict] = []
     for port in await ports(session):
         if docked is not None and port.id == docked.id:
             continue
         planet = Planet.TERRA if connector is None else connector.planet
-        table = base_hours(constants, planet, port.planet)
+        table = await base_hours(session, constants, planet, port.planet, at=moment)
         if table is None:
             continue
         need_class = route_class(constants, planet, port.planet)

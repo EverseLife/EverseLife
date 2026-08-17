@@ -29,7 +29,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src import runtime
@@ -3058,8 +3058,9 @@ async def _clock(db: AsyncSession, constants, node: Node) -> dict[str, Any]:
     player's own clock on purpose.
     """
     from src.constants import registry as R
+    from src.engine import world as places
 
-    origin = await db.scalar(select(func.min(Node.created_at)))
+    origin = await places.epoch(db)
     return {
         "planet": node.planet.value,
         "epoch": None if origin is None else origin.isoformat(),

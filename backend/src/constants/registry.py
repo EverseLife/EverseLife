@@ -389,7 +389,11 @@ SHIP_LIFE_SUPPORT_CREW = Num("ship.life_support_crew")
 #: The interplanetary key is the pair of planets in alphabetical order -- the
 #: route is undirected, like an edge of the map.
 SHIP_HOP_HOURS = Num("ship.hop_hours")
-SHIP_ROUTE_DAYS = Table("ship.route_days")
+#: The two ends of an interplanetary passage: the planets on one side of the
+#: star and on opposite sides of it. Where between them today's sky stands is
+#: what the passage actually costs (D-037).
+SHIP_ROUTE_WINDOW_HOURS = Table("ship.route_window_hours")
+SHIP_ROUTE_APART_HOURS = Table("ship.route_apart_hours")
 SHIP_ROUTE_CLASS = Table("ship.route_class")
 
 # --- Place properties (D-126) -----------------------------------------------

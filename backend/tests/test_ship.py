@@ -14,6 +14,7 @@ Checked is exactly what the design rests on:
 from __future__ import annotations
 
 import uuid
+from datetime import timedelta
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -25,7 +26,7 @@ from src.models.estate import Building
 from src.models.identity import Body
 from src.models.job import JobState
 from src.models.ship import Ship
-from src.models.world import Node, Planet
+from src.models.world import Layer, Node, Planet
 
 ENGINE = "Двигатель I класса"
 LIFE = "Система жизнеобеспечения"
@@ -534,6 +535,75 @@ async def test_ship_takes_the_planet_of_the_port_it_stands_at(
         )
 
 
+async def _sphere(
+    session: AsyncSession,
+    key: str,
+    planet: Planet,
+    *,
+    radius: float,
+    period: float,
+    phase: float = 0.0,
+) -> Node:
+    """A planet on the space layer: a node whose whole point is its orbit."""
+    return await world.create_node(
+        session,
+        key,
+        key.title(),
+        planet=planet,
+        area_m2=1,
+        layer=Layer.SPACE,
+        properties={
+            world.ORBIT: {
+                world.ORBIT_RADIUS: radius,
+                world.ORBIT_PERIOD: period,
+                world.ORBIT_PHASE: phase,
+            }
+        },
+    )
+
+
+async def test_passage_time_follows_the_sky(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """The same route costs differently at different hours (D-037).
+
+    Two planets started level: at the epoch they stand on one side of the star
+    and the way between them is the shortest it ever gets; two days later the
+    inner one has gone half a circle and stands opposite, and the way is the
+    longest. Everything in between is the sky's doing.
+
+    The outer planet is given an unreachably long year on purpose -- with one
+    of the two standing still the configuration is exactly known, and the test
+    checks the rule rather than arithmetic on two moving bodies.
+    """
+    await _sphere(session, "terra", Planet.TERRA, radius=100, period=4)
+    await _sphere(session, "aurora", Planet.AURORA, radius=200, period=1_000_000)
+    await session.flush()
+
+    origin = await world.epoch(session)
+    assert origin is not None
+    window = constants[R.SHIP_ROUTE_WINDOW_HOURS]["aurora-terra"]
+    apart = constants[R.SHIP_ROUTE_APART_HOURS]["aurora-terra"]
+
+    together = await ship.base_hours(
+        session, constants, Planet.TERRA, Planet.AURORA, at=origin
+    )
+    opposite = await ship.base_hours(
+        session, constants, Planet.TERRA, Planet.AURORA, at=origin + timedelta(days=2)
+    )
+    between = await ship.base_hours(
+        session, constants, Planet.TERRA, Planet.AURORA, at=origin + timedelta(days=1)
+    )
+
+    assert together == pytest.approx(window, rel=1e-3), (
+        "в сближение рейс идёт по короткому краю вольта"
+    )
+    assert opposite == pytest.approx(apart, rel=1e-3), (
+        "в противостояние — по длинному"
+    )
+    assert window < between < apart, "между краями время идёт по расстоянию"
+
+
 async def test_long_passage_needs_more_fuel_than_a_hop(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
@@ -550,7 +620,11 @@ async def test_long_passage_needs_more_fuel_than_a_hop(
     connector = await session.get(Node, vessel.connector_node_id)
     await _equip(session, connector, "Двигатель II класса")
     await _equip(session, connector, LIFE)
-    await _equip(session, connector, FUEL, amount=20)
+    #: Enough for a hop several times over and nowhere near enough for a world
+    #: away. The interplanetary passage is hours to days rather than a fixed
+    #: number of days (D-037): its price now depends on where the planets
+    #: stand, and this tank is short of even the shortest window.
+    await _equip(session, connector, FUEL, amount=4)
     owner.node_id = connector.id
     await session.flush()
 
