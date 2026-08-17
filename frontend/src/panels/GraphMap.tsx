@@ -82,6 +82,19 @@ const MAX_SPEED = 4;
 const WALL_PUSH = 0.02;
 const WALL_MARGIN = 60;
 
+//: The space layer has no springs at all. A planet's place is a function of
+//: time -- angle from the world's epoch, radius from the vault -- so the
+//: distance between two planets, and with it the length of the passage
+//: between them, changes by itself while nobody touches the map.
+const STAR = { x: W / 2, y: H / 2 };
+const TURN = Math.PI * 2;
+const MS_PER_DAY = 86_400_000;
+//: The orbit is honest, and an honest orbit is not visible: Terra walks half a
+//: degree an hour. So the motion is shown by winding the clock forward rather
+//: than by waiting -- a month ahead, three days a second.
+const FORECAST_DAYS = 60;
+const FORECAST_SPEED = 3;
+
 /**
  * Layout memory: a node that once settled remembers its place by key --
  * across layer changes, leaving the map tab and the road. Reseeding from
@@ -147,8 +160,13 @@ export function GraphMap({ look, session, onEnter }: Omit<Props, "busy" | "act">
   //: where they are going and does not want the column in between.
   const [menu, setMenu] = useState<{ key: string; x: number; y: number } | null>(null);
   const [cityFocus, setCityFocus] = useState<string | null>(null);
+  //: Whose surface the planet layer shows. There are four planets in the sky
+  //: now, and "everything of layer `planet`" would mix their nodes into one
+  //: heap the first time a second planet gets a node of its own.
+  const [planetFocus, setPlanetFocus] = useState<string | null>(null);
   useEffect(() => {
     setCityFocus(null);
+    setPlanetFocus(null);
     setPicked(null);
     setMenu(null);
   }, [here]);
@@ -184,14 +202,22 @@ export function GraphMap({ look, session, onEnter }: Omit<Props, "busy" | "act">
     ? desired
     : "planet";
 
+  //: The surface under your feet, and after that whichever planet was opened.
+  //: Taken from the node's own planet rather than from its parent: a node
+  //: found by exploration hangs on nothing, and by parent it would fall out of
+  //: the layer altogether.
+  const mySphere = byKey[repr(here, "space") ?? ""]?.planet ?? byKey[here]?.planet ?? null;
+  const sphereShown = planetFocus ?? mySphere;
+
   const visible = useMemo(() => {
     return (map?.nodes ?? []).filter((node) => {
       if (node.layer !== currentLayer) return false;
       if (currentLayer === "city") return node.parent === focus;
       if (currentLayer === "location") return node.parent === locationBase;
+      if (currentLayer === "planet") return !sphereShown || node.planet === sphereShown;
       return true;
     });
-  }, [map, currentLayer, focus, locationBase]);
+  }, [map, currentLayer, focus, locationBase, sphereShown]);
 
   const shownEdges = useMemo(() => {
     const seen = new Map<string, { a: string; b: string; surface: string; seconds: number }>();
@@ -218,6 +244,8 @@ export function GraphMap({ look, session, onEnter }: Omit<Props, "busy" | "act">
   //: While we hold a node it is "pinned" and obeys the mouse, not the springs.
   const dragging = useRef<{
     key: string | null;
+    /** A body the hand may not move: a planet on its orbit. */
+    fixed?: boolean;
     moved: boolean;
     startX: number;
     startY: number;
@@ -267,6 +295,79 @@ export function GraphMap({ look, session, onEnter }: Omit<Props, "busy" | "act">
     };
   }, [menu]);
 
+  // --- the system: orbits instead of springs --------------------------------
+
+  //: How far ahead the sky is wound. Zero is now, and it is what the layer
+  //: opens on: a map that shows anything but the present moment must say so.
+  const [ahead, setAhead] = useState(0);
+  const aheadRef = useRef(0);
+  const [winding, setWinding] = useState(false);
+  const epoch = look.clock?.epoch ?? null;
+  const orbiting = currentLayer === "space";
+
+  //: Radii from the vault are proportions, not pixels: the outermost ring is
+  //: fitted into the frame, and every other one shrinks with it. Otherwise the
+  //: farthest planet -- the one a player most wants to look at -- goes over the
+  //: edge, and a map that hides a planet is worse than one drawn small.
+  const reach = useMemo(
+    () => Math.max(0, ...visible.map((node) => node.orbit?.radius ?? 0)),
+    [visible],
+  );
+  const fit = reach > 0 ? Math.min(1, (H / 2 - WALL_MARGIN) / reach) : 1;
+
+  /** Put every planet where the clock says it is. */
+  const placeSystem = useRef<() => void>(() => {});
+  placeSystem.current = () => {
+    const start = epoch ? new Date(epoch).getTime() : Date.now();
+    const day = (Date.now() - start) / MS_PER_DAY + aheadRef.current;
+    for (const node of visible) {
+      const body = bodies.current.get(node.key);
+      if (!body || !node.orbit) continue;
+      const angle = node.orbit.phase + (TURN * day) / node.orbit.period_days;
+      body.x = STAR.x + node.orbit.radius * fit * Math.cos(angle);
+      body.y = STAR.y + node.orbit.radius * fit * Math.sin(angle);
+      body.vx = 0;
+      body.vy = 0;
+    }
+  };
+
+  //: Standing still the sky is redrawn once a second -- an orbit does not need
+  //: sixty frames to move half a degree an hour. Winding forward it is redrawn
+  //: by frames, because then it really does move.
+  useEffect(() => {
+    if (!orbiting) return;
+    const draw = () => {
+      placeSystem.current();
+      setFrame((f) => f + 1);
+    };
+    draw();
+    if (!winding) {
+      const beat = window.setInterval(draw, 1000);
+      return () => window.clearInterval(beat);
+    }
+    let raf = 0;
+    let last = performance.now();
+    const step = (now: number) => {
+      aheadRef.current =
+        (aheadRef.current + ((now - last) / 1000) * FORECAST_SPEED) % FORECAST_DAYS;
+      last = now;
+      setAhead(aheadRef.current);
+      draw();
+      raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+  }, [orbiting, winding, visible, epoch]);
+
+  /** Wind the sky to a given day ahead: the slider and the "now" button. */
+  const wind = (day: number) => {
+    setWinding(false);
+    aheadRef.current = day;
+    setAhead(day);
+    placeSystem.current();
+    setFrame((f) => f + 1);
+  };
+
   //: Anyone may wake the simulation (dragging, arrival), while the loop itself
   //: lives in the effect below -- the ref stitches them without recreating closures.
   const kick = useRef<() => void>(() => {});
@@ -274,6 +375,14 @@ export function GraphMap({ look, session, onEnter }: Omit<Props, "busy" | "act">
   //: The simulation itself: springs along edges, repulsion, a slight pull to
   //: the centre. Falls asleep when everything settled, and wakes from any touch.
   useEffect(() => {
+    //: In space the layout is not settled but computed: a planet obeys the
+    //: clock, and a spring pulling at it would be a second opinion about where
+    //: it is. The waker is emptied along with it -- a stale closure from the
+    //: previous layer would go on cancelling frames of a loop that is gone.
+    if (orbiting) {
+      kick.current = () => {};
+      return;
+    }
     let raf = 0;
     let alive = true;
     let running = false;
@@ -362,7 +471,7 @@ export function GraphMap({ look, session, onEnter }: Omit<Props, "busy" | "act">
       alive = false;
       cancelAnimationFrame(raf);
     };
-  }, [shownEdges, visible]);
+  }, [shownEdges, visible, orbiting]);
 
   /** Wake the loop -- without kicking the bodies: random pushes twitched the map.
    *  A frame is forced at once: the dragged node follows the mouse even while
@@ -404,9 +513,13 @@ export function GraphMap({ look, session, onEnter }: Omit<Props, "busy" | "act">
     e.stopPropagation();
     capture(e);
     const body = bodies.current.get(key);
-    if (body) body.pinned = true;
+    //: A planet is not dragged: it obeys the clock, and a hand that moved it
+    //: would be moving a lie. The grab is still recorded, because a short press
+    //: without movement is a click, and picking a planet must keep working.
+    if (body && !orbiting) body.pinned = true;
     dragging.current = {
       key,
+      fixed: orbiting,
       moved: false,
       startX: e.clientX,
       startY: e.clientY,
@@ -447,14 +560,14 @@ export function GraphMap({ look, session, onEnter }: Omit<Props, "busy" | "act">
 
     if (drag.key) {
       const body = bodies.current.get(drag.key);
-      if (body) {
+      if (body && !drag.fixed) {
         const p = toWorld(e);
         body.x = p.x;
         body.y = p.y;
         body.vx = 0;
         body.vy = 0;
+        wake();
       }
-      wake();
     } else if (drag.moved) {
       const m = lens();
       const k = m ? 1 / m.k : 1;
@@ -468,8 +581,10 @@ export function GraphMap({ look, session, onEnter }: Omit<Props, "busy" | "act">
     if (!drag) return;
     if (drag.key) {
       const body = bodies.current.get(drag.key);
-      if (body) body.pinned = false;
-      wake();
+      if (body && !drag.fixed) {
+        body.pinned = false;
+        wake();
+      }
       //: A short press without movement is a click, not a move.
       if (!drag.moved && node) click(node);
     }
@@ -588,8 +703,12 @@ export function GraphMap({ look, session, onEnter }: Omit<Props, "busy" | "act">
   })();
 
   const expand = (node: MapNode) => {
-    if (currentLayer === "space") setLayer("planet");
-    else if (currentLayer === "planet") {
+    if (currentLayer === "space") {
+      //: Opening a planet means opening **this** planet: without that the
+      //: layer below would show somebody else's surface.
+      setPlanetFocus(node.planet);
+      setLayer("planet");
+    } else if (currentLayer === "planet") {
       setCityFocus(node.key);
       setLayer("city");
     }
@@ -620,6 +739,41 @@ export function GraphMap({ look, session, onEnter }: Omit<Props, "busy" | "act">
         </Hint>
       </nav>
 
+      {/* The sky's own control. A planet stands where the clock puts it, and
+          the clock moves too slowly to watch: winding it forward is the only
+          way to see the system turn -- and the only honest one, because the
+          map keeps saying which moment it is showing. */}
+      {orbiting && (
+        <div className="row sky">
+          <button className="quiet" onClick={() => setWinding((on) => !on)}>
+            {winding ? "Остановить" : "Прокрутить"}
+          </button>
+          <input
+            type="range"
+            min={0}
+            max={FORECAST_DAYS}
+            step={0.25}
+            value={ahead}
+            aria-label="на сколько суток вперёд показано небо"
+            onChange={(e) => wind(Number(e.target.value))}
+          />
+          <span className="note">
+            {ahead < 0.05 ? "сейчас" : `+${ahead.toFixed(1)} сут`}
+          </span>
+          {ahead >= 0.05 && (
+            <button className="quiet" onClick={() => wind(0)}>
+              Сейчас
+            </button>
+          )}
+          <Hint>
+            Планеты идут вокруг звезды каждая своим сроком, и расстояние между
+            ними меняется само. Глазом этого не видно: за час орбита проходит
+            доли градуса — поэтому ход времени показывает прокрутка, а не
+            ожидание.
+          </Hint>
+        </div>
+      )}
+
       {/* The face and its inspector stand side by side: the map keeps the whole
           height it can get, and what used to be three strips beneath it is now
           one column that speaks about the node you picked. */}
@@ -638,6 +792,29 @@ export function GraphMap({ look, session, onEnter }: Omit<Props, "busy" | "act">
           onPointerLeave={releasePointer()}
           onWheel={zoom}
         >
+          {/* The system behind everything: the star and the rings the planets
+              run on. Hairlines only -- the map is a surface with numbers lying
+              on top of it, and there the background keeps quiet (D-072). */}
+          {orbiting && (
+            <g className="system" aria-hidden="true">
+              {visible.map(
+                (node) =>
+                  node.orbit && (
+                    <circle
+                      key={`orbit-${node.key}`}
+                      className="orbit"
+                      cx={STAR.x}
+                      cy={STAR.y}
+                      r={node.orbit.radius * fit}
+                    />
+                  ),
+              )}
+              <circle className="star-glow" cx={STAR.x} cy={STAR.y} r={18} />
+              <circle className="star-glow" cx={STAR.x} cy={STAR.y} r={27} />
+              <circle className="star" cx={STAR.x} cy={STAR.y} r={7} />
+            </g>
+          )}
+
           {shownEdges.map((edge) => {
             const a = at(edge.a);
             const b = at(edge.b);
@@ -663,19 +840,33 @@ export function GraphMap({ look, session, onEnter }: Omit<Props, "busy" | "act">
             //: The scout goes nowhere: they are in the field, and not in the
             //: node (D-152). A button the server will refuse anyway is a
             //: promise the interface may not make.
+            //: And to a planet one does not walk at all: it is reached by ship
+            //: from a spaceport (D-201). A step across the void is not a road
+            //: the map may draw.
             const near =
               !ongoing &&
               !look.survey &&
               !mine &&
+              !node.orbit &&
               (groups.has(node.key) ? Boolean(walkTargets[node.key]) : true);
             const group = groups.has(node.key);
             const chosen = node.key === picked;
+            //: A planet is not a city node and must not look like one: a body
+            //: with its own colour, on its own ring, instead of a circle on a
+            //: spring. The colour is the planet's identity and the same from
+            //: everywhere -- Terra is that blue seen from Terra and from Pyroxis.
+            const sphere = Boolean(node.orbit);
             return (
               <g
                 key={node.key}
-                className={`node ${mine ? "me" : ""} ${near || group ? "near" : ""}${
-                  chosen ? " picked" : ""
-                }`}
+                style={
+                  sphere
+                    ? ({ "--pc": `var(--planet-${node.planet})` } as React.CSSProperties)
+                    : undefined
+                }
+                className={`node ${sphere ? "sphere" : ""} ${node.deferred ? "later" : ""} ${
+                  mine ? "me" : ""
+                } ${near || group ? "near" : ""}${chosen ? " picked" : ""}`}
                 onPointerDown={grabNode(node.key)}
                 onPointerMove={movePointer}
                 onPointerUp={releasePointer(node)}
@@ -685,14 +876,32 @@ export function GraphMap({ look, session, onEnter }: Omit<Props, "busy" | "act">
                   setMenu({ key: node.key, x: e.clientX, y: e.clientY });
                 }}
               >
-                <circle cx={p.x} cy={p.y} r={mine ? 14 : group ? 12 : 10} />
-                {group && <circle cx={p.x} cy={p.y} r={mine ? 18 : 16} className="halo" />}
+                {sphere ? (
+                  <>
+                    <circle cx={p.x} cy={p.y} r={mine ? 13 : 11} className="corona" />
+                    <circle cx={p.x} cy={p.y} r={mine ? 9 : 7} className="orb" />
+                  </>
+                ) : (
+                  <>
+                    <circle cx={p.x} cy={p.y} r={mine ? 14 : group ? 12 : 10} />
+                    {group && (
+                      <circle cx={p.x} cy={p.y} r={mine ? 18 : 16} className="halo" />
+                    )}
+                  </>
+                )}
                 {chosen && (
                   <circle cx={p.x} cy={p.y} r={mine ? 20 : 18} className="ring" />
                 )}
                 <text x={p.x} y={p.y - 20} className="node-label">
                   {node.name}
                 </text>
+                {/* Aquatica is drawn precisely because one cannot go there
+                    (D-104): the map shows the unreachable and says so. */}
+                {node.deferred && (
+                  <text x={p.x} y={p.y + 30} className="node-door">
+                    вне альфы
+                  </text>
+                )}
                 {/* The city's two doors (D-206): every road beyond the walls
                     starts at the gate, every ship couples to the spaceport.
                     Unmarked, the graph reads as an arbitrary tangle -- and it
@@ -847,7 +1056,11 @@ function Inspector({
   const step = walkTargets[node.key];
   const exit = (look.exits ?? []).find((path) => path.key === step?.key);
   const group = groups.has(node.key);
-  const reachable = !look.survey && (group ? Boolean(step) : true);
+  //: One does not walk to a planet: the void has no edges, and the way there
+  //: is a ship from a spaceport (D-201). The column says so instead of
+  //: offering a step the server would refuse anyway.
+  const sphere = Boolean(node.orbit);
+  const reachable = !look.survey && !sphere && (group ? Boolean(step) : true);
 
   return (
     <aside className="inspect">
@@ -870,6 +1083,12 @@ function Inspector({
             </tr>
           </tbody>
         </table>
+      ) : sphere ? (
+        <p className="note">
+          {node.deferred
+            ? "Планета вне альфы: её ещё нет в мире, и попасть на неё нельзя."
+            : "Другая планета. Пешком туда пути нет: только кораблём с космодрома."}
+        </p>
       ) : (
         <p className="note">
           Соседним не является: маршрут построится сам, по проходимым рёбрам.
@@ -948,7 +1167,13 @@ function NodeMenu({
   if (!node) return null;
 
   const here = node.key === (look.node?.key ?? "");
-  const may = !look.travel && !look.survey && !here && (group ? Boolean(step) : true);
+  //: Same rule as in the column: a planet is flown to, not walked to (D-201).
+  const may =
+    !look.travel &&
+    !look.survey &&
+    !here &&
+    !node.orbit &&
+    (group ? Boolean(step) : true);
 
   return (
     <div

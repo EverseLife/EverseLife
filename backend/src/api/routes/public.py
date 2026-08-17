@@ -68,6 +68,7 @@ async def world_map() -> dict[str, Any]:
     from src.constants import current
     from src.engine import ship as vessels
     from src.engine import travel as roads
+    from src.engine import world as places
     from src.models.world import Edge, Node
 
     constants = current()
@@ -91,6 +92,12 @@ async def world_map() -> dict[str, Any]:
                     "ring": node.properties.get("кольцо"),
                     "exit": bool(node.properties.get(roads.EXIT)),
                     "port": node.id in ports,
+                    #: The space layer paints by planet and lays nodes out by
+                    #: orbit: there a place is a function of time, not of the
+                    #: spring layout the other layers settle into.
+                    "planet": node.planet.value,
+                    "orbit": places.orbit_of(node),
+                    "deferred": bool(node.properties.get(places.DEFERRED)),
                 }
                 for node in nodes
             ],

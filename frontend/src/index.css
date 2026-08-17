@@ -616,11 +616,22 @@ button:not(:disabled):active {
     min-height: 44px;
   }
   /* A link-button is a word inside a sentence: given 44px it would tear the
-     line apart. It gets the room around it instead. */
+     line apart. It gets the room around it instead. The way into a rule is
+     the same kind of thing -- small grey type under a panel, not a control. */
   button.link,
-  button.eye {
+  button.eye,
+  button.rule-mark {
     min-height: 0;
     padding-block: 0.5rem;
+  }
+  /* The hint is a circle beside a button, not a button: at 44px it would grow
+     into the tallest thing in the row. It grows to a finger's size instead --
+     the row is 44px tall here anyway, so the bigger circle costs no room. */
+  button.hint {
+    min-height: 0;
+    width: 1.9em;
+    height: 1.9em;
+    font-size: 0.85rem;
   }
 }
 
@@ -718,6 +729,133 @@ tr.picked td:first-child {
   margin: 0.5rem 0;
 }
 
+/* --- a figure and its grounds (D-030) -------------------------------------
+ *
+ * The bank publishes five figures and composes an explanation for every one of
+ * them: where the rate came from, what the limit is made of, why this borrower
+ * is offered that. Each explanation is a list of clauses the engine joins with
+ * "; " -- and printed as a sentence trailing its number it became a page of
+ * prose in a 17rem column, with the numbers lost inside it. Publishing the
+ * grounds is what monetary policy is argued with; unreadable, they are not
+ * published at all.
+ *
+ * So the number stands alone in its row, right-aligned like a column of prices,
+ * and the grounds fall out beneath it as the clauses they were joined from. The
+ * same row serves a line of the statement: a name on the left, a sum on the
+ * right, the circumstances under it.
+ */
+.facts {
+  display: flex;
+  flex-direction: column;
+  margin: 0.5rem 0;
+  border-top: 1px solid var(--hairline);
+}
+.fact {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: baseline;
+  gap: 0.15rem 0.6rem;
+  padding: 0.35rem 0;
+  border-bottom: 1px solid var(--hairline);
+}
+.fact-name {
+  color: var(--base-400);
+  font-size: 0.85rem;
+}
+.fact-val {
+  font-family: var(--font-num);
+  font-variant-numeric: tabular-nums;
+  color: var(--base-50);
+  text-align: right;
+  white-space: nowrap;
+}
+/* The figure a block is about -- the limit you have, the rate you are offered --
+   is a step larger than the ones that merely stand beside it. */
+.fact-val.lead {
+  font-size: 1.1rem;
+}
+/* A second line about the same fact: the counterparty, the memo, the moment. */
+.fact > .note {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+/* What is done about the fact -- repay this loan -- goes under it, at the end
+   of the line: the sum is what the row is read for, the verb is what happens
+   after it has been read. */
+.fact > button {
+  grid-column: 1 / -1;
+  justify-self: end;
+  margin-top: 0.15rem;
+}
+
+.why {
+  grid-column: 1 / -1;
+  margin: 0.2rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+.why li {
+  position: relative;
+  padding-left: 0.75rem;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  color: var(--base-400);
+}
+.why li::before {
+  content: "·";
+  position: absolute;
+  left: 0.15rem;
+}
+
+/* The name of a block inside a section. An `h3` divides the tab itself, and the
+   bank is four blocks inside one of its parts -- given `h3` each, the tab would
+   read as eight equal sections rather than three with parts. */
+.sub {
+  margin: 0.9rem 0 0.25rem;
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--base-400);
+}
+
+/* --- a form is a column, not a row ---------------------------------------
+ *
+ * `.row` is for controls that belong side by side. A recipient's name, a sum
+ * and the grounds for a payment are not those: in the sidebar's column the text
+ * box shrank to whatever the 6.5rem number box left it, the button wrapped to
+ * its own line anyway, and the widest field in the form held the shortest value
+ * in it. Here every field takes the whole width and says above itself what it
+ * is -- a placeholder disappears the moment it is filled in.
+ */
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin: 0.5rem 0;
+}
+.form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+.form label > span {
+  font-size: 0.8rem;
+  color: var(--base-400);
+}
+.form input,
+.form select,
+.form textarea {
+  width: 100%;
+}
+/* The number box's own 6.5rem is for a row of controls; here the box is the row. */
+.form input[type="number"] {
+  width: 100%;
+}
+/* The action closes the form across its whole width, where the last field ended. */
+.form > button {
+  width: 100%;
+}
+
 /*
  * A rule of the world: behind a "?" in the ordinary densities, spelled out in
  * the plain one. State stays a `.note` and is always in view -- the difference
@@ -729,21 +867,24 @@ tr.picked td:first-child {
   color: var(--base-400);
   margin: 0.35rem 0 0;
 }
-.rule > summary {
+/* The way in: the "?" and the words beside it. A word inside a sentence, not
+   a button-shaped thing -- it carries the panel's own small grey type. */
+.rule-mark {
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
   width: max-content;
-  cursor: help;
-  /* The default marker is a triangle that says "a list folds out"; this folds
-     out an explanation, and the "?" says so. */
-  list-style: none;
+  max-width: 100%;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: none;
+  font: inherit;
+  text-align: left;
   color: var(--base-400);
+  cursor: help;
 }
-.rule > summary::-webkit-details-marker {
-  display: none;
-}
-.rule > summary > span[aria-hidden] {
+.rule-sign {
   display: inline-grid;
   place-items: center;
   width: 1.2em;
@@ -753,24 +894,18 @@ tr.picked td:first-child {
   border-radius: 50%;
   font-size: 0.75rem;
 }
-.rule > summary:hover,
-.rule > summary:focus-visible {
+.rule-mark:hover,
+.rule-mark:focus-visible,
+.rule-mark[aria-expanded="true"] {
   color: var(--base-200);
-}
-.rule[open] > summary {
-  margin-bottom: 0.2rem;
 }
 .rule-body {
   max-width: 60ch;
 }
-/* In the plain density the "?" has nothing left to do: the rule is already
-   spelled out, and a control that opens what is open reads as broken. */
-:root[data-density="plain"] .rule > summary {
-  display: none;
-}
 /* Dense: the words go, the icon stays -- whoever runs twenty orders knows the
-   rules and needs the vertical space. */
-:root[data-density="dense"] .rule > summary .rule-lead {
+   rules and needs the vertical space. In the plain density there is no way in
+   at all: the rule stands spelled out, and `Rule` draws no "?" over it. */
+:root[data-density="dense"] .rule-mark .rule-lead {
   display: none;
 }
 
@@ -887,57 +1022,62 @@ tr.picked td:first-child {
   margin-top: 0;
 }
 
-/* A hint on demand: the icon in view, the explanation on hover.
-   Expanded it does not move the layout: it is absolute over the content. */
+/* A hint on demand: the icon in view, the explanation in a window of its own.
+   The icon keeps its size open or shut, so nothing around it moves. */
 .hint {
   position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 1.2em;
-  height: 1.2em;
+  width: 1.3em;
+  height: 1.3em;
   flex: none;
+  padding: 0;
   border: 1px solid var(--line);
   border-radius: 50%;
+  background: transparent;
   font-size: 0.75rem;
+  font-weight: 400;
+  line-height: 1;
   color: var(--base-400);
   cursor: help;
   user-select: none;
 }
-/* `:focus`, not only `:focus-visible`: on a phone there is no hover at all,
-   and a tap on the icon is the only way to expand the hint. */
-.hint:hover,
-.hint:focus {
-  opacity: 1;
-}
-/* Expands down, not up: the map panel clips content to itself
-   (`overflow: hidden`), and a hint at its top edge went under the clip. */
-.hint-body {
+/* The circle is small on purpose -- it stands among buttons, not beside them.
+   The finger gets a bigger target from an invisible pad that costs no room.
+   The pad is half the row's gap: any wider and it would lie over the
+   neighbouring button and swallow taps meant for it. */
+.hint::after {
+  content: "";
   position: absolute;
-  top: calc(100% + 0.4rem);
-  left: 0;
-  z-index: 5;
-  display: none;
-  width: max-content;
-  max-width: min(26rem, 80vw);
-  padding: 0.4rem 0.6rem;
-  border: 1px solid var(--line);
-  /* Opaque background: the hint lies over the map and the text under it. */
+  inset: -0.25rem;
+}
+.hint:hover,
+.hint[aria-expanded="true"] {
+  color: var(--base-50);
+  border-color: var(--base-400);
+}
+
+/* The explanation itself: a small window over the page, in a portal on
+   `body`. Beside the icon it used to move the row -- the panel scrolls, the
+   wide block gave it a scrollbar, and the buttons shifted under the hand. */
+.hint-card {
+  width: min(24rem, 100%);
+  max-height: 100%;
+  overflow-y: auto;
+  /* Opaque background: the window lies over the map and the text under it. */
   background: var(--base-900);
   color: var(--base-200);
-  font-size: 0.8rem;
-  line-height: 1.35;
-  text-align: left;
-  cursor: auto;
+  font-size: 0.85rem;
+  line-height: 1.4;
 }
-.hint:hover .hint-body,
-.hint:focus .hint-body {
+.hint-text {
+  margin: 0;
+}
+/* The way out stands at the far edge, where a window's own controls stand. */
+.hint-shut {
   display: block;
-}
-/* In the map's bottom strip there is no room down any more -- there the hint expands up. */
-.map-bar .hint-body {
-  top: auto;
-  bottom: calc(100% + 0.4rem);
+  margin: 0.75rem 0 0 auto;
 }
 
 /* An error is always in view: a strip under the frame, not deep in the scroll. */
@@ -1212,6 +1352,59 @@ textarea.word {
   stroke: var(--base-600);
   stroke-width: 1;
   stroke-dasharray: 3 4;
+}
+
+/* --- the space layer: a star, orbits and planets --------------------------
+   A planet must not read as a city node: it is a body of its own colour on a
+   ring of its own, and it stands where the clock puts it rather than where a
+   spring left it. Hairlines only -- glow and starfields stay out of a surface
+   that carries numbers (D-072). */
+.system .orbit {
+  fill: none;
+  stroke: var(--base-700);
+  stroke-width: 1;
+  stroke-dasharray: 2 7;
+}
+.system .star {
+  fill: var(--base-50);
+}
+.system .star-glow {
+  fill: none;
+  stroke: var(--base-50);
+  stroke-width: 1;
+  opacity: 0.2;
+}
+.node.sphere .orb {
+  fill: var(--pc);
+  stroke: none;
+}
+.node.sphere .corona {
+  fill: none;
+  stroke: var(--pc);
+  stroke-width: 1;
+  opacity: 0.35;
+}
+/* Out of the alpha (D-104): an outline instead of a body -- shown, and plainly
+   not a place one goes to. */
+.node.sphere.later .orb {
+  fill: none;
+  stroke: var(--pc);
+  stroke-width: 1;
+  stroke-dasharray: 2 3;
+}
+.node.sphere.later .corona {
+  display: none;
+}
+
+/* The sky's clock: a quiet strip, and the slider takes the width left over. */
+.sky {
+  align-items: center;
+  gap: var(--s2);
+}
+.sky input[type="range"] {
+  flex: 1 1 8rem;
+  min-width: 6rem;
+  accent-color: var(--base-400);
 }
 @media (prefers-reduced-motion: no-preference) {
   .walker {

@@ -83,24 +83,40 @@ export function Finance({ look, session, busy, act }: Props) {
   return (
     <div>
       <h3>Счёт</h3>
-      <p className="sign">{look.money} ₭</p>
+      <p className="sign money">{look.money} ₭</p>
 
       <h3>Перевести</h3>
-      <div className="row">
-        <input
-          value={to}
-          onChange={(e) => setTo(e.target.value)}
-          placeholder="кому"
-          title="имя личности"
-        />
-        <input
-          type="number"
-          min={0}
-          step="0.01"
-          value={amount}
-          onChange={(e) => setAmount(Number(e.target.value))}
-          title="сколько, ₭"
-        />
+      {/* Поля во всю ширину и подписаны сверху: имя личности длиннее, чем
+          остаток строки после поля суммы, а подсказка внутри поля исчезает
+          ровно в тот момент, когда по ней сверяют написанное. */}
+      <div className="form">
+        <label>
+          <span>кому</span>
+          <input
+            value={to}
+            onChange={(e) => setTo(e.target.value)}
+            placeholder="имя личности"
+          />
+        </label>
+        <label>
+          <span>сколько, ₭</span>
+          <input
+            type="number"
+            min={0}
+            step="0.01"
+            value={amount}
+            onChange={(e) => setAmount(Number(e.target.value))}
+          />
+        </label>
+        <label>
+          <span>за что</span>
+          <input
+            value={memo}
+            onChange={(e) => setMemo(e.target.value)}
+            placeholder="видно получателю и суду"
+            maxLength={140}
+          />
+        </label>
         <button
           onClick={() =>
             go(async () => {
@@ -113,41 +129,32 @@ export function Finance({ look, session, busy, act }: Props) {
           Перевести
         </button>
       </div>
-      <div className="row">
-        <input
-          className="wide-input"
-          value={memo}
-          onChange={(e) => setMemo(e.target.value)}
-          placeholder="за что (видно получателю и суду)"
-          maxLength={140}
-        />
-      </div>
-      <p className="note">
-        Без комиссии и налога; отменить перевод нельзя.
-      </p>
+      <Rule>
+        Перевод идёт без комиссии и налога — и отменить его нельзя. Основание
+        видят получатель и суд: это единственное, что останется от сделки, если
+        о ней придётся спорить.
+      </Rule>
 
       <h3>Выписка</h3>
       {entries.length === 0 ? (
         <p className="note">операций пока нет</p>
       ) : (
-        <table>
-          <tbody>
-            {entries.map((entry, index) => (
-              <tr key={`${entry.at}-${index}`}>
-                <td>
-                  {entry.incoming ? "+" : "−"}
-                  {entry.money} ₭
-                  <span className="note"> · {REASON[entry.reason] ?? entry.reason}</span>
-                </td>
-                <td className="note">
-                  {entry.with ?? "—"}
-                  {entry.memo?.["основание"] ? ` · ${entry.memo["основание"]}` : ""}
-                </td>
-                <td className="note">{when(entry.at)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div className="facts">
+          {entries.map((entry, index) => (
+            <div className="fact" key={`${entry.at}-${index}`}>
+              <span className="fact-name">{REASON[entry.reason] ?? entry.reason}</span>
+              <span className="fact-val">
+                {entry.incoming ? "+" : "−"}
+                {entry.money} ₭
+              </span>
+              <p className="note">
+                {entry.with ?? "—"}
+                {entry.memo?.["основание"] ? ` · ${entry.memo["основание"]}` : ""}
+                {` · ${when(entry.at)}`}
+              </p>
+            </div>
+          ))}
+        </div>
       )}
 
       {/* Кредит — тоже Сеть: берут и гасят откуда угодно (D-167). */}

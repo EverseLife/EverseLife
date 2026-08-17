@@ -44,6 +44,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import random
+from typing import NamedTuple
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -66,7 +67,7 @@ from src.engine import (
 from src.models.identity import Identity
 from src.models.inventory import Item
 from src.models.ledger import AccountKind, PostingReason
-from src.models.world import Edge, Layer, Node, Surface
+from src.models.world import Edge, Layer, Node, Planet, Surface
 from src.settings import settings
 from src.units import PERCENT, money
 
@@ -111,6 +112,92 @@ FOUNDERS = {
 }
 
 
+class Orbit(NamedTuple):
+    """A planet's place in the picture: where it stands and how fast it goes round."""
+
+    key: str
+    name: str
+    planet: Planet
+    #: Display radius in the map's own units. Orbits are **not to scale**
+    #: (10-world/06): the proportions repeat the system's figure from the
+    #: landing, so the client and the poster show one and the same sky.
+    radius: float
+    #: A full circle, in real days. This is not astronomy: the number decides
+    #: how fast the sky turns. Terra's month is the measure -- some twelve
+    #: degrees a day, so between two evenings the map looks different while
+    #: inside one sitting it stands still.
+    #:
+    #: **The spread matters more than any single value.** What a player waits
+    #: for is not a lap but a **conjunction**, and two planets meet every
+    #: `Ta*Tb / |Ta-Tb|` days -- so periods lying close together mean meetings
+    #: once a season, however briskly each planet runs. Hence the inner planets
+    #: are fast and the outer ones slow, the way a real system is arranged.
+    #:
+    #: Two floors bound the spread from below. A pair can never meet more often
+    #: than the **inner** planet's own year, whatever the outer one does. And a
+    #: passage must stay a small share of the target's year, or aiming at a
+    #: planet turns into chasing it, and half a day of delay costs a fivefold
+    #: flight. Pyroxis is the tight one: it is the fastest, and every passage to
+    #: it is measured against its short year.
+    period_days: float
+    #: Where the planet stood at the world's epoch, radians. Spread by hand:
+    #: a system that starts in a line looks like a bug.
+    phase: float
+    #: Drawn, but not playable yet (D-104).
+    deferred: bool = False
+
+
+#: The system, from the star outwards. Aquatica is here **because** it is out
+#: of the alpha: what cannot be reached is shown and marked, so that a player
+#: sees from the first day where the road does not go yet (50-interface/05).
+SYSTEM = (
+    Orbit("pyroxis", "Пироксис", Planet.PYROXIS, 60, 11, 0.80),
+    Orbit("terra", "Терра", Planet.TERRA, 136, 28, 2.10),
+    Orbit("aquatica", "Акватика", Planet.AQUATICA, 172, 70, 4.00, deferred=True),
+    Orbit("aurora", "Аврора", Planet.AURORA, 220, 130, 2.28),
+)
+
+
+async def _system(session: AsyncSession) -> Node:
+    """The planets of the space layer. Returns Terra -- the alpha's home.
+
+    A planet is an ordinary node of the same graph; the layer only decides from
+    what height it is seen (D-045). What it has of its own is an **orbit**: on
+    this layer a place is a function of time, so the distance between two
+    planets -- and with it the length of the passage between them -- changes by
+    itself, without anybody moving a node.
+
+    Idempotent, and that is what makes it a catch-up too: an existing planet
+    keeps everything it carries and only learns its orbit.
+    """
+    for circle in SYSTEM:
+        marks: dict[str, object] = {
+            world.ORBIT: {
+                world.ORBIT_RADIUS: circle.radius,
+                world.ORBIT_PERIOD: circle.period_days,
+                world.ORBIT_PHASE: circle.phase,
+            },
+        }
+        if circle.deferred:
+            marks[world.DEFERRED] = True
+        node = (
+            await session.execute(select(Node).where(Node.key == circle.key))
+        ).scalar_one_or_none()
+        if node is None:
+            await world.create_node(
+                session, circle.key, circle.name, area_m2=1,
+                planet=circle.planet, layer=Layer.SPACE, properties=marks,
+            )
+        else:
+            #: A whole new dict rather than a key set in place: SQLAlchemy sees
+            #: an assignment and misses a mutation inside a JSON column.
+            node.properties = {**(node.properties or {}), **marks}
+    await session.flush()
+    return (
+        await session.execute(select(Node).where(Node.key == "terra"))
+    ).scalar_one()
+
+
 async def seed(session: AsyncSession) -> Node:
     """Create the starting world if it does not exist yet, otherwise bring it up to date."""
     existing = (
@@ -128,10 +215,7 @@ async def seed(session: AsyncSession) -> Node:
     #: Layers are a display abstraction over one graph (D-045): Terra is seen
     #: from space, the capital from the planet, the built-up area in the city.
     #: One walks on the leaves.
-    terra = await world.create_node(
-        session, "terra", "Терра", area_m2=1,
-        layer=Layer.SPACE, properties={},
-    )
+    terra = await _system(session)
     capital = await world.create_node(
         session, "terra.capital", "Столица Терры", area_m2=1,
         layer=Layer.PLANET, parent=terra, properties={},
@@ -428,6 +512,11 @@ async def catch_up(session: AsyncSession, core: Node) -> None:
     capital = await session.get(Node, core.parent_id)
     if capital is None:  # pragma: no cover -- a core without a city is a bug
         return
+
+    #: The rest of the system: a world laid out before the space layer had
+    #: Terra alone in the sky, and a lone dot is not a system. The other three
+    #: planets arrive with their orbits, and Terra learns its own.
+    await _system(session)
 
     #: Login by email and password (D-187): identities created before it get
     #: the seed's test accounts. Only those without an email yet -- anything

@@ -180,6 +180,30 @@
   --l-accent: #5D3BAE; --l-warning: #6F4E0C; --l-danger: #A9271C; --l-success: #1B6640;
 }
 
+/* --- Planets: identity marks, not meanings --------------------------
+   The four tints of the system live **outside** the planet palettes on
+   purpose: Terra is the same blue seen from Terra and seen from Pyroxis.
+   A planet's identity must not change with where the viewer stands.
+
+   They are not a second accent either -- `--accent` still means a living
+   person and nothing else -- because they mean nothing at all: they name
+   a body the way a flag names a country. They appear on the space layer
+   of the map and nowhere else, and the values are the landing's, so the
+   client and the poster show one and the same system.
+
+   The names deliberately do not fit `--d-<step>` / `--l-<step>`: the
+   contrast check reads palettes by that shape, and a fifth palette of
+   four tokens would fail it as incomplete. */
+:root {
+  --d-planet-terra: #7FB8E8; --d-planet-aurora: #D6E4F5;
+  --d-planet-pyroxis: #F0895A; --d-planet-aquatica: #5BC8A5;
+
+  /* On a light ground the same four have to be taken down: a pale tint on
+     white is not an identity mark, it is an absence. */
+  --l-planet-terra: #1F5E96; --l-planet-aurora: #4A6A8C;
+  --l-planet-pyroxis: #A8481C; --l-planet-aquatica: #1B6E52;
+}
+
 /* ===================================================================
    Choosing the set. Dark is the design's home, light is mandatory
    (brief section 3). The system decides by default, and `data-light`
@@ -193,6 +217,8 @@
   --base-400: var(--d-400); --base-200: var(--d-200); --base-50:  var(--d-50);
   --accent: var(--d-accent); --warning: var(--d-warning);
   --danger: var(--d-danger); --success: var(--d-success);
+  --planet-terra: var(--d-planet-terra); --planet-aurora: var(--d-planet-aurora);
+  --planet-pyroxis: var(--d-planet-pyroxis); --planet-aquatica: var(--d-planet-aquatica);
 
   color-scheme: dark;
 }
@@ -204,6 +230,8 @@
     --base-400: var(--l-400); --base-200: var(--l-200); --base-50:  var(--l-50);
     --accent: var(--l-accent); --warning: var(--l-warning);
     --danger: var(--l-danger); --success: var(--l-success);
+    --planet-terra: var(--l-planet-terra); --planet-aurora: var(--l-planet-aurora);
+    --planet-pyroxis: var(--l-planet-pyroxis); --planet-aquatica: var(--l-planet-aquatica);
 
     color-scheme: light;
   }
@@ -215,6 +243,8 @@
   --base-400: var(--l-400); --base-200: var(--l-200); --base-50:  var(--l-50);
   --accent: var(--l-accent); --warning: var(--l-warning);
   --danger: var(--l-danger); --success: var(--l-success);
+  --planet-terra: var(--l-planet-terra); --planet-aurora: var(--l-planet-aurora);
+  --planet-pyroxis: var(--l-planet-pyroxis); --planet-aquatica: var(--l-planet-aquatica);
 
   color-scheme: light;
 }

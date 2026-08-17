@@ -34,6 +34,37 @@ from src.models.world import Layer, Node, Planet, Vein
 from src.units import amount as to_amount
 from src.units import money as to_money
 
+#: Where a planet stands on the space layer (D-045). Radius and period are
+#: **display** numbers: orbits are not to scale (10-world/06), and the period
+#: says how often a launch window comes round rather than anything about a
+#: planet's astronomy. The phase is where the planet stood at the world's
+#: epoch, so every client draws one and the same sky.
+ORBIT = "орбита"
+ORBIT_RADIUS = "радиус"
+ORBIT_PERIOD = "период"
+ORBIT_PHASE = "фаза"
+#: Drawn but not yet playable (D-104). Aquatica is on the map from the first
+#: day so that a player sees where they cannot go -- the vault asks for exactly
+#: that: unreachable routes are shown, marked as unreachable.
+DEFERRED = "отложена"
+
+
+def orbit_of(node: Node) -> dict[str, float] | None:
+    """The node's orbit for the client, or None if the node does not go round anything.
+
+    The data keys are the world's own ("радиус", "период", "фаза"), the wire
+    keys are the code's. The translation lives here alone: two places for it
+    would drift apart on the first added field.
+    """
+    circle = (node.properties or {}).get(ORBIT)
+    if not isinstance(circle, dict):
+        return None
+    return {
+        "radius": float(circle[ORBIT_RADIUS]),
+        "period_days": float(circle[ORBIT_PERIOD]),
+        "phase": float(circle[ORBIT_PHASE]),
+    }
+
 
 async def create_node(
     session: AsyncSession,

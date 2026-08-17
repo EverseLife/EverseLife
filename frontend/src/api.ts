@@ -145,6 +145,14 @@ export type MapNode = {
   exit: boolean;
   /** The spaceport: the city's second door, the one ships couple to (D-206). */
   port: boolean;
+  /** Which planet the node belongs to. The space layer paints by it. */
+  planet: string;
+  /** A planet's place in the system: display radius, a full circle in real
+   *  days and the phase at the world's epoch. Only planets have one -- on the
+   *  space layer a place is a function of time, not of a settled layout. */
+  orbit: { radius: number; period_days: number; phase: number } | null;
+  /** Drawn, but not playable yet: Aquatica is out of the alpha (D-104). */
+  deferred: boolean;
 };
 export type MapEdge = { a: string; b: string; surface: Exit["surface"]; seconds: number };
 export type WorldMap = { nodes: MapNode[]; edges: MapEdge[] };
