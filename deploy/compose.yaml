@@ -55,12 +55,29 @@ services:
         condition: service_healthy
     restart: "no"
 
+  # The starting world, and then keeping it up to date. Content is not schema,
+  # so it does not belong in a migration (`catch_up` in `src/seed.py` says why):
+  # a migration runs once in the history of a database, while the world layout
+  # changes with the vault. Running it again creates nothing twice -- every step
+  # checks first -- so it runs on every deploy and nobody has to remember it.
+  seed:
+    <<: *server
+    command: ["python", "-m", "src.seed"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: "no"
+    healthcheck:
+      disable: true
+
   backend:
     <<: *server
     depends_on:
       postgres:
         condition: service_healthy
-      migrate:
+      seed:
         condition: service_completed_successfully
 
   # Without the worker the world stands: long-running jobs (tick, batches, roads) are driven by it.
@@ -70,7 +87,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      migrate:
+      seed:
         condition: service_completed_successfully
     healthcheck:
       disable: true

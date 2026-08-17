@@ -176,7 +176,7 @@
     "Кварцевый песок": 50,
     "Известняк": 70,
     "Дерево": 40,
-    "Волокно": 35,
+    "Дикий лён": 30,
     "Смола": 12,
     "Вода": 200,
     "Зерно": 25,
@@ -426,7 +426,10 @@
   "explore.find_decay": 0.88,
   "explore.find_floor": 15,
   "explore.vein_share": 40,
+  "harvest.barehand_k": 4,
   "explore.forest_share": 35,
+  "explore.stones_share": 30,
+  "explore.meadow_share": 40,
   "explore.node_area": {
     "min": 120,
     "max": 600
@@ -519,6 +522,9 @@
     "min": 1,
     "max": 4
   },
+  "pyroxis.vein_relocate_share": 0.5,
+  "pyroxis.forecast_lead": 2,
+  "pyroxis.forecast_accuracy": 0.7,
   "aurora.depth_scaling": {
     "formula": "recipe_complexity ~ depth"
   },

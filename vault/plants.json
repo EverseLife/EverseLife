@@ -26,7 +26,7 @@
       },
       "restores_fertility": 0,
       "generosity": 3.35,
-      "generosity_cap": 6.12,
+      "generosity_cap": 5.83,
       "used_in_recipes": 1
     },
     {
@@ -55,7 +55,7 @@
       },
       "restores_fertility": 0,
       "generosity": 2.08,
-      "generosity_cap": 4.38,
+      "generosity_cap": 3.5,
       "used_in_recipes": 3
     },
     {
@@ -84,18 +84,18 @@
       },
       "restores_fertility": 15,
       "generosity": 3.03,
-      "generosity_cap": 6.12,
+      "generosity_cap": 5.83,
       "used_in_recipes": 1
     },
     {
       "id": "flax",
       "name": "Лён",
-      "gives": "Волокно",
+      "gives": "Дикий лён",
       "seed": "Семена льна",
       "byproduct": null,
       "cycle_days": 11,
-      "yield_per_m2": 1.318,
-      "yield_per_cycle": 131.8,
+      "yield_per_m2": 1.13,
+      "yield_per_cycle": 113.0,
       "requires": {
         "temp": {
           "min": 3,
@@ -113,8 +113,8 @@
       },
       "restores_fertility": 0,
       "generosity": 1.68,
-      "generosity_cap": 3.5,
-      "used_in_recipes": 4
+      "generosity_cap": 5.83,
+      "used_in_recipes": 1
     },
     {
       "id": "camelina",
@@ -142,7 +142,7 @@
       },
       "restores_fertility": 0,
       "generosity": 4.3,
-      "generosity_cap": 6.12,
+      "generosity_cap": 5.83,
       "used_in_recipes": 1
     },
     {
@@ -171,7 +171,7 @@
       },
       "restores_fertility": 0,
       "generosity": 1.59,
-      "generosity_cap": 6.12,
+      "generosity_cap": 5.83,
       "used_in_recipes": 1
     },
     {
@@ -200,7 +200,7 @@
       },
       "restores_fertility": 0,
       "generosity": 4.33,
-      "generosity_cap": 5.25,
+      "generosity_cap": 4.67,
       "used_in_recipes": 2
     },
     {
@@ -229,7 +229,7 @@
       },
       "restores_fertility": 0,
       "generosity": 5.31,
-      "generosity_cap": 6.12,
+      "generosity_cap": 5.83,
       "used_in_recipes": 1
     }
   ]
