@@ -1396,6 +1396,32 @@ textarea.word {
   display: none;
 }
 
+/* A ship: a hull, not a place. Colourless on purpose -- the tints belong to
+   planets, and a ship is somebody's property passing by, not a body of the
+   system. Sharp corners tell it from every circle on the map at a glance. */
+.node.ship .hull {
+  fill: var(--base-900);
+  stroke: var(--base-200);
+  stroke-width: 1.5;
+}
+.node.ship.me .hull {
+  fill: var(--base-200);
+}
+/* A ship's name is quieter than a planet's: the system is the map, ships are
+   what moves across it. */
+.node.ship .node-label {
+  fill: var(--base-400);
+  font-size: 10px;
+}
+/* The way a ship is on. There is no edge under it: undocking took the only one
+   away, so this line is the passage itself and not a road anybody may walk. */
+.route {
+  fill: none;
+  stroke: var(--base-600);
+  stroke-width: 1;
+  stroke-dasharray: 4 6;
+}
+
 /* The sky's clock: a quiet strip, and the slider takes the width left over. */
 .sky {
   align-items: center;

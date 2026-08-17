@@ -153,6 +153,12 @@ export type MapNode = {
   orbit: { radius: number; period_days: number; phase: number } | null;
   /** Drawn, but not playable yet: Aquatica is out of the alpha (D-104). */
   deferred: boolean;
+  /** Part of a ship: its delegate on the space layer or a room aboard (D-201). */
+  aboard: boolean;
+  /** A ship under way. It has no edges at all while it flies, so its place on
+   *  the map is a share of the way between the port it left and the one it is
+   *  due at -- nothing in the graph could say it. */
+  flight: { to: string; started_at: string; arrives_at: string } | null;
 };
 export type MapEdge = { a: string; b: string; surface: Exit["surface"]; seconds: number };
 export type WorldMap = { nodes: MapNode[]; edges: MapEdge[] };

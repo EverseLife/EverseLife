@@ -94,6 +94,16 @@ const MS_PER_DAY = 86_400_000;
 //: than by waiting -- a month ahead, three days a second.
 const FORECAST_DAYS = 60;
 const FORECAST_SPEED = 3;
+//: How far off its planet a docked ship stands: clear of the body and its
+//: name, close enough to read as "at this port".
+const BERTH = 26;
+
+/** Which side of its planet a ship is moored on: steady, and its own per ship. */
+function mooring(key: string): number {
+  let seed = 0;
+  for (const ch of key) seed = (seed * 31 + ch.charCodeAt(0)) % 997;
+  return (seed / 997) * Math.PI * 2;
+}
 
 /**
  * Layout memory: a node that once settled remembers its place by key --
@@ -315,19 +325,55 @@ export function GraphMap({ look, session, onEnter }: Omit<Props, "busy" | "act">
   );
   const fit = reach > 0 ? Math.min(1, (H / 2 - WALL_MARGIN) / reach) : 1;
 
-  /** Put every planet where the clock says it is. */
+  /** Put every planet where the clock says it is, and every ship where it is. */
   const placeSystem = useRef<() => void>(() => {});
   placeSystem.current = () => {
     const start = epoch ? new Date(epoch).getTime() : Date.now();
     const day = (Date.now() - start) / MS_PER_DAY + aheadRef.current;
-    for (const node of visible) {
-      const body = bodies.current.get(node.key);
-      if (!body || !node.orbit) continue;
-      const angle = node.orbit.phase + (TURN * day) / node.orbit.period_days;
-      body.x = STAR.x + node.orbit.radius * fit * Math.cos(angle);
-      body.y = STAR.y + node.orbit.radius * fit * Math.sin(angle);
+    const put = (key: string, x: number, y: number) => {
+      const body = bodies.current.get(key);
+      if (!body) return;
+      body.x = x;
+      body.y = y;
       body.vx = 0;
       body.vy = 0;
+    };
+    for (const node of visible) {
+      if (!node.orbit) continue;
+      const angle = node.orbit.phase + (TURN * day) / node.orbit.period_days;
+      put(
+        node.key,
+        STAR.x + node.orbit.radius * fit * Math.cos(angle),
+        STAR.y + node.orbit.radius * fit * Math.sin(angle),
+      );
+    }
+    //: Ships go after the planets, because both of a ship's ends are planets:
+    //: it either stands at one or is somewhere between two.
+    for (const node of visible) {
+      if (!node.aboard) continue;
+      const berth = node.parent ? bodies.current.get(node.parent) : undefined;
+      if (node.flight) {
+        const goal = bodies.current.get(repr(node.flight.to, "space") ?? "");
+        if (!berth || !goal) continue;
+        const t0 = new Date(node.flight.started_at).getTime();
+        const t1 = new Date(node.flight.arrives_at).getTime();
+        //: The passage is wound by the same clock as the sky: winding a day
+        //: forward and leaving the ship where it was would draw a moment that
+        //: never happens.
+        const at_ = Date.now() + aheadRef.current * MS_PER_DAY;
+        const share = Math.min(1, Math.max(0, (at_ - t0) / Math.max(1, t1 - t0)));
+        put(
+          node.key,
+          berth.x + (goal.x - berth.x) * share,
+          berth.y + (goal.y - berth.y) * share,
+        );
+      } else if (berth) {
+        //: Docked, a ship stands **beside** its planet rather than on it: on it
+        //: the planet would swallow the hull. The bearing is spun off the key,
+        //: so two ships at one port do not sit in the same spot.
+        const bearing = mooring(node.key);
+        put(node.key, berth.x + BERTH * Math.cos(bearing), berth.y + BERTH * Math.sin(bearing));
+      }
     }
   };
 
@@ -815,6 +861,27 @@ export function GraphMap({ look, session, onEnter }: Omit<Props, "busy" | "act">
             </g>
           )}
 
+          {/* The line a ship is on. There is no edge under it -- undocking took
+              the only one away (D-201) -- so the corridor is drawn from the
+              passage itself: whence, whither, and the hull somewhere along it. */}
+          {orbiting &&
+            visible.map((node) => {
+              if (!node.flight) return null;
+              const from = at(node.parent ?? "");
+              const to = at(repr(node.flight.to, "space") ?? "");
+              if (!from || !to) return null;
+              return (
+                <line
+                  key={`route|${node.key}`}
+                  className="route"
+                  x1={from.x}
+                  y1={from.y}
+                  x2={to.x}
+                  y2={to.y}
+                />
+              );
+            })}
+
           {shownEdges.map((edge) => {
             const a = at(edge.a);
             const b = at(edge.b);
@@ -826,9 +893,15 @@ export function GraphMap({ look, session, onEnter }: Omit<Props, "busy" | "act">
                   className={`edge ${edge.surface}`}
                   strokeDasharray={DASH[edge.surface]}
                 />
-                <text x={(a.x + b.x) / 2} y={(a.y + b.y) / 2 - 6} className="edge-label">
-                  {spell(edge.seconds)} · {SURFACE[edge.surface as keyof typeof SURFACE]}
-                </text>
+                {/* In space an edge is a gangway and nothing else: the only
+                    thing coupled to a planet is a ship standing at its port
+                    (D-201). "21 s of paved highway" would be a road's label on
+                    something that is not a road, so the tie is drawn bare. */}
+                {!orbiting && (
+                  <text x={(a.x + b.x) / 2} y={(a.y + b.y) / 2 - 6} className="edge-label">
+                    {spell(edge.seconds)} · {SURFACE[edge.surface as keyof typeof SURFACE]}
+                  </text>
+                )}
               </g>
             );
           })}
@@ -856,6 +929,9 @@ export function GraphMap({ look, session, onEnter }: Omit<Props, "busy" | "act">
             //: spring. The colour is the planet's identity and the same from
             //: everywhere -- Terra is that blue seen from Terra and from Pyroxis.
             const sphere = Boolean(node.orbit);
+            //: A ship is neither a planet nor a place: a hull, drawn by its own
+            //: mark, standing beside its port or somewhere along a passage.
+            const hull = node.aboard;
             return (
               <g
                 key={node.key}
@@ -864,9 +940,11 @@ export function GraphMap({ look, session, onEnter }: Omit<Props, "busy" | "act">
                     ? ({ "--pc": `var(--planet-${node.planet})` } as React.CSSProperties)
                     : undefined
                 }
-                className={`node ${sphere ? "sphere" : ""} ${node.deferred ? "later" : ""} ${
-                  mine ? "me" : ""
-                } ${near || group ? "near" : ""}${chosen ? " picked" : ""}`}
+                className={`node ${sphere ? "sphere" : ""} ${hull ? "ship" : ""} ${
+                  node.deferred ? "later" : ""
+                } ${mine ? "me" : ""} ${near || group ? "near" : ""}${
+                  chosen ? " picked" : ""
+                }`}
                 onPointerDown={grabNode(node.key)}
                 onPointerMove={movePointer}
                 onPointerUp={releasePointer(node)}
@@ -876,7 +954,14 @@ export function GraphMap({ look, session, onEnter }: Omit<Props, "busy" | "act">
                   setMenu({ key: node.key, x: e.clientX, y: e.clientY });
                 }}
               >
-                {sphere ? (
+                {hull ? (
+                  <path
+                    className="hull"
+                    d={`M${p.x} ${p.y - 8} L${p.x + 6} ${p.y} L${p.x} ${p.y + 8} L${
+                      p.x - 6
+                    } ${p.y} Z`}
+                  />
+                ) : sphere ? (
                   <>
                     <circle cx={p.x} cy={p.y} r={mine ? 13 : 11} className="corona" />
                     <circle cx={p.x} cy={p.y} r={mine ? 9 : 7} className="orb" />
@@ -892,7 +977,10 @@ export function GraphMap({ look, session, onEnter }: Omit<Props, "busy" | "act">
                 {chosen && (
                   <circle cx={p.x} cy={p.y} r={mine ? 20 : 18} className="ring" />
                 )}
-                <text x={p.x} y={p.y - 20} className="node-label">
+                {/* A ship's name hangs below the hull: above it there is
+                    already a planet's name, and two ships at one port would
+                    write over it and over each other. */}
+                <text x={p.x} y={hull ? p.y + 21 : p.y - 20} className="node-label">
                   {node.name}
                 </text>
                 {/* Aquatica is drawn precisely because one cannot go there
@@ -1066,9 +1154,22 @@ function Inspector({
     <aside className="inspect">
       <h3>{node.name}</h3>
       <p className="note">
-        {LAYER_NAME[node.layer] ?? node.layer}
-        {group ? " · есть что раскрыть" : ""}
+        {node.aboard
+          ? node.flight
+            ? "корабль · в рейсе"
+            : "корабль · у космодрома"
+          : (LAYER_NAME[node.layer] ?? node.layer)}
+        {group && !node.aboard ? " · есть что раскрыть" : ""}
       </p>
+      {/* A passage is a term like any other, and it is shown the way every
+          term in this world is shown. */}
+      {node.flight && (
+        <Deadline
+          until={node.flight.arrives_at}
+          since={node.flight.started_at}
+          label="рейс"
+        />
+      )}
 
       {exit ? (
         <table>
@@ -1089,6 +1190,12 @@ function Inspector({
             ? "Планета вне альфы: её ещё нет в мире, и попасть на неё нельзя."
             : "Другая планета. Пешком туда пути нет: только кораблём с космодрома."}
         </p>
+      ) : node.aboard ? (
+        <p className="note">
+          {node.flight
+            ? "Корабль в рейсе: трапа нет, пока он не причалит."
+            : "На борт заходят ногами, по трапу с космодрома."}
+        </p>
       ) : (
         <p className="note">
           Соседним не является: маршрут построится сам, по проходимым рёбрам.
@@ -1108,7 +1215,9 @@ function Inspector({
             Идти
           </button>
         )}
-        {group && (
+        {/* A ship is not opened from space: its rooms are walked into by the
+            gangway, and "expand" here would show somebody else's surface. */}
+        {group && !node.aboard && (
           <button className="quiet" onClick={() => onExpand(node)} disabled={busy}>
             Раскрыть
           </button>
@@ -1198,7 +1307,7 @@ function NodeMenu({
           Идти{step ? ` · ${spell(step.seconds)}` : ""}
         </button>
       )}
-      {group && (
+      {group && !node.aboard && (
         <button role="menuitem" className="quiet" onClick={onExpand} disabled={busy}>
           Раскрыть
         </button>

@@ -89,7 +89,7 @@ from src.models.estate import Building
 from src.models.event import EventKind
 from src.models.identity import Body, BodyState
 from src.models.inventory import Container, ContainerKind, Item
-from src.models.job import Job, JobKind
+from src.models.job import Job, JobKind, JobState
 from src.models.ship import Ship
 from src.models.world import Layer, Node, Planet, Surface
 from src.units import (
@@ -992,6 +992,47 @@ async def _moor_to(session: AsyncSession, ship: Ship, port: Node) -> None:
 
 
 # --- what the client shows before the attempt --------------------------------
+
+
+async def passages(session: AsyncSession) -> dict[uuid.UUID, dict[str, object]]:
+    """Ships under way: the delegate node -> where it goes and when it arrives.
+
+    A ship in flight is **nowhere in the graph**: undocking removes its only
+    edge (D-201), so its place cannot be read off the map the way everything
+    else can. It is known to one thing only -- the job that will bring the ship
+    in -- and that job holds both ends of the passage: it was created at
+    departure and fires on arrival. The share between the two is exactly how
+    far the ship has got, and that is what the space layer draws.
+
+    Keyed by the delegate node, because that is what the map speaks in.
+    """
+    flights = (
+        await session.execute(
+            select(Job).where(
+                Job.kind == JobKind.SHIP_FLIGHT, Job.state == JobState.PENDING
+            )
+        )
+    ).scalars().all()
+    if not flights:
+        return {}
+
+    afloat = {
+        str(ship.id): ship
+        for ship in (
+            await session.execute(select(Ship).where(Ship.docked_node_id.is_(None)))
+        ).scalars().all()
+    }
+    under_way: dict[uuid.UUID, dict[str, object]] = {}
+    for job in flights:
+        ship = afloat.get(str(job.payload.get("ship")))
+        if ship is None:
+            continue
+        under_way[ship.node_id] = {
+            "to": uuid.UUID(str(job.payload["to"])),
+            "started_at": job.created_at,
+            "arrives_at": job.run_at,
+        }
+    return under_way
 
 
 async def ports(session: AsyncSession) -> list[Node]:

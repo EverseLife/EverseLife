@@ -57,6 +57,27 @@ async def plants() -> dict[str, Any]:
     return {"plants": [plant.model_dump() for plant in catalog().plants.plants]}
 
 
+def _passage(
+    under_way: dict[str, Any] | None, by_id: dict[Any, str]
+) -> dict[str, str] | None:
+    """A ship's passage for the map: the port it is due at and the two moments.
+
+    The destination is given as a node key rather than a planet: the client
+    climbs the parent hierarchy to whatever layer it is drawing, and a key
+    keeps that one rule instead of adding a second.
+    """
+    if under_way is None:
+        return None
+    goal = by_id.get(under_way["to"])
+    if goal is None:  # pragma: no cover -- the port is a node like any other
+        return None
+    return {
+        "to": goal,
+        "started_at": under_way["started_at"].isoformat(),
+        "arrives_at": under_way["arrives_at"].isoformat(),
+    }
+
+
 @router.get("/map")
 async def world_map() -> dict[str, Any]:
     """The world map: nodes and edges with transit time.
@@ -80,6 +101,10 @@ async def world_map() -> dict[str, Any]:
         #: the walls starts at the gate, every ship couples to the spaceport, and
         #: a player who cannot see that reads the graph as an arbitrary tangle.
         ports = {node.id for node in await vessels.ports(db)}
+        #: A ship under way has no edges at all (D-201), so the graph cannot say
+        #: where it is. The passage does: from the port it left to the one it is
+        #: due at, between two moments.
+        under_way = await vessels.passages(db)
         return {
             "nodes": [
                 {
@@ -98,6 +123,12 @@ async def world_map() -> dict[str, Any]:
                     "planet": node.planet.value,
                     "orbit": places.orbit_of(node),
                     "deferred": bool(node.properties.get(places.DEFERRED)),
+                    #: A ship is a group of ordinary nodes (D-201), and only
+                    #: this mark tells them from ground: the map draws a hull
+                    #: rather than a place, and one does not walk to a hull
+                    #: across the void -- one boards it by the gangway.
+                    "aboard": vessels.is_aboard(node),
+                    "flight": _passage(under_way.get(node.id), by_id),
                 }
                 for node in nodes
             ],
