@@ -604,6 +604,62 @@ async def test_passage_time_follows_the_sky(
     assert window < between < apart, "между краями время идёт по расстоянию"
 
 
+async def test_berths_are_numbered_and_the_lowest_free_one_is_taken(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The gangway is as long as the berth's number, and a freed berth is refilled.
+
+    Three ships at one yard stand at berths one, two and three, and the walk to
+    each is exactly that many seconds. The middle one casts off -- and the next
+    arrival takes **its** place rather than a fourth: a port that has seen ships
+    come and go all day still boards the next one close to the door.
+    """
+    port = await _port(session)
+    berths: list[Ship] = []
+    for number in range(3):
+        _, builder = await _shipwright(session, port)
+        vessel = await _laid(session, constants, builder, port, name=f"Борт-{number}")
+        berths.append(vessel)
+
+    assert [vessel.berth for vessel in berths] == [1, 2, 3], "места раздаются по порядку"
+    for vessel in berths:
+        connector = await session.get(Node, vessel.connector_node_id)
+        way = next(
+            path
+            for path in await travel.exits(session, constants, port)
+            if path.node_id == connector.id
+        )
+        assert way.seconds == pytest.approx(
+            vessel.berth * constants[R.SHIP_BERTH_SECONDS]
+            * constants[R.ROAD_PAVED_MULTIPLIER]
+        ), "трап длиной в номер места"
+
+    #: The middle ship leaves, and its berth is the one the next arrival gets.
+    middle = berths[1]
+    aboard = await session.get(Node, middle.connector_node_id)
+    await _flightworthy(session, constants, catalog, middle)
+    holder = await _body_of(session, middle)
+    holder.node_id = aboard.id
+    await session.flush()
+    await ship.undock(session, constants, catalog, holder, middle)
+    assert middle.berth is None, "в полёте места у причала нет"
+
+    _, latecomer = await _shipwright(session, port)
+    arrival = await _laid(session, constants, latecomer, port, name="Опоздавший")
+    assert arrival.berth == 2, "освободившееся место занимает следующий пришедший"
+
+
+async def _body_of(session: AsyncSession, vessel: Ship) -> Body:
+    """The ship's owner's body -- the only one that may command it."""
+    from sqlalchemy import select as sql_select
+
+    return (
+        await session.execute(
+            sql_select(Body).where(Body.identity_id == vessel.owner_identity_id)
+        )
+    ).scalars().one()
+
+
 async def test_long_passage_needs_more_fuel_than_a_hop(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:

@@ -112,7 +112,6 @@ from src.units import (
     AMOUNT_SCALE,
     HOURS_PER_DAY,
     KG_PER_TON,
-    MINUTES_PER_HOUR,
     PERCENT,
     ROUND_HOURS,
     ROUND_MASS,
@@ -143,13 +142,37 @@ ABOARD = "борт"
 _EPS = 1 / AMOUNT_SCALE
 
 
-def _gangway_seconds(constants: Constants) -> float:
-    """How long the gangway takes to walk: `ship.dock_minutes` in seconds.
+def _gangway_seconds(constants: Constants, berth: int) -> float:
+    """How long the gangway takes to walk: `ship.berth_seconds` per berth.
 
-    Docking is not instant, and the edge to the port costs exactly the window
-    the vault gives it -- the same number describes both.
+    A yard's berths are numbered, and the walk to one is as long as its number:
+    the ship at the first berth is a second from the yard, the one at the fifth
+    is five. So a busy port is a slower port, and that is the whole cost of
+    somebody else being there before you.
     """
-    return constants[R.SHIP_DOCK_MINUTES] / MINUTES_PER_HOUR * SECONDS_PER_HOUR
+    return berth * constants[R.SHIP_BERTH_SECONDS]
+
+
+async def _free_berth(session: AsyncSession, port: Node) -> int:
+    """The lowest berth free at this port.
+
+    **Lowest**, not next: casting off leaves a hole, and the next arrival fills
+    it rather than walking past it to the end of the pier. A port that has seen
+    a hundred ships come and go still boards the next one in a second.
+    """
+    taken = set(
+        (
+            await session.execute(
+                select(Ship.berth).where(
+                    Ship.docked_node_id == port.id, Ship.berth.is_not(None)
+                )
+            )
+        ).scalars().all()
+    )
+    place = 1
+    while place in taken:
+        place += 1
+    return place
 
 
 class ShipError(Exception):
@@ -784,17 +807,18 @@ async def _found_ship(
         node_id=delegate.id,
         connector_node_id=connector.id,
         docked_node_id=port.id,
+        berth=await _free_berth(session, port),
     )
     session.add(ship)
     await session.flush()
 
-    #: The gangway: `ship.dock_minutes` is exactly what boarding costs, and it
-    #: is a road like any other -- paved, because a pier is not a trail.
+    #: The gangway: as long as the berth's number, and a road like any other --
+    #: paved, because a pier is not a trail.
     await travel.connect(
         session,
         port,
         connector,
-        base_seconds=_gangway_seconds(constants),
+        base_seconds=_gangway_seconds(constants, ship.berth),
         surface=Surface.PAVED,
     )
     return ship, connector
@@ -957,6 +981,9 @@ async def undock(
     #: the edge, and that refusal travels up as it is.
     await travel.disconnect(session, port, connector)
     ship.docked_node_id = None
+    #: The berth is given back with the gangway: a ship in flight holds no place
+    #: at a pier, and the next arrival gets this one rather than a longer walk.
+    ship.berth = None
     await session.flush()
 
     await events.record(
@@ -1085,11 +1112,14 @@ async def arrived(session: AsyncSession, job: Job) -> None:
     if connector is None:  # pragma: no cover
         raise ShipError("у корабля нет коннектора")
 
+    #: The berth is taken on arrival, and it is whichever is free **there**:
+    #: a ship does not carry its place from the port it left.
+    ship.berth = await _free_berth(session, port)
     await travel.connect(
         session,
         port,
         connector,
-        base_seconds=_gangway_seconds(current()),
+        base_seconds=_gangway_seconds(current(), ship.berth),
         surface=Surface.PAVED,
     )
     ship.docked_node_id = port.id
@@ -1133,21 +1163,89 @@ async def _moor_to(session: AsyncSession, ship: Ship, port: Node) -> None:
 # --- what the client shows before the attempt --------------------------------
 
 
-async def inside(
+async def in_sight(
     session: AsyncSession, constants: Constants, node: Node
 ) -> dict[str, list[dict[str, object]]] | None:
-    """The ship one is standing in: its rooms and the ways between them.
+    """What of ships is visible from this node, and nothing beyond it.
 
     A ship's interior is **not on the public map** (D-201). From the pier a ship
     is one hull, and how many cabins it holds, what is joined to what and where
     the hold is stays unknown -- that is the whole point of the single
-    connector: nothing is seen past the gangway. So the inside travels with the
-    look of whoever is inside, and the map draws it only then.
+    connector: nothing is seen past the gangway. So what a ship shows travels
+    with the look of whoever stands close enough, and only what they may see:
 
-    None means the node is not part of any ship -- ordinary ground.
+    * **at a spaceport** -- the ships moored to it, each as one node with its
+      gangway. That is the door, not the inside: it appears on walking up to the
+      pier and is gone on walking away from it;
+    * **aboard** -- the rooms and the ways between them, because from inside a
+      ship is an ordinary piece of the graph one walks around.
+
+    None means neither: ordinary ground with no ship within sight.
     """
-    if not is_aboard(node):
+    if is_aboard(node):
+        return await _from_aboard(session, constants, node)
+    return await _from_pier(session, constants, node)
+
+
+async def _from_pier(
+    session: AsyncSession, constants: Constants, port: Node
+) -> dict[str, list[dict[str, object]]] | None:
+    """Ships moored here: a door apiece, on the layer the pier itself is on.
+
+    A moored ship stands in the city as a building does -- one walks up to it
+    and up its gangway -- so that is where the map shows it, under the same city
+    as the port. Its own layer stays what it is; this is the delegate's trick
+    the map has used from the start (D-045), not a second kind of node.
+    """
+    moored = (
+        await session.execute(select(Ship).where(Ship.docked_node_id == port.id))
+    ).scalars().all()
+    if not moored:
         return None
+
+    city = None if port.parent_id is None else await session.get(Node, port.parent_id)
+    nodes: list[dict[str, object]] = []
+    edges: list[dict[str, object]] = []
+    for ship in moored:
+        connector = await session.get(Node, ship.connector_node_id)
+        if connector is None:  # pragma: no cover -- a ship always has one
+            continue
+        nodes.append(
+            {
+                "key": connector.key,
+                #: The ship's name, not the compartment's: from the pier one
+                #: sees «Заря», and what its first room is called is a thing
+                #: learnt aboard.
+                "name": ship.name,
+                "layer": port.layer.value,
+                "parent": None if city is None else city.key,
+                "ring": (port.properties or {}).get("кольцо"),
+                "exit": False,
+                "port": False,
+                "planet": connector.planet.value,
+                "orbit": None,
+                "deferred": False,
+                "aboard": True,
+                "flight": None,
+            }
+        )
+        gangway = await travel._edge_between(session, port.id, connector.id)
+        if gangway is not None:
+            edges.append(
+                {
+                    "a": port.key,
+                    "b": connector.key,
+                    "surface": gangway.surface.value,
+                    "seconds": round(travel.edge_seconds(constants, gangway)),
+                }
+            )
+    return {"nodes": nodes, "edges": edges} if nodes else None
+
+
+async def _from_aboard(
+    session: AsyncSession, constants: Constants, node: Node
+) -> dict[str, list[dict[str, object]]] | None:
+    """The ship one is standing in: its rooms and the ways between them."""
     ship = await of_node(session, node)
     if ship is None:  # pragma: no cover -- an aboard node always has its ship
         return None
@@ -1167,9 +1265,7 @@ async def inside(
 
     ways = (
         await session.execute(
-            select(Edge).where(
-                or_(Edge.node_a_id.in_(keys), Edge.node_b_id.in_(keys))
-            )
+            select(Edge).where(or_(Edge.node_a_id.in_(keys), Edge.node_b_id.in_(keys)))
         )
     ).scalars().all()
     return {
@@ -1332,6 +1428,9 @@ async def profile(
         "fuel": round(await fuel_aboard(session, ship), ROUND_MASS),
         "docked": None if docked is None else docked.key,
         "port": None if docked is None else docked.name,
+        #: Which berth of that port, and therefore how long the gangway is: a
+        #: busy yard boards you further from the door (D-201).
+        "berth": ship.berth,
         "connector": None if connector is None else connector.key,
         "routes": sorted(routes, key=lambda route: (not route["reachable"], route["name"])),
     }

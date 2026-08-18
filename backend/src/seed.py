@@ -518,6 +518,12 @@ async def catch_up(session: AsyncSession, core: Node) -> None:
     #: planets arrive with their orbits, and Terra learns its own.
     await _system(session)
 
+    #: Berths (D-201): a ship moored before the piers were numbered has a
+    #: gangway of whatever length the old rule gave it. The number itself comes
+    #: from the migration, in docking order; the walk is relaid here, because
+    #: what a berth is worth in seconds is the vault's business.
+    await _berths(session, constants)
+
     #: Login by email and password (D-187): identities created before it get
     #: the seed's test accounts. Only those without an email yet -- anything
     #: set by hand or from the account panel the catch-up does not touch.
@@ -936,6 +942,27 @@ async def _reroute_through_gates(session: AsyncSession) -> None:
             log.info(
                 "road %s -- %s moved onto the gate %s", end.name, other.name, door.name
             )
+    await session.flush()
+
+
+async def _berths(session: AsyncSession, constants) -> None:
+    """Relay the gangway of every moored ship to the length its berth deserves."""
+    from src.models.ship import Ship
+
+    for vessel in (
+        await session.execute(select(Ship).where(Ship.docked_node_id.is_not(None)))
+    ).scalars().all():
+        if vessel.berth is None:
+            vessel.berth = await ship._free_berth(
+                session, await session.get(Node, vessel.docked_node_id)
+            )
+        port = await session.get(Node, vessel.docked_node_id)
+        connector = await session.get(Node, vessel.connector_node_id)
+        if port is None or connector is None:  # pragma: no cover
+            continue
+        gangway = await travel._edge_between(session, port.id, connector.id)
+        if gangway is not None:
+            gangway.base_seconds = int(ship._gangway_seconds(constants, vessel.berth))
     await session.flush()
 
 

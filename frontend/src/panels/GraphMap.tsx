@@ -171,19 +171,20 @@ export function GraphMap({ look, session, onEnter }: Omit<Props, "busy" | "act">
     void api.worldMap().then(setWorld);
   }, [here, exits, exploring]);
   const ongoing = look.travel ?? null;
-  //: The ship one stands in is not on the public map at all (D-201): from the
-  //: pier it is a single hull. Its rooms arrive with `look`, and only then --
-  //: so the layer showing them appears on stepping aboard and goes away with
-  //: the gangway.
+  //: Ships are not on the public map at all (D-201): from a distance a ship is
+  //: a single hull on the space layer and nothing more. What is close enough
+  //: to see arrives with `look` -- the ship moored at the pier one stands on,
+  //: or the rooms of the one being stood in -- so a ship appears on walking up
+  //: to it and is gone on walking away.
   const map = useMemo<WorldMap | null>(() => {
-    const inside = look.aboard;
-    if (!world || !inside) return world;
+    const seen = look.ships;
+    if (!world || !seen) return world;
     return {
       ...world,
-      nodes: [...world.nodes, ...inside.nodes],
-      edges: [...world.edges, ...inside.edges],
+      nodes: [...world.nodes, ...seen.nodes],
+      edges: [...world.edges, ...seen.edges],
     };
-  }, [world, look.aboard]);
+  }, [world, look.ships]);
   const byKey = useMemo(() => {
     const out: Record<string, MapNode> = {};
     for (const node of map?.nodes ?? []) out[node.key] = node;

@@ -47,6 +47,8 @@ type Vessel = {
   fuel: number;
   docked: string | null;
   port: string | null;
+  /** Which berth of that port: the gangway is as long as its number (D-201). */
+  berth: number | null;
   connector: string | null;
   routes: Route[];
 };
@@ -127,7 +129,9 @@ export function Ship({ look, session }: { look: Look; session: Session }) {
             {v.min_ratio.toFixed(2)}
             {v.ratio < v.min_ratio && <b> · не отрывается</b>} · экипаж {v.crew}{" "}
             из {v.life_support} · топлива {v.fuel.toFixed(0)}
-            {v.docked ? ` · в порту: ${v.port}` : " · в полёте"}
+            {v.docked
+              ? ` · у верфи «${v.port}», место ${v.berth ?? "—"}`
+              : " · в полёте"}
           </p>
 
           {v.docked && (

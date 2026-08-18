@@ -173,11 +173,11 @@ export type MapRoute = {
   class: number;
 };
 export type WorldMap = { nodes: MapNode[]; edges: MapEdge[]; routes: MapRoute[] };
-/** The ship one is standing in: it is not on the public map at all (D-201).
- *  From the pier a ship is a single hull -- how many rooms it holds and what is
- *  joined to what is what a boarder would want to know, so the inside comes
- *  with `look`, to whoever is inside. */
-export type Interior = { nodes: MapNode[]; edges: MapEdge[] };
+/** What of ships is visible from where one stands, and nothing beyond it
+ *  (D-201): at a pier the moored ships, aboard the rooms between which one
+ *  walks. None of it is on the public map -- from outside a ship is a single
+ *  hull, and its layout is what a boarder would want to know. */
+export type InSight = { nodes: MapNode[]; edges: MapEdge[] };
 
 /** A remark as heard by someone standing in the location (D-043, D-050). */
 export type ChatLine = {
@@ -360,9 +360,9 @@ export type Look = {
   survey?: { returns_at: string } | null;
   /** Does a drilling rig stand in this node: the stand shows the row by it. */
   rig_here?: boolean;
-  /** The ship one is standing in (D-201). Empty on the ground: from outside a
-   *  ship is one hull, and its rooms are on nobody's map. */
-  aboard?: Interior | null;
+  /** Ships within sight of this node (D-201): moored at the pier one stands
+   *  on, or the rooms of the one being stood in. Empty everywhere else. */
+  ships?: InSight | null;
   /** The planet's clock: where the count starts and how long a day is (D-029). */
   clock?: { planet: string; epoch: string | null; day_hours: number };
   /** Whether a city can be founded here and what is missing for that (D-159).

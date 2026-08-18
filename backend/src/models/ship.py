@@ -15,7 +15,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import ForeignKey, Index, Uuid
+from sqlalchemy import ForeignKey, Index, Integer, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.db.base import Base, created_column, uuid_pk
@@ -56,5 +56,12 @@ class Ship(Base):
     #: The spaceport the connector is coupled to. Empty -- in flight: the
     #: subgraph has no edge outwards at all.
     docked_node_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+
+    #: Which berth of that port the ship stands at, counted from one. The
+    #: gangway is as long as the number: the first ship in is a second's walk
+    #: from the yard, the fifth is five. A ship takes the **lowest free** berth,
+    #: so casting off does not leave a hole -- the next arrival stands where the
+    #: departed one stood. Empty in flight, along with the port.
+    berth: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     created_at: Mapped[datetime] = created_column()
