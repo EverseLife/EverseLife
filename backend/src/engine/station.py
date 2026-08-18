@@ -165,6 +165,10 @@ async def place(
         item_id=str(item.id),
         type_key=item.type_key,
     )
+    #: A machine appeared: whoever stood here waiting for one gets it (D-209).
+    from src.engine import craft
+
+    await craft.wake_node(session, node)
     return item
 
 

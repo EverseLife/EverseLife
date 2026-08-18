@@ -136,4 +136,9 @@ class Item(Base):
     #: Share of filled roles: a full meal keeps satiety longer (D-128).
     roles_filled: Mapped[float | None] = mapped_column(Numeric(4, 2), nullable=True)
 
+    #: For a knowledge carrier: which recipe is written on it (D-209). A blank
+    #: has none; a written one is a different item on the counter, though the
+    #: type is the same -- the market keys it together with the recipe.
+    recipe_key: Mapped[str | None] = mapped_column(nullable=True)
+
     created_at: Mapped[datetime] = created_column()

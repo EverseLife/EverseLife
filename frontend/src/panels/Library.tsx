@@ -1,9 +1,14 @@
 /**
- * The Library: a recipe catalog with search and pages (D-053, D-076).
+ * The Library: what this one holds, with search and pages (D-053, D-068, D-076).
  *
  * Anyone may take: free, unconditional, without citizenship -- the Library
  * refuses nobody. Its only restriction is geographic: **it does not work
  * remotely**, so this table is visible only to whoever stands in it.
+ *
+ * A library holds what was put into it (D-068, D-209). The capital's shelf is
+ * the base set; one a city built starts empty and fills as people bring
+ * carriers -- from the inventory, «Положить… → В библиотеку». What is given
+ * stays for good, and the giver's name stays with the recipe.
  *
  * The knowledge store grows, and without order turns into a dump of a
  * thousand recipes with names like "nail 2 final" -- in the game the Sage
@@ -43,19 +48,31 @@ export function Library({ look, session }: Omit<Props, "busy" | "act">) {
     void api.plants().then((p) => setCrops(p.plants));
   }, []);
 
-  const all: any[] = book?.recipes ?? [];
+  //: The shelf, not the vault: only what this library holds is on the table.
+  //: The vault catalog supplies the details -- station, inputs, level -- and
+  //: the shelf supplies the list and the contributors' names.
+  const shelf = look.node?.shelf ?? [];
+  const byName: Record<string, any> = Object.fromEntries(
+    ((book?.recipes ?? []) as any[]).map((r) => [r.name, r]),
+  );
+  const all = shelf.map((entry) => ({
+    ...(byName[entry.recipe] ?? { name: entry.recipe, inputs: [], level: "?", station: null }),
+    contributor: entry.contributor,
+  }));
   const query = search.trim().toLowerCase();
   const found = all.filter(
     (recipe) =>
       !query ||
       recipe.name.toLowerCase().includes(query) ||
       (recipe.station ?? "").toLowerCase().includes(query) ||
+      (recipe.contributor ?? "").toLowerCase().includes(query) ||
       recipe.inputs.some((entry: string) => entry.toLowerCase().includes(query)),
   );
 
   const pages = Math.max(1, Math.ceil(found.length / PAGE));
   const current = Math.min(page, pages - 1);
   const shown = found.slice(current * PAGE, current * PAGE + PAGE);
+  const carriers = look.inventory.filter((thing) => thing.recipe);
 
   return (
     <section>
@@ -64,13 +81,16 @@ export function Library({ look, session }: Omit<Props, "busy" | "act">) {
         Библиотека
         <Rule>
           Бесплатно и без условий, но только придя; переписывание стоит выносливости.
+          Здесь лежит то, что сюда положили: столичная полна с основания, городскую
+          наполняют носителями — из инвентаря, «Положить… → В библиотеку». Положенное
+          остаётся навсегда, имя вкладчика — при рецепте.
         </Rule>
       </h2>
       <div className="row">
         <input
           type="search"
           value={search}
-          placeholder="рецепт, станция или вход"
+          placeholder="рецепт, станция, вход или вкладчик"
           onChange={(e) => {
             setSearch(e.target.value);
             setPage(0);
@@ -81,6 +101,13 @@ export function Library({ look, session }: Omit<Props, "busy" | "act">) {
         </span>
       </div>
 
+      {all.length === 0 && (
+        <p className="note">
+          Полки пусты: эта библиотека ещё ничего не получила. Принесите носитель
+          «Рецепт» и положите его сюда из инвентаря.
+        </p>
+      )}
+
       <table className="catalog">
         <thead>
           <tr>
@@ -88,6 +115,7 @@ export function Library({ look, session }: Omit<Props, "busy" | "act">) {
             <th>ур.</th>
             <th>станция</th>
             <th>из чего</th>
+            <th>вклад</th>
             <th />
           </tr>
         </thead>
@@ -98,6 +126,7 @@ export function Library({ look, session }: Omit<Props, "busy" | "act">) {
               <td className="num">{recipe.level}</td>
               <td className="note">{recipe.station ?? "—"}</td>
               <td className="note">{recipe.inputs.join(", ") || "—"}</td>
+              <td className="note">{recipe.contributor ?? "основание"}</td>
               <td>
                 {look.knows.includes(recipe.name) ? (
                   <span className="note">знаю</span>
@@ -115,9 +144,9 @@ export function Library({ look, session }: Omit<Props, "busy" | "act">) {
               </td>
             </tr>
           ))}
-          {shown.length === 0 && (
+          {shown.length === 0 && all.length > 0 && (
             <tr>
-              <td colSpan={5} className="note">
+              <td colSpan={6} className="note">
                 ничего не нашлось
               </td>
             </tr>
@@ -144,6 +173,37 @@ export function Library({ look, session }: Omit<Props, "busy" | "act">) {
           →
         </button>
       </div>
+
+      {carriers.length > 0 && (
+        <>
+          <h3>Носители в руках</h3>
+          {carriers.map((thing) => {
+            const there = shelf.some((entry) => entry.recipe === thing.recipe);
+            return (
+              <div className="row" key={thing.id}>
+                <span>
+                  {thing.goods}: {thing.recipe}
+                </span>
+                {there ? (
+                  <span className="note">здесь уже лежит</span>
+                ) : (
+                  <button
+                    className="quiet"
+                    onClick={() =>
+                      act(() => session.send("library.contribute", { item: thing.id }))
+                    }
+                    disabled={busy}
+                    title="отдать навсегда: ваше имя останется при рецепте"
+                  >
+                    Положить в библиотеку
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </>
+      )}
+
       <h3>Агротехника</h3>
       <div className="row">
         {crops.map((crop) => {

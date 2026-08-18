@@ -166,6 +166,34 @@ class Fill:
         return amount_float(sum(trade.amount for trade in self.trades))
 
 
+# --- goods keys ----------------------------------------------------------------
+
+#: A written knowledge carrier is a different good for every recipe on it
+#: (D-209): a buyer of "Рецепт" must know **which**. On the counter it is
+#: keyed as "Рецепт: Стекло" -- one string, so that orders, books and offers
+#: work unchanged -- and split back into type and recipe where stacks are read.
+CARRIER_SEP = ": "
+
+
+def goods_key(item: Item) -> str:
+    """The name the counter knows this stack by."""
+    from src.engine import craft
+
+    if item.type_key == craft.CARRIER and item.recipe_key:
+        return f"{item.type_key}{CARRIER_SEP}{item.recipe_key}"
+    return item.type_key
+
+
+def split_key(goods: str) -> tuple[str, str | None]:
+    """A counter name back into item type and, for a carrier, the recipe on it."""
+    from src.engine import craft
+
+    head, sep, tail = goods.partition(CARRIER_SEP)
+    if sep and head == craft.CARRIER and tail:
+        return head, tail
+    return goods, None
+
+
 # --- tiers -------------------------------------------------------------------
 
 
@@ -268,7 +296,8 @@ async def take(
     from src.engine import gear
 
     await gear.check_carry(
-        session, constants, current_catalog(), body, type_key, amount_float(want)
+        session, constants, current_catalog(), body, split_key(type_key)[0],
+        amount_float(want),
     )
 
     moved = await _move(session, stock, inventory, type_key, want, tier=tier, constants=constants)
@@ -1032,12 +1061,18 @@ async def _stacks(
     constants: Constants,
 ) -> list[Item]:
     """Stacks of the needed goods, worst first: the good ones are saved."""
+    kind, recipe = split_key(type_key)
+    stmt = select(Item).where(Item.container_id == container.id, Item.type_key == kind)
+    if recipe is not None:
+        stmt = stmt.where(Item.recipe_key == recipe)
+    elif kind == _carrier():
+        #: A bare "Рецепт" on the counter is a blank one -- a written carrier
+        #: is always named together with what is on it.
+        stmt = stmt.where(Item.recipe_key.is_(None))
     rows = (
         (
             await session.execute(
-                select(Item)
-                .where(Item.container_id == container.id, Item.type_key == type_key)
-                .order_by(Item.quality.asc().nulls_first(), Item.created_at.asc())
+                stmt.order_by(Item.quality.asc().nulls_first(), Item.created_at.asc())
             )
         )
         .scalars()
@@ -1093,11 +1128,18 @@ async def _move(
                     flavor=item.flavor,
                     roles_filled=item.roles_filled,
                     fineness=item.fineness,
+                    recipe_key=item.recipe_key,
                 )
             )
         left -= take
     await session.flush()
     return quantity - left
+
+
+def _carrier() -> str:
+    from src.engine import craft
+
+    return craft.CARRIER
 
 
 async def _levels(

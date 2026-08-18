@@ -80,7 +80,9 @@ export function Market({ look, session }: Omit<Props, "busy" | "act">) {
     ...positions,
     ...[...pocket, ...terminal]
       .filter((t) => t.quality !== null)
-      .map((t) => ({ goods: t.goods, tier: t.tier })),
+      //: The counter's name, not the item's: a written carrier is a position
+      //: per recipe -- "Рецепт: Стекло" (D-209).
+      .map((t) => ({ goods: t.key ?? t.goods, tier: t.tier })),
   ].filter(
     (p, i, everything) => everything.findIndex((d) => d.goods === p.goods && d.tier === p.tier) === i,
   );
@@ -289,7 +291,7 @@ export function Market({ look, session }: Omit<Props, "busy" | "act">) {
             mark={setChoice}
             button="Загрузить"
             action={(t, amount) =>
-              act(() => session.send("market.load", { goods: t.goods, amount }))
+              act(() => session.send("market.load", { goods: t.key ?? t.goods, amount }))
             }
             busy={busy}
             empty="в кармане пусто"
@@ -310,7 +312,7 @@ export function Market({ look, session }: Omit<Props, "busy" | "act">) {
             action={(t, amount) =>
               act(() =>
                 session.send("market.take", {
-                  goods: t.goods,
+                  goods: t.key ?? t.goods,
                   tier: t.tier,
                   amount,
                 }),
@@ -351,15 +353,16 @@ function Own({
     <table>
       <tbody>
         {things.map((t) => {
-          const selected = choice?.goods === t.goods && choice?.tier === t.tier;
+          const name = t.key ?? t.goods;
+          const selected = choice?.goods === name && choice?.tier === t.tier;
           const part = chosen(parts[t.id] ?? null, t.amount);
           return (
             <tr
               key={t.id}
               className={`pick ${selected ? "picked" : ""}`}
-              onClick={() => mark({ goods: t.goods, tier: t.tier })}
+              onClick={() => mark({ goods: name, tier: t.tier })}
             >
-              <td>{t.flavor ?? t.goods}</td>
+              <td>{t.flavor ?? name}</td>
               <td className="num">{t.amount}</td>
               <td className="note">
                 {t.quality === null ? "" : `${t.quality.toFixed(0)} · ${t.tier}`}

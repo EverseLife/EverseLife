@@ -139,11 +139,13 @@ async def test_coins_not_lost_on_way_through_journal(
 async def test_machine_busy_with_minting(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Minting is work at a machine: a second batch on the same machine does not go (D-150)."""
+    """Minting is work at a machine: a second batch on the same machine does not go
+    (D-150). The minter's own second batch waits its turn instead (D-209)."""
     _, _, body = await _yard(session)
-    await coin.mint(session, constants, catalog, body, GOLD, 2)
-    with pytest.raises(craft.Busy):
-        await coin.mint(session, constants, catalog, body, GOLD, 2)
+    first = await coin.mint(session, constants, catalog, body, GOLD, 2)
+    second = await coin.mint(session, constants, catalog, body, GOLD, 2)
+    assert first.state.value == "running"
+    assert second.state.value == "waiting"
 
 
 async def test_no_minting_without_mint_press(

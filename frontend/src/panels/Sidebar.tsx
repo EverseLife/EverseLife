@@ -14,7 +14,7 @@
 
 import { useEffect, useState } from "react";
 import * as api from "../api";
-import type { Look, Session } from "../api";
+import type { Batch, Look, Session } from "../api";
 import { Doing } from "../Deadline";
 import { Glyph } from "../Glyph";
 import { Inventory } from "./Inventory";
@@ -115,7 +115,7 @@ export function Sidebar({ look, session, book }: Omit<Props, "busy" | "act">) {
           и во сне сервер откажет. */}
       {current === "work" && (
         <>
-          <Doings look={look} />
+          <Doings look={look} session={session} busy={busy} act={act} />
           <Workshop machine={null} book={book} look={look} session={session} />
         </>
       )}
@@ -237,15 +237,39 @@ function Slept({ since }: { since: string }) {
 const elapsedMinutes = (since: string) =>
   (Date.now() - new Date(since).getTime()) / 60_000;
 
-function Doings({ look }: { look: Look }) {
+function Doings({ look, session, busy, act }: Props) {
   const empty = look.batches.length === 0 && !look.travel;
+  const title = (job: Batch) =>
+    job.work === "make"
+      ? job.recipe
+        ? `${job.output}: ${job.recipe}`
+        : job.output
+      : job.work === "repair"
+        ? `починка: ${job.output}`
+        : `переработка: ${job.output}`;
+  //: A waiting batch says why in words (D-209): the reason decides what the
+  //: player does next -- wait, walk back, or free a machine.
+  const why = (job: Batch) =>
+    job.waiting === "queued"
+      ? "в очереди"
+      : job.waiting === "away"
+        ? `замерла: вернитесь в «${job.node ?? "?"}»`
+        : "ждёт свободной станции";
+  const left = (job: Batch) =>
+    job.left_seconds === null
+      ? ""
+      : job.left_seconds < 60
+        ? " · меньше минуты работы"
+        : ` · ещё ${(job.left_seconds / 60).toFixed(0)} мин работы`;
+  const anyRunning = look.batches.some((job) => job.state === "running");
   return (
     <div>
       <h3>
         Дела
         <Rule>
-          Длительные действия идут сами, в том числе пока вы офлайн: их двигает мир, а
-          не браузер.
+          Дорога идёт сама, в том числе пока вы офлайн. Партия идёт, только пока вы
+          стоите у станции: ушли — замерла, вернулись — продолжилась. У одного
+          человека идёт одна работа, остальные ждут очереди в порядке запуска.
         </Rule>
       </h3>
       {look.travel && (
@@ -256,21 +280,37 @@ function Doings({ look }: { look: Look }) {
           aside={look.travel.final ? "до следующего узла" : undefined}
         />
       )}
-      {look.batches.map((job) => (
-        <Doing
-          key={job.id}
-          what={
-            job.work === "make"
-              ? job.output
-              : job.work === "repair"
-                ? `починка: ${job.output}`
-                : `переработка: ${job.output}`
-          }
-          until={job.ready_at}
-          since={job.started_at}
-          aside={job.work === "make" ? `качество ${job.quality.toFixed(0)}` : undefined}
-        />
-      ))}
+      {look.batches.map((job) =>
+        job.state === "running" && job.ready_at ? (
+          <Doing
+            key={job.id}
+            what={title(job)}
+            until={job.ready_at}
+            since={job.started_at}
+            aside={job.work === "make" ? `качество ${job.quality.toFixed(0)}` : undefined}
+          />
+        ) : (
+          <div className="doing" key={job.id}>
+            <span className="doing-what">{title(job)}</span>
+            <span className="doing-aside note">
+              {why(job)}
+              {left(job)}
+            </span>
+            {job.waiting === "no_station" && !anyRunning && (
+              <span className="doing-act">
+                <button
+                  className="quiet"
+                  onClick={() => act(() => session.send("craft.resume"))}
+                  disabled={busy}
+                  title="станция освободилась — продолжить"
+                >
+                  Продолжить
+                </button>
+              </span>
+            )}
+          </div>
+        ),
+      )}
       {empty && <p className="note">ничего не идёт</p>}
     </div>
   );
@@ -335,18 +375,32 @@ function Trade({ look, session, busy, act }: Props) {
 }
 
 function Knowledge({ look }: { look: Look }) {
+  const discovered = new Set(look.discovered ?? []);
   return (
     <div>
       <h3>
         Рецепты
         <Rule>
-          Знание живёт в личности и не теряется ни смертью, ни судом (И8).
+          Знание живёт в личности и не теряется ни смертью, ни судом (И8). Берут в
+          Библиотеке, читают с носителя «Рецепт» или открывают сами — у станции, без
+          рецепта. Своё открытие помечено ✦.
         </Rule>
       </h3>
       {look.knows.length === 0 ? (
-        <p className="note">пока ничего: рецепты берут в Библиотеке</p>
+        <p className="note">
+          пока ничего: рецепты берут в Библиотеке, читают с носителя или открывают сами
+        </p>
       ) : (
-        look.knows.map((name) => <p key={name}>{name}</p>)
+        look.knows.map((name) => (
+          <p key={name}>
+            {name}
+            {discovered.has(name) && (
+              <span className="note" title="открыт вами: первооткрыватель">
+                {" "}✦
+              </span>
+            )}
+          </p>
+        ))
       )}
     </div>
   );

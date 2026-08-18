@@ -41,6 +41,7 @@ from src.models.ledger import (
     LedgerTransaction,
     PostingReason,
 )
+from src.models.library import LibraryEntry
 from src.models.market import (
     Order,
     OrderSide,
@@ -96,6 +97,7 @@ __all__ = [
     "Knowledge",
     "KnowledgeKind",
     "LedgerAccount",
+    "LibraryEntry",
     "LedgerEntry",
     "LedgerTransaction",
     "Line",

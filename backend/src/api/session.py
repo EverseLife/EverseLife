@@ -53,6 +53,7 @@ from src.engine import (
     gear,
     justice,
     ledger,
+    library,
     market,
     mining,
     panel,
@@ -121,6 +122,8 @@ async def play(socket: WebSocket) -> None:
             except mining.MiningError as refusal:
                 answer = {"refused": str(refusal)}
             except craft.CraftError as refusal:
+                answer = {"refused": str(refusal)}
+            except library.LibraryError as refusal:
                 answer = {"refused": str(refusal)}
             except market.MarketError as refusal:
                 answer = {"refused": str(refusal)}
@@ -370,6 +373,8 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
         "profile": accounts.profile(await accounts.account_of(db, identity), identity),
         "money": await _money(db, identity.id),
         "knows": await _knowledge(db, identity.id),
+        #: Which of them were opened by one's own experiment (D-064, D-209).
+        "discovered": await _discovered(db, identity.id),
         #: Learned agrotech as a separate list: the client shows in the Library
         #: which crops are already studied and does not let you take them twice.
         "agrotech": await _knowledge(db, identity.id, kind=KnowledgeKind.AGROTECH),
@@ -442,6 +447,9 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
         "layer": node.layer.value,
         #: The library is a machine (D-176); the node property is a legacy of old worlds.
         "library": await world.is_library(db, node),
+        #: What this library holds and who brought each recipe (D-068, D-209):
+        #: the client's catalog table is this shelf, not the whole vault.
+        "shelf": await _shelf(db, node) if await world.is_library(db, node) else None,
         #: What the node has -- the client decides from this which scenes to show.
         "stations": stations,
         #: Place-sign properties ("forest", "outcrop"): the client shows place
@@ -782,7 +790,7 @@ async def _craft_start(state: dict, db: AsyncSession, message: dict) -> dict:
         "batch": str(batch.id),
         "output": batch.output,
         "quality": float(batch.quality),
-        "ready_at": batch.ready_at.isoformat(),
+        "ready_at": _stamp(batch.ready_at),
     }
 
 
@@ -791,7 +799,7 @@ async def _craft_repair(state: dict, db: AsyncSession, message: dict) -> dict:
     body = await _alive(state, db)
     item = await _own_item(db, body, message["item"])
     batch = await craft.repair(db, current(), current_catalog(), body, item)
-    return {"batch": str(batch.id), "ready_at": batch.ready_at.isoformat()}
+    return {"batch": str(batch.id), "ready_at": _stamp(batch.ready_at)}
 
 
 async def _craft_recycle(state: dict, db: AsyncSession, message: dict) -> dict:
@@ -799,7 +807,7 @@ async def _craft_recycle(state: dict, db: AsyncSession, message: dict) -> dict:
     body = await _alive(state, db)
     item = await _own_item(db, body, message["item"])
     batch = await craft.recycle(db, current(), current_catalog(), body, item)
-    return {"batch": str(batch.id), "ready_at": batch.ready_at.isoformat()}
+    return {"batch": str(batch.id), "ready_at": _stamp(batch.ready_at)}
 
 
 async def _library_copy(state: dict, db: AsyncSession, message: dict) -> dict:
@@ -808,6 +816,76 @@ async def _library_copy(state: dict, db: AsyncSession, message: dict) -> dict:
     key = message["recipe"]
     await craft.copy_recipe(db, current_catalog(), body, key)
     return {"learned": key}
+
+
+async def _library_contribute(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Give a written carrier to the library one stands in: for good, with one's name (D-209)."""
+    body = await _alive(state, db)
+    item = await _own_item(db, body, message["item"])
+    entry = await library.contribute(db, current_catalog(), body, item)
+    return {"contributed": entry.recipe}
+
+
+async def _craft_invent(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Try to make something without a recipe (D-064, D-209).
+
+    `composition` is what is laid out per unit of output, `units` how many
+    units; `station` names the machine one stands at, empty for by hand.
+    """
+    body = await _alive(state, db)
+    raw = message.get("composition") or {}
+    if not isinstance(raw, dict):
+        raise Refused("состав задаётся парами «вещь: сколько»")
+    composition = {str(name): float(value) for name, value in raw.items()}
+    result = await craft.invent(
+        db,
+        current(),
+        current_catalog(),
+        body,
+        composition,
+        float(message.get("units", 1)),
+        station=message.get("station"),
+    )
+    return {
+        "success": result.success,
+        "learned": list(result.learned),
+        "burned": result.burned,
+        "note": result.note,
+        "batch": None if result.batch is None else {
+            "id": str(result.batch.id),
+            "output": result.batch.output,
+            "quality": float(result.batch.quality),
+            "ready_at": _stamp(result.batch.ready_at),
+        },
+    }
+
+
+async def _craft_resume(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Go on with a waiting work by hand: the master is here and a machine is free (D-209)."""
+    body = await _alive(state, db)
+    batch = await craft.wake(db, body)
+    if batch is None:
+        raise Refused(
+            "продолжать нечего: либо ничего не ждёт здесь, либо станция занята, "
+            "либо работа уже идёт"
+        )
+    return {"batch": str(batch.id), "output": batch.output, "ready_at": _stamp(batch.ready_at)}
+
+
+async def _carrier_read(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Copy the recipe off a carrier in the hands; the carrier stays (D-209)."""
+    body = await _alive(state, db)
+    item = await _own_item(db, body, message["item"])
+    learned = await craft.read_carrier(db, current_catalog(), body, item)
+    return {"learned": None if learned is None else learned.key, "already": learned is None}
+
+
+async def _carrier_wipe(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Erase a carrier back into a blank (D-209)."""
+    body = await _alive(state, db)
+    item = await _own_item(db, body, message["item"])
+    blank = await craft.wipe_carrier(db, body, item)
+    return {"item": str(blank.id), "goods": blank.type_key}
 
 
 #: `land.claim` is gone (D-198): land outside a city is not privatized at all,
@@ -1247,7 +1325,7 @@ async def _cook_pot(state: dict, db: AsyncSession, message: dict) -> dict:
         "batch": str(batch.id),
         "flavor": batch.flavor,
         "quality": float(batch.quality),
-        "ready_at": batch.ready_at.isoformat(),
+        "ready_at": _stamp(batch.ready_at),
     }
 
 
@@ -1265,7 +1343,7 @@ async def _coin_mint(state: dict, db: AsyncSession, message: dict) -> dict:
         "units": amount_float(batch.units),
         "fineness": float(batch.fineness),
         "spent": batch.spent,
-        "ready_at": batch.ready_at.isoformat(),
+        "ready_at": _stamp(batch.ready_at),
     }
 
 
@@ -1281,7 +1359,7 @@ async def _coin_melt(state: dict, db: AsyncSession, message: dict) -> dict:
         "coin": batch.output,
         "units": amount_float(batch.units),
         "fineness": float(batch.fineness),
-        "ready_at": batch.ready_at.isoformat(),
+        "ready_at": _stamp(batch.ready_at),
     }
 
 
@@ -2822,7 +2900,12 @@ _COMMANDS = {
     "craft.start": _craft_start,
     "craft.repair": _craft_repair,
     "craft.recycle": _craft_recycle,
+    "craft.invent": _craft_invent,
+    "craft.resume": _craft_resume,
+    "carrier.read": _carrier_read,
+    "carrier.wipe": _carrier_wipe,
     "library.copy": _library_copy,
+    "library.contribute": _library_contribute,
     "travel.go": _travel_go,
     "rest.sleep": _rest_sleep,
     "rest.wake": _rest_wake,
@@ -2978,6 +3061,8 @@ def _craft_request(message: dict) -> tuple[str, float, dict[str, Any]]:
             #: Which operation, when several give the same thing: felling wood
             #: with an axe or gathering deadwood by hand (D-196).
             "way": message.get("way"),
+            #: For a knowledge carrier: which recipe goes onto it (D-209).
+            "recipe_key": message.get("recipe"),
         },
     )
 
@@ -3185,6 +3270,10 @@ async def _things(db: AsyncSession, constants, container) -> list[dict[str, Any]
                                    else float(item.quality)),
             "condition": float(item.condition),
             "flavor": item.flavor,
+            #: For a knowledge carrier: what is written on it, and the name the
+            #: counter knows it by -- "Рецепт: Стекло" (D-209).
+            "recipe": item.recipe_key,
+            "key": market.goods_key(item),
             "food": _edible(catalog, item.type_key),
             "ingredient": catalog.recipes.is_ingredient(item.type_key),
             "spoils_at": None if item.spoils_at is None else item.spoils_at.isoformat(),
@@ -3257,6 +3346,18 @@ async def _knowledge(
     return sorted(row[0] for row in rows)
 
 
+async def _discovered(db: AsyncSession, identity_id: uuid.UUID) -> list[str]:
+    """Recipes this identity opened by experiment: the discoverer's mark (D-064)."""
+    rows = await db.execute(
+        select(Knowledge.key).where(
+            Knowledge.identity_id == identity_id,
+            Knowledge.kind == KnowledgeKind.RECIPE,
+            Knowledge.discovered.is_(True),
+        )
+    )
+    return sorted(row[0] for row in rows)
+
+
 async def _orders(db: AsyncSession, identity_id: uuid.UUID) -> list[dict[str, Any]]:
     rows = (
         await db.execute(
@@ -3310,44 +3411,95 @@ async def _reservations(db: AsyncSession, identity_id: uuid.UUID) -> list[dict[s
 
 
 async def _batches(db: AsyncSession, identity_id: uuid.UUID) -> list[dict[str, Any]]:
-    """Jobs: long-running works that go by themselves, including while the player is offline."""
+    """Jobs: the works under way and the ones waiting their turn (D-209).
+
+    A work goes on only while the master stands at the machine; the rest of
+    theirs wait in the order they were started, and a frozen one waits for the
+    master to come back. All of it is shown: the queue is the player's plan.
+    """
     rows = (
         await db.execute(
             select(CraftBatch)
             .join(Body, Body.id == CraftBatch.body_id)
-            .where(Body.identity_id == identity_id, CraftBatch.state == BatchState.RUNNING)
+            .where(
+                Body.identity_id == identity_id,
+                CraftBatch.state.in_([BatchState.RUNNING, BatchState.WAITING]),
+            )
+            .order_by(CraftBatch.started_at.asc(), CraftBatch.id.asc())
         )
     ).scalars().all()
 
-    #: Which machine each batch occupies. The location screen lists the node's
-    #: objects with what each is doing, and "Кузница · гвозди ×200" cannot be
-    #: assembled without knowing that this batch is at the forge. Made by hand
-    #: has no station, and says so by staying empty.
-    benches: dict[uuid.UUID, str] = {}
-    wanted = {batch.station_item_id for batch in rows if batch.station_item_id}
+    #: Where each work is, by name: a frozen batch is waited for in its node,
+    #: and the player must see which one to walk back to.
+    places: dict[uuid.UUID, str] = {}
+    wanted = {batch.node_id for batch in rows}
     if wanted:
-        for item in (
-            await db.execute(select(Item).where(Item.id.in_(wanted)))
+        for node in (
+            await db.execute(select(Node).where(Node.id.in_(wanted)))
         ).scalars().all():
-            benches[item.id] = item.type_key
+            places[node.id] = node.name
 
+    body = await _body(db, identity_id)
+
+    out: list[dict[str, Any]] = []
+    for batch in rows:
+        running = batch.state is BatchState.RUNNING
+        #: Why a waiting batch is not moving -- the client says it in words:
+        #: behind another work of yours, frozen while you are away (on the
+        #: road, in the field, elsewhere), or no free machine here.
+        if running:
+            why = None
+        elif body is None or not await craft.present(db, body, batch.node_id):
+            why = "away"
+        elif any(other.state is BatchState.RUNNING for other in rows):
+            why = "queued"
+        else:
+            why = "no_station"
+        out.append(
+            {
+                "id": str(batch.id),
+                "work": batch.kind.value,
+                "output": batch.output,
+                "units": amount_float(batch.units),
+                "quality": float(batch.quality),
+                #: The machine's name -- the location screen lists the node's
+                #: objects with what each is doing, and "Кузница · гвозди ×200"
+                #: cannot be assembled otherwise. Made by hand has no station.
+                "station": batch.station,
+                "state": batch.state.value,
+                "waiting": why,
+                "node": places.get(batch.node_id),
+                #: Both ends of the term, not just the far one: the deadline bar
+                #: shows a share of the whole, and a share needs a beginning.
+                #: The near end is the current run, not the first start -- a
+                #: frozen and resumed batch shows the time left, not the days away.
+                "started_at": _stamp(batch.run_started_at or batch.started_at),
+                "ready_at": _stamp(batch.ready_at),
+                "left_seconds": (
+                    None if batch.remaining_seconds is None else float(batch.remaining_seconds)
+                ),
+                "recipe": batch.recipe_key,
+            }
+        )
+    return out
+
+
+async def _shelf(db: AsyncSession, node: Node) -> list[dict[str, Any]]:
+    """The library's list with contributors' names (D-209)."""
+    rows = await library.entries(db, node)
+    names = await library.contributors(db, rows)
     return [
         {
-            "id": str(batch.id),
-            "work": batch.kind.value,
-            "output": batch.output,
-            "units": amount_float(batch.units),
-            "quality": float(batch.quality),
-            "station": benches.get(batch.station_item_id) if batch.station_item_id else None,
-            #: Both ends of the term, not just the far one: the deadline bar
-            #: shows a share of the whole, and a share needs a beginning. Sent
-            #: rather than remembered by the client -- a browser that reloads
-            #: must not forget how long the batch has been running.
-            "started_at": batch.started_at.isoformat(),
-            "ready_at": batch.ready_at.isoformat(),
+            "recipe": entry.recipe,
+            "contributor": names.get(entry.contributor_identity_id),
         }
-        for batch in rows
+        for entry in rows
     ]
+
+
+def _stamp(moment: datetime | None) -> str | None:
+    """A moment for the client, or nothing: a waiting batch has no deadline yet."""
+    return None if moment is None else moment.isoformat()
 
 
 async def _own_item(db: AsyncSession, body: Body, item_id: str) -> Item:

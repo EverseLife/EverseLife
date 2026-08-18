@@ -249,6 +249,11 @@ async def survey(
         * press
     )
     will_return = moment + timedelta(minutes=minutes)
+    #: In the field the scout is not at the machine: the running batch
+    #: freezes and waits for the return (D-209).
+    from src.engine import craft
+
+    await craft.freeze(session, body, now=moment)
     event = await events.record(
         session,
         EventKind.EXPLORE_STARTED,
@@ -310,6 +315,10 @@ async def returned(session: AsyncSession, job: Job) -> None:
             goal=goal,
             resource=requested,
         )
+        #: Back at the exit node with empty hands: the frozen work goes on (D-209).
+        from src.engine import craft
+
+        await craft.wake(session, body, now=job.run_at)
         return
 
     #: For a vein without a named species the old share `explore.vein_share`
@@ -396,6 +405,12 @@ async def returned(session: AsyncSession, job: Job) -> None:
         minutes=minutes,
         explored=found_here(origin),
     )
+    #: The scout stands in the find now, not at the machine they left: what
+    #: waited there stays frozen until they walk back (D-209). Whatever of
+    #: theirs waited **here** -- unlikely, but possible -- goes on.
+    from src.engine import craft
+
+    await craft.wake(session, body, now=job.run_at)
 
 
 async def cancel(session: AsyncSession, body: Body) -> Job:
@@ -421,6 +436,10 @@ async def cancel(session: AsyncSession, body: Body) -> Job:
         goal=str(run.payload.get("goal") or SITE),
         resource=run.payload.get("resource"),
     )
+    #: Turned back: the body is at the machine again, the frozen work goes on (D-209).
+    from src.engine import craft
+
+    await craft.wake(session, body, now=run.finished_at)
     return run
 
 

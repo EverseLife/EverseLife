@@ -107,7 +107,10 @@ export default function App() {
     const { values } = await api.constants();
     setValues(values);
     setPow(powSettings(values));
-    setBook(await api.recipes());
+    //: The constants ride along with the catalog: a machine panel that needs
+    //: one number (how many kinds go into an attempt, D-209) reads it from the
+    //: same book it reads recipes from, without a second prop through every layer.
+    setBook({ ...(await api.recipes()), constants: values });
   }, []);
 
   const enter = (email: string, password: string) =>

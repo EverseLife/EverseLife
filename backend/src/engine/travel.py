@@ -595,6 +595,14 @@ async def depart(
     session.add(travel)
     await session.flush()
 
+    #: The master left the machine: the running batch freezes with the time
+    #: left in it and frees the bench (D-209). Not on the plan's later legs --
+    #: there the body has already left, and there is nothing running.
+    if _plan is None:
+        from src.engine import craft
+
+        await craft.freeze(session, body, now=moment)
+
     event = await events.record(
         session,
         EventKind.TRAVEL_STARTED,
@@ -683,6 +691,10 @@ async def turn_back(
         node_id=body.node_id,
         travel_id=str(going.id),
     )
+    #: Never left after all: the frozen work goes on where the body still stands (D-209).
+    from src.engine import craft
+
+    await craft.wake(session, body, now=moment)
     return going
 
 
@@ -717,6 +729,14 @@ async def arrive(session: AsyncSession, job: Job) -> None:
         node_id=target.id,
         travel_id=str(travel.id),
     )
+
+    #: Back at a machine: a work frozen here goes on from where it stopped
+    #: (D-209). Only when the road ends here -- a leg of a longer route sends
+    #: the body straight on below, and it would freeze again at once.
+    if not travel.plan:
+        from src.engine import craft
+
+        await craft.wake(session, body, now=job.run_at)
 
     #: The convoy arrived with the body and wore on this leg (D-157). One worn
     #: to zero stops here, and the cargo stays lying in the node.
@@ -768,6 +788,11 @@ async def arrive(session: AsyncSession, job: Job) -> None:
                 route_stopped=type(stop).__name__,
                 why=str(stop),
             )
+            #: The road ended here after all: whatever of theirs waited in
+            #: this node goes on (D-209).
+            from src.engine import craft
+
+            await craft.wake(session, body, now=job.run_at)
 
 
 async def connect(

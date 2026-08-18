@@ -94,6 +94,16 @@ class EventKind(StrEnum):
     # craft (D-092, D-133)
     CRAFT_STARTED = "craft.started"
     CRAFT_FINISHED = "craft.finished"
+    #: The work froze or went on: the master left the machine or came back (D-209).
+    CRAFT_PAUSED = "craft.paused"
+    CRAFT_RESUMED = "craft.resumed"
+    #: An attempt to make something without a recipe: what was laid out and
+    #: whether it came together (D-064, D-209).
+    CRAFT_INVENTED = "craft.invented"
+    #: A knowledge carrier read, wiped, or given to a library (D-209).
+    CARRIER_READ = "carrier.read"
+    CARRIER_WIPED = "carrier.wiped"
+    LIBRARY_CONTRIBUTED = "library.contributed"
 
     # land and farming (D-118)
     #: A plot handed to a person. It used to be "took wild land on foot"; since

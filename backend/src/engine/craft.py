@@ -93,7 +93,14 @@ from src.models.identity import Body, BodyState, Identity, Knowledge, KnowledgeK
 from src.models.inventory import Container, Item
 from src.models.job import Job, JobKind
 from src.models.world import Node
-from src.units import MINUTES_PER_HOUR, PERCENT, amount, amount_float
+from src.units import (
+    MINUTES_PER_HOUR,
+    PERCENT,
+    ROUND_RATIO,
+    SECONDS_PER_HOUR,
+    amount,
+    amount_float,
+)
 
 
 class CraftError(Exception):
@@ -158,6 +165,13 @@ SITE = "Стройка"
 
 #: What reads as "no machine needed". A list of two, both from data.
 BENCHLESS = (HANDS, SITE)
+
+#: The knowledge carrier and its blank (D-209): recipes from `build/recipes.json`.
+#: A written carrier keeps the recipe's name in `Item.recipe_key`; wiping it
+#: turns it back into a blank. Both are ordinary things beyond that: made,
+#: carried, sold, lost with the body.
+CARRIER = "Рецепт"
+BLANK = "Болванка рецепта"
 
 #: The automatic workstation (D-035, D-058). The industrial mode: works twice
 #: as fast, sets the ceiling itself, needs no tool, gives an even result -- and
@@ -239,6 +253,8 @@ class _Ready:
     picks: tuple[_Pick, ...]
     station: Item | None
     auto: bool = False
+    #: For a knowledge carrier: the canonical name of the recipe going onto it.
+    recipe_key: str | None = None
 
 
 # --- method of making ---------------------------------------------------------
@@ -481,6 +497,7 @@ async def plan(
     proportions: dict[str, float] | None = None,
     auto: bool = False,
     way: str | None = None,
+    recipe_key: str | None = None,
 ) -> Plan:
     """Forecast before a batch. Changes nothing and reserves nothing."""
     ready = await _prepare(
@@ -494,6 +511,7 @@ async def plan(
         proportions=proportions,
         auto=auto,
         way=way,
+        recipe_key=recipe_key,
     )
     return ready.plan
 
@@ -510,9 +528,15 @@ async def start(
     proportions: dict[str, float] | None = None,
     auto: bool = False,
     way: str | None = None,
+    recipe_key: str | None = None,
     now: datetime | None = None,
 ) -> CraftBatch:
-    """Start a batch: the input is written off at once, the product arrives on schedule."""
+    """Start a batch: the input is written off at once, the product arrives on schedule.
+
+    "On schedule" counts only the time the master stands by (D-209): the batch
+    goes to work now if nothing else of theirs is running, otherwise it waits
+    its turn; and it freezes whenever the master leaves the node.
+    """
     moment = now or datetime.now(UTC)
     ready = await _prepare(
         session,
@@ -525,6 +549,7 @@ async def start(
         proportions=proportions,
         auto=auto,
         way=way,
+        recipe_key=recipe_key,
     )
     forecast = ready.plan
 
@@ -550,41 +575,28 @@ async def start(
         node_id=body.node_id,
         output=forecast.output,
         units=amount(forecast.units),
-        station_item_id=None if ready.station is None else ready.station.id,
+        station=None if ready.station is None else ready.station.type_key,
         tool_item_id=tool_item_id,
         quality=_num(forecast.quality),
         spread=_num(forecast.spread),
         spent=forecast.consumes,
-        ready_at=moment + timedelta(minutes=forecast.minutes),
+        recipe_key=ready.recipe_key,
+        remaining_seconds=_seconds(forecast.minutes),
     )
-    session.add(batch)
-    await session.flush()
-    await _occupy(session, ready.station, body, batch.ready_at)
-
-    event = await events.record(
+    return await _launch(
         session,
-        EventKind.CRAFT_STARTED,
-        actor_identity_id=body.identity_id,
-        node_id=body.node_id,
-        batch_id=str(batch.id),
-        output=forecast.output,
-        units=forecast.units,
-        quality=forecast.quality,
-        spent=forecast.consumes,
-        waste=forecast.waste,
+        batch,
+        body,
+        now=moment,
+        event={
+            "output": forecast.output,
+            "units": forecast.units,
+            "quality": forecast.quality,
+            "spent": forecast.consumes,
+            "waste": forecast.waste,
+            "recipe": ready.recipe_key,
+        },
     )
-    #: A batch is an ordinary journal job: it survives a process restart and
-    #: runs exactly once (01-tech-notes, pattern 1).
-    await enqueue(
-        session,
-        JobKind.CRAFT_BATCH,
-        batch.ready_at,
-        payload={"batch": str(batch.id)},
-        dedup_key=f"craft.batch:{batch.id}",
-        cause_event_id=event.id,
-        body_id=body.id,
-    )
-    return batch
 
 
 #: Utensil class from `build/recipes.json`: pot and cauldron set the ceiling
@@ -696,7 +708,7 @@ async def cook(
         node_id=body.node_id,
         output=recipe.name,
         units=amount(portions),
-        station_item_id=None if station is None else station.id,
+        station=None if station is None else station.type_key,
         quality=_num(quality),
         spread=_num(constants[R.QUALITY_SPREAD_GOOD_RATIO]),
         spent=consumed,
@@ -705,34 +717,21 @@ async def cook(
         #: is one (D-060 not violated).
         flavor=f"{recipe.name} · {', '.join(sorted(products))}",
         roles_filled=_num(len(products) / len(weights)),
-        ready_at=moment + timedelta(minutes=minutes),
+        remaining_seconds=_seconds(minutes),
     )
-    session.add(batch)
-    await session.flush()
-    await _occupy(session, station, body, batch.ready_at)
-
-    event = await events.record(
+    return await _launch(
         session,
-        EventKind.CRAFT_STARTED,
-        actor_identity_id=body.identity_id,
-        node_id=body.node_id,
-        batch_id=str(batch.id),
-        work="cook",
-        output=recipe.name,
-        flavor=batch.flavor,
-        quality=quality,
-        spent=consumed,
+        batch,
+        body,
+        now=moment,
+        event={
+            "work": "cook",
+            "output": recipe.name,
+            "flavor": batch.flavor,
+            "quality": quality,
+            "spent": consumed,
+        },
     )
-    await enqueue(
-        session,
-        JobKind.CRAFT_BATCH,
-        batch.ready_at,
-        payload={"batch": str(batch.id)},
-        dedup_key=f"craft.batch:{batch.id}",
-        cause_event_id=event.id,
-        body_id=body.id,
-    )
-    return batch
 
 
 async def repair(
@@ -796,7 +795,13 @@ async def finish(session: AsyncSession, job: Job) -> None:
     if batch is None:  # pragma: no cover -- a job without a batch is a bug
         raise CraftError(f"задание {job.id}: партии нет")
     if batch.state is not BatchState.RUNNING:
-        #: The job may have repeated after a failure -- no second batch comes of it.
+        #: The job may have repeated after a failure -- no second batch comes of
+        #: it. Or the batch froze while the master was away (D-209): the job of
+        #: the frozen run finds nothing to finish, the resumed run has its own.
+        return
+    if job.payload.get("run", batch.runs) != batch.runs:
+        #: A job of an earlier run, fired after the batch was frozen and resumed:
+        #: it would finish the work ahead of time. Only the current run's job counts.
         return
 
     constants, catalog = current(), current_catalog()
@@ -838,6 +843,10 @@ async def finish(session: AsyncSession, job: Job) -> None:
         units=amount_float(batch.units),
         quality=made,
     )
+    #: The master's hands and the machine are free: the next work of theirs
+    #: takes its turn, and whoever waited for this machine gets it (D-209).
+    await wake(session, body, now=job.run_at)
+    await wake_node(session, node, now=job.run_at)
 
 
 async def _finish_make(
@@ -900,6 +909,7 @@ async def _finish_make(
                 spoils_at=spoils_at,
                 flavor=batch.flavor,
                 roles_filled=batch.roles_filled,
+                recipe_key=batch.recipe_key,
             )
         )
     return made
@@ -1021,37 +1031,24 @@ async def _work_on(
         output=item.type_key,
         target_item_id=item.id,
         units=amount(1),
-        station_item_id=None if station is None else station.id,
+        station=None if station is None else station.type_key,
         quality=_num(scale.min if item.quality is None else float(item.quality)),
         spread=_num(scale.min),
         spent=spent,
-        ready_at=moment + timedelta(minutes=minutes),
+        remaining_seconds=_seconds(minutes),
     )
-    session.add(batch)
-    await session.flush()
-    await _occupy(session, station, body, batch.ready_at)
-
-    event = await events.record(
+    return await _launch(
         session,
-        EventKind.CRAFT_STARTED,
-        actor_identity_id=body.identity_id,
-        node_id=body.node_id,
-        batch_id=str(batch.id),
-        work=kind.value,
-        output=batch.output,
-        item_id=str(item.id),
-        spent=spent,
+        batch,
+        body,
+        now=moment,
+        event={
+            "work": kind.value,
+            "output": batch.output,
+            "item_id": str(item.id),
+            "spent": spent,
+        },
     )
-    await enqueue(
-        session,
-        JobKind.CRAFT_BATCH,
-        batch.ready_at,
-        payload={"batch": str(batch.id)},
-        dedup_key=f"craft.batch:{batch.id}",
-        cause_event_id=event.id,
-        body_id=body.id,
-    )
-    return batch
 
 
 async def copy_recipe(
@@ -1074,6 +1071,15 @@ async def copy_recipe(
         raise NoLibrary("Библиотека не работает удалённо: за знанием надо прийти")
 
     recipe = catalog.recipes.recipe(key)
+    #: A library holds what was put into it (D-068, D-209): the capital's has
+    #: the base set, a city's has what people brought. What is not on the shelf
+    #: is not here to copy -- go where it is, or bring it.
+    from src.engine import library
+
+    if not await library.has(session, node, recipe.name):
+        raise NoLibrary(
+            f"в этой библиотеке нет «{recipe.name}»: его сюда ещё не принесли"
+        )
     identity = await session.get(Identity, body.identity_id)
     if identity is None:  # pragma: no cover
         raise CraftError("тело без личности")
@@ -1082,6 +1088,12 @@ async def copy_recipe(
     if await _knows(session, body, recipe.name):
         return None
 
+    await _pay_copy(constants, body)
+    return await learn(session, identity, recipe.name)
+
+
+async def _pay_copy(constants: Constants, body: Body) -> None:
+    """Copying costs stamina, at a library shelf and off a carrier alike (D-148)."""
     spend = constants[R.CRAFT_COPY_STAMINA]
     if spend > float(body.stamina):
         raise NoStrength(
@@ -1089,8 +1101,466 @@ async def copy_recipe(
             f"{float(body.stamina):.1f}: знание бесплатно, но работа — нет"
         )
     body.stamina = Decimal(str(float(body.stamina) - spend))
+
+
+# --- knowledge carriers (D-209) ------------------------------------------------
+
+
+async def read_carrier(
+    session: AsyncSession, catalog: Catalog, body: Body, item: Item
+) -> Knowledge | None:
+    """Copy the recipe off a carrier in the hands into the identity.
+
+    The carrier is not spent: one carrier teaches many (03-crafting). What is
+    spent is stamina, the same as at a library shelf (D-148) -- reading is work
+    wherever the text lies. Works anywhere the body is: a carrier is in the
+    hands, and the hands are always with you.
+    """
+    if body.state is not BodyState.ALIVE:
+        raise CraftError("мёртвое тело не читает")
+    inventory = await body_container(session, body)
+    if item.container_id != inventory.id:
+        raise CraftError("носителя нет в руках")
+    if item.type_key != CARRIER or not item.recipe_key:
+        raise Unmakeable("это не записанный носитель: читать нечего")
+    recipe = catalog.recipes.recipe(item.recipe_key).name
+    if await _knows(session, body, recipe):
+        return None
+    identity = await session.get(Identity, body.identity_id)
+    if identity is None:  # pragma: no cover
+        raise CraftError("тело без личности")
+    await _pay_copy(current(), body)
     await session.flush()
-    return await learn(session, identity, recipe.name)
+    learned = await learn(session, identity, recipe)
+    await events.record(
+        session,
+        EventKind.CARRIER_READ,
+        actor_identity_id=body.identity_id,
+        node_id=body.node_id,
+        item_id=str(item.id),
+        recipe=recipe,
+    )
+    return learned
+
+
+async def wipe_carrier(session: AsyncSession, body: Body, item: Item) -> Item:
+    """Erase a carrier: the recipe is gone from it, the blank is back in the hands.
+
+    Nothing else about the thing changes -- its quality, mark and wear stay:
+    it is the same piece of memory, empty again.
+    """
+    if body.state is not BodyState.ALIVE:
+        raise CraftError("мёртвое тело ничего не стирает")
+    inventory = await body_container(session, body)
+    if item.container_id != inventory.id:
+        raise CraftError("носителя нет в руках")
+    if item.type_key != CARRIER:
+        raise Unmakeable("стереть можно только предмет «Рецепт»")
+    was = item.recipe_key
+    item.type_key = BLANK
+    item.recipe_key = None
+    #: Erasing wears the memory as writing does; at zero the blank is dead --
+    #: it can still be sold or melted down, but not written on (D-209).
+    if item.quality is not None:
+        scale = current()[R.QUALITY_SCALE]
+        item.quality = _num(
+            scale.clamp(float(item.quality) - current()[R.CARRIER_WIPE_WEAR])
+        )
+    await session.flush()
+    await events.record(
+        session,
+        EventKind.CARRIER_WIPED,
+        actor_identity_id=body.identity_id,
+        node_id=body.node_id,
+        item_id=str(item.id),
+        recipe=was,
+    )
+    return item
+
+
+# --- invention (D-064, D-209) --------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class Invention:
+    """What came of an attempt: the recipes it opened, the prototype batch, and
+    what burned if nothing came together."""
+
+    learned: tuple[str, ...]
+    batch: CraftBatch | None
+    burned: dict[str, float]
+    #: In the player's words: why there is no batch, when there is none.
+    note: str | None = None
+
+    @property
+    def success(self) -> bool:
+        return bool(self.learned)
+
+
+async def invent(
+    session: AsyncSession,
+    constants: Constants,
+    catalog: Catalog,
+    body: Body,
+    composition: dict[str, float],
+    units: float,
+    *,
+    station: str | None,
+    now: datetime | None = None,
+) -> Invention:
+    """Try to make something without a recipe (D-064).
+
+    The player lays out a composition -- up to `invent.max_ingredients` kinds
+    of things from the hands, so much of each **per unit of output** -- at a
+    machine (or by hand), and says how many units to make. The engine looks for
+    a recipe of **this** machine with exactly this composition and exactly
+    these amounts (`invent.exact_match_required`); the vault guarantees there
+    is at most one (D-209).
+
+    Came together -- the recipe goes into the identity with the discoverer's
+    mark, and the laid-out materials become the first batch, by the ordinary
+    flow: for a mix the composition is the proportion, and quality follows it
+    (D-092). Did not -- `invent.material_loss` of what was laid out burns, and
+    the answer says only that. No hints of closeness: guessing is meant to be
+    hard, and to be shared.
+
+    What is laid out must be in the hands **before** anything is decided:
+    otherwise a guess with materials one does not own would learn for free
+    when right and lose nothing when wrong.
+    """
+    moment = now or datetime.now(UTC)
+    if body.state is not BodyState.ALIVE:
+        raise CraftError("мёртвое тело не работает")
+    await travel.require_here(session, body)
+    if units <= 0:
+        raise CraftError("партия из нуля единиц")
+    if units > constants[R.CRAFT_BATCH_MAX]:
+        raise TooBig(f"партия больше craft.batch_max: {units}")
+
+    book = catalog.recipes
+    laid: dict[str, float] = {}
+    for name, value in composition.items():
+        if float(value) <= 0:
+            continue
+        laid[book.resolve(name)] = laid.get(book.resolve(name), 0.0) + float(value)
+    if not laid:
+        raise CraftError("состав пуст: положите хоть что-нибудь")
+    if len(laid) > constants[R.INVENT_MAX_INGREDIENTS]:
+        raise CraftError(
+            f"в один состав кладут не больше {constants[R.INVENT_MAX_INGREDIENTS]:.0f} "
+            "видов вещей"
+        )
+    bench = None if station in (None, *BENCHLESS) else book.resolve(station)
+
+    #: The machine must stand here: an attempt is work at it, even a failed one.
+    if bench is not None:
+        await _pick_station(session, body, bench, allow_own=True)
+
+    #: What is laid out is in the hands, whatever comes of it.
+    inventory = await body_container(session, body)
+    stock = await _stock(session, inventory, laid)
+    total = {name: value * units for name, value in laid.items()}
+    _pick(stock, total)
+
+    #: An operation everybody knows is not invented: smelting ore with coal at
+    #: the furnace is on the list already, and burning the ore for it would be
+    #: a trap, not a rule.
+    for operation in book.operations:
+        if set(map(book.resolve, operation.consumes)) == set(laid) and any(
+            book.resolve(need) == bench for need in operation.requires
+        ):
+            raise Unmakeable(
+                f"это «{operation.name}» — операция без рецепта, она и так в списке"
+            )
+
+    found = _match(catalog, bench, laid)
+    if found is not None and await _knows(session, body, found):
+        raise CraftError(f"«{found}» вы уже знаете: выберите его из списка")
+
+    if found is None:
+        share = constants[R.INVENT_MATERIAL_LOSS] / PERCENT
+        burned: dict[str, float] = {}
+        for pick in _pick(stock, {name: value * share for name, value in total.items()}):
+            burned[pick.item.type_key] = burned.get(pick.item.type_key, 0.0) + amount_float(
+                pick.take
+            )
+            if pick.item.amount > pick.take:
+                pick.item.amount -= pick.take
+            else:
+                await session.delete(pick.item)
+        await session.flush()
+        await events.record(
+            session,
+            EventKind.CRAFT_INVENTED,
+            actor_identity_id=body.identity_id,
+            node_id=body.node_id,
+            station=bench,
+            composition=laid,
+            units=units,
+            success=False,
+            burned=burned,
+        )
+        return Invention(
+            learned=(),
+            batch=None,
+            burned=burned,
+            note="Состав не сложился: материалы потрачены. Подсказок нет — думайте и пробуйте",
+        )
+
+    identity = await session.get(Identity, body.identity_id)
+    if identity is None:  # pragma: no cover
+        raise CraftError("тело без личности")
+    await learn(session, identity, found, discovered=True)
+    await events.record(
+        session,
+        EventKind.CRAFT_INVENTED,
+        actor_identity_id=body.identity_id,
+        node_id=body.node_id,
+        station=bench,
+        composition=laid,
+        units=units,
+        success=True,
+        recipe=found,
+    )
+    #: The laid-out materials become the prototype -- by the ordinary flow, so
+    #: that quality, waste and time are the same numbers the list will show
+    #: from now on. Waste is taken on top of the norm, so the hands may prove a
+    #: little short: then the recipe is opened, the materials stay, and the
+    #: batch waits for the player to add what is missing.
+    try:
+        batch = await start(
+            session,
+            constants,
+            catalog,
+            body,
+            found,
+            units,
+            proportions=dict(laid),
+            now=moment,
+        )
+    except NotEnough as short:
+        return Invention(learned=(found,), batch=None, burned={}, note=str(short))
+    return Invention(learned=(found,), batch=batch, burned={})
+
+
+def _match(catalog: Catalog, bench: str | None, laid: dict[str, float]) -> str | None:
+    """The one recipe of this machine with exactly this composition, or nothing.
+
+    Amounts are compared to the precision the vault writes them with: a
+    thousandth is the build's rounding, not a game number.
+    """
+    book = catalog.recipes
+    want = {name: round(value, ROUND_RATIO) for name, value in laid.items()}
+    for recipe in book.recipes:
+        if recipe.roles or recipe.kind is ItemKind.MONEY:
+            continue
+        station = None if recipe.station in (None, *BENCHLESS) else book.resolve(recipe.station)
+        if station != bench:
+            continue
+        norm = {
+            book.resolve(name): round(value, ROUND_RATIO)
+            for name, value in recipe.amounts.items()
+        }
+        if norm == want:
+            return recipe.name
+    return None
+
+
+# --- the queue: one body, one work, at the machine (D-209) -------------------
+
+
+async def present(session: AsyncSession, body: Body, node_id: uuid.UUID) -> bool:
+    """Whether the master stands at the machine: alive, in this node, not on
+    the road and not in the field.
+
+    Sleep does not count as absence: the body is on the spot, and the work goes
+    on beside it (D-209). Only leaving stops it.
+    """
+    if body.state is not BodyState.ALIVE or body.node_id != node_id:
+        return False
+    if await travel.current(session, body) is not None:
+        return False
+    from src.engine import explore
+
+    return await explore.pending(session, body) is None
+
+
+async def running(session: AsyncSession, body: Body) -> CraftBatch | None:
+    """The one batch of this body under way, if any."""
+    stmt = select(CraftBatch).where(
+        CraftBatch.body_id == body.id, CraftBatch.state == BatchState.RUNNING
+    )
+    return (await session.execute(stmt)).scalars().first()
+
+
+async def waiting(session: AsyncSession, body: Body) -> list[CraftBatch]:
+    """This body's works that are not moving, in the order they were started."""
+    stmt = (
+        select(CraftBatch)
+        .where(CraftBatch.body_id == body.id, CraftBatch.state == BatchState.WAITING)
+        .order_by(CraftBatch.started_at.asc(), CraftBatch.id.asc())
+    )
+    return list((await session.execute(stmt)).scalars().all())
+
+
+async def _launch(
+    session: AsyncSession,
+    batch: CraftBatch,
+    body: Body,
+    *,
+    now: datetime,
+    event: dict,
+) -> CraftBatch:
+    """Add a batch and put it to work -- or into the queue.
+
+    Materials are already written off by the caller: a queued batch is paid for
+    up front like a running one, otherwise the queue would be a way to reserve
+    a machine with nothing. The one thing decided here is **whether it moves
+    now**: one body works one batch, the rest wait their turn (D-209).
+    """
+    #: Born waiting; `_run` is the only door into "running", so that a batch
+    #: cannot count as under way without a job scheduled for it.
+    batch.state = BatchState.WAITING
+    session.add(batch)
+    await session.flush()
+    await events.record(
+        session,
+        EventKind.CRAFT_STARTED,
+        actor_identity_id=body.identity_id,
+        node_id=body.node_id,
+        batch_id=str(batch.id),
+        **event,
+    )
+    if await running(session, body) is None:
+        await _run(session, batch, body, now)
+    return batch
+
+
+async def _run(session: AsyncSession, batch: CraftBatch, body: Body, now: datetime) -> bool:
+    """Set a waiting batch going from where it stopped.
+
+    Takes the best free machine of the batch's name in the node -- not
+    necessarily the one it ran at before: while the master was away somebody
+    else may have stood there. No free machine, or the node cut off for debt --
+    the batch stays waiting and says why through the client. Returns whether it
+    started.
+    """
+    station: Item | None = None
+    if batch.station is not None:
+        try:
+            station = await _pick_station(session, body, batch.station)
+        except (NoStation, Busy, CutOff):
+            return False
+
+    left = float(batch.remaining_seconds or 0)
+    batch.state = BatchState.RUNNING
+    batch.runs += 1
+    batch.run_started_at = now
+    batch.ready_at = now + timedelta(seconds=left)
+    batch.remaining_seconds = None
+    batch.station_item_id = None if station is None else station.id
+    await session.flush()
+    await _occupy(session, station, body, batch.ready_at)
+
+    #: A batch is an ordinary journal job: it survives a process restart and
+    #: runs exactly once (01-tech-notes, pattern 1). Each run has its own job:
+    #: the one left over from a frozen run must not finish the resumed one.
+    if batch.runs > 1:
+        await events.record(
+            session,
+            EventKind.CRAFT_RESUMED,
+            actor_identity_id=body.identity_id,
+            node_id=batch.node_id,
+            batch_id=str(batch.id),
+            output=batch.output,
+            left_seconds=left,
+        )
+    #: The first run keeps the plain key it always had; a resumed run gets
+    #: its number, so that the two jobs are two rows and not one.
+    key = f"craft.batch:{batch.id}" if batch.runs == 1 else f"craft.batch:{batch.id}:{batch.runs}"
+    await enqueue(
+        session,
+        JobKind.CRAFT_BATCH,
+        batch.ready_at,
+        payload={"batch": str(batch.id), "run": batch.runs},
+        dedup_key=key,
+        body_id=body.id,
+    )
+    return True
+
+
+async def freeze(
+    session: AsyncSession, body: Body, *, now: datetime | None = None
+) -> CraftBatch | None:
+    """The master leaves: the running batch stops with the time left in it.
+
+    The machine is freed -- half-done work does not hold a public bench hostage
+    for whoever walked away and never came back; the batch takes a free one of
+    the same name on return (D-209). Called wherever a body leaves its node:
+    departure, going into the field, prison, death.
+    """
+    moment = now or datetime.now(UTC)
+    batch = await running(session, body)
+    if batch is None:
+        return None
+    left = max(0.0, (batch.ready_at - moment).total_seconds()) if batch.ready_at else 0.0
+    batch.state = BatchState.WAITING
+    batch.remaining_seconds = _num(left)
+    batch.ready_at = None
+    batch.run_started_at = None
+    await _release(session, batch.station_item_id)
+    batch.station_item_id = None
+    await session.flush()
+    await events.record(
+        session,
+        EventKind.CRAFT_PAUSED,
+        actor_identity_id=body.identity_id,
+        node_id=batch.node_id,
+        batch_id=str(batch.id),
+        output=batch.output,
+        left_seconds=left,
+    )
+    return batch
+
+
+async def wake(
+    session: AsyncSession, body: Body, *, now: datetime | None = None
+) -> CraftBatch | None:
+    """The master is free and on the spot: the first of their waiting works that
+    can go here goes.
+
+    In queue order, but not strictly: a work frozen in another node, or one
+    whose machine is taken, does not hold up the ones behind it -- the player
+    would otherwise be standing at a free bench unable to work because of a
+    batch three towns away. Called on arrival, on the end of a work, and by
+    hand from the client.
+    """
+    moment = now or datetime.now(UTC)
+    if body.state is not BodyState.ALIVE or await running(session, body) is not None:
+        return None
+    for batch in await waiting(session, body):
+        if not await present(session, body, batch.node_id):
+            continue
+        if await _run(session, batch, body, moment):
+            return batch
+    return None
+
+
+async def wake_node(session: AsyncSession, node: Node, *, now: datetime | None = None) -> None:
+    """A machine came free in the node: whoever stands here waiting for one gets it."""
+    stmt = (
+        select(Body)
+        .join(CraftBatch, CraftBatch.body_id == Body.id)
+        .where(
+            CraftBatch.node_id == node.id,
+            CraftBatch.state == BatchState.WAITING,
+            Body.node_id == node.id,
+            Body.state == BodyState.ALIVE,
+        )
+        .distinct()
+    )
+    for body in (await session.execute(stmt)).scalars().all():
+        await wake(session, body, now=now)
 
 
 # --- internal ----------------------------------------------------------------
@@ -1108,6 +1578,7 @@ async def _prepare(
     proportions: dict[str, float] | None,
     auto: bool = False,
     way: str | None = None,
+    recipe_key: str | None = None,
 ) -> _Ready:
     """The common flow of forecast and start.
 
@@ -1128,6 +1599,18 @@ async def _prepare(
         raise CraftError(f"{proc.output!r} — изделие, а не сырьё: партия считается штуками")
     if proc.needs_recipe and not await _knows(session, body, proc.output):
         raise NotLearned(f"рецепт {proc.output!r} не скопирован в личность")
+
+    #: A knowledge carrier is written by whoever knows the recipe (D-209): the
+    #: name of what goes onto it is part of the request, and it must be in the
+    #: master's own head -- a carrier is a copy, not a source.
+    if proc.output == CARRIER:
+        if not recipe_key:
+            raise CraftError("на носитель записывают конкретный рецепт: назовите какой")
+        recipe_key = catalog.recipes.recipe(recipe_key).name
+        if not await _knows(session, body, recipe_key):
+            raise NotLearned(f"рецепт {recipe_key!r} не в личности: записать можно только своё")
+    elif recipe_key:
+        raise CraftError(f"{proc.output!r} — не носитель: рецепт на него не записывают")
 
     #: Place extraction (D-177): runs where the node has the named property,
     #: and only on own or unowned land -- somebody else's forest belongs to its owner.
@@ -1159,6 +1642,10 @@ async def _prepare(
 
     inventory = await body_container(session, body)
     stock = await _stock(session, inventory, proc.inputs)
+    if proc.output == CARRIER:
+        return await _prepare_write(
+            session, constants, catalog, body, proc, units, stock, recipe_key
+        )
 
     optimal = optimal_amounts(constants, proc, units, _base_quality(proc, stock, scale.max))
     actual = (
@@ -1212,7 +1699,76 @@ async def _prepare(
         energy=energy,
         energy_cost=energy_price,
     )
-    return _Ready(plan=forecast, picks=tuple(picks), station=station, auto=auto)
+    return _Ready(
+        plan=forecast, picks=tuple(picks), station=station, auto=auto, recipe_key=recipe_key
+    )
+
+
+async def _prepare_write(
+    session: AsyncSession,
+    constants: Constants,
+    catalog: Catalog,
+    body: Body,
+    proc: Procedure,
+    units: float,
+    stock: dict[str, list[Item]],
+    recipe_key: str | None,
+) -> _Ready:
+    """A carrier is **written**, not manufactured (D-209): the batch flow, but
+    none of the workshop arithmetic.
+
+    * no waste -- one recipe takes exactly one blank, a piece of memory is not
+      a heap of ore;
+    * no spread and no ceiling -- the carrier is the same piece of memory the
+      blank was, one write poorer (`carrier.write_wear`);
+    * time follows the blank's quality, not the ladder's labour
+      (`carrier.write_seconds`): good memory writes in a blink, worn memory
+      takes minutes;
+    * a blank worn to zero is dead and is not written on. Dead blanks are
+      skipped, the worst live one goes first, as everywhere in the workshop.
+    """
+    del catalog
+    live = {
+        name: [item for item in rows if item.quality is None or float(item.quality) > 0]
+        for name, rows in stock.items()
+    }
+    required = {name: value * units for name, value in proc.per_unit.items()}
+    try:
+        picks = _pick(live, required)
+    except NotEnough:
+        dead = sum(len(rows) for rows in stock.values()) - sum(len(rows) for rows in live.values())
+        if dead:
+            raise Unmakeable(
+                "болванка стёрта в ноль: на неё уже ничего не записать"
+                + (" (живых не хватает)" if any(live.values()) else "")
+            ) from None
+        raise
+
+    scale = constants[R.QUALITY_SCALE]
+    memory = _material_quality(picks, scale.max)
+    quality = scale.clamp(memory - constants[R.CARRIER_WRITE_WEAR])
+    minutes = write_seconds(constants, memory) * units / (SECONDS_PER_HOUR / MINUTES_PER_HOUR)
+    forecast = Plan(
+        output=proc.output,
+        units=units,
+        quality=quality,
+        spread=scale.min,
+        ceiling=memory,
+        accuracy=1.0,
+        waste=0.0,
+        minutes=minutes,
+        consumes=dict(required),
+    )
+    return _Ready(plan=forecast, picks=tuple(picks), station=None, recipe_key=recipe_key)
+
+
+def write_seconds(constants: Constants, quality: float) -> float:
+    """How long one write takes on memory of this quality: a straight line from
+    `carrier.write_seconds.max` at quality 0 to `.min` at the top of the scale."""
+    span = constants[R.CARRIER_WRITE_SECONDS]
+    scale = constants[R.QUALITY_SCALE]
+    share = scale.clamp(quality) / scale.max
+    return span.max - (span.max - span.min) * share
 
 
 async def _knows(session: AsyncSession, body: Body, key: str) -> bool:
@@ -1226,17 +1782,19 @@ async def _knows(session: AsyncSession, body: Body, key: str) -> bool:
 
 async def _named_station(session: AsyncSession, body: Body, name: str) -> Item:
     """The machine with this name in the node, the best of the free ones."""
-    return await _pick_station(session, body, name)
+    return await _pick_station(session, body, name, allow_own=True)
 
 
 async def _station_item(session: AsyncSession, body: Body, proc: Procedure) -> Item | None:
     """The machine stands in the node -- exactly this makes craft city-forming."""
     if proc.station is None:
         return None
-    return await _pick_station(session, body, proc.station)
+    return await _pick_station(session, body, proc.station, allow_own=True)
 
 
-async def _pick_station(session: AsyncSession, body: Body, name: str) -> Item:
+async def _pick_station(
+    session: AsyncSession, body: Body, name: str, *, allow_own: bool = False
+) -> Item:
     """The best **free** machine with this name in the node (D-150).
 
     A machine is taken by one worker: while a batch runs it is not given to a
@@ -1246,6 +1804,11 @@ async def _pick_station(session: AsyncSession, body: Body, name: str) -> Item:
 
     A node disconnected for non-payment does not work at all (D-149): the meter
     is as much a condition of work as the machine itself.
+
+    `allow_own` is for the forecast: a machine busy with the master's **own**
+    work is not refused, because the new batch will not run now anyway -- it
+    queues behind the running one and takes a free machine when its turn comes
+    (D-209). Somebody else's work still refuses.
     """
     from src.engine import utility
 
@@ -1270,7 +1833,7 @@ async def _pick_station(session: AsyncSession, body: Body, name: str) -> Item:
     if not standing:
         raise NoStation(f"в узле нет рабочей станции «{name}»")
 
-    own = False
+    own: Item | None = None
     for machine in standing:
         #: Taken means taken, including by the same master: one work goes at a
         #: machine, not as many as the owner managed to order. The stamp
@@ -1279,12 +1842,15 @@ async def _pick_station(session: AsyncSession, body: Body, name: str) -> Item:
         if machine.busy_body_id is not None and (
             machine.busy_until is None or machine.busy_until > moment
         ):
-            own = own or machine.busy_body_id == body.id
+            if machine.busy_body_id == body.id and own is None:
+                own = machine
             continue
         return machine
+    if own is not None and allow_own:
+        return own
     raise Busy(
         f"«{name}» занята"
-        + (" вашей же работой: дождитесь конца партии" if own else
+        + (" вашей же работой: дождитесь конца партии" if own is not None else
            ": за рабочей станцией работает один. Свою ставят у себя")
     )
 
@@ -1448,3 +2014,8 @@ def _stackable(catalog: Catalog, output: str) -> bool:
 def _num(value: float) -> Decimal:
     """A number on the 0..100 scale in the form the database stores it."""
     return Decimal(str(value))
+
+
+def _seconds(minutes: float) -> Decimal:
+    """Work left, as the batch stores it: seconds of the master's presence."""
+    return Decimal(str(minutes * SECONDS_PER_HOUR / MINUTES_PER_HOUR))

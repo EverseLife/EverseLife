@@ -188,8 +188,9 @@ function assemble({ look, session, book, values, pow }: Props): Thing[] {
   const bench = look.bench ?? [];
   const batches = look.batches ?? [];
 
-  /** The batch occupying this machine, if it is ours. */
-  const batchAt = (machine: string) => batches.find((b) => b.station === machine);
+  /** The batch occupying this machine, if it is ours -- one under way, not one waiting (D-209). */
+  const batchAt = (machine: string) =>
+    batches.find((b) => b.station === machine && b.state === "running");
   /** The machine as it stands in the node: quality, condition, who is at it. */
   const standing = (machine: string) => bench.find((b) => b.goods === machine);
 
@@ -231,9 +232,21 @@ function assemble({ look, session, book, values, pow }: Props): Thing[] {
   //: One machine is one row, whatever can be done at it. A hearth is both a
   //: pot and an ordinary bench, and listing it twice would say there are two
   //: hearths in the yard. The surface shows everything the machine offers.
+  //:
+  //: A row exists for every machine one can work at, known recipes or not:
+  //: since D-209 a machine is also where one tries to make something without a
+  //: recipe, and that is exactly the case with nothing on the list yet.
+  //: Furniture, the terminal, the library and the like have windows of their
+  //: own and are not benches.
+  const workable = (machine: string) =>
+    (book?.recipes ?? []).some(
+      (r: any) => (book?.synonyms?.[r.station] ?? r.station) === machine,
+    ) || (book?.operations ?? []).some((o: any) =>
+      (o.requires ?? []).some((w: string) => (book?.synonyms?.[w] ?? w) === machine),
+    );
   for (const machine of stations) {
     const special = SPECIAL[machine];
-    const recipes = craftableAt(book, machine, look.knows).length > 0;
+    const recipes = craftableAt(book, machine, look.knows).length > 0 || workable(machine);
     if (!special && !recipes) continue;
     const batch = batchAt(machine);
     things.push({
@@ -242,7 +255,8 @@ function assemble({ look, session, book, values, pow }: Props): Thing[] {
       kind: "bench",
       rank: batch ? 0 : 1,
       state: batch ? `партия · ${batch.output}` : machineState(machine),
-      running: batch ? { until: batch.ready_at, since: batch.started_at } : undefined,
+      running:
+        batch && batch.ready_at ? { until: batch.ready_at, since: batch.started_at } : undefined,
       view: () => (
         <>
           {special?.()}

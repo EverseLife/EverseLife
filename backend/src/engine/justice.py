@@ -327,6 +327,11 @@ async def _enforce(
         #: there; several -- the judge names which; none -- hold where it caught them.
         cell_ = await _prison_choice(session, city, prison_node)
         if cell_ is not None and body is not None:
+            #: Taken away from the machine: the running work freezes where it
+            #: was, and waits for the sentence to end (D-209).
+            from src.engine import craft
+
+            await craft.freeze(session, body, now=now)
             body.node_id = cell_.id
             penalty.node_id = cell_.id
         else:

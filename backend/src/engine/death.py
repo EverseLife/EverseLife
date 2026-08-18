@@ -174,6 +174,13 @@ async def die(
 
     await transport.unharness(session, body)
 
+    #: The work at the machine stops with the master (D-209): the machine is
+    #: freed, the batch stays frozen -- a dead body does not come back to it,
+    #: and what was written off for it is lost with the body like the pocket.
+    from src.engine import craft
+
+    await craft.freeze(session, body, now=moment)
+
     body.state = BodyState.DEAD
     body.died_at = moment
     body.sleeping_since = None

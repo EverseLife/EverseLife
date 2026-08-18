@@ -61,6 +61,15 @@ async def _workshop(
         await world.grant_item(
             session, yard, machine, quality=machine_quality, origin="сценарий теста"
         )
+    if library:
+        #: A library holds what was put into it (D-209): the test's one is a
+        #: capital's -- the whole catalog on the shelf.
+        from src.constants import current_catalog
+        from src.engine import library as shelf
+
+        await shelf.stock(
+            session, node, (recipe.name for recipe in current_catalog().recipes.recipes)
+        )
     return node, identity, body
 
 

@@ -38,7 +38,7 @@ alloy costs more than the iron itself.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from decimal import Decimal
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -47,13 +47,11 @@ from src.constants import Catalog, ConstantError, Constants
 from src.constants import registry as R
 from src.constants.catalog import ItemKind
 from src.engine import events, travel, wear
-from src.engine.jobs import enqueue
 from src.engine.world import body_container
 from src.models.craft import BatchKind, CraftBatch
 from src.models.event import EventKind
 from src.models.identity import Body, BodyState
 from src.models.inventory import Container, Item
-from src.models.job import JobKind
 from src.units import PERCENT, amount, amount_float
 
 #: Machine from `build/recipes.json`. Minting happens only where it stands.
@@ -198,41 +196,29 @@ async def mint(
         node_id=body.node_id,
         output=recipe.name,
         units=amount(count),
-        station_item_id=None if station is None else station.id,
+        station=None if station is None else station.type_key,
         quality=Decimal(str(metal_quality)),
         spread=Decimal(str(scale.min)),
         spent=needed,
         fineness=Decimal(str(fineness)),
-        ready_at=moment + timedelta(minutes=minutes),
+        remaining_seconds=craft._seconds(minutes),  # noqa: SLF001
     )
-    session.add(batch)
-    await session.flush()
-    #: The machine is busy with minting like with any work (D-150): otherwise
-    #: two batches would run on the same machine at once.
-    await craft._occupy(session, station, body, batch.ready_at)  # noqa: SLF001
-
-    event = await events.record(
+    #: Minting is work at a machine like any other (D-150, D-209): it takes the
+    #: press while it runs, waits its turn behind the minter's other work, and
+    #: freezes when the minter walks away.
+    return await craft._launch(  # noqa: SLF001
         session,
-        EventKind.CRAFT_STARTED,
-        actor_identity_id=body.identity_id,
-        node_id=body.node_id,
-        batch_id=str(batch.id),
-        work="mint",
-        output=recipe.name,
-        units=count,
-        fineness=fineness,
-        spent=needed,
+        batch,
+        body,
+        now=moment,
+        event={
+            "work": "mint",
+            "output": recipe.name,
+            "units": count,
+            "fineness": fineness,
+            "spent": needed,
+        },
     )
-    await enqueue(
-        session,
-        JobKind.CRAFT_BATCH,
-        batch.ready_at,
-        payload={"batch": str(batch.id)},
-        dedup_key=f"craft.batch:{batch.id}",
-        cause_event_id=event.id,
-        body_id=body.id,
-    )
-    return batch
 
 
 async def melt(
@@ -299,38 +285,25 @@ async def melt(
         kind=BatchKind.RECYCLE,
         output=item.type_key,
         units=amount(count),
-        station_item_id=None if station is None else station.id,
+        station=None if station is None else station.type_key,
         quality=Decimal(str(scale.min)),
         spread=Decimal(str(scale.min)),
         spent={item.type_key: count},
         fineness=Decimal(str(fineness)),
-        ready_at=moment + timedelta(minutes=minutes),
+        remaining_seconds=craft._seconds(minutes),  # noqa: SLF001
     )
-    session.add(batch)
-    await session.flush()
-    await craft._occupy(session, station, body, batch.ready_at)  # noqa: SLF001
-
-    event = await events.record(
+    return await craft._launch(  # noqa: SLF001
         session,
-        EventKind.CRAFT_STARTED,
-        actor_identity_id=body.identity_id,
-        node_id=body.node_id,
-        batch_id=str(batch.id),
-        work="melt",
-        output=item.type_key,
-        units=count,
-        fineness=fineness,
+        batch,
+        body,
+        now=moment,
+        event={
+            "work": "melt",
+            "output": item.type_key,
+            "units": count,
+            "fineness": fineness,
+        },
     )
-    await enqueue(
-        session,
-        JobKind.CRAFT_BATCH,
-        batch.ready_at,
-        payload={"batch": str(batch.id)},
-        dedup_key=f"craft.batch:{batch.id}",
-        cause_event_id=event.id,
-        body_id=body.id,
-    )
-    return batch
 
 
 async def finish_melt(

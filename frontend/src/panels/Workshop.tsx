@@ -16,11 +16,16 @@
  * are spent**: without it the player will not connect action with result and
  * will not derive a single proportion (D-092). So "Start" stands next to the
  * forecast, not instead of it.
+ *
+ * Below the recipe list is the door for those who have no recipe (D-064,
+ * D-209): lay out a composition from the hands -- so much of each per unit --
+ * and try. Right, and the recipe is theirs with the first batch under way;
+ * wrong, and what was laid out is gone. No hints of closeness, by design.
  */
 
 import { useEffect, useState } from "react";
 import * as api from "../api";
-import type { Look, Plan, Session } from "../api";
+import type { Invention, Look, Plan, Session, Thing } from "../api";
 import { craftableAt, stationOf } from "../recipes";
 import { Rule } from "../Rule";
 import { Refusal, useActions } from "../actions";
@@ -35,6 +40,9 @@ type Props = {
   /** The vault catalog: loaded once for the whole screen. */
   book: any;
 };
+
+/** The knowledge carrier: made by hand, and it needs to be told what to carry (D-209). */
+const CARRIER = "Рецепт";
 
 export function Workshop({ look, session, machine, book }: Omit<Props, "busy" | "act">) {
   //: This panel's own waiting and its own refusal: one action here
@@ -54,11 +62,18 @@ export function Workshop({ look, session, machine, book }: Omit<Props, "busy" | 
   //: "Put on automatic" is a choice of mode: volume and an energy bill against
   //: quality and attention (D-035, D-058).
   const [automaton, setAutomaton] = useState(false);
+  //: For a carrier: which of the known recipes goes onto it (D-209).
+  const [onto, setOnto] = useState<string | null>(null);
 
   //: Computed before the early return below: a hook may not be called
   //: conditionally, and the forecast effect needs both of these.
   const selected = what && known.includes(what) ? what : (known[0] ?? null);
   const automated = machine === "Автоматическая станция";
+  //: What may be written: everything known except the carrier itself -- a
+  //: recipe for writing recipes on a carrier is a loop nobody needs.
+  const writable = look.knows.filter((name) => name !== CARRIER);
+  const writing = selected === CARRIER;
+  const recipe = writing ? (onto && writable.includes(onto) ? onto : (writable[0] ?? null)) : null;
 
   /**
    * The forecast counts itself while the player is still choosing.
@@ -80,6 +95,7 @@ export function Workshop({ look, session, machine, book }: Omit<Props, "busy" | 
           output: selected,
           units: qty,
           auto: automaton && automated,
+          recipe: recipe ?? undefined,
         })
         .then((answer) => {
           if (dropped) return;
@@ -99,11 +115,10 @@ export function Workshop({ look, session, machine, book }: Omit<Props, "busy" | 
       dropped = true;
       clearTimeout(timer);
     };
-  }, [session, selected, qty, automaton, automated]);
+    //: Presence is part of the forecast: a refusal earned on the road must
+    //: give way to a number once the body is back at the bench.
+  }, [session, selected, qty, automaton, automated, recipe, look.node?.key, look.travel, look.survey]);
 
-  //: Nothing is made at this machine with what the player knows -- the panel
-  //: stays silent rather than showing an empty list of recipes.
-  if (selected === null) return null;
   const myMachine = (look.bench ?? []).filter((b) => b.goods === machine);
 
   const launch = () =>
@@ -112,6 +127,7 @@ export function Workshop({ look, session, machine, book }: Omit<Props, "busy" | 
         output: selected,
         units: qty,
         auto: automaton && automated,
+        recipe: recipe ?? undefined,
       });
       setForecast(null);
     });
@@ -121,14 +137,19 @@ export function Workshop({ look, session, machine, book }: Omit<Props, "busy" | 
     (thing) => thing.condition < 100 && stationOf(book, thing.goods) === machine,
   );
 
+  //: The queue is one per body (D-209): if something of theirs already runs,
+  //: a new batch will wait its turn -- said before the button, not after.
+  const running = (look.batches ?? []).find((b) => b.state === "running");
+
   return (
     <section>
       <Refusal of={acting} />
       <h2>
         {machine ?? "Руками"}
         <Rule>
-          Партия идёт офлайн и видна в сайдбаре, в «делах». За рабочей станцией работает
-          один: пока идёт партия, второму она не отдаётся.
+          Партия идёт, только пока вы стоите здесь: ушли — замерла, вернулись —
+          продолжилась. У одного человека идёт одна работа, остальные ждут очереди в
+          «делах». За рабочей станцией работает один.
         </Rule>
       </h2>
 
@@ -161,62 +182,97 @@ export function Workshop({ look, session, machine, book }: Omit<Props, "busy" | 
         </p>
       ))}
 
-      <div className="row">
-        <select value={selected} onChange={(e) => setWhat(e.target.value)}>
-          {known.map((name) => (
-            <option key={name}>{name}</option>
-          ))}
-        </select>
-        <input
-          type="number"
-          min={1}
-          value={qty}
-          onChange={(e) => setQty(Number(e.target.value))}
-        />
-        {automated && (
-          <label className="note">
+      {selected !== null && (
+        <>
+          <div className="row">
+            <select value={selected} onChange={(e) => setWhat(e.target.value)}>
+              {known.map((name) => (
+                <option key={name}>{name}</option>
+              ))}
+            </select>
             <input
-              type="checkbox"
-              checked={automaton}
-              onChange={(e) => setAutomaton(e.target.checked)}
-            />{" "}
-            на автомате
-          </label>
-        )}
-      </div>
+              type="number"
+              min={1}
+              value={qty}
+              onChange={(e) => setQty(Number(e.target.value))}
+            />
+            {automated && (
+              <label className="note">
+                <input
+                  type="checkbox"
+                  checked={automaton}
+                  onChange={(e) => setAutomaton(e.target.checked)}
+                />{" "}
+                на автомате
+              </label>
+            )}
+          </div>
 
-      <div className="plan">
-        {forecast ? (
-          <>
-            <p>
-              качество <b className="num">{forecast.quality.toFixed(1)}</b> ±{" "}
-              <span className="num">{forecast.spread.toFixed(1)}</span>
-              {" · "}потолок <span className="num">{forecast.ceiling.toFixed(0)}</span>
-              {" · "}<span className="num">{forecast.minutes.toFixed(1)}</span> мин
-              {" · "}потери <span className="num">{forecast.waste.toFixed(1)}</span>%
-            </p>
-            <p className="note">
-              уйдёт:{" "}
-              {Object.entries(forecast.consumes)
-                .map(([name, qty]) => `${name} ${qty.toFixed(2)}`)
-                .join(", ")}
-              {forecast.auto && forecast.energy > 0 && (
-                <>
-                  {" "}· энергии {forecast.energy.toFixed(0)} на{" "}
-                  {api.tk(forecast.energy_cost)} ₭ по тарифу города
-                </>
+          {writing && (
+            <div className="row">
+              <span className="note">записать рецепт:</span>
+              {writable.length === 0 ? (
+                <span className="note">вы пока ничего не знаете, кроме самого носителя</span>
+              ) : (
+                <select value={recipe ?? ""} onChange={(e) => setOnto(e.target.value)}>
+                  {writable.map((name) => (
+                    <option key={name}>{name}</option>
+                  ))}
+                </select>
               )}
-            </p>
-          </>
-        ) : refusal ? (
-          <p className="reason">{refusal}</p>
-        ) : (
-          <p className="note">Прогноз считается сам, пока вы выбираете.</p>
-        )}
-        <button onClick={launch} disabled={busy || !forecast}>
-          Запустить партию
-        </button>
-      </div>
+            </div>
+          )}
+
+          <div className="plan">
+            {forecast ? (
+              <>
+                <p>
+                  качество <b className="num">{forecast.quality.toFixed(1)}</b> ±{" "}
+                  <span className="num">{forecast.spread.toFixed(1)}</span>
+                  {" · "}потолок <span className="num">{forecast.ceiling.toFixed(0)}</span>
+                  {" · "}
+                  {forecast.minutes < 1 ? (
+                    <>
+                      <span className="num">{(forecast.minutes * 60).toFixed(1)}</span> с
+                    </>
+                  ) : (
+                    <>
+                      <span className="num">{forecast.minutes.toFixed(1)}</span> мин
+                    </>
+                  )}
+                  {" · "}потери <span className="num">{forecast.waste.toFixed(1)}</span>%
+                </p>
+                <p className="note">
+                  уйдёт:{" "}
+                  {Object.entries(forecast.consumes)
+                    .map(([name, qty]) => `${name} ${qty.toFixed(2)}`)
+                    .join(", ")}
+                  {forecast.auto && forecast.energy > 0 && (
+                    <>
+                      {" "}· энергии {forecast.energy.toFixed(0)} на{" "}
+                      {api.tk(forecast.energy_cost)} ₭ по тарифу города
+                    </>
+                  )}
+                </p>
+              </>
+            ) : refusal ? (
+              <p className="reason">{refusal}</p>
+            ) : (
+              <p className="note">Прогноз считается сам, пока вы выбираете.</p>
+            )}
+            <button onClick={launch} disabled={busy || !forecast}>
+              {running ? "В очередь" : "Запустить партию"}
+            </button>
+            {running && (
+              <span className="note">
+                {" "}сейчас идёт «{running.output}»: новая партия встанет за ней
+              </span>
+            )}
+          </div>
+        </>
+      )}
+
+      <Invent look={look} session={session} machine={machine} book={book} />
 
       {repair.length > 0 && (
         <>
@@ -244,5 +300,155 @@ export function Workshop({ look, session, machine, book }: Omit<Props, "busy" | 
         </>
       )}
     </section>
+  );
+}
+
+/** One line of a laid-out composition: a thing from the hands and how much per unit. */
+type Laid = { goods: string; amount: number };
+
+/**
+ * Making without a recipe (D-064, D-209).
+ *
+ * The composition is laid out per unit of output -- "3 wood" is a handle,
+ * whatever the batch size -- and the batch size is entered apart. What is
+ * laid out must be in the hands in full for the whole batch: the engine
+ * refuses up front otherwise, so a guess never costs less than it says.
+ *
+ * The answer is shown here, once, and it is deliberately short: opened or
+ * burned. There is nothing "warmer" or "colder" to show, and the panel does
+ * not pretend otherwise.
+ */
+function Invent({
+  look,
+  session,
+  machine,
+  book,
+}: {
+  look: Look;
+  session: Session;
+  machine: string | null;
+  book: any;
+}) {
+  const acting = useActions();
+  const { busy, act } = acting;
+  const [laid, setLaid] = useState<Laid[]>([]);
+  const [units, setUnits] = useState(1);
+  const [answer, setAnswer] = useState<Invention | null>(null);
+
+  //: Kinds of things in the hands, one line each: the same wood twice is one
+  //: input with a bigger amount, not two.
+  const kinds = [...new Set((look.inventory ?? []).map((t: Thing) => t.goods))].sort();
+  const cap: number = Number(book?.constants?.["invent.max_ingredients"] ?? 5);
+  const free = kinds.filter((name) => !laid.some((row) => row.goods === name));
+
+  const add = () => {
+    if (free.length === 0 || laid.length >= cap) return;
+    setLaid([...laid, { goods: free[0], amount: 1 }]);
+  };
+  const change = (i: number, patch: Partial<Laid>) =>
+    setLaid(laid.map((row, k) => (k === i ? { ...row, ...patch } : row)));
+  const drop = (i: number) => setLaid(laid.filter((_, k) => k !== i));
+
+  const attempt = () =>
+    act(async () => {
+      const composition = Object.fromEntries(
+        laid.filter((row) => row.amount > 0).map((row) => [row.goods, row.amount]),
+      );
+      const result = (await session.send("craft.invent", {
+        composition,
+        units,
+        station: machine,
+      })) as unknown as Invention;
+      setAnswer(result);
+      //: Burned or made into a batch -- either way the hands changed, and the
+      //: laid-out lines are of the past.
+      if (result.success || Object.keys(result.burned).length > 0) setLaid([]);
+    });
+
+  if (kinds.length === 0) return null;
+
+  return (
+    <>
+      <h3>
+        Без рецепта
+        <Rule>
+          Выложите состав на единицу изделия — до {cap} видов вещей из рук — и сколько
+          единиц делаете. Совпало с тем, что здесь делают, — рецепт ваш и партия пошла.
+          Не совпало — выложенное сгорело. Подсказок «теплее — холоднее» нет.
+        </Rule>
+      </h3>
+      <Refusal of={acting} />
+      {laid.map((row, i) => (
+        <div className="row" key={i}>
+          <select
+            value={row.goods}
+            onChange={(e) => change(i, { goods: e.target.value })}
+          >
+            {[row.goods, ...free].map((name) => (
+              <option key={name}>{name}</option>
+            ))}
+          </select>
+          <input
+            type="number"
+            min={0}
+            step="any"
+            value={row.amount}
+            onChange={(e) => change(i, { amount: Number(e.target.value) })}
+            title="сколько на единицу изделия"
+          />
+          <button className="quiet" onClick={() => drop(i)} disabled={busy} title="убрать">
+            ×
+          </button>
+        </div>
+      ))}
+      <div className="row">
+        <button
+          className="quiet"
+          onClick={add}
+          disabled={busy || free.length === 0 || laid.length >= cap}
+        >
+          + вещь
+        </button>
+        <label className="note">
+          единиц{" "}
+          <input
+            type="number"
+            min={1}
+            value={units}
+            onChange={(e) => setUnits(Number(e.target.value))}
+          />
+        </label>
+        <button
+          onClick={attempt}
+          disabled={busy || laid.length === 0 || laid.every((row) => row.amount <= 0)}
+        >
+          Попробовать
+        </button>
+      </div>
+      {answer && (
+        <p className={answer.success ? "note" : "reason"}>
+          {answer.success ? (
+            <>
+              Сложилось: «{answer.learned.join("», «")}» теперь в ваших знаниях
+              {answer.batch ? " — и первая партия пошла." : "."}
+              {answer.note && ` ${answer.note}`}
+            </>
+          ) : (
+            <>
+              {answer.note}
+              {Object.keys(answer.burned).length > 0 && (
+                <>
+                  {" "}Сгорело:{" "}
+                  {Object.entries(answer.burned)
+                    .map(([name, qty]) => `${name} ${qty}`)
+                    .join(", ")}
+                  .
+                </>
+              )}
+            </>
+          )}
+        </p>
+      )}
+    </>
   );
 }

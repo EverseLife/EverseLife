@@ -153,6 +153,32 @@ export function Inventory({ look, session }: Props) {
                               Съесть
                             </button>
                           )}
+                          {/* A knowledge carrier (D-209): read it into the identity --
+                              the carrier stays -- or wipe it back into a blank. */}
+                          {thing.recipe && (
+                            <>
+                              <button
+                                role="menuitem"
+                                onClick={() => send("carrier.read", { item: thing.id })}
+                                disabled={busy || look.knows.includes(thing.recipe)}
+                                title={
+                                  look.knows.includes(thing.recipe)
+                                    ? "этот рецепт уже в личности"
+                                    : "скопировать рецепт в знания: стоит выносливости, носитель цел"
+                                }
+                              >
+                                Скопировать в знания
+                              </button>
+                              <button
+                                role="menuitem"
+                                onClick={() => send("carrier.wipe", { item: thing.id })}
+                                disabled={busy}
+                                title="стереть запись: останется болванка"
+                              >
+                                Стереть
+                              </button>
+                            </>
+                          )}
                           <button
                             role="menuitem"
                             onClick={() => setAsking({ item: thing.id, about: "where" })}
@@ -208,6 +234,25 @@ export function Inventory({ look, session }: Props) {
                               В {chest.goods.toLowerCase()}
                             </button>
                           ))}
+                          {/* Into the library, for good (D-068, D-209): only a written
+                              carrier, only standing in one, and the name stays with it. */}
+                          {thing.recipe && look.node?.library && (
+                            <button
+                              role="menuitem"
+                              onClick={() => send("library.contribute", { item: thing.id })}
+                              disabled={
+                                busy ||
+                                (look.node.shelf ?? []).some((e) => e.recipe === thing.recipe)
+                              }
+                              title={
+                                (look.node.shelf ?? []).some((e) => e.recipe === thing.recipe)
+                                  ? "этот рецепт здесь уже лежит"
+                                  : "отдать в библиотеку навсегда: ваше имя останется при рецепте"
+                              }
+                            >
+                              В библиотеку
+                            </button>
+                          )}
                           {look.convoy && (
                             <button
                               role="menuitem"
@@ -261,7 +306,7 @@ export function Inventory({ look, session }: Props) {
                     </div>
                   )}
                 </td>
-                <td>{thing.flavor ?? thing.goods}</td>
+                <td>{thing.flavor ?? (thing.recipe ? `${thing.goods}: ${thing.recipe}` : thing.goods)}</td>
                 <td className="num">{thing.amount}</td>
                 <td className="note">{tells(thing)}</td>
                 <td>
@@ -287,7 +332,7 @@ export function Inventory({ look, session }: Props) {
               {look.stall.map((thing) => (
                 <tr key={thing.id}>
                   <td />
-                  <td>{thing.flavor ?? thing.goods}</td>
+                  <td>{thing.flavor ?? (thing.recipe ? `${thing.goods}: ${thing.recipe}` : thing.goods)}</td>
                   <td className="num">{thing.amount}</td>
                   <td className="note">{tells(thing)}</td>
                   <td />

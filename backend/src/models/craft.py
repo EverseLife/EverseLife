@@ -1,8 +1,11 @@
-"""A craft batch -- a long-running action living without the player.
+"""A craft batch -- a long-running action that goes on while the master stands by.
 
-A batch is started in person (machine, tool and inputs in the node) and runs
-offline: the input is written off at once, the product appears on schedule via
-the job journal (06-actions, class "long-running").
+A batch is started in person (machine, tool and inputs in the node): the input
+is written off at once, the product appears on schedule via the job journal
+(06-actions, class "long-running"). Since D-209 the work moves only while the
+master's body is in the node: leave and it freezes with the time left in it,
+come back and it goes on. One body works one batch at a time; the rest wait
+their turn in the order they were started.
 
 The quality forecast is computed **before** materials are written off and
 stored right here: the player saw the number before the batch (D-092), and the
@@ -24,7 +27,12 @@ from src.db.base import Base, created_column, enum_column, uuid_pk
 
 
 class BatchState(StrEnum):
+    #: The work goes on: a job is scheduled at `ready_at`.
     RUNNING = "running"
+    #: Not moving: queued behind another work of the same body, frozen while
+    #: the master is away, or waiting for a free machine (D-209). What is left
+    #: to do is in `remaining_seconds`.
+    WAITING = "waiting"
     DONE = "done"
 
 
@@ -65,6 +73,11 @@ class CraftBatch(Base):
     #: How many units of output, in internal units (`units.AMOUNT_SCALE`).
     units: Mapped[int] = mapped_column(BigInteger, nullable=False)
 
+    #: The machine the work needs, by name; empty for work by hand. Kept
+    #: apart from the item: a frozen batch goes on at **a** free machine of
+    #: this name when the master is back, not necessarily the same one (D-209).
+    station: Mapped[str | None] = mapped_column(nullable=True)
+    #: The machine occupied by the current run. Empty while the batch waits.
     station_item_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
     tool_item_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
 
@@ -89,6 +102,22 @@ class CraftBatch(Base):
         BatchState, "craft_batch_state", nullable=False, default=BatchState.RUNNING
     )
 
+    #: For a knowledge carrier: which recipe is being written on it (D-209).
+    recipe_key: Mapped[str | None] = mapped_column(nullable=True)
+
     started_at: Mapped[datetime] = created_column()
-    ready_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    #: When the current run finishes. Empty while the batch waits.
+    ready_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    #: Work left, seconds, while the batch waits (D-209). Empty while it runs:
+    #: the remainder is then `ready_at - now`.
+    remaining_seconds: Mapped[float | None] = mapped_column(Numeric(12, 3), nullable=True)
+    #: When the current run began -- the near end of the deadline bar. Empty
+    #: while waiting.
+    run_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    #: How many times the batch was (re)started. The finishing job carries the
+    #: number it was queued for: a job left over from a run that was frozen
+    #: must not finish the batch ahead of the resumed one.
+    runs: Mapped[int] = mapped_column(nullable=False, default=0)
     finished_at: Mapped[datetime | None] = mapped_column(nullable=True)

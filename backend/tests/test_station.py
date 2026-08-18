@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants
 from src.engine import craft, estate, station, world
+from src.models.craft import BatchState
 from src.models.estate import Building
 from src.models.inventory import Item
 
@@ -72,13 +73,18 @@ async def test_one_machine_one_work(
     """Taken means taken, including for the master themselves.
 
     Otherwise the machine's owner would start any number of batches at it at
-    once, and the rule "one person works at a machine" would hold only against strangers.
+    once, and the rule "one person works at a machine" would hold only against
+    strangers. Since D-209 the second work is not refused but **waits its turn**:
+    one body works one batch, and the machine stays with the running one.
     """
     node = await _workshop(session)
     _, master = await _master(session, node, "Мастер")
-    await craft.start(session, constants, catalog, master, MAKE, 1)
-    with pytest.raises(craft.Busy):
-        await craft.start(session, constants, catalog, master, MAKE, 1)
+    first = await craft.start(session, constants, catalog, master, MAKE, 1)
+    second = await craft.start(session, constants, catalog, master, MAKE, 1)
+    assert first.state is BatchState.RUNNING
+    assert second.state is BatchState.WAITING
+    assert second.station_item_id is None
+    assert second.ready_at is None
 
 
 async def test_second_machine_clears_queue(

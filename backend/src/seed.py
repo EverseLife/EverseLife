@@ -57,6 +57,7 @@ from src.engine import (
     death,
     justice,
     ledger,
+    library,
     market,
     ship,
     tick,
@@ -233,11 +234,11 @@ async def seed(session: AsyncSession) -> Node:
         parent=capital, properties={"library": True, "кольцо": 1},
     )
     marketplace = await world.create_node(
-        session, "terra.capital.market", "Торговый двор", area_m2=200,
+        session, "terra.capital.market", "Рынок", area_m2=200,
         parent=capital, properties={"кольцо": 1},
     )
     forge = await world.create_node(
-        session, "terra.capital.forge", "Кузнечный двор", area_m2=260,
+        session, "terra.capital.forge", "Мастерская", area_m2=260,
         parent=capital, properties={"кольцо": 2},
     )
     face = await world.create_node(
@@ -350,9 +351,13 @@ async def seed(session: AsyncSession) -> Node:
     await _machine(session, port, ship.SPACEPORT, 60)
     #: The library is a machine (D-176): the knowledge window is shown where it stands.
     await _machine(session, library, world.LIBRARY, 70)
+    #: And it holds what was put into it (D-068, D-209): the capital's shelf is
+    #: the base set the Forerunners left -- today the whole catalog; a library
+    #: a city builds starts empty and fills as people bring carriers.
+    await _base_shelf(session, library)
     #: The Forerunners' Printer: free and twelve hours (D-028). It is also the
     #: only door into the world that never closes, hence it stands in the core.
-    await _machine(session, core, death.PRINTER, 90)
+    await _machine(session, core, death.PRINTER, 99)
     #: The city printer at the forge: minutes instead of hours, but for energy
     #: and iron. The city sells not life but speed (D-028, D-033).
     await _machine(session, forge, death.PRINTER, 60)
@@ -604,6 +609,9 @@ async def catch_up(session: AsyncSession, core: Node) -> None:
     ).scalar_one_or_none()
     if library is not None:
         await _machine_if_missing(session, library, world.LIBRARY, 70)
+        #: A world furnished before D-209 gets its base shelf: without it the
+        #: capital's library would stand full of books nobody may copy.
+        await _base_shelf(session, library)
     #: The capital's penal colony (D-174, D-176): a world created before it gets
     #: the node whole -- vein, printer, terminal and the "Penal colony" machine itself.
     new_prison = await _node_if_missing(
@@ -838,6 +846,19 @@ async def _buildings(session: AsyncSession) -> None:
 
             session.add(Building(node_id=node.id, area_m2=float(node.area_m2)))
     await session.flush()
+
+
+async def _base_shelf(session: AsyncSession, node: Node) -> None:
+    """The base set of a genesis library: every recipe of the catalog (D-209).
+
+    Which recipes count as "base" is the vault's business, not this file's:
+    today it is the whole ladder (D-053), and narrowing it is a data change.
+    Idempotent -- rerunning adds only what is missing.
+    """
+    book = current_catalog().recipes
+    added = await library.stock(session, node, (recipe.name for recipe in book.recipes))
+    if added:
+        log.info("library shelf at %s: %d recipes laid down", node.key, added)
 
 
 async def _machine_if_missing(

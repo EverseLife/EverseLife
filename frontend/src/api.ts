@@ -54,6 +54,13 @@ export type Thing = {
   /** Unit weight, kg, and the slot if this is gear (D-146). */
   mass: number;
   slot: string | null;
+  /**
+   * For a knowledge carrier: the recipe written on it, and the name the counter
+   * knows the stack by -- "Рецепт: Стекло" (D-209). `key` equals `goods` for
+   * everything else.
+   */
+  recipe: string | null;
+  key: string;
 };
 
 /** Carried load: how much is carried, how much can be, and what is worn (D-146). */
@@ -262,6 +269,8 @@ export type Look = {
   profile: Profile;
   money: string;
   knows: string[];
+  /** Which of the known recipes were opened by one's own experiment (D-064, D-209). */
+  discovered: string[];
   /** Learned agrotech: crops whose norm the identity has already studied (D-057). */
   agrotech: string[];
   orders: Order[];
@@ -281,6 +290,11 @@ export type Look = {
     name: string;
     layer: "space" | "planet" | "city" | "location";
     library: boolean;
+    /**
+     * What this library holds and who brought each recipe (D-068, D-209). Only
+     * when standing in a library; the catalog table is this shelf, not the vault.
+     */
+    shelf: { recipe: string; contributor: string | null }[] | null;
     stations: string[];
     /** Place-sign properties ("forest", "outcrop"): place extraction is shown by them (D-177). */
     features: string[];
@@ -674,11 +688,33 @@ export type Batch = {
   output: string;
   units: number;
   quality: number;
-  /** The machine it occupies; empty for what is made by hand. */
+  /** The machine it needs; empty for what is made by hand. */
   station: string | null;
-  /** When it started: the deadline bar shows a share, and a share needs a beginning. */
-  started_at: string;
-  ready_at: string;
+  /**
+   * Under way, or waiting (D-209): behind another work of yours (`queued`),
+   * frozen in another node (`away`), or here but with no free machine
+   * (`no_station`).
+   */
+  state: "running" | "waiting";
+  waiting: "queued" | "away" | "no_station" | null;
+  /** Where the work is: a frozen batch is waited for in its node. */
+  node: string | null;
+  /** The current run's ends: the deadline bar shows a share, and a share needs a beginning. */
+  started_at: string | null;
+  ready_at: string | null;
+  /** Work left while waiting, seconds. */
+  left_seconds: number | null;
+  /** For a carrier being written: which recipe goes onto it. */
+  recipe: string | null;
+};
+
+/** What came of an attempt to make something without a recipe (D-064, D-209). */
+export type Invention = {
+  success: boolean;
+  learned: string[];
+  burned: Record<string, number>;
+  note: string | null;
+  batch: { id: string; output: string; quality: number; ready_at: string | null } | null;
 };
 
 /** Everything the player sees about the face. Roof stability is not here and cannot be. */

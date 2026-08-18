@@ -558,6 +558,7 @@ async def move_stack(
                 vigor=item.vigor,
                 charge=item.charge,
                 charged_at=item.charged_at,
+                recipe_key=item.recipe_key,
             )
         )
     await session.flush()

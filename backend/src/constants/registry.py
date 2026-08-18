@@ -123,6 +123,20 @@ CRAFT_AMOUNT_CAP = Num("craft.amount_cap")
 CRAFT_COPY_STAMINA = Num("craft.copy_stamina")
 HARVEST_RATES = Table("harvest.rates")
 
+# --- Invention (D-064, D-209) -----------------------------------------------
+#: How many kinds of things may go into one attempt: without a cap the search
+#: space is not surveyable and guessing turns into a lottery.
+INVENT_MAX_INGREDIENTS = Num("invent.max_ingredients")
+#: What share of the laid-out materials a failed attempt burns.
+INVENT_MATERIAL_LOSS = Num("invent.material_loss")
+
+# --- Knowledge carrier (D-209) ------------------------------------------------
+#: Writing time by the blank's quality: `max` seconds at quality 0, `min` at 100.
+CARRIER_WRITE_SECONDS = Span("carrier.write_seconds")
+#: Quality the memory loses per write and per wipe. At zero the blank is dead.
+CARRIER_WRITE_WEAR = Num("carrier.write_wear")
+CARRIER_WIPE_WEAR = Num("carrier.wipe_wear")
+
 # --- Quality (D-058, D-060, D-092) ------------------------------------------
 QUALITY_SCALE = Span("quality.scale")
 QUALITY_TIERS = Tiers("quality.tiers")

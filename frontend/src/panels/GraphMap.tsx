@@ -176,6 +176,10 @@ export function GraphMap({ look, session, onEnter }: Omit<Props, "busy" | "act">
   //: to see arrives with `look` -- the ship moored at the pier one stands on,
   //: or the rooms of the one being stood in -- so a ship appears on walking up
   //: to it and is gone on walking away.
+  //: Keyed by what the ships **are**, not by the object carrying them: `look`
+  //: arrives anew every few seconds, and merging on its identity rebuilt the
+  //: whole map -- and with it the layout and the simulation -- on every poll.
+  const sighted = (look.ships?.nodes ?? []).map((node) => node.key).join("|");
   const map = useMemo<WorldMap | null>(() => {
     const seen = look.ships;
     if (!world || !seen) return world;
@@ -184,7 +188,10 @@ export function GraphMap({ look, session, onEnter }: Omit<Props, "busy" | "act">
       nodes: [...world.nodes, ...seen.nodes],
       edges: [...world.edges, ...seen.edges],
     };
-  }, [world, look.ships]);
+    //: `look.ships` is read inside and keyed by `sighted` outside: the same
+    //: keys mean the same ships, and the linter cannot be shown that.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [world, sighted]);
   const byKey = useMemo(() => {
     const out: Record<string, MapNode> = {};
     for (const node of map?.nodes ?? []) out[node.key] = node;

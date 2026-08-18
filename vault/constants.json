@@ -379,6 +379,12 @@
   "invent.attempt_time": {
     "formula": "craft_time(item_of_same_level)"
   },
+  "carrier.write_seconds": {
+    "min": 0.1,
+    "max": 300
+  },
+  "carrier.write_wear": 5,
+  "carrier.wipe_wear": 5,
   "trial.duration": 90,
   "trial.transfer_limit_base": 500,
   "trial.transfer_limit_growth": 10,
