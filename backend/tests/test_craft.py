@@ -132,19 +132,17 @@ def test_place_extraction_goes_as_batch(catalog: Catalog) -> None:
     assert not method.needs_recipe
 
 
-def test_wood_has_two_ways_and_the_worker_picks(catalog: Catalog) -> None:
-    """Felling and deadwood give the same wood, and the way is named (D-196).
+def test_wood_is_felled_by_a_named_way(catalog: Catalog) -> None:
+    """The way is named, not guessed (D-196), and felling wants an axe.
 
-    Without a named way the resolver took the first operation, and gathering by
-    hand was unreachable -- the axe stayed locked behind the axe.
+    Deadwood by hand is no longer an operation: what lies on the ground is
+    found by foraging (D-210), and the forest window keeps only the axe.
     """
     felling = craft.procedure(catalog, "Дерево", way="Рубка дерева")
     assert "Топор" in felling.tools
-
-    deadwood = craft.procedure(catalog, "Дерево", way="Сбор валежника")
-    assert deadwood.tools == (), "валежник собирают руками"
-    assert deadwood.place == "лес"
-    assert deadwood.step_hours > felling.step_hours, "руками дольше, чем топором"
+    assert felling.place == "лес"
+    with pytest.raises(craft.Unmakeable):
+        craft.procedure(catalog, "Дерево", way="Сбор валежника")
 
 
 def test_unknown_way_is_refused(catalog: Catalog) -> None:
@@ -153,20 +151,18 @@ def test_unknown_way_is_refused(catalog: Catalog) -> None:
         craft.procedure(catalog, "Дерево", way="Телекинез")
 
 
-def test_stone_axe_ladder_needs_no_tools(catalog: Catalog) -> None:
-    """The whole ladder from bare hands to the first axe (D-196).
+def test_stone_axe_ladder_needs_no_tools(catalog: Catalog, constants: Constants) -> None:
+    """The whole ladder from bare hands to the first axe (D-196, D-210).
 
-    Every step is either gathering at a place or handwork: if any of them asks
-    for a machine or a tool, the world cannot be started from scratch.
+    The raw of the first axe is found by foraging on empty land, and every
+    step after that is handwork: if any of them asks for a machine or a tool,
+    the world cannot be started from scratch.
     """
-    for output, way in (
-        ("Дерево", "Сбор валежника"),
-        ("Камень", "Сбор камней"),
-        ("Дикий лён", "Сбор льна"),
-    ):
-        step = craft.procedure(catalog, output, way=way)
-        assert step.tools == () and step.station is None, output
-        assert step.place is not None, output
+    from src.engine import forage
+
+    found = forage.finds(constants)
+    for output in ("Дерево", "Камень", "Дикий лён"):
+        assert output in found, f"{output} должен находиться собирательством"
 
     for output in ("Волокно", "Верёвка", "Каменный топор"):
         step = craft.procedure(catalog, output)
@@ -176,42 +172,20 @@ def test_stone_axe_ladder_needs_no_tools(catalog: Catalog) -> None:
     assert set(axe.inputs) == {"Камень", "Дерево", "Верёвка"}
 
 
-async def test_barehanded_gathering_starts_on_wild_land(
+async def test_felling_asks_for_the_right_place(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """A newcomer with nothing in hands starts the world: a grove, hands, wood."""
+    """Trees are felled where the forest is: on a bare plot there is nothing to fell (D-177)."""
     stamp = uuid.uuid4().hex[:8]
-    grove = await world.create_node(
-        session,
-        f"terra.grove.{stamp}",
-        "Роща",
-        area_m2=10_000,
-        properties={"лес": True},
+    bare = await world.create_node(
+        session, f"terra.bare.{stamp}", "Пустырь", area_m2=10_000, properties={}
     )
     identity = await world.create_identity(session, f"Новичок-{stamp}")
-    body = await world.print_body(session, identity, grove)
-
-    batch = await craft.start(
-        session, constants, catalog, body, "Дерево", 3, way="Сбор валежника"
-    )
-    assert batch.state is BatchState.RUNNING
-    assert batch.ready_at > batch.started_at
-
-
-async def test_gathering_asks_for_the_right_place(
-    session: AsyncSession, constants: Constants, catalog: Catalog
-) -> None:
-    """Flax grows in a meadow: in a grove there is nothing to gather (D-177)."""
-    stamp = uuid.uuid4().hex[:8]
-    grove = await world.create_node(
-        session, f"terra.grove.{stamp}", "Роща", area_m2=10_000, properties={"лес": True}
-    )
-    identity = await world.create_identity(session, f"Новичок-{stamp}")
-    body = await world.print_body(session, identity, grove)
+    body = await world.print_body(session, identity, bare)
 
     with pytest.raises(craft.CraftError):
         await craft.start(
-            session, constants, catalog, body, "Дикий лён", 1, way="Сбор льна"
+            session, constants, catalog, body, "Дерево", 1, way="Рубка дерева"
         )
 
 

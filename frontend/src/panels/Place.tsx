@@ -793,11 +793,13 @@ const PLACES: Record<string, string> = {
   луг: "Луг",
 };
 
-/** Place extraction (D-177): felling -- and future gathering -- without a machine.
+/** Place extraction (D-177): felling without a machine.
  *
  * Shown where the node has a sign ("forest") and the land is own or unowned:
  * somebody else's forest belongs to its owner. The batch runs as ordinary
  * craft -- time and tool from the vault, the finished product is seen in "jobs".
+ * What lies on the ground -- deadwood, stones, flax -- is no longer gathered
+ * here: that is foraging on empty land, a window of its own (D-210).
  */
 function Gather({ look, session, busy, act, book }: Props) {
   const [qty, setQty] = useState(10);
@@ -815,9 +817,8 @@ function Gather({ look, session, busy, act, book }: Props) {
     inHands.has(withWhat) ||
     ((book?.tool_classes?.[withWhat] ?? []) as string[]).some((i) => inHands.has(i));
 
-  //: One sign -- one window, even when several operations hang on it: in a
-  //: forest you both fell trees and gather deadwood (D-196), and two sections
-  //: titled "Лес" one under the other read as a bug.
+  //: One sign -- one window, even when several operations hang on it: two
+  //: sections titled "Лес" one under the other would read as a bug.
   const bySign = new Map<string, any[]>();
   for (const operation of operations) {
     bySign.set(operation.place, [...(bySign.get(operation.place) ?? []), operation]);
@@ -848,8 +849,8 @@ function Gather({ look, session, busy, act, book }: Props) {
                         session.send("craft.start", {
                           output: exit,
                           units: qty,
-                          //: Wood comes both from felling and from deadwood --
-                          //: the button says which one it is (D-196).
+                          //: The button names the operation: one thing may
+                          //: come from several ways (D-196).
                           way: operation.name,
                         }),
                       )
@@ -869,7 +870,8 @@ function Gather({ look, session, busy, act, book }: Props) {
               }),
             )}
             <span className="note">
-              Партия идёт временем, готовое забирается в «делах».
+              Партия идёт временем, готовое забирается в «делах». Валежник и
+              прочее лежащее — в «Собирательстве».
             </span>
           </div>
         </section>

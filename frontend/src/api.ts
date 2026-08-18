@@ -372,6 +372,11 @@ export type Look = {
   } | null;
   /** An ongoing exploration run, if any (D-152). */
   survey?: { returns_at: string } | null;
+  /**
+   * Foraging on the empty land of the place (D-210). Empty where the land is
+   * built up or somebody else's -- unless a search of ours is already going here.
+   */
+  forage?: Foraging | null;
   /** Does a drilling rig stand in this node: the stand shows the row by it. */
   rig_here?: boolean;
   /** Ships within sight of this node (D-201): moored at the pier one stands
@@ -672,6 +677,27 @@ export function spell(seconds: number): string {
   if (seconds < 3600) return `${Math.round(seconds / 60)} мин`;
   return `${(seconds / 3600).toFixed(1)} ч`;
 }
+
+/** The foraging window: the plot's empty land, the search and its find (D-210). */
+export type Foraging = {
+  /** Empty land, m2: the plot minus the building footprint. */
+  area: number;
+  /** Below this much there is nowhere to forage. */
+  min_area: number;
+  /** Whether a new search may start here: own or nobody's land with room. */
+  allowed: boolean;
+  /** The mean length of one search here, seconds; empty if nothing is found here at all. */
+  seconds: number | null;
+  /** What one search costs in stamina, found or passed. */
+  stamina: number;
+  /** What the land gives at all and how often, by share; the handful per find. */
+  finds: { goods: string; share: number; units: number }[];
+  /** No search; a search under way; a find waiting for the decision. */
+  state: "idle" | "searching" | "found";
+  started_at: string | null;
+  ready_at: string | null;
+  found: { goods: string; units: number; quality: number; mass: number } | null;
+};
 
 export type Order = {
   id: string;

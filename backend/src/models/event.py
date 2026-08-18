@@ -161,6 +161,13 @@ class EventKind(StrEnum):
     #: The scout turned back: the run is cancelled, the find did not happen.
     EXPLORE_CANCELLED = "explore.cancelled"
 
+    # foraging (D-210): a search on empty land, and what was done with the find
+    FORAGE_STARTED = "forage.started"
+    FORAGE_TAKEN = "forage.taken"
+    #: The find was left lying: not needed, the search goes on.
+    FORAGE_PASSED = "forage.passed"
+    FORAGE_STOPPED = "forage.stopped"
+
     # customs (D-123)
     CUSTOMS_CROSSED = "customs.crossed"
     CUSTOMS_REFUSED = "customs.refused"

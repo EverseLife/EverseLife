@@ -58,6 +58,8 @@ KG_PER_TON = 1000.0
 ROUND_MASS = 1
 ROUND_HOURS = 2
 ROUND_RATIO = 3
+#: Quality is stored to a hundredth of a point (`Numeric(6, 2)` columns).
+ROUND_QUALITY = 2
 
 #: Argon2id takes memory in KiB, while `pow.memory_per_session` is given in MB.
 KIB_PER_MIB = 1024

@@ -367,16 +367,35 @@ EXPLORE_VEIN_SHARE = Num("explore.vein_share")
 #: Forest cover of the world (D-191): the share of finds carrying woods, and
 #: the same share narrows the chance when the woods are what you asked for.
 EXPLORE_FOREST_SHARE = Num("explore.forest_share")
-#: Stony and meadow places (D-196): stone and wild flax are gathered by hand.
+#: Stony and meadow places (D-196): place signs the scout hands out; since
+#: D-210 they have no mechanic of their own yet.
 EXPLORE_STONES_SHARE = Num("explore.stones_share")
 EXPLORE_MEADOW_SHARE = Num("explore.meadow_share")
-#: How many times slower bare hands are than a tool (D-196).
-HARVEST_BAREHAND_K = Num("harvest.barehand_k")
 EXPLORE_NODE_AREA = Span("explore.node_area")
 #: The transit length to a find is set by the node's distance (D-180), not by a
 #: separate exploration quantity: `explore.distance` is abolished.
 EXPLORE_VEIN_RICHNESS = Span("explore.vein_richness")
 EXPLORE_VEIN_STOCK = Span("explore.vein_stock")
+
+# --- Foraging (D-210) -------------------------------------------------------
+#: Below this much empty land -- plot minus the building footprint -- there is
+#: nowhere to forage, and the window is not shown at all.
+FORAGE_MIN_AREA = Num("forage.min_area")
+#: The empty area the paces in `forage.finds` are stated for.
+FORAGE_REFERENCE_AREA = Num("forage.reference_area")
+#: Finds per hour per reference area, by thing. The sum sets the pace of the
+#: search, the share of the sum sets what turns up: one number per thing.
+FORAGE_FINDS = Table("forage.finds")
+#: How many units one find brings, by thing. Same keys as `forage.finds`.
+FORAGE_HANDFUL = Table("forage.handful")
+#: A search never goes faster than this many seconds, however much land.
+FORAGE_SEARCH_FLOOR = Num("forage.search_floor")
+#: Spread of one search's length around the computed one.
+FORAGE_SEARCH_JITTER = Span("forage.search_jitter")
+#: Stamina per search, found or passed; a body with none does not search.
+FORAGE_SEARCH_STAMINA = Num("forage.search_stamina")
+#: The quality of what lies on the ground: triangular, its peak mid-span.
+FORAGE_QUALITY = Span("forage.quality")
 
 # --- Ship as a subgraph (D-201, D-202) --------------------------------------
 #: A node aboard: its own mass and its usable area. Every node added is both a

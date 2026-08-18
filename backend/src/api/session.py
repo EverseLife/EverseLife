@@ -50,6 +50,7 @@ from src.engine import (
     farm,
     finance,
     food,
+    forage,
     gear,
     justice,
     ledger,
@@ -162,6 +163,8 @@ async def play(socket: WebSocket) -> None:
             except bank.BankError as refusal:
                 answer = {"refused": str(refusal)}
             except explore.ExploreError as refusal:
+                answer = {"refused": str(refusal)}
+            except forage.ForageError as refusal:
                 answer = {"refused": str(refusal)}
             except death.DeathError as refusal:
                 answer = {"refused": str(refusal)}
@@ -590,6 +593,9 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
     #: real (D-152).
     run = await explore.pending(db, body)
     seen["survey"] = None if run is None else {"returns_at": run.run_at.isoformat()}
+    #: Foraging on the empty land of the place (D-210): the window, its search
+    #: and its find. Empty where the land is built up or somebody else's.
+    seen["forage"] = await forage.view(db, constants, current_catalog(), body, node)
 
     #: Local clock of the planet: a Terran day is `time.day_terra` hours long
     #: (D-029), and the world has been running since its first node appeared.
@@ -2044,15 +2050,15 @@ async def _energy_fuel(state: dict, db: AsyncSession, message: dict) -> dict:
     """Pour fuel into the station standing here. Anyone with coal may (D-189)."""
     body = await _alive(state, db)
     item = await _own_item(db, body, message["item"])
-    сколько = message.get("amount")
+    qty = message.get("amount")
     try:
-        залито = await energy.fuel(
+        poured = await energy.fuel(
             db, current(), body, item,
-            None if сколько is None else float(сколько),
+            None if qty is None else float(qty),
         )
     except energy.EnergyError as refusal:
         raise Refused(str(refusal)) from refusal
-    return {"fuelled": залито, "goods": item.type_key}
+    return {"fuelled": poured, "goods": item.type_key}
 
 
 async def _storage_put(state: dict, db: AsyncSession, message: dict) -> dict:
@@ -2287,6 +2293,36 @@ async def _explore_cancel(state: dict, db: AsyncSession, message: dict) -> dict:
         raise Refused("нет живого тела")
     job = await explore.cancel(db, body)
     return {"cancelled": str(job.id)}
+
+
+async def _forage_start(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Start foraging the plot one stands on (D-210). The find shows by the deadline."""
+    body = await _alive(state, db)
+    row = await forage.start(db, current(), body)
+    return {"forage": str(row.id), "ready_at": row.ready_at.isoformat()}
+
+
+async def _forage_take(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Pick the find up. The next search starts by itself, unless told not to."""
+    body = await _alive(state, db)
+    row = await forage.take(
+        db, current(), current_catalog(), body, go_on=bool(message.get("go_on", True))
+    )
+    return {"taken": True, "ready_at": None if row is None else row.ready_at.isoformat()}
+
+
+async def _forage_pass(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Leave the find lying and search on."""
+    body = await _alive(state, db)
+    row = await forage.pass_(db, current(), body)
+    return {"passed": True, "ready_at": row.ready_at.isoformat()}
+
+
+async def _forage_stop(state: dict, db: AsyncSession, message: dict) -> dict:
+    """End the foraging: whatever was under way or on offer is dropped."""
+    body = await _alive(state, db)
+    await forage.stop(db, body)
+    return {"stopped": True}
 
 
 async def _explore_goals(state: dict, db: AsyncSession, message: dict) -> dict:
@@ -2995,6 +3031,10 @@ _COMMANDS = {
     "explore.survey": _explore_survey,
     "explore.cancel": _explore_cancel,
     "explore.goals": _explore_goals,
+    "forage.start": _forage_start,
+    "forage.take": _forage_take,
+    "forage.pass": _forage_pass,
+    "forage.stop": _forage_stop,
     "utility.holdings": _utility_holdings,
     "utility.pay": _utility_pay,
     "city.found": _city_found,
@@ -3065,8 +3105,7 @@ def _craft_request(message: dict) -> tuple[str, float, dict[str, Any]]:
             #: "Put on automatic" is the master's decision: volume instead of
             #: quality, and an energy bill (D-035, D-058).
             "auto": bool(message.get("auto", False)),
-            #: Which operation, when several give the same thing: felling wood
-            #: with an axe or gathering deadwood by hand (D-196).
+            #: Which operation, when several give the same thing (D-196).
             "way": message.get("way"),
             #: For a knowledge carrier: which recipe goes onto it (D-209).
             "recipe_key": message.get("recipe"),

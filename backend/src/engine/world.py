@@ -113,7 +113,7 @@ async def grant_node(session: AsyncSession, node: Node, owner: Identity) -> Node
     Land outside a city is not taken by anybody -- there used to be
     `claim_node`, which took a wild node on foot and issued a deed for it. That
     let the first comer lock up a grove, a meadow or a stony slope whole, and
-    barehand gathering with it (D-196): somebody else's place gives no work.
+    the foraging on it (D-196, D-210): somebody else's place gives no work.
     Title is issued by a city and only by a city, so the plot arrives here
     already civic -- through purchase (`estate.buy`) or the founding of a city.
 

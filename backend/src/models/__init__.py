@@ -18,6 +18,7 @@ from src.models.estate import Building, Deed
 from src.models.event import Event, EventKind
 from src.models.farm import Plot, PlotState
 from src.models.food import Meal
+from src.models.forage import Forage
 from src.models.gear import Equipped
 from src.models.identity import (
     Account,
@@ -89,6 +90,7 @@ __all__ = [
     "EnergyPool",
     "Event",
     "EventKind",
+    "Forage",
     "Identity",
     "Item",
     "Job",

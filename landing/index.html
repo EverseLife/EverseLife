@@ -77,7 +77,7 @@
   header.top.scrolled { background: rgba(7, 11, 20, .92); border-bottom-color: var(--line); }
   header.top .bar { display: flex; align-items: center; gap: 28px; height: 64px; }
   .brand { display: inline-flex; align-items: center; color: var(--ink); text-decoration: none; }
-  .brand svg { width: 128px; height: auto; display: block; }
+  .brand svg { width: 128px; height: auto; display: block; margin-bottom: 9px; }
   nav.jump { display: flex; gap: 22px; margin-left: 12px; }
   nav.jump a {
     font-family: var(--f-mono); font-size: 12.5px; letter-spacing: .06em; text-transform: uppercase;
@@ -106,7 +106,7 @@
 
   /* ── Hero ─────────────────────────────────────────────────────────────── */
   .hero { min-height: calc(100svh - 64px); display: grid; align-content: center; padding: 48px 0 40px; }
-  .hero-grid { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: 40px; align-items: center; }
+  .hero-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 32px; align-items: center; }
   .kicker {
     display: inline-flex; align-items: center; gap: 12px; margin-bottom: 22px;
     font-family: var(--f-mono); font-size: 12px; letter-spacing: .18em; text-transform: uppercase; color: var(--muted);
@@ -114,9 +114,9 @@
   .kicker::before { content: ""; width: 28px; height: 1px; background: var(--hair); }
   h1 {
     font-weight: 800; letter-spacing: -.035em; line-height: .96; color: var(--ink);
-    font-size: clamp(46px, 7.4vw, 108px); margin-bottom: 30px; text-wrap: balance;
+    font-size: clamp(40px, 4.9vw, 68px); margin-bottom: 30px; text-wrap: balance;
   }
-  h1 .line { display: block; overflow: hidden; }
+  h1 .line { display: block; }
   h1 .line > span { display: block; transform: translateY(110%); }
   .ready h1 .line > span { animation: rise 1.1s var(--ease-out) forwards; }
   .ready h1 .line:nth-child(2) > span { animation-delay: .12s; }
@@ -134,7 +134,7 @@
      outward. Each planet rides its own group rotating about the star; the
      label rides a second group counter-rotating at the same rate, so the name
      travels with its planet and never turns upside down. */
-  .system { width: min(100%, 560px); margin-left: auto; opacity: 0; }
+  .system { width: min(100%, 660px); margin-left: auto; opacity: 0; }
   .ready .system { animation: fade 1.4s .5s var(--ease-out) forwards; }
   .system svg { width: 100%; aspect-ratio: 1; display: block; overflow: visible; }
   .system .orbit { fill: none; stroke: var(--hair); stroke-width: 1; stroke-dasharray: 2 7; opacity: .55; }
@@ -457,7 +457,7 @@
   @media (max-width: 960px) {
     nav.jump { display: none; }
     .hero-grid { grid-template-columns: 1fr; gap: 24px; }
-    .system { width: min(100%, 420px); margin: 0 auto; }
+    .system { width: min(100%, 480px); margin: 0 auto; }
     .sec-head { grid-template-columns: 1fr; gap: 12px; margin-bottom: 40px; }
     .sec-num { padding-top: 0; }
     .grid-3 { grid-template-columns: 1fr; }
@@ -480,7 +480,7 @@
   @media (max-width: 560px) {
     body { font-size: 16px; }
     .hero { padding: 24px 0 32px; }
-    h1 { font-size: clamp(40px, 12.5vw, 60px); }
+    h1 { font-size: clamp(32px, 10.5vw, 54px); }
     header.top .bar { height: 58px; gap: 12px; }
     .brand svg { width: 104px; }
     form.signup { grid-template-columns: 1fr; }
@@ -546,24 +546,27 @@
   <section class="hero">
     <div class="wrap hero-grid">
       <div>
-        <span class="kicker">Браузерная MMO · Экономика и власть · Набор в бету</span>
+        <span class="kicker">Есть закрытая альфа · Ведётся набор в бету</span>
         <h1>
-          <span class="line"><span>Не игра а,</span></span>
-          <span class="line"><span>параллельная</span></span>
-          <span class="line"><span>вселенная</span></span>
+          <span class="line"><span>Не просто игра а,</span></span>
+          <span class="line"><span>иммерсивная</span></span>
+          <span class="line"><span>Вселенная</span></span>
         </h1>
-        <p class="lead">Браузерная MMO про экономику и власть. <b>Ни одного NPC:</b> каждый предмет
+        <p class="lead">Иммерсивная MMO. <b>Ни одного NPC:</b> каждый предмет
           сделан игроком, каждая цена выторгована игроками, каждый закон написан и исполняется
           игроками.</p>
         <div class="actions">
           <a class="btn" href="#signup">Получить приглашение <span class="arr" aria-hidden="true">→</span></a>
-          <a class="btn ghost" href="#discord">Играть в альфу</a>
-          <span class="note">Мир запускается один раз, и все начинают одновременно. Дат не называем.</span>
+          <a class="btn ghost" href="#discord">Закрытая альфа</a>
+          <span class="note">Мир запускается один раз, и все начинают одновременно. Будьте в числе первых.</span>
         </div>
-        <a class="cue" href="#what" aria-label="К разделу «Что это такое»"><i aria-hidden="true"></i>что это за игра</a>
+        <a class="cue" href="#what" aria-label="К разделу «Что это такое»"><i aria-hidden="true"></i>Альфа доступна</a>
       </div>
-      <figure class="system" aria-label="Схема системы: вокруг звезды по порядку — Пироксис, пояс астероидов, Терра, Акватика, малый пояс астероидов и Аврора; между планетами идут корабли">
-        <svg viewBox="0 0 640 640" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <figure
+              class="system"
+              aria-label="Планеты в игре движутся в реальном времени. Планируйте полёты заранее!"
+      >
+        <svg viewBox="44 32 576 576" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
           <!-- orbits -->
           <circle class="orbit" cx="320" cy="320" r="60"/>
           <circle class="orbit" cx="320" cy="320" r="136"/>
@@ -645,17 +648,20 @@
             </g>
           </g>
         </svg>
-        <figcaption>от звезды наружу: Пироксис · пояс астероидов · Терра · Акватика · малый пояс · Аврора. Пунктиром — трассы кораблей. Орбиты не в масштабе.</figcaption>
       </figure>
     </div>
   </section>
 
   <div class="ticker" aria-hidden="true">
     <div class="track" id="ticker">
-      <span>NPC: <b>0</b></span><span>Квестов: <b>0</b></span><span>Уровней: <b>0</b></span><span>Вайпов: <b>0</b></span>
-      <span>Жилы <b>кончаются навсегда</b></span><span>Законы <b>пишут игроки</b></span><span>Обман <b>возможен</b></span>
-      <span>Мир живёт, <b>пока вы спите</b></span><span>Сутки на Терре: <b>38 ч</b></span><span>Мир один <b>и вечный</b></span>
-      <span><b>Альфа уже идёт</b> — вход через Discord</span>
+      <span><b>Ни одного</b> NPC</span>
+        <span><b>Без</b> Квестов</span>
+        <span>Ресурсы <b>ограничены</b></span>
+        <span>Игроки - <b>закон</b></span>
+        <span>Нет цели - <b>только путь</b></span>
+        <span>Мир живёт <b>пока ты оффлайн</b></span>
+        <span>Без <b>вайпов</b></span>
+        <span><b>Бета</b> ждет тебя</span>
     </div>
   </div>
 

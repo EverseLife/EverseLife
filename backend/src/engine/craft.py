@@ -263,10 +263,11 @@ class _Ready:
 def procedure(catalog: Catalog, output: str, *, way: str | None = None) -> Procedure:
     """Find a way to make `output` -- first among recipes, then operations.
 
-    One thing can come from several operations: wood is both felled with an axe
-    and gathered as deadwood by hand (D-196). Which one is the worker's choice,
-    not the resolver's, so `way` names the operation. Without it the first
-    listed wins -- the vault lists the proper, faster way first.
+    One thing can come from several operations (D-196 introduced that with
+    felling against deadwood; the vault today lists one way per thing, but the
+    door stays open). Which one is the worker's choice, not the resolver's, so
+    `way` names the operation. Without it the first listed wins -- the vault
+    lists the proper, faster way first.
     """
     book = catalog.recipes
     name = book.resolve(output)
@@ -339,14 +340,9 @@ def _from_operation(catalog: Catalog, operation: Operation, output: str) -> Proc
         else:
             tools.append(canonical)
 
-    #: Bare hands are slower than a tool (D-196): gathering deadwood, stones and
-    #: flax breaks the "axe from wood, wood from axe" circle without replacing
-    #: proper extraction.
+    #: Since D-210 what lies on the ground is found by foraging (`engine/forage.py`),
+    #: not by a bare-hand operation: every place operation left works with a tool.
     hours = operation.hours_per_unit.get(output, 0.0)
-    if not tools and station is None and operation.place is not None:
-        from src.constants import current
-
-        hours *= current()[R.HARVEST_BAREHAND_K]
 
     return Procedure(
         output=output,

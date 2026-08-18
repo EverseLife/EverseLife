@@ -41,6 +41,15 @@ export function ActionsProvider({
   return <Refresh.Provider value={refresh}>{children}</Refresh.Provider>;
 }
 
+/**
+ * The world's reread on its own, without an action: for a panel whose state
+ * flips on the clock -- a find showing itself when its term is up -- and
+ * cannot wait for the next poll.
+ */
+export function useRefresh(): () => Promise<void> {
+  return useContext(Refresh);
+}
+
 export type Actions = {
   /** Something this component started is still running. */
   busy: boolean;

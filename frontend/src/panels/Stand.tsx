@@ -35,6 +35,7 @@ import { Deadline } from "../Deadline";
 import { craftableAt } from "../recipes";
 import { Admin } from "./Admin";
 import { Farm } from "./Farm";
+import { Forage } from "./Forage";
 import { Kitchen } from "./Kitchen";
 import { Library } from "./Library";
 import { Market } from "./Market";
@@ -315,6 +316,29 @@ function assemble({ look, session, book, values, pow }: Props): Thing[] {
   //: farmed by whoever comes (D-198), and there the window is for everyone.
   if ((look.node?.fertility ?? 0) > 0 && disposes(look)) {
     single("farm", "Делянки", "full", () => <Farm look={look} session={session} />);
+  }
+  //: Foraging, where the land has room to walk and is ours or nobody's
+  //: (D-210): the server decides, the row only reads. A find waiting for its
+  //: decision wants attention first; a search under way carries its bar.
+  const foraging = look.forage;
+  if (foraging) {
+    const searching = foraging.state === "searching" && foraging.ready_at;
+    things.push({
+      id: "forage",
+      name: "Собирательство",
+      kind: "full",
+      rank: foraging.state === "idle" ? 2 : 0,
+      state:
+        foraging.state === "found" && foraging.found
+          ? `нашлось: ${foraging.found.goods} ×${foraging.found.units}`
+          : searching
+            ? "идёт поиск"
+            : `${foraging.area.toFixed(0)} м² пустой земли`,
+      running: searching
+        ? { until: foraging.ready_at as string, since: foraging.started_at }
+        : undefined,
+      view: () => <Forage look={look} session={session} />,
+    });
   }
   if (look.node?.library) {
     single("library", "Библиотека", "full", () => <Library look={look} session={session} />);

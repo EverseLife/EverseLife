@@ -46,63 +46,6 @@
       }
     },
     {
-      "name": "Сбор валежника",
-      "requires": [],
-      "gives": [
-        "Дерево"
-      ],
-      "consumes": [],
-      "place": "лес",
-      "amounts": {
-        "Дерево": {}
-      },
-      "hours_per_unit": {
-        "Дерево": 0.025
-      },
-      "yield": {},
-      "manual_amounts": {
-        "Дерево": false
-      }
-    },
-    {
-      "name": "Сбор камней",
-      "requires": [],
-      "gives": [
-        "Камень"
-      ],
-      "consumes": [],
-      "place": "камни",
-      "amounts": {
-        "Камень": {}
-      },
-      "hours_per_unit": {
-        "Камень": 0.0125
-      },
-      "yield": {},
-      "manual_amounts": {
-        "Камень": false
-      }
-    },
-    {
-      "name": "Сбор льна",
-      "requires": [],
-      "gives": [
-        "Дикий лён"
-      ],
-      "consumes": [],
-      "place": "луг",
-      "amounts": {
-        "Дикий лён": {}
-      },
-      "hours_per_unit": {
-        "Дикий лён": 0.0333
-      },
-      "yield": {},
-      "manual_amounts": {
-        "Дикий лён": false
-      }
-    },
-    {
       "name": "Распил",
       "requires": [
         "Пила"
