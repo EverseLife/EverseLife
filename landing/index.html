@@ -29,6 +29,7 @@
     --accent: #B98CFF;            /* a living person -- and nothing else */
     --warning: #E0A458; --danger: #E8574C; --success: #56C48A;
     --terra: #7FB8E8; --aurora: #D6E4F5; --pyro: #F0895A; --aqua: #5BC8A5;
+    --sky: #9EDBFF;               /* the accent word: Terra's blue, brighter */
     --f-ui: Onest, "Segoe UI", system-ui, -apple-system, sans-serif;
     --f-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
     --f-world: Literata, "PT Serif", Georgia, "Times New Roman", serif;
@@ -114,7 +115,7 @@
   .kicker::before { content: ""; width: 28px; height: 1px; background: var(--hair); }
   h1 {
     font-weight: 800; letter-spacing: -.035em; line-height: .96; color: var(--ink);
-    font-size: clamp(40px, 4.9vw, 68px); margin-bottom: 30px; text-wrap: balance;
+    font-size: clamp(40px, 4.9vw, 60px); margin-bottom: 30px; text-wrap: balance;
   }
   h1 .line { display: block; }
   h1 .line > span { display: block; transform: translateY(110%); }
@@ -122,7 +123,32 @@
   .ready h1 .line:nth-child(2) > span { animation-delay: .12s; }
   .ready h1 .line:nth-child(3) > span { animation-delay: .24s; }
   @keyframes rise { to { transform: translateY(0); } }
-  .hero .lead { font-size: clamp(18px, 1.5vw, 21px); color: var(--text); max-width: 56ch; margin-bottom: 34px; opacity: 0; }
+  h1 .accent {
+    position: relative;
+    display: inline-block;
+    font-family: var(--f-world);
+    font-style: italic;
+    font-weight: 400;
+    font-size: min(1.42em, 84px);
+    line-height: .82;
+    letter-spacing: -.005em;
+    color: var(--sky);
+    padding: 0 .06em 0 .02em;
+    margin-right: -.06em;
+    vertical-align: baseline;
+    margin-bottom: .3em;
+  }
+  /* The stroke under the word is a ribbon, not a bar. Its shape flows all the
+     time (the path itself is animated), a clip draws it in from the left once
+     and then leaves it be, and a fainter echo runs out of phase beneath it.
+     Nothing is on screen until the clip opens, so a slow font or a slow script
+     cannot leave a stray line under the word. */
+  h1 .accent svg { position: absolute; left: 0; bottom: -.14em; width: calc(100% - .04em); height: .22em; overflow: visible; pointer-events: none; }
+  h1 .accent svg path { fill: none; stroke: var(--sky); stroke-linecap: round; vector-effect: non-scaling-stroke; }
+  h1 .accent svg .ink { stroke-width: 3.5; }
+  h1 .accent svg .echo { stroke-width: 1.5; opacity: .45; }
+  .ready h1 .accent svg .ink { animation: thick 3.4s ease-in-out infinite alternate; }
+  @keyframes thick { from { stroke-width: 3; } to { stroke-width: 4.8; } }  .hero .lead { font-size: clamp(16px, 1.5vw, 18px); color: var(--text); max-width: 56ch; margin-bottom: 34px; opacity: 0; }
   .hero .lead b { color: var(--ink); }
   .ready .hero .lead { animation: fade .9s .55s var(--ease-out) forwards; }
   .hero .actions { display: flex; align-items: center; gap: 22px; flex-wrap: wrap; opacity: 0; }
@@ -480,7 +506,8 @@
   @media (max-width: 560px) {
     body { font-size: 16px; }
     .hero { padding: 24px 0 32px; }
-    h1 { font-size: clamp(32px, 10.5vw, 54px); }
+    h1 { font-size: clamp(30px, 9.6vw, 54px); }
+    h1 .accent { font-size: min(1.3em, 50px); margin-bottom: 0.26em }
     header.top .bar { height: 58px; gap: 12px; }
     .brand svg { width: 104px; }
     form.signup { grid-template-columns: 1fr; }
@@ -503,6 +530,7 @@
 <noscript><style>
   /* Without scripts nothing waits for a reveal: everything is simply visible. */
   h1 .line > span, .hero .lead, .hero .actions, .system, .cue, .rv, .rv-stag > *, table.no tr { opacity: 1 !important; transform: none !important; }
+  h1 .accent svg path { clip-path: none; }
   .in .day .bar i, .day .bar i { width: var(--w); }
   #loop-fig::before { content: "внимание → сырьё → предмет → расстояние → прибыль → капитал → люди → власть → налог → внимание"; font-family: var(--f-mono); color: var(--muted); }
   .loop-text .steps li, .loop-text .steps li b { color: var(--ink); }
@@ -548,13 +576,13 @@
       <div>
         <span class="kicker">Есть закрытая альфа · Ведётся набор в бету</span>
         <h1>
-          <span class="line"><span>Не просто игра а,</span></span>
-          <span class="line"><span>иммерсивная</span></span>
-          <span class="line"><span>Вселенная</span></span>
+          <span class="line"><span>Не просто игра, а</span></span>
+          <span class="line"><span><em class="accent">иммерсивная<svg viewBox="0 0 300 12" preserveAspectRatio="none" aria-hidden="true"><defs><clipPath id="uline-clip"><rect x="0" y="-30" width="0" height="72"><animate attributeName="width" begin="1.2s" dur=".9s" fill="freeze" from="0" to="300" calcMode="spline" keySplines=".16 1 .3 1" keyTimes="0;1"/></rect></clipPath></defs><path class="echo" clip-path="url(#uline-clip)" d="M2 8 C 60 2, 120 6, 160 10 S 260 4, 298 3"><animate attributeName="d" dur="5.2s" repeatCount="indefinite" calcMode="spline" keySplines=".45 0 .55 1;.45 0 .55 1;.45 0 .55 1;.45 0 .55 1" values="M2 8 C 60 2, 120 6, 160 10 S 260 4, 298 3;M2 4 C 60 7, 120 11, 160 6 S 260 9, 298 7;M2 9 C 60 3, 120 2, 160 6 S 260 10, 298 4;M2 5 C 60 10, 120 9, 160 4 S 260 2, 298 8;M2 8 C 60 2, 120 6, 160 10 S 260 4, 298 3"/></path><path class="ink" clip-path="url(#uline-clip)" d="M2 9 C 60 3, 120 2, 160 6 S 260 10, 298 4"><animate attributeName="d" dur="7s" repeatCount="indefinite" calcMode="spline" keySplines=".45 0 .55 1;.45 0 .55 1;.45 0 .55 1;.45 0 .55 1" values="M2 9 C 60 3, 120 2, 160 6 S 260 10, 298 4;M2 5 C 60 10, 120 9, 160 4 S 260 2, 298 8;M2 8 C 60 2, 120 6, 160 10 S 260 4, 298 3;M2 4 C 60 7, 120 11, 160 6 S 260 9, 298 7;M2 9 C 60 3, 120 2, 160 6 S 260 10, 298 4"/></path></svg></em></span></span>
+          <span class="line"><span>вселенная</span></span>
         </h1>
-        <p class="lead">Иммерсивная MMO. <b>Ни одного NPC:</b> каждый предмет
-          сделан игроком, каждая цена выторгована игроками, каждый закон написан и исполняется
-          игроками.</p>
+        <p class="lead">
+            Браузерная иммерсивная MMO с <b>бесконечной</b> прогрессией.
+        </p>
         <div class="actions">
           <a class="btn" href="#signup">Получить приглашение <span class="arr" aria-hidden="true">→</span></a>
           <a class="btn ghost" href="#discord">Закрытая альфа</a>
@@ -671,33 +699,36 @@
       <div class="sec-head rv">
         <span class="sec-num">01 / Что это такое</span>
         <div>
-          <h2>Вселенная, в которой у вас свой путь</h2>
-          <p class="sec-lead">В обычной MMO вы проходите чужой контент и идёте по протоптанным дорожкам.
-            Здесь вас никто не ведёт за ручку — у вас <b>полная свобода действий</b>.</p>
+          <h2>Вселенная, в которой у каждого игрока свой путь</h2>
+          <p class="sec-lead">
+              В других MMO вы идёте по пути который разработчики прописали в коде.
+              Здесь вас никто не ведёт за ручку — у вас <b>полная свобода действий</b>.
+          </p>
         </div>
       </div>
       <div class="grid-3 rv-stag">
         <div class="cell">
-          <span class="n">01</span>
-          <h3>Всё, что здесь есть, сделано игроками</h3>
-          <p><b>Никто</b> не выдаст задание, не продаст стартовый меч и не назначит цену.
-            <b>Каждый</b> предмет выкован человеком, <b>каждая</b> цена выторгована,
-            <b>каждый</b> город заложен чьими-то руками. Вселенная ровно такая, какой её сделали
-            другие игроки.</p>
+          <h3>Мебель, дома, предметы, космические корабли и вообще всё было построено игроками</h3>
+          <p>
+              Игра не выдаст задание, не выдаст стартовый лут и не <b>придумает тебе цель</b>.
+              <b>Каждый</b> предмет прошел путь от руды до конечного продукта, будь то просто гвоздь или двигатель.
+              Вселенная ровно такая, какой её сделали другие игроки.
+          </p>
         </div>
         <div class="cell">
-          <span class="n">02</span>
-          <h3>Вы не выбираете роль — вы её создаёте</h3>
-          <p>Ни классов, ни уровней, ни веток прокачки. <b>Прогресс здесь — это имущество, связи
-            и власть.</b> Хотите всю жизнь ковать гвозди в горном городке — пожалуйста. Хотите
-            основать государство и управлять людьми — дерзайте.</p>
+          <h3>Вам не предлагают выбрать роль — игра вынуждает вас её придумать</h3>
+          <p>
+              Ни классов, ни уровней, ни веток прокачки. <b>Прогресс здесь — это имущество, связи
+              и власть.</b> Хотите всю жизнь ковать гвозди в горном городке — пожалуйста. Хотите
+              основать государство и управлять людьми — дерзайте.</p>
         </div>
         <div class="cell">
-          <span class="n">03</span>
-          <h3>Правила пишут игроки, движок лишь даёт возможность</h3>
-          <p>Налог, пошлины, законы, суд — не механика игры, а <b>правила, которые создали
-            игроки</b>. Монархия или демократия — это решают ценности лидера и терпение его
-            народа, а не разработчик.</p>
+          <h3>Игра живет в реальном времени пока ты оффлайн</h3>
+          <p>
+              Перемещение по городу, по планете и по космосу могут занимать от нескольких секунд до <b>нескольких суток</b>.
+              Пока вы просто сидите дома, вся вселенная живет своей жизнью.
+              Планеты сближаются и отдаляются, происходят научные открытия и государства основываются и вымирают.
+          </p>
         </div>
       </div>
     </section>
@@ -707,7 +738,7 @@
       <div class="sec-head rv">
         <span class="sec-num">02 / Как это работает</span>
         <div>
-          <h2>Один круг, из которого собрана вся игра</h2>
+          <h2>Жизненный цикл игры</h2>
           <p class="sec-lead">Это не набор фич, а система. Прокрутите — и круг замкнётся.</p>
         </div>
       </div>
@@ -725,7 +756,6 @@
             <li><span class="k">08</span><span>Городам нужны правила — появляется <b>власть</b>.</span></li>
             <li><span class="k">09</span><span>Власть охраняет добычу и торговлю и берёт <b>налог</b> — круг замкнулся.</span></li>
           </ol>
-          <p class="rule">Всё, что не встраивается в этот круг, в игру не попадает.</p>
         </div>
       </div>
     </section>
@@ -1303,7 +1333,11 @@
     const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
     const raf = (fn) => requestAnimationFrame(fn);
     // The ships fly on SMIL, which the CSS rule for reduced motion cannot reach.
-    if (reduced) document.querySelectorAll(".system svg").forEach((s) => s.pauseAnimations());
+    if (reduced) {
+      document.querySelectorAll(".system svg, h1 svg").forEach((s) => s.pauseAnimations());
+      // the ribbon's clip would otherwise stay shut: show it whole and still
+      document.querySelectorAll("h1 .accent path").forEach((p) => p.removeAttribute("clip-path"));
+    }
 
     // ── First paint: let the hero rise ─────────────────────────────────────
     document.fonts && document.fonts.ready
@@ -1418,7 +1452,7 @@
         const deg = (aa + Math.PI / 2) * 180 / Math.PI;
         arrows.push(el("path", { class: "arrow", d: "M-4 -3 L4 0 L-4 3 Z", transform: `translate(${ax} ${ay}) rotate(${deg})` }));
       });
-      const name = el("text", { class: "word name", x: C, y: C - 6, "text-anchor": "middle" }); name.textContent = "круг";
+      const name = el("text", { class: "word name", x: C, y: C - 6, "text-anchor": "middle" }); name.textContent = "Цикл";
       const sub = el("text", { class: "word", x: C, y: C + 22, "text-anchor": "middle" }); sub.textContent = "и всё, что не в нём, лишнее";
       fig.appendChild(svg);
 
