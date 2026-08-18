@@ -15,26 +15,35 @@ import type { Thing } from "./api";
 import { tierLabel, tiersOf } from "./tiers";
 
 /**
- * The picker itself. Renders nothing when there is nothing to choose between:
- * one tier in the hands is not a choice, and a control that changes nothing
- * is noise.
+ * The picker itself. Always on the screen where a thing is chosen: the choice
+ * of quality is part of every such place, and it must be seen even when the
+ * hands hold one tier -- then the list says what that tier is -- or nothing at
+ * all -- then it says so. `quiet` hides it instead when there is nothing to
+ * choose between, for dense lists.
  */
 export function TierPick({
   things,
   goods,
   value,
   onChange,
-  always,
+  quiet,
 }: {
   things: Thing[];
   goods: string;
   value: string | null | undefined;
   onChange: (tier: string | null) => void;
-  /** Show even with a single tier: for lists where alignment matters. */
-  always?: boolean;
+  /** Hide when fewer than two tiers lie in the hands. */
+  quiet?: boolean;
 }) {
   const stocks = tiersOf(things, goods);
-  if (stocks.length === 0 || (stocks.length < 2 && !always)) return null;
+  if (quiet && stocks.length < 2) return null;
+  if (stocks.length === 0) {
+    return (
+      <select disabled title={`«${goods}» в руках нет`}>
+        <option>качество: в руках нет</option>
+      </select>
+    );
+  }
   const current = value && stocks.some((s) => s.tier === value) ? value : "";
   return (
     <select
@@ -42,7 +51,7 @@ export function TierPick({
       onChange={(e) => onChange(e.target.value || null)}
       title={`какое качество «${goods}» пустить в дело`}
     >
-      <option value="">любое (худшее первым)</option>
+      <option value="">качество: любое (худшее первым)</option>
       {stocks.map((s) => (
         <option key={s.tier} value={s.tier}>
           {tierLabel(s)}

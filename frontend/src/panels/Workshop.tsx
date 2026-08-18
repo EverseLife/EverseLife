@@ -225,22 +225,30 @@ export function Workshop({ look, session, machine, book }: Omit<Props, "busy" | 
             )}
           </div>
 
-          {/* Which quality of each input goes into the batch (D-058): a row per
-              input, and only where there is a choice -- two tiers of the same
-              thing in the hands. */}
-          {inputs
-            .filter((name) => tiersOf(look.inventory, name).length > 1)
-            .map((name) => (
-              <div className="row" key={name}>
-                <span className="note">{name}:</span>
-                <TierPick
-                  things={look.inventory}
-                  goods={name}
-                  value={tiers[name]}
-                  onChange={(tier) => setTiers((was) => ({ ...was, [name]: tier }))}
-                />
-              </div>
-            ))}
+          {/* What goes in and which quality of it (D-058): a row per input,
+              always -- the choice is part of the batch, and it is seen even
+              when the hands hold one tier or none. */}
+          {inputs.length > 0 && (
+            <div className="inputs">
+              {inputs.map((name) => {
+                const have = tiersOf(look.inventory, name).reduce((s, t) => s + t.amount, 0);
+                return (
+                  <div className="row" key={name}>
+                    <span className="note">
+                      {name}
+                      {" "}· в руках {have}
+                    </span>
+                    <TierPick
+                      things={look.inventory}
+                      goods={name}
+                      value={tiers[name]}
+                      onChange={(tier) => setTiers((was) => ({ ...was, [name]: tier }))}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          )}
 
           {writing && (
             <div className="row">
@@ -404,8 +412,6 @@ function Invent({
       if (result.success || Object.keys(result.burned).length > 0) setLaid([]);
     });
 
-  if (kinds.length === 0) return null;
-
   return (
     <>
       <h3>
@@ -418,6 +424,9 @@ function Invent({
         </Rule>
       </h3>
       <Refusal of={acting} />
+      {kinds.length === 0 && (
+        <p className="note">В руках пусто: выкладывать нечего.</p>
+      )}
       {laid.map((row, i) => (
         <div className="row" key={i}>
           <select
