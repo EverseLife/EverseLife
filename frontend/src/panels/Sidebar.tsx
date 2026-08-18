@@ -109,7 +109,7 @@ export function Sidebar({ look, session, book }: Omit<Props, "busy" | "act">) {
       {current === "me" && (
         <Character look={look} session={session} busy={busy} act={act} />
       )}
-      {current === "goods" && <Inventory look={look} session={session} />}
+      {current === "goods" && <Inventory look={look} session={session} book={book} />}
       {/* Ручной крафт живёт в сайдбаре: верёвку вьют там, где стоят, и рабочая
           станция этому месту не нужна. Запуск всё равно присутственный: в пути
           и во сне сервер откажет. */}

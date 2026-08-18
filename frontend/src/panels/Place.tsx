@@ -29,6 +29,7 @@ import { chosen } from "../amounts";
 import { when } from "../clock";
 import { Rule } from "../Rule";
 import { Refusal, useActions } from "../actions";
+import { TierPick } from "../Tier";
 
 type Props = {
   look: Look;
@@ -577,6 +578,8 @@ export function House({ look, session }: Omit<Props, "busy" | "act" | "book">) {
   const [area, setArea] = useState(20);
   const [floors, setFloors] = useState(1);
   const [bill, setBill] = useState<any>(null);
+  //: Which quality of each material goes into the wall (D-058).
+  const [tiers, setTiers] = useState<Record<string, string | null>>({});
   if (!home) return null;
 
   const free = Math.max(0, plot - home.ground);
@@ -654,6 +657,15 @@ export function House({ look, session }: Omit<Props, "busy" | "act" | "book">) {
                       <td className={m.have < m.need ? "note" : undefined}>
                         {m.have.toFixed(1)} из {m.need.toFixed(1)}
                       </td>
+                      <td>
+                        {/* Which quality goes into the wall (D-058). */}
+                        <TierPick
+                          things={look.inventory}
+                          goods={m.goods}
+                          value={tiers[m.goods]}
+                          onChange={(tier) => setTiers((was) => ({ ...was, [m.goods]: tier }))}
+                        />
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -666,6 +678,9 @@ export function House({ look, session }: Omit<Props, "busy" | "act" | "book">) {
                         area,
                         floors,
                         strength: 1,
+                        tiers: Object.fromEntries(
+                          Object.entries(tiers).filter(([, tier]) => tier),
+                        ),
                       });
                       setBill(null);
                     })

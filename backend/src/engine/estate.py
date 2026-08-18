@@ -668,6 +668,7 @@ async def construct(
     *,
     floors: int = 1,
     strength: int = 1,
+    tiers: dict[str, str] | None = None,
     now: datetime | None = None,
 ) -> Job:
     """Build a house on your own plot. Materials at once, the building on schedule.
@@ -714,7 +715,8 @@ async def construct(
 
     needed = estimate(constants, footprint=area, floors=floors, strength=strength)
     pocket = await world.body_container(session, body)
-    stock = await craft._stock(session, pocket, tuple(needed))  # noqa: SLF001
+    #: Which stacks go into the wall is the builder's choice by tier (D-058).
+    stock = await craft._stock(session, pocket, tuple(needed), tiers=tiers)  # noqa: SLF001
     for pick in craft._pick(stock, needed):  # noqa: SLF001
         if pick.item.amount > pick.take:
             pick.item.amount -= pick.take

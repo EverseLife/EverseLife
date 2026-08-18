@@ -127,8 +127,9 @@ HARVEST_RATES = Table("harvest.rates")
 #: How many kinds of things may go into one attempt: without a cap the search
 #: space is not surveyable and guessing turns into a lottery.
 INVENT_MAX_INGREDIENTS = Num("invent.max_ingredients")
-#: What share of the laid-out materials a failed attempt burns.
-INVENT_MATERIAL_LOSS = Num("invent.material_loss")
+#: What share of the laid-out materials a failed attempt burns: a random
+#: share within this span, rolled per kind of thing laid out.
+INVENT_MATERIAL_LOSS = Span("invent.material_loss")
 
 # --- Knowledge carrier (D-209) ------------------------------------------------
 #: Writing time by the blank's quality: `max` seconds at quality 0, `min` at 100.

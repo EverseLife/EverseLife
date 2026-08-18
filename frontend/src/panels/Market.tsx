@@ -291,7 +291,11 @@ export function Market({ look, session }: Omit<Props, "busy" | "act">) {
             mark={setChoice}
             button="Загрузить"
             action={(t, amount) =>
-              act(() => session.send("market.load", { goods: t.key ?? t.goods, amount }))
+              //: The row is a stack of one quality: what is loaded is that
+              //: tier, not the worst of the name (D-058).
+              act(() =>
+                session.send("market.load", { goods: t.key ?? t.goods, amount, tier: t.tier }),
+              )
             }
             busy={busy}
             empty="в кармане пусто"

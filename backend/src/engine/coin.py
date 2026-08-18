@@ -128,6 +128,7 @@ async def mint(
     coin: str,
     count: float,
     *,
+    tiers: dict[str, str] | None = None,
     now: datetime | None = None,
 ) -> CraftBatch:
     """Mint a batch of coins.
@@ -172,7 +173,10 @@ async def mint(
 
     needed = {name: qty * count for name, qty in composition.items()}
     pocket = await body_container(session, body)
-    stock = await craft._stock(session, pocket, tuple(needed))  # noqa: SLF001
+    #: Which metal goes under the die is the minter's choice by tier (D-058).
+    stock = await craft._stock(  # noqa: SLF001
+        session, pocket, tuple(needed), tiers=craft._tiers_by(catalog, tiers)  # noqa: SLF001
+    )
     picks = craft._pick(stock, needed)  # noqa: SLF001
 
     scale = constants[R.QUALITY_SCALE]

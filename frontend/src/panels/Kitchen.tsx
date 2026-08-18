@@ -14,6 +14,7 @@ import { useMemo, useState } from "react";
 import type { Look, Session } from "../api";
 import { Rule } from "../Rule";
 import { Refusal, useActions } from "../actions";
+import { TierPick } from "../Tier";
 
 type Props = {
   look: Look;
@@ -38,6 +39,9 @@ export function Kitchen({ look, session }: Omit<Props, "busy" | "act">) {
   );
   const [dish, setDish] = useState(dishes[0] ?? "Похлёбка");
   const [filling, setFilling] = useState<Record<string, string>>({});
+  //: Which quality of the product goes into each role (D-058): the good meat
+  //: into the stew, the rest into the salting.
+  const [tiers, setTiers] = useState<Record<string, string | null>>({});
 
   //: Products go into a role: what is edible is decided by data, not the client.
   const products = useMemo(
@@ -78,23 +82,36 @@ export function Kitchen({ look, session }: Omit<Props, "busy" | "act">) {
               <span className="role-name">{role}</span>
               <select
                 value={filling[role] ?? ""}
-                onChange={(e) =>
-                  setFilling((f) => ({ ...f, [role]: e.target.value }))
-                }
+                onChange={(e) => {
+                  setFilling((f) => ({ ...f, [role]: e.target.value }));
+                  setTiers((was) => ({ ...was, [role]: null }));
+                }}
               >
                 <option value="">— пусто —</option>
                 {products.map((name) => (
                   <option key={name}>{name}</option>
                 ))}
               </select>
+              {filling[role] && (
+                <TierPick
+                  things={look.inventory}
+                  goods={filling[role]}
+                  value={tiers[role]}
+                  onChange={(tier) => setTiers((was) => ({ ...was, [role]: tier }))}
+                />
+              )}
             </div>
           ))}
 
           <button
             onClick={() =>
               act(async () => {
-                await session.send("cook.pot", { output: dish, filling });
+                const chosen = Object.fromEntries(
+                  Object.entries(tiers).filter(([role, tier]) => tier && filling[role]),
+                );
+                await session.send("cook.pot", { output: dish, filling, tiers: chosen });
                 setFilling({});
+                setTiers({});
               })
             }
             disabled={busy || closed === 0}

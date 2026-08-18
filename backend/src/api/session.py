@@ -798,7 +798,9 @@ async def _craft_repair(state: dict, db: AsyncSession, message: dict) -> dict:
     """Repair a thing: condition comes back, the ceiling drops (15-quality)."""
     body = await _alive(state, db)
     item = await _own_item(db, body, message["item"])
-    batch = await craft.repair(db, current(), current_catalog(), body, item)
+    batch = await craft.repair(
+        db, current(), current_catalog(), body, item, tiers=_tiers(message)
+    )
     return {"batch": str(batch.id), "ready_at": _stamp(batch.ready_at)}
 
 
@@ -845,6 +847,7 @@ async def _craft_invent(state: dict, db: AsyncSession, message: dict) -> dict:
         composition,
         float(message.get("units", 1)),
         station=message.get("station"),
+        tiers=_tiers(message),
     )
     return {
         "success": result.success,
@@ -940,6 +943,7 @@ async def _build_construct(state: dict, db: AsyncSession, message: dict) -> dict
         body,
         node,
         float(message["area"]),
+        tiers=_tiers(message),
         floors=int(message.get("floors", 1)),
         strength=int(message.get("strength", 1)),
     )
@@ -1320,6 +1324,7 @@ async def _cook_pot(state: dict, db: AsyncSession, message: dict) -> dict:
         db, current(), current_catalog(), body,
         str(message["output"]),
         dict(message.get("filling") or {}),
+        tiers=_tiers(message),
     )
     return {
         "batch": str(batch.id),
@@ -1336,6 +1341,7 @@ async def _coin_mint(state: dict, db: AsyncSession, message: dict) -> dict:
         db, current(), current_catalog(), body,
         str(message["coin"]),
         float(message["count"]),
+        tiers=_tiers(message),
     )
     return {
         "batch": str(batch.id),
@@ -1867,7 +1873,8 @@ async def _market_load(state: dict, db: AsyncSession, message: dict) -> dict:
     """Load goods into the terminal. In person: goods are carried on foot (D-047)."""
     body = await _alive(state, db)
     moved = await market.load(
-        db, current(), body, message["goods"], float(message["amount"])
+        db, current(), body, message["goods"], float(message["amount"]),
+        tier=message.get("tier"),
     )
     return {"loaded": moved, "goods": message["goods"]}
 
@@ -3063,8 +3070,18 @@ def _craft_request(message: dict) -> tuple[str, float, dict[str, Any]]:
             "way": message.get("way"),
             #: For a knowledge carrier: which recipe goes onto it (D-209).
             "recipe_key": message.get("recipe"),
+            #: Which quality tier feeds each input -- the master's choice (D-058).
+            "tiers": _tiers(message),
         },
     )
+
+
+def _tiers(message: dict) -> dict[str, str]:
+    """`tiers: {input: tier}` from a request; anything else reads as "no choice"."""
+    raw = message.get("tiers")
+    if not isinstance(raw, dict):
+        return {}
+    return {str(name): str(tier) for name, tier in raw.items() if tier}
 
 
 def _sight(session: MiningSession, sight: mining.Sight) -> dict[str, Any]:

@@ -26,9 +26,11 @@
 import { useEffect, useState } from "react";
 import * as api from "../api";
 import type { Invention, Look, Plan, Session, Thing } from "../api";
-import { craftableAt, stationOf } from "../recipes";
+import { craftableAt, inputsOf, stationOf } from "../recipes";
 import { Rule } from "../Rule";
 import { Refusal, useActions } from "../actions";
+import { TierPick } from "../Tier";
+import { tiersOf } from "../tiers";
 
 type Props = {
   look: Look;
@@ -64,6 +66,9 @@ export function Workshop({ look, session, machine, book }: Omit<Props, "busy" | 
   const [automaton, setAutomaton] = useState(false);
   //: For a carrier: which of the known recipes goes onto it (D-209).
   const [onto, setOnto] = useState<string | null>(null);
+  //: Which quality tier feeds each input -- the master's choice (D-058);
+  //: nothing said means the engine's own order, worst first.
+  const [tiers, setTiers] = useState<Record<string, string | null>>({});
 
   //: Computed before the early return below: a hook may not be called
   //: conditionally, and the forecast effect needs both of these.
@@ -74,6 +79,13 @@ export function Workshop({ look, session, machine, book }: Omit<Props, "busy" | 
   const writable = look.knows.filter((name) => name !== CARRIER);
   const writing = selected === CARRIER;
   const recipe = writing ? (onto && writable.includes(onto) ? onto : (writable[0] ?? null)) : null;
+  const inputs = selected ? inputsOf(book, selected) : [];
+  //: Only the tiers said for this recipe's inputs travel: a choice made for
+  //: another recipe's ore must not silently narrow this one.
+  const chosenTiers = Object.fromEntries(
+    inputs.filter((name) => tiers[name]).map((name) => [name, tiers[name]]),
+  );
+  const tiersKey = JSON.stringify(chosenTiers);
 
   /**
    * The forecast counts itself while the player is still choosing.
@@ -96,6 +108,7 @@ export function Workshop({ look, session, machine, book }: Omit<Props, "busy" | 
           units: qty,
           auto: automaton && automated,
           recipe: recipe ?? undefined,
+          tiers: chosenTiers,
         })
         .then((answer) => {
           if (dropped) return;
@@ -117,7 +130,10 @@ export function Workshop({ look, session, machine, book }: Omit<Props, "busy" | 
     };
     //: Presence is part of the forecast: a refusal earned on the road must
     //: give way to a number once the body is back at the bench.
-  }, [session, selected, qty, automaton, automated, recipe, look.node?.key, look.travel, look.survey]);
+    //: `tiersKey` stands for `chosenTiers`: a fresh object every render would
+    //: refire the effect endlessly, its string does not.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session, selected, qty, automaton, automated, recipe, tiersKey, look.node?.key, look.travel, look.survey]);
 
   const myMachine = (look.bench ?? []).filter((b) => b.goods === machine);
 
@@ -128,6 +144,7 @@ export function Workshop({ look, session, machine, book }: Omit<Props, "busy" | 
         units: qty,
         auto: automaton && automated,
         recipe: recipe ?? undefined,
+        tiers: chosenTiers,
       });
       setForecast(null);
     });
@@ -207,6 +224,23 @@ export function Workshop({ look, session, machine, book }: Omit<Props, "busy" | 
               </label>
             )}
           </div>
+
+          {/* Which quality of each input goes into the batch (D-058): a row per
+              input, and only where there is a choice -- two tiers of the same
+              thing in the hands. */}
+          {inputs
+            .filter((name) => tiersOf(look.inventory, name).length > 1)
+            .map((name) => (
+              <div className="row" key={name}>
+                <span className="note">{name}:</span>
+                <TierPick
+                  things={look.inventory}
+                  goods={name}
+                  value={tiers[name]}
+                  onChange={(tier) => setTiers((was) => ({ ...was, [name]: tier }))}
+                />
+              </div>
+            ))}
 
           {writing && (
             <div className="row">
@@ -303,8 +337,9 @@ export function Workshop({ look, session, machine, book }: Omit<Props, "busy" | 
   );
 }
 
-/** One line of a laid-out composition: a thing from the hands and how much per unit. */
-type Laid = { goods: string; amount: number };
+/** One line of a laid-out composition: a thing from the hands, how much per unit,
+ *  and which quality of it (D-058). */
+type Laid = { goods: string; amount: number; tier: string | null };
 
 /**
  * Making without a recipe (D-064, D-209).
@@ -343,7 +378,7 @@ function Invent({
 
   const add = () => {
     if (free.length === 0 || laid.length >= cap) return;
-    setLaid([...laid, { goods: free[0], amount: 1 }]);
+    setLaid([...laid, { goods: free[0], amount: 1, tier: null }]);
   };
   const change = (i: number, patch: Partial<Laid>) =>
     setLaid(laid.map((row, k) => (k === i ? { ...row, ...patch } : row)));
@@ -354,10 +389,14 @@ function Invent({
       const composition = Object.fromEntries(
         laid.filter((row) => row.amount > 0).map((row) => [row.goods, row.amount]),
       );
+      const tiers = Object.fromEntries(
+        laid.filter((row) => row.amount > 0 && row.tier).map((row) => [row.goods, row.tier]),
+      );
       const result = (await session.send("craft.invent", {
         composition,
         units,
         station: machine,
+        tiers,
       })) as unknown as Invention;
       setAnswer(result);
       //: Burned or made into a batch -- either way the hands changed, and the
@@ -374,7 +413,8 @@ function Invent({
         <Rule>
           Выложите состав на единицу изделия — до {cap} видов вещей из рук — и сколько
           единиц делаете. Совпало с тем, что здесь делают, — рецепт ваш и партия пошла.
-          Не совпало — выложенное сгорело. Подсказок «теплее — холоднее» нет.
+          Не совпало — сгорает случайная часть выложенного: цена попытки. Подсказок
+          «теплее — холоднее» нет.
         </Rule>
       </h3>
       <Refusal of={acting} />
@@ -382,7 +422,7 @@ function Invent({
         <div className="row" key={i}>
           <select
             value={row.goods}
-            onChange={(e) => change(i, { goods: e.target.value })}
+            onChange={(e) => change(i, { goods: e.target.value, tier: null })}
           >
             {[row.goods, ...free].map((name) => (
               <option key={name}>{name}</option>
@@ -395,6 +435,12 @@ function Invent({
             value={row.amount}
             onChange={(e) => change(i, { amount: Number(e.target.value) })}
             title="сколько на единицу изделия"
+          />
+          <TierPick
+            things={look.inventory}
+            goods={row.goods}
+            value={row.tier}
+            onChange={(tier) => change(i, { tier })}
           />
           <button className="quiet" onClick={() => drop(i)} disabled={busy} title="убрать">
             ×

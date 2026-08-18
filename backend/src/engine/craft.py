@@ -498,6 +498,7 @@ async def plan(
     auto: bool = False,
     way: str | None = None,
     recipe_key: str | None = None,
+    tiers: dict[str, str] | None = None,
 ) -> Plan:
     """Forecast before a batch. Changes nothing and reserves nothing."""
     ready = await _prepare(
@@ -512,6 +513,7 @@ async def plan(
         auto=auto,
         way=way,
         recipe_key=recipe_key,
+        tiers=tiers,
     )
     return ready.plan
 
@@ -529,6 +531,7 @@ async def start(
     auto: bool = False,
     way: str | None = None,
     recipe_key: str | None = None,
+    tiers: dict[str, str] | None = None,
     now: datetime | None = None,
 ) -> CraftBatch:
     """Start a batch: the input is written off at once, the product arrives on schedule.
@@ -550,6 +553,7 @@ async def start(
         auto=auto,
         way=way,
         recipe_key=recipe_key,
+        tiers=tiers,
     )
     forecast = ready.plan
 
@@ -612,6 +616,7 @@ async def cook(
     output: str,
     filling: dict[str, str | None],
     *,
+    tiers: dict[str, str] | None = None,
     now: datetime | None = None,
 ) -> CraftBatch:
     """Cook a pot: `cook.pot_portions` portions at once, a flow rather than an order.
@@ -678,7 +683,10 @@ async def cook(
         name = catalog.recipes.resolve(product)
         if not catalog.recipes.is_ingredient(name):
             raise NotIngredient(f"«{name}» — не продукт: в котёл кладут съедобное")
-        stock = await _stock(session, pocket, (name,))
+        #: The tier is chosen per role: the good meat into the stew, the rest
+        #: into the salting (D-058).
+        chosen = (tiers or {}).get(role)
+        stock = await _stock(session, pocket, (name,), tiers={name: chosen} if chosen else None)
         picks = _pick(stock, {name: amount_float(one)})
         quality = _material_quality(picks, scale.mid)
         for pick in picks:
@@ -741,6 +749,7 @@ async def repair(
     body: Body,
     item: Item,
     *,
+    tiers: dict[str, str] | None = None,
     now: datetime | None = None,
 ) -> CraftBatch:
     """Repair a thing.
@@ -755,7 +764,7 @@ async def repair(
     """
     share = constants[R.CRAFT_REPAIR_COST_SHARE] / PERCENT
     return await _work_on(
-        session, constants, catalog, body, item, BatchKind.REPAIR, share, now=now
+        session, constants, catalog, body, item, BatchKind.REPAIR, share, tiers=tiers, now=now
     )
 
 
@@ -992,6 +1001,7 @@ async def _work_on(
     kind: BatchKind,
     share: float,
     *,
+    tiers: dict[str, str] | None = None,
     now: datetime | None,
 ) -> CraftBatch:
     """The common flow of repair and recycling: both are work on a finished thing.
@@ -1014,7 +1024,9 @@ async def _work_on(
 
     spent: dict[str, float] = {}
     if kind is BatchKind.REPAIR:
-        stock = await _stock(session, inventory, proc.inputs)
+        stock = await _stock(
+            session, inventory, proc.inputs, tiers=_tiers_by(catalog, tiers)
+        )
         spent = {name: value * share for name, value in proc.per_unit.items()}
         for pick in _pick(stock, spent):
             if pick.item.amount > pick.take:
@@ -1206,6 +1218,7 @@ async def invent(
     units: float,
     *,
     station: str | None,
+    tiers: dict[str, str] | None = None,
     now: datetime | None = None,
 ) -> Invention:
     """Try to make something without a recipe (D-064).
@@ -1258,7 +1271,9 @@ async def invent(
 
     #: What is laid out is in the hands, whatever comes of it.
     inventory = await body_container(session, body)
-    stock = await _stock(session, inventory, laid)
+    #: Which stacks: the chosen tier per kind, or worst first (D-058).
+    picked_tiers = _tiers_by(catalog, tiers)
+    stock = await _stock(session, inventory, laid, tiers=picked_tiers)
     total = {name: value * units for name, value in laid.items()}
     _pick(stock, total)
 
@@ -1278,9 +1293,18 @@ async def invent(
         raise CraftError(f"«{found}» вы уже знаете: выберите его из списка")
 
     if found is None:
-        share = constants[R.INVENT_MATERIAL_LOSS] / PERCENT
+        #: The price of a try, not an execution: of each kind laid out a
+        #: random share burns, rolled within `invent.material_loss` -- the
+        #: same wrong guess costs a little one day and a lot the next, and
+        #: nobody can budget an exhaustive search to the ingot.
+        loss = constants[R.INVENT_MATERIAL_LOSS]
+        dice = random.Random()
+        lost = {
+            name: value * dice.uniform(loss.min, loss.max) / PERCENT
+            for name, value in total.items()
+        }
         burned: dict[str, float] = {}
-        for pick in _pick(stock, {name: value * share for name, value in total.items()}):
+        for pick in _pick(stock, lost):
             burned[pick.item.type_key] = burned.get(pick.item.type_key, 0.0) + amount_float(
                 pick.take
             )
@@ -1304,7 +1328,10 @@ async def invent(
             learned=(),
             batch=None,
             burned=burned,
-            note="Состав не сложился: материалы потрачены. Подсказок нет — думайте и пробуйте",
+            note=(
+                "Состав не сложился: часть выложенного сгорела. "
+                "Подсказок нет — думайте и пробуйте"
+            ),
         )
 
     identity = await session.get(Identity, body.identity_id)
@@ -1336,6 +1363,7 @@ async def invent(
             found,
             units,
             proportions=dict(laid),
+            tiers=picked_tiers,
             now=moment,
         )
     except NotEnough as short:
@@ -1579,6 +1607,7 @@ async def _prepare(
     auto: bool = False,
     way: str | None = None,
     recipe_key: str | None = None,
+    tiers: dict[str, str] | None = None,
 ) -> _Ready:
     """The common flow of forecast and start.
 
@@ -1641,7 +1670,9 @@ async def _prepare(
     ceiling = min(limiters) if limiters else scale.max
 
     inventory = await body_container(session, body)
-    stock = await _stock(session, inventory, proc.inputs)
+    #: Which stacks feed the batch is the master's choice (D-058): by tier per
+    #: input, or worst first when nothing is said.
+    stock = await _stock(session, inventory, proc.inputs, tiers=_tiers_by(catalog, tiers))
     if proc.output == CARRIER:
         return await _prepare_write(
             session, constants, catalog, body, proc, units, stock, recipe_key
@@ -1910,14 +1941,24 @@ async def _tool_items(
 
 
 async def _stock(
-    session: AsyncSession, container: Container, names: Iterable[str]
+    session: AsyncSession,
+    container: Container,
+    names: Iterable[str],
+    *,
+    tiers: dict[str, str] | None = None,
 ) -> dict[str, list[Item]]:
-    """What lies for each input, worst first.
+    """What lies for each input, worst first -- or only the chosen quality tier.
 
     The order is not accidental: the worse goes into the work, and the pure raw
-    material stays for the batch it was mined for. Picking a stack by hand will
-    arrive with the interface.
+    material stays for the batch it was mined for. `tiers` is the master's
+    word on that: "this input -- from the good stacks only". Then nothing else
+    is touched, and too little of the chosen tier is a refusal, not a silent
+    fallback to worse -- the choice was made for a reason (D-058).
     """
+    from src.engine import market
+
+    constants = current()
+    wanted = {name: tier for name, tier in (tiers or {}).items() if tier}
     out: dict[str, list[Item]] = {}
     for name in names:
         rows = (
@@ -1931,8 +1972,24 @@ async def _stock(
             .scalars()
             .all()
         )
+        tier = wanted.get(name)
+        if tier is not None:
+            rows = [
+                item
+                for item in rows
+                if market.tier_of(
+                    constants, None if item.quality is None else float(item.quality)
+                ) == tier
+            ]
         out[name] = list(rows)
     return out
+
+
+def _tiers_by(catalog: Catalog, tiers: dict[str, str] | None) -> dict[str, str]:
+    """Chosen tiers keyed by canonical input name: the client speaks in synonyms too."""
+    if not tiers:
+        return {}
+    return {catalog.recipes.resolve(name): tier for name, tier in tiers.items() if tier}
 
 
 def _base_quality(proc: Procedure, stock: dict[str, list[Item]], default: float) -> float:

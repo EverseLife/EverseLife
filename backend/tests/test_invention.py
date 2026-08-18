@@ -119,11 +119,12 @@ async def test_wrong_composition_burns_what_was_laid_out(
         session, constants, catalog, body, {WOOD: 4, INGOT: 1}, 2, station=BENCH
     )
     assert not result.success and result.batch is None
-    share = constants[R.INVENT_MATERIAL_LOSS] / 100
-    assert result.burned[WOOD] == pytest.approx(8 * share)
-    assert result.burned[INGOT] == pytest.approx(2 * share)
-    assert await _held(session, body, WOOD) == pytest.approx(20 - 8 * share)
-    assert await _held(session, body, INGOT) == pytest.approx(5 - 2 * share)
+    #: A random share within `invent.material_loss` burns -- of each kind its own.
+    loss = constants[R.INVENT_MATERIAL_LOSS]
+    for name, laid in ((WOOD, 8.0), (INGOT, 2.0)):
+        assert laid * loss.min / 100 <= result.burned[name] <= laid * loss.max / 100
+    assert await _held(session, body, WOOD) == pytest.approx(20 - result.burned[WOOD])
+    assert await _held(session, body, INGOT) == pytest.approx(5 - result.burned[INGOT])
     assert not (
         await session.execute(
             select(Knowledge).where(Knowledge.identity_id == identity.id)
@@ -603,3 +604,45 @@ async def test_frozen_batch_waits_for_a_free_machine(
     await craft.finish(session, job)
     await session.refresh(batch)
     assert batch.state is BatchState.RUNNING
+
+
+# --- choosing the quality that goes into the work (D-058) --------------------
+
+
+async def test_chosen_tier_feeds_the_batch(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Without a word the worst ingots go into the nails; with the tier named,
+    only that tier goes -- and too little of it is a refusal, not a fallback."""
+    _, identity, body = await _forge_master(session)
+    #: `_forge_master` gave 50 ingots at 60; add a poor stack and a fine one.
+    await _give(session, body, INGOT, 5, quality=25)
+    await _give(session, body, INGOT, 5, quality=85)
+    poor = market.tier_of(constants, 25)
+    fine = market.tier_of(constants, 85)
+
+    silent = await craft.plan(session, constants, catalog, body, NAILS, 1)
+    chosen = await craft.plan(session, constants, catalog, body, NAILS, 1, tiers={INGOT: fine})
+    assert silent.quality < chosen.quality
+    #: The forge caps the ceiling; under it the material is the chosen 85, not the poor 25.
+    assert chosen.quality == pytest.approx(chosen.ceiling * 85 / 100, abs=1)
+
+    with pytest.raises(craft.NotEnough):
+        await craft.plan(session, constants, catalog, body, NAILS, 20, tiers={INGOT: poor})
+
+
+async def test_market_load_by_tier(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Loading names the tier: the good stack goes to the counter, the poor stays home."""
+    node, identity, body = await _yard(session, machine="Терминал маркетплейса")
+    await _give(session, body, INGOT, 3, quality=25)
+    await _give(session, body, INGOT, 3, quality=85)
+    fine = market.tier_of(constants, 85)
+    await market.load(session, constants, body, INGOT, 2, tier=fine)
+    stall = await session.execute(
+        select(Item).where(Item.container_id == (await market.stall(session, node, identity.id)).id)
+    )
+    counter = stall.scalars().all()
+    assert len(counter) == 1 and float(counter[0].quality) == 85
+    assert await _held(session, body, INGOT) == 4

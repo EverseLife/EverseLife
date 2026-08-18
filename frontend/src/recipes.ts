@@ -60,3 +60,20 @@ export function stationOf(book: any, name: string): string | null {
   const recipe = (book?.recipes ?? []).find((r: any) => r.name === name);
   return recipe ? canon(book, recipe.station) : null;
 }
+
+/**
+ * What goes into making `name`, by canonical input names: the recipe's inputs,
+ * or, for an operation output, what the operation consumes. Empty for what is
+ * taken from the world (felling, mining) and for the unknown.
+ */
+export function inputsOf(book: any, name: string, way?: string | null): string[] {
+  if (!book) return [];
+  const resolve = (n: string) => (book.synonyms?.[n] ?? n) as string;
+  const recipe = (book.recipes ?? []).find((r: any) => r.name === name);
+  if (recipe) return (recipe.inputs as string[]).map(resolve);
+  const operations = (book.operations ?? []).filter(
+    (o: any) => (o.gives ?? []).includes(name) && (!way || o.name === way),
+  );
+  const consumes = operations[0]?.consumes ?? [];
+  return (consumes as string[]).map(resolve);
+}

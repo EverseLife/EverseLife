@@ -316,6 +316,13 @@ header nav.tabs {
 .goods {
   table-layout: auto;
 }
+.goods tr.group td {
+  padding-top: 0.6rem;
+  border-bottom: 1px solid var(--line);
+}
+.arrange select {
+  max-width: 11rem;
+}
 .goods td.handle {
   position: relative;
   width: 1.8rem;

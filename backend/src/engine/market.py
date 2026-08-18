@@ -251,14 +251,20 @@ async def load(
     body: Body,
     type_key: str,
     quantity: float,
+    *,
+    tier: str | None = None,
 ) -> float:
-    """Load goods into the terminal. In person: goods are carried on foot."""
+    """Load goods into the terminal. In person: goods are carried on foot.
+
+    `tier` names which stacks go: without it the worst go first, and the good
+    ore stays in the sack for the smelt it was mined for (D-058).
+    """
     node = await _node_of(session, body)
     await terminal(session, node)
     inventory = await body_container(session, body)
     into = await stall(session, node, body.identity_id)
 
-    moved = await _move(session, inventory, into, type_key, amount(quantity), tier=None,
+    moved = await _move(session, inventory, into, type_key, amount(quantity), tier=tier,
                         constants=constants)
     await events.record(
         session,

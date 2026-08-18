@@ -12,6 +12,7 @@ import { useMemo, useState } from "react";
 import type { Look, Session, Thing } from "../api";
 import { Rule } from "../Rule";
 import { Refusal, useActions } from "../actions";
+import { TierPick } from "../Tier";
 
 type Props = {
   look: Look;
@@ -37,6 +38,8 @@ export function Mint({ look, session, values }: Omit<Props, "busy" | "act">) {
   const [coin, setCoin] = useState(canDo[0]?.coin ?? COINS[0].coin);
   const chosen = COINS.find((k) => k.coin === coin) ?? COINS[0];
   const [qty, setQty] = useState(10);
+  //: Which quality of metal and of iron goes under the die (D-058).
+  const [tiers, setTiers] = useState<Record<string, string | null>>({});
 
   const fineness = Number(values?.["coin.default_fineness"] ?? 900);
 
@@ -93,6 +96,16 @@ export function Mint({ look, session, values }: Omit<Props, "busy" | "act">) {
         />
         <span className="note">проба {fineness} ‰ — одна на весь мир</span>
       </div>
+      {[chosen.metal, IRON].map((goods) => (
+        <div className="row" key={goods}>
+          <TierPick
+            things={look.inventory}
+            goods={goods}
+            value={tiers[goods]}
+            onChange={(tier) => setTiers((was) => ({ ...was, [goods]: tier }))}
+          />
+        </div>
+      ))}
 
       <p className="note">
         Уйдёт {metalNeeded.toFixed(1)} «{chosen.metal}» (в руках{" "}
@@ -103,7 +116,15 @@ export function Mint({ look, session, values }: Omit<Props, "busy" | "act">) {
 
       <button
         onClick={() =>
-          act(() => session.send("coin.mint", { coin: coin, count: qty }))
+          act(() =>
+            session.send("coin.mint", {
+              coin: coin,
+              count: qty,
+              tiers: Object.fromEntries(
+                Object.entries(tiers).filter(([, tier]) => tier),
+              ),
+            }),
+          )
         }
         disabled={busy || !enough || qty <= 0}
       >

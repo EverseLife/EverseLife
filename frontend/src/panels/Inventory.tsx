@@ -22,8 +22,19 @@ import { Refusal, useActions } from "../actions";
 import { Rule } from "../Rule";
 import { Amount } from "../Amount";
 import { chosen } from "../amounts";
+import {
+  GROUPINGS,
+  SORTINGS,
+  arrange,
+  groupKey,
+  orderGroups,
+  remember,
+  remembered,
+  type Grouping,
+  type Sorting,
+} from "../arrange";
 
-type Props = { look: Look; session: Session };
+type Props = { look: Look; session: Session; book?: any };
 
 /** Somebody standing in the same node: the only possible receiver. */
 type Person = { body: string; name: string };
@@ -31,10 +42,16 @@ type Person = { body: string; name: string };
 /** Which sub-question the open menu is asking. */
 type Asking = null | { item: string; about: "menu" | "where" | "whom" };
 
-export function Inventory({ look, session }: Props) {
+export function Inventory({ look, session, book }: Props) {
   const acting = useActions();
   const { busy, act } = acting;
   const [asking, setAsking] = useState<Asking>(null);
+  //: How the table is read: grouped by what, sorted by what. Remembered
+  //: across reloads -- an axis chosen once is how this player thinks.
+  const [group, setGroup] = useState<Grouping>(() => remembered().group);
+  const [sort, setSort] = useState<Sorting>(() => remembered().sort);
+  const [desc, setDesc] = useState<boolean>(() => remembered().desc);
+  useEffect(() => remember({ group, sort, desc }), [group, sort, desc]);
   const [parts, setParts] = useState<Record<string, number | null>>({});
   const [people, setPeople] = useState<Person[]>([]);
 
@@ -109,12 +126,60 @@ export function Inventory({ look, session }: Props) {
 
       <Refusal of={acting} />
 
+      {things.length > 1 && (
+        <div className="row arrange">
+          <select
+            value={group}
+            onChange={(e) => setGroup(e.target.value as Grouping)}
+            title="сгруппировать"
+          >
+            {GROUPINGS.map((g) => (
+              <option key={g.id} value={g.id}>
+                {g.label}
+              </option>
+            ))}
+          </select>
+          <select
+            value={sort}
+            onChange={(e) => setSort(e.target.value as Sorting)}
+            title="упорядочить"
+          >
+            {SORTINGS.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.label}
+              </option>
+            ))}
+          </select>
+          <button
+            className="quiet"
+            onClick={() => setDesc(!desc)}
+            title={desc ? "по убыванию — нажмите для возрастания" : "по возрастанию — нажмите для убывания"}
+          >
+            {desc ? "↓" : "↑"}
+          </button>
+        </div>
+      )}
+
       {things.length === 0 ? (
         <p className="note">В руках ничего нет.</p>
       ) : (
         <table className="goods">
           <tbody>
-            {things.map((thing) => (
+            {sections(things, group, sort, desc, book).flatMap(({ title, rows, mass }) => [
+              ...(title === null
+                ? []
+                : [
+                    <tr key={`group:${title}`} className="group">
+                      <td colSpan={5}>
+                        <b>{title}</b>
+                        <span className="note">
+                          {" "}· {rows.length} {rows.length === 1 ? "позиция" : "позиций"} ·{" "}
+                          {mass.toFixed(1)} кг
+                        </span>
+                      </td>
+                    </tr>,
+                  ]),
+              ...rows.map((thing) => (
               <tr key={thing.id}>
                 <td className="handle">
                   <button
@@ -319,7 +384,8 @@ export function Inventory({ look, session }: Props) {
                   />
                 </td>
               </tr>
-            ))}
+              )),
+            ])}
           </tbody>
         </table>
       )}
@@ -344,6 +410,34 @@ export function Inventory({ look, session }: Props) {
       )}
     </div>
   );
+}
+
+/**
+ * The table split into sections by the chosen axis, each sorted the chosen way.
+ * One section without a title when there is no grouping.
+ */
+function sections(
+  things: Thing[],
+  group: Grouping,
+  sort: Sorting,
+  desc: boolean,
+  book: any,
+): { title: string | null; rows: Thing[]; mass: number }[] {
+  const ordered = arrange(things, sort, desc);
+  if (group === "none") return [{ title: null, rows: ordered, mass: 0 }];
+  const buckets = new Map<string, Thing[]>();
+  for (const thing of ordered) {
+    const key = groupKey(book, thing, group);
+    buckets.set(key, [...(buckets.get(key) ?? []), thing]);
+  }
+  return orderGroups([...buckets.keys()], group, things).map((title) => {
+    const rows = buckets.get(title) ?? [];
+    return {
+      title,
+      rows,
+      mass: rows.reduce((sum, t) => sum + t.mass * t.amount, 0),
+    };
+  });
 }
 
 /** The one line that says what kind of thing this is. */

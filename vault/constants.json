@@ -375,7 +375,10 @@
   "breed.hybrid_decay": -25,
   "invent.exact_match_required": true,
   "invent.max_ingredients": 5,
-  "invent.material_loss": 100,
+  "invent.material_loss": {
+    "min": 20,
+    "max": 80
+  },
   "invent.attempt_time": {
     "formula": "craft_time(item_of_same_level)"
   },
