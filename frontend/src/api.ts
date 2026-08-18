@@ -173,6 +173,11 @@ export type MapRoute = {
   class: number;
 };
 export type WorldMap = { nodes: MapNode[]; edges: MapEdge[]; routes: MapRoute[] };
+/** The ship one is standing in: it is not on the public map at all (D-201).
+ *  From the pier a ship is a single hull -- how many rooms it holds and what is
+ *  joined to what is what a boarder would want to know, so the inside comes
+ *  with `look`, to whoever is inside. */
+export type Interior = { nodes: MapNode[]; edges: MapEdge[] };
 
 /** A remark as heard by someone standing in the location (D-043, D-050). */
 export type ChatLine = {
@@ -355,6 +360,9 @@ export type Look = {
   survey?: { returns_at: string } | null;
   /** Does a drilling rig stand in this node: the stand shows the row by it. */
   rig_here?: boolean;
+  /** The ship one is standing in (D-201). Empty on the ground: from outside a
+   *  ship is one hull, and its rooms are on nobody's map. */
+  aboard?: Interior | null;
   /** The planet's clock: where the count starts and how long a day is (D-029). */
   clock?: { planet: string; epoch: string | null; day_hours: number };
   /** Whether a city can be founded here and what is missing for that (D-159).

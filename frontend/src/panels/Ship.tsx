@@ -19,7 +19,7 @@ import { Refusal, useActions } from "../actions";
 
 /** The item a node aboard is laid from. Made at the shipyard. */
 const FOUNDATION = "Основа узла корабля";
-const SPACEPORT = "Космодром";
+const SPACEPORT = "Космическая верфь";
 /** The node property that marks a node as being aboard: it arrives in `features`. */
 const ABOARD = "борт";
 
@@ -105,7 +105,16 @@ export function Ship({ look, session }: { look: Look; session: Session }) {
   return (
     <section>
       <Refusal of={acting} />
-      <h2>{aboard ? "Корабль" : "Космодром"}</h2>
+      <h2>
+        {aboard ? "Корабль" : "Космическая верфь"}
+        <Rule>
+          Корабль — не вещь, а группа узлов карты с одним выходом наружу. Стыковка и
+          отстыковка — появление и исчезновение одного ребра, а полёт это его
+          отсутствие: с борта просто некуда сойти. Скорость выводится из тяги против
+          массы, поэтому грузоподъёмности числом нет — перегруженный корабль остаётся в
+          порту.
+        </Rule>
+      </h2>
 
       {shown.map((v) => (
         <div key={v.ship}>
@@ -196,18 +205,10 @@ export function Ship({ look, session }: { look: Look; session: Session }) {
 
       {!foundation && (
         <p className="note">
-          Нужна «{FOUNDATION}» в руках — её делают на верфи. Корабль растёт по
+          Нужна «{FOUNDATION}» в руках — её делают в космической мастерской. Корабль растёт по
           узлу за раз: каждый следующий узел это и место, и лишняя масса.
         </p>
       )}
-
-      <Rule>
-        Корабль — не вещь, а группа узлов карты с одним выходом наружу.
-        Стыковка и отстыковка — появление и исчезновение одного ребра, а полёт
-        это его отсутствие: с борта просто некуда сойти. Скорость выводится из
-        тяги против массы, поэтому грузоподъёмности числом нет — перегруженный
-        корабль остаётся в порту.
-      </Rule>
     </section>
   );
 }

@@ -90,12 +90,28 @@ async def world_map() -> dict[str, Any]:
     from src.engine import ship as vessels
     from src.engine import travel as roads
     from src.engine import world as places
-    from src.models.world import Edge, Node
+    from src.models.world import Edge, Layer, Node
 
     constants = current()
     async with session_factory()() as db:
-        nodes = (await db.execute(select(Node))).scalars().all()
-        edges = (await db.execute(select(Edge))).scalars().all()
+        every = (await db.execute(select(Node))).scalars().all()
+        #: A ship's rooms are **not** public (D-201). From outside a ship is one
+        #: hull: how many cabins it has, what is joined to what and where the
+        #: hold is, is exactly what somebody planning to board it would like to
+        #: know -- and the whole point of the single connector is that nothing
+        #: is seen past the gangway. The interior comes with `look`, to whoever
+        #: is standing in it.
+        inside = {
+            node.id
+            for node in every
+            if vessels.is_aboard(node) and node.layer is not Layer.SPACE
+        }
+        nodes = [node for node in every if node.id not in inside]
+        edges = [
+            edge
+            for edge in (await db.execute(select(Edge))).scalars().all()
+            if edge.node_a_id not in inside and edge.node_b_id not in inside
+        ]
         by_id = {node.id: node.key for node in nodes}
         #: The city's two doors are shown on the map (D-206): every road beyond
         #: the walls starts at the gate, every ship couples to the spaceport, and

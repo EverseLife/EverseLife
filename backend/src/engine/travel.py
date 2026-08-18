@@ -102,7 +102,7 @@ A city therefore has exactly two doors, and both are nodes:
 
 * **the gate** -- the node property `выход`. The one place one leaves the walls
   on foot, and hence the one place one arrives at from outside;
-* **the spaceport** -- the node the `Космодром` machine stands in. Ship groups
+* **the spaceport** -- the node the `Космическая верфь` machine stands in. Ship groups
   couple to it by one edge (D-201), and a ship is the only thing that arrives
   anywhere but the gate.
 

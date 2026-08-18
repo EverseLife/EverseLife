@@ -5,16 +5,17 @@
  * So there are three modes, and switching is free -- **a setting, not a
  * reward**: nothing here is unlocked by playing.
  *
- * What changes is row heights, padding and whether the world's rules are
- * spelled out in place. What never changes is the type size (a "dense" mode
- * that shrinks the font is unreadable rather than dense) and the layout: the
- * same things stay in the same places in all three.
+ * What changes is row heights and padding. What never changes is the type size
+ * (a "dense" mode that shrinks the font is unreadable rather than dense), the
+ * layout -- the same things stay in the same places in all three -- and where
+ * the world's rules live: behind the "?" beside the title they explain, in
+ * every mode alike.
  *
- * | Mode     | Who for            | Rules of the world     |
+ * | Mode     | Who for            | Rows and padding       |
  * |----------|--------------------|------------------------|
- * | `plain`  | the first hours    | spelled out in place   |
- * | `normal` | most people        | behind a "?"           |
- * | `dense`  | traders, rulers    | behind a "?", tighter  |
+ * | `plain`  | the first hours    | roomy                  |
+ * | `normal` | most people        | the middle             |
+ * | `dense`  | traders, rulers    | tight                  |
  *
  * The value lives on `<html>` as `data-density`, so CSS reads it without React,
  * and in `localStorage`, so a returning player keeps their choice.
@@ -74,7 +75,7 @@ export function useDensity(): Density {
 
 /** Names for the setting. The mode is described by whom it suits, not by a number. */
 export const DENSITY_NAMES: Record<Density, { label: string; about: string }> = {
-  plain: { label: "простой", about: "крупнее, правила мира расписаны на месте" },
-  normal: { label: "обычный", about: "правила — под знаком «?»" },
+  plain: { label: "простой", about: "просторные строки и отступы" },
+  normal: { label: "обычный", about: "середина: так игра выглядит по умолчанию" },
   dense: { label: "плотный", about: "максимум данных на экране" },
 };

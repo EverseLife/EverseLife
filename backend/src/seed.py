@@ -75,7 +75,7 @@ log = logging.getLogger("octoverse.seed")
 
 CORE = "terra.capital.core"
 #: The capital's spaceport: the city's second door (D-206). A node, because
-#: ship groups couple to a node -- and the `Космодром` machine in it is what
+#: ship groups couple to a node -- and the `Космическая верфь` machine in it is what
 #: makes the node a port (D-176).
 PORT = "terra.capital.port"
 #: A species, not "ore in general" (D-151): iron and copper have different veins.
@@ -346,7 +346,7 @@ async def seed(session: AsyncSession) -> Node:
 
     await _machine(session, townhall, "Администрация", 65)
     #: The spaceport is a machine too, and it is what makes the node a port: a
-    #: ship couples to whatever the `Космодром` stands in (D-201, D-206).
+    #: ship couples to whatever the `Космическая верфь` stands in (D-201, D-206).
     await _machine(session, port, ship.SPACEPORT, 60)
     #: The library is a machine (D-176): the knowledge window is shown where it stands.
     await _machine(session, library, world.LIBRARY, 70)
@@ -716,12 +716,16 @@ async def catch_up(session: AsyncSession, core: Node) -> None:
 
     #: The mint has been renamed twice: yard -> press (D-016, together with
     #: abolishing fineness), press -> station (D-200, "станок" became "рабочая
-    #: станция"). Existing machines learn the current name here; the migration
-    #: does the same for worlds that are not reseeded.
+    #: станция"), and the spaceport became a yard -- a ship is not only moored
+    #: there but laid down and grown there (D-202). Existing machines learn the
+    #: current name here; the migration does the same for worlds that are not
+    #: reseeded.
     renamed = {
         "Монетный двор": "Монетная станция",
         "Монетный станок": "Монетная станция",
         "Автоматический станок": "Автоматическая станция",
+        "Космодром": ship.SPACEPORT,
+        "Верфь": "Космическая мастерская",
     }
     stale = (
         await session.execute(

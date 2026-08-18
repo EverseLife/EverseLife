@@ -60,7 +60,12 @@ export function Library({ look, session }: Omit<Props, "busy" | "act">) {
   return (
     <section>
       <Refusal of={acting} />
-      <h2>Библиотека</h2>
+      <h2>
+        Библиотека
+        <Rule>
+          Бесплатно и без условий, но только придя; переписывание стоит выносливости.
+        </Rule>
+      </h2>
       <div className="row">
         <input
           type="search"
@@ -167,10 +172,6 @@ export function Library({ look, session }: Omit<Props, "busy" | "act">) {
         Агротехника базовых культур — для всех: с ней грядка показывает норму,
         а не симптом. Взятое помечено ✓.
       </p>
-
-      <Rule>        Бесплатно и без условий, но только придя; переписывание стоит
-        выносливости.
-      </Rule>
     </section>
   );
 }

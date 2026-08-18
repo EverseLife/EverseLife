@@ -217,7 +217,13 @@ export function Market({ look, session }: Omit<Props, "busy" | "act">) {
               купец, собираясь в дорогу, резервирует партию задатком (D-047). */}
           {foreign.length > 0 && (
             <>
-              <h3>Забронировать</h3>
+              <h3>
+                Забронировать
+                <Rule>
+                  Бронируют издалека, забирают ногами; не забрал в срок — задаток у
+                  продавца.
+                </Rule>
+              </h3>
               <table>
                 <tbody>
                   {foreign.map((offer) => (
@@ -250,9 +256,6 @@ export function Market({ look, session }: Omit<Props, "busy" | "act">) {
                   ))}
                 </tbody>
               </table>
-              <Rule>                Бронируют издалека, забирают ногами; не забрал в срок — задаток
-                у продавца.
-              </Rule>
             </>
           )}
 
@@ -292,7 +295,13 @@ export function Market({ look, session }: Omit<Props, "busy" | "act">) {
             empty="в кармане пусто"
           />
 
-          <h3>Терминал</h3>
+          <h3>
+            Терминал
+            <Rule>
+              Продаётся то, что в терминале; купленное забирается отсюда же . Клик по
+              строке выбирает позицию.
+            </Rule>
+          </h3>
           <Own
             things={terminal}
             choice={choice}
@@ -310,9 +319,6 @@ export function Market({ look, session }: Omit<Props, "busy" | "act">) {
             busy={busy}
             empty="в терминале ничего вашего"
           />
-          <Rule>            Продаётся то, что в терминале; купленное забирается отсюда же
-. Клик по строке выбирает позицию.
-          </Rule>
         </div>
       </div>
     </section>

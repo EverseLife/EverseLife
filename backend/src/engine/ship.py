@@ -94,7 +94,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants
@@ -107,7 +107,7 @@ from src.models.identity import Body, BodyState
 from src.models.inventory import Container, ContainerKind, Item
 from src.models.job import Job, JobKind, JobState
 from src.models.ship import Ship
-from src.models.world import Layer, Node, Planet, Surface
+from src.models.world import Edge, Layer, Node, Planet, Surface
 from src.units import (
     AMOUNT_SCALE,
     HOURS_PER_DAY,
@@ -122,10 +122,12 @@ from src.units import (
 )
 from src.units import amount as to_amount
 
-#: The item a node aboard is laid from (D-202). Made at the shipyard.
+#: The item a node aboard is laid from (D-202). Made at the `Космическая
+#: мастерская`, the ground station where hulls and engines come from.
 FOUNDATION = "Основа узла корабля"
-#: The machine a ship couples to. Requires clear sky -- a property of the node.
-SPACEPORT = "Космодром"
+#: The machine a ship couples to and is laid down at. Requires clear sky --
+#: a property of the node.
+SPACEPORT = "Космическая верфь"
 #: The machine that decides how many people the ship holds.
 LIFE_SUPPORT = "Система жизнеобеспечения"
 #: What a passage burns.
@@ -1129,6 +1131,76 @@ async def _moor_to(session: AsyncSession, ship: Ship, port: Node) -> None:
 
 
 # --- what the client shows before the attempt --------------------------------
+
+
+async def inside(
+    session: AsyncSession, constants: Constants, node: Node
+) -> dict[str, list[dict[str, object]]] | None:
+    """The ship one is standing in: its rooms and the ways between them.
+
+    A ship's interior is **not on the public map** (D-201). From the pier a ship
+    is one hull, and how many cabins it holds, what is joined to what and where
+    the hold is stays unknown -- that is the whole point of the single
+    connector: nothing is seen past the gangway. So the inside travels with the
+    look of whoever is inside, and the map draws it only then.
+
+    None means the node is not part of any ship -- ordinary ground.
+    """
+    if not is_aboard(node):
+        return None
+    ship = await of_node(session, node)
+    if ship is None:  # pragma: no cover -- an aboard node always has its ship
+        return None
+
+    rooms = await nodes_of(session, ship)
+    delegate = await session.get(Node, ship.node_id)
+    keys = {room.id: room.key for room in rooms}
+    if delegate is not None:
+        keys[delegate.id] = delegate.key
+    #: The gangway too, when there is one: from inside the way out is a fact of
+    #: the graph like any other, and without it the interior hangs on nothing.
+    port = (
+        None if ship.docked_node_id is None else await session.get(Node, ship.docked_node_id)
+    )
+    if port is not None:
+        keys[port.id] = port.key
+
+    ways = (
+        await session.execute(
+            select(Edge).where(
+                or_(Edge.node_a_id.in_(keys), Edge.node_b_id.in_(keys))
+            )
+        )
+    ).scalars().all()
+    return {
+        "nodes": [
+            {
+                "key": room.key,
+                "name": room.name,
+                "layer": room.layer.value,
+                "parent": None if delegate is None else delegate.key,
+                "ring": None,
+                "exit": False,
+                "port": False,
+                "planet": room.planet.value,
+                "orbit": None,
+                "deferred": False,
+                "aboard": True,
+                "flight": None,
+            }
+            for room in rooms
+        ],
+        "edges": [
+            {
+                "a": keys[edge.node_a_id],
+                "b": keys[edge.node_b_id],
+                "surface": edge.surface.value,
+                "seconds": round(travel.edge_seconds(constants, edge)),
+            }
+            for edge in ways
+            if edge.node_a_id in keys and edge.node_b_id in keys
+        ],
+    }
 
 
 async def passages(session: AsyncSession) -> dict[uuid.UUID, dict[str, object]]:

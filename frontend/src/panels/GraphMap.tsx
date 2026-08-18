@@ -159,7 +159,7 @@ export function GraphMap({ look, session, onEnter }: Omit<Props, "busy" | "act">
   //: inspector beside it, which keeps its own waiting and its own refusal.
   const { busy } = useActions();
 
-  const [map, setMap] = useState<WorldMap | null>(null);
+  const [world, setWorld] = useState<WorldMap | null>(null);
   const here = look.node?.key ?? "";
   //: The map grows by exploration (D-152), and a found node must appear by
   //: itself. We reread it when what could have changed the map changes: own
@@ -168,9 +168,22 @@ export function GraphMap({ look, session, onEnter }: Omit<Props, "busy" | "act">
   const exits = (look.exits ?? []).map((path) => path.key).join("|");
   const exploring = look.survey?.returns_at ?? "";
   useEffect(() => {
-    void api.worldMap().then(setMap);
+    void api.worldMap().then(setWorld);
   }, [here, exits, exploring]);
   const ongoing = look.travel ?? null;
+  //: The ship one stands in is not on the public map at all (D-201): from the
+  //: pier it is a single hull. Its rooms arrive with `look`, and only then --
+  //: so the layer showing them appears on stepping aboard and goes away with
+  //: the gangway.
+  const map = useMemo<WorldMap | null>(() => {
+    const inside = look.aboard;
+    if (!world || !inside) return world;
+    return {
+      ...world,
+      nodes: [...world.nodes, ...inside.nodes],
+      edges: [...world.edges, ...inside.edges],
+    };
+  }, [world, look.aboard]);
   const byKey = useMemo(() => {
     const out: Record<string, MapNode> = {};
     for (const node of map?.nodes ?? []) out[node.key] = node;
@@ -1161,7 +1174,14 @@ function Inspector({
   if (ongoing) {
     return (
       <aside className="inspect">
-        <h3>В пути</h3>
+        <h3>
+          В пути
+          <Rule>
+            Пока идёшь, тебя нет нигде: добыча, крафт, погрузка и покупка закрыты, а
+            счёт и ордера работают. Повернуть назад можно в любой момент — вернёшься
+            туда, откуда вышел, а потраченное не вернётся.
+          </Rule>
+        </h3>
         <p className="sign">{ongoing.final ?? ongoing.to}</p>
         <p className="note">
           {ongoing.final ? `сейчас — отрезок до «${ongoing.to}»` : "прямой переход"}
@@ -1178,11 +1198,6 @@ function Inspector({
           </button>
         </div>
         <Refusal of={acting} />
-        <Rule>
-          Пока идёшь, тебя нет нигде: добыча, крафт, погрузка и покупка закрыты,
-          а счёт и ордера работают. Повернуть назад можно в любой момент —
-          вернёшься туда, откуда вышел, а потраченное не вернётся.
-        </Rule>
       </aside>
     );
   }
@@ -1220,7 +1235,14 @@ function Inspector({
 
   return (
     <aside className="inspect">
-      <h3>{node.name}</h3>
+      <h3>
+        {node.name}
+        <Rule>
+          Идти можно в любой узел: маршрут строится сам по времени с учётом покрытия,
+          каждый отрезок — отдельное задание, и приход сам выводит в следующий. По
+          прямой не ходят: нет ребра — нет пути.
+        </Rule>
+      </h3>
       <p className="note">
         {node.aboard
           ? node.flight
@@ -1297,11 +1319,6 @@ function Inspector({
 
       <Roads look={look} session={session} busy={busy} act={act} only={node.name} />
       <Refusal of={acting} />
-      <Rule>
-        Идти можно в любой узел: маршрут строится сам по времени с учётом
-        покрытия, каждый отрезок — отдельное задание, и приход сам выводит в
-        следующий. По прямой не ходят: нет ребра — нет пути.
-      </Rule>
     </aside>
   );
 }

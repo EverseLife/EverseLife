@@ -1,42 +1,98 @@
 /**
- * A hint on demand: a "?" icon, and the explanation in a small window of its own.
+ * An explanation on demand: a "?" icon, and the text in a floating layer beside it.
  *
  * Explanations of a mechanic are needed once -- when a person sees the window
- * for the first time. Afterwards they turn into a background through which
- * one has to hunt for buttons: under the map five paragraphs had piled up
- * for four actions. So the explanation hides behind an icon, and what
- * changes stays in view -- numbers and buttons.
+ * for the first time. Afterwards they turn into a background through which one
+ * has to hunt for buttons: under the map five paragraphs had piled up for four
+ * actions. So the explanation hides behind an icon, and what changes stays in
+ * view -- numbers and buttons.
  *
- * The explanation opens as a separate window over the page, not as a block
- * beside the icon. Expanding in place it pushed the row apart: the panel
- * scrolls, the wide block gave it a scrollbar, and the buttons the hand was
- * aiming at moved aside at the very moment of the tap. A window in a portal
- * lies outside every panel and outside every scroll, and moves nothing.
+ * **The icon stands by the title of what it explains**, never in a row of its
+ * own. A column of identical "?" at the foot of a panel is worse than no
+ * explanation at all: the finance tab had four of them one under another, and
+ * nothing said which belonged to the transfer and which to the bank.
  *
- * The window itself is `HintWindow` and is shared: a rule of the world
- * (`Rule`) opens the same one, so both kinds of explanation appear in the same
- * place on screen and close by the same gestures.
+ * The text appears **next to the icon** and moves nothing: the layer is
+ * `position: fixed`, so it is outside the flow of every panel and clipped by
+ * none of them -- the map panel cuts its content to itself (`overflow:
+ * hidden`), and an explanation drawn inside it went under the cut. Where it
+ * stands is decided after it is drawn: below the icon, or above it when the
+ * bottom of the screen is nearer than the layer is tall.
  *
- * Works from the keyboard too: the icon focuses, `Enter` opens the window,
- * `Escape` closes it, and the focus comes back to the icon. The content lies
- * in markup, not in `title` -- the native tooltip appears after a second and
- * is not readable from a phone at all.
+ * It is a note, not a window: no dimming behind it, no way out to press, and
+ * **any click at all makes it go** -- including a click on the text itself.
+ * Escape closes it too, and so do scrolling and resizing, which would leave it
+ * hanging where the icon no longer is.
  */
 
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
-import { createPortal } from "react-dom";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 
-export function Hint({ children }: { children: ReactNode }) {
+/** How far the layer stands from the icon, and how close it may come to the screen's edge. */
+const GAP = 6;
+const EDGE = 8;
+
+export function Hint({
+  children,
+  label = "подсказка",
+}: {
+  children: ReactNode;
+  /** What the icon is called for whoever does not see it. */
+  label?: string;
+}) {
   const [open, setOpen] = useState(false);
+  const [at, setAt] = useState<{ top: number; left: number } | null>(null);
   const mark = useRef<HTMLButtonElement>(null);
+  const layer = useRef<HTMLSpanElement>(null);
+  const id = useId();
 
-  //: Focus returns to the icon: closing the window must not drop the person
-  //: to the top of the document.
-  const shut = () => {
-    setOpen(false);
-    mark.current?.focus();
-  };
+  //: The height of the layer depends on how long the explanation is, and
+  //: whether it fits under the icon depends on that height -- so it is
+  //: measured drawn, and moved before the frame is painted.
+  useLayoutEffect(() => {
+    if (!open) {
+      setAt(null);
+      return;
+    }
+    const icon = mark.current?.getBoundingClientRect();
+    const card = layer.current?.getBoundingClientRect();
+    if (!icon || !card) return;
+    let top = icon.bottom + GAP;
+    if (top + card.height > window.innerHeight - EDGE) {
+      const above = icon.top - GAP - card.height;
+      top = above >= EDGE ? above : Math.max(EDGE, window.innerHeight - EDGE - card.height);
+    }
+    const left = Math.max(EDGE, Math.min(icon.left, window.innerWidth - EDGE - card.width));
+    setAt({ top, left });
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    //: Any click closes it, the one on the text included: there is nothing to
+    //: do inside a note. The icon is the exception -- its own click toggles,
+    //: and closing here would only reopen it a moment later.
+    const away = (e: PointerEvent) => {
+      if (mark.current?.contains(e.target as Node)) return;
+      setOpen(false);
+    };
+    const key = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    //: Scrolling and resizing take the icon out from under the layer, which is
+    //: pinned to the screen. Following it would cost a frame on every scroll
+    //: of every panel; an explanation that has been read costs nothing.
+    const gone = () => setOpen(false);
+    window.addEventListener("pointerdown", away, true);
+    window.addEventListener("keydown", key);
+    window.addEventListener("scroll", gone, true);
+    window.addEventListener("resize", gone);
+    return () => {
+      window.removeEventListener("pointerdown", away, true);
+      window.removeEventListener("keydown", key);
+      window.removeEventListener("scroll", gone, true);
+      window.removeEventListener("resize", gone);
+    };
+  }, [open]);
 
   return (
     <>
@@ -44,76 +100,26 @@ export function Hint({ children }: { children: ReactNode }) {
         ref={mark}
         type="button"
         className="hint bare"
-        aria-label="подсказка"
-        aria-haspopup="dialog"
+        aria-label={label}
         aria-expanded={open}
-        onClick={() => setOpen(true)}
+        aria-controls={open ? id : undefined}
+        onClick={() => setOpen((was) => !was)}
       >
         ?
       </button>
       {open && (
-        <HintWindow label="Подсказка" onClose={shut}>
+        <span
+          ref={layer}
+          id={id}
+          role="note"
+          className="hint-pop"
+          //: Until it has been measured it stands at the corner and invisible:
+          //: the layout effect moves it before this frame reaches the screen.
+          style={at ? { top: at.top, left: at.left } : { top: 0, left: 0, visibility: "hidden" }}
+        >
           {children}
-        </HintWindow>
+        </span>
       )}
     </>
-  );
-}
-
-/** The window an explanation opens in: a small card over the dimmed page.
- *
- * It hangs in a portal on `body` -- above every panel, outside every scroll,
- * and clipped by none of them: the map panel cuts its content to itself
- * (`overflow: hidden`), and an explanation drawn inside it went under the cut. */
-export function HintWindow({
-  label,
-  onClose,
-  children,
-}: {
-  label: string;
-  onClose: () => void;
-  children: ReactNode;
-}) {
-  const shutter = useRef<HTMLButtonElement>(null);
-  //: The window lives while it is open, so the panel behind it may re-render
-  //: as often as it likes: the listener is hung once, and the way out of it
-  //: is read through a ref -- rehanging it on every render would snatch the
-  //: focus back to the button under the person's hands.
-  const latest = useRef(onClose);
-  useEffect(() => {
-    latest.current = onClose;
-  }, [onClose]);
-
-  //: The window closes by Escape wherever the focus is -- an explanation must
-  //: never hold the page hostage.
-  useEffect(() => {
-    shutter.current?.focus();
-    const key = (e: KeyboardEvent) => {
-      if (e.key === "Escape") latest.current();
-    };
-    window.addEventListener("keydown", key);
-    return () => window.removeEventListener("keydown", key);
-  }, []);
-
-  return createPortal(
-    <div
-      className="veil"
-      role="dialog"
-      aria-modal="true"
-      aria-label={label}
-      //: A click past the card closes it; a click inside -- not, or selecting
-      //: a word of the text would shut the window.
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
-      <section className="hint-card">
-        <div className="hint-text">{children}</div>
-        <button type="button" className="quiet hint-shut" ref={shutter} onClick={onClose}>
-          Понятно
-        </button>
-      </section>
-    </div>,
-    document.body,
   );
 }

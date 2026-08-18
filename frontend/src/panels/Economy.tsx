@@ -90,7 +90,13 @@ export function Economy({ look, session, busy }: Props) {
         </>
       )}
 
-      <h3>По каким правилам живём</h3>
+      <h3>
+        По каким правилам живём
+        <Rule>
+          Менять законы — в администрации: власть присутственна. Вкладка видна только
+          должностям: это цифры, которыми правят.
+        </Rule>
+      </h3>
       <table>
         <tbody>
           {Object.entries(city.laws)
@@ -111,9 +117,6 @@ export function Economy({ look, session, busy }: Props) {
       <button className="quiet" onClick={() => void reload()} disabled={busy}>
         Пересчитать
       </button>
-      <Rule>        Менять законы — в администрации: власть присутственна. Вкладка
-        видна только должностям: это цифры, которыми правят.
-      </Rule>
     </div>
   );
 }

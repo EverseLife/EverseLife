@@ -115,7 +115,13 @@ export function Mint({ look, session, values }: Omit<Props, "busy" | "act">) {
 
       {purse.length > 0 && (
         <>
-          <h3>Кошелёк</h3>
+          <h3>
+            Кошелёк
+            <Rule>
+              Переплавка вернёт аффинированный металл за вычетом угара; лигатура
+              теряется — выковыривать её дороже самого железа.
+            </Rule>
+          </h3>
           <table>
             <tbody>
               {purse.map((coin) => (
@@ -132,9 +138,6 @@ export function Mint({ look, session, values }: Omit<Props, "busy" | "act">) {
               ))}
             </tbody>
           </table>
-          <Rule>            Переплавка вернёт аффинированный металл за вычетом угара; лигатура
-            теряется — выковыривать её дороже самого железа.
-          </Rule>
         </>
       )}
     </section>

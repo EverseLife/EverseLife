@@ -9,6 +9,7 @@ ground so that such an arrival is visible in telemetry.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
@@ -226,25 +227,70 @@ async def print_body(session: AsyncSession, identity: Identity, node: Node) -> B
 BIOPRINTER = "Биопринтер"
 
 
-async def spawn_point(session: AsyncSession) -> Node | None:
-    """Where a new body is printed: a bioprinter, otherwise the city core.
-
-    Searched across the world, not by a seed key: the world may consist of
-    other nodes, and people have to print somewhere.
-    """
-    from src.models.inventory import Container, ContainerKind
-
-    prints = (
+async def printer_nodes(session: AsyncSession) -> Sequence[Node]:
+    """Every node where a bioprinter stands. Not every one of them is a door."""
+    return (
         await session.execute(
             select(Node)
             .join(Container, Container.owner_id == Node.id)
             .join(Item, Item.container_id == Container.id)
             .where(Container.kind == ContainerKind.NODE, Item.type_key == BIOPRINTER)
-            .limit(1)
+            .distinct()
         )
-    ).scalars().first()
-    if prints is not None:
-        return prints
+    ).scalars().all()
+
+
+async def is_door(session: AsyncSession, node: Node) -> bool:
+    """Whether a newcomer may be printed here.
+
+    **A door is not every bioprinter** (D-208). A person enters the world through
+    the printer a city grew from -- the machine the founding was allowed on
+    (D-023): it stands in the core (D-089). Printers built later print the dead
+    and the returning (D-033), but they are not new entrances into the world:
+    otherwise any workshop that put a machine in its yard would show up in the
+    newcomer's choice, and choosing a city would turn into choosing somebody's yard.
+
+    The Forerunners' Printer is a door always (D-028): the machine is nobody's,
+    and the free entrance must not close -- even in a world with no city standing.
+
+    The prison printer is not a door: it prints only those the prison holds (D-174).
+    """
+    from src.engine import city as town
+    from src.engine import justice
+    from src.engine.death import PRECURSOR
+
+    if not await has_station(session, node, BIOPRINTER):
+        return False
+    if await justice.is_prison(session, node):
+        return False
+    if (node.properties or {}).get(PRECURSOR):
+        return True
+    city = await town.of_node(session, node)
+    if city is None:
+        #: A printer on nobody's land opens no door: no city was founded on it,
+        #: and a newcomer would come out at a machine whose owner answers to no charter.
+        return False
+    centre = await town.core(session, city)
+    return centre is not None and centre.id == node.id
+
+
+async def spawn_point(session: AsyncSession) -> Node | None:
+    """Where a new body is printed when the door was not named: the Forerunners'
+    Printer, otherwise any other door.
+
+    Searched across the world, not by a seed key: the world may consist of
+    other nodes, and people have to print somewhere.
+    """
+    from src.engine.death import PRECURSOR
+
+    open_ = [
+        node for node in await printer_nodes(session) if await is_door(session, node)
+    ]
+    for node in open_:
+        if (node.properties or {}).get(PRECURSOR):
+            return node
+    if open_:
+        return open_[0]
 
     nodes = (
         await session.execute(select(Node).where(Node.layer == Layer.CITY))
@@ -267,26 +313,17 @@ async def doors(
     about money but about the city: how many people are there and whether it
     pays a settlement grant (D-182).
 
-    The prison printer is not shown: it prints only those the prison holds and
-    is not a door into the world (D-174).
+    One city -- one door: the printer it grew from (D-208, `is_door`). The second
+    printer of a city, a machine on nobody's land and the prison printer are not
+    shown -- one comes into the world through the core, not through any yard
+    where a printer was assembled.
     """
     from src.engine import city as town
-    from src.engine import justice
     from src.engine.death import PRECURSOR
 
-    from_node = (
-        await session.execute(
-            select(Node)
-            .join(Container, Container.owner_id == Node.id)
-            .join(Item, Item.container_id == Container.id)
-            .where(Container.kind == ContainerKind.NODE, Item.type_key == BIOPRINTER)
-            .distinct()
-        )
-    ).scalars().all()
-
     listing: list[dict[str, Any]] = []
-    for node in from_node:
-        if await justice.is_prison(session, node):
+    for node in await printer_nodes(session):
+        if not await is_door(session, node):
             continue
         city = await town.of_node(session, node)
         forerunners = bool(node.properties.get(PRECURSOR))
@@ -360,20 +397,17 @@ async def door(session: AsyncSession, key: str) -> Node | None:
     """The door node by key -- or nothing if printing there is not allowed.
 
     The same is checked as shown in `doors`: a foreign key, a node without a
-    printer and the prison printer are equally unavailable to a newcomer.
+    printer, a city's second printer and the prison printer are equally
+    unavailable to a newcomer (D-208). The list and this check are one rule (`is_door`),
+    otherwise a client from before it would keep entering by a key that is no
+    longer offered.
     """
     node = (
         await session.execute(select(Node).where(Node.key == key))
     ).scalar_one_or_none()
     if node is None:
         return None
-    if not await has_station(session, node, BIOPRINTER):
-        return None
-    from src.engine import justice
-
-    if await justice.is_prison(session, node):
-        return None
-    return node
+    return node if await is_door(session, node) else None
 
 
 async def spawn(

@@ -288,7 +288,12 @@ function Storages({ look, session, busy, act }: Omit<Props, "book">) {
     <>
       {chests.map((chest) => (
         <section key={chest.id}>
-          <h2>{chest.goods}</h2>
+          <h2>
+            {chest.goods}
+            <Rule>
+              Дом хранит то, что не увезти в руках; полный сундук не уносят.
+            </Rule>
+          </h2>
           <p className="note">
             занято {chest.mass.toFixed(1)} из {chest.capacity.toFixed(0)} кг
           </p>
@@ -373,8 +378,6 @@ function Storages({ look, session, busy, act }: Omit<Props, "book">) {
                   </tbody>
                 </table>
               )}
-              <Rule>                Дом хранит то, что не увезти в руках; полный сундук не уносят.
-              </Rule>
             </>
           )}
         </section>
@@ -486,6 +489,13 @@ function Door({ look, session, busy, act }: Omit<Props, "book">) {
 
   return (
     <>
+      <h3>
+        Вход
+        <Rule>
+          Вошедший распоряжается тем, что лежит на земле: дверь и сундук — защита, а не
+          правило «не бери».
+        </Rule>
+      </h3>
       <div className="row">
         <button
           onClick={() => act(() => session.send("gate.set", { closed: !shut }))}
@@ -542,11 +552,6 @@ function Door({ look, session, busy, act }: Omit<Props, "book">) {
           <span className="note">Чёрный список сильнее белого: названный тут не войдёт.</span>
         )}
       </div>
-
-      <Rule>
-        Вошедший распоряжается тем, что лежит на земле: дверь и сундук — защита,
-        а не правило «не бери».
-      </Rule>
     </>
   );
 }

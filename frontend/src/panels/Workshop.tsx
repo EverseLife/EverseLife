@@ -124,7 +124,13 @@ export function Workshop({ look, session, machine, book }: Omit<Props, "busy" | 
   return (
     <section>
       <Refusal of={acting} />
-      <h2>{machine ?? "Руками"}</h2>
+      <h2>
+        {machine ?? "Руками"}
+        <Rule>
+          Партия идёт офлайн и видна в сайдбаре, в «делах». За рабочей станцией работает
+          один: пока идёт партия, второму она не отдаётся.
+        </Rule>
+      </h2>
 
       {look.node?.cut_off && machine !== null && (
         <p className="trouble">
@@ -237,10 +243,6 @@ export function Workshop({ look, session, machine, book }: Omit<Props, "busy" | 
           ))}
         </>
       )}
-
-      <Rule>        Партия идёт офлайн и видна в сайдбаре, в «делах». За рабочей станцией
-        работает один: пока идёт партия, второму она не отдаётся.
-      </Rule>
     </section>
   );
 }

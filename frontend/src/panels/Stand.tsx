@@ -282,11 +282,18 @@ function assemble({ look, session, book, values, pow }: Props): Thing[] {
   //: The ship, where there is one to command: standing at a spaceport or
   //: aboard. Aboard the row is the ship itself -- the map is already showing
   //: its rooms, and this panel adds what the map cannot: thrust against mass.
-  const shipHere =
-    (look.node?.stations ?? []).includes("Космодром") ||
-    (look.node?.features ?? []).includes("борт");
+  const aboard = (look.node?.features ?? []).includes("борт");
+  const shipHere = (look.node?.stations ?? []).includes("Космическая верфь") || aboard;
   if (shipHere) {
-    single("ship", "Корабль", "full", () => <Ship look={look} session={session} />);
+    //: Aboard the window is the ship, on the ground it is the yard the ship is
+    //: laid down and moored at: one panel, and its name says which of the two
+    //: the player is looking at.
+    single(
+      "ship",
+      aboard ? "Корабль" : "Космическая верфь",
+      "full",
+      () => <Ship look={look} session={session} />,
+    );
   }
 
   //: Plots are the holder's business: on somebody else's land one farms by

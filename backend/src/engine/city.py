@@ -190,6 +190,42 @@ async def territory(session: AsyncSession, city: City) -> Sequence[Node]:
     )
 
 
+#: Node property: the ring of the built-up area, a record made at generation
+#: (D-089). The zero ring is the centre, and the bioprinter stands in it.
+RING = "кольцо"
+
+
+async def core(session: AsyncSession, city: City) -> Node | None:
+    """The city core -- the node with the bioprinter the city grew from (D-089).
+
+    A city is founded where a bioprinter already stands (`establish`), so a city
+    on one node is its own core: that very machine became the ground of the
+    city. The capital is laid out otherwise -- the delegate node holds no
+    machines -- and there the core is the zero ring under it, the node with the
+    Forerunners' Printer the capital was rebuilt from.
+
+    Only the core is a door into the world (D-208, `world.is_door`). Printers
+    built later print the dead and the returning, but a newcomer does not come
+    out of somebody's workshop.
+    """
+    from src.engine import world
+    from src.engine.death import PRECURSOR
+
+    own = await session.get(Node, city.node_id)
+    if own is not None and await world.has_station(session, own, world.BIOPRINTER):
+        return own
+    #: The centre of the built-up area is marked twice -- by the zero ring and by
+    #: the Forerunners' machine -- and either mark will do: a world laid out
+    #: before one of them still has a core rather than none.
+    for place in await territory(session, city):
+        marks = place.properties or {}
+        if not (marks.get(PRECURSOR) or marks.get(RING) == 0):
+            continue
+        if await world.has_station(session, place, world.BIOPRINTER):
+            return place
+    return None
+
+
 async def gate(session: AsyncSession, city: City) -> Node | None:
     """The city's gate: where the built-up area meets the road beyond it (D-206).
 

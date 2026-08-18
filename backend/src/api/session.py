@@ -694,6 +694,11 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
     #: query -- without this the row appeared in every location in the world,
     #: including ones where nothing drills anything.
     seen["rig_here"] = bool(await rig.status(db, constants, node.id))
+    #: The ship one is standing in. Its rooms are not on the public map
+    #: (D-201): from outside a ship is one hull, and its layout is exactly what
+    #: a boarder would want. So it travels with the look of whoever is inside,
+    #: and the map layer for it appears at the moment of stepping aboard.
+    seen["aboard"] = await ship.inside(db, constants, node)
     return {"look": seen}
 
 

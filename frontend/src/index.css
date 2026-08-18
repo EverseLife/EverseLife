@@ -616,11 +616,9 @@ button:not(:disabled):active {
     min-height: 44px;
   }
   /* A link-button is a word inside a sentence: given 44px it would tear the
-     line apart. It gets the room around it instead. The way into a rule is
-     the same kind of thing -- small grey type under a panel, not a control. */
+     line apart. It gets the room around it instead. */
   button.link,
-  button.eye,
-  button.rule-mark {
+  button.eye {
     min-height: 0;
     padding-block: 0.5rem;
   }
@@ -857,59 +855,6 @@ tr.picked td:first-child {
 }
 
 /*
- * A rule of the world: behind a "?" in the ordinary densities, spelled out in
- * the plain one. State stays a `.note` and is always in view -- the difference
- * between the two is the whole point of the split.
- */
-.rule {
-  font-size: 0.8rem;
-  line-height: 1.35;
-  color: var(--base-400);
-  margin: 0.35rem 0 0;
-}
-/* The way in: the "?" and the words beside it. A word inside a sentence, not
-   a button-shaped thing -- it carries the panel's own small grey type. */
-.rule-mark {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  width: max-content;
-  max-width: 100%;
-  padding: 0;
-  border: none;
-  border-radius: 0;
-  background: none;
-  font: inherit;
-  text-align: left;
-  color: var(--base-400);
-  cursor: help;
-}
-.rule-sign {
-  display: inline-grid;
-  place-items: center;
-  width: 1.2em;
-  height: 1.2em;
-  flex: none;
-  border: 1px solid var(--base-600);
-  border-radius: 50%;
-  font-size: 0.75rem;
-}
-.rule-mark:hover,
-.rule-mark:focus-visible,
-.rule-mark[aria-expanded="true"] {
-  color: var(--base-200);
-}
-.rule-body {
-  max-width: 60ch;
-}
-/* Dense: the words go, the icon stays -- whoever runs twenty orders knows the
-   rules and needs the vertical space. In the plain density there is no way in
-   at all: the rule stands spelled out, and `Rule` draws no "?" over it. */
-:root[data-density="dense"] .rule-mark .rule-lead {
-  display: none;
-}
-
-/*
  * A refusal in place of the action it refuses (01-interaction-model).
  *
  * A grey button without a reason reads as a broken client, and a reason hidden
@@ -1022,13 +967,18 @@ tr.picked td:first-child {
   margin-top: 0;
 }
 
-/* A hint on demand: the icon in view, the explanation in a window of its own.
-   The icon keeps its size open or shut, so nothing around it moves. */
+/* An explanation on demand: the icon in view, the text in a layer beside it.
+   The icon is the same everywhere -- a hint about a screen and a rule of the
+   world are one thing to the player -- and it stands by the title of whatever
+   it explains, not in a row of its own. */
 .hint {
   position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  /* Beside a title the circle is centred on the words, not sat on their
+     baseline: 0.15em of its own type is exactly the difference. */
+  vertical-align: 0.15em;
   width: 1.3em;
   height: 1.3em;
   flex: none;
@@ -1043,7 +993,15 @@ tr.picked td:first-child {
   cursor: help;
   user-select: none;
 }
-/* The circle is small on purpose -- it stands among buttons, not beside them.
+/* Beside a title the icon needs air, and the title's own weight is not its:
+   `font-size` is set above, so the circle stays small under any heading. */
+h2 > .hint,
+h3 > .hint,
+label > span > .hint,
+.sign > .hint {
+  margin-left: 0.4rem;
+}
+/* The circle is small on purpose -- it stands among words, not beside them.
    The finger gets a bigger target from an invisible pad that costs no room.
    The pad is half the row's gap: any wider and it would lie over the
    neighbouring button and swallow taps meant for it. */
@@ -1058,26 +1016,34 @@ tr.picked td:first-child {
   border-color: var(--base-400);
 }
 
-/* The explanation itself: a small window over the page, in a portal on
-   `body`. Beside the icon it used to move the row -- the panel scrolls, the
-   wide block gave it a scrollbar, and the buttons shifted under the hand. */
-.hint-card {
-  width: min(24rem, 100%);
-  max-height: 100%;
-  overflow-y: auto;
-  /* Opaque background: the window lies over the map and the text under it. */
-  background: var(--base-900);
-  color: var(--base-200);
-  font-size: 0.85rem;
-  line-height: 1.4;
-}
-.hint-text {
-  margin: 0;
-}
-/* The way out stands at the far edge, where a window's own controls stand. */
-.hint-shut {
+/* The explanation itself: the floating layer of the brief, the same one the
+   menus use -- and the only one the page gets. It is `fixed`, so it lies
+   outside the flow of every panel and is clipped by none: expanding in place
+   it used to push the row apart, and inside the map panel it went under the
+   panel's own cut. Placed by `Hint`, which measures it first. */
+.hint-pop {
   display: block;
-  margin: 0.75rem 0 0 auto;
+  position: fixed;
+  z-index: 20;
+  width: min(22rem, calc(100vw - 1rem));
+  padding: 0.45rem 0.6rem;
+  background: var(--base-850);
+  border: 1px solid var(--base-600);
+  border-radius: var(--r-pop);
+  box-shadow: var(--shadow-pop);
+  /* It hangs beside a heading and inside a `.sign`, and must read as neither:
+     type, weight and colour are its own. */
+  font-family: var(--font-ui);
+  font-size: 0.8rem;
+  font-weight: 400;
+  font-style: normal;
+  line-height: 1.4;
+  letter-spacing: normal;
+  text-transform: none;
+  text-align: left;
+  white-space: normal;
+  color: var(--base-200);
+  cursor: auto;
 }
 
 /* An error is always in view: a strip under the frame, not deep in the scroll. */

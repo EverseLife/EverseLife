@@ -150,7 +150,12 @@ function Character({ look, session, busy, act }: Props) {
   const bed_ = (look.node?.stations ?? []).includes("Кровать");
   return (
     <div>
-      <p className="sign">{look.identity}</p>
+      <p className="sign">
+        {look.identity}
+        <Rule>
+          Личность бессмертна, тело — расходник; выносливость возвращает сон.
+        </Rule>
+      </p>
       <table>
         <tbody>
           <tr>
@@ -214,9 +219,6 @@ function Character({ look, session, busy, act }: Props) {
           )}
         </div>
       )}
-
-      <Rule>        Личность бессмертна, тело — расходник; выносливость возвращает сон.
-      </Rule>
     </div>
   );
 }
@@ -239,6 +241,13 @@ function Doings({ look }: { look: Look }) {
   const empty = look.batches.length === 0 && !look.travel;
   return (
     <div>
+      <h3>
+        Дела
+        <Rule>
+          Длительные действия идут сами, в том числе пока вы офлайн: их двигает мир, а
+          не браузер.
+        </Rule>
+      </h3>
       {look.travel && (
         <Doing
           what={`в пути: ${look.travel.final ?? look.travel.to}`}
@@ -263,9 +272,6 @@ function Doings({ look }: { look: Look }) {
         />
       ))}
       {empty && <p className="note">ничего не идёт</p>}
-      <Rule>        Длительные действия идут сами, в том числе пока вы офлайн: их двигает
-        мир, а не браузер.
-      </Rule>
     </div>
   );
 }
@@ -277,7 +283,13 @@ function Trade({ look, session, busy, act }: Props) {
           не забрал в срок — задаток остаётся продавцу (D-047). */}
       {look.reservations.length > 0 && (
         <>
-          <h3>Брони</h3>
+          <h3>
+            Брони
+            <Rule>
+              Забирают ногами: приезжайте в узел и выкупайте. Срок вышел — задаток
+              остался продавцу, товар вернулся в стакан.
+            </Rule>
+          </h3>
           {look.reservations.map((reservation) => (
             <Doing
               key={reservation.id}
@@ -290,12 +302,15 @@ function Trade({ look, session, busy, act }: Props) {
               }
             />
           ))}
-          <Rule>            Забирают ногами: приезжайте в узел и выкупайте. Срок вышел — задаток
-            остался продавцу, товар вернулся в стакан.
-          </Rule>
         </>
       )}
 
+      <h3>
+        Ордера
+        <Rule>
+          Ордером распоряжаются отсюда; товар лежит в терминале.
+        </Rule>
+      </h3>
       {look.orders.length === 0 ? (
         <p className="note">своих ордеров нет</p>
       ) : (
@@ -315,8 +330,6 @@ function Trade({ look, session, busy, act }: Props) {
           </div>
         ))
       )}
-      <Rule>        Ордером распоряжаются отсюда; товар лежит в терминале.
-      </Rule>
     </div>
   );
 }
@@ -324,13 +337,17 @@ function Trade({ look, session, busy, act }: Props) {
 function Knowledge({ look }: { look: Look }) {
   return (
     <div>
+      <h3>
+        Рецепты
+        <Rule>
+          Знание живёт в личности и не теряется ни смертью, ни судом (И8).
+        </Rule>
+      </h3>
       {look.knows.length === 0 ? (
         <p className="note">пока ничего: рецепты берут в Библиотеке</p>
       ) : (
         look.knows.map((name) => <p key={name}>{name}</p>)
       )}
-      <Rule>        Знание живёт в личности и не теряется ни смертью, ни судом (И8).
-      </Rule>
     </div>
   );
 }

@@ -80,6 +80,19 @@ async def _world(session: AsyncSession, catalog: Catalog, *, treasury: float = 0
     return city, core, forge
 
 
+async def _outpost(session: AsyncSession, catalog: Catalog, name: str = "Балка"):
+    """A city founded on one node: the printer the founding was allowed on is its core."""
+    stamp = uuid.uuid4().hex[:8]
+    ground = await world.create_node(
+        session, f"terra.wild.{stamp}", name, area_m2=300, layer=Layer.PLANET
+    )
+    yard = await world.node_container(session, ground)
+    await world.grant_item(session, yard, death.PRINTER, quality=50, origin="тест")
+    city = await town.found(session, catalog, ground, name)
+    await session.flush()
+    return city, ground
+
+
 async def _resident(session: AsyncSession, node, name: str, *, funds: float = 0):
     identity, body = await world.spawn(session, f"{name}-{uuid.uuid4().hex[:6]}", node)
     if funds:
@@ -352,20 +365,75 @@ async def test_newcomer_doors_show_city_not_price(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
     """The first body is free everywhere (D-040), so one chooses not the price but the people."""
-    city, core, forge = await _world(session, catalog)
+    city, core, _ = await _world(session, catalog)
     city.laws = {"newcomer_grant": "50"}
     await _resident(session, core, "Старожил")
     await session.flush()
 
-    doors = await world.doors(session, constants, catalog)
-    keys = {door["node"]: door for door in doors}
-    assert set(keys) == {core.key, forge.key}
-    assert keys[forge.key]["city"] == "Столица"
-    assert keys[forge.key]["grant"] == money(50)
+    keys = {
+        door["node"]: door
+        for door in await world.doors(session, constants, catalog)
+    }
+    assert keys[core.key]["city"] == "Столица"
+    assert keys[core.key]["grant"] == money(50)
+    assert keys[core.key]["population"] == 1
     #: Neither price nor term: they are not set for a newcomer, and lying about them is not allowed.
     assert "cost" not in keys[core.key] and "minutes" not in keys[core.key]
+
+
+async def test_city_door_is_the_printer_it_grew_from(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """One city -- one door: the machine it grew from (D-208).
+
+    The capital has two working printers: the eternal one in the core and the
+    city one at the forge. Only the core takes newcomers -- the forge prints the
+    dead (D-033) and does not become a second entrance into the world.
+    """
+    await _world(session, catalog)
+    _, ground = await _outpost(session, catalog)
+    await _resident(session, ground, "Первопоселенец")
+    await session.flush()
+
+    doors = await world.doors(session, constants, catalog)
+    core_ = next(door for door in doors if door["precursor"])
+    #: A city on one node is its own core: there stands the printer the founding
+    #: was allowed on, and it is the door.
+    assert {door["node"] for door in doors} == {ground.key, core_["node"]}
     #: The Forerunners' Printer last: a fallback door without residents and without a treasury.
-    assert doors[-1]["node"] == core.key and doors[-1]["precursor"] is True
+    assert doors[-1]["node"] == core_["node"]
+
+
+async def test_second_printer_of_city_is_no_door(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """A printer put in a workshop prints the dead but leads nobody into the world."""
+    _, _, forge = await _world(session, catalog)
+
+    keys = {door["node"] for door in await world.doors(session, constants, catalog)}
+    assert forge.key not in keys
+    #: The list and the check by key are one rule: what is not offered does not open.
+    assert await world.door(session, forge.key) is None
+    #: For the dead the forge is still a printer, and a fast one at that (D-028).
+    assert forge.key in {printer["node"] for printer in await death.printers(session, constants)}
+
+
+async def test_printer_outside_a_city_is_no_door(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """A machine on nobody's land: nothing was founded on it, and it is no entrance."""
+    await _world(session, catalog)
+    wild = await world.create_node(
+        session, f"terra.wild.{uuid.uuid4().hex[:6]}", "Заимка", area_m2=200,
+        layer=Layer.PLANET,
+    )
+    yard = await world.node_container(session, wild)
+    await world.grant_item(session, yard, death.PRINTER, quality=50, origin="тест")
+    await session.flush()
+
+    keys = {door["node"] for door in await world.doors(session, constants, catalog)}
+    assert wild.key not in keys
+    assert await world.door(session, wild.key) is None
 
 
 async def test_penal_colony_is_not_door_for_newcomer(
@@ -394,7 +462,7 @@ async def test_only_node_with_printer_called_door(
     session: AsyncSession, catalog: Catalog
 ) -> None:
     """A foreign key and a node without a printer refuse alike: nowhere to print."""
-    _, _, forge = await _world(session, catalog)
+    _, core, _ = await _world(session, catalog)
     field = await world.create_node(
         session, f"terra.field.{uuid.uuid4().hex[:6]}", "Пойма", area_m2=400
     )
@@ -402,4 +470,4 @@ async def test_only_node_with_printer_called_door(
 
     assert await world.door(session, field.key) is None
     assert await world.door(session, "нет-такого-узла") is None
-    assert (await world.door(session, forge.key)) is not None
+    assert (await world.door(session, core.key)) is not None

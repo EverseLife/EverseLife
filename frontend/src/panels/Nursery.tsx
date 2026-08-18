@@ -136,7 +136,14 @@ export function Nursery({ look, session }: Omit<Props, "busy" | "act">) {
 
       {cultivars.length > 0 && (
         <>
-          <h3>Свои сорта</h3>
+          <h3>
+            Свои сорта
+            <Rule>
+              Гибрид даёт отличный урожай один раз — его семена расщепляются. Поколения
+              отбора доводят его до постоянного сорта, и тогда автор даёт ему имя
+              навсегда.
+            </Rule>
+          </h3>
           <table>
             <tbody>
               {cultivars.map((cultivar) => (
@@ -176,10 +183,6 @@ export function Nursery({ look, session }: Omit<Props, "busy" | "act">) {
               ))}
             </tbody>
           </table>
-          <Rule>            Гибрид даёт отличный урожай один раз — его семена расщепляются.
-            Поколения отбора доводят его до постоянного сорта, и тогда автор даёт
-            ему имя навсегда.
-          </Rule>
         </>
       )}
     </section>

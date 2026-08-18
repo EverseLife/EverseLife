@@ -65,7 +65,12 @@ export function Population({ look, session, busy }: Props) {
         </tbody>
       </table>
 
-      <h3>Должности</h3>
+      <h3>
+        Должности
+        <Rule>
+          Назначать и снимать — в администрации: власть присутственна.
+        </Rule>
+      </h3>
       {city.offices.length === 0 ? (
         <p className="note">должностей нет</p>
       ) : (
@@ -113,8 +118,6 @@ export function Population({ look, session, busy }: Props) {
       <button className="quiet" onClick={() => void reload()} disabled={busy}>
         Пересчитать
       </button>
-      <Rule>        Назначать и снимать — в администрации: власть присутственна.
-      </Rule>
     </div>
   );
 }
