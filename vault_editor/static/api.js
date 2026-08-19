@@ -30,6 +30,7 @@ export const api = {
   create: (body) => req('POST', '/api/recipe', null, body),
   update: (name, body) => req('PUT', '/api/recipe', { name }, body),
   remove: (name, body) => req('DELETE', '/api/recipe', { name }, body),
+  measure: (name, body) => req('PUT', '/api/measure', { name }, body),
   check: () => req('POST', '/api/check'),
   build: () => req('POST', '/api/build'),
   sync: () => req('POST', '/api/sync'),

@@ -95,6 +95,10 @@ class RecipeBook(Strict):
     #: liquids (D-212). Everything not named here is counted in pieces, and a
     #: piece is whole -- there is no half an ingot.
     bulk: tuple[str, ...] = ()
+    #: What to draw next to a quantity: "5 шт", "3 м". Display only -- whether a
+    #: quantity may be fractional is decided by `bulk`, not by the word (D-212).
+    #: The engine never reads it; it travels so the client need not invent it.
+    units: dict[str, str] = Field(default_factory=dict)
     #: Unit mass, kg. Given by data: it cannot be derived from input amounts --
     #: those are given by labour, not composition (D-146).
     mass: dict[str, float] = Field(default_factory=dict)

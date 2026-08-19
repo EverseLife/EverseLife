@@ -68,6 +68,7 @@ KEY_ORDER = (
     "slot",
     "store",
     "mass",
+    "hours",
     "mix",
     "inputs",
     "amounts",
@@ -80,7 +81,7 @@ KEY_ORDER = (
 # Fields the editor is allowed to write. `manual_amounts` and everything derived
 # is deliberately absent: it is computed by the build, not authored.
 BOOL_FIELDS = ("key", "mix", "roles", "food", "hot")
-NUMBER_FIELDS = ("mass", "store")
+NUMBER_FIELDS = ("mass", "store", "hours")
 LIST_FIELDS = ("inputs", "highlight")
 MAP_FIELDS = ("amounts", "weights")
 
@@ -382,6 +383,115 @@ class RecipesFile:
         raise VaultError(f"не нашёл, куда вставлять: {where}")
 
 
+# ---------------------------------------------------------------------- meta
+
+
+class MetaBlock:
+    """One `meta:` key that holds a plain block list or a plain mapping.
+
+    `bulk` says which things are measured rather than counted, `units` says what
+    word to draw next to the number. Both are lists of names, both are edited one
+    line at a time -- and both sit among comments that explain the choice, so the
+    same line-level discipline applies here as to a recipe.
+    """
+
+    def __init__(self, file: RecipesFile, key: str):
+        self.file = file
+        self.key = key
+        self.start, self.end, self.indent = self._span()
+
+    def _span(self) -> tuple[int, int, int]:
+        """Lines of the block: the key itself, then everything indented under it."""
+        header = re.compile(rf"^(\s*){re.escape(self.key)}:\s*(\S.*)?$")
+        for index, line in enumerate(self.file.lines):
+            match = header.match(line)
+            if not match or len(match.group(1)) != 2:  # only keys directly under meta:
+                continue
+            indent = len(match.group(1))
+            if match.group(2):  # written inline, `units: {}` -- one line, no body
+                return index, index, indent + 2
+            last = index
+            for offset in range(index + 1, len(self.file.lines)):
+                text = self.file.lines[offset]
+                if not text.strip():
+                    continue
+                if len(text) - len(text.lstrip()) <= indent:
+                    break
+                last = offset
+            return index, last, indent + 2
+        raise VaultError(f"в meta нет ключа «{self.key}»")
+
+    def _body(self) -> list[int]:
+        """Line numbers of the entries, comments and blanks left out."""
+        def written(line: str) -> bool:
+            return bool(line.strip()) and not line.lstrip().startswith("#")
+
+        return [
+            index
+            for index in range(self.start + 1, self.end + 1)
+            if written(self.file.lines[index])
+        ]
+
+    # -- list --------------------------------------------------------------
+
+    def toggle(self, name: str, present: bool) -> list[str]:
+        """Put a name into a block list, or take it out. Idempotent."""
+        lines = list(self.file.lines)
+        found = [
+            index
+            for index in self._body()
+            if lines[index].strip() == f"- {_scalar(name)}" or lines[index].strip() == f"- {name}"
+        ]
+        if present and not found:
+            entry = " " * self.indent + f"- {_scalar(name)}"
+            at = (self._body() or [self.start])[-1] + 1
+            return lines[:at] + [entry] + lines[at:]
+        if not present and found:
+            for index in reversed(found):
+                del lines[index]
+            if not self._body_after(lines):
+                # Ключ без единой записи прочитался бы как пустота, а не как
+                # пустой список: `bulk:` — это None, `bulk: []` — это ноль вещей.
+                lines[self.start] = " " * (self.indent - 2) + f"{self.key}: []"
+        return lines
+
+    # -- mapping -----------------------------------------------------------
+
+    def put(self, name: str, value: str | None) -> list[str]:
+        """Set a mapping entry, or drop it when the value is empty."""
+        lines = list(self.file.lines)
+        key = re.compile(rf"^\s*{re.escape(name)}\s*:\s")
+        found = [index for index in self._body() if key.match(lines[index])]
+        if value:
+            entry = " " * self.indent + f"{_scalar(name)}: {_scalar(value)}"
+            if found:
+                lines[found[0]] = entry
+                return lines
+            if lines[self.start].strip().endswith("{}"):
+                # `units: {}` -- an empty map written inline. The first entry
+                # turns it into a block, and the key loses its braces.
+                lines[self.start] = lines[self.start].rsplit(":", 1)[0] + ":"
+            at = (self._body() or [self.start])[-1] + 1
+            return lines[:at] + [entry] + lines[at:]
+        for index in reversed(found):
+            del lines[index]
+        if not found:
+            return lines
+        if not self._body_after(lines):
+            # The last entry is gone: an empty block key would not parse.
+            lines[self.start] = " " * (self.indent - 2) + f"{self.key}: {{}}"
+        return lines
+
+    def _body_after(self, lines: list[str]) -> bool:
+        """Whether anything is left under the key after a deletion."""
+        for offset in range(self.start + 1, len(lines)):
+            text = lines[offset]
+            if not text.strip() or text.lstrip().startswith("#"):
+                continue
+            return len(text) - len(text.lstrip()) >= self.indent
+        return False
+
+
 # -------------------------------------------------------------------- rename
 
 
@@ -446,16 +556,7 @@ def save(
     `{"name": ..., "data": {...} | None}` -- None for a deletion. The check is
     what makes a line-level edit safe: a mistake in line arithmetic cannot pass it.
     """
-    if mtime is not None and path.stat().st_mtime_ns != mtime:
-        raise VaultError(
-            "файл вольта изменился на диске, пока он был открыт в редакторе. "
-            "Обновите страницу и повторите правку."
-        )
-    text = "\n".join(lines)
-    try:
-        doc = yaml.safe_load(text)
-    except yaml.YAMLError as error:
-        raise VaultError(f"после правки файл перестал читаться: {error}") from error
+    text, doc = _reread(path, lines, mtime)
 
     for gone in expect.get("absent") or []:
         if _find_recipe(doc, gone) is not None:
@@ -475,6 +576,41 @@ def save(
     backup = _backup(path)
     path.write_text(text, encoding="utf-8", newline=newline)
     return backup
+
+
+def save_doc(
+    path: Path,
+    lines: list[str],
+    expect_doc: dict,
+    mtime: int | None = None,
+    newline: str = "\n",
+) -> Path:
+    """Write the file back, checking the whole document against what was meant.
+
+    Used where the edit is not one entry but a line inside `meta`: there is no
+    single name to look up afterwards, so the entire parsed document is compared
+    with the one the caller built by hand. Anything the line arithmetic touched
+    besides the intended change shows up as a mismatch and stops the write.
+    """
+    text, doc = _reread(path, lines, mtime)
+    if _comparable(doc) != _comparable(expect_doc):
+        raise VaultError("после правки файл читается не так, как задумано — запись отменена")
+    backup = _backup(path)
+    path.write_text(text, encoding="utf-8", newline=newline)
+    return backup
+
+
+def _reread(path: Path, lines: list[str], mtime: int | None) -> tuple[str, dict]:
+    if mtime is not None and path.stat().st_mtime_ns != mtime:
+        raise VaultError(
+            "файл вольта изменился на диске, пока он был открыт в редакторе. "
+            "Обновите страницу и повторите правку."
+        )
+    text = "\n".join(lines)
+    try:
+        return text, yaml.safe_load(text)
+    except yaml.YAMLError as error:
+        raise VaultError(f"после правки файл перестал читаться: {error}") from error
 
 
 def _find_recipe(doc: dict, name: str) -> dict | None:

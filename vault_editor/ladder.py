@@ -158,6 +158,11 @@ class Ladder:
                 inputs=list(recipe.get("inputs") or []),
                 amounts=derived.get("amounts") or recipe.get("amounts") or {},
                 manual_amounts=bool(recipe.get("amounts")),
+                # Собственное время изготовления единицы: то, что вывела сборка,
+                # минус труд, пришедший со входами. Тем же вычитанием его
+                # достаёт движок (src/engine/craft.py), а не считает заново
+                step_hours=self._own_hours(name, derived),
+                manual_hours=recipe.get("hours"),
                 is_key=bool(recipe.get("key")),
                 mix=bool(recipe.get("mix")),
                 roles=bool(recipe.get("roles")),
@@ -173,6 +178,16 @@ class Ladder:
         # A station named by a synonym is the same node as the recipe it means,
         # so nothing else is added here: `canon` already pointed the edges home.
         return sorted(out.values(), key=lambda node: (node.get("depth") is None, node["name"]))
+
+    def _own_hours(self, name: str, derived: dict) -> float | None:
+        labour = self.labor.get(name)
+        if labour is None:
+            return None
+        spent = sum(
+            float(quantity) * self.labor.get(self.canon(item), 0.0)
+            for item, quantity in (derived.get("amounts") or {}).items()
+        )
+        return round(max(labour - spent, 0.0), 3)
 
     def edges(self) -> list[dict]:
         out: list[dict] = []
@@ -352,6 +367,7 @@ class Ladder:
             | set(STATION_ALIASES)
         )
         return {
+            "units": dict(self.file.meta().get("units") or {}),
             "kinds": kinds,
             "stations": stations,
             "slots": self.gear_slots,
@@ -424,7 +440,7 @@ def validate(data: dict, ladder: Ladder, original: str | None = None) -> None:
     slot = data.get("slot")
     if slot and slot not in ladder.gear_slots:
         raise VaultError(f"слота «{slot}» нет: есть {', '.join(ladder.gear_slots)}")
-    for field in ("mass", "store"):
+    for field in ("mass", "store", "hours"):
         value = data.get(field)
         if value is not None and (not isinstance(value, (int, float)) or value <= 0):
             raise VaultError(f"«{field}» должно быть числом больше нуля")

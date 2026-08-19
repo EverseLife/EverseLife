@@ -1,4 +1,4 @@
-"""The octoverse.world landing page: the page and beta signup intake.
+"""The everse.life landing page: the page and beta signup intake.
 
 One service for the whole domain: serves `index.html` and accepts `POST /api/signup`.
 A signup is an email in SQLite (`/data/signups.db`, a compose volume): its own

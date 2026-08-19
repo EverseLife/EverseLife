@@ -1,4 +1,4 @@
-# The octoverse.world landing: the page and beta signup intake.
+# The everse.life landing: the page and beta signup intake.
 FROM python:3.13-slim
 
 WORKDIR /app

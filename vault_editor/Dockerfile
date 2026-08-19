@@ -23,7 +23,7 @@ RUN pip install --no-cache-dir pyyaml==6.0.2
 WORKDIR /app
 COPY . /app
 
-ENV OCTOVERSE_VAULT=/vault \
+ENV OCTOVERSE_VAULT=../vault \
     OCTOVERSE_REPO=/repo \
     OCTOVERSE_EDITOR_BACKUPS=/backups \
     OCTOVERSE_EDITOR_HOST=0.0.0.0 \

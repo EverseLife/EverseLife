@@ -114,6 +114,7 @@ export function createPanel(root, deps) {
           : null,
         node.type === 'class' && node.members
           ? h('div', { class: 'refs' }, node.members.map((m) => refButton(m))) : null,
+        measureBlock(node.name ? node : { ...node, name: payload.name }),
         derivedBlock(payload, node),
         referencesBlock(payload.references),
         h('div', { class: 'note-line' },
@@ -212,6 +213,17 @@ export function createPanel(root, deps) {
           }),
         ),
         h('div', { class: 'field' },
+          h('label', { text: 'время, ч' }),
+          h('input', {
+            type: 'number', step: 'any', min: '0', value: num(data.hours),
+            placeholder: node.step_hours != null
+              ? `выводится: ${num(node.step_hours)}` : 'выводится сборкой',
+            title: 'собственное время изготовления единицы. Пусто — растёт от '
+              + 'глубины передела (D-133). Заданное вручную идёт и в количества входов',
+            oninput: setNumber('hours'),
+          }),
+        ),
+        h('div', { class: 'field' },
           h('label', { text: 'вмещает, кг' }),
           h('input', {
             type: 'number', step: 'any', min: '0', value: num(data.store),
@@ -230,6 +242,7 @@ export function createPanel(root, deps) {
         h('div', { class: 'spacer' }),
         state.isNew ? null : h('button', { class: 'danger', onclick: remove, text: 'Удалить' }),
       ),
+      state.isNew ? null : measureBlock(node),
       state.isNew ? null : derivedBlock(detail, node),
       state.isNew ? null : referencesBlock(detail.references),
       state.isNew ? null : sourceBlock(detail),
@@ -332,6 +345,54 @@ export function createPanel(root, deps) {
           class: 'note-line',
           text: data.amounts ? 'количества заданы вручную' : 'количества выводит сборка',
         }),
+      ),
+    );
+  }
+
+  // Измерение живёт в `meta`, а не в строке рецепта, поэтому и пишется своей
+  // кнопкой: у сырья и продуктов операций строки нет, а мерить их надо тоже.
+  function measureBlock(node) {
+    const name = node.name;
+    if (!name) return null;
+    const known = deps.vocabulary().units || {};
+    let unit = known[name] ?? '';
+    let bulk = !!node.bulk;
+    const status = h('span', { class: 'note-line' });
+
+    const apply = async (button) => {
+      button.disabled = true;
+      try {
+        deps.onWrite(await api.measure(name, { unit, bulk }), name);
+      } catch (error) {
+        status.textContent = error.message;
+        button.disabled = false;
+      }
+    };
+
+    return h('fieldset', {},
+      h('legend', { text: 'измерение' }),
+      h('div', { class: 'field' },
+        h('label', { text: 'единица' }),
+        h('input', {
+          value: unit, placeholder: bulk ? 'без подписи' : 'шт.', maxlength: 12,
+          title: 'дорисовывается рядом с числом: «5 шт», «3 м». Только для показа',
+          oninput: (event) => { unit = event.target.value; },
+        }),
+      ),
+      h('div', { class: 'flags', style: 'margin-top:6px' },
+        h('label', { title: 'весовое: количество бывает дробным (D-212). '
+          + 'Штучное — всегда целое, половины слитка не бывает' },
+        h('input', {
+          type: 'checkbox',
+          checked: bulk,
+          onchange: (event) => { bulk = event.target.checked; },
+        }),
+        'дробное количество'),
+      ),
+      h('div', { class: 'panel-actions' },
+        h('button', { text: 'Записать измерение', onclick: (event) => apply(event.target) }),
+        h('div', { class: 'spacer' }),
+        status,
       ),
     );
   }

@@ -11,6 +11,7 @@ that writes files has no business listening on the network.
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import os
 import subprocess
@@ -192,6 +193,41 @@ def delete(session: Session, query: dict, body: dict) -> dict:
     return {"deleted": name, "check": _check(session)}
 
 
+def measure(session: Session, query: dict, body: dict) -> dict:
+    """How a thing is measured: whole or fractional, and by what word.
+
+    Both live in `meta`, next to each other and next to the comments explaining
+    the choice -- `bulk` decides whether a quantity may be fractional (D-212),
+    `units` only says what to draw beside the number. They are written together
+    because that is how a person thinks of them, and in one write because half
+    an answer in the file is worse than none.
+    """
+    name = _need(query, "name")
+    unit = str(body.get("unit") or "").strip()
+    bulk = bool(body.get("bulk"))
+    with session.lock:
+        file, ladder = session.open()
+        if name not in ladder.known_names():
+            raise vault.VaultError(f"«{name}» нет в вольте")
+
+        expect = copy.deepcopy(file.doc)
+        meta = expect["meta"]
+        kept = [item for item in (meta.get("bulk") or []) if item != name]
+        meta["bulk"] = [*kept, name] if bulk else kept
+        units = {k: v for k, v in (meta.get("units") or {}).items() if k != name}
+        if unit:
+            units[name] = unit
+        meta["units"] = units
+
+        lines = vault.MetaBlock(file, "bulk").toggle(name, bulk)
+        after = vault.RecipesFile(
+            session.source, text="\n".join(lines), newline=file.newline
+        )
+        lines = vault.MetaBlock(after, "units").put(name, unit or None)
+        vault.save_doc(session.source, lines, expect, file.mtime, file.newline)
+    return {"measured": name, "check": _check(session)}
+
+
 def undo(session: Session, _query: dict, _body: dict) -> dict:
     with session.lock:
         restored = vault.undo(session.source)
@@ -233,6 +269,7 @@ ROUTES = {
     ("POST", "/api/recipe"): create,
     ("PUT", "/api/recipe"): update,
     ("DELETE", "/api/recipe"): delete,
+    ("PUT", "/api/measure"): measure,
     ("POST", "/api/check"): check,
     ("POST", "/api/build"): build,
     ("POST", "/api/sync"): sync,

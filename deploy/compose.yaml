@@ -96,7 +96,7 @@ services:
     image: ghcr.io/${GHCR_OWNER:-sumrak10}/octoverse-frontend:${TAG:-latest}
     restart: unless-stopped
 
-  # The octoverse.world landing: the page and beta signup intake. Signups go
+  # The everse.life landing: the page and beta signup intake. Signups go
   # to SQLite on a volume; the landing does not touch the game database. Until
   # LANDING_DOMAIN is set in `.env`, Caddy keeps it on an internal name and does not expose it.
   landing:
@@ -118,6 +118,8 @@ services:
     environment:
       DOMAIN: ${DOMAIN:?DOMAIN is required}
       LANDING_DOMAIN: ${LANDING_DOMAIN:-landing.localhost}
+      #: Old domains that now only redirect to the landing (comma separated).
+      LEGACY_DOMAINS: ${LEGACY_DOMAINS:-legacy.localhost}
       ACME_EMAIL: ${ACME_EMAIL:?ACME_EMAIL is required}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro

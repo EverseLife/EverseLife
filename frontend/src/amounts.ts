@@ -22,10 +22,17 @@ export function chosen(value: number | null, whole: number): number {
  */
 let measured = new Set<string>();
 let aliases: Record<string, string> = {};
+let units: Record<string, string> = {};
 
 export function learn(book: any): void {
   measured = new Set<string>(book?.bulk ?? []);
   aliases = book?.synonyms ?? {};
+  units = book?.units ?? {};
+}
+
+/** What the vault says to draw next to the number: "шт", "м", "л". */
+export function unit(goods: string): string {
+  return units[aliases[goods] ?? goods] ?? "";
 }
 
 /** Whether the thing is counted in pieces rather than measured. */
@@ -41,6 +48,11 @@ export function counted(goods: string): boolean {
  * here: were a fraction of one ever to show, it is a bug worth seeing.
  */
 export function tally(goods: string, amount: number): string {
+  //: The vault may name the unit itself -- wire is measured in metres, and
+  //: "3 шт." of it would read as three coils. Unnamed, a piece stays "шт." and
+  //: what is measured stays a bare number, as it always was.
+  const named = unit(goods);
+  if (named) return `${trim(amount)} ${named}`;
   return counted(goods) ? `${trim(amount)} шт.` : trim(amount);
 }
 

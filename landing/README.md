@@ -1,4 +1,4 @@
-# Лендинг octoverse.world
+# Лендинг everse.life
 
 Страница с приёмом заявок на бету: игрок оставляет почту, мы шлём одно письмо,
 когда бета откроется. Одна служба на весь домен — `app.py` отдаёт `index.html`
@@ -42,8 +42,8 @@ LANDING_DB=./signups.db uvicorn app:app --port 8080
 Служба `landing` в `deploy/compose.yaml`, образ собирает CI
 (`octoverse-landing`). Домен включается на сервере один раз:
 
-1. A-запись `octoverse.world` → адрес сервера;
-2. `LANDING_DOMAIN=octoverse.world` в `/opt/octoverse/.env`;
+1. A-запись `everse.life` → адрес сервера;
+2. `LANDING_DOMAIN=everse.life` в `/opt/octoverse/.env`;
 3. `docker compose up -d --force-recreate caddy`.
 
 Пока `LANDING_DOMAIN` не задан, Caddy держит лендинг на внутреннем имени

@@ -3,7 +3,6 @@
 # Caddy obtains the certificate itself (ACME, HTTP-01) and renews it itself --
 # no separate certbot or cron job is needed. One condition: the domain from
 # `DOMAIN` points to this server with an A record, and ports 80 and 443 are open.
-
 {
 	email {$ACME_EMAIL}
 }
@@ -44,9 +43,9 @@
 
 # The landing with beta signup intake. Until LANDING_DOMAIN is set in `.env`,
 # the default `landing.localhost` keeps the block on an internal certificate
-# and Caddy does not go for a real one. To open octoverse.world:
-#   1. an A record `octoverse.world` -> this server's address;
-#   2. `LANDING_DOMAIN=octoverse.world` in `.env`;
+# and Caddy does not go for a real one. To open everse.life:
+#   1. an A record `everse.life` -> this server's address;
+#   2. `LANDING_DOMAIN=everse.life` in `.env`;
 #   3. `docker compose up -d --force-recreate caddy`.
 {$LANDING_DOMAIN} {
 	encode zstd gzip
@@ -65,3 +64,17 @@
 # www.{$LANDING_DOMAIN} {
 # 	redir https://{$LANDING_DOMAIN}{uri} permanent
 # }
+
+# The old domain as a signpost, not a site: links to it are already out in
+# Discord and in beta invites, and a dead link is worse than a redirect. Set
+# LEGACY_DOMAINS in `.env` (comma separated) while its A records still point
+# here; unset, the block stays on an internal name and Caddy does not go for a
+# certificate. Drop the line when the old links are no longer worth serving.
+{$LEGACY_DOMAINS:legacy.localhost} {
+	redir https://{$LANDING_DOMAIN:landing.localhost}{uri} permanent
+
+	log {
+		output stdout
+		format console
+	}
+}
