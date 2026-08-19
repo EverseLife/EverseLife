@@ -27,6 +27,7 @@ import { useEffect, useState } from "react";
 import * as api from "../api";
 import type { Invention, Look, Plan, Session, Thing } from "../api";
 import { tally } from "../amounts";
+import { busyWith, CRAFT } from "../busy";
 import { craftableAt, inputsOf, stationOf } from "../recipes";
 import { Rule } from "../Rule";
 import { Refusal, useActions } from "../actions";
@@ -162,8 +163,7 @@ export function Workshop({ look, session, machine, book }: Omit<Props, "busy" | 
   //: Another occupation -- a search on the land, a plot under the plough, a
   //: face -- has the hands, and work is not begun with them (D-211). A batch
   //: of one's own is not in the way: it is a queue, and that is said above.
-  const occupied =
-    look.busy && look.busy.kind !== "партия" ? look.busy.what : null;
+  const occupied = busyWith(look, [CRAFT]);
 
   return (
     <section>

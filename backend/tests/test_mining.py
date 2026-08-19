@@ -160,11 +160,18 @@ async def test_collapse_sometimes_wounds(session: AsyncSession, constants: Const
     _, vein, body = await _face(session)
     sess = await mining.start(session, constants, body, vein)
 
-    #: The roll is picked to miss death and hit a wound: a tenth of the scale
-    #: above `mine.collapse_death_chance` but below
-    #: `mine.collapse_wound_chance`.
+    #: The roll is picked to miss death and hit a wound. Both chances keep a
+    #: memory (D-213), so the threshold of a first roll is the growth constant
+    #: of the announced chance -- and the test asks the engine for it rather
+    #: than knowing the numbers itself.
+    from src.engine.luck import growth
+    from src.units import PERCENT
+
+    deadly = growth(constants[R.MINE_COLLAPSE_DEATH_CHANCE] / PERCENT)
+    hurting = growth(constants[R.MINE_COLLAPSE_WOUND_CHANCE] / PERCENT)
+    assert deadly < hurting, "смерть реже раны, иначе тест бессмыслен"
     unlucky = random.Random()
-    unlucky.uniform = lambda a, b: a + (b - a) / 10  # noqa: ARG005
+    unlucky.random = lambda: (deadly + hurting) / 2
     for _ in range(100):
         kind = await mining.swing(session, constants, sess, rng=unlucky)
         if kind.state is SessionState.COLLAPSED:
@@ -195,7 +202,7 @@ async def test_collapse_sometimes_kills(
     sess = await mining.start(session, constants, body, vein)
 
     unfortunate = random.Random()
-    unfortunate.uniform = lambda a, b: a  # noqa: ARG005 -- always the lower bound
+    unfortunate.random = lambda: 0.0  # the unluckiest roll: below every threshold
     for _ in range(100):
         kind = await mining.swing(session, constants, sess, rng=unfortunate)
         if kind.state is SessionState.COLLAPSED:

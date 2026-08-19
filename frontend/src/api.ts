@@ -264,9 +264,17 @@ export type Enrollment = {
   node: string;
 };
 
-/** What the body is occupied with (D-211). */
-export type Busy = {
+/**
+ * One occupation of the body (D-211): the road, the field, sleep, a search, a
+ * plot under the plough, a batch, a working face.
+ *
+ * `kind` is a stable id -- "sleep", "forage", "plot" -- and the client decides
+ * by it what to draw and what button ends it; `title` and `what` are the
+ * server's words for the same thing, and they may change without notice.
+ */
+export type Doing = {
   kind: string;
+  title: string;
   what: string;
   until: string | null;
 };
@@ -385,12 +393,12 @@ export type Look = {
    */
   forage?: Foraging | null;
   /**
-   * What the body is at, if anything: one body does one thing (D-211). The
-   * client greys out what would be refused instead of letting the button be
-   * pressed for nothing. `kind` is the occupation's own name -- "поиск",
-   * "вспашка"... -- and a batch ("партия") forbids everything but sleep.
+   * Everything the body is at: one body does one thing (D-211), but a frozen
+   * batch or a plough of one's own can stand beside the thing running now.
+   * "Дела" draws the list; the rest of the client greys out what would be
+   * refused, with the reason on the button.
    */
-  busy?: Busy | null;
+  doings?: Doing[];
   /** Does a drilling rig stand in this node: the stand shows the row by it. */
   rig_here?: boolean;
   /** Ships within sight of this node (D-201): moored at the pier one stands

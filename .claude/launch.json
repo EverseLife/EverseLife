@@ -61,6 +61,17 @@
       ],
       "cwd": "frontend",
       "port": 5174
+    },
+    {
+      "name": "vault-editor",
+      "runtimeExecutable": "python",
+      "runtimeArgs": [
+        "vault_editor/server.py",
+        "--port",
+        "8765",
+        "--no-browser"
+      ],
+      "port": 8765
     }
   ]
 }

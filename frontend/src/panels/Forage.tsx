@@ -23,6 +23,7 @@
 import { useEffect, useState } from "react";
 import type { Look, Session } from "../api";
 import { spell } from "../api";
+import { busyWith, FORAGE } from "../busy";
 import { Deadline } from "../Deadline";
 import { Hint } from "../Hint";
 import { Refusal, useActions, useRefresh } from "../actions";
@@ -47,8 +48,7 @@ export function Forage({ look, session }: Props) {
   const [took, setTook] = useState<{ goods: string; units: number } | null>(null);
   //: One body does one thing (D-211): while it is at another, the search is
   //: not begun, and the button says so instead of collecting a refusal.
-  const elsewhere =
-    look.busy && look.busy.kind !== "поиск" ? look.busy.what : null;
+  const elsewhere = busyWith(look, [FORAGE]);
 
   //: The find shows itself on the clock, and the poll comes every five
   //: seconds: a search of twenty seconds would spend a quarter of its life

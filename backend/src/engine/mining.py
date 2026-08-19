@@ -618,10 +618,25 @@ async def _collapse(
     #: environment is the only source of death in the alpha, and without this
     #: roll death in the game never comes. Rarer than it wounds: death is not an
     #: ordinary end of the day.
-    killed = noise.uniform(0, PERCENT) < constants[R.MINE_COLLAPSE_DEATH_CHANCE]
-    wounded = not killed and noise.uniform(0, PERCENT) < constants[
-        R.MINE_COLLAPSE_WOUND_CHANCE
-    ]
+    #: Both rolls remember (D-213). Death by a fair coin came twice in a row
+    #: often enough, and the second one reads as the world having it in for
+    #: you -- while the mean, which is what the vault states, is untouched.
+    from src.engine import luck
+
+    killed = await luck.hit(
+        session,
+        body.identity_id,
+        luck.MINE_DEATH,
+        constants[R.MINE_COLLAPSE_DEATH_CHANCE],
+        dice=noise,
+    )
+    wounded = not killed and await luck.hit(
+        session,
+        body.identity_id,
+        luck.MINE_WOUND,
+        constants[R.MINE_COLLAPSE_WOUND_CHANCE],
+        dice=noise,
+    )
     if wounded:
         recovery = constants[R.WOUND_RECOVERY_HOURS]
         session.add(

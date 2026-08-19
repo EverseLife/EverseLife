@@ -135,16 +135,28 @@ def search_seconds(constants: Constants, area: float, dice: random.Random) -> fl
     return max(constants[R.FORAGE_SEARCH_FLOOR], mean * dice.uniform(jitter.min, jitter.max))
 
 
-def _roll(constants: Constants, dice: random.Random) -> tuple[str, int, float]:
-    """What turns up: a thing by its share of the pace, its handful, its quality.
+async def _roll(
+    session: AsyncSession,
+    constants: Constants,
+    body: Body,
+    dice: random.Random,
+) -> tuple[str, int, float]:
+    """What turns up: a thing dealt from the table's deck, its handful, its quality.
 
-    Quality is triangular over `forage.quality` with the peak in the middle:
-    what lies on the ground is mostly ordinary, and both a treasure and a
-    piece of junk are rare.
+    **The thing is drawn, not tossed for** (D-213): the deck is built by the
+    same `forage.finds` weights, and a card taken is not put back until the
+    deck runs out. The proportions are the table's to the letter; what goes
+    away is "ten stones in a row and not one stem of flax".
+
+    Quality stays a plain roll -- triangular over `forage.quality` with the
+    peak in the middle: what lies on the ground is mostly ordinary, and both a
+    treasure and a piece of junk are rare. A magnitude has no droughts.
     """
-    table = finds(constants)
-    names = list(table)
-    found = dice.choices(names, weights=[table[name] for name in names])[0]
+    from src.engine import luck
+
+    found = await luck.draw(
+        session, body.identity_id, luck.FORAGE_WHAT, finds(constants), dice=dice
+    )
     units = max(1, int(constants[R.FORAGE_HANDFUL][found]))
     grade = constants[R.FORAGE_QUALITY]
     quality = dice.triangular(grade.min, grade.max, grade.mid)
@@ -226,7 +238,7 @@ async def start(
         )
     body.stamina = Decimal(str(float(body.stamina) - spend))
 
-    found, units, quality = _roll(constants, dice)
+    found, units, quality = await _roll(session, constants, body, dice)
     row = Forage(
         id=row_id,
         body_id=body.id,

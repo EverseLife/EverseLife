@@ -182,9 +182,11 @@ async def test_leak_marked_as_fragment(
     _, (whisperer, stranger) = await _room(session)
     await chat.gather(session, whisperer, name="сговор")
 
-    #: Always "leaked": the roll's lower bound.
+    #: Always "leaked": the luckiest roll there is. Chance keeps a memory now
+    #: (D-213), so the roll is `random()` against a growing threshold -- zero
+    #: is below any of them.
     loud = random.Random()
-    loud.uniform = lambda a, b: a  # noqa: ARG005
+    loud.random = lambda: 0.0
     await chat.say(session, constants, whisperer, "делим жилу в полночь",
                    kind=Utterance.SPEECH, rng=loud)
 

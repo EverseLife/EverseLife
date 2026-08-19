@@ -39,6 +39,28 @@ CHAT_TEXT_LIMIT = 1000
 #: map label, and there is nothing to balance here.
 LAND_NAME_LIMIT = 40
 
+
+#: How the growth constant of a remembered chance is solved (D-213). None of
+#: this is balance: the announced chance lives in the vault, and these decide
+#: only how exactly the arithmetic hits it.
+#:
+#: The tail of the sum below which the rest is dust.
+LUCK_EPSILON = 1e-9
+#: How far the sum looks before giving up: a thousand tries without a success
+#: is well past any chance worth remembering.
+LUCK_LONGEST = 1000
+#: To how many decimals a share is rounded before solving -- a hundredth of a
+#: percent, finer than any chance the vault names. Rounding is what makes the
+#: cache work for chances that float: a leak grows with the crowd, a run's odds
+#: fall with every find.
+LUCK_GRAIN = 4
+#: Steps of the bisection: each one halves the interval, so this many is far
+#: past the precision of a double.
+LUCK_STEPS = 200
+#: How many solved constants are kept. Every chance in the game, at a hundredth
+#: of a percent, fits many times over.
+LUCK_CACHE = 1024
+
 #: Transfer ground length and statement depth (D-190). Display hygiene: a
 #: payment line is read at a glance, and a statement is the latest operations
 #: rather than the whole journal since day one.

@@ -21,7 +21,7 @@ from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import gear, world
 
-BACKPACK = "Рюкзак"
+BACKPACK = "Простой рюкзак"
 EXO = "Экзоскелет"
 CLOTHES = "Одежда"
 ARMOUR = "Броня"

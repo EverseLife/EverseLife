@@ -174,12 +174,14 @@ def distance(one: dict[str, float], other: dict[str, float]) -> float:
     return max(diffs) if diffs else 0.0
 
 
-def inherit(
+async def inherit(
     constants: Constants,
     a: dict[str, float],
     b: dict[str, float],
     *,
     rng: random.Random,
+    session: AsyncSession | None = None,
+    who: uuid.UUID | None = None,
 ) -> dict[str, float]:
     """Offspring traits: `mean(parents) +- 0.15 * spread(parents)` (vault).
 
@@ -200,7 +202,19 @@ def inherit(
     #: way to show that with numbers is to shift one trait **from the middle**,
     #: not within the parents' range. The shift coefficient is the same as for
     #: inheritance: the vault sets no second one.
-    if rng.uniform(0, PERCENT) < constants[R.BREED_NOVEL_TRAIT_CHANCE] and child:
+    #: The chance keeps a memory (D-213): a breeder who never once saw a new
+    #: trait in twenty crossings has the same complaint as a scout who never
+    #: found anything, and the announced share is unchanged by the memory.
+    from src.engine import luck
+
+    novel = (
+        await luck.hit(
+            session, who, luck.BREED_NOVEL, constants[R.BREED_NOVEL_TRAIT_CHANCE], dice=rng
+        )
+        if session is not None
+        else rng.random() < constants[R.BREED_NOVEL_TRAIT_CHANCE] / PERCENT
+    )
+    if novel and child:
         key = rng.choice(sorted(child))
         child[key] *= 1 + rng.choice((-1, 1)) * drift
     return child
@@ -332,7 +346,10 @@ async def gather_cross(
     if father is None or mother is None:  # pragma: no cover
         raise BreedError("родительский сорт исчез")
 
-    signs = inherit(constants, father.traits, mother.traits, rng=dice)
+    signs = await inherit(
+        constants, father.traits, mother.traits,
+        rng=dice, session=session, who=body.identity_id,
+    )
     threshold = constants[R.BREED_DISTINCTNESS_THRESHOLD]
     neighbours = (
         await session.execute(

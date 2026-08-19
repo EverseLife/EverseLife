@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useState } from "react";
 import * as api from "../api";
 import { tally } from "../amounts";
+import { busyWith } from "../busy";
 import type { Look, Session } from "../api";
 import { Refusal, useActions } from "../actions";
 
@@ -84,7 +85,7 @@ export function Farm({ look, session }: Omit<Props, "busy" | "act">) {
   //: Work on a plot is an occupation (D-211), and a busy body has no hands for
   //: it -- including its own plough on the neighbouring strip. The buttons go
   //: grey with the reason on them rather than collecting refusals.
-  const occupied = look.busy?.what ?? null;
+  const occupied = busyWith(look);
 
   //: Seeds are recognised by name from vault data, not by the client's guess.
   const seedNames = new Set(plants.map((p) => p.seed));

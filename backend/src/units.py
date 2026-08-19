@@ -40,6 +40,9 @@ SCALE_MAX = 100.0
 #: `wound.recovery_hours`), while sessions live in minutes.
 MINUTES_PER_HOUR = 60.0
 
+#: Seconds per minute: deadlines are stored in seconds and told in minutes.
+SECONDS_PER_MINUTE = 60.0
+
 #: Seconds per hour: map edges and sleep live in seconds, vault rates in hours.
 SECONDS_PER_HOUR = 3600.0
 

@@ -312,7 +312,14 @@ async def returned(session: AsyncSession, job: Job) -> None:
     odds = job.payload.get("chance")
     if odds is None:  # pragma: no cover -- runs queued before D-156
         odds = chance(constants, origin) * _aim(constants, catalog, goal, requested)
-    if dice.random() * PERCENT >= float(odds):
+    #: The chance has a memory (D-213): it grows with every empty run and
+    #: resets on a find, so the announced percent stays the mean and the
+    #: twelve-run drought stops happening.
+    from src.engine import luck
+
+    if not await luck.hit(
+        session, body.identity_id, luck.EXPLORE_FIND, float(odds), dice=dice
+    ):
         await events.record(
             session,
             EventKind.EXPLORE_EMPTY,
@@ -331,13 +338,24 @@ async def returned(session: AsyncSession, job: Job) -> None:
     #: applies: sought "anything" -- got whatever turned up.
     with_vein = goal == VEIN and (
         requested is not None
-        or dice.random() * PERCENT < constants[R.EXPLORE_VEIN_SHARE]
+        or await luck.hit(
+            session,
+            body.identity_id,
+            luck.EXPLORE_VEIN,
+            constants[R.EXPLORE_VEIN_SHARE],
+            dice=dice,
+        )
     )
-    found = await _place(session, constants, dice, origin, goal=goal, vein=with_vein)
+    found = await _place(
+        session, constants, dice, origin, goal=goal, vein=with_vein,
+        who=body.identity_id,
+    )
 
     species = None
     if with_vein:
-        species = requested or _resource(constants, catalog, dice)
+        species = requested or await _resource(
+            session, constants, catalog, dice, who=body.identity_id
+        )
         richness = constants[R.EXPLORE_VEIN_RICHNESS]
         stock = constants[R.EXPLORE_VEIN_STOCK]
         await world.create_vein(
@@ -650,6 +668,7 @@ async def _place(
     *,
     goal: str,
     vein: bool,
+    who: uuid.UUID | None = None,
 ) -> Node:
     """Create the found node next to the one we left from.
 
@@ -697,13 +716,21 @@ async def _place(
         planet=origin.planet,
         #: Distance grows by a step from the node we left from (D-180): the
         #: frontier recedes by itself as it is pushed.
-        properties=_properties(constants, dice, vein=vein, woods=goal == FOREST)
+        properties=await _properties(
+            session, constants, dice, vein=vein, woods=goal == FOREST, who=who
+        )
         | {travel.REACH: travel.reach_of(origin) + 1},
     )
 
 
-def _properties(
-    constants: Constants, dice: random.Random, *, vein: bool, woods: bool = False
+async def _properties(
+    session: AsyncSession,
+    constants: Constants,
+    dice: random.Random,
+    *,
+    vein: bool,
+    woods: bool = False,
+    who: uuid.UUID | None = None,
 ) -> dict:
     """Place properties under a common merit budget (D-126).
 
@@ -714,8 +741,15 @@ def _properties(
     always where the woods are what the scout went looking for: the world gets
     forested without anybody asking, and timber becomes geography.
     """
+    from src.engine import luck
+
     budget = constants[R.SITE_QUALITY_BUDGET]
-    river = dice.random() * PERCENT < constants[R.SITE_RIVER_SHARE]
+    #: Each of the place's signs is a chance with a memory (D-213): a scout
+    #: who never once found a river is the same complaint as one who never
+    #: found anything.
+    river = await luck.hit(
+        session, who, luck.SITE_RIVER, constants[R.SITE_RIVER_SHARE], dice=dice
+    )
     for_water = dice.uniform(0, budget) if river else 0.0
     for_land = max(0.0, budget - for_water)
 
@@ -727,16 +761,30 @@ def _properties(
         "плодородие": 0 if vein else round(PERCENT * for_land / budget),
         "температура": round(dice.uniform(temperature.min, temperature.max)),
         "осадки": round(dice.uniform(rainfall.min, rainfall.max)),
-        WOODS: woods or dice.random() * PERCENT < constants[R.EXPLORE_FOREST_SHARE],
+        WOODS: woods
+        or await luck.hit(
+            session, who, luck.SITE_WOODS, constants[R.EXPLORE_FOREST_SHARE], dice=dice
+        ),
         #: Stones and meadow fall out on their own, like woods (D-196): one
         #: goes for stone and for flax in different directions.
-        STONES: dice.random() * PERCENT < constants[R.EXPLORE_STONES_SHARE],
-        MEADOW: dice.random() * PERCENT < constants[R.EXPLORE_MEADOW_SHARE],
+        STONES: await luck.hit(
+            session, who, luck.SITE_STONES, constants[R.EXPLORE_STONES_SHARE], dice=dice
+        ),
+        MEADOW: await luck.hit(
+            session, who, luck.SITE_MEADOW, constants[R.EXPLORE_MEADOW_SHARE], dice=dice
+        ),
         "дикий": True,
     }
 
 
-def _resource(constants: Constants, catalog: Catalog, dice: random.Random) -> str:
+async def _resource(
+    session: AsyncSession,
+    constants: Constants,
+    catalog: Catalog,
+    dice: random.Random,
+    *,
+    who: uuid.UUID | None = None,
+) -> str:
     """Which species. The list is from the vault, the weight from the mining pace (D-151).
 
     The rare is mined slower, so it also turns up rarer. No second rarity table:
@@ -752,8 +800,17 @@ def _resource(constants: Constants, catalog: Catalog, dice: random.Random) -> st
     species = [name for name in operation.gives if float(paces.get(name, 0)) > 0]
     if not species:  # pragma: no cover
         return if_missing
-    weights = [float(paces[name]) for name in species]
-    return dice.choices(species, weights=weights)[0]
+    #: Dealt from a deck by the same weights (D-213): the rare stays rare, but
+    #: "six iron veins and never a copper one" is no longer a thing.
+    from src.engine import luck
+
+    return await luck.draw(
+        session,
+        who,
+        luck.EXPLORE_SPECIES,
+        {name: float(paces[name]) for name in species},
+        dice=dice,
+    )
 
 
 async def _planet_root(session: AsyncSession, node: Node) -> Node | None:

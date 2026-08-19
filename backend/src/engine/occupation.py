@@ -34,29 +34,52 @@ here doing nothing else.
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models.identity import Body
 from src.models.job import Job, JobKind, JobState
+from src.units import MINUTES_PER_HOUR, SECONDS_PER_MINUTE
 
 
 class Busy(Exception):
     """The body is already at something: one body does one thing (D-211)."""
 
 
-#: The kinds of occupation, by the name the refusal calls them.
-ROAD = "путь"
-FIELD = "разведка"
-SLEEP = "сон"
-FORAGE = "поиск"
-PLOT = "работа на делянке"
-MINE = "забой"
-CRAFT = "партия"
+#: The kinds of occupation. The id is ASCII on purpose: the client switches on
+#: it -- which line to draw, which button ends it -- and a word of the interface
+#: must be free to change without breaking that.
+ROAD = "road"
+FIELD = "field"
+SLEEP = "sleep"
+FORAGE = "forage"
+PLOT = "plot"
+MINE = "mine"
+CRAFT = "craft"
+
+
+def left_in_words(until: datetime, now: datetime | None = None) -> str:
+    """How long is left, for a person: "меньше минуты", "ещё 12 мин", "ещё 2 ч 5 мин".
+
+    A deadline is told as a duration rather than an hour. The player decides
+    between waiting and going elsewhere, and that is a question of "how long",
+    not of "at which moment" -- the more so as the world's own clock counts a
+    day of its own length (D-029), and a stamp in it needs a conversion nobody
+    does in their head.
+    """
+    seconds = (until - (now or datetime.now(UTC))).total_seconds()
+    if seconds < SECONDS_PER_MINUTE:
+        return "меньше минуты"
+    minutes = int(seconds // SECONDS_PER_MINUTE)
+    if minutes < MINUTES_PER_HOUR:
+        return f"ещё {minutes} мин"
+    hours, rest = divmod(minutes, int(MINUTES_PER_HOUR))
+    return f"ещё {hours} ч" if rest == 0 else f"ещё {hours} ч {rest} мин"
 
 
 @dataclass(frozen=True)
@@ -64,20 +87,22 @@ class Doing:
     """What the body is at, as the player is told about it."""
 
     kind: str
-    #: The refusal's own words: what is going on, and where it can be ended.
+    #: The occupation's name in one word: the line's title in the client.
+    title: str
+    #: What is going on, and where it can be ended -- the refusal's own words.
     what: str
     #: When it is over by itself. Empty -- it ends by a decision, not a clock.
     until: datetime | None = None
 
     def refusal(self) -> str:
-        term = f", до {self.until.isoformat()}" if self.until is not None else ""
+        term = "" if self.until is None else f" ({left_in_words(self.until)})"
         return f"тело занято: {self.what}{term}"
 
 
 async def _sleeping(session: AsyncSession, body: Body) -> Doing | None:
     if body.sleeping_since is None:
         return None
-    return Doing(SLEEP, "тело спит — сначала проснуться")
+    return Doing(SLEEP, "сон", "тело спит — сначала проснуться")
 
 
 async def _travelling(session: AsyncSession, body: Body) -> Doing | None:
@@ -86,7 +111,7 @@ async def _travelling(session: AsyncSession, body: Body) -> Doing | None:
     going = await travel.current(session, body)
     if going is None:
         return None
-    return Doing(ROAD, "тело в пути", going.arrives_at)
+    return Doing(ROAD, "путь", "тело в пути", going.arrives_at)
 
 
 async def _exploring(session: AsyncSession, body: Body) -> Doing | None:
@@ -95,7 +120,9 @@ async def _exploring(session: AsyncSession, body: Body) -> Doing | None:
     run = await explore.pending(session, body)
     if run is None:
         return None
-    return Doing(FIELD, "тело в разведке — вернуть его можно на карте", run.run_at)
+    return Doing(
+        FIELD, "разведка", "тело в разведке — вернуть его можно на карте", run.run_at
+    )
 
 
 async def _foraging(session: AsyncSession, body: Body) -> Doing | None:
@@ -105,8 +132,12 @@ async def _foraging(session: AsyncSession, body: Body) -> Doing | None:
     if row is None:
         return None
     if forage.revealed(row):
-        return Doing(FORAGE, "на земле лежит находка — решите с ней и закончите поиск")
-    return Doing(FORAGE, "идёт поиск — закончить его в окне «Собирательство»", row.ready_at)
+        return Doing(
+            FORAGE,
+            "собирательство",
+            f"на земле лежит находка ({row.found}) — решите с ней или закончите поиск",
+        )
+    return Doing(FORAGE, "собирательство", "идёт поиск", row.ready_at)
 
 
 async def _ploughing(session: AsyncSession, body: Body) -> Doing | None:
@@ -123,7 +154,13 @@ async def _ploughing(session: AsyncSession, body: Body) -> Doing | None:
     job = (await session.execute(stmt)).scalars().first()
     if job is None:
         return None
-    return Doing(PLOT, "идёт вспашка", job.run_at)
+    #: The plot's name, so that the line says which strip is under the plough
+    #: -- a farmer with four of them has nothing to go by otherwise.
+    from src.models.farm import Plot
+
+    plot = await session.get(Plot, uuid.UUID(job.payload["plot"]))
+    named = "" if plot is None else f" «{plot.name}»"
+    return Doing(PLOT, "вспашка", f"идёт вспашка{named}", job.run_at)
 
 
 async def _crafting(session: AsyncSession, body: Body) -> Doing | None:
@@ -137,7 +174,7 @@ async def _crafting(session: AsyncSession, body: Body) -> Doing | None:
     batch = await craft.running(session, body)
     if batch is None:
         return None
-    return Doing(CRAFT, f"идёт работа «{batch.output}»", batch.ready_at)
+    return Doing(CRAFT, "партия", f"идёт работа «{batch.output}»", batch.ready_at)
 
 
 async def _mining(session: AsyncSession, body: Body) -> Doing | None:
@@ -146,7 +183,7 @@ async def _mining(session: AsyncSession, body: Body) -> Doing | None:
     face = await mining.active(session, body)
     if face is None:
         return None
-    return Doing(MINE, "вы в забое — сначала выйти из него")
+    return Doing(MINE, "забой", "вы в забое — сначала выйти из него")
 
 
 #: Order matters: the refusal names the first match, and the road comes before
@@ -178,6 +215,23 @@ async def current(
         if doing is not None:
             return doing
     return None
+
+
+async def all_of(session: AsyncSession, body: Body) -> list[Doing]:
+    """Everything the body is at, in the order the lookup names them.
+
+    One occupation at a time is the rule (D-211), but the list is not always of
+    one: a batch waits out a sleep beside it, and a plough goes on while its
+    farmer walks. The client draws this list as "дела" -- one place where
+    everything running is seen and stopped, instead of hunting for the window
+    each thing was started in.
+    """
+    found: list[Doing] = []
+    for _, look in _LOOKUP:
+        doing = await look(session, body)
+        if doing is not None:
+            found.append(doing)
+    return found
 
 
 async def require_free(

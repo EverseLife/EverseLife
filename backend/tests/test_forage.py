@@ -91,10 +91,20 @@ async def test_more_land_searches_faster_but_not_under_the_floor(
     assert forage.search_seconds(constants, reference * 1_000_000, random.Random(2)) == floor
 
 
-def test_quality_is_mostly_ordinary(constants: Constants) -> None:
-    """Triangular over the span, peak in the middle: the middle third beats either edge third."""
+async def test_quality_is_mostly_ordinary(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """Triangular over the span, peak in the middle: the middle third beats either edge third.
+
+    Quality is a magnitude, and magnitudes keep rolling plainly (D-213): a
+    "how much" has no drought to remember.
+    """
+    _, body = await _yard(session)
     grade = constants[R.FORAGE_QUALITY]
-    rolls = [forage._roll(constants, random.Random(seed))[2] for seed in range(3000)]
+    rolls = [
+        (await forage._roll(session, constants, body, random.Random(seed)))[2]
+        for seed in range(3000)
+    ]
     assert all(grade.min <= q <= grade.max for q in rolls)
     third = (grade.max - grade.min) / 3
     low = sum(q < grade.min + third for q in rolls)
@@ -104,11 +114,21 @@ def test_quality_is_mostly_ordinary(constants: Constants) -> None:
     assert sum(rolls) / len(rolls) == pytest.approx(grade.mid, abs=third / 3)
 
 
-def test_every_thing_in_the_table_is_found(constants: Constants) -> None:
-    """The mix comes from the vault: no thing named there is unreachable, none is invented."""
+async def test_every_thing_in_the_table_is_found(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """The mix comes from the vault: no thing named there is unreachable, none is invented.
+
+    And now it is guaranteed rather than likely (D-213): the deck holds every
+    thing of the table, so one deck's worth of searches shows all of them.
+    """
+    _, body = await _yard(session)
     table = forage.finds(constants)
     assert table, "таблица находок пуста"
-    seen = {forage._roll(constants, random.Random(seed))[0] for seed in range(2000)}
+    seen = {
+        (await forage._roll(session, constants, body, random.Random(seed)))[0]
+        for seed in range(200)
+    }
     assert seen == set(table)
     for name in table:
         assert constants[R.FORAGE_HANDFUL][name] >= 1

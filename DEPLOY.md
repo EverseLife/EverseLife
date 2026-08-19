@@ -353,9 +353,9 @@ docker compose exec landing python export.py > signups.csv
 Числа, рецепты и законы правятся **только в вольте**
 (`octoverse-game-design/data/*.yaml`). Путь до сервера такой:
 
-```powershell
+```bash
 # из корня репозитория игры, на своей машине
-powershell -File deploy/sync-vault.ps1
+python deploy/sync-vault.py
 git add vault && git commit -m "числа: ..." && git push
 ```
 

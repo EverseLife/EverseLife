@@ -607,21 +607,20 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
     #: and its find. Empty where the land is built up or somebody else's.
     seen["forage"] = await forage.view(db, constants, current_catalog(), body, node)
 
-    #: What the body is at (D-211): one occupation at a time, and the client
-    #: must be able to grey out the second button rather than let it be pressed
-    #: for a refusal. The batch is named here too -- it forbids a search and a
-    #: plot, and only sleep is allowed beside it -- so the kind travels along
-    #: and the client decides by it.
-    doing = await occupation.current(db, body)
-    seen["busy"] = (
-        None
-        if doing is None
-        else {
+    #: Everything the body is at (D-211). Two things live off this list: the
+    #: client greys out what would be refused, with the reason on the button,
+    #: and "дела" draws every running occupation in one place -- so that a
+    #: search is ended where everything else is ended, not in the window it
+    #: happened to be started from.
+    seen["doings"] = [
+        {
             "kind": doing.kind,
+            "title": doing.title,
             "what": doing.what,
             "until": None if doing.until is None else doing.until.isoformat(),
         }
-    )
+        for doing in await occupation.all_of(db, body)
+    ]
 
     #: Local clock of the planet: a Terran day is `time.day_terra` hours long
     #: (D-029), and the world has been running since its first node appeared.

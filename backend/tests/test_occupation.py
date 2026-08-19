@@ -129,6 +129,44 @@ async def test_a_batch_refuses_the_search_and_the_plot(
         await farm.mark(session, constants, body, name="грядка", area=10)
 
 
+# --- what the client is told --------------------------------------------------
+
+
+async def test_the_list_names_the_work_and_how_long_is_left(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """"Дела" is the one place everything running is seen and stopped (D-211)."""
+    _, _, body = await _yard(session)
+    plot = await farm.mark(session, constants, body, name="Северная", area=50)
+    await farm.plow(session, constants, body, plot)
+
+    doings = await occupation.all_of(session, body)
+    assert [doing.kind for doing in doings] == [occupation.PLOT]
+    line = doings[0]
+    assert line.title == "вспашка"
+    assert "Северная" in line.what, "делянок бывает четыре: строка обязана назвать свою"
+    assert line.until is not None
+
+    #: The deadline is told as a distance, not as a stamp: an ISO string in a
+    #: refusal was unreadable, and the world counts a day of its own length.
+    said = line.refusal()
+    assert "T" not in said and "+00:00" not in said, said
+    assert "ещё" in said or "меньше минуты" in said, said
+
+
+async def test_a_sleeping_body_has_one_line_and_no_clock(
+    session: AsyncSession, constants: Constants
+) -> None:
+    _, _, body = await _yard(session)
+    body.stamina = body.stamina.__class__("50")
+    await rest.sleep(session, constants, body)
+
+    doings = await occupation.all_of(session, body)
+    assert [(d.kind, d.title, d.until) for d in doings] == [
+        (occupation.SLEEP, "сон", None)
+    ], "сон кончается решением, а не сроком"
+
+
 # --- sleep and the bench -----------------------------------------------------
 
 

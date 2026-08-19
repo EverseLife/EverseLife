@@ -15,6 +15,7 @@
 import { useEffect, useState } from "react";
 import * as api from "../api";
 import type { Batch, Look, Session } from "../api";
+import { busyWith, CRAFT, SLEEP } from "../busy";
 import { Doing } from "../Deadline";
 import { Glyph } from "../Glyph";
 import { Inventory } from "./Inventory";
@@ -48,11 +49,11 @@ type Props = {
  * keep, and the state -- if the state is any of my business.
  */
 const TABS = [
-  { id: "me", label: "персонаж", icon: "me", of: "персонаж: состояние, сон, счёт" },
+  { id: "me", label: "персонаж", icon: "me", of: "персонаж: состояние и счёт" },
   //: Goods left "персонаж" for a tab of their own: the inventory is a table
   //: with a menu per row, and it does not share a screen with anything.
   { id: "goods", label: "инвентарь", icon: "goods", of: "что в руках и что надето" },
-  { id: "work", label: "активности", icon: "work", of: "что идёт и что можно сделать руками" },
+  { id: "work", label: "активности", icon: "work", of: "что идёт, чем это закончить, и что можно сделать руками" },
   { id: "money", label: "финансы", icon: "money", of: "счёт, выписка, кредит, свои ордера" },
   { id: "knows", label: "знания", icon: "knows", of: "известные рецепты" },
   { id: "estate", label: "хозяйство", icon: "estate", of: "сеть, счета за быт, бумаги" },
@@ -83,7 +84,7 @@ export function Sidebar({ look, session, book }: Omit<Props, "busy" | "act">) {
   //: A counter means "there is something here to look at", so only what can be
   //: waited on is counted: works under way, and money somebody else owes or holds.
   const counts: Partial<Record<Tab, number>> = {
-    work: look.batches.length + (look.travel ? 1 : 0),
+    work: look.batches.length + (look.doings ?? []).filter((d) => d.kind !== "craft").length,
     money: look.orders.length + look.reservations.length,
     goods: look.inventory.length,
   };
@@ -106,9 +107,7 @@ export function Sidebar({ look, session, book }: Omit<Props, "busy" | "act">) {
         ))}
       </nav>
 
-      {current === "me" && (
-        <Character look={look} session={session} busy={busy} act={act} />
-      )}
+      {current === "me" && <Character look={look} />}
       {current === "goods" && <Inventory look={look} session={session} book={book} />}
       {/* Ручной крафт живёт в сайдбаре: верёвку вьют там, где стоят, и рабочая
           станция этому месту не нужна. Запуск всё равно присутственный: в пути
@@ -142,17 +141,11 @@ export function Sidebar({ look, session, book }: Omit<Props, "busy" | "act">) {
   );
 }
 
-function Character({ look, session, busy, act }: Props) {
+function Character({ look }: Omit<Props, "session" | "busy" | "act">) {
   const sleepingSince = look.body?.sleeping_since ?? null;
   const fed =
     look.body?.satiated_until != null &&
     new Date(look.body.satiated_until).getTime() > Date.now();
-  const bed_ = (look.node?.stations ?? []).includes("Кровать");
-  //: What forbids lying down right now (D-211). A batch is the exception: it
-  //: freezes with the master and does not stand in the way of sleep.
-  const doing = look.busy ?? null;
-  const occupied =
-    doing && doing.kind !== "партия" && doing.kind !== "сон" ? doing.what : null;
   return (
     <div>
       <p className="sign">
@@ -192,43 +185,8 @@ function Character({ look, session, busy, act }: Props) {
         </tbody>
       </table>
 
-      {/* Привал: сон живёт при персонаже, но остаётся присутственным —
-          ложатся там, где стоят, и в пути не ложатся (D-091). Занятое тело
-          не ложится тоже (D-211), и кнопка об этом говорит заранее: партия —
-          единственное дело, при котором спать можно, она замирает сама. */}
-      {look.body !== null && (
-        <div className="row">
-          {sleepingSince ? (
-            <>
-              <button onClick={() => act(() => session.send("rest.wake"))} disabled={busy}>
-                Проснуться
-              </button>
-              <span className="note">
-                спит уже <Slept since={sleepingSince} /> · начислится при пробуждении
-              </span>
-            </>
-          ) : (
-            <>
-              <button
-                onClick={() => act(() => session.send("rest.sleep"))}
-                disabled={busy || Boolean(look.travel) || occupied !== null}
-                title={occupied ?? ""}
-              >
-                {bed_ ? "Лечь в кровать" : "Лечь спать"}
-              </button>
-              <span className="note">
-                {look.travel
-                  ? "в пути не ложатся"
-                  : occupied
-                    ? occupied
-                    : bed_
-                      ? "кровать здесь: сон быстрее"
-                      : "кровати нет: сон медленнее"}
-              </span>
-            </>
-          )}
-        </div>
-      )}
+      {/* Привал переехал в «дела» (D-211): сон — такое же занятие, как поиск и
+          вспашка, и начинают их в одном месте, а не по разным окнам. */}
     </div>
   );
 }
@@ -247,8 +205,36 @@ function Slept({ since }: { since: string }) {
 const elapsedMinutes = (since: string) =>
   (Date.now() - new Date(since).getTime()) / 60_000;
 
+/**
+ * Everything the body is at, and the one place it is stopped (D-211).
+ *
+ * Before this the sleep button lived by the character, a search was ended in
+ * the window it was started from, and a run in the field on the map -- so
+ * "what am I even doing" was a hunt through the interface. The server names
+ * every occupation (`look.doings`); the list draws them in one column, each
+ * with what ends it where anything can.
+ *
+ * The road and the plough have no button on purpose: a road is walked to its
+ * end, and a plough is not thrown half-way. Batches keep their own rows below
+ * -- they carry a queue, a reason for waiting and a quality, and none of that
+ * fits one line.
+ */
 function Doings({ look, session, busy, act }: Props) {
-  const empty = look.batches.length === 0 && !look.travel;
+  const doings = look.doings ?? [];
+  const asleep = doings.some((d) => d.kind === "sleep");
+  const bed_ = (look.node?.stations ?? []).includes("Кровать");
+  //: What stands in the way of lying down: any occupation but sleep itself and
+  //: a batch -- a batch freezes with the master and frees its machine (D-211).
+  const cannotSleep = busyWith(look, [SLEEP, CRAFT]);
+  //: Стопка кнопок «закончить»: у каждого занятия своя команда, и нет её
+  //: только там, где прерывать нечего.
+  const ends: Record<string, { cmd: string; label: string; why: string }> = {
+    sleep: { cmd: "rest.wake", label: "Проснуться", why: "выносливость начислится при пробуждении" },
+    forage: { cmd: "forage.stop", label: "Закончить", why: "потраченные силы не вернутся" },
+    field: { cmd: "explore.cancel", label: "Вернуться", why: "заход прервётся, находки не будет" },
+    mine: { cmd: "mine.leave", label: "Выйти из забоя", why: "добытое уйдёт в руки" },
+  };
+  const empty = look.batches.length === 0 && doings.length === 0;
   const title = (job: Batch) =>
     job.work === "make"
       ? job.recipe
@@ -277,9 +263,13 @@ function Doings({ look, session, busy, act }: Props) {
       <h3>
         Дела
         <Rule>
-          Дорога идёт сама, в том числе пока вы офлайн. Партия идёт, только пока вы
-          стоите у станции: ушли — замерла, вернулись — продолжилась. У одного
-          человека идёт одна работа, остальные ждут очереди в порядке запуска.
+          Тело делает одно дело за раз: спит, ищет, пашет, разведывает, идёт или
+          работает у станции. Всё, что идёт, видно здесь, и здесь же
+          заканчивается — искать окно, из которого дело начато, не нужно. Дорога
+          идёт сама, в том числе пока вы офлайн. Партия идёт, только пока вы
+          стоите у станции: ушли или легли спать — замерла, вернулись —
+          продолжилась. У одного человека идёт одна работа, остальные ждут
+          очереди в порядке запуска.
         </Rule>
       </h3>
       {look.travel && (
@@ -290,6 +280,42 @@ function Doings({ look, session, busy, act }: Props) {
           aside={look.travel.final ? "до следующего узла" : undefined}
         />
       )}
+
+      {/* Занятия тела: сон, поиск, вспашка, разведка, забой. Дорога уже
+          показана выше со своей целью, партии — ниже со своей очередью. */}
+      {doings
+        .filter((d) => d.kind !== "road" && d.kind !== "craft")
+        .map((d) => {
+          const end = ends[d.kind];
+          const button = end && (
+            <button
+              className="quiet"
+              onClick={() => act(() => session.send(end.cmd))}
+              disabled={busy}
+              title={end.why}
+            >
+              {end.label}
+            </button>
+          );
+          return d.until ? (
+            <Doing key={d.kind} what={`${d.title}: ${d.what}`} until={d.until}>
+              {button}
+            </Doing>
+          ) : (
+            <div className="doing" key={d.kind}>
+              <span className="doing-what">
+                {d.title}: {d.what}
+              </span>
+              {d.kind === "sleep" && look.body?.sleeping_since && (
+                <span className="doing-aside note">
+                  спит уже <Slept since={look.body.sleeping_since} /> · начислится
+                  при пробуждении
+                </span>
+              )}
+              {button && <span className="doing-act">{button}</span>}
+            </div>
+          );
+        })}
       {look.batches.map((job) =>
         job.state === "running" && job.ready_at ? (
           <Doing
@@ -322,6 +348,27 @@ function Doings({ look, session, busy, act }: Props) {
         ),
       )}
       {empty && <p className="note">ничего не идёт</p>}
+
+      {/* Привал стоит здесь же и последним: лечь спать — такое же занятие,
+          как остальные, и начинают его там, где их заканчивают (D-211). */}
+      {look.body !== null && !asleep && (
+        <div className="row">
+          <button
+            onClick={() => act(() => session.send("rest.sleep"))}
+            disabled={busy || cannotSleep !== null}
+            title={cannotSleep ?? "лечь там, где стоите: выносливость начислится при пробуждении"}
+          >
+            {bed_ ? "Лечь в кровать" : "Лечь спать"}
+          </button>
+          <span className="note">
+            {cannotSleep
+              ? cannotSleep
+              : bed_
+                ? "кровать здесь: сон быстрее"
+                : "кровати нет: сон медленнее"}
+          </span>
+        </div>
+      )}
     </div>
   );
 }

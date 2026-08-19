@@ -43,6 +43,7 @@ from src.models.ledger import (
     PostingReason,
 )
 from src.models.library import LibraryEntry
+from src.models.luck import Luck
 from src.models.market import (
     Order,
     OrderSide,
@@ -91,6 +92,7 @@ __all__ = [
     "Event",
     "EventKind",
     "Forage",
+    "Luck",
     "Identity",
     "Item",
     "Job",

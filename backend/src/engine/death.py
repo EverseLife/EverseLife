@@ -142,9 +142,16 @@ async def die(
     for thing in things:
         left = amount(amount_float(thing.amount) * share)
         #: The indivisible survives by roll: there is no half a pickaxe, and the
-        #: rule must be one for everything worn.
+        #: rule must be one for everything worn. The roll remembers (D-213):
+        #: losing every single tool of a kit was a fair coin's right, and it
+        #: read as the world taking a personal dislike.
         if left <= 0:
-            left = thing.amount if dice.random() < share else 0
+            from src.engine import luck
+
+            kept = await luck.hit(
+                session, body.identity_id, luck.DEATH_KEEP, share * PERCENT, dice=dice
+            )
+            left = thing.amount if kept else 0
         if left <= 0 or yard is None:
             await session.delete(thing)
             continue

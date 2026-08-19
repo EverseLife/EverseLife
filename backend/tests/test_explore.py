@@ -356,14 +356,21 @@ async def test_woods_are_found_when_asked_for(
         assert grove.properties.get(explore.WOODS) is True
 
 
-async def test_woods_grow_by_themselves(constants: Constants) -> None:
-    """The world gets forested without asking: `explore.forest_share` of finds."""
+async def test_woods_grow_by_themselves(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """The world gets forested without asking: `explore.forest_share` of finds.
+
+    Nobody's roll here (`who=None`): the share is a property of the world, and
+    the memory of D-213 belongs to a scout. What the memory changes is the
+    spread, not this mean -- which is why the number below still holds.
+    """
     import random
 
     from src.units import PERCENT
 
     places = [
-        explore._properties(constants, random.Random(seed), vein=False)
+        await explore._properties(session, constants, random.Random(seed), vein=False)
         for seed in range(300)
     ]
     wooded = sum(1 for place in places if place[explore.WOODS])
@@ -384,7 +391,7 @@ async def test_aiming_for_woods_narrows_the_chance(
 
 
 async def test_species_taken_from_vault(
-    constants: Constants, catalog: Catalog
+    session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
     """There is no "which ores exist" list in the engine: it reads the "Mining" operation."""
     import random
@@ -393,7 +400,7 @@ async def test_species_taken_from_vault(
         op for op in catalog.recipes.operations if op.name == explore.MINING_OPERATION
     )
     rolled = {
-        explore._resource(constants, catalog, random.Random(grain))
+        await explore._resource(session, constants, catalog, random.Random(grain))
         for grain in range(200)
     }
     assert rolled, "порода не выбирается вовсе"

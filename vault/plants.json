@@ -90,7 +90,7 @@
     {
       "id": "flax",
       "name": "Лён",
-      "gives": "Дикий лён",
+      "gives": "Лён",
       "seed": "Семена льна",
       "byproduct": null,
       "cycle_days": 11,

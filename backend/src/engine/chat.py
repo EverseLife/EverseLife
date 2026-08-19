@@ -46,7 +46,6 @@ from src.models.identity import Body, BodyState, Identity
 from src.models.inventory import Container, ContainerKind, Item
 from src.models.world import Node
 from src.runtime import CHAT_BUFFER, CHAT_TEXT_LIMIT
-from src.units import PERCENT
 
 
 class ChatError(Exception):
@@ -138,7 +137,14 @@ async def say(
             chance = await leak_chance(constants, session, node, size)
             if quiet:
                 chance *= constants[R.CHAT_LEAK_QUIET_MULTIPLIER]
-            leaked = noise.uniform(0, PERCENT) < chance
+            #: A memory of its own (D-213): a circle that leaked three times
+            #: running is not a circle any more, and one that never leaks is
+            #: not a secret worth keeping.
+            from src.engine import luck
+
+            leaked = await luck.hit(
+                session, body.identity_id, luck.CHAT_LEAK, chance, dice=noise
+            )
 
     message = ChatMessage(
         node_id=body.node_id,

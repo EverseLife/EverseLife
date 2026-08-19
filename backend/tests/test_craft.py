@@ -161,7 +161,7 @@ def test_stone_axe_ladder_needs_no_tools(catalog: Catalog, constants: Constants)
     from src.engine import forage
 
     found = forage.finds(constants)
-    for output in ("Дерево", "Камень", "Дикий лён"):
+    for output in ("Дерево", "Камень", "Лён"):
         assert output in found, f"{output} должен находиться собирательством"
 
     for output in ("Волокно", "Верёвка", "Каменный топор"):

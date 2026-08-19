@@ -189,6 +189,12 @@ def test_look_answers_and_carries_the_clock(client, miner, constants: Constants)
     assert clock["epoch"], "часам нужна точка отсчёта"
     assert clock["day_hours"] == constants[R.TIME_DAY_TERRA]
 
+    #: What the body is at rides along on every look (D-211): "дела" draw it,
+    #: and every button that starts a second occupation greys itself out by it.
+    #: An idle body is an empty list, not a missing field -- the client must not
+    #: have to tell "nothing is going on" from "the server forgot".
+    assert seen["doings"] == []
+
 
 def test_house_bill_is_shown_before_the_work(client, miner, constants: Constants) -> None:
     """The bill is asked for before building, and against what is in hand (D-125).
