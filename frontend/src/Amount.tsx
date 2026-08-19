@@ -8,34 +8,46 @@
  *
  * The value lives in the caller: the same row often has two buttons, and the
  * number belongs to the row, not to a button.
+ *
+ * `goods` says what is being moved, and the field obeys the thing: a counted
+ * one steps and clamps to whole pieces, a measured one takes any part (D-212).
  */
+import { counted } from "./amounts";
 
 export function Amount({
   value,
   max,
   onChange,
   title,
+  goods,
 }: {
   /** How much is set now. `null` means "the whole stack". */
   value: number | null;
   max: number;
   onChange: (value: number | null) => void;
   title?: string;
+  /** What is being moved: a piece moves by one, the measured by any part (D-212). */
+  goods?: string;
 }) {
+  const whole = goods !== undefined && counted(goods);
   return (
     <input
       type="number"
       min={0}
       max={max}
-      step="any"
+      step={whole ? 1 : "any"}
       value={value ?? max}
       onChange={(e) => {
         const typed = Number(e.target.value);
         //: An empty field or a number beyond the stack is not an error worth a
-        //: refusal: we clamp it and move on.
-        onChange(Number.isFinite(typed) ? Math.min(Math.max(0, typed), max) : null);
+        //: refusal: we clamp it and move on. A piece is clamped to whole ones
+        //: as well -- the engine would refuse the fraction, and the field must
+        //: not offer what cannot be done (D-212).
+        if (!Number.isFinite(typed)) return onChange(null);
+        const held = Math.min(Math.max(0, typed), max);
+        onChange(whole ? Math.floor(held) : held);
       }}
-      title={title ?? `не больше ${max}`}
+      title={title ?? (whole ? `не больше ${max}, целыми штуками` : `не больше ${max}`)}
     />
   );
 }

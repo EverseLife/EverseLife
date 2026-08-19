@@ -52,11 +52,13 @@ from src.engine import (
     food,
     forage,
     gear,
+    goods,
     justice,
     ledger,
     library,
     market,
     mining,
+    occupation,
     panel,
     rest,
     rig,
@@ -165,6 +167,14 @@ async def play(socket: WebSocket) -> None:
             except explore.ExploreError as refusal:
                 answer = {"refused": str(refusal)}
             except forage.ForageError as refusal:
+                answer = {"refused": str(refusal)}
+            #: One body does one thing (D-211): the refusal comes from whichever
+            #: engine was asked to start a second occupation.
+            except occupation.Busy as refusal:
+                answer = {"refused": str(refusal)}
+            #: A piece is whole (D-212): asking for a fraction of one is
+            #: refused wherever things are moved.
+            except goods.NotWhole as refusal:
                 answer = {"refused": str(refusal)}
             except death.DeathError as refusal:
                 answer = {"refused": str(refusal)}
@@ -597,6 +607,22 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
     #: and its find. Empty where the land is built up or somebody else's.
     seen["forage"] = await forage.view(db, constants, current_catalog(), body, node)
 
+    #: What the body is at (D-211): one occupation at a time, and the client
+    #: must be able to grey out the second button rather than let it be pressed
+    #: for a refusal. The batch is named here too -- it forbids a search and a
+    #: plot, and only sleep is allowed beside it -- so the kind travels along
+    #: and the client decides by it.
+    doing = await occupation.current(db, body)
+    seen["busy"] = (
+        None
+        if doing is None
+        else {
+            "kind": doing.kind,
+            "what": doing.what,
+            "until": None if doing.until is None else doing.until.isoformat(),
+        }
+    )
+
     #: Local clock of the planet: a Terran day is `time.day_terra` hours long
     #: (D-029), and the world has been running since its first node appeared.
     #: The client counts the hands itself -- the server names the origin, so
@@ -972,7 +998,7 @@ async def _build_estimate(state: dict, db: AsyncSession, message: dict) -> dict:
     if footprint <= 0 or floors < 1:
         raise Refused("площадь и этажность считаются от единицы")
 
-    needed = estate.estimate(
+    needed = estate.bill(
         constants, footprint=footprint, floors=floors, strength=strength
     )
     pocket = await world.body_container(db, body)
@@ -2303,12 +2329,10 @@ async def _forage_start(state: dict, db: AsyncSession, message: dict) -> dict:
 
 
 async def _forage_take(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Pick the find up. The next search starts by itself, unless told not to."""
+    """Pick the find up. The foraging ends there: searching again is a decision (D-211)."""
     body = await _alive(state, db)
-    row = await forage.take(
-        db, current(), current_catalog(), body, go_on=bool(message.get("go_on", True))
-    )
-    return {"taken": True, "ready_at": None if row is None else row.ready_at.isoformat()}
+    await forage.take(db, current(), current_catalog(), body)
+    return {"taken": True}
 
 
 async def _forage_pass(state: dict, db: AsyncSession, message: dict) -> dict:

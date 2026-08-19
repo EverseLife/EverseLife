@@ -15,7 +15,7 @@ import { useEffect, useState } from "react";
 import * as api from "../api";
 import type { Book, Look, Session, Thing } from "../api";
 import { Amount } from "../Amount";
-import { chosen } from "../amounts";
+import { chosen, tally } from "../amounts";
 import { Rule } from "../Rule";
 import { Refusal, useActions } from "../actions";
 
@@ -146,12 +146,12 @@ export function Market({ look, session }: Omit<Props, "busy" | "act">) {
                   <tr key={`a${u.price}`}>
                     <td />
                     <td className="num">{api.tk(u.price)}</td>
-                    <td className="num">{u.amount}</td>
+                    <td className="num">{tally(choice!.goods, u.amount)}</td>
                   </tr>
                 ))}
                 {orderBook.bids.map((u) => (
                   <tr key={`b${u.price}`}>
-                    <td className="num">{u.amount}</td>
+                    <td className="num">{tally(choice!.goods, u.amount)}</td>
                     <td className="num">{api.tk(u.price)}</td>
                     <td />
                   </tr>
@@ -267,7 +267,9 @@ export function Market({ look, session }: Omit<Props, "busy" | "act">) {
             .map((reservation) => (
               <div className="row" key={reservation.id}>
                 <span>
-                  бронь: {reservation.goods} · {reservation.amount} по {api.tk(reservation.price)} ₭
+                  бронь: {reservation.goods} ·{" "}
+                  {tally(reservation.goods, reservation.amount)} по{" "}
+                  {api.tk(reservation.price)} ₭
                 </span>
                 <button
                   onClick={() =>
@@ -367,12 +369,13 @@ function Own({
               onClick={() => mark({ goods: name, tier: t.tier })}
             >
               <td>{t.flavor ?? name}</td>
-              <td className="num">{t.amount}</td>
+              <td className="num">{tally(t.goods, t.amount)}</td>
               <td className="note">
                 {t.quality === null ? "" : `${t.quality.toFixed(0)} · ${t.tier}`}
               </td>
               <td onClick={(e) => e.stopPropagation()}>
                 <Amount
+                  goods={t.goods}
                   value={parts[t.id] ?? null}
                   max={t.amount}
                   onChange={(value) =>

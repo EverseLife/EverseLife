@@ -19,6 +19,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as api from "./api";
+import * as amounts from "./amounts";
 import { Session, type Enrollment, type Look } from "./api";
 import { Account } from "./panels/Account";
 import { Chat } from "./panels/Chat";
@@ -110,7 +111,11 @@ export default function App() {
     //: The constants ride along with the catalog: a machine panel that needs
     //: one number (how many kinds go into an attempt, D-209) reads it from the
     //: same book it reads recipes from, without a second prop through every layer.
-    setBook({ ...(await api.recipes()), constants: values });
+    const book = await api.recipes();
+    //: Piece or weight is read off the same book (D-212), and every panel that
+    //: draws a quantity asks `amounts`, not a prop of its own.
+    amounts.learn(book);
+    setBook({ ...book, constants: values });
   }, []);
 
   const enter = (email: string, password: string) =>

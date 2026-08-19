@@ -10,6 +10,7 @@
 
 import { useMemo, useState } from "react";
 import type { Look, Session, Thing } from "../api";
+import { tally } from "../amounts";
 import { Rule } from "../Rule";
 import { Refusal, useActions } from "../actions";
 import { TierPick } from "../Tier";
@@ -177,7 +178,7 @@ function Row({
   return (
     <tr>
       <td>{thing.goods}</td>
-      <td className="num">{thing.amount}</td>
+      <td className="num">{tally(thing.goods, thing.amount)}</td>
       <td className="note">
         проба {thing.fineness}
         {thing.maker ? ` · клеймо ${thing.maker}` : ""}

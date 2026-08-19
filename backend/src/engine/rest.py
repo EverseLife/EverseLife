@@ -10,6 +10,12 @@ Crediting happens **on waking**, by the time actually slept: sleep is a
 long-running action, it continues while the player is offline, and it needs
 no tick. A sleeping body is unavailable for everything in-person -- that is
 how sleep pays: overslept -- the lot got bought.
+
+Sleep is an **occupation** (D-211), and one body does one of those at a time:
+one does not lie down in the middle of a search or with a plot under the
+plough, and the refusal says which. A batch is the single thing sleep neither
+refuses nor is refused by -- lying down freezes it and the machine goes free,
+the same as walking out of the node does (D-209); waking sets it going again.
 """
 
 from __future__ import annotations
@@ -57,12 +63,27 @@ async def sleep(
         raise RestError("мёртвое тело не спит — оно мертво")
     #: `require_here` will refuse a sleeper itself: sleep stands at the same door as the road.
     await travel.require_here(session, body)
+    #: Sleep is an occupation like any other (D-211): one does not lie down in
+    #: the middle of a search or with a plot under the plough. The refusal
+    #: names what is going on, so that the player ends it and comes back.
+    from src.engine import occupation
+
+    await occupation.require_free(
+        session, body, besides=frozenset({occupation.CRAFT})
+    )
     if float(body.stamina) >= constants[R.BODY_STAMINA_MAX]:
         raise NotTired("выносливость полная: ложиться незачем")
 
     body.sleeping_since = moment
     body.sleeping_home = await _bed_here(session, body)
     await session.flush()
+
+    #: A batch is not refused by sleep and does not refuse it: lying down is
+    #: stepping away from the bench (D-211). The work freezes with its time
+    #: left and the machine goes to whoever is awake.
+    from src.engine import craft
+
+    await craft.freeze(session, body, now=moment)
 
     await events.record(
         session,
@@ -105,6 +126,12 @@ async def wake(
     body.sleeping_since = None
     body.sleeping_home = False
     await session.flush()
+
+    #: Back at the bench: the work frozen by sleep goes on, on a free machine
+    #: of the same name -- somebody else may have taken the old one (D-211).
+    from src.engine import craft
+
+    await craft.wake(session, body, now=moment)
 
     await events.record(
         session,

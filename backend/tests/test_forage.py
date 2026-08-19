@@ -156,14 +156,14 @@ async def test_find_is_decided_before_it_is_taken(
     assert row.found in forage.finds(constants)
 
 
-async def test_take_puts_the_handful_in_the_hands_and_searches_on(
+async def test_take_puts_the_handful_in_the_hands_and_ends_the_search(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
     node, body = await _yard(session)
     row = await forage.start(session, constants, body)
     goods, units, quality = row.found, row.units, float(row.quality)
 
-    following = await forage.take(session, constants, catalog, body, now=_later(row))
+    await forage.take(session, constants, catalog, body, now=_later(row))
     pocket = await world.body_container(session, body)
     got = (
         await session.execute(
@@ -176,9 +176,9 @@ async def test_take_puts_the_handful_in_the_hands_and_searches_on(
     grade = constants[R.FORAGE_QUALITY]
     assert grade.min <= quality <= grade.max
 
-    #: The search went on by itself: a new row, a new deadline.
-    assert following is not None and following.id != row.id
-    assert (await forage.current(session, body)).id == following.id
+    #: The search does not start again by itself (D-211): the find is in the
+    #: hands, and walking the plot once more is the player's decision.
+    assert await forage.current(session, body) is None
 
 
 async def test_pass_leaves_the_find_and_searches_on(
@@ -195,13 +195,20 @@ async def test_pass_leaves_the_find_and_searches_on(
     assert following.id != row.id
 
 
-async def test_take_without_going_on_ends_the_search(
+async def test_taking_costs_no_second_search(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
+    """The stamina of one search buys one search (D-211).
+
+    Restarting by itself spent strength nobody asked to spend -- and on an
+    exhausted body it turned "pick it up" into a refusal.
+    """
     node, body = await _yard(session)
-    row = await forage.start(session, constants, body)
-    taken = await forage.take(session, constants, catalog, body, now=_later(row), go_on=False)
-    assert taken is None
+    await forage.start(session, constants, body)
+    body.stamina = Decimal("0")
+    await session.flush()
+    row = await forage.current(session, body)
+    await forage.take(session, constants, catalog, body, now=_later(row))
     assert await forage.current(session, body) is None
 
 

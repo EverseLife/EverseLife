@@ -148,6 +148,11 @@ function Character({ look, session, busy, act }: Props) {
     look.body?.satiated_until != null &&
     new Date(look.body.satiated_until).getTime() > Date.now();
   const bed_ = (look.node?.stations ?? []).includes("Кровать");
+  //: What forbids lying down right now (D-211). A batch is the exception: it
+  //: freezes with the master and does not stand in the way of sleep.
+  const doing = look.busy ?? null;
+  const occupied =
+    doing && doing.kind !== "партия" && doing.kind !== "сон" ? doing.what : null;
   return (
     <div>
       <p className="sign">
@@ -188,7 +193,9 @@ function Character({ look, session, busy, act }: Props) {
       </table>
 
       {/* Привал: сон живёт при персонаже, но остаётся присутственным —
-          ложатся там, где стоят, и в пути не ложатся (D-091). */}
+          ложатся там, где стоят, и в пути не ложатся (D-091). Занятое тело
+          не ложится тоже (D-211), и кнопка об этом говорит заранее: партия —
+          единственное дело, при котором спать можно, она замирает сама. */}
       {look.body !== null && (
         <div className="row">
           {sleepingSince ? (
@@ -204,16 +211,19 @@ function Character({ look, session, busy, act }: Props) {
             <>
               <button
                 onClick={() => act(() => session.send("rest.sleep"))}
-                disabled={busy || Boolean(look.travel)}
+                disabled={busy || Boolean(look.travel) || occupied !== null}
+                title={occupied ?? ""}
               >
                 {bed_ ? "Лечь в кровать" : "Лечь спать"}
               </button>
               <span className="note">
                 {look.travel
                   ? "в пути не ложатся"
-                  : bed_
-                    ? "кровать здесь: сон быстрее"
-                    : "кровати нет: сон медленнее"}
+                  : occupied
+                    ? occupied
+                    : bed_
+                      ? "кровать здесь: сон быстрее"
+                      : "кровати нет: сон медленнее"}
               </span>
             </>
           )}

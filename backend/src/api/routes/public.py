@@ -42,6 +42,9 @@ async def recipes() -> dict[str, Any]:
     book = catalog().recipes
     return {
         "raw": list(book.raw),
+        #: What is measured rather than counted (D-212): the client reads an
+        #: amount of everything else as whole pieces and writes "шт." by it.
+        "bulk": list(book.bulk),
         "operations": [operation.model_dump(by_alias=True) for operation in book.operations],
         "recipes": [recipe.model_dump() for recipe in book.recipes],
         "tool_classes": {name: list(tools) for name, tools in book.tool_classes.items()},

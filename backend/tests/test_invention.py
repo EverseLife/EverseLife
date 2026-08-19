@@ -119,10 +119,13 @@ async def test_wrong_composition_burns_what_was_laid_out(
         session, constants, catalog, body, {WOOD: 4, INGOT: 1}, 2, station=BENCH
     )
     assert not result.success and result.batch is None
-    #: A random share within `invent.material_loss` burns -- of each kind its own.
-    loss = constants[R.INVENT_MATERIAL_LOSS]
+    #: A random share within `invent.material_loss` burns -- of each kind its
+    #: own. Both kinds here are counted (D-212), so the share is rounded up to
+    #: whole pieces: at least one of each burns, never more than was laid out.
     for name, laid in ((WOOD, 8.0), (INGOT, 2.0)):
-        assert laid * loss.min / 100 <= result.burned[name] <= laid * loss.max / 100
+        burned = result.burned[name]
+        assert burned == int(burned), "штучное горит штуками"
+        assert 1 <= burned <= laid
     assert await _held(session, body, WOOD) == pytest.approx(20 - result.burned[WOOD])
     assert await _held(session, body, INGOT) == pytest.approx(5 - result.burned[INGOT])
     assert not (

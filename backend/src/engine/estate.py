@@ -648,6 +648,26 @@ def estimate(
     }
 
 
+def bill(
+    constants: Constants, *, footprint: float, floors: int, strength: int
+) -> dict[str, float]:
+    """The same bill, in the amounts the world can actually hand over (D-212).
+
+    A counted material goes into the wall whole: two and a half boards is
+    three boards. `estimate` stays as the formula wrote it -- the labour ratio
+    in `build_minutes` is about how heavy the lot is, not about what the saw
+    could not halve -- and this is what is shown and what is written off.
+    """
+    from src.engine import goods
+
+    return {
+        name: goods.whole(name, qty, up=True)
+        for name, qty in estimate(
+            constants, footprint=footprint, floors=floors, strength=strength
+        ).items()
+    }
+
+
 def build_minutes(
     constants: Constants, *, footprint: float, floors: int, strength: int
 ) -> float:
@@ -713,7 +733,7 @@ async def construct(
     #: construction has started, and the timber is already in the wall, not in the sack.
     from src.engine import craft, world
 
-    needed = estimate(constants, footprint=area, floors=floors, strength=strength)
+    needed = bill(constants, footprint=area, floors=floors, strength=strength)
     pocket = await world.body_container(session, body)
     #: Which stacks go into the wall is the builder's choice by tier (D-058).
     stock = await craft._stock(session, pocket, tuple(needed), tiers=tiers)  # noqa: SLF001
@@ -794,7 +814,11 @@ def salvage(constants: Constants, houses: list[Building]) -> dict[str, float]:
         )
         for name, qty in lot.items():
             back[name] = back.get(name, 0.0) + qty * share
-    return back
+    #: What comes back comes back whole, and downwards (D-212): taking a house
+    #: apart must not mint a board that was not in it.
+    from src.engine import goods
+
+    return {name: goods.whole(name, qty) for name, qty in back.items()}
 
 
 async def demolishing(session: AsyncSession, node: Node) -> bool:

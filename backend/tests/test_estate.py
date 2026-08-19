@@ -26,7 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import city as town
-from src.engine import estate, ledger, world
+from src.engine import estate, goods, ledger, world
 from src.models.city import Citizen
 from src.models.estate import Deed
 from src.models.job import JobState
@@ -478,9 +478,12 @@ async def test_demolition_takes_time_and_returns_a_share_of_materials(
 
     share = constants[R.BUILD_DEMOLISH_SALVAGE]
     for name, quantity in back.items():
-        assert quantity == pytest.approx(spent[name] * share), (
+        #: The share of the bill, cut down to whole pieces where the material is
+        #: counted (D-212): a house does not give back two thirds of a board.
+        assert quantity == goods.whole(name, spent[name] * share), (
             "возвращается доля сметы, а не смета"
         )
+        assert quantity < spent[name], "возврат меньше вложенного"
 
     job = await estate.demolish(session, constants, body, plot)
     assert await estate.built_area(session, plot) > 0, "снос не мгновенен"

@@ -9,9 +9,10 @@ with one occupation that lives on any plot with room to walk:
   storeys above the ground take nothing from it). Below `forage.min_area`
   there is nowhere to forage and no window;
 - **what turns up is not chosen.** One starts a search; by the deadline the
-  land shows a single random find -- a handful of one thing. Take it or pass,
-  and either way the search goes on until it is stopped. What is passed is
-  gone: a find, not a store;
+  land shows a single random find -- a handful of one thing. Take it and the
+  foraging ends there: searching again is the player's decision, not the
+  engine's (D-211). Pass it and the search goes on -- that is what passing
+  means. What is passed is gone: a find, not a store;
 - **one table sets both pace and mix.** `forage.finds` is finds per hour per
   `forage.reference_area` of empty land, one number per thing. Their sum
   scaled by the empty area is the pace; a thing's share of the sum is what it
@@ -190,6 +191,11 @@ async def start(
     await travel.require_here(session, body)
     if await current(session, body) is not None:
         raise AlreadySearching("поиск уже идёт: дождитесь находки или закончите")
+    #: A search is an occupation (D-211): one does not walk the plot while a
+    #: batch of one's own runs at a bench or a plot lies under the plough.
+    from src.engine import occupation
+
+    await occupation.require_free(session, body, besides=frozenset({occupation.FORAGE}))
 
     node = await session.get(Node, body.node_id)
     if node is None:  # pragma: no cover -- a body always stands in a node
@@ -270,14 +276,19 @@ async def take(
     body: Body,
     *,
     now: datetime | None = None,
-    go_on: bool = True,
-) -> Forage | None:
-    """Pick the find up: the handful goes into the hands, the search goes on.
+) -> None:
+    """Pick the find up: the handful goes into the hands, the foraging ends.
 
     Refused when it does not fit in the hands (`gear.Overloaded`) -- and then
-    the find keeps lying and waiting: put something down and try again. The
-    next search starts by itself unless asked otherwise; if it cannot -- no
-    strength left -- the find is still taken and the search simply ends.
+    the find keeps lying and waiting: put something down and try again.
+
+    **The next search does not start by itself** (D-211, amending D-210): the
+    find is taken, and whether to walk the plot again is the player's decision,
+    made by the same button that started the first search. A search restarting
+    on its own spent stamina nobody asked for it to spend, and turned a walk
+    over the land into a conveyor that had to be stopped rather than started.
+    Passing a find is a different matter: "search on" is what that answer
+    means, and there `pass_` goes on searching.
     """
     moment = now or datetime.now(UTC)
     row = await _offer(session, body, moment)
@@ -303,12 +314,6 @@ async def take(
     )
     await session.delete(row)
     await session.flush()
-    if not go_on:
-        return None
-    try:
-        return await start(session, constants, body, now=moment)
-    except (NoStrength, NoRoom):
-        return None
 
 
 async def pass_(

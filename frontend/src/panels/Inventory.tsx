@@ -21,7 +21,7 @@ import type { Look, Session, Thing } from "../api";
 import { Refusal, useActions } from "../actions";
 import { Rule } from "../Rule";
 import { Amount } from "../Amount";
-import { chosen } from "../amounts";
+import { chosen, tally } from "../amounts";
 import {
   GROUPINGS,
   SORTINGS,
@@ -372,10 +372,11 @@ export function Inventory({ look, session, book }: Props) {
                   )}
                 </td>
                 <td>{thing.flavor ?? (thing.recipe ? `${thing.goods}: ${thing.recipe}` : thing.goods)}</td>
-                <td className="num">{thing.amount}</td>
+                <td className="num">{tally(thing.goods, thing.amount)}</td>
                 <td className="note">{tells(thing)}</td>
                 <td>
                   <Amount
+                    goods={thing.goods}
                     value={parts[thing.id] ?? null}
                     max={thing.amount}
                     onChange={(value) =>
@@ -399,7 +400,7 @@ export function Inventory({ look, session, book }: Props) {
                 <tr key={thing.id}>
                   <td />
                   <td>{thing.flavor ?? (thing.recipe ? `${thing.goods}: ${thing.recipe}` : thing.goods)}</td>
-                  <td className="num">{thing.amount}</td>
+                  <td className="num">{tally(thing.goods, thing.amount)}</td>
                   <td className="note">{tells(thing)}</td>
                   <td />
                 </tr>

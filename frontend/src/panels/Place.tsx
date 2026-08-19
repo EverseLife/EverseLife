@@ -25,7 +25,7 @@ import { useState } from "react";
 import * as api from "../api";
 import type { Bench, Look, Session, Vehicle } from "../api";
 import { Amount } from "../Amount";
-import { chosen } from "../amounts";
+import { chosen, tally } from "../amounts";
 import { when } from "../clock";
 import { Rule } from "../Rule";
 import { Refusal, useActions } from "../actions";
@@ -178,12 +178,13 @@ export function Ground({ look, session }: Omit<Props, "busy" | "act" | "book">) 
               <tr key={thing.id}>
                 <td>{thing.flavor ?? thing.goods}</td>
                 <td className="note">
-                  {thing.amount.toFixed(1)} ·{" "}
+                  {tally(thing.goods, thing.amount)} ·{" "}
                   {(thing.mass * thing.amount).toFixed(1)} кг
                 </td>
                 <td>
                   {open && (
                     <Amount
+                      goods={thing.goods}
                       value={parts[thing.id] ?? null}
                       max={thing.amount}
                       onChange={(value) => setPart(thing.id, value)}
@@ -224,11 +225,12 @@ export function Ground({ look, session }: Omit<Props, "busy" | "act" | "book">) 
               <tr key={thing.id}>
                 <td>{thing.goods}</td>
                 <td className="note">
-                  {thing.amount.toFixed(1)} ·{" "}
+                  {tally(thing.goods, thing.amount)} ·{" "}
                   {(thing.mass * thing.amount).toFixed(1)} кг
                 </td>
                 <td>
                   <Amount
+                    goods={thing.goods}
                     value={parts[thing.id] ?? null}
                     max={thing.amount}
                     onChange={(value) => setPart(thing.id, value)}
@@ -308,9 +310,10 @@ function Storages({ look, session, busy, act }: Omit<Props, "book">) {
                     {chest.content.map((thing) => (
                       <tr key={thing.id}>
                         <td>{thing.goods}</td>
-                        <td className="note">{thing.amount.toFixed(1)}</td>
+                        <td className="note">{tally(thing.goods, thing.amount)}</td>
                         <td>
                           <Amount
+                            goods={thing.goods}
                             value={parts[thing.id] ?? null}
                             max={thing.amount}
                             onChange={(value) => setPart(thing.id, value)}
@@ -347,11 +350,12 @@ function Storages({ look, session, busy, act }: Omit<Props, "book">) {
                       <tr key={thing.id}>
                         <td>{thing.goods}</td>
                         <td className="note">
-                          {thing.amount.toFixed(1)} ·{" "}
+                          {tally(thing.goods, thing.amount)} ·{" "}
                           {(thing.mass * thing.amount).toFixed(1)} кг
                         </td>
                         <td>
                           <Amount
+                            goods={thing.goods}
                             value={parts[thing.id] ?? null}
                             max={thing.amount}
                             onChange={(value) => setPart(thing.id, value)}
@@ -746,7 +750,7 @@ function Demolition({ look, session, busy, act }: Omit<Props, "book">) {
                 {plan.back.map((m: any) => (
                   <tr key={m.goods}>
                     <td>{m.goods}</td>
-                    <td className="note">вернётся {m.amount.toFixed(1)}</td>
+                    <td className="note">вернётся {tally(m.goods, m.amount)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -1066,9 +1070,10 @@ function Convoy({ look, session, busy, act }: Omit<Props, "book">) {
                 {convoy.cargo.map((thing) => (
                   <tr key={thing.id}>
                     <td>{thing.type_key}</td>
-                    <td className="note">{thing.amount.toFixed(1)}</td>
+                    <td className="note">{tally(thing.type_key, thing.amount)}</td>
                     <td>
                       <Amount
+                        goods={thing.type_key}
                         value={parts[thing.id] ?? null}
                         max={thing.amount}
                         onChange={(value) => setPart(thing.id, value)}
@@ -1103,11 +1108,12 @@ function Convoy({ look, session, busy, act }: Omit<Props, "book">) {
                   <tr key={thing.id}>
                     <td>{thing.goods}</td>
                     <td className="note">
-                      {thing.amount.toFixed(1)} ·{" "}
+                      {tally(thing.goods, thing.amount)} ·{" "}
                       {(thing.mass * thing.amount).toFixed(1)} кг
                     </td>
                     <td>
                       <Amount
+                        goods={thing.goods}
                         value={parts[thing.id] ?? null}
                         max={thing.amount}
                         onChange={(value) => setPart(thing.id, value)}

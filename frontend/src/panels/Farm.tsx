@@ -9,6 +9,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import * as api from "../api";
+import { tally } from "../amounts";
 import type { Look, Session } from "../api";
 import { Refusal, useActions } from "../actions";
 
@@ -79,6 +80,11 @@ export function Farm({ look, session }: Omit<Props, "busy" | "act">) {
   const [batch, setBatch] = useState("");
 
   const current_ = look.node?.key;
+
+  //: Work on a plot is an occupation (D-211), and a busy body has no hands for
+  //: it -- including its own plough on the neighbouring strip. The buttons go
+  //: grey with the reason on them rather than collecting refusals.
+  const occupied = look.busy?.what ?? null;
 
   //: Seeds are recognised by name from vault data, not by the client's guess.
   const seedNames = new Set(plants.map((p) => p.seed));
@@ -166,8 +172,11 @@ export function Farm({ look, session }: Omit<Props, "busy" | "act">) {
             )}
           </span>
           {row.state === "idle" && (
-            <button onClick={() => go(() => session.send("farm.plow", { plot: row.id }))}
-                    disabled={busy}>
+            <button
+              onClick={() => go(() => session.send("farm.plow", { plot: row.id }))}
+              disabled={busy || occupied !== null}
+              title={occupied ?? ""}
+            >
               Вспахать
             </button>
           )}
@@ -180,7 +189,7 @@ export function Farm({ look, session }: Omit<Props, "busy" | "act">) {
                 {seeds.length === 0 && <option value="">— семян нет —</option>}
                 {seeds.map((t) => (
                   <option key={t.id} value={t.id}>
-                    {t.goods} · {t.amount.toFixed(0)}
+                    {t.goods} · {tally(t.goods, t.amount)}
                     {t.vigor != null ? ` · сила ${t.vigor.toFixed(0)}` : ""}
                   </option>
                 ))}
@@ -194,7 +203,8 @@ export function Farm({ look, session }: Omit<Props, "busy" | "act">) {
                     }),
                   )
                 }
-                disabled={busy || seeds.length === 0}
+                disabled={busy || seeds.length === 0 || occupied !== null}
+                title={occupied ?? ""}
               >
                 Посеять
               </button>
@@ -206,8 +216,8 @@ export function Farm({ look, session }: Omit<Props, "busy" | "act">) {
               //: Without agrotech "already tended today" is unknown to the
               //: player -- the button is live, and an extra round the engine rejects itself.
 
-              disabled={busy || (row.agrotech === true && !row.asks_care)}
-              title={row.agrotech && !row.asks_care ? "сегодня уже ухожено" : ""}
+              disabled={busy || (row.agrotech === true && !row.asks_care) || occupied !== null}
+              title={occupied ?? (row.agrotech && !row.asks_care ? "сегодня уже ухожено" : "")}
             >
               Обойти
             </button>
@@ -220,16 +230,16 @@ export function Farm({ look, session }: Omit<Props, "busy" | "act">) {
                     session.send("farm.harvest", { plot: row.id, select: true }),
                   )
                 }
-                disabled={busy}
-                title="отобрать лучшие растения на семена: фонд держит силу"
+                disabled={busy || occupied !== null}
+                title={occupied ?? "отобрать лучшие растения на семена: фонд держит силу"}
               >
                 Убрать с отбором
               </button>
               <button
                 className="quiet"
                 onClick={() => go(() => session.send("farm.harvest", { plot: row.id }))}
-                disabled={busy}
-                title="убрать не глядя: семенной фонд потеряет силу"
+                disabled={busy || occupied !== null}
+                title={occupied ?? "убрать не глядя: семенной фонд потеряет силу"}
               >
                 Убрать
               </button>

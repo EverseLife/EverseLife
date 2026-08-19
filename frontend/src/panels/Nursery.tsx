@@ -12,6 +12,7 @@
 
 
 import { useCallback, useEffect, useState } from "react";
+import { tally } from "../amounts";
 import type { Look, Session, Thing } from "../api";
 import { when } from "../clock";
 import { Rule } from "../Rule";
@@ -76,7 +77,7 @@ export function Nursery({ look, session }: Omit<Props, "busy" | "act">) {
           <option value="">— первый родитель —</option>
           {seeds.map((t) => (
             <option key={t.id} value={t.id}>
-              {t.goods} · {t.variety ?? "сорт"} · {t.amount.toFixed(0)}
+              {t.goods} · {t.variety ?? "сорт"} · {tally(t.goods, t.amount)}
             </option>
           ))}
         </select>
@@ -84,7 +85,7 @@ export function Nursery({ look, session }: Omit<Props, "busy" | "act">) {
           <option value="">— второй родитель —</option>
           {seeds.map((t) => (
             <option key={t.id} value={t.id}>
-              {t.goods} · {t.variety ?? "сорт"} · {t.amount.toFixed(0)}
+              {t.goods} · {t.variety ?? "сорт"} · {tally(t.goods, t.amount)}
             </option>
           ))}
         </select>

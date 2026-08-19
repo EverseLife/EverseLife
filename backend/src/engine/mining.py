@@ -213,6 +213,14 @@ async def session_container(session: AsyncSession, mining: MiningSession) -> Con
     return container
 
 
+async def active(session: AsyncSession, body: Body) -> MiningSession | None:
+    """The open working of this body, if any: one body swings in one face."""
+    stmt = select(MiningSession).where(
+        MiningSession.body_id == body.id, MiningSession.state == SessionState.ACTIVE
+    )
+    return (await session.execute(stmt)).scalars().first()
+
+
 async def start(
     session: AsyncSession,
     constants: Constants,
@@ -249,13 +257,13 @@ async def start(
             f"{float(body.stamina):.2f}: сначала сон или обед"
         )
 
-    existing = await session.scalar(
-        select(func.count())
-        .select_from(MiningSession)
-        .where(MiningSession.body_id == body.id, MiningSession.state == SessionState.ACTIVE)
-    )
-    if existing:
+    if await active(session, body) is not None:
         raise SessionClosed("у тела уже открыта сессия: в двух забоях сразу не бьют")
+    #: A face is an occupation like any other: it is not opened by a body that
+    #: is already searching the land or ploughing a plot (D-211).
+    from src.engine import occupation
+
+    await occupation.require_free(session, body, besides=frozenset({occupation.MINE}))
 
     #: The roof belongs to the working, not to the session (D-188): rock does
     #: not knit back together while the miner is away. An untouched vein starts

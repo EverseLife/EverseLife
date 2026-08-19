@@ -187,6 +187,12 @@ async def survey(
     if resource is not None and resource not in mineable(current_catalog()):
         raise ExploreError(f"такой породы в этом мире не добывают: {resource}")
     await travel.require_here(session, body)
+    #: A run is an occupation (D-211): the scout leaves in person, and a body
+    #: with a plot under the plough or a batch at the bench has no hands to
+    #: leave with.
+    from src.engine import occupation
+
+    await occupation.require_free(session, body, besides=frozenset({occupation.FIELD}))
 
     origin = await session.get(Node, body.node_id)
     if origin is None:  # pragma: no cover -- a body always stands in a node

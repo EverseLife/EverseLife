@@ -91,6 +91,10 @@ class RecipeBook(Strict):
     edible: tuple[str, ...] = ()
     #: Gear slots: one thing is worn in each (D-146).
     gear_slots: tuple[str, ...] = ()
+    #: What is measured by weight rather than counted: ore, grain, water,
+    #: liquids (D-212). Everything not named here is counted in pieces, and a
+    #: piece is whole -- there is no half an ingot.
+    bulk: tuple[str, ...] = ()
     #: Unit mass, kg. Given by data: it cannot be derived from input amounts --
     #: those are given by labour, not composition (D-146).
     mass: dict[str, float] = Field(default_factory=dict)
@@ -131,6 +135,16 @@ class RecipeBook(Strict):
         """
         return self.mass.get(self.resolve(name), default)
 
+    def counted(self, name: str) -> bool:
+        """Whether the thing is counted in pieces rather than measured (D-212).
+
+        The sign belongs to the content and lives in the vault as one list of
+        the measured: a name absent from it is a piece. That way a new thing is
+        a piece by default, and a forgotten line is visible at once -- sand
+        counted in pieces is noticed, sand weighed is not.
+        """
+        return self.resolve(name) not in self._measured
+
     def slot_of(self, name: str) -> str | None:
         """Which slot the thing is worn in. Empty -- not gear."""
         found = self._by_name.get(self.resolve(name))
@@ -150,9 +164,11 @@ class RecipeBook(Strict):
         return found is not None and found.food
 
     _by_name: dict[str, Recipe] = PrivateAttr(default_factory=dict)
+    _measured: set[str] = PrivateAttr(default_factory=set)
 
     def model_post_init(self, _: Any) -> None:
         self._by_name.update({recipe.name: recipe for recipe in self.recipes})
+        self._measured.update(self.bulk)
 
 
 class PlantRequirements(Strict):

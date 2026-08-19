@@ -26,6 +26,7 @@
 import { useEffect, useState } from "react";
 import * as api from "../api";
 import type { Invention, Look, Plan, Session, Thing } from "../api";
+import { tally } from "../amounts";
 import { craftableAt, inputsOf, stationOf } from "../recipes";
 import { Rule } from "../Rule";
 import { Refusal, useActions } from "../actions";
@@ -158,6 +159,12 @@ export function Workshop({ look, session, machine, book }: Omit<Props, "busy" | 
   //: a new batch will wait its turn -- said before the button, not after.
   const running = (look.batches ?? []).find((b) => b.state === "running");
 
+  //: Another occupation -- a search on the land, a plot under the plough, a
+  //: face -- has the hands, and work is not begun with them (D-211). A batch
+  //: of one's own is not in the way: it is a queue, and that is said above.
+  const occupied =
+    look.busy && look.busy.kind !== "партия" ? look.busy.what : null;
+
   return (
     <section>
       <Refusal of={acting} />
@@ -236,7 +243,7 @@ export function Workshop({ look, session, machine, book }: Omit<Props, "busy" | 
                   <div className="row" key={name}>
                     <span className="note">
                       {name}
-                      {" "}· в руках {have}
+                      {" "}· в руках {tally(name, have)}
                     </span>
                     <TierPick
                       things={look.inventory}
@@ -287,7 +294,7 @@ export function Workshop({ look, session, machine, book }: Omit<Props, "busy" | 
                 <p className="note">
                   уйдёт:{" "}
                   {Object.entries(forecast.consumes)
-                    .map(([name, qty]) => `${name} ${qty.toFixed(2)}`)
+                    .map(([name, qty]) => `${name} ${tally(name, qty)}`)
                     .join(", ")}
                   {forecast.auto && forecast.energy > 0 && (
                     <>
@@ -302,7 +309,11 @@ export function Workshop({ look, session, machine, book }: Omit<Props, "busy" | 
             ) : (
               <p className="note">Прогноз считается сам, пока вы выбираете.</p>
             )}
-            <button onClick={launch} disabled={busy || !forecast}>
+            <button
+              onClick={launch}
+              disabled={busy || !forecast || occupied !== null}
+              title={occupied ?? ""}
+            >
               {running ? "В очередь" : "Запустить партию"}
             </button>
             {running && (
@@ -326,14 +337,16 @@ export function Workshop({ look, session, machine, book }: Omit<Props, "busy" | 
               </span>
               <button
                 onClick={() => act(() => session.send("craft.repair", { item: thing.id }))}
-                disabled={busy}
+                disabled={busy || occupied !== null}
+                title={occupied ?? ""}
               >
                 Починить
               </button>
               <button
                 className="quiet"
                 onClick={() => act(() => session.send("craft.recycle", { item: thing.id }))}
-                disabled={busy}
+                disabled={busy || occupied !== null}
+                title={occupied ?? ""}
               >
                 Разобрать
               </button>

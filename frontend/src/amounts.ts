@@ -1,7 +1,55 @@
-/** Helpers for the quantity field (`Amount.tsx`). Kept apart from the component
- *  so hot reload keeps working: a module of components exports components. */
+/** Helpers for the quantity field (`Amount.tsx`) and for reading a quantity.
+ *  Kept apart from the component so hot reload keeps working: a module of
+ *  components exports components. */
 
 /** How much to move: what was typed, or the whole stack if nothing was. */
 export function chosen(value: number | null, whole: number): number {
   return value === null ? whole : Math.min(value, whole);
+}
+
+/**
+ * Piece or weight (D-212).
+ *
+ * The vault names what is **measured** -- ore, grain, water, oils -- and calls
+ * everything else a piece: an ingot, a board, a nail, a coin. A piece is whole
+ * always, and it reads as "12 шт.", the way mass reads in kilograms.
+ *
+ * The list lives here as one module value rather than a prop, and on purpose:
+ * it comes from the same catalog the server reads, it is fetched once at
+ * login and never changes while the page lives, and quantities are drawn in
+ * a dozen panels -- half of which have no `book` prop and would gain one for
+ * this alone. `learn` is called where the catalog is loaded (`App.tsx`).
+ */
+let measured = new Set<string>();
+let aliases: Record<string, string> = {};
+
+export function learn(book: any): void {
+  measured = new Set<string>(book?.bulk ?? []);
+  aliases = book?.synonyms ?? {};
+}
+
+/** Whether the thing is counted in pieces rather than measured. */
+export function counted(goods: string): boolean {
+  return !measured.has(aliases[goods] ?? goods);
+}
+
+/**
+ * A quantity as the player reads it: "12 шт." for a piece, "47.5" for what is
+ * measured.
+ *
+ * A piece is whole by the engine's rule, so the number is never dressed up
+ * here: were a fraction of one ever to show, it is a bug worth seeing.
+ */
+export function tally(goods: string, amount: number): string {
+  return counted(goods) ? `${trim(amount)} шт.` : trim(amount);
+}
+
+/** The number itself, without trailing zeros: 3, 3.5, 0.25. */
+export function trim(amount: number): string {
+  return Number(amount.toFixed(3)).toString();
+}
+
+/** The step of the quantity field: a piece moves by one, the measured by any part. */
+export function step(goods: string): number | "any" {
+  return counted(goods) ? 1 : "any";
 }

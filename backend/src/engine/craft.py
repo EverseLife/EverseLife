@@ -83,7 +83,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import Catalog, ConstantError, Constants, current, current_catalog
 from src.constants import registry as R
 from src.constants.catalog import ItemKind, Operation, Recipe
-from src.engine import events, travel, wear
+from src.engine import events, goods, occupation, travel, wear
 from src.engine import world as world_engine
 from src.engine.jobs import enqueue, handler
 from src.engine.world import body_container, learn, node_container
@@ -537,6 +537,10 @@ async def start(
     its turn; and it freezes whenever the master leaves the node.
     """
     moment = now or datetime.now(UTC)
+    #: One body does one thing (D-211): a batch is not begun by a body that is
+    #: searching the land, ploughing a plot or standing in a face. A second
+    #: batch is not a second occupation -- it is a place in the queue (D-209).
+    await occupation.require_free(session, body, besides=frozenset({occupation.CRAFT}))
     ready = await _prepare(
         session,
         constants,
@@ -637,6 +641,8 @@ async def cook(
     if body.state is not BodyState.ALIVE:
         raise CraftError("мёртвое тело не готовит")
     await travel.require_here(session, body)
+    #: One body does one thing (D-211), and a queued batch is not a second.
+    await occupation.require_free(session, body, besides=frozenset({occupation.CRAFT}))
 
     recipe = catalog.recipes.recipe(output)
     if not recipe.roles:
@@ -961,7 +967,9 @@ async def _finish_recycle(
 
     returned: list[float] = []
     for name, per_unit in proc.per_unit.items():
-        given = amount(per_unit * share)
+        #: What comes back comes back whole (D-212): a fifth of an ingot is not
+        #: an ingot, and taking a thing apart cannot mint one out of rounding.
+        given = amount(goods.whole(name, per_unit * share, catalog=catalog))
         if given <= 0:
             continue
         session.add(
@@ -1011,6 +1019,8 @@ async def _work_on(
     await travel.require_here(session, body)
 
     inventory = await body_container(session, body)
+    #: One body does one thing (D-211), and a queued batch is not a second.
+    await occupation.require_free(session, body, besides=frozenset({occupation.CRAFT}))
     if item.container_id != inventory.id:
         raise CraftError("вещь не в руках: чинят и разбирают своё, а не чужое")
 
@@ -1243,6 +1253,8 @@ async def invent(
     await travel.require_here(session, body)
     if units <= 0:
         raise CraftError("партия из нуля единиц")
+    #: One body does one thing (D-211), and a queued batch is not a second.
+    await occupation.require_free(session, body, besides=frozenset({occupation.CRAFT}))
     if units > constants[R.CRAFT_BATCH_MAX]:
         raise TooBig(f"партия больше craft.batch_max: {units}")
 
@@ -1270,7 +1282,13 @@ async def invent(
     #: Which stacks: the chosen tier per kind, or worst first (D-058).
     picked_tiers = _tiers_by(catalog, tiers)
     stock = await _stock(session, inventory, laid, tiers=picked_tiers)
-    total = {name: value * units for name, value in laid.items()}
+    #: What is actually taken out of the hands is whole pieces (D-212). The
+    #: per-unit composition stays as it was written -- that is what the recipe
+    #: is matched against, and a recipe norm is fractional by right (D-133).
+    total = {
+        name: goods.whole(name, value * units, up=True, catalog=catalog)
+        for name, value in laid.items()
+    }
     _pick(stock, total)
 
     #: An operation everybody knows is not invented: smelting ore with coal at
@@ -1295,8 +1313,15 @@ async def invent(
         #: nobody can budget an exhaustive search to the ingot.
         loss = constants[R.INVENT_MATERIAL_LOSS]
         dice = random.Random()
+        #: A counted thing burns whole (D-212), and upwards: what a work spends
+        #: rounds up. Downwards a small roll would burn nothing at all, and a
+        #: free wrong guess is exactly what the price of a try exists against
+        #: (D-209). Never more than was laid out: the laid amount is whole too.
         lost = {
-            name: value * dice.uniform(loss.min, loss.max) / PERCENT
+            name: goods.whole(
+                name, value * dice.uniform(loss.min, loss.max) / PERCENT,
+                up=True, catalog=catalog,
+            )
             for name, value in total.items()
         }
         burned: dict[str, float] = {}
@@ -1394,13 +1419,18 @@ def _match(catalog: Catalog, bench: str | None, laid: dict[str, float]) -> str |
 
 
 async def present(session: AsyncSession, body: Body, node_id: uuid.UUID) -> bool:
-    """Whether the master stands at the machine: alive, in this node, not on
-    the road and not in the field.
+    """Whether the master stands at the machine: alive, in this node, awake, not
+    on the road and not in the field.
 
-    Sleep does not count as absence: the body is on the spot, and the work goes
-    on beside it (D-209). Only leaving stops it.
+    Sleep counts as absence (D-211): one body does one thing, and a sleeper is
+    not working. Lying down is stepping away from the bench -- the batch
+    freezes with its time left and the machine is freed, exactly as when the
+    master leaves the node; waking resumes it. Until D-211 sleep was the one
+    exception here, and it made the night a free accelerator of craft.
     """
     if body.state is not BodyState.ALIVE or body.node_id != node_id:
+        return False
+    if body.sleeping_since is not None:
         return False
     if await travel.current(session, body) is not None:
         return False
@@ -1620,8 +1650,10 @@ async def _prepare(
         raise TooBig(f"партия больше craft.batch_max: {units}")
 
     proc = procedure(catalog, output, way=way)
-    if not _stackable(catalog, proc.output) and units != int(units):
-        raise CraftError(f"{proc.output!r} — изделие, а не сырьё: партия считается штуками")
+    #: A counted thing is made in whole pieces (D-212): there is no batch of
+    #: two and a half ingots, and a product was never divisible to begin with.
+    if goods.counted(proc.output, catalog) and units != int(units):
+        raise CraftError(f"{proc.output!r} считается штуками: партия из целых единиц")
     if proc.needs_recipe and not await _knows(session, body, proc.output):
         raise NotLearned(f"рецепт {proc.output!r} не скопирован в личность")
 
@@ -1687,7 +1719,15 @@ async def _prepare(
     waste = waste_share(constants, accuracy)
     #: Waste is a share of the **inputs**, so it is taken on top of the norm,
     #: not out of the output: a batch of ten nails does not give nine and a half nails.
-    required = {name: value / (1 - waste / PERCENT) for name, value in actual.items()}
+    #:
+    #: What a counted thing gives to the work, it gives whole (D-212): two and a
+    #: half boards means three boards, and the half that was cut is not returned.
+    #: Rounding comes after the proportion is judged -- accuracy is about what
+    #: the master laid out, not about what the saw could not halve.
+    required = {
+        name: goods.whole(name, value / (1 - waste / PERCENT), up=True, catalog=catalog)
+        for name, value in actual.items()
+    }
 
     picks = _pick(stock, required)
     minutes = batch_minutes(

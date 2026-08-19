@@ -8,9 +8,10 @@
  * - **nothing to choose before starting.** What the land gives is listed with
  *   its odds, and the search is one button;
  * - **one find, one decision.** The find shows itself when its term is up:
- *   take it into the hands or leave it lying -- and either way the search goes
- *   on by itself until it is ended. The player is foraging, not clicking
- *   through a menu;
+ *   take it into the hands and the foraging ends there, or leave it lying and
+ *   the search goes on -- that is what leaving it means. After taking, the
+ *   window says what was picked up and offers the two ways on: search again or
+ *   walk off. Nothing restarts by itself (D-211);
  * - **the numbers are the land's.** Empty area and the mean time of a search
  *   are on the window: more empty land is faster, and the player sees why a
  *   built-up yard is slow before wondering.
@@ -19,7 +20,7 @@
  * (`look.forage`): the land is ours or nobody's and there is room to walk.
  */
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import type { Look, Session } from "../api";
 import { spell } from "../api";
 import { Deadline } from "../Deadline";
@@ -39,6 +40,15 @@ export function Forage({ look, session }: Props) {
   const foraging = look.forage ?? null;
   const state = foraging?.state ?? "idle";
   const readyAt = foraging?.ready_at ?? null;
+  //: What was just picked up, kept only until the next decision: the server
+  //: knows nothing of it -- the find is in the hands and the search is over
+  //: (D-211) -- but the player must see what came of the button they pressed,
+  //: and be offered the two ways on from there.
+  const [took, setTook] = useState<{ goods: string; units: number } | null>(null);
+  //: One body does one thing (D-211): while it is at another, the search is
+  //: not begun, and the button says so instead of collecting a refusal.
+  const elsewhere =
+    look.busy && look.busy.kind !== "поиск" ? look.busy.what : null;
 
   //: The find shows itself on the clock, and the poll comes every five
   //: seconds: a search of twenty seconds would spend a quarter of its life
@@ -61,9 +71,10 @@ export function Forage({ look, session }: Props) {
         <Hint>
           Пустая земля — участок без пятна застройки — отдаёт то, что на ней
           лежит. Что найдётся, не выбирают: поиск идёт временем, по сроку земля
-          показывает одну находку. Нужна — подобрать в руки, не нужна — искать
-          дальше; в обоих случаях поиск продолжится сам, пока его не закончить.
-          Каждый поиск стоит сил — найден он или пропущен. Чем больше пустой
+          показывает одну находку. Нужна — подобрать в руки, и на этом поиск
+          закончен: идти по участку снова или уйти, решаете вы. Не нужна —
+          «искать дальше», и поиск продолжится сам. Каждый поиск стоит сил —
+          найден он или пропущен. Чем больше пустой
           земли, тем быстрее находка. Уйдёте с места — поиск прервётся вместе
           с ненайденным.
         </Hint>
@@ -73,6 +84,15 @@ export function Forage({ look, session }: Props) {
         {foraging.seconds !== null && ` · находка примерно за ${spell(foraging.seconds)}`}
         {` · сил ${foraging.stamina} за поиск`}
       </p>
+
+      {state === "idle" && took && (
+        <div className="find" role="status">
+          <span>
+            подобрано: <b>{took.goods}</b> ×{took.units}
+          </span>
+          <span className="note">поиск закончен: искать дальше или уйти</span>
+        </div>
+      )}
 
       {state === "found" && found && (
         <div className="find" role="status">
@@ -87,17 +107,36 @@ export function Forage({ look, session }: Props) {
 
       <div className="row">
         {state === "idle" && (
-          <button
-            onClick={() => act(() => session.send("forage.start"))}
-            disabled={busy || !foraging.allowed}
-            title={
-              foraging.allowed
-                ? "пойти по участку: находка покажется по сроку"
-                : "здесь больше не ищут: земля чужая или застроена"
-            }
-          >
-            Начать собирательство
-          </button>
+          <>
+            <button
+              onClick={() =>
+                act(async () => {
+                  setTook(null);
+                  await session.send("forage.start");
+                })
+              }
+              disabled={busy || !foraging.allowed || elsewhere !== null}
+              title={
+                elsewhere
+                  ? elsewhere
+                  : foraging.allowed
+                    ? "пойти по участку: находка покажется по сроку"
+                    : "здесь больше не ищут: земля чужая или застроена"
+              }
+            >
+              {took ? "Искать дальше" : "Начать собирательство"}
+            </button>
+            {took && (
+              <button
+                className="quiet"
+                onClick={() => setTook(null)}
+                disabled={busy}
+                title="закончить: находка уже в руках"
+              >
+                Закончить
+              </button>
+            )}
+          </>
         )}
         {state === "searching" && readyAt && (
           <>
@@ -118,9 +157,14 @@ export function Forage({ look, session }: Props) {
         {state === "found" && (
           <>
             <button
-              onClick={() => act(() => session.send("forage.take"))}
+              onClick={() =>
+                act(async () => {
+                  await session.send("forage.take");
+                  setTook(found ? { goods: found.goods, units: found.units } : null);
+                })
+              }
               disabled={busy}
-              title="в руки — и искать дальше"
+              title="в руки; поиск на этом заканчивается — искать дальше решать вам"
             >
               Подобрать
             </button>

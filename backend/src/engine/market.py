@@ -264,7 +264,10 @@ async def load(
     inventory = await body_container(session, body)
     into = await stall(session, node, body.identity_id)
 
-    moved = await _move(session, inventory, into, type_key, amount(quantity), tier=tier,
+    from src.constants import current_catalog as _catalog
+
+    moved = await _move(session, inventory, into, type_key,
+                        _volume(_catalog(), type_key, quantity), tier=tier,
                         constants=constants)
     await events.record(
         session,
@@ -292,8 +295,10 @@ async def take(
     stock = await stall(session, node, body.identity_id)
     inventory = await body_container(session, body)
 
+    from src.constants import current_catalog as _catalog
+
     free = await _free(session, constants, node, body.identity_id, type_key, tier)
-    want = min(amount(quantity), free)
+    want = min(_volume(_catalog(), type_key, quantity), free)
     if want <= 0:
         raise NoGoods(f"свободного «{type_key}» в терминале нет: всё под ордерами")
 
@@ -336,7 +341,7 @@ async def sell(
 ) -> Fill:
     """List a sell order. Remote: the goods are already delivered (D-047)."""
     await terminal(session, node)
-    want = amount(quantity)
+    want = _volume(catalog, type_key, quantity)
     _sane(price, want)
 
     free = await _free(session, constants, node, identity.id, type_key, tier)
@@ -373,7 +378,7 @@ async def buy(
     node = await _node_of(session, body)
     await terminal(session, node)
 
-    want = amount(quantity)
+    want = _volume(catalog, type_key, quantity)
     _sane(price, want)
 
     identity = await session.get(Identity, body.identity_id)
@@ -418,7 +423,9 @@ async def reserve(
     if order.identity_id == identity.id:
         raise NotYours("свой товар бронировать незачем: он и так ваш")
 
-    want = amount(quantity)
+    from src.constants import current_catalog
+
+    want = _volume(current_catalog(), order.type_key, quantity)
     if want <= 0:
         raise BadOrder("бронь из нуля")
     if want > order.amount_left:
@@ -720,6 +727,17 @@ def _sane(price: int, want: int) -> None:
         raise BadOrder("цена должна быть положительной")
     if want <= 0:
         raise BadOrder("объём должен быть положительным")
+
+
+def _volume(catalog: Catalog, type_key: str, quantity: float) -> int:
+    """The order's volume in internal units: a counted thing trades whole (D-212).
+
+    Half an ingot cannot be delivered, so it cannot be offered either -- and an
+    order for it would sit in the book unfillable, which is worse than a refusal.
+    """
+    from src.engine import goods
+
+    return amount(goods.at_least_one(type_key, quantity, catalog=catalog))
 
 
 def _cost(price: int, quantity: int) -> int:

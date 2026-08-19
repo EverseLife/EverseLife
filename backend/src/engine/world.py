@@ -531,10 +531,14 @@ async def move_stack(
     own copy sooner or later falls behind on the field list, and a thing
     quietly loses part of itself on one of the paths.
     """
+    from src.engine import goods
     from src.units import AMOUNT_SCALE
     from src.units import amount as to_units
 
-    qty = min(to_units(quantity), item.amount)
+    #: A counted thing moves in whole pieces (D-212). A fraction is floored,
+    #: and a request smaller than one piece is refused rather than silently
+    #: doing nothing.
+    qty = min(to_units(goods.at_least_one(item.type_key, quantity)), item.amount)
     if qty >= item.amount:
         item.container_id = target.id
     else:
@@ -613,6 +617,14 @@ async def grant_item(
     script. There is no anonymous arrival (pillar P1).
     """
 
+    #: Matter arrives in whole pieces where the thing is counted (D-212): three
+    #: quarters of an ingot is no ingot, and the fourth quarter is not ours to
+    #: give. Less than one piece is a refusal rather than a stack of nothing --
+    #: the table forbids an empty stack, and an integrity error is a worse way
+    #: to learn that.
+    from src.engine import goods
+
+    amount = goods.at_least_one(type_key, amount)
     item = Item(
         container_id=container.id,
         type_key=type_key,

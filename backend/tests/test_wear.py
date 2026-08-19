@@ -29,6 +29,10 @@ from src.models.inventory import Item
 from src.units import amount_float
 
 PICK = "Железная кирка"
+#: Steel goes into a hammer three pieces at a time: the one tool whose recycling
+#: share is more than a whole piece (D-212).
+HAMMER = "Молот"
+STEEL = "Сталь"
 BENCH = "Верстак"
 INGOT = "Слиток железа"
 HANDLE = "Рукоять"
@@ -245,12 +249,17 @@ async def test_cannot_repair_without_materials(
 async def test_recycling_returns_less_than_invested(
     factory: async_sessionmaker[AsyncSession], constants: Constants, catalog: Catalog
 ) -> None:
-    """The difference is a sink, and it also makes recycling not free (20-systems/03)."""
+    """The difference is a sink, and it also makes recycling not free (20-systems/03).
+
+    A hammer, not a pickaxe: steel goes into it three pieces at a time, so the
+    share that comes back is more than one whole piece -- and a counted thing
+    comes back in whole pieces only (D-212).
+    """
     async with factory() as session, session.begin():
         _, _, body = await _master(session, machine="Кузница")
-        pickaxe = await _thing(session, body, PICK, quality=80)
-        work = await craft.recycle(session, constants, catalog, body, pickaxe)
-        term, item_id, body_id = work.ready_at, pickaxe.id, body.id
+        hammer = await _thing(session, body, HAMMER, quality=80)
+        work = await craft.recycle(session, constants, catalog, body, hammer)
+        term, item_id, body_id = work.ready_at, hammer.id, body.id
         assert work.kind is BatchKind.RECYCLE
 
     await jobs.run_one(factory, now=term)
@@ -260,23 +269,52 @@ async def test_recycling_returns_less_than_invested(
 
         reloaded = await session.get(Body, body_id)
         pocket = await world.body_container(session, reloaded)
-        ingots = (
+        steel = (
             await session.execute(
                 select(Item).where(
-                    Item.container_id == pocket.id, Item.type_key == INGOT
+                    Item.container_id == pocket.id, Item.type_key == STEEL
                 )
             )
         ).scalars().all()
-        assert ingots, "часть материалов вернулась"
+        assert steel, "часть материалов вернулась"
 
         share = constants[R.CRAFT_RECYCLE_RETURN] / 100
-        recipe = catalog.recipes.recipe(PICK)
-        returned = sum(amount_float(s.amount) for s in ingots)
-        assert returned == pytest.approx(recipe.amounts[INGOT] * share)
-        assert returned < recipe.amounts[INGOT]
+        recipe = catalog.recipes.recipe(HAMMER)
+        norm = recipe.amounts[STEEL]
+        returned = sum(amount_float(s.amount) for s in steel)
+        #: The share, cut down to whole pieces: a fifth of an ingot is not an ingot.
+        assert returned == int(norm * share)
+        assert returned < norm
 
         transfer = constants[R.QUALITY_RECYCLE_CARRYOVER] / 100
-        assert float(ingots[0].quality) == pytest.approx(80 * transfer)
+        assert float(steel[0].quality) == pytest.approx(80 * transfer)
+
+
+async def test_recycling_a_thing_of_single_pieces_returns_nothing(
+    factory: async_sessionmaker[AsyncSession], constants: Constants, catalog: Catalog
+) -> None:
+    """The sink at its sharpest (D-212): a share of one piece is no piece at all.
+
+    An iron pickaxe is one ingot and one handle; `craft.recycle_return` of one
+    piece does not make a piece, and what cannot come back whole does not come
+    back. The thing is still gone -- taking apart is not free either way.
+    """
+    async with factory() as session, session.begin():
+        _, _, body = await _master(session, machine="Кузница")
+        pickaxe = await _thing(session, body, PICK, quality=80)
+        work = await craft.recycle(session, constants, catalog, body, pickaxe)
+        term, item_id, body_id = work.ready_at, pickaxe.id, body.id
+
+    await jobs.run_one(factory, now=term)
+
+    async with factory() as session:
+        assert await session.get(Item, item_id) is None, "вещи больше нет"
+        reloaded = await session.get(Body, body_id)
+        pocket = await world.body_container(session, reloaded)
+        back = (
+            await session.execute(select(Item).where(Item.container_id == pocket.id))
+        ).scalars().all()
+        assert back == [], "доля меньше штуки не возвращается"
 
 
 async def test_foreign_not_repaired(

@@ -659,9 +659,19 @@ async def survey(
 
 
 async def _here(session: AsyncSession, body: Body) -> None:
+    """Present and free: plot work is an occupation like any other (D-211).
+
+    All of it, not the plough alone. Marking out, sowing, the daily round and
+    the harvest are short, but they are the body's hands too -- and a plot
+    sown while the same body walks the neighbouring land searching would be
+    two occupations on one pair of hands, which is exactly what D-211 forbids.
+    """
     if body.state is not BodyState.ALIVE:
         raise FarmError("мёртвое тело не работает")
     await travel.require_here(session, body)
+    from src.engine import occupation
+
+    await occupation.require_free(session, body)
 
 
 def _owned(plot: Plot, body: Body) -> None:
