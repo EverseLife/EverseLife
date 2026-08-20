@@ -91,11 +91,14 @@ export function Admin({ look, session }: Omit<Props, "busy" | "act">) {
 
   if (!city) {
     return (
-      <section>
-        <Refusal of={acting} />
-        <h2>Администрация</h2>
-        <p className="note">Здесь нет города: за стенами законов нет.</p>
-      </section>
+      <>
+        <Citizenship look={look} session={session} />
+        <section>
+          <Refusal of={acting} />
+          <h2>Администрация</h2>
+          <p className="note">Здесь нет города: за стенами законов нет.</p>
+        </section>
+      </>
     );
   }
 
@@ -107,6 +110,10 @@ export function Admin({ look, session }: Omit<Props, "busy" | "act">) {
   const vacant = city.lots.filter((lot) => lot.free);
 
   return (
+    <>
+    {/* One joins and leaves where the city decides (D-155): the standing of
+        the visitor comes before the machinery of the power. */}
+    <Citizenship look={look} session={session} />
     <section>
       <h2>Администрация · {city.name}</h2>
       <nav className="row tabs">
@@ -395,6 +402,102 @@ export function Admin({ look, session }: Omit<Props, "busy" | "act">) {
           </table>
         </>
         </>
+      )}
+    </section>
+    </>
+  );
+}
+
+/** Citizenship: one per person, entry by charter, exit with a delay (D-160).
+ *
+ * One joins in the administration -- where the city makes every decision
+ * (D-155) -- so the section stands in this window, first: for a visitor the
+ * question "may I belong here" comes before the machinery of the power. The
+ * admission order is always shown: "open", "by application" and "by
+ * invitation" behave differently, and the person must understand what to expect.
+ */
+function Citizenship({ look, session }: Omit<Props, "busy" | "act">) {
+  //: Own waiting and own refusal: joining must not grey out the court and the votes.
+  const acting = useActions();
+  const { busy, act } = acting;
+  const city = look.city ?? null;
+  const own = look.citizenship ?? null;
+  //: Only in the administration: both joining and leaving are in-person (D-155).
+  if (!city?.hall) return null;
+
+  const order_: Record<string, string> = {
+    open: "принимают свободно",
+    application: "по заявке с одобрением",
+    invite: "только по приглашению",
+  };
+  //: Citizenship taken as a print condition cannot be given up before the term (D-184).
+  const linked = Boolean(
+    own?.bound_until && new Date(own.bound_until) > new Date(),
+  );
+
+  return (
+    <section>
+      <Refusal of={acting} />
+      <h2>Гражданство</h2>
+      {own ? (
+        <p>
+          состоите в <b>{own.city}</b>
+          {own.leaving_at && <> · выходите: гражданство спадёт {when(own.leaving_at)}</>}
+          {/* Обязательство, принятое при печати (D-184): срок виден заранее,
+              а не открывается отказом при попытке выйти. */}
+          {linked && <> · обязательство кончится {when(own.bound_until)}</>}
+        </p>
+      ) : (
+        <p className="note">Вы нигде не состоите: гость платит пошлины, но не налоги.</p>
+      )}
+
+      <div className="row">
+        {city.citizen ? (
+          <span className="note">Это ваш город.</span>
+        ) : city.requested ? (
+          <span className="note">
+            {city.admission === "invite"
+              ? "Вас позвали: примите приглашение."
+              : "Заявка подана — ждёт решения власти."}
+          </span>
+        ) : null}
+        {!city.citizen && (
+          <button
+            onClick={() => act(() => session.send("city.join", {}))}
+            disabled={busy || Boolean(own)}
+            title={
+              own
+                ? "гражданство одно на человека: сначала выйти из прежнего города"
+                : order_[city.admission]
+            }
+          >
+            {city.requested && city.admission === "invite"
+              ? "Принять приглашение"
+              : "Вступить в граждане"}
+          </button>
+        )}
+        <span className="note">{city.name}: {order_[city.admission]}</span>
+      </div>
+
+      {own && !own.leaving_at && (
+        <div className="row">
+          <button
+            onClick={() => act(() => session.send("city.leave", {}))}
+            disabled={busy || linked}
+            title={
+              linked
+                ? "срок обязательства вы приняли, выбрав дверь этого города"
+                : "заявление уходит по Сети"
+            }
+          >
+            Выйти из гражданства
+          </button>
+          <span className="note">
+            {linked
+              ? "Обязательство печати держит до своего срока."
+              : "Выход не мгновенен: гражданство спадёт по сроку."}
+          </span>
+        </div>
       )}
     </section>
   );

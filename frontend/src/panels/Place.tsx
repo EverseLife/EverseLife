@@ -1,24 +1,28 @@
 /**
  * The location and everything on it (D-089, D-106, D-116, D-150, D-204, D-205).
  *
- * The windows are separated by meaning, not piled into one, and four of them
- * stand on their own in the location's row (`Stand.tsx`):
+ * The windows are cut by intent, not by where the code happened to grow, and
+ * each stands on its own in the location's row (`Stand.tsx`):
  *
- * - **Локация** -- the holder's own: the name, the door and the two lists. Shut
- *   stops entry, never passage, so a neighbour is never cut off from their home
- *   (D-204);
- * - **Дом** -- the holder's own: build first, then furnish; and take apart what
- *   was built wrong (D-205). Machines take area (`build.slots_per_area` m2 per
- *   place), so the house's area is capacity;
- * - **Рабочие станции** -- placed and removed by the holder, and only into a
- *   house (D-106, D-150). Working at somebody's machine is another matter: the
+ * - **Участок** -- everything about the land itself: whose it is and what it is
+ *   called, the door and the two lists (D-204), buying an empty plot, founding
+ *   a city (D-159). Shut stops entry, never passage, so a neighbour is never
+ *   cut off from their home;
+ * - **Дом** -- build, then furnish: the walls and their demolition (D-205), and
+ *   the machines and furniture that go into the house and take its slots
+ *   (D-106, D-150). Working at somebody's machine is another matter: the
  *   machine has a row of its own;
- * - **На земле** -- for everyone: whoever got in puts things down and picks them
- *   up (D-192, D-204). The door and the chest are the protection, not a rule.
+ * - **На земле** -- storage, for everyone: the floor where whoever got in puts
+ *   things down and picks them up (D-192, D-204), and the chests standing in
+ *   the room (D-181). The door and the chest are the protection, not a rule;
+ * - **Обоз** -- the wagon: harnessing, and the hold that carries what hands
+ *   cannot (D-157);
+ * - **Лес / Камни / Луг** -- extraction by the sign of the land (D-177), one
+ *   row per sign, next to the other work of the place.
  *
- * What is left in "Место" is the place's remainder: buying an empty plot, the
- * convoy, the furniture, the chests, founding a city, citizenship and gathering
- * by the sign of the land.
+ * Citizenship lives in the administration window (`Admin.tsx`): one joins a
+ * city where the city makes its decisions (D-155, D-160). The former "Место"
+ * window -- seven unrelated sections under one name -- is gone.
  */
 
 import { useState } from "react";
@@ -39,85 +43,6 @@ type Props = {
   book: any;
 };
 
-export function Place({ look, session, book }: Omit<Props, "busy" | "act">) {
-  //: This panel's own waiting and its own refusal: one action here
-  //: must not grey out the chat, the map and somebody else's orders.
-  const acting = useActions();
-  const { busy, act } = acting;
-
-  const wild = Boolean(look.node?.wild);
-  const unowned = !look.node?.owner;
-  const price = look.node?.price ?? null;
-
-  //: An empty node: the "Участок" window with purchase or taking. As soon as an
-  //: owner appears -- or if the node is not for sale (city buildings, a vein) --
-  //: this window is gone: from then on the location's own windows live.
-  if (unowned && (wild || price !== null)) {
-    return (
-      <>
-        <Refusal of={acting} />
-        {/* Обоз стоит где угодно: у ничьего узла тоже грузят и распрягают. */}
-        <Convoy look={look} session={session} busy={busy} act={act} />
-        {/* Лес ничейного узла рубит любой пришедший (D-177). */}
-        <Gather look={look} session={session} busy={busy} act={act} book={book} />
-        <section>
-        <h2>Участок</h2>
-        <p className="note">
-          {look.node?.name} · {look.node?.area.toFixed(0)} м² · ничей
-        </p>
-        {wild ? (
-          <p className="note">
-            Земля за городом ничья и таковой остаётся: бумагу на владение
-            выдаёт город, а здесь его нет. Работать и строить тут
-            может всякий — поставленное принадлежит поставившему.
-          </p>
-        ) : price !== null ? (
-          <div className="row">
-            <button onClick={() => act(() => session.send("land.buy"))} disabled={busy}>
-              Выкупить за {api.tk(price)} ₭
-            </button>
-            <span className="note">
-              Цена от удалённости до биопринтера: деньги в казну,
-              вам — бумага на землю.
-            </span>
-          </div>
-        ) : (
-          <p className="note">
-            Городская земля, но цена не назначена: код-закон `land_price` пуст —
-            город пока не продаёт.
-          </p>
-        )}
-        </section>
-      </>
-    );
-  }
-
-  //: The place's remainder. The location, the house, the machines and the floor
-  //: have windows of their own in the row (`Stand.tsx`) -- what is left here is
-  //: what belongs to no single one of them.
-  return (
-    <>
-      <Refusal of={acting} />
-      <Gather look={look} session={session} busy={busy} act={act} book={book} />
-      <Foundation look={look} session={session} busy={busy} act={act} />
-      <Citizenship look={look} session={session} busy={busy} act={act} />
-      <Convoy look={look} session={session} busy={busy} act={act} />
-      <Equipment
-        title="Мебель"
-        things={look.furniture ?? []}
-        kind="furniture"
-        look={look}
-        session={session}
-        busy={busy}
-        act={act}
-        book={book}
-        note="Мебель обустраивает быт: кровать — сон быстрее, сундук — хранение. На ней не работают."
-      />
-      <Storages look={look} session={session} busy={busy} act={act} />
-    </>
-  );
-}
-
 /** Whether the viewer disposes of this node: the holder, or the authority on civic land.
  *
  * Repeats `station.may_build` on the client: the same three cases, and the
@@ -132,22 +57,43 @@ export function disposes(look: Look): boolean {
   return Boolean(look.city?.powers.includes("laws"));
 }
 
-/** The floor of the place: what lies here, and putting things on it (D-192, D-204).
+/** Everything stored at the place: the floor and the chests, one window (D-181, D-192).
  *
- * Putting a thing down is the first thing a person back from the mine does, and
- * until now there was nowhere to put it: only a chest, a hold or the market.
- * Cargo takes area, area is finite, and a chest saves it -- hence three honest
- * answers to "where do I keep this": build more, buy chests, haul away.
+ * The question the window answers is one -- "where do my things go here" -- and
+ * the answers used to be scattered: the floor in a window of its own, the
+ * chests among the sections of "Место". Now the floor comes first and the
+ * chests follow: what lies takes area, what is chested does not, and seeing
+ * both side by side is what makes that trade-off legible.
  *
- * The window is for everyone, and so are both actions: whoever got in puts
- * things down and picks them up. What keeps a stranger's hands away is the shut
- * door (D-204) and the chest (D-181) -- not a rule against touching. A passer-by
- * through a shut location is not inside, and for them the floor is closed.
+ * The window is for everyone: whoever got in puts things down and picks them
+ * up. What keeps a stranger's hands away is the shut door (D-204) and the
+ * chest's own lock (D-181) -- not a rule against touching.
  */
 export function Ground({ look, session }: Omit<Props, "busy" | "act" | "book">) {
   //: Own waiting and own refusal: a full yard must refuse this window, not the map.
   const acting = useActions();
   const { busy, act } = acting;
+  if (!look.floor && (look.storages ?? []).length === 0) return null;
+
+  return (
+    <>
+      <Refusal of={acting} />
+      <Floor look={look} session={session} busy={busy} act={act} />
+      <Storages look={look} session={session} busy={busy} act={act} />
+    </>
+  );
+}
+
+/** The floor itself: what lies here, and putting things on it (D-192, D-204).
+ *
+ * Putting a thing down is the first thing a person back from the mine does.
+ * Cargo takes area, area is finite, and a chest saves it -- hence three honest
+ * answers to "where do I keep this": build more, buy chests, haul away.
+ *
+ * A passer-by through a shut location is not inside, and for them the floor is
+ * closed.
+ */
+function Floor({ look, session, busy, act }: Omit<Props, "book">) {
   const [parts, setParts] = useState<Record<string, number | null>>({});
   const floor = look.floor;
   if (!floor) return null;
@@ -163,7 +109,6 @@ export function Ground({ look, session }: Omit<Props, "busy" | "act" | "book">) 
 
   return (
     <section>
-      <Refusal of={acting} />
       <h2>{roofed ? "В здании" : "На земле"}</h2>
       <p className="note">
         занято {room.used.toFixed(1)} из {room.area.toFixed(0)} м²
@@ -391,39 +336,72 @@ function Storages({ look, session, busy, act }: Omit<Props, "book">) {
   );
 }
 
-/** The location: whose it is, what it is called, and who gets in (D-178, D-204).
+/** The plot: whose it is, what it is called, who gets in -- and how it changes hands.
  *
- * Ownership is a public fact: whoever enters sees the owner, whoever it is, a
- * person or a city. The name is given by whoever disposes of the land -- and
- * the map label changes, not the node key: deeds and edges reference the key.
+ * One window for everything about the land itself (D-178, D-204): ownership,
+ * the name, the door, buying an empty plot and founding a city. These used to
+ * live in two windows ("Локация" and half of "Место"), and the seam between
+ * them ran through one question -- "what is this land and what may I do with
+ * it" -- which no window answered whole.
  *
- * The door and the lists below it belong to the holder alone: civic land is
- * regulated by citizenship and duties, not by a list of names.
+ * Ownership is a public fact: whoever enters sees the owner, a person or a
+ * city, so the window is shown to guests too -- read-only. The name is given
+ * by whoever disposes of the land, and the map label changes, not the node
+ * key: deeds and edges reference the key. The door and the lists belong to the
+ * holder alone: civic land is regulated by citizenship and duties, not by a
+ * list of names.
  */
-export function Location({ look, session }: Omit<Props, "busy" | "act" | "book">) {
+export function Plot({ look, session }: Omit<Props, "busy" | "act" | "book">) {
   //: This window's own waiting and its own refusal: shutting the door here must
   //: not grey out the chat, the map and somebody else's orders.
   const acting = useActions();
   const { busy, act } = acting;
   const node = look.node;
   const [name, setName] = useState("");
-  if (!node || (!node.owner && !node.owner_city)) return null;
+  if (!node) return null;
+
+  //: Same three cases as the old purchase window: nobody's city land with a
+  //: price, and the wild beyond the walls. An owned node is never for sale here.
+  const forSale = !node.owner && (Boolean(node.wild) || node.price !== null);
+  const owned = Boolean(node.owner || node.owner_city);
+  if (!forSale && !owned) return null;
 
   const whose = node.mine
     ? "ваш участок"
     : node.owner
       ? `хозяин ${node.owner}`
-      : `земля города ${node.owner_city}`;
+      : node.owner_city
+        ? `земля города ${node.owner_city}`
+        : "ничей";
 
   return (
+    <>
     <section>
       <Refusal of={acting} />
-      <h2>Локация</h2>
+      <h2>Участок</h2>
       <p className="note">
         {node.name} · {node.area.toFixed(0)} м² · {whose}
         {node.gated && " · закрыта для входа"}
         {node.cut_off && " · отключена за неуплату"}
       </p>
+      {forSale &&
+        (node.wild ? (
+          <p className="note">
+            Земля за городом ничья и таковой остаётся: бумагу на владение
+            выдаёт город, а здесь его нет. Работать и строить тут
+            может всякий — поставленное принадлежит поставившему.
+          </p>
+        ) : node.price !== null ? (
+          <div className="row">
+            <button onClick={() => act(() => session.send("land.buy"))} disabled={busy}>
+              Выкупить за {api.tk(node.price)} ₭
+            </button>
+            <span className="note">
+              Цена от удалённости до биопринтера: деньги в казну,
+              вам — бумага на землю.
+            </span>
+          </div>
+        ) : null)}
       {node.may_name && (
         <div className="row">
           <input
@@ -453,6 +431,10 @@ export function Location({ look, session }: Omit<Props, "busy" | "act" | "book">
       )}
       {node.mine && <Door look={look} session={session} busy={busy} act={act} />}
     </section>
+    {/* Founding a city is the plot's fate, so the section stands here:
+        the server offers it only where founding is possible at all. */}
+    <Foundation look={look} session={session} busy={busy} act={act} />
+    </>
   );
 }
 
@@ -561,19 +543,21 @@ function Door({ look, session, busy, act }: Omit<Props, "book">) {
   );
 }
 
-/** The house: what stands, what is being raised, what a new one costs -- and its demolition.
+/** The house: build it, take it apart -- and furnish it.
  *
- * Storeys are the whole point of the window (D-125, D-145): the plot limits
+ * Storeys are the point of the building part (D-125, D-145): the plot limits
  * the footprint, not the workshop -- a house grows upwards where the ground
  * does not grow sideways. The bill is shown **before** the work and against
  * what is in hand, so that "wood 12 of 30" is read at the plan and not
- * discovered at the click.
+ * discovered at the click. Demolition (D-205) is shown the same way round:
+ * the term, what comes back and what is in the way -- all before the button.
  *
- * Demolition (D-205) is shown the same way round: the term, what comes back and
- * what is in the way -- all before the button, because the yard empties first
- * and possessions are not lost to a click in this world.
+ * Machines and furniture follow in the same window: both go **into the house**
+ * and take its slots (D-106, D-150), so raising walls and filling them is one
+ * story, not two windows. Working at a machine is another matter -- for that
+ * the machine has a row of its own in the location.
  */
-export function House({ look, session }: Omit<Props, "busy" | "act" | "book">) {
+export function House({ look, session, book }: Omit<Props, "busy" | "act">) {
   //: Own waiting and own refusal: this window is a window of its own in the row.
   const acting = useActions();
   const { busy, act } = acting;
@@ -596,6 +580,7 @@ export function House({ look, session }: Omit<Props, "busy" | "act" | "book">) {
   const short = (bill?.materials ?? []).filter((m: any) => m.have < m.need);
 
   return (
+    <>
     <section>
       <Refusal of={acting} />
       <h2>Дом</h2>
@@ -711,6 +696,29 @@ export function House({ look, session }: Omit<Props, "busy" | "act" | "book">) {
         <Demolition look={look} session={session} busy={busy} act={act} />
       )}
     </section>
+    <Equipment
+      title="Рабочие станции"
+      things={look.bench ?? []}
+      kind="station"
+      look={look}
+      session={session}
+      busy={busy}
+      act={act}
+      book={book}
+      note="За рабочей станцией работает один: пока идёт партия, второму она не отдаётся."
+    />
+    <Equipment
+      title="Мебель"
+      things={look.furniture ?? []}
+      kind="furniture"
+      look={look}
+      session={session}
+      busy={busy}
+      act={act}
+      book={book}
+      note="Мебель обустраивает быт: кровать — сон быстрее, сундук — хранение. На ней не работают."
+    />
+    </>
   );
 }
 
@@ -791,29 +799,51 @@ function Demolition({ look, session, busy, act }: Omit<Props, "book">) {
  * in Russian -- they are game data, not identifiers. A key translated to
  * English silently stopped matching and the window showed the raw property.
  */
-const PLACES: Record<string, string> = {
+export const PLACES: Record<string, string> = {
   лес: "Лес",
   камни: "Камни",
   луг: "Луг",
 };
 
+/** Signs of the land offering extraction to this viewer: one row per sign (D-177).
+ *
+ * The row (`Stand.tsx`) asks what stands here; a forest is as much a thing to
+ * work at as a furnace, so each sign earns a row of its own instead of hiding
+ * in a catch-all window. Somebody else's forest belongs to its owner: own and
+ * nobody's land only.
+ */
+export function gatherSigns(look: Look, book: any): string[] {
+  const node = look.node;
+  if (!node || !(node.mine || node.wild)) return [];
+  const signs: string[] = [];
+  for (const operation of book?.operations ?? []) {
+    const sign = operation.place;
+    if (sign && (node.features ?? []).includes(sign) && !signs.includes(sign)) {
+      signs.push(sign);
+    }
+  }
+  return signs;
+}
+
 /** Place extraction (D-177): felling without a machine.
  *
- * Shown where the node has a sign ("forest") and the land is own or unowned:
- * somebody else's forest belongs to its owner. The batch runs as ordinary
+ * One window per sign, opened from its row. The batch runs as ordinary
  * craft -- time and tool from the vault, the finished product is seen in "jobs".
- * What lies on the ground -- deadwood, stones, flax -- is no longer gathered
+ * What lies on the ground -- deadwood, stones, flax -- is not gathered
  * here: that is foraging on empty land, a window of its own (D-210).
  */
-function Gather({ look, session, busy, act, book }: Props) {
+export function Gather({
+  look,
+  session,
+  book,
+  sign,
+}: Omit<Props, "busy" | "act"> & { sign: string }) {
+  //: Own waiting and own refusal: a window of its own in the row.
+  const acting = useActions();
+  const { busy, act } = acting;
   const [qty, setQty] = useState(10);
-  const node = look.node;
-  if (!node) return null;
-  const available = node.mine || node.wild;
-  const operations = (book?.operations ?? []).filter(
-    (o: any) => o.place && (node.features ?? []).includes(o.place),
-  );
-  if (!available || operations.length === 0) return null;
+  const ways = (book?.operations ?? []).filter((o: any) => o.place === sign);
+  if (ways.length === 0) return null;
 
   //: What satisfies the requirement: the item itself or any of the class ("Axe").
   const inHands = new Set(look.inventory.map((thing) => thing.goods));
@@ -821,157 +851,55 @@ function Gather({ look, session, busy, act, book }: Props) {
     inHands.has(withWhat) ||
     ((book?.tool_classes?.[withWhat] ?? []) as string[]).some((i) => inHands.has(i));
 
-  //: One sign -- one window, even when several operations hang on it: two
-  //: sections titled "Лес" one under the other would read as a bug.
-  const bySign = new Map<string, any[]>();
-  for (const operation of operations) {
-    bySign.set(operation.place, [...(bySign.get(operation.place) ?? []), operation]);
-  }
-
-  return (
-    <>
-      {[...bySign].map(([sign, ways]) => (
-        <section key={sign}>
-          <h2>{PLACES[sign] ?? sign}</h2>
-          <div className="row">
-            <input
-              type="number"
-              min={1}
-              value={qty}
-              onChange={(e) => setQty(Number(e.target.value))}
-              title="сколько добыть"
-            />
-            {ways.flatMap((operation: any) =>
-              (operation.gives as string[]).map((exit) => {
-                const needs = operation.requires as string[];
-                const fits = needs.every(hasMeans);
-                return (
-                  <button
-                    key={`${operation.name}:${exit}`}
-                    onClick={() =>
-                      act(() =>
-                        session.send("craft.start", {
-                          output: exit,
-                          units: qty,
-                          //: The button names the operation: one thing may
-                          //: come from several ways (D-196).
-                          way: operation.name,
-                        }),
-                      )
-                    }
-                    disabled={busy || qty <= 0 || !fits}
-                    title={
-                      fits
-                        ? needs.length > 0
-                          ? `нужен ${needs.join(", ")}; готовое — в «делах»`
-                          : "голыми руками, потому и дольше; готовое — в «делах»"
-                        : `нужен: ${needs.join(", ")}`
-                    }
-                  >
-                    {operation.name}: {exit}
-                  </button>
-                );
-              }),
-            )}
-            <span className="note">
-              Партия идёт временем, готовое забирается в «делах». Валежник и
-              прочее лежащее — в «Собирательстве».
-            </span>
-          </div>
-        </section>
-      ))}
-    </>
-  );
-}
-
-/** Citizenship: one per person, entry by charter, exit with a delay (D-160).
- *
- * One joins in the administration -- where the city makes every decision
- * (D-155) -- so the window lives in the location, not the sidebar. The
- * admission order is always shown: "open", "by application" and "by
- * invitation" behave differently, and the person must understand what to expect.
- */
-function Citizenship({ look, session, busy, act }: Omit<Props, "book">) {
-  const city = look.city ?? null;
-  const own = look.citizenship ?? null;
-  //: Only in the administration: both joining and leaving are in-person (D-155).
-  if (!city?.hall) return null;
-
-  const order_: Record<string, string> = {
-    open: "принимают свободно",
-    application: "по заявке с одобрением",
-    invite: "только по приглашению",
-  };
-  //: Citizenship taken as a print condition cannot be given up before the term (D-184).
-  const linked = Boolean(
-    own?.bound_until && new Date(own.bound_until) > new Date(),
-  );
-
   return (
     <section>
-      <h2>Гражданство</h2>
-      {own ? (
-        <p>
-          состоите в <b>{own.city}</b>
-          {own.leaving_at && <> · выходите: гражданство спадёт {when(own.leaving_at)}</>}
-          {/* Обязательство, принятое при печати (D-184): срок виден заранее,
-              а не открывается отказом при попытке выйти. */}
-          {linked && <> · обязательство кончится {when(own.bound_until)}</>}
-        </p>
-      ) : (
-        <p className="note">Вы нигде не состоите: гость платит пошлины, но не налоги.</p>
-      )}
-
-      {city?.hall && (
-        <div className="row">
-          {city.citizen ? (
-            <span className="note">Это ваш город.</span>
-          ) : city.requested ? (
-            <span className="note">
-              {city.admission === "invite"
-                ? "Вас позвали: примите приглашение."
-                : "Заявка подана — ждёт решения власти."}
-            </span>
-          ) : null}
-          {!city.citizen && (
-            <button
-              onClick={() => act(() => session.send("city.join", {}))}
-              disabled={busy || Boolean(own)}
-              title={
-                own
-                  ? "гражданство одно на человека: сначала выйти из прежнего города"
-                  : order_[city.admission]
-              }
-            >
-              {city.requested && city.admission === "invite"
-                ? "Принять приглашение"
-                : "Вступить в граждане"}
-            </button>
-          )}
-          <span className="note">{city.name}: {order_[city.admission]}</span>
-        </div>
-      )}
-
-      {own && !own.leaving_at && (
-        <div className="row">
-          <button
-            onClick={() => act(() => session.send("city.leave", {}))}
-            disabled={busy || linked}
-            title={
-              linked
-                ? "срок обязательства вы приняли, выбрав дверь этого города"
-                : "заявление уходит по Сети"
-            }
-          >
-            Выйти из гражданства
-          </button>
-          <span className="note">
-            {linked
-              ? "Обязательство печати держит до своего срока."
-              : "Выход не мгновенен: гражданство спадёт по сроку."}
-          </span>
-        </div>
-      )}
+      <Refusal of={acting} />
+      <h2>{PLACES[sign] ?? sign}</h2>
+      <div className="row">
+        <input
+          type="number"
+          min={1}
+          value={qty}
+          onChange={(e) => setQty(Number(e.target.value))}
+          title="сколько добыть"
+        />
+        {ways.flatMap((operation: any) =>
+          (operation.gives as string[]).map((exit) => {
+            const needs = operation.requires as string[];
+            const fits = needs.every(hasMeans);
+            return (
+              <button
+                key={`${operation.name}:${exit}`}
+                onClick={() =>
+                  act(() =>
+                    session.send("craft.start", {
+                      output: exit,
+                      units: qty,
+                      //: The button names the operation: one thing may
+                      //: come from several ways (D-196).
+                      way: operation.name,
+                    }),
+                  )
+                }
+                disabled={busy || qty <= 0 || !fits}
+                title={
+                  fits
+                    ? needs.length > 0
+                      ? `нужен ${needs.join(", ")}; готовое — в «делах»`
+                      : "голыми руками, потому и дольше; готовое — в «делах»"
+                    : `нужен: ${needs.join(", ")}`
+                }
+              >
+                {operation.name}: {exit}
+              </button>
+            );
+          }),
+        )}
+        <span className="note">
+          Партия идёт временем, готовое забирается в «делах». Валежник и
+          прочее лежащее — в «Собирательстве».
+        </span>
+      </div>
     </section>
   );
 }
@@ -1036,10 +964,14 @@ function Foundation({ look, session, busy, act }: Omit<Props, "book">) {
  * more than `inventory.carry_mass`. Moving from hands to hold and back is
  * in-person -- on the go the hold is closed.
  *
- * A separate window from machines on purpose: nobody stands at a wagon to
- * work, one harnesses to it, and these two actions must not be confused.
+ * A wagon standing in the node is an object of the node, so it has a row of
+ * its own -- and a separate one from machines on purpose: nobody stands at a
+ * wagon to work, one harnesses to it, and these two must not be confused.
  */
-function Convoy({ look, session, busy, act }: Omit<Props, "book">) {
+export function Convoy({ look, session }: Omit<Props, "busy" | "act" | "book">) {
+  //: Own waiting and own refusal: a window of its own in the row.
+  const acting = useActions();
+  const { busy, act } = acting;
   const convoy = look.convoy ?? null;
   const standing = (look.vehicles ?? []).filter((t) => !t.taken);
   //: How much of a stack to move, per item. Empty means the whole of it.
@@ -1054,6 +986,7 @@ function Convoy({ look, session, busy, act }: Omit<Props, "book">) {
 
   return (
     <section>
+      <Refusal of={acting} />
       <h2>Обоз</h2>
       {convoy ? (
         <>
@@ -1179,44 +1112,6 @@ function Convoy({ look, session, busy, act }: Omit<Props, "book">) {
   );
 }
 
-/** Machines of the location: placed and removed by whoever disposes of it (D-106, D-150).
- *
- * A window of the holder's own, and about **disposing**: placing what is in the
- * hands, taking away what stands here. Working at a machine is another matter
- * entirely -- for that the machine has a row of its own in the location, and a
- * guest at a city forge loses nothing by not seeing this window.
- *
- * Machines live in a house: `station.place` refuses without one (D-106), and the
- * window says so instead of letting the refusal be the first news of it.
- */
-export function Stations({ look, session, book }: Omit<Props, "busy" | "act">) {
-  const acting = useActions();
-  const { busy, act } = acting;
-  const home = look.node?.building;
-
-  return (
-    <>
-      <Refusal of={acting} />
-      <Equipment
-        title="Рабочие станции"
-        things={look.bench ?? []}
-        kind="station"
-        look={look}
-        session={session}
-        busy={busy}
-        act={act}
-        book={book}
-        quiet={false}
-        note={
-          home && home.area > 0
-            ? "За рабочей станцией работает один: пока идёт партия, второму она не отдаётся."
-            : "Дома нет — ставить некуда: рабочая станция занимает место в здании."
-        }
-      />
-    </>
-  );
-}
-
 /** What in the hands is equipment of this kind: the kind comes from vault data (D-090). */
 function placeable(look: Look, book: any, kind: "station" | "furniture") {
   return look.inventory.filter((thing) =>
@@ -1226,12 +1121,11 @@ function placeable(look: Look, book: any, kind: "station" | "furniture") {
   );
 }
 
-/** The common equipment window: machines and furniture differ only by kind.
+/** The common equipment section: machines and furniture differ only by kind.
  *
- * `quiet` -- go silent where there is nothing to say. The furniture window does:
- * it stands among the sections of "Место" and an empty one would be noise. The
- * machines window does not: it is a window of its own in the row, and a window
- * that opens into nothing reads as a bug.
+ * Both stand among the sections of the "Дом" window and go silent where there
+ * is nothing to say: nothing placed and nothing in hands to place is not worth
+ * a header. The house summary above already counts the slots.
  */
 function Equipment({
   title,
@@ -1243,13 +1137,11 @@ function Equipment({
   act,
   book,
   note,
-  quiet = true,
 }: Props & {
   title: string;
   things: Bench[];
   kind: "station" | "furniture";
   note: string;
-  quiet?: boolean;
 }) {
   const mine = Boolean(look.node?.mine);
   //: The owner places and removes, and on civic land the authority (`station.may_build`).
@@ -1260,7 +1152,7 @@ function Equipment({
 
   const inHands = placeable(look, book, kind);
 
-  if (quiet && things.length === 0 && !((mine || hasPower) && inHands.length > 0)) {
+  if (things.length === 0 && !((mine || hasPower) && inHands.length > 0)) {
     return null;
   }
 

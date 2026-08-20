@@ -30,6 +30,7 @@
  */
 
 import { useState, type ReactNode } from "react";
+import * as api from "../api";
 import type { Look, Session } from "../api";
 import { Deadline } from "../Deadline";
 import { craftableAt } from "../recipes";
@@ -42,7 +43,7 @@ import { Market } from "./Market";
 import { Mine } from "./Mine";
 import { Mint } from "./Mint";
 import { Nursery } from "./Nursery";
-import { disposes, Ground, House, Location, Place, Stations } from "./Place";
+import { Convoy, disposes, Gather, gatherSigns, Ground, House, PLACES, Plot } from "./Place";
 import { Plant } from "./Plant";
 import { Rig } from "./Rig";
 import { Ship } from "./Ship";
@@ -278,6 +279,14 @@ function assemble({ look, session, book, values, pow }: Props): Thing[] {
     state?: ReactNode,
   ) => things.push({ id, name, kind, rank, state, view });
 
+  //: A forest is as much a thing to work at as a furnace: extraction by the
+  //: sign of the land stands next to the machines, one row per sign (D-177).
+  for (const sign of gatherSigns(look, book)) {
+    single(`gather:${sign}`, PLACES[sign] ?? sign, "bench", () => (
+      <Gather look={look} session={session} book={book} sign={sign} />
+    ));
+  }
+
   //: A rig, only where there is one to work with: standing in the node, or in
   //: the hands waiting to be placed on a vein. The panel used to keep itself
   //: silent while the row above it did not, so "Буровая" stood in every
@@ -355,51 +364,16 @@ function assemble({ look, session, book, values, pow }: Props): Thing[] {
 
   //: The location's own windows, last and in one group: they are about the place
   //: rather than about work, and a machine deserves attention before a nameplate.
-  //: Four of them are the holder's -- a guest is shown neither the door nor the
-  //: bill of a house that is not theirs -- and the floor is everyone's (D-204).
+  //: Each is one intention -- storage, hauling, building, the land itself --
+  //: instead of one "Место" holding whatever was left over.
   const own = disposes(look);
-  const owned = Boolean(look.node?.owner || look.node?.owner_city);
   const home = look.node?.building;
+  const node = look.node;
 
-  if (own && owned) {
-    single(
-      "location",
-      "Локация",
-      "full",
-      () => <Location look={look} session={session} />,
-      3,
-      look.node?.gated ? "вход закрыт" : undefined,
-    );
-  }
-  if (own && home) {
-    single(
-      "house",
-      "Дом",
-      "full",
-      () => <House look={look} session={session} />,
-      3,
-      home.area > 0
-        ? `${home.area.toFixed(0)} м² в ${home.floors} эт.`
-        : home.building.length > 0
-          ? "строится"
-          : "не построен",
-    );
-  }
-  //: Machines are placed into a house, and there is nothing to place without one
-  //: (D-106): the window appears with the house, not with the plot.
-  if (own && home && home.area > 0) {
-    single(
-      "stations",
-      "Рабочие станции",
-      "full",
-      () => <Stations look={look} session={session} book={book} />,
-      3,
-      `мест ${home.used} из ${home.slots}`,
-    );
-  }
-
+  //: Storage of the place, for everyone (D-192, D-204): the floor and the
+  //: chests answer one question -- "where do my things go here".
   const room = look.floor?.space;
-  if (look.floor) {
+  if (look.floor || (look.storages ?? []).length > 0) {
     single(
       "ground",
       (room?.roofed ?? 0) > 0 ? "В здании" : "На земле",
@@ -410,16 +384,67 @@ function assemble({ look, session, book, values, pow }: Props): Thing[] {
     );
   }
 
-  //: What is left of the place: buying an empty plot, the convoy, the furniture,
-  //: the chests, founding a city, citizenship and gathering by the sign of the
-  //: land. One window, because none of them is a place of its own.
-  things.push({
-    id: "place",
-    name: "Место",
-    kind: "full",
-    rank: 3,
-    view: () => <Place look={look} session={session} book={book} />,
-  });
+  //: The wagon is an object of the node like any machine, only one harnesses
+  //: to it instead of working at it (D-157).
+  const convoy = look.convoy ?? null;
+  const carts = (look.vehicles ?? []).filter((t) => !t.taken);
+  if (convoy || carts.length > 0) {
+    single(
+      "convoy",
+      "Обоз",
+      "full",
+      () => <Convoy look={look} session={session} />,
+      3,
+      convoy
+        ? `трюм ${convoy.mass.toFixed(0)} из ${convoy.capacity.toFixed(0)} кг`
+        : `стоит: ${carts[0].goods}`,
+    );
+  }
+
+  //: The house is the holder's, and one window covers its whole story: build,
+  //: demolish, and place the machines and furniture into it (D-106, D-205).
+  if (own && home) {
+    single(
+      "house",
+      "Дом",
+      "full",
+      () => <House look={look} session={session} book={book} />,
+      3,
+      home.area > 0
+        ? `${home.area.toFixed(0)} м² в ${home.floors} эт. · мест ${home.used} из ${home.slots}`
+        : home.building.length > 0
+          ? "строится"
+          : "не построен",
+    );
+  }
+
+  //: The land itself: whose, the name, the door, the purchase and the founding
+  //: of a city. Shown to guests too -- ownership is a public fact (D-178) --
+  //: and an empty plot for sale is the main thing of its node, hence the rank.
+  const forSale = Boolean(node && !node.owner && (node.wild || node.price !== null));
+  const owned = Boolean(node?.owner || node?.owner_city);
+  if (forSale || owned) {
+    single(
+      "plot",
+      "Участок",
+      "full",
+      () => <Plot look={look} session={session} />,
+      forSale ? 1 : 3,
+      node?.cut_off
+        ? "отключена за неуплату"
+        : node?.gated
+          ? "вход закрыт"
+          : forSale
+            ? node?.price != null
+              ? `продаётся за ${api.tk(node.price)} ₭`
+              : "ничья земля"
+            : node?.mine
+              ? undefined
+              : node?.owner
+                ? `хозяин ${node.owner}`
+                : `город ${node?.owner_city}`,
+    );
+  }
 
   return things.sort((a, b) => a.rank - b.rank);
 }
