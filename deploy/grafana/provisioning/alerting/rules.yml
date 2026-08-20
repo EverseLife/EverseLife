@@ -1,0 +1,138 @@
+# Four things worth waking up for. Everything else is looked at in the
+# dashboard, not shouted about.
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: server
+    folder: OctoVerse
+    interval: 1m
+    rules:
+      # Disk is the quiet killer: Postgres stops writing, and the world stands.
+      - uid: disk-running-out
+        title: Место на диске кончается
+        condition: THRESHOLD
+        for: 10m
+        noDataState: NoData
+        execErrState: Alerting
+        annotations:
+          summary: "На диске меньше 15% свободного места"
+        labels:
+          severity: critical
+        data:
+          - refId: QUERY
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              refId: QUERY
+              instant: true
+              expr: min(100 * node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs|ramfs|devtmpfs|autofs"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs|ramfs|devtmpfs|autofs"})
+          - refId: THRESHOLD
+            datasourceUid: __expr__
+            model:
+              refId: THRESHOLD
+              type: threshold
+              expression: QUERY
+              conditions:
+                - evaluator:
+                    type: lt
+                    params: [15]
+
+      - uid: memory-running-out
+        title: Память под потолком
+        condition: THRESHOLD
+        for: 15m
+        noDataState: NoData
+        execErrState: Alerting
+        annotations:
+          summary: "Занято больше 90% памяти -- ядро скоро начнёт убивать процессы"
+        labels:
+          severity: warning
+        data:
+          - refId: QUERY
+            relativeTimeRange:
+              from: 900
+              to: 0
+            datasourceUid: prometheus
+            model:
+              refId: QUERY
+              instant: true
+              expr: 100 * (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)
+          - refId: THRESHOLD
+            datasourceUid: __expr__
+            model:
+              refId: THRESHOLD
+              type: threshold
+              expression: QUERY
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [90]
+
+      # The database is the world itself: it falling is not a metric, it is an
+      # outage.
+      - uid: postgres-down
+        title: База не отвечает
+        condition: THRESHOLD
+        for: 5m
+        noDataState: Alerting
+        execErrState: Alerting
+        annotations:
+          summary: "Postgres не отвечает сборщику метрик"
+        labels:
+          severity: critical
+        data:
+          - refId: QUERY
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              refId: QUERY
+              instant: true
+              expr: pg_up
+          - refId: THRESHOLD
+            datasourceUid: __expr__
+            model:
+              refId: THRESHOLD
+              type: threshold
+              expression: QUERY
+              conditions:
+                - evaluator:
+                    type: lt
+                    params: [1]
+
+      # A service that keeps restarting looks alive in `docker compose ps` and
+      # is dead for the players.
+      - uid: service-restarting
+        title: Служба перезапускается
+        condition: THRESHOLD
+        for: 5m
+        noDataState: OK
+        execErrState: Alerting
+        annotations:
+          summary: "Контейнер поднялся меньше пяти минут назад и делает это снова"
+        labels:
+          severity: warning
+        data:
+          - refId: QUERY
+            relativeTimeRange:
+              from: 900
+              to: 0
+            datasourceUid: prometheus
+            model:
+              refId: QUERY
+              instant: true
+              expr: min(time() - container_start_time_seconds{name=~"octoverse-(backend|worker|postgres|caddy)-1"})
+          - refId: THRESHOLD
+            datasourceUid: __expr__
+            model:
+              refId: THRESHOLD
+              type: threshold
+              expression: QUERY
+              conditions:
+                - evaluator:
+                    type: lt
+                    params: [300]

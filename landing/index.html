@@ -350,9 +350,22 @@
   table.no th { text-align: left; font-family: var(--f-mono); font-size: 12px; letter-spacing: .18em; text-transform: uppercase; color: var(--muted); font-weight: 500; padding: 14px 0; border-bottom: 1px solid var(--line); }
   table.no td { padding: 20px 32px 20px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
   table.no td:first-child { width: 34%; font-size: clamp(19px, 2vw, 25px); font-weight: 600; color: var(--ink); letter-spacing: -.015em; line-height: 1.2; }
-  table.no td:first-child span { position: relative; display: inline; }
-  table.no td:first-child span::after { content: ""; position: absolute; left: -2px; right: -2px; top: 54%; height: 2px; background: var(--danger); transform: scaleX(0); transform-origin: left; transition: transform .6s var(--ease-out); }
-  table.no tr.in td:first-child span::after { transform: scaleX(1); }
+  /* The strike is a background on the word, not a bar placed over it. An
+     absolutely positioned bar is laid out against the whole inline box, and a
+     wrapped phrase makes that box two lines tall, so the bar lands in the gap
+     between the lines instead of across the letters. Cloning the decoration
+     hands every line fragment its own background, and each line is struck
+     through on its own. */
+  table.no td:first-child span {
+    background-image: linear-gradient(var(--danger), var(--danger));
+    background-repeat: no-repeat;
+    background-position: 0 58%;
+    background-size: 0% 2px;
+    -webkit-box-decoration-break: clone;
+    box-decoration-break: clone;
+    transition: background-size .6s var(--ease-out);
+  }
+  table.no tr.in td:first-child span { background-size: 100% 2px; }
   table.no td:last-child { color: var(--muted); font-size: 16px; }
   table.no td:last-child b { color: var(--text); }
   table.no tr { opacity: 0; transform: translateX(-10px); transition: opacity .6s var(--ease-out), transform .6s var(--ease-out); }
@@ -549,6 +562,7 @@
   #loop-fig::before { content: "внимание → сырьё → предмет → расстояние → прибыль → капитал → люди → власть → налог → внимание"; font-family: var(--f-mono); color: var(--muted); }
   .loop-text .steps li, .loop-text .steps li b { color: var(--ink); }
   .acc-p { grid-template-rows: 1fr !important; }
+  table.no td:first-child span { background-size: 100% 2px; }
 </style></noscript>
 <script type="application/ld+json">
 {

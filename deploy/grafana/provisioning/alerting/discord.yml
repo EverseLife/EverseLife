@@ -1,0 +1,23 @@
+# Where alerts go. The webhook comes from `.env` (GRAFANA_DISCORD_WEBHOOK);
+# empty means alerts still fire and are visible in the interface, they just
+# reach nobody.
+apiVersion: 1
+
+contactPoints:
+  - orgId: 1
+    name: discord
+    receivers:
+      - uid: discord-webhook
+        type: discord
+        settings:
+          url: ${GRAFANA_DISCORD_WEBHOOK}
+          message: "{{ range .Alerts }}{{ .Annotations.summary }}\n{{ end }}"
+
+policies:
+  - orgId: 1
+    receiver: discord
+    group_by: ["alertname"]
+    group_wait: 30s
+    group_interval: 5m
+    # Silence is better than a repeating alarm nobody reads any more.
+    repeat_interval: 12h

@@ -1,0 +1,30 @@
+# What is collected and how often. Nothing is published outside: the exporters
+# are reachable only over the compose network, by service name.
+
+global:
+  scrape_interval: 30s
+  scrape_timeout: 10s
+  external_labels:
+    server: alpha
+
+scrape_configs:
+  # The host: processor, memory, free disk space, network.
+  - job_name: node
+    static_configs:
+      - targets: ["node-exporter:9100"]
+
+  # Containers one by one.
+  - job_name: containers
+    static_configs:
+      - targets: ["cadvisor:8080"]
+
+  # The game database.
+  - job_name: postgres
+    static_configs:
+      - targets: ["postgres-exporter:9187"]
+
+  # Prometheus watching itself: without it a stopped collector looks like
+  # silence rather than a failure.
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]

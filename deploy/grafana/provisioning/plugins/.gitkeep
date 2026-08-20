@@ -1,0 +1,1 @@
+# Grafana looks for this directory and complains in the log if it is missing.

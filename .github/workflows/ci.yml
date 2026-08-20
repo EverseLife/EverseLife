@@ -193,8 +193,8 @@ jobs:
       # the server. `.env` with passwords stays untouched: nobody puts it there.
       - name: Ship the compose file
         run: |
-          scp -i ~/.ssh/id_deploy -P "$SSH_PORT" \
-            deploy/compose.yaml deploy/Caddyfile \
+          scp -i ~/.ssh/id_deploy -P "$SSH_PORT" -r \
+            deploy/compose.yaml deploy/Caddyfile deploy/prometheus.yml deploy/grafana \
             "$SSH_USER@$SSH_HOST:$DIR/"
 
       # The script goes to the server as stdin, not as a command line: the

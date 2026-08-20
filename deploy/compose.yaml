@@ -134,8 +134,112 @@ services:
       - landing
     restart: unless-stopped
 
+  # --- Watching the server -------------------------------------------------
+  #
+  # Nothing here faces outside: Grafana listens on the server's loopback only,
+  # and it is opened through an SSH tunnel (see DEPLOY.md, "Monitoring"). The
+  # exporters are not published at all -- Prometheus reaches them over the
+  # compose network.
+
+  # The host itself: processor, memory, free disk space, network. Reads the
+  # real /proc and /sys, hence the mounts and `pid: host`.
+  node-exporter:
+    image: quay.io/prometheus/node-exporter:v1.8.2
+    command:
+      - --path.procfs=/host/proc
+      - --path.sysfs=/host/sys
+      - --path.rootfs=/host/root
+      # Container filesystems are cAdvisor's business; here only real disks.
+      - --collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      # Plain `ro` on purpose: with `rslave` the container refuses to start
+      # where the root mount is not shared, and a watching service must never
+      # be the reason a deploy fails.
+      - /:/host/root:ro
+    pid: host
+    restart: unless-stopped
+
+  # Every container separately: who eats the memory, who keeps restarting.
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    command:
+      - --housekeeping_interval=30s
+      - --docker_only=true
+      - --store_container_labels=false
+      # Series nobody looks at cost memory in Prometheus and in cAdvisor
+      # itself; on a small server that is the difference between a
+      # hundred megabytes and half a gigabyte.
+      - --disable_metrics=percpu,sched,tcp,udp,advtcp,hugetlb,referenced_memory,cpu_topology,resctrl,process
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      # The socket by name, not just through /var/run: without it cAdvisor
+      # sees one root cgroup instead of the containers.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    devices:
+      - /dev/kmsg
+    privileged: true
+    restart: unless-stopped
+
+  # The database: connections, size, long queries. Reads statistics only.
+  postgres-exporter:
+    image: quay.io/prometheuscommunity/postgres-exporter:v0.15.0
+    environment:
+      DATA_SOURCE_NAME: postgresql://octoverse:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/octoverse?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Collects and keeps. The depth of history is disk: roughly a gigabyte or
+  # two for a fortnight at this scale.
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-15d}
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    restart: unless-stopped
+
+  # Dashboards and alerts. The port is bound to the server's loopback: from
+  # outside there is nothing to knock on, one goes in through an SSH tunnel.
+  grafana:
+    image: grafana/grafana:11.2.0
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      #: The default is `admin`, and it is worth changing in `.env` even behind
+      #: a tunnel: the server is not only yours to reach.
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      #: The alert channel. An empty string is not allowed here: Grafana
+      #: refuses to start on a contact point without a URL, and a watching
+      #: service must never be the reason a deploy fails. So unset means a
+      #: deliberately dead address -- alerts fire, are visible in the
+      #: interface, and reach nobody.
+      GRAFANA_DISCORD_WEBHOOK: ${GRAFANA_DISCORD_WEBHOOK:-http://127.0.0.1:1/discord-webhook-not-set}
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
 volumes:
   pgdata:
   landing_data:
   caddy_data:
   caddy_config:
+  prometheus_data:
+  grafana_data:

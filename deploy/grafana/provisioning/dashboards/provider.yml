@@ -1,0 +1,16 @@
+# Dashboards come from files, not from the database: what lies in the
+# repository is what is on the screen, and an accidental edit does not become
+# the source of truth.
+apiVersion: 1
+
+providers:
+  - name: octoverse
+    orgId: 1
+    folder: OctoVerse
+    type: file
+    disableDeletion: false
+    allowUiUpdates: false
+    updateIntervalSeconds: 60
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false
