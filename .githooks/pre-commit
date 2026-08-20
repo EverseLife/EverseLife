@@ -21,7 +21,9 @@ elif [ -x .venv/bin/python ]; then
 elif command -v ruff > /dev/null 2>&1; then
     lint="ruff check ."
 elif command -v uv > /dev/null 2>&1; then
-    lint="uv run --frozen ruff check ."
+    # `--extra dev` is not optional here: ruff lives in that extra, and
+    # without it uv builds an environment where the linter is missing.
+    lint="uv run --frozen --extra dev ruff check ."
 else
     echo "pre-commit: ruff not found -- create backend/.venv or install ruff" >&2
     exit 1
