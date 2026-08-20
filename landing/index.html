@@ -3,13 +3,15 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<!-- Google Tag Manager -->
-<script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
-new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
-j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
-'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
-})(window,document,'script','dataLayer','GTM-KJHJZW95');</script>
-<!-- End Google Tag Manager -->
+<!-- Google Analytics (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-TZ5XDN557L"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+  gtag('config', 'G-TZ5XDN557L');
+</script>
+<!-- End Google Analytics -->
 <title>Everse.Life — браузерная MMO-песочница про экономику и власть</title>
 <meta name="description" content="Браузерная MMO без единого NPC: экономику, законы и города создают сами игроки. Мир один и вечный. Играйте в альфу через Discord или займите место в бете.">
 <link rel="canonical" href="https://everse.life/">
@@ -679,10 +681,6 @@ j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
 </script>
 </head>
 <body>
-<!-- Google Tag Manager (noscript) -->
-<noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-KJHJZW95"
-height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
-<!-- End Google Tag Manager (noscript) -->
 <canvas id="space" aria-hidden="true"></canvas>
 <div class="grain" aria-hidden="true"></div>
 
@@ -1711,9 +1709,10 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
     })();
 
     // ── Analytics events: the two actions the page is measured by ─────────
+    //    Guarded by `window.gtag`: a blocked script must not break a click.
     document.querySelectorAll('a[href*="discord.gg"]').forEach((a) => {
       a.addEventListener("click", () => {
-        (window.dataLayer = window.dataLayer || []).push({ event: "discord_click" });
+        if (window.gtag) gtag("event", "discord_click");
       });
     });
 
@@ -1735,8 +1734,8 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
             msg.innerHTML = 'Готово. Одно письмо, когда мир откроется, — и больше ничего. ' +
               'До тех пор мы в <a class="ext" href="https://discord.gg/eKhM3H9tKk" target="_blank" rel="noopener noreferrer">Discord</a>.';
             msg.className = "form-msg ok"; form.email.value = "";
-            // the conversion this page exists for: GTM maps it to a GA4 event
-            (window.dataLayer = window.dataLayer || []).push({ event: "signup_success" });
+            // the conversion this page exists for
+            if (window.gtag) gtag("event", "signup_success");
           } else {
             msg.textContent = data.error || "Что-то пошло не так. Попробуйте ещё раз.";
             msg.className = "form-msg err";
