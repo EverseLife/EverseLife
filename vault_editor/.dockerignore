@@ -1,9 +1,0 @@
-# Контекст сборки — сама папка редактора. Внутрь образа едет только код.
-backups
-tests
-__pycache__
-**/__pycache__
-**/*.py[cod]
-Dockerfile
-compose.yaml
-README.md
