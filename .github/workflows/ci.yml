@@ -72,6 +72,40 @@ jobs:
       - name: Tests
         run: uv run pytest -q
 
+  # The snapshot in `vault/` is build output, not a file to edit. Hand edits
+  # there look like a balance change and behave like a broken world: the engine
+  # asks for numbers the vault never produced, and it surfaces a day later on
+  # the live alpha. So the check is mechanical -- rebuild the vault from its
+  # own sources and compare.
+  vault:
+    name: Vault snapshot
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: The vault itself
+        uses: actions/checkout@v4
+        with:
+          repository: sumrak10/octoverse-vault
+          path: .vault-source
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install pyyaml==6.0.2
+
+      - name: Rebuild and compare
+        run: |
+          python .vault-source/tools/build.py
+          if diff -ru .vault-source/build vault --exclude=README.md > /tmp/vault.diff; then
+            echo "the snapshot matches the vault"
+          else
+            echo "::error::vault/*.json diverges from the vault -- numbers are edited in the vault, then carried over by deploy/sync-vault.py"
+            head -40 /tmp/vault.diff
+            exit 1
+          fi
+
   frontend:
     name: Client
     runs-on: ubuntu-latest
@@ -98,7 +132,7 @@ jobs:
 
   images:
     name: Images
-    needs: [backend, frontend]
+    needs: [backend, frontend, vault]
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
