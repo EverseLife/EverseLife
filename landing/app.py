@@ -36,6 +36,10 @@ FONTS = {p.name for p in FONTS_DIR.glob("*.woff2")} if FONTS_DIR.is_dir() else s
 #: The files are immutable per deploy; a new version gets a new name.
 FONT_CACHE = "public, max-age=31536000, immutable"
 
+#: The public origin: canonical URL, sitemap and the social card all hang off it.
+SITE = "https://everse.life"
+OG_IMAGE = Path(__file__).parent / "og.png"
+
 #: Email: non-empty before @, non-empty after, a dot in the domain. Stricter is
 #: not needed -- the real check happens when a letter goes to the address.
 EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -112,7 +116,7 @@ def _notify(total: int) -> None:
     request = urllib.request.Request(
         DISCORD_WEBHOOK,
         data=body,
-        headers={"Content-Type": "application/json", "User-Agent": "OctoVerse-Landing"},
+        headers={"Content-Type": "application/json", "User-Agent": "Everse-Life-Landing"},
         method="POST",
     )
     try:
@@ -147,6 +151,37 @@ def font(name: str) -> Response:
         media_type="font/woff2",
         headers={"Cache-Control": FONT_CACHE},
     )
+
+
+@app.get("/og.png")
+def og_image() -> FileResponse:
+    #: The social card. A day of cache: it changes only with a deploy.
+    return FileResponse(
+        OG_IMAGE,
+        media_type="image/png",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
+@app.get("/robots.txt")
+def robots() -> Response:
+    return Response(
+        f"User-agent: *\nAllow: /\n\nSitemap: {SITE}/sitemap.xml\n",
+        media_type="text/plain",
+    )
+
+
+@app.get("/sitemap.xml")
+def sitemap() -> Response:
+    #: One page, so the sitemap is one entry; lastmod follows the deployed file.
+    stamp = datetime.fromtimestamp(INDEX.stat().st_mtime, UTC).date().isoformat()
+    xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+        f"  <url><loc>{SITE}/</loc><lastmod>{stamp}</lastmod></url>\n"
+        "</urlset>\n"
+    )
+    return Response(xml, media_type="application/xml")
 
 
 @app.get("/health")
