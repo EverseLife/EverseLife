@@ -39,9 +39,14 @@ async def test_tick_runs_and_queues_next(
     async with factory() as session, session.begin():
         await tick.ensure_scheduled(session, NOW)
 
-    done = await jobs.run_one(factory, now=NOW)
-    assert done is not None
-    assert done.state is JobState.DONE
+    #: `ensure_scheduled` lays down the world tick and the daily one for the
+    #: same moment, and which of the two the queue hands over first is nobody's
+    #: business: `_claim` orders by firing time, and the times are equal. So the
+    #: queue is drained, not sipped -- otherwise the test checks the order of
+    #: the Postgres plan rather than the world clock.
+    ran = [await jobs.run_one(factory, now=NOW) for _ in range(2)]
+    assert all(job is not None and job.state is JobState.DONE for job in ran)
+    assert {job.kind for job in ran} == {JobKind.WORLD_TICK, JobKind.DAILY_TICK}
 
     async with factory() as session:
         pending = (

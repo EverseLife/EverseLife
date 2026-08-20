@@ -17,21 +17,22 @@ import uuid
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
 
 from src.api.app import create_app
 from src.constants import HOLDER, Constants
 from src.constants import registry as R
 from src.engine import pow as device
 from src.engine import world
-from src.models import Account, Base
-from tests.conftest import TEST_DATABASE_URL
+from src.models import Account
+from tests.conftest import TEST_DATABASE_URL, reset
 
 
 async def _prepare_world() -> dict:
-    engine = create_async_engine(TEST_DATABASE_URL)
-    async with engine.begin() as connection:
-        await connection.run_sync(Base.metadata.drop_all)
-        await connection.run_sync(Base.metadata.create_all)
+    #: The same emptying as everywhere else in the suite: a `TRUNCATE` over
+    #: the schema already built, not a rebuild of all fifty-eight tables.
+    engine = create_async_engine(TEST_DATABASE_URL, poolclass=NullPool)
+    await reset(engine)
 
     async with async_sessionmaker(engine, expire_on_commit=False)() as db:
         node = await world.create_node(db, "terra.mine", "Забой", area_m2=100)

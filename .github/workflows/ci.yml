@@ -72,9 +72,11 @@ jobs:
       - name: Migrations apply
         run: uv run alembic upgrade head
 
-      # The full run is ~8 minutes: it is the main protection of the world from a wipe.
+      # The main protection of the world from a wipe, and it must stay cheap
+      # enough to run on every push. Four workers, each with a database of its
+      # own -- `tests/conftest.py` creates them.
       - name: Tests
-        run: uv run pytest -q
+        run: uv run pytest -q -n 4
 
   frontend:
     name: Client

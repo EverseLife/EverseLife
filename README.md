@@ -69,6 +69,16 @@ API:
 docker compose exec postgres psql -U octoverse -c "CREATE DATABASE octoverse_test OWNER octoverse;"
 ```
 
+Прогон в несколько процессов — вдвое-втрое быстрее, каждому работнику
+заводится своя база (`octoverse_test_gw0`, `gw1`, …), заводится сама:
+
+```bash
+.venv/Scripts/python -m pytest -q -n 8
+```
+
+Больше восьми смысла обычно нет: работники делят один Postgres, а у него по
+умолчанию сотня соединений.
+
 Один раз на копию репозитория — включить хук: он гоняет перед коммитом тот же
 `ruff check .`, что и CI.
 
