@@ -1,0 +1,51 @@
+# The vault snapshot, built here and now.
+#
+# `vault/*.json` is not stored in this repository: it is build output, and a
+# stored copy has to be synchronised by hand -- which is exactly how a snapshot
+# once diverged from the vault and broke the world for a day. So every job that
+# needs the numbers asks for them with this step and gets them fresh.
+#
+# The vault is public, so no token is involved.
+
+name: Vault snapshot
+description: Clone the game-design vault, build it, put the numbers in vault/
+
+inputs:
+  ref:
+    description: Vault revision to build. The default is its main.
+    required: false
+    default: main
+
+outputs:
+  revision:
+    description: The vault commit the numbers were built from.
+    value: ${{ steps.build.outputs.revision }}
+
+runs:
+  using: composite
+  steps:
+    - name: The vault itself
+      uses: actions/checkout@v4
+      with:
+        repository: sumrak10/octoverse-vault
+        ref: ${{ inputs.ref }}
+        path: .vault-source
+
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+
+    - shell: bash
+      run: pip install --quiet pyyaml==6.0.2
+
+    - id: build
+      shell: bash
+      run: |
+        python .vault-source/tools/build.py
+        mkdir -p vault
+        cp .vault-source/build/constants.json .vault-source/build/laws.json \
+           .vault-source/build/plants.json .vault-source/build/recipes.json vault/
+        revision=$(git -C .vault-source rev-parse --short HEAD)
+        echo "revision=$revision" >> "$GITHUB_OUTPUT"
+        echo "numbers built from the vault at $revision"
+        ls -l vault

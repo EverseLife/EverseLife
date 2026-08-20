@@ -36,26 +36,6 @@ if ! $lint; then
     exit 1
 fi
 
-# A snapshot lagging behind the vault breaks every test at constants load --
-# the engine asks for a number the snapshot does not have -- and in the CI log
-# that looks like anything but a stale file. It has cost three red runs, so it
-# is a veto now, not a warning. The vault lives next to the repository and may
-# be absent: on a machine without it there is nothing to compare, and the check
-# stays quiet.
-vault="$repo/../octoverse-game-design/build"
-stale=""
-if [ -d "$vault" ]; then
-    for name in constants laws plants recipes; do
-        if [ -f "$vault/$name.json" ] \
-            && ! cmp -s "$repo/vault/$name.json" "$vault/$name.json"; then
-            stale="$stale $name.json"
-        fi
-    done
-fi
-
-if [ -n "$stale" ]; then
-    echo >&2
-    echo "pre-commit: the vault snapshot lags behind the vault:$stale" >&2
-    echo "pre-commit: refresh it -- python deploy/sync-vault.py" >&2
-    exit 1
-fi
+# The snapshot is not in the repository any more: CI builds it from the vault,
+# and `vault/` here is scratch. Nothing left to compare, so the hook checks the
+# lint and nothing else.

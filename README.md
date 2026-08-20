@@ -70,7 +70,7 @@ docker compose exec postgres psql -U octoverse -c "CREATE DATABASE octoverse_tes
 ```
 
 Один раз на копию репозитория — включить хук: он гоняет перед коммитом тот же
-`ruff check .`, что и CI, и предупреждает, если слепок вольта отстал от вольта.
+`ruff check .`, что и CI.
 
 ```bash
 git config core.hooksPath .githooks
@@ -85,8 +85,9 @@ git config core.hooksPath .githooks
 образа и поднимает их на сервере; Caddy на границе сам берёт сертификат
 Let's Encrypt.
 
-Числа игры едут на сервер **внутри образа**: `vault/` — слепок сборки вольта,
-обновляется `deploy/sync-vault.py` и коммитится вместе с кодом. Отпечаток
+Числа игры едут на сервер **внутри образа**, но в репозитории их нет: `vault/`
+собирается в прогоне из вольта (`sumrak10/octoverse-vault`), локально — тем же
+`deploy/sync-vault.py`, и лежит в `.gitignore`. Отпечаток
 загруженных констант виден в `/api/health` — по нему всегда понятно, на чём
 работает боевой мир.
 

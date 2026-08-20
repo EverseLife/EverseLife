@@ -38,6 +38,8 @@ COPY --from=builder /app/.venv /app/.venv
 COPY backend/src ./src
 COPY backend/migrations ./migrations
 COPY backend/alembic.ini ./alembic.ini
+# The numbers are not in the repository: build them before the image --
+# `python deploy/sync-vault.py` locally, `.github/actions/vault` in CI.
 COPY vault /vault
 
 # The server has no reason to run as root: it reads the vault and talks to the database.

@@ -11,3 +11,7 @@ dist/
 build/
 .idea/
 .vscode/
+
+# Build output of the game-design vault. CI builds it, locally --
+# `python deploy/sync-vault.py`. Committing it means synchronising by hand.
+/vault/
