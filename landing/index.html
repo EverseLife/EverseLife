@@ -13,23 +13,23 @@
 </script>
 <!-- End Google Analytics -->
 <title>Everse.Life — браузерная MMO-песочница про экономику и власть</title>
-<meta name="description" content="Браузерная MMO без единого NPC: экономику, законы и города создают сами игроки. Мир один и вечный. Играйте в альфу через Discord или займите место в бете.">
+<meta name="description" content="Браузерная иммерсивная MMO с бесконечной прогрессией: экономику, законы и города создают сами игроки. Вайпов нет и не будет. Играйте в альфу через Discord или займите место в бете.">
 <link rel="canonical" href="https://everse.life/">
 <meta name="robots" content="index, follow, max-image-preview:large">
 <meta property="og:site_name" content="Everse.Life">
 <meta property="og:locale" content="ru_RU">
 <meta property="og:title" content="Everse.Life — не просто игра, а иммерсивная вселенная">
-<meta property="og:description" content="Браузерная MMO про экономику и власть. Ни одного NPC, ни квестов, ни уровней. Мир один и вечный. Альфа уже идёт — вход через Discord.">
+<meta property="og:description" content="Браузерная иммерсивная MMO с бесконечной прогрессией. Ни одного NPC, ни квестов, ни уровней. Мир один и вечный. Альфа уже идёт — вход через Discord.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://everse.life/">
 <meta property="og:image" content="https://everse.life/og.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta property="og:image:type" content="image/png">
-<meta property="og:image:alt" content="Everse.Life — не просто игра, а иммерсивная вселенная. Браузерная MMO без NPC.">
+<meta property="og:image:alt" content="Everse.Life — не просто игра, а иммерсивная вселенная. Браузерная MMO с бесконечной прогрессией.">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Everse.Life — не просто игра, а иммерсивная вселенная">
-<meta name="twitter:description" content="Браузерная MMO про экономику и власть без единого NPC. Альфа уже идёт.">
+<meta name="twitter:description" content="Браузерная MMO с бесконечной прогрессией. Альфа уже доступна.">
 <meta name="twitter:image" content="https://everse.life/og.png">
 <meta name="theme-color" content="#070B14">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
@@ -489,13 +489,6 @@
   footer .bar a.ext:hover { color: var(--ink); }
   footer .mark { width: 118px; color: var(--muted); display: block; }
   footer .bar .r { margin-left: auto; }
-  .fab {
-    position: fixed; right: 20px; bottom: 20px; z-index: 30;
-    opacity: 0; transform: translateY(16px); pointer-events: none;
-    transition: opacity .4s var(--ease-out), transform .4s var(--ease-out);
-  }
-  .fab.show { opacity: 1; transform: none; pointer-events: auto; }
-  .fab .btn { box-shadow: 0 10px 30px rgba(0,0,0,.45); }
 
   /* ── Responsive ───────────────────────────────────────────────────────── */
   @media (max-width: 1100px) {
@@ -539,7 +532,6 @@
     .system .lbl { font-size: 16px; }
     .system .lbl.name { font-size: 20px; }
     .shot .h .tabs { display: none; }
-    .fab { right: 12px; bottom: 12px; }
   }
   @media (prefers-reduced-motion: reduce) {
     html { scroll-behavior: auto; }
@@ -1481,8 +1473,6 @@
   </div>
 </footer>
 
-<div class="fab" id="fab"><a class="btn" href="#signup">Получить приглашение</a></div>
-
 <script>
   (() => {
     const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -1500,18 +1490,9 @@
       : document.documentElement.classList.add("ready");
     setTimeout(() => document.documentElement.classList.add("ready"), 900);
 
-    // ── Header state and the floating call ────────────────────────────────
+    // ── The header parts from the hero once the page moves ──────────────
     const top = document.querySelector("header.top");
-    const fab = document.getElementById("fab");
-    const hero = document.querySelector(".hero");
-    const signup = document.getElementById("signup");
-    const onScroll = () => {
-      const y = scrollY;
-      top.classList.toggle("scrolled", y > 24);
-      const pastHero = y > hero.offsetHeight * .8;
-      const atForm = signup.getBoundingClientRect().top < innerHeight * .9;
-      fab.classList.toggle("show", pastHero && !atForm);
-    };
+    const onScroll = () => top.classList.toggle("scrolled", scrollY > 24);
     addEventListener("scroll", onScroll, { passive: true });
     onScroll();
 
