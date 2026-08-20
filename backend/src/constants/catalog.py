@@ -56,7 +56,9 @@ class Recipe(Strict):
     inputs: tuple[str, ...] = ()
     amounts: dict[str, float] = Field(default_factory=dict)
     manual_amounts: bool = False
-    labor_hours: float
+    #: Labour is not repeated here: `RecipeBook.labor_hours` holds it for every
+    #: name at once -- raw material and operation products included -- and
+    #: `labor_of()` is the one way to ask. A copy on the recipe was read by nobody.
     station: str | None = None
 
     @property

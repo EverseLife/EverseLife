@@ -205,27 +205,67 @@ def measure(session: Session, query: dict, body: dict) -> dict:
     name = _need(query, "name")
     unit = str(body.get("unit") or "").strip()
     bulk = bool(body.get("bulk"))
+    mass = body.get("mass")
     with session.lock:
         file, ladder = session.open()
         if name not in ladder.known_names():
             raise vault.VaultError(f"«{name}» нет в вольте")
+        mass = _mass_for(name, mass, ladder)
 
         expect = copy.deepcopy(file.doc)
         meta = expect["meta"]
-        kept = [item for item in (meta.get("bulk") or []) if item != name]
-        meta["bulk"] = [*kept, name] if bulk else kept
+        # Порядок списка беречь обязательно: запись на месте — не то же самое,
+        # что запись в конце, и сверка документа честно на это ругается.
+        listed = list(meta.get("bulk") or [])
+        if bulk and name not in listed:
+            listed.append(name)
+        elif not bulk:
+            listed = [item for item in listed if item != name]
+        meta["bulk"] = listed
         units = {k: v for k, v in (meta.get("units") or {}).items() if k != name}
         if unit:
             units[name] = unit
         meta["units"] = units
+        if "mass" in body:
+            weights = {k: v for k, v in (meta.get("mass") or {}).items() if k != name}
+            if mass is not None:
+                weights[name] = mass
+            meta["mass"] = weights
 
         lines = vault.MetaBlock(file, "bulk").toggle(name, bulk)
         after = vault.RecipesFile(
             session.source, text="\n".join(lines), newline=file.newline
         )
         lines = vault.MetaBlock(after, "units").put(name, unit or None)
+        if "mass" in body:
+            after = vault.RecipesFile(
+                session.source, text="\n".join(lines), newline=file.newline
+            )
+            lines = vault.MetaBlock(after, "mass").put(name, mass)
         vault.save_doc(session.source, lines, expect, file.mtime, file.newline)
     return {"measured": name, "check": _check(session)}
+
+
+def _mass_for(name: str, mass: Any, ladder: model.Ladder) -> float | None:
+    """The mass a raw material or an operation product may be given.
+
+    `meta.mass` is the floor of the whole mass system: raw material weighs what
+    the vault says, and everything made of it is capped by what went in. A recipe
+    has no place here -- its own line carries the number, and a second one in
+    `meta` would quietly win over it.
+    """
+    if mass in (None, ""):
+        return None
+    if name in ladder.recipes:
+        raise vault.VaultError(
+            f"«{name}» — рецепт: его масса задаётся полем «масса, кг» в форме, "
+            "а не здесь. Иначе у одной вещи стало бы два веса."
+        )
+    if name not in ladder.raw and name not in ladder.op_outputs:
+        raise vault.VaultError(f"«{name}» не вещь, а требование — веса у него нет")
+    if not isinstance(mass, (int, float)) or isinstance(mass, bool) or mass < 0:
+        raise vault.VaultError("масса должна быть числом не меньше нуля")
+    return int(mass) if float(mass).is_integer() else float(mass)
 
 
 def undo(session: Session, _query: dict, _body: dict) -> dict:

@@ -213,7 +213,7 @@
   "craft.amount_cap": 10,
   "craft.copy_stamina": 3,
   "craft.time_growth_per_level": 2.0,
-  "craft.time_per_unit": 1,
+  "craft.time_per_unit": 6,
   "craft.station_speed_k": {
     "min": 0.6,
     "max": 1.4

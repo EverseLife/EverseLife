@@ -383,11 +383,15 @@ docker compose up -d
 
 ## Discord
 
-Три ленты наружу: хроника мира из воркера, счётчик заявок из лендинга, итог
-выкладки из CI. Включаются тремя вебхуками — `OCTOVERSE_DISCORD_WEBHOOK` и
-`LANDING_DISCORD_WEBHOOK` в `/opt/octoverse/.env`, секрет
+Четыре ленты наружу: хроника мира из воркера, счётчик заявок из лендинга, итог
+выкладки из CI и тревоги сервера из Grafana. У каждой **свой** вебхук и свой
+канал — `OCTOVERSE_DISCORD_WEBHOOK`, `LANDING_DISCORD_WEBHOOK` и
+`GRAFANA_DISCORD_WEBHOOK` в `/opt/octoverse/.env`, секрет
 `DISCORD_DEPLOY_WEBHOOK` на GitHub. Пока их нет, всё молчит и ничего не
 ломается.
+
+Тревоги отделены намеренно: их канал закрытый, а утёкший или отозванный вебхук
+не должен глушить хронику вместе с собой.
 
 Порядок и проверка — в [community/discord-bridge.md](community/discord-bridge.md),
 устройство сервера сообщества — в [community/discord.md](community/discord.md).

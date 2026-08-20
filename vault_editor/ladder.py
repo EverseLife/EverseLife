@@ -162,6 +162,7 @@ class Ladder:
                 # минус труд, пришедший со входами. Тем же вычитанием его
                 # достаёт движок (src/engine/craft.py), а не считает заново
                 step_hours=self._own_hours(name, derived),
+                matter=self.matter_of(name),
                 manual_hours=recipe.get("hours"),
                 is_key=bool(recipe.get("key")),
                 mix=bool(recipe.get("mix")),
@@ -178,6 +179,21 @@ class Ladder:
         # A station named by a synonym is the same node as the recipe it means,
         # so nothing else is added here: `canon` already pointed the edges home.
         return sorted(out.values(), key=lambda node: (node.get("depth") is None, node["name"]))
+
+    def matter_of(self, name: str) -> float | None:
+        """Сколько вещества вошло в единицу: сумма масс входов с их количествами.
+
+        Потолок массы изделия: материя при переделе не появляется. Массы здесь
+        уже конечные — сборка подрезала их тем же правилом уровнем ниже.
+        """
+        derived = self.derived_recipes.get(name)
+        if not derived or not derived.get("amounts"):
+            return None
+        into = sum(
+            float(quantity) * self.mass.get(self.canon(item), 0.0)
+            for item, quantity in derived["amounts"].items()
+        )
+        return round(into, 3) if into > 0 else None
 
     def _own_hours(self, name: str, derived: dict) -> float | None:
         labour = self.labor.get(name)
@@ -368,6 +384,10 @@ class Ladder:
         )
         return {
             "units": dict(self.file.meta().get("units") or {}),
+            # Заданные руками массы сырья и продуктов операций. Отдельно от
+            # выведенных: сразу после правки сборка ещё не считала, и поле
+            # должно показывать написанное, а не вчерашнее
+            "masses": dict(self.file.meta().get("mass") or {}),
             "kinds": kinds,
             "stations": stations,
             "slots": self.gear_slots,
@@ -426,6 +446,15 @@ def validate(data: dict, ladder: Ladder, original: str | None = None) -> None:
             "Ручное `amounts` перекрывает вывод целиком, и вход без числа просто исчезнет "
             "из состава. Задайте все количества или уберите все."
         )
+    for item, quantity in amounts.items():
+        # Штучное считают штуками (D-212). Игрок не положит полкуска стали, и
+        # рецепт, который этого требует, невыполним — а не просто некрасив.
+        if ladder.canon(item) not in ladder.bulk and float(quantity) != int(quantity):
+            raise VaultError(
+                f"«{item}» — штучная вещь, а требуется {quantity}. Задайте целое "
+                "количество либо отметьте вещь дробной в блоке «измерение» (D-212)."
+            )
+
     for field in ("amounts", "weights"):
         for item in (data.get(field) or {}):
             if item not in inputs:
@@ -436,6 +465,15 @@ def validate(data: dict, ladder: Ladder, original: str | None = None) -> None:
     for item in data.get("highlight") or []:
         if item not in inputs:
             raise VaultError(f"выделенный вход «{item}» не значится среди входов")
+
+    heavier = data.get("mass")
+    into = ladder.matter_of(original) if original else None
+    if heavier is not None and into is not None and float(heavier) > into:
+        raise VaultError(
+            f"масса {heavier} кг больше того, что вошло в вещь ({into} кг). "
+            "Материя при переделе не появляется: сборка всё равно подрежет число "
+            "до вошедшего, и в файле оно будет неправдой."
+        )
 
     slot = data.get("slot")
     if slot and slot not in ladder.gear_slots:

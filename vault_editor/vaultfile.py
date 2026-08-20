@@ -457,13 +457,17 @@ class MetaBlock:
 
     # -- mapping -----------------------------------------------------------
 
-    def put(self, name: str, value: str | None) -> list[str]:
-        """Set a mapping entry, or drop it when the value is empty."""
+    def put(self, name: str, value: str | float | None) -> list[str]:
+        """Set a mapping entry, or drop it when there is no value.
+
+        Zero counts as a value: energy weighs nothing, and that is a statement
+        about the world, not a missing number.
+        """
         lines = list(self.file.lines)
         key = re.compile(rf"^\s*{re.escape(name)}\s*:\s")
         found = [index for index in self._body() if key.match(lines[index])]
-        if value:
-            entry = " " * self.indent + f"{_scalar(name)}: {_scalar(value)}"
+        if value is not None and value != "":
+            entry = " " * self.indent + f"{_scalar(name)}: {_flow(value)}"
             if found:
                 lines[found[0]] = entry
                 return lines

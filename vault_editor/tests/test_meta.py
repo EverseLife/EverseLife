@@ -75,6 +75,19 @@ def test_toggling_what_is_already_so_changes_nothing(recipes: Path):
     assert vault.MetaBlock(file, "bulk").toggle(name, True) == file.lines
 
 
+def test_a_thing_already_fractional_keeps_its_place(recipes: Path):
+    """Position in the list is part of the file.
+
+    Re-saving something already listed must not move it to the end: the write is
+    verified by comparing whole documents, and a moved line is a changed document.
+    """
+    file = vault.RecipesFile(recipes)
+    listed = file.meta()["bulk"]
+    name = listed[len(listed) // 2]
+    lines = vault.MetaBlock(file, "bulk").toggle(name, True)
+    assert yaml.safe_load("\n".join(lines))["meta"]["bulk"] == listed
+
+
 def test_an_emptied_list_stays_a_list(tmp_path: Path):
     """`bulk:` with nothing under it reads as null, not as zero things."""
     path = tmp_path / "recipes.yaml"
@@ -122,6 +135,59 @@ def test_a_unit_with_a_colon_is_quoted_not_broken(recipes: Path):
     name = file.recipes()[0]["name"]
     lines = vault.MetaBlock(file, "units").put(name, "шт: пара")
     assert yaml.safe_load("\n".join(lines))["meta"]["units"][name] == "шт: пара"
+
+
+# ---------------------------------------------------------------------- mass
+
+
+def test_the_mass_of_raw_material_is_writable(recipes: Path):
+    """Raw mass is the floor of the whole system: everything made is capped by it."""
+    file = vault.RecipesFile(recipes)
+    name = file.meta()["raw"][0]
+
+    expect = copy.deepcopy(file.doc)
+    expect["meta"]["mass"] = {**(expect["meta"].get("mass") or {}), name: 2.5}
+    doc = written(recipes, vault.MetaBlock(file, "mass").put(name, 2.5), expect)
+    assert doc["meta"]["mass"][name] == 2.5
+
+
+def test_a_weightless_thing_keeps_its_zero(recipes: Path):
+    """Energy weighs nothing, and that is a statement, not a missing number."""
+    file = vault.RecipesFile(recipes)
+    name = file.meta()["raw"][0]
+    lines = vault.MetaBlock(file, "mass").put(name, 0)
+    assert yaml.safe_load("\n".join(lines))["meta"]["mass"][name] == 0
+
+
+def test_a_mass_written_and_then_dropped(recipes: Path):
+    file = vault.RecipesFile(recipes)
+    name = file.meta()["raw"][0]
+    lines = vault.MetaBlock(file, "mass").put(name, None)
+    assert name not in yaml.safe_load("\n".join(lines))["meta"]["mass"]
+
+
+def test_a_recipe_may_be_measured_but_not_weighed_here(recipes: Path, source: Path):
+    """Unit and fractionality belong to any thing; mass belongs to the recipe line.
+
+    A second weight in `meta` would quietly win over the one written beside the
+    recipe, so the refusal fires on the mass alone -- not on the recipe.
+    """
+    import ladder as model
+    import server
+
+    derived, _ = model.load_derived(source.parent.parent)
+    ladder = model.Ladder(vault.RecipesFile(recipes), derived)
+    name = next(iter(ladder.recipes))
+
+    assert server._mass_for(name, None, ladder) is None
+    with pytest.raises(vault.VaultError, match="рецепт"):
+        server._mass_for(name, 3, ladder)
+
+    raw = ladder.raw[0]
+    assert server._mass_for(raw, 2.5, ladder) == 2.5
+    assert server._mass_for(raw, 0, ladder) == 0
+    with pytest.raises(vault.VaultError, match="не меньше нуля"):
+        server._mass_for(raw, -1, ladder)
 
 
 # ------------------------------------------------------------------ guarding

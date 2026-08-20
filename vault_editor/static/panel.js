@@ -8,7 +8,9 @@
 
 import { api } from './api.js';
 import { colourOf } from './graphview.js';
-import { ask, h, num, plural } from './ui.js';
+import {
+  ask, h, joinHours, num, plural, spellTime, splitHours, TIME_LABEL, TIME_PARTS,
+} from './ui.js';
 
 const KIND_TITLE = {
   station: 'рабочая станция',
@@ -49,7 +51,8 @@ export function createPanel(root, deps) {
     }
     detail = payload;
     if (!payload.editable) {
-      state = null;
+      const node = deps.getNode(name) || {};
+      state = { original: name, isNew: false, readOnly: true, measure: measureState(name, node) };
       renderInfo(payload);
       return;
     }
@@ -59,6 +62,7 @@ export function createPanel(root, deps) {
       level: payload.level,
       section: payload.section,
       data: structuredClone(payload.data),
+      measure: measureState(name, deps.getNode(name) || {}),
     };
     render();
   }
@@ -89,6 +93,7 @@ export function createPanel(root, deps) {
         inputs: defaults.inputs ? [...defaults.inputs] : [''],
         station: defaults.station || 'Верстак',
       },
+      measure: { name: '', unit: '', mass: '', bulk: false, withMass: false },
     };
     render();
   }
@@ -114,7 +119,15 @@ export function createPanel(root, deps) {
           : null,
         node.type === 'class' && node.members
           ? h('div', { class: 'refs' }, node.members.map((m) => refButton(m))) : null,
-        measureBlock(node.name ? node : { ...node, name: payload.name }),
+        h('fieldset', {},
+          h('legend', { text: 'измерение' }),
+          measureFields(),
+          h('div', { class: 'panel-actions' },
+            h('button', { text: 'Записать', onclick: (event) => saveMeasure(event.target) }),
+            h('div', { class: 'spacer' }),
+            h('span', { class: 'note-line', id: 'panel-error' }),
+          ),
+        ),
         derivedBlock(payload, node),
         referencesBlock(payload.references),
         h('div', { class: 'note-line' },
@@ -185,18 +198,20 @@ export function createPanel(root, deps) {
       inputsBlock(data, derived),
       h('fieldset', {},
         h('legend', { text: 'свойства' }),
-        h('div', { class: 'flags' }, FLAGS.map(([key, label, title]) => h('label', { title },
-          h('input', {
-            type: 'checkbox',
-            checked: !!data[key],
-            onchange: (event) => {
-              if (event.target.checked) data[key] = true;
-              else delete data[key];
-              touch();
-            },
-          }),
-          label,
-        ))),
+        h('div', { class: 'flags' },
+          FLAGS.map(([key, label, title]) => h('label', { title },
+            h('input', {
+              type: 'checkbox',
+              checked: !!data[key],
+              onchange: (event) => {
+                if (event.target.checked) data[key] = true;
+                else delete data[key];
+                touch();
+              },
+            }),
+            label,
+          )),
+        ),
         h('div', { class: 'field', style: 'margin-top:8px' },
           h('label', { text: 'слот' }),
           select(['', ...vocab.slots], data.slot || '', (value) => {
@@ -208,21 +223,16 @@ export function createPanel(root, deps) {
           h('label', { text: 'масса, кг' }),
           h('input', {
             type: 'number', step: 'any', min: '0', value: num(data.mass),
-            placeholder: node.mass != null ? `выводится: ${num(node.mass)}` : 'выводится сборкой',
+            placeholder: node.matter != null
+              ? `не больше вошедшего: ${num(node.matter)}`
+              : (node.mass != null ? `выводится: ${num(node.mass)}` : 'выводится сборкой'),
+            title: 'масса единицы. Пусто — берётся от вошедшего вещества либо от '
+              + 'умолчания по типу. Больше вошедшего задать нельзя: материя при '
+              + 'переделе не появляется',
             oninput: setNumber('mass'),
           }),
         ),
-        h('div', { class: 'field' },
-          h('label', { text: 'время, ч' }),
-          h('input', {
-            type: 'number', step: 'any', min: '0', value: num(data.hours),
-            placeholder: node.step_hours != null
-              ? `выводится: ${num(node.step_hours)}` : 'выводится сборкой',
-            title: 'собственное время изготовления единицы. Пусто — растёт от '
-              + 'глубины передела (D-133). Заданное вручную идёт и в количества входов',
-            oninput: setNumber('hours'),
-          }),
-        ),
+        timeField(data, node),
         h('div', { class: 'field' },
           h('label', { text: 'вмещает, кг' }),
           h('input', {
@@ -234,21 +244,29 @@ export function createPanel(root, deps) {
           h('label', { text: 'пометка' }),
           h('input', { value: data.note || '', oninput: set('note'), placeholder: 'note' }),
         ),
+        // Измерение стоит здесь же, хотя пишется в `meta`: для того, кто правит
+        // вещь, «дробное» и «единица» — такие же её свойства, как масса, и
+        // делить это на два окна значило бы объяснять читателю устройство файла.
+        measureFields(),
       ),
       h('div', { class: 'err', id: 'panel-error' }),
       h('div', { class: 'panel-actions' },
         h('button', { class: 'primary', onclick: save, text: state.isNew ? 'Создать' : 'Сохранить' }),
-        h('button', { onclick: () => (state.isNew ? clear() : open(state.original)), text: 'Сбросить' }),
-        h('div', { class: 'spacer' }),
-        state.isNew ? null : h('button', { class: 'danger', onclick: remove, text: 'Удалить' }),
+        h('button', {
+          onclick: () => (state.isNew ? clear() : open(state.original)),
+          text: 'Сбросить',
+          title: 'вернуть поля к тому, что записано в вольте',
+        }),
       ),
-      state.isNew ? null : measureBlock(node),
       state.isNew ? null : derivedBlock(detail, node),
       state.isNew ? null : referencesBlock(detail.references),
       state.isNew ? null : sourceBlock(detail),
     );
 
-    root.replaceChildren(head(state.isNew ? 'Новый рецепт' : state.original, node), form);
+    root.replaceChildren(
+      head(state.isNew ? 'Новый рецепт' : state.original, node, { removable: !state.isNew }),
+      form,
+    );
   }
 
   function touch() {
@@ -258,7 +276,7 @@ export function createPanel(root, deps) {
 
   // -- pieces ----------------------------------------------------------------
 
-  function head(title, node) {
+  function head(title, node, { removable = false } = {}) {
     return h('div', { class: 'panel-head' },
       h('span', {
         class: 'dot',
@@ -266,7 +284,123 @@ export function createPanel(root, deps) {
       }),
       h('h2', { text: title }),
       node.depth != null ? h('span', { class: 'tag', text: `ступень ${node.depth}` }) : null,
+      // Удаление стоит у названия, а не под формой: оно про вещь целиком, а не
+      // про то, что в форме набрано, и его не ищут среди «Сохранить».
+      removable
+        ? h('button', { class: 'danger', onclick: remove, text: 'Удалить', title: 'вырезать рецепт из файла' })
+        : null,
     );
+  }
+
+  // -- время -----------------------------------------------------------------
+
+  function timeField(data, node) {
+    // Часы, минуты, секунды — всегда все три, даже если время в секундах: клетка
+    // на своём месте читается быстрее, чем подпись, которая переезжает. В файл
+    // уезжают часы: там их считает сборка.
+    const derivedHours = node.step_hours;
+    const split = splitHours(data.hours ?? 0);
+    const hint = splitHours(derivedHours ?? 0);
+
+    return h('div', { class: 'field' },
+      h('label', {
+        text: 'время',
+        title: 'собственное время изготовления единицы. Пусто — растёт от глубины '
+          + 'передела (D-133). Заданное вручную идёт и в количества входов',
+      }),
+      h('div', { class: 'time' }, TIME_PARTS.map((part) => h('label', { class: 'unit' },
+        h('input', {
+          type: 'number', min: '0', step: '1',
+          value: data.hours == null ? '' : String(split[part]),
+          placeholder: derivedHours != null ? String(hint[part]) : '0',
+          onchange: (event) => {
+            const typed = { ...split, [part]: Number(event.target.value || 0) };
+            const total = joinHours(typed);
+            if (total > 0) data.hours = Number(total.toFixed(6));
+            else delete data.hours;
+            render();
+          },
+        }),
+        TIME_LABEL[part],
+      ))),
+    );
+  }
+
+  // -- измерение -------------------------------------------------------------
+
+  function bulkFlag() {
+    const measure = state.measure;
+    return h('label', {
+      title: 'весовое: количество бывает дробным (D-212). Штучное — всегда целое, '
+        + 'половины слитка не бывает',
+    },
+    h('input', {
+      type: 'checkbox',
+      checked: measure.bulk,
+      onchange: (event) => { measure.bulk = event.target.checked; render(); },
+    }),
+    'дробное');
+  }
+
+  function measureFields() {
+    const measure = state.measure;
+    const node = deps.getNode(measure.name) || {};
+    return h('div', {},
+      measure.withMass
+        ? h('div', { class: 'field' },
+          h('label', { text: 'масса, кг' }),
+          h('input', {
+            type: 'number', step: 'any', min: '0', value: num(measure.mass),
+            placeholder: node.mass != null
+              ? `в прошлой сборке: ${num(node.mass)}` : 'задаётся руками: выводить не из чего',
+            title: 'масса единицы. У сырья и продуктов операций она основание всей '
+              + 'системы масс: изделие не тяжелее того, что в него вошло',
+            oninput: (event) => { measure.mass = event.target.value; touch(); },
+          }),
+        )
+        : null,
+      // «Дробное» стоит вплотную к единице не для красоты: вместе они и
+      // читаются — «3 м» дробными, «5 шт» целыми, — а порознь спрашивают
+      // дважды об одном.
+      h('div', { class: 'field' },
+        h('label', { text: 'единица' }),
+        h('div', { class: 'unit-row' },
+          h('input', {
+            value: measure.unit, maxlength: 12,
+            placeholder: measure.bulk ? 'без подписи' : 'шт.',
+            title: 'дорисовывается рядом с числом: «5 шт», «3 м». Только для показа',
+            oninput: (event) => { measure.unit = event.target.value; touch(); },
+          }),
+          bulkFlag(),
+        ),
+      ),
+    );
+  }
+
+  function measureState(name, node) {
+    const vocab = deps.vocabulary();
+    return {
+      name,
+      unit: (vocab.units || {})[name] ?? '',
+      mass: (vocab.masses || {})[name] ?? '',
+      bulk: !!node.bulk,
+      withMass: node.type === 'raw' || node.type === 'operation',
+    };
+  }
+
+  function measureChanged() {
+    const was = measureState(state.measure.name, deps.getNode(state.measure.name) || {});
+    return was.unit !== state.measure.unit
+      || was.bulk !== state.measure.bulk
+      || String(was.mass) !== String(state.measure.mass);
+  }
+
+  function measurePayload(name) {
+    const body = { unit: state.measure.unit, bulk: state.measure.bulk, name };
+    if (state.measure.withMass) {
+      body.mass = state.measure.mass === '' ? null : Number(state.measure.mass);
+    }
+    return body;
   }
 
   function inputsBlock(data, derived) {
@@ -349,58 +483,11 @@ export function createPanel(root, deps) {
     );
   }
 
-  // Измерение живёт в `meta`, а не в строке рецепта, поэтому и пишется своей
-  // кнопкой: у сырья и продуктов операций строки нет, а мерить их надо тоже.
-  function measureBlock(node) {
-    const name = node.name;
-    if (!name) return null;
-    const known = deps.vocabulary().units || {};
-    let unit = known[name] ?? '';
-    let bulk = !!node.bulk;
-    const status = h('span', { class: 'note-line' });
-
-    const apply = async (button) => {
-      button.disabled = true;
-      try {
-        deps.onWrite(await api.measure(name, { unit, bulk }), name);
-      } catch (error) {
-        status.textContent = error.message;
-        button.disabled = false;
-      }
-    };
-
-    return h('fieldset', {},
-      h('legend', { text: 'измерение' }),
-      h('div', { class: 'field' },
-        h('label', { text: 'единица' }),
-        h('input', {
-          value: unit, placeholder: bulk ? 'без подписи' : 'шт.', maxlength: 12,
-          title: 'дорисовывается рядом с числом: «5 шт», «3 м». Только для показа',
-          oninput: (event) => { unit = event.target.value; },
-        }),
-      ),
-      h('div', { class: 'flags', style: 'margin-top:6px' },
-        h('label', { title: 'весовое: количество бывает дробным (D-212). '
-          + 'Штучное — всегда целое, половины слитка не бывает' },
-        h('input', {
-          type: 'checkbox',
-          checked: bulk,
-          onchange: (event) => { bulk = event.target.checked; },
-        }),
-        'дробное количество'),
-      ),
-      h('div', { class: 'panel-actions' },
-        h('button', { text: 'Записать измерение', onclick: (event) => apply(event.target) }),
-        h('div', { class: 'spacer' }),
-        status,
-      ),
-    );
-  }
-
   function derivedBlock(payload, node) {
     const cost = payload?.cost;
     const rows = [];
-    if (node.labor_hours != null) rows.push(['труд', `${num(node.labor_hours)} ч`]);
+    if (node.labor_hours != null) rows.push(['труд', spellTime(node.labor_hours)]);
+    if (node.step_hours != null) rows.push(['своё время', spellTime(node.step_hours)]);
     if (node.mass != null) rows.push(['масса', `${num(node.mass)} кг`]);
     if (payload?.derived?.amounts) {
       for (const [item, value] of Object.entries(payload.derived.amounts)) {
@@ -506,7 +593,8 @@ export function createPanel(root, deps) {
     const body = { data, level: state.level, section: state.section };
     try {
       if (state.isNew) {
-        deps.onWrite(await api.create(body), data.name);
+        const made = await api.create(body);
+        deps.onWrite(await alsoMeasure(made, data.name), data.name);
         return;
       }
       if (data.name !== state.original) {
@@ -528,9 +616,28 @@ export function createPanel(root, deps) {
           body.rename_refs = answer.extra;
         }
       }
-      deps.onWrite(await api.update(state.original, body), data.name);
+      const saved = await api.update(state.original, body);
+      deps.onWrite(await alsoMeasure(saved, data.name), data.name);
     } catch (error) {
       fail(error);
+    }
+  }
+
+  /** Дописать измерение, если его трогали. Порядок важен: сперва строка
+   *  рецепта — она может отказать по составу, — и только потом `meta`. */
+  async function alsoMeasure(result, name) {
+    if (!measureChanged()) return result;
+    return api.measure(name, measurePayload(name));
+  }
+
+  async function saveMeasure(button) {
+    button.disabled = true;
+    try {
+      deps.onWrite(await api.measure(state.measure.name, measurePayload(state.measure.name)),
+        state.measure.name);
+    } catch (error) {
+      fail(error);
+      button.disabled = false;
     }
   }
 

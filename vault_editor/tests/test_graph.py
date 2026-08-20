@@ -193,6 +193,42 @@ def test_quantities_for_only_some_inputs_are_refused(ladder: model.Ladder, sampl
     model.validate(base(sample, amounts=dict.fromkeys(inputs, 2)), ladder)
 
 
+def test_a_fraction_of_a_counted_thing_is_refused(ladder: model.Ladder):
+    """A piece is whole (D-212): nobody puts half an ingot into a recipe."""
+    counted = next(
+        (name for name in ladder.recipes if name not in ladder.bulk),
+        None,
+    )
+    if counted is None:
+        pytest.skip("в вольте все вещи весовые")
+    recipe = {
+        "name": "Пробник",
+        "kind": "material",
+        "inputs": [counted],
+        "amounts": {counted: 0.5},
+        "station": ladder.recipes[counted]["station"],
+    }
+    with pytest.raises(vault.VaultError, match="штучная"):
+        model.validate(recipe, ladder)
+    model.validate({**recipe, "amounts": {counted: 2}}, ladder)
+
+
+def test_a_fraction_of_a_measured_thing_is_allowed(ladder: model.Ladder):
+    weighed = next((name for name in ladder.bulk if name in ladder.known_names()), None)
+    if weighed is None:
+        pytest.skip("в вольте нет весовых вещей")
+    model.validate(
+        {
+            "name": "Пробник",
+            "kind": "material",
+            "inputs": [weighed],
+            "amounts": {weighed: 0.5},
+            "station": "Верстак",
+        },
+        ladder,
+    )
+
+
 def test_a_twin_composition_on_the_same_station_is_refused(ladder: model.Ladder):
     """D-209: invention knows a recipe by its composition, so twins are illegal."""
     for name, recipe in ladder.recipes.items():
@@ -210,6 +246,20 @@ def test_a_twin_composition_on_the_same_station_is_refused(ladder: model.Ladder)
             model.validate(twin, ladder)
         return
     pytest.skip("сборка не считала количеств — сравнивать нечего")
+
+
+def test_a_mass_heavier_than_what_went_in_is_refused(ladder: model.Ladder):
+    """Matter does not appear in processing: a thing is at most its parts."""
+    for name in ladder.recipes:
+        into = ladder.matter_of(name)
+        if not into:
+            continue
+        recipe = {k: v for k, v in ladder.recipes[name].items() if k not in ("level", "section")}
+        with pytest.raises(vault.VaultError, match="больше того, что вошло"):
+            model.validate({**recipe, "mass": into * 2}, ladder, original=name)
+        model.validate({**recipe, "mass": into}, ladder, original=name)
+        return
+    pytest.skip("сборка не считала масс — сравнивать нечего")
 
 
 def test_an_empty_recipe_is_refused(ladder: model.Ladder, sample: dict):

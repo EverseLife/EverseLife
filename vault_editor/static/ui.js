@@ -77,3 +77,37 @@ export function plural(count, one, few, many) {
 export function things(count) {
   return `${count} ${plural(count, 'вещь', 'вещи', 'вещей')}`;
 }
+
+// --------------------------------------------------------------------- время
+//
+// В файле время лежит в часах — так его считает сборка, и трогать это незачем.
+// А читает и правит его человек, для которого 0.004167 не число: это пятнадцать
+// секунд. Доли всегда одни и те же — часы, минуты, секунды: сутки завели бы
+// четвёртую клетку ради редкого случая, а часы в ней всё равно понадобились бы.
+
+const SECOND = 1 / 3600;
+
+export const TIME_PARTS = ['hours', 'minutes', 'seconds'];
+export const TIME_LABEL = { hours: 'ч', minutes: 'мин', seconds: 'с' };
+
+export function splitHours(hours) {
+  let left = Math.max(0, Math.round(Number(hours || 0) / SECOND));
+  const whole = Math.floor(left / 3600);
+  left -= whole * 3600;
+  const minutes = Math.floor(left / 60);
+  return { hours: whole, minutes, seconds: left - minutes * 60 };
+}
+
+export function joinHours({ hours = 0, minutes = 0, seconds = 0 }) {
+  return (hours * 3600 + minutes * 60 + seconds) * SECOND;
+}
+
+/** Время словами: «2 ч 34 мин», «15 с», «50 ч 30 мин». Нули внутри опускаются. */
+export function spellTime(hours) {
+  if (hours == null || hours === '') return '';
+  const split = splitHours(hours);
+  const shown = TIME_PARTS
+    .filter((part) => split[part] > 0)
+    .map((part) => `${split[part]} ${TIME_LABEL[part]}`);
+  return shown.length ? shown.join(' ') : `0 ${TIME_LABEL.seconds}`;
+}
