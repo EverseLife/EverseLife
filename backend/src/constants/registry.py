@@ -303,8 +303,12 @@ BANK_INFLATION_ALARM = Num("bank.inflation_alarm")
 BANK_COUNCIL_HANDOVER_CITIES = Num("bank.council_handover_cities")
 BANK_COUNCIL_RATE_DEVIATION = Num("bank.council_rate_deviation")
 BANK_COUNCIL_LOCKOUT = Num("bank.council_lockout")
-#: By this much a plot gets cheaper with each ring from the bioprinter -- the city centre.
-LAND_PRICE_DECAY_PER_RING = Num("land.price_decay_per_ring")
+#: By this much land gets cheaper with each **node** from the bioprinter --
+#: the city centre. Nodes and not rings: a ring is a property written at
+#: generation, nodes are how the city is actually walked (D-220). One number
+#: answers both questions about the price of a place: what a plot costs to
+#: buy and what it costs to hold, because they are the same statement.
+LAND_DECAY_PER_NODE = Num("land.decay_per_node")
 
 # --- Buildings and construction (D-106, D-125, D-131, D-218) ----------------
 #: How much building area one work place takes: a machine or furniture.

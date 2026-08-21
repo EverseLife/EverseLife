@@ -348,6 +348,11 @@ export type Look = {
     upkeep: "owner" | "city" | "nobody" | null;
     /** Plot area, m2 (D-125). */
     area: number;
+    /** Daily land tax for the built area, minor units (D-127, D-220).
+     *
+     * Zero outside a city, or where the city has set no rate. Falls with
+     * every node from the bioprinter, like the purchase price does. */
+    tax: number;
     /** Building and capacity: a machine takes area (D-106).
      *
      * `area` is the usable area -- the sum of the floors; `ground` is what the

@@ -514,6 +514,11 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
         #: bought plot stays civic land yet is paid for by a person (D-149).
         "upkeep": await utility.payer_of(db, node),
         "area": float(node.area_m2),
+        #: What the plot costs to **hold** for a day (D-127, D-220). Shown
+        #: next to the purchase price on purpose: the rate falls with every
+        #: node from the bioprinter, so the centre is dearer both ways, and
+        #: the buyer must see the second half before paying the first.
+        "tax": await estate.land_tax_of(db, constants, current_catalog(), node),
     }
     #: Building and capacity: a machine takes area (D-106), and the player must
     #: see how many places are left before carrying a machine across town.

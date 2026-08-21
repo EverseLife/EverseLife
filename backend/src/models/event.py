@@ -129,6 +129,9 @@ class EventKind(StrEnum):
     #: A deed cancelled: the land went to the city at founding (D-159). Civic
     #: land is not traded by deed -- the authority hands it out.
     DEED_RETIRED = "deed.retired"
+    #: The day of land tax, charged (D-127, D-220): what was owed, what was
+    #: paid, and what the holder had no money for.
+    LAND_TAXED = "land.taxed"
     #: A building was built on a plot (D-106, D-125).
     BUILDING_BUILT = "building.built"
     #: The owner took their own house apart, and part of the material came back (D-205).

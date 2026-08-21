@@ -62,7 +62,9 @@ class PostingReason(StrEnum):
     MARKET_FEE = "market_fee"
     DUTY = "duty"
     SALARY = "salary"
-    UPKEEP = "upkeep"
+    #: The daily land tax (D-127). Took the place of `upkeep`, which went
+    #: with the mechanic itself (D-219) and had never been posted.
+    TAX_LAND = "tax_land"
     ENERGY_BILL = "energy_bill"
     COURT_FEE = "court_fee"
     FINE = "fine"

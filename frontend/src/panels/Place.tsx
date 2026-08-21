@@ -385,6 +385,14 @@ export function Plot({ look, session }: Omit<Props, "busy" | "act" | "book">) {
             ? "Городской сети здесь нет: счёта за электричество не бывает, работают от аккумулятора."
             : null;
 
+  //: Во что обходится держать участок сутки (D-127, D-220). Стоит рядом с
+  //: ценой выкупа не для симметрии: ставка убывает с каждым узлом от
+  //: биопринтера, поэтому центр дорог дважды — и купить, и держать, — и вторую
+  //: половину счёта покупатель обязан видеть до того, как заплатит первую.
+  const tax = node.tax > 0
+    ? `Земельный налог: ${api.tk(node.tax)} ₭ в сутки с застройки. Двор не облагается, и чем дальше от биопринтера, тем ставка ниже.`
+    : null;
+
   const whose = node.mine
     ? "ваш участок"
     : node.owner
@@ -403,6 +411,7 @@ export function Plot({ look, session }: Omit<Props, "busy" | "act" | "book">) {
         {node.gated && " · закрыта для входа"}
         {node.cut_off && " · отключена за неуплату"}
       </p>
+      {tax && <p className="note">{tax}</p>}
       {upkeep && <p className="note">{upkeep}</p>}
       {/* Only civic land is handed over: a ship's cabin is owned too, and there
           is no city under it to take it. */}
