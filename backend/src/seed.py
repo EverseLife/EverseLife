@@ -8,6 +8,30 @@ into hands goes through `world.grant_item` with an explicit ground: matter does
 not appear in the world anonymously (pillar P1), and such an arrival must be
 visible in telemetry.
 
+## The capital is assembled, not conjured (D-216)
+
+Machines used to be handed to the capital ready-made, and that made the
+starting world a second set of rules: the city the player is shown was built by
+means the player does not have. Now `_machine` **assembles** -- it takes the
+recipe's composition from the vault, assembles each input the same way, and so
+down to raw material. Only raw material arrives from nowhere, some nine hundred
+kilograms of it, as the Forerunners' legacy.
+
+The point is not bookkeeping but the check that comes free with it: a recipe
+without a composition, an input nobody makes, a circle in the ladder -- each of
+them now **stops the world from being created**, loudly, instead of handing the
+player a city they could not have built themselves. That is exactly how the
+capital's marketplace was found to be holding a terminal the engine could not
+see (D-215 named the engine's constants after classes, and the seed went on
+placing them as things).
+
+Two things the assembly does not derive, and both are deliberate. **Quality**
+is declared by the seed: the Forerunners' printer is excellent and the prison's
+is shoddy because the world says so, not because the proportions worked out.
+And **energy** is skipped: it lives in a pool or a battery and never in a
+container (D-071), so a composition that calls for it is taken as given -- the
+Forerunners had current.
+
 ## The shape of the world
 
 A city is not a place but **a group of locations connected by short edges**
@@ -85,6 +109,24 @@ COPPER = "Медная руда"
 COAL = "Уголь"
 PICK = "Железная кирка"
 TIMBER = "Шахтная крепь"
+
+
+def _one_of(thing_class: str) -> str:
+    """A concrete thing of the class: a world holds things, not classes (D-215).
+
+    The engine binds behaviour to a class -- «Терминал», «Верфь» -- and its
+    constants are class names. What stands in a node is an item, and the seed
+    must name one. Asked through the catalog rather than spelled out here, so a
+    rename in the vault carries the seed with it.
+    """
+    members = current_catalog().recipes.of_class(thing_class)
+    if not members:
+        raise RuntimeError(
+            f"класс «{thing_class}» пуст: стартовому миру нечего поставить"
+        )
+    return members[0]
+
+
 #: Money goes **into the capital's treasury**, not the player's pocket (D-153).
 #: The player prints with zero and gets the settlement grant by the city's
 #: decision -- i.e. by mechanic, not by script.
@@ -341,27 +383,27 @@ async def seed(session: AsyncSession) -> Node:
     await world.create_vein(session, mine_, COAL, richness=48, remaining=30_000)
     await world.create_vein(session, mine_, COPPER, richness=41, remaining=18_000)
     await world.create_vein(session, prison, IRON, richness=35, remaining=20_000)
-    await _machine(session, prison, death.PRINTER, 50)
-    await _machine(session, prison, market.TERMINAL, 50)
-    await _machine(session, prison, justice.KATORGA, 55)
+    await _machine(session, prison, _one_of(death.PRINTER), 50)
+    await _machine(session, prison, _one_of(market.TERMINAL), 50)
+    await _machine(session, prison, _one_of(justice.KATORGA), 55)
 
     await _machine(session, townhall, "Администрация", 65)
     #: The spaceport is a machine too, and it is what makes the node a port: a
     #: ship couples to whatever the `Космическая верфь` stands in (D-201, D-206).
-    await _machine(session, port, ship.SPACEPORT, 60)
+    await _machine(session, port, _one_of(ship.SPACEPORT), 60)
     #: The library is a machine (D-176): the knowledge window is shown where it stands.
-    await _machine(session, library, world.LIBRARY, 70)
+    await _machine(session, library, _one_of(world.LIBRARY), 70)
     #: And it holds what was put into it (D-068, D-209): the capital's shelf is
     #: the base set the Forerunners left -- today the whole catalog; a library
     #: a city builds starts empty and fills as people bring carriers.
     await _base_shelf(session, library)
     #: The Forerunners' Printer: free and twelve hours (D-028). It is also the
     #: only door into the world that never closes, hence it stands in the core.
-    await _machine(session, core, death.PRINTER, 99)
+    await _machine(session, core, _one_of(death.PRINTER), 99)
     #: The city printer at the forge: minutes instead of hours, but for energy
     #: and iron. The city sells not life but speed (D-028, D-033).
-    await _machine(session, forge, death.PRINTER, 60)
-    await _machine(session, marketplace, market.TERMINAL, 70)
+    await _machine(session, forge, _one_of(death.PRINTER), 60)
+    await _machine(session, marketplace, _one_of(market.TERMINAL), 70)
     #: The mint press at the trading yard: coins are minted where they will
     #: circulate (D-016). A civic building.
     await _machine(session, marketplace, "Монетная станция", 60)
@@ -587,7 +629,7 @@ async def catch_up(session: AsyncSession, core: Node) -> None:
     if not props.get(death.PRECURSOR):
         props[death.PRECURSOR] = True
         core.properties = props
-    await _machine_if_missing(session, core, death.PRINTER, 90)
+    await _machine_if_missing(session, core, _one_of(death.PRINTER), 90)
 
     townhall = await _node_if_missing(
         session, "terra.capital.hall", "Администрация", 180, capital, {"кольцо": 1}
@@ -608,7 +650,7 @@ async def catch_up(session: AsyncSession, core: Node) -> None:
         )
     ).scalar_one_or_none()
     if library is not None:
-        await _machine_if_missing(session, library, world.LIBRARY, 70)
+        await _machine_if_missing(session, library, _one_of(world.LIBRARY), 70)
         #: A world furnished before D-209 gets its base shelf: without it the
         #: capital's library would stand full of books nobody may copy.
         await _base_shelf(session, library)
@@ -625,9 +667,9 @@ async def catch_up(session: AsyncSession, core: Node) -> None:
     ).scalar_one_or_none()
     if prison is not None:
         prison.owner_city_id = city.id
-        await _machine_if_missing(session, prison, justice.KATORGA, 55)
-        await _machine_if_missing(session, prison, death.PRINTER, 50)
-        await _machine_if_missing(session, prison, market.TERMINAL, 50)
+        await _machine_if_missing(session, prison, _one_of(justice.KATORGA), 55)
+        await _machine_if_missing(session, prison, _one_of(death.PRINTER), 50)
+        await _machine_if_missing(session, prison, _one_of(market.TERMINAL), 50)
     if new_prison is not None:
         await world.create_vein(session, new_prison, IRON, richness=35, remaining=20_000)
         output_ = (
@@ -648,7 +690,7 @@ async def catch_up(session: AsyncSession, core: Node) -> None:
         )
     ).scalar_one_or_none()
     if forge is not None:
-        await _machine_if_missing(session, forge, death.PRINTER, 60)
+        await _machine_if_missing(session, forge, _one_of(death.PRINTER), 60)
         #: A chest at the forge (D-181): worlds created before storages get it
         #: retroactively -- otherwise there is still nowhere to put things.
         await _machine_if_missing(session, forge, "Сундук", 55)
@@ -715,7 +757,7 @@ async def catch_up(session: AsyncSession, core: Node) -> None:
     ).scalar_one_or_none()
     if port is not None:
         port.owner_city_id = city.id
-        await _machine_if_missing(session, port, ship.SPACEPORT, 60)
+        await _machine_if_missing(session, port, _one_of(ship.SPACEPORT), 60)
         if gate is not None:
             await travel.connect(
                 session, gate, port,
@@ -867,9 +909,7 @@ async def _machine_if_missing(
     """Place a machine if the node does not have it yet. Does not create a second one."""
     yard = await world.node_container(session, node)
     if not await _present_in(session, yard, name):
-        await world.grant_item(
-            session, yard, name, quality=quality, origin="догоняющий сид"
-        )
+        await _assemble(session, yard, name, quality=quality)
 
 
 async def _present_in(session: AsyncSession, container, name: str) -> bool:
@@ -1013,8 +1053,127 @@ def _ring(constants) -> tuple[float, float]:
 
 
 async def _machine(session: AsyncSession, node: Node, name: str, quality: float) -> None:
+    """Поставить станцию в узел, **собрав её по рецепту** (D-216).
+
+    Столица складывается теми же правилами, что и город игрока: у станции
+    берётся её состав из вольта, у входов — их состав, и так до сырья. Из
+    ниоткуда в мир приходит только сырьё, и приходит с названным основанием
+    (столп П1) — дальше идёт один передел.
+
+    Так стартовый мир перестаёт быть отдельным набором правил и становится
+    проверкой основных: рецепт без состава, вход, который никто не делает,
+    круг в лестнице — всё это роняет сид вслух, а не оставляет игроку мир,
+    который он не смог бы повторить своими руками.
+    """
     yard = await world.node_container(session, node)
-    await world.grant_item(session, yard, name, quality=quality, origin="стартовый мир")
+    await _assemble(session, yard, name, quality=quality)
+
+
+#: Энергия — не предмет (D-071): она живёт в пуле либо в аккумуляторе, и
+#: положить её в контейнер нельзя. В составе она встречается (кремний плавят
+#: током), поэтому сборка её пропускает: у Предтеч ток был.
+INTANGIBLE = "Энергия"
+
+
+def _composition(book, name: str) -> dict[str, float] | None:
+    """Из чего вещь делается: состав рецепта либо расход операции.
+
+    `None` — дальше лестницы нет: это сырьё, его берут из мира. Добывающая
+    операция (рубка, добыча) расхода не имеет и потому тоже кончает спуск.
+    """
+    from src.constants import ConstantError
+
+    try:
+        recipe = book.recipe(name)
+    except ConstantError:
+        recipe = None
+    if recipe is not None and recipe.amounts:
+        return {book.resolve(item): value for item, value in recipe.amounts.items()}
+    for operation in book.operations:
+        if name in operation.gives:
+            spent = operation.amounts.get(name) or {}
+            return {book.resolve(i): v for i, v in spent.items()} or None
+    return None
+
+
+async def _assemble(
+    session: AsyncSession,
+    container,
+    name: str,
+    *,
+    quality: float,
+    amount: float = 1.0,
+    seen: tuple[str, ...] = (),
+) -> None:
+    """Собрать вещь в контейнере: сперва входы своим переделом, потом её саму.
+
+    Качество объявляет сид, а не выводит лестница: мастерство Предтеч —
+    это замысел мира, а не следствие пропорций. Материя же считается честно,
+    по количествам вольта.
+    """
+    from src.engine import goods
+
+    catalog = current_catalog()
+    book = catalog.recipes
+    name = book.resolve(name)
+    if name in seen:
+        raise RuntimeError("круг в лестнице: " + " → ".join((*seen, name)))
+    if name == INTANGIBLE:
+        return
+
+    per_unit = _composition(book, name)
+    if per_unit is None:
+        await world.grant_item(
+            session, container, name, amount=amount, quality=quality,
+            origin="наследие Предтеч: сырьё столицы",
+        )
+        return
+
+    for item, per in per_unit.items():
+        if item == INTANGIBLE:
+            continue
+        #: Штучное уходит в работу целым (D-212): половину слитка не расходуют.
+        need = goods.whole(item, per * amount, up=True, catalog=catalog)
+        await _assemble(session, container, item, quality=quality, amount=need,
+                        seen=(*seen, name))
+    await _spend(session, container, per_unit, amount, catalog)
+    await world.grant_item(
+        session, container, name, amount=amount, quality=quality,
+        origin=f"наследие Предтеч: собрано по рецепту «{name}»",
+    )
+
+
+async def _spend(session: AsyncSession, container, per_unit: dict, units: float, catalog) -> None:
+    """Списать то, что ушло в изделие. Не хватило — это дефект данных, не игры."""
+    from src.engine import goods
+    from src.units import amount as to_amount
+    from src.units import amount_float
+
+    for name, per in per_unit.items():
+        if name == INTANGIBLE:
+            continue
+        left = to_amount(goods.whole(name, per * units, up=True, catalog=catalog))
+        stacks = (
+            await session.execute(
+                select(Item).where(
+                    Item.container_id == container.id, Item.type_key == name
+                )
+            )
+        ).scalars().all()
+        for stack in stacks:
+            if left <= 0:
+                break
+            take = min(left, stack.amount)
+            if take == stack.amount:
+                await session.delete(stack)
+            else:
+                stack.amount -= take
+            left -= take
+        if left > 0:
+            raise RuntimeError(
+                f"на сборку не хватило «{name}»: недостаёт {amount_float(left):g}"
+            )
+    await session.flush()
 
 
 async def _treasury(session: AsyncSession, city) -> None:
