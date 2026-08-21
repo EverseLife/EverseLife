@@ -33,7 +33,7 @@ export function Login({ busy, onLogin, onRegister, trouble }: Props) {
   return (
     <main className="entry auth">
       <div className="brand">
-        <Logo height={44} />
+        <Logo height={88} />
         <p className="note">альфа</p>
       </div>
 

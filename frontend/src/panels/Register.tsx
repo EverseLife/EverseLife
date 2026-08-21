@@ -117,7 +117,7 @@ export function Register({ busy, trouble, onSubmit, onBack }: Props) {
   return (
     <main className="entry auth">
       <div className="brand">
-        <Logo height={36} />
+        <Logo height={72} />
       </div>
 
       <ol className="steps" aria-label="шаги регистрации">
