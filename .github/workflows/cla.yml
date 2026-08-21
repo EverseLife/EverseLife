@@ -1,0 +1,56 @@
+# Contributor License Agreement: signed in the pull request, stored in the repo.
+#
+# Dual licensing only works while the rights to all the code sit with one
+# person, so a contribution is accepted after its author has signed CLA.md.
+#
+# The action is CLA Assistant Lite. Its repository is archived upstream, and
+# v2.6.1 is the last release -- pinned by tag on purpose, so an abandoned
+# `master` cannot start running here on its own.
+
+name: CLA
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_target:
+    types: [opened, closed, synchronize]
+
+# Spelled out, because the repository's default token may be read-only: the
+# action writes the signature file and sets the check on the pull request.
+permissions:
+  actions: write
+  contents: write
+  pull-requests: write
+  statuses: write
+
+jobs:
+  cla:
+    name: Signature
+    runs-on: ubuntu-latest
+    steps:
+      - name: CLA Assistant Lite
+        # The phrase here must match `custom-pr-sign-comment` below character
+        # for character -- otherwise a signature is posted and never counted.
+        if: >-
+          github.event_name == 'pull_request_target' ||
+          github.event.comment.body == 'recheck' ||
+          github.event.comment.body == 'Я принимаю условия CLA и подписываю его'
+        uses: contributor-assistant/github-action@v2.6.1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          # Created by the action itself on the first signature. Creating it by
+          # hand makes the run fail -- the README says so outright.
+          path-to-signatures: 'signatures/version1/cla.json'
+          path-to-document: 'https://github.com/EverseLife/EverseLife/blob/main/CLA.md'
+          # Signatures are committed here, so the branch must not be protected.
+          branch: 'main'
+          # The rights holder signs nothing to himself; bots cannot sign at all.
+          allowlist: sumrak10,bot*
+          custom-notsigned-prcomment: >-
+            Спасибо за вклад. Прежде чем его принять, нужно, чтобы $you
+            подписали
+            [соглашение с контрибьютором (CLA)](https://github.com/EverseLife/EverseLife/blob/main/CLA.md).
+            Подпись — комментарий к этому pull request ровно такого вида:
+          custom-pr-sign-comment: 'Я принимаю условия CLA и подписываю его'
+          custom-allsigned-prcomment: 'CLA подписан всеми авторами коммитов ✍️ ✅'
