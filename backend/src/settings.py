@@ -22,6 +22,15 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://everselife:everselife@localhost:5432/everselife"
     redis_url: str = "redis://localhost:6379/0"
 
+    #: How many database connections one process keeps, and how many more it
+    #: may take at a peak. This is the width of the server: a session command
+    #: holds a connection for the whole of its transaction, so `pool_size +
+    #: max_overflow` is how many players are served at the same instant.
+    #: Several processes (`uvicorn --workers`) each hold their own pool, and
+    #: their sum may not exceed the database's `max_connections`.
+    db_pool_size: int = 5
+    db_max_overflow: int = 10
+
     #: How many journal jobs the worker takes per pass.
     job_batch: int = 64
 

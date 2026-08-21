@@ -18,6 +18,13 @@ x-server: &server
     EVERSELIFE_VAULT_BUILD: /vault
     EVERSELIFE_LOG_LEVEL: ${EVERSELIFE_LOG_LEVEL:-INFO}
     EVERSELIFE_JOB_BATCH: ${EVERSELIFE_JOB_BATCH:-64}
+    #: How many database connections **one process** keeps. A session command
+    #: holds a connection for its whole transaction, so this is the number of
+    #: players served at the same instant. Every `--workers` process holds a
+    #: pool of its own: four servers plus the worker is five pools, and their
+    #: sum must stay under the database's `max_connections` below.
+    EVERSELIFE_DB_POOL_SIZE: ${EVERSELIFE_DB_POOL_SIZE:-10}
+    EVERSELIFE_DB_MAX_OVERFLOW: ${EVERSELIFE_DB_MAX_OVERFLOW:-5}
     #: The world chronicle to Discord (`src/herald/`). Empty -- the herald is
     #: silent; the feed goes out, nothing comes in from Discord.
     EVERSELIFE_DISCORD_WEBHOOK: ${EVERSELIFE_DISCORD_WEBHOOK:-}
@@ -32,6 +39,12 @@ x-server: &server
 services:
   postgres:
     image: postgres:16
+    # The default hundred connections is not enough once the server runs in
+    # several processes: four servers and the worker hold `pool_size +
+    # max_overflow` each, and a deploy adds `migrate` and `seed` on top. A
+    # connection at rest costs a couple of megabytes, so the ceiling is raised
+    # with room to spare rather than counted to the last one.
+    command: ["postgres", "-c", "max_connections=${POSTGRES_MAX_CONNECTIONS:-200}"]
     environment:
       POSTGRES_USER: everselife
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
@@ -74,6 +87,19 @@ services:
 
   backend:
     <<: *server
+    # One process is one processor core, whatever the server has: Python holds
+    # the interpreter lock, and a load test showed the ceiling standing still
+    # at 150 players whether six cores were given or thirty-two. Four processes
+    # on six cores moved it past 300; the two cores left over are not spare,
+    # they are the worker's and the database's.
+    #
+    # `--proxy-headers` and the CMD's other arguments are repeated here on
+    # purpose: a compose `command` replaces the image's command whole, and
+    # without them the player's real address would be lost behind Caddy.
+    command: ["uvicorn", "src.api.app:app",
+              "--host", "0.0.0.0", "--port", "8000",
+              "--proxy-headers", "--forwarded-allow-ips", "*",
+              "--workers", "${EVERSELIFE_WEB_WORKERS:-4}"]
     depends_on:
       postgres:
         condition: service_healthy

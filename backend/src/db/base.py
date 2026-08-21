@@ -78,7 +78,20 @@ _sessionmaker: async_sessionmaker[AsyncSession] | None = None
 def engine() -> AsyncEngine:
     global _engine
     if _engine is None:
-        _engine = create_async_engine(settings().database_url, pool_pre_ping=True, future=True)
+        conf = settings()
+        _engine = create_async_engine(
+            conf.database_url,
+            pool_pre_ping=True,
+            future=True,
+            #: Every session command opens a transaction of its own
+            #: (`api/session.py`), so the pool is the count of players the
+            #: server serves **at the same instant**. The library's default --
+            #: five plus ten -- is a queue at a hundred connected. Under
+            #: `--workers N` each process holds a pool of its own, and their
+            #: sum must fit the database's `max_connections`.
+            pool_size=conf.db_pool_size,
+            max_overflow=conf.db_max_overflow,
+        )
     return _engine
 
 
