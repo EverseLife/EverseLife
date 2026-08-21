@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Nurlan Urazkulov
+
 /**
  * Display density (00-ux-principles, brief section 5).
  *

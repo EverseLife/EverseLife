@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Creation of what exists in the world: nodes, identities, bodies, property.
 
 No function here creates matter out of nothing just like that: items appear

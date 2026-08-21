@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Nurlan Urazkulov
+
 /** Helpers for the quantity field (`Amount.tsx`) and for reading a quantity.
  *  Kept apart from the component so hot reload keeps working: a module of
  *  components exports components. */

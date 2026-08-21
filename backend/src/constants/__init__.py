@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Balance constants and catalogs -- the only source of numbers (D-065).
 
 The engine keeps no numeric values of its own: everything comes from the

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Chance with a memory (D-213).
 
 A fair coin is not a fair deal. At a 22% chance of a find, twelve empty runs in

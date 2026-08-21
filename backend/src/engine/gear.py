@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Carried load: mass, limit and gear slots (D-146, D-129).
 
 The carry limit was in the vault from the very start -- `inventory.carry_mass`,

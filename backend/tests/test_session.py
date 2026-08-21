@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """End-to-end check: a full mining session through the client session.
 
 The main thing here is the last check. The hidden number must not leak out

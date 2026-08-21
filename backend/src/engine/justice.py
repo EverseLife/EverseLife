@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Court: complaint, case, verdict, enforcement (D-095, D-117, D-166).
 
 The `justice` right was declared, fourteen sanction primitives lay in

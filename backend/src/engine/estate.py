@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Real estate: plot purchase, deed, building (D-089, D-106, D-116, D-125, D-218).
 
 ## Buying civic land

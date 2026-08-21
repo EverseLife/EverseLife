@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Money moves, it does not appear (invariant I2, D-127).
 
 These checks are not about SQLAlchemy. They are about **an unbalanced operation

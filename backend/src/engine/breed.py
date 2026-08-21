@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Breeding: cultivars, seeds, crossing, degradation (D-057, D-067).
 
 The task all this exists for: **give an experienced farmer a real advantage

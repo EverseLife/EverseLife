@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Chance with a memory (D-213).
 
 Checked is the promise the whole thing rests on -- **the mean is untouched,

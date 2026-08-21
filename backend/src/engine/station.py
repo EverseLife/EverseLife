@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Workstations and furniture are placed in a building and carried out of it (D-106, D-150).
 
 In the player's language a workstation is «рабочая станция» -- it was «станок»

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Real estate: a building on a plot and a deed of ownership.
 
 A **building** is what is built on a plot before any machine (D-106, D-125):

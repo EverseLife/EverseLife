@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """The job journal: exactly once, even if the process was restarted.
 
 Batches, caravans, harvest growth and daily write-offs rest on this

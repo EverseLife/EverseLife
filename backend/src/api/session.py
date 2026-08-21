@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Client session -- the only place where a player acts.
 
 Anti-cheat rests not on protecting the client but on the fact that **there is

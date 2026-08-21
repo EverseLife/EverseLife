@@ -1,3 +1,6 @@
+/* SPDX-License-Identifier: AGPL-3.0-only
+   Copyright (C) 2026 Nurlan Urazkulov */
+
 /*
  * The client's styling. Values live in `theme.css` and nowhere else -- this
  * file may not contain a colour literal (D-055).

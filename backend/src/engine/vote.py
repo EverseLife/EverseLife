@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Citizens' vote (D-036, D-130, D-161).
 
 The charter asks who approves a law, at what threshold, with what quorum and

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """The device fee (D-110, D-112, D-113).
 
 The tests run Argon2id on **cheap** parameters -- through the very edit

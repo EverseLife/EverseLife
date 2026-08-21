@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Wear: why things run out (D-129, D-058, 15-quality).
 
 Pillar P2 requires an item to be finite. Hence four wear streams, each

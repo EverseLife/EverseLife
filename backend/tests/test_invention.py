@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Invention, knowledge carriers, library shelves and the batch queue (D-209).
 
 What is checked is the decision, not the plumbing:

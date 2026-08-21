@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Telemetry and invariant checks (60-meta/04, 30-economy/05).
 
 In an economic game without telemetry you are blind: the economy breaks

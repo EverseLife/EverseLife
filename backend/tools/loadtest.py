@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Load test: how many simultaneous players this server holds.
 
 Off-the-shelf tools (k6, wrk, ab) measure the wrong surface here. The player

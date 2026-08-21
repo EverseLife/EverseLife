@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """One body, one occupation (D-211).
 
 Checked is what the rule was introduced for -- three advances on one pair of

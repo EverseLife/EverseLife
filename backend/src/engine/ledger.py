@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Postings: the only way money moves in the game.
 
 One rule, and it is strict: **the postings of an operation sum to zero**.

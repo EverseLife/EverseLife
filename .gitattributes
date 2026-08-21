@@ -3,3 +3,6 @@
 *.png binary
 *.jpg binary
 *.webp binary
+
+# The AGPL text is verbatim by definition -- no normalisation of any kind.
+LICENSE -text

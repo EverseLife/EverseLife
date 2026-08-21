@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Credit and the key rate (D-030, D-087, D-167).
 
 A loan is a contract: the rate is fixed at issue and does not change afterwards,

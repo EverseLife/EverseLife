@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Customs: rate, norm, ban (D-123).
 
 Checked is what the duty was introduced this way for:

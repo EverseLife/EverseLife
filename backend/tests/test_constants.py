@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Checks of the constants layer.
 
 The point of these tests is not that the loader can read JSON but that **a

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Personal finance: transfers and the account statement (D-190).
 
 The account is electronic and lives in the Network (D-044): money is paid from

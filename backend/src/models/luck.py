@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """The memory of a chance: how long this identity has been out of luck (D-213).
 
 A fair coin is not the same as a fair deal. At a 22% chance of a find, twelve

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Nurlan Urazkulov
+
 /**
  * Finance: the account, the statement, transfers and the bank (D-190, D-167).
  *

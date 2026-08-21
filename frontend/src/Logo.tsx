@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Nurlan Urazkulov
+
 /**
  * The Everse.Life logo for the login screens (D-187). The same outline as on the
  * landing page, but in text colour: the theme switches by itself rather than drawing white on white.

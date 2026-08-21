@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Customs: rate, norm and ban at the city border (D-123).
 
 The authority's real task sounds like this: "our farmers cannot withstand

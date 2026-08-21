@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """"Roof" -- the E1 mining mechanic (D-143).
 
 Three buttons, one hidden number, two or three forks per session. Dig, set a

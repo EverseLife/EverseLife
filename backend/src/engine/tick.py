@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """The world tick.
 
 The world lives without players. The tick is not "a cron poking a function"

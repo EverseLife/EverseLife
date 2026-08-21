@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Nurlan Urazkulov
+
 /**
  * The ship: a group of nodes, not a vehicle (D-201, D-202).
  *

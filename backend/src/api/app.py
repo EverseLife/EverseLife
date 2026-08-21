@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """The server's HTTP surface.
 
 The boundary here is architectural, not configurational (01-tech-notes,

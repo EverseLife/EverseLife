@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Citizens' vote: term, census, quorum, threshold (D-036, D-161).
 
 Checked is what the procedure was introduced for:

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Storage: chest, shelf and everything with `store` in the vault (D-181).
 
 Carried load is bounded (D-146), the convoy hauls (D-157) -- yet until now

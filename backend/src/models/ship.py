@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """A ship: a group of nodes of the same graph, not a thing in a node (D-201).
 
 There is no new notion of the map here, and that is the whole point. A ship's

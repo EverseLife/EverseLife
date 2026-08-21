@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Decision codes belong in comments, never in what the player reads.
 
 `D-143`, `D-116`, `D-055` are how the vault and the engine talk to each other,

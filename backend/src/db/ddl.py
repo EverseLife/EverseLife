@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Rules the database itself must hold.
 
 Three invariants from 05-domain-model are too important to rest on the

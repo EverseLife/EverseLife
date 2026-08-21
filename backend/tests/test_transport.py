@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Transport and convoy (D-107, D-129, D-157).
 
 Checked is what transport was introduced for at all:

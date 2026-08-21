@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Exploration: the map grows on foot (D-152).
 
 Checked is what exploration was introduced this way for:

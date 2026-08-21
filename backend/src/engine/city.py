@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """City administration: office, right, treasury (D-127, D-130, D-154, D-155).
 
 The charter and code-laws had lain as data since D-130, but nobody could change

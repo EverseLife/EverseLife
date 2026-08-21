@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Foraging: the empty land of a place gives up what lies on it (D-210).
 
 Checked is what the mechanic was introduced for:

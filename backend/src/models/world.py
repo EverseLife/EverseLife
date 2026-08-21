@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """The node -- the atom of the world, and the vein inside it.
 
 A node is not "a place where a building stands" but the building itself: a

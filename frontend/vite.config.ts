@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Nurlan Urazkulov
+
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 

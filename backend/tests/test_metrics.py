@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Telemetry and invariant checks (60-meta/04, 30-economy/05).
 
 Checked is what telemetry is created for at all **before** the playtest:

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Who may enter a location, and who only passes through (D-199, D-204).
 
 A plot belonged to its holder, yet anyone could walk in. You cannot work with

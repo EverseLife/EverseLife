@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Storage: chest and shelf (D-181).
 
 Checked is what the mechanic exists for:

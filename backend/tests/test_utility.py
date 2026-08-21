@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """The household meter: who pays and what happens if they do not (D-135, D-149).
 
 Checked is exactly what the meter exists for:

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Drilling rig: capital instead of labour (D-115).
 
 A machine that mines continuously and without the player is the same

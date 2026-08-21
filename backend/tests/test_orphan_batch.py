@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """A batch whose job died is swept away and gives back what went in (D-217).
 
 The batch is the one work whose end lives entirely in a journal job. While the

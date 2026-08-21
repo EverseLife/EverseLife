@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """A craft batch -- a long-running action that goes on while the master stands by.
 
 A batch is started in person (machine, tool and inputs in the node): the input

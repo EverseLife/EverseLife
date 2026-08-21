@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Public reads: catalogs and world state.
 
 Nothing here changes the world, and never will. Prices, statistics and the

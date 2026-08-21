@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """One and the same thing lies in one stack (04-items, D-214).
 
 The vault has always said raw material stacks, and the engine has always put a

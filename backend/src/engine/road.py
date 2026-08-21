@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Roads: surface as work on an edge (D-107, D-158).
 
 Exploration grows the map (D-156), the convoy hauls cargo along it (D-157) --

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Foraging: one search per body on the empty land of a place (D-210).
 
 The row is the whole state of the search. It exists while the body forages

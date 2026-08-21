@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Piece or weight: in what quantities a thing exists (D-212).
 
 Checked is what the rule was introduced for -- half an ingot lying in the

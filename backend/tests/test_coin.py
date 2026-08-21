@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Coin: minting and melting (D-016, D-086).
 
 Checked is what the coin was introduced separately from the account for at all:

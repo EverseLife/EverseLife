@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """The library holds what was put into it (D-053, D-068, D-209).
 
 Two rules from the vault, and the second is what this module adds to the

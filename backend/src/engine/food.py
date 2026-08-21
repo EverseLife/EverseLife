@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Food: stamina, satiety, variety, spoilage (D-091, D-105, D-119, D-121).
 
 Food is the game's most massive consumable: demand equals population. The

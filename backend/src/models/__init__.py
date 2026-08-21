@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """The storage schema.
 
 Import order matters: Alembic sees tables through `Base.metadata`, and it is

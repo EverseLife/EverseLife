@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """What the world announces aloud.
 
 The list of event kinds below is an **allowlist**: a new event is silent until

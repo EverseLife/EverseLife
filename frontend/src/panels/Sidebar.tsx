@@ -1,4 +1,7 @@
-﻿/**
+﻿// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Nurlan Urazkulov
+
+/**
  * The left sidebar -- what works over the Net (D-050).
  *
  * The interface's organising principle is the same as the world's: **the

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Wear, repair and recycling (D-129, D-058, 15-quality).
 
 Checked is what the system was written for:

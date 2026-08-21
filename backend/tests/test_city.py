@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """The city as an institution: offices, laws, treasury, settlement grant (D-153, D-154).
 
 Checked is what the administration exists for at all:

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Transit between nodes (D-045, D-107).
 
 Checked is what makes the map a graph rather than a grid:

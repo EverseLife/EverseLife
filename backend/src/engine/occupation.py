@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """One body, one occupation (D-211).
 
 Being busy used to mean three things and no more: the body is on the road, the

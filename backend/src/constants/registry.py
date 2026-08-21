@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Registry of constants the engine depends on.
 
 Every quantity is declared here **once** and from then on taken only from

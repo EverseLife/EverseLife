@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Sending to Discord: one webhook, one POST, no library.
 
 A webhook is chosen over a bot on purpose. A webhook has no commands, no

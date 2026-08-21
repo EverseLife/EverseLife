@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """A separate test must catch magic numbers in code (01-tech-notes, pattern 4).
 
 D-065 demands: not one balance number is hard-coded, a change applies without

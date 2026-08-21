@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """The everse.life landing page: the page and beta signup intake.
 
 One service for the whole domain: serves `index.html` and accepts `POST /api/signup`.

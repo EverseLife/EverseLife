@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Money: double entry, not a "balance" field.
 
 D-127 demands: the seller gets exactly what the buyer paid, minus tax and

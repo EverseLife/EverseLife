@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """The engine: what changes the world.
 
 The layer rule: any state change goes through this package's functions, not

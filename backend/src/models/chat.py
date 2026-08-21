@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Live talk in a location (D-043, D-050).
 
 A conversation in a room, not correspondence: those nearby hear, left -- left

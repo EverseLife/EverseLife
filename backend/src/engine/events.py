@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Writing to the event journal.
 
 An event is written **in the same transaction** as its consequences.

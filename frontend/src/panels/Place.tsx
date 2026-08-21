@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Nurlan Urazkulov
+
 /**
  * The location and everything on it (D-089, D-106, D-116, D-150, D-204, D-205).
  *

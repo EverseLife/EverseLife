@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """World catalogs: recipes, crops, laws.
 
 The engine reads all of this from `build/*.json` and never stores it itself.

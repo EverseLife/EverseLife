@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Export signups as CSV to standard output.
 
     docker compose exec landing python export.py > signups.csv

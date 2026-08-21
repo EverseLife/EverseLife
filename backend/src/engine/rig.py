@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Drilling rig: continuous mining without the player (D-115).
 
 The endgame of mining and, after the automatic machine, the second transition

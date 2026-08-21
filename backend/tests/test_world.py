@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """The world's skeleton: node, identity, body, property, knowledge.
 
 Checked is the main distinction of the whole model: **knowledge lives in the

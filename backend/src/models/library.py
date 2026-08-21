@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """What a library holds (D-068, D-209).
 
 A library contains what was put into it, not the whole catalog: the capital's

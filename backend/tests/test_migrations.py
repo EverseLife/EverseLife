@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Migrations must match the models.
 
 The world is eternal, no wipes (D-007) -- so a schema divergence from code

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Roads as work on an edge (D-107, D-158).
 
 Checked is what the road was introduced for at all:

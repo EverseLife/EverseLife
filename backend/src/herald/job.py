@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """The herald's job: carry news from the event journal to Discord.
 
 Built like the world tick (`engine/tick.py`): the job queues the next itself

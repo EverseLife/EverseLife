@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Account, identity, body -- three different things, and they must not be confused.
 
 | Entity | Lost on death |

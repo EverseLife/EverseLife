@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Court: case and sanction (D-095, D-117, D-166).
 
 A case is a record "plaintiff accuses defendant in this city". A sanction is

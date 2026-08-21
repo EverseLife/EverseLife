@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Cooking and food (D-119, D-121, D-128, D-105).
 
 Checked is what the system is built this way for:

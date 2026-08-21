@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Craft and quality (D-092, D-133).
 
 Checked is not "the function computes a number" but what the system was written for:

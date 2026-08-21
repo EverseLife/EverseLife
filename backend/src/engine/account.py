@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Account: email, password, session token, account panel (D-187).
 
 The account is payment and device, the identity is the game (05-domain-model).

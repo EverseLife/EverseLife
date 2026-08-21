@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Evaluation of vault formulas.
 
 Some quantities are given in `build/constants.json` not as a number but as an

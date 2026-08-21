@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Farming by plots (D-118, D-105).
 
 Checked is what the system is built this way for:

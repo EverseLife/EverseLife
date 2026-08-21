@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Nurlan Urazkulov
+
 /**
  * A workstation: what is made at it, who stands at it, what is repaired
  * (D-092, D-133, D-150). In the player's language it is «рабочая станция» --

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Agrotech as knowledge (D-057).
 
 Why seeds and knowledge are separated: **anything can be planted, but grown

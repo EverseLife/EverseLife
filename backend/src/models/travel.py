@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """A transit along an edge -- a long-running action (06-actions, D-107).
 
 While a character is on the way, they are **nowhere**: the body stays bound to

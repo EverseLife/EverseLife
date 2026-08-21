@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """City energy: the shared pool (D-071, D-082).
 
 Inside a city energy is not routed anywhere: everything standing on its

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Execution of the job journal.
 
 Idempotency rests on three things, and all three are mandatory:

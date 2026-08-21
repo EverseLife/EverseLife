@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Exploration: the map grows on foot, not by patch (D-152).
 
 The world was set by the seed and did not grow: a plot could be taken only

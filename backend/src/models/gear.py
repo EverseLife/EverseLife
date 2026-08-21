@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Worn gear: body slots (D-146).
 
 One thing is worn in each slot. The slot is the constraint itself: without it

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Death and body printing (D-012, D-028, D-032, D-033, D-040).
 
 The vault's acceptance is checked verbatim:

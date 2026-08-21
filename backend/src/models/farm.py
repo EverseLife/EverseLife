@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """The plot -- the unit of agronomy (D-118).
 
 One crop, one term, one state, one round. Land is measured in metres: the

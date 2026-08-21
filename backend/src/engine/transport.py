@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Transport: how what cannot be carried in hands is hauled (D-107, D-129, D-157).
 
 Cargo got mass (D-146), and the carry limit started working: `inventory.carry_mass`

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Nurlan Urazkulov
+
 /**
  * Registration in four steps (D-187): email and password -> line -> character
  * -> door. Everything goes to the server as one command at the last step:

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """The job journal -- the basis of the world tick.
 
 The world lives without players: batches, caravans, harvest growth, daily

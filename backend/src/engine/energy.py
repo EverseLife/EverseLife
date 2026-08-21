@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Energy: production, city pool, batteries, tariff (D-071, D-082, D-085).
 
 Energy is not a backdrop but a commodity that any development runs into. It

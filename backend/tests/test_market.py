@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """The order book (D-003, D-047, D-127).
 
 Checked is what the market was written this way for:

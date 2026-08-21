@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Location chat: conversation in a room (D-043, D-050).
 
 Those nearby hear; left -- left the conversation; there is no history. Inside

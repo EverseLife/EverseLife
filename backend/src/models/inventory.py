@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Items and what holds them.
 
 Two 0..100 numbers on an item, and they are confused most often (15-quality):

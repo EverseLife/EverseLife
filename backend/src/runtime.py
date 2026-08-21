@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Execution parameters -- not game parameters.
 
 The difference is fundamental. How many times to retry a failed job and how

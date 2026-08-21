@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """The starting world: built by the same rules as a player's city (D-216).
 
 There was no test for the seed at all, and it cost dearly. Renaming the

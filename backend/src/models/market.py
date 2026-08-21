@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """The node's order book (D-003, D-047).
 
 There is and will be no global market: each marketplace is **a separate book

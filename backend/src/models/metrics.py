@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """The world's daily aggregates (D-139, 60-meta/04).
 
 **The engine computes, not the dashboard.** The reason is not convenience:

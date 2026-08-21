@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """A snapshot of balance constants and its hot replacement.
 
 D-065 demands two things at once: numbers are not hard-coded and they change

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """The automatic machine: industry versus craft (D-035, D-058, D-129).
 
 The split between the modes rests not on skill but on attention and the energy bill:

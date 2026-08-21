@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """The herald: what the world announces aloud -- and what it never announces.
 
 Checked above all is the boundary, not delivery. Broken delivery is seen at

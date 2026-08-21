@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """A cultivar -- what is inherited by seeds (D-057, D-067).
 
 A crop (spelt, turnip) is set by the vault and immutable. A **cultivar** is a

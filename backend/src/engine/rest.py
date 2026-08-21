@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Hibernation: sleep restores stamina offline (D-091).
 
 Stamina is the body's only resource, and it is spent by work. Recovery is set

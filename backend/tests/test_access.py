@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """The door of one's own location, and the two lists behind it (D-199, D-204).
 
 Checked is not "the flag is stored" but what the rules exist for:

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """The ship: a group of nodes coupled to a spaceport by one edge (D-201, D-202).
 
 A ship is **not a thing standing in a node** and not a layer of its own. Its

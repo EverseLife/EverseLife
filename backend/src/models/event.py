@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """The event journal -- the primary store.
 
 A design requirement: court, metrics and investigations rely on complete event

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """The device fee -- a fixed amount of computation per session (D-110, D-112).
 
 What this fee does and does not do is worth keeping in mind whole, otherwise

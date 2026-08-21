@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Meter: a node's household and the bill for it (D-135, D-149).
 
 Energy stopped being only machine fuel: housing, warehouse and workshop spend

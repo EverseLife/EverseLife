@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """The city as an institution: charter, code-laws, offices, meter (D-036, D-130, D-154).
 
 Before this a "city" existed only as a delegate node on the map: it had a

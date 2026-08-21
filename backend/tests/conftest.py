@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Fixtures of the suite, and the price of a clean database.
 
 Seven hundred tests each want the world empty. How that emptiness is reached is

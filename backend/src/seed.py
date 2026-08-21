@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """The alpha's starting world: Terra's capital as it greets the first player.
 
 Run from `backend/`: `python -m src.seed`. Running again breaks nothing -- the

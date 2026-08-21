@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """A machine is taken by one worker, and it is placed at home -- in a building (D-106, D-150).
 
 Checked is what the rule exists for:

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Nurlan Urazkulov
+
 /**
  * Holdings: the city grid, batteries and household bills (D-071, D-135, D-149).
  *

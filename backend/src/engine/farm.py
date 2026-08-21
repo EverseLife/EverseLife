@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Farming by plots (D-118, D-105, D-057).
 
 Cultivars, seeds and crossing live next door in `engine/breed.py`: here is the

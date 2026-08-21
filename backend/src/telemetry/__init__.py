@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Observing the world, not the world's rules.
 
 What **measures** lives here: daily aggregates and invariant checks. Separate

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Typed declarations of balance constants.
 
 Rule D-065: not one balance number is hard-coded. In practice this means the

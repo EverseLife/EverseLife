@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Bank: reserve, credit, key rate (D-030, D-087, D-167).
 
 Until now the only source of money was `genesis`, so any issue would have been

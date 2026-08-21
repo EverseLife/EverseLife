@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """The meal journal (D-105).
 
 Dietary variety is counted **by what was eaten, not by stocks**: stuffing the

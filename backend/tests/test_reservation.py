@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """A reservation with a deposit and a term (D-047).
 
 Remote buying is impossible: otherwise a player buys everything everywhere,

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Runtime edits of balance constants and the journal of those edits.
 
 D-065 demands three things: numbers are not hard-coded, they change without a

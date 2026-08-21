@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Craft: batch, quality, losses (D-092, D-133).
 
 Five conditions at once, all mandatory: knowledge, machine, tool, inputs, place

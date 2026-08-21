@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """Piece or weight: in what quantities a thing exists at all (D-212).
 
 Amounts are stored as integer thousandths of a unit (`units.AMOUNT_SCALE`), and

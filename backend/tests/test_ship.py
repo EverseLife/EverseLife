@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
 """The ship: a subgraph that couples to a spaceport by one edge (D-201, D-202).
 
 Checked is exactly what the design rests on:
