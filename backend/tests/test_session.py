@@ -256,7 +256,12 @@ def test_house_bill_is_shown_before_the_work(client, miner, constants: Constants
 
     assert "refused" not in answer, answer
     assert answer["usable"] == 20, "два этажа по десять метров — двадцать метров пола"
-    assert answer["max_floors"] >= 1
+    assert answer["area_min"] > 0, "минимальное пятно называется до работ"
+    #: The shop window of types comes with the bill (D-218): the type is chosen
+    #: before the estimate, so it must not cost a second call.
+    assert answer["kinds"], "типы зданий показываются вместе со сметой"
+    for kind in answer["kinds"]:
+        assert {"kind", "per_m2", "growth", "decay"} <= set(kind)
     assert answer["materials"], "смета без материалов — не смета"
     for line in answer["materials"]:
         assert {"goods", "need", "have", "mass"} <= set(line)

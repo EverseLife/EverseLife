@@ -130,6 +130,13 @@ class EventKind(StrEnum):
     BUILDING_BUILT = "building.built"
     #: The owner took their own house apart, and part of the material came back (D-205).
     BUILDING_DEMOLISHED = "building.demolished"
+    #: The daily bite of decay: how much condition the house lost and to what (D-218).
+    BUILDING_WORN = "building.worn"
+    #: Condition reached nothing and the house fell. Written before the row goes:
+    #: what stood here is worked out afterwards from the journal, not from the table.
+    BUILDING_COLLAPSED = "building.collapsed"
+    #: Repair done: condition back to full for materials of the same bill (D-218).
+    BUILDING_REPAIRED = "building.repaired"
     PLOT_MARKED = "farm.marked"
     PLOT_PLOWED = "farm.plowed"
     PLOT_SOWN = "farm.sown"

@@ -24,7 +24,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import current, current_catalog
 from src.constants import registry as R
-from src.engine import bank, chat, craft, energy, events, food, panel, rig, road, wear
+from src.engine import (
+    bank,
+    chat,
+    craft,
+    energy,
+    estate,
+    events,
+    food,
+    panel,
+    rig,
+    road,
+    wear,
+)
 from src.engine.jobs import enqueue, handler
 from src.models.event import EventKind
 from src.models.job import Job, JobKind
@@ -110,6 +122,9 @@ async def daily_tick(session: AsyncSession, job: Job) -> None:
     rotten = await food.sweep_spoiled(session, now=now)
     #: A road without maintenance overgrows and returns to offroad (D-107).
     overgrown = await road.decay(session, current())
+    #: A house wears out at the pace of what it is built of, and at nothing it
+    #: falls (D-218). Timber wants mending twice a year, metal once in a life.
+    houses_worn, houses_fallen = await estate.decay(session, current())
     #: Overdue debt is repaid by force with a share of the balance (D-063, D-168).
     withheld = await bank.collect(session, current(), now=now)
     #: The reserve surplus above the ceiling is burned: the bank's second lever (D-169).
@@ -129,6 +144,8 @@ async def daily_tick(session: AsyncSession, job: Job) -> None:
         gear_worn_out=gone,
         spoiled=rotten,
         roads_decayed=overgrown,
+        houses_worn=houses_worn,
+        houses_collapsed=houses_fallen,
         debt_withheld=withheld,
         reserve_burned=burned,
         metrics=measurements,
@@ -136,7 +153,7 @@ async def daily_tick(session: AsyncSession, job: Job) -> None:
     )
     #: The household meter does not run from here: it has its own period
     #: (`energy.meter_period`) and its own job -- the planet's day and the meter
-    #: period need not coincide. To come here: building maintenance and the city trade summary.
+    #: period need not coincide. To come here: the city trade summary.
     await schedule_next_day(session, now)
 
 

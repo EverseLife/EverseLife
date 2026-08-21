@@ -874,13 +874,19 @@ async def _node_aboard(
         properties={ABOARD: True},
     )
     node.owner_identity_id = owner
+    from src.engine import estate
+
     session.add(
         Building(
             node_id=node.id,
             area_m2=Decimal(str(constants[R.SHIP_NODE_AREA])),
             footprint_m2=Decimal(str(constants[R.SHIP_NODE_AREA])),
             floors=1,
-            strength=1,
+            #: A hull is registered as a building only so that area and places
+            #: are counted by one rule (D-106, D-202). Of the earthly types the
+            #: dearest is the nearest -- a ship is metal and glass -- and decay
+            #: passes it by: what keeps a ship up is not the weather over a yard.
+            kind=estate.kinds(constants)[-1],
         )
     )
     await session.flush()

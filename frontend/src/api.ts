@@ -354,13 +354,18 @@ export type Look = {
       area: number;
       ground: number;
       floors: number;
-      strength: number;
+      /** What it is built of (D-218): the type sets the bill and the decay. */
+      kind: string | null;
+      /** How sound it is, 0..100. At nothing the house falls (D-218). */
+      condition: number | null;
+      /** Condition lost per day -- the type's own rate. */
+      decay: number;
       slots: number;
       used: number;
       building: {
         area: number;
         floors: number;
-        strength: number;
+        kind: string | null;
         ready_at: string;
       }[];
     };

@@ -16,21 +16,32 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import BigInteger, CheckConstraint, ForeignKey, Index, Numeric, Uuid
+from sqlalchemy import (
+    BigInteger,
+    CheckConstraint,
+    ForeignKey,
+    Index,
+    Numeric,
+    String,
+    Uuid,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.db.base import Base, created_column, uuid_pk
 
 
 class Building(Base):
-    """A building on a plot: a footprint, storeys over it and a durability tier.
+    """A building on a plot: a footprint, storeys over it, a type and a condition.
 
-    Height is what makes a plot elastic (D-125, D-145): the ground under a
-    house is `footprint_m2` however many storeys stand on it, and the usable
-    area -- the one machines and cargo are measured against -- is the sum of
-    the floors. Each next floor costs `build.floor_cost_growth` times more than
-    the one below, and the ceiling of height comes from the tier
-    (`build.floors_by_strength`): a timber house does not grow to eight storeys.
+    Height is what makes a plot elastic (D-125): the ground under a house is
+    `footprint_m2` however many storeys stand on it, and the usable area -- the
+    one machines and cargo are measured against -- is the sum of the floors.
+
+    The **type** settles the rest (D-218): what goes into the wall per square
+    metre (`build.types`), how much dearer each next floor is
+    (`build.floor_growth_by_type`) and how fast the house decays
+    (`build.decay_by_type`). Height has no ceiling of its own -- a twenty-storey
+    log house is allowed and simply ruinous, and that refuses better than a rule.
     """
 
     __tablename__ = "building"
@@ -39,7 +50,9 @@ class Building(Base):
         CheckConstraint("area_m2 > 0", name="area_positive"),
         CheckConstraint("footprint_m2 > 0", name="footprint_positive"),
         CheckConstraint("floors >= 1", name="floors_positive"),
-        CheckConstraint("strength >= 1", name="strength_positive"),
+        CheckConstraint(
+            "condition >= 0 AND condition <= 100", name="building_condition_in_scale"
+        ),
     )
 
     id: Mapped[uuid.UUID] = uuid_pk()
@@ -63,8 +76,21 @@ class Building(Base):
         server_default="0",
     )
     floors: Mapped[int] = mapped_column(nullable=False, server_default="1")
-    #: Durability tier (D-145): sets the material multiplier and the height cap.
-    strength: Mapped[int] = mapped_column(nullable=False, server_default="1")
+
+    #: The building type (D-218) -- the vault's own word, not a number: with
+    #: the tier ladder gone the class of a house is a name, and the bill,
+    #: the price of a floor and the rate of decay are all read by it.
+    kind: Mapped[str] = mapped_column(
+        String(64), nullable=False, server_default="деревянный"
+    )
+
+    #: How worn the house is now, on the same 0-100 scale as a tool's condition.
+    #: Until it reaches zero the house stands at full strength -- it loses
+    #: neither places nor area; at zero it collapses (D-218). That is what keeps
+    #: repair a decision one takes rather than a levy one stops noticing.
+    condition: Mapped[float] = mapped_column(
+        Numeric(6, 2), nullable=False, default=100, server_default="100"
+    )
 
     built_at: Mapped[datetime] = created_column()
 

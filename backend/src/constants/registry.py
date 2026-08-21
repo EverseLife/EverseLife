@@ -10,7 +10,7 @@ is already wired up and what is not yet.
 
 from __future__ import annotations
 
-from src.constants.spec import Flag, FormulaRef, Num, Span, Spec, Table, Tiers
+from src.constants.spec import Book, Flag, FormulaRef, Num, Span, Spec, Table, Tiers
 
 # --- Time and tick ----------------------------------------------------------
 TIME_TICK = Num("time.tick")
@@ -303,27 +303,30 @@ BANK_COUNCIL_LOCKOUT = Num("bank.council_lockout")
 #: By this much a plot gets cheaper with each ring from the bioprinter -- the city centre.
 LAND_PRICE_DECAY_PER_RING = Num("land.price_decay_per_ring")
 
-# --- Buildings and construction (D-106, D-125, D-131) -----------------------
+# --- Buildings and construction (D-106, D-125, D-131, D-218) ----------------
 #: How much building area one work place takes: a machine or furniture.
 BUILD_SLOTS_PER_AREA = Num("build.slots_per_area")
 #: How much cargo fits on a square metre of floor (D-192). What lies in a chest
 #: takes no floor: that is the whole point of a chest.
 BUILD_FLOOR_PER_M2 = Num("build.floor_per_m2")
-#: Materials of the first durability tier per square metre of floor.
-BUILD_MATERIALS_PER_M2 = Table("build.materials_per_m2")
+#: The smallest footprint that is still a building and not a lean-to. There is
+#: no matching maximum: the plot is the ceiling, and it is a different plot
+#: every time (D-218).
+BUILD_AREA_MIN = Num("build.area_min")
 #: Assembly labour: hours per square metre. Construction is work, not a button.
 BUILD_LABOR_PER_M2 = Num("build.labor_per_m2")
-#: Height (D-125, D-145). Floors stand on one footprint, so a house grows
-#: upwards where the plot does not grow sideways -- and each next floor costs
-#: `floor_cost_growth` times more than the one below it. From
-#: `reinforce_from_floor` upwards a frame is needed, and that is `reinforce_k`
-#: on top. The ceiling of height and the material multiplier come from the
-#: durability tier: a timber house does not become an eight-storey one.
-BUILD_FLOOR_COST_GROWTH = Num("build.floor_cost_growth")
-BUILD_REINFORCE_FROM_FLOOR = Num("build.reinforce_from_floor")
-BUILD_REINFORCE_K = Num("build.reinforce_k")
-BUILD_STRENGTH_K = Table("build.strength_k")
-BUILD_FLOORS_BY_STRENGTH = Table("build.floors_by_strength")
+#: The building type settles three things at once (D-218): what goes into the
+#: wall per square metre of floor, how much dearer each next floor is, and how
+#: fast the house decays. Height has no ceiling at all -- a twenty-storey log
+#: house may be built, and the bill refuses more convincingly than a rule.
+BUILD_TYPES = Book("build.types")
+BUILD_FLOOR_GROWTH = Table("build.floor_growth_by_type")
+BUILD_DECAY = Table("build.decay_by_type")
+#: Repair (D-145, D-218): what a house is built of is what it is mended with,
+#: this share of the bill for lifting condition from nothing to full, and this
+#: share of the raising labour. The walls stand -- hence cheaper than building.
+BUILD_REPAIR_MATERIALS_K = Num("build.repair_materials_k")
+BUILD_REPAIR_LABOR_K = Num("build.repair_labor_k")
 #: Demolishing a house (D-205): the work is a share of the building's labour, and
 #: a share of the bill of materials comes back. Neither is a whole: taking a
 #: house apart is quicker than raising it and never free of breakage.

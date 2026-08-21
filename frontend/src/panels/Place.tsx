@@ -25,7 +25,7 @@
  * window -- seven unrelated sections under one name -- is gone.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import * as api from "../api";
 import type { Bench, Look, Session, Vehicle } from "../api";
 import { Amount } from "../Amount";
@@ -614,17 +614,57 @@ export function House({ look, session, book }: Omit<Props, "busy" | "act">) {
   const plot = look.node?.area ?? 0;
   const [area, setArea] = useState(20);
   const [floors, setFloors] = useState(1);
+  //: Empty means "the plainest type there is" -- the engine decides which, so
+  //: that the default lives in the vault and not in two places at once.
+  const [kind, setKind] = useState<string>("");
   const [bill, setBill] = useState<any>(null);
+  //: The shop window and the smallest footprint outlive the bill: the bill is
+  //: cleared once the order is placed, and these two must not go with it --
+  //: without them the picker would empty out and the minimum would read wrong
+  //: exactly at the moment the player looks at what they have just started.
+  const [shelf, setShelf] = useState<any[]>([]);
+  const [least, setLeast] = useState(1);
+  const take = (answer: any) => {
+    setBill(answer);
+    setShelf(answer?.kinds ?? []);
+    setLeast(answer?.area_min ?? 1);
+  };
   //: Which quality of each material goes into the wall (D-058).
   const [tiers, setTiers] = useState<Record<string, string | null>>({});
+  //: The shop window of types comes back with the bill, so before the first
+  //: estimate there is nothing to choose from. Hence one estimate on arrival:
+  //: the type is chosen before the numbers, and the numbers must already be
+  //: there. Above the early return on purpose -- a hook that sometimes does not
+  //: run is a hook React counts wrong.
+  const key = look.node?.key;
+  const buildable = Boolean(look.node?.mine || look.node?.wild);
+  useEffect(() => {
+    if (!buildable) return;
+    let dropped = false;
+    void session
+      .send("build.estimate", { area, floors, kind: kind || undefined })
+      .then((first: any) => {
+        if (!dropped) take(first);
+      })
+      .catch(() => undefined);
+    return () => {
+      dropped = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, buildable]);
   if (!home) return null;
 
-  const free = Math.max(0, plot - home.ground);
   const going = home.building ?? [];
+  //: Ground already promised to a site is ground taken (D-218): the engine
+  //: counts it, and the window must count it the same way -- otherwise it
+  //: offers metres the order will refuse.
+  const started = going.reduce((sum, work) => sum + work.area, 0);
+  const free = Math.max(0, plot - home.ground - started);
 
   const count = async () => {
-    setBill(await session.send("build.estimate", { area, floors, strength: 1 }));
+    take(await session.send("build.estimate", { area, floors, kind: kind || undefined }));
   };
+  const picked = kind || shelf[0]?.kind || "";
 
   const short = (bill?.materials ?? []).filter((m: any) => m.have < m.need);
 
@@ -641,6 +681,13 @@ export function House({ look, session, book }: Omit<Props, "busy" | "act">) {
           <b>
             {home.used} из {home.slots}
           </b>
+          {home.kind && (
+            <>
+              {" · "}
+              {home.kind}, состояние <b>{(home.condition ?? 0).toFixed(0)}%</b>
+              {home.decay > 0 && ` (−${home.decay}% в сутки)`}
+            </>
+          )}
         </p>
       ) : (
         <p className="note">
@@ -650,7 +697,13 @@ export function House({ look, session, book }: Omit<Props, "busy" | "act">) {
 
       {going.length > 0 && (
         <p className="note">
-          Строится: {going.map((w) => `${w.area.toFixed(0)} м² в ${w.floors} эт.`).join(", ")}
+          Строится:{" "}
+          {going
+            .map(
+              (w) =>
+                `${w.area.toFixed(0)} м² в ${w.floors} эт.${w.kind ? ` (${w.kind})` : ""}`,
+            )
+            .join(", ")}
           {" · готово "}
           {when(going[0].ready_at)}. Материалы уже в стене.
         </p>
@@ -661,9 +714,27 @@ export function House({ look, session, book }: Omit<Props, "busy" | "act">) {
       {(look.node?.mine || look.node?.wild) && free > 0 && (
         <>
           <div className="row">
+            {/* Тип решает три вещи разом (D-218): состав, цену следующего этажа
+                и скорость порчи. Числа показаны прямо в списке — выбор делают
+                до сметы, и гадать о нём игрок не должен. */}
+            <select
+              value={picked}
+              onChange={(e) => {
+                setKind(e.target.value);
+                setBill(null);
+              }}
+              title="тип здания"
+            >
+              {shelf.length === 0 && <option value="">…</option>}
+              {shelf.map((k) => (
+                <option key={k.kind} value={k.kind}>
+                  {k.kind} · этаж ×{k.growth} · порча {k.decay}%/сут
+                </option>
+              ))}
+            </select>
             <input
               type="number"
-              min={1}
+              min={least}
               max={Math.floor(free)}
               value={area}
               onChange={(e) => setArea(Number(e.target.value))}
@@ -676,12 +747,16 @@ export function House({ look, session, book }: Omit<Props, "busy" | "act">) {
               onChange={(e) => setFloors(Number(e.target.value))}
               title="этажей"
             />
-            <button onClick={() => act(count)} disabled={busy || area <= 0}>
+            <button
+              onClick={() => act(count)}
+              disabled={busy || area < least || area > free}
+            >
               Посчитать смету
             </button>
             <span className="note">
               {area} м² × {floors} эт. = {area * floors} м² жилой площади.
-              Свободно {free.toFixed(0)} м² двора.
+              Свободно {free.toFixed(0)} м² двора, меньше {least} м² не строится.
+              {" "}Этажность не ограничена — за высоту платит смета.
             </span>
           </div>
 
@@ -715,7 +790,7 @@ export function House({ look, session, book }: Omit<Props, "busy" | "act">) {
                       await session.send("build.construct", {
                         area,
                         floors,
-                        strength: 1,
+                        kind: picked || undefined,
                         tiers: Object.fromEntries(
                           Object.entries(tiers).filter(([, tier]) => tier),
                         ),
@@ -723,14 +798,14 @@ export function House({ look, session, book }: Omit<Props, "busy" | "act">) {
                       setBill(null);
                     })
                   }
-                  disabled={busy || short.length > 0 || area > free}
+                  disabled={busy || short.length > 0 || area > free || area < least}
                 >
                   Строить {area} м² в {floors} эт.
                 </button>
                 <span className="note">
                   {short.length > 0
                     ? `Не хватает: ${short.map((m: any) => m.goods).join(", ")}`
-                    : `Работы на ${(bill.minutes / 60).toFixed(1)} ч; выше ${bill.max_floors} эт. дерево не держит.`}
+                    : `Работы на ${(bill.minutes / 60).toFixed(1)} ч; ${bill.kind}.`}
                 </span>
               </div>
             </>
@@ -742,7 +817,10 @@ export function House({ look, session, book }: Omit<Props, "busy" | "act">) {
           труд открыт всякому (D-198, D-205). Чужую городскую застройку
           разбирают по решению суда (D-095). */}
       {home.area > 0 && (look.node?.mine || look.node?.wild) && (
-        <Demolition look={look} session={session} busy={busy} act={act} />
+        <>
+          <Repair look={look} session={session} busy={busy} act={act} />
+          <Demolition look={look} session={session} busy={busy} act={act} />
+        </>
       )}
     </section>
     <Equipment
@@ -767,6 +845,76 @@ export function House({ look, session, book }: Omit<Props, "busy" | "act">) {
       book={book}
       note="Мебель обустраивает быт: кровать — сон быстрее, сундук — хранение. На ней не работают."
     />
+    </>
+  );
+}
+
+/** Mending one's own house: what it costs and how long it takes (D-218).
+ *
+ * A house stands at full strength right up to nothing and then falls, so the
+ * only warning is the condition itself -- and it must be read here, next to the
+ * button that answers it. The bill is asked for by the button, like the
+ * building one: it is a question about a decision, and the decision is rare.
+ */
+function Repair({ look, session, busy, act }: Omit<Props, "book">) {
+  const [plan, setPlan] = useState<any>(null);
+  const home = look.node?.building;
+  const worn = home?.condition ?? 100;
+  const short = (plan?.materials ?? []).filter((m: any) => m.have < m.need);
+
+  const count = async () => {
+    setPlan(await session.send("build.repair_estimate"));
+  };
+
+  return (
+    <>
+      <div className="row">
+        <button className="quiet" onClick={() => act(count)} disabled={busy || worn >= 100}>
+          Посчитать ремонт
+        </button>
+        <span className="note">
+          {worn >= 100
+            ? "Дом целёхонек: чинить в нём нечего."
+            : `Состояние ${worn.toFixed(0)}%. На нуле дом обрушится вместе с тем, что стоит во дворе.`}
+        </span>
+      </div>
+
+      {plan && plan.materials.length > 0 && (
+        <>
+          <table>
+            <tbody>
+              {plan.materials.map((m: any) => (
+                <tr key={m.goods}>
+                  <td>{m.goods}</td>
+                  <td className={m.have < m.need ? "note" : undefined}>
+                    {m.have.toFixed(1)} из {m.need.toFixed(1)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div className="row">
+            <button
+              onClick={() =>
+                act(async () => {
+                  await session.send("build.repair");
+                  setPlan(null);
+                })
+              }
+              disabled={busy || short.length > 0 || !plan.mine || plan.going}
+            >
+              Чинить
+            </button>
+            <span className="note">
+              {plan.going
+                ? "Ремонт уже идёт."
+                : short.length > 0
+                  ? `Не хватает: ${short.map((m: any) => m.goods).join(", ")}`
+                  : `Работы на ${(plan.minutes / 60).toFixed(1)} ч; чинят тем же, чем построено.`}
+            </span>
+          </div>
+        </>
+      )}
     </>
   );
 }

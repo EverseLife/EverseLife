@@ -138,6 +138,31 @@ class Table(Spec):
 
 
 @dataclass(frozen=True, slots=True)
+class Book(Spec):
+    """A map `name -> (part -> number)`: a named composition, not one number.
+
+    A building type is exactly that (D-218): `build.types` gives every type its
+    own bill of materials, and a single multiplier over one shared recipe could
+    never say what actually goes into the wall.
+    """
+
+    def read(self, raw: Any) -> dict[str, dict[str, float]]:
+        if not isinstance(raw, dict) or not raw:
+            raise self._fail(raw, "непустая карта имя → состав")
+        out: dict[str, dict[str, float]] = {}
+        for name, body in raw.items():
+            if not isinstance(body, dict) or not body:
+                raise self._fail(raw, f"состав в ключе {name!r}")
+            parts: dict[str, float] = {}
+            for part, value in body.items():
+                if isinstance(value, bool) or not isinstance(value, (int, float)):
+                    raise self._fail(raw, f"число в {name!r} → {part!r}")
+                parts[str(part)] = float(value)
+            out[str(name)] = parts
+        return out
+
+
+@dataclass(frozen=True, slots=True)
 class Tiers(Spec):
     """A list of tiers `{from, to, name}` -- the quality shop window."""
 

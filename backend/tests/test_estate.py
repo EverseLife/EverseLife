@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
+from decimal import Decimal
 
 import pytest
 from sqlalchemy import select
@@ -29,10 +30,11 @@ from src.engine import city as town
 from src.engine import estate, goods, ledger, world
 from src.models.city import Citizen
 from src.models.estate import Deed
+from src.models.inventory import Item
 from src.models.job import JobState
 from src.models.ledger import AccountKind, PostingReason
 from src.models.world import Layer, Node, Surface
-from src.units import PERCENT, money
+from src.units import PERCENT, SCALE_MAX, money
 
 
 async def _city(session: AsyncSession, catalog: Catalog):
@@ -309,7 +311,7 @@ async def test_construction_spends_materials_and_places_building_on_term(
     await own_plot(plot, identity)
 
     pocket = await world.body_container(session, body)
-    norms = constants[R.BUILD_MATERIALS_PER_M2]
+    norms = estate.composition(constants, estate.kinds(constants)[0])
     area = 20.0
     for name, per_metre_ in norms.items():
         await world.grant_item(
@@ -346,25 +348,75 @@ async def test_construction_does_not_start_without_materials(
 
 
 def test_storeys_cost_more_than_the_same_area_laid_flat(constants: Constants) -> None:
-    """Height is paid for: each next floor costs `floor_cost_growth` (D-125)."""
-    flat = estate.estimate(constants, footprint=40, floors=1, strength=1)
-    tall = estate.estimate(constants, footprint=20, floors=2, strength=1)
+    """Height is paid for: each next floor costs `floor_growth_by_type` (D-125)."""
+    plain = estate.kinds(constants)[0]
+    flat = estate.estimate(constants, footprint=40, floors=1, kind=plain)
+    tall = estate.estimate(constants, footprint=20, floors=2, kind=plain)
 
     assert sum(tall.values()) > sum(flat.values()), (
         "двадцать метров в два этажа дороже сорока в один: за высоту платят"
     )
     #: And a two-storey house takes half the ground -- that is what it is for.
-    assert estate.build_minutes(constants, footprint=20, floors=2, strength=1) > 0
+    assert estate.build_minutes(constants, footprint=20, floors=2, kind=plain) > 0
 
 
-def test_tier_sets_the_ceiling_of_height(constants: Constants) -> None:
-    """Timber holds two floors, steel holds eight (D-145)."""
-    assert estate.height_cap(constants, 1) < estate.height_cap(constants, 3)
+def test_type_names_the_materials_not_a_multiplier(constants: Constants) -> None:
+    """A type is its own composition, not more of one shared recipe (D-218).
+
+    That is the whole difference from the tier ladder it replaced: an all-metal
+    house does not spend fourfold timber, it spends iron and glass, and a city
+    built of it demands other trades than a city of log huts.
+    """
+    ladder = estate.kinds(constants)
+    plainest, dearest = ladder[0], ladder[-1]
+    hut = estate.estimate(constants, footprint=20, floors=1, kind=plainest)
+    palace = estate.estimate(constants, footprint=20, floors=1, kind=dearest)
+
+    assert set(hut) != set(palace), "разные типы строятся из разного сырья"
+    assert sum(palace.values()) > sum(hut.values()), "дорогой тип и стоит дороже"
 
 
-async def test_house_taller_than_the_tier_is_refused(
+def test_dear_types_decay_slower(constants: Constants) -> None:
+    """What expensive materials buy is a rarer repair, not a stronger wall (D-218)."""
+    ladder = estate.kinds(constants)
+    assert estate.decay_per_day(constants, ladder[0]) > estate.decay_per_day(
+        constants, ladder[-1]
+    )
+    #: And the cheap type pays for that with a steeper floor: height is where a
+    #: log house becomes ruinous.
+    assert estate.floor_growth(constants, ladder[0]) > estate.floor_growth(
+        constants, ladder[-1]
+    )
+
+
+def test_no_type_has_a_ceiling_of_height(constants: Constants) -> None:
+    """A twenty-storey log house is allowed -- and priced out of existence (D-218)."""
+    plain = estate.kinds(constants)[0]
+    tower = estate.estimate(constants, footprint=10, floors=20, kind=plain)
+    hut = estate.estimate(constants, footprint=10, floors=1, kind=plain)
+    assert sum(tower.values()) > sum(hut.values()) * 1000, (
+        "запрета на высоту нет — отказывает смета, и она обязана быть разорительной"
+    )
+
+
+async def test_unknown_type_is_refused(
     session: AsyncSession, constants: Constants, catalog: Catalog, own_plot
 ) -> None:
+    """A misnamed type is a refusal, not a silent fallback to the cheap one."""
+    stamp = uuid.uuid4().hex[:6]
+    plot = await world.create_node(
+        session, f"terra.plot.{stamp}", "Участок", area_m2=100, layer=Layer.PLANET
+    )
+    identity, body = await _buyer(session, plot, funds=0)
+    await own_plot(plot, identity)
+    with pytest.raises(estate.UnknownKind):
+        await estate.construct(session, constants, body, plot, 20, kind="соломенный")
+
+
+async def test_house_smaller_than_the_minimum_is_a_lean_to(
+    session: AsyncSession, constants: Constants, catalog: Catalog, own_plot
+) -> None:
+    """Below `build.area_min` there is no building to speak of (D-218)."""
     stamp = uuid.uuid4().hex[:6]
     plot = await world.create_node(
         session, f"terra.plot.{stamp}", "Участок", area_m2=100, layer=Layer.PLANET
@@ -372,9 +424,9 @@ async def test_house_taller_than_the_tier_is_refused(
     identity, body = await _buyer(session, plot, funds=0)
     await own_plot(plot, identity)
 
-    over = estate.height_cap(constants, 1) + 1
-    with pytest.raises(estate.TooTall):
-        await estate.construct(session, constants, body, plot, 10, floors=over)
+    below = constants[R.BUILD_AREA_MIN] - 1
+    with pytest.raises(estate.TooSmall):
+        await estate.construct(session, constants, body, plot, below)
 
 
 async def test_storeys_give_area_without_eating_the_plot(
@@ -389,7 +441,9 @@ async def test_storeys_give_area_without_eating_the_plot(
     await own_plot(plot, identity)
 
     pocket = await world.body_container(session, body)
-    needed = estate.estimate(constants, footprint=10, floors=2, strength=1)
+    needed = estate.estimate(
+        constants, footprint=10, floors=2, kind=estate.kinds(constants)[0]
+    )
     for name, quantity in needed.items():
         await world.grant_item(
             session, pocket, name, amount=quantity + 1, quality=60, origin="тест"
@@ -413,6 +467,39 @@ async def test_building_no_larger_than_plot(
     await own_plot(plot, identity)
     with pytest.raises(estate.NoRoom):
         await estate.construct(session, constants, body, plot, 60)
+
+
+async def test_started_sites_hold_their_ground(
+    session: AsyncSession, constants: Constants, catalog: Catalog, own_plot
+) -> None:
+    """A queue of orders must not walk past the plot (D-218).
+
+    Counting only finished houses, each order is lawful on its own -- and five
+    of them put five hundred metres of house on a hundred-metre plot. Ground
+    already spoken for is ground taken.
+    """
+    stamp = uuid.uuid4().hex[:6]
+    plot = await world.create_node(
+        session, f"terra.plot.{stamp}", "Участок", area_m2=100, layer=Layer.PLANET
+    )
+    identity, body = await _buyer(session, plot, funds=0)
+    await own_plot(plot, identity)
+
+    pocket = await world.body_container(session, body)
+    plain = estate.kinds(constants)[0]
+    for name, quantity in estate.estimate(
+        constants, footprint=80, floors=1, kind=plain
+    ).items():
+        await world.grant_item(
+            session, pocket, name, amount=quantity * 3, quality=60, origin="тест"
+        )
+
+    await estate.construct(session, constants, body, plot, 80)
+    assert await estate.planned_footprint(session, plot) == pytest.approx(80)
+    #: Nothing stands yet, and still there is no room: the first site holds it.
+    assert await estate.built_area(session, plot, ground=True) == 0
+    with pytest.raises(estate.NoRoom):
+        await estate.construct(session, constants, body, plot, 30)
 
 
 async def test_no_building_on_foreign_land(
@@ -452,7 +539,7 @@ async def _house(
 
     pocket = await world.body_container(session, body)
     for name, quantity in estate.estimate(
-        constants, footprint=area, floors=floors, strength=1
+        constants, footprint=area, floors=floors, kind=estate.kinds(constants)[0]
     ).items():
         await world.grant_item(
             session, pocket, name, amount=quantity + 1, quality=60, origin="тест"
@@ -474,7 +561,9 @@ async def test_demolition_takes_time_and_returns_a_share_of_materials(
     plot, identity, body = await _house(session, constants, own_plot)
     houses = await estate.buildings_of(session, plot)
     back = estate.salvage(constants, houses)
-    spent = estate.estimate(constants, footprint=20.0, floors=1, strength=1)
+    spent = estate.estimate(
+        constants, footprint=20.0, floors=1, kind=estate.kinds(constants)[0]
+    )
 
     share = constants[R.BUILD_DEMOLISH_SALVAGE]
     for name, quantity in back.items():
@@ -492,7 +581,7 @@ async def test_demolition_takes_time_and_returns_a_share_of_materials(
         minutes, rel=0.05
     )
     assert minutes < estate.build_minutes(
-        constants, footprint=20.0, floors=1, strength=1
+        constants, footprint=20.0, floors=1, kind=estate.kinds(constants)[0]
     ), "разбор быстрее сборки"
 
     #: The owner is standing here, so the salvage goes into their hands.
@@ -629,7 +718,7 @@ async def test_beyond_the_walls_whoever_came_builds_and_takes_apart(
     settler, settler_body = await _buyer(session, wild, funds=0)
     pocket = await world.body_container(session, settler_body)
     for name, quantity in estate.estimate(
-        constants, footprint=20.0, floors=1, strength=1
+        constants, footprint=20.0, floors=1, kind=estate.kinds(constants)[0]
     ).items():
         await world.grant_item(
             session, pocket, name, amount=quantity + 1, quality=60, origin="тест"
@@ -658,3 +747,91 @@ async def test_nothing_to_demolish_on_an_empty_plot(
     await own_plot(plot, identity)
     with pytest.raises(estate.NoBuilding):
         await estate.demolish(session, constants, body, plot)
+
+
+# --- decay, repair and collapse (D-218) --------------------------------------
+
+
+async def test_house_wears_out_by_its_type(
+    session: AsyncSession, constants: Constants, catalog: Catalog, own_plot
+) -> None:
+    """A day of the world costs the house `build.decay_by_type` of condition."""
+    plot, identity, body = await _house(session, constants, own_plot)
+    house = (await estate.buildings_of(session, plot))[0]
+    assert float(house.condition) == pytest.approx(SCALE_MAX)
+
+    worn, fallen = await estate.decay(session, constants)
+    assert worn >= 1 and fallen == 0
+    await session.refresh(house)
+    assert float(house.condition) == pytest.approx(
+        SCALE_MAX - estate.decay_per_day(constants, house.kind)
+    )
+
+
+async def test_repair_costs_what_the_house_is_built_of(
+    session: AsyncSession, constants: Constants, catalog: Catalog, own_plot
+) -> None:
+    """Mended with the same materials, in the share of condition missing (D-145)."""
+    plot, identity, body = await _house(session, constants, own_plot)
+    house = (await estate.buildings_of(session, plot))[0]
+
+    whole = await estate.buildings_of(session, plot)
+    assert estate.repair_bill(constants, whole) == {}, "целый дом не чинят"
+    with pytest.raises(estate.Ruined):
+        await estate.repair(session, constants, body, plot)
+
+    house.condition = Decimal("50")
+    await session.flush()
+    houses = await estate.buildings_of(session, plot)
+    needed = estate.repair_bill(constants, houses)
+    built_of = estate.composition(constants, house.kind)
+    assert set(needed) <= set(built_of), "чинят тем же, чем построено"
+    assert needed, "изношенный дом требует материалов"
+
+    #: Cheaper than raising it anew: the walls are standing.
+    fresh = estate.bill(
+        constants,
+        footprint=float(house.footprint_m2),
+        floors=house.floors,
+        kind=house.kind,
+    )
+    assert sum(needed.values()) < sum(fresh.values())
+
+    pocket = await world.body_container(session, body)
+    for name, quantity in needed.items():
+        await world.grant_item(
+            session, pocket, name, amount=quantity + 1, quality=60, origin="тест"
+        )
+    job = await estate.repair(session, constants, body, plot)
+    assert float(house.condition) == pytest.approx(50), "состояние — в конце работ"
+    await estate.finish_repair(session, job)
+    await session.refresh(house)
+    assert float(house.condition) == pytest.approx(SCALE_MAX)
+
+
+async def test_house_at_nothing_collapses_with_what_it_sheltered(
+    session: AsyncSession, constants: Constants, catalog: Catalog, own_plot
+) -> None:
+    """Full strength until zero, then gone -- and the yard with it (D-218)."""
+    plot, identity, body = await _house(session, constants, own_plot)
+    house = (await estate.buildings_of(session, plot))[0]
+
+    yard = await world.node_container(session, plot)
+    await world.grant_item(
+        session, yard, "Дерево", amount=5, quality=60, origin="тест"
+    )
+
+    #: One step short of nothing the house is still whole: no places lost, no
+    #: area lost. That is what makes repair a decision rather than a levy.
+    house.condition = Decimal(str(estate.decay_per_day(constants, house.kind)))
+    await session.flush()
+    standing = await estate.built_area(session, plot)
+    assert standing > 0
+
+    worn, fallen = await estate.decay(session, constants)
+    assert fallen == 1
+    assert await estate.built_area(session, plot) == 0
+    left = (
+        await session.execute(select(Item).where(Item.container_id == yard.id))
+    ).scalars().all()
+    assert left == [], "двор уходит вместе с крышей, которой над ним больше нет"

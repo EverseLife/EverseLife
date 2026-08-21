@@ -135,7 +135,9 @@ async def test_a_work_spends_whole_pieces(
 
 
 async def test_the_bill_of_a_house_is_in_whole_pieces(constants: Constants) -> None:
-    lot = estate.bill(constants, footprint=7, floors=1, strength=1)
+    lot = estate.bill(
+        constants, footprint=7, floors=1, kind=estate.kinds(constants)[0]
+    )
     for name, qty in lot.items():
         if goods.counted(name):
             assert qty == int(qty), f"{name}: {qty} — штучное считается штуками"

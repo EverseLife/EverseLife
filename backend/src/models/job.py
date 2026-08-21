@@ -53,6 +53,9 @@ class JobKind(StrEnum):
     #: Taking one's own house apart: the building goes when the work is done, and
     #: part of the materials comes back with it (D-205).
     BUILD_DEMOLISH = "build.demolish"
+    #: Mending a house: the materials go into the wall at once, the condition
+    #: comes back on schedule -- construction's own order, in miniature (D-218).
+    BUILD_REPAIR = "build.repair"
     #: Laying surface on an edge: the surface is written off at once, the road
     #: is laid on schedule (D-158).
     ROAD_WORK = "road.work"

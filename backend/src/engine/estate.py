@@ -1,4 +1,4 @@
-"""Real estate: plot purchase, deed, building (D-089, D-106, D-116, D-125).
+"""Real estate: plot purchase, deed, building (D-089, D-106, D-116, D-125, D-218).
 
 ## Buying civic land
 
@@ -24,9 +24,26 @@ both money and title change hands at one moment.
 On an empty plot a building is built first, and only in a building are
 machines placed: a machine takes `build.slots_per_area` square metres, so a
 house's area is its capacity, not decoration (D-106). Construction is work:
-materials of the first durability tier (`build.materials_per_m2`) are written
-off at once, the building rises on schedule at `build.labor_per_m2` hours per
-metre -- as a journal job, like every long-running task.
+the materials are written off at once, the building rises on schedule at
+`build.labor_per_m2` hours per metre -- as a journal job, like every
+long-running task.
+
+**The type is the house's whole character** (D-218). `build.types` says what
+goes into the wall per square metre of floor -- timber, or stone and mortar, or
+iron and glass; `build.floor_growth_by_type` says how much dearer each next
+floor is; `build.decay_by_type` says how fast the thing falls apart. Expensive
+materials buy not stronger walls but rarer repairs.
+
+**The footprint is bounded, the height is not.** Ground is finite in the
+physical sense: a footprint is a yard taken away, and the same metre cannot be
+taken twice -- so it is checked against the plot, counting sites already
+started. Height takes nothing from anybody but the builder's purse, so nothing
+guards it except the bill: a twenty-storey log house may be built and will
+never be worth building.
+
+**A house wears out and at nothing it collapses.** Until then it stands at full
+strength -- it loses neither places nor area -- and that is what keeps repair a
+decision one takes rather than a levy one stops noticing.
 """
 
 from __future__ import annotations
@@ -34,6 +51,7 @@ from __future__ import annotations
 import uuid
 from collections import deque
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -50,7 +68,14 @@ from src.models.inventory import Item
 from src.models.job import Job, JobKind
 from src.models.ledger import AccountKind, PostingReason
 from src.models.world import Edge, Node
-from src.units import MINUTES_PER_HOUR, PERCENT, amount_float, money
+from src.units import (
+    MINUTES_PER_HOUR,
+    PERCENT,
+    SCALE_MAX,
+    SCALE_MIN,
+    amount_float,
+    money,
+)
 from src.units import amount as to_amount
 
 
@@ -82,8 +107,16 @@ class NoRoom(EstateError):
     """No room in the building: machines take area, and it ran out."""
 
 
-class TooTall(EstateError):
-    """Higher than the durability tier holds (D-145): a timber house is not eight storeys."""
+class TooSmall(EstateError):
+    """Below `build.area_min`: that is a lean-to, not a building (D-218)."""
+
+
+class UnknownKind(EstateError):
+    """No such building type in `build.types` (D-218)."""
+
+
+class Ruined(EstateError):
+    """Nothing to mend: the house is whole, or there is no house at all."""
 
 
 # --- land price (D-089) ------------------------------------------------------
@@ -508,7 +541,7 @@ async def under_construction(session: AsyncSession, node: Node) -> list[dict]:
         {
             "area": float(job.payload.get("area", 0)),
             "floors": int(job.payload.get("floors", 1)),
-            "strength": int(job.payload.get("strength", 1)),
+            "kind": job.payload.get("kind"),
             "ready_at": job.run_at.isoformat(),
         }
         for job in rows
@@ -609,47 +642,61 @@ async def slots(
     return in_total, occupied
 
 
-def height_cap(constants: Constants, strength: int) -> int:
-    """The ceiling of height for a durability tier (D-145).
+def kinds(constants: Constants) -> list[str]:
+    """The building types there are, in the vault's own order (D-218).
 
-    Timber and rope hold two floors; steel, stone and glass hold eight. The
-    whole tier ladder is visible in the silhouette of a town.
+    The order matters: it is the ladder from a log hut to an all-metal house,
+    and the shop window shows it as the vault wrote it -- cheapest first.
     """
-    caps = constants[R.BUILD_FLOORS_BY_STRENGTH]
-    return int(caps[str(strength)])
+    return list(constants[R.BUILD_TYPES])
+
+
+def composition(constants: Constants, kind: str) -> dict[str, float]:
+    """What one square metre of this type's floor is made of.
+
+    Refuses an unknown name rather than falling back to a default: silently
+    building a log house where an all-metal one was ordered would be a swindle
+    the player only discovers at the collapse.
+    """
+    types = constants[R.BUILD_TYPES]
+    if kind not in types:
+        raise UnknownKind(
+            f"«{kind}» — не тип здания; строят из: {', '.join(types)}"
+        )
+    return types[kind]
+
+
+def floor_growth(constants: Constants, kind: str) -> float:
+    """How much dearer each next floor of this type is than the one below it."""
+    composition(constants, kind)  # -- the name is checked in one place only
+    return float(constants[R.BUILD_FLOOR_GROWTH][kind])
 
 
 def estimate(
-    constants: Constants, *, footprint: float, floors: int, strength: int
+    constants: Constants, *, footprint: float, floors: int, kind: str
 ) -> dict[str, float]:
     """The bill of materials for a house, by the vault formula `build.cost_per_area`.
 
-    Each next floor costs `floor_cost_growth` times more than the one below --
-    height grows geometrically, and so does the price of it. From
-    `reinforce_from_floor` upwards a frame is needed, and that is `reinforce_k`
-    on top. The tier multiplies the lot: a class three times cheaper to keep
-    costs four times more to raise (D-125, D-145).
+    The type gives the composition per square metre of floor, and each next
+    floor costs `build.floor_growth_by_type` times more than the one below:
+    height grows geometrically, and so does the price of it. Reinforcement is
+    not a separate line any more -- it lives inside that growth, which is why a
+    timber house pays double per floor and an all-metal one thirteen per cent
+    (D-218).
     """
-    growth = constants[R.BUILD_FLOOR_COST_GROWTH]
-    threshold = constants[R.BUILD_REINFORCE_FROM_FLOOR]
-    frame = constants[R.BUILD_REINFORCE_K]
-    tier = float(constants[R.BUILD_STRENGTH_K][str(strength)])
+    norms = composition(constants, kind)
+    growth = floor_growth(constants, kind)
 
     #: The sum over floors, not "area times a coefficient": the eighth floor is
     #: expensive by itself, and averaging would hide exactly that.
-    per_footprint = sum(
-        growth ** (floor - 1) * (frame if floor >= threshold else 1.0)
-        for floor in range(1, floors + 1)
-    )
-    norms = constants[R.BUILD_MATERIALS_PER_M2]
+    per_footprint = sum(growth ** (floor - 1) for floor in range(1, floors + 1))
     return {
-        name: float(qty) * footprint * tier * per_footprint
-        for name, qty in norms.items()
+        name: float(qty) * footprint * per_footprint for name, qty in norms.items()
     }
 
 
 def bill(
-    constants: Constants, *, footprint: float, floors: int, strength: int
+    constants: Constants, *, footprint: float, floors: int, kind: str
 ) -> dict[str, float]:
     """The same bill, in the amounts the world can actually hand over (D-212).
 
@@ -663,20 +710,47 @@ def bill(
     return {
         name: goods.whole(name, qty, up=True)
         for name, qty in estimate(
-            constants, footprint=footprint, floors=floors, strength=strength
+            constants, footprint=footprint, floors=floors, kind=kind
         ).items()
     }
 
 
 def build_minutes(
-    constants: Constants, *, footprint: float, floors: int, strength: int
+    constants: Constants, *, footprint: float, floors: int, kind: str
 ) -> float:
-    """The term: assembly labour, with the same correction for height and tier."""
-    lot = estimate(constants, footprint=footprint, floors=floors, strength=strength)
-    plain = estimate(constants, footprint=footprint, floors=1, strength=1)
-    #: Effort follows the bill: what is dearer in materials is longer in hands.
-    heaviness = (sum(lot.values()) / sum(plain.values())) if sum(plain.values()) else 1.0
+    """The term: assembly labour, with the same correction for height and type.
+
+    Effort follows the bill: what is dearer in materials is longer in hands.
+    The yardstick is the cheapest type at one floor -- the plain hut everything
+    else is heavier than.
+    """
+    lot = estimate(constants, footprint=footprint, floors=floors, kind=kind)
+    plain = estimate(
+        constants, footprint=footprint, floors=1, kind=kinds(constants)[0]
+    )
+    total = sum(plain.values())
+    heaviness = (sum(lot.values()) / total) if total else 1.0
     return footprint * constants[R.BUILD_LABOR_PER_M2] * MINUTES_PER_HOUR * heaviness
+
+
+async def planned_footprint(session: AsyncSession, node: Node) -> float:
+    """Ground already promised to sites started here but not yet finished.
+
+    Counting only what stands would let a queue of orders walk straight past
+    the plot check: five hundred metres of house on a hundred-metre plot, and
+    every order lawful on its own, because none of them had arrived yet
+    (D-218). The materials for them are written off and the houses are coming
+    -- that ground is spoken for.
+    """
+    return sum(float(work["area"]) for work in await under_construction(session, node))
+
+
+async def free_ground(session: AsyncSession, node: Node) -> float:
+    """The plot's unbuilt remainder: the yard, minus what is already on the way."""
+    taken = await built_area(session, node, ground=True) + await planned_footprint(
+        session, node
+    )
+    return float(node.area_m2) - taken
 
 
 async def construct(
@@ -687,17 +761,23 @@ async def construct(
     area: float,
     *,
     floors: int = 1,
-    strength: int = 1,
+    kind: str | None = None,
     tiers: dict[str, str] | None = None,
     now: datetime | None = None,
 ) -> Job:
     """Build a house on your own plot. Materials at once, the building on schedule.
 
-    `area` is the **footprint**: the ground the house takes. Storeys stand on
+    `area` is the **footprint**: the ground one floor takes. Storeys stand on
     it, and the usable area is their sum -- that is how a plot stops being a
-    hard limit on a workshop (D-125, D-145).
+    hard limit on a workshop (D-125).
 
-    The first durability tier is wood and rope (`build.materials_per_m2`).
+    **The footprint is bounded and the height is not** (D-218). Ground is
+    finite: the footprint may be no larger than the plot's free remainder --
+    sites already started included -- and no smaller than `build.area_min`,
+    below which the thing is a lean-to. Height is bounded by the bill alone:
+    the type decides how much dearer each next floor is, and a twenty-storey
+    log house is allowed exactly because nobody will pay for one.
+
     Civic land is built by the city -- here only your own (D-089); land outside
     a city has no owner and is open to all (D-198).
     """
@@ -710,30 +790,36 @@ async def construct(
     nobodys = node.owner_identity_id is None and node.owner_city_id is None
     if not nobodys and node.owner_identity_id != body.identity_id:
         raise EstateError("участок не ваш: строят у себя")
-    if area <= 0:
-        raise EstateError("здание нулевой площади — это двор, он уже есть")
     if floors < 1:
         raise EstateError("дом без этажей — это яма")
 
-    cap = height_cap(constants, strength)
-    if floors > cap:
-        raise TooTall(
-            f"ступень прочности {strength} держит {cap} этажей, просят {floors}: "
-            "выше — только на прочном классе"
+    #: Unnamed, the house is of the plainest type there is: that is what the
+    #: world was built of before types arrived, and the default must not silently
+    #: become the expensive one.
+    kind = kind or kinds(constants)[0]
+    composition(constants, kind)
+
+    smallest = constants[R.BUILD_AREA_MIN]
+    if area < smallest:
+        raise TooSmall(
+            f"пятно меньше {smallest:.0f} м² — это навес, а не здание: "
+            f"просят {area:.0f}"
         )
 
-    occupied = await built_area(session, node, ground=True)
-    if occupied + area > float(node.area_m2):
+    free = await free_ground(session, node)
+    if area > free:
+        going = await planned_footprint(session, node)
+        started = f", в стройке {going:.0f}" if going > 0 else ""
         raise NoRoom(
-            f"на участке {float(node.area_m2):.0f} м², застроено {occupied:.0f}: "
-            f"ещё {area:.0f} не помещается"
+            f"на участке {float(node.area_m2):.0f} м², свободно {max(free, 0):.0f}"
+            f"{started}: ещё {area:.0f} не помещается"
         )
 
     #: Materials come from the vault, per metre of floor. Written off at once:
     #: construction has started, and the timber is already in the wall, not in the sack.
     from src.engine import craft, world
 
-    needed = bill(constants, footprint=area, floors=floors, strength=strength)
+    needed = bill(constants, footprint=area, floors=floors, kind=kind)
     pocket = await world.body_container(session, body)
     #: Which stacks go into the wall is the builder's choice by tier (D-058).
     stock = await craft._stock(session, pocket, tuple(needed), tiers=tiers)  # noqa: SLF001
@@ -744,9 +830,7 @@ async def construct(
             await session.delete(pick.item)
     await session.flush()
 
-    minutes = build_minutes(
-        constants, footprint=area, floors=floors, strength=strength
-    )
+    minutes = build_minutes(constants, footprint=area, floors=floors, kind=kind)
     term = moment + timedelta(minutes=minutes)
     event = await events.record(
         session,
@@ -756,7 +840,7 @@ async def construct(
         work="build",
         area=area,
         floors=floors,
-        strength=strength,
+        built_of=kind,
         spent=needed,
         ready_at=term.isoformat(),
     )
@@ -768,7 +852,7 @@ async def construct(
             "node": str(node.id),
             "area": area,
             "floors": floors,
-            "strength": strength,
+            "kind": kind,
             "identity": str(body.identity_id),
         },
         dedup_key=f"build:{node.id}:{event.id}",
@@ -790,7 +874,7 @@ def demolish_minutes(constants: Constants, houses: list[Building]) -> float:
             constants,
             footprint=float(house.footprint_m2),
             floors=house.floors,
-            strength=house.strength,
+            kind=house.kind,
         )
         for house in houses
     )
@@ -800,8 +884,9 @@ def salvage(constants: Constants, houses: list[Building]) -> dict[str, float]:
     """Materials coming back: `build.demolish_salvage` of what the houses cost.
 
     Counted from the bill of the very same houses rather than from their area:
-    height and durability tier made the bill non-linear (D-125, D-145), and a
-    demolition that returned by area would pay for a tower as for a shed.
+    height and type made the bill non-linear (D-125, D-218), and a demolition
+    that returned by area would pay for a tower as for a shed -- and would give
+    back timber for a house of iron and glass.
     """
     share = constants[R.BUILD_DEMOLISH_SALVAGE]
     back: dict[str, float] = {}
@@ -810,7 +895,7 @@ def salvage(constants: Constants, houses: list[Building]) -> dict[str, float]:
             constants,
             footprint=float(house.footprint_m2),
             floors=house.floors,
-            strength=house.strength,
+            kind=house.kind,
         )
         for name, qty in lot.items():
             back[name] = back.get(name, 0.0) + qty * share
@@ -1001,16 +1086,22 @@ async def finish_build(session: AsyncSession, job: Job) -> None:
     node = await session.get(Node, uuid.UUID(job.payload["node"]))
     if node is None:  # pragma: no cover
         raise EstateError(f"стройка {job.id} ссылается в никуда")
-    #: Old jobs from before storeys carry no `floors`: one floor, first tier.
+    from src.constants import current
+
+    #: Old jobs from before storeys carry no `floors`, and those from before
+    #: types (D-218) name a tier instead of a type. Either way such a site
+    #: finishes as the plainest house there is -- a single floor of the
+    #: cheapest kind, which is what those tiers were built of anyway.
     footprint = float(job.payload["area"])
     floors = int(job.payload.get("floors", 1))
+    kind = str(job.payload.get("kind") or kinds(current())[0])
     building = Building(
         node_id=node.id,
         #: Usable area is the sum of the floors; the ground taken is the footprint.
         area_m2=footprint * floors,
         footprint_m2=footprint,
         floors=floors,
-        strength=int(job.payload.get("strength", 1)),
+        kind=kind,
     )
     session.add(building)
     await session.flush()
@@ -1023,4 +1114,302 @@ async def finish_build(session: AsyncSession, job: Job) -> None:
         building_id=str(building.id),
         area=float(building.area_m2),
         floors=floors,
+        built_of=kind,
     )
+
+
+# --- decay, repair and collapse (D-218) --------------------------------------
+
+
+def decay_per_day(constants: Constants, kind: str) -> float:
+    """How much condition a house of this type loses in a day.
+
+    This is what dear materials actually buy: not a stronger wall but a rarer
+    repair. A log hut wants mending twice a year, an all-metal house about once
+    in a lifetime -- and pays for that up front, in iron and glass.
+    """
+    composition(constants, kind)
+    return float(constants[R.BUILD_DECAY][kind])
+
+
+def missing_share(houses: list[Building]) -> float:
+    """How much of full condition the plot's houses have lost, as a share of one.
+
+    Weighted by nothing: houses on one plot are mended in one go, and the share
+    is taken from the worst of them. Mending the sound one along with it costs
+    materials it did not need, and the player would rightly call that theft.
+    """
+    if not houses:
+        return 0.0
+    worst = min(float(house.condition) for house in houses)
+    return (SCALE_MAX - worst) / SCALE_MAX
+
+
+def repair_bill(constants: Constants, houses: list[Building]) -> dict[str, float]:
+    """What mending these houses back to full costs in materials.
+
+    What a house is built of is what it is mended with (D-145): the bill is
+    recomputed from the type rather than stored, and taken in the share of
+    condition actually missing. `build.repair_materials_k` is the price of
+    lifting a house from nothing to full -- a part of building it, never all,
+    because the walls are still standing.
+    """
+    from src.engine import goods
+
+    share = constants[R.BUILD_REPAIR_MATERIALS_K] * missing_share(houses)
+    wanted: dict[str, float] = {}
+    for house in houses:
+        lot = estimate(
+            constants,
+            footprint=float(house.footprint_m2),
+            floors=house.floors,
+            kind=house.kind,
+        )
+        for name, qty in lot.items():
+            wanted[name] = wanted.get(name, 0.0) + qty * share
+    #: Whole pieces, upwards (D-212): half a board does not go into a wall.
+    return {
+        name: goods.whole(name, qty, up=True) for name, qty in wanted.items() if qty > 0
+    }
+
+
+def repair_minutes(constants: Constants, houses: list[Building]) -> float:
+    """The term of mending: `build.repair_labor_k` of the raising labour, by the gap."""
+    share = constants[R.BUILD_REPAIR_LABOR_K] * missing_share(houses)
+    return share * sum(
+        build_minutes(
+            constants,
+            footprint=float(house.footprint_m2),
+            floors=house.floors,
+            kind=house.kind,
+        )
+        for house in houses
+    )
+
+
+async def repairing(session: AsyncSession, node: Node) -> bool:
+    """Whether a repair is already under way here.
+
+    The same reason as for demolition: the materials are written off at the
+    order, and two orders would take twice for one set of walls.
+    """
+    from src.models.job import JobState
+
+    rows = (
+        await session.execute(
+            select(Job).where(
+                Job.kind == JobKind.BUILD_REPAIR.value,
+                Job.state == JobState.PENDING,
+            )
+        )
+    ).scalars().all()
+    return any(job.payload.get("node") == str(node.id) for job in rows)
+
+
+async def repair(
+    session: AsyncSession,
+    constants: Constants,
+    body: Body,
+    node: Node,
+    *,
+    tiers: dict[str, str] | None = None,
+    now: datetime | None = None,
+) -> Job:
+    """Mend the houses on a plot. Materials at once, the condition on schedule.
+
+    Whose house may be mended follows whose house may be built (D-089, D-198):
+    one's own plot, and any nobody's land beyond the walls. The whole plot is
+    mended in one order, as the whole plot is taken apart in one -- houses stand
+    together and rot together.
+    """
+    moment = now or datetime.now(UTC)
+    if body.state is not BodyState.ALIVE:
+        raise EstateError("мёртвое тело не чинит")
+    await travel.require_here(session, body)
+    if body.node_id != node.id:
+        raise EstateError("чинят руками: дойдите до участка")
+    nobodys = node.owner_identity_id is None and node.owner_city_id is None
+    if not nobodys and node.owner_identity_id != body.identity_id:
+        raise EstateError("участок не ваш: чинят у себя")
+    if await repairing(session, node):
+        raise EstateError("ремонт уже идёт: второй раз его не заказывают")
+
+    houses = await buildings_of(session, node)
+    if not houses:
+        raise Ruined("чинить нечего: на участке нет здания")
+    if missing_share(houses) <= 0:
+        raise Ruined("дом целёхонек: чинить в нём нечего")
+
+    from src.engine import craft, world
+
+    needed = repair_bill(constants, houses)
+    pocket = await world.body_container(session, body)
+    stock = await craft._stock(session, pocket, tuple(needed), tiers=tiers)  # noqa: SLF001
+    for pick in craft._pick(stock, needed):  # noqa: SLF001
+        if pick.item.amount > pick.take:
+            pick.item.amount -= pick.take
+        else:
+            await session.delete(pick.item)
+    await session.flush()
+
+    term = moment + timedelta(minutes=repair_minutes(constants, houses))
+    event = await events.record(
+        session,
+        EventKind.CRAFT_STARTED,
+        actor_identity_id=body.identity_id,
+        node_id=node.id,
+        work="repair",
+        spent=needed,
+        ready_at=term.isoformat(),
+    )
+    job = await enqueue(
+        session,
+        JobKind.BUILD_REPAIR,
+        term,
+        payload={"node": str(node.id), "identity": str(body.identity_id)},
+        dedup_key=f"repair:{node.id}:{event.id}",
+        cause_event_id=event.id,
+        body_id=body.id,
+    )
+    if job is None:  # pragma: no cover -- the key is unique per event
+        raise EstateError("ремонт уже поставлен")
+    return job
+
+
+@handler(JobKind.BUILD_REPAIR)
+async def finish_repair(session: AsyncSession, job: Job) -> None:
+    """The mending is over: the houses stand as new.
+
+    Whatever they lost while the work ran is written off with the rest: the
+    materials were paid at the order, and charging the days of the repair
+    itself would make a long repair unfinishable.
+    """
+    node = await session.get(Node, uuid.UUID(job.payload["node"]))
+    if node is None:  # pragma: no cover
+        raise EstateError(f"ремонт {job.id} ссылается в никуда")
+    houses = await buildings_of(session, node)
+    #: The house may have fallen while the work ran -- then there is nothing to
+    #: mend and nothing to complain about: the journal keeps both records.
+    for house in houses:
+        house.condition = Decimal(str(SCALE_MAX))
+    await session.flush()
+    await events.record(
+        session,
+        EventKind.BUILDING_REPAIRED,
+        actor_identity_id=uuid.UUID(job.payload["identity"]),
+        node_id=node.id,
+        houses=len(houses),
+    )
+
+
+async def collapse(session: AsyncSession, node: Node, house: Building) -> None:
+    """Condition ran out: the house falls, and what it sheltered falls with it.
+
+    A collapse is not a demolition: nothing is salvaged, and no warning comes at
+    the last moment -- the warning was every day of the condition dropping.
+
+    **What perishes is what stood under the roof.** The engine keeps one yard
+    per node, so it can tell which things were roofed only by whether a roof is
+    left at all: while another house still stands on the plot, the goods move
+    under it and survive. When the last one falls, the yard's contents go with
+    it -- machines, furniture and the chests along with what was inside them.
+    """
+    from src.engine import world
+    from src.models.inventory import Container, ContainerKind
+
+    await session.delete(house)
+    await session.flush()
+
+    last = not await buildings_of(session, node)
+    lost: dict[str, float] = {}
+    if last:
+        yard = await world.node_container(session, node)
+        things = (
+            await session.execute(select(Item).where(Item.container_id == yard.id))
+        ).scalars().all()
+        for thing in things:
+            lost[thing.type_key] = lost.get(thing.type_key, 0.0) + amount_float(
+                thing.amount
+            )
+            #: A chest goes down with its contents: the inside is a container of
+            #: its own, and left behind it would be goods in no place at all.
+            inside = (
+                await session.execute(
+                    select(Container).where(
+                        Container.kind == ContainerKind.STORAGE,
+                        Container.owner_id == thing.id,
+                    )
+                )
+            ).scalars().all()
+            for box in inside:
+                stored = (
+                    await session.execute(
+                        select(Item).where(Item.container_id == box.id)
+                    )
+                ).scalars().all()
+                for held in stored:
+                    lost[held.type_key] = lost.get(held.type_key, 0.0) + amount_float(
+                        held.amount
+                    )
+                    await session.delete(held)
+                await session.delete(box)
+            await session.delete(thing)
+        await session.flush()
+
+    await events.record(
+        session,
+        EventKind.BUILDING_COLLAPSED,
+        node_id=node.id,
+        area=float(house.area_m2),
+        floors=house.floors,
+        built_of=house.kind,
+        last=last,
+        lost=lost,
+    )
+
+
+async def decay(session: AsyncSession, constants: Constants) -> tuple[int, int]:
+    """Daily decay of every house in the world. Returns (worn, collapsed).
+
+    One step per daily tick, as a road overgrows and gear wears (D-129): the
+    step is the type's own (`build.decay_by_type`), which is the whole point of
+    paying for iron instead of timber.
+    """
+    from src.engine.ship import ABOARD
+
+    rows = (
+        await session.execute(
+            select(Building, Node).join(Node, Node.id == Building.node_id)
+        )
+    ).all()
+    worn = 0
+    fallen: list[Building] = []
+    for house, node in rows:
+        #: A ship's compartment is a building for counting area alone (D-202).
+        #: It is kept up by its own repairs, and the weather over a yard has no
+        #: say aboard -- a hull that rotted away in a year would be a defect.
+        if (node.properties or {}).get(ABOARD):
+            continue
+        step = decay_per_day(constants, house.kind)
+        left = max(SCALE_MIN, float(house.condition) - step)
+        house.condition = Decimal(str(left))
+        worn += 1
+        await events.record(
+            session,
+            EventKind.BUILDING_WORN,
+            node_id=house.node_id,
+            building_id=str(house.id),
+            built_of=house.kind,
+            spent=step,
+            condition=left,
+        )
+        if left <= SCALE_MIN:
+            fallen.append(house)
+    await session.flush()
+
+    for house in fallen:
+        node = await session.get(Node, house.node_id)
+        if node is None:  # pragma: no cover -- a building without a node is a defect
+            continue
+        await collapse(session, node, house)
+    return worn, len(fallen)

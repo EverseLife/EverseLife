@@ -412,6 +412,7 @@ function assemble({ look, session, book, values, pow }: Props): Thing[] {
       3,
       home.area > 0
         ? `${home.area.toFixed(0)} м² в ${home.floors} эт. · мест ${home.used} из ${home.slots}`
+          + (home.condition === null ? "" : ` · состояние ${home.condition.toFixed(0)}%`)
         : home.building.length > 0
           ? "строится"
           : "не построен",

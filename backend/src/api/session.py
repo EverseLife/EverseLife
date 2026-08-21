@@ -522,7 +522,16 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
         #: by the footprint, the machines live in the usable area.
         "ground": await estate.built_area(db, node, ground=True),
         "floors": max((house.floors for house in houses), default=0),
-        "strength": max((house.strength for house in houses), default=0),
+        #: The type and the soundness of the plot (D-218). The worst house
+        #: answers for the whole: it is the one that will fall, and repair is
+        #: ordered for the plot at once.
+        "kind": next((house.kind for house in houses), None),
+        "condition": min(
+            (float(house.condition) for house in houses), default=None
+        ),
+        "decay": (
+            estate.decay_per_day(constants, houses[0].kind) if houses else 0.0
+        ),
         "slots": total_seats,
         "used": taken_seats,
         #: Work in progress: without it the yard looks empty right after the
@@ -981,8 +990,9 @@ async def _land_rename(state: dict, db: AsyncSession, message: dict) -> dict:
 async def _build_construct(state: dict, db: AsyncSession, message: dict) -> dict:
     """Build a house on your own plot. Materials at once, the building on schedule.
 
-    `area` is the footprint; storeys stand on it (D-125), and the durability
-    tier sets both the bill and the ceiling of height (D-145).
+    `area` is the footprint of one floor; storeys stand on it (D-125), and the
+    type sets the bill, the price of the next floor and the rate of decay
+    (D-218). Height has no ceiling -- the bill is the only thing that refuses.
     """
     body = await _alive(state, db)
     node = await db.get(Node, body.node_id)
@@ -996,7 +1006,7 @@ async def _build_construct(state: dict, db: AsyncSession, message: dict) -> dict
         float(message["area"]),
         tiers=_tiers(message),
         floors=int(message.get("floors", 1)),
-        strength=int(message.get("strength", 1)),
+        kind=message.get("kind") or None,
     )
     return {"building": True, "ready_at": job.run_at.isoformat()}
 
@@ -1013,29 +1023,46 @@ async def _build_estimate(state: dict, db: AsyncSession, message: dict) -> dict:
     constants = current()
     footprint = float(message.get("area", 0) or 0)
     floors = int(message.get("floors", 1))
-    strength = int(message.get("strength", 1))
+    kind = message.get("kind") or estate.kinds(constants)[0]
     if footprint <= 0 or floors < 1:
         raise Refused("площадь и этажность считаются от единицы")
+    try:
+        estate.composition(constants, str(kind))
+    except estate.UnknownKind as refusal:
+        raise Refused(str(refusal)) from refusal
 
-    needed = estate.bill(
-        constants, footprint=footprint, floors=floors, strength=strength
-    )
+    needed = estate.bill(constants, footprint=footprint, floors=floors, kind=str(kind))
     pocket = await world.body_container(db, body)
     at_hand: dict[str, float] = {}
     for thing in await _things(db, constants, pocket):
         at_hand[thing["goods"]] = at_hand.get(thing["goods"], 0.0) + thing["amount"]
 
     catalog = current_catalog()
+    node = await db.get(Node, body.node_id)
     return {
         "area": footprint,
         "floors": floors,
-        "strength": strength,
+        "kind": str(kind),
+        #: The whole shop window of types with their numbers: the choice is made
+        #: before the bill, so the client must have it without a second call.
+        "kinds": [
+            {
+                "kind": name,
+                "per_m2": estate.composition(constants, name),
+                "growth": estate.floor_growth(constants, name),
+                "decay": estate.decay_per_day(constants, name),
+            }
+            for name in estate.kinds(constants)
+        ],
         #: The usable area is what the machines and the cargo will be measured
         #: against; the plot is measured against the footprint alone.
         "usable": footprint * floors,
-        "max_floors": estate.height_cap(constants, strength),
+        #: What the plot still has room for, sites already started deducted --
+        #: the ground is the only limit there is, height has none (D-218).
+        "free_ground": (await estate.free_ground(db, node)) if node else 0.0,
+        "area_min": constants[R.BUILD_AREA_MIN],
         "minutes": estate.build_minutes(
-            constants, footprint=footprint, floors=floors, strength=strength
+            constants, footprint=footprint, floors=floors, kind=str(kind)
         ),
         "materials": [
             {
@@ -1087,6 +1114,61 @@ async def _demolish_estimate(state: dict, db: AsyncSession, message: dict) -> di
         or (node.owner_identity_id is None and node.owner_city_id is None),
         "blocking": await estate.demolish_blockers(db, constants, node),
     }
+
+
+async def _repair_estimate(state: dict, db: AsyncSession, message: dict) -> dict:
+    """What mending the plot's houses costs, before the work starts (D-218).
+
+    Shown the same way round as the building bill: the term, the materials and
+    what is in hand -- so that "timber 12 of 30" is read at the plan and not
+    discovered at the click.
+    """
+    from src.engine import gear
+
+    body = await _alive(state, db)
+    constants = current()
+    node = await db.get(Node, body.node_id)
+    if node is None:  # pragma: no cover
+        raise Refused("тело вне узла")
+
+    houses = await estate.buildings_of(db, node)
+    needed = estate.repair_bill(constants, houses)
+    at_hand: dict[str, float] = {}
+    pocket = await world.body_container(db, body)
+    for thing in await _things(db, constants, pocket):
+        at_hand[thing["goods"]] = at_hand.get(thing["goods"], 0.0) + thing["amount"]
+
+    catalog = current_catalog()
+    return {
+        "condition": min((float(house.condition) for house in houses), default=None),
+        "kind": next((house.kind for house in houses), None),
+        "decay": estate.decay_per_day(constants, houses[0].kind) if houses else 0.0,
+        "minutes": estate.repair_minutes(constants, houses),
+        "going": await estate.repairing(db, node),
+        #: One's own plot and any nobody's land beyond the walls -- exactly
+        #: where one may build and take apart (D-198, D-205).
+        "mine": node.owner_identity_id == body.identity_id
+        or (node.owner_identity_id is None and node.owner_city_id is None),
+        "materials": [
+            {
+                "goods": name,
+                "need": round(qty, 2),
+                "have": round(at_hand.get(name, 0.0), 2),
+                "mass": round(gear.mass_of(catalog, name, qty), 1),
+            }
+            for name, qty in sorted(needed.items())
+        ],
+    }
+
+
+async def _build_repair(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Mend your own houses. Materials at once, the condition at the end of the work."""
+    body = await _alive(state, db)
+    node = await db.get(Node, body.node_id)
+    if node is None:  # pragma: no cover
+        raise Refused("тело вне узла")
+    job = await estate.repair(db, current(), body, node, tiers=_tiers(message))
+    return {"repairing": True, "ready_at": job.run_at.isoformat()}
 
 
 async def _build_demolish(state: dict, db: AsyncSession, message: dict) -> dict:
@@ -3017,6 +3099,8 @@ _COMMANDS = {
     "build.construct": _build_construct,
     "build.estimate": _build_estimate,
     "build.demolish": _build_demolish,
+    "build.repair": _build_repair,
+    "build.repair_estimate": _repair_estimate,
     "build.demolish_estimate": _demolish_estimate,
     "gate.set": _gate_set,
     "gate.list": _gate_list,
