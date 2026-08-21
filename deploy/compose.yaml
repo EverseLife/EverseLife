@@ -12,7 +12,7 @@
 name: everselife
 
 x-server: &server
-  image: ghcr.io/${GHCR_OWNER:-sumrak10}/everselife-backend:${TAG:-latest}
+  image: ghcr.io/${GHCR_OWNER:-everselife}/everselife-backend:${TAG:-latest}
   environment:
     EVERSELIFE_DATABASE_URL: postgresql+asyncpg://everselife:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/everselife
     EVERSELIFE_VAULT_BUILD: /vault
@@ -93,14 +93,14 @@ services:
       disable: true
 
   frontend:
-    image: ghcr.io/${GHCR_OWNER:-sumrak10}/everselife-frontend:${TAG:-latest}
+    image: ghcr.io/${GHCR_OWNER:-everselife}/everselife-frontend:${TAG:-latest}
     restart: unless-stopped
 
   # The everse.life landing: the page and beta signup intake. Signups go
   # to SQLite on a volume; the landing does not touch the game database. Until
   # LANDING_DOMAIN is set in `.env`, Caddy keeps it on an internal name and does not expose it.
   landing:
-    image: ghcr.io/${GHCR_OWNER:-sumrak10}/everselife-landing:${TAG:-latest}
+    image: ghcr.io/${GHCR_OWNER:-everselife}/everselife-landing:${TAG:-latest}
     environment:
       #: The service channel: "one more signup came, so many in total". The
       #: applicant's email does not go there and must not.
