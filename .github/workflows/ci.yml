@@ -163,6 +163,10 @@ jobs:
         with:
           context: frontend
           push: true
+          # The same revision as the server's: the link in the header must
+          # point at the commit this client was built from.
+          build-args: |
+            RELEASE=${{ github.sha }}
           tags: |
             ghcr.io/${{ env.OWNER }}/everselife-frontend:latest
             ghcr.io/${{ env.OWNER }}/everselife-frontend:${{ github.sha }}

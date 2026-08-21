@@ -42,6 +42,15 @@ import { useNarrow } from "./narrow";
 import { ActionsProvider } from "./actions";
 
 
+//: Where the source of this build lives -- AGPL §13 asks for the source of
+//: *this* version, and the repository's head is not it. `VITE_RELEASE` is
+//: baked in by the image build (`Dockerfile`, CI passes `github.sha`); without
+//: it -- a hand build, a dev server -- the repository is the honest answer.
+const REPOSITORY = "https://github.com/EverseLife/EverseLife";
+const SOURCE_URL = import.meta.env.VITE_RELEASE
+  ? `${REPOSITORY}/tree/${import.meta.env.VITE_RELEASE}`
+  : REPOSITORY;
+
 const VIEWS = [
   { id: "map", label: "карта" },
   { id: "place", label: "локация" },
@@ -351,7 +360,7 @@ export default function App() {
             ответ на тот же вопрос -- `/public/source`. */}
         <a
           className="quiet"
-          href="https://github.com/EverseLife/EverseLife"
+          href={SOURCE_URL}
           target="_blank"
           rel="noopener noreferrer"
           title="исходный код этой версии"
