@@ -505,7 +505,10 @@ async def _emission_share(
     issued_, printed = line[0] or 0, line[1] or 0
     if issued_ <= 0:
         return None
-    return printed / issued_ * PERCENT
+    #: Money comes out of the database as `Decimal` and the scale is a float:
+    #: multiplying the two raises, and the raise lands in a scheduled job that
+    #: retries for ever. The share is a number, not a sum, so it leaves as one.
+    return float(printed) / float(issued_) * PERCENT
 
 
 # --- insolvency (D-063, D-168) -----------------------------------------------

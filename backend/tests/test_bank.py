@@ -180,6 +180,30 @@ async def test_review_stores_decision_and_applies(
     assert await bank.key_rate(session, constants) == pytest.approx(float(decision.rate))
 
 
+async def test_review_survives_a_world_that_has_borrowed(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The rate is reviewed in a world with loans in it -- the only interesting kind.
+
+    Reviewing an empty world takes the early exit and touches nothing: the
+    emission sensor returns before it counts. In a world where somebody has
+    actually borrowed, the sensor divides money by money and scales the result
+    -- and money comes out of the database as `Decimal` while the scale is a
+    float. That raise lived in a scheduled job, so nothing failed loudly: the
+    live world's worker simply retried the rate review every two minutes and
+    the key rate stopped moving.
+    """
+    who = await _borrower(session)
+    await _deal(session, "Железная руда", 4000, 1, seller=who)
+    await bank.borrow(session, constants, catalog, who, 1000)
+
+    share = await bank._emission_share(session, constants, now=datetime.now(UTC))  # noqa: SLF001
+    assert isinstance(share, float), "доля — число, а не сумма"
+
+    decision = await bank.review_rate(session, constants)
+    assert decision.why
+
+
 async def test_borrower_rate_fixed_at_issue(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
