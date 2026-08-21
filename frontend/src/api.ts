@@ -847,7 +847,7 @@ type Waiting = {
 };
 
 /** Where the session token lives between page refreshes (D-187). */
-const TOKEN_KEY = "octoverse.token";
+const TOKEN_KEY = "everselife.token";
 
 /** The client session. Holds the socket and the "command -> reply" queue.
  *

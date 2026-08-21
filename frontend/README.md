@@ -1,4 +1,4 @@
-# OctoVerse — клиент (альфа)
+# Everse.Life — клиент (альфа)
 
 React + TypeScript (D-139). Цель — весь функционал альфы (D-103): экономика,
 общество и кредит целиком, потому что проверять их частями бессмысленно.
@@ -51,8 +51,8 @@ cd backend && .venv/Scripts/python -m src.seed
 ```
 
 Вход — почта и пароль (D-187). Тестовые учётки стартовых личностей — в
-`FOUNDERS` (`backend/src/seed.py`): `tern@octoverse.world` / `tern-terra-2026`
-и `hem@octoverse.world` / `hem-terra-2026`. Новый персонаж заводится кнопкой
+`FOUNDERS` (`backend/src/seed.py`): `tern@everse.life` / `tern-terra-2026`
+и `hem@everse.life` / `hem-terra-2026`. Новый персонаж заводится кнопкой
 «Регистрация»: почта и пароль → линия → персонаж → город.
 
 Часы мира. Без него партии не заканчиваются и ордера не истекают:
@@ -98,7 +98,7 @@ Windows по умолчанию не пускает входящие соеди�
 Один раз, от администратора:
 
 ```powershell
-New-NetFirewallRule -DisplayName "OctoVerse dev" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 5173,8000 -Profile Any -RemoteAddress LocalSubnet
+New-NetFirewallRule -DisplayName "Everse.Life dev" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 5173,8000 -Profile Any -RemoteAddress LocalSubnet
 ```
 
 ## Что клиент показывает честно

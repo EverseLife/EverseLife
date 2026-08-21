@@ -1,6 +1,6 @@
 # Выкладка альфы
 
-Как поднять OctoVerse на сервере, выдать ему настоящий сертификат и настроить
+Как поднять Everse.Life на сервере, выдать ему настоящий сертификат и настроить
 выкладку с GitHub. Порядок написан для чистой Ubuntu 24.04 и домена вида
 `alpha.example.com`, но на любом другом дистрибутиве с Docker всё то же самое.
 
@@ -21,7 +21,7 @@
 
 `backend`, `worker` и `migrate` — один и тот же образ: расходиться версиями им
 нельзя. Числа игры запекаются в образ при сборке: прогон берёт их из вольта
-(`sumrak10/octoverse-vault`), а какие именно — видно в `/api/health`
+(`EverseLife/EverseLifeVault`), а какие именно — видно в `/api/health`
 отпечатком констант.
 
 Клиент собран без боевого домена внутри: он ходит на тот же источник, откуда
@@ -47,24 +47,24 @@ apt update && apt upgrade -y
 curl -fsSL https://get.docker.com | sh
 
 # отдельный человек для игры, чтобы не жить под root
-adduser --disabled-password --gecos "" octoverse
-usermod -aG docker octoverse
+adduser --disabled-password --gecos "" everselife
+usermod -aG docker everselife
 
 # Пароля у него нет, значит нужен ключ — иначе к нему не подключиться.
 # Проще всего отдать тот же, которым вы ходите root'ом.
-install -d -m 700 -o octoverse -g octoverse /home/octoverse/.ssh
-cp /root/.ssh/authorized_keys /home/octoverse/.ssh/authorized_keys
-chown octoverse:octoverse /home/octoverse/.ssh/authorized_keys
-chmod 600 /home/octoverse/.ssh/authorized_keys
+install -d -m 700 -o everselife -g everselife /home/everselife/.ssh
+cp /root/.ssh/authorized_keys /home/everselife/.ssh/authorized_keys
+chown everselife:everselife /home/everselife/.ssh/authorized_keys
+chmod 600 /home/everselife/.ssh/authorized_keys
 
-mkdir -p /opt/octoverse
-chown octoverse:octoverse /opt/octoverse
+mkdir -p /opt/everselife
+chown everselife:everselife /opt/everselife
 ```
 
 Проверить, что дверь открылась, — со своей машины:
 
 ```powershell
-ssh -i $env:USERPROFILE\.ssh\<ваш ключ> octoverse@alpha.example.com "docker version --format '{{.Server.Version}}'"
+ssh -i $env:USERPROFILE\.ssh\<ваш ключ> everselife@alpha.example.com "docker version --format '{{.Server.Version}}'"
 ```
 
 `scp` и `ssh` берут только ключи с именами по умолчанию (`id_ed25519`,
@@ -72,9 +72,9 @@ ssh -i $env:USERPROFILE\.ssh\<ваш ключ> octoverse@alpha.example.com "dock
 навсегда в `~/.ssh/config`:
 
 ```
-Host octoverse
+Host everselife
   HostName alpha.example.com
-  User octoverse
+  User everselife
   IdentityFile ~/.ssh/<ваш ключ>
 ```
 
@@ -87,7 +87,7 @@ ufw allow 443/tcp
 ufw --force enable
 ```
 
-Дальше всё от пользователя `octoverse`.
+Дальше всё от пользователя `everselife`.
 
 Положить на сервер состав и настройки. Файлы `compose.yaml` и `Caddyfile`
 лежат в репозитории (`deploy/`), и дальше их будет привозить выкладка; в первый
@@ -95,13 +95,13 @@ ufw --force enable
 
 ```powershell
 # из корня репозитория, на своей машине
-scp deploy/compose.yaml deploy/Caddyfile deploy/.env.example octoverse@alpha.example.com:/opt/octoverse/
+scp deploy/compose.yaml deploy/Caddyfile deploy/.env.example everselife@alpha.example.com:/opt/everselife/
 ```
 
 На сервере сделать из образца настоящий `.env`:
 
 ```bash
-cd /opt/octoverse
+cd /opt/everselife
 mv .env.example .env
 # придумать пароль базы
 openssl rand -base64 32
@@ -118,7 +118,7 @@ chmod 600 .env
 забрать, нужен доступ. Два пути:
 
 1. **сделать пакеты открытыми** — GitHub → репозиторий → Packages →
-   `octoverse-backend` → Package settings → Change visibility → Public. Тогда
+   `everselife-backend` → Package settings → Change visibility → Public. Тогда
    сервер тянет образы без пропуска, а выкладке ничего не нужно объяснять;
 2. **входить по пропуску** — создать токен с правом `read:packages` и один раз
    выполнить на сервере `docker login ghcr.io -u <логин>`.
@@ -132,7 +132,7 @@ chmod 600 .env
 прогона (`Actions` → `CI`). Дальше на сервере:
 
 ```bash
-cd /opt/octoverse
+cd /opt/everselife
 docker compose pull
 docker compose up -d
 docker compose ps
@@ -223,7 +223,7 @@ Caddy заменяем, порядок такой: поставить `nginx` и
 (`apt install nginx certbot python3-certbot-nginx`), убрать службу `caddy` из
 состава, опубликовать наружу порты клиента и сервера только на петлю
 (`127.0.0.1:8080:80` у `frontend`, `127.0.0.1:8000:8000` у `backend`) и положить
-в `/etc/nginx/sites-available/octoverse`:
+в `/etc/nginx/sites-available/everselife`:
 
 ```nginx
 server {
@@ -279,7 +279,7 @@ Settings → Secrets and variables → Actions.
 | имя | что это |
 | --- | --- |
 | `DEPLOY_HOST` | адрес или домен сервера |
-| `DEPLOY_USER` | `octoverse` |
+| `DEPLOY_USER` | `everselife` |
 | `DEPLOY_SSH_KEY` | закрытый ключ выкладки целиком, вместе со строками `BEGIN`/`END` |
 | `DEPLOY_PORT` | порт SSH, если не 22 (необязательно) |
 | `DEPLOY_KNOWN_HOSTS` | строка из `ssh-keyscan` для сервера (необязательно, но лучше завести) |
@@ -290,7 +290,7 @@ Settings → Secrets and variables → Actions.
 | имя | значение |
 | --- | --- |
 | `DEPLOY_ENABLED` | `true` — пока её нет, выкладка молчит |
-| `DEPLOY_PATH` | `/opt/octoverse` (необязательно) |
+| `DEPLOY_PATH` | `/opt/everselife` (необязательно) |
 | `DEPLOY_DOMAIN` | `alpha.example.com` — по нему проверяется, что сервер ожил |
 
 Ключ выкладки — отдельный, не тот, которым вы сами ходите на сервер:
@@ -304,7 +304,7 @@ ssh-keyscan alpha.example.com     # это в DEPLOY_KNOWN_HOSTS
 `ssh-copy-id` в Windows нет, поэтому открытую половину доливаем строкой:
 
 ```powershell
-type deploy_key.pub | ssh octoverse@alpha.example.com "cat >> ~/.ssh/authorized_keys"
+type deploy_key.pub | ssh everselife@alpha.example.com "cat >> ~/.ssh/authorized_keys"
 ```
 
 Содержимое `deploy_key` (закрытая половина) — в `DEPLOY_SSH_KEY`, после чего
@@ -316,7 +316,7 @@ type deploy_key.pub | ssh octoverse@alpha.example.com "cat >> ~/.ssh/authorized_
 одной строки на сервере:
 
 ```bash
-cd /opt/octoverse
+cd /opt/everselife
 sed -i 's/^TAG=.*/TAG=<отпечаток коммита>/' .env
 docker compose pull && docker compose up -d
 ```
@@ -327,17 +327,17 @@ docker compose pull && docker compose up -d
 ## Лендинг
 
 Лендинг (`landing/`) едет тем же путём, что и всё остальное: CI собирает образ
-`octoverse-landing`, выкладка поднимает службу. Наружу он не смотрит, пока на
+`everselife-landing`, выкладка поднимает службу. Наружу он не смотрит, пока на
 сервере не сделано один раз:
 
 1. A-запись голого домена (`example.com`) → адрес сервера;
-2. `LANDING_DOMAIN=example.com` в `/opt/octoverse/.env`;
+2. `LANDING_DOMAIN=example.com` в `/opt/everselife/.env`;
 3. `docker compose up -d --force-recreate caddy` — Caddy возьмёт сертификат.
 
 Заявки на бету копятся в SQLite на томе `landing_data`. Забрать:
 
 ```bash
-cd /opt/octoverse
+cd /opt/everselife
 docker compose exec landing python export.py > signups.csv
 ```
 
@@ -356,7 +356,7 @@ docker compose exec landing python export.py > signups.csv
    остаётся указателем, `LEGACY_DOMAINS` (через запятую):
 
 ```bash
-cd /opt/octoverse
+cd /opt/everselife
 nano .env
 docker compose up -d
 ```
@@ -386,8 +386,8 @@ docker compose up -d
 
 Четыре ленты наружу: хроника мира из воркера, счётчик заявок из лендинга, итог
 выкладки из CI и тревоги сервера из Grafana. У каждой **свой** вебхук и свой
-канал — `OCTOVERSE_DISCORD_WEBHOOK`, `LANDING_DISCORD_WEBHOOK` и
-`GRAFANA_DISCORD_WEBHOOK` в `/opt/octoverse/.env`, секрет
+канал — `EVERSELIFE_DISCORD_WEBHOOK`, `LANDING_DISCORD_WEBHOOK` и
+`GRAFANA_DISCORD_WEBHOOK` в `/opt/everselife/.env`, секрет
 `DISCORD_DEPLOY_WEBHOOK` на GitHub. Пока их нет, всё молчит и ничего не
 ломается.
 
@@ -400,7 +400,7 @@ docker compose up -d
 ## Числа игры
 
 Числа, рецепты и законы правятся **только в вольте**
-(`github.com/sumrak10/octoverse-vault`, файлы `data/*.yaml`). Слепка в этом
+(`github.com/EverseLife/EverseLifeVault`, файлы `data/*.yaml`). Слепка в этом
 репозитории нет: `vault/*.json` — вывод сборки, и он собирается в прогоне.
 
 Работы «Server» и «Images» первым делом клонируют вольт, гоняют его
@@ -430,33 +430,33 @@ python deploy/sync-vault.py
 ## Эксплуатация
 
 ```bash
-cd /opt/octoverse
+cd /opt/everselife
 
 docker compose ps                       # кто жив
 docker compose logs -f backend worker   # что происходит
 docker compose restart worker           # мир встал — начинать отсюда
-docker compose exec postgres psql -U octoverse -d octoverse
+docker compose exec postgres psql -U everselife -d everselife
 ```
 
 Снимок базы (мир вечный, вайпов не бывает — снимки не роскошь):
 
 ```bash
-docker compose exec -T postgres pg_dump -U octoverse -Fc octoverse > ~/octoverse-$(date +%F).dump
+docker compose exec -T postgres pg_dump -U everselife -Fc everselife > ~/everselife-$(date +%F).dump
 ```
 
 Вернуть из снимка:
 
 ```bash
 docker compose stop backend worker
-docker compose exec -T postgres pg_restore -U octoverse -d octoverse --clean --if-exists < ~/octoverse-2026-08-14.dump
+docker compose exec -T postgres pg_restore -U everselife -d everselife --clean --if-exists < ~/everselife-2026-08-14.dump
 docker compose start backend worker
 ```
 
-Ежедневный снимок в cron у пользователя `octoverse` — пять минут работы и
+Ежедневный снимок в cron у пользователя `everselife` — пять минут работы и
 единственное, что отделяет альфу от потери мира:
 
 ```
-0 4 * * * cd /opt/octoverse && docker compose exec -T postgres pg_dump -U octoverse -Fc octoverse > ~/backup/octoverse-$(date +\%F).dump && find ~/backup -name '*.dump' -mtime +14 -delete
+0 4 * * * cd /opt/everselife && docker compose exec -T postgres pg_dump -U everselife -Fc everselife > ~/backup/everselife-$(date +\%F).dump && find ~/backup -name '*.dump' -mtime +14 -delete
 ```
 
 ## Мониторинг
@@ -476,13 +476,13 @@ docker compose start backend worker
 Наружу Grafana не выведена намеренно, поэтому туннель со своей машины:
 
 ```powershell
-ssh -i $env:USERPROFILE\.ssh\<ключ> -L 3000:localhost:3000 octoverse@<сервер>
+ssh -i $env:USERPROFILE\.ssh\<ключ> -L 3000:localhost:3000 everselife@<сервер>
 ```
 
 Пока сессия открыта, панель живёт на `http://localhost:3000`. Вход — `admin` и
-пароль из `GRAFANA_ADMIN_PASSWORD` в `/opt/octoverse/.env`; не задан — `admin`,
+пароль из `GRAFANA_ADMIN_PASSWORD` в `/opt/everselife/.env`; не задан — `admin`,
 и это стоит поправить. Панель называется «Сервер альфы», лежит в папке
-`OctoVerse` и заводится файлом: правки в интерфейсе не сохраняются, потому что
+`Everse.Life` и заводится файлом: правки в интерфейсе не сохраняются, потому что
 источник истины — `deploy/grafana/dashboards/server.json`.
 
 ### Тревоги
@@ -509,7 +509,7 @@ ssh -i $env:USERPROFILE\.ssh\<ключ> -L 3000:localhost:3000 octoverse@<сер
 срез:
 
 ```bash
-cd /opt/octoverse && docker compose logs cadvisor --tail 5
+cd /opt/everselife && docker compose logs cadvisor --tail 5
 ```
 
 Строки `Failed to create existing container` означают, что ему не хватает
@@ -519,7 +519,7 @@ cd /opt/octoverse && docker compose logs cadvisor --tail 5
 Выключить наблюдение целиком, если оно вдруг мешает:
 
 ```bash
-cd /opt/octoverse && docker compose stop grafana prometheus cadvisor node-exporter postgres-exporter
+cd /opt/everselife && docker compose stop grafana prometheus cadvisor node-exporter postgres-exporter
 ```
 
 ## Что в альфе честно не сделано

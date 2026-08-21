@@ -5,15 +5,15 @@ services:
   postgres:
     image: postgres:16
     environment:
-      POSTGRES_USER: octoverse
-      POSTGRES_PASSWORD: octoverse
-      POSTGRES_DB: octoverse
+      POSTGRES_USER: everselife
+      POSTGRES_PASSWORD: everselife
+      POSTGRES_DB: everselife
     ports:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U octoverse"]
+      test: ["CMD-SHELL", "pg_isready -U everselife"]
       interval: 5s
       timeout: 3s
       retries: 20

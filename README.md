@@ -1,7 +1,7 @@
-# OctoVerse — сервер
+# Everse.Life — сервер
 
-Игровой сервер OctoVerse. **Спецификации здесь нет.** Замысел, числа, рецепты и
-законы живут в вольте гейм-дизайна (`../octoverse-game-design`), откуда этот
+Игровой сервер Everse.Life. **Спецификации здесь нет.** Замысел, числа, рецепты и
+законы живут в вольте гейм-дизайна (`../everselife-vault`), откуда этот
 репозиторий читает только `build/*.json`.
 
 Разделение простое и его стоит держать:
@@ -20,7 +20,7 @@
 ## Быстрый старт
 
 Сервер живёт в `backend/`, и все команды ниже запускаются оттуда. Вольт
-гейм-дизайна лежит рядом с этим репозиторием: `../octoverse-game-design`.
+гейм-дизайна лежит рядом с этим репозиторием: `../everselife-vault`.
 
 ```bash
 docker compose up -d
@@ -62,15 +62,15 @@ API:
 .venv/Scripts/python -m pytest -q
 ```
 
-Тестам нужна база `octoverse_test`; без неё проверки, которым она нужна,
+Тестам нужна база `everselife_test`; без неё проверки, которым она нужна,
 пропускаются, а чистая логика проверяется всё равно.
 
 ```bash
-docker compose exec postgres psql -U octoverse -c "CREATE DATABASE octoverse_test OWNER octoverse;"
+docker compose exec postgres psql -U everselife -c "CREATE DATABASE everselife_test OWNER everselife;"
 ```
 
 Прогон в несколько процессов — вдвое-втрое быстрее, каждому работнику
-заводится своя база (`octoverse_test_gw0`, `gw1`, …), заводится сама:
+заводится своя база (`everselife_test_gw0`, `gw1`, …), заводится сама:
 
 ```bash
 .venv/Scripts/python -m pytest -q -n 8
@@ -96,7 +96,7 @@ git config core.hooksPath .githooks
 Let's Encrypt.
 
 Числа игры едут на сервер **внутри образа**, но в репозитории их нет: `vault/`
-собирается в прогоне из вольта (`sumrak10/octoverse-vault`), локально — тем же
+собирается в прогоне из вольта (`EverseLife/EverseLifeVault`), локально — тем же
 `deploy/sync-vault.py`, и лежит в `.gitignore`. Отпечаток
 загруженных констант виден в `/api/health` — по нему всегда понятно, на чём
 работает боевой мир.
@@ -115,7 +115,7 @@ PostgreSQL 16, SQLAlchemy 2 (async) + asyncpg + Alembic, Pydantic v2, Redis.
 
 ## Что уже сделано
 
-Порядок взят из [07-implementation-map](../octoverse-game-design/90-production/07-implementation-map.md),
+Порядок взят из [07-implementation-map](../everselife-vault/90-production/07-implementation-map.md),
 раздел «Порядок первых задач». Он не случайный: тик и деньги переделать потом
 нельзя.
 
@@ -692,7 +692,7 @@ PostgreSQL 16, SQLAlchemy 2 (async) + asyncpg + Alembic, Pydantic v2, Redis.
 
 ## Шесть мест, где реализация обязана быть устроена именно так
 
-Из [01-tech-notes](../octoverse-game-design/90-production/01-tech-notes.md).
+Из [01-tech-notes](../everselife-vault/90-production/01-tech-notes.md).
 Ошибка в любом из них не ловится тестами игры, но ломает игру.
 
 ### 1. Тик мира идемпотентен
@@ -771,7 +771,7 @@ backend/src/
 
 Клиент живёт в [`frontend/`](frontend/README.md) — альфа-клиент с картой-графом,
 сценами локаций и живым чатом; визуальный язык временный (D-051). Вольт
-гейм-дизайна лежит рядом с репозиторием, в `../octoverse-game-design`.
+гейм-дизайна лежит рядом с репозиторием, в `../everselife-vault`.
 
 **Правило слоя:** состояние меняется только функциями `engine/`. Причина в
 журнале: событие и его последствия обязаны фиксироваться вместе.
@@ -796,7 +796,7 @@ backend/src/
 Документ либо прав, либо устарел; решает человек.
 
 Лестницу рецептов удобнее смотреть и править графом, а не в YAML — для этого
-есть редактор, и живёт он **в самом вольте** (`octoverse-vault`, каталог
+есть редактор, и живёт он **в самом вольте** (`everselife-vault`, каталог
 `editor/`): граф «что из чего», поиск, создание, правка и удаление рецептов,
 кнопки проверки и сборки. Здесь его больше нет — он правит `data/recipes.yaml`,
 а не код движка.

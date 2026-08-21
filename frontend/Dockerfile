@@ -1,7 +1,7 @@
 # The client image: Vite build and static serving by nginx.
 # The context is `frontend/`:
 #
-#   docker build -t octoverse-frontend frontend
+#   docker build -t everselife-frontend frontend
 #
 # The server address is not baked into the image: the built client goes to the
 # same origin it was opened from (`/api`) -- see `src/api.ts`. So one image

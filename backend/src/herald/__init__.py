@@ -6,7 +6,7 @@ single inbound command will appear from here: the player acts only in person
 and only through the client session.
 
 What goes out and why exactly that -- `chronicle.py`; how it goes -- `webhook.py`;
-when -- `job.py`. One setting: `OCTOVERSE_DISCORD_WEBHOOK`. The enabling
+when -- `job.py`. One setting: `EVERSELIFE_DISCORD_WEBHOOK`. The enabling
 procedure is described in `community/discord-bridge.md`.
 """
 

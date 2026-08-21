@@ -22,7 +22,7 @@ from src.runtime import DISCORD_CONTENT_LIMIT, HERALD_TIMEOUT
 
 #: Who is knocking. Discord asks callers to introduce themselves, and by this
 #: string one can later see whose webhook is making noise.
-AGENT = "OctoVerse-Herald (+https://everse.life)"
+AGENT = "EverseLife-Herald (+https://everse.life)"
 
 
 class WebhookError(Exception):

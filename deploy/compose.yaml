@@ -1,4 +1,4 @@
-# The alpha's production compose. Lives on the server in `/opt/octoverse`.
+# The alpha's production compose. Lives on the server in `/opt/everselife`.
 #
 #   docker compose pull && docker compose up -d
 #
@@ -9,37 +9,37 @@
 # The `backend`, `worker` and `migrate` roles are one and the same image: the
 # engine and its worker may not diverge in version.
 
-name: octoverse
+name: everselife
 
 x-server: &server
-  image: ghcr.io/${GHCR_OWNER:-sumrak10}/octoverse-backend:${TAG:-latest}
+  image: ghcr.io/${GHCR_OWNER:-sumrak10}/everselife-backend:${TAG:-latest}
   environment:
-    OCTOVERSE_DATABASE_URL: postgresql+asyncpg://octoverse:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/octoverse
-    OCTOVERSE_VAULT_BUILD: /vault
-    OCTOVERSE_LOG_LEVEL: ${OCTOVERSE_LOG_LEVEL:-INFO}
-    OCTOVERSE_JOB_BATCH: ${OCTOVERSE_JOB_BATCH:-64}
+    EVERSELIFE_DATABASE_URL: postgresql+asyncpg://everselife:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/everselife
+    EVERSELIFE_VAULT_BUILD: /vault
+    EVERSELIFE_LOG_LEVEL: ${EVERSELIFE_LOG_LEVEL:-INFO}
+    EVERSELIFE_JOB_BATCH: ${EVERSELIFE_JOB_BATCH:-64}
     #: The world chronicle to Discord (`src/herald/`). Empty -- the herald is
     #: silent; the feed goes out, nothing comes in from Discord.
-    OCTOVERSE_DISCORD_WEBHOOK: ${OCTOVERSE_DISCORD_WEBHOOK:-}
+    EVERSELIFE_DISCORD_WEBHOOK: ${EVERSELIFE_DISCORD_WEBHOOK:-}
     #: The client is opened by its own domain -- only it is let into the session.
-    OCTOVERSE_ALLOWED_ORIGINS: '["https://${DOMAIN:?DOMAIN is required}"]'
+    EVERSELIFE_ALLOWED_ORIGINS: '["https://${DOMAIN:?DOMAIN is required}"]'
     #: The local-network address pattern from development is not needed in
     #: production: `^$` matches no origin. The double dollar is how compose
     #: writes a literal dollar; `^$` reaches the server.
-    OCTOVERSE_ALLOWED_ORIGIN_REGEX: '^$$'
+    EVERSELIFE_ALLOWED_ORIGIN_REGEX: '^$$'
   restart: unless-stopped
 
 services:
   postgres:
     image: postgres:16
     environment:
-      POSTGRES_USER: octoverse
+      POSTGRES_USER: everselife
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
-      POSTGRES_DB: octoverse
+      POSTGRES_DB: everselife
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U octoverse -d octoverse"]
+      test: ["CMD-SHELL", "pg_isready -U everselife -d everselife"]
       interval: 5s
       timeout: 3s
       retries: 20
@@ -93,14 +93,14 @@ services:
       disable: true
 
   frontend:
-    image: ghcr.io/${GHCR_OWNER:-sumrak10}/octoverse-frontend:${TAG:-latest}
+    image: ghcr.io/${GHCR_OWNER:-sumrak10}/everselife-frontend:${TAG:-latest}
     restart: unless-stopped
 
   # The everse.life landing: the page and beta signup intake. Signups go
   # to SQLite on a volume; the landing does not touch the game database. Until
   # LANDING_DOMAIN is set in `.env`, Caddy keeps it on an internal name and does not expose it.
   landing:
-    image: ghcr.io/${GHCR_OWNER:-sumrak10}/octoverse-landing:${TAG:-latest}
+    image: ghcr.io/${GHCR_OWNER:-sumrak10}/everselife-landing:${TAG:-latest}
     environment:
       #: The service channel: "one more signup came, so many in total". The
       #: applicant's email does not go there and must not.
@@ -190,7 +190,7 @@ services:
   postgres-exporter:
     image: quay.io/prometheuscommunity/postgres-exporter:v0.15.0
     environment:
-      DATA_SOURCE_NAME: postgresql://octoverse:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/octoverse?sslmode=disable
+      DATA_SOURCE_NAME: postgresql://everselife:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/everselife?sslmode=disable
     depends_on:
       postgres:
         condition: service_healthy

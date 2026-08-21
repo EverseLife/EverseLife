@@ -27,7 +27,7 @@ runs:
     - name: The vault itself
       uses: actions/checkout@v4
       with:
-        repository: sumrak10/octoverse-vault
+        repository: EverseLife/EverseLifeVault
         ref: ${{ inputs.ref }}
         path: .vault-source
 

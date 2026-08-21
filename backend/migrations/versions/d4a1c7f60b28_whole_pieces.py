@@ -40,13 +40,13 @@ def _measured() -> list[str]:
 
     The migration must run on a machine without the vault next to it -- CI
     builds the image from `vault/` in the repository, a developer points
-    `OCTOVERSE_VAULT_BUILD` at the vault itself. Both are tried, and if neither
+    `EVERSELIFE_VAULT_BUILD` at the vault itself. Both are tried, and if neither
     answers the data is left alone: a migration that guesses which things are
     counted would round the wrong ones.
     """
     here = Path(__file__).resolve().parents[3]
     places = [
-        Path(os.environ["OCTOVERSE_VAULT_BUILD"]) if os.environ.get("OCTOVERSE_VAULT_BUILD")
+        Path(os.environ["EVERSELIFE_VAULT_BUILD"]) if os.environ.get("EVERSELIFE_VAULT_BUILD")
         else None,
         here / "vault",
         here / "backend" / "vault",

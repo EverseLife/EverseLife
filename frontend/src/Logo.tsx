@@ -1,5 +1,5 @@
 /**
- * The OctoVerse logo for the login screens (D-187). The same outline as on the
+ * The Everse.Life logo for the login screens (D-187). The same outline as on the
  * landing page, but in text colour: the theme switches by itself rather than drawing white on white.
  */
 
@@ -11,7 +11,7 @@ export function Logo({ height = 40 }: { height?: number }) {
       height={height}
       fill="currentColor"
       role="img"
-      aria-label="OctoVerse"
+      aria-label="Everse.Life"
       xmlns="http://www.w3.org/2000/svg"
     >
       <path d="M215.357 64H222.364L242.339 2H236.339L218.839 56.5L201.339 2H195.339L215.357 64Z"/>

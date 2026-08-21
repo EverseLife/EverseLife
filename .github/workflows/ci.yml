@@ -20,7 +20,7 @@ concurrency:
 env:
   # Where the numbers land once a job builds them. They are not stored in
   # this repository: `.github/actions/vault` fetches the vault and builds them.
-  OCTOVERSE_VAULT_BUILD: ${{ github.workspace }}/vault
+  EVERSELIFE_VAULT_BUILD: ${{ github.workspace }}/vault
 
 jobs:
   backend:
@@ -30,20 +30,20 @@ jobs:
       postgres:
         image: postgres:16
         env:
-          POSTGRES_USER: octoverse
-          POSTGRES_PASSWORD: octoverse
-          POSTGRES_DB: octoverse
+          POSTGRES_USER: everselife
+          POSTGRES_PASSWORD: everselife
+          POSTGRES_DB: everselife
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U octoverse"
+          --health-cmd "pg_isready -U everselife"
           --health-interval 5s
           --health-timeout 3s
           --health-retries 20
     env:
-      OCTOVERSE_DATABASE_URL: postgresql+asyncpg://octoverse:octoverse@localhost:5432/octoverse
-      OCTOVERSE_MIGRATED_DATABASE_URL: postgresql+asyncpg://octoverse:octoverse@localhost:5432/octoverse
-      OCTOVERSE_TEST_DATABASE_URL: postgresql+asyncpg://octoverse:octoverse@localhost:5432/octoverse_test
+      EVERSELIFE_DATABASE_URL: postgresql+asyncpg://everselife:everselife@localhost:5432/everselife
+      EVERSELIFE_MIGRATED_DATABASE_URL: postgresql+asyncpg://everselife:everselife@localhost:5432/everselife
+      EVERSELIFE_TEST_DATABASE_URL: postgresql+asyncpg://everselife:everselife@localhost:5432/everselife_test
     defaults:
       run:
         working-directory: backend
@@ -63,8 +63,8 @@ jobs:
 
       - name: Test database
         env:
-          PGPASSWORD: octoverse
-        run: psql -h localhost -U octoverse -d postgres -c 'CREATE DATABASE octoverse_test'
+          PGPASSWORD: everselife
+        run: psql -h localhost -U everselife -d postgres -c 'CREATE DATABASE everselife_test'
 
       - name: Lint
         run: uv run ruff check .
@@ -132,8 +132,8 @@ jobs:
           file: backend/Dockerfile
           push: true
           tags: |
-            ghcr.io/${{ github.repository_owner }}/octoverse-backend:latest
-            ghcr.io/${{ github.repository_owner }}/octoverse-backend:${{ github.sha }}
+            ghcr.io/${{ github.repository_owner }}/everselife-backend:latest
+            ghcr.io/${{ github.repository_owner }}/everselife-backend:${{ github.sha }}
           cache-from: type=gha,scope=backend
           cache-to: type=gha,scope=backend,mode=max
 
@@ -143,8 +143,8 @@ jobs:
           context: frontend
           push: true
           tags: |
-            ghcr.io/${{ github.repository_owner }}/octoverse-frontend:latest
-            ghcr.io/${{ github.repository_owner }}/octoverse-frontend:${{ github.sha }}
+            ghcr.io/${{ github.repository_owner }}/everselife-frontend:latest
+            ghcr.io/${{ github.repository_owner }}/everselife-frontend:${{ github.sha }}
           cache-from: type=gha,scope=frontend
           cache-to: type=gha,scope=frontend,mode=max
 
@@ -154,8 +154,8 @@ jobs:
           context: landing
           push: true
           tags: |
-            ghcr.io/${{ github.repository_owner }}/octoverse-landing:latest
-            ghcr.io/${{ github.repository_owner }}/octoverse-landing:${{ github.sha }}
+            ghcr.io/${{ github.repository_owner }}/everselife-landing:latest
+            ghcr.io/${{ github.repository_owner }}/everselife-landing:${{ github.sha }}
           cache-from: type=gha,scope=landing
           cache-to: type=gha,scope=landing,mode=max
 
@@ -174,7 +174,7 @@ jobs:
       SSH_HOST: ${{ secrets.DEPLOY_HOST }}
       SSH_USER: ${{ secrets.DEPLOY_USER }}
       SSH_PORT: ${{ secrets.DEPLOY_PORT || '22' }}
-      DIR: ${{ vars.DEPLOY_PATH || '/opt/octoverse' }}
+      DIR: ${{ vars.DEPLOY_PATH || '/opt/everselife' }}
       # The deploy channel webhook. Declared at job level because the step
       # checks it in its own `if`, and only `env` is visible there.
       DISCORD_HOOK: ${{ secrets.DISCORD_DEPLOY_WEBHOOK }}

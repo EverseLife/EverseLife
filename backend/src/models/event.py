@@ -97,6 +97,8 @@ class EventKind(StrEnum):
     #: The work froze or went on: the master left the machine or came back (D-209).
     CRAFT_PAUSED = "craft.paused"
     CRAFT_RESUMED = "craft.resumed"
+    #: A batch whose job died was swept away and what went into it came back (D-217).
+    CRAFT_ABANDONED = "craft.abandoned"
     #: An attempt to make something without a recipe: what was laid out and
     #: whether it came together (D-064, D-209).
     CRAFT_INVENTED = "craft.invented"

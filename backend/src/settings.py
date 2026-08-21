@@ -8,7 +8,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_prefix="OCTOVERSE_",
+        env_prefix="EVERSELIFE_",
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
@@ -17,9 +17,9 @@ class Settings(BaseSettings):
     #: The game-design vault's `build/` directory. The engine never reads the
     #: vault's Markdown -- only this directory (vault CLAUDE.md). The path is
     #: relative to `backend/`, and the vault lies next to the game repo, hence two steps up.
-    vault_build: Path = Path("../../octoverse-game-design/build")
+    vault_build: Path = Path("../../everselife-vault/build")
 
-    database_url: str = "postgresql+asyncpg://octoverse:octoverse@localhost:5432/octoverse"
+    database_url: str = "postgresql+asyncpg://everselife:everselife@localhost:5432/everselife"
     redis_url: str = "redis://localhost:6379/0"
 
     #: How many journal jobs the worker takes per pass.

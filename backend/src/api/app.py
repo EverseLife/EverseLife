@@ -55,7 +55,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 def create_app() -> FastAPI:
     app = FastAPI(
-        title="OctoVerse",
+        title="Everse.Life",
         version="0.0.1",
         lifespan=lifespan,
         description=(

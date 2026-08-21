@@ -91,7 +91,7 @@ from src.models.craft import BatchKind, BatchState, CraftBatch
 from src.models.event import EventKind
 from src.models.identity import Body, BodyState, Identity, Knowledge, KnowledgeKind
 from src.models.inventory import Container, Item
-from src.models.job import Job, JobKind
+from src.models.job import Job, JobKind, JobState
 from src.models.world import Node
 from src.units import (
     MINUTES_PER_HOUR,
@@ -1641,6 +1641,104 @@ async def wake(
         if await _run(session, batch, body, moment):
             return batch
     return None
+
+
+async def sweep_orphans(session: AsyncSession) -> int:
+    """Cancel batches whose finishing job is gone, and give back what went in (D-217).
+
+    A batch is the one work whose end lives entirely in a journal job. While
+    the job is there everything holds: close the tab and the batch still
+    arrives. When the job **disappears** -- retries exhausted on a defect, a
+    hand in the database, a job that never got queued -- nothing happens at
+    all. The batch stays "running" for ever, and that is not cosmetic: the body
+    counts as busy (D-211) and can start nothing else, while the materials are
+    already written off. It was found on the live world, where one master had
+    been unable to take up anything for nine days.
+
+    **State is what is checked, not time.** A job still waiting its hour means
+    a healthy batch, however long the wait; only an absent, failed or cancelled
+    job means nobody is coming. And a `waiting` batch is never an orphan: it has
+    no job by design -- it is queued or frozen while the master is away (D-209).
+    """
+    alive = (
+        select(Job.dedup_key)
+        .where(
+            Job.dedup_key == _batch_key(CraftBatch.id, CraftBatch.runs),
+            Job.state.in_((JobState.PENDING, JobState.RUNNING)),
+        )
+        .exists()
+    )
+    orphans = (
+        await session.execute(
+            select(CraftBatch).where(CraftBatch.state == BatchState.RUNNING, ~alive)
+        )
+    ).scalars().all()
+    for batch in orphans:
+        await _abandon(session, batch)
+    return len(orphans)
+
+
+def _batch_key(batch_id, runs):
+    """The job key of a batch's current run, as SQL.
+
+    The first run keeps the plain key it always had; a resumed one carries its
+    number, so that the two runs are two job rows and not one (D-209).
+    """
+    from sqlalchemy import String as SqlString
+    from sqlalchemy import case, cast, literal
+
+    plain = literal("craft.batch:") + cast(batch_id, SqlString)
+    return case((runs == 1, plain), else_=plain + literal(":") + cast(runs, SqlString))
+
+
+async def _abandon(session: AsyncSession, batch: CraftBatch) -> None:
+    """Give the batch back to the master and close it as cancelled."""
+    from src.engine import goods
+
+    catalog = current_catalog()
+    body = await session.get(Body, batch.body_id)
+    node = await session.get(Node, batch.node_id)
+    if body is None or node is None:  # pragma: no cover -- a batch into nowhere
+        batch.state = BatchState.CANCELLED
+        await session.flush()
+        return
+
+    #: Where the product would have gone (D-209): into the hands of a master
+    #: standing at the machine, otherwise beside it. Matter does not travel
+    #: after whoever walked away.
+    at_bench = body.state is BodyState.ALIVE and body.node_id == batch.node_id
+    where = (
+        await body_container(session, body) if at_bench else await node_container(session, node)
+    )
+
+    returned: dict[str, float] = {}
+    for name, value in (batch.spent or {}).items():
+        #: A return is whole pieces, rounded down, like every return (D-212).
+        back = goods.whole(name, float(value), catalog=catalog)
+        if back <= 0:
+            continue
+        await world_engine.grant_item(
+            session, where, name, amount=back, quality=float(batch.quality),
+            origin=f"партия «{batch.output}» отменена: задания не стало",
+        )
+        returned[name] = back
+
+    await _release(session, batch.station_item_id)
+    batch.station_item_id = None
+    batch.state = BatchState.CANCELLED
+    batch.finished_at = datetime.now(UTC)
+    await session.flush()
+    await events.record(
+        session,
+        EventKind.CRAFT_ABANDONED,
+        actor_identity_id=body.identity_id,
+        node_id=batch.node_id,
+        batch_id=str(batch.id),
+        output=batch.output,
+        returned=returned,
+    )
+    #: The machine came free -- whoever queued behind it moves up (D-209).
+    await wake_node(session, node)
 
 
 async def wake_node(session: AsyncSession, node: Node, *, now: datetime | None = None) -> None:

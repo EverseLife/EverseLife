@@ -6,10 +6,10 @@
 
 | Лента | Кто пишет | Настройка |
 |---|---|---|
-| Хроника мира → `#хроника` | воркер игры, `backend/src/herald/` | `OCTOVERSE_DISCORD_WEBHOOK` в `/opt/octoverse/.env` |
+| Хроника мира → `#хроника` | воркер игры, `backend/src/herald/` | `EVERSELIFE_DISCORD_WEBHOOK` в `/opt/everselife/.env` |
 | Заявки на бету → `#заявки` | лендинг, `landing/app.py` | `LANDING_DISCORD_WEBHOOK` там же |
 | Выкладки → `#выкладки` | CI, `.github/workflows/ci.yml` | секрет `DISCORD_DEPLOY_WEBHOOK` на GitHub |
-| Тревоги сервера → `#инциденты` | Grafana, `deploy/grafana/provisioning/alerting/` | `GRAFANA_DISCORD_WEBHOOK` в `/opt/octoverse/.env` |
+| Тревоги сервера → `#инциденты` | Grafana, `deploy/grafana/provisioning/alerting/` | `GRAFANA_DISCORD_WEBHOOK` в `/opt/everselife/.env` |
 
 Ни в одном случае бот в Discord не нужен: четыре вебхука, каждый умеет писать
 ровно в свой канал и ничего больше.
@@ -32,8 +32,8 @@
 ## 2. Включить на сервере
 
 ```bash
-cd /opt/octoverse
-nano .env       # OCTOVERSE_DISCORD_WEBHOOK, LANDING_DISCORD_WEBHOOK, GRAFANA_DISCORD_WEBHOOK
+cd /opt/everselife
+nano .env       # EVERSELIFE_DISCORD_WEBHOOK, LANDING_DISCORD_WEBHOOK, GRAFANA_DISCORD_WEBHOOK
 docker compose up -d --force-recreate worker landing grafana
 ```
 
@@ -73,7 +73,7 @@ lines` — отнёс.
 **Задание идёт** — в базе всегда стоит ровно одно будущее звено:
 
 ```bash
-docker compose exec postgres psql -U octoverse -d octoverse \
+docker compose exec postgres psql -U everselife -d everselife \
   -c "select state, run_at, payload from job where kind='herald.post' order by run_at desc limit 3"
 ```
 

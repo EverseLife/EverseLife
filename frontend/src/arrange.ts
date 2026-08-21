@@ -152,7 +152,7 @@ export function orderGroups(keys: string[], by: Grouping, things: Thing[]): stri
   return [...keys].sort((a, b) => a.localeCompare(b, "ru"));
 }
 
-const STORE = "octoverse.inventory.arrange";
+const STORE = "everselife.inventory.arrange";
 
 /** The player's last choice of axes, if any. */
 export function remembered(): { group: Grouping; sort: Sorting; desc: boolean } {

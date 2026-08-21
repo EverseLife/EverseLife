@@ -1,7 +1,7 @@
 [project]
-name = "octoverse-server"
+name = "everselife-server"
 version = "0.0.1"
-description = "OctoVerse game server"
+description = "Everse.Life game server"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115",

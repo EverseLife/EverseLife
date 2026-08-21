@@ -96,7 +96,7 @@ from src.models.world import Edge, Layer, Node, Planet, Surface
 from src.settings import settings
 from src.units import PERCENT, money
 
-log = logging.getLogger("octoverse.seed")
+log = logging.getLogger("everselife.seed")
 
 CORE = "terra.capital.core"
 #: The capital's spaceport: the city's second door (D-206). A node, because
@@ -139,14 +139,14 @@ NEWCOMER_GRANT = "120"
 #: are changed from the account panel.
 FOUNDERS = {
     "Тэрн": {
-        "email": "tern@octoverse.world",
+        "email": "tern@everse.life",
         "password": "tern-terra-2026",
         "surname": "Первопечатный",
         "age": 34,
         "about": "Шахтёр и основатель столицы: первый, кого напечатала машина.",
     },
     "Хём": {
-        "email": "hem@octoverse.world",
+        "email": "hem@everse.life",
         "password": "hem-terra-2026",
         "surname": "Торговый",
         "age": 29,

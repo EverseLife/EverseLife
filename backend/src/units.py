@@ -2,7 +2,7 @@
 
 Only quantities defining **how we store and compute** live here, not **how
 much something costs in the game**. Any number affecting balance must lie in
-`build/constants.json` (D-065) and come through `octoverse.constants`.
+`build/constants.json` (D-065) and come through `everselife.constants`.
 
 That is exactly why the module is excluded from the magic-number check
 (`tests/test_no_magic_numbers.py`): numbers from here cannot be "balanced".

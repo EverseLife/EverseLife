@@ -20,8 +20,8 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from src.models import Base
 
 MIGRATED_URL = os.environ.get(
-    "OCTOVERSE_MIGRATED_DATABASE_URL",
-    "postgresql+asyncpg://octoverse:octoverse@localhost:5432/octoverse",
+    "EVERSELIFE_MIGRATED_DATABASE_URL",
+    "postgresql+asyncpg://everselife:everselife@localhost:5432/everselife",
 )
 
 

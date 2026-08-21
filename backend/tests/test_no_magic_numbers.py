@@ -58,5 +58,5 @@ def test_no_balance_numbers_in_rules(path: Path) -> None:
         f"{path.relative_to(SRC)}: числа в коде правил — "
         + ", ".join(f"строка {line}: {value}" for line, value in offenders)
         + ". Балансное число живёт в data/constants.yaml вольта и приходит "
-        "через octoverse.constants (D-065)"
+        "через everselife.constants (D-065)"
     )

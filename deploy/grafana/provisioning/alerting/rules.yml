@@ -5,7 +5,7 @@ apiVersion: 1
 groups:
   - orgId: 1
     name: server
-    folder: OctoVerse
+    folder: Everse.Life
     interval: 1m
     rules:
       # Disk is the quiet killer: Postgres stops writing, and the world stands.
@@ -125,7 +125,7 @@ groups:
             model:
               refId: QUERY
               instant: true
-              expr: min(time() - container_start_time_seconds{name=~"octoverse-(backend|worker|postgres|caddy)-1"})
+              expr: min(time() - container_start_time_seconds{name=~"everselife-(backend|worker|postgres|caddy)-1"})
           - refId: THRESHOLD
             datasourceUid: __expr__
             model:

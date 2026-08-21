@@ -2,7 +2,7 @@
 # together with the code the vault snapshot (`vault/`) goes into the image,
 # otherwise the engine has nothing to compute the world with.
 #
-#   docker build -f backend/Dockerfile -t octoverse-backend .
+#   docker build -f backend/Dockerfile -t everselife-backend .
 #
 # One image for three roles -- API, worker, migrations: they differ only by
 # command, and they may not diverge in version.
@@ -29,7 +29,7 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PATH="/app/.venv/bin:$PATH" \
     # The vault build directory. The engine never reads the vault's Markdown.
-    OCTOVERSE_VAULT_BUILD=/vault
+    EVERSELIFE_VAULT_BUILD=/vault
 
 WORKDIR /app
 
@@ -43,9 +43,9 @@ COPY backend/alembic.ini ./alembic.ini
 COPY vault /vault
 
 # The server has no reason to run as root: it reads the vault and talks to the database.
-RUN useradd --system --create-home --uid 10001 octoverse \
-    && chown -R octoverse:octoverse /app
-USER octoverse
+RUN useradd --system --create-home --uid 10001 everselife \
+    && chown -R everselife:everselife /app
+USER everselife
 
 EXPOSE 8000
 

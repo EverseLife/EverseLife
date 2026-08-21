@@ -18,7 +18,7 @@
       "runtimeExecutable": "powershell",
       "runtimeArgs": [
         "-Command",
-        "$env:LANDING_DB = Join-Path $env:TEMP 'octoverse-landing-signups.db'; if (-not $env:PORT) { $env:PORT = '8123' }; & '../backend/.venv/Scripts/python.exe' -m uvicorn app:app --port $env:PORT"
+        "$env:LANDING_DB = Join-Path $env:TEMP 'everselife-landing-signups.db'; if (-not $env:PORT) { $env:PORT = '8123' }; & '../backend/.venv/Scripts/python.exe' -m uvicorn app:app --port $env:PORT"
       ],
       "cwd": "landing",
       "port": 8123,
@@ -66,7 +66,7 @@
       "name": "vault-editor",
       "runtimeExecutable": "backend/.venv/Scripts/python.exe",
       "runtimeArgs": [
-        "../octoverse-game-design/editor/server.py",
+        "../everselife-vault/editor/server.py",
         "--port",
         "8766",
         "--no-browser"

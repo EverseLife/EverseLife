@@ -1,9 +1,9 @@
 {
-  "uid": "octoverse-server",
+  "uid": "everselife-server",
   "title": "Сервер альфы",
   "description": "Нагрузка, память, место на диске, службы и база. Собирается Prometheus, панели заводятся файлом — правки в интерфейсе не сохраняются.",
   "tags": [
-    "octoverse"
+    "everselife"
   ],
   "timezone": "browser",
   "schemaVersion": 39,
@@ -788,7 +788,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(pg_stat_activity_count{datname=\"octoverse\"})",
+          "expr": "sum(pg_stat_activity_count{datname=\"everselife\"})",
           "refId": "A",
           "instant": true
         }
@@ -842,7 +842,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "pg_database_size_bytes{datname=\"octoverse\"}",
+          "expr": "pg_database_size_bytes{datname=\"everselife\"}",
           "refId": "A",
           "instant": true
         }
@@ -896,7 +896,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "pg_stat_activity_count{datname=\"octoverse\"}",
+          "expr": "pg_stat_activity_count{datname=\"everselife\"}",
           "refId": "A",
           "legendFormat": "{{state}}"
         }

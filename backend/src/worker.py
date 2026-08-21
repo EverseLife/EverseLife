@@ -24,7 +24,7 @@ from src.engine.jobs import require_handlers, run_due
 from src.runtime import WORKER_IDLE_SLEEP
 from src.settings import settings
 
-log = logging.getLogger("octoverse.worker")
+log = logging.getLogger("everselife.worker")
 
 
 async def main() -> None:

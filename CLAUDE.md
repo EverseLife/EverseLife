@@ -1,4 +1,4 @@
-# OctoVerse — правила для Claude
+# Everse.Life — правила для Claude
 
 ## Язык кода: только ASCII
 
@@ -27,10 +27,10 @@
   `Get-CimInstance Win32_Process -Filter "Name='python.exe'"` и отфильтруй по
   `*pytest*`. Чужой процесс не убивать.
 - **Своя база вместо очереди.** `tests/conftest.py` читает
-  `OCTOVERSE_TEST_DATABASE_URL`, так что достаточно завести отдельную базу и
+  `EVERSELIFE_TEST_DATABASE_URL`, так что достаточно завести отдельную базу и
   передавать её в той же команде (переменные окружения между вызовами не
   сохраняются):
-  `$env:OCTOVERSE_TEST_DATABASE_URL='postgresql+asyncpg://octoverse:octoverse@localhost:5432/octoverse_test_b'; .venv/Scripts/python.exe -m pytest -q`
+  `$env:EVERSELIFE_TEST_DATABASE_URL='postgresql+asyncpg://everselife:everselife@localhost:5432/everselife_test_b'; .venv/Scripts/python.exe -m pytest -q`
   Под `-n` к имени добавляется работник (`..._b_gw0`), и такие базы заводятся
   сами — своё имя базы нужно всё равно, иначе две сессии сойдутся на `gw0`.
 - **Рабочее дерево.** `git stash` из соседней сессии откатывает файлы под чужим

@@ -1,7 +1,7 @@
 """Rebuild the game-design vault and refresh the snapshot in `vault/`.
 
     python deploy/sync-vault.py
-    python deploy/sync-vault.py --vault D:\\path\\to\\octoverse-game-design
+    python deploy/sync-vault.py --vault D:\\path\\to\\everselife-vault
     python deploy/sync-vault.py --no-build
 
 Numbers are edited only in the vault (D-065). Here -- carrying the build output
@@ -30,8 +30,8 @@ SNAPSHOT = ("constants.json", "laws.json", "plants.json", "recipes.json")
 
 def default_vault() -> Path:
     """Where the vault lies: told by the environment, or next to this repository."""
-    told = os.environ.get("OCTOVERSE_VAULT")
-    return Path(told).expanduser() if told else REPO.parent / "octoverse-game-design"
+    told = os.environ.get("EVERSELIFE_VAULT")
+    return Path(told).expanduser() if told else REPO.parent / "everselife-vault"
 
 
 def build(vault: Path) -> int:

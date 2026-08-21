@@ -44,15 +44,15 @@ BACKEND = Path(__file__).resolve().parents[1]
 #: The vault lies next to the game repo, and the server in its `backend/` subdirectory.
 VAULT_BUILD = Path(
     os.environ.get(
-        "OCTOVERSE_VAULT_BUILD", BACKEND / ".." / ".." / "octoverse-game-design" / "build"
+        "EVERSELIFE_VAULT_BUILD", BACKEND / ".." / ".." / "everselife-vault" / "build"
     )
 )
 
 #: The test database. If it is absent, tests that need it are skipped, and
 #: pure logic is checked anyway.
 BASE_DATABASE_URL = os.environ.get(
-    "OCTOVERSE_TEST_DATABASE_URL",
-    "postgresql+asyncpg://octoverse:octoverse@localhost:5432/octoverse_test",
+    "EVERSELIFE_TEST_DATABASE_URL",
+    "postgresql+asyncpg://everselife:everselife@localhost:5432/everselife_test",
 )
 
 #: Under `pytest -n` every worker gets a database of its own: the suite empties

@@ -4,9 +4,9 @@
 apiVersion: 1
 
 providers:
-  - name: octoverse
+  - name: everselife
     orgId: 1
-    folder: OctoVerse
+    folder: Everse.Life
     type: file
     disableDeletion: false
     allowUiUpdates: false

@@ -24,7 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import current, current_catalog
 from src.constants import registry as R
-from src.engine import bank, chat, energy, events, food, panel, rig, road, wear
+from src.engine import bank, chat, craft, energy, events, food, panel, rig, road, wear
 from src.engine.jobs import enqueue, handler
 from src.models.event import EventKind
 from src.models.job import Job, JobKind
@@ -81,6 +81,10 @@ async def world_tick(session: AsyncSession, job: Job) -> None:
     #: The rig does not sleep either: it burns coal, fills the hopper and eats
     #: the vein while the owner is busy elsewhere (D-115). A full hopper stops it.
     mined = await rig.tick_rigs(session, current(), now=now)
+    #: A batch whose job died would otherwise stay "running" for ever, and its
+    #: master would count as busy for ever with it (D-211, D-217). The world
+    #: sweeps such work away and gives back what went into it.
+    abandoned = await craft.sweep_orphans(session)
     await events.record(
         session,
         EventKind.TICK_RAN,
@@ -89,6 +93,7 @@ async def world_tick(session: AsyncSession, job: Job) -> None:
         chat_swept=swept,
         energy_produced=produced,
         rig_mined=mined,
+        batches_abandoned=abandoned,
     )
     #: To come here: wear by time, order expiry. Batches do not wait for the
     #: tick -- each arrives by its own job at its own time.

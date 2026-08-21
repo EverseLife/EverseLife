@@ -585,7 +585,7 @@ wheels = [
 ]
 
 [[package]]
-name = "octoverse-server"
+name = "everselife-server"
 version = "0.0.1"
 source = { editable = "." }
 dependencies = [

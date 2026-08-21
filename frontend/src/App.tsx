@@ -1,5 +1,5 @@
 /**
- * The OctoVerse alpha client.
+ * The Everse.Life alpha client.
  *
  * The layout is four permanent zones (D-050):
  *

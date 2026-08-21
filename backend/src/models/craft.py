@@ -34,6 +34,11 @@ class BatchState(StrEnum):
     #: to do is in `remaining_seconds`.
     WAITING = "waiting"
     DONE = "done"
+    #: Swept away by the world: the job that was to finish it is gone, so
+    #: nothing ever would (D-217). What was written off came back. Kept apart
+    #: from `done` on purpose -- a cancelled batch produced nothing, and the
+    #: journal must not read as though it had.
+    CANCELLED = "cancelled"
 
 
 class BatchKind(StrEnum):

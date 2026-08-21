@@ -40,7 +40,7 @@ export type Digest = { at: string; attention: Needs[]; happened: Happened[] };
 
 /** When we last looked. Kept on the client: the server has no business
  *  remembering how attentive somebody is. */
-const SEEN = "octoverse.seen";
+const SEEN = "everselife.seen";
 
 export function lastSeen(): string | null {
   try {

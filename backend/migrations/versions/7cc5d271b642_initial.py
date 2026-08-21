@@ -211,7 +211,7 @@ def upgrade() -> None:
     # ### end Alembic commands ###
 
     # Rules the database itself holds: posting balance and journal immutability.
-    # The SQL is taken from octoverse.db.ddl -- no second copy exists.
+    # The SQL is taken from everselife.db.ddl -- no second copy exists.
 
     for statement in ddl.statements():
         op.execute(statement)

@@ -57,10 +57,10 @@ LANDING_DB=./signups.db uvicorn app:app --port 8080
 ## В бою
 
 Служба `landing` в `deploy/compose.yaml`, образ собирает CI
-(`octoverse-landing`). Домен включается на сервере один раз:
+(`everselife-landing`). Домен включается на сервере один раз:
 
 1. A-запись `everse.life` → адрес сервера;
-2. `LANDING_DOMAIN=everse.life` в `/opt/octoverse/.env`;
+2. `LANDING_DOMAIN=everse.life` в `/opt/everselife/.env`;
 3. `docker compose up -d --force-recreate caddy`.
 
 Пока `LANDING_DOMAIN` не задан, Caddy держит лендинг на внутреннем имени

@@ -83,7 +83,7 @@ def cheap_pow(constants: Constants) -> Constants:
 
 @pytest.fixture
 def client(miner, monkeypatch):
-    monkeypatch.setenv("OCTOVERSE_DATABASE_URL", TEST_DATABASE_URL)
+    monkeypatch.setenv("EVERSELIFE_DATABASE_URL", TEST_DATABASE_URL)
 
     from src.db import base as db_base
     from src.settings import settings

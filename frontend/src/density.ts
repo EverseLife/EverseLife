@@ -26,7 +26,7 @@ import { useSyncExternalStore } from "react";
 export const DENSITIES = ["plain", "normal", "dense"] as const;
 export type Density = (typeof DENSITIES)[number];
 
-const KEY = "octoverse.density";
+const KEY = "everselife.density";
 const DEFAULT: Density = "normal";
 
 const listeners = new Set<() => void>();
