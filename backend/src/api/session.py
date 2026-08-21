@@ -506,6 +506,10 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
         #: Disconnected for non-payment: machines do not work, and the player
         #: must see that at once, otherwise the meter becomes a trap (D-149).
         "cut_off": await utility.cut_off(db, node),
+        #: Whose bill the household of this node is: `owner`, `city`, `nobody`,
+        #: or empty outside the grid. Ownership alone does not answer it -- a
+        #: bought plot stays civic land yet is paid for by a person (D-149).
+        "upkeep": await utility.payer_of(db, node),
         "area": float(node.area_m2),
     }
     #: Building and capacity: a machine takes area (D-106), and the player must
@@ -943,6 +947,21 @@ async def _land_buy(state: dict, db: AsyncSession, message: dict) -> dict:
         "paid": deed.paid,
         "money": await _money(db, state["identity_id"]),
     }
+
+
+async def _land_cede(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Hand your plot back to the city: from now on the treasury maintains it.
+
+    The mirror of `land.buy` and `city.allot`, and it stands in the same place
+    as they do -- at the plot. Nothing is paid back: a plot is given up, not
+    sold back (D-089, D-149).
+    """
+    body = await _alive(state, db)
+    node = await db.get(Node, body.node_id)
+    if node is None:  # pragma: no cover
+        raise Refused("тело вне узла")
+    city = await town.cede(db, body, node)
+    return {"ceded": node.key, "city": city.name}
 
 
 async def _land_rename(state: dict, db: AsyncSession, message: dict) -> dict:
@@ -2992,6 +3011,7 @@ _COMMANDS = {
     "rig.status": _rig_status,
     "rig.empty": _rig_empty,
     "land.buy": _land_buy,
+    "land.cede": _land_cede,
     "land.rename": _land_rename,
     "build.construct": _build_construct,
     "build.estimate": _build_estimate,

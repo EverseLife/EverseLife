@@ -76,7 +76,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import events, ledger, travel
+from src.engine import events, ledger, travel, world
 from src.engine.jobs import enqueue, handler
 from src.engine.world import body_container, node_container
 from src.models.event import EventKind
@@ -1131,30 +1131,31 @@ async def _move(
         take = min(left, item.amount)
         if take == item.amount:
             item.container_id = target.id
+            await world.stack_up(session, item)
         else:
             #: The split-off part is the same thing: same mark, shelf life, dish
             #: kind and fineness. Losing them when splitting a stack would
             #: depersonalise the goods on the counter.
 
             item.amount -= take
-            session.add(
-                Item(
-                    container_id=target.id,
-                    type_key=item.type_key,
-                    amount=take,
-                    quality=item.quality,
-                    condition=item.condition,
-                    condition_cap=item.condition_cap,
-                    maker_identity_id=item.maker_identity_id,
-                    made_at=item.made_at,
-                    made_node_id=item.made_node_id,
-                    spoils_at=item.spoils_at,
-                    flavor=item.flavor,
-                    roles_filled=item.roles_filled,
-                    fineness=item.fineness,
-                    recipe_key=item.recipe_key,
-                )
+            sold = Item(
+                container_id=target.id,
+                type_key=item.type_key,
+                amount=take,
+                quality=item.quality,
+                condition=item.condition,
+                condition_cap=item.condition_cap,
+                maker_identity_id=item.maker_identity_id,
+                made_at=item.made_at,
+                made_node_id=item.made_node_id,
+                spoils_at=item.spoils_at,
+                flavor=item.flavor,
+                roles_filled=item.roles_filled,
+                fineness=item.fineness,
+                recipe_key=item.recipe_key,
             )
+            session.add(sold)
+            await world.stack_up(session, sold)
         left -= take
     await session.flush()
     return quantity - left

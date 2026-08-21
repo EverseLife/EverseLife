@@ -358,6 +358,9 @@ export function Plot({ look, session }: Omit<Props, "busy" | "act" | "book">) {
   const { busy, act } = acting;
   const node = look.node;
   const [name, setName] = useState("");
+  //: Handing a plot over is asked twice: the deed is cancelled by it, and the
+  //: way back is a purchase at the price list.
+  const [giving, setGiving] = useState(false);
   if (!node) return null;
 
   //: Same three cases as the old purchase window: nobody's city land with a
@@ -365,6 +368,19 @@ export function Plot({ look, session }: Omit<Props, "busy" | "act" | "book">) {
   const forSale = !node.owner && (Boolean(node.wild) || node.price !== null);
   const owned = Boolean(node.owner || node.owner_city);
   if (!forSale && !owned) return null;
+
+  //: Who the meter is charged to (D-149). Ownership does not answer it by
+  //: itself: a bought plot stays civic land, yet its bill is a person's.
+  const upkeep =
+    node.upkeep === "owner"
+      ? "За электричество здесь платите вы: счёт идёт с площади раз в период."
+      : node.upkeep === "city"
+        ? `Узел содержит город${node.owner_city ? ` ${node.owner_city}` : ""}: энергия уходит из городского пула, деньгами счёт не выставляется.`
+        : node.upkeep === "nobody"
+          ? "Счётчика здесь нет: у узла нет хозяина, и выставлять счёт некому."
+          : node.owner || node.owner_city
+            ? "Городской сети здесь нет: счёта за электричество не бывает, работают от аккумулятора."
+            : null;
 
   const whose = node.mine
     ? "ваш участок"
@@ -384,6 +400,39 @@ export function Plot({ look, session }: Omit<Props, "busy" | "act" | "book">) {
         {node.gated && " · закрыта для входа"}
         {node.cut_off && " · отключена за неуплату"}
       </p>
+      {upkeep && <p className="note">{upkeep}</p>}
+      {/* Only civic land is handed over: a ship's cabin is owned too, and there
+          is no city under it to take it. */}
+      {node.mine && node.owner_city && (
+        giving ? (
+          <div className="row">
+            <button onClick={() => act(async () => {
+              await session.send("land.cede");
+              setGiving(false);
+            })} disabled={busy}>
+              Да, передать городу
+            </button>
+            <button onClick={() => setGiving(false)} disabled={busy}>
+              Отмена
+            </button>
+            <span className="note">
+              Бумага на землю погашается, участок станет городским. Вернуть его
+              можно только выкупом по прейскуранту — как любой другой.
+            </span>
+          </div>
+        ) : (
+          <div className="row">
+            <button onClick={() => setGiving(true)} disabled={busy}>
+              Передать городу
+            </button>
+            <span className="note">
+              Счётчик перейдёт на казну: городской узел жжёт энергию из пула, и
+              деньгами за него никто не платит. Оборудование останется на месте,
+              но распоряжаться им будет власть, а не вы.
+            </span>
+          </div>
+        )
+      )}
       {forSale &&
         (node.wild ? (
           <p className="note">

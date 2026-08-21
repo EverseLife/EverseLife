@@ -116,6 +116,7 @@ const SAID: Record<string, string> = {
   "transport.broke": "повозка разбилась",
   "road.laid": "дорога уложена",
   "deed.sold": "бумага продана",
+  "land.ceded": "участок передан городу",
   "city.grant_paid": "подъёмные выплачены",
 };
 

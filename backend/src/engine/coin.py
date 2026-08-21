@@ -46,7 +46,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import Catalog, ConstantError, Constants
 from src.constants import registry as R
 from src.constants.catalog import ItemKind
-from src.engine import events, travel, wear
+from src.engine import events, travel, wear, world
 from src.engine.world import body_container
 from src.models.craft import BatchKind, CraftBatch
 from src.models.event import EventKind
@@ -329,14 +329,14 @@ async def finish_melt(
     #: a history.
 
     scale = constants[R.QUALITY_SCALE]
-    session.add(
-        Item(
-            container_id=where.id,
-            type_key=metal,
-            amount=amount(returned),
-            quality=Decimal(str(scale.mid)),
-        )
+    molten = Item(
+        container_id=where.id,
+        type_key=metal,
+        amount=amount(returned),
+        quality=Decimal(str(scale.mid)),
     )
+    session.add(molten)
+    await world.stack_up(session, molten)
     await events.record(
         session,
         EventKind.ITEM_CONSUMED,

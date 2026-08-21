@@ -257,14 +257,14 @@ async def empty_hopper(
         wear.effective(constants, machine),
     )
     pocket = await world.body_container(session, body)
-    session.add(
-        Item(
-            container_id=pocket.id,
-            type_key=vein.resource if vein else FUEL,
-            amount=amount(taken),
-            quality=Decimal(str(quality)),
-        )
+    emptied = Item(
+        container_id=pocket.id,
+        type_key=vein.resource if vein else FUEL,
+        amount=amount(taken),
+        quality=Decimal(str(quality)),
     )
+    session.add(emptied)
+    await world.stack_up(session, emptied)
     rig.hopper = Decimal(0)
     await session.flush()
 

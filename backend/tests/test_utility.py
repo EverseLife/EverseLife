@@ -17,12 +17,14 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants
 from src.constants import registry as R
+from src.engine import access, craft, energy, estate, ledger, utility, world
 from src.engine import city as town
-from src.engine import craft, energy, ledger, utility, world
+from src.models.estate import Deed
 from src.models.ledger import AccountKind, PostingReason
 from src.models.world import Layer
 from src.units import money
@@ -241,3 +243,137 @@ async def test_holdings_show_own_nodes(
     assert own_items[0]["node"] == home.key
     assert own_items[0]["grid"] is True
     assert own_items[0]["cost_per_period"] > 0
+
+
+async def test_payer_of_reads_the_three_lines(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Who the bill belongs to, from the outside: holder, city, nobody, no grid."""
+    _, _, home = await _city(session, catalog)
+    assert await utility.payer_of(session, home) == utility.PAYER_CITY
+
+    owner, _ = await _resident(session, home, "Хозяин")
+    home.owner_identity_id = owner.id
+    await session.flush()
+    assert await utility.payer_of(session, home) == utility.PAYER_OWNER
+
+    home.owner_identity_id = None
+    home.owner_city_id = None
+    await session.flush()
+    assert await utility.payer_of(session, home) == utility.PAYER_NOBODY
+
+    outside = await world.create_node(
+        session, f"terra.wild.{uuid.uuid4().hex[:8]}", "Пойма", area_m2=400,
+        layer=Layer.PLANET,
+    )
+    assert await utility.payer_of(session, outside) is None, "за городом счётчика нет"
+
+
+async def test_cede_moves_the_bill_to_the_city(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """A plot handed back stops being a person's bill and becomes the city's energy."""
+    city, _, home = await _city(session, catalog)
+    owner, body = await _resident(session, home, "Хозяин", funds=100)
+    home.owner_identity_id = owner.id
+    await session.flush()
+    await estate.issue_deed(session, home, owner.id)
+
+    pool = await _pool(session, constants, home, 100_000)
+    meter = await utility.meter_of(session, home)
+    meter.counted_at = _yesterday(constants)
+    await session.flush()
+    assert await utility.bill(session, constants, home) > 0, "пока узел свой — платит хозяин"
+
+    await town.cede(session, body, home)
+
+    assert home.owner_identity_id is None
+    assert home.owner_city_id == city.id, "земля остаётся городской"
+    assert await utility.payer_of(session, home) == utility.PAYER_CITY
+    #: The deed is cancelled: civic land is not traded by deed.
+    assert (
+        await session.execute(select(Deed).where(Deed.node_id == home.id))
+    ).scalar_one_or_none() is None
+
+    treasury_before = await town.treasury_balance(session, city)
+    account = await ledger.account_for(session, AccountKind.IDENTITY, owner.id)
+    money_before = await ledger.balance(session, account.id)
+    stored_before = float(pool.stored)
+
+    meter.counted_at = _yesterday(constants)
+    await session.flush()
+    assert await utility.bill(session, constants, home) == 0, "теперь содержит город"
+    assert await ledger.balance(session, account.id) == money_before, "с бывшего хозяина не берут"
+    assert await town.treasury_balance(session, city) == treasury_before
+    assert float(pool.stored) < stored_before, "город платит энергией, а не монетой"
+
+
+async def test_cede_refuses_a_node_in_debt(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """A debt is not handed over with the ground: it would be a way to write it off."""
+    _, _, home = await _city(session, catalog)
+    owner, body = await _resident(session, home, "Должник")
+    home.owner_identity_id = owner.id
+    await session.flush()
+
+    await _pool(session, constants, home, 100_000)
+    meter = await utility.meter_of(session, home)
+    meter.counted_at = _yesterday(constants)
+    await session.flush()
+    await utility.bill(session, constants, home)
+    assert meter.debt > 0 and meter.cut_off
+
+    with pytest.raises(town.CityError, match="долг"):
+        await town.cede(session, body, home)
+    assert home.owner_identity_id == owner.id
+
+
+async def test_cede_refuses_somebody_elses_plot(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The city is handed one's own: a plot is not given away over the holder's head."""
+    _, _, home = await _city(session, catalog)
+    owner, _ = await _resident(session, home, "Хозяин")
+    stranger, guest = await _resident(session, home, "Гость")
+    home.owner_identity_id = owner.id
+    await session.flush()
+
+    with pytest.raises(town.NotYours):
+        await town.cede(session, guest, home)
+    assert home.owner_identity_id == owner.id
+
+
+async def test_cede_refuses_a_deed_on_the_market(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """A paper up for sale first comes off the auction: the buyer must not pay for nothing."""
+    _, _, home = await _city(session, catalog)
+    owner, body = await _resident(session, home, "Продавец")
+    home.owner_identity_id = owner.id
+    await session.flush()
+    deed = await estate.issue_deed(session, home, owner.id)
+    deed.sale_price = money(10)
+    await session.flush()
+
+    with pytest.raises(town.CityError, match="продаж"):
+        await town.cede(session, body, home)
+    assert home.owner_identity_id == owner.id
+
+
+async def test_cede_takes_the_door_down(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Civic land has no door: a shut gate left on it would be a lock nobody can open."""
+    _, _, home = await _city(session, catalog)
+    owner, body = await _resident(session, home, "Хозяин")
+    stranger, _ = await _resident(session, home, "Гость")
+    home.owner_identity_id = owner.id
+    await session.flush()
+    await access.set_gate(session, home, owner, closed=True)
+    await access.add(session, home, owner, stranger, allowed=False)
+
+    await town.cede(session, body, home)
+
+    assert not home.gated
+    assert await access.may_enter(session, home, stranger.id), "город впускает всякого"

@@ -907,22 +907,26 @@ async def _finish_make(
     for piece in _pieces(catalog, batch.output, units):
         quality = scale.clamp(float(batch.quality) + noise.uniform(-spread, spread))
         made.append(float(batch.fineness) if coin_ else quality)
-        session.add(
-            Item(
-                container_id=where.id,
-                type_key=batch.output,
-                amount=amount(piece),
-                quality=None if coin_ else _num(quality),
-                fineness=batch.fineness,
-                maker_identity_id=body.identity_id,
-                made_at=moment,
-                made_node_id=batch.node_id,
-                spoils_at=spoils_at,
-                flavor=batch.flavor,
-                roles_filled=batch.roles_filled,
-                recipe_key=batch.recipe_key,
-            )
+        fresh = Item(
+            container_id=where.id,
+            type_key=batch.output,
+            amount=amount(piece),
+            quality=None if coin_ else _num(quality),
+            fineness=batch.fineness,
+            maker_identity_id=body.identity_id,
+            made_at=moment,
+            made_node_id=batch.node_id,
+            spoils_at=spoils_at,
+            flavor=batch.flavor,
+            roles_filled=batch.roles_filled,
+            recipe_key=batch.recipe_key,
         )
+        session.add(fresh)
+        #: Loose output joins a stack it is indistinguishable from (D-214) --
+        #: which in practice means an earlier batch of the same hour that came
+        #: out at exactly the same quality. The spread usually sees to it that
+        #: it did not, and then the stacks stay apart, as they should.
+        await world_engine.stack_up(session, fresh)
     return made
 
 
@@ -972,9 +976,11 @@ async def _finish_recycle(
         given = amount(goods.whole(name, per_unit * share, catalog=catalog))
         if given <= 0:
             continue
-        session.add(
-            Item(container_id=where.id, type_key=name, amount=given, quality=_num(back))
+        back_into = Item(
+            container_id=where.id, type_key=name, amount=given, quality=_num(back)
         )
+        session.add(back_into)
+        await world_engine.stack_up(session, back_into)
         returned.append(back)
 
     await events.record(
@@ -2090,18 +2096,9 @@ def _pieces(catalog: Catalog, output: str, units: float) -> list[float]:
     Raw material stacks, products do not (04-items), and every product has its
     own spread roll -- because each has its own mark and quality (D-058).
     """
-    if _stackable(catalog, output):
+    if goods.stackable(output, catalog):
         return [units]
     return [1.0] * int(units)
-
-
-def _stackable(catalog: Catalog, output: str) -> bool:
-    try:
-        kind = catalog.recipes.recipe(output).kind
-    except ConstantError:
-        #: An operation's output has no recipe -- it is raw material, and it stacks.
-        return True
-    return kind in (ItemKind.MATERIAL, ItemKind.CONSUMABLE, ItemKind.MONEY)
 
 
 def _num(value: float) -> Decimal:

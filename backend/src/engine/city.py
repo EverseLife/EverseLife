@@ -75,7 +75,7 @@ import uuid
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants
@@ -428,8 +428,18 @@ async def establish(
     return city
 
 
-async def _retire_deed(session: AsyncSession, node: Node, city: City) -> None:
-    """Cancel the deed for a node that went to the city."""
+async def _retire_deed(
+    session: AsyncSession,
+    node: Node,
+    city: City,
+    *,
+    why: str = "земля ушла городу при основании",
+) -> None:
+    """Cancel the deed for a node that went to the city.
+
+    Two ways lead here, and the event must tell them apart: the founding of a
+    city over the land, and the holder handing the plot back (`cede`).
+    """
     from src.models.estate import Deed
 
     deed = (
@@ -444,7 +454,7 @@ async def _retire_deed(session: AsyncSession, node: Node, city: City) -> None:
         EventKind.DEED_RETIRED,
         node_id=node.id,
         city_id=str(city.id),
-        why="земля ушла городу при основании",
+        why=why,
     )
 
 
@@ -1171,6 +1181,124 @@ async def allot(
     return node
 
 
+async def cede(session: AsyncSession, body, node: Node) -> City:
+    """Hand your own plot back to the city. In person: land is given up on the spot.
+
+    The mirror of `allot` and `buy`, and the only way back. Nobody's leave is
+    asked: the land was the city's before it was yours (D-089), and the city
+    loses nothing by taking it back. What changes is one thing -- the node has
+    no personal holder any more, and from that moment the meter charges the
+    city: a node without a holder is maintained by the treasury, which pays
+    with energy it could have sold instead of with money (D-149).
+
+    **What goes with the ground.** The deed is cancelled: civic land is not
+    traded by deed (D-159). The door is removed with its lists -- on civic land
+    there is no door at all, entry is decided by citizenship and duties (D-204).
+    Equipment stays where it stands, but from now on it is placed and removed
+    by the authority with the `laws` right, not by the last holder (D-166).
+
+    **The debt does not go with it.** Handing over a node with a debt would be
+    a way to run machines and write the bill off onto the city; the debt is
+    closed first, and only then is there anything to hand over.
+    """
+    from src.engine import travel, utility
+    from src.models.estate import Deed
+    from src.models.identity import BodyState
+    from src.models.world import NodePass
+
+    if body is None or body.state is not BodyState.ALIVE:
+        raise CityError("мёртвое тело участками не распоряжается")
+    await travel.require_here(session, body)
+    if body.node_id != node.id:
+        raise CityError("участок передают ногами: дойдите до него")
+    if node.owner_identity_id != body.identity_id:
+        raise NotYours("участок не ваш: городу отдают своё")
+    if node.owner_city_id is None:  # pragma: no cover -- own land is always civic
+        raise NoCity("это не городская земля: здесь некому её передать")
+    city = await by_id(session, node.owner_city_id)
+    if city is None:  # pragma: no cover -- civic land without a city is a bug
+        raise NoCity("участок приписан к несуществующему городу")
+
+    deed = (
+        await session.execute(select(Deed).where(Deed.node_id == node.id))
+    ).scalar_one_or_none()
+    if deed is not None and deed.sale_price is not None:
+        raise CityError(
+            "бумага на участок выставлена на продажу: снимите её с торгов, "
+            "иначе покупатель заплатит за чужое"
+        )
+
+    meter = await utility.meter_of(session, node, create=False)
+    if meter is not None and meter.debt > 0:
+        raise CityError(
+            f"на узле долг {money_str(meter.debt)} ₭: сначала закройте счёт, "
+            "город чужих долгов не принимает"
+        )
+
+    node.owner_identity_id = None
+    #: Civic land has no door: a shut gate and its lists left on the node would
+    #: show a lock that nobody can open any more.
+    node.gated = False
+    await session.execute(delete(NodePass).where(NodePass.node_id == node.id))
+    await _retire_deed(session, node, city, why="участок передан городу")
+    await session.flush()
+
+    await events.record(
+        session,
+        EventKind.LAND_CEDED,
+        actor_identity_id=body.identity_id,
+        node_id=node.id,
+        city_id=str(city.id),
+    )
+    return city
+
+
+async def upkeep_of(
+    session: AsyncSession, constants: Constants, city: City
+) -> dict:
+    """What the city's own household costs it per meter period (D-149).
+
+    The treasury pays for a civic node with energy rather than with money, and
+    that spend shows up nowhere in the balance: the pool simply drains. Without
+    this line the authority sees energy leaving and cannot tell what into --
+    and the decision "should this node be the city's" has no figure behind it.
+
+    `worth` is what the same energy would have fetched at the city's own tariff
+    if it had been sold instead. It is not a debt and nobody is billed it: it
+    is the price of the decision, and that is exactly what makes it a figure
+    worth showing.
+    """
+    from src.constants import registry as R
+    from src.engine import energy, utility
+    from src.units import ENERGY_PER_TARIFF_UNIT
+
+    period = constants[R.ENERGY_METER_PERIOD]
+    pool = await energy.pool_of(
+        session, constants, await session.get(Node, city.node_id), create=False
+    )
+    tariff = float(pool.tariff) if pool is not None else constants[R.ENERGY_TARIFF_DEFAULT]
+
+    draw = 0.0
+    counted = 0
+    for node in await territory(session, city):
+        #: A holder's node is the holder's bill, wherever it stands: a bought
+        #: plot is city territory too, and counting it here would double it.
+        if node.owner_identity_id is not None:
+            continue
+        if await energy.grid_node(session, node) is None:
+            continue
+        draw += utility.draw_for(constants, node, period)
+        counted += 1
+
+    return {
+        "nodes": counted,
+        "hours": period,
+        "energy": round(draw, 1),
+        "worth": money(draw / ENERGY_PER_TARIFF_UNIT * tariff),
+        "tariff": tariff,
+    }
+
+
 async def survey(
     session: AsyncSession, constants: Constants, catalog: Catalog, city: City
 ) -> dict:
@@ -1199,6 +1327,9 @@ async def survey(
         "about": city.about,
         "node": (await session.get(Node, city.node_id)).key,
         "treasury": await treasury_balance(session, city),
+        #: What the city's own nodes burn per meter period. Money is not paid
+        #: for them at all -- the treasury pays with energy (D-149).
+        "upkeep": await upkeep_of(session, constants, city),
         "offices": list(people.values()),
         "charter": dict(city.charter or {}),
         "charter_params": dict(city.charter_params or {}),

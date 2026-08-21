@@ -419,20 +419,22 @@ async def harvest(
     if got > 0:
         from src.engine import food
 
-        session.add(
-            Item(
-                container_id=pocket.id,
-                type_key=plant.gives,
-                amount=amount(got),
-                quality=Decimal(str(quality)),
-                #: The harvest spoils at the cultivar's speed: turnip faster than flax.
-                spoils_at=food.harvest_spoils_at(
-                    constants,
-                    float(signs.get("spoilage_k", plant.traits.spoilage_k)),
-                    now=moment,
-                ),
-            )
+        reaped = Item(
+            container_id=pocket.id,
+            type_key=plant.gives,
+            amount=amount(got),
+            quality=Decimal(str(quality)),
+            #: The harvest spoils at the cultivar's speed: turnip faster than flax.
+            spoils_at=food.harvest_spoils_at(
+                constants,
+                float(signs.get("spoilage_k", plant.traits.spoilage_k)),
+                now=moment,
+            ),
         )
+        session.add(reaped)
+        #: Plots reaped in one round give one heap, if the harvest came out the
+        #: same to the last number -- shelf life included (D-214).
+        await world.stack_up(session, reaped)
 
     #: Own seed: the harvest share kept for sowing, not for sale.
     seed_amount = got * constants[R.FARM_HARVEST_SEED_SHARE] / PERCENT

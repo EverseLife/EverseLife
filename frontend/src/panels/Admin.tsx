@@ -142,6 +142,14 @@ export function Admin({ look, session }: Omit<Props, "busy" | "act">) {
         />
         <>
           <p className="sign">казна {api.tk(city.treasury)} ₭</p>
+          {city.upkeep && city.upkeep.nodes > 0 && (
+            <p className="note">
+              Городских узлов на содержании: {city.upkeep.nodes}. Они жгут{" "}
+              {city.upkeep.energy.toFixed(0)} энергии за {city.upkeep.hours} ч —
+              деньгами за них никто не платит, но по тарифу {city.upkeep.tariff} ₭
+              за 100 это {api.tk(city.upkeep.worth)} ₭ непроданной энергии.
+            </p>
+          )}
           <p className="note">
             {city.powers.length === 0
               ? "Вы здесь житель: законы видны, правят их должностные лица."

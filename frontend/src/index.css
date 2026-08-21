@@ -320,6 +320,31 @@ header nav.tabs {
   padding-top: 0.6rem;
   border-bottom: 1px solid var(--line);
 }
+/* A group opens and closes, and it starts closed -- so its header has to read
+   as a control rather than as a caption. Hence the whole line is the button:
+   the arrow alone would be a target the size of a letter. */
+button.fold {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  width: 100%;
+  padding: 0.15rem 0;
+  text-align: left;
+}
+button.fold .mark {
+  flex: none;
+  width: 0.8rem;
+  color: var(--base-400);
+}
+button.fold .note {
+  margin: 0;
+}
+button.fold:not(:disabled):hover b {
+  color: var(--base-50);
+}
+button.fold:not(:disabled):hover .mark {
+  color: var(--base-200);
+}
 .arrange select {
   max-width: 11rem;
 }

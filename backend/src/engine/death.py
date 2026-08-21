@@ -160,6 +160,9 @@ async def die(
         #: "In damaged form": condition drops by the same share as the amount
         #: survived. The vault gives no second number for this.
         thing.condition = Decimal(str(float(thing.condition) * share))
+        #: Damaged the same way and lying in the same place, two heaps of ore
+        #: are one heap (D-214). The tally is of what survived, not of stacks.
+        await world.stack_up(session, thing)
         survived += amount_float(left)
 
     #: An ongoing transit breaks off: a dead body arrives nowhere.

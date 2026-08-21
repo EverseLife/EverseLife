@@ -336,6 +336,13 @@ export type Look = {
     barred: string[];
     /** Disconnected for non-payment: machines do not work (D-149). */
     cut_off: boolean;
+    /**
+     * Whose bill the household of this node is (D-149): `owner` -- the holder's,
+     * `city` -- the treasury's, and it pays with energy rather than money,
+     * `nobody` -- there is nobody to bill. Empty outside the city grid: no meter
+     * there at all, one works from a battery.
+     */
+    upkeep: "owner" | "city" | "nobody" | null;
     /** Plot area, m2 (D-125). */
     area: number;
     /** Building and capacity: a machine takes area (D-106).
@@ -581,6 +588,18 @@ export type CityView = {
   about: string;
   node: string;
   treasury: number;
+  /**
+   * What the city's own nodes burn per meter period (D-149). The treasury pays
+   * for them with energy, not money: `worth` is what the same energy would have
+   * fetched at the city tariff had it been sold, and nobody is billed it.
+   */
+  upkeep: {
+    nodes: number;
+    hours: number;
+    energy: number;
+    worth: number;
+    tariff: number;
+  };
   offices: Office[];
   charter: Record<string, string>;
   charter_params: Record<string, number>;

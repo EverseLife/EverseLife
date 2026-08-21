@@ -100,6 +100,45 @@ export function arrange(things: Thing[], by: Sorting, desc: boolean): Thing[] {
   });
 }
 
+/** What a group says with its rows still hidden. */
+export type Summary = {
+  /** The one goods the group holds, if it holds only one -- then a total can be named. */
+  goods: string | null;
+  /** How much there is in all: a number only worth showing when `goods` is one. */
+  amount: number;
+  /** Average quality by amount, and nothing where the goods have no quality. */
+  quality: number | null;
+  mass: number;
+};
+
+/**
+ * The group folded into one line.
+ *
+ * The average is **weighted by amount**, not by row: a hundred kilos of poor
+ * ore and one kilo of good ore average out near the poor, because that is what
+ * the pile is. The unweighted mean would say fifty and be a different pile.
+ *
+ * A total quantity is named only where every row is the same goods: pieces and
+ * kilograms do not add up, and "17" over nails and ore would mean nothing.
+ * Mass is the one number that always adds up, so it is always there.
+ */
+export function summarize(rows: Thing[]): Summary {
+  const kinds = new Set(rows.map((row) => row.key));
+  let weight = 0;
+  let weighed = 0;
+  for (const row of rows) {
+    if (row.quality === null) continue;
+    weight += row.amount;
+    weighed += row.quality * row.amount;
+  }
+  return {
+    goods: kinds.size === 1 && rows.length > 0 ? rows[0].goods : null,
+    amount: rows.reduce((sum, row) => sum + row.amount, 0),
+    quality: weight > 0 ? weighed / weight : null,
+    mass: rows.reduce((sum, row) => sum + row.mass * row.amount, 0),
+  };
+}
+
 /** Group headers in a sensible order: tiers best first, everything else by name. */
 export function orderGroups(keys: string[], by: Grouping, things: Thing[]): string[] {
   if (by === "tier") {

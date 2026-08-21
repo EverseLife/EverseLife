@@ -27,7 +27,8 @@ from __future__ import annotations
 
 import math
 
-from src.constants import Catalog, current_catalog
+from src.constants import Catalog, ConstantError, current_catalog
+from src.constants.catalog import ItemKind
 from src.units import AMOUNT_SCALE
 
 #: Where a float stops being a number and becomes noise. Amounts live in
@@ -48,6 +49,26 @@ class NotWhole(Exception):
 def counted(name: str, catalog: Catalog | None = None) -> bool:
     """Whether the thing is counted in pieces rather than measured (D-212)."""
     return (catalog or current_catalog()).recipes.counted(name)
+
+
+#: Kinds that fold into one stack. The other four -- tool, gear, station,
+#: vehicle -- never do: each piece wears on its own and carries its own mark
+#: (04-items, D-058).
+LOOSE = (ItemKind.MATERIAL, ItemKind.CONSUMABLE, ItemKind.MONEY)
+
+
+def stackable(name: str, catalog: Catalog | None = None) -> bool:
+    """Whether two identical lots of this thing are one stack (04-items, D-214).
+
+    Raw material has no recipe at all -- it comes out of a vein or a plot, not
+    off a bench -- and it always stacks. Everything with a recipe is judged by
+    the kind the vault gave it.
+    """
+    try:
+        kind = (catalog or current_catalog()).recipes.recipe(name).kind
+    except ConstantError:
+        return True
+    return kind in LOOSE
 
 
 def whole(name: str, value: float, *, up: bool = False, catalog: Catalog | None = None) -> float:

@@ -541,32 +541,135 @@ async def move_stack(
     qty = min(to_units(goods.at_least_one(item.type_key, quantity)), item.amount)
     if qty >= item.amount:
         item.container_id = target.id
+        landed = item
     else:
         item.amount -= qty
-        session.add(
-            Item(
-                container_id=target.id,
-                type_key=item.type_key,
-                amount=qty,
-                quality=item.quality,
-                condition=item.condition,
-                condition_cap=item.condition_cap,
-                maker_identity_id=item.maker_identity_id,
-                made_at=item.made_at,
-                made_node_id=item.made_node_id,
-                spoils_at=item.spoils_at,
-                flavor=item.flavor,
-                roles_filled=item.roles_filled,
-                fineness=item.fineness,
-                variety_id=item.variety_id,
-                vigor=item.vigor,
-                charge=item.charge,
-                charged_at=item.charged_at,
-                recipe_key=item.recipe_key,
+        landed = Item(
+            container_id=target.id,
+            type_key=item.type_key,
+            amount=qty,
+            quality=item.quality,
+            condition=item.condition,
+            condition_cap=item.condition_cap,
+            maker_identity_id=item.maker_identity_id,
+            made_at=item.made_at,
+            made_node_id=item.made_node_id,
+            spoils_at=item.spoils_at,
+            flavor=item.flavor,
+            roles_filled=item.roles_filled,
+            fineness=item.fineness,
+            variety_id=item.variety_id,
+            vigor=item.vigor,
+            charge=item.charge,
+            charged_at=item.charged_at,
+            recipe_key=item.recipe_key,
+        )
+        session.add(landed)
+    await session.flush()
+    #: What arrived joins what already lies here, if they are the same thing
+    #: (D-214). Hence the amount moved is read off `qty` and not off the stack:
+    #: the stack may have just grown by everything it swallowed.
+    await stack_up(session, landed)
+    return qty / AMOUNT_SCALE
+
+
+#: Everything a thing is described by. Two stacks are the same thing only when
+#: all of it matches -- and that is what makes folding them lossless (D-214):
+#: there is nothing left over to average away, shorten or forget.
+#:
+#: What is not here is not an oversight. Being worn, harnessed, rigged or
+#: worked at belongs to machines, tools, gear and wagons, and none of those
+#: fold at all -- so a fold can never take a thing out from under its use.
+#: The one exception is work on a loose stack, and that is guarded below.
+SAMENESS = (
+    "type_key",
+    "quality",
+    "condition",
+    "condition_cap",
+    "maker_identity_id",
+    "made_at",
+    "made_node_id",
+    "spoils_at",
+    "flavor",
+    "roles_filled",
+    "fineness",
+    "variety_id",
+    "vigor",
+    "charge",
+    "charged_at",
+    "recipe_key",
+)
+
+
+async def stack_up(session: AsyncSession, item: Item) -> Item:
+    """Fold what already lies here into the stack that has just arrived (D-214).
+
+    Called wherever matter lands in a container: mined, harvested, found, made,
+    bought, taken out of a chest, handed over. **The arrival is the stack that
+    survives** -- so whoever asked for the move still holds a live thing when
+    this returns, and the twins it swallowed are the ones that go.
+
+    Only the loose kinds fold at all (`goods.stackable`), and only into a stack
+    nothing tells them apart from: different quality stays different stacks.
+    Reading those together is the client's work -- the list groups by thing and
+    says how much there is in total -- not a reason to average the numbers here.
+    """
+    from src.engine import goods
+    from src.models.craft import BatchState, CraftBatch
+
+    if not goods.stackable(item.type_key):
+        return item
+    #: The arrival may be brand new: without a flush it has neither an id to
+    #: tell itself apart by nor the fields the table fills in.
+    await session.flush()
+    rows = (
+        await session.execute(
+            select(Item).where(
+                Item.container_id == item.container_id,
+                Item.type_key == item.type_key,
+                Item.id != item.id,
             )
         )
+    ).scalars().all()
+    twins = [other for other in rows if _same(other, item)]
+    if not twins:
+        return item
+    #: A stack being repaired or taken apart stays where it is: the batch finds
+    #: its target by id, and swallowing it would leave the work without a thing.
+    pinned = set(
+        (
+            await session.execute(
+                select(CraftBatch.target_item_id).where(
+                    CraftBatch.target_item_id.in_([twin.id for twin in twins]),
+                    CraftBatch.state != BatchState.DONE,
+                )
+            )
+        ).scalars().all()
+    )
+    for twin in twins:
+        if twin.id in pinned:
+            continue
+        item.amount += twin.amount
+        await session.delete(twin)
     await session.flush()
-    return qty / AMOUNT_SCALE
+    return item
+
+
+def _same(one: Item, other: Item) -> bool:
+    """Whether nothing at all tells two stacks apart (D-214)."""
+    return all(_alike(getattr(one, field), getattr(other, field)) for field in SAMENESS)
+
+
+def _alike(one: Any, other: Any) -> bool:
+    """Equality that does not trip over the road a number took to get here.
+
+    The same quality arrives as `12.5` on one path and as `Decimal("12.50")`
+    off the database on another, and in Python those two are not equal.
+    """
+    numbers = (int, float, Decimal)
+    if isinstance(one, numbers) and isinstance(other, numbers):
+        return Decimal(str(one)) == Decimal(str(other))
+    return one == other
 
 
 async def learn(
@@ -646,4 +749,6 @@ async def grant_item(
         quality=quality,
         origin=origin,
     )
-    return item
+    #: The event is written before the fold and about the arrival alone: the
+    #: journal says what came into the world, not what the stack grew to (D-214).
+    return await stack_up(session, item)

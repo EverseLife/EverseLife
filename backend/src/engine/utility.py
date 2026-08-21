@@ -88,6 +88,31 @@ async def meter_of(
     return meter
 
 
+#: Who the meter for a node is charged to. One value, three answers plus a
+#: fourth: outside the city grid there is no meter at all.
+PAYER_OWNER = "owner"
+PAYER_CITY = "city"
+PAYER_NOBODY = "nobody"
+
+
+async def payer_of(session: AsyncSession, node: Node) -> str | None:
+    """Who pays for this node: the holder, the city, or nobody. `None` -- no grid.
+
+    The same three lines `bill` decides by, read from the outside. They are
+    gathered here on purpose: "whose bill is this" is a question the player
+    asks standing in the node, and the answer must not be reassembled from
+    ownership fields in the client -- there it would drift away from the engine
+    on the first change.
+    """
+    if await energy.grid_node(session, node) is None:
+        return None
+    if node.owner_identity_id is not None:
+        return PAYER_OWNER
+    if node.owner_city_id is not None:
+        return PAYER_CITY
+    return PAYER_NOBODY
+
+
 async def cut_off(session: AsyncSession, node: Node) -> bool:
     """Whether the node is disconnected for non-payment. Checked before machine work."""
     meter = await meter_of(session, node, create=False)

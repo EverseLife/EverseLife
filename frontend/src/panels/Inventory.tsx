@@ -30,8 +30,10 @@ import {
   orderGroups,
   remember,
   remembered,
+  summarize,
   type Grouping,
   type Sorting,
+  type Summary,
 } from "../arrange";
 
 type Props = { look: Look; session: Session; book?: any };
@@ -52,6 +54,12 @@ export function Inventory({ look, session, book }: Props) {
   const [sort, setSort] = useState<Sorting>(() => remembered().sort);
   const [desc, setDesc] = useState<boolean>(() => remembered().desc);
   useEffect(() => remember({ group, sort, desc }), [group, sort, desc]);
+  //: Which groups are open. Empty on purpose, and it starts empty again on a
+  //: change of axis: grouping is asked for when the list has grown too long to
+  //: read, and answering with the same long list unfolded answers nothing. The
+  //: header says how much and how good, and that is enough to choose by.
+  const [opened, setOpened] = useState<Set<string>>(() => new Set());
+  useEffect(() => setOpened(new Set()), [group]);
   const [parts, setParts] = useState<Record<string, number | null>>({});
   const [people, setPeople] = useState<Person[]>([]);
 
@@ -165,21 +173,34 @@ export function Inventory({ look, session, book }: Props) {
       ) : (
         <table className="goods">
           <tbody>
-            {sections(things, group, sort, desc, book).flatMap(({ title, rows, mass }) => [
+            {sections(things, group, sort, desc, book).flatMap(({ title, rows, summary }) => [
               ...(title === null
                 ? []
                 : [
                     <tr key={`group:${title}`} className="group">
                       <td colSpan={5}>
-                        <b>{title}</b>
-                        <span className="note">
-                          {" "}· {rows.length} {rows.length === 1 ? "позиция" : "позиций"} ·{" "}
-                          {mass.toFixed(1)} кг
-                        </span>
+                        <button
+                          type="button"
+                          className="bare fold"
+                          aria-expanded={opened.has(title)}
+                          onClick={() =>
+                            setOpened((was) => {
+                              const next = new Set(was);
+                              if (!next.delete(title)) next.add(title);
+                              return next;
+                            })
+                          }
+                        >
+                          <span className="mark" aria-hidden="true">
+                            {opened.has(title) ? "▾" : "▸"}
+                          </span>
+                          <b>{title}</b>
+                          <span className="note">{sums(summary, rows.length)}</span>
+                        </button>
                       </td>
                     </tr>,
                   ]),
-              ...rows.map((thing) => (
+              ...(title !== null && !opened.has(title) ? [] : rows).map((thing) => (
               <tr key={thing.id}>
                 <td className="handle">
                   <button
@@ -423,9 +444,9 @@ function sections(
   sort: Sorting,
   desc: boolean,
   book: any,
-): { title: string | null; rows: Thing[]; mass: number }[] {
+): { title: string | null; rows: Thing[]; summary: Summary }[] {
   const ordered = arrange(things, sort, desc);
-  if (group === "none") return [{ title: null, rows: ordered, mass: 0 }];
+  if (group === "none") return [{ title: null, rows: ordered, summary: summarize([]) }];
   const buckets = new Map<string, Thing[]>();
   for (const thing of ordered) {
     const key = groupKey(book, thing, group);
@@ -433,12 +454,35 @@ function sections(
   }
   return orderGroups([...buckets.keys()], group, things).map((title) => {
     const rows = buckets.get(title) ?? [];
-    return {
-      title,
-      rows,
-      mass: rows.reduce((sum, t) => sum + t.mass * t.amount, 0),
-    };
+    return { title, rows, summary: summarize(rows) };
   });
+}
+
+/**
+ * What a folded group says about itself: how much, how good, of how many
+ * stacks and how heavy.
+ *
+ * The count of stacks stays because it is the one thing the fold hides: two
+ * lots of ore at 12 and at 13 read as one line here, and the player must see
+ * that the line covers two of them before deciding to open it.
+ */
+function sums(summary: Summary, stacks: number): string {
+  const said: string[] = [];
+  if (summary.goods !== null) said.push(tally(summary.goods, summary.amount));
+  if (summary.quality !== null) said.push(`в среднем ${summary.quality.toFixed(0)}`);
+  said.push(positions(stacks));
+  said.push(`${summary.mass.toFixed(1)} кг`);
+  return ` · ${said.join(" · ")}`;
+}
+
+/** "1 позиция", "2 позиции", "5 позиций" -- the count decides the word. */
+function positions(count: number): string {
+  const last = count % 10;
+  const pair = count % 100;
+  if (pair >= 11 && pair <= 14) return `${count} позиций`;
+  if (last === 1) return `${count} позиция`;
+  if (last >= 2 && last <= 4) return `${count} позиции`;
+  return `${count} позиций`;
 }
 
 /** The one line that says what kind of thing this is. */

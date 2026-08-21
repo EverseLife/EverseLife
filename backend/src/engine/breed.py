@@ -401,18 +401,18 @@ async def gather_cross(
 
     plant = catalog.plants.by_id(father.culture_id)
     pocket = await world.body_container(session, body)
-    session.add(
-        Item(
-            container_id=pocket.id,
-            type_key=plant.seed,
-            amount=amount(float(nursery.seeds)),
-            variety_id=hybrid.id,
-            vigor=Decimal(str(FULL_VIGOR)),
-            maker_identity_id=body.identity_id,
-            made_at=moment,
-            made_node_id=nursery.node_id,
-        )
+    bred = Item(
+        container_id=pocket.id,
+        type_key=plant.seed,
+        amount=amount(float(nursery.seeds)),
+        variety_id=hybrid.id,
+        vigor=Decimal(str(FULL_VIGOR)),
+        maker_identity_id=body.identity_id,
+        made_at=moment,
+        made_node_id=nursery.node_id,
     )
+    session.add(bred)
+    await world.stack_up(session, bred)
     await session.flush()
 
     await events.record(
@@ -507,7 +507,9 @@ async def seed_lot(
     )
     session.add(item)
     await session.flush()
-    return item
+    #: One cultivar at one strength is one seed lot: a second harvest adds to
+    #: the sack rather than putting a second sack beside it (D-214).
+    return await world.stack_up(session, item)
 
 
 def agrotech_key(variety: Variety) -> str:

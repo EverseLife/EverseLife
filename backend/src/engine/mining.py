@@ -52,6 +52,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import Constants
 from src.constants import registry as R
 from src.engine import events, food, travel, wear
+from src.engine import world as world_engine
 from src.engine.world import body_container
 from src.models.event import EventKind
 from src.models.identity import Body, BodyState, Wound
@@ -341,14 +342,16 @@ async def swing(
     #: Raw material quality is determined by the vein (15-quality).
     container = await session_container(session, mining)
     quality = min(SCALE_MAX, max(SCALE_MIN, float(vein.richness)))
-    session.add(
-        Item(
-            container_id=container.id,
-            type_key=vein.resource,
-            amount=mined,
-            quality=Decimal(str(quality)),
-        )
+    swung = Item(
+        container_id=container.id,
+        type_key=vein.resource,
+        amount=mined,
+        quality=Decimal(str(quality)),
     )
+    session.add(swung)
+    #: Swings at one face give one and the same ore until the vein grows poorer,
+    #: so they are one heap and not a row of identical lines (D-214).
+    await world_engine.stack_up(session, swung)
 
     #: Satiety slows the spend: hot food does not add reserve (D-119).
     body.stamina = Decimal(
@@ -588,6 +591,10 @@ async def _carry_out(session: AsyncSession, mining: MiningSession, body: Body) -
     for item in items:
         haul += amount_float(item.amount)
         item.container_id = inventory.id
+        #: The haul joins what is already in the hands (D-214). The tally is
+        #: taken before the fold: it is about what was carried out of the face,
+        #: not about how big the stack in the hands became.
+        await world_engine.stack_up(session, item)
     await session.flush()
     return haul
 
@@ -738,5 +745,6 @@ async def _prison_workoff(
     for item in items:
         haul += amount_float(item.amount)
         item.container_id = yard.id
+        await world_engine.stack_up(session, item)
     await session.flush()
     return haul

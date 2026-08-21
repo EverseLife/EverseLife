@@ -114,6 +114,9 @@ class EventKind(StrEnum):
     LAND_BOUGHT = "land.bought"
     #: A plot was named (D-178). The node key stays the same.
     LAND_RENAMED = "land.renamed"
+    #: The holder handed the plot back to the city (D-089, D-149). From this
+    #: moment the meter for it is charged to the treasury, not to a person.
+    LAND_CEDED = "land.ceded"
     #: A deed for a plot: issued, listed, sold (D-116).
     DEED_ISSUED = "deed.issued"
     DEED_OFFERED = "deed.offered"

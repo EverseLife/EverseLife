@@ -197,6 +197,46 @@ def test_look_answers_and_carries_the_clock(client, miner, constants: Constants)
     assert seen["doings"] == []
 
 
+def test_look_names_who_pays_for_the_node(client, miner) -> None:
+    """`upkeep` rides along on every look (D-149).
+
+    Who the meter is charged to cannot be worked out in the client from
+    ownership: a bought plot stays civic land yet is paid for by a person. The
+    engine names the payer itself, and the mine is outside the grid -- there is
+    no meter there at all.
+    """
+    with client.websocket_connect("/session/ws") as ws:
+        ws.send_json(_input(miner))
+        ws.receive_json()
+
+        ws.send_json({"cmd": "look"})
+        answer = ws.receive_json()
+
+    assert "refused" not in answer, answer
+    assert "upkeep" in answer["look"]["node"], "поле должно быть всегда"
+    assert answer["look"]["node"]["upkeep"] is None, "в забое городской сети нет"
+
+
+def test_plot_is_not_ceded_by_a_passer_by(client, miner) -> None:
+    """A plot is handed to the city by its holder, and the mine is nobody's.
+
+    The refusal comes back as a refusal: an unhandled engine error here would
+    tear the socket down and the player would see a logout instead of an answer.
+    """
+    with client.websocket_connect("/session/ws") as ws:
+        ws.send_json(_input(miner))
+        ws.receive_json()
+
+        ws.send_json({"cmd": "land.cede"})
+        answer = ws.receive_json()
+
+        ws.send_json({"cmd": "look"})
+        after = ws.receive_json()
+
+    assert "refused" in answer, "чужой участок городу не передают"
+    assert "refused" not in after, "отказ не должен рвать сессию"
+
+
 def test_house_bill_is_shown_before_the_work(client, miner, constants: Constants) -> None:
     """The bill is asked for before building, and against what is in hand (D-125).
 

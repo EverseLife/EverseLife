@@ -980,7 +980,9 @@ async def finish_demolish(session: AsyncSession, job: Job) -> None:
         given = to_amount(float(qty))
         if given <= 0:
             continue
-        session.add(Item(container_id=where.id, type_key=name, amount=given))
+        salvage = Item(container_id=where.id, type_key=name, amount=given)
+        session.add(salvage)
+        await world.stack_up(session, salvage)
     await session.flush()
 
     await events.record(
