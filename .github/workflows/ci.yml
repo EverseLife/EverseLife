@@ -148,6 +148,10 @@ jobs:
           context: .
           file: backend/Dockerfile
           push: true
+          # The revision goes inside the image, not only into its tag: a
+          # running server has to be able to say which source it came from.
+          build-args: |
+            RELEASE=${{ github.sha }}
           tags: |
             ghcr.io/${{ env.OWNER }}/everselife-backend:latest
             ghcr.io/${{ env.OWNER }}/everselife-backend:${{ github.sha }}

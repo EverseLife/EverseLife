@@ -2,7 +2,8 @@
 # together with the code the vault snapshot (`vault/`) goes into the image,
 # otherwise the engine has nothing to compute the world with.
 #
-#   docker build -f backend/Dockerfile -t everselife-backend .
+#   docker build -f backend/Dockerfile -t everselife-backend \
+#     --build-arg RELEASE=$(git rev-parse HEAD) .
 #
 # One image for three roles -- API, worker, migrations: they differ only by
 # command, and they may not diverge in version.
@@ -46,6 +47,13 @@ COPY vault /vault
 RUN useradd --system --create-home --uid 10001 everselife \
     && chown -R everselife:everselife /app
 USER everselife
+
+# Which revision this image was built from. AGPL §13 is about the source of
+# *this* version, so `/public/source` has to name it; empty is honest for a
+# build that was not told. CI passes `github.sha` -- the same value the image
+# is tagged with.
+ARG RELEASE=""
+ENV EVERSELIFE_RELEASE=${RELEASE}
 
 EXPOSE 8000
 
