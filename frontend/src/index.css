@@ -558,9 +558,13 @@ section {
 
 /* --- interactive: full tone ------------------------------------------------ */
 
+/* `a.quiet` is here for the one link the client has -- the source of this
+   version in the header (AGPL §13). It stands in a row of quiet buttons and
+   would read as a different kind of thing left to the browser's default. */
 button,
 select,
-input {
+input,
+a.quiet {
   font: inherit;
   padding: 0.25rem 0.6rem;
   border: 1px solid var(--base-600);
@@ -598,11 +602,13 @@ button:not(.quiet):not(.link):not(.bare) {
   border-color: var(--base-50);
   font-weight: 600;
 }
-button.quiet {
+button.quiet,
+a.quiet {
   background-color: transparent;
   color: var(--base-200);
   border-color: var(--base-600);
   font-weight: 400;
+  text-decoration: none;
 }
 /*
  * A refusal is shown together with its reason next to the control, so the
@@ -622,7 +628,8 @@ button:not(.link):disabled {
 button:not(.quiet):not(.link):not(.bare):not(:disabled):hover {
   filter: brightness(0.9);
 }
-button.quiet:not(:disabled):hover {
+button.quiet:not(:disabled):hover,
+a.quiet:hover {
   background-color: var(--wash);
   color: var(--base-50);
   border-color: var(--base-400);

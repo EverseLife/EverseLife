@@ -22,8 +22,14 @@ from src.db.base import session_factory
 from src.engine import market
 from src.models.world import Node
 from src.runtime import MARKET_BOOK_DEPTH
+from src.settings import settings
 
 router = APIRouter(prefix="/public", tags=["reads"])
+
+#: Where this code lives. Not a setting: a copy that moved elsewhere must
+#: say so by editing this line, and a fork that says nothing keeps pointing
+#: at the source it was actually taken from.
+SOURCE_URL = "https://github.com/EverseLife/EverseLife"
 
 
 @router.get("/constants")
@@ -269,4 +275,21 @@ async def laws() -> dict[str, Any]:
         "sanctions": [sanction.model_dump() for sanction in book.sanctions],
         "charter_defaults": book.charter_defaults(),
         "code_law_defaults": book.code_law_defaults(),
+    }
+
+
+@router.get("/source")
+async def source() -> dict[str, str | None]:
+    """Where the source of this running version lives (AGPL §13).
+
+    The link is also in the client's header, for a player who is reading a
+    screen rather than a JSON body. This one is for everybody else: a mirror,
+    a bot, somebody's copy of the world -- and for anyone checking that a
+    server they are playing on actually offers what the licence requires.
+    """
+
+    return {
+        "license": "AGPL-3.0-only",
+        "source": SOURCE_URL,
+        "revision": settings().release or None,
     }

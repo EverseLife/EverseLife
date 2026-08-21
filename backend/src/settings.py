@@ -68,6 +68,13 @@ class Settings(BaseSettings):
 
     discord_webhook: str = ""
 
+    #: Which revision of the source this process was built from. AGPL §13
+    #: asks that a player be offered the source **of this version**, and a bare
+    #: link to the repository does not say which one. CI already tags images
+    #: with `github.sha`; the same value belongs here. Empty -- the answer is
+    #: honest about not knowing, which is the case for a local run.
+    release: str = ""
+
     log_level: str = "INFO"
 
     @property

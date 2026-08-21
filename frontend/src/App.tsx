@@ -346,6 +346,18 @@ export default function App() {
         <button className="quiet" onClick={() => void refresh()}>
           обновить
         </button>
+        {/* Исходники этой версии. Требование §13 AGPL: тому, кто играет по
+            сети, их надо предложить, а не спрятать в README. Машиночитаемый
+            ответ на тот же вопрос -- `/public/source`. */}
+        <a
+          className="quiet"
+          href="https://github.com/EverseLife/EverseLife"
+          target="_blank"
+          rel="noopener noreferrer"
+          title="исходный код этой версии"
+        >
+          исходники
+        </a>
       </header>
 
       <div className={`frame${narrow ? " one" : ""}`}>
