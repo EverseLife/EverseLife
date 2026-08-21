@@ -125,6 +125,11 @@ async def daily_tick(session: AsyncSession, job: Job) -> None:
     #: A house wears out at the pace of what it is built of, and at nothing it
     #: falls (D-218). Timber wants mending twice a year, metal once in a life.
     houses_worn, houses_fallen = await estate.decay(session, current())
+    #: The land tax: the rate is announced at the bioprinter and falls with
+    #: every node away from it, so the centre costs more to hold, not only to
+    #: buy (D-127, D-220). Charged before the debt collection below, so that a
+    #: day's tax cannot be withheld twice over.
+    land_tax = await estate.levy_land_tax(session, current(), current_catalog())
     #: Overdue debt is repaid by force with a share of the balance (D-063, D-168).
     withheld = await bank.collect(session, current(), now=now)
     #: The reserve surplus above the ceiling is burned: the bank's second lever (D-169).
@@ -146,6 +151,7 @@ async def daily_tick(session: AsyncSession, job: Job) -> None:
         roads_decayed=overgrown,
         houses_worn=houses_worn,
         houses_collapsed=houses_fallen,
+        land_tax=land_tax,
         debt_withheld=withheld,
         reserve_burned=burned,
         metrics=measurements,

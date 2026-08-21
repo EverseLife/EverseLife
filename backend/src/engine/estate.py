@@ -4,11 +4,11 @@
 
 An empty civic node may be bought by **any** player -- land is no longer only
 handed out by the authority. The price per square metre is set by the state
-via the code-law `land_price`; with each ring from the bioprinter -- the city
-centre -- a plot gets cheaper by `land.price_decay_per_ring`. Distance is
-measured over the graph: in steps from the node with the bioprinter, not by a
-property written at generation. Proceeds go to the city treasury: the city
-sells its land, not the engine.
+via the code-law `land_price`; with each **node** from the bioprinter -- the
+city centre -- land gets cheaper by `land.decay_per_node`. Distance is measured
+over the graph: in steps from the node with the bioprinter, not by a property
+written at generation (D-220). Proceeds go to the city treasury: the city sells
+its land, not the engine.
 
 ## Deed
 
@@ -122,13 +122,13 @@ class Ruined(EstateError):
 # --- land price (D-089) ------------------------------------------------------
 
 
-async def rings_from_center(session: AsyncSession, node: Node) -> int:
-    """The plot's distance from the city centre -- in graph steps from the bioprinter.
+async def nodes_from_center(session: AsyncSession, node: Node) -> int:
+    """The plot's distance from the city centre -- in nodes from the bioprinter.
 
     The centre is the node where the bioprinter stands (for the capital -- the
-    Forerunners' Printer); the city grows in rings around it, and land value
-    falls with each ring. Measured by edges, not by the "ring" property: the
-    property is a record at generation, edges are how people really walk the city.
+    Forerunners' Printer), and land value falls with each node away from it
+    (D-220). Measured by edges, not by the "ring" property: the property is a
+    record at generation, edges are how people really walk the city.
     """
     from src.engine import world
 
@@ -168,18 +168,126 @@ async def price_of(
     """The plot price in minor units: city rate x decay x area.
 
     The rate at the centre is set by the city via the code-law `land_price`
-    (TC/m2); with each ring from the bioprinter the price falls by
-    `land.price_decay_per_ring`.
+    (TC/m2); with each node from the bioprinter the price falls by
+    `land.decay_per_node` -- the same decay the land tax follows, because both
+    say the same thing about the same place (D-220).
     """
     from src.engine import city as town
 
     rate = town.law_number(constants, catalog, city, "land_price")
     if rate <= 0:
         raise NotForSale("город не назначил цену земли: код-закон `land_price` пуст")
-    decline = 1 - constants[R.LAND_PRICE_DECAY_PER_RING] / PERCENT
-    ring_count = await rings_from_center(session, node)
-    per_metre = rate * (decline ** ring_count)
+    decline = 1 - constants[R.LAND_DECAY_PER_NODE] / PERCENT
+    steps = await nodes_from_center(session, node)
+    per_metre = rate * (decline ** steps)
     return max(1, money(per_metre * float(node.area_m2)))
+
+
+async def land_tax_of(
+    session: AsyncSession, constants: Constants, catalog: Catalog, node: Node
+) -> int:
+    """What this plot owes its city for one day, in minor units (D-127).
+
+    The same shape as the purchase price, and for the same reason (D-220): the
+    rate is announced at the bioprinter and falls by `land.decay_per_node` with
+    every node away from it. A place near the centre costs more both to buy and
+    to hold -- otherwise the buyer pays the premium once and then sits on the
+    centre for free.
+
+    **The base is the footprint, not the usable area.** This is a tax on land,
+    and a tower takes exactly as much ground as the bungalow beside it; charging
+    the sum of the floors would undo the point of height, which is that storeys
+    cost no ground (D-125). The yard is not taxed at all -- only what is built
+    on (D-127).
+    """
+    from src.engine import city as town
+
+    city = await town.of_node(session, node)
+    if city is None:
+        return 0
+    rate = town.law_number(constants, catalog, city, "tax_land")
+    if rate <= 0:
+        return 0
+    ground = await built_area(session, node, ground=True)
+    if ground <= 0:
+        return 0
+    decline = 1 - constants[R.LAND_DECAY_PER_NODE] / PERCENT
+    steps = await nodes_from_center(session, node)
+    return money(rate * (decline ** steps) * ground)
+
+
+async def levy_land_tax(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> dict[str, int]:
+    """Charge every built and held plot its day of land tax. Daily tick (D-127).
+
+    Who pays is who holds the deed, wherever the plot stands: a bought civic
+    plot is still the city's land and still the holder's bill (D-149). A city's
+    own node pays nothing -- a city taxing itself moves money from one pocket
+    into the same pocket -- and land beyond the walls has no authority over it
+    to tax it at all (D-198).
+
+    **What cannot be paid is not paid.** The account is charged what it holds
+    and no further: turning the rest into a debt would be inventing debt
+    collection, and that is a mechanic of its own, not a side effect of a tax
+    (D-166). The shortfall goes into the journal, where arrears can be seen --
+    and counted, once there is something to count them with.
+    """
+    from src.engine import city as town
+
+    held = (
+        (
+            await session.execute(
+                select(Node)
+                .join(Building, Building.node_id == Node.id)
+                .where(Node.owner_identity_id.is_not(None))
+                .distinct()
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    paid_total = 0
+    unpaid_total = 0
+    plots = 0
+    for node in held:
+        owed = await land_tax_of(session, constants, catalog, node)
+        if owed <= 0:
+            continue
+        city = await town.of_node(session, node)
+        if city is None:  # pragma: no cover -- `land_tax_of` already returned 0
+            continue
+        account = await ledger.account_for(
+            session, AccountKind.IDENTITY, node.owner_identity_id
+        )
+        have = await ledger.balance(session, account.id)
+        paid = min(owed, have) if have > 0 else 0
+        short = owed - paid
+        if paid > 0:
+            treasury = await town.treasury(session, city)
+            await ledger.transfer(
+                session,
+                PostingReason.TAX_LAND,
+                debit=account.id,
+                credit=treasury.id,
+                amount=paid,
+                memo={"земельный налог": node.key},
+            )
+        plots += 1
+        paid_total += paid
+        unpaid_total += short
+        await events.record(
+            session,
+            EventKind.LAND_TAXED,
+            actor_identity_id=node.owner_identity_id,
+            node_id=node.id,
+            city_id=str(city.id),
+            owed=owed,
+            paid=paid,
+            unpaid=short,
+        )
+    return {"paid": paid_total, "unpaid": unpaid_total, "plots": plots}
 
 
 async def is_vacant(session: AsyncSession, constants: Constants, node: Node) -> bool:
