@@ -42,7 +42,7 @@ async def _port(session: AsyncSession, *, name: str = "Космодром", plan
     session.add(Building(node_id=node.id, area_m2=400))
     await session.flush()
     yard = await world.node_container(session, node)
-    await world.grant_item(session, yard, ship.SPACEPORT, quality=60, origin="тест")
+    await world.grant_item(session, yard, "Космическая верфь", quality=60, origin="тест")
     return node
 
 
@@ -52,7 +52,7 @@ async def _shipwright(session: AsyncSession, node: Node, *, foundations: int = 1
     if foundations:
         pocket = await world.body_container(session, body)
         await world.grant_item(
-            session, pocket, ship.FOUNDATION, amount=foundations, origin="тест"
+            session, pocket, "Основа узла корабля", amount=foundations, origin="тест"
         )
     return identity, body
 
@@ -206,7 +206,7 @@ async def test_the_connector_stays_the_only_way_in(
 
     #: A spaceport aboard changes nothing: a ship is grown from the inside.
     connector = await session.get(Node, vessel.connector_node_id)
-    await _equip(session, connector, ship.SPACEPORT)
+    await _equip(session, connector, "Космическая верфь")
     with pytest.raises(ship.NoPort):
         await ship.found(session, constants, body, "Второй")
 

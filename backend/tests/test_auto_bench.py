@@ -43,7 +43,7 @@ async def _workshop_(session: AsyncSession, *, automaton: bool = True, quality: 
     )
     yard = await world.node_container(session, workshop)
     await world.grant_item(
-        session, yard, craft.AUTO_BENCH if automaton else BENCH,
+        session, yard, "Автоматическая станция" if automaton else BENCH,
         quality=quality, origin="тест",
     )
     identity = await world.create_identity(session, f"Промышленник-{stamp}")
@@ -213,7 +213,7 @@ async def test_automaton_does_not_work_outside_city(
         session, f"terra.lone.{stamp}", "Хутор", area_m2=100, layer=Layer.PLANET
     )
     yard = await world.node_container(session, farmstead)
-    await world.grant_item(session, yard, craft.AUTO_BENCH, quality=60, origin="тест")
+    await world.grant_item(session, yard, "Автоматическая станция", quality=60, origin="тест")
     identity = await world.create_identity(session, f"Одиночка-{stamp}")
     body = await world.print_body(session, identity, farmstead)
     await world.learn(session, identity, NAILS)

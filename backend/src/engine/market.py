@@ -124,8 +124,8 @@ class NoMoney(MarketError):
     """Nothing to pay with. This is an in-game situation, not a server error."""
 
 
-#: Terminal name in `build/recipes.json`. One per city (D-100).
-TERMINAL = "Терминал маркетплейса"
+#: The thing class of marketplace terminals (D-100, D-215).
+TERMINAL = "Терминал"
 
 
 @dataclass(frozen=True, slots=True)
@@ -179,7 +179,7 @@ def goods_key(item: Item) -> str:
     """The name the counter knows this stack by."""
     from src.engine import craft
 
-    if item.type_key == craft.CARRIER and item.recipe_key:
+    if item.type_key in craft.carrier_names() and item.recipe_key:
         return f"{item.type_key}{CARRIER_SEP}{item.recipe_key}"
     return item.type_key
 
@@ -189,7 +189,7 @@ def split_key(goods: str) -> tuple[str, str | None]:
     from src.engine import craft
 
     head, sep, tail = goods.partition(CARRIER_SEP)
-    if sep and head == craft.CARRIER and tail:
+    if sep and head in craft.carrier_names() and tail:
         return head, tail
     return goods, None
 
@@ -218,9 +218,16 @@ def tier_of(constants: Constants, quality: float | None) -> str:
 async def terminal(session: AsyncSession, node: Node) -> Item:
     """The node's terminal. No terminal -- no trade, as there is none in an open field."""
     where = await node_container(session, node)
+    from src.engine.world import station_names
+
     found = (
         await session.execute(
-            select(Item).where(Item.container_id == where.id, Item.type_key == TERMINAL).limit(1)
+            select(Item)
+            .where(
+                Item.container_id == where.id,
+                Item.type_key.in_(station_names(TERMINAL)),
+            )
+            .limit(1)
         )
     ).scalar_one_or_none()
     if found is None:
@@ -1089,7 +1096,7 @@ async def _stacks(
     stmt = select(Item).where(Item.container_id == container.id, Item.type_key == kind)
     if recipe is not None:
         stmt = stmt.where(Item.recipe_key == recipe)
-    elif kind == _carrier():
+    elif kind in _carrier():
         #: A bare "Рецепт" on the counter is a blank one -- a written carrier
         #: is always named together with what is on it.
         stmt = stmt.where(Item.recipe_key.is_(None))
@@ -1161,10 +1168,10 @@ async def _move(
     return quantity - left
 
 
-def _carrier() -> str:
+def _carrier() -> tuple[str, ...]:
     from src.engine import craft
 
-    return craft.CARRIER
+    return craft.carrier_names()
 
 
 async def _levels(

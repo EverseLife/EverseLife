@@ -125,7 +125,7 @@ def test_mining_does_not_pretend_to_be_craft(catalog: Catalog) -> None:
 
 def test_place_extraction_goes_as_batch(catalog: Catalog) -> None:
     """Felling is place extraction (D-177): without inputs, but tied to a node."""
-    method = craft.procedure(catalog, "Бревно")
+    method = craft.procedure(catalog, "Дерево")
     assert method.place == "лес"
     assert method.inputs == ()
     assert "Топор" in method.tools
@@ -606,7 +606,7 @@ async def test_copying_recipe_costs_stamina(
     body.stamina = Decimal("1")
     await session.flush()
     with pytest.raises(craft.NoStrength):
-        await craft.copy_recipe(session, catalog, body, "Брус")
+        await craft.copy_recipe(session, catalog, body, "Верёвка")
 
 
 async def _node(session: AsyncSession, node_id: uuid.UUID):

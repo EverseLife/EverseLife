@@ -777,6 +777,7 @@ async def _mine_start(state: dict, db: AsyncSession, message: dict) -> dict:
         constants,
         body,
         vein,
+        catalog=current_catalog(),
         tool_item_id=_optional_uuid(message.get("tool")),
         pace=Pace(message.get("pace", Pace.STEADY.value)),
     )
@@ -922,7 +923,7 @@ async def _carrier_wipe(state: dict, db: AsyncSession, message: dict) -> dict:
     """Erase a carrier back into a blank (D-209)."""
     body = await _alive(state, db)
     item = await _own_item(db, body, message["item"])
-    blank = await craft.wipe_carrier(db, body, item)
+    blank = await craft.wipe_carrier(db, current_catalog(), body, item)
     return {"item": str(blank.id), "goods": blank.type_key}
 
 
@@ -3232,7 +3233,7 @@ async def _bench(
                 #: filled: an empty battery is zero energy, not "not a battery".
                 "charge": (
                     round(energy.charge_of(current(), item), 2)
-                    if item.type_key == energy.BATTERY
+                    if item.type_key in world.station_names(energy.BATTERY)
                     else None
                 ),
             }
@@ -3393,7 +3394,7 @@ async def _things(db: AsyncSession, constants, container) -> list[dict[str, Any]
             #: until the first charge.
             "charge": (
                 round(energy.charge_of(constants, item), 1)
-                if item.type_key == energy.BATTERY
+                if item.type_key in world.station_names(energy.BATTERY)
                 else None
             ),
         }

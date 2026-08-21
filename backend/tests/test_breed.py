@@ -40,7 +40,7 @@ async def _farm(session: AsyncSession, *, area: float = 100, nursery: bool = Fal
     )
     if nursery:
         yard = await world.node_container(session, node)
-        await world.grant_item(session, yard, breed.NURSERY, quality=60, origin="тест")
+        await world.grant_item(session, yard, "Селекционный питомник", quality=60, origin="тест")
     identity = await world.create_identity(session, f"Фермер-{stamp}")
     body = await world.print_body(session, identity, node)
     node.owner_identity_id = identity.id

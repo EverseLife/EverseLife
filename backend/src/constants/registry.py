@@ -199,7 +199,9 @@ RIG_DEPLETION_MULTIPLIER = Num("rig.depletion_multiplier")
 RIG_WEAR_PER_DAY = Num("rig.wear_per_day")
 
 # --- Energy (D-071, D-082, D-085) -------------------------------------------
-ENERGY_PER_COAL = Num("energy.per_coal")
+#: Energy per unit of every burnable material, keyed by name (D-215): the old
+#: `energy.per_coal` generalized -- built by the vault from material `fuel` fields.
+ENERGY_FUEL_ENERGY = Table("energy.fuel_energy")
 ENERGY_WATERWHEEL_RATE = Num("energy.waterwheel_rate")
 ENERGY_WINDMILL_RATE = Span("energy.windmill_rate")
 ENERGY_COAL_PLANT_RATE = Num("energy.coal_plant_rate")

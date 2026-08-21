@@ -76,8 +76,9 @@ from src.models.plant import Nursery, Variety
 from src.models.world import Node
 from src.units import PERCENT, amount, amount_float
 
-#: Building from `build/recipes.json`: crossing happens only in a nursery.
-NURSERY = "Селекционный питомник"
+#: Thing class from `build/recipes.json` (D-215): crossing happens only where
+#: a machine of the nursery class stands.
+NURSERY = "Питомник"
 
 #: Full strength of a seed batch. Not a balance number but "one hundred percent
 #: of what the cultivar can": the losses themselves are set by `breed.*`.
@@ -266,8 +267,8 @@ async def cross(
             select(Item.type_key).where(Item.container_id == node.id).distinct()
         )
     ).scalars().all()
-    if NURSERY not in machines:
-        raise NoNursery(f"в узле нет постройки «{NURSERY}»")
+    if not set(machines) & set(world.station_names(NURSERY)):
+        raise NoNursery(f"в узле нет постройки класса «{NURSERY}»")
 
     cultivar_a = await _variety_of(session, seeds_a)
     cultivar_b = await _variety_of(session, seeds_b)

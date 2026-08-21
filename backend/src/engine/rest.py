@@ -34,7 +34,7 @@ from src.models.identity import Body, BodyState
 from src.models.inventory import Item
 from src.units import SECONDS_PER_HOUR
 
-#: The bed's name in `build/recipes.json`.
+#: The bed thing class (D-215): any furniture of this class grants hibernation.
 BED = "Кровать"
 
 
@@ -154,7 +154,10 @@ async def _bed_here(session: AsyncSession, body: Body) -> bool:
     where = await world.node_container(session, node)
     found = await session.scalar(
         select(Item.id)
-        .where(Item.container_id == where.id, Item.type_key == BED)
+        .where(
+            Item.container_id == where.id,
+            Item.type_key.in_(world.station_names(BED)),
+        )
         .limit(1)
     )
     return found is not None

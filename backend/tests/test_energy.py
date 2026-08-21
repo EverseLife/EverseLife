@@ -114,8 +114,8 @@ async def test_coal_station_burns_coal_and_dead_without_it(
     from src.units import amount_float
 
     _, yard, _, _ = await _city(session)
-    await _place(session, yard, energy.COAL_PLANT)
-    await _place(session, yard, energy.COAL, qty=100)
+    await _place(session, yard, "Угольная станция")
+    await _place(session, yard, "Уголь", qty=100)
 
     moment = datetime.now(UTC)
     pool = await energy.pool_of(session, constants, yard)
@@ -123,7 +123,9 @@ async def test_coal_station_burns_coal_and_dead_without_it(
     yielded = await energy.produce(session, constants, pool, now=moment)
 
     burned = constants[R.ENERGY_COAL_PLANT_FUEL_DRAW] * 2
-    assert yielded == pytest.approx(burned * constants[R.ENERGY_PER_COAL], rel=0.01)
+    #: Energy per unit is a property of the material now (D-215).
+    per_coal = constants[R.ENERGY_FUEL_ENERGY]["Уголь"]
+    assert yielded == pytest.approx(burned * per_coal, rel=0.01)
     #: The vault rate matches the draw: 4 coal per hour give 200 energy.
     assert yielded == pytest.approx(constants[R.ENERGY_COAL_PLANT_RATE] * 2, rel=0.01)
 
@@ -133,7 +135,7 @@ async def test_coal_station_burns_coal_and_dead_without_it(
         for i_ in (
             await session.execute(
                 select(Item).where(
-                    Item.container_id == container.id, Item.type_key == energy.COAL
+                    Item.container_id == container.id, Item.type_key == "Уголь"
                 )
             )
         ).scalars().all()
@@ -144,7 +146,7 @@ async def test_coal_station_burns_coal_and_dead_without_it(
     for stack in (
         await session.execute(
             select(Item).where(
-                Item.container_id == container.id, Item.type_key == energy.COAL
+                Item.container_id == container.id, Item.type_key == "Уголь"
             )
         )
     ).scalars().all():

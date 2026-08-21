@@ -127,9 +127,8 @@ class NotYours(CityError):
 FOUNDER_POWERS: tuple[str, ...] = tuple(power.value for power in Power)
 FOUNDER_TITLE = "Президент"
 
-#: The machine that makes a node an administration: what a building is, is set
-#: by the machine in it (D-106). The name comes from `build/recipes.json`, not
-#: from imagination.
+#: The thing class of machines that make a node an administration: what a
+#: building is, is set by the machine in it (D-106, D-215).
 HALL = "Администрация"
 
 
@@ -321,12 +320,20 @@ async def _mark_gate(session: AsyncSession, city: City, node: Node) -> None:
 def foundation_needs() -> tuple[tuple[str, tuple[str, ...]], ...]:
     """What must stand in the node before founding: role -> what satisfies it."""
     from src.engine import death, energy, market
+    from src.engine.world import station_names
 
     return (
-        ("биопринтер", (death.PRINTER,)),
-        ("администрация", (HALL,)),
-        ("рынок", (market.TERMINAL,)),
-        ("источник энергии", (energy.WHEEL, energy.WINDMILL, energy.COAL_PLANT)),
+        ("биопринтер", station_names(death.PRINTER)),
+        ("администрация", station_names(HALL)),
+        ("рынок", station_names(market.TERMINAL)),
+        (
+            "источник энергии",
+            tuple(
+                name
+                for thing_class in energy.GENERATOR_CLASSES
+                for name in station_names(thing_class)
+            ),
+        ),
     )
 
 
@@ -625,7 +632,10 @@ async def require_at_hall(
     yard = await world.node_container(session, node)
     costs = await session.scalar(
         select(Item.id)
-        .where(Item.container_id == yard.id, Item.type_key == HALL)
+        .where(
+            Item.container_id == yard.id,
+            Item.type_key.in_(world.station_names(HALL)),
+        )
         .limit(1)
     )
     if costs is None:

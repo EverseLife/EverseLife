@@ -121,16 +121,16 @@ from src.units import (
 )
 from src.units import amount as to_amount
 
-#: The item a node aboard is laid from (D-202). Made at the `Космическая
-#: мастерская`, the ground station where hulls and engines come from.
-FOUNDATION = "Основа узла корабля"
-#: The machine a ship couples to and is laid down at. Requires clear sky --
-#: a property of the node.
-SPACEPORT = "Космическая верфь"
-#: The machine that decides how many people the ship holds.
-LIFE_SUPPORT = "Система жизнеобеспечения"
-#: What a passage burns.
-FUEL = "Ракетное топливо"
+#: Thing classes from the vault (D-202, D-215): behaviour binds to a class,
+#: never to an item name -- a second kind of foundation or fuel is data.
+#: The class a node aboard is laid from.
+FOUNDATION = "Основа корабля"
+#: The class of machines a ship couples to and is laid down at.
+SPACEPORT = "Верфь"
+#: The class of machines that decide how many people the ship holds.
+LIFE_SUPPORT = "Жизнеобеспечение"
+#: The class of what a passage burns.
+FUEL = "Корабельное топливо"
 
 #: The node property marking a node as being aboard. A property rather than a
 #: fifth planet: the list of planets drags its own day length and environment
@@ -393,7 +393,7 @@ async def life_support(
     systems = sum(
         amount_float(thing.amount)
         for thing in await _things(session, ship)
-        if thing.type_key == LIFE_SUPPORT
+        if thing.type_key in world.station_names(LIFE_SUPPORT)
     )
     return int(systems * constants[R.SHIP_LIFE_SUPPORT_CREW])
 
@@ -402,7 +402,7 @@ async def fuel_aboard(session: AsyncSession, ship: Ship) -> float:
     return sum(
         amount_float(thing.amount)
         for thing in await _things(session, ship)
-        if thing.type_key == FUEL
+        if thing.type_key in world.station_names(FUEL)
     )
 
 
@@ -589,7 +589,8 @@ async def _foundation_at_hand(session: AsyncSession, body: Body) -> list[Item]:
         (
             await session.execute(
                 select(Item).where(
-                    Item.container_id == pocket.id, Item.type_key == FOUNDATION
+                    Item.container_id == pocket.id,
+                    Item.type_key.in_(world.station_names(FOUNDATION)),
                 )
             )
         ).scalars().all()
@@ -1066,7 +1067,11 @@ async def fly(
         )
     burnt = await _spend(
         session,
-        [thing for thing in await _things(session, ship) if thing.type_key == FUEL],
+        [
+            thing
+            for thing in await _things(session, ship)
+            if thing.type_key in world.station_names(FUEL)
+        ],
         need_fuel,
     )
 
@@ -1349,7 +1354,8 @@ async def ports(session: AsyncSession) -> list[Node]:
                 .join(Container, Container.owner_id == Node.id)
                 .join(Item, Item.container_id == Container.id)
                 .where(
-                    Container.kind == ContainerKind.NODE, Item.type_key == SPACEPORT
+                    Container.kind == ContainerKind.NODE,
+                    Item.type_key.in_(world.station_names(SPACEPORT)),
                 )
                 .distinct()
             )

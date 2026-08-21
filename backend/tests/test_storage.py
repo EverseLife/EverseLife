@@ -23,7 +23,7 @@ from src.engine import station, storage, world
 from src.models.estate import Building
 
 CHEST = "Сундук"
-GOODS = "Брус"
+GOODS = "Труба"
 
 
 async def _yard(session: AsyncSession):

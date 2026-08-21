@@ -551,11 +551,11 @@ async def test_demolition_waits_for_the_yard_to_empty(
     roofed = await estate.built_area(session, tight)
     #: Halfway between what the yard holds and what the house holds.
     kilos = (float(tight.area_m2) + roofed) / 2 * per_m2
-    quantity = kilos / gear.mass_of(catalog, "Брус", 1)
+    quantity = kilos / gear.mass_of(catalog, "Труба", 1)
 
     pocket = await world.body_container(session, owner)
     goods = await world.grant_item(
-        session, pocket, "Брус", amount=quantity, quality=55, origin="тест"
+        session, pocket, "Труба", amount=quantity, quality=55, origin="тест"
     )
     await storage.drop(session, constants, catalog, owner, goods, quantity)
     assert any(

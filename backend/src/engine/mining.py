@@ -86,8 +86,13 @@ class VeinDepleted(MiningError):
     """The vein is worked out. Veins are finite, and that is irrevocable (pillar P2)."""
 
 
-#: Name of the mine support in `build/recipes.json`.
-TIMBER = "Шахтная крепь"
+#: The thing class of mine supports (D-215).
+TIMBER = "Крепь"
+
+
+class NoTool(MiningError):
+    """No fitting tool in the hands. The vault has always required one
+    (`Добыча requires: [Кирка, Жила]`); the engine simply never checked (D-215)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -228,6 +233,7 @@ async def start(
     body: Body,
     vein: Vein,
     *,
+    catalog=None,
     tool_item_id: uuid.UUID | None = None,
     pace: Pace = Pace.STEADY,
 ) -> MiningSession:
@@ -265,6 +271,11 @@ async def start(
     from src.engine import occupation
 
     await occupation.require_free(session, body, besides=frozenset({occupation.MINE}))
+
+    #: The tool the vault requires (`Добыча requires: [Кирка, Жила]`) is now
+    #: checked (D-215): before that the engine let anyone mine bare-handed.
+    tool = await _required_tool(session, catalog, body, vein, tool_item_id)
+    tool_item_id = tool.id if tool is not None else tool_item_id
 
     #: The roof belongs to the working, not to the session (D-188): rock does
     #: not knit back together while the miner is away. An untouched vein starts
@@ -406,7 +417,10 @@ async def timber(
     stock = (
         await session.execute(
             select(Item)
-            .where(Item.container_id == inventory.id, Item.type_key == TIMBER)
+            .where(
+                Item.container_id == inventory.id,
+                Item.type_key.in_(world_engine.station_names(TIMBER)),
+            )
             .limit(1)
         )
     ).scalar_one_or_none()
@@ -554,6 +568,68 @@ async def _sight(
         pace=mining.pace,
         state=mining.state,
     )
+
+
+async def _required_tool(
+    session: AsyncSession,
+    catalog,
+    body: Body,
+    vein: Vein,
+    tool_item_id: uuid.UUID | None,
+) -> Item | None:
+    """The tool the vault requires for mining this resource, from the hands.
+
+    Requirements come from the extraction operation that gives the vein's
+    resource -- a new operation with its own tool class needs no engine
+    change. The named tool must fit; with none named, the best fitting one is
+    taken, the same rule as at a workbench. Without a catalog (bare test
+    worlds) nothing is required -- there is nothing to read the rule from.
+    """
+    if catalog is None:
+        from src.constants.catalog import CATALOG_HOLDER
+
+        if not CATALOG_HOLDER.is_loaded():  # pragma: no cover -- test worlds
+            return None
+        catalog = CATALOG_HOLDER.current()
+
+    book = catalog.recipes
+    requirements: list[str] = []
+    for operation in book.operations:
+        if vein.resource in operation.gives and not operation.consumes:
+            requirements = [
+                book.resolve(req)
+                for req in operation.requires
+                if not book.is_raw(book.resolve(req))
+            ]
+            break
+    if not requirements:
+        return None
+
+    inventory = await body_container(session, body)
+    requirement = requirements[0]
+    names = book.of_class(requirement) or (requirement,)
+    if tool_item_id is not None:
+        chosen = await session.get(Item, tool_item_id)
+        if (
+            chosen is not None
+            and chosen.container_id == inventory.id
+            and chosen.type_key in names
+        ):
+            return chosen
+    found = (
+        await session.execute(
+            select(Item)
+            .where(Item.container_id == inventory.id, Item.type_key.in_(names))
+            .order_by(Item.quality.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if found is None:
+        raise NoTool(
+            f"для добычи нужен инструмент класса «{requirement}» "
+            f"({', '.join(names)}), а в руках его нет"
+        )
+    return found
 
 
 async def _tool(session: AsyncSession, mining: MiningSession) -> Item | None:

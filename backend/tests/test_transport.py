@@ -181,8 +181,10 @@ async def test_offroad_does_not_let_convoy_through(
 async def test_heavy_needs_highway(constants: Constants) -> None:
     """A light one goes by road, a heavy one only by paved (D-107)."""
     #: A spaceship is no longer a vehicle (D-201): it is a subgraph, not a
-    #: thing in a node. A river boat took its place as the heavy example.
-    light, heavy = CART, "Речное судно"
+    #: thing in a node. A boat took its place as the heavy example. Vehicles
+    #: are recognised by thing class or by the exact table word (D-215) --
+    #: substring matching is gone, so the name is the word itself.
+    light, heavy = CART, "Судно"
     assert not transport.heavy(constants, light)
     assert transport.heavy(constants, heavy)
     assert transport.passable(constants, Surface.ROAD, light)

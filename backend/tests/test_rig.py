@@ -33,13 +33,13 @@ async def _face(session: AsyncSession, *, coal: float = 100, richness: float = 6
     yard = await world.node_container(session, node)
     if coal > 0:
         await world.grant_item(
-            session, yard, rig.FUEL, amount=coal, quality=55, origin="тест"
+            session, yard, "Уголь", amount=coal, quality=55, origin="тест"
         )
     identity = await world.create_identity(session, f"Промышленник-{stamp}")
     body = await world.print_body(session, identity, node)
     pocket = await world.body_container(session, body)
     machine = await world.grant_item(
-        session, pocket, rig.RIG, quality=70, origin="тест"
+        session, pocket, "Буровая установка", quality=70, origin="тест"
     )
     installation = await rig.place(session, body, machine, vein)
     return node, vein, body, installation, machine

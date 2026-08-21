@@ -61,12 +61,15 @@ from src.models.ledger import AccountKind, PostingReason
 from src.models.world import Layer, Node
 from src.units import ENERGY_PER_TARIFF_UNIT, PERCENT, SECONDS_PER_HOUR, money
 
-#: Stations from `build/recipes.json`. What they give is below, by vault rates.
+#: Thing classes from `build/recipes.json` (D-215). Behaviour binds to the
+#: class, never to the item name: a second windmill or a peat-fired plant is
+#: a data change. What each class generates is below, by vault rates.
 WHEEL = "Водяное колесо"
 WINDMILL = "Ветряк"
-COAL_PLANT = "Угольная станция"
+FUEL_PLANT = "Топливная станция"
 BATTERY = "Аккумулятор"
-COAL = "Уголь"
+#: Every generator class, for "the node has an energy source" checks.
+GENERATOR_CLASSES = (WHEEL, WINDMILL, FUEL_PLANT)
 
 
 
@@ -157,14 +160,17 @@ async def produce(
         ).scalars().all()
         river = node.properties.get("вода") == "река"
 
+        wheels = set(world.station_names(WHEEL))
+        windmills = set(world.station_names(WINDMILL))
+        fuel_plants = set(world.station_names(FUEL_PLANT))
         for machine in machines:
-            if machine.type_key == WHEEL and river:
+            if machine.type_key in wheels and river:
                 added += constants[R.ENERGY_WATERWHEEL_RATE] * elapsed
-            elif machine.type_key == WINDMILL:
+            elif machine.type_key in windmills:
                 wind = constants[R.ENERGY_WINDMILL_RATE]
                 added += dice.uniform(wind.min, wind.max) * elapsed
-            elif machine.type_key == COAL_PLANT:
-                added += await _burn_coal(
+            elif machine.type_key in fuel_plants:
+                added += await _burn_fuel(
                     session, constants, yard.id, elapsed
                 )
 
@@ -174,16 +180,26 @@ async def produce(
     return added
 
 
-async def _burn_coal(
+async def _burn_fuel(
     session: AsyncSession, constants: Constants, container_id: uuid.UUID, hours: float
 ) -> float:
-    """Burn coal from the node and return the generation. No coal -- the station stands."""
+    """Burn fuel from the node and return the generation. No fuel -- the station stands.
+
+    What counts as fuel is data (D-215): every material with an entry in
+    `energy.fuel_energy` burns, each at its own energy per unit. The station
+    eats `energy.coal_plant_fuel_draw` units per hour whatever the fuel --
+    the draw is a property of the furnace, the yield of the material.
+    """
     from src.units import amount, amount_float
 
+    calories: dict[str, float] = constants[R.ENERGY_FUEL_ENERGY]
     need = constants[R.ENERGY_COAL_PLANT_FUEL_DRAW] * hours
     stacks = (
         await session.execute(
-            select(Item).where(Item.container_id == container_id, Item.type_key == COAL)
+            select(Item).where(
+                Item.container_id == container_id,
+                Item.type_key.in_(tuple(calories)),
+            )
         )
     ).scalars().all()
     have = sum(amount_float(stack.amount) for stack in stacks)
@@ -191,19 +207,20 @@ async def _burn_coal(
     if to_burn <= 0:
         return 0.0
 
+    produced = 0.0
     left = amount(to_burn)
     for stack in stacks:
         if left <= 0:
             break
         take = min(left, stack.amount)
+        produced += amount_float(take) * float(calories[stack.type_key])
         if take == stack.amount:
             await session.delete(stack)
         else:
             stack.amount -= take
         left -= take
     await session.flush()
-    #: Generation is proportional to what was burned: `energy.per_coal` per unit.
-    return to_burn * constants[R.ENERGY_PER_COAL]
+    return produced
 
 
 # --- fuel station (D-189) -----------------------------------------------------
@@ -223,20 +240,24 @@ async def plant_view(
     machines = (
         await session.execute(select(Item).where(Item.container_id == yard.id))
     ).scalars().all()
-    plants = [thing for thing in machines if thing.type_key == COAL_PLANT]
+    plant_names = set(world.station_names(FUEL_PLANT))
+    plants = [thing for thing in machines if thing.type_key in plant_names]
     if not plants:
         return None
 
+    fuels: dict[str, float] = constants[R.ENERGY_FUEL_ENERGY]
     stock = sum(
         amount_float(stack.amount)
         for stack in machines
-        if stack.type_key == COAL
+        if stack.type_key in fuels
     )
     draw = constants[R.ENERGY_COAL_PLANT_FUEL_DRAW] * len(plants)
     return {
-        "station": COAL_PLANT,
+        "station": plants[0].type_key,
         "count": len(plants),
-        "fuel": COAL,
+        #: What burns here -- every material with a fuel value (D-215).
+        "fuel": ", ".join(sorted(fuels)),
+        "fuels": sorted(fuels),
         "stock": round(stock, 1),
         #: Per hour: how much it eats and how much it gives while it eats.
         "draw": draw,
@@ -270,9 +291,9 @@ async def fuel(
     view = await plant_view(session, constants, node)
     if view is None:
         raise EnergyError("здесь нет станции, которой нужно топливо")
-    if item.type_key != view["fuel"]:
+    if item.type_key not in view["fuels"]:
         raise EnergyError(
-            f"«{item.type_key}» не горит в «{view['station']}»: нужен {view['fuel'].lower()}"
+            f"«{item.type_key}» не горит в «{view['station']}»: годится {view['fuel'].lower()}"
         )
 
     pocket = await world.body_container(session, body)
@@ -357,7 +378,7 @@ async def charge_battery(
         raise EnergyError("мёртвое тело не заряжает")
     await travel.require_here(session, body)
 
-    if item.type_key != BATTERY:
+    if item.type_key not in world.station_names(BATTERY):
         raise NotBattery(f"{item.type_key!r} — не аккумулятор: энергия в мешке не лежит")
 
     node = await session.get(Node, body.node_id)

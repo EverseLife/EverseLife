@@ -26,7 +26,8 @@ from src.models.estate import Building
 from src.models.inventory import Item
 
 BENCH = "Верстак"
-MAKE = "Брус"
+#: Made at the workbench out of wood alone -- the simplest honest batch.
+MAKE = "Рукоять"
 
 
 async def _workshop(session: AsyncSession, *, machine_count: int = 1):

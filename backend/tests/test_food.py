@@ -246,6 +246,10 @@ async def test_fed_works_steadier(
     vein = await world.create_vein(session, node, "Железная руда", richness=60, remaining=10_000)
     identity = await world.create_identity(session, f"Сытый-{stamp}")
     body = await world.print_body(session, identity, node)
+    pocket = await world.body_container(session, body)
+    await world.grant_item(
+        session, pocket, "Каменная кирка", quality=50, origin="сценарий теста"
+    )
 
     sess = await mining.start(session, constants, body, vein)
     before = float(body.stamina)

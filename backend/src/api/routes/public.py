@@ -48,7 +48,11 @@ async def recipes() -> dict[str, Any]:
         #: What to draw next to a quantity: "5 шт", "3 м" (display only).
         "units": book.units,
         "operations": [operation.model_dump(by_alias=True) for operation in book.operations],
-        "recipes": [recipe.model_dump() for recipe in book.recipes],
+        "recipes": [recipe.model_dump(by_alias=True) for recipe in book.recipes],
+        #: Thing classes (D-215): class -> members. `tool_classes` is the
+        #: tools-only view kept for older client code.
+        "classes": {name: list(members) for name, members in book.classes.items()},
+        "materials": [material.model_dump(by_alias=True) for material in book.materials],
         "tool_classes": {name: list(tools) for name, tools in book.tool_classes.items()},
         "synonyms": book.synonyms,
         "labor_hours": book.labor_hours,

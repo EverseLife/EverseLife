@@ -89,6 +89,10 @@ async def test_a_swept_face_gives_one_heap(
     vein = await world.create_vein(session, node, ORE, richness=60, remaining=1_000_000)
     identity = await world.create_identity(session, f"Шахтёр-{stamp}")
     body = await world.print_body(session, identity, node)
+    pocket = await _hands(session, body)
+    await world.grant_item(
+        session, pocket, PICK, quality=50, origin="сценарий теста"
+    )
 
     face = await mining.start(session, constants, body, vein)
     for _ in range(10):

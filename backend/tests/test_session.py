@@ -44,6 +44,10 @@ async def _prepare_world() -> dict:
         body = await world.print_body(db, identity, node)
         bag = await world.body_container(db, body)
         await world.grant_item(db, bag, "Шахтная крепь", amount=5, origin="сценарий теста")
+        #: Mining requires a pickaxe since D-215 -- the vault said so all along.
+        await world.grant_item(
+            db, bag, "Каменная кирка", quality=50, origin="сценарий теста"
+        )
         account = await db.get(Account, identity.account_id)
         ready_ = {
             "name": identity.name,

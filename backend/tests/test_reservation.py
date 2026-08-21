@@ -33,7 +33,7 @@ async def _market(session: AsyncSession, *, price=3, qty=20, quality=64):
     stamp = uuid.uuid4().hex[:8]
     node = await world.create_node(session, f"terra.mkt.{stamp}", "Рынок", area_m2=200)
     yard = await world.node_container(session, node)
-    await world.grant_item(session, yard, market.TERMINAL, quality=70, origin="тест")
+    await world.grant_item(session, yard, "Терминал маркетплейса", quality=70, origin="тест")
 
     seller = await world.create_identity(session, f"Продавец-{stamp}")
     seller_body = await world.print_body(session, seller, node)

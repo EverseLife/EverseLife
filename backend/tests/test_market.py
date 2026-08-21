@@ -28,7 +28,7 @@ from src.models.market import Order, OrderSide, OrderState, Trade
 from src.units import amount_float, money
 
 ORE = "Железная руда"
-TERMINAL = market.TERMINAL
+TERMINAL = "Терминал маркетплейса"
 
 
 async def _city(session: AsyncSession, *, city=None):

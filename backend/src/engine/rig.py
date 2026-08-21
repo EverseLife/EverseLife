@@ -60,10 +60,19 @@ from src.units import (
     amount_float,
 )
 
-#: Machine from `build/recipes.json`. A ladder milestone: really reachable by the end of E2.75.
-RIG = "Буровая установка"
-#: The rig's fuel. People haul coal -- that is the whole enterprise.
-FUEL = "Уголь"
+#: The rig thing class (D-215). A ladder milestone: reachable by the end of E2.75.
+RIG = "Буровая"
+
+
+def _fuel_names() -> tuple[str, ...]:
+    """What the rig burns: every material with a fuel value (D-215).
+
+    People haul the fuel -- that is the whole enterprise. The rig is a motor,
+    not a generator: it eats `rig.fuel_per_hour` units whatever the material.
+    """
+    from src.constants.catalog import current_catalog
+
+    return tuple(current_catalog().recipes.fuels()) or ("Уголь",)
 
 
 class RigError(Exception):
@@ -97,7 +106,7 @@ async def place(
         raise RigError("мёртвое тело не работает")
     await travel.require_here(session, body)
 
-    if item.type_key != RIG:
+    if item.type_key not in world.station_names(RIG):
         raise NoRig(f"{item.type_key!r} — не буровая установка")
     if vein.node_id != body.node_id:
         raise RigError("жила не здесь: установку ставят на месте")
@@ -259,7 +268,8 @@ async def empty_hopper(
     pocket = await world.body_container(session, body)
     emptied = Item(
         container_id=pocket.id,
-        type_key=vein.resource if vein else FUEL,
+        #: A rig without a vein should not happen; coal is the least-wrong stub.
+        type_key=vein.resource if vein else "Уголь",
         amount=amount(taken),
         quality=Decimal(str(quality)),
     )
@@ -331,7 +341,10 @@ async def status(
 async def _coal_available(session: AsyncSession, container_id: uuid.UUID) -> float:
     stacks = (
         await session.execute(
-            select(Item).where(Item.container_id == container_id, Item.type_key == FUEL)
+            select(Item).where(
+                Item.container_id == container_id,
+                Item.type_key.in_(_fuel_names()),
+            )
         )
     ).scalars().all()
     return sum(amount_float(stack.amount) for stack in stacks)
@@ -341,7 +354,10 @@ async def _burn(session: AsyncSession, container_id: uuid.UUID, qty: float) -> N
     left = amount(qty)
     stacks = (
         await session.execute(
-            select(Item).where(Item.container_id == container_id, Item.type_key == FUEL)
+            select(Item).where(
+                Item.container_id == container_id,
+                Item.type_key.in_(_fuel_names()),
+            )
         )
     ).scalars().all()
     for stack in stacks:

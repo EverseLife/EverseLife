@@ -54,9 +54,6 @@ from src.models.identity import Body, BodyState
 from src.models.inventory import Container, Item
 from src.units import PERCENT, amount, amount_float
 
-#: Machine from `build/recipes.json`. Minting happens only where it stands.
-MINT = "Монетная станция"
-
 
 class CoinError(Exception):
     pass

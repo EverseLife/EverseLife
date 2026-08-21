@@ -25,7 +25,7 @@ INGOT = "Слиток железа"
 NAILS = "Гвозди"
 ORE = "Железная руда"
 FORGE = "Кузница"
-TERMINAL = market.TERMINAL
+TERMINAL = "Терминал маркетплейса"
 
 
 async def _workshop(session: AsyncSession, *, machine: str | None = FORGE):

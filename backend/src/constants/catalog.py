@@ -36,11 +36,33 @@ class Strict(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
 
+class Material(Strict):
+    """A thing not made by any recipe: world raw material or an operation product
+    (D-215). One registry row is all a new material needs to exist."""
+
+    name: str
+    #: Thing class ("Ископаемое", ...). Engine behaviour binds to classes,
+    #: never to names.
+    thing_class: str | None = Field(default=None, alias="class")
+    mass: float = 0.0
+    bulk: bool = False
+    edible: bool = False
+    #: Units per hour of labour; also the vein weight for minerals.
+    rate: float | None = None
+    #: {finds, handful} -- present when the thing lies on the surface (D-210).
+    forage: dict[str, float] | None = None
+    #: Energy per unit when burned. Present -- the thing is a fuel (D-215).
+    fuel: float | None = None
+
+
 class Recipe(Strict):
     name: str
     level: int
     section: str | None = None
     kind: ItemKind
+    #: Thing class (D-215): "Кирка", "Кровать", "Тачка"... Behaviour binds
+    #: to the class, so a second bed is data, not code.
+    thing_class: str | None = Field(default=None, alias="class")
     key: bool = False
     mix: bool = False
     roles: bool = False
@@ -74,6 +96,9 @@ class Operation(Strict):
     name: str
     requires: tuple[str, ...] = ()
     gives: tuple[str, ...] = ()
+    #: The class the gives list was declared with, if any (D-215). The list
+    #: itself arrives expanded by the vault build.
+    gives_class: str | None = None
     consumes: tuple[str, ...] = ()
     #: Node property where the operation is possible (D-177): "Felling" -> `forest`.
     #: Empty -- the operation is not tied to a place.
@@ -86,7 +111,12 @@ class Operation(Strict):
 
 class RecipeBook(Strict):
     synonyms: dict[str, str] = Field(default_factory=dict)
+    #: Thing classes (D-215): class -> members. The one way behaviour groups
+    #: things; `tool_classes` below is the tools-only view kept for the client.
+    classes: dict[str, tuple[str, ...]] = Field(default_factory=dict)
     tool_classes: dict[str, tuple[str, ...]] = Field(default_factory=dict)
+    #: Everything not made by a recipe, one row per thing (D-215).
+    materials: tuple[Material, ...] = ()
     operations: tuple[Operation, ...] = ()
     raw: tuple[str, ...] = ()
     #: What goes into the pot beyond edible recipes: raw material and semi-finished goods.
@@ -105,6 +135,10 @@ class RecipeBook(Strict):
     #: those are given by labour, not composition (D-146).
     mass: dict[str, float] = Field(default_factory=dict)
     labor_hours: dict[str, float] = Field(default_factory=dict)
+    #: Own processing time per unit, hours (D-215). Before, the engine and the
+    #: vault editor both reconstructed it by subtracting input labour -- two
+    #: copies of one formula.
+    step_hours: dict[str, float] = Field(default_factory=dict)
     recipes: tuple[Recipe, ...] = ()
 
     def resolve(self, name: str) -> str:
@@ -130,6 +164,23 @@ class RecipeBook(Strict):
 
     def tools_of_class(self, tool_class: str) -> tuple[str, ...]:
         return self.tool_classes.get(tool_class, ())
+
+    def of_class(self, thing_class: str) -> tuple[str, ...]:
+        """Members of a thing class (D-215). Unknown class -- empty, and the
+        caller decides whether that is a refusal or just 'no such thing here'."""
+        return self.classes.get(thing_class, ())
+
+    def class_of(self, name: str) -> str | None:
+        """The class of a thing, or None. Behaviour code asks this instead of
+        comparing names: a second bed must work without a code change."""
+        return self._class_by_name.get(self.resolve(name))
+
+    def is_of_class(self, name: str, thing_class: str) -> bool:
+        return self.resolve(name) in set(self.classes.get(thing_class, ()))
+
+    def fuels(self) -> dict[str, float]:
+        """Energy per unit for every burnable material (D-215)."""
+        return {m.name: m.fuel for m in self.materials if m.fuel}
 
     def mass_of(self, name: str, *, default: float = 0.0) -> float:
         """Unit mass of an item, kg (D-146).
@@ -171,10 +222,14 @@ class RecipeBook(Strict):
 
     _by_name: dict[str, Recipe] = PrivateAttr(default_factory=dict)
     _measured: set[str] = PrivateAttr(default_factory=set)
+    _class_by_name: dict[str, str] = PrivateAttr(default_factory=dict)
 
     def model_post_init(self, _: Any) -> None:
         self._by_name.update({recipe.name: recipe for recipe in self.recipes})
         self._measured.update(self.bulk)
+        for thing_class, members in self.classes.items():
+            for member in members:
+                self._class_by_name[member] = thing_class
 
 
 class PlantRequirements(Strict):

@@ -30,12 +30,25 @@ from src.models.world import Vein
 ORE = "Железная руда"
 
 
-async def _face(session: AsyncSession, *, richness: float = 60, remaining: float = 100_000):
+async def _face(
+    session: AsyncSession,
+    *,
+    richness: float = 60,
+    remaining: float = 100_000,
+    tooled: bool = True,
+):
     stamp = uuid.uuid4().hex[:8]
     node = await world.create_node(session, f"terra.mine.{stamp}", "Забой", area_m2=100)
     vein = await world.create_vein(session, node, ORE, richness=richness, remaining=remaining)
     identity = await world.create_identity(session, f"Шахтёр-{stamp}")
     body = await world.print_body(session, identity, node)
+    if tooled:
+        #: The vault requires a pickaxe (`Добыча requires: [Кирка, Жила]`),
+        #: and since D-215 the engine checks it at the face.
+        pocket = await world.body_container(session, body)
+        await world.grant_item(
+            session, pocket, "Каменная кирка", quality=50, origin="сценарий теста"
+        )
     return node, vein, body
 
 
@@ -44,6 +57,16 @@ async def _tool(session: AsyncSession, body):
     return await world.grant_item(
         session, container, "Железная кирка", quality=50, origin="сценарий теста"
     )
+
+
+async def test_mining_requires_a_pickaxe(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """`Добыча requires: [Кирка, Жила]` was in the vault from the start; the
+    engine finally checks it (D-215): no tool of the class -- no session."""
+    _, vein, body = await _face(session, tooled=False)
+    with pytest.raises(mining.NoTool, match="Кирка"):
+        await mining.start(session, constants, body, vein)
 
 
 # --- hidden state ------------------------------------------------------------
@@ -233,7 +256,7 @@ async def test_support_holds_roof_but_not_forever(
     """The `mine.roof_timber_cap` ceiling is the main knob: the session is finite."""
     _, vein, body = await _face(session, richness=10)
     container = await world.body_container(session, body)
-    await world.grant_item(session, container, mining.TIMBER, amount=50, origin="сценарий теста")
+    await world.grant_item(session, container, "Шахтная крепь", amount=50, origin="сценарий теста")
 
     sess = await mining.start(session, constants, body, vein)
     for _ in range(10):
@@ -267,7 +290,7 @@ async def test_support_stays_after_the_shift(
     """A support is an investment in the working, not a consumable of one visit."""
     _, vein, body = await _face(session, richness=60)
     container = await world.body_container(session, body)
-    await world.grant_item(session, container, mining.TIMBER, amount=5, origin="сценарий теста")
+    await world.grant_item(session, container, "Шахтная крепь", amount=5, origin="сценарий теста")
     await _tool(session, body)
 
     first = await mining.start(session, constants, body, vein)
@@ -322,6 +345,7 @@ async def test_shaken_working_is_shared(
     stamp = uuid.uuid4().hex[:6]
     neighbour = await world.create_identity(session, f"Сосед-{stamp}")
     neighbour_body = await world.print_body(session, neighbour, node)
+    await _tool(session, neighbour_body)
     second = await mining.start(session, constants, neighbour_body, vein)
     assert float(second.roof) == pytest.approx(shaken), "сосед пришёл в целый забой"
 
@@ -399,6 +423,7 @@ async def test_neighbour_hinders_on_rich_vein(
 
     neighbour = await world.create_identity(session, "Сосед")
     neighbour_body = await world.print_body(session, neighbour, await _node(session, vein))
+    await _tool(session, neighbour_body)
     await mining.start(session, constants, neighbour_body, vein)
 
     together = await mining.crowd_factor(constants, session, vein)
@@ -415,6 +440,7 @@ async def test_neighbour_helps_on_poor_vein(
 
     second = await world.create_identity(session, "Артельщик")
     body = await world.print_body(session, second, await _node(session, vein))
+    await _tool(session, body)
     await mining.start(session, constants, body, vein)
 
     assert await mining.crowd_factor(constants, session, vein) > 1.0

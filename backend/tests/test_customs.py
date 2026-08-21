@@ -60,7 +60,7 @@ async def _world(session: AsyncSession, catalog: Catalog):
     await travel.connect(session, marketplace, gate, base_seconds=10, surface=Surface.PAVED)
     await travel.connect(session, gate, field, base_seconds=60, surface=Surface.ROAD)
     yard = await world.node_container(session, marketplace)
-    await world.grant_item(session, yard, market.TERMINAL, quality=70, origin="тест")
+    await world.grant_item(session, yard, "Терминал маркетплейса", quality=70, origin="тест")
     return city, marketplace, gate, field
 
 

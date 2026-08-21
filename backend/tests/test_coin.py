@@ -38,7 +38,7 @@ async def _yard(session: AsyncSession, *, metal_: float = 100, iron: float = 100
     stamp = uuid.uuid4().hex[:8]
     node = await world.create_node(session, f"terra.mint.{stamp}", "Двор", area_m2=100)
     yard = await world.node_container(session, node)
-    await world.grant_item(session, yard, coin.MINT, quality=60, origin="тест")
+    await world.grant_item(session, yard, "Монетная станция", quality=60, origin="тест")
     identity = await world.create_identity(session, f"Чеканщик-{stamp}")
     body = await world.print_body(session, identity, node)
     pocket = await world.body_container(session, body)

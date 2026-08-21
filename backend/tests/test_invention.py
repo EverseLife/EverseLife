@@ -36,12 +36,14 @@ from src.units import amount_float
 BENCH = "Верстак"
 FORGE = "Кузница"
 WOOD = "Дерево"
-BEAM = "Брус"
+BEAM = "Ведро"
+BARREL = "Бочка"
+ROPE = "Верёвка"
 HANDLE = "Рукоять"
 INGOT = "Слиток железа"
 NAILS = "Гвозди"
-CARRIER = craft.CARRIER
-BLANK = craft.BLANK
+CARRIER = "Рецепт"
+BLANK = "Болванка рецепта"
 
 
 async def _yard(session: AsyncSession, *, machine: str | None = BENCH, name: str = "Мастер"):
@@ -84,10 +86,11 @@ def _norm(catalog: Catalog, name: str) -> dict[str, float]:
 async def test_right_composition_opens_recipe_and_starts_batch(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """The exact composition of the beam at the workbench: the recipe is
+    """The exact composition of the pail at the workbench: the recipe is
     opened with the discoverer's mark, and the laid-out wood becomes the first batch."""
     _, identity, body = await _yard(session)
     await _give(session, body, WOOD, 50)
+    await _give(session, body, ROPE, 10)
 
     result = await craft.invent(
         session, constants, catalog, body, _norm(catalog, BEAM), 2, station=BENCH
@@ -140,14 +143,15 @@ async def test_amounts_tell_recipes_apart(
 ) -> None:
     """Beam and handle are both wood at the workbench: the amount per unit is
     what names the recipe (D-209), so the vault keeps them apart."""
-    beam, handle = _norm(catalog, BEAM), _norm(catalog, HANDLE)
-    assert set(beam) == set(handle) == {WOOD}
-    assert beam != handle
+    pail, barrel = _norm(catalog, BEAM), _norm(catalog, BARREL)
+    assert set(pail) == set(barrel) == {WOOD, ROPE}
+    assert pail != barrel
 
     _, _, body = await _yard(session)
     await _give(session, body, WOOD, 50)
-    result = await craft.invent(session, constants, catalog, body, handle, 1, station=BENCH)
-    assert result.learned == (HANDLE,)
+    await _give(session, body, ROPE, 10)
+    result = await craft.invent(session, constants, catalog, body, barrel, 1, station=BENCH)
+    assert result.learned == (BARREL,)
 
 
 async def test_laid_out_must_be_in_hands_before_anything(
@@ -192,6 +196,7 @@ async def test_known_recipe_is_not_invented_again(
     _, identity, body = await _yard(session)
     await world.learn(session, identity, BEAM)
     await _give(session, body, WOOD, 20)
+    await _give(session, body, ROPE, 5)
     with pytest.raises(craft.CraftError, match="уже знаете"):
         await craft.invent(
             session, constants, catalog, body, _norm(catalog, BEAM), 1, station=BENCH
@@ -219,6 +224,7 @@ async def test_invention_needs_the_machine_here(
 ) -> None:
     _, _, body = await _yard(session, machine=None)
     await _give(session, body, WOOD, 20)
+    await _give(session, body, ROPE, 5)
     with pytest.raises(craft.NoStation):
         await craft.invent(
             session, constants, catalog, body, _norm(catalog, BEAM), 1, station=BENCH
@@ -354,7 +360,7 @@ async def test_wiping_returns_a_blank(
 ) -> None:
     _, _, body = await _yard(session, machine=None)
     item = await _written_carrier(session, catalog, body, NAILS)
-    blank = await craft.wipe_carrier(session, body, item)
+    blank = await craft.wipe_carrier(session, catalog, body, item)
     assert blank.id == item.id
     assert blank.type_key == BLANK and blank.recipe_key is None
     #: Erasing wears the memory (D-209).
@@ -364,7 +370,7 @@ async def test_wiping_returns_a_blank(
 async def test_carriers_are_different_goods_per_recipe(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """On the counter "Рецепт: Гвозди" and "Рецепт: Брус" are two positions:
+    """On the counter "Рецепт: Гвозди" and "Рецепт: Ведро" are two positions:
     loading one does not move the other."""
     node, identity, body = await _yard(session, machine="Терминал маркетплейса")
     nails = await _written_carrier(session, catalog, body, NAILS)

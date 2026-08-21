@@ -832,6 +832,10 @@ async def test_labour_in_prison_face_repays_debt(
     )
     await session.flush()
 
+    pocket = await world.body_container(session, body)
+    await world.grant_item(
+        session, pocket, "Каменная кирка", quality=50, origin="сценарий теста"
+    )
     sess = await mining.start(session, constants, body, vein)
     await mining.swing(session, constants, sess)
     before = loan.outstanding

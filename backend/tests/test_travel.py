@@ -351,7 +351,7 @@ async def test_no_loading_or_buying_en_route(
 ) -> None:
     here, there, body = await _two_nodes(session)
     yard = await world.node_container(session, here)
-    await world.grant_item(session, yard, market.TERMINAL, quality=70, origin="тест")
+    await world.grant_item(session, yard, "Терминал маркетплейса", quality=70, origin="тест")
     pocket = await world.body_container(session, body)
     await world.grant_item(session, pocket, "Железная руда", amount=5, quality=60, origin="тест")
 
@@ -541,14 +541,13 @@ async def test_spaceport_is_the_second_door(
     by what stands in it (D-176), so the city gets its second door by building
     one rather than by a second property to keep in step.
     """
-    from src.engine import ship
 
     _, _, market_, wild = await _city(session, catalog)
     assert not await travel.is_exit(session, market_)
 
     yard = await world.node_container(session, market_)
     await world.grant_item(
-        session, yard, ship.SPACEPORT, quality=60, origin="тест"
+        session, yard, "Космическая верфь", quality=60, origin="тест"
     )
     assert await travel.is_exit(session, market_), (
         "космодром делает узел выходом: к нему цепляются корабли"

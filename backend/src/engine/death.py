@@ -77,9 +77,10 @@ from src.models.world import Node
 from src.units import MINUTES_PER_HOUR as MINUTES_IN_HOUR
 from src.units import PERCENT, amount, amount_float, money_str
 
-#: The machine that prints bodies. The name comes from `build/recipes.json` (D-090).
+#: The thing class of machines that print bodies (D-090, D-215).
 PRINTER = "Биопринтер"
-#: The processor metal. The vault names the price "10 iron" (D-033).
+#: The processor metal. The vault names the price "10 iron" (D-033) -- a
+#: concrete payment material, not a behaviour class: deliberately a name.
 IRON = "Слиток железа"
 #: Node property: that very Forerunners' Printer, printing for free and slowly
 #: (D-028). A place property, not a node name: names change, the world's structure does not.
@@ -231,7 +232,10 @@ async def printers(
             select(Node)
             .join(Container, Container.owner_id == Node.id)
             .join(Item, Item.container_id == Container.id)
-            .where(Container.kind == ContainerKind.NODE, Item.type_key == PRINTER)
+            .where(
+                Container.kind == ContainerKind.NODE,
+                Item.type_key.in_(world.station_names(PRINTER)),
+            )
             .distinct()
         )
     ).scalars().all()
@@ -304,7 +308,10 @@ async def order(
     yard = await world.node_container(session, node)
     has_printer = await session.scalar(
         select(Item.id)
-        .where(Item.container_id == yard.id, Item.type_key == PRINTER)
+        .where(
+            Item.container_id == yard.id,
+            Item.type_key.in_(world.station_names(PRINTER)),
+        )
         .limit(1)
     )
     if has_printer is None:

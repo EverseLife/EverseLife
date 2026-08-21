@@ -222,9 +222,23 @@ async def print_body(session: AsyncSession, identity: Identity, node: Node) -> B
     return body
 
 
-#: The machine at which bodies are printed (D-033). While no bioprinter stands
-#: anywhere, printing happens at the city core -- the zero-ring node (D-089).
+#: The class of machines bodies are printed at (D-033, D-215). While no
+#: bioprinter stands anywhere, printing happens at the city core (D-089).
 BIOPRINTER = "Биопринтер"
+
+
+def station_names(thing_class: str) -> tuple[str, ...]:
+    """Concrete item names of a thing class (D-215).
+
+    Behaviour binds to classes, and a class may hold several machines: a
+    second bed or printer arrives as data. A word the catalog does not know
+    as a class falls back to itself, name-for-name -- so a test world with a
+    bare catalog keeps working.
+    """
+    from src.constants.catalog import current_catalog
+
+    members = current_catalog().recipes.of_class(thing_class)
+    return members or (thing_class,)
 
 
 async def printer_nodes(session: AsyncSession) -> Sequence[Node]:
@@ -234,7 +248,10 @@ async def printer_nodes(session: AsyncSession) -> Sequence[Node]:
             select(Node)
             .join(Container, Container.owner_id == Node.id)
             .join(Item, Item.container_id == Container.id)
-            .where(Container.kind == ContainerKind.NODE, Item.type_key == BIOPRINTER)
+            .where(
+                Container.kind == ContainerKind.NODE,
+                Item.type_key.in_(station_names(BIOPRINTER)),
+            )
             .distinct()
         )
     ).scalars().all()
@@ -492,17 +509,20 @@ async def node_container(session: AsyncSession, node: Node) -> Container:
     return container
 
 
-#: The "Library" machine (D-176): the library window is shown where it stands.
+#: The "Библиотека" thing class (D-176, D-215): the library window is shown
+#: where any of its machines stands.
 LIBRARY = "Библиотека"
 
 
 async def has_station(session: AsyncSession, node: Node, name: str) -> bool:
-    """Whether a machine with this name stands in the node: the node scene is
-    built from machines (D-176), and this is the only way to ask what a place is."""
+    """Whether a machine of this class stands in the node: the node scene is
+    built from machines (D-176), and this is the only way to ask what a place
+    is. The word is a thing class (D-215); a plain item name still matches
+    itself through the fallback in `station_names`."""
     yard = await node_container(session, node)
     found = await session.scalar(
         select(Item.id)
-        .where(Item.container_id == yard.id, Item.type_key == name)
+        .where(Item.container_id == yard.id, Item.type_key.in_(station_names(name)))
         .limit(1)
     )
     return found is not None

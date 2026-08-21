@@ -62,7 +62,8 @@ FINE, PRISON, EXILE = "fine", "prison", "exile"
 #: The node property "prison" is a legacy of old worlds (D-174). The new order
 #: is the "Penal colony" machine (D-176): the authority builds a prison like any building.
 PRISON_NODE = "тюрьма"
-#: Machine from `build/recipes.json`: a civic-land node with it is a penal colony.
+#: Thing class from `build/recipes.json` (D-215): a civic-land node with any
+#: machine of this class is a penal colony.
 KATORGA = "Каторга"
 ENFORCED = (FINE, PRISON, EXILE)
 

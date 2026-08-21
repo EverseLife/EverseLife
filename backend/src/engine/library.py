@@ -108,7 +108,7 @@ async def contribute(
     inventory = await body_container(session, body)
     if item.container_id != inventory.id:
         raise NotHere("этой вещи нет в руках")
-    if item.type_key != craft.CARRIER or not item.recipe_key:
+    if item.type_key not in craft.carrier_names(catalog) or not item.recipe_key:
         raise NotACarrier("в библиотеку кладут записанный носитель — предмет «Рецепт»")
     recipe = catalog.recipes.recipe(item.recipe_key).name
     if await has(session, node, recipe):

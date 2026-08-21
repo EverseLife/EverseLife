@@ -166,21 +166,51 @@ SITE = "Стройка"
 #: What reads as "no machine needed". A list of two, both from data.
 BENCHLESS = (HANDS, SITE)
 
-#: The knowledge carrier and its blank (D-209): recipes from `build/recipes.json`.
-#: A written carrier keeps the recipe's name in `Item.recipe_key`; wiping it
-#: turns it back into a blank. Both are ordinary things beyond that: made,
-#: carried, sold, lost with the body.
-CARRIER = "Рецепт"
-BLANK = "Болванка рецепта"
+#: The knowledge-carrier and blank thing classes (D-209, D-215). Concrete
+#: items come from the vault by class membership. A written carrier keeps the
+#: recipe's name in `Item.recipe_key`; wiping it turns it back into its blank.
+#: Both are ordinary things beyond that: made, carried, sold, lost with the body.
+CARRIER = "Носитель"
+BLANK = "Болванка"
 
-#: The automatic workstation (D-035, D-058). The industrial mode: works twice
-#: as fast, sets the ceiling itself, needs no tool, gives an even result -- and
-#: for that it eats energy from the city pool at the tariff.
+
+def carrier_names(catalog: Catalog | None = None) -> tuple[str, ...]:
+    """Concrete carrier item names (D-215). One place asks, everybody agrees."""
+    from src.constants.catalog import current_catalog
+
+    book = (catalog or current_catalog()).recipes
+    return book.of_class(CARRIER) or (CARRIER,)
+
+
+def blank_of(catalog: Catalog, carrier_type: str) -> str:
+    """The blank a wiped carrier becomes: the blank-class input of its recipe.
+
+    A carrier is its blank plus a write (D-209), so the way back is written in
+    the recipe itself -- no name table in code.
+    """
+    book = catalog.recipes
+    blanks = set(book.of_class(BLANK))
+    try:
+        recipe = book.recipe(carrier_type)
+    except ConstantError:
+        recipe = None
+    if recipe is not None:
+        for name in recipe.inputs:
+            if book.resolve(name) in blanks:
+                return book.resolve(name)
+    if blanks:
+        return sorted(blanks)[0]
+    raise Unmakeable(f"у «{carrier_type}» нет болванки: класс «{BLANK}» пуст")
+
+
+#: The automatic workstation class (D-035, D-058, D-215). The industrial mode:
+#: works twice as fast, sets the ceiling itself, needs no tool, gives an even
+#: result -- and for that it eats energy from the city pool at the tariff.
 #:
 #: The vault does not list which processes are automated, so the automaton is
 #: substituted for any recipe station -- by the master's own decision, not
 #: silently: "put on automatic" is a choice between quality and volume.
-AUTO_BENCH = "Автоматическая станция"
+AUTO_BENCH = "Автомат"
 
 
 @dataclass(frozen=True, slots=True)
@@ -330,7 +360,7 @@ def _from_operation(catalog: Catalog, operation: Operation, output: str) -> Proc
     tools: list[str] = []
     for requirement in operation.requires:
         canonical = book.resolve(requirement)
-        if book.tools_of_class(canonical):
+        if book.of_class(canonical):
             tools.append(canonical)
         elif book.is_raw(canonical):
             #: "Vein" in extraction requirements is not equipment but the mechanic itself.
@@ -358,13 +388,17 @@ def _from_operation(catalog: Catalog, operation: Operation, output: str) -> Proc
 
 
 def step_hours(catalog: Catalog, recipe: Recipe) -> float:
-    """Own processing time: the product's labour minus the labour of its inputs.
+    """Own processing time per unit.
 
-    The vault has already folded `craft.time_per_unit` and growth by processing
-    depth into this (D-133). Re-deriving them would mean keeping a second copy
-    of the formula.
+    Since D-215 the vault ships it ready in `step_hours`; the subtraction
+    below is a fallback for a book built before that. Re-deriving
+    `craft.time_per_unit` and depth growth here would be a second copy of the
+    vault's formula either way.
     """
     book = catalog.recipes
+    ready = book.step_hours.get(recipe.name)
+    if ready is not None:
+        return ready
     spent = sum(value * book.labor_of(name) for name, value in recipe.amounts.items())
     return max(0.0, book.labor_of(recipe.name) - spent)
 
@@ -1145,7 +1179,7 @@ async def read_carrier(
     inventory = await body_container(session, body)
     if item.container_id != inventory.id:
         raise CraftError("носителя нет в руках")
-    if item.type_key != CARRIER or not item.recipe_key:
+    if item.type_key not in carrier_names(catalog) or not item.recipe_key:
         raise Unmakeable("это не записанный носитель: читать нечего")
     recipe = catalog.recipes.recipe(item.recipe_key).name
     if await _knows(session, body, recipe):
@@ -1167,7 +1201,9 @@ async def read_carrier(
     return learned
 
 
-async def wipe_carrier(session: AsyncSession, body: Body, item: Item) -> Item:
+async def wipe_carrier(
+    session: AsyncSession, catalog: Catalog, body: Body, item: Item
+) -> Item:
     """Erase a carrier: the recipe is gone from it, the blank is back in the hands.
 
     Nothing else about the thing changes -- its quality, mark and wear stay:
@@ -1178,10 +1214,10 @@ async def wipe_carrier(session: AsyncSession, body: Body, item: Item) -> Item:
     inventory = await body_container(session, body)
     if item.container_id != inventory.id:
         raise CraftError("носителя нет в руках")
-    if item.type_key != CARRIER:
-        raise Unmakeable("стереть можно только предмет «Рецепт»")
+    if item.type_key not in carrier_names(catalog):
+        raise Unmakeable("стереть можно только носитель знания")
     was = item.recipe_key
-    item.type_key = BLANK
+    item.type_key = blank_of(catalog, item.type_key)
     item.recipe_key = None
     #: Erasing wears the memory as writing does; at zero the blank is dead --
     #: it can still be sold or melted down, but not written on (D-209).
@@ -1666,7 +1702,7 @@ async def _prepare(
     #: A knowledge carrier is written by whoever knows the recipe (D-209): the
     #: name of what goes onto it is part of the request, and it must be in the
     #: master's own head -- a carrier is a copy, not a source.
-    if proc.output == CARRIER:
+    if proc.output in carrier_names(catalog):
         if not recipe_key:
             raise CraftError("на носитель записывают конкретный рецепт: назовите какой")
         recipe_key = catalog.recipes.recipe(recipe_key).name
@@ -1707,7 +1743,7 @@ async def _prepare(
     #: Which stacks feed the batch is the master's choice (D-058): by tier per
     #: input, or worst first when nothing is said.
     stock = await _stock(session, inventory, proc.inputs, tiers=_tiers_by(catalog, tiers))
-    if proc.output == CARRIER:
+    if proc.output in carrier_names(catalog):
         return await _prepare_write(
             session, constants, catalog, body, proc, units, stock, recipe_key
         )
@@ -1894,12 +1930,17 @@ async def _pick_station(
             "пока долг не закрыт"
         )
 
+    from src.engine.world import station_names
+
     where = await node_container(session, node)
     moment = datetime.now(UTC)
     standing = (
         await session.execute(
             select(Item)
-            .where(Item.container_id == where.id, Item.type_key == name)
+            .where(
+                Item.container_id == where.id,
+                Item.type_key.in_(station_names(name)),
+            )
             .order_by(Item.quality.desc())
         )
     ).scalars().all()
@@ -1961,7 +2002,7 @@ async def _tool_items(
     found: list[Item] = []
 
     for requirement in proc.tools:
-        names = catalog.recipes.tools_of_class(requirement) or (requirement,)
+        names = catalog.recipes.of_class(requirement) or (requirement,)
         item = (
             await session.execute(
                 select(Item)

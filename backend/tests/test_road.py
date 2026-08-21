@@ -38,7 +38,7 @@ async def _edge(
     if surface_amount:
         pocket = await world.body_container(session, body)
         await world.grant_item(
-            session, pocket, road.SURFACE_GOODS, amount=surface_amount,
+            session, pocket, "Дорожное полотно", amount=surface_amount,
             origin="сценарий теста",
         )
     return here, there, body, edge
@@ -247,7 +247,7 @@ async def test_surface_is_craftable_at_all(
 
     from src.engine import craft
 
-    recipe = catalog.recipes.recipe(road.SURFACE_GOODS)
+    recipe = catalog.recipes.recipe("Дорожное полотно")
     assert recipe.station == craft.SITE, "полотно собирают на месте"
-    method = craft.procedure(catalog, road.SURFACE_GOODS)
+    method = craft.procedure(catalog, "Дорожное полотно")
     assert method.station is None, "станции для этого не нужно"

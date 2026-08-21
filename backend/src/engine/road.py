@@ -61,8 +61,8 @@ from src.models.job import Job, JobKind, JobState
 from src.models.world import Edge, Node, Surface
 from src.units import AMOUNT_SCALE, SCALE_MAX, SCALE_MIN, amount, amount_float
 
-#: The vault consumable the surface is made of (D-107).
-SURFACE_GOODS = "Дорожное полотно"
+#: The thing class of consumables a surface is laid from (D-107, D-215).
+SURFACE_GOODS = "Полотно"
 
 #: Surface tiers from bottom to top. The order is the laying ladder itself.
 LADDER = (Surface.TRAIL, Surface.ROAD, Surface.PAVED)
@@ -322,7 +322,8 @@ async def _surface_at_hand(session: AsyncSession, body: Body) -> float:
     stacks = (
         await session.execute(
             select(Item).where(
-                Item.container_id == pocket.id, Item.type_key == SURFACE_GOODS
+                Item.container_id == pocket.id,
+                Item.type_key.in_(world.station_names(SURFACE_GOODS)),
             )
         )
     ).scalars().all()
@@ -335,7 +336,8 @@ async def _take_surface(session: AsyncSession, body: Body, need_amount: float) -
     stacks = (
         await session.execute(
             select(Item).where(
-                Item.container_id == pocket.id, Item.type_key == SURFACE_GOODS
+                Item.container_id == pocket.id,
+                Item.type_key.in_(world.station_names(SURFACE_GOODS)),
             )
         )
     ).scalars().all()

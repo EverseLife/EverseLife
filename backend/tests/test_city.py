@@ -512,14 +512,14 @@ async def _wasteland(session: AsyncSession, name: str = "Основатель"):
 
 async def _build_up(session: AsyncSession, node, *, missing: str | None = None):
     """Place the four mandatory buildings in the node, except the named one."""
-    from src.engine import death, market
+    from src.engine import death
     from src.engine import energy as power
 
     yard = await world.node_container(session, node)
     for_ = {
         "биопринтер": death.PRINTER,
         "администрация": town.HALL,
-        "рынок": market.TERMINAL,
+        "рынок": "Терминал маркетплейса",
         "источник энергии": power.WHEEL,
     }
     for role, machine in for_.items():

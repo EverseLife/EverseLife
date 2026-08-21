@@ -105,15 +105,19 @@ def is_vehicle(catalog: Catalog, type_key: str) -> bool:
 def word(constants: Constants, type_key: str) -> str | None:
     """The word the vault calls this vehicle by.
 
-    The keys of `transport.speed_k` are words ("barrow", "wagon", "ship"),
-    while item names can be longer ("Orbital ship"). The engine keeps no type
-    list: add an airship in the vault and it flies without a code change.
+    The keys of `transport.speed_k` are words ("тачка", "повозка", "судно"),
+    and the vehicle's thing class names exactly that word (D-215): a wagon is
+    of class "Повозка". The engine keeps no type list: add an airship class in
+    the vault and it flies without a code change. Substring matching over item
+    names is gone -- it classified anything whose name merely contained the word.
     """
-    name = type_key.lower()
-    for label in constants[R.TRANSPORT_SPEED_K]:
-        if label in name:
-            return label
-    return None
+    from src.constants.catalog import current_catalog
+
+    thing_class = current_catalog().recipes.class_of(type_key)
+    #: No class -- the thing's own name may be the table word itself ("Судно"):
+    #: that keeps the tables usable before a recipe for such a vehicle exists.
+    label = (thing_class or type_key).lower()
+    return label if label in constants[R.TRANSPORT_SPEED_K] else None
 
 
 def capacity(constants: Constants, type_key: str) -> float:
