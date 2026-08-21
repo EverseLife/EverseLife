@@ -353,28 +353,48 @@ docker compose exec landing python export.py > signups.csv
 
 Отсюда две дороги.
 
-**Начать с нуля** — если мир не жалко (на альфе это обычный случай). Каталог
-заводится заново, старые тома остаются мусором и удаляются потом:
+**Начать с нуля** — если мир не жалко (на альфе это обычный случай). Заодно
+меняется и пользователь: раз имя проекта другое, `octoverse` на сервере тоже ни
+к чему. Всё, что ему принадлежало, — каталог состава и ключи, и то и другое
+заводится заново. От root:
 
 ```bash
-# от root
-mkdir -p /opt/everselife && chown octoverse:octoverse /opt/everselife
+adduser --disabled-password --gecos "" everselife
+usermod -aG docker everselife
+
+# ключи переезжают как есть: и ваш, и ключ выкладки
+install -d -m 700 -o everselife -g everselife /home/everselife/.ssh
+cp /home/octoverse/.ssh/authorized_keys /home/everselife/.ssh/authorized_keys
+chown everselife:everselife /home/everselife/.ssh/authorized_keys
+chmod 600 /home/everselife/.ssh/authorized_keys
+
+mkdir -p /opt/everselife && chown -R everselife:everselife /opt/everselife
 ```
 
-```bash
-# от octoverse: старый состав отпускает порты 80/443 и уходит
-cd /opt/octoverse && docker compose down
+Старый состав отпускает порты 80 и 443 и уходит:
 
-# настройки переезжают с новыми именами ключей
-sed -e 's/^OCTOVERSE_/EVERSELIFE_/' -e 's/^GHCR_OWNER=.*/GHCR_OWNER=everselife/'     /opt/octoverse/.env > /opt/everselife/.env
+```bash
+cd /opt/octoverse && docker compose down
+```
+
+Настройки переезжают с новыми именами ключей — от root, потому что `.env` читает
+только его владелец:
+
+```bash
+sed -e 's/^OCTOVERSE_/EVERSELIFE_/' -e 's/^GHCR_OWNER=.*/GHCR_OWNER=everselife/' /opt/octoverse/.env > /opt/everselife/.env
+chown everselife:everselife /opt/everselife/.env
 chmod 600 /opt/everselife/.env
 ```
 
-Дальше обычный прогон: выкладка привезёт состав в новый каталог, `migrate`
+И секрет `DEPLOY_USER` на GitHub становится `everselife`: иначе выкладка
+постучится к пользователю, которого больше нет.
+
+Дальше обычный прогон — выкладка привезёт состав в новый каталог, `migrate`
 накатит схему, `seed` заведёт мир. Когда всё поднимется, старое убрать:
 
 ```bash
 docker volume rm octoverse_pgdata octoverse_caddy_data octoverse_caddy_config octoverse_landing_data
+sudo deluser --remove-home octoverse
 ```
 
 **Перенести данные** — если мир нужен. Порядок такой: снять снимок
