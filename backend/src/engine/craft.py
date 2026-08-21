@@ -153,18 +153,19 @@ class NotIngredient(CraftError):
     (16-cooking)."""
 
 
-#: The "By hand" station from `build/recipes.json` is the absence of a machine, not a machine.
+#: The "By hand" station from `build/recipes.json` is the absence of a machine,
+#: not a machine -- and it is the **only** such word (D-216).
+#:
+#: There used to be a second, «Стройка», left over from the recipe kind D-106
+#: abolished. It meant exactly what this one means, so the two branches of code
+#: were one branch -- while the client knew only one of the names and quietly
+#: offered none of the eighteen recipes written with the other. A word that
+#: behaves identically to another is not a concept but a synonym, and a synonym
+#: half the system knows about is a hole.
 HANDS = "Руками"
 
-#: "Construction" is not a machine either but on-site work (D-158). There is
-#: and cannot be an item with that name in the vault data: it marks everything
-#: assembled on a plot -- from road surface to a workshop. Requiring a machine
-#: for it would forbid a whole family of recipes, which is what happened
-#: before D-158.
-SITE = "Стройка"
-
-#: What reads as "no machine needed". A list of two, both from data.
-BENCHLESS = (HANDS, SITE)
+#: What reads as "no machine needed".
+BENCHLESS = (HANDS,)
 
 #: The knowledge-carrier and blank thing classes (D-209, D-215). Concrete
 #: items come from the vault by class membership. A written carrier keeps the

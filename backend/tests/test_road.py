@@ -239,15 +239,19 @@ async def test_road_laid_by_journal_job(
 async def test_surface_is_craftable_at_all(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """"Construction" is on-site work, not a machine (D-158).
+    """Road surface is made at a real machine, like everything else (D-216).
 
-    Before this decision the whole "construction" family -- from surface to a
-    workshop -- was not makeable at all: the engine looked for an item with that name in the node.
+    It used to be written down as made at «Стройка» -- a leftover of the recipe
+    kind D-106 abolished. The engine read that as "no machine needed", the
+    client did not read it at all, and the surface could not be made by anyone:
+    the road no player could lay started right here.
     """
 
     from src.engine import craft
 
     recipe = catalog.recipes.recipe("Дорожное полотно")
-    assert recipe.station == craft.SITE, "полотно собирают на месте"
+    assert recipe.station not in (None, *craft.BENCHLESS), (
+        "полотно делают на рабочей станции, а не «на месте»"
+    )
     method = craft.procedure(catalog, "Дорожное полотно")
-    assert method.station is None, "станции для этого не нужно"
+    assert method.station == catalog.recipes.resolve(recipe.station)

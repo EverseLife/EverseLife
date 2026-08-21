@@ -13,7 +13,20 @@ function canon(book: any, name: string | null): string | null {
   return synonyms[name as string] ?? (name as string);
 }
 
-const emptyName = (name: string | null) => name === null || name === "Руками";
+/**
+ * "No machine needed". One word, the same one the engine knows as
+ * `craft.HANDS` (D-216).
+ *
+ * There used to be a second such word in vault data, «Стройка», and this
+ * function did not know it: eighteen recipes -- the workshop, the
+ * administration, the bioprinter, the road surface -- were offered nowhere at
+ * all, neither here as handwork nor in a node as a machine. The word is gone
+ * from the data; the list stays a list of one so that the next such word has
+ * to be added in both places at once.
+ */
+const BENCHLESS = ["Руками"];
+
+const emptyName = (name: string | null) => name === null || BENCHLESS.includes(name);
 
 /** What the player can make at this machine (`null` -- by hand). */
 export function craftableAt(

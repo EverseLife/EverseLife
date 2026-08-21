@@ -114,6 +114,37 @@ def test_operation_without_recipe_needs_no_knowledge(catalog: Catalog) -> None:
     assert set(method.per_unit) == {"Железная руда", "Уголь"}
 
 
+def test_every_recipe_is_made_by_hand_or_at_a_real_machine(catalog: Catalog) -> None:
+    """A station is either the one word for "by hand" or a thing that exists (D-216).
+
+    This is the guard that was missing. The vault used to carry a second word
+    for emptiness -- «Стройка», a leftover of the recipe kind D-106 abolished --
+    and the engine quietly understood it while the client did not: eighteen
+    recipes, the workshop and the bioprinter and the road surface among them,
+    were offered to the player nowhere at all. Nothing failed, nothing was
+    logged, and the whole "found your own city" branch was dead for two months.
+
+    So the invariant is asserted where both sides can see it: **the list of
+    words meaning "no machine" is exactly one long**, and every other station
+    is an item somebody can actually put in a node.
+    """
+    from src.constants.catalog import ItemKind
+
+    assert craft.BENCHLESS == (craft.HANDS,), (
+        "второе имя пустоты — синоним, о котором узнаёт не вся система"
+    )
+
+    book = catalog.recipes
+    for recipe in book.recipes:
+        station = recipe.station
+        if station is None or station in craft.BENCHLESS:
+            continue
+        made = book.recipe(station)
+        assert made.kind is ItemKind.STATION, (
+            f"«{recipe.name}» делается на «{station}», а это не рабочая станция"
+        )
+
+
 def test_mining_does_not_pretend_to_be_craft(catalog: Catalog) -> None:
     """An operation that spends nothing takes matter from the world -- that is not craft.
 
