@@ -102,9 +102,20 @@ jobs:
       - run: npm run check:copy
       - run: npm run build
 
+  licence:
+    name: Licence
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pure standard library, so no environment to build: the runner's python
+      # is enough. `tools/spdx.py` decides what is covered, not this file.
+      - name: Licence header in every source file
+        run: python3 tools/spdx.py
+
   images:
     name: Images
-    needs: [backend, frontend]
+    needs: [backend, frontend, licence]
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:

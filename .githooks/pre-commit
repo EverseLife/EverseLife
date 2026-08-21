@@ -39,6 +39,27 @@ if ! $lint; then
     exit 1
 fi
 
-# The snapshot is not in the repository any more: CI builds it from the vault,
-# and `vault/` here is scratch. Nothing left to compare, so the hook checks the
-# lint and nothing else.
+# The licence header in every source file. Same reason as the lint: CI checks
+# it too, and one command fixes the whole repository.
+cd "$repo"
+
+if [ -x backend/.venv/Scripts/python.exe ]; then
+    py="backend/.venv/Scripts/python.exe"
+elif [ -x backend/.venv/bin/python ]; then
+    py="backend/.venv/bin/python"
+elif command -v python3 > /dev/null 2>&1; then
+    py="python3"
+elif command -v python > /dev/null 2>&1; then
+    py="python"
+else
+    echo "pre-commit: python not found -- cannot check licence headers" >&2
+    exit 1
+fi
+
+# The script prints what is missing and how to fix it, so nothing to add here.
+if ! "$py" tools/spdx.py; then
+    exit 1
+fi
+
+# The vault snapshot is not in the repository any more: CI builds it from the
+# vault, and `vault/` here is scratch. Nothing left to compare.
