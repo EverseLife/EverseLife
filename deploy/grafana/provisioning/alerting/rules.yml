@@ -13,8 +13,8 @@ groups:
         title: Место на диске кончается
         condition: THRESHOLD
         for: 10m
-        noDataState: NoData
-        execErrState: Alerting
+        noDataState: OK
+        execErrState: OK
         annotations:
           summary: "На диске меньше 15% свободного места"
         labels:
@@ -44,8 +44,8 @@ groups:
         title: Память под потолком
         condition: THRESHOLD
         for: 15m
-        noDataState: NoData
-        execErrState: Alerting
+        noDataState: OK
+        execErrState: OK
         annotations:
           summary: "Занято больше 90% памяти -- ядро скоро начнёт убивать процессы"
         labels:
@@ -76,9 +76,9 @@ groups:
       - uid: postgres-down
         title: База не отвечает
         condition: THRESHOLD
-        for: 5m
-        noDataState: Alerting
-        execErrState: Alerting
+        for: 10m
+        noDataState: OK
+        execErrState: OK
         annotations:
           summary: "Postgres не отвечает сборщику метрик"
         labels:
@@ -105,15 +105,16 @@ groups:
                     params: [1]
 
       # A service that keeps restarting looks alive in `docker compose ps` and
-      # is dead for the players.
+      # is dead for the players. Counting restarts, not youth: a deploy restarts
+      # every container once, and that is not news.
       - uid: service-restarting
         title: Служба перезапускается
         condition: THRESHOLD
         for: 5m
         noDataState: OK
-        execErrState: Alerting
+        execErrState: OK
         annotations:
-          summary: "Контейнер поднялся меньше пяти минут назад и делает это снова"
+          summary: "Служба перезапустилась больше трёх раз за полчаса — она падает, а не выкладывается"
         labels:
           severity: warning
         data:
@@ -125,7 +126,7 @@ groups:
             model:
               refId: QUERY
               instant: true
-              expr: min(time() - container_start_time_seconds{name=~"everselife-(backend|worker|postgres|caddy)-1"})
+              expr: max(changes(container_start_time_seconds{name=~"everselife-.*"}[30m]))
           - refId: THRESHOLD
             datasourceUid: __expr__
             model:
@@ -134,5 +135,5 @@ groups:
               expression: QUERY
               conditions:
                 - evaluator:
-                    type: lt
-                    params: [300]
+                    type: gt
+                    params: [3]
