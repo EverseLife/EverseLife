@@ -81,7 +81,7 @@ async def test_turn_records_actions_refusals_notes_and_thought(
             llm.Reply(
                 content="",
                 tool_calls=[
-                    _call("remember", notes="план: сначала четыре здания"),
+                    _call("note_add", text="план: сначала четыре здания"),
                     _call("finish", thought="надо строить"),
                 ],
                 prompt_tokens=100,
@@ -109,7 +109,17 @@ async def test_turn_records_actions_refusals_notes_and_thought(
     assert turn.steps == 5
     assert turn.prompt_tokens == 400
     kinds = [e["kind"] for e in store.events(agent["id"])]
-    assert kinds == ["look", "prompt", "model", "refused", "model", "model", "bug", "model", "thought"]
+    assert kinds == [
+        "look",
+        "prompt",
+        "model",
+        "refused",
+        "model",
+        "model",
+        "bug",
+        "model",
+        "thought",
+    ]
     assert store.agent(agent["id"])["notes"] == "план: сначала четыре здания"
     model_events = [e for e in store.events(agent["id"]) if e["kind"] == "model"]
     assert json.loads(model_events[0]["reply"])["tool_calls"][0]["name"] == "act"
@@ -138,16 +148,34 @@ async def test_plain_text_reply_ends_the_turn(
     assert store.agent(agent["id"])["notes"] == ""
 
 
-async def test_remember_appends_by_default_and_replaces_on_request(
+async def test_notes_are_edited_entry_by_entry_and_never_truncated(
     store: Store, agent: dict[str, Any]
 ) -> None:
-    turn = brain.Turn()
-    common = {"agent": agent, "game": FakeGame({}), "store": store, "reference": {}, "turn": turn}
-    await brain._tool("remember", {"notes": "раз"}, **common)  # type: ignore[arg-type]
-    await brain._tool("remember", {"notes": "два"}, **common)  # type: ignore[arg-type]
-    assert store.agent(agent["id"])["notes"] == "раз\nдва"
-    await brain._tool("remember", {"notes": "три", "mode": "replace"}, **common)  # type: ignore[arg-type]
-    assert store.agent(agent["id"])["notes"] == "три"
+    common = {
+        "agent": agent,
+        "game": FakeGame({}),
+        "store": store,
+        "reference": {},
+        "turn": brain.Turn(),
+    }
+
+    async def call(name: str, **arguments: Any) -> str:
+        return await brain._tool(name, arguments, **common)  # type: ignore[arg-type]
+
+    await call("note_add", text="раз")
+    await call("note_add", text="два\nс переносом")
+    await call("note_add", text="три")
+    assert brain.render_notes(agent["notes"]) == "#1 раз\n#2 два с переносом\n#3 три"
+    assert (await call("note_edit", id=2, text="два")).startswith("Запись #2 заменена")
+    assert (await call("note_delete", id=1)).startswith("Запись #1 удалена")
+    assert store.agent(agent["id"])["notes"] == "два\nтри"
+    assert (await call("note_delete", id=9)).startswith("Нет записи #9")
+
+    answer = await call("note_add", text="x" * brain.MAX_NOTES_CHARS)
+    assert answer.startswith("Память заполнена")
+    assert store.agent(agent["id"])["notes"] == "два\nтри"
+    answer = await call("note_edit", id=1, text="y" * brain.MAX_NOTES_CHARS)
+    assert "переполнится" in answer and store.agent(agent["id"])["notes"] == "два\nтри"
 
 
 def test_stuck_detection_needs_the_same_refused_action_in_a_row() -> None:

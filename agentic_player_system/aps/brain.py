@@ -77,19 +77,40 @@ TOOLS: list[dict[str, Any]] = [
     {
         "type": "function",
         "function": {
-            "name": "remember",
+            "name": "note_add",
             "description": (
-                "Your notes: the only memory that survives between turns besides the "
-                "recent history. Save what you consider important -- plans, ids, lessons. "
-                "mode=append adds a line, mode=replace rewrites the notes."
+                "Add one note to your memory (numbered entries shown every turn). "
+                "Save what you consider important: plans, ids, lessons. Refused when "
+                "memory is full -- then edit or delete old notes first."
             ),
             "parameters": {
                 "type": "object",
-                "properties": {
-                    "notes": {"type": "string"},
-                    "mode": {"type": "string", "enum": ["append", "replace"]},
-                },
-                "required": ["notes"],
+                "properties": {"text": {"type": "string"}},
+                "required": ["text"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "note_edit",
+            "description": "Replace the text of note number `id` (as shown in your notes).",
+            "parameters": {
+                "type": "object",
+                "properties": {"id": {"type": "integer"}, "text": {"type": "string"}},
+                "required": ["id", "text"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "note_delete",
+            "description": "Delete note number `id`. The others keep their numbers until the next turn.",
+            "parameters": {
+                "type": "object",
+                "properties": {"id": {"type": "integer"}},
+                "required": ["id"],
             },
         },
     },
@@ -137,9 +158,12 @@ SYSTEM = """Ты — житель мира Everse.Life, обычный игро�
   прочитай причину и действуй иначе. Не повторяй одно и то же действие, если оно отказано.
 - Публичные каталоги (двери, карта, рынки, рецепты) — через read.
 - Если отказ противоречит правилам или мир ведёт себя невозможным образом — report_bug.
-- У тебя есть заметки (remember) — память между ходами. Ты сам решаешь, что в них
-  важно сохранить: план, найденные id, выводы. Записывать каждый ход не обязательно:
-  последние действия и рассуждения ты и так увидишь в следующем ходе.
+- У тебя есть заметки — память между ходами, пронумерованный список. Ты сам решаешь,
+  что в них важно сохранить: план, найденные id, выводы. note_add добавляет запись,
+  note_edit(id) переписывает одну, note_delete(id) удаляет. Место ограничено
+  ({notes_limit} знаков); когда оно кончается, новые записи не принимаются — сократи
+  или удали старые. Записывать каждый ход не обязательно: последние действия и
+  рассуждения ты и так увидишь в следующем ходе.
 - Закончи ход вызовом finish, когда сделал, что хотел, или решил подождать.
 - Ходов немного: за один ход не больше {max_steps} вызовов инструментов.
 
@@ -222,9 +246,10 @@ async def run_turn(
         persona=agent["persona"] or "спокойный, практичный, любопытный",
         goal=agent["goal"] or "жить, зарабатывать и обустраиваться",
         max_steps=max_steps,
+        notes_limit=MAX_NOTES_CHARS,
         reference=commands.brief(reference),
     )
-    notes = agent["notes"] or "(пусто)"
+    notes = render_notes(agent["notes"])
     recent = _history(store, agent_id, history)
     observation = pack(seen)
     messages: list[dict[str, Any]] = [
@@ -232,7 +257,7 @@ async def run_turn(
         {
             "role": "user",
             "content": (
-                f"Твои заметки:\n{notes}\n\n"
+                f"Твои заметки ({len(agent['notes'])}/{MAX_NOTES_CHARS} зн.):\n{notes}\n\n"
                 f"Последние действия и рассуждения:\n{recent}\n\n"
                 f"Наблюдение (look):\n{observation}\n\n"
                 "Твой ход."
@@ -345,16 +370,8 @@ async def _tool(
             return pack(await game.public(path))
         except Exception as trouble:  # noqa: BLE001 -- the model gets the text, the log the rest
             return f"Не прочиталось: {trouble}"
-    if name == "remember":
-        text = str(arguments.get("notes") or "").strip()
-        if arguments.get("mode", "append") == "append" and agent["notes"]:
-            notes = agent["notes"] + "\n" + text
-        else:
-            notes = text
-        notes = notes[-MAX_NOTES_CHARS:]
-        store.update_agent(agent_id, {"notes": notes})
-        agent["notes"] = notes
-        return f"Заметки сохранены ({len(notes)} зн.)."
+    if name in ("note_add", "note_edit", "note_delete"):
+        return _note_tool(name, arguments, agent=agent, store=store)
     if name == "report_bug":
         text = str(arguments.get("text") or "").strip()
         if text:
@@ -367,3 +384,63 @@ async def _tool(
         turn.finished = True
         return "Ход окончен."
     return f"Нет такого инструмента: {name}"
+
+
+# --- notes: a numbered list the agent edits entry by entry -----------------------
+
+
+def split_notes(raw: str) -> list[str]:
+    return [line for line in (raw or "").split("\n") if line.strip()]
+
+
+def join_notes(entries: list[str]) -> str:
+    return "\n".join(entries)
+
+
+def render_notes(raw: str) -> str:
+    entries = split_notes(raw)
+    if not entries:
+        return "(пусто)"
+    return "\n".join(f"#{i} {text}" for i, text in enumerate(entries, 1))
+
+
+def _note_tool(name: str, arguments: dict[str, Any], *, agent: dict[str, Any], store: Store) -> str:
+    entries = split_notes(agent["notes"])
+    #: One entry is one line: a newline inside would break the numbering.
+    text = " ".join(str(arguments.get("text") or "").split())
+    if name == "note_delete" or name == "note_edit":
+        try:
+            index = int(arguments.get("id"))
+        except (TypeError, ValueError):
+            return "Нужен номер записи (id)."
+        if not 1 <= index <= len(entries):
+            return f"Нет записи #{index}: записей {len(entries)}."
+    if name == "note_add":
+        if not text:
+            return "Пустую запись не добавляю."
+        candidate = join_notes([*entries, text])
+        if len(candidate) > MAX_NOTES_CHARS:
+            return (
+                f"Память заполнена: {len(agent['notes'])}/{MAX_NOTES_CHARS} зн., новой записи "
+                f"нужно ещё {len(candidate) - MAX_NOTES_CHARS}. Сократи (note_edit) или удали "
+                "(note_delete) старые записи."
+            )
+        entries.append(text)
+        outcome = f"Записано как #{len(entries)}."
+    elif name == "note_edit":
+        if not text:
+            return "Пустой текст: чтобы убрать запись, вызови note_delete."
+        candidate = join_notes([*entries[: index - 1], text, *entries[index:]])
+        if len(candidate) > MAX_NOTES_CHARS:
+            return (
+                f"Так память переполнится ({len(candidate)}/{MAX_NOTES_CHARS} зн.); сократи текст."
+            )
+        entries[index - 1] = text
+        outcome = f"Запись #{index} заменена."
+    else:
+        entries.pop(index - 1)
+        outcome = f"Запись #{index} удалена; остальные перенумерованы."
+    notes = join_notes(entries)
+    store.update_agent(agent["id"], {"notes": notes})
+    agent["notes"] = notes
+    return f"{outcome} Занято {len(notes)}/{MAX_NOTES_CHARS} зн."
