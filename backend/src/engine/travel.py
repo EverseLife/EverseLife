@@ -301,10 +301,22 @@ async def exits(session: AsyncSession, constants: Constants, node: Node) -> tupl
         .scalars()
         .all()
     )
+    #: All the far ends at once. One by one this was a query per road, and the
+    #: node scene asks for exits on every look -- the commonest command there is.
+    far = {
+        edge.node_b_id if edge.node_a_id == node.id else edge.node_a_id for edge in rows
+    }
+    beyond = {
+        other.id: other
+        for other in (
+            await session.execute(select(Node).where(Node.id.in_(far)))
+        ).scalars()
+    } if far else {}
+
     found: list[Exit] = []
     for edge in rows:
         other_id = edge.node_b_id if edge.node_a_id == node.id else edge.node_a_id
-        other = await session.get(Node, other_id)
+        other = beyond.get(other_id)
         if other is None:  # pragma: no cover -- an edge to nowhere is a bug
             continue
         found.append(
@@ -821,6 +833,12 @@ async def connect(
     if existing is not None:
         return existing
     await require_exit(session, a, b)
+    #: Asked before the edge exists: whether either end is a place nothing led
+    #: to yet. See below -- that decides whether measured distances survive.
+    from src.engine import ship as vessels
+
+    dead_end = await _unconnected(session, a) or await _unconnected(session, b)
+    afloat = vessels.is_aboard(a) or vessels.is_aboard(b)
     edge = Edge(
         node_a_id=a.id,
         node_b_id=b.id,
@@ -829,7 +847,46 @@ async def connect(
     )
     session.add(edge)
     await session.flush()
+    #: Land is priced by the distance to the city's printer (D-220), and this
+    #: is the one place an edge appears -- so it is the one place a measured
+    #: distance can go stale. It does not always go stale, and the difference
+    #: is worth keeping:
+    #:
+    #: * **a way to a new place changes nothing.** A scout's trail hangs a
+    #:   node nothing led to yet, and a road through it would have to come back
+    #:   along the same edge -- so it lies on nobody's shortest way. This is the
+    #:   common case: the map grows at its edges;
+    #: * **a gangway changes nothing either.** A ship hangs on the map by that
+    #:   one edge (D-201), so a road through it comes back the way it went; and
+    #:   no ship node belongs to a city, so no land tax is measured for one at
+    #:   all. Docking used to drop the whole world's measurements for nothing;
+    #: * **a way between two places already on the map may be a short cut**, and
+    #:   then a whole quarter is nearer the centre than it was measured to be.
+    #:   Which quarter is not asked: the measurements are dropped and taken
+    #:   again by whoever needs one. Nobody lays such an edge in play -- roads
+    #:   only re-surface edges that exist -- so in practice this is the seed
+    #:   catching an already-living world up to a changed map, once per deploy.
+    from src.engine import estate
+
+    if dead_end and not afloat:
+        #: The map grew at its edge: the new place stands one step further from
+        #: the printer than what it was hung on, and that is the whole of
+        #: measuring in play (D-220). Nothing else moved, so nothing else is
+        #: touched.
+        await estate.note_new_place(session, a, b)
+    elif not afloat:
+        await estate.forget_distances(session)
     return edge
+
+
+async def _unconnected(session: AsyncSession, node: Node) -> bool:
+    """Whether no edge leads to this node at all."""
+    found = await session.scalar(
+        select(Edge.id)
+        .where(or_(Edge.node_a_id == node.id, Edge.node_b_id == node.id))
+        .limit(1)
+    )
+    return found is None
 
 
 async def require_exit(session: AsyncSession, a: Node, b: Node) -> None:
@@ -891,6 +948,18 @@ async def disconnect(session: AsyncSession, a: Node, b: Node) -> bool:
 
     await session.delete(edge)
     await session.flush()
+    #: A way that is gone may make the road to the centre longer than it was
+    #: measured to be, and land is priced by that distance (D-220) -- the same
+    #: reason as in `connect`, and the same exception: a ship hung on the map
+    #: by this one gangway (D-201), and nothing on land counted its way through
+    #: a hull. Today that is every removal there is; the check is here for the
+    #: day something on land is taken apart.
+    from src.engine import ship as vessels
+
+    if not (vessels.is_aboard(a) or vessels.is_aboard(b)):
+        from src.engine import estate
+
+        await estate.forget_distances(session)
     return True
 
 

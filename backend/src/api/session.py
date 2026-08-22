@@ -649,6 +649,9 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
     #: everyone reads one and the same hour.
     seen["clock"] = await _clock(db, constants, node)
 
+    #: Asked once for the whole list, not once per road: whether the body drives
+    #: a convoy does not change between two exits of the same node.
+    harnessed = await travel.has_transport(db, body)
     seen["exits"] = [
         {
             "key": path.key,
@@ -660,10 +663,7 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
             #: thousandths, and rounding to hundredths would show zero where a
             #: price exists.
             "stamina": round(
-                travel.stamina_cost(
-                    constants, path.seconds,
-                    transport=await travel.has_transport(db, body),
-                ),
+                travel.stamina_cost(constants, path.seconds, transport=harnessed),
                 3,
             ),
         }
@@ -3299,10 +3299,7 @@ async def _bench(
 
     expected_value = ItemKind.FURNITURE if furniture else ItemKind.STATION
     book = current_catalog().recipes
-    where = await world.node_container(db, node)
-    items = (
-        await db.execute(select(Item).where(Item.container_id == where.id))
-    ).scalars().all()
+    items = await world.contents(db, await world.node_container(db, node))
 
     out: list[dict[str, Any]] = []
     for item in items:
@@ -3362,10 +3359,7 @@ async def _storages(
     way around the rule "do not touch what is not yours".
     """
     catalog = current_catalog()
-    where = await world.node_container(db, node)
-    things = (
-        await db.execute(select(Item).where(Item.container_id == where.id))
-    ).scalars().all()
+    things = await world.contents(db, await world.node_container(db, node))
     allowed = await station.may_build(db, body, node)
 
     out: list[dict[str, Any]] = []
@@ -3400,10 +3394,7 @@ async def _vehicles(db: AsyncSession, constants, node: Node) -> list[dict[str, A
     from src.models.travel import Harness
 
     cat = current_catalog()
-    where = await world.node_container(db, node)
-    things = (
-        await db.execute(select(Item).where(Item.container_id == where.id))
-    ).scalars().all()
+    things = await world.contents(db, await world.node_container(db, node))
     harnessed_ = set((await db.execute(select(Harness.item_id))).scalars().all())
     out: list[dict[str, Any]] = []
     for item in things:
@@ -3430,11 +3421,7 @@ async def _vehicles(db: AsyncSession, constants, node: Node) -> list[dict[str, A
 
 async def _stations(db: AsyncSession, node: Node) -> list[str]:
     """Machines and the terminal standing in the node. The node scene is built from them."""
-    where = await world.node_container(db, node)
-    rows = await db.execute(
-        select(Item.type_key).where(Item.container_id == where.id).distinct()
-    )
-    return sorted(row[0] for row in rows)
+    return sorted(await world.thing_kinds(db, node))
 
 
 async def _money(db: AsyncSession, identity_id: uuid.UUID) -> str:
@@ -3445,9 +3432,7 @@ async def _money(db: AsyncSession, identity_id: uuid.UUID) -> str:
 
 async def _things(db: AsyncSession, constants, container) -> list[dict[str, Any]]:
     """Container contents as the owner sees them: with a number and a tier."""
-    items = (
-        await db.execute(select(Item).where(Item.container_id == container.id))
-    ).scalars().all()
+    items = await world.contents(db, container)
     catalog = current_catalog()
     #: The mark is shown as a name: the player must see whose work it is (D-058).
     marks = await _makers(db, items)

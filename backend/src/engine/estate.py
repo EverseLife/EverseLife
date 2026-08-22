@@ -56,11 +56,12 @@ from collections import deque
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants
 from src.constants import registry as R
+from src.db.base import remember
 from src.engine import events, ledger, travel
 from src.engine.jobs import enqueue, handler
 from src.models.city import City
@@ -70,7 +71,7 @@ from src.models.identity import Body, BodyState, Identity
 from src.models.inventory import Item
 from src.models.job import Job, JobKind
 from src.models.ledger import AccountKind, PostingReason
-from src.models.world import Edge, Node
+from src.models.world import Edge, Layer, Node
 from src.units import (
     MINUTES_PER_HOUR,
     PERCENT,
@@ -125,40 +126,165 @@ class Ruined(EstateError):
 # --- land price (D-089) ------------------------------------------------------
 
 
-async def nodes_from_center(session: AsyncSession, node: Node) -> int:
-    """The plot's distance from the city centre -- in nodes from the bioprinter.
+async def center_of(session: AsyncSession, city: City) -> Node | None:
+    """The city's centre: the bioprinter it grew from (D-023, D-089, D-208).
 
-    The centre is the node where the bioprinter stands (for the capital -- the
-    Forerunners' Printer), and land value falls with each node away from it
-    (D-220). Measured by edges, not by the "ring" property: the property is a
-    record at generation, edges are how people really walk the city.
+    Every city counts from its **own** printer, not from the capital's: the
+    rate is announced at the bioprinter (D-220), and a city has one of its own
+    or it is not a city.
+
+    Which node that is, the city answers itself (`city.core`), and it is asked
+    rather than worked out again here. A second way of naming the centre is a
+    second answer waiting to happen -- and the written distance is measured
+    **to** this node, so two names for the centre would mean measuring the city
+    over and over, each reader disagreeing with what the last one wrote.
     """
-    from src.engine import world
+    from src.engine import city as town
 
-    center = await world.spawn_point(session)
-    if center is None or center.id == node.id:
-        return 0
+    return await remember(
+        session, ("center_of", city.id), lambda: town.core(session, city)
+    )
 
-    #: Breadth-first search over edges. The graph is small; when it grows large
-    #: there will be a reason to precompute rather than count per request.
+
+async def forget_distances(session: AsyncSession) -> None:
+    """Drop every measured distance: the graph itself has changed.
+
+    Called where an edge appears or goes, and nowhere else -- those are the
+    only two places in the engine (`travel.connect`, and the undocking that
+    removes a gangway). A trail laid by a scout may shorten the way to the
+    centre for a whole quarter, so measuring is not patched here -- it is
+    dropped, and the next reader measures again.
+
+    One statement for the world: this happens when a road is laid or a ship
+    casts off, not in the course of a day's play. It touches only what was
+    measured, so building a world -- where every second call lays an edge and
+    nothing has been measured yet -- writes nothing at all.
+    """
+    await session.execute(
+        update(Node)
+        .where(Node.center_steps.is_not(None))
+        .values(center_node_id=None, center_steps=None)
+    )
+
+
+async def note_new_place(session: AsyncSession, one: Node, other: Node) -> None:
+    """A place just joined to the map takes its distance from what it joined to.
+
+    This is the whole of measuring, in play. The map grows only at its edges: a
+    scout hangs a node nothing led to yet, and no road is ever laid between two
+    places already on it -- so a new plot is exactly one step further from the
+    printer than the place it was found from, and nothing else moves. Walking
+    the graph for that would be answering a question the map has already
+    answered (D-220).
+
+    Only the built-up area is counted (`city` layer): beyond the walls the land
+    is nobody's and pays nothing (D-198), and a ship is a dead end of its own
+    (D-201, D-202). And only from an anchor that has a distance itself -- an
+    old world whose nodes were never measured is measured once, by the walk
+    below, and grows by this rule from then on.
+    """
+    from src.engine.ship import ABOARD
+
+    for anchor, fresh in ((one, other), (other, one)):
+        if fresh.center_steps is not None or anchor.center_steps is None:
+            continue
+        if fresh.layer is not Layer.CITY:
+            continue
+        if (fresh.properties or {}).get(ABOARD) or (anchor.properties or {}).get(ABOARD):
+            continue
+        fresh.center_node_id = anchor.center_node_id
+        fresh.center_steps = anchor.center_steps + 1
+        await session.flush()
+        return
+
+
+async def _measure_city(session: AsyncSession, center: Node, city: City) -> dict[uuid.UUID, int]:
+    """Walk from the centre once and write the result down for the whole city."""
+    from src.engine.ship import ABOARD
+
     edges = (await session.execute(select(Edge))).scalars().all()
     neighbours: dict[uuid.UUID, list[uuid.UUID]] = {}
     for edge in edges:
         neighbours.setdefault(edge.node_a_id, []).append(edge.node_b_id)
         neighbours.setdefault(edge.node_b_id, []).append(edge.node_a_id)
 
-    seen = {center.id}
-    queue: deque[tuple[uuid.UUID, int]] = deque([(center.id, 0)])
+    #: The walk stops at the gangway. A ship moored in the port is a whole
+    #: little map of its own, and none of it is land: to a ship's node only a
+    #: ship's node is ever joined, so no road leads back out through a hull and
+    #: no distance is ever wanted for one. Without this the walk wandered the
+    #: cabins of every ship in port, and the "farther than any road" number
+    #: below moved with the shipping.
+    afloat = set(
+        (
+            await session.execute(
+                select(Node.id).where(Node.properties.has_key(ABOARD))
+            )
+        ).scalars()
+    )
+
+    steps = {center.id: 0}
+    queue: deque[uuid.UUID] = deque([center.id])
     while queue:
-        ring_node, step_count = queue.popleft()
-        if ring_node == node.id:
-            return step_count
-        for neighbour in neighbours.get(ring_node, ()):  # noqa: B007
-            if neighbour not in seen:
-                seen.add(neighbour)
-                queue.append((neighbour, step_count + 1))
-    #: No road to the node -- the land is on the outskirts, beyond the farthest ring.
-    return len(seen)
+        here = queue.popleft()
+        for neighbour in neighbours.get(here, ()):
+            if neighbour not in steps and neighbour not in afloat:
+                steps[neighbour] = steps[here] + 1
+                queue.append(neighbour)
+
+    #: No road to the node -- the land lies beyond the farthest ring the city
+    #: reaches, and it is counted as further than any of them.
+    beyond = len(steps)
+    #: Written for this city's nodes only, and "this city's" must mean exactly
+    #: what `city.of_node` means, in the same order: land the city holds, its
+    #: own delegate node, and what hangs off that node while no other city
+    #: holds it. Writing every node the walk reached instead would have the two
+    #: cities of one road overwrite each other's measurements turn by turn.
+    mine = (
+        await session.execute(
+            select(Node).where(
+                or_(
+                    Node.owner_city_id == city.id,
+                    Node.id == city.node_id,
+                    and_(Node.parent_id == city.node_id, Node.owner_city_id.is_(None)),
+                )
+            )
+        )
+    ).scalars().all()
+    for plot in [*mine, center]:
+        plot.center_node_id = center.id
+        plot.center_steps = steps.get(plot.id, beyond)
+    await session.flush()
+    return steps
+
+
+async def nodes_from_center(session: AsyncSession, node: Node, city: City) -> int:
+    """The plot's distance from its city's centre -- in nodes from the bioprinter.
+
+    Land value falls with each node from the printer (D-220). Measured by
+    edges, not by the "ring" property: the property is a record at generation,
+    edges are how people really walk the city.
+
+    Read from the node, walked for only when what is written there was measured
+    to another centre or dropped by a change in the graph (`models/world.Node`).
+    """
+    center = await center_of(session, city)
+    if center is None:
+        #: The printer is gone from the core -- carried out, or never put back.
+        #: What was measured while it stood stays: the land did not move, and
+        #: the last rate the city announced is the last one it announced. The
+        #: alternative was to call the distance nought, and a city that lost
+        #: its machine would start charging every plot the centre's own rate --
+        #: the dearest in town, for the place that just lost its centre.
+        #:
+        #: A plot nobody had measured by then has nothing to keep, and the
+        #: engine does not invent it a distance: it stands at nought until a
+        #: printer is put back and the city is measured again.
+        return node.center_steps if node.center_steps is not None else 0
+    if node.center_node_id == center.id and node.center_steps is not None:
+        return node.center_steps
+
+    steps = await _measure_city(session, center, city)
+    return steps.get(node.id, len(steps))
 
 
 async def price_of(
@@ -181,7 +307,7 @@ async def price_of(
     if rate <= 0:
         raise NotForSale("город не назначил цену земли: код-закон `land_price` пуст")
     decline = 1 - constants[R.LAND_DECAY_PER_NODE] / PERCENT
-    steps = await nodes_from_center(session, node)
+    steps = await nodes_from_center(session, node, city)
     per_metre = rate * (decline ** steps)
     return max(1, money(per_metre * float(node.area_m2)))
 
@@ -204,6 +330,24 @@ async def land_tax_of(
     on (D-127).
     """
     from src.engine import city as town
+    from src.engine.ship import ABOARD
+
+    #: **Land tax is charged on the built-up area** -- the rings around the
+    #: bioprinter, which is what the `city` layer is (D-089). What lies on the
+    #: layer of the planet is nobody's: the mine, the floodplain, a scout's
+    #: find beyond the walls. Out there is no authority to tax it (D-198), and
+    #: no centre to count the distance from either.
+    #:
+    #: A hull is not land at all (D-202): a ship's node has an owner and a
+    #: building of its own, and belongs to no city.
+    #:
+    #: Both are said here rather than left to follow from the city check below,
+    #: and for one reason: the day's levy leaves these nodes out of its query,
+    #: and what the levy charges must be decided by the same rule as what the
+    #: plot screen shows. Two rules that agree only while a third thing stays
+    #: true is how a tax comes to be shown and never taken.
+    if node.layer is not Layer.CITY or (node.properties or {}).get(ABOARD):
+        return 0
 
     city = await town.of_node(session, node)
     if city is None:
@@ -215,7 +359,7 @@ async def land_tax_of(
     if ground <= 0:
         return 0
     decline = 1 - constants[R.LAND_DECAY_PER_NODE] / PERCENT
-    steps = await nodes_from_center(session, node)
+    steps = await nodes_from_center(session, node, city)
     return money(rate * (decline ** steps) * ground)
 
 
@@ -237,13 +381,23 @@ async def levy_land_tax(
     and counted, once there is something to count them with.
     """
     from src.engine import city as town
+    from src.engine.ship import ABOARD
 
     held = (
         (
             await session.execute(
                 select(Node)
                 .join(Building, Building.node_id == Node.id)
-                .where(Node.owner_identity_id.is_not(None))
+                .where(
+                    Node.owner_identity_id.is_not(None),
+                    #: The same two rules as in `land_tax_of`, and they must
+                    #: stay the same two: the built-up area is taxed, the
+                    #: planet's own land is nobody's, and a hull is not land.
+                    #: Written into the query so that the nodes it does not
+                    #: charge are not read either.
+                    Node.layer == Layer.CITY,
+                    ~Node.properties.has_key(ABOARD),
+                )
                 .distinct()
             )
         )
@@ -625,11 +779,16 @@ async def built_area(session: AsyncSession, node: Node, *, ground: bool = False)
     Whatever is measured against the plot must ask for `ground`; machines,
     cargo and upkeep go by the usable area.
     """
-    column = Building.footprint_m2 if ground else Building.area_m2
-    total = await session.scalar(
-        select(func.coalesce(func.sum(column), 0)).where(Building.node_id == node.id)
-    )
-    return float(total or 0)
+    async def measure() -> float:
+        column = Building.footprint_m2 if ground else Building.area_m2
+        total = await session.scalar(
+            select(func.coalesce(func.sum(column), 0)).where(Building.node_id == node.id)
+        )
+        return float(total or 0)
+
+    #: The plot's own screen asks for this three times over -- usable area,
+    #: footprint, and again usable from `slots` (`db.base.remember`).
+    return await remember(session, ("built_area", node.id, ground), measure)
 
 
 async def under_construction(session: AsyncSession, node: Node) -> list[dict]:
@@ -670,10 +829,7 @@ async def floor_mass(session: AsyncSession, node: Node) -> float:
     from src.engine import gear, storage, world
 
     catalog = current_catalog()
-    yard = await world.node_container(session, node)
-    things = (
-        await session.execute(select(Item).where(Item.container_id == yard.id))
-    ).scalars().all()
+    things = await world.contents(session, await world.node_container(session, node))
     return sum(
         gear.mass_of(catalog, thing.type_key, amount_float(thing.amount))
         for thing in things
@@ -738,10 +894,7 @@ async def slots(
     in_total = int(area // constants[R.BUILD_SLOTS_PER_AREA])
 
     book = current_catalog().recipes
-    yard = await world.node_container(session, node)
-    things = (
-        await session.execute(select(Item).where(Item.container_id == yard.id))
-    ).scalars().all()
+    things = await world.contents(session, await world.node_container(session, node))
     occupied = 0
     for thing in things:
         try:

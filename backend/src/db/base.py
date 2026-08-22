@@ -4,10 +4,11 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Awaitable, Callable, Hashable
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, Enum, MetaData, func
+from sqlalchemy import DateTime, Enum, MetaData, event, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -15,7 +16,7 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 
 from src.settings import settings
 
@@ -74,6 +75,69 @@ def enum_column(enum_type: type, name: str, **kw: Any) -> Any:
     )
 
 
+#: Where one command's answers lie on the session.
+_MEMO = "everselife.remembered"
+
+
+async def remember[T](
+    session: AsyncSession, key: Hashable, produce: Callable[[], Awaitable[T]]
+) -> T:
+    """Answer a repeated question once per command.
+
+    A session command is one transaction (`api/session.py`), and inside it the
+    engine asks for the same rows again and again: one `look` wanted the node's
+    yard twenty-three times and the same building area three. That is the price
+    of reading through many small helpers, each saying one thing -- and the
+    helpers are worth keeping. The round trip behind every repeat is not: the
+    database spends microseconds on these queries, the wait is the hundred trips.
+
+    The memory lives on the session and dies with it: nothing is kept between
+    players or between commands. It is emptied on **any** write, so a helper
+    that answered before a flush cannot answer the same after it -- and since
+    SQLAlchemy flushes pending changes before the next query by itself, a
+    command that changes the world loses the memory before it can mislead.
+    """
+    #: A remembered answer is given **without** a query, and a query is what
+    #: would have flushed the changes waiting on the session. So they are
+    #: flushed here -- which throws the memory away and makes the answer be
+    #: read anew. Without this, code that added a thing and then asked what
+    #: lies in the container would not see what it had just put there.
+    if session.new or session.dirty or session.deleted:
+        await session.flush()
+
+    kept: dict[Hashable, Any] = session.info.setdefault(_MEMO, {})
+    if key in kept:
+        return kept[key]
+    value = await produce()
+    #: Asked for again rather than written into `kept`: the answer may have
+    #: been produced by a write -- the node's yard is created on first ask --
+    #: and that write threw the whole memory away in between.
+    session.info.setdefault(_MEMO, {})[key] = value
+    return value
+
+
+@event.listens_for(Session, "after_flush")
+def _forget_on_write(session: Session, context: Any) -> None:
+    """A write invalidates everything remembered: what stands in the yard, how
+    much is built, where the pocket is -- any of it may be what just changed."""
+    session.info.pop(_MEMO, None)
+
+
+@event.listens_for(Session, "do_orm_execute")
+def _forget_on_bulk_write(state: Any) -> None:
+    """The same for a statement that writes without the objects.
+
+    An `UPDATE`/`DELETE` handed to the session goes straight to the database
+    and never passes through a flush, so `after_flush` above does not see it.
+    Nothing in the engine currently empties a container that way -- the bulk
+    statements it does write are access lists, chat and foraging, none of them
+    remembered -- but this is not a thing to leave standing on what the engine
+    happens to do today.
+    """
+    if state.is_update or state.is_delete:
+        state.session.info.pop(_MEMO, None)
+
+
 _engine: AsyncEngine | None = None
 _sessionmaker: async_sessionmaker[AsyncSession] | None = None
 
@@ -119,6 +183,7 @@ __all__ = [
     "dispose",
     "engine",
     "enum_column",
+    "remember",
     "session_factory",
     "uuid_pk",
 ]

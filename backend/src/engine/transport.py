@@ -255,12 +255,9 @@ async def cargo(session: AsyncSession, vehicle: Item) -> Container:
 
 
 async def cargo_items(session: AsyncSession, vehicle: Item) -> list[Item]:
-    hold = await cargo(session, vehicle)
-    return list(
-        (
-            await session.execute(select(Item).where(Item.container_id == hold.id))
-        ).scalars().all()
-    )
+    from src.engine import world
+
+    return list(await world.contents(session, await cargo(session, vehicle)))
 
 
 async def cargo_mass(

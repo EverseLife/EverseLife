@@ -99,6 +99,24 @@ class Node(Base):
         nullable=False, default=False, server_default="false"
     )
 
+    #: How far this place is from its city's bioprinter, in nodes (D-220), and
+    #: which printer that was. Land is dearer to buy and to hold near the
+    #: centre, so both the price and the day's tax ask for this number -- the
+    #: tax for **every** held plot at once, once a day.
+    #:
+    #: Written down rather than walked for: measuring it means reading the whole
+    #: edge table and walking the graph, and a city of six hundred nodes made
+    #: that eleven milliseconds per question. Kept honest by two things, and
+    #: only two are needed:
+    #:
+    #: * `center_node_id` says whose centre was measured to. A plot sold to
+    #:   another city, a city founded, a printer carried away -- the centre no
+    #:   longer matches and the number is measured again;
+    #: * `center_steps` is emptied wherever the graph itself changes, which is
+    #:   where an edge appears or goes (`travel.connect`, `ship.undock`).
+    center_node_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    center_steps: Mapped[int | None] = mapped_column(nullable=True)
+
     created_at: Mapped[datetime] = created_column()
 
 

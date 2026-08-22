@@ -32,7 +32,7 @@ from src.constants import registry as R
 from src.engine import city as town
 from src.engine import estate, goods, ledger, world
 from src.models.city import Citizen
-from src.models.estate import Deed
+from src.models.estate import Building, Deed
 from src.models.inventory import Item
 from src.models.job import JobState
 from src.models.ledger import AccountKind, PostingReason
@@ -117,6 +117,174 @@ async def test_far_plot_cheaper_than_near(
     assert close > far_away > 0
     decline = 1 - constants[R.LAND_DECAY_PER_NODE] / PERCENT
     assert far_away == pytest.approx(close * decline, rel=0.01)
+
+
+async def test_each_city_counts_from_its_own_printer(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Distance is counted from the city's own bioprinter, not from the capital's.
+
+    Two towns, each with its printer in its core. A plot one step from its own
+    core is one step away -- in both, and for the same money. Counting from a
+    single world centre would have made the second town's land the cheapest in
+    the world for no reason a player could see: it is simply far from somebody
+    else's printer.
+    """
+    one, one_core, one_near, _ = await _city(session, catalog)
+    other, other_core, other_near, _ = await _city(session, catalog)
+
+    assert await estate.nodes_from_center(session, one_near, one) == 1
+    assert await estate.nodes_from_center(session, other_near, other) == 1
+    assert one_core.id != other_core.id
+
+    assert await estate.price_of(session, constants, catalog, one, one_near) == (
+        await estate.price_of(session, constants, catalog, other, other_near)
+    )
+
+
+async def test_measured_distance_is_written_down(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """One walk measures the whole city, not the plot that was asked about."""
+    city, core, near, far = await _city(session, catalog)
+    assert near.center_steps is None
+
+    assert await estate.nodes_from_center(session, near, city) == 1
+
+    assert near.center_node_id == core.id
+    #: The far plot was never asked for, and is measured all the same: the walk
+    #: passed it, and the day's tax will want it within the minute.
+    assert far.center_steps == 2
+
+
+async def test_a_new_road_is_measured_again(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """A way through changes the distance, and the written number goes with it."""
+    from src.engine import travel
+
+    city, core, _, far = await _city(session, catalog)
+    assert await estate.nodes_from_center(session, far, city) == 2
+
+    await travel.connect(session, core, far, base_seconds=30, surface=Surface.PAVED)
+
+    assert far.center_steps is None, "новое ребро обязано сбросить измеренное"
+    assert await estate.nodes_from_center(session, far, city) == 1
+
+
+async def test_a_trail_to_a_new_place_keeps_the_measurements(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """A scout's find hangs on the map by one edge and changes nobody's distance.
+
+    This is what exploration does all day (D-206), and it must not cost the
+    world its measurements: a road through a dead end would have to come back
+    along the same edge, so it lies on nobody's shortest way.
+    """
+    from src.engine import travel
+
+    city, core, near, far = await _city(session, catalog)
+    assert await estate.nodes_from_center(session, far, city) == 2
+
+    #: A plot found inside the walls belongs to the city it was found in
+    #: (D-206) -- otherwise the trail would be crossing a border, and those are
+    #: laid only at the gate.
+    fresh = await world.create_node(
+        session, f"terra.town.{uuid.uuid4().hex[:8]}.find", "Находка", area_m2=100
+    )
+    fresh.owner_city_id = city.id
+    await session.flush()
+    await travel.connect(session, far, fresh, base_seconds=30, surface=Surface.PAVED)
+
+    assert far.center_steps == 2, "тропа в новое место не должна сбрасывать измеренное"
+    assert near.center_steps == 1
+    #: And the find itself is measured at once, from what it was hung on: the
+    #: map grows at its edge, so a new place is one step further than the old.
+    assert fresh.center_steps == far.center_steps + 1
+    assert fresh.center_node_id == core.id
+
+
+async def test_a_city_that_lost_its_printer_keeps_its_rates(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The machine carried out of the core does not make the land dearer.
+
+    Distance is counted from the bioprinter (D-220), so a city without one has
+    nothing to count from. Calling that distance nought would charge every plot
+    the centre's own rate -- the dearest in town, for the place that just lost
+    its centre. What was measured while the printer stood is kept instead: the
+    land did not move.
+    """
+    from sqlalchemy import select as sql_select
+
+    from src.engine import city as town_
+    from src.models.inventory import Item
+
+    city, core, near, far = await _city(session, catalog)
+    steps = await estate.nodes_from_center(session, far, city)
+    assert steps == 2
+    priced = await estate.price_of(session, constants, catalog, city, far)
+
+    #: Taken out through the objects, not by a bulk statement: that is how the
+    #: engine carries a machine away, and it is what empties the command's memory.
+    yard = await world.node_container(session, core)
+    printer = (
+        await session.execute(
+            sql_select(Item).where(
+                Item.container_id == yard.id,
+                Item.type_key.in_(world.station_names(world.BIOPRINTER)),
+            )
+        )
+    ).scalars().first()
+    await session.delete(printer)
+    await session.flush()
+
+    assert await town_.core(session, city) is None, "ядра у города больше нет"
+    assert await estate.nodes_from_center(session, far, city) == steps
+    assert await estate.price_of(session, constants, catalog, city, far) == priced
+
+
+async def test_a_find_is_measured_without_a_printer_too(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """A plot found while the printer is gone still knows how far out it is.
+
+    Distance comes from the place the scout set out from, not from the centre,
+    so the machine does not have to be standing for a new plot to be priced.
+    Without this a find in a city that lost its printer would have had nothing
+    to keep and would have stood, absurdly, at the centre's own rate.
+    """
+    from sqlalchemy import select as sql_select
+
+    from src.engine import city as town_
+    from src.engine import travel
+    from src.models.inventory import Item
+
+    city, core, _, far = await _city(session, catalog)
+    assert await estate.nodes_from_center(session, far, city) == 2
+
+    yard = await world.node_container(session, core)
+    printer = (
+        await session.execute(
+            sql_select(Item).where(
+                Item.container_id == yard.id,
+                Item.type_key.in_(world.station_names(world.BIOPRINTER)),
+            )
+        )
+    ).scalars().first()
+    await session.delete(printer)
+    await session.flush()
+    assert await town_.core(session, city) is None
+
+    fresh = await world.create_node(
+        session, f"terra.town.{uuid.uuid4().hex[:8]}.find", "Находка", area_m2=100
+    )
+    fresh.owner_city_id = city.id
+    await session.flush()
+    await travel.connect(session, far, fresh, base_seconds=30, surface=Surface.PAVED)
+
+    assert fresh.center_steps == 3, "находка на шаг дальше того, откуда её нашли"
+    assert await estate.nodes_from_center(session, fresh, city) == 3
 
 
 async def test_purchase_pays_treasury_and_issues_deed(
@@ -940,6 +1108,100 @@ async def test_the_day_of_tax_reaches_the_treasury(
     assert levied == {"paid": owed, "unpaid": 0, "plots": 1}
     assert await ledger.balance(session, account.id) == before - owed
     assert await town.treasury_balance(session, city) == in_treasury + owed
+
+
+async def test_the_planet_s_own_land_is_nobody_s_and_pays_nothing(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Land tax is charged on the built-up area, not on the planet (D-089, D-198).
+
+    A scout's find beyond the walls is a node of the planet: the mine, the
+    grove, the wild plot. Out there is no authority to tax it and no centre to
+    count the distance from. Checked with the plot made civic by hand, because
+    the rule must hold by itself and not because nothing out there happens to
+    carry a city today.
+    """
+    city, _, near, _ = await _city(session, catalog)
+    identity, _ = await _taxed_house(session, constants, catalog, where=near, city=city)
+
+    wild = await world.create_node(
+        session, f"terra.wild.{uuid.uuid4().hex[:8]}", "Дикий участок",
+        area_m2=100, layer=Layer.PLANET,
+    )
+    wild.owner_identity_id = identity.id
+    wild.owner_city_id = city.id
+    session.add(Building(node_id=wild.id, area_m2=40, footprint_m2=40))
+    await session.flush()
+
+    assert await estate.land_tax_of(session, constants, catalog, wild) == 0
+    levied = await estate.levy_land_tax(session, constants, catalog)
+    assert levied["plots"] == 1, "земля планеты в счёт дня не идёт"
+
+
+async def test_a_ship_is_not_land_and_pays_no_land_tax(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """A hull has an owner and a building of its own and is still not land.
+
+    A ship's room is registered as a building so that area and places are
+    counted by one rule (D-202), and it belongs to a person -- which is exactly
+    the shape the day's levy looks for. It belongs to no city, though, so there
+    is nobody to tax it (D-198): it must neither pay nor be counted among the
+    plots, and the levy must not even read it.
+    """
+    from src.engine.ship import ABOARD
+
+    city, _, near, _ = await _city(session, catalog)
+    identity, _ = await _taxed_house(session, constants, catalog, where=near, city=city)
+
+    #: Ten rooms aboard, by the same marks a real one carries.
+    cabins = []
+    for _ in range(10):
+        cabin = await world.create_node(
+            session, f"ship.node.{uuid.uuid4().hex[:8]}", "Отсек", area_m2=40,
+            properties={ABOARD: True},
+        )
+        cabin.owner_identity_id = identity.id
+        session.add(Building(node_id=cabin.id, area_m2=40, footprint_m2=40))
+        cabins.append(cabin)
+    await session.flush()
+
+    assert await estate.land_tax_of(session, constants, catalog, cabins[0]) == 0
+
+    #: And still nothing to pay even if the hull were made civic land by some
+    #: hand the engine does not have: three gates keep a ship out of a city --
+    #: a city is founded only on a node of the planet, a plot is found only
+    #: from inside a city, and nothing else hands land over -- but the rule
+    #: itself must not rest on all three holding forever.
+    cabins[0].owner_city_id = city.id
+    await session.flush()
+    assert await estate.land_tax_of(session, constants, catalog, cabins[0]) == 0, (
+        "борт не земля, чей бы он ни был"
+    )
+    cabins[0].owner_city_id = None
+    await session.flush()
+
+    #: Counted, not just checked: without the mark in the query every cabin
+    #: would be read and asked which city it belongs to -- two statements
+    #: apiece -- only to be dropped for having none. The levy of one plot takes
+    #: some sixteen; the bound leaves room for that and none for ten hulls.
+    from sqlalchemy import event as sql_event
+
+    seen = {"n": 0}
+    engine_ = session.get_bind()
+
+    def _count(*args: object) -> None:
+        seen["n"] += 1
+
+    sql_event.listen(engine_, "before_cursor_execute", _count)
+    try:
+        levied = await estate.levy_land_tax(session, constants, catalog)
+    finally:
+        sql_event.remove(engine_, "before_cursor_execute", _count)
+
+    assert seen["n"] < 25, f"борта всё-таки читаются: {seen['n']} запросов"
+
+    assert levied["plots"] == 1, "борт не участок: в счёт дня он не идёт"
 
 
 async def test_what_cannot_be_paid_is_not_paid(

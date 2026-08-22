@@ -89,12 +89,7 @@ async def inside(session: AsyncSession, chest: Item) -> Container:
 
 
 async def content(session: AsyncSession, chest: Item) -> list[Item]:
-    container = await inside(session, chest)
-    return list(
-        (
-            await session.execute(select(Item).where(Item.container_id == container.id))
-        ).scalars().all()
-    )
+    return list(await world.contents(session, await inside(session, chest)))
 
 
 async def stored_mass(
@@ -218,10 +213,7 @@ async def lying(session: AsyncSession, node: Node) -> list[Item]:
     from src.engine import estate
 
     catalog = current_catalog()
-    yard = await world.node_container(session, node)
-    things = (
-        await session.execute(select(Item).where(Item.container_id == yard.id))
-    ).scalars().all()
+    things = await world.contents(session, await world.node_container(session, node))
     return [
         thing
         for thing in things

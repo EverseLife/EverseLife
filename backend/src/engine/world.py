@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants, current
 from src.constants import registry as R
+from src.db.base import remember
 from src.engine import events
 from src.models.event import EventKind
 from src.models.identity import (
@@ -486,13 +487,18 @@ async def spawn(
 
 
 async def body_container(session: AsyncSession, body: Body) -> Container:
-    stmt = select(Container).where(
-        Container.kind == ContainerKind.BODY, Container.owner_id == body.id
-    )
-    container = (await session.execute(stmt)).scalar_one_or_none()
-    if container is None:  # pragma: no cover -- a body without an inventory is a bug
-        raise RuntimeError(f"у тела {body.id} нет инвентаря")
-    return container
+    async def find() -> Container:
+        stmt = select(Container).where(
+            Container.kind == ContainerKind.BODY, Container.owner_id == body.id
+        )
+        container = (await session.execute(stmt)).scalar_one_or_none()
+        if container is None:  # pragma: no cover -- a body without an inventory is a bug
+            raise RuntimeError(f"у тела {body.id} нет инвентаря")
+        return container
+
+    #: Asked from everywhere and always with the same answer inside one command
+    #: -- a pocket does not move from a body (`db.base.remember`).
+    return await remember(session, ("body_container", body.id), find)
 
 
 async def node_container(session: AsyncSession, node: Node) -> Container:
@@ -501,15 +507,18 @@ async def node_container(session: AsyncSession, node: Node) -> Container:
     Before buildings (E3) this is the only place a machine can stand. With
     buildings it will move into them -- the machine sets what a building is (D-106).
     """
-    stmt = select(Container).where(
-        Container.kind == ContainerKind.NODE, Container.owner_id == node.id
-    )
-    container = (await session.execute(stmt)).scalar_one_or_none()
-    if container is None:
-        container = Container(kind=ContainerKind.NODE, owner_id=node.id)
-        session.add(container)
-        await session.flush()
-    return container
+    async def find() -> Container:
+        stmt = select(Container).where(
+            Container.kind == ContainerKind.NODE, Container.owner_id == node.id
+        )
+        container = (await session.execute(stmt)).scalar_one_or_none()
+        if container is None:
+            container = Container(kind=ContainerKind.NODE, owner_id=node.id)
+            session.add(container)
+            await session.flush()
+        return container
+
+    return await remember(session, ("node_container", node.id), find)
 
 
 #: The "Библиотека" thing class (D-176, D-215): the library window is shown
@@ -517,18 +526,47 @@ async def node_container(session: AsyncSession, node: Node) -> Container:
 LIBRARY = "Библиотека"
 
 
+async def contents(session: AsyncSession, container: Container) -> tuple[Item, ...]:
+    """What lies in the container -- everything, in one reading.
+
+    The same three containers are read over and over inside one command: the
+    pocket is asked for by the carry limit, by the load, by the convoy and by
+    the inventory itself, and the node's yard by every window of the place.
+    Each of those was a query. A tuple, not a list, so that a reader cannot
+    quietly change what the next reader will get (`db.base.remember`).
+    """
+
+    async def read() -> tuple[Item, ...]:
+        rows = await session.execute(select(Item).where(Item.container_id == container.id))
+        return tuple(rows.scalars().all())
+
+    return await remember(session, ("contents", container.id), read)
+
+
+async def thing_kinds(session: AsyncSession, node: Node) -> frozenset[str]:
+    """Which kinds of things stand in the node -- names, without counting them.
+
+    The node scene is asked this a dozen times in a row, once per class:
+    is there a workbench here, a hall, a library, a printer. Each of those was
+    a query of its own, and every one of them read the same short list.
+    """
+
+    async def find() -> frozenset[str]:
+        yard = await node_container(session, node)
+        rows = await session.execute(
+            select(Item.type_key).where(Item.container_id == yard.id).distinct()
+        )
+        return frozenset(row[0] for row in rows)
+
+    return await remember(session, ("thing_kinds", node.id), find)
+
+
 async def has_station(session: AsyncSession, node: Node, name: str) -> bool:
     """Whether a machine of this class stands in the node: the node scene is
     built from machines (D-176), and this is the only way to ask what a place
     is. The word is a thing class (D-215); a plain item name still matches
     itself through the fallback in `station_names`."""
-    yard = await node_container(session, node)
-    found = await session.scalar(
-        select(Item.id)
-        .where(Item.container_id == yard.id, Item.type_key.in_(station_names(name)))
-        .limit(1)
-    )
-    return found is not None
+    return bool(await thing_kinds(session, node) & frozenset(station_names(name)))
 
 
 async def is_library(session: AsyncSession, node: Node) -> bool:

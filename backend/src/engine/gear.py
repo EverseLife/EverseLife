@@ -78,10 +78,7 @@ async def load_of(
     session: AsyncSession, catalog: Catalog, body: Body
 ) -> float:
     """How much the body carries now, kg. What is worn counts along with everything."""
-    pocket = await world.body_container(session, body)
-    things = (
-        await session.execute(select(Item).where(Item.container_id == pocket.id))
-    ).scalars().all()
+    things = await world.contents(session, await world.body_container(session, body))
     return sum(
         mass_of(catalog, thing.type_key, amount_float(thing.amount)) for thing in things
     )

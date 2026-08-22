@@ -29,7 +29,7 @@ from src.models.estate import Building
 from src.models.identity import Body
 from src.models.job import JobState
 from src.models.ship import Ship
-from src.models.world import Layer, Node, Planet
+from src.models.world import Layer, Node, Planet, Surface
 
 ENGINE = "Двигатель I класса"
 LIFE = "Система жизнеобеспечения"
@@ -291,6 +291,62 @@ async def test_passage_stretches_by_mass_and_has_a_ceiling(
     #: However much thrust is hung on, the ceiling holds.
     floor = table * constants[R.SHIP_ROUTE_MIN_SHARE] / 100
     assert ship.passage_hours(constants, table, reference * 100) == pytest.approx(floor)
+
+
+# --- a ship is no short cut across the land -----------------------------------
+
+
+async def test_docking_leaves_land_measurements_alone(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """A gangway neither shortens nor lengthens any road ashore (D-201).
+
+    Land is priced by the distance to the city's printer (D-220), and that
+    distance is written down rather than walked for. A ship hangs on the map by
+    its one gangway, and no ship node belongs to a city -- so casting off and
+    mooring must leave what is written exactly as it was. Without this the
+    whole world would re-measure itself every time somebody put out to space.
+    """
+    from src.engine import city as town
+    from src.engine import estate
+
+    #: A town around the port: a core with the printer the city grew from, and
+    #: the port one step away from it. Without a city there is no centre to
+    #: measure from, and nothing for the test to hold on to.
+    stamp = uuid.uuid4().hex[:8]
+    delegate = await world.create_node(
+        session, f"terra.spacetown.{stamp}", "Портовый", area_m2=1, layer=Layer.PLANET
+    )
+    core = await world.create_node(
+        session, f"terra.spacetown.{stamp}.core", "Ядро", area_m2=100,
+        parent=delegate, properties={"кольцо": 0, "предтечи": True},
+    )
+    yard = await world.node_container(session, core)
+    await world.grant_item(session, yard, world.BIOPRINTER, quality=60, origin="тест")
+
+    port = await _port(session)
+    port.parent_id = delegate.id
+    await session.flush()
+    await travel.connect(session, core, port, base_seconds=30, surface=Surface.PAVED)
+    city = await town.found(session, catalog, delegate, "Портовый")
+    for node in (core, port):
+        node.owner_city_id = city.id
+    await session.flush()
+
+    _, body = await _shipwright(session, port)
+    vessel = await _laid(session, constants, body, port)
+    await _flightworthy(session, constants, catalog, vessel)
+
+    measured = await estate.nodes_from_center(session, port, city)
+    assert measured == 1, "порт в шаге от ядра"
+    assert port.center_steps is not None
+
+    connector = await session.get(Node, vessel.connector_node_id)
+    body.node_id = connector.id
+    await session.flush()
+    await ship.undock(session, constants, catalog, body, vessel)
+
+    assert port.center_steps == measured, "отход корабля не трогает землю"
 
 
 # --- undocking is the removal of one edge ------------------------------------
