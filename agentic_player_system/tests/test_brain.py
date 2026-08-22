@@ -124,6 +124,7 @@ async def test_turn_records_actions_refusals_notes_and_thought(
         "model",
         "thought",
     ]
+    assert store.events(agent["id"])[0]["text"] == "full"
     assert store.agent(agent["id"])["notes"] == "план: сначала четыре здания"
     model_events = [e for e in store.events(agent["id"]) if e["kind"] == "model"]
     assert json.loads(model_events[0]["reply"])["tool_calls"][0]["name"] == "act"
@@ -237,6 +238,40 @@ async def test_a_dropped_socket_is_reconnected_and_the_turn_goes_on(
     assert "восстановлена" in answer and game.reconnects == 1
     assert not turn.finished
     assert store.events(agent["id"])[-1]["kind"] == "error"
+
+
+def test_observation_is_a_digest_with_changes_and_the_whole_look_every_few_turns() -> None:
+    from aps import observe
+
+    first = {
+        "look": {
+            "identity": "Марта",
+            "money": "120",
+            "body": {"stamina": 90.0, "sleeping_since": None},
+            "node": {"name": "Ядро", "key": "terra.capital.core", "stations": ["биопринтер"]},
+            "inventory": [{"goods": "Хлеб", "amount": 2}],
+            "doings": [],
+            "travel": None,
+            "clock": {"now": "1"},
+        }
+    }
+    second = json.loads(json.dumps(first))
+    second["look"]["money"] = "95"
+    second["look"]["inventory"].append({"goods": "Кирка", "amount": 1})
+    second["look"]["clock"]["now"] = "2"
+
+    text, mode = observe.observation(None, first, full=False, packed="{}")
+    assert mode == "full" and "Полный look" in text
+    text, mode = observe.observation(first, second, full=False, packed="x" * 5000)
+    assert mode == "delta"
+    assert "деньги 95" in text and "Сумка (2)" in text
+    assert "money: 120 → 95" in text and "появилось Кирка×1" in text
+    assert "clock" not in text
+    text, mode = observe.observation(first, second, full=True, packed="{}")
+    assert mode == "full"
+    #: A diff no shorter than the whole thing is pointless: show the whole thing.
+    text, mode = observe.observation(first, second, full=False, packed="{}")
+    assert mode == "full"
 
 
 def test_stuck_detection_needs_the_same_refused_action_in_a_row() -> None:

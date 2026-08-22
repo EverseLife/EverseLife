@@ -267,7 +267,7 @@ function renderEvent(ev) {
     return `<div class="ev refused">${at} ${esc(ev.cmd)} ${esc(ev.request)} → ОТКАЗ: ${esc(ev.text)}</div>`;
   }
   if (ev.kind === "look") {
-    return `<div class="ev look">${at} look${fold("что увидел", ev.reply)}</div>`;
+    return `<div class="ev look">${at} look${ev.text === "delta" ? " (модели — сводка и изменения)" : ev.text === "full" ? " (модели — целиком)" : ""}${fold("что увидел", ev.reply)}</div>`;
   }
   if (ev.kind === "prompt") {
     let r = {}; try { r = JSON.parse(ev.reply || "{}"); } catch {}

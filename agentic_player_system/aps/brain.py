@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
-from . import commands, llm
+from . import commands, llm, observe
 from .game import Game, GameError, Refused
 from .store import Store
 
@@ -164,7 +164,9 @@ SYSTEM = """Ты — житель мира Everse.Life, обычный игро�
 Твоя цель: {goal}
 
 Как играть:
-- Сначала посмотри, что ты видишь (look уже сделан за тебя — смотри «Наблюдение»).
+- Сначала посмотри, что ты видишь: «Наблюдение» — сводка по look и что изменилось с
+  прошлого хода; полный look показывается раз в несколько ходов. Нужны подробности
+  (весь инвентарь, известные рецепты, заказы) — вызови act("look") сам.
 - Если не уверен в аргументах команды — вызови help. Отказ сервера — нормальная часть игры:
   прочитай причину и действуй иначе. Не повторяй одно и то же действие, если оно отказано.
 - Публичные каталоги (двери, карта, рынки, рецепты) — через read.
@@ -183,6 +185,14 @@ SYSTEM = """Ты — житель мира Everse.Life, обычный игро�
 Команды сессии (имя(аргументы): что делает):
 {reference}
 """
+
+
+def _parse_json(raw: str) -> dict[str, Any] | None:
+    try:
+        value = json.loads(raw)
+    except (TypeError, ValueError):
+        return None
+    return value if isinstance(value, dict) else None
 
 
 def shrink(value: Any, *, depth: int = 0) -> Any:
@@ -256,7 +266,15 @@ async def run_turn(
         seen = await game.act("look")
     except Refused as refusal:
         seen = {"refused": str(refusal)}
-    store.event(agent_id, "look", cmd="look", reply=shrink(seen))
+    #: The previous look, and how long since the model last saw one whole: the
+    #: observation is a digest plus a diff, the whole thing every few turns.
+    previous_looks = store.recent(agent_id, ("look",), observe.FULL_EVERY)
+    previous = _parse_json(previous_looks[-1]["reply"]) if previous_looks else None
+    full = len(previous_looks) < observe.FULL_EVERY or not any(
+        e["text"] == "full" for e in previous_looks
+    )
+    observation, mode = observe.observation(previous, shrink(seen), full=full, packed=pack(seen))
+    store.event(agent_id, "look", cmd="look", reply=shrink(seen), text=mode)
 
     system = SYSTEM.format(
         name=agent["name"],
@@ -268,7 +286,6 @@ async def run_turn(
     )
     notes = render_notes(agent["notes"])
     recent = _history(store, agent_id, history)
-    observation = pack(seen)
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": system},
         {
@@ -276,7 +293,7 @@ async def run_turn(
             "content": (
                 f"Твои заметки ({len(agent['notes'])}/{MAX_NOTES_CHARS} зн.):\n{notes}\n\n"
                 f"Последние действия и рассуждения:\n{recent}\n\n"
-                f"Наблюдение (look):\n{observation}\n\n"
+                f"Наблюдение:\n{observation}\n\n"
                 "Твой ход."
             ),
         },
@@ -289,7 +306,7 @@ async def run_turn(
         text=(
             f"промпт: системная часть {len(system)} зн. (из них справочник команд "
             f"{len(commands.brief(reference))}), заметки {len(notes)}, история {len(recent)} "
-            f"({history} записей), наблюдение {len(observation)}"
+            f"({history} записей), наблюдение {len(observation)} ({mode})"
         ),
         #: The exact text, so "what did the model actually see" has an answer.
         reply={"system": system, "user": messages[1]["content"]},
