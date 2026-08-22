@@ -23,7 +23,13 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
+    # The rule lives in `src.db.ddl`, and the initial migration lays down the
+    # whole set of rules by `ddl.statements()` -- so a database built from
+    # scratch already has this trigger by the time this revision runs. Here it
+    # is only for a database migrated before D-226; the drop makes the two
+    # paths meet.
     op.execute(ddl.ANNOUNCE_FUNCTION)
+    op.execute("DROP TRIGGER IF EXISTS event_announced ON event")
     op.execute(ddl.ANNOUNCE_TRIGGER)
 
 

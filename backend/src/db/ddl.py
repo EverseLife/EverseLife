@@ -116,5 +116,12 @@ def attach(metadata: MetaData) -> None:
 
 
 def statements() -> tuple[str, ...]:
-    """The same SQL for a migration -- no second copy exists."""
+    """The same SQL for a migration -- no second copy exists.
+
+    The initial migration takes the whole set from here, so a rule added to
+    `RULES` later lands in a fresh database already at that first revision.
+    Its own migration -- the one that brings the rule to a database migrated
+    earlier -- must therefore survive meeting the rule in place: drop it first
+    or declare it with `OR REPLACE`.
+    """
     return tuple(sql for _, group in RULES for sql in group)
