@@ -783,7 +783,9 @@ async def catch_up(session: AsyncSession, core: Node) -> None:
         "Монетный двор": "Монетная станция",
         "Монетный станок": "Монетная станция",
         "Автоматический станок": "Автоматическая станция",
-        "Космодром": ship.SPACEPORT,
+        #: The item name, not the class word `ship.SPACEPORT`: a machine is
+        #: stored by name, and the migration says the same.
+        "Космодром": "Космическая верфь",
         "Верфь": "Космическая мастерская",
     }
     stale = (

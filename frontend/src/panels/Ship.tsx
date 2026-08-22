@@ -18,11 +18,16 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Look, Session } from "../api";
 import { Rule } from "../Rule";
+import { firstOfClass } from "../classes";
 import { Refusal, useActions } from "../actions";
 
-/** The item a node aboard is laid from. Made at the shipyard. */
-const FOUNDATION = "Основа узла корабля";
-const SPACEPORT = "Космическая верфь";
+/**
+ * Thing classes, not item names (D-215): the foundation a node aboard is laid
+ * from, and the yard it is laid at. The engine asks by the same words
+ * (`ship.FOUNDATION`, `ship.SPACEPORT`); the names come from the catalog.
+ */
+const FOUNDATION = "Основа корабля";
+const SPACEPORT = "Верфь";
 /** The node property that marks a node as being aboard: it arrives in `features`. */
 const ABOARD = "борт";
 
@@ -71,7 +76,7 @@ function cheapest(v: Vessel): number {
   return fuels.length ? Math.min(...fuels) : 0;
 }
 
-export function Ship({ look, session }: { look: Look; session: Session }) {
+export function Ship({ look, session, book }: { look: Look; session: Session; book: any }) {
   //: This panel's own waiting and its own refusal: laying a keel must not grey
   //: out the chat and the map for eight hours of somebody else's work.
   const acting = useActions();
@@ -81,8 +86,9 @@ export function Ship({ look, session }: { look: Look; session: Session }) {
   const [name, setName] = useState("");
 
   const aboard = (look.node?.features ?? []).includes(ABOARD);
-  const atPort = (look.node?.stations ?? []).includes(SPACEPORT);
-  const foundation = look.inventory.find((t) => t.goods === FOUNDATION);
+  const atPort = firstOfClass(book, look.node?.stations ?? [], SPACEPORT) !== undefined;
+  const foundationName = firstOfClass(book, look.inventory.map((t) => t.goods), FOUNDATION);
+  const foundation = look.inventory.find((t) => t.goods === foundationName);
 
   const reload = useCallback(async () => {
     const answer = await session.send("ship.view");
@@ -212,7 +218,7 @@ export function Ship({ look, session }: { look: Look; session: Session }) {
 
       {!foundation && (
         <p className="note">
-          Нужна «{FOUNDATION}» в руках — её делают в космической мастерской. Корабль растёт по
+          Нужна «{foundationName ?? "основа узла корабля"}» в руках — её делают в космической мастерской. Корабль растёт по
           узлу за раз: каждый следующий узел это и место, и лишняя масса.
         </p>
       )}

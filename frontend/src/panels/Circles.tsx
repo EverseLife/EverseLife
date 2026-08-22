@@ -17,6 +17,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { Circle, Session } from "../api";
 import { Rule } from "../Rule";
 import { Refusal, useActions } from "../actions";
+import { PersonName } from "../Name";
 
 type Props = {
   session: Session;
@@ -73,7 +74,13 @@ export function Circles({ session, place }: Omit<Props, "busy" | "act">) {
       {circles.map((circle) => (
         <div className={`row circle ${circle.mine ? "mine" : ""}`} key={circle.id}>
           <span>
-            <b>{circle.name ?? "кружок без имени"}</b> · {circle.members.join(", ")}
+            <b>{circle.name ?? "кружок без имени"}</b> ·{" "}
+            {circle.members.map((member, i) => (
+              <span key={member}>
+                {i > 0 && ", "}
+                <PersonName name={member} />
+              </span>
+            ))}
           </span>
           {circle.mine ? (
             <button

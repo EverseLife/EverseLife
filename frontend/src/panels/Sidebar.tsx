@@ -15,9 +15,10 @@
  * obligations arrive with their systems (E3-E4).
  */
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import * as api from "../api";
 import type { Batch, Look, Session } from "../api";
+import { anyOfClass } from "../classes";
 import { busyWith, CRAFT, SLEEP } from "../busy";
 import { Doing } from "../Deadline";
 import { Glyph } from "../Glyph";
@@ -25,10 +26,12 @@ import { Inventory } from "./Inventory";
 import { Economy } from "./Economy";
 import { Finance } from "./Finance";
 import { Holdings } from "./Holdings";
+import { Net } from "./Net";
 import { Population } from "./Population";
 import { Workshop } from "./Workshop";
 import { Rule } from "../Rule";
 import { Refusal, useActions } from "../actions";
+import { onThread } from "../people";
 
 type Props = {
   look: Look;
@@ -60,6 +63,9 @@ const TABS = [
   { id: "money", label: "финансы", icon: "money", of: "счёт, выписка, кредит, свои ордера" },
   { id: "knows", label: "знания", icon: "knows", of: "известные рецепты" },
   { id: "estate", label: "хозяйство", icon: "estate", of: "сеть, счета за быт, бумаги" },
+  //: The Net (D-222): correspondence and channels. Remote by nature -- this
+  //: is the one kind of talk that works from the road.
+  { id: "net", label: "сеть", icon: "net", of: "переписка и каналы" },
 ] as const;
 //: The state tab: figures for whoever governs. Shown only to office holders;
 //: the same summary is visible in person in the node with the administration.
@@ -78,6 +84,17 @@ export function Sidebar({ look, session, book }: Omit<Props, "busy" | "act">) {
   const { busy, act } = acting;
 
   const [tab, setTab] = useState<Tab>("me");
+  //: "Write" from somebody's card lands in the Net tab, wherever it was asked from.
+  const [wanted, setWanted] = useState<string | null>(null);
+  useEffect(
+    () =>
+      onThread((name) => {
+        setWanted(name);
+        setTab("net");
+      }),
+    [],
+  );
+  const forgetWanted = useCallback(() => setWanted(null), []);
 
   //: A state office is at least one power in a city (D-155).
   const official = (look.city?.powers?.length ?? 0) > 0;
@@ -90,6 +107,7 @@ export function Sidebar({ look, session, book }: Omit<Props, "busy" | "act">) {
     work: look.batches.length + (look.doings ?? []).filter((d) => d.kind !== "craft").length,
     money: look.orders.length + look.reservations.length,
     goods: look.inventory.length,
+    net: look.net_unread ?? 0,
   };
 
   return (
@@ -117,7 +135,7 @@ export function Sidebar({ look, session, book }: Omit<Props, "busy" | "act">) {
           и во сне сервер откажет. */}
       {current === "work" && (
         <>
-          <Doings look={look} session={session} busy={busy} act={act} />
+          <Doings look={look} session={session} book={book} busy={busy} act={act} />
           <Workshop machine={null} book={book} look={look} session={session} />
         </>
       )}
@@ -133,6 +151,14 @@ export function Sidebar({ look, session, book }: Omit<Props, "busy" | "act">) {
       {/* Хозяйство — счета за быт, сеть и ценные бумаги: имущество, а не деньги. */}
       {current === "estate" && (
         <Holdings look={look} session={session} busy={busy} act={act} />
+      )}
+      {current === "net" && (
+        <Net
+          session={session}
+          unread={look.net_unread ?? 0}
+          wanted={wanted}
+          onWanted={forgetWanted}
+        />
       )}
       {current === "state" && (
         <>
@@ -222,10 +248,11 @@ const elapsedMinutes = (since: string) =>
  * -- they carry a queue, a reason for waiting and a quality, and none of that
  * fits one line.
  */
-function Doings({ look, session, busy, act }: Props) {
+function Doings({ look, session, book, busy, act }: Props) {
   const doings = look.doings ?? [];
   const asleep = doings.some((d) => d.kind === "sleep");
-  const bed_ = (look.node?.stations ?? []).includes("Кровать");
+  //: A bed is a thing class (D-215): the engine sleeps in any member of it.
+  const bed_ = anyOfClass(book, look.node?.stations ?? [], "Кровать");
   //: What stands in the way of lying down: any occupation but sleep itself and
   //: a batch -- a batch freezes with the master and frees its machine (D-211).
   const cannotSleep = busyWith(look, [SLEEP, CRAFT]);

@@ -61,6 +61,7 @@ from src.engine import (
     library,
     market,
     mining,
+    net,
     occupation,
     panel,
     rest,
@@ -136,6 +137,8 @@ async def play(socket: WebSocket) -> None:
             except travel.TravelError as refusal:
                 answer = {"refused": str(refusal)}
             except chat.ChatError as refusal:
+                answer = {"refused": str(refusal)}
+            except net.NetError as refusal:
                 answer = {"refused": str(refusal)}
             except rest.RestError as refusal:
                 answer = {"refused": str(refusal)}
@@ -397,6 +400,9 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
         "orders": await _orders(db, identity.id),
         "reservations": await _reservations(db, identity.id),
         "batches": await _batches(db, identity.id),
+        #: What has arrived in the Net and is not read yet (D-222): the tab's count.
+        "net_unread": await net.unread_letters(db, identity.id)
+        + await net.unread_posts(db, constants, identity.id),
     }
     if body is None:
         #: No body -- the identity is in the cloud (D-012). It still controls the
@@ -576,7 +582,9 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
             "powers": sorted(await town.powers_of(db, identity.id, city)),
             #: Governing is in-person: the client shows it only in the
             #: administration, not in the sidebar (D-155).
-            "hall": town.HALL in stations,
+            #: `HALL` is a class, `stations` holds item names: ask through
+            #: the class members, as every other machine check does (D-215).
+            "hall": any(s in stations for s in world.station_names(town.HALL)),
             #: Citizenship (D-160): own status in this city and the admission
             #: order. The client decides from these what to show -- "join",
             #: "application submitted" or "leave".
@@ -1997,6 +2005,187 @@ async def _chat_leave(state: dict, db: AsyncSession, message: dict) -> dict:
     return {"left": True}
 
 
+# --- the Net (D-222) ---------------------------------------------------------
+
+
+def _stamp(moment: datetime | None) -> str | None:
+    return None if moment is None else moment.isoformat()
+
+
+async def _net_threads(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Correspondence and channels: the sidebar's "Net" tab in one reading."""
+    me = await _identity(state, db)
+    return {
+        "threads": [
+            {
+                "id": view.id,
+                "who": view.who,
+                "surname": view.surname,
+                "last_at": _stamp(view.last_at),
+                "preview": view.preview,
+                "unread": view.unread,
+            }
+            for view in await net.threads(db, me.id)
+        ],
+        "channels": [
+            _channel_view(view) for view in await net.channels(db, current(), me.id)
+        ],
+    }
+
+
+def _channel_view(view: net.ChannelView) -> dict[str, Any]:
+    return {
+        "id": view.id,
+        "name": view.name,
+        "about": view.about,
+        "official": view.official,
+        "writable": view.writable,
+        "implied": view.implied,
+        "by": view.by,
+        "last_at": _stamp(view.last_at),
+        "unread": view.unread,
+    }
+
+
+async def _net_open(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Start (or find) the correspondence with somebody: an empty thread is kept."""
+    me = await _identity(state, db)
+    other = await _identity_by_name(db, str(message.get("name", "")))
+    thread = await net.open_thread(db, me, other)
+    return {"thread": str(thread.id), "who": other.name}
+
+
+async def _net_read(state: dict, db: AsyncSession, message: dict) -> dict:
+    me = await _identity(state, db)
+    letters = await net.read_thread(db, me.id, uuid.UUID(message["thread"]))
+    return {
+        "letters": [
+            {
+                "id": letter.id,
+                "who": letter.who,
+                "mine": letter.mine,
+                "text": letter.text,
+                "sent_at": letter.sent_at.isoformat(),
+                "delivered_at": letter.delivered_at.isoformat(),
+            }
+            for letter in letters
+        ]
+    }
+
+
+async def _net_write(state: dict, db: AsyncSession, message: dict) -> dict:
+    me = await _identity(state, db)
+    letter = await net.write(
+        db, current(), me, uuid.UUID(message["thread"]), str(message.get("text", ""))
+    )
+    return {"sent": str(letter.id), "delivered_at": letter.delivered_at.isoformat()}
+
+
+async def _net_people(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Whom to write to: names starting with what was typed."""
+    me = await _identity(state, db)
+    found = await net.find_people(db, str(message.get("query", "")), exclude=me.id)
+    return {"people": [{"name": name, "surname": surname} for name, surname in found]}
+
+
+async def _net_channel_create(state: dict, db: AsyncSession, message: dict) -> dict:
+    me = await _identity(state, db)
+    channel = await net.create_channel(
+        db, me, str(message.get("name", "")), str(message.get("about", ""))
+    )
+    return {"channel": str(channel.id)}
+
+
+async def _net_channel_find(state: dict, db: AsyncSession, message: dict) -> dict:
+    """What there is to subscribe to."""
+    me = await _identity(state, db)
+    mine = {view.id for view in await net.channels(db, current(), me.id)}
+    found = await net.find_channels(db, str(message.get("query", "")), me_id=me.id)
+    return {
+        "channels": [
+            {
+                "id": str(channel.id),
+                "name": channel.name,
+                "about": channel.about,
+                "official": channel.city_id is not None,
+                "by": by,
+                "subscribed": str(channel.id) in mine,
+            }
+            for channel, by in found
+        ]
+    }
+
+
+async def _net_subscribe(state: dict, db: AsyncSession, message: dict) -> dict:
+    me = await _identity(state, db)
+    await net.subscribe(db, me, uuid.UUID(message["channel"]))
+    return {"subscribed": message["channel"]}
+
+
+async def _net_unsubscribe(state: dict, db: AsyncSession, message: dict) -> dict:
+    me = await _identity(state, db)
+    await net.unsubscribe(db, me, uuid.UUID(message["channel"]))
+    return {"unsubscribed": message["channel"]}
+
+
+async def _net_channel_read(state: dict, db: AsyncSession, message: dict) -> dict:
+    me = await _identity(state, db)
+    channel, posts = await net.read_channel(
+        db, current(), me.id, uuid.UUID(message["channel"])
+    )
+    return {
+        "channel": {
+            "id": str(channel.id),
+            "name": channel.name,
+            "about": channel.about,
+            "official": channel.city_id is not None,
+            "writable": await net.may_post(db, me.id, channel),
+        },
+        "posts": [
+            {
+                "id": entry.id,
+                "who": entry.who,
+                "text": entry.text,
+                "at": entry.at.isoformat(),
+                "delivered_at": entry.delivered_at.isoformat(),
+            }
+            for entry in posts
+        ],
+    }
+
+
+async def _net_post(state: dict, db: AsyncSession, message: dict) -> dict:
+    me = await _identity(state, db)
+    entry = await net.post(
+        db, me, uuid.UUID(message["channel"]), str(message.get("text", ""))
+    )
+    return {"posted": str(entry.id)}
+
+
+async def _identity_profile(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Somebody's card: what a person shows of themselves, and where they belong.
+
+    Self-description only (D-187): no stamina, no pocket, no whereabouts.
+    Names are public (D-058), and so is citizenship -- it is a record about
+    the person, not the place.
+    """
+    await _identity(state, db)
+    who = await _identity_by_name(db, str(message.get("name", "")))
+    own_ = await town.citizenship(db, who.id)
+    native = None if own_ is None else await town.by_id(db, own_.city_id)
+    return {
+        "profile": {
+            "name": who.name,
+            "surname": who.surname,
+            "age": who.age,
+            "about": who.about,
+            "line": who.line.value,
+            "since": who.created_at.isoformat(),
+            "city": None if native is None else native.name,
+        }
+    }
+
+
 async def _travel_go(state: dict, db: AsyncSession, message: dict) -> dict:
     """Go to a node -- even a non-adjacent one: the route builds itself (D-045, D-107)."""
     body = await _alive(state, db)
@@ -3132,6 +3321,18 @@ _COMMANDS = {
     "chat.gather": _chat_gather,
     "chat.join": _chat_join,
     "chat.leave": _chat_leave,
+    "net.threads": _net_threads,
+    "net.open": _net_open,
+    "net.read": _net_read,
+    "net.write": _net_write,
+    "net.people": _net_people,
+    "net.channel.create": _net_channel_create,
+    "net.channel.find": _net_channel_find,
+    "net.channel.read": _net_channel_read,
+    "net.subscribe": _net_subscribe,
+    "net.unsubscribe": _net_unsubscribe,
+    "net.post": _net_post,
+    "identity.profile": _identity_profile,
     "market.load": _market_load,
     "market.take": _market_take,
     "market.sell": _market_sell,

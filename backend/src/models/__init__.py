@@ -57,6 +57,14 @@ from src.models.market import (
 )
 from src.models.metrics import DailyMetric
 from src.models.mining import MiningSession, Pace, PowChallenge, SessionState
+from src.models.net import (
+    NetChannel,
+    NetMessage,
+    NetParty,
+    NetPost,
+    NetSubscription,
+    NetThread,
+)
 from src.models.plant import Nursery, Variety
 from src.models.rig import Rig
 from src.models.ship import Ship
@@ -111,6 +119,12 @@ __all__ = [
     "LoginToken",
     "Meal",
     "MiningSession",
+    "NetChannel",
+    "NetMessage",
+    "NetParty",
+    "NetPost",
+    "NetSubscription",
+    "NetThread",
     "Node",
     "Nursery",
     "Office",

@@ -52,9 +52,21 @@ import { Rig } from "./Rig";
 import { Ship } from "./Ship";
 import { Workshop } from "./Workshop";
 import type { PowSettings } from "../pow";
+import { anyOfClass, classOf, firstOfClass } from "../classes";
 
-/** The terminal is the market building; everything else in a node is machines. */
-const TERMINAL = "Терминал маркетплейса";
+/**
+ * Thing classes the stand opens windows by (D-215): the terminal is the
+ * market, the yard is the ship, the rig is drilling. Names of the machines
+ * come from the catalog; the client knows only the class words, the same ones
+ * the engine binds its behaviour to.
+ */
+const TERMINAL = "Терминал";
+const SPACEPORT = "Верфь";
+const RIG = "Буровая";
+const KITCHEN = "Кухня";
+const NURSERY = "Питомник";
+const FUEL_PLANT = "Топливная станция";
+const MINT = "Монетный двор";
 
 type Kind =
   /** A workbench: opens in place, the rest of the node stays in view. */
@@ -225,13 +237,15 @@ function assemble({ look, session, book, values, pow }: Props): Thing[] {
 
   /**
    * Machines that have a surface of their own beyond ordinary craft: the pot
-   * on the hearth, breeding in the nursery, minting, the firebox of a coal station.
+   * on the hearth, breeding in the nursery, minting, the firebox of a coal
+   * station. Keyed by thing class, not by machine name (D-215): a second
+   * hearth or a renamed mint opens the same window.
    */
   const SPECIAL: Record<string, () => ReactNode> = {
-    "Очаг": () => <Kitchen look={look} session={session} />,
-    "Селекционный питомник": () => <Nursery look={look} session={session} />,
-    "Угольная станция": () => <Plant look={look} session={session} />,
-    "Монетная станция": () => <Mint look={look} session={session} values={values} />,
+    [KITCHEN]: () => <Kitchen look={look} session={session} book={book} />,
+    [NURSERY]: () => <Nursery look={look} session={session} />,
+    [FUEL_PLANT]: () => <Plant look={look} session={session} />,
+    [MINT]: () => <Mint look={look} session={session} book={book} values={values} />,
   };
 
   //: One machine is one row, whatever can be done at it. A hearth is both a
@@ -250,7 +264,8 @@ function assemble({ look, session, book, values, pow }: Props): Thing[] {
       (o.requires ?? []).some((w: string) => (book?.synonyms?.[w] ?? w) === machine),
     );
   for (const machine of stations) {
-    const special = SPECIAL[machine];
+    const thingClass = classOf(book, machine);
+    const special = thingClass === null ? undefined : SPECIAL[thingClass];
     const recipes = craftableAt(book, machine, look.knows).length > 0 || workable(machine);
     if (!special && !recipes) continue;
     const batch = batchAt(machine);
@@ -294,13 +309,13 @@ function assemble({ look, session, book, values, pow }: Props): Thing[] {
   //: the hands waiting to be placed on a vein. The panel used to keep itself
   //: silent while the row above it did not, so "Буровая" stood in every
   //: location in the world -- including those with nothing to drill.
-  const rigInHand = look.inventory.some((t) => t.goods === "Буровая установка");
+  const rigInHand = anyOfClass(book, look.inventory.map((t) => t.goods), RIG);
   if (look.rig_here || rigInHand) {
     single(
       "rig",
       "Буровая",
       "bench",
-      () => <Rig look={look} session={session} />,
+      () => <Rig look={look} session={session} book={book} />,
       1,
       look.rig_here ? undefined : "в руках: поставить на жилу",
     );
@@ -310,16 +325,16 @@ function assemble({ look, session, book, values, pow }: Props): Thing[] {
   //: aboard. Aboard the row is the ship itself -- the map is already showing
   //: its rooms, and this panel adds what the map cannot: thrust against mass.
   const aboard = (look.node?.features ?? []).includes("борт");
-  const shipHere = (look.node?.stations ?? []).includes("Космическая верфь") || aboard;
-  if (shipHere) {
+  const yard = firstOfClass(book, stations, SPACEPORT);
+  if (yard !== undefined || aboard) {
     //: Aboard the window is the ship, on the ground it is the yard the ship is
     //: laid down and moored at: one panel, and its name says which of the two
     //: the player is looking at.
     single(
       "ship",
-      aboard ? "Корабль" : "Космическая верфь",
+      aboard ? "Корабль" : yard ?? SPACEPORT,
       "full",
-      () => <Ship look={look} session={session} />,
+      () => <Ship look={look} session={session} book={book} />,
     );
   }
 
@@ -358,9 +373,10 @@ function assemble({ look, session, book, values, pow }: Props): Thing[] {
   if (look.city?.hall) {
     single("hall", "Администрация", "full", () => <Admin look={look} session={session} />);
   }
-  if (stations.includes(TERMINAL)) {
+  const terminal = firstOfClass(book, stations, TERMINAL);
+  if (terminal !== undefined) {
     const mine = (look.stall ?? []).length;
-    single("market", "Терминал маркетплейса", "full",
+    single("market", terminal, "full",
       () => <Market look={look} session={session} values={values} />, 1,
       mine > 0 ? `вашего товара: ${mine}` : undefined);
   }

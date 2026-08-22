@@ -26,6 +26,7 @@ export type GlyphName =
   | "goods"
   | "knows"
   | "estate"
+  | "net"
   | "state";
 
 const SHAPES: Record<GlyphName, string> = {
@@ -41,6 +42,8 @@ const SHAPES: Record<GlyphName, string> = {
   knows: "M3 3.2h4.2c.5 0 .8.3.8.8v9c0-.5-.3-.8-.8-.8H3zM13 3.2H8.8c-.5 0-.8.3-.8.8v9c0-.5.3-.8.8-.8H13z",
   //: A house: a roof over walls.
   estate: "M2.5 7L8 2.8 13.5 7v6.2h-11z",
+  //: The Net: three nodes and the links between them.
+  net: "M8 3.2a1.3 1.3 0 100 2.6 1.3 1.3 0 100-2.6M3.6 11.2a1.3 1.3 0 100 2.6 1.3 1.3 0 100-2.6M12.4 11.2a1.3 1.3 0 100 2.6 1.3 1.3 0 100-2.6M7.3 5.7l-2.9 4.5M8.7 5.7l2.9 4.5M4.9 12.5h6.2",
   //: A colonnade: the administration, and the only building with columns.
   state: "M2.5 13.4h11M4 13.4V6.6M7 13.4V6.6M9 13.4V6.6M12 13.4V6.6M2.4 6.6L8 2.8l5.6 3.8z",
 };

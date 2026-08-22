@@ -16,6 +16,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChatLine, Circle, Session } from "../api";
 import { Refusal, useActions } from "../actions";
+import { PersonName } from "../Name";
 
 type Props = {
   session: Session;
@@ -134,27 +135,30 @@ function Line({ line }: { line: ChatLine }) {
   if (line.overheard) {
     return (
       <p className="line overheard">
-        краем уха, из кружка «{line.source}»: {line.who} — «{line.text}»
+        краем уха, из кружка «{line.source}»: <PersonName name={line.who} /> — «{line.text}»
       </p>
     );
   }
   if (line.kind === "action") {
     return (
       <p className="line action">
-        * {line.who} {line.text}
+        * <PersonName name={line.who} /> {line.text}
       </p>
     );
   }
   if (line.kind === "ooc") {
     return (
       <p className="line ooc">
-        [вне игры] {line.who}: {line.text}
+        [вне игры] <PersonName name={line.who} />: {line.text}
       </p>
     );
   }
   return (
     <p className="line">
-      <b>{line.who}:</b> {line.quiet ? <i>(вполголоса) {line.text}</i> : line.text}
+      <PersonName name={line.who}>
+        <b>{line.who}:</b>
+      </PersonName>{" "}
+      {line.quiet ? <i>(вполголоса) {line.text}</i> : line.text}
     </p>
   );
 }

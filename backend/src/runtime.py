@@ -38,6 +38,23 @@ CHAT_BUFFER = timedelta(minutes=30)
 #: Remark length limit. Channel hygiene, not balance.
 CHAT_TEXT_LIMIT = 1000
 
+#: The Net (D-222). How long the map's edges, read once into memory for the
+#: delay sums, are trusted before being read again: a road laid or a ship cast
+#: off shows up in the delays within this. Execution, not balance -- the
+#: delay itself is the vault's.
+NET_GRAPH_TTL = timedelta(minutes=5)
+#: How many source nodes keep their measured distance maps: a writer's second
+#: letter and a post's every reader pay nothing for the walk.
+NET_REACH_CACHE = 64
+#: Letter and post length limits, and the channel's name: hygiene.
+NET_TEXT_LIMIT = 4000
+NET_NAME_LIMIT = 40
+NET_ABOUT_LIMIT = 300
+#: How many letters of a thread and posts of a channel one reading brings.
+NET_PAGE = 100
+#: How many names a search for a correspondent shows.
+NET_SEARCH_LIMIT = 8
+
 #: Plot name length limit (D-178). The same hygiene: a map label must fit in a
 #: map label, and there is nothing to balance here.
 LAND_NAME_LIMIT = 40

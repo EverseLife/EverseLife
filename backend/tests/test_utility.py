@@ -166,9 +166,9 @@ async def test_node_disconnected_when_unable_to_pay(
     #: condition of work as the machine itself (D-149).
     yard = await world.node_container(session, home)
     await world.grant_item(session, yard, "Верстак", quality=60, origin="сценарий теста")
-    await world.learn(session, owner, "Ведро")
+    await world.learn(session, owner, "Шахтная крепь")
     with pytest.raises(craft.CutOff):
-        await craft.plan(session, constants, catalog, body, "Ведро", 1)
+        await craft.plan(session, constants, catalog, body, "Шахтная крепь", 1)
 
 
 async def test_payment_reconnects_node(

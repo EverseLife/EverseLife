@@ -188,6 +188,9 @@ CHAT_LEAK_GROUP_SIZE = Num("chat.leak_group_size")
 CHAT_LEAK_GROUP_FREE = Num("chat.leak_group_free")
 CHAT_LEAK_QUIET_MULTIPLIER = Num("chat.leak_quiet_multiplier")
 CHAT_LEAK_LOCATION_MODIFIER = Table("chat.leak_location_modifier")
+#: The Net's delay: seconds of delay per second of the road between the two
+#: correspondents (D-222). Nought would be the instant link of D-010.
+COMM_DELAY_PER_SECOND = Num("comm.delay_per_second")
 
 # --- Reservation (D-047) ----------------------------------------------------
 MARKET_RESERVATION_DEPOSIT = Num("market.reservation_deposit")

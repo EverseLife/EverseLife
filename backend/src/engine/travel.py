@@ -876,6 +876,10 @@ async def connect(
         await estate.note_new_place(session, a, b)
     elif not afloat:
         await estate.forget_distances(session)
+    #: The Net's map of the roads changed either way, gangway or not (D-222).
+    from src.engine import net
+
+    net.forget_graph()
     return edge
 
 
@@ -960,6 +964,9 @@ async def disconnect(session: AsyncSession, a: Node, b: Node) -> bool:
         from src.engine import estate
 
         await estate.forget_distances(session)
+    from src.engine import net
+
+    net.forget_graph()
     return True
 
 

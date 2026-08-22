@@ -22,6 +22,8 @@ import { TierPick } from "../Tier";
 type Props = {
   look: Look;
   session: Session;
+  /** The vault catalog: a dish is a recipe with roles (D-119), not a name in a list. */
+  book: any;
   busy: boolean;
   act: (what: () => Promise<unknown>) => Promise<void>;
 };
@@ -29,18 +31,20 @@ type Props = {
 //: Roles are the keys of cook.role_weights; the order is constant so the form does not jump.
 const ROLES = ["основа", "наполнитель", "жир", "приправа"] as const;
 
-export function Kitchen({ look, session }: Omit<Props, "busy" | "act">) {
+export function Kitchen({ look, session, book }: Omit<Props, "busy" | "act">) {
   //: This panel's own waiting and its own refusal: one action here
   //: must not grey out the chat, the map and somebody else's orders.
   const acting = useActions();
   const { busy, act } = acting;
 
-  //: Dishes are recipes with roles that the identity knows. The names are known
-  //: from the catalog; for the alpha there are three, and the knowledge list suffices.
-  const dishes = look.knows.filter((name) =>
-    ["Хлеб", "Похлёбка", "Жаркое"].includes(name),
+  //: Dishes are the recipes with roles that the identity knows (D-119): the
+  //: sign comes from the catalog, and a fourth dish in the vault is on the
+  //: list without a client change.
+  const withRoles = new Set<string>(
+    ((book?.recipes ?? []) as any[]).filter((r) => r.roles).map((r) => r.name as string),
   );
-  const [dish, setDish] = useState(dishes[0] ?? "Похлёбка");
+  const dishes = look.knows.filter((name) => withRoles.has(name));
+  const [dish, setDish] = useState(dishes[0] ?? "");
   const [filling, setFilling] = useState<Record<string, string>>({});
   //: Which quality of the product goes into each role (D-058): the good meat
   //: into the stew, the rest into the salting.

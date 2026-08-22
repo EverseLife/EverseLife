@@ -15,13 +15,19 @@
 
 
 import { useCallback, useEffect, useState } from "react";
+import { firstOfClass } from "../classes";
 import type { Look, Session } from "../api";
 import { Rule } from "../Rule";
 import { Refusal, useActions } from "../actions";
 
+/** The thing class of a drilling machine, the word the engine binds to (`rig.RIG`). */
+const RIG = "Буровая";
+
 type Props = {
   look: Look;
   session: Session;
+  /** The vault catalog: the rig is known by its class, not by name (D-215). */
+  book: any;
   busy: boolean;
   act: (what: () => Promise<unknown>) => Promise<void>;
 };
@@ -38,14 +44,15 @@ type RigRow = {
   vein_left: number;
 };
 
-export function Rig({ look, session }: Omit<Props, "busy" | "act">) {
+export function Rig({ look, session, book }: Omit<Props, "busy" | "act">) {
   //: This panel's own waiting and its own refusal: one action here
   //: must not grey out the chat, the map and somebody else's orders.
   const acting = useActions();
   const { busy, act } = acting;
 
   const [rigs, setRigs] = useState<RigRow[]>([]);
-  const machine = look.inventory.find((t) => t.goods === "Буровая установка");
+  const rigName = firstOfClass(book, look.inventory.map((t) => t.goods), RIG);
+  const machine = look.inventory.find((t) => t.goods === rigName);
   const vein = look.veins?.[0];
 
   const reload = useCallback(async () => {

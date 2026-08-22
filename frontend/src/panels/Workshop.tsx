@@ -29,6 +29,7 @@
 import { useEffect, useState } from "react";
 import * as api from "../api";
 import type { Invention, Look, Plan, Session, Thing } from "../api";
+import { anyOfClass, membersOf } from "../classes";
 import { tally } from "../amounts";
 import { busyWith, CRAFT } from "../busy";
 import { craftableAt, inputsOf, stationOf } from "../recipes";
@@ -48,8 +49,13 @@ type Props = {
   book: any;
 };
 
-/** The knowledge carrier: made by hand, and it needs to be told what to carry (D-209). */
-const CARRIER = "Рецепт";
+/**
+ * The knowledge carrier: made by hand, and it needs to be told what to carry
+ * (D-209). A thing class (D-215) -- `craft.CARRIER` in the engine -- and the
+ * automatic bench likewise (`craft.AUTO_BENCH`).
+ */
+const CARRIER = "Носитель";
+const AUTO_BENCH = "Автомат";
 
 export function Workshop({ look, session, machine, book }: Omit<Props, "busy" | "act">) {
   //: This panel's own waiting and its own refusal: one action here
@@ -78,11 +84,12 @@ export function Workshop({ look, session, machine, book }: Omit<Props, "busy" | 
   //: Computed before the early return below: a hook may not be called
   //: conditionally, and the forecast effect needs both of these.
   const selected = what && known.includes(what) ? what : (known[0] ?? null);
-  const automated = machine === "Автоматическая станция";
+  const automated = machine !== null && anyOfClass(book, [machine], AUTO_BENCH);
   //: What may be written: everything known except the carrier itself -- a
   //: recipe for writing recipes on a carrier is a loop nobody needs.
-  const writable = look.knows.filter((name) => name !== CARRIER);
-  const writing = selected === CARRIER;
+  const carriers = new Set(membersOf(book, CARRIER));
+  const writable = look.knows.filter((name) => !carriers.has(name));
+  const writing = selected !== null && carriers.has(selected);
   const recipe = writing ? (onto && writable.includes(onto) ? onto : (writable[0] ?? null)) : null;
   const inputs = selected ? inputsOf(book, selected) : [];
   //: Only the tiers said for this recipe's inputs travel: a choice made for

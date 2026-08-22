@@ -204,6 +204,57 @@ export type ChatLine = {
 /** A circle: membership visible, content not. */
 export type Circle = { id: string; name: string | null; members: string[]; mine: boolean };
 
+/** The Net (D-222): correspondence kept, arriving by the road. */
+export type Thread = {
+  id: string;
+  /** The other party. */
+  who: string;
+  surname: string;
+  last_at: string | null;
+  /** The last letter the reader can already see. */
+  preview: string | null;
+  unread: number;
+};
+export type Letter = {
+  id: string;
+  who: string;
+  mine: boolean;
+  text: string;
+  sent_at: string;
+  /** When it reaches the reader: for one's own, "on the way" until then. */
+  delivered_at: string;
+};
+export type Channel = {
+  id: string;
+  name: string;
+  about: string;
+  /** The city's: marked as official. */
+  official: boolean;
+  /** The reader writes here. */
+  writable: boolean;
+  /** Implied by citizenship: cannot be dropped. */
+  implied: boolean;
+  /** Who writes it: the author's name, or the city's. */
+  by: string;
+  last_at: string | null;
+  unread: number;
+};
+/** A channel found by search: subscribed or not. */
+export type ChannelFound = Pick<Channel, "id" | "name" | "about" | "official" | "by"> & {
+  subscribed: boolean;
+};
+export type Post = { id: string; who: string; text: string; at: string; delivered_at: string };
+/** Somebody's card: self-description and citizenship, nothing of the body. */
+export type Card = {
+  name: string;
+  surname: string;
+  age: number | null;
+  about: string;
+  line: "human" | "nymph";
+  since: string;
+  city: string | null;
+};
+
 /** What an exploration run from here will cost (D-156).
  *
  * The price is a property of the place, not the player: untrodden
@@ -419,6 +470,8 @@ export type Look = {
    * refused, with the reason on the button.
    */
   doings?: Doing[];
+  /** Letters and posts that have arrived and are not read (D-222): the tab's count. */
+  net_unread?: number;
   /** Does a drilling rig stand in this node: the stand shows the row by it. */
   rig_here?: boolean;
   /** Ships within sight of this node (D-201): moored at the pier one stands
@@ -710,6 +763,8 @@ export const POWERS: Record<string, string> = {
   land: "участки",
   dashboard: "панель города",
   justice: "суд",
+  citizens: "граждане",
+  channel: "канал города",
 };
 
 /** The right to one law: `law:import_duty` (D-155). */

@@ -26,8 +26,8 @@ from src.engine import gear, world
 
 BACKPACK = "Простой рюкзак"
 EXO = "Экзоскелет"
-CLOTHES = "Одежда"
-ARMOUR = "Броня"
+BASKET = "Корзина"
+SACK = "Мешок"
 
 
 async def _body(session: AsyncSession):
@@ -85,19 +85,30 @@ async def test_no_more_than_limit_taken_in_hands(
         await gear.check_carry(session, constants, catalog, body, stone, qty)
 
 
-async def test_backpack_raises_limit_but_clothes_do_not(
+async def test_only_the_worn_bag_counts(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Both take the slot, but only carrying gear adds to what can be carried."""
+    """The bonus follows what is on the back, not what is in the hands: a
+    basket in the pocket adds nothing, and swapping it for a sack swaps the
+    bonus rather than stacking it (D-146)."""
     _, _, body = await _body(session)
     base = await gear.capacity(session, constants, catalog, body)
     assert base == pytest.approx(constants[R.INVENTORY_CARRY_MASS])
+    bonus = constants[R.INVENTORY_CARRY_BONUS]
 
-    clothes = await _give(session, body, CLOTHES)
-    await gear.equip(session, constants, catalog, body, clothes)
+    basket = await _give(session, body, BASKET)
     assert await gear.capacity(session, constants, catalog, body) == pytest.approx(
         base
-    ), "одежда переносимого не добавляет"
+    ), "корзина в руках переносимого не добавляет"
+    await gear.equip(session, constants, catalog, body, basket)
+    assert await gear.capacity(session, constants, catalog, body) == pytest.approx(
+        base + bonus[BASKET]
+    )
+    sack = await _give(session, body, SACK)
+    await gear.equip(session, constants, catalog, body, sack)
+    assert await gear.capacity(session, constants, catalog, body) == pytest.approx(
+        base + bonus[SACK]
+    ), "второй мешок на спину не надевается поверх первого"
 
     backpack = await _give(session, body, BACKPACK)
     await gear.equip(session, constants, catalog, body, backpack)
@@ -149,18 +160,18 @@ async def test_one_slot_per_thing(
     ), "два рюкзака не складываются"
 
 
-async def test_armour_and_clothes_share_one_slot(
+async def test_sack_and_basket_share_one_slot(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """One body: put on armour -- took off clothes."""
+    """One back: put on the sack -- took off the basket."""
     _, _, body = await _body(session)
-    clothes = await _give(session, body, CLOTHES)
-    armour = await _give(session, body, ARMOUR)
+    basket = await _give(session, body, BASKET)
+    sack = await _give(session, body, SACK)
 
-    await gear.equip(session, constants, catalog, body, clothes)
-    await gear.equip(session, constants, catalog, body, armour)
+    await gear.equip(session, constants, catalog, body, basket)
+    await gear.equip(session, constants, catalog, body, sack)
     worn = await gear.equipped(session, body)
-    assert worn["тело"].type_key == ARMOUR
+    assert worn["спина"].type_key == SACK
 
 
 async def test_non_gear_not_wearable(

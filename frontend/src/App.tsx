@@ -31,6 +31,7 @@ import { GraphMap } from "./panels/GraphMap";
 import { Intro } from "./panels/Intro";
 import { Login } from "./panels/Login";
 import { Printer } from "./panels/Printer";
+import { Profile } from "./panels/Profile";
 import { Register } from "./panels/Register";
 import { Sidebar } from "./panels/Sidebar";
 import { Summary, markSeen, useDigest } from "./panels/Summary";
@@ -40,6 +41,7 @@ import { powSettings, type PowSettings } from "./pow";
 import { wearPlanet } from "./theme";
 import { useNarrow } from "./narrow";
 import { ActionsProvider } from "./actions";
+import { onProfile, onThread } from "./people";
 
 
 //: Where the source of this build lives -- AGPL §13 asks for the source of
@@ -80,6 +82,12 @@ export default function App() {
   const [resuming, setResuming] = useState(() => Boolean(Session.remembered()));
   const resumed = useRef(false);
   const [account_, setAccount_] = useState(false);
+  //: Somebody's card, asked for by right-clicking a name anywhere (D-222).
+  const [card, setCard] = useState<string | null>(null);
+  useEffect(() => onProfile(setCard), []);
+  //: "Write" from the card: the Net lives in the sidebar, and on a phone the
+  //: sidebar is the "я" section.
+  useEffect(() => onThread(() => setWhere_("me")), []);
   const [intro, setIntro] = useState(false);
   //: The summary is shown once on arrival, not on every refresh: a curtain that
   //: comes back every five seconds is a fault, not a notification.
@@ -445,6 +453,8 @@ export default function App() {
           ))}
         </nav>
       )}
+
+      {card && <Profile session={session.current} name={card} onClose={() => setCard(null)} />}
 
       {digestShown && digest && (
         <Summary

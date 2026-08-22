@@ -57,6 +57,9 @@ class Power(StrEnum):
     #: Admit citizens and refuse (D-160). Exile does not go from here but by
     #: `justice`: exile is a sanction, not a personnel decision.
     CITIZENS = "citizens"
+    #: Write in the city's official channel in the Net (D-222): tell the
+    #: citizens a law changed without gathering them in one room.
+    CHANNEL = "channel"
 
 
 #: Prefix of the right to one law: `law:import_duty`. Separated by a colon

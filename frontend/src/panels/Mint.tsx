@@ -21,26 +21,53 @@ import { TierPick } from "../Tier";
 type Props = {
   look: Look;
   session: Session;
+  /** The vault catalog: the coins and what goes under the die come from it. */
+  book: any;
   values: Record<string, any> | null;
   busy: boolean;
   act: (what: () => Promise<unknown>) => Promise<void>;
 };
 
-const IRON = "Слиток железа";
-const COINS: { coin: string; metal: string }[] = [
-  { coin: "Золотая монета", metal: "Аффинированное золото" },
-  { coin: "Серебряная монета", metal: "Аффинированное серебро" },
-];
+type Coin = {
+  coin: string;
+  /** The refined metal: the input the coin is mostly made of. */
+  metal: string;
+  /** The alloy: the other input, a tenth of iron. */
+  alloy: string;
+  metalPerCoin: number;
+  alloyPerCoin: number;
+};
 
-export function Mint({ look, session, values }: Omit<Props, "busy" | "act">) {
+/**
+ * The coins and their composition, read off the vault (D-086, D-090): a money
+ * recipe is a coin, its heavier input is the refined metal, the lighter one
+ * the alloy. A third coin or a changed fineness is data, not a client change.
+ */
+function coinsOf(book: any): Coin[] {
+  return ((book?.recipes ?? []) as any[])
+    .filter((r) => r.kind === "money")
+    .map((r) => {
+      const parts = Object.entries(r.amounts ?? {}) as [string, number][];
+      parts.sort((a, b) => b[1] - a[1]);
+      const [metal, metalPerCoin] = parts[0] ?? ["", 0];
+      const [alloy, alloyPerCoin] = parts[1] ?? ["", 0];
+      return { coin: r.name as string, metal, alloy, metalPerCoin, alloyPerCoin };
+    });
+}
+
+export function Mint({ look, session, book, values }: Omit<Props, "busy" | "act">) {
   //: This panel's own waiting and its own refusal: one action here
   //: must not grey out the chat, the map and somebody else's orders.
   const acting = useActions();
   const { busy, act } = acting;
 
+  const COINS = useMemo(() => coinsOf(book), [book]);
   const canDo = COINS.filter((k) => look.knows.includes(k.coin));
-  const [coin, setCoin] = useState(canDo[0]?.coin ?? COINS[0].coin);
-  const chosen = COINS.find((k) => k.coin === coin) ?? COINS[0];
+  const [coin, setCoin] = useState(canDo[0]?.coin ?? COINS[0]?.coin ?? "");
+  const chosen: Coin = COINS.find((k) => k.coin === coin) ?? COINS[0] ?? {
+    coin: "", metal: "", alloy: "", metalPerCoin: 0, alloyPerCoin: 0,
+  };
+  const IRON = chosen.alloy;
   const [qty, setQty] = useState(10);
   //: Which quality of metal and of iron goes under the die (D-058).
   const [tiers, setTiers] = useState<Record<string, string | null>>({});
@@ -53,15 +80,12 @@ export function Mint({ look, session, values }: Omit<Props, "busy" | "act">) {
         .filter((t) => t.goods === name)
         .reduce((result, t) => result + t.amount, 0);
     return { metal: amount(chosen.metal), iron: amount(IRON) };
-  }, [look.inventory, chosen.metal]);
+  }, [look.inventory, chosen.metal, IRON]);
 
-  //: The coin's composition comes from the vault recipe: 0.9 refined + 0.1
-  //: iron. The numbers are duplicated here only for the forecast before the
-  //: click; the server spends by the recipe, and a mismatch honestly refuses
-  //: rather than silently writing off something else.
-
-  const metalNeeded = qty * 0.9;
-  const ironNeeded = qty * 0.1;
+  //: The coin's composition comes from the vault recipe: the forecast before
+  //: the click is computed from the same amounts the server spends by.
+  const metalNeeded = qty * chosen.metalPerCoin;
+  const ironNeeded = qty * chosen.alloyPerCoin;
   const enough =
     metalNeeded <= inHands.metal && ironNeeded <= inHands.iron;
 

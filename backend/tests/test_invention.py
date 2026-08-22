@@ -39,8 +39,8 @@ from src.units import amount_float
 BENCH = "Верстак"
 FORGE = "Кузница"
 WOOD = "Дерево"
-BEAM = "Ведро"
-BARREL = "Бочка"
+BEAM = "Шахтная крепь"
+BARREL = "Рукоять"
 ROPE = "Верёвка"
 HANDLE = "Рукоять"
 INGOT = "Слиток железа"
@@ -89,7 +89,7 @@ def _norm(catalog: Catalog, name: str) -> dict[str, float]:
 async def test_right_composition_opens_recipe_and_starts_batch(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """The exact composition of the pail at the workbench: the recipe is
+    """The exact composition of the timber at the workbench: the recipe is
     opened with the discoverer's mark, and the laid-out wood becomes the first batch."""
     _, identity, body = await _yard(session)
     await _give(session, body, WOOD, 50)
@@ -144,10 +144,10 @@ async def test_wrong_composition_burns_what_was_laid_out(
 async def test_amounts_tell_recipes_apart(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Beam and handle are both wood at the workbench: the amount per unit is
+    """Timber and handle are both wood at the workbench: the amount per unit is
     what names the recipe (D-209), so the vault keeps them apart."""
     pail, barrel = _norm(catalog, BEAM), _norm(catalog, BARREL)
-    assert set(pail) == set(barrel) == {WOOD, ROPE}
+    assert set(pail) == set(barrel) == {WOOD}
     assert pail != barrel
 
     _, _, body = await _yard(session)
@@ -373,7 +373,7 @@ async def test_wiping_returns_a_blank(
 async def test_carriers_are_different_goods_per_recipe(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """On the counter "Рецепт: Гвозди" and "Рецепт: Ведро" are two positions:
+    """On the counter "Рецепт: Гвозди" and "Рецепт: Шахтная крепь" are two positions:
     loading one does not move the other."""
     node, identity, body = await _yard(session, machine="Терминал маркетплейса")
     nails = await _written_carrier(session, catalog, body, NAILS)
