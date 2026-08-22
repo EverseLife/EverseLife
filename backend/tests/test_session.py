@@ -423,3 +423,28 @@ def test_registration_with_four_fields_and_nymphs_unavailable(client, miner) -> 
     assert [credit_line["id"] for credit_line in lines_] == ["human", "nymph"]
     assert lines_[0]["playable"] and not lines_[1]["playable"]
     assert lines_[0]["players"] >= 2
+
+
+def test_malformed_command_is_refused_and_the_session_survives(client, miner) -> None:
+    """A missing or garbled argument is the client's mistake and gets an answer.
+
+    It used to raise out of the loop and close the socket without a close
+    frame -- and a player (or an AI citizen, D-224) saw "connection lost"
+    where a refusal belonged.
+    """
+    with client.websocket_connect("/session/ws") as ws:
+        ws.send_json(_input(miner))
+        ws.receive_json()
+
+        #: `mine.start` reads `message["challenge"]` -- a KeyError without it.
+        ws.send_json({"cmd": "mine.start", "vein": miner["vein"]})
+        answer = ws.receive_json()
+        assert "команда не понята" in answer["refused"]
+
+        #: A broken id is a ValueError from `uuid.UUID`.
+        ws.send_json({"cmd": "mine.start", "challenge": "not-a-uuid", "vein": miner["vein"]})
+        assert "команда не понята" in ws.receive_json()["refused"]
+
+        #: The same socket still works.
+        ws.send_json({"cmd": "look"})
+        assert "look" in ws.receive_json()

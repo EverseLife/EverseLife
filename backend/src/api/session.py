@@ -199,6 +199,20 @@ async def play(socket: WebSocket) -> None:
                 answer = {"refused": str(refusal)}
             except accounts.AccountError as refusal:
                 answer = {"refused": str(refusal)}
+            #: A malformed command -- a missing argument, a string where a
+            #: number or an id was expected -- is the client's mistake, and it
+            #: is answered, not dropped: an exception here used to close the
+            #: socket without a close frame, and the player saw "connection
+            #: lost" instead of what was wrong.
+            except (KeyError, ValueError, TypeError) as bad:
+                log.warning("command %r not understood: %r", message.get("cmd"), bad)
+                answer = {"refused": f"команда не понята: {bad!r}"}
+            #: Anything else is our bug. It goes to the log whole, and the
+            #: session survives it: the transaction was rolled back by
+            #: `_dispatch`, so nothing half-done is left behind.
+            except Exception:
+                log.exception("command %r crashed", message.get("cmd"))
+                answer = {"refused": "сервер не справился с командой; это записано"}
             await socket.send_json(answer)
     except WebSocketDisconnect:
         #: The player leaving does not close the mining session: it lives until

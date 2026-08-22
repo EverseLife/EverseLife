@@ -406,9 +406,21 @@ async def _tool(
             turn.actions.append((cmd, json.dumps(args, sort_keys=True), False))
             return f"ОТКАЗ: {refusal}"
         except GameError as trouble:
+            #: The socket dropped on this command. Come back on a new one and
+            #: let the model decide what to do about it; only a second failure
+            #: ends the turn.
             store.event(agent_id, "error", cmd=cmd, request=args, text=str(trouble))
-            turn.finished = True
-            return f"Сбой связи с сервером: {trouble}. Ход окончен."
+            try:
+                await game.reconnect()
+            except (GameError, Refused) as again:
+                store.event(agent_id, "error", text=f"переподключиться не удалось: {again}")
+                turn.finished = True
+                return f"Сбой связи с сервером: {trouble}. Ход окончен."
+            return (
+                f"Связь с сервером оборвалась на команде {cmd} ({trouble}) и восстановлена. "
+                "Команда, скорее всего, не выполнена; проверь состояние (look) прежде чем "
+                "повторять, и если обрыв повторится на той же команде — report_bug."
+            )
         store.event(agent_id, "action", cmd=cmd, request=args, reply=shrink(answer))
         turn.actions.append((cmd, json.dumps(args, sort_keys=True), True))
         return pack(answer)

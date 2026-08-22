@@ -55,6 +55,7 @@ class Game:
         self.name: str | None = None
         self._lock = asyncio.Lock()
         self._constants: dict[str, Any] | None = None
+        self._credentials: tuple[str, str] | None = None
 
     # --- public reads -----------------------------------------------------------
 
@@ -106,12 +107,22 @@ class Game:
         return answer
 
     async def hello(self, *, token: str | None, email: str, password: str) -> dict[str, Any]:
+        self._credentials = (email, password)
         if token:
             try:
                 return self._identified(await self.send("hello", {"token": token}))
             except Refused:
                 pass
         return self._identified(await self.send("hello", {"email": email, "password": password}))
+
+    async def reconnect(self) -> None:
+        """The socket dropped mid-turn: open a new one and identify again."""
+        await self.close()
+        await self.connect()
+        if self._credentials is None:
+            raise GameError("переподключиться нельзя: личность не известна")
+        email, password = self._credentials
+        await self.hello(token=self.token, email=email, password=password)
 
     async def join(
         self,
@@ -136,6 +147,7 @@ class Game:
             args["age"] = age
         if door:
             args["node"] = door
+        self._credentials = (email, password)
         return self._identified(await self.send("join", args))
 
     def _identified(self, answer: dict[str, Any]) -> dict[str, Any]:

@@ -23,11 +23,15 @@ class FakeGame:
     def __init__(self, script: dict[str, Any]) -> None:
         self.script = script
         self.sent: list[tuple[str, dict[str, Any]]] = []
+        self.reconnects = 0
+
+    async def reconnect(self) -> None:
+        self.reconnects += 1
 
     async def act(self, cmd: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
         self.sent.append((cmd, dict(args or {})))
         answer = self.script.get(cmd, {"ok": True})
-        if isinstance(answer, Refused):
+        if isinstance(answer, Exception):
             raise answer
         return answer
 
@@ -219,6 +223,20 @@ def test_journal_pages_both_ways_and_filters_by_kind(store: Store, agent: dict[s
     assert [e["text"] for e in newer] == ["4", "5", "6"]
     only_model = store.events(agent["id"], limit=10, kinds=("model",))
     assert [e["text"] for e in only_model] == ["1", "3", "5"]
+
+
+async def test_a_dropped_socket_is_reconnected_and_the_turn_goes_on(
+    store: Store, agent: dict[str, Any]
+) -> None:
+    from aps.game import GameError
+
+    turn = brain.Turn()
+    game = FakeGame({"travel.go": GameError("соединение оборвалось: no close frame")})
+    common = {"agent": agent, "game": game, "store": store, "reference": {}, "turn": turn}
+    answer = await brain._tool("act", {"cmd": "travel.go", "args": {"to": "x"}}, **common)  # type: ignore[arg-type]
+    assert "восстановлена" in answer and game.reconnects == 1
+    assert not turn.finished
+    assert store.events(agent["id"])[-1]["kind"] == "error"
 
 
 def test_stuck_detection_needs_the_same_refused_action_in_a_row() -> None:
