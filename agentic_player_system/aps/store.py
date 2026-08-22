@@ -211,19 +211,34 @@ class Store:
             )
 
     def events(
-        self, agent_id: str, *, limit: int = 100, before: int | None = None
+        self,
+        agent_id: str,
+        *,
+        limit: int = 100,
+        before: int | None = None,
+        after: int | None = None,
+        kinds: tuple[str, ...] = (),
     ) -> list[dict[str, Any]]:
-        if before is None:
-            rows = self.db.execute(
-                "SELECT * FROM events WHERE agent_id = ? ORDER BY id DESC LIMIT ?",
-                (agent_id, limit),
-            ).fetchall()
-        else:
-            rows = self.db.execute(
-                "SELECT * FROM events WHERE agent_id = ? AND id < ? ORDER BY id DESC LIMIT ?",
-                (agent_id, before, limit),
-            ).fetchall()
-        return [dict(r) for r in reversed(rows)]
+        """A page of the journal, oldest first. `before` pages back, `after` pages
+        forward; without either -- the newest page."""
+        where = ["agent_id = ?"]
+        params: list[Any] = [agent_id]
+        if kinds:
+            where.append(f"kind IN ({', '.join('?' for _ in kinds)})")
+            params.extend(kinds)
+        if before is not None:
+            where.append("id < ?")
+            params.append(before)
+        if after is not None:
+            where.append("id > ?")
+            params.append(after)
+        order = "ASC" if after is not None and before is None else "DESC"
+        rows = self.db.execute(
+            f"SELECT * FROM events WHERE {' AND '.join(where)} ORDER BY id {order} LIMIT ?",
+            (*params, limit),
+        ).fetchall()
+        result = [dict(r) for r in rows]
+        return result if order == "ASC" else list(reversed(result))
 
     def recent(self, agent_id: str, kinds: tuple[str, ...], limit: int) -> list[dict[str, Any]]:
         marks = ", ".join("?" for _ in kinds)

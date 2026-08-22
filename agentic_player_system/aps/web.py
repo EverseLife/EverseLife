@@ -225,9 +225,16 @@ async def turn_now(agent_id: str) -> dict[str, Any]:
 
 @app.get("/api/agents/{agent_id}/events", dependencies=[Depends(admin)])
 async def agent_events(
-    agent_id: str, before: int | None = None, limit: int = 100
+    agent_id: str,
+    before: int | None = None,
+    after: int | None = None,
+    limit: int = 50,
+    kinds: str = "",
 ) -> list[dict[str, Any]]:
-    return STORE.events(agent_id, limit=min(limit, 500), before=before)
+    wanted = tuple(k for k in kinds.split(",") if k)
+    return STORE.events(
+        agent_id, limit=max(1, min(limit, 500)), before=before, after=after, kinds=wanted
+    )
 
 
 # --- reports and usage ---------------------------------------------------------

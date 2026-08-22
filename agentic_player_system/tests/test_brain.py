@@ -208,6 +208,19 @@ async def test_finish_can_ask_to_wait(store: Store, agent: dict[str, Any]) -> No
     assert turn.wait_seconds == brain.MAX_WAIT
 
 
+def test_journal_pages_both_ways_and_filters_by_kind(store: Store, agent: dict[str, Any]) -> None:
+    for i in range(7):
+        store.event(agent["id"], "model" if i % 2 else "action", text=str(i))
+    newest = store.events(agent["id"], limit=3)
+    assert [e["text"] for e in newest] == ["4", "5", "6"]
+    older = store.events(agent["id"], limit=3, before=newest[0]["id"])
+    assert [e["text"] for e in older] == ["1", "2", "3"]
+    newer = store.events(agent["id"], limit=3, after=older[-1]["id"])
+    assert [e["text"] for e in newer] == ["4", "5", "6"]
+    only_model = store.events(agent["id"], limit=10, kinds=("model",))
+    assert [e["text"] for e in only_model] == ["1", "3", "5"]
+
+
 def test_stuck_detection_needs_the_same_refused_action_in_a_row() -> None:
     turn = brain.Turn(actions=[("travel.go", "{}", False)] * 4)
     assert Runner._stuck(turn)

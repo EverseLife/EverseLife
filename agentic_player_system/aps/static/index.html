@@ -34,6 +34,12 @@
   .ev.look { color:var(--dim); }
   .ev.model { color:var(--fg); background:#181b21; }
   .ev .tok { color:var(--dim); font-size:11px; }
+  .ev .head { color:var(--dim); }
+  .ev details { margin-top:2px; }
+  .ev summary { cursor:pointer; color:var(--dim); font-size:11px; user-select:none; }
+  .ev summary:hover { color:var(--fg); }
+  .ev pre { margin:4px 0 0; padding:6px; background:var(--bg); border-radius:4px; max-height:40vh; overflow:auto; white-space:pre-wrap; }
+  .ev .calls { color:var(--ok); }
   .hidden { display:none; }
   #toast { position:fixed; bottom:16px; right:16px; background:var(--panel); border:1px solid var(--line); padding:8px 12px; border-radius:6px; }
 </style>
@@ -109,8 +115,21 @@
     </div>
 
     <div class="card hidden" id="a-journal">
-      <div class="row"><h3 style="margin:0;flex:1" id="j-title">Журнал</h3><button id="j-more">Раньше</button><button id="j-refresh">Обновить</button></div>
+      <div class="row">
+        <h3 style="margin:0;flex:1" id="j-title">Журнал</h3>
+        <select id="j-filter">
+          <option value="">всё</option>
+          <option value="model,thought,refused,bug,system,error,turn">мысли и итоги</option>
+          <option value="action,refused">действия</option>
+          <option value="refused,bug,error">отказы и дефекты</option>
+        </select>
+        <select id="j-size"><option>25</option><option selected>50</option><option>100</option></select>
+        <button id="j-older">← Старше</button>
+        <button id="j-newer">Новее →</button>
+        <button id="j-latest">Последние</button>
+      </div>
       <div class="journal" id="j-body"></div>
+      <p class="dim" id="j-range" style="margin:6px 0 0"></p>
     </div>
   </section>
 </main>
@@ -118,7 +137,7 @@
 
 <script>
 const $ = (id) => document.getElementById(id);
-let agents = [], editing = null, journalAgent = null, journalFirst = null;
+let agents = [], editing = null, journalAgent = null;
 
 async function api(path, opts = {}) {
   const r = await fetch("/api" + path, { headers: { "Content-Type": "application/json" }, ...opts });
@@ -186,7 +205,7 @@ $("a-body").onclick = async (e) => {
   try {
     if (b.dataset.act === "toggle") { await api(`/agents/${a.id}`, { method: "PATCH", body: JSON.stringify({ enabled: !a.enabled }) }); loadAgents(); }
     if (b.dataset.act === "turn") { await api(`/agents/${a.id}/turn`, { method: "POST" }); toast("Ход запрошен"); setTimeout(loadAgents, 3000); }
-    if (b.dataset.act === "journal") { journalAgent = a; journalFirst = null; $("j-title").textContent = `Журнал: ${a.name}`; $("a-journal").classList.remove("hidden"); loadJournal(); }
+    if (b.dataset.act === "journal") { journalAgent = a; journalPage = { first: null, last: null }; $("j-title").textContent = `Журнал: ${a.name}`; $("a-journal").classList.remove("hidden"); $("a-journal").scrollIntoView({ behavior: "smooth" }); loadJournal(); }
     if (b.dataset.act === "edit") openForm(a);
   } catch (err) { toast(err.message, true); }
 };
@@ -223,26 +242,55 @@ $("f-delete").onclick = async () => {
   await api(`/agents/${editing.id}`, { method: "DELETE" }); $("a-form").classList.add("hidden"); loadAgents();
 };
 
-async function loadJournal(older) {
-  if (!journalAgent) return;
-  const q = older && journalFirst ? `?before=${journalFirst}` : "";
-  const events = await api(`/agents/${journalAgent.id}/events${q}`);
-  if (events.length) journalFirst = older ? events[0].id : events[0].id;
-  const html = events.map(ev => {
-    let body = ev.text;
-    if (ev.kind === "action" || ev.kind === "refused") body = `${ev.cmd} ${ev.request} → ${ev.kind === "refused" ? "ОТКАЗ: " + ev.text : ev.reply.slice(0, 600)}`;
-    if (ev.kind === "look") body = `look → ${ev.reply.slice(0, 400)}…`;
-    if (ev.kind === "model") {
-      let r = {}; try { r = JSON.parse(ev.reply || "{}"); } catch {}
-      const calls = (r.tool_calls || []).map(c => `→ ${c.name}(${JSON.stringify(c.args)})`).join("\n");
-      return `<div class="ev model">[${fmt(ev.at)}] МОДЕЛЬ <span class="tok">${r.prompt_tokens}+${r.completion_tokens} ток., промпт ${r.prompt_chars} зн.</span>\n${esc(ev.text)}${calls ? "\n" + esc(calls) : ""}</div>`;
-    }
-    return `<div class="ev ${ev.kind}">[${fmt(ev.at)}] ${esc(body)}</div>`;
-  }).join("");
-  if (older) $("j-body").insertAdjacentHTML("afterbegin", html); else { $("j-body").innerHTML = html; $("j-body").scrollTop = $("j-body").scrollHeight; }
+let journalPage = { first: null, last: null };
+
+function pretty(raw) {
+  if (!raw) return "";
+  try { return JSON.stringify(JSON.parse(raw), null, 1); } catch { return raw; }
 }
-$("j-refresh").onclick = () => loadJournal(false);
-$("j-more").onclick = () => loadJournal(true);
+function fold(label, raw) {
+  const text = pretty(raw);
+  if (!text) return "";
+  return `<details><summary>${esc(label)} (${text.length} зн.)</summary><pre>${esc(text)}</pre></details>`;
+}
+function renderEvent(ev) {
+  const at = `<span class="head">[${fmt(ev.at)}]</span>`;
+  if (ev.kind === "model") {
+    let r = {}; try { r = JSON.parse(ev.reply || "{}"); } catch {}
+    const calls = (r.tool_calls || []).map(c => `→ ${c.name}(${JSON.stringify(c.args)})`).join("\n");
+    return `<div class="ev model">${at} <b>МОДЕЛЬ</b> <span class="tok">${r.prompt_tokens ?? "?"}+${r.completion_tokens ?? "?"} ток., промпт ${r.prompt_chars ?? "?"} зн.</span>\n${esc(ev.text)}${calls ? `\n<span class="calls">${esc(calls)}</span>` : ""}</div>`;
+  }
+  if (ev.kind === "action") {
+    return `<div class="ev action">${at} ${esc(ev.cmd)} ${esc(ev.request)} → ок${fold("ответ сервера", ev.reply)}</div>`;
+  }
+  if (ev.kind === "refused") {
+    return `<div class="ev refused">${at} ${esc(ev.cmd)} ${esc(ev.request)} → ОТКАЗ: ${esc(ev.text)}</div>`;
+  }
+  if (ev.kind === "look") {
+    return `<div class="ev look">${at} look${fold("что увидел", ev.reply)}</div>`;
+  }
+  if (ev.kind === "thought") return `<div class="ev thought">${at} <b>итог хода:</b> ${esc(ev.text)}</div>`;
+  if (ev.kind === "bug") return `<div class="ev bug">${at} <b>ДЕФЕКТ:</b> ${esc(ev.text)}</div>`;
+  return `<div class="ev ${ev.kind}">${at} ${esc(ev.text)}</div>`;
+}
+async function loadJournal(direction) {
+  if (!journalAgent) return;
+  const p = new URLSearchParams({ limit: $("j-size").value });
+  if ($("j-filter").value) p.set("kinds", $("j-filter").value);
+  if (direction === "older" && journalPage.first) p.set("before", journalPage.first);
+  if (direction === "newer" && journalPage.last) p.set("after", journalPage.last);
+  const events = await api(`/agents/${journalAgent.id}/events?${p}`);
+  if (!events.length) { toast(direction === "older" ? "Старше ничего нет" : "Новее ничего нет"); return; }
+  journalPage = { first: events[0].id, last: events[events.length - 1].id };
+  $("j-body").innerHTML = events.map(renderEvent).join("");
+  $("j-body").scrollTop = direction === "older" ? 0 : $("j-body").scrollHeight;
+  $("j-range").textContent = `записи #${journalPage.first}–#${journalPage.last} (${events.length}), ${fmt(events[0].at)} — ${fmt(events[events.length - 1].at)}`;
+}
+$("j-older").onclick = () => loadJournal("older");
+$("j-newer").onclick = () => loadJournal("newer");
+$("j-latest").onclick = () => { journalPage = { first: null, last: null }; loadJournal(); };
+$("j-filter").onchange = $("j-latest").onclick;
+$("j-size").onchange = $("j-latest").onclick;
 
 async function loadReports() {
   const rows = await api(`/reports${$("r-all").checked ? "?all=true" : ""}`);
