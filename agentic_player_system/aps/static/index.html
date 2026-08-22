@@ -30,8 +30,10 @@
   .ok { color:var(--ok); } .bad { color:var(--bad); } .warn { color:var(--warn); }
   .journal { max-height:70vh; overflow:auto; font-family:ui-monospace, monospace; font-size:12px; }
   .ev { padding:4px 6px; border-bottom:1px solid var(--line); white-space:pre-wrap; word-break:break-word; }
-  .ev.refused { color:var(--bad); } .ev.thought { color:var(--accent); } .ev.bug { color:var(--warn); } .ev.error { color:var(--bad); font-weight:600; } .ev.system,.ev.turn { color:var(--dim); }
+  .ev.refused { color:var(--bad); } .ev.thought { color:var(--accent); } .ev.bug { color:var(--warn); } .ev.error { color:var(--bad); font-weight:600; } .ev.system,.ev.turn,.ev.prompt { color:var(--dim); }
   .ev.look { color:var(--dim); }
+  .ev.model { color:var(--fg); background:#181b21; }
+  .ev .tok { color:var(--dim); font-size:11px; }
   .hidden { display:none; }
   #toast { position:fixed; bottom:16px; right:16px; background:var(--panel); border:1px solid var(--line); padding:8px 12px; border-radius:6px; }
 </style>
@@ -93,6 +95,7 @@
         <label>Ход раз в N секунд <input id="f-cadence" type="number" value="300"></label>
         <label>Дневной бюджет токенов <input id="f-budget" type="number" value="300000"></label>
         <label>Вызовов за ход <input id="f-steps" type="number" value="8"></label>
+        <label>Истории в контекст (последних записей) <input id="f-history" type="number" value="20"></label>
         <label class="wide">О себе (видно в профиле) <textarea id="f-about"></textarea></label>
         <label class="wide">Характер <textarea id="f-persona"></textarea></label>
         <label class="wide">Цель <textarea id="f-goal"></textarea></label>
@@ -195,7 +198,7 @@ function openForm(a) {
   const v = (id, val) => $(id).value = val ?? "";
   v("f-name", a?.name); v("f-email", a?.email); v("f-password", ""); v("f-surname", a?.surname); v("f-age", a?.age);
   v("f-door", a?.door); v("f-model", a?.model); v("f-cadence", a?.cadence_seconds ?? 300); v("f-budget", a?.daily_token_budget ?? 300000);
-  v("f-steps", a?.max_steps ?? 8); v("f-about", a?.about); v("f-persona", a?.persona); v("f-goal", a?.goal); v("f-notes", a?.notes);
+  v("f-steps", a?.max_steps ?? 8); v("f-history", a?.history_limit ?? 20); v("f-about", a?.about); v("f-persona", a?.persona); v("f-goal", a?.goal); v("f-notes", a?.notes);
   $("f-password").placeholder = a ? "пусто — не менять" : "";
   $("a-form").scrollIntoView({ behavior: "smooth" });
 }
@@ -205,7 +208,7 @@ $("f-save").onclick = async () => {
   const body = {
     name: $("f-name").value, email: $("f-email").value, surname: $("f-surname").value,
     age: $("f-age").value ? Number($("f-age").value) : null, door: $("f-door").value, model: $("f-model").value,
-    cadence_seconds: Number($("f-cadence").value), daily_token_budget: Number($("f-budget").value), max_steps: Number($("f-steps").value),
+    cadence_seconds: Number($("f-cadence").value), daily_token_budget: Number($("f-budget").value), max_steps: Number($("f-steps").value), history_limit: Number($("f-history").value),
     about: $("f-about").value, persona: $("f-persona").value, goal: $("f-goal").value, notes: $("f-notes").value,
   };
   if ($("f-password").value) body.password = $("f-password").value;
@@ -229,6 +232,11 @@ async function loadJournal(older) {
     let body = ev.text;
     if (ev.kind === "action" || ev.kind === "refused") body = `${ev.cmd} ${ev.request} → ${ev.kind === "refused" ? "ОТКАЗ: " + ev.text : ev.reply.slice(0, 600)}`;
     if (ev.kind === "look") body = `look → ${ev.reply.slice(0, 400)}…`;
+    if (ev.kind === "model") {
+      let r = {}; try { r = JSON.parse(ev.reply || "{}"); } catch {}
+      const calls = (r.tool_calls || []).map(c => `→ ${c.name}(${JSON.stringify(c.args)})`).join("\n");
+      return `<div class="ev model">[${fmt(ev.at)}] МОДЕЛЬ <span class="tok">${r.prompt_tokens}+${r.completion_tokens} ток., промпт ${r.prompt_chars} зн.</span>\n${esc(ev.text)}${calls ? "\n" + esc(calls) : ""}</div>`;
+    }
     return `<div class="ev ${ev.kind}">[${fmt(ev.at)}] ${esc(body)}</div>`;
   }).join("");
   if (older) $("j-body").insertAdjacentHTML("afterbegin", html); else { $("j-body").innerHTML = html; $("j-body").scrollTop = $("j-body").scrollHeight; }

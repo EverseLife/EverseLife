@@ -109,8 +109,10 @@ async def test_turn_records_actions_refusals_notes_and_thought(
     assert turn.steps == 5
     assert turn.prompt_tokens == 400
     kinds = [e["kind"] for e in store.events(agent["id"])]
-    assert kinds == ["look", "refused", "bug", "thought"]
+    assert kinds == ["look", "prompt", "model", "refused", "model", "model", "bug", "model", "thought"]
     assert store.agent(agent["id"])["notes"] == "план: сначала четыре здания"
+    model_events = [e for e in store.events(agent["id"]) if e["kind"] == "model"]
+    assert json.loads(model_events[0]["reply"])["tool_calls"][0]["name"] == "act"
     assert store.reports()[0]["text"] == "город не основался"
     assert store.usage_today(agent["id"])["total"] == 440
     assert game.sent[0] == ("look", {}) and game.sent[1] == ("city.found", {"name": "Новгород"})
@@ -132,8 +134,20 @@ async def test_plain_text_reply_ends_the_turn(
     )
     assert turn.finished and turn.steps == 0
     assert store.events(agent["id"])[-1]["text"] == "Подожду следующего хода."
-    #: No `remember` call -- the thought lands in the notes anyway.
-    assert store.agent(agent["id"])["notes"] == "Подожду следующего хода."
+    #: Memory is the agent's own business: nothing is written for it.
+    assert store.agent(agent["id"])["notes"] == ""
+
+
+async def test_remember_appends_by_default_and_replaces_on_request(
+    store: Store, agent: dict[str, Any]
+) -> None:
+    turn = brain.Turn()
+    common = {"agent": agent, "game": FakeGame({}), "store": store, "reference": {}, "turn": turn}
+    await brain._tool("remember", {"notes": "раз"}, **common)  # type: ignore[arg-type]
+    await brain._tool("remember", {"notes": "два"}, **common)  # type: ignore[arg-type]
+    assert store.agent(agent["id"])["notes"] == "раз\nдва"
+    await brain._tool("remember", {"notes": "три", "mode": "replace"}, **common)  # type: ignore[arg-type]
+    assert store.agent(agent["id"])["notes"] == "три"
 
 
 def test_stuck_detection_needs_the_same_refused_action_in_a_row() -> None:

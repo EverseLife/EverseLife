@@ -22,6 +22,7 @@ class ModelError(Exception):
 @dataclass
 class Reply:
     content: str
+    reasoning: str = ""
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
     prompt_tokens: int = 0
     completion_tokens: int = 0
@@ -73,6 +74,8 @@ async def chat(
     usage = data.get("usage") or {}
     return Reply(
         content=message.get("content") or "",
+        #: DeepSeek reasoner and friends: the thinking before the answer.
+        reasoning=message.get("reasoning_content") or "",
         tool_calls=message.get("tool_calls") or [],
         prompt_tokens=int(usage.get("prompt_tokens") or 0),
         completion_tokens=int(usage.get("completion_tokens") or 0),

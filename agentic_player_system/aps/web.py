@@ -141,6 +141,7 @@ class AgentIn(BaseModel):
     cadence_seconds: int = Field(default=300, ge=30)
     daily_token_budget: int = Field(default=300_000, ge=0)
     max_steps: int = Field(default=8, ge=1, le=40)
+    history_limit: int = Field(default=20, ge=0, le=200)
     enabled: bool = False
 
 
@@ -158,6 +159,7 @@ class AgentPatch(BaseModel):
     cadence_seconds: int | None = Field(default=None, ge=30)
     daily_token_budget: int | None = Field(default=None, ge=0)
     max_steps: int | None = Field(default=None, ge=1, le=40)
+    history_limit: int | None = Field(default=None, ge=0, le=200)
     enabled: bool | None = None
     notes: str | None = None
 

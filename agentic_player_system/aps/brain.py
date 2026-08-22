@@ -25,7 +25,7 @@ MAX_LIST = 25
 MAX_STRING = 400
 MAX_REPLY_CHARS = 9000
 MAX_NOTES_CHARS = 4000
-HISTORY = 20
+DEFAULT_HISTORY = 20
 
 TOOLS: list[dict[str, Any]] = [
     {
@@ -79,12 +79,16 @@ TOOLS: list[dict[str, Any]] = [
         "function": {
             "name": "remember",
             "description": (
-                "Replace your notes -- the only memory that survives to the next turn. "
-                "Keep the plan, what worked, what was refused and why, ids you need."
+                "Your notes: the only memory that survives between turns besides the "
+                "recent history. Save what you consider important -- plans, ids, lessons. "
+                "mode=append adds a line, mode=replace rewrites the notes."
             ),
             "parameters": {
                 "type": "object",
-                "properties": {"notes": {"type": "string"}},
+                "properties": {
+                    "notes": {"type": "string"},
+                    "mode": {"type": "string", "enum": ["append", "replace"]},
+                },
                 "required": ["notes"],
             },
         },
@@ -133,8 +137,10 @@ SYSTEM = """Ты — житель мира Everse.Life, обычный игро�
   прочитай причину и действуй иначе. Не повторяй одно и то же действие, если оно отказано.
 - Публичные каталоги (двери, карта, рынки, рецепты) — через read.
 - Если отказ противоречит правилам или мир ведёт себя невозможным образом — report_bug.
-- В конце хода обязательно обнови заметки (remember) и заверши ход (finish).
-  Заметки — твоя единственная память. Пиши в них план, найденные id, что удалось и что нет.
+- У тебя есть заметки (remember) — память между ходами. Ты сам решаешь, что в них
+  важно сохранить: план, найденные id, выводы. Записывать каждый ход не обязательно:
+  последние действия и рассуждения ты и так увидишь в следующем ходе.
+- Закончи ход вызовом finish, когда сделал, что хотел, или решил подождать.
 - Ходов немного: за один ход не больше {max_steps} вызовов инструментов.
 
 Команды сессии (имя(аргументы): что делает):
@@ -170,14 +176,19 @@ class Turn:
     actions: list[tuple[str, str, bool]] = field(default_factory=list)
     finished: bool = False
     thought: str = ""
-    remembered: bool = False
 
 
-def _history(store: Store, agent_id: str) -> str:
+def _history(store: Store, agent_id: str, limit: int) -> str:
     lines = []
-    for event in store.recent(agent_id, ("action", "refused", "thought", "bug"), HISTORY):
-        if event["kind"] == "thought":
-            lines.append(f"[{event['at']}] мысль: {event['text']}")
+    if limit <= 0:
+        return "(история отключена)"
+    kinds = ("action", "refused", "thought", "bug", "model")
+    for event in store.recent(agent_id, kinds, limit):
+        if event["kind"] == "model":
+            if event["text"]:
+                lines.append(f"[{event['at']}] рассуждение: {event['text'][:600]}")
+        elif event["kind"] == "thought":
+            lines.append(f"[{event['at']}] итог хода: {event['text']}")
         elif event["kind"] == "bug":
             lines.append(f"[{event['at']}] заявил дефект: {event['text']}")
         else:
@@ -198,6 +209,7 @@ async def run_turn(
     turn = Turn()
     agent_id = agent["id"]
     max_steps = int(agent["max_steps"] or 8)
+    history = int(agent.get("history_limit") or DEFAULT_HISTORY)
 
     try:
         seen = await game.act("look")
@@ -212,18 +224,32 @@ async def run_turn(
         max_steps=max_steps,
         reference=commands.brief(reference),
     )
+    notes = agent["notes"] or "(пусто)"
+    recent = _history(store, agent_id, history)
+    observation = pack(seen)
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": system},
         {
             "role": "user",
             "content": (
-                f"Твои заметки:\n{agent['notes'] or '(пусто)'}\n\n"
-                f"Последние действия:\n{_history(store, agent_id)}\n\n"
-                f"Наблюдение (look):\n{pack(seen)}\n\n"
+                f"Твои заметки:\n{notes}\n\n"
+                f"Последние действия и рассуждения:\n{recent}\n\n"
+                f"Наблюдение (look):\n{observation}\n\n"
                 "Твой ход."
             ),
         },
     ]
+    #: Where the prompt's weight is, in characters: the system part is the
+    #: same every turn (and cached by the provider), the rest is per turn.
+    store.event(
+        agent_id,
+        "prompt",
+        text=(
+            f"промпт: системная часть {len(system)} зн. (из них справочник команд "
+            f"{len(commands.brief(reference))}), заметки {len(notes)}, история {len(recent)} "
+            f"({history} записей), наблюдение {len(observation)}"
+        ),
+    )
 
     while turn.steps < max_steps and not turn.finished:
         reply = await llm.chat(provider, messages, TOOLS, model=agent["model"] or "")
@@ -231,6 +257,19 @@ async def run_turn(
         turn.completion_tokens += reply.completion_tokens
         store.add_usage(agent_id, reply.prompt_tokens, reply.completion_tokens)
         messages.append(reply.raw_message)
+        #: Every call to the model is an event: what it thought, what it asked
+        #: for, and what that cost. Where the tokens go is visible per call.
+        store.event(
+            agent_id,
+            "model",
+            text="\n".join(part for part in (reply.reasoning, reply.content) if part).strip(),
+            reply={
+                "prompt_tokens": reply.prompt_tokens,
+                "completion_tokens": reply.completion_tokens,
+                "prompt_chars": sum(len(str(m.get("content") or "")) for m in messages),
+                "tool_calls": [_call_summary(call) for call in reply.tool_calls],
+            },
+        )
 
         if not reply.tool_calls:
             #: Plain text without a tool call: treat it as the closing thought.
@@ -255,13 +294,16 @@ async def run_turn(
 
     if turn.thought:
         store.event(agent_id, "thought", text=turn.thought)
-        if not turn.remembered:
-            #: The model skipped `remember`: the closing thought is kept for it,
-            #: so the next turn still knows what this one was about.
-            notes = (agent["notes"] + "\n" + turn.thought).strip()[-MAX_NOTES_CHARS:]
-            store.update_agent(agent_id, {"notes": notes})
-            agent["notes"] = notes
     return turn
+
+
+def _call_summary(call: dict[str, Any]) -> dict[str, Any]:
+    function = call.get("function") or {}
+    try:
+        args = json.loads(function.get("arguments") or "{}")
+    except json.JSONDecodeError:
+        args = function.get("arguments")
+    return {"name": function.get("name"), "args": args}
 
 
 async def _tool(
@@ -304,11 +346,15 @@ async def _tool(
         except Exception as trouble:  # noqa: BLE001 -- the model gets the text, the log the rest
             return f"Не прочиталось: {trouble}"
     if name == "remember":
-        notes = str(arguments.get("notes") or "")[:MAX_NOTES_CHARS]
+        text = str(arguments.get("notes") or "").strip()
+        if arguments.get("mode", "append") == "append" and agent["notes"]:
+            notes = agent["notes"] + "\n" + text
+        else:
+            notes = text
+        notes = notes[-MAX_NOTES_CHARS:]
         store.update_agent(agent_id, {"notes": notes})
         agent["notes"] = notes
-        turn.remembered = True
-        return "Заметки обновлены."
+        return f"Заметки сохранены ({len(notes)} зн.)."
     if name == "report_bug":
         text = str(arguments.get("text") or "").strip()
         if text:

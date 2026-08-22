@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS agents (
     cadence_seconds INTEGER NOT NULL DEFAULT 300,
     daily_token_budget INTEGER NOT NULL DEFAULT 300000,
     max_steps INTEGER NOT NULL DEFAULT 8,
+    history_limit INTEGER NOT NULL DEFAULT 20,
     enabled INTEGER NOT NULL DEFAULT 0,
     notes TEXT NOT NULL DEFAULT '',
     token TEXT,
@@ -89,6 +90,7 @@ AGENT_FIELDS = (
     "cadence_seconds",
     "daily_token_budget",
     "max_steps",
+    "history_limit",
     "enabled",
 )
 
@@ -123,6 +125,15 @@ class Store:
         self.db = sqlite3.connect(str(path), check_same_thread=False)
         self.db.row_factory = sqlite3.Row
         self.db.executescript(SCHEMA)
+        self._migrate()
+
+    def _migrate(self) -> None:
+        """Columns added after the first release: SQLite has no ADD COLUMN IF NOT EXISTS."""
+        present = {row["name"] for row in self.db.execute("PRAGMA table_info(agents)")}
+        for column, definition in (("history_limit", "INTEGER NOT NULL DEFAULT 20"),):
+            if column not in present:
+                with self.db:
+                    self.db.execute(f"ALTER TABLE agents ADD COLUMN {column} {definition}")
 
     # --- settings -------------------------------------------------------------
 
