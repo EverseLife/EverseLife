@@ -325,16 +325,16 @@ export function Inventory({ look, session, book }: Props) {
                           ))}
                           {/* Into the library, for good (D-068, D-209): only a written
                               carrier, only standing in one, and the name stays with it. */}
-                          {thing.recipe && look.node?.library && (
+                          {thing.recipe && look.node?.shelf && (
                             <button
                               role="menuitem"
                               onClick={() => send("library.contribute", { item: thing.id })}
                               disabled={
                                 busy ||
-                                (look.node.shelf ?? []).some((e) => e.recipe === thing.recipe)
+                                look.node.shelf.some((e) => e.recipe === thing.recipe)
                               }
                               title={
-                                (look.node.shelf ?? []).some((e) => e.recipe === thing.recipe)
+                                look.node.shelf.some((e) => e.recipe === thing.recipe)
                                   ? "этот рецепт здесь уже лежит"
                                   : "отдать в библиотеку навсегда: ваше имя останется при рецепте"
                               }

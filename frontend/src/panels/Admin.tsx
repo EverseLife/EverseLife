@@ -434,7 +434,8 @@ function Citizenship({ look, session }: Omit<Props, "busy" | "act">) {
   const city = look.city ?? null;
   const own = look.citizenship ?? null;
   //: Only in the administration: both joining and leaving are in-person (D-155).
-  if (!city?.hall) return null;
+  //: The window itself is opened by the hall in `stations`; here only the city is needed.
+  if (!city) return null;
 
   const order_: Record<string, string> = {
     open: "принимают свободно",

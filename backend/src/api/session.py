@@ -25,6 +25,7 @@ D-027) will bind to the same account.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import uuid
 from dataclasses import asdict
@@ -477,22 +478,24 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
         else await db.get(Identity, node.owner_identity_id)
     )
     stations = await _stations(db, node)
+    #: The node as a set of facts the client cannot derive by itself (D-225).
+    #: Whatever follows from other fields is not sent: the library and the hall
+    #: are read off `stations` through the class book, "mine" is `owner` against
+    #: one's own name, "wild" is no owner and no city. Keys that would carry an
+    #: empty value -- no shelf, no door lists, not for sale -- are left out
+    #: instead of sent as null or [].
     seen["node"] = {
         "key": node.key,
         "name": node.name,
-        "layer": node.layer.value,
-        #: The library is a machine (D-176); the node property is a legacy of old worlds.
-        "library": await world.is_library(db, node),
-        #: What this library holds and who brought each recipe (D-068, D-209):
-        #: the client's catalog table is this shelf, not the whole vault.
-        "shelf": await _shelf(db, node) if await world.is_library(db, node) else None,
         #: What the node has -- the client decides from this which scenes to show.
         "stations": stations,
         #: Place-sign properties ("forest", "outcrop"): the client shows place
         #: extraction (D-177) and other windows tied to the land, not to a machine.
+        #: The `library` property is a legacy of old worlds (D-176) and is not
+        #: a sign of the land; the machine in `stations` answers for it.
         "features": sorted(
             name for name, value in (node.properties or {}).items()
-            if value is True
+            if value is True and name != "library"
         ),
         #: Fertility is a place property (D-126): the plots scene is shown by it.
         "fertility": float(node.properties.get("плодородие", 0) or 0),
@@ -504,28 +507,10 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
             None if node.owner_city_id is None
             else getattr(await town.by_id(db, node.owner_city_id), "name", None)
         ),
-        "mine": node.owner_identity_id == identity.id,
-        "city": node.owner_city_id is not None,
         #: The location shut for entry (D-199, D-204). Visible from outside: it is
         #: a door, not a trap, and one learns of it before setting out. Passage
         #: through it stays open to everyone.
         "gated": bool(node.gated),
-        #: Both lists, and only to the holder: whom they let into a shut location
-        #: and whom they let in nowhere (D-204).
-        "allowed": (
-            await access.roster(db, node, allowed=True)
-            if node.owner_identity_id == identity.id
-            else []
-        ),
-        "barred": (
-            await access.roster(db, node, allowed=False)
-            if node.owner_identity_id == identity.id
-            else []
-        ),
-        #: Whether the viewer may name the plot (D-178).
-        "may_name": await estate.may_name(db, body, node),
-        #: Wild and unowned: such a node is taken in person (06-farming, D-152).
-        "wild": node.owner_identity_id is None and node.owner_city_id is None,
         #: Disconnected for non-payment: machines do not work, and the player
         #: must see that at once, otherwise the meter becomes a trap (D-149).
         "cut_off": await utility.cut_off(db, node),
@@ -540,36 +525,52 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
         #: the buyer must see the second half before paying the first.
         "tax": await estate.land_tax_of(db, constants, current_catalog(), node),
     }
+    #: What this library holds and who brought each recipe (D-068, D-209):
+    #: the client's catalog table is this shelf, not the whole vault.
+    if await world.is_library(db, node):
+        seen["node"]["shelf"] = await _shelf(db, node)
+    #: Both lists, and only to the holder: whom they let into a shut location
+    #: and whom they let in nowhere (D-204).
+    if node.owner_identity_id == identity.id:
+        seen["node"]["door"] = {
+            "allowed": await access.roster(db, node, allowed=True),
+            "barred": await access.roster(db, node, allowed=False),
+        }
+    #: Whether the viewer may name the plot (D-178): sent only when they may.
+    if await estate.may_name(db, body, node):
+        seen["node"]["may_name"] = True
     #: Building and capacity: a machine takes area (D-106), and the player must
     #: see how many places are left before carrying a machine across town.
+    #: An empty plot with nothing under way sends no block at all.
     total_seats, taken_seats = await estate.slots(db, constants, node)
     houses = await estate.buildings_of(db, node)
-    seen["node"]["building"] = {
-        "area": await estate.built_area(db, node),
-        #: Storeys made these two different numbers (D-125): the plot is spent
-        #: by the footprint, the machines live in the usable area.
-        "ground": await estate.built_area(db, node, ground=True),
-        "floors": max((house.floors for house in houses), default=0),
-        #: The type and the soundness of the plot (D-218). The worst house
-        #: answers for the whole: it is the one that will fall, and repair is
-        #: ordered for the plot at once.
-        "kind": next((house.kind for house in houses), None),
-        "condition": min(
-            (float(house.condition) for house in houses), default=None
-        ),
-        "decay": (
-            estate.decay_per_day(constants, houses[0].kind) if houses else 0.0
-        ),
-        "slots": total_seats,
-        "used": taken_seats,
-        #: Work in progress: without it the yard looks empty right after the
-        #: materials are gone, and that reads as a loss.
-        "building": await estate.under_construction(db, node),
-    }
+    sites = await estate.under_construction(db, node)
+    if houses or sites:
+        seen["node"]["building"] = {
+            "area": await estate.built_area(db, node),
+            #: Storeys made these two different numbers (D-125): the plot is spent
+            #: by the footprint, the machines live in the usable area.
+            "ground": await estate.built_area(db, node, ground=True),
+            "floors": max((house.floors for house in houses), default=0),
+            #: The type and the soundness of the plot (D-218). The worst house
+            #: answers for the whole: it is the one that will fall, and repair is
+            #: ordered for the plot at once.
+            "kind": next((house.kind for house in houses), None),
+            "condition": min(
+                (float(house.condition) for house in houses), default=None
+            ),
+            "decay": (
+                estate.decay_per_day(constants, houses[0].kind) if houses else 0.0
+            ),
+            "slots": total_seats,
+            "used": taken_seats,
+            #: Work in progress: without it the yard looks empty right after the
+            #: materials are gone, and that reads as a loss.
+            "sites": sites,
+        }
     #: An empty civic plot is for sale: the city sets the price by distance to
     #: the bioprinter (D-089). The player must see it before buying. Buildings
-    #: and city veins are not for sale -- they have no price at all.
-    seen["node"]["price"] = None
+    #: and city veins are not for sale -- they have no price at all, and no key.
     if (
         node.owner_identity_id is None
         and node.owner_city_id is not None
@@ -577,12 +578,10 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
     ):
         plot_city = await town.by_id(db, node.owner_city_id)
         if plot_city is not None:
-            try:
+            with contextlib.suppress(estate.NotForSale):
                 seen["node"]["price"] = await estate.price_of(
                     db, constants, current_catalog(), plot_city, node
                 )
-            except estate.NotForSale:
-                seen["node"]["price"] = None
     #: The city whose territory we stand on, and our own powers in it: the client
     #: decides from these whether to show the administration (D-154).
     city = await town.of_node(db, node)
@@ -594,11 +593,6 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
             "node": (await db.get(Node, city.node_id)).key,
             #: Rights as strings: broad and narrow ones mixed (D-155).
             "powers": sorted(await town.powers_of(db, identity.id, city)),
-            #: Governing is in-person: the client shows it only in the
-            #: administration, not in the sidebar (D-155).
-            #: `HALL` is a class, `stations` holds item names: ask through
-            #: the class members, as every other machine check does (D-215).
-            "hall": any(s in stations for s in world.station_names(town.HALL)),
             #: Citizenship (D-160): own status in this city and the admission
             #: order. The client decides from these what to show -- "join",
             #: "application submitted" or "leave".

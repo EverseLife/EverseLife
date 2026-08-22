@@ -54,9 +54,9 @@ type Props = {
 export function disposes(look: Look): boolean {
   const node = look.node;
   if (!node) return false;
-  if (node.owner) return Boolean(node.mine);
+  if (node.owner) return api.isMine(look);
   //: Nobody's land outside a city: work on it is open to everyone (D-198).
-  if (node.wild) return true;
+  if (api.isWild(node)) return true;
   return Boolean(look.city?.powers.includes("laws"));
 }
 
@@ -368,7 +368,7 @@ export function Plot({ look, session }: Omit<Props, "busy" | "act" | "book">) {
 
   //: Same three cases as the old purchase window: nobody's city land with a
   //: price, and the wild beyond the walls. An owned node is never for sale here.
-  const forSale = !node.owner && (Boolean(node.wild) || node.price !== null);
+  const forSale = !node.owner && (api.isWild(node) || node.price !== undefined);
   const owned = Boolean(node.owner || node.owner_city);
   if (!forSale && !owned) return null;
 
@@ -393,7 +393,8 @@ export function Plot({ look, session }: Omit<Props, "busy" | "act" | "book">) {
     ? `Земельный налог: ${api.tk(node.tax)} ₭ в сутки с застройки. Двор не облагается, и чем дальше от биопринтера, тем ставка ниже.`
     : null;
 
-  const whose = node.mine
+  const mine = api.isMine(look);
+  const whose = mine
     ? "ваш участок"
     : node.owner
       ? `хозяин ${node.owner}`
@@ -415,7 +416,7 @@ export function Plot({ look, session }: Omit<Props, "busy" | "act" | "book">) {
       {upkeep && <p className="note">{upkeep}</p>}
       {/* Only civic land is handed over: a ship's cabin is owned too, and there
           is no city under it to take it. */}
-      {node.mine && node.owner_city && (
+      {mine && node.owner_city && (
         giving ? (
           <div className="row">
             <button onClick={() => act(async () => {
@@ -446,13 +447,13 @@ export function Plot({ look, session }: Omit<Props, "busy" | "act" | "book">) {
         )
       )}
       {forSale &&
-        (node.wild ? (
+        (api.isWild(node) ? (
           <p className="note">
             Земля за городом ничья и таковой остаётся: бумагу на владение
             выдаёт город, а здесь его нет. Работать и строить тут
             может всякий — поставленное принадлежит поставившему.
           </p>
-        ) : node.price !== null ? (
+        ) : node.price !== undefined ? (
           <div className="row">
             <button onClick={() => act(() => session.send("land.buy"))} disabled={busy}>
               Выкупить за {api.tk(node.price)} ₭
@@ -490,7 +491,7 @@ export function Plot({ look, session }: Omit<Props, "busy" | "act" | "book">) {
           </span>
         </div>
       )}
-      {node.mine && <Door look={look} session={session} busy={busy} act={act} />}
+      {mine && <Door look={look} session={session} busy={busy} act={act} />}
     </section>
     {/* Founding a city is the plot's fate, so the section stands here:
         the server offers it only where founding is possible at all. */}
@@ -514,8 +515,9 @@ function Door({ look, session, busy, act }: Omit<Props, "book">) {
   const [foe, setFoe] = useState("");
   if (!node) return null;
 
-  const allowed = node.allowed ?? [];
-  const barred = node.barred ?? [];
+  //: The lists come only to the holder (D-204); the window is the holder's too.
+  const allowed = node.door?.allowed ?? [];
+  const barred = node.door?.barred ?? [];
   const shut = Boolean(node.gated);
 
   const strike = (name: string) => (
@@ -622,7 +624,7 @@ export function House({ look, session, book }: Omit<Props, "busy" | "act">) {
   //: Own waiting and own refusal: this window is a window of its own in the row.
   const acting = useActions();
   const { busy, act } = acting;
-  const home = look.node?.building;
+  const home = api.houseOf(look.node);
   const plot = look.node?.area ?? 0;
   const [area, setArea] = useState(20);
   const [floors, setFloors] = useState(1);
@@ -649,7 +651,7 @@ export function House({ look, session, book }: Omit<Props, "busy" | "act">) {
   //: there. Above the early return on purpose -- a hook that sometimes does not
   //: run is a hook React counts wrong.
   const key = look.node?.key;
-  const buildable = Boolean(look.node?.mine || look.node?.wild);
+  const buildable = api.isMine(look) || api.isWild(look.node);
   useEffect(() => {
     if (!buildable) return;
     let dropped = false;
@@ -664,9 +666,9 @@ export function House({ look, session, book }: Omit<Props, "busy" | "act">) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, buildable]);
-  if (!home) return null;
+  if (!look.node) return null;
 
-  const going = home.building ?? [];
+  const going = home.sites;
   //: Ground already promised to a site is ground taken (D-218): the engine
   //: counts it, and the window must count it the same way -- otherwise it
   //: offers metres the order will refuse.
@@ -723,7 +725,7 @@ export function House({ look, session, book }: Omit<Props, "busy" | "act">) {
 
       {/* Ничью землю за городом строит всякий пришедший (D-198): окно нужно и
           там, иначе правило есть, а руки к нему не приложить. */}
-      {(look.node?.mine || look.node?.wild) && free > 0 && (
+      {buildable && free > 0 && (
         <>
           <div className="row">
             {/* Тип решает три вещи разом (D-218): состав, цену следующего этажа
@@ -828,7 +830,7 @@ export function House({ look, session, book }: Omit<Props, "busy" | "act">) {
       {/* Сносят там же, где строят: своё — и любую ничью землю за городом, где
           труд открыт всякому (D-198, D-205). Чужую городскую застройку
           разбирают по решению суда (D-095). */}
-      {home.area > 0 && (look.node?.mine || look.node?.wild) && (
+      {home.area > 0 && buildable && (
         <>
           <Repair look={look} session={session} busy={busy} act={act} />
           <Demolition look={look} session={session} busy={busy} act={act} />
@@ -939,7 +941,7 @@ function Repair({ look, session, busy, act }: Omit<Props, "book">) {
  */
 function Demolition({ look, session, busy, act }: Omit<Props, "book">) {
   const [plan, setPlan] = useState<any>(null);
-  const going = (look.node?.building?.building ?? []).length > 0;
+  const going = api.houseOf(look.node).sites.length > 0;
 
   const count = async () => {
     setPlan(await session.send("build.demolish_estimate"));
@@ -1023,7 +1025,7 @@ export const PLACES: Record<string, string> = {
  */
 export function gatherSigns(look: Look, book: any): string[] {
   const node = look.node;
-  if (!node || !(node.mine || node.wild)) return [];
+  if (!node || !(api.isMine(look) || api.isWild(node))) return [];
   const signs: string[] = [];
   for (const operation of book?.operations ?? []) {
     const sign = operation.place;
@@ -1352,11 +1354,11 @@ function Equipment({
   kind: "station" | "furniture";
   note: string;
 }) {
-  const mine = Boolean(look.node?.mine);
+  const mine = api.isMine(look);
   //: The owner places and removes, and on civic land the authority (`station.may_build`).
   //: In somebody else's house neither is entitled.
   const hasPower = Boolean(
-    look.node?.city && !look.node?.owner && look.city?.powers.includes("laws"),
+    api.isCivic(look.node) && !look.node?.owner && look.city?.powers.includes("laws"),
   );
 
   const inHands = placeable(look, book, kind);
@@ -1365,8 +1367,8 @@ function Equipment({
     return null;
   }
 
-  const home = look.node?.building;
-  const noRoom = home ? home.used >= home.slots : true;
+  const home = api.houseOf(look.node);
+  const noRoom = home.used >= home.slots;
 
   return (
     <section>

@@ -367,10 +367,11 @@ function assemble({ look, session, book, values, pow }: Props): Thing[] {
       view: () => <Forage look={look} session={session} />,
     });
   }
-  if (look.node?.library) {
+  //: A library and a hall are machines (D-176, D-215): both are read off `stations`.
+  if (anyOfClass(book, stations, "Библиотека")) {
     single("library", "Библиотека", "full", () => <Library look={look} session={session} />);
   }
-  if (look.city?.hall) {
+  if (look.city && anyOfClass(book, stations, "Администрация")) {
     single("hall", "Администрация", "full", () => <Admin look={look} session={session} />);
   }
   const terminal = firstOfClass(book, stations, TERMINAL);
@@ -386,8 +387,8 @@ function assemble({ look, session, book, values, pow }: Props): Thing[] {
   //: Each is one intention -- storage, hauling, building, the land itself --
   //: instead of one "Место" holding whatever was left over.
   const own = disposes(look);
-  const home = look.node?.building;
   const node = look.node;
+  const home = api.houseOf(node);
 
   //: Storage of the place, for everyone (D-192, D-204): the floor and the
   //: chests answer one question -- "where do my things go here".
@@ -422,7 +423,7 @@ function assemble({ look, session, book, values, pow }: Props): Thing[] {
 
   //: The house is the holder's, and one window covers its whole story: build,
   //: demolish, and place the machines and furniture into it (D-106, D-205).
-  if (own && home) {
+  if (own && node) {
     single(
       "house",
       "Дом",
@@ -432,7 +433,7 @@ function assemble({ look, session, book, values, pow }: Props): Thing[] {
       home.area > 0
         ? `${home.area.toFixed(0)} м² в ${home.floors} эт. · мест ${home.used} из ${home.slots}`
           + (home.condition === null ? "" : ` · состояние ${home.condition.toFixed(0)}%`)
-        : home.building.length > 0
+        : home.sites.length > 0
           ? "строится"
           : "не построен",
     );
@@ -441,7 +442,7 @@ function assemble({ look, session, book, values, pow }: Props): Thing[] {
   //: The land itself: whose, the name, the door, the purchase and the founding
   //: of a city. Shown to guests too -- ownership is a public fact (D-178) --
   //: and an empty plot for sale is the main thing of its node, hence the rank.
-  const forSale = Boolean(node && !node.owner && (node.wild || node.price !== null));
+  const forSale = Boolean(node && !node.owner && (api.isWild(node) || node.price !== undefined));
   const owned = Boolean(node?.owner || node?.owner_city);
   if (forSale || owned) {
     single(
@@ -455,10 +456,10 @@ function assemble({ look, session, book, values, pow }: Props): Thing[] {
         : node?.gated
           ? "вход закрыт"
           : forSale
-            ? node?.price != null
+            ? node?.price !== undefined
               ? `продаётся за ${api.tk(node.price)} ₭`
               : "ничья земля"
-            : node?.mine
+            : api.isMine(look)
               ? undefined
               : node?.owner
                 ? `хозяин ${node.owner}`

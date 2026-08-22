@@ -276,7 +276,7 @@ async def seed(session: AsyncSession) -> Node:
     )
     library = await world.create_node(
         session, "terra.capital.library", "Библиотека", area_m2=200,
-        parent=capital, properties={"library": True, "кольцо": 1},
+        parent=capital, properties={"кольцо": 1},
     )
     marketplace = await world.create_node(
         session, "terra.capital.market", "Рынок", area_m2=200,

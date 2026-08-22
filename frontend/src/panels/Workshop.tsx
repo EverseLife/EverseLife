@@ -200,7 +200,7 @@ export function Workshop({ look, session, machine, book }: Omit<Props, "busy" | 
           {station.condition < 100 && ` · состояние ${station.condition.toFixed(0)}`}
           {" · "}
           {station.busy ? (station.mine ? "занята вами" : "занята другим") : "свободна"}
-          {(look.node?.mine || look.city?.powers.includes("laws")) && (
+          {(api.isMine(look) || look.city?.powers.includes("laws")) && (
             <>
               {" "}
               <button

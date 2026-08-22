@@ -448,3 +448,30 @@ def test_malformed_command_is_refused_and_the_session_survives(client, miner) ->
         #: The same socket still works.
         ws.send_json({"cmd": "look"})
         assert "look" in ws.receive_json()
+
+
+def test_look_node_carries_only_underived_facts(client, miner) -> None:
+    """The node payload is facts the client cannot derive itself (D-225).
+
+    Whatever follows from other fields is not sent: "library" and "hall" are
+    read off `stations` through the class book, "mine" is `owner` against
+    one's own name, "wild" is no owner and no city. A key that would carry
+    nothing -- no shelf, no door lists, not for sale, nothing built -- is
+    absent rather than null or []. The mine is such a place: nobody's, empty,
+    without a library.
+    """
+    with client.websocket_connect("/session/ws") as ws:
+        ws.send_json(_input(miner))
+        ws.receive_json()
+
+        ws.send_json({"cmd": "look"})
+        answer = ws.receive_json()
+
+    assert "refused" not in answer, answer
+    node = answer["look"]["node"]
+    derived = {"library", "mine", "wild", "city", "layer"}
+    assert not derived & node.keys(), "выводимые поля не отдаются"
+    empty = {"shelf", "door", "may_name", "building", "price"}
+    assert not empty & node.keys(), "пустые ключи не отдаются"
+    assert "hall" not in (answer["look"].get("city") or {})
+    assert node["owner"] is None and node["owner_city"] is None

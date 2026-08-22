@@ -71,8 +71,8 @@ export function Farm({ look, session }: Omit<Props, "busy" | "act">) {
 
   //: Nobody's land outside a city is farmed by whoever comes (D-198): the
   //: ground has no owner and never will, but the crop on it is somebody's.
-  const nobodys = Boolean(look.node?.wild);
-  const mine = Boolean(look.node?.mine) || nobodys;
+  const nobodys = api.isWild(look.node);
+  const mine = api.isMine(look) || nobodys;
   const owner = look.node?.owner ?? null;
   const [rows, setRows] = useState<Row[]>([]);
   const [plants, setPlants] = useState<

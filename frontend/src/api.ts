@@ -354,16 +354,17 @@ export type Look = {
     /** Until this moment the stamina spend is reduced: a meal, not a buff (D-119). */
     satiated_until: string | null;
   } | null;
+  /**
+   * The node as facts the client cannot derive by itself (D-225). Whatever
+   * follows from other fields is not sent: a library or a hall is read off
+   * `stations` through the class book (`anyOfClass`), "mine" is `owner`
+   * against one's own name (`isMine`), "wild" is no owner and no city
+   * (`isWild`). A key that would carry nothing -- no shelf, no door lists,
+   * not for sale, nothing built -- is absent rather than null or [].
+   */
   node: {
     key: string;
     name: string;
-    layer: "space" | "planet" | "city" | "location";
-    library: boolean;
-    /**
-     * What this library holds and who brought each recipe (D-068, D-209). Only
-     * when standing in a library; the catalog table is this shelf, not the vault.
-     */
-    shelf: { recipe: string; contributor: string | null }[] | null;
     stations: string[];
     /** Place-sign properties ("forest", "outcrop"): place extraction is shown by them (D-177). */
     features: string[];
@@ -372,22 +373,12 @@ export type Look = {
     owner: string | null;
     /** The owning city, if the land is civic: ownership is public (D-178). */
     owner_city: string | null;
-    mine: boolean;
-    city: boolean;
-    /** Whether the viewer may name the plot (D-178). */
-    may_name: boolean;
-    /** Nobody's land outside a city: never privatized, open to all (D-198). */
-    wild: boolean;
     /**
      * The location is shut for entry: only the holder and the white list come in
      * (D-199, D-204). Visible to everyone -- and passage through it stays open to
      * everyone too: shutting stops entry, not passage.
      */
     gated: boolean;
-    /** The white list, by names: these enter a shut location. Only the holder sees it. */
-    allowed: string[];
-    /** The black list, by names: these enter nowhere. Black beats white (D-204). */
-    barred: string[];
     /** Disconnected for non-payment: machines do not work (D-149). */
     cut_off: boolean;
     /**
@@ -404,12 +395,25 @@ export type Look = {
      * Zero outside a city, or where the city has set no rate. Falls with
      * every node from the bioprinter, like the purchase price does. */
     tax: number;
-    /** Building and capacity: a machine takes area (D-106).
+    /**
+     * What this library holds and who brought each recipe (D-068, D-209). Only
+     * when a library stands here; the catalog table is this shelf, not the vault.
+     */
+    shelf?: { recipe: string; contributor: string | null }[];
+    /**
+     * The door lists, by names, and only to the holder (D-204): `allowed` enter
+     * a shut location, `barred` enter nowhere. Black beats white.
+     */
+    door?: { allowed: string[]; barred: string[] };
+    /** Whether the viewer may name the plot (D-178): present only when they may. */
+    may_name?: true;
+    /** Building and capacity: a machine takes area (D-106). Absent on an
+     * empty plot with nothing under way.
      *
      * `area` is the usable area -- the sum of the floors; `ground` is what the
      * house takes from the plot. Storeys made these two different (D-125).
      */
-    building: {
+    building?: {
       area: number;
       ground: number;
       floors: number;
@@ -421,15 +425,16 @@ export type Look = {
       decay: number;
       slots: number;
       used: number;
-      building: {
+      /** Work in progress: ordered, paid for, not yet standing. */
+      sites: {
         area: number;
         floors: number;
         kind: string | null;
         ready_at: string;
       }[];
     };
-    /** Purchase price of an empty civic plot, in minor units (D-089). */
-    price: number | null;
+    /** Purchase price of an empty civic plot, in minor units (D-089). Absent when not for sale. */
+    price?: number;
   } | null;
   /** The city whose territory we stand on, and our own rights in it (D-154, D-155). */
   city?: {
@@ -438,8 +443,6 @@ export type Look = {
     node: string;
     /** Rights as strings: broad (`treasury`) and narrow (`law:import_duty`). */
     powers: string[];
-    /** Whether the administration stands here: decisions are made in it (D-155). */
-    hall: boolean;
     /** Whether a citizen of this city (D-160). */
     citizen: boolean;
     /** How they admit: open, by application or by invitation. */
@@ -1112,3 +1115,31 @@ export const book = (node: string, goods: string, tier: string) =>
 export const MONEY_SCALE = 10_000;
 export const tk = (minor: number) => (minor / MONEY_SCALE).toFixed(2).replace(/\.?0+$/, "");
 export const minor = (tk: number) => Math.round(tk * MONEY_SCALE);
+
+/**
+ * The plot's building block, or an empty yard where the server sent none:
+ * the windows that build and place machines count from zero on bare land.
+ */
+export function houseOf(node: Look["node"]): NonNullable<NonNullable<Look["node"]>["building"]> {
+  return (
+    node?.building ?? {
+      area: 0, ground: 0, floors: 0, kind: null, condition: null,
+      decay: 0, slots: 0, used: 0, sites: [],
+    }
+  );
+}
+
+/** The node's plot is the viewer's own: the holder is named, and it is us (D-178). */
+export function isMine(look: Pick<Look, "identity" | "node">): boolean {
+  return look.node?.owner !== null && look.node?.owner === look.identity;
+}
+
+/** Nobody's land outside a city: never privatized, open to all (D-198). */
+export function isWild(node: Look["node"]): boolean {
+  return Boolean(node) && node!.owner === null && node!.owner_city === null;
+}
+
+/** Civic land: the city holds it, whether or not a person has bought it. */
+export function isCivic(node: Look["node"]): boolean {
+  return node?.owner_city !== null && node?.owner_city !== undefined;
+}
