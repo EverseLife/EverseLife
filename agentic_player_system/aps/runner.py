@@ -27,6 +27,8 @@ log = logging.getLogger(__name__)
 STUCK_REPEATS = 4
 STUCK_PAUSE_TURNS = 5
 ERROR_BACKOFF = timedelta(minutes=5)
+#: Woken a little after the body is free: the world's job must have run.
+BUSY_MARGIN = timedelta(seconds=20)
 
 
 def _iso(moment: datetime) -> str:
@@ -139,6 +141,17 @@ class Runner:
             finally:
                 await game.close()
 
+            #: Wake-up: the cadence, unless the world or the agent says later.
+            #: A busy body cannot act, and a model woken up to say "still
+            #: walking" is tokens for nothing (D-224).
+            now = datetime.now(UTC)
+            reason = "по расписанию"
+            if turn.busy_until is not None and turn.busy_until + BUSY_MARGIN > next_run:
+                next_run = turn.busy_until + BUSY_MARGIN
+                reason = "тело занято"
+            if turn.wait_seconds and now + timedelta(seconds=turn.wait_seconds) > next_run:
+                next_run = now + timedelta(seconds=turn.wait_seconds)
+                reason = "агент попросил подождать"
             update: dict[str, Any] = {
                 "next_run_at": _iso(next_run),
                 "last_error": "",
@@ -161,7 +174,10 @@ class Runner:
             store.event(
                 agent_id,
                 "turn",
-                text=f"ход: {turn.steps} шагов, {turn.prompt_tokens}+{turn.completion_tokens} токенов",
+                text=(
+                    f"ход: {turn.steps} шагов, {turn.prompt_tokens}+{turn.completion_tokens} "
+                    f"токенов; следующий {_iso(next_run)} ({reason})"
+                ),
             )
         except (GameError, Refused, llm.ModelError) as trouble:
             log.warning("agent %s: %s", agent_id, trouble)

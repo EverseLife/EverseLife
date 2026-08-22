@@ -126,6 +126,7 @@ async def test_turn_records_actions_refusals_notes_and_thought(
     assert store.reports()[0]["text"] == "город не основался"
     assert store.usage_today(agent["id"])["total"] == 440
     assert game.sent[0] == ("look", {}) and game.sent[1] == ("city.found", {"name": "Новгород"})
+    assert game.sent[-1] == ("look", {}) and turn.busy_until is None
 
 
 async def test_plain_text_reply_ends_the_turn(
@@ -176,6 +177,35 @@ async def test_notes_are_edited_entry_by_entry_and_never_truncated(
     assert store.agent(agent["id"])["notes"] == "два\nтри"
     answer = await call("note_edit", id=1, text="y" * brain.MAX_NOTES_CHARS)
     assert "переполнится" in answer and store.agent(agent["id"])["notes"] == "два\nтри"
+
+
+def test_busy_until_is_the_latest_running_occupation() -> None:
+    from datetime import UTC, datetime, timedelta
+
+    soon = datetime.now(UTC) + timedelta(minutes=5)
+    later = datetime.now(UTC) + timedelta(minutes=9)
+    past = datetime.now(UTC) - timedelta(minutes=1)
+    seen = {
+        "look": {
+            "travel": {"arrives_at": soon.isoformat()},
+            "doings": [
+                {"kind": "survey", "until": later.isoformat()},
+                {"kind": "x", "until": None},
+            ],
+        }
+    }
+    assert brain.busy_until(seen) == later
+    assert brain.busy_until({"look": {"travel": None, "doings": []}}) is None
+    assert brain.busy_until({"look": {"doings": [{"until": past.isoformat()}]}}) is None
+
+
+async def test_finish_can_ask_to_wait(store: Store, agent: dict[str, Any]) -> None:
+    turn = brain.Turn()
+    common = {"agent": agent, "game": FakeGame({}), "store": store, "reference": {}, "turn": turn}
+    await brain._tool("finish", {"thought": "жду партию", "wait_seconds": 1800}, **common)  # type: ignore[arg-type]
+    assert turn.finished and turn.wait_seconds == 1800
+    await brain._tool("finish", {"thought": "x", "wait_seconds": 10**9}, **common)  # type: ignore[arg-type]
+    assert turn.wait_seconds == brain.MAX_WAIT
 
 
 def test_stuck_detection_needs_the_same_refused_action_in_a_row() -> None:

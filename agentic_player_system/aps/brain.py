@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Any
 
 from . import commands, llm
@@ -26,6 +27,8 @@ MAX_STRING = 400
 MAX_REPLY_CHARS = 9000
 MAX_NOTES_CHARS = 4000
 DEFAULT_HISTORY = 20
+#: The longest the agent may ask to sleep: a day. Beyond that it is "off".
+MAX_WAIT = 24 * 3600
 
 TOOLS: list[dict[str, Any]] = [
     {
@@ -133,10 +136,18 @@ TOOLS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "finish",
-            "description": "End this turn. Say in one or two sentences what you did and what is next.",
+            "description": (
+                "End this turn. Say in one or two sentences what you did and what is next. "
+                "wait_seconds: ask to be woken up no earlier than this (e.g. when a batch is "
+                "ready) instead of the usual cadence. While your body is busy (travel, survey, "
+                "foraging) you are not woken up anyway."
+            ),
             "parameters": {
                 "type": "object",
-                "properties": {"thought": {"type": "string"}},
+                "properties": {
+                    "thought": {"type": "string"},
+                    "wait_seconds": {"type": "integer", "minimum": 0},
+                },
                 "required": ["thought"],
             },
         },
@@ -164,7 +175,9 @@ SYSTEM = """Ты — житель мира Everse.Life, обычный игро�
   ({notes_limit} знаков); когда оно кончается, новые записи не принимаются — сократи
   или удали старые. Записывать каждый ход не обязательно: последние действия и
   рассуждения ты и так увидишь в следующем ходе.
-- Закончи ход вызовом finish, когда сделал, что хотел, или решил подождать.
+- Закончи ход вызовом finish, когда сделал, что хотел, или решил подождать. Пока тело
+  занято (путь, разведка, сбор), тебя не будят — ждать вручную не нужно. Если ждёшь
+  чего-то другого (партия, постройка), скажи в finish, через сколько секунд тебя разбудить.
 - Ходов немного: за один ход не больше {max_steps} вызовов инструментов.
 
 Команды сессии (имя(аргументы): что делает):
@@ -200,6 +213,10 @@ class Turn:
     actions: list[tuple[str, str, bool]] = field(default_factory=list)
     finished: bool = False
     thought: str = ""
+    #: The agent's own wish: wake me no earlier than this many seconds from now.
+    wait_seconds: int = 0
+    #: What the world says: the body is busy until this moment (UTC).
+    busy_until: datetime | None = None
 
 
 def _history(store: Store, agent_id: str, limit: int) -> str:
@@ -319,7 +336,40 @@ async def run_turn(
 
     if turn.thought:
         store.event(agent_id, "thought", text=turn.thought)
+    try:
+        turn.busy_until = busy_until(await game.act("look"))
+    except (Refused, GameError):
+        turn.busy_until = None
     return turn
+
+
+def busy_until(seen: dict[str, Any]) -> datetime | None:
+    """When the body is free again, by the world's own clock: the latest of the
+    running occupations and the journey under way. None when it is free now."""
+    look = seen.get("look") or seen
+    stamps: list[str] = []
+    travel = look.get("travel")
+    if isinstance(travel, dict) and travel.get("arrives_at"):
+        stamps.append(travel["arrives_at"])
+    for doing in look.get("doings") or []:
+        if isinstance(doing, dict) and doing.get("until"):
+            stamps.append(doing["until"])
+    printing = look.get("printing")
+    if isinstance(printing, dict) and printing.get("ready_at"):
+        stamps.append(printing["ready_at"])
+    latest: datetime | None = None
+    for stamp in stamps:
+        try:
+            moment = datetime.fromisoformat(stamp)
+        except ValueError:
+            continue
+        if moment.tzinfo is None:
+            moment = moment.replace(tzinfo=UTC)
+        if latest is None or moment > latest:
+            latest = moment
+    if latest is None or latest <= datetime.now(UTC):
+        return None
+    return latest
 
 
 def _call_summary(call: dict[str, Any]) -> dict[str, Any]:
@@ -381,6 +431,10 @@ async def _tool(
         return "Записано."
     if name == "finish":
         turn.thought = str(arguments.get("thought") or "").strip()
+        try:
+            turn.wait_seconds = max(0, min(int(arguments.get("wait_seconds") or 0), MAX_WAIT))
+        except (TypeError, ValueError):
+            turn.wait_seconds = 0
         turn.finished = True
         return "Ход окончен."
     return f"Нет такого инструмента: {name}"
