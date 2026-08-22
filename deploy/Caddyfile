@@ -58,6 +58,23 @@
 	}
 }
 
+# The AI citizens panel (D-224). Same rule as the landing: until AGENTS_DOMAIN
+# is set in `.env`, the block sits on an internal name and Caddy does not go
+# for a certificate. To open agents.everse.life:
+#   1. an A record `agents.everse.life` -> this server's address;
+#   2. `AGENTS_DOMAIN=agents.everse.life` and `AGENTS_ADMIN_PASSWORD=...` in `.env`;
+#   3. `docker compose up -d --force-recreate caddy agents`.
+{$AGENTS_DOMAIN:agents.localhost} {
+	encode zstd gzip
+
+	reverse_proxy agents:8100
+
+	log {
+		output stdout
+		format console
+	}
+}
+
 # `www.` lives as a separate line: it needs its own A record and its own
 # certificate. Once the DNS record exists -- remove the hashes, and www redirects to the bare domain.
 

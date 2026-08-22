@@ -15,3 +15,6 @@ build/
 # Build output of the game-design vault. CI builds it, locally --
 # `python deploy/sync-vault.py`. Committing it means synchronising by hand.
 /vault/
+
+# Agentic player system: agents, journal and the provider key live here (D-224).
+agentic_player_system/*.sqlite3*

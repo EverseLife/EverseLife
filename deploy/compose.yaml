@@ -135,6 +135,26 @@ services:
       - landing_data:/data
     restart: unless-stopped
 
+  # AI citizens (D-224): the agents panel and runner. Agents play through
+  # backend's ordinary /session/ws; the panel is its own domain (AGENTS_DOMAIN)
+  # behind the admin login from `.env`. Until AGENTS_DOMAIN is set, Caddy keeps
+  # it on an internal name and does not expose it.
+  agents:
+    image: ghcr.io/${GHCR_OWNER:-everselife}/everselife-agents:${TAG:-latest}
+    environment:
+      APS_GAME_URL: http://backend:8000
+      APS_ADMIN_LOGIN: ${AGENTS_ADMIN_LOGIN:-admin}
+      APS_ADMIN_PASSWORD: ${AGENTS_ADMIN_PASSWORD:-}
+      APS_LLM_BASE_URL: ${AGENTS_LLM_BASE_URL:-https://api.deepseek.com/v1}
+      APS_LLM_MODEL: ${AGENTS_LLM_MODEL:-deepseek-chat}
+      APS_LLM_API_KEY: ${AGENTS_LLM_API_KEY:-}
+      APS_LOG_LEVEL: ${EVERSELIFE_LOG_LEVEL:-INFO}
+    volumes:
+      - agents_data:/data
+    depends_on:
+      - backend
+    restart: unless-stopped
+
   caddy:
     image: caddy:2-alpine
     ports:
@@ -144,6 +164,7 @@ services:
     environment:
       DOMAIN: ${DOMAIN:?DOMAIN is required}
       LANDING_DOMAIN: ${LANDING_DOMAIN:-landing.localhost}
+      AGENTS_DOMAIN: ${AGENTS_DOMAIN:-agents.localhost}
       #: Old domains that now only redirect to the landing (comma separated).
       LEGACY_DOMAINS: ${LEGACY_DOMAINS:-legacy.localhost}
       ACME_EMAIL: ${ACME_EMAIL:?ACME_EMAIL is required}
@@ -158,6 +179,7 @@ services:
       - backend
       - frontend
       - landing
+      - agents
     restart: unless-stopped
 
   # --- Watching the server -------------------------------------------------
@@ -265,6 +287,7 @@ services:
 volumes:
   pgdata:
   landing_data:
+  agents_data:
   caddy_data:
   caddy_config:
   prometheus_data:

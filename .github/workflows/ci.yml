@@ -184,6 +184,20 @@ jobs:
           cache-from: type=gha,scope=landing
           cache-to: type=gha,scope=landing,mode=max
 
+      - name: Agents
+        uses: docker/build-push-action@v6
+        with:
+          # Built from the root: the image freezes backend/src/api/session.py
+          # as the protocol reference of the same revision.
+          context: .
+          file: agentic_player_system/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ env.OWNER }}/everselife-agents:latest
+            ghcr.io/${{ env.OWNER }}/everselife-agents:${{ github.sha }}
+          cache-from: type=gha,scope=agents
+          cache-to: type=gha,scope=agents,mode=max
+
   deploy:
     name: Deploy
     needs: images

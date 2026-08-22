@@ -1,0 +1,253 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: AGPL-3.0-only
+     Copyright (C) 2026 Nurlan Urazkulov -->
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Everse.Life — ИИ-граждане</title>
+<style>
+  :root { --bg:#14161a; --panel:#1d2026; --line:#2c3038; --fg:#e6e6e6; --dim:#9aa0a8; --ok:#6cc070; --bad:#e06c6c; --warn:#e0b86c; --accent:#6ca0e0; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.45 system-ui, sans-serif; }
+  header { display:flex; gap:16px; align-items:center; padding:10px 16px; border-bottom:1px solid var(--line); }
+  header h1 { font-size:16px; margin:0; flex:1; }
+  nav button, button { background:var(--panel); color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:6px 10px; cursor:pointer; }
+  button.primary { background:var(--accent); color:#000; border-color:var(--accent); }
+  button.danger { border-color:var(--bad); color:var(--bad); }
+  nav button.active { border-color:var(--accent); }
+  main { padding:16px; display:grid; gap:16px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:12px; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  label { display:flex; flex-direction:column; gap:4px; font-size:12px; color:var(--dim); }
+  input, textarea, select { background:var(--bg); color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:6px 8px; font:inherit; }
+  textarea { min-height:70px; width:100%; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); gap:10px; }
+  .wide { grid-column:1 / -1; }
+  table { width:100%; border-collapse:collapse; }
+  td, th { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+  .dim { color:var(--dim); }
+  .ok { color:var(--ok); } .bad { color:var(--bad); } .warn { color:var(--warn); }
+  .journal { max-height:70vh; overflow:auto; font-family:ui-monospace, monospace; font-size:12px; }
+  .ev { padding:4px 6px; border-bottom:1px solid var(--line); white-space:pre-wrap; word-break:break-word; }
+  .ev.refused { color:var(--bad); } .ev.thought { color:var(--accent); } .ev.bug { color:var(--warn); } .ev.error { color:var(--bad); font-weight:600; } .ev.system,.ev.turn { color:var(--dim); }
+  .ev.look { color:var(--dim); }
+  .hidden { display:none; }
+  #toast { position:fixed; bottom:16px; right:16px; background:var(--panel); border:1px solid var(--line); padding:8px 12px; border-radius:6px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Everse.Life — ИИ-граждане</h1>
+  <nav id="nav" class="hidden">
+    <button data-view="agents" class="active">Агенты</button>
+    <button data-view="reports">Дефекты</button>
+    <button data-view="settings">Провайдер</button>
+    <button id="logout">Выйти</button>
+  </nav>
+</header>
+<main>
+  <section id="login" class="card">
+    <h2>Вход</h2>
+    <div class="row">
+      <label>Логин <input id="login-login" autocomplete="username"></label>
+      <label>Пароль <input id="login-password" type="password" autocomplete="current-password"></label>
+      <button class="primary" id="login-go">Войти</button>
+    </div>
+    <p class="dim">Логин и пароль заданы в <code>.env</code> этой системы (APS_ADMIN_LOGIN / APS_ADMIN_PASSWORD).</p>
+  </section>
+
+  <section id="view-settings" class="card hidden">
+    <h2>Провайдер модели</h2>
+    <div class="grid">
+      <label>Base URL (OpenAI-совместимый) <input id="s-base" placeholder="https://api.deepseek.com/v1"></label>
+      <label>Модель по умолчанию <input id="s-model" placeholder="deepseek-chat"></label>
+      <label>API-ключ <input id="s-key" type="password" placeholder="оставьте пустым, чтобы не менять"></label>
+    </div>
+    <p class="dim" id="s-info"></p>
+    <button class="primary" id="s-save">Сохранить</button>
+  </section>
+
+  <section id="view-reports" class="card hidden">
+    <h2>Подозрения на дефекты</h2>
+    <label class="row"><span><input type="checkbox" id="r-all"> показывать закрытые</span></label>
+    <table><thead><tr><th>Когда</th><th>Агент</th><th>Что</th><th>Контекст</th><th></th></tr></thead><tbody id="r-body"></tbody></table>
+  </section>
+
+  <section id="view-agents" class="hidden">
+    <div class="card">
+      <div class="row"><h2 style="margin:0;flex:1">Агенты</h2><button class="primary" id="a-new">Новый агент</button></div>
+      <table><thead><tr><th>Имя</th><th>Статус</th><th>Цель</th><th>Ход</th><th>Сегодня</th><th></th></tr></thead><tbody id="a-body"></tbody></table>
+    </div>
+
+    <div class="card hidden" id="a-form">
+      <h3 id="a-form-title">Новый агент</h3>
+      <div class="grid">
+        <label>Имя в игре (не меняется) <input id="f-name"></label>
+        <label>Почта аккаунта <input id="f-email"></label>
+        <label>Пароль аккаунта <input id="f-password"></label>
+        <label>Фамилия <input id="f-surname"></label>
+        <label>Возраст <input id="f-age" type="number"></label>
+        <label>Дверь (ключ узла, пусто — первая) <input id="f-door"></label>
+        <label>Модель (пусто — по умолчанию) <input id="f-model"></label>
+        <label>Ход раз в N секунд <input id="f-cadence" type="number" value="300"></label>
+        <label>Дневной бюджет токенов <input id="f-budget" type="number" value="300000"></label>
+        <label>Вызовов за ход <input id="f-steps" type="number" value="8"></label>
+        <label class="wide">О себе (видно в профиле) <textarea id="f-about"></textarea></label>
+        <label class="wide">Характер <textarea id="f-persona"></textarea></label>
+        <label class="wide">Цель <textarea id="f-goal"></textarea></label>
+        <label class="wide">Заметки агента (его память; можно править) <textarea id="f-notes"></textarea></label>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <button class="primary" id="f-save">Сохранить</button>
+        <button id="f-cancel">Отмена</button>
+        <button class="danger hidden" id="f-delete">Удалить агента</button>
+      </div>
+    </div>
+
+    <div class="card hidden" id="a-journal">
+      <div class="row"><h3 style="margin:0;flex:1" id="j-title">Журнал</h3><button id="j-more">Раньше</button><button id="j-refresh">Обновить</button></div>
+      <div class="journal" id="j-body"></div>
+    </div>
+  </section>
+</main>
+<div id="toast" class="hidden"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let agents = [], editing = null, journalAgent = null, journalFirst = null;
+
+async function api(path, opts = {}) {
+  const r = await fetch("/api" + path, { headers: { "Content-Type": "application/json" }, ...opts });
+  if (r.status === 401) { showLogin(); throw new Error("войдите"); }
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.detail || r.statusText);
+  return data;
+}
+function toast(text, bad) { const t = $("toast"); t.textContent = text; t.className = bad ? "bad" : ""; setTimeout(() => t.classList.add("hidden"), 3000); }
+function showLogin() { $("login").classList.remove("hidden"); $("nav").classList.add("hidden"); for (const v of ["agents","reports","settings"]) $("view-" + v).classList.add("hidden"); }
+function show(view) {
+  $("login").classList.add("hidden"); $("nav").classList.remove("hidden");
+  for (const v of ["agents","reports","settings"]) $("view-" + v).classList.toggle("hidden", v !== view);
+  document.querySelectorAll("#nav button[data-view]").forEach(b => b.classList.toggle("active", b.dataset.view === view));
+  if (view === "agents") loadAgents(); if (view === "reports") loadReports(); if (view === "settings") loadSettings();
+}
+
+$("login-go").onclick = async () => {
+  try { await api("/login", { method: "POST", body: JSON.stringify({ login: $("login-login").value, password: $("login-password").value }) }); show("agents"); }
+  catch (e) { toast(e.message, true); }
+};
+$("login-password").onkeydown = (e) => { if (e.key === "Enter") $("login-go").click(); };
+$("logout").onclick = async () => { await api("/logout", { method: "POST" }); showLogin(); };
+document.querySelectorAll("#nav button[data-view]").forEach(b => b.onclick = () => show(b.dataset.view));
+
+async function loadSettings() {
+  const s = await api("/settings");
+  $("s-base").value = s.base_url; $("s-model").value = s.model; $("s-key").value = "";
+  $("s-info").textContent = `Ключ ${s.has_key ? (s.key_from_env ? "задан в .env" : "задан в панели") : "НЕ задан"} · игра: ${s.game_url} · команд в справочнике: ${s.commands}`;
+}
+$("s-save").onclick = async () => {
+  try { await api("/settings", { method: "PUT", body: JSON.stringify({ base_url: $("s-base").value, model: $("s-model").value, api_key: $("s-key").value || null }) }); toast("Сохранено"); loadSettings(); }
+  catch (e) { toast(e.message, true); }
+};
+
+function fmt(iso) { return iso ? iso.replace("T", " ").replace("+00:00", "Z") : ""; }
+function status(a) {
+  if (a.busy) return '<span class="warn">ходит</span>';
+  if (a.last_error) return `<span class="bad" title="${esc(a.last_error)}">ошибка</span>`;
+  if (a.paused_until && a.paused_until > new Date().toISOString()) return `<span class="warn">пауза: ${esc(a.pause_reason)}</span>`;
+  if (!a.enabled) return '<span class="dim">выключен</span>';
+  if (a.pause_reason) return `<span class="warn">${esc(a.pause_reason)}</span>`;
+  return '<span class="ok">живёт</span>';
+}
+function esc(s) { return String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+
+async function loadAgents() {
+  agents = await api("/agents");
+  $("a-body").innerHTML = agents.map(a => `<tr>
+    <td><b>${esc(a.name)}</b><br><span class="dim">${esc(a.email)}</span></td>
+    <td>${status(a)}</td>
+    <td>${esc(a.goal).slice(0, 120)}</td>
+    <td class="dim">каждые ${a.cadence_seconds}с<br>след.: ${fmt(a.next_run_at) || "—"}</td>
+    <td class="dim">${a.usage_today.total} / ${a.daily_token_budget} ток.<br>${a.usage_today.calls} вызовов</td>
+    <td class="row">
+      <button data-act="toggle" data-id="${a.id}">${a.enabled ? "Стоп" : "Пуск"}</button>
+      <button data-act="turn" data-id="${a.id}">Ход сейчас</button>
+      <button data-act="journal" data-id="${a.id}">Журнал</button>
+      <button data-act="edit" data-id="${a.id}">Править</button>
+    </td></tr>`).join("") || '<tr><td colspan="6" class="dim">Агентов пока нет.</td></tr>';
+}
+$("a-body").onclick = async (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  const a = agents.find(x => x.id === b.dataset.id);
+  try {
+    if (b.dataset.act === "toggle") { await api(`/agents/${a.id}`, { method: "PATCH", body: JSON.stringify({ enabled: !a.enabled }) }); loadAgents(); }
+    if (b.dataset.act === "turn") { await api(`/agents/${a.id}/turn`, { method: "POST" }); toast("Ход запрошен"); setTimeout(loadAgents, 3000); }
+    if (b.dataset.act === "journal") { journalAgent = a; journalFirst = null; $("j-title").textContent = `Журнал: ${a.name}`; $("a-journal").classList.remove("hidden"); loadJournal(); }
+    if (b.dataset.act === "edit") openForm(a);
+  } catch (err) { toast(err.message, true); }
+};
+
+function openForm(a) {
+  editing = a; $("a-form").classList.remove("hidden");
+  $("a-form-title").textContent = a ? `Агент: ${a.name}` : "Новый агент";
+  $("f-delete").classList.toggle("hidden", !a);
+  const v = (id, val) => $(id).value = val ?? "";
+  v("f-name", a?.name); v("f-email", a?.email); v("f-password", ""); v("f-surname", a?.surname); v("f-age", a?.age);
+  v("f-door", a?.door); v("f-model", a?.model); v("f-cadence", a?.cadence_seconds ?? 300); v("f-budget", a?.daily_token_budget ?? 300000);
+  v("f-steps", a?.max_steps ?? 8); v("f-about", a?.about); v("f-persona", a?.persona); v("f-goal", a?.goal); v("f-notes", a?.notes);
+  $("f-password").placeholder = a ? "пусто — не менять" : "";
+  $("a-form").scrollIntoView({ behavior: "smooth" });
+}
+$("a-new").onclick = () => openForm(null);
+$("f-cancel").onclick = () => $("a-form").classList.add("hidden");
+$("f-save").onclick = async () => {
+  const body = {
+    name: $("f-name").value, email: $("f-email").value, surname: $("f-surname").value,
+    age: $("f-age").value ? Number($("f-age").value) : null, door: $("f-door").value, model: $("f-model").value,
+    cadence_seconds: Number($("f-cadence").value), daily_token_budget: Number($("f-budget").value), max_steps: Number($("f-steps").value),
+    about: $("f-about").value, persona: $("f-persona").value, goal: $("f-goal").value, notes: $("f-notes").value,
+  };
+  if ($("f-password").value) body.password = $("f-password").value;
+  try {
+    if (editing) await api(`/agents/${editing.id}`, { method: "PATCH", body: JSON.stringify(body) });
+    else { if (!body.password) throw new Error("нужен пароль аккаунта"); await api("/agents", { method: "POST", body: JSON.stringify(body) }); }
+    $("a-form").classList.add("hidden"); toast("Сохранено"); loadAgents();
+  } catch (e) { toast(e.message, true); }
+};
+$("f-delete").onclick = async () => {
+  if (!editing || !confirm(`Удалить агента ${editing.name} вместе с журналом? Игровой аккаунт останется.`)) return;
+  await api(`/agents/${editing.id}`, { method: "DELETE" }); $("a-form").classList.add("hidden"); loadAgents();
+};
+
+async function loadJournal(older) {
+  if (!journalAgent) return;
+  const q = older && journalFirst ? `?before=${journalFirst}` : "";
+  const events = await api(`/agents/${journalAgent.id}/events${q}`);
+  if (events.length) journalFirst = older ? events[0].id : events[0].id;
+  const html = events.map(ev => {
+    let body = ev.text;
+    if (ev.kind === "action" || ev.kind === "refused") body = `${ev.cmd} ${ev.request} → ${ev.kind === "refused" ? "ОТКАЗ: " + ev.text : ev.reply.slice(0, 600)}`;
+    if (ev.kind === "look") body = `look → ${ev.reply.slice(0, 400)}…`;
+    return `<div class="ev ${ev.kind}">[${fmt(ev.at)}] ${esc(body)}</div>`;
+  }).join("");
+  if (older) $("j-body").insertAdjacentHTML("afterbegin", html); else { $("j-body").innerHTML = html; $("j-body").scrollTop = $("j-body").scrollHeight; }
+}
+$("j-refresh").onclick = () => loadJournal(false);
+$("j-more").onclick = () => loadJournal(true);
+
+async function loadReports() {
+  const rows = await api(`/reports${$("r-all").checked ? "?all=true" : ""}`);
+  $("r-body").innerHTML = rows.map(r => `<tr>
+    <td class="dim">${fmt(r.at)}</td><td>${esc(r.agent_name)}</td><td>${esc(r.text)}</td>
+    <td class="dim" style="max-width:420px;font-size:11px">${esc(r.context).slice(0, 700)}</td>
+    <td><button data-id="${r.id}" data-resolved="${r.resolved ? 0 : 1}">${r.resolved ? "Открыть" : "Закрыть"}</button></td></tr>`).join("") || '<tr><td colspan="5" class="dim">Пусто.</td></tr>';
+}
+$("r-all").onchange = loadReports;
+$("r-body").onclick = async (e) => { const b = e.target.closest("button"); if (!b) return; await api(`/reports/${b.dataset.id}/resolve?resolved=${b.dataset.resolved === "1"}`, { method: "POST" }); loadReports(); };
+
+setInterval(() => { if (!$("view-agents").classList.contains("hidden")) loadAgents(); }, 15000);
+api("/me").then(m => m.admin ? show("agents") : showLogin()).catch(showLogin);
+</script>
+</body>
+</html>
