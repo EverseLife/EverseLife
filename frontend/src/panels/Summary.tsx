@@ -78,13 +78,25 @@ export function useDigest(session: Session, ready: boolean) {
     }
   }, [session]);
 
+  //: The summary is rebuilt when something happens to the player (D-226),
+  //: not on a clock: a case opened, a vote, a debt withheld all arrive as
+  //: events. Several in one breath are one reread.
   useEffect(() => {
     if (!ready) return;
     void reread();
-    //: Slower than the world poll: this is a summary, not a ticker.
-    const timer = setInterval(() => void reread(), 60_000);
-    return () => clearInterval(timer);
-  }, [ready, reread]);
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const stop = session.on("*", (happening) => {
+      if (happening.touches.length === 0 || timer) return;
+      timer = setTimeout(() => {
+        timer = null;
+        void reread();
+      }, 500);
+    });
+    return () => {
+      stop();
+      if (timer) clearTimeout(timer);
+    };
+  }, [ready, reread, session]);
 
   return { digest, reread };
 }

@@ -82,7 +82,7 @@ export function Market({ look, session }: Omit<Props, "busy" | "act">) {
   const all: Position[] = [
     ...positions,
     ...[...pocket, ...terminal]
-      .filter((t) => t.quality !== null)
+      .filter((t) => t.quality != null)
       //: The counter's name, not the item's: a written carrier is a position
       //: per recipe -- "Рецепт: Стекло" (D-209).
       .map((t) => ({ goods: t.key ?? t.goods, tier: t.tier })),
@@ -374,7 +374,7 @@ function Own({
               <td>{t.flavor ?? name}</td>
               <td className="num">{tally(t.goods, t.amount)}</td>
               <td className="note">
-                {t.quality === null ? "" : `${t.quality.toFixed(0)} · ${t.tier}`}
+                {t.quality == null ? "" : `${t.quality.toFixed(0)} · ${t.tier}`}
               </td>
               <td onClick={(e) => e.stopPropagation()}>
                 <Amount

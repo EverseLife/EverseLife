@@ -84,7 +84,7 @@ export function Forage({ look, session }: Props) {
       </h2>
       <p className="note">
         пустой земли {foraging.area.toFixed(0)} м²
-        {foraging.seconds !== null && ` · находка примерно за ${spell(foraging.seconds)}`}
+        {foraging.seconds != null && ` · находка примерно за ${spell(foraging.seconds)}`}
         {` · сил ${foraging.stamina} за поиск`}
       </p>
 

@@ -55,12 +55,13 @@ export function Chat({ session, place }: Omit<Props, "busy" | "act">) {
     }
   }, [session]);
 
+  //: The room says when something was said (D-226, `chat.said`); the text
+  //: itself comes from `chat.hear`, where whole lines and leaks are sorted out.
   useEffect(() => {
     setLines([]);
     void listen();
-    const timer = setInterval(() => void listen(), 4000);
-    return () => clearInterval(timer);
-  }, [listen, place]);
+    return session.on("chat.said", () => void listen());
+  }, [listen, place, session]);
 
   useEffect(() => {
     scroll.current?.scrollTo({ top: scroll.current.scrollHeight });

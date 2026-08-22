@@ -77,7 +77,7 @@ export function Plant({ look, session }: Omit<Props, "busy" | "act">) {
       <p>
         топлива <b>{plant.stock.toFixed(1)}</b> · хватит на{" "}
         <b>
-          {plant.hours_left === null
+          {plant.hours_left == null
             ? "—"
             : длительность(plant.hours_left * SECONDS_PER_HOUR)}
         </b>

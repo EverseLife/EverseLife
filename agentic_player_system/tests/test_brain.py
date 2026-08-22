@@ -28,6 +28,16 @@ class FakeGame:
     async def reconnect(self) -> None:
         self.reconnects += 1
 
+    #: The two-way socket (D-226): the fake has heard nothing unless told.
+    events: list[dict[str, Any]] = []
+
+    async def drain(self) -> None:
+        pass
+
+    def take_events(self) -> list[dict[str, Any]]:
+        taken, self.events = self.events, []
+        return taken
+
     async def act(self, cmd: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
         self.sent.append((cmd, dict(args or {})))
         answer = self.script.get(cmd, {"ok": True})
@@ -295,3 +305,20 @@ def test_shrink_caps_lists_and_strings() -> None:
     packed = brain.shrink({"items": list(range(100)), "text": "x" * 1000})
     assert len(packed["items"]) == brain.MAX_LIST + 1
     assert packed["text"].endswith("…")
+
+
+def test_events_heard_between_turns_open_the_observation() -> None:
+    from aps import observe
+
+    told = observe.happened(
+        [
+            {"event": "knowledge.learned", "seq": 5, "touches": ["knowledge"], "key": "Кирка"},
+            {"event": "travel.arrived", "seq": 6, "touches": ["body", "node"], "who": "Тэрн",
+             "node": {"key": "terra.mine", "name": "Забой"}},
+        ]
+    )
+    assert told.splitlines() == [
+        "- knowledge.learned · key: Кирка",
+        '- travel.arrived · кто: Тэрн · node: {"key": "terra.mine", "name": "Забой"}',
+    ]
+    assert observe.happened([]) == ""

@@ -37,6 +37,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src import runtime
+from src.api import push
 from src.constants import current, current_catalog
 from src.constants import registry as R
 from src.db.base import session_factory
@@ -50,6 +51,7 @@ from src.engine import (
     death,
     energy,
     estate,
+    events,
     explore,
     farm,
     finance,
@@ -117,8 +119,21 @@ class Refused(Exception):
 
 @router.websocket("/session/ws")
 async def play(socket: WebSocket) -> None:
+    """One connection: commands in, answers and events out (D-226).
+
+    A command may carry `id`; the answer carries it back, so the client
+    matches them by number and not by order. Events -- what the server says
+    on its own -- have `event` instead and start after `hello` with `since`;
+    a client that never asks for them reads answers by order as before.
+    """
     await socket.accept()
-    state: dict[str, Any] = {"identity_id": None}
+
+    async def send_raw(message: dict[str, Any]) -> None:
+        await socket.send_json(_without_nulls(message))
+
+    sink = push.Sink(send_raw=send_raw)
+    state: dict[str, Any] = {"identity_id": None, "sink": sink}
+    push.hub.attach(sink)
 
     try:
         while True:
@@ -214,12 +229,41 @@ async def play(socket: WebSocket) -> None:
             except Exception:
                 log.exception("command %r crashed", message.get("cmd"))
                 answer = {"refused": "сервер не справился с командой; это записано"}
-            await socket.send_json(answer)
+            if isinstance(message, dict) and isinstance(message.get("cmd"), str):
+                push.hub.tally.answered(message["cmd"])
+            ticket = message.get("id") if isinstance(message, dict) else None
+            if ticket is not None:
+                answer = {"id": ticket, **answer}
+            await sink.send(answer)
+            #: Catching up goes after the answer to `hello`, never before it:
+            #: the client wants to know who it is before it hears what happened.
+            since = state.pop("replay", None)
+            if since:
+                await push.hub.replay(sink, since)
     except WebSocketDisconnect:
         #: The player leaving does not close the mining session: it lives until
         #: "leave" or until a collapse. What was mined lies in the face and
         #: waits for a decision.
         log.info("session disconnected, identity %s", state.get("identity_id"))
+    finally:
+        push.hub.detach(sink)
+
+
+def _without_nulls(value: Any) -> Any:
+    """The reply without keys whose value is null (D-225, widened to every
+    answer): no value -- no key. A body in the cloud has no `body`, a plot of
+    nobody has no `owner`, a thing of no quality has no `quality`. The client
+    reads absence the same way it read null, and the payload loses the
+    fields that said nothing. Lists keep their nulls: a position in a list is
+    a fact, dropping one would shift the rest.
+    """
+    if isinstance(value, dict):
+        return {
+            key: _without_nulls(inner) for key, inner in value.items() if inner is not None
+        }
+    if isinstance(value, list):
+        return [_without_nulls(inner) for inner in value]
+    return value
 
 
 async def _dispatch(state: dict[str, Any], message: dict[str, Any]) -> dict[str, Any]:
@@ -268,6 +312,7 @@ async def _hello(state: dict, db: AsyncSession, message: dict) -> dict:
     state["identity_id"] = identity.id
     state["token"] = issued
     body = await _body(db, identity.id)
+    _listen(state, message, identity, body)
     return {
         "hello": identity.name,
         "token": issued,
@@ -278,6 +323,26 @@ async def _hello(state: dict, db: AsyncSession, message: dict) -> dict:
         "node": None if body is None else str(body.node_id),
         "constants": current().digest,
     }
+
+
+def _listen(state: dict, message: dict, identity: Identity, body: Body | None) -> None:
+    """Turn the stream of events on, if the client asked (D-226): `since` is
+    the last `seq` it saw, 0 for "from now on" with nothing replayed. Without
+    it the connection stays answer-by-order, as the old client and the tests
+    expect."""
+    sink: push.Sink | None = state.get("sink")
+    if sink is None:
+        return
+    sink.identity_id = identity.id
+    sink.node_id = None if body is None else body.node_id
+    since = message.get("since")
+    if since is None:
+        return
+    try:
+        state["replay"] = max(0, int(since))
+    except (TypeError, ValueError) as bad:
+        raise Refused("since должен быть числом") from bad
+    sink.listening = True
 
 
 async def _join(state: dict, db: AsyncSession, message: dict) -> dict:
@@ -327,6 +392,7 @@ async def _join(state: dict, db: AsyncSession, message: dict) -> dict:
     issued = await accounts.issue_token(db, account)
     state["identity_id"] = identity.id
     state["token"] = issued
+    _listen(state, message, identity, body)
     return {
         "hello": identity.name,
         "token": issued,
@@ -336,6 +402,57 @@ async def _join(state: dict, db: AsyncSession, message: dict) -> dict:
         "money": await _money(db, identity.id),
         "constants": current().digest,
     }
+
+
+async def _knowledge_read(state: dict, db: AsyncSession, message: dict) -> dict:
+    """What the identity knows: recipes (`knows`), which of them were opened
+    by one's own experiment (`discovered`, D-064, D-209), and the agrotech
+    studied (`agrotech`, D-057). Read once and kept: `knowledge.learned` and
+    `craft.invented` say when to read again (D-226)."""
+    identity = await _identity(state, db)
+    return {
+        "knowledge": {
+            "knows": await _knowledge(db, identity.id),
+            "discovered": await _discovered(db, identity.id),
+            "agrotech": await _knowledge(db, identity.id, kind=KnowledgeKind.AGROTECH),
+        }
+    }
+
+
+async def _orders_read(state: dict, db: AsyncSession, message: dict) -> dict:
+    """One's own standing affairs: orders on the market, reservations held,
+    batches in the works. From anywhere, body or no body (D-047). Events of
+    `market.*` and `craft.*` say when to read again (D-226)."""
+    identity = await _identity(state, db)
+    return {
+        "orders": {
+            "orders": await _orders(db, identity.id),
+            "reservations": await _reservations(db, identity.id),
+            "batches": await _batches(db, identity.id),
+        }
+    }
+
+
+async def _deeds_read(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Own deeds and deeds listed for sale: electronic documents live in the
+    Net and are visible from everywhere (D-116). `deed.*` and `land.*` events
+    say when to read again (D-226)."""
+    identity = await _identity(state, db)
+    return {"deeds": await _deeds(db, identity.id)}
+
+
+async def _shelf_read(state: dict, db: AsyncSession, message: dict) -> dict:
+    """What the library here holds and who brought each recipe (D-068, D-209):
+    the client's catalog table is this shelf, not the whole vault. Empty where
+    there is no library. `library.*` events say when to read again (D-226)."""
+    identity = await _identity(state, db)
+    body = await _body(db, identity.id)
+    if body is None:
+        return {"shelf": []}
+    node = await db.get(Node, body.node_id)
+    if node is None or not await world.is_library(db, node):
+        return {"shelf": []}
+    return {"shelf": await _shelf(db, node)}
 
 
 async def _account_profile(state: dict, db: AsyncSession, message: dict) -> dict:
@@ -351,6 +468,10 @@ async def _account_update(state: dict, db: AsyncSession, message: dict) -> dict:
     accounts.apply_profile(identity, accounts.check_profile(message))
     await db.flush()
     account = await accounts.account_of(db, identity)
+    #: The profile is cached by the client (D-226); no journal event says it moved.
+    await events.announce(
+        db, touches=("profile",), identity_id=identity.id, event="account.updated"
+    )
     return {"profile": accounts.profile(account, identity)}
 
 
@@ -379,6 +500,10 @@ async def _account_email(state: dict, db: AsyncSession, message: dict) -> dict:
     if not accounts.verify_password(account, password):
         raise Refused("пароль не подходит")
     await accounts.set_credentials(db, account, str(message.get("email") or ""), password)
+    #: The profile is cached by the client (D-226); no journal event says it moved.
+    await events.announce(
+        db, touches=("profile",), identity_id=identity.id, event="account.updated"
+    )
     return {"profile": accounts.profile(account, identity)}
 
 
@@ -387,15 +512,26 @@ async def _account_logout(state: dict, db: AsyncSession, message: dict) -> dict:
     await accounts.revoke_token(db, message.get("token") or state.get("token"))
     state["identity_id"] = None
     state["token"] = None
+    sink: push.Sink | None = state.get("sink")
+    if sink is not None:
+        sink.listening = False
+        sink.identity_id = None
+        sink.node_id = None
     return {"bye": True}
 
 
 async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
-    """What the player sees about themselves: body, pocket, account, jobs, own orders.
+    """What the player sees about themselves **right now**: body, pocket, the
+    place, the road, what is under way.
 
     Personal data goes only here. Public reads (`/public/*`) are about prices and
     catalogs; your own pocket is not there and never will be: everyone knows the
     prices, but not what is in whose sack.
+
+    Only the live part (D-226, 08-session-protocol). What changes rarely is
+    read by its own command and kept by the client until an event touches it:
+    `knowledge` (recipes, discoveries, agrotech), `account.profile`, `orders`
+    (orders, reservations, batches), `deeds`, `shelf` (the library here).
     """
     identity = await _identity(state, db)
     body = await _body(db, identity.id)
@@ -403,18 +539,7 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
 
     seen: dict[str, Any] = {
         "identity": identity.name,
-        #: Account panel in the client header (D-187): self-description next to the name.
-        "profile": accounts.profile(await accounts.account_of(db, identity), identity),
         "money": await _money(db, identity.id),
-        "knows": await _knowledge(db, identity.id),
-        #: Which of them were opened by one's own experiment (D-064, D-209).
-        "discovered": await _discovered(db, identity.id),
-        #: Learned agrotech as a separate list: the client shows in the Library
-        #: which crops are already studied and does not let you take them twice.
-        "agrotech": await _knowledge(db, identity.id, kind=KnowledgeKind.AGROTECH),
-        "orders": await _orders(db, identity.id),
-        "reservations": await _reservations(db, identity.id),
-        "batches": await _batches(db, identity.id),
         #: What has arrived in the Net and is not read yet (D-222): the tab's count.
         "net_unread": await net.unread_letters(db, identity.id)
         + await net.unread_posts(db, constants, identity.id),
@@ -477,22 +602,20 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
         if node.owner_identity_id is None
         else await db.get(Identity, node.owner_identity_id)
     )
-    stations = await _stations(db, node)
     #: The node as a set of facts the client cannot derive by itself (D-225).
-    #: Whatever follows from other fields is not sent: the library and the hall
-    #: are read off `stations` through the class book, "mine" is `owner` against
-    #: one's own name, "wild" is no owner and no city. Keys that would carry an
+    #: Whatever follows from other fields is not sent: what stands here is
+    #: `bench` and `furniture`, the library and the hall are read off them
+    #: through the class book, "mine" is `owner` against one's own name,
+    #: "wild" is no owner and no city. Keys that would carry an
     #: empty value -- no shelf, no door lists, not for sale -- are left out
     #: instead of sent as null or [].
     seen["node"] = {
         "key": node.key,
         "name": node.name,
-        #: What the node has -- the client decides from this which scenes to show.
-        "stations": stations,
         #: Place-sign properties ("forest", "outcrop"): the client shows place
         #: extraction (D-177) and other windows tied to the land, not to a machine.
         #: The `library` property is a legacy of old worlds (D-176) and is not
-        #: a sign of the land; the machine in `stations` answers for it.
+        #: a sign of the land; the machine in `bench` answers for it.
         "features": sorted(
             name for name, value in (node.properties or {}).items()
             if value is True and name != "library"
@@ -525,10 +648,6 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
         #: the buyer must see the second half before paying the first.
         "tax": await estate.land_tax_of(db, constants, current_catalog(), node),
     }
-    #: What this library holds and who brought each recipe (D-068, D-209):
-    #: the client's catalog table is this shelf, not the whole vault.
-    if await world.is_library(db, node):
-        seen["node"]["shelf"] = await _shelf(db, node)
     #: Both lists, and only to the holder: whom they let into a shut location
     #: and whom they let in nowhere (D-204).
     if node.owner_identity_id == identity.id:
@@ -717,9 +836,6 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
         "mine": await station.may_build(db, body, node)
         or (node.owner_identity_id is None and node.owner_city_id is None),
     }
-    #: Own deeds and deeds listed for sale: electronic documents live in the
-    #: Net and are visible from everywhere (D-116).
-    seen["deeds"] = await _deeds(db, identity.id)
     seen["inventory"] = await _things(db, constants, await world.body_container(db, body))
     seen["stall"] = await _things(db, constants, await market.stall(db, node, identity.id))
     #: Carried load: how much is carried, how much can be, and what is worn
@@ -2165,7 +2281,7 @@ async def _net_channel_read(state: dict, db: AsyncSession, message: dict) -> dic
 async def _net_post(state: dict, db: AsyncSession, message: dict) -> dict:
     me = await _identity(state, db)
     entry = await net.post(
-        db, me, uuid.UUID(message["channel"]), str(message.get("text", ""))
+        db, me, uuid.UUID(message["channel"]), str(message.get("text", "")), constants=current()
     )
     return {"posted": str(entry.id)}
 
@@ -3099,7 +3215,7 @@ async def _city_survey(state: dict, db: AsyncSession, message: dict) -> dict:
     if body is not None:
         node = await db.get(Node, body.node_id)
         summary["at_hall"] = node is not None and node.owner_city_id == city.id and (
-            town.HALL in await _stations(db, node)
+            await world.has_station(db, node, town.HALL)
         )
     #: Free and allotted plots: land allotment is the first thing people enter
     #: the administration for (D-089).
@@ -3258,6 +3374,10 @@ async def _citizens(db: AsyncSession) -> list[str]:
 
 _COMMANDS = {
     "look": _look,
+    "knowledge": _knowledge_read,
+    "orders": _orders_read,
+    "deeds": _deeds_read,
+    "shelf": _shelf_read,
     "account.profile": _account_profile,
     "account.update": _account_update,
     "account.password": _account_password,
@@ -3499,9 +3619,9 @@ async def _bench(
 ) -> list[dict[str, Any]]:
     """The node's machines by name: quality, condition and who occupies them (D-150).
 
-    Separate from `stations`: that list answers "which scenes to show", this one
-    answers "which machine can I stand at right now". With `furniture=True` the
-    same for furniture: a bed and a shelf are not machines, and the client shows
+    The node scene is built from this list (D-176): which windows to show, and
+    which machine one can stand at right now. With `furniture=True` the same
+    for furniture: a bed and a shelf are not machines, and the client shows
     them in a separate window.
     """
     from src.constants.catalog import ItemKind
@@ -3626,11 +3746,6 @@ async def _vehicles(db: AsyncSession, constants, node: Node) -> list[dict[str, A
             }
         )
     return sorted(out, key=lambda cart: cart["goods"])
-
-
-async def _stations(db: AsyncSession, node: Node) -> list[str]:
-    """Machines and the terminal standing in the node. The node scene is built from them."""
-    return sorted(await world.thing_kinds(db, node))
 
 
 async def _money(db: AsyncSession, identity_id: uuid.UUID) -> str:

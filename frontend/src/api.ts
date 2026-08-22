@@ -35,34 +35,34 @@ export type Thing = {
   id: string;
   goods: string;
   amount: number;
-  quality: number | null;
+  quality?: number;
   tier: string;
   condition: number;
   /** Dish kind: the combination decides the kind, not the quality (D-128). */
-  flavor: string | null;
+  flavor?: string;
   /** Edibility comes from vault data, not the client's guesses. */
   food: boolean;
   /** Fits the pot: a product, not a pickaxe (16-cooking). */
   ingredient: boolean;
-  spoils_at: string | null;
+  spoils_at?: string;
   /** Coin fineness in thousandths: a coin has no quality, it has metal (D-016). */
-  fineness: number | null;
+  fineness?: number;
   /** The mark: whose work this is (D-058). */
-  maker: string | null;
+  maker?: string;
   /** For seeds: cultivar and batch strength, % (D-057). */
-  variety: string | null;
-  vigor: number | null;
+  variety?: string;
+  vigor?: number;
   /** For a battery: charge with self-discharge (D-071). */
-  charge: number | null;
+  charge?: number;
   /** Unit weight, kg, and the slot if this is gear (D-146). */
   mass: number;
-  slot: string | null;
+  slot?: string;
   /**
    * For a knowledge carrier: the recipe written on it, and the name the counter
    * knows the stack by -- "Рецепт: Стекло" (D-209). `key` equals `goods` for
    * everything else.
    */
-  recipe: string | null;
+  recipe?: string;
   key: string;
 };
 
@@ -80,7 +80,7 @@ export type Vehicle = {
   goods: string;
   condition: number;
   /** Hold capacity, kg. Empty -- the vault did not name it. */
-  capacity: number | null;
+  capacity?: number;
   /** Multiplier to walking speed: a barrow is slower than legs, a wagon faster. */
   speed_k: number;
   /** Taken by somebody else's harness. */
@@ -97,7 +97,7 @@ export type Convoy = {
   mass: number;
   speed_k: number;
   heavy: boolean;
-  cargo: { id: string; type_key: string; amount: number; quality: number | null }[];
+  cargo: { id: string; type_key: string; amount: number; quality?: number }[];
 };
 
 /** A road as work on an edge (D-107, D-158). */
@@ -110,10 +110,10 @@ export type RoadWork = {
   condition: number;
   seconds: number;
   /** The next tier, or empty for a highway. */
-  next: "road" | "paved" | null;
+  next?: "road" | "paved";
   /** How much surface laying a tier takes, and how much resurfacing does. */
-  needs: number | null;
-  mend_needs: number | null;
+  needs?: number;
+  mend_needs?: number;
   /** How much surface is in the hands right now. */
   at_hand: number;
   working: boolean;
@@ -197,12 +197,12 @@ export type ChatLine = {
   quiet: boolean;
   text: string;
   overheard: boolean;
-  source: string | null;
+  source?: string;
   at: string;
 };
 
 /** A circle: membership visible, content not. */
-export type Circle = { id: string; name: string | null; members: string[]; mine: boolean };
+export type Circle = { id: string; name?: string; members: string[]; mine: boolean };
 
 /** The Net (D-222): correspondence kept, arriving by the road. */
 export type Thread = {
@@ -210,9 +210,9 @@ export type Thread = {
   /** The other party. */
   who: string;
   surname: string;
-  last_at: string | null;
+  last_at?: string;
   /** The last letter the reader can already see. */
-  preview: string | null;
+  preview?: string;
   unread: number;
 };
 export type Letter = {
@@ -236,7 +236,7 @@ export type Channel = {
   implied: boolean;
   /** Who writes it: the author's name, or the city's. */
   by: string;
-  last_at: string | null;
+  last_at?: string;
   unread: number;
 };
 /** A channel found by search: subscribed or not. */
@@ -248,11 +248,11 @@ export type Post = { id: string; who: string; text: string; at: string; delivere
 export type Card = {
   name: string;
   surname: string;
-  age: number | null;
+  age?: number;
   about: string;
   line: "human" | "nymph";
   since: string;
-  city: string | null;
+  city?: string;
 };
 
 /** What an exploration run from here will cost (D-156).
@@ -276,18 +276,18 @@ export type Outlook = {
    */
   crowding?: number;
   /** The node a find will hang on, when it is not this one: from a city, the gate. */
-  anchor?: string | null;
+  anchor?: string;
   /** Which species is requested, if any. */
-  resource?: string | null;
+  resource?: string;
 };
 
 /** Account panel (D-187): self-description next to the name. Nothing game-related here. */
 export type Profile = {
-  email: string | null;
+  email?: string;
   /** The name is unique and unchangeable (D-011): reputation rests on it. */
   name: string;
   surname: string;
-  age: number | null;
+  age?: number;
   about: string;
   line: "human" | "nymph";
   since: string;
@@ -330,8 +330,66 @@ export type Doing = {
   kind: string;
   title: string;
   what: string;
-  until: string | null;
+  until?: string;
 };
+
+/**
+ * The slow parts of the player's state (D-226, 08-session-protocol, step 2):
+ * read by their own commands, kept by the client, reread when an event's
+ * `touches` names them. `Look` as the panels see it is `LiveLook` and these,
+ * put together by `compose()`.
+ */
+export type Parts = {
+  knowledge: { knows: string[]; discovered: string[]; agrotech: string[] };
+  profile: Profile;
+  orders: { orders: Order[]; reservations: Reservation[]; batches: Batch[] };
+  deeds: DeedView[];
+  /** The library here: empty where there is none. Reread on arrival too. */
+  shelf: { recipe: string; contributor?: string }[];
+};
+
+const PART_COMMANDS: Record<keyof Parts, string> = {
+  knowledge: "knowledge",
+  profile: "account.profile",
+  orders: "orders",
+  deeds: "deeds",
+  shelf: "shelf",
+};
+const PART_ANSWERS: Record<keyof Parts, string> = {
+  knowledge: "knowledge",
+  profile: "profile",
+  orders: "orders",
+  deeds: "deeds",
+  shelf: "shelf",
+};
+
+/** Which part an event's `touches` entry names, when it names one. */
+export const PART_OF_TOUCH: Record<string, keyof Parts> = {
+  knowledge: "knowledge",
+  profile: "profile",
+  orders: "orders",
+  deeds: "deeds",
+  shelf: "shelf",
+};
+
+/** What `look` returns: everything but the slow parts. */
+export type LiveLook = Omit<
+  Look,
+  "profile" | "knows" | "discovered" | "agrotech" | "orders" | "reservations" | "batches" | "deeds"
+>;
+
+/** The panels' view: the live part with the slow parts folded back in. */
+export function compose(live: LiveLook, parts: Parts): Look {
+  const node = live.node && parts.shelf.length ? { ...live.node, shelf: parts.shelf } : live.node;
+  return {
+    ...live,
+    node,
+    profile: parts.profile,
+    ...parts.knowledge,
+    ...parts.orders,
+    deeds: parts.deeds,
+  };
+}
 
 export type Look = {
   identity: string;
@@ -346,33 +404,33 @@ export type Look = {
   reservations: Reservation[];
   batches: Batch[];
   carry?: Carry;
-  body: {
+  body?: {
     id: string;
     stamina: number;
-    sleeping_since: string | null;
+    sleeping_since?: string;
     sleeping_home: boolean;
     /** Until this moment the stamina spend is reduced: a meal, not a buff (D-119). */
-    satiated_until: string | null;
-  } | null;
+    satiated_until?: string;
+  };
   /**
    * The node as facts the client cannot derive by itself (D-225). Whatever
-   * follows from other fields is not sent: a library or a hall is read off
-   * `stations` through the class book (`anyOfClass`), "mine" is `owner`
+   * follows from other fields is not sent: what stands here is `bench` and
+   * `furniture` (`stationsOf`), a library or a hall is read off them through
+   * the class book (`anyOfClass`), "mine" is `owner`
    * against one's own name (`isMine`), "wild" is no owner and no city
    * (`isWild`). A key that would carry nothing -- no shelf, no door lists,
    * not for sale, nothing built -- is absent rather than null or [].
    */
-  node: {
+  node?: {
     key: string;
     name: string;
-    stations: string[];
     /** Place-sign properties ("forest", "outcrop"): place extraction is shown by them (D-177). */
     features: string[];
     fertility: number;
     /** Whose plot: the holder runs the estate (06-farming). */
-    owner: string | null;
+    owner?: string;
     /** The owning city, if the land is civic: ownership is public (D-178). */
-    owner_city: string | null;
+    owner_city?: string;
     /**
      * The location is shut for entry: only the holder and the white list come in
      * (D-199, D-204). Visible to everyone -- and passage through it stays open to
@@ -387,7 +445,7 @@ export type Look = {
      * `nobody` -- there is nobody to bill. Empty outside the city grid: no meter
      * there at all, one works from a battery.
      */
-    upkeep: "owner" | "city" | "nobody" | null;
+    upkeep?: "owner" | "city" | "nobody";
     /** Plot area, m2 (D-125). */
     area: number;
     /** Daily land tax for the built area, minor units (D-127, D-220).
@@ -399,7 +457,7 @@ export type Look = {
      * What this library holds and who brought each recipe (D-068, D-209). Only
      * when a library stands here; the catalog table is this shelf, not the vault.
      */
-    shelf?: { recipe: string; contributor: string | null }[];
+    shelf?: { recipe: string; contributor?: string }[];
     /**
      * The door lists, by names, and only to the holder (D-204): `allowed` enter
      * a shut location, `barred` enter nowhere. Black beats white.
@@ -418,9 +476,9 @@ export type Look = {
       ground: number;
       floors: number;
       /** What it is built of (D-218): the type sets the bill and the decay. */
-      kind: string | null;
+      kind?: string;
       /** How sound it is, 0..100. At nothing the house falls (D-218). */
-      condition: number | null;
+      condition?: number;
       /** Condition lost per day -- the type's own rate. */
       decay: number;
       slots: number;
@@ -429,13 +487,13 @@ export type Look = {
       sites: {
         area: number;
         floors: number;
-        kind: string | null;
+        kind?: string;
         ready_at: string;
       }[];
     };
     /** Purchase price of an empty civic plot, in minor units (D-089). Absent when not for sale. */
     price?: number;
-  } | null;
+  };
   /** The city whose territory we stand on, and our own rights in it (D-154, D-155). */
   city?: {
     id: string;
@@ -449,23 +507,23 @@ export type Look = {
     admission: "open" | "application" | "invite";
     /** An application filed or an invitation received -- waits for its side. */
     requested: boolean;
-  } | null;
+  };
   /** Where the identity belongs: citizenship is one and visible from everywhere (D-160). */
   citizenship?: {
-    city: string | null;
+    city?: string;
     since: string;
     /** An exit declaration is filed: citizenship lapses by this date. */
-    leaving_at: string | null;
+    leaving_at?: string;
     /** An obligation taken as a print condition: no leaving before this date (D-184). */
-    bound_until: string | null;
-  } | null;
+    bound_until?: string;
+  };
   /** An ongoing exploration run, if any (D-152). */
-  survey?: { returns_at: string } | null;
+  survey?: { returns_at: string };
   /**
    * Foraging on the empty land of the place (D-210). Empty where the land is
    * built up or somebody else's -- unless a search of ours is already going here.
    */
-  forage?: Foraging | null;
+  forage?: Foraging;
   /**
    * Everything the body is at: one body does one thing (D-211), but a frozen
    * batch or a plough of one's own can stand beside the thing running now.
@@ -479,22 +537,22 @@ export type Look = {
   rig_here?: boolean;
   /** Ships within sight of this node (D-201): moored at the pier one stands
    *  on, or the rooms of the one being stood in. Empty everywhere else. */
-  ships?: InSight | null;
+  ships?: InSight;
   /** The planet's clock: where the count starts and how long a day is (D-029). */
-  clock?: { planet: string; epoch: string | null; day_hours: number };
+  clock?: { planet: string; epoch?: string; day_hours: number };
   /** Whether a city can be founded here and what is missing for that (D-159).
    *  Empty -- the place is unsuitable: foreign land, a foreign city or not a planet. */
   foundation?: {
     missing: string[];
     needs: { role: string; any_of: string[] }[];
-  } | null;
+  };
   /** Own convoy: what it is harnessed to and what it carries (D-157). */
-  convoy?: Convoy | null;
+  convoy?: Convoy;
   /** Vehicles standing in this node: one harnesses to what is nearby. */
   vehicles?: Vehicle[];
   /** No body -- the identity is in the cloud: where to print and whether a print is ongoing (D-033). */
   printers?: Printer[];
-  printing?: { ready_at: string } | null;
+  printing?: { ready_at: string };
   /** The node's machines by name: which one can be taken right now (D-150). */
   bench?: Bench[];
   /** The node's furniture: a bed and a shelf are not machines, they have their own window (D-090). */
@@ -528,23 +586,23 @@ export type Look = {
   stall?: Thing[];
   veins?: { id: string; resource: string; richness: number }[];
   exits?: Exit[];
-  travel?: Transit | null;
+  travel?: Transit;
   /** An open face survives the player leaving: on return the session is in place. */
-  mining?: Sight | null;
+  mining?: Sight;
 };
 
 /** A deed for a plot: ownership documented (D-116). */
 export type DeedView = {
   id: string;
-  node: string | null;
-  name: string | null;
-  area: number | null;
-  owner: string | null;
+  node?: string;
+  name?: string;
+  area?: number;
+  owner?: string;
   /** The issue price: the purchase price, zero for taken wild land. */
   paid: number;
   /** Listed for sale: the price and the addressee, if the contract is addressed. */
-  sale_price: number | null;
-  sale_to: string | null;
+  sale_price?: number;
+  sale_to?: string;
   issued_at: string;
 };
 
@@ -552,12 +610,12 @@ export type DeedView = {
 export type Bench = {
   id: string;
   goods: string;
-  quality: number | null;
+  quality?: number;
   condition: number;
   busy: boolean;
   mine: boolean;
   /** Charge belongs to the battery standing here as a machine (D-179). */
-  charge: number | null;
+  charge?: number;
 };
 
 /** A node storage: a chest or a shelf (D-181).
@@ -581,7 +639,7 @@ export type Storage = {
 export type Printer = {
   node: string;
   name: string;
-  city: string | null;
+  city?: string;
   /** That very eternal printer: free, but twelve hours. */
   precursor: boolean;
   energy: number;
@@ -635,9 +693,9 @@ export type Holding = {
 /** The city's code-law in force: its own decision or the vault default (D-130). */
 export type Law = {
   name: string;
-  unit: string | null;
-  note: string | null;
-  value: string | null;
+  unit?: string;
+  note?: string;
+  value?: string;
   own: boolean;
 };
 
@@ -683,7 +741,7 @@ export type CityView = {
   powers: string[];
   /** Whether decisions are made here: authority is in-person (D-155). */
   at_hall: boolean;
-  lots: { key: string; name: string; area: number; owner: string | null; free: boolean }[];
+  lots: { key: string; name: string; area: number; owner?: string; free: boolean }[];
   citizens: string[];
 };
 
@@ -691,11 +749,11 @@ export type CityView = {
 /** A case in the city court (D-166). */
 export type CourtCase = {
   id: string;
-  plaintiff: string | null;
-  defendant: string | null;
+  plaintiff?: string;
+  defendant?: string;
   claim: string;
   state: "open" | "judged" | "dismissed";
-  verdict: string | null;
+  verdict?: string;
   opened_at: string;
 };
 
@@ -708,12 +766,12 @@ export type CityVote = {
   kind: "law" | "election" | "recall" | "charter" | "council";
   /** Who votes: all citizens or council members (D-164). */
   voters: "citizens" | "council";
-  law: string | null;
+  law?: string;
   value: unknown;
   /** Candidates in the election: they nominate themselves while the poll runs (D-162). */
-  candidates: { id: string; name: string | null; votes: number }[];
+  candidates: { id: string; name?: string; votes: number }[];
   /** Whom one's own vote in the election is for. */
-  choice: string | null;
+  choice?: string;
   closes_at: string;
   threshold: "simple" | "two_thirds" | "unanimous";
   /** The share of eligible voters needed for a quorum; 0 -- no quorum required. */
@@ -722,7 +780,7 @@ export type CityVote = {
   yes: number;
   no: number;
   /** Own vote, if cast. */
-  mine: boolean | null;
+  mine?: boolean;
   may_vote: boolean;
 };
 
@@ -799,16 +857,16 @@ export type Foraging = {
   /** Whether a new search may start here: own or nobody's land with room. */
   allowed: boolean;
   /** The mean length of one search here, seconds; empty if nothing is found here at all. */
-  seconds: number | null;
+  seconds?: number;
   /** What one search costs in stamina, found or passed. */
   stamina: number;
   /** What the land gives at all and how often, by share; the handful per find. */
   finds: { goods: string; share: number; units: number }[];
   /** No search; a search under way; a find waiting for the decision. */
   state: "idle" | "searching" | "found";
-  started_at: string | null;
-  ready_at: string | null;
-  found: { goods: string; units: number; quality: number; mass: number } | null;
+  started_at?: string;
+  ready_at?: string;
+  found?: { goods: string; units: number; quality: number; mass: number };
 };
 
 export type Order = {
@@ -827,23 +885,23 @@ export type Batch = {
   units: number;
   quality: number;
   /** The machine it needs; empty for what is made by hand. */
-  station: string | null;
+  station?: string;
   /**
    * Under way, or waiting (D-209): behind another work of yours (`queued`),
    * frozen in another node (`away`), or here but with no free machine
    * (`no_station`).
    */
   state: "running" | "waiting";
-  waiting: "queued" | "away" | "no_station" | null;
+  waiting?: "queued" | "away" | "no_station";
   /** Where the work is: a frozen batch is waited for in its node. */
-  node: string | null;
+  node?: string;
   /** The current run's ends: the deadline bar shows a share, and a share needs a beginning. */
-  started_at: string | null;
-  ready_at: string | null;
+  started_at?: string;
+  ready_at?: string;
   /** Work left while waiting, seconds. */
-  left_seconds: number | null;
+  left_seconds?: number;
   /** For a carrier being written: which recipe goes onto it. */
-  recipe: string | null;
+  recipe?: string;
 };
 
 /** What came of an attempt to make something without a recipe (D-064, D-209). */
@@ -851,8 +909,8 @@ export type Invention = {
   success: boolean;
   learned: string[];
   burned: Record<string, number>;
-  note: string | null;
-  batch: { id: string; output: string; quality: number; ready_at: string | null } | null;
+  note?: string;
+  batch?: { id: string; output: string; quality: number; ready_at?: string };
 };
 
 /** Everything the player sees about the face. Roof stability is not here and cannot be. */
@@ -920,11 +978,40 @@ type Waiting = {
 /** Where the session token lives between page refreshes (D-187). */
 const TOKEN_KEY = "everselife.token";
 
-/** The client session. Holds the socket and the "command -> reply" queue.
+/**
+ * What the server says on its own (D-226). `event` is the journal kind,
+ * `touches` names the parts of the player's state it changed -- the client
+ * rereads those whether or not it knows the kind. `seq` is the journal row:
+ * the last one seen goes back to the server on reconnect, and the server
+ * replays what was missed.
+ */
+export type Happening = {
+  event: string;
+  seq?: number;
+  at?: string;
+  touches: string[];
+  /** Who did it, when it was not you. */
+  who?: string;
+  [key: string]: unknown;
+};
+
+export type Listener = (happening: Happening) => void;
+
+/** How long the session waits before rising again after a break, and the cap. */
+const REVIVE_DELAY_MS = 1000;
+const REVIVE_DELAY_CAP_MS = 30_000;
+
+/** The client session. Holds the socket, the commands in flight, and the listeners.
+ *
+ * The socket is two-way (D-226): commands go out numbered and come back by
+ * number; in between the server speaks on its own, and whoever subscribed
+ * with `on()` hears it. A session never reads answers by order.
  *
  * The socket does not live forever: the server and proxies cut idle
- * connections. A broken session rises by itself -- a command that finds a
- * dead socket first reconnects and identifies by token, and only then goes.
+ * connections. A broken session rises by itself -- on close it reconnects,
+ * identifies by token and names the last event it saw, so nothing said in
+ * the meantime is lost. A command that finds a dead socket first waits for
+ * that rise, and only then goes.
  *
  * Identification is email and password (D-187). The password is entered
  * once: the server gives a token, it lives in `localStorage`, and by it the
@@ -933,8 +1020,14 @@ const TOKEN_KEY = "everselife.token";
  */
 export class Session {
   private socket: WebSocket | null = null;
-  private queue: Waiting[] = [];
+  private pending = new Map<number, Waiting>();
+  private ticket = 0;
   private reviving: Promise<void> | null = null;
+  private reviveTimer: ReturnType<typeof setTimeout> | null = null;
+  private reviveDelay = REVIVE_DELAY_MS;
+  private listeners = new Map<string, Set<Listener>>();
+  /** The last journal row heard: the `since` of the next `hello`. */
+  private seq = 0;
   account = "";
   name = "";
   token = "";
@@ -958,6 +1051,41 @@ export class Session {
     }
   }
 
+  /**
+   * Hear what the server says: one kind (`"knowledge.learned"`), a prefix
+   * (`"market."`), or everything (`"*"`). Returns the way to stop hearing.
+   */
+  on(kind: string, listener: Listener): () => void {
+    let set = this.listeners.get(kind);
+    if (!set) {
+      set = new Set();
+      this.listeners.set(kind, set);
+    }
+    set.add(listener);
+    return () => {
+      set.delete(listener);
+    };
+  }
+
+  private hear(happening: Happening): void {
+    if (typeof happening.seq === "number" && happening.seq > this.seq) this.seq = happening.seq;
+    const heard = new Set<Listener>();
+    for (const [kind, set] of this.listeners) {
+      const fits =
+        kind === "*" ||
+        kind === happening.event ||
+        (kind.endsWith(".") && happening.event.startsWith(kind));
+      if (fits) set.forEach((listener) => heard.add(listener));
+    }
+    heard.forEach((listener) => {
+      try {
+        listener(happening);
+      } catch (error) {
+        console.error("listener failed on", happening.event, error);
+      }
+    });
+  }
+
   /** Bring up the socket. Identification is a separate step: a newcomer has nothing to identify with yet. */
   private async connect(): Promise<void> {
     await this.close();
@@ -968,11 +1096,18 @@ export class Session {
       socket.onopen = () => resolve();
       socket.onerror = () => reject(new Error("сервер не отвечает"));
     });
+    this.reviveDelay = REVIVE_DELAY_MS;
 
-    socket.onmessage = (event) => {
-      const waiting = this.queue.shift();
+    socket.onmessage = (message) => {
+      const parsed = JSON.parse(message.data);
+      if (typeof parsed.event === "string") {
+        this.hear({ touches: [], ...parsed });
+        return;
+      }
+      const waiting = typeof parsed.id === "number" ? this.pending.get(parsed.id) : undefined;
       if (!waiting) return;
-      const answer = JSON.parse(event.data);
+      this.pending.delete(parsed.id);
+      const { id: _id, ...answer } = parsed;
       if (typeof answer.refused === "string") {
         waiting.reject(new Refused(answer.refused));
       } else {
@@ -980,9 +1115,25 @@ export class Session {
       }
     };
     socket.onclose = () => {
-      this.queue.forEach((w) => w.reject(new Error("сессия закрыта")));
-      this.queue = [];
+      if (this.socket !== socket) return;
+      this.socket = null;
+      this.pending.forEach((w) => w.reject(new Error("сессия закрыта")));
+      this.pending.clear();
+      //: The server speaks first now (D-226): a closed socket is a deaf one,
+      //: so it rises on its own and not at the next command.
+      if (this.token) this.scheduleRevive();
     };
+  }
+
+  private scheduleRevive(): void {
+    if (this.reviveTimer) return;
+    this.reviveTimer = setTimeout(() => {
+      this.reviveTimer = null;
+      this.revive().catch(() => {
+        this.reviveDelay = Math.min(this.reviveDelay * 2, REVIVE_DELAY_CAP_MS);
+        if (this.token) this.scheduleRevive();
+      });
+    }, this.reviveDelay);
   }
 
   /** Login by email and password. */
@@ -1021,6 +1172,7 @@ export class Session {
     this.remember("");
     this.name = "";
     this.account = "";
+    this.seq = 0;
     await this.close();
   }
 
@@ -1028,7 +1180,8 @@ export class Session {
     cmd: string,
     args: Record<string, unknown> = {},
   ): Promise<Record<string, unknown>> {
-    const hello = await this.send(cmd, args);
+    //: `since` turns the stream of events on: the last row heard, 0 for "from now".
+    const hello = await this.send(cmd, { ...args, since: this.seq });
     this.account = String(hello.account ?? "");
     this.name = String(hello.hello ?? "");
     if (typeof hello.token === "string") this.remember(hello.token);
@@ -1042,9 +1195,10 @@ export class Session {
       await this.revive();
     }
     const socket = this.socket!;
+    const id = ++this.ticket;
     return new Promise((resolve, reject) => {
-      this.queue.push({ resolve, reject });
-      socket.send(JSON.stringify({ cmd, ...args }));
+      this.pending.set(id, { resolve, reject });
+      socket.send(JSON.stringify({ id, cmd, ...args }));
     });
   }
 
@@ -1061,14 +1215,38 @@ export class Session {
     return this.reviving;
   }
 
-  async look(): Promise<Look> {
+  /** The live part of what the player sees (D-226): body, place, pocket, the road. */
+  async look(): Promise<LiveLook> {
     const answer = await this.send("look");
-    return answer.look as Look;
+    return answer.look as LiveLook;
+  }
+
+  /** One of the slow parts, by name; the client keeps it until an event touches it. */
+  async part<K extends keyof Parts>(name: K): Promise<Parts[K]> {
+    const answer = await this.send(PART_COMMANDS[name]);
+    return answer[PART_ANSWERS[name]] as Parts[K];
+  }
+
+  /** Every slow part at once: the first read, and the reread after `session.reread`. */
+  async parts(): Promise<Parts> {
+    const [knowledge, profile, orders, deeds, shelf] = await Promise.all([
+      this.part("knowledge"),
+      this.part("profile"),
+      this.part("orders"),
+      this.part("deeds"),
+      this.part("shelf"),
+    ]);
+    return { knowledge, profile, orders, deeds, shelf };
   }
 
   async close(): Promise<void> {
-    this.socket?.close();
+    if (this.reviveTimer) {
+      clearTimeout(this.reviveTimer);
+      this.reviveTimer = null;
+    }
+    const socket = this.socket;
     this.socket = null;
+    socket?.close();
   }
 }
 
@@ -1123,23 +1301,34 @@ export const minor = (tk: number) => Math.round(tk * MONEY_SCALE);
 export function houseOf(node: Look["node"]): NonNullable<NonNullable<Look["node"]>["building"]> {
   return (
     node?.building ?? {
-      area: 0, ground: 0, floors: 0, kind: null, condition: null,
-      decay: 0, slots: 0, used: 0, sites: [],
+      area: 0, ground: 0, floors: 0, decay: 0, slots: 0, used: 0, sites: [],
     }
   );
 }
 
+/**
+ * Kinds of things standing in the node, one name per kind: machines and
+ * furniture together. The node scene is built from them (D-176), and the
+ * windows ask them by class. Assembled here, not sent: `bench` and
+ * `furniture` already name every instance.
+ */
+export function stationsOf(look: Pick<Look, "bench" | "furniture">): string[] {
+  const names = new Set<string>();
+  for (const thing of [...(look.bench ?? []), ...(look.furniture ?? [])]) names.add(thing.goods);
+  return [...names].sort();
+}
+
 /** The node's plot is the viewer's own: the holder is named, and it is us (D-178). */
 export function isMine(look: Pick<Look, "identity" | "node">): boolean {
-  return look.node?.owner !== null && look.node?.owner === look.identity;
+  return look.node?.owner != null && look.node?.owner === look.identity;
 }
 
 /** Nobody's land outside a city: never privatized, open to all (D-198). */
 export function isWild(node: Look["node"]): boolean {
-  return Boolean(node) && node!.owner === null && node!.owner_city === null;
+  return Boolean(node) && node!.owner == null && node!.owner_city == null;
 }
 
 /** Civic land: the city holds it, whether or not a person has bought it. */
 export function isCivic(node: Look["node"]): boolean {
-  return node?.owner_city !== null && node?.owner_city !== undefined;
+  return node?.owner_city != null;
 }

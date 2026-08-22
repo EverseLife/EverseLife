@@ -56,6 +56,12 @@ class Game:
         self._lock = asyncio.Lock()
         self._constants: dict[str, Any] | None = None
         self._credentials: tuple[str, str] | None = None
+        #: Two-way socket (D-226): commands are numbered, and between answers
+        #: the server speaks on its own. What it said waits here for the turn.
+        self._ticket = 0
+        self.events: list[dict[str, Any]] = []
+        #: The last journal row heard: `since` of the next hello.
+        self.seq = 0
 
     # --- public reads -----------------------------------------------------------
 
@@ -91,29 +97,75 @@ class Game:
         await self.close()
 
     async def send(self, cmd: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
-        """One command, one reply. A `refused` reply becomes `Refused`."""
+        """One command, one reply -- matched by number, not by order: events
+        the server sends in between are kept in `events`. A `refused` reply
+        becomes `Refused`."""
         if self.socket is None:
             raise GameError("нет соединения")
-        payload = {"cmd": cmd, **(args or {})}
+        self._ticket += 1
+        ticket = self._ticket
+        payload = {"id": ticket, "cmd": cmd, **(args or {})}
         async with self._lock:
             try:
                 await self.socket.send(json.dumps(payload, ensure_ascii=False))
-                raw = await asyncio.wait_for(self.socket.recv(), timeout=120)
+                while True:
+                    raw = await asyncio.wait_for(self.socket.recv(), timeout=120)
+                    answer = json.loads(raw)
+                    if not isinstance(answer, dict):
+                        continue
+                    if "event" in answer:
+                        self._heard(answer)
+                        continue
+                    if answer.get("id") == ticket:
+                        break
             except (websockets.ConnectionClosed, OSError, TimeoutError) as trouble:
                 raise GameError(f"соединение оборвалось: {trouble}") from trouble
-        answer = json.loads(raw)
-        if isinstance(answer, dict) and "refused" in answer:
+        answer.pop("id", None)
+        if "refused" in answer:
             raise Refused(str(answer["refused"]))
         return answer
 
+    def _heard(self, happening: dict[str, Any]) -> None:
+        seq = happening.get("seq")
+        if isinstance(seq, int) and seq > self.seq:
+            self.seq = seq
+        self.events.append(happening)
+
+    async def drain(self) -> None:
+        """Pull whatever the server said while nobody was reading the socket."""
+        if self.socket is None:
+            return
+        async with self._lock:
+            while True:
+                try:
+                    raw = await asyncio.wait_for(self.socket.recv(), timeout=0.05)
+                except TimeoutError:
+                    return
+                except (websockets.ConnectionClosed, OSError):
+                    return
+                answer = json.loads(raw)
+                if isinstance(answer, dict) and "event" in answer:
+                    self._heard(answer)
+
+    def take_events(self) -> list[dict[str, Any]]:
+        """What happened since the last turn, once."""
+        taken, self.events = self.events, []
+        return taken
+
     async def hello(self, *, token: str | None, email: str, password: str) -> dict[str, Any]:
         self._credentials = (email, password)
+        #: `since` turns the stream on and replays what was missed since the
+        #: last row heard; 0 means from now on.
         if token:
             try:
-                return self._identified(await self.send("hello", {"token": token}))
+                return self._identified(
+                    await self.send("hello", {"token": token, "since": self.seq})
+                )
             except Refused:
                 pass
-        return self._identified(await self.send("hello", {"email": email, "password": password}))
+        return self._identified(
+            await self.send("hello", {"email": email, "password": password, "since": self.seq})
+        )
 
     async def reconnect(self) -> None:
         """The socket dropped mid-turn: open a new one and identify again."""
@@ -148,7 +200,7 @@ class Game:
         if door:
             args["node"] = door
         self._credentials = (email, password)
-        return self._identified(await self.send("join", args))
+        return self._identified(await self.send("join", {**args, "since": 0}))
 
     def _identified(self, answer: dict[str, Any]) -> dict[str, Any]:
         self.account = answer.get("account")

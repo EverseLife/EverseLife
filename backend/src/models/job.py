@@ -82,6 +82,9 @@ class JobKind(StrEnum):
     #: The world chronicle out to Discord: once every `HERALD_PERIOD` (`src/herald/`).
     #: The world does not depend on it -- the job only reads the event journal.
     HERALD_POST = "herald.post"
+    #: A letter or a post reaching its reader by the road (D-222): nothing is
+    #: written, the reader is told it has arrived (D-226).
+    NET_DELIVER = "net.deliver"
 
 
 class Job(Base):

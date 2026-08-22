@@ -196,7 +196,7 @@ export function Workshop({ look, session, machine, book }: Omit<Props, "busy" | 
 
       {myMachine.map((station) => (
         <p className="note" key={station.id}>
-          {station.quality === null ? "" : `качество ${station.quality.toFixed(0)}`}
+          {station.quality == null ? "" : `качество ${station.quality.toFixed(0)}`}
           {station.condition < 100 && ` · состояние ${station.condition.toFixed(0)}`}
           {" · "}
           {station.busy ? (station.mine ? "занята вами" : "занята другим") : "свободна"}

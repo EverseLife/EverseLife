@@ -29,7 +29,7 @@ function canon(book: any, name: string | null): string | null {
  */
 const BENCHLESS = ["Руками"];
 
-const emptyName = (name: string | null) => name === null || BENCHLESS.includes(name);
+const emptyName = (name?: string | null) => name == null || BENCHLESS.includes(name);
 
 /** What the player can make at this machine (`null` -- by hand). */
 export function craftableAt(

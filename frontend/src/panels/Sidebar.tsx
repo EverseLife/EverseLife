@@ -200,7 +200,7 @@ function Character({ look }: Omit<Props, "session" | "busy" | "act">) {
           <tr>
             <td>тело</td>
             <td className="num">
-              {look.body === null
+              {look.body == null
                 ? "нет"
                 : sleepingSince
                   ? "спит"
@@ -252,7 +252,7 @@ function Doings({ look, session, book, busy, act }: Props) {
   const doings = look.doings ?? [];
   const asleep = doings.some((d) => d.kind === "sleep");
   //: A bed is a thing class (D-215): the engine sleeps in any member of it.
-  const bed_ = anyOfClass(book, look.node?.stations ?? [], "Кровать");
+  const bed_ = anyOfClass(book, api.stationsOf(look), "Кровать");
   //: What stands in the way of lying down: any occupation but sleep itself and
   //: a batch -- a batch freezes with the master and frees its machine (D-211).
   const cannotSleep = busyWith(look, [SLEEP, CRAFT]);
@@ -282,7 +282,7 @@ function Doings({ look, session, book, busy, act }: Props) {
         ? `замерла: вернитесь в «${job.node ?? "?"}»`
         : "ждёт свободной станции";
   const left = (job: Batch) =>
-    job.left_seconds === null
+    job.left_seconds == null
       ? ""
       : job.left_seconds < 60
         ? " · меньше минуты работы"
@@ -381,7 +381,7 @@ function Doings({ look, session, book, busy, act }: Props) {
 
       {/* Привал стоит здесь же и последним: лечь спать — такое же занятие,
           как остальные, и начинают его там, где их заканчивают (D-211). */}
-      {look.body !== null && !asleep && (
+      {look.body != null && !asleep && (
         <div className="row">
           <button
             onClick={() => act(() => session.send("rest.sleep"))}

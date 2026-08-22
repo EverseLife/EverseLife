@@ -53,7 +53,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         constants.digest,
         len(loaded.recipes.recipes),
     )
-    yield
+    #: The server speaks first (D-226): the journal's listener lives with the process.
+    from src.api import push
+
+    await push.hub.start()
+    try:
+        yield
+    finally:
+        await push.hub.stop()
 
 
 def create_app() -> FastAPI:
@@ -88,9 +95,13 @@ def create_app() -> FastAPI:
 
     @app.get("/health", tags=["housekeeping"])
     async def health() -> dict[str, object]:
+        from src.api import push
+
         return {
             "ok": True,
             "constants": HOLDER.current().digest if HOLDER.is_loaded() else None,
+            #: The socket's tally (D-226, step 4): is the poll really gone.
+            "session": push.hub.report(),
         }
 
     return app

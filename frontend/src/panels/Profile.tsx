@@ -65,7 +65,7 @@ export function Profile({ session, name, onClose }: Props) {
           <>
             <p className="note">
               {card.line === "human" ? "человек-киборг" : "нимфа"}
-              {card.age !== null ? ` · ${card.age}` : ""}
+              {card.age != null ? ` · ${card.age}` : ""}
               {card.city ? ` · гражданство: ${card.city}` : " · без гражданства"}
               {" · в мире с "}
               {new Date(card.since).toLocaleDateString("ru-RU")}

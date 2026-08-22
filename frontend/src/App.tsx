@@ -20,10 +20,18 @@
  * by using the interface. The visual language is still the designer's work (D-049, D-055).
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as api from "./api";
 import * as amounts from "./amounts";
-import { Session, type Enrollment, type Look } from "./api";
+import {
+  PART_OF_TOUCH,
+  Session,
+  compose,
+  type Enrollment,
+  type LiveLook,
+  type Look,
+  type Parts,
+} from "./api";
 import { Account } from "./panels/Account";
 import { Chat } from "./panels/Chat";
 import { Circles } from "./panels/Circles";
@@ -69,9 +77,21 @@ const ZONES = [
 ] as const;
 type Zone = (typeof ZONES)[number]["id"];
 
+/** How long the screen gathers events before rereading, and the reserve poll (D-226). */
+const REREAD_DELAY_MS = 150;
+const RESERVE_POLL_MS = 30_000;
+
 export default function App() {
   const session = useRef(new Session());
-  const [look, setLook] = useState<Look | null>(null);
+  //: The live part and the slow parts are read apart (D-226, step 2): `look`
+  //: on every event that touches the body, the place or the pocket, a part
+  //: only when an event names it. The panels see them put together.
+  const [live, setLive] = useState<LiveLook | null>(null);
+  const [parts, setParts] = useState<Parts | null>(null);
+  const look = useMemo<Look | null>(
+    () => (live && parts ? compose(live, parts) : null),
+    [live, parts],
+  );
   const [values, setValues] = useState<Record<string, any> | null>(null);
   //: The vault catalog is needed by several machine panels at once: we load it once.
   const [book, setBook] = useState<any>(null);
@@ -103,7 +123,29 @@ export default function App() {
     //: While the identity is not named there is nothing to refresh: no session
     //: yet. Otherwise the very first login step -- reading doors -- would hit "no session".
     if (!session.current.name) return;
-    setLook(await session.current.look());
+    //: The first look of a session reads everything: no half screen.
+    if (!parts) {
+      const [seen, all] = await Promise.all([session.current.look(), session.current.parts()]);
+      setParts(all);
+      setLive(seen);
+      return;
+    }
+    setLive(await session.current.look());
+  }, [parts]);
+
+  /** Reread the slow parts an event named. */
+  const rereadParts = useCallback(async (names: Iterable<keyof Parts>) => {
+    const wanted = [...new Set(names)];
+    if (!wanted.length || !session.current.name) return;
+    const fresh = await Promise.all(wanted.map((name) => session.current.part(name)));
+    setParts((known) => {
+      if (!known) return known;
+      const next = { ...known };
+      wanted.forEach((name, i) => {
+        (next as Record<keyof Parts, unknown>)[name] = fresh[i];
+      });
+      return next;
+    });
   }, []);
 
   /** Every action goes through this: one error -- one line at the bottom of the screen. */
@@ -180,7 +222,8 @@ export default function App() {
     act(async () => {
       await session.current.logout();
       setAccount_(false);
-      setLook(null);
+      setLive(null);
+      setParts(null);
       setScreen("login");
     });
 
@@ -204,12 +247,52 @@ export default function App() {
     wearPlanet(look.clock?.planet ?? null, (look.node?.features ?? []).includes("борт"));
   }, [look]);
 
+  //: The server speaks first (D-226): whatever happens to the player arrives
+  //: as an event, and the screen rereads after it. Several events in one
+  //: breath -- a craft finished and its goods created -- are one reread.
   useEffect(() => {
     if (!look) return;
-    //: En route we poll more often: the arrival must be seen at once.
-    const timer = setInterval(() => void refresh().catch(() => {}), ongoing ? 2000 : 5000);
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const touched = new Set<keyof Parts>();
+    let everything = false;
+    const stop = session.current.on("*", (happening) => {
+      if (happening.touches.length === 0) return;
+      if (happening.event === "session.reread" || happening.touches.includes("all")) {
+        everything = true;
+      }
+      for (const touch of happening.touches) {
+        const part = PART_OF_TOUCH[touch];
+        if (part) touched.add(part);
+      }
+      if (timer) return;
+      timer = setTimeout(() => {
+        timer = null;
+        const names = everything ? (Object.keys(PART_OF_TOUCH) as (keyof Parts)[]) : [...touched];
+        touched.clear();
+        everything = false;
+        void Promise.all([refresh(), rereadParts(names)]).catch(() => {});
+      }, REREAD_DELAY_MS);
+    });
+    return () => {
+      stop();
+      if (timer) clearTimeout(timer);
+    };
+  }, [look, refresh, rereadParts]);
+
+  //: The shelf belongs to the place: a new node is a new library, or none.
+  const nodeKey = live?.node?.key;
+  useEffect(() => {
+    if (!parts) return;
+    void rereadParts(["shelf"]).catch(() => {});
+  }, [nodeKey, rereadParts]);
+
+  //: The reserve: a socket cut without a close frame hears nothing, and a
+  //: half-minute poll is what finds that out. Not the way news arrives.
+  useEffect(() => {
+    if (!look) return;
+    const timer = setInterval(() => void refresh().catch(() => {}), RESERVE_POLL_MS);
     return () => clearInterval(timer);
-  }, [look, ongoing, refresh]);
+  }, [look, refresh]);
 
   //: Set out on the road or exploring -- in-person tabs close by themselves:
   //: you are not in the node.
@@ -280,7 +363,7 @@ export default function App() {
   //: No body -- the identity is in the cloud (D-012). No in-person screen
   //: exists in this state at all: nobody to look at the location. The sidebar
   //: stays: account, orders and knowledge belong to the identity, not the body.
-  if (look.body === null) {
+  if (look.body == null) {
     return (
       <ActionsProvider refresh={refresh}>
       <main>

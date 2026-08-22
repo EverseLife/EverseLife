@@ -262,10 +262,14 @@ async def run_turn(
     max_steps = int(agent["max_steps"] or 8)
     history = int(agent.get("history_limit") or DEFAULT_HISTORY)
 
+    #: What the server said while the turn was not running (D-226) -- the
+    #: socket is read only on a command, so the events wait in it.
+    await game.drain()
     try:
         seen = await game.act("look")
     except Refused as refusal:
         seen = {"refused": str(refusal)}
+    news = observe.happened(game.take_events())
     #: The previous look, and how long since the model last saw one whole: the
     #: observation is a digest plus a diff, the whole thing every few turns.
     previous_looks = store.recent(agent_id, ("look",), observe.FULL_EVERY)
@@ -274,6 +278,8 @@ async def run_turn(
         e["text"] == "full" for e in previous_looks
     )
     observation, mode = observe.observation(previous, shrink(seen), full=full, packed=pack(seen))
+    if news:
+        observation = f"Что произошло с прошлого хода:\n{news}\n\n{observation}"
     store.event(agent_id, "look", cmd="look", reply=shrink(seen), text=mode)
 
     system = SYSTEM.format(

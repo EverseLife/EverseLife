@@ -45,12 +45,12 @@ export function Circles({ session, place }: Omit<Props, "busy" | "act">) {
     }
   }, [session]);
 
+  //: Who stands with whom is told by the room (D-226, `chat.circled`).
   useEffect(() => {
     setCircles([]);
     void listen();
-    const timer = setInterval(() => void listen(), 4000);
-    return () => clearInterval(timer);
-  }, [listen, place]);
+    return session.on("chat.circled", () => void listen());
+  }, [listen, place, session]);
 
   const mine = circles.find((circle) => circle.mine);
 

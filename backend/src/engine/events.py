@@ -10,9 +10,11 @@ most -- when examining a disputed situation.
 
 from __future__ import annotations
 
+import json
 import uuid
 from typing import Any
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import HOLDER
@@ -41,3 +43,31 @@ async def record(
 
     await session.flush()
     return event
+
+
+async def announce(
+    session: AsyncSession,
+    *,
+    touches: tuple[str, ...] | list[str],
+    identity_id: uuid.UUID | None = None,
+    node_id: uuid.UUID | None = None,
+    event: str | None = None,
+    who: str | None = None,
+) -> None:
+    """Tell a player, or everyone in a node, that something changed -- for
+    what the journal does not record (D-226): room talk has no history (D-070)
+    but the room must still hear that a line was said.
+
+    Goes out with the transaction's commit, like an event; nothing if it rolls
+    back. The API process listens on the `touch` channel (`api/push.py`).
+    """
+    note = {
+        "touches": list(touches),
+        "identity_id": None if identity_id is None else str(identity_id),
+        "node_id": None if node_id is None else str(node_id),
+        "event": event,
+        "who": who,
+    }
+    await session.execute(
+        text("SELECT pg_notify('touch', :note)"), {"note": json.dumps(note, ensure_ascii=False)}
+    )

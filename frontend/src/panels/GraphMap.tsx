@@ -1465,7 +1465,7 @@ function Roads({
               {/* Цена работы стоит на кнопке, а не в подсказке при наведении:
                   выключенная кнопка без объяснения читается как поломка, а с
                   телефона подсказку не увидеть вовсе. */}
-              {path.next && path.needs !== null && (
+              {path.next && path.needs != null && (
                 <button
                   className="quiet"
                   onClick={() => work_(path.edge, false)}
@@ -1476,7 +1476,7 @@ function Roads({
                   {path.needs.toFixed(0)}
                 </button>
               )}
-              {path.mend_needs !== null && (
+              {path.mend_needs != null && (
                 <button
                   className="quiet"
                   onClick={() => work_(path.edge, true)}

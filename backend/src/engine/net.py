@@ -53,9 +53,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Constants
 from src.constants import registry as R
-from src.engine import travel
+from src.engine import events, travel
+from src.engine.jobs import enqueue, handler
 from src.models.city import City, Power
 from src.models.identity import Body, BodyState, Identity
+from src.models.job import Job, JobKind
 from src.models.net import (
     NetChannel,
     NetMessage,
@@ -336,7 +338,42 @@ async def write(
     thread = await session.get(NetThread, thread_id)
     thread.last_at = moment
     await session.flush()
+    for reader in others:
+        await _deliver(session, reader, letter.delivered_at, now=moment, event="net.letter")
     return letter
+
+
+async def _deliver(
+    session: AsyncSession,
+    reader: uuid.UUID,
+    arrives: datetime,
+    *,
+    now: datetime,
+    event: str,
+) -> None:
+    """Tell the reader when it reaches them (D-226): at once if the road is
+    nothing, otherwise by a job at the moment of arrival. The journal keeps
+    no letters (D-222), so this is an announcement, not an event."""
+    if arrives <= now:
+        await events.announce(session, touches=("net",), identity_id=reader, event=event)
+        return
+    await enqueue(
+        session,
+        JobKind.NET_DELIVER,
+        arrives,
+        payload={"identity": str(reader), "event": event},
+    )
+
+
+@handler(JobKind.NET_DELIVER)
+async def delivered(session: AsyncSession, job: Job) -> None:
+    """The road is walked: the reader hears that something has reached them."""
+    await events.announce(
+        session,
+        touches=("net",),
+        identity_id=uuid.UUID(job.payload["identity"]),
+        event=str(job.payload.get("event") or "net.letter"),
+    )
 
 
 def _visible(identity_id: uuid.UUID, now: datetime):
@@ -607,8 +644,13 @@ async def post(
     text: str,
     *,
     now: datetime | None = None,
+    constants: Constants | None = None,
 ) -> NetPost:
-    """Write in a channel: the owner, or the city's power (D-222)."""
+    """Write in a channel: the owner, or the city's power (D-222).
+
+    With `constants` every reader is told when the post reaches them by
+    their own road (D-226) -- the readers of the moment, where they stand
+    now; one who walks meanwhile reads it when `channel.read` says so."""
     moment = now or datetime.now(UTC)
     channel = await _channel(session, channel_id)
     cleaned = _clean(text, NET_TEXT_LIMIT, what="пост")
@@ -625,7 +667,34 @@ async def post(
     session.add(entry)
     channel.last_at = moment
     await session.flush()
+    if constants is not None:
+        for reader in await _readers(session, channel):
+            if reader == me.id:
+                continue
+            there = await _where(session, reader)
+            delay = await delay_between(session, constants, here, there, now=moment)
+            await _deliver(session, reader, moment + delay, now=moment, event="net.post")
     return entry
+
+
+async def _readers(session: AsyncSession, channel: NetChannel) -> set[uuid.UUID]:
+    """Who reads the channel now: subscribers, and the citizens of its city."""
+    readers = set(
+        (
+            await session.execute(
+                select(NetSubscription.identity_id).where(
+                    NetSubscription.channel_id == channel.id
+                )
+            )
+        ).scalars().all()
+    )
+    if channel.city_id is not None:
+        from src.engine import city as town
+
+        city = await town.by_id(session, channel.city_id)
+        if city is not None:
+            readers.update(c.identity_id for c in await town.citizens_of(session, city))
+    return readers
 
 
 async def _delivered(

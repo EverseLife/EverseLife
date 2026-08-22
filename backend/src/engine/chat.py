@@ -43,7 +43,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Constants
 from src.constants import registry as R
-from src.engine import travel
+from src.engine import events, travel
 from src.models.chat import ChatGroup, ChatMember, ChatMessage, Utterance
 from src.models.identity import Body, BodyState, Identity
 from src.models.inventory import Container, ContainerKind, Item
@@ -160,6 +160,10 @@ async def say(
     )
     session.add(message)
     await session.flush()
+    #: The room is told that something was said -- not what (D-226, D-070):
+    #: who hears it, and whether whole or as a leak, is decided by `hear`,
+    #: which every listener calls on this signal.
+    await events.announce(session, touches=("chat",), node_id=body.node_id, event="chat.said")
     return message
 
 
@@ -277,6 +281,10 @@ async def join(session: AsyncSession, body: Body, group_id: uuid.UUID) -> None:
     await leave_groups(session, body.identity_id)
     session.add(ChatMember(group_id=group_id, identity_id=body.identity_id))
     await session.flush()
+    #: Circles are visible to the room (D-043): who stands with whom changed.
+    await events.announce(
+        session, touches=("chat",), node_id=body.node_id, event="chat.circled"
+    )
 
 
 async def leave_groups(session: AsyncSession, identity_id: uuid.UUID) -> None:

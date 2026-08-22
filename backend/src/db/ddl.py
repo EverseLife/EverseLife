@@ -62,6 +62,25 @@ END;
 $$ LANGUAGE plpgsql
 """
 
+#: The journal tells the API process that something happened (D-226): the
+#: notification is queued inside the transaction and leaves with the commit,
+#: so a rolled-back event is never announced. The payload is the row id only;
+#: the listener reads the row itself and decides whom it concerns.
+ANNOUNCE_FUNCTION = """
+CREATE OR REPLACE FUNCTION announce_event() RETURNS trigger AS $$
+BEGIN
+    PERFORM pg_notify('event', NEW.id::text);
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql
+"""
+
+ANNOUNCE_TRIGGER = """
+CREATE TRIGGER event_announced
+AFTER INSERT ON event
+FOR EACH ROW EXECUTE FUNCTION announce_event()
+"""
+
 
 def _append_only(table: str) -> tuple[str, ...]:
     #: The function is declared next to each trigger: table creation order is
@@ -81,7 +100,7 @@ RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
     #: reversing posting, as in real bookkeeping. Otherwise the journal stops
     #: being evidence.
     ("ledger_entry", (BALANCE_FUNCTION, BALANCE_TRIGGER, *_append_only("ledger_entry"))),
-    ("event", _append_only("event")),
+    ("event", (*_append_only("event"), ANNOUNCE_FUNCTION, ANNOUNCE_TRIGGER)),
     ("ledger_transaction", _append_only("ledger_transaction")),
 )
 

@@ -13,7 +13,7 @@ export type TierStock = { tier: string; amount: number; low: number; high: numbe
 export function tiersOf(things: Thing[], goods: string): TierStock[] {
   const found = new Map<string, TierStock>();
   for (const thing of things) {
-    if (thing.goods !== goods || thing.quality === null) continue;
+    if (thing.goods !== goods || thing.quality == null) continue;
     const have = found.get(thing.tier);
     if (have) {
       have.amount += thing.amount;

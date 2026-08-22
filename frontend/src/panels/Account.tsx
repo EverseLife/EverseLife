@@ -38,7 +38,7 @@ type Tab = (typeof TABS)[number]["id"];
 export function Account({ profile, session, busy, act, onClose, onLogout }: Props) {
   const [tab, setTab] = useState<Tab>("who");
   const [surname, setSurname] = useState(profile.surname);
-  const [age, setAge] = useState(profile.age === null ? "" : String(profile.age));
+  const [age, setAge] = useState(profile.age == null ? "" : String(profile.age));
   const [about, setAbout] = useState(profile.about);
   const [old, setOld] = useState("");
   const [fresh, setFresh] = useState("");
@@ -95,7 +95,7 @@ export function Account({ profile, session, busy, act, onClose, onLogout }: Prop
           </h2>
           <span className="note">
             {line}
-            {profile.age !== null ? ` · ${profile.age}` : ""} · в мире с{" "}
+            {profile.age != null ? ` · ${profile.age}` : ""} · в мире с{" "}
             {s.toLocaleDateString("ru-RU")}
           </span>
           <button className="quiet" onClick={onClose} title="закрыть" aria-label="закрыть">

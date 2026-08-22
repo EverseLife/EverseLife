@@ -35,7 +35,7 @@ export const SORTINGS: { id: Sorting; label: string }[] = [
 /** What kind of thing this is, in the player's words -- from vault data, not from the name. */
 export function kindOf(book: any, thing: Thing): string {
   if (thing.recipe) return "носители";
-  if (thing.fineness !== null) return "монеты";
+  if (thing.fineness != null) return "монеты";
   const recipe = (book?.recipes ?? []).find((r: any) => r.name === thing.goods);
   if (!recipe) return "сырьё";
   if (recipe.food) return "еда";
@@ -58,7 +58,7 @@ export function groupKey(book: any, thing: Thing, by: Grouping): string {
     case "goods":
       return thing.recipe ? `${thing.goods}: ${thing.recipe}` : thing.goods;
     case "tier":
-      return thing.quality === null ? "без качества" : thing.tier;
+      return thing.quality == null ? "без качества" : thing.tier;
     case "kind":
       return kindOf(book, thing);
     case "maker":
@@ -68,13 +68,13 @@ export function groupKey(book: any, thing: Thing, by: Grouping): string {
   }
 }
 
-const compare = (a: number | null, b: number | null) =>
-  a === null && b === null ? 0 : a === null ? 1 : b === null ? -1 : a - b;
+const compare = (a: number | undefined, b: number | undefined) =>
+  a == null && b == null ? 0 : a == null ? 1 : b == null ? -1 : a - b;
 
 /** Sorted copy: `desc` flips the order but keeps "nothing" last either way. */
 export function arrange(things: Thing[], by: Sorting, desc: boolean): Thing[] {
   const sign = desc ? -1 : 1;
-  const key = (t: Thing): number | null => {
+  const key = (t: Thing): number | undefined => {
     switch (by) {
       case "quality":
         return t.quality;
@@ -85,9 +85,9 @@ export function arrange(things: Thing[], by: Sorting, desc: boolean): Thing[] {
       case "condition":
         return t.condition;
       case "spoils":
-        return t.spoils_at ? new Date(t.spoils_at).getTime() : null;
+        return t.spoils_at ? new Date(t.spoils_at).getTime() : undefined;
       default:
-        return null;
+        return undefined;
     }
   };
   return [...things].sort((a, b) => {
@@ -96,9 +96,9 @@ export function arrange(things: Thing[], by: Sorting, desc: boolean): Thing[] {
     }
     const ka = key(a);
     const kb = key(b);
-    if (ka === null && kb === null) return a.goods.localeCompare(b.goods, "ru");
-    if (ka === null) return 1;
-    if (kb === null) return -1;
+    if (ka == null && kb == null) return a.goods.localeCompare(b.goods, "ru");
+    if (ka == null) return 1;
+    if (kb == null) return -1;
     return sign * compare(ka, kb) || a.goods.localeCompare(b.goods, "ru");
   });
 }
@@ -130,7 +130,7 @@ export function summarize(rows: Thing[]): Summary {
   let weight = 0;
   let weighed = 0;
   for (const row of rows) {
-    if (row.quality === null) continue;
+    if (row.quality == null) continue;
     weight += row.amount;
     weighed += row.quality * row.amount;
   }
@@ -147,7 +147,7 @@ export function orderGroups(keys: string[], by: Grouping, things: Thing[]): stri
   if (by === "tier") {
     const best = new Map<string, number>();
     for (const t of things) {
-      const k = t.quality === null ? "без качества" : t.tier;
+      const k = t.quality == null ? "без качества" : t.tier;
       best.set(k, Math.max(best.get(k) ?? -1, t.quality ?? -1));
     }
     return [...keys].sort((a, b) => (best.get(b) ?? -1) - (best.get(a) ?? -1));

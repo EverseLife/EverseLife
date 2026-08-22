@@ -84,6 +84,19 @@ async def test_delay_is_the_road_times_the_constant(
     assert letter.delivered_at == NOW + expected
     assert expected > timedelta(0)
 
+    #: The reader is told on arrival, not on sending (D-226): a job waits for
+    #: the road, addressed to the reader alone.
+    from sqlalchemy import select
+
+    from src.models.job import Job, JobKind
+
+    jobs = (
+        await session.execute(select(Job).where(Job.kind == JobKind.NET_DELIVER.value))
+    ).scalars().all()
+    assert [(j.run_at, j.payload) for j in jobs] == [
+        (letter.delivered_at, {"identity": str(other.id), "event": "net.letter"})
+    ]
+
 
 async def test_reader_sees_the_letter_only_when_it_arrives(
     session: AsyncSession, constants: Constants

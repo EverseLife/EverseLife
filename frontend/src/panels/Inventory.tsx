@@ -471,8 +471,8 @@ function sections(
  */
 function sums(summary: Summary, stacks: number): string {
   const said: string[] = [];
-  if (summary.goods !== null) said.push(tally(summary.goods, summary.amount));
-  if (summary.quality !== null) said.push(`в среднем ${summary.quality.toFixed(0)}`);
+  if (summary.goods != null) said.push(tally(summary.goods, summary.amount));
+  if (summary.quality != null) said.push(`в среднем ${summary.quality.toFixed(0)}`);
   said.push(positions(stacks));
   said.push(`${summary.mass.toFixed(1)} кг`);
   return ` · ${said.join(" · ")}`;
@@ -491,14 +491,14 @@ function positions(count: number): string {
 /** The one line that says what kind of thing this is. */
 function tells(thing: Thing): string {
   const parts: string[] = [];
-  if (thing.fineness !== null) {
+  if (thing.fineness != null) {
     parts.push(`проба ${thing.fineness}`);
     if (thing.maker) parts.push(`клеймо ${thing.maker}`);
-  } else if (thing.vigor !== null) {
+  } else if (thing.vigor != null) {
     parts.push(`${thing.variety ?? "сорт"} · сила ${thing.vigor.toFixed(0)}`);
-  } else if (thing.charge !== null) {
+  } else if (thing.charge != null) {
     parts.push(`заряд ${thing.charge.toFixed(0)}`);
-  } else if (thing.quality !== null) {
+  } else if (thing.quality != null) {
     parts.push(`${thing.quality.toFixed(0)} · ${thing.tier}`);
   }
   if (thing.condition < 100) parts.push(`сост. ${thing.condition.toFixed(0)}`);

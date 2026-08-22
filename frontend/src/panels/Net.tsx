@@ -46,7 +46,6 @@ type View =
   | { kind: "channel"; id: string }
   | { kind: "channels" };
 
-const POLL = 4000;
 
 export function Net({ session, unread, wanted, onWanted }: Props) {
   const [view, setView] = useState<View>({ kind: "list" });
@@ -65,7 +64,8 @@ export function Net({ session, unread, wanted, onWanted }: Props) {
 
   useEffect(() => {
     void reread();
-  }, [reread, unread, view.kind]);
+    return session.on("net.", () => void reread());
+  }, [reread, unread, view.kind, session]);
 
   //: "Write" from somebody's card: the card has opened the thread already,
   //: asking again only finds it. The tab may not have been mounted when the
@@ -280,12 +280,12 @@ function Talk({
     }
   }, [session, id]);
 
+  //: A letter says when it arrives (D-226, `net.letter`): nothing to poll.
   useEffect(() => {
     setLetters([]);
     void read();
-    const timer = setInterval(() => void read(), POLL);
-    return () => clearInterval(timer);
-  }, [read]);
+    return session.on("net.", () => void read());
+  }, [read, session]);
 
   useEffect(() => {
     scroll.current?.scrollTo({ top: scroll.current.scrollHeight });
@@ -381,11 +381,11 @@ function Feed({
     }
   }, [session, id]);
 
+  //: A post says when it reaches this reader (D-226, `net.post`).
   useEffect(() => {
     void read();
-    const timer = setInterval(() => void read(), POLL);
-    return () => clearInterval(timer);
-  }, [read]);
+    return session.on("net.", () => void read());
+  }, [read, session]);
 
   const publish = () =>
     acting.act(async () => {

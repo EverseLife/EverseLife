@@ -47,6 +47,10 @@ async def _prepare_world() -> dict:
         body = await world.print_body(db, identity, node)
         bag = await world.body_container(db, body)
         await world.grant_item(db, bag, "Шахтная крепь", amount=5, origin="сценарий теста")
+        #: Goods on the ground and a bed: `stations` must name the bed alone.
+        yard = await world.node_container(db, node)
+        await world.grant_item(db, yard, "Верёвка", amount=3, origin="сценарий теста")
+        await world.grant_item(db, yard, "Кровать", quality=50, origin="сценарий теста")
         #: Mining requires a pickaxe since D-215 -- the vault said so all along.
         await world.grant_item(
             db, bag, "Каменная кирка", quality=50, origin="сценарий теста"
@@ -220,8 +224,8 @@ def test_look_names_who_pays_for_the_node(client, miner) -> None:
         answer = ws.receive_json()
 
     assert "refused" not in answer, answer
-    assert "upkeep" in answer["look"]["node"], "поле должно быть всегда"
-    assert answer["look"]["node"]["upkeep"] is None, "в забое городской сети нет"
+    #: No payer -- no key: null fields are not sent (D-225 widened).
+    assert "upkeep" not in answer["look"]["node"], "в забое городской сети нет"
 
 
 def test_plot_is_not_ceded_by_a_passer_by(client, miner) -> None:
@@ -474,4 +478,7 @@ def test_look_node_carries_only_underived_facts(client, miner) -> None:
     empty = {"shelf", "door", "may_name", "building", "price"}
     assert not empty & node.keys(), "пустые ключи не отдаются"
     assert "hall" not in (answer["look"].get("city") or {})
-    assert node["owner"] is None and node["owner_city"] is None
+    #: What stands here is `bench` and `furniture`, not a list on the node.
+    assert "stations" not in node
+    assert [f["goods"] for f in answer["look"]["furniture"]] == ["Кровать"]
+    assert "owner" not in node and "owner_city" not in node, "ничей: ключей нет"

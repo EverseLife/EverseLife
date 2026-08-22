@@ -6,7 +6,7 @@
  *
  * Behaviour binds to a class, never to a name: the engine asks "is there a
  * machine of class «Верфь» here", and so must the client. A panel that compared
- * `stations.includes("Космическая верфь")` worked only while the one yard in
+ * `stations.includes("Космическая верфь")` (over the names of the bench) worked only while the one yard in
  * the world kept that exact name -- a second yard, or a rename in the vault,
  * would hide the window without a word. The members of a class come from
  * `build/recipes.json` (`classes`), so a new bed or printer is data alone.

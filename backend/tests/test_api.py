@@ -27,6 +27,15 @@ def test_server_starts_and_knows_its_numbers(client) -> None:
     body = client.get("/health").json()
     assert body["ok"] is True
     assert body["constants"], "отпечаток набора констант обязан быть известен"
+    #: The socket's tally (D-226, step 4): the poll is watched, not assumed gone.
+    tally = body["session"]
+    assert set(tally) >= {
+        "connections",
+        "listening",
+        "events_sent",
+        "answers",
+        "look_per_connection_hour",
+    }
 
 
 def test_constants_served_to_client_whole(client) -> None:

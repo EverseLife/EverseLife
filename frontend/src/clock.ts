@@ -15,7 +15,7 @@
  */
 
 /** Where the world's count starts and how long its day is (from `look.clock`). */
-export type Clock = { planet: string; epoch: string | null; day_hours: number };
+export type Clock = { planet: string; epoch?: string; day_hours: number };
 
 const MS_PER_HOUR = 3_600_000;
 

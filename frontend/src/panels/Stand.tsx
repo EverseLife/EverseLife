@@ -201,7 +201,7 @@ export function Stand({ look, session, book, values, pow }: Props) {
  */
 function assemble({ look, session, book, values, pow }: Props): Thing[] {
   const things: Thing[] = [];
-  const stations = look.node?.stations ?? [];
+  const stations = api.stationsOf(look);
   const bench = look.bench ?? [];
   const batches = look.batches ?? [];
 
@@ -217,7 +217,7 @@ function assemble({ look, session, book, values, pow }: Props): Thing[] {
     const parts: string[] = [];
     if (it.busy) parts.push(it.mine ? "занята вами" : "занята");
     else parts.push("свободна");
-    if (it.quality !== null) parts.push(`кач. ${it.quality.toFixed(0)}`);
+    if (it.quality != null) parts.push(`кач. ${it.quality.toFixed(0)}`);
     if (it.condition < 100) parts.push(`сост. ${it.condition.toFixed(0)}`);
     return parts.join(" · ");
   };
@@ -367,7 +367,7 @@ function assemble({ look, session, book, values, pow }: Props): Thing[] {
       view: () => <Forage look={look} session={session} />,
     });
   }
-  //: A library and a hall are machines (D-176, D-215): both are read off `stations`.
+  //: A library and a hall are machines (D-176, D-215): both are read off the bench.
   if (anyOfClass(book, stations, "Библиотека")) {
     single("library", "Библиотека", "full", () => <Library look={look} session={session} />);
   }
@@ -432,7 +432,7 @@ function assemble({ look, session, book, values, pow }: Props): Thing[] {
       3,
       home.area > 0
         ? `${home.area.toFixed(0)} м² в ${home.floors} эт. · мест ${home.used} из ${home.slots}`
-          + (home.condition === null ? "" : ` · состояние ${home.condition.toFixed(0)}%`)
+          + (home.condition == null ? "" : ` · состояние ${home.condition.toFixed(0)}%`)
         : home.sites.length > 0
           ? "строится"
           : "не построен",

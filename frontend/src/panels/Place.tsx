@@ -1306,7 +1306,7 @@ export function Convoy({ look, session }: Omit<Props, "busy" | "act" | "book">) 
               }
               disabled={busy}
               title={
-                cart.capacity === null
+                cart.capacity == null
                   ? "вольт не назвал грузоподъёмности"
                   : `${cart.capacity.toFixed(0)} кг · скорость ×${cart.speed_k}`
               }
@@ -1380,13 +1380,13 @@ function Equipment({
               <tr key={thing.id}>
                 <td>{thing.goods}</td>
                 <td className="note">
-                  {thing.quality === null ? "" : `качество ${thing.quality.toFixed(0)}`}
+                  {thing.quality == null ? "" : `качество ${thing.quality.toFixed(0)}`}
                   {thing.condition < 100 && ` · сост. ${thing.condition.toFixed(0)}`}
                 </td>
                 <td className="note">
                   {/* У аккумулятора состояние — это заряд, а не «занята»:
                       за ним не работают, он хранит энергию (D-179). */}
-                  {thing.charge !== null
+                  {thing.charge != null
                     ? `заряд ${thing.charge.toFixed(0)} · заряжают в «хозяйстве»`
                     : kind === "station"
                       ? thing.busy

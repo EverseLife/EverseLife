@@ -16,7 +16,7 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import type { Look, Session } from "../api";
+import { stationsOf, type Look, type Session } from "../api";
 import { Rule } from "../Rule";
 import { firstOfClass } from "../classes";
 import { Refusal, useActions } from "../actions";
@@ -72,7 +72,7 @@ type Vessel = {
 function cheapest(v: Vessel): number {
   const fuels = v.routes
     .map((route) => route.fuel)
-    .filter((fuel): fuel is number => fuel !== null);
+    .filter((fuel): fuel is number => fuel != null);
   return fuels.length ? Math.min(...fuels) : 0;
 }
 
@@ -86,7 +86,7 @@ export function Ship({ look, session, book }: { look: Look; session: Session; bo
   const [name, setName] = useState("");
 
   const aboard = (look.node?.features ?? []).includes(ABOARD);
-  const atPort = firstOfClass(book, look.node?.stations ?? [], SPACEPORT) !== undefined;
+  const atPort = firstOfClass(book, stationsOf(look), SPACEPORT) !== undefined;
   const foundationName = firstOfClass(book, look.inventory.map((t) => t.goods), FOUNDATION);
   const foundation = look.inventory.find((t) => t.goods === foundationName);
 
@@ -111,7 +111,7 @@ export function Ship({ look, session, book }: { look: Look; session: Session; bo
   //: ones that are yours, because from the pier one commands one's own.
   const shown = aboard
     ? ships
-    : ships.filter((v) => v.docked === look.node?.key || v.docked === null);
+    : ships.filter((v) => v.docked === look.node?.key || v.docked == null);
 
   return (
     <section>
