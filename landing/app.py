@@ -135,7 +135,9 @@ class Signup(BaseModel):
     website: str = ""
 
 
-@app.get("/")
+#: HEAD as well as GET: link checkers and uptime monitors ask for headers
+#: first, and a 405 there reads as a broken site.
+@app.api_route("/", methods=["GET", "HEAD"])
 def index() -> FileResponse:
     return FileResponse(INDEX, media_type="text/html")
 
