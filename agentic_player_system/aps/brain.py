@@ -170,6 +170,7 @@ class Turn:
     actions: list[tuple[str, str, bool]] = field(default_factory=list)
     finished: bool = False
     thought: str = ""
+    remembered: bool = False
 
 
 def _history(store: Store, agent_id: str) -> str:
@@ -254,6 +255,12 @@ async def run_turn(
 
     if turn.thought:
         store.event(agent_id, "thought", text=turn.thought)
+        if not turn.remembered:
+            #: The model skipped `remember`: the closing thought is kept for it,
+            #: so the next turn still knows what this one was about.
+            notes = (agent["notes"] + "\n" + turn.thought).strip()[-MAX_NOTES_CHARS:]
+            store.update_agent(agent_id, {"notes": notes})
+            agent["notes"] = notes
     return turn
 
 
@@ -300,6 +307,7 @@ async def _tool(
         notes = str(arguments.get("notes") or "")[:MAX_NOTES_CHARS]
         store.update_agent(agent_id, {"notes": notes})
         agent["notes"] = notes
+        turn.remembered = True
         return "Заметки обновлены."
     if name == "report_bug":
         text = str(arguments.get("text") or "").strip()

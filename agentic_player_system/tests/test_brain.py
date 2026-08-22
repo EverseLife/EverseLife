@@ -132,6 +132,8 @@ async def test_plain_text_reply_ends_the_turn(
     )
     assert turn.finished and turn.steps == 0
     assert store.events(agent["id"])[-1]["text"] == "Подожду следующего хода."
+    #: No `remember` call -- the thought lands in the notes anyway.
+    assert store.agent(agent["id"])["notes"] == "Подожду следующего хода."
 
 
 def test_stuck_detection_needs_the_same_refused_action_in_a_row() -> None:
