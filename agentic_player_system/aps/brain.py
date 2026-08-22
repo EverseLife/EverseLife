@@ -291,6 +291,8 @@ async def run_turn(
             f"{len(commands.brief(reference))}), заметки {len(notes)}, история {len(recent)} "
             f"({history} записей), наблюдение {len(observation)}"
         ),
+        #: The exact text, so "what did the model actually see" has an answer.
+        reply={"system": system, "user": messages[1]["content"]},
     )
 
     while turn.steps < max_steps and not turn.finished:

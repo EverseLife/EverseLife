@@ -113,7 +113,7 @@ def today() -> str:
     return datetime.now(UTC).date().isoformat()
 
 
-def _json(value: Any, limit: int = 20000) -> str:
+def _json(value: Any, limit: int = 60000) -> str:
     if value is None:
         return ""
     return json.dumps(value, ensure_ascii=False)[:limit]

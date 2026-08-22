@@ -269,6 +269,12 @@ function renderEvent(ev) {
   if (ev.kind === "look") {
     return `<div class="ev look">${at} look${fold("что увидел", ev.reply)}</div>`;
   }
+  if (ev.kind === "prompt") {
+    let r = {}; try { r = JSON.parse(ev.reply || "{}"); } catch {}
+    const sys = r.system ? `<details><summary>системная часть (${r.system.length} зн.)</summary><pre>${esc(r.system)}</pre></details>` : "";
+    const usr = r.user ? `<details><summary>ход: заметки, история, наблюдение (${r.user.length} зн.)</summary><pre>${esc(r.user)}</pre></details>` : "";
+    return `<div class="ev prompt">${at} ${esc(ev.text)}${sys}${usr}</div>`;
+  }
   if (ev.kind === "thought") return `<div class="ev thought">${at} <b>итог хода:</b> ${esc(ev.text)}</div>`;
   if (ev.kind === "bug") return `<div class="ev bug">${at} <b>ДЕФЕКТ:</b> ${esc(ev.text)}</div>`;
   return `<div class="ev ${ev.kind}">${at} ${esc(ev.text)}</div>`;
