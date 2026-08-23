@@ -1,95 +1,35 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 Nurlan Urazkulov
 
-"""City administration: office, right, treasury (D-127, D-130, D-154, D-155).
+"""city: citizenship (D-160); with founding and offices, laws and charter.
 
-The charter and code-laws had lain as data since D-130, but nobody could change
-them: "city authority" did not exist as an entity. Exactly three things appear
-here and not one more.
-
-**Office** -- a record "identity holds a post in the city". What the post is
-called is the city's decision: the engine does not care whether it is a
-president or a minister of economy.
-
-**Right** -- what the engine checks, and it can be narrow:
-
-    law:import_duty   edit one code-law
-    laws              all code-laws at once; covers any law:<id>
-    charter           answer charter questions
-    treasury          spend the treasury
-    offices           appoint and dismiss offices
-    land              allot civic plots
-    dashboard         full snapshot of the economic panel
-    justice           court and sanctions (declared, mechanics separate)
-
-The list of specific laws is **not written** in code: it is exactly the one in
-the vault's `data/laws.yaml`. Add a new code-law and a right for it appears at
-once. There is and will be no branching on office titles here: otherwise every
-new form of government would need a release (01-tech-notes, pattern 3).
-
-**Treasury** -- the existing `city_treasury` account. Whoever has `treasury`
-spends it; each spend is an ordinary posting with a ground, i.e. visible.
-
-## Authority is in-person (D-155)
-
-Decisions are made **in the city administration**: changing a law, answering
-the charter, appointing, spending the treasury, allotting plots. Authority that
-can be exercised from across the ocean needs neither a capital nor roads to it,
-and seizing power becomes a matter of one click rather than geography.
-
-Reading the panel stays remote (D-140): figures are information, they travel
-over the Net. Presence is needed to **decide**, not to look.
-
-## Where a law's value comes from
-
-Three sources, and the order between them is strict:
-
-1. the city's decision -- what the authority wrote into `city.laws`;
-2. the vault default -- `laws.json`, so a new city works without filling in
-   anything (D-130);
-3. a vault constant, if the default is written as a reference like
-   `` `energy.tariff_default` ``.
-
-A city that decided nothing lives on defaults. These are not "default
-settings" but the starting state: as soon as the authority decides otherwise,
-the default stops meaning anything.
-
-## Change of power (D-160, D-161, D-162)
-
-Citizenship, polls and elections live next door: the citizen register is here,
-the procedure is in `engine/vote.py`. From here the ruler is determined in two
-ways: by appointment (default "founder indefinitely") and by **election**, if
-the charter answered `ruler_selection: elected_citizens`. A recall vacates the
-office and the city goes straight to an election.
-
-For the engine the ruler is not a named post but **the office with the widest
-set of rights**: no branching on titles here, ever (D-154).
-
-## What is not here
-
-The council (`council_exists`), sortition and inheritance of power, and
-amending the charter itself by vote. The charter describes them, the data is
-there, the mechanics will arrive as their own task.
+Split out of `engine/city.py` along its sections (review 2026-08-23, wave 3).
 """
 
 from __future__ import annotations
 
-import json
 import uuid
-from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
-from sqlalchemy import delete, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants, current
 from src.constants import registry as R
 from src.constants.spec import Num
-from src.engine import death, energy, estate, events, ledger, market, travel, utility, world
+from src.engine import death, energy, events, market, travel, utility, world
 from src.engine import vote as ballots
-from src.engine.death import PRECURSOR
-from src.engine.errors import Refusal
+from src.engine.city._base import (
+    FOUNDER_POWERS,
+    FOUNDER_TITLE,
+    HALL,
+    CityError,
+    NotAllowed,
+    NotReady,
+    NotYours,
+)
+from src.engine.city.lookup import by_id, by_node, territory
 from src.engine.jobs import enqueue, handler
 from src.engine.world import node_container, station_names
 from src.models.city import (
@@ -97,7 +37,6 @@ from src.models.city import (
     Citizen,
     CitizenshipRequest,
     City,
-    CityGrant,
     Office,
     Power,
 )
@@ -107,151 +46,9 @@ from src.models.event import EventKind
 from src.models.identity import BodyState, Identity
 from src.models.inventory import Item
 from src.models.job import Job, JobKind
-from src.models.ledger import AccountKind, PostingReason
 from src.models.vote import VoteKind
-from src.models.world import Layer, Node, NodePass
+from src.models.world import Layer, Node
 from src.runtime import CITY_ABOUT_LIMIT
-from src.units import ENERGY_PER_TARIFF_UNIT, money, money_str
-
-
-class CityError(Refusal):
-    pass
-
-
-class NoCity(CityError):
-    pass
-
-
-class NotAllowed(CityError):
-    """No power. Authority is a record, not self-confidence."""
-
-
-class NotEnoughTreasury(CityError):
-    """The treasury does not have that much. An empty treasury is a political event."""
-
-
-class NotReady(CityError):
-    """No city yet: buildings are missing without which it is not a city (D-023)."""
-
-
-class NotYours(CityError):
-    """A city is founded on your own land. Somebody else's yard will not do."""
-
-
-#: The founder's powers. A city arises governed: if the founder got an empty
-#: set, the very first city would have no authority at all (D-130).
-FOUNDER_POWERS: tuple[str, ...] = tuple(power.value for power in Power)
-FOUNDER_TITLE = "Президент"
-
-#: The thing class of machines that make a node an administration: what a
-#: building is, is set by the machine in it (D-106, D-215).
-HALL = "Администрация"
-
-
-# --- lookup ------------------------------------------------------------------
-
-
-async def by_id(session: AsyncSession, city_id: uuid.UUID) -> City | None:
-    return await session.get(City, city_id)
-
-
-async def by_node(session: AsyncSession, node_id: uuid.UUID) -> City | None:
-    """The city whose delegate node this is."""
-    return (await session.execute(select(City).where(City.node_id == node_id))).scalar_one_or_none()
-
-
-async def of_node(session: AsyncSession, node: Node) -> City | None:
-    """The city on whose territory the node stands.
-
-    A city's territory is its children in the display hierarchy (D-045). The
-    floodplain and the mine hang directly on the planet and are covered by no
-    authority -- there are no laws there, and that is geography, not an omission.
-    """
-    if node.owner_city_id is not None:
-        return await by_id(session, node.owner_city_id)
-    #: The delegate node is the territory of its own city (D-159). Otherwise a
-    #: person standing in it is formally outside the city, and in-person
-    #: authority in a just-founded city turns out to be unreachable.
-    own = await by_node(session, node.id)
-    if own is not None:
-        return own
-    if node.parent_id is None:
-        return None
-    parent = await session.get(Node, node.parent_id)
-    if parent is None or parent.layer is not Layer.PLANET:
-        return None
-    return await by_node(session, parent.id)
-
-
-async def territory(session: AsyncSession, city: City) -> Sequence[Node]:
-    """Every node of the city: the delegate, its built-up area, its land.
-
-    The same three ways of belonging `of_node` reads, only from the other end.
-    """
-    return (
-        (
-            await session.execute(
-                select(Node).where(
-                    (Node.owner_city_id == city.id)
-                    | (Node.id == city.node_id)
-                    | (Node.parent_id == city.node_id)
-                )
-            )
-        )
-        .scalars()
-        .all()
-    )
-
-
-#: Node property: the ring of the built-up area, a record made at generation
-#: (D-089). The zero ring is the centre, and the bioprinter stands in it.
-RING = "кольцо"
-
-
-async def core(session: AsyncSession, city: City) -> Node | None:
-    """The city core -- the node with the bioprinter the city grew from (D-089).
-
-    A city is founded where a bioprinter already stands (`establish`), so a city
-    on one node is its own core: that very machine became the ground of the
-    city. The capital is laid out otherwise -- the delegate node holds no
-    machines -- and there the core is the zero ring under it, the node with the
-    Forerunners' Printer the capital was rebuilt from.
-
-    Only the core is a door into the world (D-208, `world.is_door`). Printers
-    built later print the dead and the returning, but a newcomer does not come
-    out of somebody's workshop.
-    """
-
-    own = await session.get(Node, city.node_id)
-    if own is not None and await world.has_station(session, own, world.BIOPRINTER):
-        return own
-    #: The centre of the built-up area is marked twice -- by the zero ring and by
-    #: the Forerunners' machine -- and either mark will do: a world laid out
-    #: before one of them still has a core rather than none.
-    for place in await territory(session, city):
-        marks = place.properties or {}
-        if not (marks.get(PRECURSOR) or marks.get(RING) == 0):
-            continue
-        if await world.has_station(session, place, world.BIOPRINTER):
-            return place
-    return None
-
-
-async def gate(session: AsyncSession, city: City) -> Node | None:
-    """The city's gate: where the built-up area meets the road beyond it (D-206).
-
-    Founding marks one, so a live city always has it. Nothing comes back only
-    for a city from before that decision which the catch-up seed has not reached
-    yet -- and then a road into it is refused rather than tied to a random node.
-    """
-
-    for node in await territory(session, city):
-        if (node.properties or {}).get(travel.EXIT):
-            return node
-    return None
-
-
-# --- founding and offices ----------------------------------------------------
 
 
 async def found(
@@ -706,9 +503,6 @@ async def revoke(
     return office
 
 
-# --- laws and charter --------------------------------------------------------
-
-
 def law(catalog: Catalog, city: City, law_id: str):
     """A code-law's value: the city's decision, otherwise the vault default.
 
@@ -888,7 +682,11 @@ async def set_charter(
 
 #: Print conditions -- what a newcomer accepts by choosing the city's door (D-184).
 SPAWN_CITIZENSHIP = "spawn_citizenship"
+
+
 SPAWN_TERM = "spawn_term"
+
+
 TRADE_TAX = "tax_trade"
 
 
@@ -981,368 +779,10 @@ async def describe(
     return city
 
 
-# --- treasury ----------------------------------------------------------------
-
-
-async def treasury(session: AsyncSession, city: City):
-    return await ledger.account_for(session, AccountKind.CITY_TREASURY, city.node_id)
-
-
-async def treasury_balance(session: AsyncSession, city: City) -> int:
-    account = await treasury(session, city)
-    return await ledger.balance(session, account.id)
-
-
-async def spend(
-    session: AsyncSession,
-    by: Identity,
-    city: City,
-    to: Identity,
-    amount: int,
-    *,
-    memo: str = "",
-    body=None,
-) -> int:
-    """Pay an identity from the treasury. Returns what was paid in minor units.
-
-    Neither salary, nor reward, nor contract are separate mechanics: all of
-    them are a transfer from the treasury with a named ground. People invent
-    the names; the engine only needs the posting.
-    """
-    await require_at_hall(session, body, city)
-    await require(session, by.id, city, Power.TREASURY)
-    if amount <= 0:
-        raise CityError("трата на ноль — это не трата")
-
-    treasury_account = await treasury(session, city)
-    remainder = await ledger.balance(session, treasury_account.id)
-    if remainder < amount:
-        raise NotEnoughTreasury(f"в казне {money_str(remainder)} ₭, а нужно {money_str(amount)} ₭")
-
-    to_whom = await ledger.account_for(session, AccountKind.IDENTITY, to.id)
-    await ledger.transfer(
-        session,
-        PostingReason.SALARY,
-        debit=treasury_account.id,
-        credit=to_whom.id,
-        amount=amount,
-        memo={"город": city.name, "кому": to.name, "основание": memo},
-    )
-    await events.record(
-        session,
-        EventKind.CITY_TREASURY_SPENT,
-        actor_identity_id=by.id,
-        node_id=city.node_id,
-        city_id=str(city.id),
-        to=to.name,
-        amount=amount,
-        memo=memo,
-    )
-    return amount
-
-
-# --- settlement grant for newcomers (D-153) ---------------------------------
-
-
-async def welcome(
-    session: AsyncSession,
-    constants: Constants,
-    catalog: Catalog,
-    city: City,
-    who: Identity,
-) -> int:
-    """Pay the settlement grant to a newcomer. Returns what was paid; zero is normal.
-
-    This is **a transfer, not an emission**: not a coin appears in the world.
-    The city pays from its treasury because a new resident is GDP: they buy,
-    sell and pay taxes. Whether the investment pays off is the city's decision,
-    not the engine's.
-
-    Once per identity in one city. Moved -- entitled to receive it in the new
-    one: that is how cities compete for people.
-    """
-    qty = money(law_number(constants, catalog, city, "newcomer_grant"))
-    if qty <= 0:
-        return 0
-
-    before = (
-        await session.execute(
-            select(CityGrant).where(CityGrant.city_id == city.id, CityGrant.identity_id == who.id)
-        )
-    ).scalar_one_or_none()
-    if before is not None:
-        return 0
-
-    treasury_account = await treasury(session, city)
-    remainder = await ledger.balance(session, treasury_account.id)
-    if remainder < qty:
-        #: An empty treasury does not pay. This is not the newcomer's fault and
-        #: not a reason to print money: the city is simply poor, and that shows.
-        return 0
-
-    to_whom = await ledger.account_for(session, AccountKind.IDENTITY, who.id)
-    await ledger.transfer(
-        session,
-        PostingReason.SALARY,
-        debit=treasury_account.id,
-        credit=to_whom.id,
-        amount=qty,
-        memo={"подъёмные": city.name, "кому": who.name},
-    )
-    session.add(CityGrant(city_id=city.id, identity_id=who.id, amount=qty))
-    await session.flush()
-
-    await events.record(
-        session,
-        EventKind.CITY_GRANT_PAID,
-        actor_identity_id=who.id,
-        node_id=city.node_id,
-        city_id=str(city.id),
-        amount=qty,
-    )
-    return qty
-
-
-# --- city land ---------------------------------------------------------------
-
-
-async def allot(
-    session: AsyncSession,
-    by: Identity,
-    city: City,
-    node: Node,
-    to: Identity,
-    *,
-    body=None,
-) -> Node:
-    """Allot a civic plot to a resident (D-089).
-
-    Civic land is not taken -- the city gives it: who may take plots in the
-    rings is answered by the code-law `build_permit`. The engine checks the
-    `land` right: allotting land is a separate decision, neither lawmaking nor
-    treasury spending (D-155).
-    """
-    await require_at_hall(session, body, city)
-    await require(session, by.id, city, Power.LAND)
-    if node.owner_city_id != city.id:
-        raise CityError("это не городской участок")
-    if node.owner_identity_id is not None:
-        raise CityError("участок уже за кем-то")
-
-    node.owner_identity_id = to.id
-    await session.flush()
-
-    #: An allotted plot is documented by a deed, like a bought one (D-116).
-
-    await estate.issue_deed(session, node, to.id)
-
-    await events.record(
-        session,
-        EventKind.LAND_CLAIMED,
-        actor_identity_id=to.id,
-        node_id=node.id,
-        city_id=str(city.id),
-        allotted_by=by.name,
-    )
-    return node
-
-
-async def cede(session: AsyncSession, body, node: Node) -> City:
-    """Hand your own plot back to the city. In person: land is given up on the spot.
-
-    The mirror of `allot` and `buy`, and the only way back. Nobody's leave is
-    asked: the land was the city's before it was yours (D-089), and the city
-    loses nothing by taking it back. What changes is one thing -- the node has
-    no personal holder any more, and from that moment the meter charges the
-    city: a node without a holder is maintained by the treasury, which pays
-    with energy it could have sold instead of with money (D-149).
-
-    **What goes with the ground.** The deed is cancelled: civic land is not
-    traded by deed (D-159). The door is removed with its lists -- on civic land
-    there is no door at all, entry is decided by citizenship and duties (D-204).
-    Equipment stays where it stands, but from now on it is placed and removed
-    by the authority with the `laws` right, not by the last holder (D-166).
-
-    **The debt does not go with it.** Handing over a node with a debt would be
-    a way to run machines and write the bill off onto the city; the debt is
-    closed first, and only then is there anything to hand over.
-    """
-
-    if body is None or body.state is not BodyState.ALIVE:
-        raise CityError("мёртвое тело участками не распоряжается")
-    await travel.require_here(session, body)
-    if body.node_id != node.id:
-        raise CityError("участок передают ногами: дойдите до него")
-    if node.owner_identity_id != body.identity_id:
-        raise NotYours("участок не ваш: городу отдают своё")
-    if node.owner_city_id is None:  # pragma: no cover -- own land is always civic
-        raise NoCity("это не городская земля: здесь некому её передать")
-    city = await by_id(session, node.owner_city_id)
-    if city is None:  # pragma: no cover -- civic land without a city is a bug
-        raise NoCity("участок приписан к несуществующему городу")
-
-    deed = (await session.execute(select(Deed).where(Deed.node_id == node.id))).scalar_one_or_none()
-    if deed is not None and deed.sale_price is not None:
-        raise CityError(
-            "бумага на участок выставлена на продажу: снимите её с торгов, "
-            "иначе покупатель заплатит за чужое"
-        )
-
-    meter = await utility.meter_of(session, node, create=False)
-    if meter is not None and meter.debt > 0:
-        raise CityError(
-            f"на узле долг {money_str(meter.debt)} ₭: сначала закройте счёт, "
-            "город чужих долгов не принимает"
-        )
-
-    node.owner_identity_id = None
-    #: Civic land has no door: a shut gate and its lists left on the node would
-    #: show a lock that nobody can open any more.
-    node.gated = False
-    await session.execute(delete(NodePass).where(NodePass.node_id == node.id))
-    await _retire_deed(session, node, city, why="участок передан городу")
-    await session.flush()
-
-    await events.record(
-        session,
-        EventKind.LAND_CEDED,
-        actor_identity_id=body.identity_id,
-        node_id=node.id,
-        city_id=str(city.id),
-    )
-    return city
-
-
-async def upkeep_of(session: AsyncSession, constants: Constants, city: City) -> dict:
-    """What the city's own household costs it per meter period (D-149).
-
-    The treasury pays for a civic node with energy rather than with money, and
-    that spend shows up nowhere in the balance: the pool simply drains. Without
-    this line the authority sees energy leaving and cannot tell what into --
-    and the decision "should this node be the city's" has no figure behind it.
-
-    `worth` is what the same energy would have fetched at the city's own tariff
-    if it had been sold instead. It is not a debt and nobody is billed it: it
-    is the price of the decision, and that is exactly what makes it a figure
-    worth showing.
-    """
-
-    period = constants[R.ENERGY_METER_PERIOD]
-    pool = await energy.pool_of(
-        session, constants, await session.get(Node, city.node_id), create=False
-    )
-    tariff = float(pool.tariff) if pool is not None else constants[R.ENERGY_TARIFF_DEFAULT]
-
-    draw = 0.0
-    counted = 0
-    for node in await territory(session, city):
-        #: A holder's node is the holder's bill, wherever it stands: a bought
-        #: plot is city territory too, and counting it here would double it.
-        if node.owner_identity_id is not None:
-            continue
-        if await energy.grid_node(session, node) is None:
-            continue
-        draw += utility.draw_for(constants, node, period)
-        counted += 1
-
-    return {
-        "nodes": counted,
-        "hours": period,
-        "energy": round(draw, 1),
-        "worth": money(draw / ENERGY_PER_TARIFF_UNIT * tariff),
-        "tariff": tariff,
-    }
-
-
-async def survey(session: AsyncSession, constants: Constants, catalog: Catalog, city: City) -> dict:
-    """City summary: charter, laws, offices, treasury. Remote read.
-
-    What is visible and to whom is a charter question (`treasury_publicity`),
-    and it lies right here. Today the engine gives out everything: there is
-    nobody to hide the treasury from until there is a second city, and
-    pretending privacy works is worse than not having it.
-    """
-    people = {}
-    for office in await offices(session, city):
-        identity = await session.get(Identity, office.identity_id)
-        people[str(office.id)] = {
-            "id": str(office.id),
-            "who": "?" if identity is None else identity.name,
-            "identity": str(office.identity_id),
-            "title": office.title,
-            "powers": list(office.powers or ()),
-        }
-
-    return {
-        "id": str(city.id),
-        "name": city.name,
-        #: The city's word to newcomers (D-183): the authority edits it, everyone sees it.
-        "about": city.about,
-        "node": (await session.get(Node, city.node_id)).key,
-        "treasury": await treasury_balance(session, city),
-        #: What the city's own nodes burn per meter period. Money is not paid
-        #: for them at all -- the treasury pays with energy (D-149).
-        "upkeep": await upkeep_of(session, constants, city),
-        "offices": list(people.values()),
-        "charter": dict(city.charter or {}),
-        "charter_params": dict(city.charter_params or {}),
-        #: Charter questions in words: the client need not know that
-        #: `ruler_recall` means "can the ruler be recalled early". The text lives in the vault.
-        "charter_questions": [
-            {
-                "id": question.id,
-                "section": question.section,
-                "question": question.question,
-                "options": [
-                    {"id": option.id, "label": option.label} for option in question.options
-                ],
-            }
-            for question in catalog.laws.charter
-        ],
-        #: Laws are given out **as in force**: the own decision or the vault
-        #: default. The client need not know where the value came from -- it
-        #: needs to know which rule it lives by.
-        "laws": {
-            law.id: {
-                "name": law.name,
-                "unit": law.unit,
-                "note": law.note,
-                #: A default like `` `energy.tariff_default` `` expands into a
-                #: number: the player must see the rate in force, not a
-                #: reference to a vault constant.
-                "value": _shown(constants, catalog, city, law.id),
-                "own": law.id in (city.laws or {}),
-            }
-            for law in catalog.laws.code_laws
-        },
-    }
-
-
-def _shown(constants: Constants, catalog: Catalog, city: City, law_id: str) -> str | None:
-    raw = law(catalog, city, law_id)
-    if raw is None:
-        return None
-    if isinstance(raw, (dict, list)):
-        #: A composite law (duty) goes to the client as is: showing it as a
-        #: string would force the client to parse it back.
-
-        return json.dumps(raw, ensure_ascii=False)
-    text = str(raw).strip()
-    if text.startswith("`") and text.endswith("`"):
-        return _plain(law_number(constants, catalog, city, law_id))
-    return text
-
-
-def _plain(value: float) -> str:
-    """A number without trailing zeros: tariff "5", not "5.0"."""
-    whole = int(value)
-    return str(whole) if value == whole else str(value)
-
-
-# --- citizenship (D-160) -----------------------------------------------------
-
 #: The charter question "how are citizens admitted" and its options (`laws.json`).
 ADMISSION = "citizenship_admission"
+
+
 OPEN, APPLICATION, INVITE = "open", "application", "invite"
 
 
@@ -1628,139 +1068,3 @@ async def exited(session: AsyncSession, job: Job) -> None:
         why="выход по заявлению",
         city=None if city is None else city.name,
     )
-
-
-# --- change of power (D-162) -------------------------------------------------
-
-
-async def ruler(session: AsyncSession, city: City) -> Office | None:
-    """The current ruler: the office with the widest set of rights.
-
-    The engine knows rights, not posts (D-154): the "ruler" is whoever has the
-    most authority, and what they are called is the city's decision. On a tie
-    -- whoever was appointed earlier: seniority settles the dispute without
-    inventions.
-    """
-    offices = (
-        (
-            await session.execute(
-                select(Office).where(Office.city_id == city.id, Office.revoked_at.is_(None))
-            )
-        )
-        .scalars()
-        .all()
-    )
-    if not offices:
-        return None
-    return sorted(offices, key=lambda office: (-len(office.powers or []), office.created_at))[0]
-
-
-async def hand_over(session: AsyncSession, city: City, who: Identity) -> Office:
-    """Hand authority to the elected (D-162).
-
-    The new ruler receives the previous one's set, not an abstract "authority":
-    the engine knows rights, not posts. The previous office is vacated -- not
-    deleted: who controlled what last month is a matter for the court.
-    """
-    previous = await ruler(session, city)
-    rights = tuple(previous.powers or ()) if previous is not None else FOUNDER_POWERS
-    title = previous.title if previous is not None else FOUNDER_TITLE
-
-    if previous is not None:
-        if previous.identity_id == who.id:
-            return previous
-        previous.revoked_at = datetime.now(UTC)
-        await session.flush()
-        await events.record(
-            session,
-            EventKind.CITY_OFFICE_REVOKED,
-            node_id=city.node_id,
-            city_id=str(city.id),
-            title=previous.title,
-            why="выборы",
-        )
-
-    office = await _office(session, city, who.id, title=title, powers=rights, by=None)
-    await events.record(
-        session,
-        EventKind.CITY_OFFICE_APPOINTED,
-        actor_identity_id=who.id,
-        node_id=city.node_id,
-        city_id=str(city.id),
-        whom=who.name,
-        whom_identity_id=str(who.id),
-        title=title,
-        powers=list(rights),
-        elected=True,
-    )
-    await schedule_term(session, city, office)
-    return office
-
-
-async def schedule_term(
-    session: AsyncSession, city: City, office: Office, *, now: datetime | None = None
-) -> None:
-    """Set the term of office, if the charter set one (D-163).
-
-    `ruler_term: fixed` in days: on the term the office is vacated by itself.
-    Otherwise "elected for thirty days" means "until they remember themselves".
-    """
-
-    if ballots.answer(city, ballots.TERM, "unlimited") != ballots.FIXED_TERM:
-        return
-    days = ballots.param(city, ballots.TERM)
-    if days <= 0:
-        return
-    end = (now or datetime.now(UTC)) + timedelta(days=days)
-    await enqueue(
-        session,
-        JobKind.RULER_TERM,
-        end,
-        payload={"city": str(city.id), "office": str(office.id)},
-        dedup_key=f"city.term:{office.id}",
-    )
-
-
-@handler(JobKind.RULER_TERM)
-async def term_ended(session: AsyncSession, job: Job) -> None:
-    """The term is up: the office is vacated, and the city goes to an election if it can."""
-
-    office = await session.get(Office, uuid.UUID(job.payload["office"]))
-    city = await by_id(session, uuid.UUID(job.payload["city"]))
-    if office is None or city is None or office.revoked_at is not None:
-        #: The office was vacated before the term -- by recall or election. A
-        #: job retry after a failure does not become a second resignation.
-        return
-
-    office.revoked_at = job.run_at
-    await session.flush()
-    await events.record(
-        session,
-        EventKind.CITY_OFFICE_REVOKED,
-        node_id=city.node_id,
-        city_id=str(city.id),
-        title=office.title,
-        whom_identity_id=str(office.identity_id),
-        why="срок полномочий вышел",
-    )
-    if ballots.elects_ruler(city):
-        await ballots.open_election(session, current(), city, None)
-
-
-async def dismiss(session: AsyncSession, city: City) -> Office | None:
-    """Remove the ruler: the recall passed. The city stays without authority until the election."""
-    previous = await ruler(session, city)
-    if previous is None:
-        return None
-    previous.revoked_at = datetime.now(UTC)
-    await session.flush()
-    await events.record(
-        session,
-        EventKind.CITY_OFFICE_REVOKED,
-        node_id=city.node_id,
-        city_id=str(city.id),
-        title=previous.title,
-        whom_identity_id=str(previous.identity_id),
-        why="отзыв",
-    )
-    return previous
