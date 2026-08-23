@@ -201,7 +201,10 @@ def happened(events: list[dict[str, Any]], limit: int = 20) -> str:
         for key, value in happening.items():
             if key in EVENT_PLUMBING or key == "who" or value in (None, "", [], {}):
                 continue
-            parts.append(f"{key}: {_short(value, 80)}")
+            #: A line of room talk is another player's words: fenced as data.
+            if key == "line" and isinstance(value, dict) and isinstance(value.get("text"), str):
+                value = {**value, "text": f"⟦чужой текст: {value['text']}⟧"}
+            parts.append(f"{key}: {_short(value, 160)}")
         lines.append("- " + " · ".join(parts))
     if len(events) > limit:
         lines.insert(0, f"- … ещё {len(events) - limit} раньше")

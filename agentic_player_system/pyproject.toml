@@ -12,6 +12,9 @@ dependencies = [
     "pydantic>=2.9",
     # The device fee (D-110): the agent computes it exactly like the client.
     "argon2-cffi>=23.1",
+    # Secrets at rest (aps/secrets.py): passwords and the provider key sealed
+    # with APS_SECRET_KEY.
+    "cryptography>=43",
 ]
 
 [project.optional-dependencies]

@@ -16,6 +16,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from aps import secrets
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
@@ -105,6 +107,25 @@ RUNTIME_FIELDS = (
 )
 
 
+#: What is sealed at rest (aps/secrets.py).
+SECRET_FIELDS = ("password", "token")
+SECRET_SETTINGS = {"llm.api_key"}
+
+
+def _sealed(fields: dict[str, Any]) -> dict[str, Any]:
+    return {
+        k: (secrets.seal(v) if k in SECRET_FIELDS and isinstance(v, str) else v)
+        for k, v in fields.items()
+    }
+
+
+def _opened(row: dict[str, Any]) -> dict[str, Any]:
+    for key in SECRET_FIELDS:
+        if isinstance(row.get(key), str):
+            row[key] = secrets.reveal(row[key])
+    return row
+
+
 def now_iso() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 
@@ -139,9 +160,14 @@ class Store:
 
     def setting(self, key: str, default: str = "") -> str:
         row = self.db.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
-        return default if row is None else str(row["value"])
+        if row is None:
+            return default
+        value = str(row["value"])
+        return (secrets.reveal(value) or "") if key in SECRET_SETTINGS else value
 
     def set_setting(self, key: str, value: str) -> None:
+        if key in SECRET_SETTINGS:
+            value = secrets.seal(value) or ""
         with self.db:
             self.db.execute(
                 "INSERT INTO settings (key, value) VALUES (?, ?) "
@@ -153,15 +179,16 @@ class Store:
 
     def agents(self) -> list[dict[str, Any]]:
         rows = self.db.execute("SELECT * FROM agents ORDER BY created_at").fetchall()
-        return [dict(r) for r in rows]
+        return [_opened(dict(r)) for r in rows]
 
     def agent(self, agent_id: str) -> dict[str, Any] | None:
         row = self.db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,)).fetchone()
-        return None if row is None else dict(row)
+        return None if row is None else _opened(dict(row))
 
     def create_agent(self, data: dict[str, Any]) -> dict[str, Any]:
         agent_id = uuid.uuid4().hex
         fields = {k: data.get(k) for k in AGENT_FIELDS if data.get(k) is not None}
+        fields = _sealed(fields)
         fields["id"] = agent_id
         fields["created_at"] = now_iso()
         columns = ", ".join(fields)
@@ -176,7 +203,7 @@ class Store:
 
     def update_agent(self, agent_id: str, data: dict[str, Any]) -> dict[str, Any] | None:
         allowed = set(AGENT_FIELDS) | set(RUNTIME_FIELDS)
-        fields = {k: v for k, v in data.items() if k in allowed}
+        fields = _sealed({k: v for k, v in data.items() if k in allowed})
         if fields:
             sets = ", ".join(f"{k} = ?" for k in fields)
             with self.db:

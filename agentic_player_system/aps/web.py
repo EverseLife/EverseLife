@@ -21,6 +21,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
+from . import secrets as sealed
 from . import settings as config
 from .runner import Runner
 from .store import AGENT_FIELDS, Store
@@ -110,6 +111,8 @@ async def get_settings() -> dict[str, Any]:
         "model": provider.model,
         "has_key": bool(provider.api_key),
         "key_from_env": not STORE.setting("llm.api_key") and bool(SETTINGS.llm_api_key),
+        #: Whether passwords and the key are sealed at rest (APS_SECRET_KEY).
+        "sealed": sealed.sealing(),
         "game_url": SETTINGS.game_url,
         "commands": len(RUNNER.reference),
     }
