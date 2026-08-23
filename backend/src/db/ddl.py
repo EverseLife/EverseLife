@@ -99,8 +99,15 @@ FOR EACH ROW EXECUTE FUNCTION forbid_rewrite()
 
 
 #: A partitioned table takes no rows until it has a partition. The default
-#: one catches what no month covers; the months themselves are created
-#: ahead by `engine.journal.ensure_partitions` (wave 4).
+#: one catches what no month covers; the months themselves are created ahead
+#: by `engine.journal.ensure_partitions` (wave 4).
+#:
+#: Deliberately **not** in `RULES`: the initial migration replays that whole
+#: set (see `statements()`), and there `event` is still a plain table -- a
+#: partition of it is an error, and a fresh database would never migrate.
+#: A schema built from the models gets it from `attach()`, where `event` is
+#: partitioned from birth; a migrated one, from the migration that
+#: partitions the journal (`d4b8e6c15a72`).
 DEFAULT_PARTITION = """
 CREATE TABLE IF NOT EXISTS event_default PARTITION OF event DEFAULT
 """
@@ -111,7 +118,7 @@ RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
     #: reversing posting, as in real bookkeeping. Otherwise the journal stops
     #: being evidence.
     ("ledger_entry", (BALANCE_FUNCTION, BALANCE_TRIGGER, *_append_only("ledger_entry"))),
-    ("event", (DEFAULT_PARTITION, *_append_only("event"), ANNOUNCE_FUNCTION, ANNOUNCE_TRIGGER)),
+    ("event", (*_append_only("event"), ANNOUNCE_FUNCTION, ANNOUNCE_TRIGGER)),
     ("ledger_transaction", _append_only("ledger_transaction")),
 )
 
@@ -124,6 +131,13 @@ def attach(metadata: MetaData) -> None:
             raise RuntimeError(f"нет таблицы {table_name}: правило некуда вешать")
         for sql in statements:
             event.listen(table, "after_create", DDL(sql).execute_if(dialect="postgresql"))
+    #: The journal's default partition rides with the table only here: a
+    #: schema built from the models has `event` partitioned from the start.
+    journal = metadata.tables.get("event")
+    if journal is not None:  # pragma: no branch
+        event.listen(
+            journal, "after_create", DDL(DEFAULT_PARTITION).execute_if(dialect="postgresql")
+        )
 
 
 def statements() -> tuple[str, ...]:

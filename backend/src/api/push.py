@@ -458,9 +458,15 @@ class Hub:
 
     async def _settle(self, db: AsyncSession) -> None:
         """Skip the backlog: a listener that comes later starts from now. The
-        watermark goes to the journal's end and nothing above it is pending."""
-        last = (await db.execute(select(func.max(Event.id)))).scalar() or 0
-        self._last_id = max(self._last_id, last)
+        watermark **adopts** the journal's end and nothing above it is pending.
+
+        Adopts, not `max()`: the mark belongs to the journal the hub reads,
+        and that journal can begin lower than the hub remembers -- a restore
+        from a backup, another database (which is what a test does when the
+        process serves one database after another). Keeping the higher mark
+        would mean delivering nothing until the new journal grew past it.
+        """
+        self._last_id = (await db.execute(select(func.max(Event.id)))).scalar() or 0
         self._ahead.clear()
 
     async def pump(self) -> None:

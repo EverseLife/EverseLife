@@ -417,3 +417,33 @@ async def test_pump_delivers_a_late_committing_row_exactly_once(
         assert got.count(straggler.id) == 1, "опоздавшая строка обязана дойти ровно раз"
     finally:
         push.session_factory = real_factory
+
+
+async def test_the_watermark_adopts_the_journal_it_reads(
+    session: AsyncSession, factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """One process may serve one journal after another -- another database,
+    a restore from a backup. The mark belongs to the journal it reads: kept
+    higher, the hub would deliver nothing until the new journal grew past it
+    (this is what hung the suite on a fresh database)."""
+    from sqlalchemy import func, select
+
+    from src.api import push
+    from src.engine import events
+    from src.models.event import Event, EventKind
+
+    await events.record(session, EventKind.TICK_RAN, kind_of_tick="test")
+    await session.commit()
+
+    real_factory = push.session_factory
+    push.session_factory = lambda: factory  # type: ignore[assignment]
+    try:
+        hub = push.Hub()
+        #: A mark left by the journal served before this one.
+        hub._last_id = 10**9
+        async with factory() as db:
+            await hub._settle(db)
+            here = (await db.execute(select(func.max(Event.id)))).scalar() or 0
+        assert hub._last_id == here, "отметка обязана принадлежать читаемому журналу"
+    finally:
+        push.session_factory = real_factory

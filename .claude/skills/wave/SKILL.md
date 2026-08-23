@@ -17,7 +17,10 @@ Argument: `<wave>.<item>` (e.g. `1.2`) or a short description; with no argument,
    - reads do not write; answers confirm, events carry state;
    - no new lazy imports; layers `api → engine → models → constants`;
    - ASCII identifiers, English comments, SPDX header on new files.
-5. **Verify.** From `backend/`: `ruff check src tests`, `ruff format --check` on touched files, pytest on an own database (`EVERSELIFE_TEST_DATABASE_URL=...everselife_test_<name>` with `-n`), the new race test; from `frontend/`: `npx tsc --noEmit -p tsconfig.app.json`, `npm run lint`, vitest if present. Run `python tools/spdx.py`.
+5. **Verify.** A migration is proved on a **clean** database, never on the dev
+   one: create a fresh database and run the whole chain (`alembic upgrade
+   head`), because the dev database is already migrated step by step and does
+   not exercise the from-scratch path. Then, from `backend/`: `ruff check src tests`, `ruff format --check` on touched files, pytest on an own database (`EVERSELIFE_TEST_DATABASE_URL=...everselife_test_<name>` with `-n`), the new race test; from `frontend/`: `npx tsc --noEmit -p tsconfig.app.json`, `npm run lint`, vitest if present. Run `python tools/spdx.py`.
 6. **Review.** Launch the `reviewer` agent on the diff; fix what it flags or state why not.
 7. **Tick off.** In the vault document: mark the item `✅ YYYY-MM-DD` with one line of what was done; if the score of the area changed materially, adjust the table. Add a `Следствия` line to the related D-decision when the change alters a contract.
 8. **Report** in the chat: what changed (file:line), what proved it (test names, numbers before/after), what is next in the program. Do not commit unless asked.

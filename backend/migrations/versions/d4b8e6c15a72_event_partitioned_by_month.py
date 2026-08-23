@@ -32,10 +32,9 @@ depends_on: str | Sequence[str] | None = None
 
 
 def _event_rules() -> tuple[str, ...]:
-    """The journal's triggers from `ddl.RULES`, minus the default partition
-    (created explicitly above, in order)."""
-    rules = dict(ddl.RULES)["event"]
-    return tuple(s for s in rules if s is not ddl.DEFAULT_PARTITION)
+    """The journal's triggers from `ddl.RULES` -- one copy of that SQL, here
+    as everywhere. The partitions themselves are created above, in order."""
+    return dict(ddl.RULES)["event"]
 
 
 def _months(first: datetime, last: datetime) -> list[datetime]:
