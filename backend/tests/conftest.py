@@ -148,8 +148,9 @@ async def reset(engine: AsyncEngine) -> None:
     Emptying is `TRUNCATE` and not `DELETE`: the three append-only tables
     (`event`, `ledger_entry`, `ledger_transaction`) carry a trigger that refuses
     a delete, and `TRUNCATE` is not a delete -- it fires no row triggers.
-    `RESTART IDENTITY` returns the two counters to one, exactly as a freshly
-    created schema would.
+    `RESTART IDENTITY` returns both counters to one, exactly as a freshly
+    created schema would -- the journal's among them, because its sequence
+    belongs to its column in either schema (`db.ddl.JOURNAL_SEQUENCE_OWNED`).
     """
     if not _schema_built:
         await _build(engine)

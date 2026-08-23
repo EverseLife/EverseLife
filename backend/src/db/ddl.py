@@ -113,12 +113,37 @@ CREATE TABLE IF NOT EXISTS event_default PARTITION OF event DEFAULT
 """
 
 
+#: The journal's counter belongs to the journal's column. A schema built from
+#: the models would otherwise leave it standing on its own -- SQLAlchemy
+#: declares the sequence, not the ownership -- while a migrated one has it
+#: owned (`BIGSERIAL` in the first revision, an explicit `OWNED BY` in the one
+#: that partitions the journal). Two consequences follow from ownership, and
+#: both must be the same in either schema: `TRUNCATE ... RESTART IDENTITY`
+#: resets the counter, and dropping the table takes the sequence with it.
+#: Idempotent: re-declaring the same owner changes nothing, so the initial
+#: migration replays it over its own `BIGSERIAL` without effect. It needs no
+#: migration of its own either, though `statements()` asks that of a rule added
+#: later: every database already at head got the ownership from
+#: `d4b8e6c15a72`, which re-owns the sequence to the partitioned table.
+JOURNAL_SEQUENCE_OWNED = """
+ALTER SEQUENCE event_id_seq OWNED BY event.id
+"""
+
+
 RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
     #: A posting can be neither rewritten nor deleted: correcting an error is a
     #: reversing posting, as in real bookkeeping. Otherwise the journal stops
     #: being evidence.
     ("ledger_entry", (BALANCE_FUNCTION, BALANCE_TRIGGER, *_append_only("ledger_entry"))),
-    ("event", (*_append_only("event"), ANNOUNCE_FUNCTION, ANNOUNCE_TRIGGER)),
+    (
+        "event",
+        (
+            JOURNAL_SEQUENCE_OWNED,
+            *_append_only("event"),
+            ANNOUNCE_FUNCTION,
+            ANNOUNCE_TRIGGER,
+        ),
+    ),
     ("ledger_transaction", _append_only("ledger_transaction")),
 )
 

@@ -69,7 +69,11 @@ CREATE TABLE event (
 ) PARTITION BY RANGE (at)
 """
     )
-    op.execute("ALTER SEQUENCE event_id_seq OWNED BY event.id")
+    #: Load-bearing, and it must stand here: the sequence still belongs to
+    #: `event_old.id`, so `DROP TABLE event_old` below would take it away with
+    #: the table -- and the journal would start counting from one. Replaying
+    #: the rules at the end is too late for that; it runs after the drop.
+    op.execute(ddl.JOURNAL_SEQUENCE_OWNED)
     first = bind.execute(text("SELECT min(at) FROM event_old")).scalar()
     now = datetime.now(UTC)
     start = first if first is not None else now
@@ -106,7 +110,8 @@ CREATE TABLE event (
 )
 """
     )
-    op.execute("ALTER SEQUENCE event_id_seq OWNED BY event.id")
+    #: Before `DROP TABLE event_part`, for the reason given in `upgrade`.
+    op.execute(ddl.JOURNAL_SEQUENCE_OWNED)
     op.execute(
         """
 INSERT INTO event (id, at, kind, actor_identity_id, node_id, payload, constants_digest)

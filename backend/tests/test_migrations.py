@@ -8,6 +8,10 @@ is not fixed by recreating the database. The check catches it the day it appears
 
 The test looks at a database upgraded by migrations (`alembic upgrade head`)
 and requires that autogeneration finds not a single difference.
+
+The last pair goes further and looks at both schemas at once -- the migrated
+one and the one built from the models -- because what a model cannot express
+(sequence ownership, triggers, partitions) is exactly what diverges silently.
 """
 
 from __future__ import annotations
@@ -18,8 +22,8 @@ import re
 import pytest
 from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
-from sqlalchemy import inspect
-from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy import func, inspect, select, text
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from src.models import Base
 
@@ -72,8 +76,6 @@ async def test_schema_from_migrations_matches_models() -> None:
 
 async def test_database_rules_in_place() -> None:
     """The balance and immutability triggers must be in the upgraded database."""
-    from sqlalchemy import text
-
     engine = create_async_engine(MIGRATED_URL)
     try:
         async with engine.connect() as connection:
@@ -92,3 +94,68 @@ async def test_database_rules_in_place() -> None:
         "event_append_only",
         "ledger_transaction_append_only",
     } <= names
+
+
+#: Which column a sequence belongs to, if any. Ownership is not a detail: it
+#: decides whether `TRUNCATE ... RESTART IDENTITY` resets the counter, and the
+#: two schemas -- built from the models, and migrated -- must agree about it.
+OWNER_OF_JOURNAL_SEQUENCE = text(
+    """
+    SELECT t.relname, a.attname
+    FROM pg_class c
+    JOIN pg_depend d ON d.objid = c.oid AND d.deptype = 'a'
+    JOIN pg_class t ON t.oid = d.refobjid
+    JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = d.refobjsubid
+    WHERE c.relkind = 'S'
+      AND c.relname = 'event_id_seq'
+      AND d.classid = 'pg_class'::regclass
+      AND d.refclassid = 'pg_class'::regclass
+    """
+)
+
+
+async def test_the_journal_counter_belongs_to_its_column_when_migrated() -> None:
+    """The migrated schema: the sequence is owned by `event.id`."""
+    engine = create_async_engine(MIGRATED_URL)
+    try:
+        async with engine.connect() as connection:
+            owner = (await connection.execute(OWNER_OF_JOURNAL_SEQUENCE)).all()
+    except Exception as exc:  # noqa: BLE001
+        pytest.skip(f"нет базы {MIGRATED_URL}: {exc}")
+    finally:
+        await engine.dispose()
+
+    assert owner == [("event", "id")], owner
+
+
+async def test_the_journal_counter_belongs_to_its_column_when_built(
+    session: AsyncSession,
+) -> None:
+    """The schema built from the models says the same -- so a test database
+    and a deployed one behave alike when the journal is emptied."""
+    owner = (await session.execute(OWNER_OF_JOURNAL_SEQUENCE)).all()
+    assert owner == [("event", "id")], owner
+
+
+async def test_an_emptied_journal_counts_from_one(session: AsyncSession) -> None:
+    """What the ownership is for: `TRUNCATE ... RESTART IDENTITY` is heard by
+    an owned sequence and ignored by a free-standing one. Without it the ids
+    kept climbing in a test database while starting from one in a fresh
+    deployment -- the same code, two behaviours.
+
+    Emptied here rather than trusting `reset()`: that one truncates only the
+    tables holding rows, and a test that rolled its events back leaves the
+    journal empty with the counter already moved (a sequence knows no
+    rollback). The promise being checked is the sequence's, not the order the
+    suite happens to run in.
+    """
+    from src.models.event import Event
+
+    session.add(Event(kind="test.counted", payload={}))
+    await session.flush()
+    await session.execute(text('TRUNCATE "event" RESTART IDENTITY CASCADE'))
+
+    session.add(Event(kind="test.counted", payload={}))
+    await session.flush()
+    again = (await session.execute(select(func.min(Event.id)))).scalar()
+    assert again == 1, again
