@@ -149,6 +149,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import Constants
 from src.constants import registry as R
 from src.engine import events
+from src.engine.errors import Refusal
 from src.engine.jobs import enqueue, handler
 from src.models.event import EventKind
 from src.models.identity import Body, BodyState
@@ -158,7 +159,7 @@ from src.models.world import Edge, Node, Surface
 from src.units import SECONDS_PER_HOUR
 
 
-class TravelError(Exception):
+class TravelError(Refusal):
     pass
 
 

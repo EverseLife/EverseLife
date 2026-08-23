@@ -54,6 +54,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import Constants
 from src.constants import registry as R
 from src.engine import events, travel
+from src.engine.errors import Refusal
 from src.engine.jobs import enqueue, handler
 from src.models.city import City, Power
 from src.models.identity import Body, BodyState, Identity
@@ -79,7 +80,7 @@ from src.runtime import (
 from src.units import SECONDS_PER_HOUR
 
 
-class NetError(Exception):
+class NetError(Refusal):
     pass
 
 

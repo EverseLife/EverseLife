@@ -64,6 +64,7 @@ from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.constants.catalog import Plant
 from src.engine import events, travel, world
+from src.engine.errors import Refusal
 from src.engine.jobs import enqueue, handler
 from src.models.event import EventKind
 from src.models.farm import Plot, PlotState
@@ -78,7 +79,7 @@ from src.units import PERCENT, SCALE_MAX, SCALE_MIN, SECONDS_PER_HOUR, amount, a
 WATER = "Вода"
 
 
-class FarmError(Exception):
+class FarmError(Refusal):
     pass
 
 

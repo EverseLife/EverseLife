@@ -32,6 +32,7 @@ import math
 
 from src.constants import Catalog, ConstantError, current_catalog
 from src.constants.catalog import ItemKind
+from src.engine.errors import Refusal
 from src.units import AMOUNT_SCALE
 
 #: Where a float stops being a number and becomes noise. Amounts live in
@@ -40,7 +41,7 @@ from src.units import AMOUNT_SCALE
 _DUST = 1 / AMOUNT_SCALE
 
 
-class NotWhole(Exception):
+class NotWhole(Refusal):
     """Asked for a fraction of a counted thing, and the fraction is nothing.
 
     Rounding down is enough while something is left: half a nail out of three

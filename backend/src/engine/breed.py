@@ -72,6 +72,7 @@ from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.constants.catalog import Plant
 from src.engine import events, travel, world
+from src.engine.errors import Refusal
 from src.models.event import EventKind
 from src.models.identity import Body, BodyState, Identity, Knowledge, KnowledgeKind
 from src.models.inventory import Item
@@ -92,7 +93,7 @@ FULL_VIGOR = PERCENT
 TRAITS = ("yield_per_m2", "cycle_days", "fertility", "spoilage_k", "hardiness")
 
 
-class BreedError(Exception):
+class BreedError(Refusal):
     pass
 
 

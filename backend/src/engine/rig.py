@@ -50,6 +50,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import Constants
 from src.constants import registry as R
 from src.engine import events, travel, wear, world
+from src.engine.errors import Refusal
 from src.models.event import EventKind
 from src.models.identity import Body, BodyState
 from src.models.inventory import Item
@@ -78,7 +79,7 @@ def _fuel_names() -> tuple[str, ...]:
     return tuple(current_catalog().recipes.fuels()) or ("Уголь",)
 
 
-class RigError(Exception):
+class RigError(Refusal):
     pass
 
 

@@ -28,6 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import Catalog
 from src.engine import events, travel
 from src.engine import world as world_engine
+from src.engine.errors import Refusal
 from src.engine.world import body_container
 from src.models.event import EventKind
 from src.models.identity import Body, BodyState, Identity
@@ -36,7 +37,7 @@ from src.models.library import LibraryEntry
 from src.models.world import Node
 
 
-class LibraryError(Exception):
+class LibraryError(Refusal):
     pass
 
 

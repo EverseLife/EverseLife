@@ -103,6 +103,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import events, gear, travel, world
+from src.engine.errors import Refusal
 from src.engine.jobs import enqueue, handler
 from src.models.estate import Building
 from src.models.event import EventKind
@@ -178,7 +179,7 @@ async def _free_berth(session: AsyncSession, port: Node) -> int:
     return place
 
 
-class ShipError(Exception):
+class ShipError(Refusal):
     pass
 
 

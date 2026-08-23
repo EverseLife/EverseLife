@@ -83,6 +83,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants
 from src.engine import events, ledger
+from src.engine.errors import Refusal
 from src.engine.jobs import enqueue, handler
 from src.models.city import (
     LAW_SCOPE,
@@ -101,7 +102,7 @@ from src.models.world import Layer, Node
 from src.units import money, money_str
 
 
-class CityError(Exception):
+class CityError(Refusal):
     pass
 
 

@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.engine.errors import Refusal
 from src.models.ledger import (
     AccountKind,
     Currency,
@@ -31,7 +32,7 @@ from src.models.ledger import (
 )
 
 
-class LedgerError(Exception):
+class LedgerError(Refusal):
     pass
 
 

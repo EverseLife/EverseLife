@@ -69,6 +69,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import Constants
 from src.constants import registry as R
 from src.engine import events, ledger
+from src.engine.errors import Refusal
 from src.engine.jobs import enqueue, handler
 from src.models.bank import DefectReport, Loan, LoanState, RateDecision
 from src.models.city import City, Power
@@ -83,7 +84,7 @@ from src.units import MONEY_SCALE, PERCENT, amount_float, money, money_str
 RESERVE = uuid.UUID("00000000-0000-0000-0000-00000000ba17")
 
 
-class BankError(Exception):
+class BankError(Refusal):
     pass
 
 

@@ -71,6 +71,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import events
+from src.engine.errors import Refusal
 from src.models.city import City
 from src.models.event import Event, EventKind
 from src.models.identity import Body
@@ -86,7 +87,7 @@ IMPORT = "import"
 EXPORT = "export"
 
 
-class CustomsError(Exception):
+class CustomsError(Refusal):
     pass
 
 

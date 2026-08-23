@@ -45,12 +45,13 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.engine.errors import Refusal
 from src.models.identity import Body
 from src.models.job import Job, JobKind, JobState
 from src.units import MINUTES_PER_HOUR, SECONDS_PER_MINUTE
 
 
-class Busy(Exception):
+class Busy(Refusal):
     """The body is already at something: one body does one thing (D-211)."""
 
 

@@ -50,6 +50,7 @@ from src.constants import Catalog, ConstantError, Constants
 from src.constants import registry as R
 from src.constants.catalog import ItemKind
 from src.engine import events, travel, wear, world
+from src.engine.errors import Refusal
 from src.engine.world import body_container
 from src.models.craft import BatchKind, CraftBatch
 from src.models.event import EventKind
@@ -58,7 +59,7 @@ from src.models.inventory import Container, Item
 from src.units import PERCENT, amount, amount_float
 
 
-class CoinError(Exception):
+class CoinError(Refusal):
     pass
 
 

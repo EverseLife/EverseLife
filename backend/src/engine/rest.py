@@ -32,6 +32,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import Constants
 from src.constants import registry as R
 from src.engine import events, travel, world
+from src.engine.errors import Refusal
 from src.models.event import EventKind
 from src.models.identity import Body, BodyState
 from src.models.inventory import Item
@@ -41,7 +42,7 @@ from src.units import SECONDS_PER_HOUR
 BED = "Кровать"
 
 
-class RestError(Exception):
+class RestError(Refusal):
     pass
 
 

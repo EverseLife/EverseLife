@@ -56,6 +56,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import Constants
 from src.constants import registry as R
 from src.engine import events, ledger, travel, world
+from src.engine.errors import Refusal
 from src.models.energy import EnergyPool
 from src.models.event import EventKind
 from src.models.identity import Body, BodyState
@@ -76,7 +77,7 @@ GENERATOR_CLASSES = (WHEEL, WINDMILL, FUEL_PLANT)
 
 
 
-class EnergyError(Exception):
+class EnergyError(Refusal):
     pass
 
 

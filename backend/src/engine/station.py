@@ -34,6 +34,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import Catalog
 from src.constants.catalog import ItemKind
 from src.engine import events, travel, world
+from src.engine.errors import Refusal
 from src.models.city import Power
 from src.models.event import EventKind
 from src.models.identity import Body, BodyState
@@ -41,7 +42,7 @@ from src.models.inventory import Item
 from src.models.world import Node
 
 
-class StationError(Exception):
+class StationError(Refusal):
     pass
 
 

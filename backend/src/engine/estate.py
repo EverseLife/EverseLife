@@ -63,6 +63,7 @@ from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.db.base import remember
 from src.engine import events, ledger, travel
+from src.engine.errors import Refusal
 from src.engine.jobs import enqueue, handler
 from src.models.city import City
 from src.models.estate import Building, Deed
@@ -83,7 +84,7 @@ from src.units import (
 from src.units import amount as to_amount
 
 
-class EstateError(Exception):
+class EstateError(Refusal):
     pass
 
 

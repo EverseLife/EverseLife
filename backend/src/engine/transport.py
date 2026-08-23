@@ -60,6 +60,7 @@ from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.constants.catalog import ItemKind
 from src.engine import events, world
+from src.engine.errors import Refusal
 from src.models.event import EventKind
 from src.models.identity import Body, BodyState
 from src.models.inventory import Container, ContainerKind, Item
@@ -68,7 +69,7 @@ from src.models.world import Node, Surface
 from src.units import amount_float
 
 
-class TransportError(Exception):
+class TransportError(Refusal):
     pass
 
 

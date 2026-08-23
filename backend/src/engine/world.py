@@ -24,6 +24,7 @@ from src.constants import Catalog, Constants, current
 from src.constants import registry as R
 from src.db.base import remember
 from src.engine import events
+from src.engine.errors import Refusal
 from src.models.event import EventKind
 from src.models.identity import (
     Account,
@@ -119,7 +120,7 @@ async def create_node(
     return node
 
 
-class LandError(Exception):
+class LandError(Refusal):
     pass
 
 
@@ -474,7 +475,7 @@ async def spawn(
         await session.execute(select(Identity).where(Identity.name == name))
     ).scalar_one_or_none()
     if exists is not None:
-        raise ValueError(f"имя {name!r} уже занято: имя сменить нельзя")
+        raise LandError(f"имя {name!r} уже занято: имя сменить нельзя")
 
     identity = await create_identity(
         session, name, email=email, password=password, line=line, profile=profile

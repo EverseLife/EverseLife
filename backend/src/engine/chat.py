@@ -44,6 +44,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import Constants
 from src.constants import registry as R
 from src.engine import events, travel
+from src.engine.errors import Refusal
 from src.models.chat import ChatGroup, ChatMember, ChatMessage, Utterance
 from src.models.identity import Body, BodyState, Identity
 from src.models.inventory import Container, ContainerKind, Item
@@ -51,7 +52,7 @@ from src.models.world import Node
 from src.runtime import CHAT_BUFFER, CHAT_TEXT_LIMIT
 
 
-class ChatError(Exception):
+class ChatError(Refusal):
     pass
 
 

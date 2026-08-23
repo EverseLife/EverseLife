@@ -47,6 +47,7 @@ from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.constants.spec import ConstantError
 from src.engine import estate, events, gear, travel, world
+from src.engine.errors import Refusal
 from src.models.event import EventKind
 from src.models.forage import Forage
 from src.models.identity import Body, BodyState
@@ -57,7 +58,7 @@ from src.units import ROUND_MASS, ROUND_QUALITY, SECONDS_PER_HOUR
 ORIGIN = "собирательство"
 
 
-class ForageError(Exception):
+class ForageError(Refusal):
     pass
 
 

@@ -27,6 +27,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.engine import events, ledger
+from src.engine.errors import Refusal
 from src.models.event import EventKind
 from src.models.identity import Identity
 from src.models.ledger import (
@@ -40,7 +41,7 @@ from src.runtime import STATEMENT_DEPTH, TRANSFER_MEMO_LIMIT
 from src.units import money_str
 
 
-class FinanceError(Exception):
+class FinanceError(Refusal):
     pass
 
 

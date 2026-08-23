@@ -54,6 +54,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import events
+from src.engine.errors import Refusal
 from src.engine.jobs import enqueue, handler
 from src.models.city import City, CouncilSeat, Power
 from src.models.event import EventKind
@@ -74,7 +75,7 @@ SIMPLE, TWO_THIRDS, UNANIMOUS = "simple", "two_thirds", "unanimous"
 ALL, RESIDENCE, PROPERTY = "all", "residence", "property"
 
 
-class VoteError(Exception):
+class VoteError(Refusal):
     pass
 
 

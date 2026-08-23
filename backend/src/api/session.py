@@ -58,7 +58,6 @@ from src.engine import (
     food,
     forage,
     gear,
-    goods,
     justice,
     ledger,
     library,
@@ -84,6 +83,7 @@ from src.engine import (
 )
 from src.engine import city as town
 from src.engine import pow as device
+from src.engine.errors import Refusal
 from src.models.chat import Utterance
 from src.models.city import Office, Power
 from src.models.craft import BatchState, CraftBatch
@@ -113,7 +113,7 @@ log = logging.getLogger(__name__)
 router = APIRouter(tags=["session"])
 
 
-class Refused(Exception):
+class Refused(Refusal):
     """Command refused by the game rules. This is not a server error."""
 
 
@@ -140,80 +140,10 @@ async def play(socket: WebSocket) -> None:
             message = await socket.receive_json()
             try:
                 answer = await _dispatch(state, message)
-            except Refused as refusal:
-                answer = {"refused": str(refusal)}
-            except mining.MiningError as refusal:
-                answer = {"refused": str(refusal)}
-            except craft.CraftError as refusal:
-                answer = {"refused": str(refusal)}
-            except library.LibraryError as refusal:
-                answer = {"refused": str(refusal)}
-            except market.MarketError as refusal:
-                answer = {"refused": str(refusal)}
-            except travel.TravelError as refusal:
-                answer = {"refused": str(refusal)}
-            except chat.ChatError as refusal:
-                answer = {"refused": str(refusal)}
-            except net.NetError as refusal:
-                answer = {"refused": str(refusal)}
-            except rest.RestError as refusal:
-                answer = {"refused": str(refusal)}
-            except farm.FarmError as refusal:
-                answer = {"refused": str(refusal)}
-            except food.FoodError as refusal:
-                answer = {"refused": str(refusal)}
-            except coin.CoinError as refusal:
-                answer = {"refused": str(refusal)}
-            except breed.BreedError as refusal:
-                answer = {"refused": str(refusal)}
-            except energy.EnergyError as refusal:
-                answer = {"refused": str(refusal)}
-            except rig.RigError as refusal:
-                answer = {"refused": str(refusal)}
-            except gear.GearError as refusal:
-                answer = {"refused": str(refusal)}
-            except station.StationError as refusal:
-                answer = {"refused": str(refusal)}
-            except transport.TransportError as refusal:
-                answer = {"refused": str(refusal)}
-            except road.RoadError as refusal:
-                answer = {"refused": str(refusal)}
-            except ship.ShipError as refusal:
-                answer = {"refused": str(refusal)}
-            except vote.VoteError as refusal:
-                answer = {"refused": str(refusal)}
-            except justice.JusticeError as refusal:
-                answer = {"refused": str(refusal)}
-            except bank.BankError as refusal:
-                answer = {"refused": str(refusal)}
-            except explore.ExploreError as refusal:
-                answer = {"refused": str(refusal)}
-            except forage.ForageError as refusal:
-                answer = {"refused": str(refusal)}
-            #: One body does one thing (D-211): the refusal comes from whichever
-            #: engine was asked to start a second occupation.
-            except occupation.Busy as refusal:
-                answer = {"refused": str(refusal)}
-            #: A piece is whole (D-212): asking for a fraction of one is
-            #: refused wherever things are moved.
-            except goods.NotWhole as refusal:
-                answer = {"refused": str(refusal)}
-            except death.DeathError as refusal:
-                answer = {"refused": str(refusal)}
-            except utility.UtilityError as refusal:
-                answer = {"refused": str(refusal)}
-            except town.CityError as refusal:
-                answer = {"refused": str(refusal)}
-            except estate.EstateError as refusal:
-                answer = {"refused": str(refusal)}
-            #: The gate refuses a road (D-199), and that refusal travels from
-            #: `travel.depart` -- not only from the `gate.*` commands, where it
-            #: is caught locally.
-            except access.AccessError as refusal:
-                answer = {"refused": str(refusal)}
-            except device.PowError as refusal:
-                answer = {"refused": str(refusal)}
-            except accounts.AccountError as refusal:
+            #: The rules said no (`engine/errors.Refusal`): every refusal of
+            #: every engine module descends from it, and the player reads it
+            #: in their own words. Anything else below is a bug.
+            except Refusal as refusal:
                 answer = {"refused": str(refusal)}
             #: A malformed command -- a missing argument, a string where a
             #: number or an id was expected -- is the client's mistake, and it
@@ -387,12 +317,9 @@ async def _join(state: dict, db: AsyncSession, message: dict) -> dict:
         where = await world.spawn_point(db)
     if where is None:
         raise Refused("мир ещё не создан: печататься негде")
-    try:
-        identity, body = await world.spawn(
-            db, name, where, email=email, password=password, line=line, profile=profile
-        )
-    except ValueError as refusal:
-        raise Refused(str(refusal)) from refusal
+    identity, body = await world.spawn(
+        db, name, where, email=email, password=password, line=line, profile=profile
+    )
 
     account = await accounts.account_of(db, identity)
     issued = await accounts.issue_token(db, account)
@@ -1128,10 +1055,7 @@ async def _land_rename(state: dict, db: AsyncSession, message: dict) -> dict:
     node = await db.get(Node, body.node_id)
     if node is None:  # pragma: no cover
         raise Refused("тело вне узла")
-    try:
-        await estate.rename(db, body, node, str(message.get("name", "")))
-    except estate.EstateError as refusal:
-        raise Refused(str(refusal)) from refusal
+    await estate.rename(db, body, node, str(message.get("name", "")))
     return {"renamed": node.key, "name": node.name}
 
 
@@ -1174,10 +1098,7 @@ async def _build_estimate(state: dict, db: AsyncSession, message: dict) -> dict:
     kind = message.get("kind") or estate.kinds(constants)[0]
     if footprint <= 0 or floors < 1:
         raise Refused("площадь и этажность считаются от единицы")
-    try:
-        estate.composition(constants, str(kind))
-    except estate.UnknownKind as refusal:
-        raise Refused(str(refusal)) from refusal
+    estate.composition(constants, str(kind))
 
     needed = estate.bill(constants, footprint=footprint, floors=floors, kind=str(kind))
     pocket = await world.body_container(db, body)
@@ -1325,10 +1246,7 @@ async def _build_demolish(state: dict, db: AsyncSession, message: dict) -> dict:
     node = await db.get(Node, body.node_id)
     if node is None:  # pragma: no cover
         raise Refused("тело вне узла")
-    try:
-        job = await estate.demolish(db, current(), body, node)
-    except estate.EstateError as refusal:
-        raise Refused(str(refusal)) from refusal
+    job = await estate.demolish(db, current(), body, node)
     return {"demolishing": True, "ready_at": job.run_at.isoformat()}
 
 
@@ -1345,10 +1263,7 @@ async def _gate_set(state: dict, db: AsyncSession, message: dict) -> dict:
     node = await db.get(Node, body.node_id)
     if node is None:  # pragma: no cover
         raise Refused("тело вне узла")
-    try:
-        await access.set_gate(db, node, identity, closed=bool(message["closed"]))
-    except access.AccessError as refusal:
-        raise Refused(str(refusal)) from refusal
+    await access.set_gate(db, node, identity, closed=bool(message["closed"]))
     return await _lists(db, node)
 
 
@@ -1366,15 +1281,12 @@ async def _gate_list(state: dict, db: AsyncSession, message: dict) -> dict:
     if node is None:  # pragma: no cover
         raise Refused("тело вне узла")
     who = await _identity_by_name(db, str(message["who"]))
-    try:
-        if message.get("strike"):
-            await access.remove(db, node, identity, who)
-        else:
-            await access.add(
-                db, node, identity, who, allowed=bool(message.get("allowed", True))
-            )
-    except access.AccessError as refusal:
-        raise Refused(str(refusal)) from refusal
+    if message.get("strike"):
+        await access.remove(db, node, identity, who)
+    else:
+        await access.add(
+            db, node, identity, who, allowed=bool(message.get("allowed", True))
+        )
     return await _lists(db, node)
 
 
@@ -1896,13 +1808,10 @@ async def _item_hand(state: dict, db: AsyncSession, message: dict) -> dict:
     if taker is None:
         raise Refused("такого человека здесь нет")
     qty = message.get("amount")
-    try:
-        given = await storage.hand(
-            db, current(), current_catalog(), giver, taker, item,
-            None if qty is None else float(qty),
-        )
-    except storage.StorageError as refusal:
-        raise Refused(str(refusal)) from refusal
+    given = await storage.hand(
+        db, current(), current_catalog(), giver, taker, item,
+        None if qty is None else float(qty),
+    )
 
     who = await db.get(Identity, taker.identity_id)
     await chat.say(
@@ -2427,10 +2336,7 @@ async def _body_print(state: dict, db: AsyncSession, message: dict) -> dict:
 async def _travel_cancel(state: dict, db: AsyncSession, message: dict) -> dict:
     """Turn back from the road: the body stays where it left from (D-194)."""
     body = await _alive(state, db)
-    try:
-        await travel.turn_back(db, body)
-    except travel.TravelError as refusal:
-        raise Refused(str(refusal)) from refusal
+    await travel.turn_back(db, body)
     node = await db.get(Node, body.node_id)
     return {"cancelled": True, "node": None if node is None else node.key}
 
@@ -2440,13 +2346,10 @@ async def _ground_drop(state: dict, db: AsyncSession, message: dict) -> dict:
     body = await _alive(state, db)
     item = await _own_item(db, body, message["item"])
     qty = message.get("amount")
-    try:
-        put_down = await storage.drop(
-            db, current(), current_catalog(), body, item,
-            None if qty is None else float(qty),
-        )
-    except storage.StorageError as refusal:
-        raise Refused(str(refusal)) from refusal
+    put_down = await storage.drop(
+        db, current(), current_catalog(), body, item,
+        None if qty is None else float(qty),
+    )
     return {"dropped": put_down, "goods": item.type_key}
 
 
@@ -2457,13 +2360,10 @@ async def _ground_pick(state: dict, db: AsyncSession, message: dict) -> dict:
     if item is None:
         raise Refused("нет такой вещи")
     qty = message.get("amount")
-    try:
-        taken = await storage.pick(
-            db, current(), current_catalog(), body, item,
-            None if qty is None else float(qty),
-        )
-    except storage.StorageError as refusal:
-        raise Refused(str(refusal)) from refusal
+    taken = await storage.pick(
+        db, current(), current_catalog(), body, item,
+        None if qty is None else float(qty),
+    )
     return {"picked": taken, "goods": item.type_key}
 
 
@@ -2478,16 +2378,13 @@ async def _finance_statement(state: dict, db: AsyncSession, message: dict) -> di
 async def _finance_transfer(state: dict, db: AsyncSession, message: dict) -> dict:
     """Send money to another identity. Remote: the account is the Network."""
     identity = await _identity(state, db)
-    try:
-        sent = await finance.transfer(
-            db,
-            identity,
-            str(message.get("to") or ""),
-            money(float(message.get("amount") or 0)),
-            memo=str(message.get("memo") or ""),
-        )
-    except finance.FinanceError as refusal:
-        raise Refused(str(refusal)) from refusal
+    sent = await finance.transfer(
+        db,
+        identity,
+        str(message.get("to") or ""),
+        money(float(message.get("amount") or 0)),
+        memo=str(message.get("memo") or ""),
+    )
     return {"sent": sent, "money": await _money(db, state["identity_id"])}
 
 
@@ -2505,13 +2402,10 @@ async def _energy_fuel(state: dict, db: AsyncSession, message: dict) -> dict:
     body = await _alive(state, db)
     item = await _own_item(db, body, message["item"])
     qty = message.get("amount")
-    try:
-        poured = await energy.fuel(
-            db, current(), body, item,
-            None if qty is None else float(qty),
-        )
-    except energy.EnergyError as refusal:
-        raise Refused(str(refusal)) from refusal
+    poured = await energy.fuel(
+        db, current(), body, item,
+        None if qty is None else float(qty),
+    )
     return {"fuelled": poured, "goods": item.type_key}
 
 
@@ -2523,13 +2417,10 @@ async def _storage_put(state: dict, db: AsyncSession, message: dict) -> dict:
         raise Refused("нет такого хранилища")
     item = await _own_item(db, body, message["item"])
     qty = message.get("amount")
-    try:
-        put = await storage.put(
-            db, current(), current_catalog(), body, chest, item,
-            None if qty is None else float(qty),
-        )
-    except storage.StorageError as refusal:
-        raise Refused(str(refusal)) from refusal
+    put = await storage.put(
+        db, current(), current_catalog(), body, chest, item,
+        None if qty is None else float(qty),
+    )
     return {"stored": put, "goods": item.type_key}
 
 
@@ -2541,13 +2432,10 @@ async def _storage_take(state: dict, db: AsyncSession, message: dict) -> dict:
     if chest is None or item is None:
         raise Refused("нет такой вещи")
     qty = message.get("amount")
-    try:
-        taken = await storage.take(
-            db, current(), current_catalog(), body, chest, item,
-            None if qty is None else float(qty),
-        )
-    except storage.StorageError as refusal:
-        raise Refused(str(refusal)) from refusal
+    taken = await storage.take(
+        db, current(), current_catalog(), body, chest, item,
+        None if qty is None else float(qty),
+    )
     return {"taken": taken, "goods": item.type_key}
 
 

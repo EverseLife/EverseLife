@@ -27,6 +27,7 @@ from argon2.exceptions import VerifyMismatchError
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.engine.errors import Refusal
 from src.models.identity import Account, Identity, Line, LoginToken
 from src.runtime import (
     CHARACTER_ABOUT_LIMIT,
@@ -40,7 +41,7 @@ from src.runtime import (
 )
 
 
-class AccountError(Exception):
+class AccountError(Refusal):
     """A refusal of identification or the account panel. Not a server error."""
 
 

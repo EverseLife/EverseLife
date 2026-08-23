@@ -34,6 +34,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Constants
 from src.constants import registry as R
+from src.engine.errors import Refusal
 from src.models.mining import PowChallenge
 from src.runtime import (
     POW_HASH_BYTES,
@@ -45,7 +46,7 @@ from src.runtime import (
 from src.units import KIB_PER_MIB
 
 
-class PowError(Exception):
+class PowError(Refusal):
     pass
 
 

@@ -67,6 +67,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import Catalog, Constants, current_catalog
 from src.constants import registry as R
 from src.engine import events, world
+from src.engine.errors import Refusal
 from src.engine.jobs import enqueue, handler
 from src.models.event import EventKind
 from src.models.identity import Body, BodyState, Identity
@@ -90,7 +91,7 @@ IRON = "Слиток железа"
 PRECURSOR = "предтечи"
 
 
-class DeathError(Exception):
+class DeathError(Refusal):
     pass
 
 

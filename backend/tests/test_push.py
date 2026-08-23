@@ -327,3 +327,37 @@ def test_an_addressed_event_reaches_the_party_not_the_actor_alone(client, miner)
         assert told["event"] == "city.citizenship_granted", told
         assert told["touches"] == ["city"]
         assert told["who"] != miner["name"], "назвавший — писарь, не новый гражданин"
+
+
+def test_every_refusal_reaches_the_player_as_a_refusal(client, miner) -> None:
+    """`LedgerError` was not in the socket loop's list and went out as "the
+    server failed" (review 2026-08-23). Now every engine refusal descends
+    from `Refusal` and is answered as one -- here a transfer of money the
+    identity does not have."""
+    with client.websocket_connect("/session/ws") as ws:
+        ws.send_json({"id": 1, **_input(miner)})
+        ws.receive_json()
+        ws.send_json({"id": 2, "cmd": "finance.transfer", "to": miner["name"], "amount": 999999})
+        answer = ws.receive_json()
+        assert "refused" in answer and "не справился" not in answer["refused"], answer
+
+
+def test_all_engine_errors_descend_from_refusal() -> None:
+    import importlib
+    import inspect
+    import pkgutil
+
+    import src.engine as engine
+    from src.engine.errors import Refusal
+    from src.engine.jobs import UnknownJobKind
+
+    strays = []
+    for info in pkgutil.iter_modules(engine.__path__):
+        module = importlib.import_module(f"src.engine.{info.name}")
+        for name, cls in inspect.getmembers(module, inspect.isclass):
+            if cls.__module__ != module.__name__ or not issubclass(cls, Exception):
+                continue
+            if cls is UnknownJobKind or issubclass(cls, Refusal):
+                continue
+            strays.append(f"{module.__name__}.{name}")
+    assert strays == [], strays

@@ -56,6 +56,7 @@ from src.constants import Constants
 from src.constants import registry as R
 from src.engine import events, food, travel, wear
 from src.engine import world as world_engine
+from src.engine.errors import Refusal
 from src.engine.world import body_container
 from src.models.event import EventKind
 from src.models.identity import Body, BodyState, Wound
@@ -65,7 +66,7 @@ from src.models.world import Node, Vein
 from src.units import PERCENT, SCALE_MAX, SCALE_MIN, amount, amount_float
 
 
-class MiningError(Exception):
+class MiningError(Refusal):
     pass
 
 

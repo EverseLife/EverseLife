@@ -36,11 +36,12 @@ import uuid
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.engine.errors import Refusal
 from src.models.identity import Body, Identity
 from src.models.world import Node, NodePass
 
 
-class AccessError(Exception):
+class AccessError(Refusal):
     pass
 
 

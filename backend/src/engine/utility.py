@@ -43,6 +43,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import Constants
 from src.constants import registry as R
 from src.engine import energy, events, ledger
+from src.engine.errors import Refusal
 from src.engine.jobs import handler
 from src.models.city import UtilityMeter
 from src.models.event import EventKind
@@ -53,7 +54,7 @@ from src.models.world import Node
 from src.units import ENERGY_PER_TARIFF_UNIT, SECONDS_PER_HOUR, money, money_str
 
 
-class UtilityError(Exception):
+class UtilityError(Refusal):
     pass
 
 

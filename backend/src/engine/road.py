@@ -56,6 +56,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import events, world
+from src.engine.errors import Refusal
 from src.engine.jobs import enqueue, handler
 from src.models.event import EventKind
 from src.models.identity import Body, BodyState
@@ -71,7 +72,7 @@ SURFACE_GOODS = "Полотно"
 LADDER = (Surface.TRAIL, Surface.ROAD, Surface.PAVED)
 
 
-class RoadError(Exception):
+class RoadError(Refusal):
     pass
 
 

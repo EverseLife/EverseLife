@@ -80,6 +80,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import events, ledger, travel, world
+from src.engine.errors import Refusal
 from src.engine.jobs import enqueue, handler
 from src.engine.world import body_container, node_container
 from src.models.event import EventKind
@@ -99,7 +100,7 @@ from src.models.world import Node
 from src.units import AMOUNT_SCALE, PERCENT, amount, amount_float, money_str
 
 
-class MarketError(Exception):
+class MarketError(Refusal):
     pass
 
 
