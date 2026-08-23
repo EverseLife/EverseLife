@@ -120,7 +120,7 @@ export function Net({ unread, wanted, onWanted }: Props) {
         {threads.map((thread) => (
           <li key={thread.id}>
             <button
-              className="net-row"
+              className="bare net-row"
               onClick={() => setView({ kind: "thread", id: thread.id, who: thread.who })}
             >
               <span className="net-head">
@@ -144,7 +144,7 @@ export function Net({ unread, wanted, onWanted }: Props) {
             {channels.map((channel) => (
               <li key={channel.id}>
                 <button
-                  className="net-row"
+                  className="bare net-row"
                   onClick={() => setView({ kind: "channel", id: channel.id })}
                 >
                   <span className="net-head">
@@ -232,7 +232,7 @@ function Compose({
       <ul className="net-list">
         {people.map((person) => (
           <li key={person.name}>
-            <button className="net-row" onClick={() => void open(person.name)} disabled={acting.busy}>
+            <button className="bare net-row" onClick={() => void open(person.name)} disabled={acting.busy}>
               <span className="net-head">
                 <b>
                   {person.name}
@@ -540,7 +540,7 @@ function Channels({
       <ul className="net-list">
         {found.map((channel) => (
           <li key={channel.id} className="net-found">
-            <button className="net-row" onClick={() => onOpen(channel.id)}>
+            <button className="bare net-row" onClick={() => onOpen(channel.id)}>
               <span className="net-head">
                 <b>{channel.name}</b>
                 {channel.official && <Official />}

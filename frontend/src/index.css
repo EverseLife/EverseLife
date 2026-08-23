@@ -1568,6 +1568,9 @@ textarea.word {
   flex: 1;
   min-width: 0;
 }
+/* The row carries `bare` in the markup: without it the base rule paints every
+   button `--base-50`, and `.net-head b` -- also `--base-50` -- vanishes into
+   the slab. The declarations below only reach the row once `bare` is on it. */
 .net-row {
   display: flex;
   flex-direction: column;
