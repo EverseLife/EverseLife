@@ -11,14 +11,14 @@
 
 
 import { type FormEvent, useState } from "react";
-import type { Profile, Session } from "../api";
+import { useSession } from "../actions";
+import type { Profile } from "../api";
 import { DENSITIES, DENSITY_NAMES, setDensity, useDensity } from "../density";
 import { Rule } from "../Rule";
 import { Secret } from "./Secret";
 
 type Props = {
   profile: Profile;
-  session: Session;
   busy: boolean;
   act: (what: () => Promise<unknown>) => Promise<void>;
   onClose: () => void;
@@ -35,7 +35,8 @@ const TABS = [
 ] as const;
 type Tab = (typeof TABS)[number]["id"];
 
-export function Account({ profile, session, busy, act, onClose, onLogout }: Props) {
+export function Account({ profile, busy, act, onClose, onLogout }: Props) {
+  const session = useSession();
   const [tab, setTab] = useState<Tab>("who");
   const [surname, setSurname] = useState(profile.surname);
   const [age, setAge] = useState(profile.age == null ? "" : String(profile.age));

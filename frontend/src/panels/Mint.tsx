@@ -13,17 +13,15 @@
 
 import { useMemo, useState } from "react";
 import type { RecipeBook } from "../api";
-import type { Look, Session, Thing } from "../api";
+import type { Look, Thing } from "../api";
 import { tally } from "../amounts";
 import { Rule } from "../Rule";
-import { Refusal, useActions } from "../actions";
+import { Refusal, useActions, useBook, useSession } from "../actions";
 import { TierPick } from "../Tier";
 
 type Props = {
   look: Look;
-  session: Session;
   /** The vault catalog: the coins and what goes under the die come from it. */
-  book: RecipeBook | null;
   values: Record<string, any> | null;
   busy: boolean;
   act: (what: () => Promise<unknown>) => Promise<void>;
@@ -56,7 +54,9 @@ function coinsOf(book: RecipeBook | null): Coin[] {
     });
 }
 
-export function Mint({ look, session, book, values }: Omit<Props, "busy" | "act">) {
+export function Mint({ look, values }: Omit<Props, "busy" | "act">) {
+  const session = useSession();
+  const book = useBook();
   //: This panel's own waiting and its own refusal: one action here
   //: must not grey out the chat, the map and somebody else's orders.
   const acting = useActions();

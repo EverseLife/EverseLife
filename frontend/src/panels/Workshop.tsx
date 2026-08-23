@@ -27,27 +27,24 @@
  */
 
 import { useEffect, useState } from "react";
-import type { RecipeBook } from "../api";
 import * as api from "../api";
-import type { Invention, Look, Plan, Session, Thing } from "../api";
+import type { Invention, Look, Plan, Thing } from "../api";
 import { anyOfClass, membersOf } from "../classes";
 import { tally } from "../amounts";
 import { busyWith, CRAFT } from "../busy";
 import { craftableAt, inputsOf, stationOf } from "../recipes";
 import { Rule } from "../Rule";
-import { Refusal, useActions } from "../actions";
+import { Refusal, useActions, useBook, useSession } from "../actions";
 import { TierPick } from "../Tier";
 import { tiersOf } from "../tiers";
 
 type Props = {
   look: Look;
-  session: Session;
   busy: boolean;
   act: (what: () => Promise<unknown>) => Promise<void>;
   /** The machine's name or `null` -- "By hand". */
   machine: string | null;
   /** The vault catalog: loaded once for the whole screen. */
-  book: RecipeBook | null;
 };
 
 /**
@@ -58,7 +55,9 @@ type Props = {
 const CARRIER = "Носитель";
 const AUTO_BENCH = "Автомат";
 
-export function Workshop({ look, session, machine, book }: Omit<Props, "busy" | "act">) {
+export function Workshop({ look, machine }: Omit<Props, "busy" | "act">) {
+  const session = useSession();
+  const book = useBook();
   //: This panel's own waiting and its own refusal: one action here
   //: must not grey out the chat, the map and somebody else's orders.
   const acting = useActions();
@@ -336,7 +335,7 @@ export function Workshop({ look, session, machine, book }: Omit<Props, "busy" | 
         </>
       )}
 
-      <Invent look={look} session={session} machine={machine} book={book} />
+      <Invent look={look} machine={machine} />
 
       {repair.length > 0 && (
         <>
@@ -387,15 +386,13 @@ type Laid = { goods: string; amount: number; tier: string | null };
  */
 function Invent({
   look,
-  session,
   machine,
-  book,
-}: {
+  }: {
   look: Look;
-  session: Session;
   machine: string | null;
-  book: RecipeBook | null;
 }) {
+  const session = useSession();
+  const book = useBook();
   const acting = useActions();
   const { busy, act } = acting;
   const [laid, setLaid] = useState<Laid[]>([]);

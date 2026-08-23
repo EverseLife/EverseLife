@@ -33,9 +33,9 @@
  */
 
 import { useState, type ReactNode } from "react";
-import type { RecipeBook } from "../api";
+import { useBook } from "../actions";
 import * as api from "../api";
-import type { Look, Session } from "../api";
+import type { Look, RecipeBook } from "../api";
 import { Deadline } from "../Deadline";
 import { craftableAt } from "../recipes";
 import { Admin } from "./Admin";
@@ -110,17 +110,16 @@ const ROW = "row";
 
 type Props = {
   look: Look;
-  session: Session;
-  book: RecipeBook | null;
   values: Record<string, any> | null;
   pow: PowSettings | null;
 };
 
-export function Stand({ look, session, book, values, pow }: Props) {
+export function Stand({ look, values, pow }: Props) {
+  const book = useBook();
   const here = look.node?.key ?? "";
   const [chosen, setChosen] = useState<string | null>(() => OPENED.get(here) ?? null);
 
-  const things = assemble({ look, session, book, values, pow });
+  const things = assemble({ look, values, pow }, book);
   const bench = things.find((t) => t.kind === "bench");
   //: A remembered choice can vanish -- the machine was carried off while we
   //: were away. Then the first thing worth attention takes over.
@@ -200,7 +199,7 @@ export function Stand({ look, session, book, values, pow }: Props) {
  * screen built too, only now it is one list instead of a dozen independent
  * `{has.x && <Panel/>}` lines, and each entry carries what it is doing.
  */
-function assemble({ look, session, book, values, pow }: Props): Thing[] {
+function assemble({ look, values, pow }: Props, book: RecipeBook | null): Thing[] {
   const things: Thing[] = [];
   const stations = api.stationsOf(look);
   const bench = look.bench ?? [];
@@ -232,7 +231,7 @@ function assemble({ look, session, book, values, pow }: Props): Thing[] {
       kind: "full",
       rank: open ? 0 : 1,
       state: open ? "сессия идёт" : `жила: ${look.veins[0].resource}`,
-      view: () => <Mine look={look} session={session} pow={pow} />,
+      view: () => <Mine look={look} pow={pow} />,
     });
   }
 
@@ -243,10 +242,10 @@ function assemble({ look, session, book, values, pow }: Props): Thing[] {
    * hearth or a renamed mint opens the same window.
    */
   const SPECIAL: Record<string, () => ReactNode> = {
-    [KITCHEN]: () => <Kitchen look={look} session={session} book={book} />,
-    [NURSERY]: () => <Nursery look={look} session={session} />,
-    [FUEL_PLANT]: () => <Plant look={look} session={session} />,
-    [MINT]: () => <Mint look={look} session={session} book={book} values={values} />,
+    [KITCHEN]: () => <Kitchen look={look} />,
+    [NURSERY]: () => <Nursery look={look} />,
+    [FUEL_PLANT]: () => <Plant look={look} />,
+    [MINT]: () => <Mint look={look} values={values} />,
   };
 
   //: One machine is one row, whatever can be done at it. A hearth is both a
@@ -282,7 +281,7 @@ function assemble({ look, session, book, values, pow }: Props): Thing[] {
         <>
           {special?.()}
           {recipes && (
-            <Workshop machine={machine} book={book} look={look} session={session} />
+            <Workshop machine={machine} look={look} />
           )}
         </>
       ),
@@ -302,7 +301,7 @@ function assemble({ look, session, book, values, pow }: Props): Thing[] {
   //: sign of the land stands next to the machines, one row per sign (D-177).
   for (const sign of gatherSigns(look, book)) {
     single(`gather:${sign}`, PLACES[sign] ?? sign, "bench", () => (
-      <Gather look={look} session={session} book={book} sign={sign} />
+      <Gather look={look} sign={sign} />
     ));
   }
 
@@ -316,7 +315,7 @@ function assemble({ look, session, book, values, pow }: Props): Thing[] {
       "rig",
       "Буровая",
       "bench",
-      () => <Rig look={look} session={session} book={book} />,
+      () => <Rig look={look} />,
       1,
       look.rig_here ? undefined : "в руках: поставить на жилу",
     );
@@ -335,7 +334,7 @@ function assemble({ look, session, book, values, pow }: Props): Thing[] {
       "ship",
       aboard ? "Корабль" : yard ?? SPACEPORT,
       "full",
-      () => <Ship look={look} session={session} book={book} />,
+      () => <Ship look={look} />,
     );
   }
 
@@ -343,7 +342,7 @@ function assemble({ look, session, book, values, pow }: Props): Thing[] {
   //: contract, not by this window (06-farming). Nobody's land outside a city is
   //: farmed by whoever comes (D-198), and there the window is for everyone.
   if ((look.node?.fertility ?? 0) > 0 && disposes(look)) {
-    single("farm", "Делянки", "full", () => <Farm look={look} session={session} />);
+    single("farm", "Делянки", "full", () => <Farm look={look} />);
   }
   //: Foraging, where the land has room to walk and is ours or nobody's
   //: (D-210): the server decides, the row only reads. A find waiting for its
@@ -365,21 +364,21 @@ function assemble({ look, session, book, values, pow }: Props): Thing[] {
       running: searching
         ? { until: foraging.ready_at as string, since: foraging.started_at }
         : undefined,
-      view: () => <Forage look={look} session={session} />,
+      view: () => <Forage look={look} />,
     });
   }
   //: A library and a hall are machines (D-176, D-215): both are read off the bench.
   if (anyOfClass(book, stations, "Библиотека")) {
-    single("library", "Библиотека", "full", () => <Library look={look} session={session} />);
+    single("library", "Библиотека", "full", () => <Library look={look} />);
   }
   if (look.city && anyOfClass(book, stations, "Администрация")) {
-    single("hall", "Администрация", "full", () => <Admin look={look} session={session} />);
+    single("hall", "Администрация", "full", () => <Admin look={look} />);
   }
   const terminal = firstOfClass(book, stations, TERMINAL);
   if (terminal !== undefined) {
     const mine = (look.stall ?? []).length;
     single("market", terminal, "full",
-      () => <Market look={look} session={session} values={values} />, 1,
+      () => <Market look={look} values={values} />, 1,
       mine > 0 ? `вашего товара: ${mine}` : undefined);
   }
 
@@ -399,7 +398,7 @@ function assemble({ look, session, book, values, pow }: Props): Thing[] {
       "ground",
       (room?.roofed ?? 0) > 0 ? "В здании" : "На земле",
       "full",
-      () => <Ground look={look} session={session} />,
+      () => <Ground look={look} />,
       3,
       room ? `${room.used.toFixed(0)} / ${room.area.toFixed(0)} м²` : undefined,
     );
@@ -414,7 +413,7 @@ function assemble({ look, session, book, values, pow }: Props): Thing[] {
       "convoy",
       "Обоз",
       "full",
-      () => <Convoy look={look} session={session} />,
+      () => <Convoy look={look} />,
       3,
       convoy
         ? `трюм ${convoy.mass.toFixed(0)} из ${convoy.capacity.toFixed(0)} кг`
@@ -429,7 +428,7 @@ function assemble({ look, session, book, values, pow }: Props): Thing[] {
       "house",
       "Дом",
       "full",
-      () => <House look={look} session={session} book={book} />,
+      () => <House look={look} />,
       3,
       home.area > 0
         ? `${home.area.toFixed(0)} м² в ${home.floors} эт. · мест ${home.used} из ${home.slots}`
@@ -450,7 +449,7 @@ function assemble({ look, session, book, values, pow }: Props): Thing[] {
       "plot",
       "Участок",
       "full",
-      () => <Plot look={look} session={session} />,
+      () => <Plot look={look} />,
       forSale ? 1 : 3,
       node?.cut_off
         ? "отключена за неуплату"

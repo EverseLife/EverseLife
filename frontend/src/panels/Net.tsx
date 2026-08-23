@@ -22,16 +22,14 @@ import type {
   ChannelFound,
   Letter,
   Post,
-  Session,
   Thread,
 } from "../api";
 import { when } from "../clock";
 import { PersonName } from "../Name";
 import { askProfile } from "../people";
-import { Refusal, useActions } from "../actions";
+import { Refusal, useActions, useSession } from "../actions";
 
 type Props = {
-  session: Session;
   /** The count from `look`: when it grows, the list is reread. */
   unread: number;
   /** Whom to open the correspondence with: "write" from somebody's card. */
@@ -47,7 +45,8 @@ type View =
   | { kind: "channels" };
 
 
-export function Net({ session, unread, wanted, onWanted }: Props) {
+export function Net({ unread, wanted, onWanted }: Props) {
+  const session = useSession();
   const [view, setView] = useState<View>({ kind: "list" });
   const [threads, setThreads] = useState<Thread[]>([]);
   const [channels, setChannels] = useState<Channel[]>([]);
@@ -84,22 +83,20 @@ export function Net({ session, unread, wanted, onWanted }: Props) {
   if (view.kind === "compose") {
     return (
       <Compose
-        session={session}
         onBack={back}
         onOpen={(id, who) => setView({ kind: "thread", id, who })}
       />
     );
   }
   if (view.kind === "thread") {
-    return <Talk session={session} id={view.id} who={view.who} onBack={back} />;
+    return <Talk id={view.id} who={view.who} onBack={back} />;
   }
   if (view.kind === "channel") {
-    return <Feed session={session} id={view.id} onBack={back} onChanged={reread} />;
+    return <Feed id={view.id} onBack={back} onChanged={reread} />;
   }
   if (view.kind === "channels") {
     return (
       <Channels
-        session={session}
         mine={channels}
         onBack={back}
         onOpen={(id) => setView({ kind: "channel", id })}
@@ -185,14 +182,13 @@ function Back({ onBack }: { onBack: () => void }) {
 
 /** Whom to write: a name, with the Net's suggestions as it is typed. */
 function Compose({
-  session,
   onBack,
   onOpen,
 }: {
-  session: Session;
   onBack: () => void;
   onOpen: (id: string, who: string) => void;
 }) {
+  const session = useSession();
   const acting = useActions();
   const [query, setQuery] = useState("");
   const [people, setPeople] = useState<{ name: string; surname: string }[]>([]);
@@ -254,16 +250,15 @@ function Compose({
 
 /** One correspondence: the letters, and the road they are on. */
 function Talk({
-  session,
   id,
   who,
   onBack,
 }: {
-  session: Session;
   id: string;
   who: string;
   onBack: () => void;
 }) {
+  const session = useSession();
   const acting = useActions();
   const [letters, setLetters] = useState<Letter[]>([]);
   const [text, setText] = useState("");
@@ -350,16 +345,15 @@ function Talk({
 
 /** One channel: the posts that have reached this reader. */
 function Feed({
-  session,
   id,
   onBack,
   onChanged,
 }: {
-  session: Session;
   id: string;
   onBack: () => void;
   onChanged: () => Promise<void>;
 }) {
+  const session = useSession();
   const acting = useActions();
   const [channel, setChannel] = useState<
     (Pick<Channel, "id" | "name" | "about" | "official" | "writable">) | null
@@ -454,18 +448,17 @@ function Feed({
 
 /** Finding a channel by name, and starting one's own. */
 function Channels({
-  session,
   mine,
   onBack,
   onOpen,
   onChanged,
 }: {
-  session: Session;
   mine: Channel[];
   onBack: () => void;
   onOpen: (id: string) => void;
   onChanged: () => Promise<void>;
 }) {
+  const session = useSession();
   const acting = useActions();
   const [query, setQuery] = useState("");
   const [found, setFound] = useState<ChannelFound[]>([]);

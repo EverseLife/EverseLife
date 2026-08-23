@@ -22,21 +22,21 @@
 import { useEffect, useState } from "react";
 import type { RecipeBook } from "../api";
 import * as api from "../api";
-import type { Look, Session } from "../api";
+import type { Look } from "../api";
 import { Rule } from "../Rule";
-import { Refusal, useActions } from "../actions";
+import { Refusal, useActions, useSession } from "../actions";
 
 /** How many catalog rows to show at a time. A display quantity, not a game one. */
 const PAGE = 8;
 
 type Props = {
   look: Look;
-  session: Session;
   busy: boolean;
   act: (what: () => Promise<unknown>) => Promise<void>;
 };
 
-export function Library({ look, session }: Omit<Props, "busy" | "act">) {
+export function Library({ look }: Omit<Props, "busy" | "act">) {
+  const session = useSession();
   //: This panel's own waiting and its own refusal: one action here
   //: must not grey out the chat, the map and somebody else's orders.
   const acting = useActions();

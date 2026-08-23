@@ -16,20 +16,21 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
+import { useSession } from "../actions";
 import * as api from "../api";
-import type { DeedView, Holding, Look, Session, Thing } from "../api";
+import type { DeedView, Holding, Look, Thing } from "../api";
 import { Rule } from "../Rule";
 
 type Props = {
   look: Look;
-  session: Session;
   busy: boolean;
   act: (what: () => Promise<unknown>) => Promise<void>;
 };
 
 type Grid = { city: string; stored: number; tariff: number };
 
-export function Holdings({ look, session, busy, act }: Props) {
+export function Holdings({ look, busy, act }: Props) {
+  const session = useSession();
   const [grid, setGrid] = useState<Grid | null>(null);
   const [holdings, setHoldings] = useState<Holding[]>([]);
   const [deedMarket, setDeedMarket] = useState<DeedView[]>([]);
@@ -171,7 +172,6 @@ export function Holdings({ look, session, busy, act }: Props) {
         market={deedMarket}
         busy={busy}
         go={go}
-        session={session}
       />
     </div>
   );
@@ -188,14 +188,13 @@ function Deeds({
   market,
   busy,
   go,
-  session,
-}: {
+  }: {
   my: DeedView[];
   market: DeedView[];
   busy: boolean;
   go: (what: () => Promise<unknown>) => Promise<void>;
-  session: Session;
 }) {
+  const session = useSession();
   const [prices, setPrices] = useState<Record<string, number>>({});
   const [toWhom, setToWhom] = useState<Record<string, string>>({});
   if (my.length === 0 && market.length === 0) return null;

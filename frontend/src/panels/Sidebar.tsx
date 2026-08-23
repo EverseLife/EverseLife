@@ -16,9 +16,8 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import type { RecipeBook } from "../api";
 import * as api from "../api";
-import type { Batch, Look, Session } from "../api";
+import type { Batch, Look } from "../api";
 import { anyOfClass } from "../classes";
 import { busyWith, CRAFT, SLEEP } from "../busy";
 import { Doing } from "../Deadline";
@@ -31,16 +30,14 @@ import { Net } from "./Net";
 import { Population } from "./Population";
 import { Workshop } from "./Workshop";
 import { Rule } from "../Rule";
-import { Refusal, useActions } from "../actions";
+import { Refusal, useActions, useBook, useSession } from "../actions";
 import { onThread } from "../people";
 
 type Props = {
   look: Look;
-  session: Session;
   busy: boolean;
   act: (what: () => Promise<unknown>) => Promise<void>;
   /** The vault catalog -- for the "craft" tab: what is made by hand. */
-  book: RecipeBook | null;
 };
 
 /**
@@ -78,7 +75,7 @@ const STATE_TAB = {
 } as const;
 type Tab = (typeof TABS)[number]["id"] | (typeof STATE_TAB)["id"];
 
-export function Sidebar({ look, session, book }: Omit<Props, "busy" | "act">) {
+export function Sidebar({ look }: Omit<Props, "busy" | "act">) {
   //: This panel's own waiting and its own refusal: one action here
   //: must not grey out the chat, the map and somebody else's orders.
   const acting = useActions();
@@ -130,14 +127,14 @@ export function Sidebar({ look, session, book }: Omit<Props, "busy" | "act">) {
       </nav>
 
       {current === "me" && <Character look={look} />}
-      {current === "goods" && <Inventory look={look} session={session} book={book} />}
+      {current === "goods" && <Inventory look={look} />}
       {/* Ручной крафт живёт в сайдбаре: верёвку вьют там, где стоят, и рабочая
           станция этому месту не нужна. Запуск всё равно присутственный: в пути
           и во сне сервер откажет. */}
       {current === "work" && (
         <>
-          <Doings look={look} session={session} book={book} busy={busy} act={act} />
-          <Workshop machine={null} book={book} look={look} session={session} />
+          <Doings look={look} busy={busy} act={act} />
+          <Workshop machine={null} look={look} />
         </>
       )}
       {current === "knows" && <Knowledge look={look} />}
@@ -145,17 +142,16 @@ export function Sidebar({ look, session, book }: Omit<Props, "busy" | "act">) {
           бумаги живут в Сети (D-116, D-149). */}
       {current === "money" && (
         <>
-          <Finance look={look} session={session} busy={busy} act={act} />
-          <Trade look={look} session={session} busy={busy} act={act} />
+          <Finance look={look} busy={busy} act={act} />
+          <Trade look={look} busy={busy} act={act} />
         </>
       )}
       {/* Хозяйство — счета за быт, сеть и ценные бумаги: имущество, а не деньги. */}
       {current === "estate" && (
-        <Holdings look={look} session={session} busy={busy} act={act} />
+        <Holdings look={look} busy={busy} act={act} />
       )}
       {current === "net" && (
         <Net
-          session={session}
           unread={look.net_unread ?? 0}
           wanted={wanted}
           onWanted={forgetWanted}
@@ -163,8 +159,8 @@ export function Sidebar({ look, session, book }: Omit<Props, "busy" | "act">) {
       )}
       {current === "state" && (
         <>
-          <Economy look={look} session={session} busy={busy} />
-          <Population look={look} session={session} busy={busy} />
+          <Economy look={look} busy={busy} />
+          <Population look={look} busy={busy} />
         </>
       )}
     </aside>
@@ -249,7 +245,9 @@ const elapsedMinutes = (since: string) =>
  * -- they carry a queue, a reason for waiting and a quality, and none of that
  * fits one line.
  */
-function Doings({ look, session, book, busy, act }: Props) {
+function Doings({ look, busy, act }: Props) {
+  const session = useSession();
+  const book = useBook();
   const doings = look.doings ?? [];
   const asleep = doings.some((d) => d.kind === "sleep");
   //: A bed is a thing class (D-215): the engine sleeps in any member of it.
@@ -404,7 +402,8 @@ function Doings({ look, session, book, busy, act }: Props) {
   );
 }
 
-function Trade({ look, session, busy, act }: Omit<Props, "book">) {
+function Trade({ look, busy, act }: Omit<Props, "book">) {
+  const session = useSession();
   return (
     <div>
       {/* Бронь — единственный способ купить удалённо, и она с часами:

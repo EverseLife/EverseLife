@@ -14,12 +14,11 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ChatLine, Circle, Session } from "../api";
-import { Refusal, useActions } from "../actions";
+import type { ChatLine, Circle } from "../api";
+import { Refusal, useActions, useSession } from "../actions";
 import { PersonName } from "../Name";
 
 type Props = {
-  session: Session;
   busy: boolean;
   act: (what: () => Promise<unknown>) => Promise<void>;
   /** The location key: changed -- the conversation started anew. */
@@ -32,7 +31,8 @@ const KINDS = [
   { value: "ooc", label: "вне игры" },
 ] as const;
 
-export function Chat({ session, place }: Omit<Props, "busy" | "act">) {
+export function Chat({ place }: Omit<Props, "busy" | "act">) {
+  const session = useSession();
   //: This panel's own waiting and its own refusal: one action here
   //: must not grey out the chat, the map and somebody else's orders.
   const acting = useActions();

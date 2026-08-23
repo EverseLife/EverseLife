@@ -15,18 +15,18 @@
 
 
 import * as api from "../api";
-import type { Look, Printer as Door, Session } from "../api";
+import type { Look, Printer as Door } from "../api";
 import { Rule } from "../Rule";
-import { Refusal, useActions } from "../actions";
+import { Refusal, useActions, useSession } from "../actions";
 
 type Props = {
   look: Look;
-  session: Session;
   busy: boolean;
   act: (what: () => Promise<unknown>) => Promise<void>;
 };
 
-export function Printer({ look, session }: Omit<Props, "busy" | "act">) {
+export function Printer({ look }: Omit<Props, "busy" | "act">) {
+  const session = useSession();
   //: This panel's own waiting and its own refusal: one action here
   //: must not grey out the chat, the map and somebody else's orders.
   const acting = useActions();

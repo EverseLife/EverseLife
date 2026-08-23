@@ -22,13 +22,12 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
+import { useSession } from "../actions";
 import * as api from "../api";
-import type { Session } from "../api";
 import { when } from "../clock";
 import { Rule } from "../Rule";
 
 type Props = {
-  session: Session;
   busy: boolean;
   act: (what: () => Promise<unknown>) => Promise<void>;
 };
@@ -60,7 +59,8 @@ function Why({ text }: { text?: string | null }) {
   );
 }
 
-export function Bank({ session, busy, act }: Props) {
+export function Bank({ busy, act }: Props) {
+  const session = useSession();
   const [bank, setBank] = useState<any>(null);
   const [qty, setQty] = useState(50);
 
@@ -176,7 +176,7 @@ export function Bank({ session, busy, act }: Props) {
         </button>
       </div>
 
-      <Council session={session} busy={busy} act={act} />
+      <Council busy={busy} act={act} />
     </>
   );
 }
@@ -188,7 +188,8 @@ export function Bank({ session, busy, act }: Props) {
  * After the threshold -- the city's vote in the corridor around the
  * recommendation: the Council argues with the algorithm, not replaces it.
  */
-function Council({ session, busy, act }: Props) {
+function Council({ busy, act }: Props) {
+  const session = useSession();
   const [council, setCouncil] = useState<any>(null);
   const [rate, setRate] = useState<number | null>(null);
 

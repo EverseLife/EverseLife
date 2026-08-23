@@ -21,8 +21,8 @@
 
 import { useEffect, useState } from "react";
 import type { RecipeBook } from "../api";
-import type { Look, Session, Thing } from "../api";
-import { Refusal, useActions } from "../actions";
+import type { Look, Thing } from "../api";
+import { Refusal, useActions, useBook, useSession } from "../actions";
 import { Rule } from "../Rule";
 import { Amount } from "../Amount";
 import { chosen, tally } from "../amounts";
@@ -40,7 +40,7 @@ import {
   type Summary,
 } from "../arrange";
 
-type Props = { look: Look; session: Session; book: RecipeBook | null };
+type Props = { look: Look };
 
 /** Somebody standing in the same node: the only possible receiver. */
 type Person = { body: string; name: string };
@@ -48,7 +48,9 @@ type Person = { body: string; name: string };
 /** Which sub-question the open menu is asking. */
 type Asking = null | { item: string; about: "menu" | "where" | "whom" };
 
-export function Inventory({ look, session, book }: Props) {
+export function Inventory({ look }: Props) {
+  const session = useSession();
+  const book = useBook();
   const acting = useActions();
   const { busy, act } = acting;
   const [asking, setAsking] = useState<Asking>(null);

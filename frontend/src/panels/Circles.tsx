@@ -14,20 +14,20 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import type { Circle, Session } from "../api";
+import type { Circle } from "../api";
 import { Rule } from "../Rule";
-import { Refusal, useActions } from "../actions";
+import { Refusal, useActions, useSession } from "../actions";
 import { PersonName } from "../Name";
 
 type Props = {
-  session: Session;
   busy: boolean;
   act: (what: () => Promise<unknown>) => Promise<void>;
   /** The location key: changed -- the circles are different. */
   place: string;
 };
 
-export function Circles({ session, place }: Omit<Props, "busy" | "act">) {
+export function Circles({ place }: Omit<Props, "busy" | "act">) {
+  const session = useSession();
   //: This panel's own waiting and its own refusal: one action here
   //: must not grey out the chat, the map and somebody else's orders.
   const acting = useActions();

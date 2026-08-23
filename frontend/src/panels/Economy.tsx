@@ -12,14 +12,16 @@
 
 
 import { useCallback, useEffect, useState } from "react";
+import { useSession } from "../actions";
 import * as api from "../api";
-import type { CityPanel, CityView, Look, Session } from "../api";
+import type { CityPanel, CityView, Look } from "../api";
 import { Panel } from "./Admin";
 import { Rule } from "../Rule";
 
-type Props = { look: Look; session: Session; busy: boolean };
+type Props = { look: Look; busy: boolean };
 
-export function Economy({ look, session, busy }: Props) {
+export function Economy({ look, busy }: Props) {
+  const session = useSession();
   const [city, setCity] = useState<CityView | null>(null);
   const [panel, setPanel] = useState<CityPanel | null>(null);
   const [world, setWorld] = useState<Record<string, number>>({});

@@ -16,15 +16,14 @@
 
 import { useEffect, useState } from "react";
 import * as api from "../api";
-import type { Book, Look, Session, Thing } from "../api";
+import type { Book, Look, Thing } from "../api";
 import { Amount } from "../Amount";
 import { chosen, tally } from "../amounts";
 import { Rule } from "../Rule";
-import { Refusal, useActions } from "../actions";
+import { Refusal, useActions, useSession } from "../actions";
 
 type Props = {
   look: Look;
-  session: Session;
   values: Record<string, any> | null;
   busy: boolean;
   act: (what: () => Promise<unknown>) => Promise<void>;
@@ -36,7 +35,8 @@ type Position = { goods: string; tier: string };
 const exactly = (qty: number) =>
   qty.toFixed(3).replace(/\.?0+$/, "") || "0";
 
-export function Market({ look, session }: Omit<Props, "busy" | "act">) {
+export function Market({ look }: Omit<Props, "busy" | "act">) {
+  const session = useSession();
   //: This panel's own waiting and its own refusal: one action here
   //: must not grey out the chat, the map and somebody else's orders.
   const acting = useActions();

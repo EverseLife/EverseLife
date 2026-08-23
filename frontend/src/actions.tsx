@@ -31,17 +31,46 @@ import {
   type ReactNode,
 } from "react";
 
+import type { RecipeBook, Session } from "./api";
+
 /** Reread the world after something changed it. Provided once, near the root. */
 const Refresh = createContext<() => Promise<void>>(async () => {});
+//: The session and the recipe book never change for a signed-in screen: one
+//: of each, reached from any panel, instead of 61 `session={session}` and 16
+//: `book={book}` props through every layer (review 2026-08-23).
+const SessionContext = createContext<Session | null>(null);
+const BookContext = createContext<RecipeBook | null>(null);
 
 export function ActionsProvider({
   refresh,
+  session,
+  book,
   children,
 }: {
   refresh: () => Promise<void>;
+  session: Session;
+  book: RecipeBook | null;
   children: ReactNode;
 }) {
-  return <Refresh.Provider value={refresh}>{children}</Refresh.Provider>;
+  return (
+    <Refresh.Provider value={refresh}>
+      <SessionContext.Provider value={session}>
+        <BookContext.Provider value={book}>{children}</BookContext.Provider>
+      </SessionContext.Provider>
+    </Refresh.Provider>
+  );
+}
+
+/** The socket session of the signed-in player. */
+export function useSession(): Session {
+  const session = useContext(SessionContext);
+  if (!session) throw new Error("useSession outside ActionsProvider");
+  return session;
+}
+
+/** The vault's recipe book, loaded once at login. */
+export function useBook(): RecipeBook | null {
+  return useContext(BookContext);
 }
 
 /**

@@ -16,10 +16,10 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import { stationsOf, type Look, type Session, type RecipeBook } from "../api";
+import { stationsOf, type Look } from "../api";
 import { Rule } from "../Rule";
 import { firstOfClass } from "../classes";
-import { Refusal, useActions } from "../actions";
+import { Refusal, useActions, useBook, useSession } from "../actions";
 
 /**
  * Thing classes, not item names (D-215): the foundation a node aboard is laid
@@ -76,7 +76,9 @@ function cheapest(v: Vessel): number {
   return fuels.length ? Math.min(...fuels) : 0;
 }
 
-export function Ship({ look, session, book }: { look: Look; session: Session; book: RecipeBook | null }) {
+export function Ship({ look }: { look: Look }) {
+  const session = useSession();
+  const book = useBook();
   //: This panel's own waiting and its own refusal: laying a keel must not grey
   //: out the chat and the map for eight hours of somebody else's work.
   const acting = useActions();

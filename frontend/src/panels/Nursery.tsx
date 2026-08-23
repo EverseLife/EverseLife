@@ -16,14 +16,13 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { tally } from "../amounts";
-import type { Look, Session, Thing } from "../api";
+import type { Look, Thing } from "../api";
 import { when } from "../clock";
 import { Rule } from "../Rule";
-import { Refusal, useActions } from "../actions";
+import { Refusal, useActions, useSession } from "../actions";
 
 type Props = {
   look: Look;
-  session: Session;
   busy: boolean;
   act: (what: () => Promise<unknown>) => Promise<void>;
 };
@@ -39,7 +38,8 @@ type Variety = {
 
 type Bed = { id: string; ready_at: string };
 
-export function Nursery({ look, session }: Omit<Props, "busy" | "act">) {
+export function Nursery({ look }: Omit<Props, "busy" | "act">) {
+  const session = useSession();
   //: This panel's own waiting and its own refusal: one action here
   //: must not grey out the chat, the map and somebody else's orders.
   const acting = useActions();

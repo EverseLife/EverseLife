@@ -14,13 +14,12 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import type { Look, Session } from "../api";
+import type { Look } from "../api";
 import { duration } from "../clock";
-import { Refusal, useActions } from "../actions";
+import { Refusal, useActions, useSession } from "../actions";
 
 type Props = {
   look: Look;
-  session: Session;
   busy: boolean;
   act: (what: () => Promise<unknown>) => Promise<void>;
 };
@@ -38,7 +37,8 @@ type Plant = {
 
 const SECONDS_PER_HOUR = 3600;
 
-export function Plant({ look, session }: Omit<Props, "busy" | "act">) {
+export function Plant({ look }: Omit<Props, "busy" | "act">) {
+  const session = useSession();
   //: This panel's own waiting and its own refusal: one action here
   //: must not grey out the chat, the map and somebody else's orders.
   const acting = useActions();

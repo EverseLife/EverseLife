@@ -14,14 +14,14 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import type { Look, Session } from "../api";
+import { useSession } from "../actions";
+import type { Look } from "../api";
 import { when } from "../clock";
 import { Bank } from "./Bank";
 import { Rule } from "../Rule";
 
 type Props = {
   look: Look;
-  session: Session;
   busy: boolean;
   act: (what: () => Promise<unknown>) => Promise<void>;
 };
@@ -58,7 +58,8 @@ const REASON: Record<string, string> = {
   transfer: "перевод",
 };
 
-export function Finance({ look, session, busy, act }: Props) {
+export function Finance({ look, busy, act }: Props) {
+  const session = useSession();
   const [entries, setEntries] = useState<Entry[]>([]);
   const [to, setTo] = useState("");
   const [amount, setAmount] = useState(10);
@@ -168,7 +169,7 @@ export function Finance({ look, session, busy, act }: Props) {
       )}
 
       {/* Кредит — тоже Сеть: берут и гасят откуда угодно (D-167). */}
-      <Bank session={session} busy={busy} act={act} />
+      <Bank busy={busy} act={act} />
     </div>
   );
 }

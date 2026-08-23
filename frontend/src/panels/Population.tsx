@@ -11,12 +11,14 @@
 
 
 import { useCallback, useEffect, useState } from "react";
-import type { CityPanel, CityView, Look, Session } from "../api";
+import { useSession } from "../actions";
+import type { CityPanel, CityView, Look } from "../api";
 import { Rule } from "../Rule";
 
-type Props = { look: Look; session: Session; busy: boolean };
+type Props = { look: Look; busy: boolean };
 
-export function Population({ look, session, busy }: Props) {
+export function Population({ look, busy }: Props) {
+  const session = useSession();
   const [target, setTarget] = useState("");
   const [city, setCity] = useState<CityView | null>(null);
   const [panel, setPanel] = useState<CityPanel | null>(null);

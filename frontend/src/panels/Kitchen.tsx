@@ -14,17 +14,14 @@
  */
 
 import { useMemo, useState } from "react";
-import type { RecipeBook } from "../api";
-import type { Look, Session } from "../api";
+import type { Look } from "../api";
 import { Rule } from "../Rule";
-import { Refusal, useActions } from "../actions";
+import { Refusal, useActions, useBook, useSession } from "../actions";
 import { TierPick } from "../Tier";
 
 type Props = {
   look: Look;
-  session: Session;
   /** The vault catalog: a dish is a recipe with roles (D-119), not a name in a list. */
-  book: RecipeBook | null;
   busy: boolean;
   act: (what: () => Promise<unknown>) => Promise<void>;
 };
@@ -32,7 +29,9 @@ type Props = {
 //: Roles are the keys of cook.role_weights; the order is constant so the form does not jump.
 const ROLES = ["основа", "наполнитель", "жир", "приправа"] as const;
 
-export function Kitchen({ look, session, book }: Omit<Props, "busy" | "act">) {
+export function Kitchen({ look }: Omit<Props, "busy" | "act">) {
+  const session = useSession();
+  const book = useBook();
   //: This panel's own waiting and its own refusal: one action here
   //: must not grey out the chat, the map and somebody else's orders.
   const acting = useActions();

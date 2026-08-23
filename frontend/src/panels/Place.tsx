@@ -31,20 +31,18 @@
 import { useEffect, useState } from "react";
 import type { RecipeBook } from "../api";
 import * as api from "../api";
-import type { Bench, Look, Session, Vehicle } from "../api";
+import type { Bench, Look, Vehicle } from "../api";
 import { Amount } from "../Amount";
 import { chosen, tally } from "../amounts";
 import { when } from "../clock";
 import { Rule } from "../Rule";
-import { Refusal, useActions } from "../actions";
+import { Refusal, useActions, useBook, useSession } from "../actions";
 import { TierPick } from "../Tier";
 
 type Props = {
   look: Look;
-  session: Session;
   busy: boolean;
   act: (what: () => Promise<unknown>) => Promise<void>;
-  book: RecipeBook | null;
 };
 
 /** Whether the viewer disposes of this node: the holder, or the authority on civic land.
@@ -73,7 +71,7 @@ export function disposes(look: Look): boolean {
  * up. What keeps a stranger's hands away is the shut door (D-204) and the
  * chest's own lock (D-181) -- not a rule against touching.
  */
-export function Ground({ look, session }: Omit<Props, "busy" | "act" | "book">) {
+export function Ground({ look }: Omit<Props, "busy" | "act" | "book">) {
   //: Own waiting and own refusal: a full yard must refuse this window, not the map.
   const acting = useActions();
   const { busy, act } = acting;
@@ -82,8 +80,8 @@ export function Ground({ look, session }: Omit<Props, "busy" | "act" | "book">) 
   return (
     <>
       <Refusal of={acting} />
-      <Floor look={look} session={session} busy={busy} act={act} />
-      <Storages look={look} session={session} busy={busy} act={act} />
+      <Floor look={look} busy={busy} act={act} />
+      <Storages look={look} busy={busy} act={act} />
     </>
   );
 }
@@ -97,7 +95,8 @@ export function Ground({ look, session }: Omit<Props, "busy" | "act" | "book">) 
  * A passer-by through a shut location is not inside, and for them the floor is
  * closed.
  */
-function Floor({ look, session, busy, act }: Omit<Props, "book">) {
+function Floor({ look, busy, act }: Omit<Props, "book">) {
+  const session = useSession();
   const [parts, setParts] = useState<Record<string, number | null>>({});
   const floor = look.floor;
   if (!floor) return null;
@@ -225,7 +224,8 @@ function Floor({ look, session, busy, act }: Omit<Props, "book">) {
  * disposes of the node may open it: the owner, and on civic land the
  * authority (D-181). The limit is the same as for hands and hold -- kilograms.
  */
-function Storages({ look, session, busy, act }: Omit<Props, "book">) {
+function Storages({ look, busy, act }: Omit<Props, "book">) {
+  const session = useSession();
   //: How much of a stack to move, per item. Empty means the whole of it.
   const [parts, setParts] = useState<Record<string, number | null>>({});
   const chests = look.storages ?? [];
@@ -355,7 +355,8 @@ function Storages({ look, session, busy, act }: Omit<Props, "book">) {
  * holder alone: civic land is regulated by citizenship and duties, not by a
  * list of names.
  */
-export function Plot({ look, session }: Omit<Props, "busy" | "act" | "book">) {
+export function Plot({ look }: Omit<Props, "busy" | "act" | "book">) {
+  const session = useSession();
   //: This window's own waiting and its own refusal: shutting the door here must
   //: not grey out the chat, the map and somebody else's orders.
   const acting = useActions();
@@ -492,11 +493,11 @@ export function Plot({ look, session }: Omit<Props, "busy" | "act" | "book">) {
           </span>
         </div>
       )}
-      {mine && <Door look={look} session={session} busy={busy} act={act} />}
+      {mine && <Door look={look} busy={busy} act={act} />}
     </section>
     {/* Founding a city is the plot's fate, so the section stands here:
         the server offers it only where founding is possible at all. */}
-    <Foundation look={look} session={session} busy={busy} act={act} />
+    <Foundation look={look} busy={busy} act={act} />
     </>
   );
 }
@@ -508,7 +509,8 @@ export function Plot({ look, session }: Omit<Props, "busy" | "act" | "book">) {
  * it. The lists are two, and where they contradict each other the black one
  * wins -- one line to learn instead of a roster that flipped its meaning.
  */
-function Door({ look, session, busy, act }: Omit<Props, "book">) {
+function Door({ look, busy, act }: Omit<Props, "book">) {
+  const session = useSession();
   const node = look.node;
   //: One field per list: typing a name to let in and a name to keep out are
   //: different intentions, and a shared field would make them one slip apart.
@@ -621,7 +623,8 @@ function Door({ look, session, busy, act }: Omit<Props, "book">) {
  * story, not two windows. Working at a machine is another matter -- for that
  * the machine has a row of its own in the location.
  */
-export function House({ look, session, book }: Omit<Props, "busy" | "act">) {
+export function House({ look }: Omit<Props, "busy" | "act">) {
+  const session = useSession();
   //: Own waiting and own refusal: this window is a window of its own in the row.
   const acting = useActions();
   const { busy, act } = acting;
@@ -833,8 +836,8 @@ export function House({ look, session, book }: Omit<Props, "busy" | "act">) {
           разбирают по решению суда (D-095). */}
       {home.area > 0 && buildable && (
         <>
-          <Repair look={look} session={session} busy={busy} act={act} />
-          <Demolition look={look} session={session} busy={busy} act={act} />
+          <Repair look={look} busy={busy} act={act} />
+          <Demolition look={look} busy={busy} act={act} />
         </>
       )}
     </section>
@@ -843,10 +846,8 @@ export function House({ look, session, book }: Omit<Props, "busy" | "act">) {
       things={look.bench ?? []}
       kind="station"
       look={look}
-      session={session}
       busy={busy}
       act={act}
-      book={book}
       note="За рабочей станцией работает один: пока идёт партия, второму она не отдаётся."
     />
     <Equipment
@@ -854,10 +855,8 @@ export function House({ look, session, book }: Omit<Props, "busy" | "act">) {
       things={look.furniture ?? []}
       kind="furniture"
       look={look}
-      session={session}
       busy={busy}
       act={act}
-      book={book}
       note="Мебель обустраивает быт: кровать — сон быстрее, сундук — хранение. На ней не работают."
     />
     </>
@@ -871,7 +870,8 @@ export function House({ look, session, book }: Omit<Props, "busy" | "act">) {
  * button that answers it. The bill is asked for by the button, like the
  * building one: it is a question about a decision, and the decision is rare.
  */
-function Repair({ look, session, busy, act }: Omit<Props, "book">) {
+function Repair({ look, busy, act }: Omit<Props, "book">) {
+  const session = useSession();
   const [plan, setPlan] = useState<any>(null);
   const home = look.node?.building;
   const worn = home?.condition ?? 100;
@@ -940,7 +940,8 @@ function Repair({ look, session, busy, act }: Omit<Props, "book">) {
  * about a decision, and the decision is rare. Everything that blocks the work is
  * shown as reasons -- the engine names them, the window does not guess.
  */
-function Demolition({ look, session, busy, act }: Omit<Props, "book">) {
+function Demolition({ look, busy, act }: Omit<Props, "book">) {
+  const session = useSession();
   const [plan, setPlan] = useState<any>(null);
   const going = api.houseOf(look.node).sites.length > 0;
 
@@ -1046,10 +1047,10 @@ export function gatherSigns(look: Look, book: RecipeBook | null): string[] {
  */
 export function Gather({
   look,
-  session,
-  book,
   sign,
 }: Omit<Props, "busy" | "act"> & { sign: string }) {
+  const session = useSession();
+  const book = useBook();
   //: Own waiting and own refusal: a window of its own in the row.
   const acting = useActions();
   const { busy, act } = acting;
@@ -1126,7 +1127,8 @@ export function Gather({
  * At founding the land goes to the city: from then on the authority hands it
  * out, not the yard owner (D-089), and that is said right here rather than found out later.
  */
-function Foundation({ look, session, busy, act }: Omit<Props, "book">) {
+function Foundation({ look, busy, act }: Omit<Props, "book">) {
+  const session = useSession();
   const ground = look.foundation ?? null;
   const [name, setName] = useState("");
   if (!ground) return null;
@@ -1180,7 +1182,8 @@ function Foundation({ look, session, busy, act }: Omit<Props, "book">) {
  * its own -- and a separate one from machines on purpose: nobody stands at a
  * wagon to work, one harnesses to it, and these two must not be confused.
  */
-export function Convoy({ look, session }: Omit<Props, "busy" | "act" | "book">) {
+export function Convoy({ look }: Omit<Props, "busy" | "act" | "book">) {
+  const session = useSession();
   //: Own waiting and own refusal: a window of its own in the row.
   const acting = useActions();
   const { busy, act } = acting;
@@ -1344,10 +1347,8 @@ function Equipment({
   things,
   kind,
   look,
-  session,
   busy,
   act,
-  book,
   note,
 }: Props & {
   title: string;
@@ -1355,6 +1356,8 @@ function Equipment({
   kind: "station" | "furniture";
   note: string;
 }) {
+  const session = useSession();
+  const book = useBook();
   const mine = api.isMine(look);
   //: The owner places and removes, and on civic land the authority (`station.may_build`).
   //: In somebody else's house neither is entitled.

@@ -13,20 +13,20 @@
 
 
 import { useState } from "react";
-import type { Look, Session, Sight } from "../api";
+import type { Look, Sight } from "../api";
 import { solve, type PowSettings } from "../pow";
 import { Rule } from "../Rule";
-import { Refusal, useActions } from "../actions";
+import { Refusal, useActions, useSession } from "../actions";
 
 type Props = {
   look: Look;
-  session: Session;
   pow: PowSettings | null;
   busy: boolean;
   act: (what: () => Promise<unknown>) => Promise<void>;
 };
 
-export function Mine({ look, session, pow }: Omit<Props, "busy" | "act">) {
+export function Mine({ look, pow }: Omit<Props, "busy" | "act">) {
+  const session = useSession();
   //: This panel's own waiting and its own refusal: one action here
   //: must not grey out the chat, the map and somebody else's orders.
   const acting = useActions();

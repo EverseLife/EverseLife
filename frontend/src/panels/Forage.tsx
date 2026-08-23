@@ -24,19 +24,19 @@
  */
 
 import { useEffect, useState } from "react";
-import type { Look, Session } from "../api";
+import type { Look } from "../api";
 import { spell } from "../api";
 import { busyWith, FORAGE } from "../busy";
 import { Deadline } from "../Deadline";
 import { Hint } from "../Hint";
-import { Refusal, useActions, useRefresh } from "../actions";
+import { Refusal, useActions, useRefresh, useSession } from "../actions";
 
 type Props = {
   look: Look;
-  session: Session;
 };
 
-export function Forage({ look, session }: Props) {
+export function Forage({ look }: Props) {
+  const session = useSession();
   //: Own waiting and own refusal: full hands refuse this window, not the map.
   const acting = useActions();
   const { busy, act } = acting;

@@ -41,15 +41,13 @@ import {
   type MapRoute,
   type Outlook,
   type RoadWork,
-  type Session,
   type WorldMap,
 } from "../api";
-import { Refusal, useActions } from "../actions";
+import { Refusal, useActions, useSession } from "../actions";
 import { Rule } from "../Rule";
 
 type Props = {
   look: Look;
-  session: Session;
   busy: boolean;
   act: (what: () => Promise<unknown>) => Promise<void>;
   onEnter: () => void;
@@ -156,7 +154,7 @@ function seedPoint(key: string): { x: number; y: number } {
 
 const DASH: Record<string, string | undefined> = { trail: "4 6" };
 
-export function GraphMap({ look, session, onEnter }: Omit<Props, "busy" | "act">) {
+export function GraphMap({ look, onEnter }: Omit<Props, "busy" | "act">) {
   //: The map itself performs nothing: it draws, pans and picks. Every action --
   //: setting off, laying a road, going out to explore -- belongs to the
   //: inspector beside it, which keeps its own waiting and its own refusal.
@@ -1113,7 +1111,6 @@ export function GraphMap({ look, session, onEnter }: Omit<Props, "busy" | "act">
           at={menu}
           node={byKey[menu.key]}
           look={look}
-          session={session}
           step={walkTargets[menu.key]}
           group={groups.has(menu.key)}
           onExpand={() => {
@@ -1127,7 +1124,6 @@ export function GraphMap({ look, session, onEnter }: Omit<Props, "busy" | "act">
 
       <Inspector
         look={look}
-        session={session}
         picked={picked}
         byKey={byKey}
         groups={groups}
@@ -1157,7 +1153,6 @@ export function GraphMap({ look, session, onEnter }: Omit<Props, "busy" | "act">
  */
 function Inspector({
   look,
-  session,
   picked,
   byKey,
   groups,
@@ -1167,7 +1162,6 @@ function Inspector({
   layer,
 }: {
   look: Look;
-  session: Session;
   picked: string | null;
   byKey: Record<string, MapNode>;
   groups: Set<string>;
@@ -1176,6 +1170,7 @@ function Inspector({
   onEnter: () => void;
   layer: LayerId;
 }) {
+  const session = useSession();
   const acting = useActions();
   const { busy, act } = acting;
   const here = look.node?.key ?? "";
@@ -1229,7 +1224,7 @@ function Inspector({
             </button>
           </div>
         )}
-        <Search look={look} session={session} busy={busy} act={act} layer={layer} />
+        <Search look={look} busy={busy} act={act} layer={layer} />
         <Refusal of={acting} />
       </aside>
     );
@@ -1328,7 +1323,7 @@ function Inspector({
         <p className="reason">Разведчик в поле: тело недоступно, как во сне.</p>
       )}
 
-      <Roads look={look} session={session} busy={busy} act={act} only={node.name} />
+      <Roads look={look} busy={busy} act={act} only={node.name} />
       <Refusal of={acting} />
     </aside>
   );
@@ -1352,7 +1347,6 @@ function NodeMenu({
   at,
   node,
   look,
-  session,
   step,
   group,
   onExpand,
@@ -1361,12 +1355,12 @@ function NodeMenu({
   at: { x: number; y: number };
   node: MapNode | undefined;
   look: Look;
-  session: Session;
   step?: { key: string; seconds: number };
   group: boolean;
   onExpand: () => void;
   onDone: () => void;
 }) {
+  const session = useSession();
   const acting = useActions();
   const { busy, act } = acting;
   if (!node) return null;
@@ -1424,18 +1418,17 @@ function NodeMenu({
  */
 function Roads({
   look,
-  session,
   busy,
   act,
   only,
 }: {
   look: Look;
-  session: Session;
   busy: boolean;
   act: (what: () => Promise<unknown>) => Promise<void>;
   /** Show the road to this neighbour alone: the column speaks about one node. */
   only?: string;
 }) {
+  const session = useSession();
   const [roads, setRoads] = useState<RoadWork[]>([]);
 
   useEffect(() => {
@@ -1519,17 +1512,16 @@ const SURFACE_LABEL: Record<RoadWork["surface"], string> = {
  * The forecast is shown before leaving and updates on node change. */
 function Search({
   look,
-  session,
   busy,
   act,
   layer,
 }: {
   look: Look;
-  session: Session;
   busy: boolean;
   act: (what: () => Promise<unknown>) => Promise<void>;
   layer: LayerId;
 }) {
+  const session = useSession();
   const [speciesList, setSpeciesList] = useState<string[]>([]);
   const [species, setSpecies] = useState("");
   const [forecast, setForecast] = useState<Outlook | null>(null);

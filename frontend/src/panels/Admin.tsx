@@ -29,20 +29,19 @@ import type {
   CourtCase,
   Look,
   SanctionKind,
-  Session,
 } from "../api";
 import { when } from "../clock";
 import { Rule } from "../Rule";
-import { Refusal, useActions } from "../actions";
+import { Refusal, useActions, useSession } from "../actions";
 
 type Props = {
   look: Look;
-  session: Session;
   busy: boolean;
   act: (what: () => Promise<unknown>) => Promise<void>;
 };
 
-export function Admin({ look, session }: Omit<Props, "busy" | "act">) {
+export function Admin({ look }: Omit<Props, "busy" | "act">) {
+  const session = useSession();
   //: This panel's own waiting and its own refusal: one action here
   //: must not grey out the chat, the map and somebody else's orders.
   const acting = useActions();
@@ -95,7 +94,7 @@ export function Admin({ look, session }: Omit<Props, "busy" | "act">) {
   if (!city) {
     return (
       <>
-        <Citizenship look={look} session={session} />
+        <Citizenship look={look} />
         <section>
           <Refusal of={acting} />
           <h2>Администрация</h2>
@@ -116,7 +115,7 @@ export function Admin({ look, session }: Omit<Props, "busy" | "act">) {
     <>
     {/* One joins and leaves where the city decides (D-155): the standing of
         the visitor comes before the machinery of the power. */}
-    <Citizenship look={look} session={session} />
+    <Citizenship look={look} />
     <section>
       <h2>Администрация · {city.name}</h2>
       <nav className="row tabs">
@@ -135,11 +134,10 @@ export function Admin({ look, session }: Omit<Props, "busy" | "act">) {
         <Panel panel={panel} />
       ) : (
         <>
-        <Court jobs={jobs} sanctions={sanctions} penalColonies={penalColonies} can={can("justice")} session={session} go={go} busy={busy} />
+        <Court jobs={jobs} sanctions={sanctions} penalColonies={penalColonies} can={can("justice")} go={go} busy={busy} />
         <Votes
           polls={polls}
           city={city}
-          session={session}
           go={go}
           busy={busy}
         />
@@ -165,7 +163,6 @@ export function Admin({ look, session }: Omit<Props, "busy" | "act">) {
           <Word
             city={city}
             can={can("citizens") && decides}
-            session={session}
             go={go}
             busy={busy}
           />
@@ -427,7 +424,8 @@ export function Admin({ look, session }: Omit<Props, "busy" | "act">) {
  * admission order is always shown: "open", "by application" and "by
  * invitation" behave differently, and the person must understand what to expect.
  */
-function Citizenship({ look, session }: Omit<Props, "busy" | "act">) {
+function Citizenship({ look }: Omit<Props, "busy" | "act">) {
+  const session = useSession();
   //: Own waiting and own refusal: joining must not grey out the court and the votes.
   const acting = useActions();
   const { busy, act } = acting;
@@ -522,16 +520,15 @@ function Citizenship({ look, session }: Omit<Props, "busy" | "act">) {
 function Word({
   city,
   can,
-  session,
   go,
   busy,
 }: {
   city: CityView;
   can: boolean;
-  session: Session;
   go: (what: () => Promise<unknown>) => void;
   busy: boolean;
 }) {
+  const session = useSession();
   const [text, setText] = useState<string | null>(null);
   const tally = text ?? city.about;
 
@@ -887,16 +884,15 @@ const rightName = (city: CityView) => (right: string) => {
 function Votes({
   polls,
   city,
-  session,
   go,
   busy,
 }: {
   polls: CityVote[];
   city: CityView;
-  session: Session;
   go: (what: () => Promise<unknown>) => Promise<void>;
   busy: boolean;
 }) {
+  const session = useSession();
   //: Convening is shown only where the charter allows it: turnover of power
   //: is also a city decision, not an engine property (D-162).
   const elective =
@@ -1077,7 +1073,6 @@ function Court({
   sanctions,
   penalColonies,
   can,
-  session,
   go,
   busy,
 }: {
@@ -1085,10 +1080,10 @@ function Court({
   sanctions: SanctionKind[];
   penalColonies: { key: string; name: string }[];
   can: boolean;
-  session: Session;
   go: (what: () => Promise<unknown>) => Promise<void>;
   busy: boolean;
 }) {
+  const session = useSession();
   const [toWhom, setToWhom] = useState("");
   const [essence, setEssence] = useState("");
   const [sanction, setSanction] = useState("fine");

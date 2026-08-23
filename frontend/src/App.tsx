@@ -341,7 +341,8 @@ export default function App() {
   //: The shelf belongs to the place: a new node is a new library, or none.
   const nodeKey = live?.node?.key;
   useEffect(() => {
-    if (!parts) return;
+    //: Through the ref: a reread of the parts must not reread the shelf.
+    if (!partsRef.current) return;
     void rereadParts(["shelf"]).catch(() => {});
   }, [nodeKey, rereadParts]);
 
@@ -412,7 +413,6 @@ export default function App() {
     <Account
       key={look.profile.email ?? look.identity}
       profile={look.profile}
-      session={session.current}
       busy={busy}
       act={act}
       onClose={() => setAccount_(false)}
@@ -425,7 +425,7 @@ export default function App() {
   //: stays: account, orders and knowledge belong to the identity, not the body.
   if (look.body == null) {
     return (
-      <ActionsProvider refresh={settle}>
+      <ActionsProvider refresh={settle} session={session.current} book={book}>
       <main>
         <header>
           {who}
@@ -435,13 +435,13 @@ export default function App() {
           </button>
         </header>
         <div className="frame">
-          <Sidebar look={look} session={session.current} book={book} />
+          <Sidebar look={look} />
           <div className="main">
             {/* No body, no place: the only thing to do here is print one. The
                 sidebar stays -- the account, the orders and the knowledge
                 belong to the identity, not to the body. */}
             <div className="panels">
-              <Printer look={look} session={session.current} />
+              <Printer look={look} />
             </div>
           </div>
         </div>
@@ -453,7 +453,7 @@ export default function App() {
   }
 
   return (
-    <ActionsProvider refresh={settle}>
+    <ActionsProvider refresh={settle} session={session.current} book={book}>
     <main>
       <header>
         {who}
@@ -522,7 +522,7 @@ export default function App() {
 
       <div className={`frame${narrow ? " one" : ""}`}>
         {(!narrow || where_ === "me") && (
-          <Sidebar look={look} session={session.current} book={book} />
+          <Sidebar look={look} />
         )}
 
         {(!narrow || where_ !== "me") && (
@@ -531,7 +531,6 @@ export default function App() {
               (narrow && where_ === "map")) && (
               <GraphMap
                 look={look}
-                session={session.current}
                 onEnter={() => {
                   setView("place");
                   setWhere_("here");
@@ -543,8 +542,6 @@ export default function App() {
               ((!narrow && view === "place") || (narrow && where_ === "here")) && (
                 <Stand
                   look={look}
-                  session={session.current}
-                  book={book}
                   values={values}
                   pow={pow}
                 />
@@ -555,12 +552,12 @@ export default function App() {
                 section, because both answer "who is here". */}
             {!away &&
               ((!narrow && view === "circles") || (narrow && where_ === "talk")) && (
-                <Circles session={session.current} place={look.node?.key ?? ""} />
+                <Circles place={look.node?.key ?? ""} />
               )}
 
             {!away &&
               ((!narrow && view !== "map") || (narrow && where_ === "talk")) && (
-                <Chat session={session.current} place={look.node?.key ?? ""} />
+                <Chat place={look.node?.key ?? ""} />
               )}
 
             {narrow && away && where_ !== "map" && (
@@ -597,7 +594,7 @@ export default function App() {
         </nav>
       )}
 
-      {card && <Profile session={session.current} name={card} onClose={() => setCard(null)} />}
+      {card && <Profile name={card} onClose={() => setCard(null)} />}
 
       {digestShown && digest && (
         <Summary

@@ -11,17 +11,17 @@
  */
 
 import { useEffect, useState } from "react";
-import type { Card, Session } from "../api";
+import type { Card } from "../api";
 import { askThread } from "../people";
-import { Refusal, useActions } from "../actions";
+import { Refusal, useActions, useSession } from "../actions";
 
 type Props = {
-  session: Session;
   name: string;
   onClose: () => void;
 };
 
-export function Profile({ session, name, onClose }: Props) {
+export function Profile({ name, onClose }: Props) {
+  const session = useSession();
   const acting = useActions();
   const [card, setCard] = useState<Card | null>(null);
   const [missing, setMissing] = useState<string | null>(null);

@@ -15,20 +15,17 @@
 
 
 import { useCallback, useEffect, useState } from "react";
-import type { RecipeBook } from "../api";
 import { firstOfClass } from "../classes";
-import type { Look, Session } from "../api";
+import type { Look } from "../api";
 import { Rule } from "../Rule";
-import { Refusal, useActions } from "../actions";
+import { Refusal, useActions, useBook, useSession } from "../actions";
 
 /** The thing class of a drilling machine, the word the engine binds to (`rig.RIG`). */
 const RIG = "Буровая";
 
 type Props = {
   look: Look;
-  session: Session;
   /** The vault catalog: the rig is known by its class, not by name (D-215). */
-  book: RecipeBook | null;
   busy: boolean;
   act: (what: () => Promise<unknown>) => Promise<void>;
 };
@@ -45,7 +42,9 @@ type RigRow = {
   vein_left: number;
 };
 
-export function Rig({ look, session, book }: Omit<Props, "busy" | "act">) {
+export function Rig({ look }: Omit<Props, "busy" | "act">) {
+  const session = useSession();
+  const book = useBook();
   //: This panel's own waiting and its own refusal: one action here
   //: must not grey out the chat, the map and somebody else's orders.
   const acting = useActions();
