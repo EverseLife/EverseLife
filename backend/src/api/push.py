@@ -46,6 +46,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.db.base import engine, session_factory
+from src.engine import city as town
 from src.models.event import Event
 from src.models.identity import Identity
 from src.models.world import Node
@@ -61,6 +62,11 @@ REPLAY_LIMIT = 500
 #: The fallback sweep: without a notification the hub still looks at the
 #: journal this often, so a missed `NOTIFY` costs seconds, not a session.
 SWEEP_PERIOD = 5.0
+#: Messages a client may leave unread before it is cut off.
+OUTBOX_LIMIT = 256
+#: Journal rows read per pass of the pump: a tick that wrote thousands is
+#: delivered in slices, not held in memory whole.
+PUMP_BATCH = 500
 
 #: Which parts of the player's state an event kind changes, by prefix of the
 #: kind (`knowledge.learned` -> `knowledge`). The client rereads those parts.
@@ -144,8 +150,23 @@ NODE_VISIBLE_KINDS = frozenset(
 NODE_TOUCHES: dict[str, tuple[str, ...]] = {"market": ("market",), "ship": ("node", "ships")}
 
 #: Payload keys that name a second party by identity id. Those get the event
-#: as their own: the office appointed, the letter sent.
-ADDRESSEE_KEYS = ("to_identity_id", "whom", "seller")
+#: as their own: the office appointed, the defendant, the seller. Any key
+#: ending in `_identity_id` counts; the journal names parties by id, and the
+#: teller turns ids into names (review 2026-08-23, wave 2).
+ADDRESSEE_KEYS = ("to_identity_id", "seller")
+ADDRESSEE_SUFFIX = "_identity_id"
+
+#: What every citizen of the city hears, wherever they stand: the city's
+#: affairs are theirs (D-160). The event names the city by `city_id`.
+CITY_VISIBLE_PREFIXES = frozenset({"city", "justice"})
+CITY_VISIBLE_KINDS = frozenset({"bank.rate_decided"})
+
+#: Bystanders learn **who** only where the deed is in plain sight: somebody
+#: arrived, fell, dropped a thing, was appointed. Trade, tax, fuel and
+#: farming stay nameless to the room (D-047: the book trades goods, not
+#: reputation). A teller may still add `who` for its kind.
+NAMED_PREFIXES = frozenset({"travel", "body", "city", "justice"})
+NAMED_KINDS = frozenset({"item.dropped", "item.picked", "mining.collapsed", "explore.found"})
 
 
 def touches_of(kind: str) -> tuple[str, ...]:
@@ -162,18 +183,73 @@ class Sink:
     """
 
     send_raw: Callable[[dict[str, Any]], Awaitable[None]]
+    #: Closes the socket itself -- what a stopped reader gets.
+    cut: Callable[[], Awaitable[None]] | None = None
     identity_id: uuid.UUID | None = None
     node_id: uuid.UUID | None = None
     #: Streaming is opt-in: `hello` with `since`. A client that reads answers
     #: by order -- the old one, the tests -- must not get an event in between.
     listening: bool = False
-    lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    #: Everything going out waits here, in order, for one writer task per
+    #: socket: delivery to a thousand sinks must never block on one slow
+    #: client's TCP window. A queue that fills up is a client that stopped
+    #: reading -- the socket is closed and the client comes back with `since`.
+    outbox: asyncio.Queue[dict[str, Any] | None] = field(
+        default_factory=lambda: asyncio.Queue(maxsize=OUTBOX_LIMIT)
+    )
+    writer: asyncio.Task[None] | None = None
+    cutting: asyncio.Task[None] | None = None
+    closed: bool = False
 
     async def send(self, message: dict[str, Any]) -> None:
-        async with self.lock:
-            await self.send_raw(message)
+        if self.closed:
+            return
+        try:
+            self.outbox.put_nowait(message)
+        except asyncio.QueueFull:
+            log.warning(
+                "sink %s stopped reading: %d messages queued", self.identity_id, OUTBOX_LIMIT
+            )
+            self.close()
+            return
         if "event" in message:
             hub.tally.events += 1
+
+    def close(self) -> None:
+        """Stop writing and cut the socket. The writer ends on the sentinel,
+        or is cancelled when the queue is too full to take one."""
+        if self.closed:
+            return
+        self.closed = True
+        try:
+            self.outbox.put_nowait(None)
+        except asyncio.QueueFull:
+            if self.writer is not None:
+                self.writer.cancel()
+        if self.cut is not None:
+            self.cutting = asyncio.get_running_loop().create_task(self._cut(), name="sink-cut")
+
+    async def _cut(self) -> None:
+        #: Closing a socket the other side already closed raises; that is the
+        #: usual way out, not an error worth a traceback.
+        with contextlib.suppress(Exception):
+            await self.cut()  # type: ignore[misc]
+
+    async def drain(self) -> None:
+        """The writer: one message at a time, until closed or the socket fails."""
+        try:
+            while not self.closed:
+                message = await self.outbox.get()
+                if message is None:
+                    return
+                try:
+                    await self.send_raw(message)
+                except Exception:  # noqa: BLE001 -- a dead socket ends the writer, not the hub
+                    log.info("sink %s gone while writing", self.identity_id)
+                    return
+        finally:
+            self.closed = True
+            hub.detach(self)
 
 
 Teller = Callable[[AsyncSession, Event, Sink, dict[str, Any]], Awaitable[dict[str, Any] | None]]
@@ -230,6 +306,9 @@ class Hub:
 
     def __init__(self) -> None:
         self.sinks: set[Sink] = set()
+        self.by_identity: dict[uuid.UUID, set[Sink]] = {}
+        self.by_node: dict[uuid.UUID, set[Sink]] = {}
+        self.dirty = True
         self.tally = Tally()
         self._last_id = 0
         #: Made in `start()`: an Event is bound to the loop it is made on, and
@@ -245,14 +324,34 @@ class Hub:
 
     def attach(self, sink: Sink) -> None:
         self.sinks.add(sink)
+        self.dirty = True
+        if sink.writer is None:
+            sink.writer = asyncio.create_task(sink.drain(), name="sink-writer")
 
     def detach(self, sink: Sink) -> None:
         self.sinks.discard(sink)
+        self.dirty = True
+        sink.close()
+
+    def reindex(self) -> None:
+        """Sinks by identity and by node, rebuilt when one attached, left or
+        moved: delivery then asks for the few concerned, not all of them."""
+        if not self.dirty:
+            return
+        by_identity: dict[uuid.UUID, set[Sink]] = {}
+        by_node: dict[uuid.UUID, set[Sink]] = {}
+        for sink in self.sinks:
+            if not sink.listening:
+                continue
+            if sink.identity_id is not None:
+                by_identity.setdefault(sink.identity_id, set()).add(sink)
+            if sink.node_id is not None:
+                by_node.setdefault(sink.node_id, set()).add(sink)
+        self.by_identity, self.by_node = by_identity, by_node
+        self.dirty = False
 
     def report(self) -> dict[str, Any]:
-        return self.tally.report(
-            len(self.sinks), sum(1 for sink in self.sinks if sink.listening)
-        )
+        return self.tally.report(len(self.sinks), sum(1 for sink in self.sinks if sink.listening))
 
     # -- lifecycle -----------------------------------------------------------
 
@@ -266,6 +365,8 @@ class Hub:
         self._task = asyncio.create_task(self._run(), name="push-hub")
 
     async def stop(self) -> None:
+        for sink in list(self.sinks):
+            sink.close()
         if self._task is not None:
             self._task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -330,18 +431,28 @@ class Hub:
             self._delivered.clear()
             return
         async with session_factory()() as db:
-            wanted = Event.id > self._last_id
-            if announced:
-                wanted = wanted | Event.id.in_(announced)
-            rows = (
-                (await db.execute(select(Event).where(wanted).order_by(Event.id))).scalars().all()
-            )
-            for row in rows:
-                if row.id in self._delivered:
-                    continue
-                await self._deliver(db, row, self.sinks)
-                self._delivered.add(row.id)
-                self._last_id = max(self._last_id, row.id)
+            while True:
+                wanted = Event.id > self._last_id
+                if announced:
+                    wanted = wanted | Event.id.in_(announced)
+                    announced = set()
+                rows = (
+                    (
+                        await db.execute(
+                            select(Event).where(wanted).order_by(Event.id).limit(PUMP_BATCH)
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+                for row in rows:
+                    if row.id in self._delivered:
+                        continue
+                    await self._deliver(db, row, self.sinks)
+                    self._delivered.add(row.id)
+                    self._last_id = max(self._last_id, row.id)
+                if len(rows) < PUMP_BATCH:
+                    break
             #: The delivered set only needs to cover what a late commit could
             #: still name: everything below the mark minus a window is history.
             if len(self._delivered) > 4096:
@@ -378,28 +489,52 @@ class Hub:
         prefix = kind.split(".", 1)[0]
         own = touches_of(kind)
         public = prefix in NODE_VISIBLE_PREFIXES or kind in NODE_VISIBLE_KINDS
+        named = prefix in NAMED_PREFIXES or kind in NAMED_KINDS
         parties = _parties(row)
+        city = _city_of(row)
+        citizens: set[uuid.UUID] = set()
+        if sinks is self.sinks:
+            self.reindex()
+        if city is not None and (self.by_identity if sinks is self.sinks else sinks):
+            found = await town.by_id(db, city)
+            if found is not None:
+                citizens = {c.identity_id for c in await town.citizens_of(db, found)}
         who: str | None = None
 
-        for sink in list(sinks):
+        #: Only the sinks that can be concerned: parties, citizens, the room.
+        if sinks is self.sinks:
+            candidates: set[Sink] = set()
+            for identity in parties | citizens:
+                candidates |= self.by_identity.get(identity, set())
+            if public and row.node_id is not None:
+                candidates |= self.by_node.get(row.node_id, set())
+        else:
+            candidates = set(sinks)
+
+        for sink in sorted(candidates, key=id):
             if not sink.listening or sink.identity_id is None:
                 continue
             personal = sink.identity_id in parties
+            #: A citizen hears the city's affairs as their own: the touches of
+            #: the kind, not the bystander's `node`.
+            member = not personal and sink.identity_id in citizens
             bystander = (
                 not personal
+                and not member
                 and public
                 and row.node_id is not None
                 and sink.node_id == row.node_id
             )
-            if not personal and not bystander:
+            if not personal and not member and not bystander:
                 continue
             message: dict[str, Any] = {
                 "event": kind,
                 "seq": row.id,
                 "at": row.at.isoformat(),
-                "touches": list(own if personal else NODE_TOUCHES.get(prefix, ("node",))),
+                "touches": list(own if personal or member else NODE_TOUCHES.get(prefix, ("node",))),
             }
-            if bystander or (personal and row.actor_identity_id != sink.identity_id):
+            others = member or (personal and row.actor_identity_id != sink.identity_id)
+            if others or (bystander and named):
                 if who is None and row.actor_identity_id is not None:
                     actor = await db.get(Identity, row.actor_identity_id)
                     who = actor.name if actor else ""
@@ -415,6 +550,7 @@ class Hub:
             #: talk of the place it left.
             if personal and sink.identity_id == row.actor_identity_id:
                 _follow(sink, row)
+                self.dirty = True
             await sink.send(message)
 
     async def _deliver_touch(self, note: dict[str, Any]) -> None:
@@ -426,31 +562,54 @@ class Hub:
         }
         if note.get("who"):
             message["who"] = note["who"]
-        for sink in list(self.sinks):
-            if not sink.listening:
-                continue
-            personal = identity is not None and sink.identity_id == identity
-            in_room = identity is None and node is not None and sink.node_id == node
-            if personal or in_room:
-                await sink.send(message)
+        plumbing = ("touches", "identity_id", "node_id", "event", "who")
+        for key, value in note.items():
+            if key not in plumbing and value is not None:
+                message[key] = value
+        self.reindex()
+        if identity is not None:
+            concerned = self.by_identity.get(identity, set())
+        elif node is not None:
+            concerned = self.by_node.get(node, set())
+        else:
+            concerned = set()
+        for sink in list(concerned):
+            await sink.send(message)
 
 
 def _parties(row: Event) -> set[uuid.UUID]:
     parties: set[uuid.UUID] = set()
     if row.actor_identity_id is not None:
         parties.add(row.actor_identity_id)
-    for key in ADDRESSEE_KEYS:
-        found = _uuid((row.payload or {}).get(key))
-        if found is not None:
-            parties.add(found)
+    payload = row.payload or {}
+    for key, value in payload.items():
+        if key in ADDRESSEE_KEYS or key.endswith(ADDRESSEE_SUFFIX):
+            found = _uuid(value)
+            if found is not None:
+                parties.add(found)
     return parties
 
 
+def _city_of(row: Event) -> uuid.UUID | None:
+    """The city whose citizens hear this event, if it is a city's affair."""
+    prefix = row.kind.split(".", 1)[0]
+    if prefix not in CITY_VISIBLE_PREFIXES and row.kind not in CITY_VISIBLE_KINDS:
+        return None
+    return _uuid((row.payload or {}).get("city_id"))
+
+
 def _follow(sink: Sink, row: Event) -> None:
-    if row.kind in ("travel.arrived", "travel.cancelled", "body.printed"):
+    """The sink follows the body: arrival, printing, a find that moved the
+    scout, a sentence that moved the convict. In transit and in death the
+    body is nowhere."""
+    if row.kind in ("travel.arrived", "travel.cancelled", "body.printed", "explore.found"):
         sink.node_id = row.node_id
     elif row.kind in ("travel.started", "body.died"):
         sink.node_id = None
+    elif row.kind == "justice.sanction_applied":
+        cell = _uuid((row.payload or {}).get("cell_node_id"))
+        if cell is not None:
+            sink.node_id = cell
 
 
 def _uuid(value: Any) -> uuid.UUID | None:
@@ -538,6 +697,22 @@ async def _market_order_placed(
 ) -> dict[str, Any] | None:
     message.pop("who", None)
     return _carry(row, message, "side", "type_key", "tier", "price", "amount")
+
+
+@teller("market.order_cancelled")
+async def _market_order_cancelled(
+    db: AsyncSession, row: Event, sink: Sink, message: dict[str, Any]
+) -> dict[str, Any] | None:
+    message.pop("who", None)
+    return _carry(row, message, "order_id")
+
+
+@teller("market.order_expired")
+async def _market_order_expired(
+    db: AsyncSession, row: Event, sink: Sink, message: dict[str, Any]
+) -> dict[str, Any] | None:
+    message.pop("who", None)
+    return _carry(row, message, "order_id")
 
 
 #: The face: every swing is told with what it brought; a collapse with what

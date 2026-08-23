@@ -61,6 +61,9 @@ export function markSeen(at: string): void {
   }
 }
 
+/** What the summary is made of: cases, votes, debts, reservations (D-226). */
+const SUMMARY_TOUCHES = ["justice", "city", "bank", "orders", "all"];
+
 /** Read the summary. Used by the badge in the header and by the screen itself. */
 export function useDigest(session: Session, ready: boolean) {
   const [digest, setDigest] = useState<Digest | null>(null);
@@ -86,7 +89,7 @@ export function useDigest(session: Session, ready: boolean) {
     void reread();
     let timer: ReturnType<typeof setTimeout> | null = null;
     const stop = session.on("*", (happening) => {
-      if (happening.touches.length === 0 || timer) return;
+      if (timer || !SUMMARY_TOUCHES.some((t) => happening.touches.includes(t))) return;
       timer = setTimeout(() => {
         timer = null;
         void reread();

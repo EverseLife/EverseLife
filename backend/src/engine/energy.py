@@ -197,19 +197,13 @@ async def _burn_fuel(
 
     calories: dict[str, float] = constants[R.ENERGY_FUEL_ENERGY]
     need = constants[R.ENERGY_COAL_PLANT_FUEL_DRAW] * hours
-    stacks = (
-        await session.execute(
-            select(Item).where(
-                Item.container_id == container_id,
-                Item.type_key.in_(tuple(calories)),
-            )
-        )
-    ).scalars().all()
+    stacks = await world.locked_stacks(session, container_id, calories)
     have = sum(amount_float(stack.amount) for stack in stacks)
     to_burn = min(need, have)
     if to_burn <= 0:
         return 0.0
 
+    #: Each fuel has its own calories, so the take is counted per stack.
     produced = 0.0
     left = amount(to_burn)
     for stack in stacks:
@@ -217,12 +211,8 @@ async def _burn_fuel(
             break
         take = min(left, stack.amount)
         produced += amount_float(take) * float(calories[stack.type_key])
-        if take == stack.amount:
-            await session.delete(stack)
-        else:
-            stack.amount -= take
         left -= take
-    await session.flush()
+    await world.consume(session, stacks, amount(to_burn))
     return produced
 
 

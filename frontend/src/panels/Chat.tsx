@@ -55,12 +55,24 @@ export function Chat({ session, place }: Omit<Props, "busy" | "act">) {
     }
   }, [session]);
 
-  //: The room says when something was said (D-226, `chat.said`); the text
-  //: itself comes from `chat.hear`, where whole lines and leaks are sorted out.
+  //: The line itself rides with `chat.said` (D-226, wave 2): it is added
+  //: here, once by `id` -- a circle member may get it twice, whole and as a
+  //: leak. `chat.hear` reads the room on entry and after a break.
   useEffect(() => {
     setLines([]);
     void listen();
-    return session.on("chat.said", () => void listen());
+    return session.on("chat.said", (happening) => {
+      const line = happening.line as ChatLine | undefined;
+      if (!line) {
+        void listen();
+        return;
+      }
+      setLines((known) =>
+        known.some((l) => l.id === line.id)
+          ? known
+          : [...known, { ...line, overheard: Boolean(line.overheard) }],
+      );
+    });
   }, [listen, place, session]);
 
   useEffect(() => {
@@ -72,8 +84,8 @@ export function Chat({ session, place }: Omit<Props, "busy" | "act">) {
       const cleaned = text.trim();
       if (!cleaned) return;
       await session.send("chat.say", { text: cleaned, kind, quiet });
+      //: The line comes back as `chat.said`; nothing to reread.
       setText("");
-      await listen();
     });
 
   return (

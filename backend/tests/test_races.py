@@ -277,3 +277,78 @@ async def test_two_swings_on_one_vein_do_not_mine_the_same_ore_twice(
     assert start - left == sum(to_units(m) for m in mined), (
         "жила отдала ровно столько, сколько добыто"
     )
+
+
+async def test_burning_coal_and_carrying_it_away_at_once_keep_the_count(
+    session: AsyncSession,
+    factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A shared yard: the tick burns coal while a player picks it up. Both
+    read the stack, both write it -- without the lock one write is lost and
+    coal is either doubled or vanishes (wave 2, item 4a)."""
+    from src.engine import rig
+    from src.models.inventory import Item
+
+    stamp = uuid.uuid4().hex[:6]
+    node = await world.create_node(session, f"terra.yard.{stamp}", "Двор", area_m2=100)
+    yard = await world.node_container(session, node)
+    coal = await world.grant_item(session, yard, "Уголь", amount=10, origin="тест")
+    identity = await world.create_identity(session, f"Носильщик-{stamp}")
+    body = await world.print_body(session, identity, node)
+    pocket = await world.body_container(session, body)
+    await session.commit()
+    #: The tick counts the coal, and the carry commits before the tick locks:
+    #: the stack the tick already holds in memory is stale by then.
+    _slow(monkeypatch, rig, "_coal_available")
+
+    async def burn() -> None:
+        async with factory() as db, db.begin():
+            #: As the tick does: count the coal first, then burn it. The count
+            #: loads the stack into the session before the lock; the lock must
+            #: reread it, or the burn writes from the value before the carry.
+            assert await rig._coal_available(db, yard.id) >= 4
+            await rig._burn(db, yard.id, 4)
+
+    async def carry() -> None:
+        async with factory() as db, db.begin():
+            own = await db.get(Item, coal.id)
+            target = await db.get(type(pocket), pocket.id)
+            await world.move_stack(db, own, target, 3)
+
+    await asyncio.gather(burn(), carry())
+    rows = (
+        await session.execute(
+            select(Item.container_id, Item.amount).where(Item.type_key == "Уголь")
+        )
+    ).all()
+    from src.units import amount as to_units
+
+    assert sum(a for _, a in rows) == to_units(10 - 4), "сгорело четыре, унесено три, всего шесть"
+    assert dict(rows)[pocket.id] == to_units(3)
+
+
+async def test_locked_stacks_reread_what_the_session_already_holds(
+    session: AsyncSession, factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """A stack loaded before the lock -- the tick counts the coal before it
+    burns it -- is reread by the lock: without `populate_existing` the lock
+    is on the fresh row and the write comes from the stale object."""
+    from sqlalchemy import update
+
+    from src.models.inventory import Item
+
+    node = await world.create_node(
+        session, f"terra.stale.{uuid.uuid4().hex[:6]}", "Двор", area_m2=1
+    )
+    yard = await world.node_container(session, node)
+    coal = await world.grant_item(session, yard, "Уголь", amount=10, origin="тест")
+    await session.commit()
+
+    async with factory() as db, db.begin():
+        held = (await db.execute(select(Item).where(Item.id == coal.id))).scalar_one()
+        assert held.amount == 10_000
+        async with factory() as other, other.begin():
+            await other.execute(update(Item).where(Item.id == coal.id).values(amount=7_000))
+        locked = await world.locked_stacks(db, yard.id, ("Уголь",))
+        assert locked[0] is held and held.amount == 7_000, "замок обязан перечитать строку"

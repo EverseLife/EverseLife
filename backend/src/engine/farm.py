@@ -719,28 +719,7 @@ async def _consume(
 ) -> None:
     """Write off from the pocket, worst first. Not enough -- the action did not start."""
     pocket = await world.body_container(session, body)
-    stacks = (
-        (
-            await session.execute(
-                select(Item)
-                .where(Item.container_id == pocket.id, Item.type_key == type_key)
-                .order_by(Item.quality.asc().nulls_first())
-            )
-        )
-        .scalars()
-        .all()
-    )
-    have = sum(stack.amount for stack in stacks)
-    if have < need:
+    stacks = await world.locked_stacks(session, pocket.id, (type_key,), worst_first=True)
+    if sum(stack.amount for stack in stacks) < need:
         raise why
-    left = need
-    for stack in stacks:
-        if left <= 0:
-            break
-        take = min(left, stack.amount)
-        if take == stack.amount:
-            await session.delete(stack)
-        else:
-            stack.amount -= take
-        left -= take
-    await session.flush()
+    await world.consume(session, stacks, need)

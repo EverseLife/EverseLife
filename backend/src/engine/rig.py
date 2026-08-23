@@ -366,25 +366,8 @@ async def _coal_available(session: AsyncSession, container_id: uuid.UUID) -> flo
 
 
 async def _burn(session: AsyncSession, container_id: uuid.UUID, qty: float) -> None:
-    left = amount(qty)
-    stacks = (
-        await session.execute(
-            select(Item).where(
-                Item.container_id == container_id,
-                Item.type_key.in_(_fuel_names()),
-            )
-        )
-    ).scalars().all()
-    for stack in stacks:
-        if left <= 0:
-            break
-        take = min(left, stack.amount)
-        if take == stack.amount:
-            await session.delete(stack)
-        else:
-            stack.amount -= take
-        left -= take
-    await session.flush()
+    stacks = await world.locked_stacks(session, container_id, _fuel_names())
+    await world.consume(session, stacks, amount(qty))
 
 
 def _deplete(

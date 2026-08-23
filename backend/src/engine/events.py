@@ -53,13 +53,19 @@ async def announce(
     node_id: uuid.UUID | None = None,
     event: str | None = None,
     who: str | None = None,
+    **extra: Any,
 ) -> None:
     """Tell a player, or everyone in a node, that something changed -- for
     what the journal does not record (D-226): room talk has no history (D-070)
     but the room must still hear that a line was said.
 
+    `extra` rides along to the client as is -- the line itself for room
+    talk -- so the room can show it without asking. Keep it to what the
+    recipient could have seen by asking (8-session-protocol).
+
     Goes out with the transaction's commit, like an event; nothing if it rolls
     back. The API process listens on the `touch` channel (`api/push.py`).
+    NOTIFY payloads are capped at 8000 bytes; a line is far below that.
     """
     note = {
         "touches": list(touches),
@@ -67,6 +73,7 @@ async def announce(
         "node_id": None if node_id is None else str(node_id),
         "event": event,
         "who": who,
+        **extra,
     }
     await session.execute(
         text("SELECT pg_notify('touch', :note)"), {"note": json.dumps(note, ensure_ascii=False)}

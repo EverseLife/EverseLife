@@ -384,11 +384,7 @@ async def _charge(
 
     iron_needed = constants[R.DEATH_IRON_COST]
     yard = await world.node_container(session, node)
-    ingots = (
-        await session.execute(
-            select(Item).where(Item.container_id == yard.id, Item.type_key == IRON)
-        )
-    ).scalars().all()
+    ingots = await world.locked_stacks(session, yard.id, (IRON,))
     have = sum(amount_float(ingot.amount) for ingot in ingots)
     if have < iron_needed:
         raise CannotPay(
@@ -431,16 +427,7 @@ async def _charge(
         #: it could have sold -- the same way as for its own buildings (D-149).
         price = 0
 
-    left = amount(iron_needed)
-    for ingot in ingots:
-        if left <= 0:
-            break
-        take = min(left, ingot.amount)
-        if take == ingot.amount:
-            await session.delete(ingot)
-        else:
-            ingot.amount -= take
-        left -= take
+    await world.consume(session, ingots, amount(iron_needed))
 
     pool.stored = Decimal(str(float(pool.stored) - energy_needed))
     await session.flush()

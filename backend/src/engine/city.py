@@ -515,6 +515,7 @@ async def install_founder(session: AsyncSession, city: City, who: Identity) -> O
         node_id=city.node_id,
         city_id=str(city.id),
         whom=who.name,
+        whom_identity_id=str(who.id),
         title=FOUNDER_TITLE,
         powers=list(FOUNDER_POWERS),
         founder=True,
@@ -695,6 +696,7 @@ async def appoint(
         node_id=city.node_id,
         city_id=str(city.id),
         whom=whom.name,
+        whom_identity_id=str(whom.id),
         title=title,
         powers=list(powers),
     )
@@ -725,6 +727,7 @@ async def revoke(
         node_id=city.node_id,
         city_id=str(city.id),
         office_id=str(office.id),
+        whom_identity_id=str(office.identity_id),
     )
     return office
 
@@ -1667,6 +1670,7 @@ async def _enroll(
         actor_identity_id=by or identity_id,
         node_id=city.node_id,
         city_id=str(city.id),
+        whom_identity_id=str(identity_id),
         how=why,
         bound_until=None if bound_until is None else bound_until.isoformat(),
     )
@@ -1770,6 +1774,7 @@ async def hand_over(session: AsyncSession, city: City, who: Identity) -> Office:
         node_id=city.node_id,
         city_id=str(city.id),
         whom=who.name,
+        whom_identity_id=str(who.id),
         title=title,
         powers=list(rights),
         elected=True,
@@ -1824,6 +1829,7 @@ async def term_ended(session: AsyncSession, job: Job) -> None:
         node_id=city.node_id,
         city_id=str(city.id),
         title=office.title,
+        whom_identity_id=str(office.identity_id),
         why="срок полномочий вышел",
     )
     if ballots.elects_ruler(city):
@@ -1843,6 +1849,7 @@ async def dismiss(session: AsyncSession, city: City) -> Office | None:
         node_id=city.node_id,
         city_id=str(city.id),
         title=previous.title,
+        whom_identity_id=str(previous.identity_id),
         why="отзыв",
     )
     return previous

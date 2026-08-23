@@ -131,7 +131,7 @@ async def play(socket: WebSocket) -> None:
     async def send_raw(message: dict[str, Any]) -> None:
         await socket.send_json(_without_nulls(message))
 
-    sink = push.Sink(send_raw=send_raw)
+    sink = push.Sink(send_raw=send_raw, cut=socket.close)
     state: dict[str, Any] = {"identity_id": None, "sink": sink}
     push.hub.attach(sink)
 
@@ -237,6 +237,9 @@ async def play(socket: WebSocket) -> None:
             await sink.send(answer)
             #: Catching up goes after the answer to `hello`, never before it:
             #: the client wants to know who it is before it hears what happened.
+            if state.pop("listen", False):
+                sink.listening = True
+                push.hub.dirty = True
             since = state.pop("replay", None)
             if since:
                 await push.hub.replay(sink, since)
@@ -335,6 +338,7 @@ def _listen(state: dict, message: dict, identity: Identity, body: Body | None) -
         return
     sink.identity_id = identity.id
     sink.node_id = None if body is None else body.node_id
+    push.hub.dirty = True
     since = message.get("since")
     if since is None:
         return
@@ -342,7 +346,9 @@ def _listen(state: dict, message: dict, identity: Identity, body: Body | None) -
         state["replay"] = max(0, int(since))
     except (TypeError, ValueError) as bad:
         raise Refused("since должен быть числом") from bad
-    sink.listening = True
+    #: Turned on by the socket loop after the answer is queued: the client
+    #: must hear who it is before it hears what happened.
+    state["listen"] = True
 
 
 async def _join(state: dict, db: AsyncSession, message: dict) -> dict:
@@ -517,6 +523,7 @@ async def _account_logout(state: dict, db: AsyncSession, message: dict) -> dict:
         sink.listening = False
         sink.identity_id = None
         sink.node_id = None
+        push.hub.dirty = True
     return {"bye": True}
 
 

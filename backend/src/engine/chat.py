@@ -145,9 +145,7 @@ async def say(
             #: not a secret worth keeping.
             from src.engine import luck
 
-            leaked = await luck.hit(
-                session, body.identity_id, luck.CHAT_LEAK, chance, dice=noise
-            )
+            leaked = await luck.hit(session, body.identity_id, luck.CHAT_LEAK, chance, dice=noise)
 
     message = ChatMessage(
         node_id=body.node_id,
@@ -160,11 +158,64 @@ async def say(
     )
     session.add(message)
     await session.flush()
-    #: The room is told that something was said -- not what (D-226, D-070):
-    #: who hears it, and whether whole or as a leak, is decided by `hear`,
-    #: which every listener calls on this signal.
-    await events.announce(session, touches=("chat",), node_id=body.node_id, event="chat.said")
+    #: The line goes to whoever may hear it (D-226, wave 2): common talk to
+    #: the room whole; a circle's line to its members whole, and to the room
+    #: as a leaked fragment when it leaked (D-043). A member may get both --
+    #: the client keeps one by `id`. The journal still keeps nothing (D-070).
+    speaker = await session.get(Identity, body.identity_id)
+    line = {
+        "id": str(message.id),
+        "who": speaker.name if speaker else "",
+        "kind": kind.value,
+        "quiet": quiet,
+        "text": cleaned,
+        "at": message.at.isoformat(),
+    }
+    if group_id is None:
+        await events.announce(
+            session, touches=("chat",), node_id=body.node_id, event="chat.said", line=line
+        )
+    else:
+        group = await session.get(ChatGroup, group_id)
+        for member in await _members(session, group_id):
+            await events.announce(
+                session,
+                touches=("chat",),
+                identity_id=member,
+                event="chat.said",
+                line={**line, "source": group.name if group else None},
+            )
+        if leaked:
+            await events.announce(
+                session,
+                touches=("chat",),
+                node_id=body.node_id,
+                event="chat.said",
+                line={
+                    **line,
+                    "overheard": True,
+                    "source": (group.name if group else None) or "кружок",
+                },
+            )
     return message
+
+
+async def _members(session: AsyncSession, group_id: uuid.UUID) -> list[uuid.UUID]:
+    """Members of the circle who stand in its room: one who walked out hears
+    nothing until `leave_groups` catches up with them, as in `hear`."""
+    group = await session.get(ChatGroup, group_id)
+    if group is None:
+        return []
+    stmt = (
+        select(ChatMember.identity_id)
+        .join(Body, Body.identity_id == ChatMember.identity_id)
+        .where(
+            ChatMember.group_id == group_id,
+            Body.node_id == group.node_id,
+            Body.state == BodyState.ALIVE,
+        )
+    )
+    return list((await session.execute(stmt)).scalars().all())
 
 
 async def hear(
@@ -231,20 +282,24 @@ async def circles(session: AsyncSession, body: Body) -> list[Circle]:
     my_group = membership.group_id if membership is not None else None
 
     rows = (
-        await session.execute(
-            select(ChatGroup).where(ChatGroup.node_id == body.node_id)
-        )
-    ).scalars().all()
+        (await session.execute(select(ChatGroup).where(ChatGroup.node_id == body.node_id)))
+        .scalars()
+        .all()
+    )
     out: list[Circle] = []
     for group in rows:
         names = (
-            await session.execute(
-                select(Identity.name)
-                .join(ChatMember, ChatMember.identity_id == Identity.id)
-                .where(ChatMember.group_id == group.id)
-                .order_by(Identity.name)
+            (
+                await session.execute(
+                    select(Identity.name)
+                    .join(ChatMember, ChatMember.identity_id == Identity.id)
+                    .where(ChatMember.group_id == group.id)
+                    .order_by(Identity.name)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         if not names:
             #: An emptied circle disbands by itself.
             await session.delete(group)
@@ -261,9 +316,7 @@ async def circles(session: AsyncSession, body: Body) -> list[Circle]:
     return out
 
 
-async def gather(
-    session: AsyncSession, body: Body, *, name: str | None = None
-) -> ChatGroup:
+async def gather(session: AsyncSession, body: Body, *, name: str | None = None) -> ChatGroup:
     """Gather a circle. Entry is free: whoever comes up is seen by all."""
     await travel.require_here(session, body)
     group = ChatGroup(node_id=body.node_id, name=name)
@@ -282,9 +335,7 @@ async def join(session: AsyncSession, body: Body, group_id: uuid.UUID) -> None:
     session.add(ChatMember(group_id=group_id, identity_id=body.identity_id))
     await session.flush()
     #: Circles are visible to the room (D-043): who stands with whom changed.
-    await events.announce(
-        session, touches=("chat",), node_id=body.node_id, event="chat.circled"
-    )
+    await events.announce(session, touches=("chat",), node_id=body.node_id, event="chat.circled")
 
 
 async def leave_groups(session: AsyncSession, identity_id: uuid.UUID) -> None:
@@ -296,9 +347,7 @@ async def leave_groups(session: AsyncSession, identity_id: uuid.UUID) -> None:
 async def prune(session: AsyncSession, *, now: datetime | None = None) -> int:
     """Sweep the delivery buffer. There is no history -- only the room's short memory."""
     moment = now or datetime.now(UTC)
-    result = await session.execute(
-        delete(ChatMessage).where(ChatMessage.at < moment - CHAT_BUFFER)
-    )
+    result = await session.execute(delete(ChatMessage).where(ChatMessage.at < moment - CHAT_BUFFER))
     return result.rowcount or 0
 
 
@@ -331,9 +380,7 @@ async def _people_in(session: AsyncSession, node: Node) -> int:
     )
 
 
-async def _place_modifier(
-    constants: Constants, session: AsyncSession, node: Node
-) -> float:
+async def _place_modifier(constants: Constants, session: AsyncSession, node: Node) -> float:
     """Place type: a noisy forge muffles, a quiet library gives away.
 
     The vault table is keyed by words ("forge", "library") -- the place is
@@ -353,14 +400,16 @@ async def _place_modifier(
     ).scalar_one_or_none()
     if where is not None:
         stations = (
-            await session.execute(
-                select(Item.type_key).where(Item.container_id == where.id).distinct()
+            (
+                await session.execute(
+                    select(Item.type_key).where(Item.container_id == where.id).distinct()
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         for station in stations:
             modifier = table.get(station.lower())
             if modifier is not None:
                 return modifier
     return 1.0
-
-

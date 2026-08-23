@@ -190,6 +190,7 @@ async def sue(
         city_id=str(city.id),
         case_id=str(case.id),
         against=defendant.name,
+        defendant_identity_id=str(defendant.id),
         claim=essence,
         fee=duty,
     )
@@ -232,6 +233,8 @@ async def judge(
         await events.record(
             session,
             EventKind.CASE_JUDGED,
+            plaintiff_identity_id=str(case.plaintiff_identity_id),
+            defendant_identity_id=str(case.defendant_identity_id),
             actor_identity_id=by.id,
             node_id=city.node_id,
             city_id=str(city.id),
@@ -272,6 +275,8 @@ async def judge(
     await events.record(
         session,
         EventKind.CASE_JUDGED,
+        plaintiff_identity_id=str(case.plaintiff_identity_id),
+        defendant_identity_id=str(case.defendant_identity_id),
         actor_identity_id=by.id,
         node_id=city.node_id,
         city_id=str(city.id),
@@ -360,6 +365,9 @@ async def _enforce(
         amount=penalty.amount,
         debt=penalty.debt,
         until=None if penalty.until is None else penalty.until.isoformat(),
+        #: Where the body went, when it went anywhere: the client's sink
+        #: follows it there (D-226).
+        cell_node_id=None if penalty.node_id is None else str(penalty.node_id),
     )
     if penalty.until is not None:
         await enqueue(

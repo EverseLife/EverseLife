@@ -54,25 +54,31 @@ export function Market({ look, session }: Omit<Props, "busy" | "act">) {
 
   const node = look.node?.key;
 
+  //: The book moves when the node trades (D-226, `market.*` to the room),
+  //: not when the look object changes identity: one reread per market
+  //: event, none for a swing at the face next door.
+  const [edition, setEdition] = useState(0);
+  useEffect(() => session.on("market.", () => setEdition((n) => n + 1)), [session]);
+
   useEffect(() => {
     if (!node) return;
     void api.positions(node).then(({ positions }) => {
       setPositions(positions);
       setChoice((previous) => previous ?? positions[0] ?? null);
     });
-  }, [node, look]);
+  }, [node, edition]);
 
   useEffect(() => {
     if (!node || !choice) return;
     void api.book(node, choice.goods, choice.tier).then(setOrderBook);
-  }, [node, choice, look]);
+  }, [node, choice, edition]);
 
   useEffect(() => {
     void session
       .send("market.offers")
       .then((answer) => setForeign(answer.offers as typeof foreign))
       .catch(() => setForeign([]));
-  }, [session, look]);
+  }, [session, node, edition]);
 
   //: Book positions are goods plus quality tier: "ore, good" is a separate
   //: row, not a range (D-058). Own goods are added to the traded ones: one

@@ -80,6 +80,25 @@ type Zone = (typeof ZONES)[number]["id"];
 /** How long the screen gathers events before rereading, and the reserve poll (D-226). */
 const REREAD_DELAY_MS = 150;
 const RESERVE_POLL_MS = 30_000;
+/** How long an action waits for its own events before rereading on its own. */
+const SETTLE_MS = 400;
+/** Which `touches` name the live look rather than a cached part. */
+const LIVE_TOUCHES = new Set([
+  "body",
+  "inventory",
+  "node",
+  "money",
+  "doings",
+  "mining",
+  "farm",
+  "ships",
+  "market",
+  "net",
+  "city",
+  "justice",
+  "bank",
+  "holdings",
+]);
 
 export default function App() {
   const session = useRef(new Session());
@@ -119,19 +138,24 @@ export default function App() {
   const narrow = useNarrow();
   const [where_, setWhere_] = useState<Zone>("here");
 
+  //: Read through refs so the subscription below is made once per session
+  //: and never loses what it gathered while the screen was rerendering.
+  const partsRef = useRef<Parts | null>(null);
+  partsRef.current = parts;
+
   const refresh = useCallback(async () => {
     //: While the identity is not named there is nothing to refresh: no session
     //: yet. Otherwise the very first login step -- reading doors -- would hit "no session".
     if (!session.current.name) return;
     //: The first look of a session reads everything: no half screen.
-    if (!parts) {
+    if (!partsRef.current) {
       const [seen, all] = await Promise.all([session.current.look(), session.current.parts()]);
       setParts(all);
       setLive(seen);
       return;
     }
     setLive(await session.current.look());
-  }, [parts]);
+  }, []);
 
   /** Reread the slow parts an event named. */
   const rereadParts = useCallback(async (names: Iterable<keyof Parts>) => {
@@ -149,20 +173,31 @@ export default function App() {
   }, []);
 
   /** Every action goes through this: one error -- one line at the bottom of the screen. */
+  //: An answer is a confirmation, not the state (D-226): what the action
+  //: changed arrives as events within a moment, and the screen rereads on
+  //: them. `settle` waits for that moment; only an action that said nothing
+  //: -- none should, but the reserve costs nothing -- rereads by itself.
+  const lastHeard = useRef(0);
+  const settle = useCallback(async () => {
+    const since = Date.now();
+    await new Promise<void>((resolve) => setTimeout(resolve, SETTLE_MS));
+    if (lastHeard.current < since) await refresh();
+  }, [refresh]);
+
   const act = useCallback(
     async (what: () => Promise<unknown>) => {
       setTrouble(null);
       setBusy(true);
       try {
         await what();
-        await refresh();
+        await settle();
       } catch (error) {
         setTrouble(error instanceof Error ? error.message : String(error));
       } finally {
         setBusy(false);
       }
     },
-    [refresh],
+    [settle],
   );
 
   /** The vault catalogs: both machine panels and the quality forecast wait for them. */
@@ -250,10 +285,12 @@ export default function App() {
   //: The server speaks first (D-226): whatever happens to the player arrives
   //: as an event, and the screen rereads after it. Several events in one
   //: breath -- a craft finished and its goods created -- are one reread.
+  //: `touches` say what: the live look only when a live part is named, a
+  //: cached part only when it is named. Subscribed once per session.
   useEffect(() => {
-    if (!look) return;
     let timer: ReturnType<typeof setTimeout> | null = null;
     const touched = new Set<keyof Parts>();
+    let live = false;
     let everything = false;
     const stop = session.current.on("*", (happening) => {
       if (happening.touches.length === 0) return;
@@ -263,21 +300,42 @@ export default function App() {
       for (const touch of happening.touches) {
         const part = PART_OF_TOUCH[touch];
         if (part) touched.add(part);
+        else if (LIVE_TOUCHES.has(touch)) live = true;
       }
       if (timer) return;
       timer = setTimeout(() => {
         timer = null;
         const names = everything ? (Object.keys(PART_OF_TOUCH) as (keyof Parts)[]) : [...touched];
+        const reads: Promise<unknown>[] = [];
+        if (live || everything) {
+          lastHeard.current = Date.now();
+          reads.push(refresh());
+        }
+        if (names.length) reads.push(rereadParts(names));
         touched.clear();
+        live = false;
         everything = false;
-        void Promise.all([refresh(), rereadParts(names)]).catch(() => {});
+        void Promise.all(reads).catch(() => {});
       }, REREAD_DELAY_MS);
     });
     return () => {
       stop();
       if (timer) clearTimeout(timer);
     };
-  }, [look, refresh, rereadParts]);
+  }, [refresh, rereadParts]);
+
+  //: A token refused on the way back up is the end of the session: the
+  //: login screen, not an endless rise (D-226).
+  useEffect(
+    () =>
+      session.current.on("session.lost", () => {
+        setLive(null);
+        setParts(null);
+        setAccount_(false);
+        setScreen("login");
+      }),
+    [],
+  );
 
   //: The shelf belongs to the place: a new node is a new library, or none.
   const nodeKey = live?.node?.key;
@@ -288,11 +346,12 @@ export default function App() {
 
   //: The reserve: a socket cut without a close frame hears nothing, and a
   //: half-minute poll is what finds that out. Not the way news arrives.
+  const signedIn = Boolean(live);
   useEffect(() => {
-    if (!look) return;
+    if (!signedIn) return;
     const timer = setInterval(() => void refresh().catch(() => {}), RESERVE_POLL_MS);
     return () => clearInterval(timer);
-  }, [look, refresh]);
+  }, [signedIn, refresh]);
 
   //: Set out on the road or exploring -- in-person tabs close by themselves:
   //: you are not in the node.
@@ -365,7 +424,7 @@ export default function App() {
   //: stays: account, orders and knowledge belong to the identity, not the body.
   if (look.body == null) {
     return (
-      <ActionsProvider refresh={refresh}>
+      <ActionsProvider refresh={settle}>
       <main>
         <header>
           {who}
@@ -393,7 +452,7 @@ export default function App() {
   }
 
   return (
-    <ActionsProvider refresh={refresh}>
+    <ActionsProvider refresh={settle}>
     <main>
       <header>
         {who}

@@ -601,20 +601,12 @@ async def _foundation_at_hand(session: AsyncSession, body: Body) -> list[Item]:
 
 
 async def _spend(session: AsyncSession, stacks: list[Item], quantity: float) -> float:
-    """Write off this much from these stacks. Returns what could be taken."""
-    left = to_amount(quantity)
-    taken = 0
-    for stack in stacks:
-        if left <= 0:
-            break
-        qty = min(left, stack.amount)
-        stack.amount -= qty
-        taken += qty
-        left -= qty
-        if stack.amount <= 0:
-            await session.delete(stack)
-    await session.flush()
-    return amount_float(taken)
+    """Write off this much from these stacks. Returns what could be taken.
+
+    The stacks are locked first: the foundation in a pocket and the fuel in
+    the rooms are shared with whoever carries them at the same moment."""
+    locked = await world.lock_items(session, stacks)
+    return amount_float(await world.consume(session, locked, to_amount(quantity)))
 
 
 async def found(

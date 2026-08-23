@@ -12,7 +12,7 @@ ground so that such an arrival is visible in telemetry.
 from __future__ import annotations
 
 import uuid
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
@@ -62,6 +62,7 @@ async def epoch(session: AsyncSession) -> datetime | None:
     agree between the server and every client: the planet's clock (D-029) and
     the angle a planet stands at on its orbit.
     """
+
     #: Once per command: the clock and the orbit both ask, and the answer
     #: never changes. The index on `created_at` makes the one ask cheap.
     async def find() -> datetime | None:
@@ -259,17 +260,21 @@ def station_names(thing_class: str) -> tuple[str, ...]:
 async def printer_nodes(session: AsyncSession) -> Sequence[Node]:
     """Every node where a bioprinter stands. Not every one of them is a door."""
     return (
-        await session.execute(
-            select(Node)
-            .join(Container, Container.owner_id == Node.id)
-            .join(Item, Item.container_id == Container.id)
-            .where(
-                Container.kind == ContainerKind.NODE,
-                Item.type_key.in_(station_names(BIOPRINTER)),
+        (
+            await session.execute(
+                select(Node)
+                .join(Container, Container.owner_id == Node.id)
+                .join(Item, Item.container_id == Container.id)
+                .where(
+                    Container.kind == ContainerKind.NODE,
+                    Item.type_key.in_(station_names(BIOPRINTER)),
+                )
+                .distinct()
             )
-            .distinct()
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
 
 
 async def is_door(session: AsyncSession, node: Node) -> bool:
@@ -315,18 +320,14 @@ async def spawn_point(session: AsyncSession) -> Node | None:
     """
     from src.engine.death import PRECURSOR
 
-    open_ = [
-        node for node in await printer_nodes(session) if await is_door(session, node)
-    ]
+    open_ = [node for node in await printer_nodes(session) if await is_door(session, node)]
     for node in open_:
         if (node.properties or {}).get(PRECURSOR):
             return node
     if open_:
         return open_[0]
 
-    nodes = (
-        await session.execute(select(Node).where(Node.layer == Layer.CITY))
-    ).scalars().all()
+    nodes = (await session.execute(select(Node).where(Node.layer == Layer.CITY))).scalars().all()
     core = [node for node in nodes if node.properties.get("кольцо") == 0]
     if core:
         return core[0]
@@ -434,9 +435,7 @@ async def door(session: AsyncSession, key: str) -> Node | None:
     otherwise a client from before it would keep entering by a key that is no
     longer offered.
     """
-    node = (
-        await session.execute(select(Node).where(Node.key == key))
-    ).scalar_one_or_none()
+    node = (await session.execute(select(Node).where(Node.key == key))).scalar_one_or_none()
     if node is None:
         return None
     return node if await is_door(session, node) else None
@@ -518,6 +517,7 @@ async def node_container(session: AsyncSession, node: Node) -> Container:
     Before buildings (E3) this is the only place a machine can stand. With
     buildings it will move into them -- the machine sets what a building is (D-106).
     """
+
     async def find() -> Container:
         stmt = select(Container).where(
             Container.kind == ContainerKind.NODE, Container.owner_id == node.id
@@ -587,6 +587,76 @@ async def is_library(session: AsyncSession, node: Node) -> bool:
     if (node.properties or {}).get("library"):
         return True
     return await has_station(session, node, LIBRARY)
+
+
+async def locked_stacks(
+    session: AsyncSession,
+    container_id: uuid.UUID,
+    type_keys: Iterable[str],
+    *,
+    worst_first: bool = False,
+) -> list[Item]:
+    """Stacks of the named goods in a container, **locked** for the transaction.
+
+    Every consumer of a shared store -- the tick burning coal in the yard,
+    a build taking timber, a ship spending its foundation -- reads stacks
+    and then decrements them. Without the lock the worker and a player
+    carrying the same stack away write over each other (review 2026-08-23,
+    wave 2). Order by id so two consumers of one yard never deadlock;
+    `worst_first` puts the lowest quality first for write-offs.
+    """
+    stmt = select(Item).where(
+        Item.container_id == container_id, Item.type_key.in_(tuple(type_keys))
+    )
+    if worst_first:
+        stmt = stmt.order_by(Item.quality.asc().nulls_first(), Item.id)
+    else:
+        stmt = stmt.order_by(Item.id)
+    #: `populate_existing`: a stack read earlier in the same command (the
+    #: tick counts the coal before it burns it) is reread after the lock,
+    #: or the decrement would be written from the value before it.
+    stmt = stmt.with_for_update().execution_options(populate_existing=True)
+    return list((await session.execute(stmt)).scalars().all())
+
+
+async def lock_items(session: AsyncSession, items: Sequence[Item]) -> list[Item]:
+    """The same items, locked and reread, in id order. For consumers that
+    gathered their stacks from several containers (a ship's rooms)."""
+    if not items:
+        return []
+    ids = sorted(item.id for item in items)
+    rows = (
+        (
+            await session.execute(
+                select(Item)
+                .where(Item.id.in_(ids))
+                .order_by(Item.id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return list(rows)
+
+
+async def consume(session: AsyncSession, stacks: Sequence[Item], quantity: int) -> int:
+    """Take `quantity` (in amount units) from locked stacks in order, deleting
+    what runs empty. Returns what was actually taken -- less than asked when
+    the stacks run out. The caller decides whether that is a refusal."""
+    left = quantity
+    for stack in stacks:
+        if left <= 0:
+            break
+        take = min(left, stack.amount)
+        if take == stack.amount:
+            await session.delete(stack)
+        else:
+            stack.amount -= take
+        left -= take
+    await session.flush()
+    return quantity - left
 
 
 async def move_stack(
@@ -701,17 +771,21 @@ async def stack_up(session: AsyncSession, item: Item) -> Item:
     #: Twins are locked: the merge deletes them, and a stack being taken
     #: from by another transaction must not vanish under its hands.
     rows = (
-        await session.execute(
-            select(Item)
-            .where(
-                Item.container_id == item.container_id,
-                Item.type_key == item.type_key,
-                Item.id != item.id,
+        (
+            await session.execute(
+                select(Item)
+                .where(
+                    Item.container_id == item.container_id,
+                    Item.type_key == item.type_key,
+                    Item.id != item.id,
+                )
+                .order_by(Item.id)
+                .with_for_update()
             )
-            .order_by(Item.id)
-            .with_for_update()
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     twins = [other for other in rows if _same(other, item)]
     if not twins:
         return item
@@ -725,7 +799,9 @@ async def stack_up(session: AsyncSession, item: Item) -> Item:
                     CraftBatch.state != BatchState.DONE,
                 )
             )
-        ).scalars().all()
+        )
+        .scalars()
+        .all()
     )
     for twin in twins:
         if twin.id in pinned:
@@ -768,9 +844,7 @@ async def learn(
     if (await session.execute(stmt)).scalar_one_or_none() is not None:
         return None
 
-    knowledge = Knowledge(
-        identity_id=identity.id, kind=kind, key=key, discovered=discovered
-    )
+    knowledge = Knowledge(identity_id=identity.id, kind=kind, key=key, discovered=discovered)
     session.add(knowledge)
     await session.flush()
     await events.record(

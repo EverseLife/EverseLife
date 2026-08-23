@@ -1000,6 +1000,8 @@ export type Listener = (happening: Happening) => void;
 /** How long the session waits before rising again after a break, and the cap. */
 const REVIVE_DELAY_MS = 1000;
 const REVIVE_DELAY_CAP_MS = 30_000;
+/** How long a command waits for its answer. */
+const ANSWER_TIMEOUT_MS = 30_000;
 
 /** The client session. Holds the socket, the commands in flight, and the listeners.
  *
@@ -1105,7 +1107,10 @@ export class Session {
         return;
       }
       const waiting = typeof parsed.id === "number" ? this.pending.get(parsed.id) : undefined;
-      if (!waiting) return;
+      if (!waiting) {
+        console.warn("answer to nobody", parsed);
+        return;
+      }
       this.pending.delete(parsed.id);
       const { id: _id, ...answer } = parsed;
       if (typeof answer.refused === "string") {
@@ -1197,17 +1202,42 @@ export class Session {
     const socket = this.socket!;
     const id = ++this.ticket;
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
+      //: An answer that never comes must not hang a button forever.
+      const timer = setTimeout(() => {
+        if (this.pending.delete(id)) reject(new Error("сервер не ответил"));
+      }, ANSWER_TIMEOUT_MS);
+      this.pending.set(id, {
+        resolve: (answer) => {
+          clearTimeout(timer);
+          resolve(answer);
+        },
+        reject: (error) => {
+          clearTimeout(timer);
+          reject(error);
+        },
+      });
       socket.send(JSON.stringify({ id, cmd, ...args }));
     });
   }
 
-  /** Bring a broken session back up. One rise for everyone who caught it. */
+  /** Bring a broken session back up. One rise for everyone who caught it.
+   *
+   * A refused token -- revoked, expired -- is not a broken socket: the
+   * session is over, the token is forgotten, and `session.lost` tells the
+   * screen to show the login instead of rising forever. */
   private revive(): Promise<void> {
     this.reviving ??= (async () => {
       try {
         await this.connect();
         await this.greet("hello", { token: this.token });
+      } catch (error) {
+        if (error instanceof Refused) {
+          this.remember("");
+          this.name = "";
+          await this.close();
+          this.hear({ event: "session.lost", touches: [], reason: error.message });
+        }
+        throw error;
       } finally {
         this.reviving = null;
       }

@@ -336,24 +336,7 @@ async def _surface_at_hand(session: AsyncSession, body: Body) -> float:
 async def _take_surface(session: AsyncSession, body: Body, need_amount: float) -> float:
     """Write off surface from the hands. Returns how much could be taken."""
     pocket = await world.body_container(session, body)
-    stacks = (
-        await session.execute(
-            select(Item).where(
-                Item.container_id == pocket.id,
-                Item.type_key.in_(world.station_names(SURFACE_GOODS)),
-            )
-        )
-    ).scalars().all()
-    left = amount(need_amount)
-    taken = 0
-    for stack in stacks:
-        if left <= 0:
-            break
-        qty = min(left, stack.amount)
-        stack.amount -= qty
-        taken += qty
-        left -= qty
-        if stack.amount <= 0:
-            await session.delete(stack)
-    await session.flush()
-    return amount_float(taken)
+    stacks = await world.locked_stacks(
+        session, pocket.id, world.station_names(SURFACE_GOODS)
+    )
+    return amount_float(await world.consume(session, stacks, amount(need_amount)))
