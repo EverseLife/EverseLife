@@ -124,9 +124,25 @@ jobs:
       - name: Licence header in every source file
         run: python3 tools/spdx.py
 
+  agents:
+    name: Agents
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: agentic_player_system
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --frozen --extra dev
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      #: The reference test compares against the server's registry through
+      #: the backend venv; without one it skips, the rest runs.
+      - run: uv run pytest -q
+
   images:
     name: Images
-    needs: [backend, frontend, licence]
+    needs: [backend, frontend, agents, licence]
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
