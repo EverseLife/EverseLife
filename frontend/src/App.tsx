@@ -34,6 +34,7 @@ import {
   type Parts,
 } from "./api";
 import { Account } from "./panels/Account";
+import { Alpha } from "./panels/Alpha";
 import { Chat } from "./panels/Chat";
 import { Circles } from "./panels/Circles";
 import { GraphMap } from "./panels/GraphMap";
@@ -527,6 +528,12 @@ export default function App() {
 
         {(!narrow || where_ !== "me") && (
           <div className="main">
+            {/* The alpha's debug widget: printing things and finishing terms
+                early (D-229). Outside the tabs and before them -- in-person
+                tabs close on the road and in the field, and that is exactly
+                the wait it is there to skip. The flag arrives once at the
+                greeting; an ordinary player never gets it. */}
+            {session.current.admin && <Alpha values={values} />}
             {((!narrow && (view === "map" || away)) ||
               (narrow && where_ === "map")) && (
               <GraphMap

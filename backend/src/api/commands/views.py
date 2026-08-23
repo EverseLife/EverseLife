@@ -270,9 +270,34 @@ async def _money(db: AsyncSession, identity_id: uuid.UUID) -> str:
 
 
 async def _things(db: AsyncSession, constants, container) -> list[dict[str, Any]]:
-    """Container contents as the owner sees them: with a number and a tier."""
+    """Container contents as the owner sees them: with a number and a tier.
+
+    A vessel comes with its fill (D-230): a canister in the hands is the
+    water in it, and the client cannot see inside otherwise -- a liquid
+    never lies in the pocket by itself.
+    """
     items = await world.contents(db, container)
     catalog = current_catalog()
+    #: One reading for every vessel at once, not one per canister.
+    vessels = [item for item in items if storage.is_vessel(catalog, item.type_key)]
+    held = await storage.contents_of(db, vessels)
+    fills = {
+        vessel.id: await _listed(db, constants, catalog, held[vessel.id]) for vessel in vessels
+    }
+    return await _listed(db, constants, catalog, items, fills)
+
+
+async def _listed(
+    db: AsyncSession,
+    constants,
+    catalog,
+    items,
+    fills: dict[uuid.UUID, list[dict[str, Any]]] | None = None,
+) -> list[dict[str, Any]]:
+    """The rows of a list of things: the names behind the marks and cultivars
+    are read once for the whole list."""
+    if not items:
+        return []
     #: The mark is shown as a name: the player must see whose work it is (D-058).
     marks = await _makers(db, items)
     cultivars = await _varieties(db, items)
@@ -314,6 +339,9 @@ async def _things(db: AsyncSession, constants, container) -> list[dict[str, Any]
                 if item.type_key in world.station_names(energy.BATTERY)
                 else None
             ),
+            #: For a vessel only: what is poured in (D-230). The capacity is
+            #: the catalog's (`store`), the client has it already (D-225).
+            **({"content": fills[item.id]} if fills and item.id in fills else {}),
         }
         for item in items
     ]

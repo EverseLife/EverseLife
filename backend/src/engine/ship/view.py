@@ -20,12 +20,15 @@ from src.engine import travel, world
 from src.engine.ship._base import SPACEPORT
 from src.engine.ship.belonging import crew_of, is_aboard, nodes_of, of_node
 from src.engine.ship.physics import (
+    _things,
     base_hours,
     engine_class,
+    engines,
     fuel_aboard,
     fuel_for,
     life_support,
     mass,
+    mass_parts,
     passage_hours,
     route_class,
     thrust,
@@ -252,10 +255,13 @@ async def profile(
     information travels the Net, matter requires presence (D-044).
     """
     nodes = await nodes_of(session, ship)
-    weight = await mass(session, constants, catalog, ship)
-    pull = await thrust(session, constants, ship)
+    #: The hold is read once and asked every question: seven readings of the
+    #: same rooms were the price of the summary before (review 2026-08-23).
+    things = await _things(session, ship)
+    weight = await mass(session, constants, catalog, ship, things=things)
+    pull = await thrust(session, constants, ship, things=things)
     thrust_ratio = pull / weight if weight > 0 else 0.0
-    have_class = await engine_class(session, constants, ship)
+    have_class = await engine_class(session, constants, ship, things=things)
     crew = len(await crew_of(session, ship))
     connector = await session.get(Node, ship.connector_node_id)
     docked = None if ship.docked_node_id is None else await session.get(Node, ship.docked_node_id)
@@ -263,13 +269,20 @@ async def profile(
     #: The prices are for **this** moment: the sky turns, and a route quoted an
     #: hour ago is not the route one gets. The player sees what casting off now
     #: would cost, and the window they may prefer to wait for is on the map.
+    #: The sky is asked **once per planet**, not once per port: a planet with
+    #: hundreds of spaceports (Aurora, D-230) has one distance, not hundreds.
     moment = datetime.now(UTC)
+    planet = Planet.TERRA if connector is None else connector.planet
+    tables: dict[Planet, float | None] = {}
     routes: list[dict] = []
     for port in await ports(session):
         if docked is not None and port.id == docked.id:
             continue
-        planet = Planet.TERRA if connector is None else connector.planet
-        table = await base_hours(session, constants, planet, port.planet, at=moment)
+        if port.planet not in tables:
+            tables[port.planet] = await base_hours(
+                session, constants, planet, port.planet, at=moment
+            )
+        table = tables[port.planet]
         if table is None:
             continue
         need_class = route_class(constants, planet, port.planet)
@@ -300,12 +313,21 @@ async def profile(
         "name": ship.name,
         "nodes": len(nodes),
         "mass": round(weight, ROUND_MASS),
+        #: Where the mass comes from and what pushes it (D-230): the console
+        #: shows what to cut and what to add, not just the two totals.
+        "mass_parts": {
+            part: round(value, ROUND_MASS)
+            for part, value in (
+                await mass_parts(session, constants, catalog, ship, things=things)
+            ).items()
+        },
+        "engines": await engines(session, constants, ship, things=things),
         "thrust": round(pull, ROUND_MASS),
         "ratio": round(thrust_ratio, ROUND_RATIO),
         "min_ratio": constants[R.SHIP_MIN_THRUST_RATIO],
         "class": have_class,
         "crew": crew,
-        "life_support": await life_support(session, constants, ship),
+        "life_support": await life_support(session, constants, ship, things=things),
         "fuel": round(await fuel_aboard(session, ship), ROUND_MASS),
         "docked": None if docked is None else docked.key,
         "port": None if docked is None else docked.name,

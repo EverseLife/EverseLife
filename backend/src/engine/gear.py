@@ -78,7 +78,20 @@ def mass_of(catalog: Catalog, type_key: str, quantity: float) -> float:
 async def load_of(session: AsyncSession, catalog: Catalog, body: Body) -> float:
     """How much the body carries now, kg. What is worn counts along with everything."""
     things = await world.contents(session, await world.body_container(session, body))
-    return sum(mass_of(catalog, thing.type_key, amount_float(thing.amount)) for thing in things)
+    from src.engine import storage  # noqa: PLC0415 -- lazy: storage -> gear (the carry limit)
+
+    #: A full canister weighs its fill (D-230): the liquid is carried, it only
+    #: lives one container deeper. One reading for all the vessels at once.
+    own = sum(mass_of(catalog, thing.type_key, amount_float(thing.amount)) for thing in things)
+    inside = await storage.contents_of(
+        session, [t for t in things if storage.is_vessel(catalog, t.type_key)]
+    )
+    fill = sum(
+        mass_of(catalog, thing.type_key, amount_float(thing.amount))
+        for held in inside.values()
+        for thing in held
+    )
+    return own + fill
 
 
 async def equipped(session: AsyncSession, body: Body) -> dict[str, Item]:

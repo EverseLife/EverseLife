@@ -78,6 +78,9 @@ class Recipe(Strict):
     #: How many kilograms it holds as a storage (D-181). Empty -- the thing is
     #: not a storage: a number in the vault makes it a chest, not a name in code.
     store: float | None = None
+    #: What the storage admits (D-230): `жидкость` -- a vessel, liquids only.
+    #: Empty -- anything but liquids: a liquid exists in a vessel and nowhere else.
+    holds: str | None = None
     inputs: tuple[str, ...] = ()
     amounts: dict[str, float] = Field(default_factory=dict)
     manual_amounts: bool = False
@@ -130,12 +133,17 @@ class RecipeBook(Strict):
     #: liquids (D-212). Everything not named here is counted in pieces, and a
     #: piece is whole -- there is no half an ingot.
     bulk: tuple[str, ...] = ()
+    #: Liquids (D-230): they exist only inside a vessel (`Recipe.holds`). One
+    #: list, like `bulk` -- not a guess by the label class "Жидкость".
+    liquid: tuple[str, ...] = ()
     #: What to draw next to a quantity: "5 шт", "3 м". Display only -- whether a
     #: quantity may be fractional is decided by `bulk`, not by the word (D-212).
     #: The engine never reads it; it travels so the client need not invent it.
     units: dict[str, str] = Field(default_factory=dict)
-    #: Unit mass, kg. Given by data: it cannot be derived from input amounts --
-    #: those are given by labour, not composition (D-146).
+    #: Unit mass, kg. Ready-made by the vault: raw mass is authored in the
+    #: material registry, and an item's mass is what went into it (D-228). The
+    #: engine never recounts it -- amounts here are given by labour, not by
+    #: composition (D-146), and the vault is where that is reconciled.
     mass: dict[str, float] = Field(default_factory=dict)
     labor_hours: dict[str, float] = Field(default_factory=dict)
     #: Own processing time per unit, hours (D-215). Before, the engine and the
@@ -205,6 +213,15 @@ class RecipeBook(Strict):
         """
         return self.resolve(name) not in self._measured
 
+    def is_liquid(self, name: str) -> bool:
+        """Whether the thing is a liquid (D-230): never loose, always in a vessel."""
+        return self.resolve(name) in self._liquids
+
+    def holds_of(self, name: str) -> str | None:
+        """What the thing admits as a storage: `жидкость` for a vessel, None otherwise."""
+        found = self._by_name.get(self.resolve(name))
+        return found.holds if found is not None else None
+
     def slot_of(self, name: str) -> str | None:
         """Which slot the thing is worn in. Empty -- not gear."""
         found = self._by_name.get(self.resolve(name))
@@ -225,11 +242,13 @@ class RecipeBook(Strict):
 
     _by_name: dict[str, Recipe] = PrivateAttr(default_factory=dict)
     _measured: set[str] = PrivateAttr(default_factory=set)
+    _liquids: set[str] = PrivateAttr(default_factory=set)
     _class_by_name: dict[str, str] = PrivateAttr(default_factory=dict)
 
     def model_post_init(self, _: Any) -> None:
         self._by_name.update({recipe.name: recipe for recipe in self.recipes})
         self._measured.update(self.bulk)
+        self._liquids.update(self.liquid)
         for thing_class, members in self.classes.items():
             for member in members:
                 self._class_by_name[member] = thing_class

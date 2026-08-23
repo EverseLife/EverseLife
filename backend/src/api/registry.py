@@ -46,6 +46,12 @@ class Command:
     #: Declared as `async def f(ctx: Ctx)` -- the new shape; the loop builds
     #: the context. The old `(state, db, message)` is still served.
     takes_ctx: bool
+    #: Kept out of the reference the AI citizens are given (D-224). Their
+    #: reference is generated from these declarations, so a command nobody
+    #: but a developer may run would otherwise arrive in every agent's prompt
+    #: as one more thing to try. Hiding it is not the access check -- the
+    #: handler refuses on its own -- it is not putting the idea there.
+    hidden: bool = False
 
     async def run(self, state: dict[str, Any], db: AsyncSession, message: dict[str, Any]) -> dict:
         if self.takes_ctx:
@@ -56,7 +62,9 @@ class Command:
 COMMANDS: dict[str, Command] = {}
 
 
-def command(name: str, *, readonly: bool = False) -> Callable[[Handler], Handler]:
+def command(
+    name: str, *, readonly: bool = False, hidden: bool = False
+) -> Callable[[Handler], Handler]:
     """Register a socket command. One name, one handler; a second registration
     of the same name is a programming error and fails at import."""
 
@@ -69,6 +77,7 @@ def command(name: str, *, readonly: bool = False) -> Callable[[Handler], Handler
             readonly=readonly,
             doc=(handler.__doc__ or "").strip(),
             takes_ctx=len(inspect.signature(handler).parameters) == 1,
+            hidden=hidden,
         )
         return handler
 

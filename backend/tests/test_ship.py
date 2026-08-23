@@ -24,7 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import jobs, ship, travel, world
+from src.engine import jobs, ship, storage, travel, world
 from src.models.estate import Building
 from src.models.identity import Body
 from src.models.job import JobState
@@ -34,6 +34,8 @@ from src.models.world import Layer, Node, Planet, Surface
 ENGINE = "Двигатель I класса"
 LIFE = "Система жизнеобеспечения"
 FUEL = "Ракетное топливо"
+TANK = "Топливный бак"
+CONSOLE = "Консоль управления кораблём"
 
 
 async def _port(session: AsyncSession, *, name: str = "Космодром", planet=Planet.TERRA):
@@ -81,14 +83,22 @@ async def _equip(session: AsyncSession, node: Node, type_key: str, amount: float
     return await world.grant_item(session, yard, type_key, amount=amount, quality=60, origin="тест")
 
 
+async def _fuel(session: AsyncSession, node: Node, amount: float):
+    """Fuel aboard is fuel in a tank (D-230): a tank in the room, the fuel inside it."""
+    tank = await _equip(session, node, TANK)
+    inside = await storage.inside(session, tank)
+    return await world.grant_item(session, inside, FUEL, amount=amount, quality=60, origin="тест")
+
+
 async def _flightworthy(
     session: AsyncSession, constants: Constants, catalog: Catalog, ship_: Ship
 ) -> None:
-    """The minimum that tears off: an engine, life support and fuel."""
+    """The minimum that tears off: an engine, life support, a console and fuel in a tank."""
     connector = await session.get(Node, ship_.connector_node_id)
     await _equip(session, connector, ENGINE)
     await _equip(session, connector, LIFE)
-    await _equip(session, connector, FUEL, amount=200)
+    await _equip(session, connector, CONSOLE)
+    await _fuel(session, connector, 200)
 
 
 # --- the ship is nodes of the graph -----------------------------------------
@@ -410,10 +420,11 @@ async def test_crew_beyond_life_support_does_not_fly(
     vessel = await _laid(session, constants, body, port)
     connector = await session.get(Node, vessel.connector_node_id)
     await _equip(session, connector, ENGINE)
+    await _equip(session, connector, CONSOLE)
     body.node_id = connector.id
     await session.flush()
 
-    await _equip(session, connector, FUEL, amount=200)
+    await _fuel(session, connector, 200)
     with pytest.raises(ship.NoLifeSupport):
         await ship.undock(session, constants, catalog, body, vessel)
 
@@ -436,6 +447,7 @@ async def test_undocking_without_fuel_to_come_back_refused(
     connector = await session.get(Node, vessel.connector_node_id)
     await _equip(session, connector, ENGINE)
     await _equip(session, connector, LIFE)
+    await _equip(session, connector, CONSOLE)
     owner.node_id = connector.id
     await session.flush()
 
@@ -443,7 +455,7 @@ async def test_undocking_without_fuel_to_come_back_refused(
         await ship.undock(session, constants, catalog, owner, vessel)
     assert vessel.docked_node_id == port.id, "сухой корабль остался у причала"
 
-    await _equip(session, connector, FUEL, amount=200)
+    await _fuel(session, connector, 200)
     assert await ship.undock(session, constants, catalog, owner, vessel) is vessel
 
 
@@ -570,7 +582,8 @@ async def test_ship_takes_the_planet_of_the_port_it_stands_at(
         connector = await session.get(Node, vessel.connector_node_id)
         await _equip(session, connector, "Двигатель II класса")
         await _equip(session, connector, LIFE)
-        await _equip(session, connector, FUEL, amount=2000)
+        await _equip(session, connector, CONSOLE)
+        await _fuel(session, connector, 2000)
         owner.node_id = connector.id
         await session.flush()
 
@@ -732,11 +745,12 @@ async def test_long_passage_needs_more_fuel_than_a_hop(
     connector = await session.get(Node, vessel.connector_node_id)
     await _equip(session, connector, "Двигатель II класса")
     await _equip(session, connector, LIFE)
+    await _equip(session, connector, CONSOLE)
     #: Enough for a hop several times over and nowhere near enough for a world
     #: away. The interplanetary passage is hours to days rather than a fixed
     #: number of days (D-037): its price now depends on where the planets
     #: stand, and this tank is short of even the shortest window.
-    await _equip(session, connector, FUEL, amount=4)
+    await _fuel(session, connector, 4)
     owner.node_id = connector.id
     await session.flush()
 
@@ -781,3 +795,85 @@ async def test_summary_names_the_price_before_the_attempt(
     assert summary["docked"] == port.key
     hop = next(route for route in summary["routes"] if route["planet"] == "terra")
     assert hop["reachable"] and hop["hours"] > 0 and hop["fuel"] > 0
+
+
+# --- the console, the tanks and the ship's card (D-230) -----------------------
+
+
+async def test_ship_is_commanded_from_the_console(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Casting off is ordered at the bridge: aboard is not enough, and the
+    console must stand in the very room the owner stands in."""
+    port = await _port(session)
+    _, owner = await _shipwright(session, port, foundations=2)
+    vessel = await _laid(session, constants, owner, port)
+    connector = await session.get(Node, vessel.connector_node_id)
+    await _equip(session, connector, ENGINE)
+    await _equip(session, connector, LIFE)
+    await _fuel(session, connector, 200)
+    owner.node_id = connector.id
+    await session.flush()
+
+    with pytest.raises(ship.NoConsole):
+        await ship.undock(session, constants, catalog, owner, vessel)
+
+    #: The console in the next room: still not this one.
+    job = await ship.extend(session, constants, owner)
+    await ship.keel_laid(session, job)
+    hold = next(n for n in await ship.nodes_of(session, vessel) if n.id != connector.id)
+    await _equip(session, hold, CONSOLE)
+    with pytest.raises(ship.NoConsole):
+        await ship.undock(session, constants, catalog, owner, vessel)
+
+    owner.node_id = hold.id
+    await session.flush()
+    assert await ship.undock(session, constants, catalog, owner, vessel) is vessel
+
+
+async def test_fuel_in_a_canister_is_cargo_not_reserve(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The engines draw from the tanks (D-230). A canister of fuel lying in the
+    hold weighs like any cargo and buys no passage."""
+    port = await _port(session)
+    _, owner = await _shipwright(session, port)
+    vessel = await _laid(session, constants, owner, port)
+    connector = await session.get(Node, vessel.connector_node_id)
+    bare = await ship.mass(session, constants, catalog, vessel)
+
+    canister = await _equip(session, connector, "Канистра")
+    inside = await storage.inside(session, canister)
+    await world.grant_item(session, inside, FUEL, amount=5, quality=60, origin="тест")
+    assert await ship.fuel_aboard(session, vessel) == 0
+    assert await ship.mass(session, constants, catalog, vessel) > bare, "канистра с топливом весит"
+
+    await _fuel(session, connector, 40)
+    assert await ship.fuel_aboard(session, vessel) == pytest.approx(40)
+
+
+async def test_card_lists_engines_and_where_the_mass_comes_from(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The console shows what to cut and what to add: engines one by one and
+    the mass split into hull, machines and cargo (D-230)."""
+    port = await _port(session)
+    _, owner = await _shipwright(session, port)
+    vessel = await _laid(session, constants, owner, port)
+    await _flightworthy(session, constants, catalog, vessel)
+    connector = await session.get(Node, vessel.connector_node_id)
+    await _equip(session, connector, "Труба", amount=10)
+
+    card = await ship.profile(session, constants, catalog, vessel)
+    assert card["engines"] == [
+        {
+            "name": ENGINE,
+            "count": 1,
+            "thrust": constants[R.SHIP_THRUST][ENGINE],
+            "class": 1,
+        }
+    ]
+    parts = card["mass_parts"]
+    assert parts["hull"] == constants[R.SHIP_NODE_MASS]
+    assert parts["machines"] > 0 and parts["cargo"] > 0
+    assert card["mass"] == pytest.approx(sum(parts.values()), abs=0.1)

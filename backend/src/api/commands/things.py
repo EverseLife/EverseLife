@@ -19,6 +19,7 @@ from src.constants import current, current_catalog
 from src.engine import (
     chat,
     gear,
+    liquid,
     station,
     storage,
 )
@@ -163,6 +164,33 @@ async def _storage_take(state: dict, db: AsyncSession, message: dict) -> dict:
         None if qty is None else float(qty),
     )
     return {"taken": taken, "goods": item.type_key}
+
+
+@command("liquid.pour")
+async def _liquid_pour(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Pour a liquid from one vessel into another (D-230).
+
+    `from` and `to` are vessels -- in the hands or standing here; `goods`
+    names the liquid (default: whatever is in the source), `amount` caps it.
+    A liquid is never held loose: this is the one way it changes place.
+    """
+    body = await _alive(state, db)
+    source = await db.get(Item, uuid.UUID(str(message.get("from") or "")))
+    target = await db.get(Item, uuid.UUID(str(message.get("to") or "")))
+    if source is None or target is None:
+        raise Refused("нет такой тары")
+    qty = message.get("amount")
+    goods_, poured = await liquid.pour(
+        db,
+        current(),
+        current_catalog(),
+        body,
+        source,
+        target,
+        message.get("goods") or None,
+        None if qty is None else float(qty),
+    )
+    return {"poured": poured, "goods": goods_}
 
 
 @command("station.place")

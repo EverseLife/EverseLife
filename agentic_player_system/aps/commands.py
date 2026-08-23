@@ -67,7 +67,15 @@ def _keys(func: ast.AST) -> list[str]:
 
 
 def _command_name(node: ast.AsyncFunctionDef | ast.FunctionDef) -> str | None:
-    """The name under `@command("...")`, when the function has one."""
+    """The name under `@command("...")`, when the function has one and it is
+    not declared `hidden`.
+
+    A hidden command is one only a developer may run -- the alpha's debug
+    widget (D-229). Its handler refuses everyone else on its own; leaving it
+    out of the reference is about not putting the idea into every agent's
+    prompt, where it would read as one more thing to try and one more refusal
+    to reason about.
+    """
     for decorator in node.decorator_list:
         call = decorator if isinstance(decorator, ast.Call) else None
         if (
@@ -77,8 +85,18 @@ def _command_name(node: ast.AsyncFunctionDef | ast.FunctionDef) -> str | None:
             and call.args
             and isinstance(call.args[0], ast.Constant)
         ):
+            if _flagged(call, "hidden"):
+                return None
             return str(call.args[0].value)
     return None
+
+
+def _flagged(call: ast.Call, name: str) -> bool:
+    """Whether the decorator carries `name=True`."""
+    return any(
+        word.arg == name and isinstance(word.value, ast.Constant) and word.value.value is True
+        for word in call.keywords
+    )
 
 
 def _helpers(source: str) -> dict[str, list[str]]:

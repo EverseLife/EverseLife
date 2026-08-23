@@ -8,7 +8,8 @@ import { useState } from "react";
 import { Amount } from "../../Amount";
 import { chosen, tally } from "../../amounts";
 import { Rule } from "../../Rule";
-import { useSession } from "../../actions";
+import { useBook, useSession } from "../../actions";
+import { isVessel } from "../../liquids";
 import type { Props } from "./shared";
 
 
@@ -20,6 +21,7 @@ import type { Props } from "./shared";
  */
 export function Storages({ look, busy, act }: Props) {
   const session = useSession();
+  const book = useBook();
   //: How much of a stack to move, per item. Empty means the whole of it.
   const [parts, setParts] = useState<Record<string, number | null>>({});
   const chests = look.storages ?? [];
@@ -29,10 +31,76 @@ export function Storages({ look, busy, act }: Props) {
     setParts((before) => ({ ...before, [id]: value }));
   //: Everything in the hands makes sense to put away: nothing is weightless in this world.
   const inHands = look.inventory;
+  //: A liquid moves by the hose (D-230): a tank is filled from the canisters
+  //: in the hands and emptied back into them, never taken by the handful.
+  const canisters = inHands.filter((thing) => isVessel(book, thing.goods));
 
   return (
     <>
-      {chests.map((chest) => (
+      {chests.map((chest) =>
+        isVessel(book, chest.goods) ? (
+          <section key={chest.id}>
+            <h2>
+              {chest.goods}
+              <Rule>
+                Тара берёт только жидкость, и жидкость живёт только в таре: в бак
+                переливают из канистры и из бака — в канистру.
+              </Rule>
+            </h2>
+            <p className="note">
+              налито {chest.mass.toFixed(1)} из {chest.capacity.toFixed(0)} кг
+            </p>
+            {!chest.mine ? (
+              <p className="note">Чужой бак: что внутри — не ваше дело.</p>
+            ) : (
+              <>
+                {chest.content.length === 0 && <p className="note">пусто</p>}
+                {chest.content.map((thing) => (
+                  <p key={thing.id}>
+                    {thing.goods} <span className="note">{tally(thing.goods, thing.amount)}</span>
+                    {canisters.map((canister) => (
+                      <button
+                        key={canister.id}
+                        className="quiet"
+                        onClick={() =>
+                          act(() =>
+                            session.send("liquid.pour", {
+                              from: chest.id,
+                              to: canister.id,
+                              goods: thing.goods,
+                            }),
+                          )
+                        }
+                        disabled={busy}
+                        title="слить в канистру — сколько войдёт и сколько унесёте"
+                      >
+                        В {canister.goods.toLowerCase()}
+                      </button>
+                    ))}
+                  </p>
+                ))}
+                {canisters.length === 0 ? (
+                  <p className="note">Нужна канистра в руках: жидкость не носят в ладонях.</p>
+                ) : (
+                  canisters.map((canister) => (
+                    <button
+                      key={canister.id}
+                      className="quiet"
+                      onClick={() =>
+                        act(() =>
+                          session.send("liquid.pour", { from: canister.id, to: chest.id }),
+                        )
+                      }
+                      disabled={busy || (canister.content ?? []).length === 0}
+                    >
+                      Перелить из «{canister.goods}»
+                    </button>
+                  ))
+                )}
+              </>
+            )}
+          </section>
+        ) : (
         <section key={chest.id}>
           <h2>
             {chest.goods}
@@ -129,7 +197,8 @@ export function Storages({ look, busy, act }: Props) {
             </>
           )}
         </section>
-      ))}
+        ),
+      )}
     </>
   );
 }

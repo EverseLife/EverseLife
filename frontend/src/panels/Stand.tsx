@@ -68,6 +68,8 @@ import { anyOfClass, classOf, firstOfClass } from "../classes";
  */
 const TERMINAL = "Терминал";
 const SPACEPORT = "Верфь";
+/** The ship's console: the bridge the ship is commanded from (D-230). */
+const BRIDGE = "Рубка";
 const RIG = "Буровая";
 const KITCHEN = "Кухня";
 const NURSERY = "Питомник";
@@ -331,7 +333,21 @@ function assemble({ look, values, pow }: Props, book: RecipeBook | null): Thing[
   //: its rooms, and this panel adds what the map cannot: thrust against mass.
   const aboard = (look.node?.features ?? []).includes("борт");
   const yard = firstOfClass(book, stations, SPACEPORT);
-  if (yard !== undefined || aboard) {
+  //: The console (D-230): the window of the bridge -- the space map, the
+  //: ship's card, casting off and the passage. It answers only aboard; on the
+  //: ground it stands as furniture, and the row says so instead of hiding.
+  const bridge = firstOfClass(book, stations, BRIDGE);
+  if (bridge !== undefined) {
+    single(
+      "console",
+      bridge,
+      "full",
+      () => <Ship look={look} console />,
+      aboard ? 0 : 2,
+      aboard ? undefined : "работает только на борту корабля",
+    );
+  }
+  if (bridge === undefined && (yard !== undefined || aboard)) {
     //: Aboard the window is the ship, on the ground it is the yard the ship is
     //: laid down and moored at: one panel, and its name says which of the two
     //: the player is looking at.

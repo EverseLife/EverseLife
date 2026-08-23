@@ -30,6 +30,9 @@ Whether it is furniture or a machine the engine does not care: it looks at the f
 
 from __future__ import annotations
 
+import uuid
+from collections.abc import Sequence
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -76,6 +79,21 @@ def is_storage(catalog: Catalog, type_key: str) -> bool:
     return limit is not None and limit > 0
 
 
+#: The value of `Recipe.holds` that makes a storage a vessel (D-230).
+LIQUID = "жидкость"
+
+
+def is_vessel(catalog: Catalog, type_key: str) -> bool:
+    """A storage whose `holds` is `жидкость`: a canister, a tank (D-230)."""
+    return is_storage(catalog, type_key) and catalog.recipes.holds_of(type_key) == LIQUID
+
+
+def admits(catalog: Catalog, chest_key: str, type_key: str) -> bool:
+    """Whether this storage takes this thing: a vessel takes liquids only, a
+    chest takes everything but. One question for both doors (D-230)."""
+    return is_vessel(catalog, chest_key) == catalog.recipes.is_liquid(type_key)
+
+
 async def inside(session: AsyncSession, chest: Item, *, create: bool = True) -> Container | None:
     """The storage's inside. Created on first need -- by a write, never by a
     read: with `create=False` an empty chest has no container and is None."""
@@ -93,6 +111,35 @@ async def inside(session: AsyncSession, chest: Item, *, create: bool = True) -> 
 async def content(session: AsyncSession, chest: Item) -> list[Item]:
     container = await inside(session, chest, create=False)
     return [] if container is None else list(await world.contents(session, container))
+
+
+async def contents_of(session: AsyncSession, chests: Sequence[Item]) -> dict[uuid.UUID, list[Item]]:
+    """What lies in each of several storages, in two queries rather than two
+    per chest: the inventory reads every canister in the hands at every
+    `look` (D-230), and the carry limit at every pick-up."""
+    if not chests:
+        return {}
+    holds = (
+        (
+            await session.execute(
+                select(Container).where(
+                    Container.kind == ContainerKind.STORAGE,
+                    Container.owner_id.in_([chest.id for chest in chests]),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    by_hold = {hold.id: hold.owner_id for hold in holds}
+    found: dict[uuid.UUID, list[Item]] = {chest.id: [] for chest in chests}
+    if by_hold:
+        rows = await session.execute(
+            select(Item).where(Item.container_id.in_(list(by_hold))).order_by(Item.id)
+        )
+        for thing in rows.scalars().all():
+            found[by_hold[thing.container_id]].append(thing)
+    return found
 
 
 async def stored_mass(session: AsyncSession, catalog: Catalog, chest: Item) -> float:
@@ -132,6 +179,16 @@ async def put(
     qty = amount_float(item.amount) if quantity is None else quantity
     if qty <= 0:
         raise StorageError("класть нечего")
+    #: A vessel takes liquids only, a chest everything but (D-230). A liquid
+    #: never lies in the hands, so this door mostly refuses the other way: a
+    #: canister into a tank, a chest into a canister.
+    if not admits(catalog, chest.type_key, item.type_key):
+        why = (
+            "тара берёт только жидкость"
+            if is_vessel(catalog, chest.type_key)
+            else "жидкость держат в таре"
+        )
+        raise StorageError(f"«{item.type_key}» в «{chest.type_key}» не кладут: {why}")
 
     bonus = gear.mass_of(catalog, item.type_key, qty)
     limit = capacity(catalog, chest.type_key) or 0.0

@@ -105,6 +105,7 @@ from src.models.inventory import Container, ContainerKind, Item
 from src.models.ledger import AccountKind, PostingReason
 from src.models.ship import Ship
 from src.models.world import Edge, Layer, Node, Planet, Surface
+from src.seed_surfaces import surfaces
 from src.settings import settings
 from src.units import PERCENT, amount_float, money
 from src.units import amount as to_amount
@@ -621,6 +622,11 @@ async def seed(session: AsyncSession) -> Node:
         origin="стартовый мир: аккумулятор",
     )
 
+    #: The other planets' surfaces (D-230): a spaceport on Pyroxis, the ports
+    #: of the abandoned city on Aurora. Laid before the buildings, so the yards
+    #: there get theirs by the same rule as the capital's.
+    await surfaces(session, _machine)
+
     #: Buildings of city nodes: a machine is placed in a building and takes area
     #: (D-106), and the seed must let the building stand before the machine.
     #: The city's built-up area counts as fully built.
@@ -894,10 +900,17 @@ async def catch_up(session: AsyncSession, core: Node) -> None:
         #: stored by name, and the migration says the same.
         "Космодром": "Космическая верфь",
         "Верфь": "Космическая мастерская",
+        #: The navigation block got a behaviour and a name with it (D-230): the
+        #: ship is commanded from it, so it is called what it does.
+        "Навигационный блок": "Консоль управления кораблём",
     }
     stale = (await session.execute(select(Item).where(Item.type_key.in_(renamed)))).scalars().all()
     for machine in stale:
         machine.type_key = renamed[machine.type_key]
+
+    #: Surfaces of Pyroxis and Aurora (D-230): a world laid out while the other
+    #: planets were bare dots in the sky gets somewhere to fly to.
+    await surfaces(session, _machine)
 
     #: Buildings under already standing machines: a machine lives in a building
     #: (D-106), and nodes furnished before buildings get them retroactively.

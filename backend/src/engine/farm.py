@@ -60,10 +60,10 @@ from decimal import Decimal
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.constants import Catalog, Constants
+from src.constants import Catalog, Constants, current_catalog
 from src.constants import registry as R
 from src.constants.catalog import Plant
-from src.engine import breed, events, food, occupation, stock, travel, world
+from src.engine import breed, events, food, liquid, occupation, stock, travel, world
 from src.engine.errors import Refusal
 from src.engine.jobs import enqueue, handler
 from src.models.event import EventKind
@@ -689,7 +689,11 @@ async def _consume(
 ) -> None:
     """Write off from the pocket, worst first. Not enough -- the action did not start."""
     pocket = await world.body_container(session, body)
-    stacks = await stock.locked_stacks(session, pocket.id, (type_key,), worst_first=True)
+    #: Water comes out of the canister in the hands (D-230): the pocket and
+    #: the vessels in it are one stock.
+    stacks = await liquid.locked_stacks(
+        session, current_catalog(), pocket, (type_key,), worst_first=True
+    )
     if sum(stack.amount for stack in stacks) < need:
         raise why
     await stock.consume(session, stacks, need)

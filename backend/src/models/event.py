@@ -167,6 +167,10 @@ class EventKind(StrEnum):
     # storages: chest and shelf (D-181)
     STORAGE_PUT = "storage.put"
     STORAGE_TAKEN = "storage.taken"
+    #: Liquids (D-230): poured from one vessel into another, or spilled when a
+    #: batch ended in a liquid and no vessel within reach had room for it.
+    STORAGE_POURED = "storage.poured"
+    STORAGE_SPILLED = "storage.spilled"
 
     #: Put down on the floor of a place and picked up from it (D-192).
     ITEM_DROPPED = "item.dropped"
@@ -253,6 +257,15 @@ class EventKind(StrEnum):
     LEDGER_POSTED = "ledger.posted"
     #: A transfer from account to account between identities (D-190).
     MONEY_TRANSFERRED = "money.transferred"
+
+    # alpha tools (D-229). They live only while the alpha does, but their
+    # traces stay in the journal for good: a world where a thing appeared out
+    # of nowhere must be able to say so afterwards.
+    #: A thing printed by the widget. `item.created` says it arrived with
+    #: `origin = "alpha"`; this one names who asked.
+    ALPHA_SPAWNED = "alpha.spawned"
+    #: Terms pulled up to now: which kinds of work were not waited out.
+    ALPHA_HURRIED = "alpha.hurried"
 
 
 class Event(Base):

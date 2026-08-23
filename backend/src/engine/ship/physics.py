@@ -14,10 +14,11 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.constants import Catalog, Constants
+from src.constants import Catalog, ConstantError, Constants
 from src.constants import registry as R
+from src.constants.catalog import ItemKind
 from src.engine import gear, world
-from src.engine.ship._base import FUEL, LIFE_SUPPORT, NotEnoughThrust
+from src.engine.ship._base import FUEL, LIFE_SUPPORT, TANK, NotEnoughThrust
 from src.engine.ship.belonging import nodes_of
 from src.models.inventory import Container, ContainerKind, Item
 from src.models.ship import Ship
@@ -91,22 +92,39 @@ async def _things(session: AsyncSession, ship: Ship) -> list[Item]:
     return outer + list(inside)
 
 
-async def mass(session: AsyncSession, constants: Constants, catalog: Catalog, ship: Ship) -> float:
+async def mass(
+    session: AsyncSession,
+    constants: Constants,
+    catalog: Catalog,
+    ship: Ship,
+    *,
+    things: list[Item] | None = None,
+) -> float:
     """The ship's mass, kg: the nodes plus everything aboard.
 
     Both terms are the player's decisions, and that is the point: a node added
     is both a place and extra mass, an engine added is both thrust and mass again.
+
+    `things` is what lies aboard, when the caller has read it already: the
+    summary asks seven questions of one hold and reads it once (D-230).
     """
     nodes = await nodes_of(session, ship)
     hull = len(nodes) * constants[R.SHIP_NODE_MASS]
     cargo = sum(
         gear.mass_of(catalog, thing.type_key, amount_float(thing.amount))
-        for thing in await _things(session, ship)
+        for thing in await _aboard(session, ship, things)
     )
     return hull + cargo
 
 
-async def thrust(session: AsyncSession, constants: Constants, ship: Ship) -> float:
+async def _aboard(session: AsyncSession, ship: Ship, things: list[Item] | None) -> list[Item]:
+    """What the caller read already, or a fresh reading of the hold."""
+    return things if things is not None else await _things(session, ship)
+
+
+async def thrust(
+    session: AsyncSession, constants: Constants, ship: Ship, *, things: list[Item] | None = None
+) -> float:
     """Total thrust of the engines standing aboard, kg.
 
     An engine is recognised by `ship.thrust` -- the vault's own table, not a
@@ -115,12 +133,14 @@ async def thrust(session: AsyncSession, constants: Constants, ship: Ship) -> flo
     table = constants[R.SHIP_THRUST]
     return sum(
         float(table[thing.type_key]) * amount_float(thing.amount)
-        for thing in await _things(session, ship)
+        for thing in await _aboard(session, ship, things)
         if thing.type_key in table
     )
 
 
-async def engine_class(session: AsyncSession, constants: Constants, ship: Ship) -> int | None:
+async def engine_class(
+    session: AsyncSession, constants: Constants, ship: Ship, *, things: list[Item] | None = None
+) -> int | None:
     """The ship's class: **the weakest** engine aboard (D-037, D-054).
 
     The same weakest-link rule as the quality ceiling: one poor engine in the
@@ -130,28 +150,119 @@ async def engine_class(session: AsyncSession, constants: Constants, ship: Ship) 
     table = constants[R.SHIP_ENGINE_CLASS]
     classes = [
         int(table[thing.type_key])
-        for thing in await _things(session, ship)
+        for thing in await _aboard(session, ship, things)
         if thing.type_key in table
     ]
     return min(classes) if classes else None
 
 
-async def life_support(session: AsyncSession, constants: Constants, ship: Ship) -> int:
+async def life_support(
+    session: AsyncSession, constants: Constants, ship: Ship, *, things: list[Item] | None = None
+) -> int:
     """How many people the ship holds: `ship.life_support_crew` per system."""
     systems = sum(
         amount_float(thing.amount)
-        for thing in await _things(session, ship)
+        for thing in await _aboard(session, ship, things)
         if thing.type_key in world.station_names(LIFE_SUPPORT)
     )
     return int(systems * constants[R.SHIP_LIFE_SUPPORT_CREW])
 
 
-async def fuel_aboard(session: AsyncSession, ship: Ship) -> float:
-    return sum(
-        amount_float(thing.amount)
-        for thing in await _things(session, ship)
-        if thing.type_key in world.station_names(FUEL)
+async def fuel_stacks(session: AsyncSession, ship: Ship) -> list[Item]:
+    """The fuel the engines can reach: what lies in the **tanks** aboard (D-230).
+
+    A canister of fuel in the hold is cargo -- it weighs, it does not burn.
+    The tanks are machines standing in the rooms, and their insides are the
+    reserve; fuel lying anywhere else aboard is not counted.
+    """
+    nodes = await nodes_of(session, ship)
+    if not nodes:  # pragma: no cover
+        return []
+    yards = select(Container.id).where(
+        Container.kind == ContainerKind.NODE, Container.owner_id.in_([node.id for node in nodes])
     )
+    tanks = select(Item.id).where(
+        Item.container_id.in_(yards), Item.type_key.in_(world.station_names(TANK))
+    )
+    insides = select(Container.id).where(
+        Container.kind == ContainerKind.STORAGE, Container.owner_id.in_(tanks)
+    )
+    rows = await session.execute(
+        select(Item)
+        .where(Item.container_id.in_(insides), Item.type_key.in_(world.station_names(FUEL)))
+        .order_by(Item.id)
+    )
+    return list(rows.scalars().all())
+
+
+async def fuel_aboard(session: AsyncSession, ship: Ship) -> float:
+    return sum(amount_float(thing.amount) for thing in await fuel_stacks(session, ship))
+
+
+async def engines(
+    session: AsyncSession, constants: Constants, ship: Ship, *, things: list[Item] | None = None
+) -> list[dict[str, object]]:
+    """What drives the ship, engine by engine: name, count, thrust each, class.
+
+    For the console (D-230): the owner reads which engines stand aboard and
+    what each gives, not a single sum they cannot act on.
+    """
+    thrusts = constants[R.SHIP_THRUST]
+    classes = constants[R.SHIP_ENGINE_CLASS]
+    counts: dict[str, float] = {}
+    for thing in await _aboard(session, ship, things):
+        if thing.type_key in thrusts:
+            counts[thing.type_key] = counts.get(thing.type_key, 0.0) + amount_float(thing.amount)
+    return [
+        {
+            "name": name,
+            "count": count,
+            "thrust": float(thrusts[name]),
+            "class": int(classes.get(name, 1)),
+        }
+        for name, count in sorted(counts.items())
+    ]
+
+
+async def mass_parts(
+    session: AsyncSession,
+    constants: Constants,
+    catalog: Catalog,
+    ship: Ship,
+    *,
+    things: list[Item] | None = None,
+) -> dict[str, float]:
+    """The mass by where it comes from: the hull, the machines, the cargo.
+
+    Three numbers the owner can act on separately (D-230): a node is cut by
+    not laying it, a machine by taking it down, cargo by unloading -- and a
+    single total says nothing about which of the three is the heavy one.
+    """
+    nodes = await nodes_of(session, ship)
+    machines = 0.0
+    cargo = 0.0
+    for thing in await _aboard(session, ship, things):
+        weight = gear.mass_of(catalog, thing.type_key, amount_float(thing.amount))
+        if _placeable(catalog, thing.type_key):
+            machines += weight
+        else:
+            cargo += weight
+    return {
+        "hull": len(nodes) * constants[R.SHIP_NODE_MASS],
+        "machines": machines,
+        "cargo": cargo,
+    }
+
+
+def _placeable(catalog: Catalog, type_key: str) -> bool:
+    """A machine or furniture: what stands in a room rather than lies in it.
+    The same test as `station.placeable`, asked of the catalog directly so
+    that physics does not pull the craft package in behind the station module."""
+    try:
+        kind = catalog.recipes.recipe(type_key).kind
+    except ConstantError:  # raw material has no recipe, and that is cargo
+        return False
+    return kind in (ItemKind.STATION, ItemKind.FURNITURE)
 
 
 async def ratio(session: AsyncSession, constants: Constants, catalog: Catalog, ship: Ship) -> float:

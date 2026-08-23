@@ -45,12 +45,15 @@ import {
 } from "../api";
 import { Refusal, useActions, useSession } from "../actions";
 import { Rule } from "../Rule";
+import { cityWord } from "../planets";
 
 type Props = {
   look: Look;
   busy: boolean;
   act: (what: () => Promise<unknown>) => Promise<void>;
   onEnter: () => void;
+  /** Which layer to open on: the ship's console opens on space (D-230). */
+  initialLayer?: LayerId;
 };
 
 const W = 880;
@@ -154,7 +157,7 @@ function seedPoint(key: string): { x: number; y: number } {
 
 const DASH: Record<string, string | undefined> = { trail: "4 6" };
 
-export function GraphMap({ look, onEnter }: Omit<Props, "busy" | "act">) {
+export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "act">) {
   //: The map itself performs nothing: it draws, pans and picks. Every action --
   //: setting off, laying a road, going out to explore -- belongs to the
   //: inspector beside it, which keeps its own waiting and its own refusal.
@@ -212,7 +215,7 @@ export function GraphMap({ look, onEnter }: Omit<Props, "busy" | "act">) {
   }, [byKey]);
 
   //: The default layer is the one you stand on; explicit expansion lives until the transit.
-  const [layer, setLayer] = useState<LayerId | null>(null);
+  const [layer, setLayer] = useState<LayerId | null>(initialLayer ?? null);
   //: The node the inspector talks about. Where you stand, until you pick another.
   const [picked, setPicked] = useState<string | null>(null);
   //: A right-click menu on a node. A left click picks -- which is what makes a
@@ -251,10 +254,17 @@ export function GraphMap({ look, onEnter }: Omit<Props, "busy" | "act">) {
     [map, locationBase],
   );
 
+  const mySphere = byKey[repr(here, "space") ?? ""]?.planet ?? byKey[here]?.planet ?? null;
+  const sphereShown = planetFocus ?? mySphere;
+  //: The built-up layer is named by the planet it is on (D-230): a camp on
+  //: Pyroxis, an abandoned city on Aurora. The word follows the planet whose
+  //: surface is shown, which is the one the city tab would open.
   const layers = LAYERS.filter(
     (option) =>
       (option.id !== "location" || hasSubnodes) &&
       (option.id !== "city" || cities.size > 0),
+  ).map((option) =>
+    option.id === "city" ? { ...option, label: cityWord(sphereShown).name } : option,
   );
   const desired: LayerId =
     layer ?? ((byKey[here]?.layer as LayerId | undefined) ?? "planet");
@@ -269,9 +279,6 @@ export function GraphMap({ look, onEnter }: Omit<Props, "busy" | "act">) {
   /** The planet's own node, by planet name: corridors are keyed by planet. */
   const sphereOf = (planet: string): MapNode | undefined =>
     (map?.nodes ?? []).find((node) => node.orbit && node.planet === planet);
-
-  const mySphere = byKey[repr(here, "space") ?? ""]?.planet ?? byKey[here]?.planet ?? null;
-  const sphereShown = planetFocus ?? mySphere;
 
   const visible = useMemo(() => {
     return (map?.nodes ?? []).filter((node) => {
@@ -1254,7 +1261,9 @@ function Inspector({
           ? node.flight
             ? "корабль · в рейсе"
             : "корабль · у космодрома"
-          : (LAYER_NAME[node.layer] ?? node.layer)}
+          : node.layer === "city"
+            ? cityWord(node.planet).within
+            : (LAYER_NAME[node.layer] ?? node.layer)}
         {group && !node.aboard ? " · есть что раскрыть" : ""}
       </p>
       {/* A passage is a term like any other, and it is shown the way every
@@ -1333,7 +1342,7 @@ function Inspector({
 const LAYER_NAME: Record<string, string> = {
   space: "в космосе",
   planet: "на планете",
-  city: "в городе",
+  //: `city` is not here: its word is the planet's (`cityWord`).
   location: "внутри места",
 };
 

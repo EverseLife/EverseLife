@@ -16,7 +16,7 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.constants import Catalog, Constants, current
+from src.constants import Catalog, Constants, current, current_catalog
 from src.constants import registry as R
 from src.engine import goods, travel, wear
 from src.engine.craft._base import (
@@ -439,17 +439,23 @@ async def _stock(
     is touched, and too little of the chosen tier is a refusal, not a silent
     fallback to worse -- the choice was made for a reason (D-058).
     """
-    from src.engine import market  # noqa: PLC0415 -- lazy: breaks the import cycle with market
+    from src.engine import (  # noqa: PLC0415 -- lazy: breaks the import cycle craft -> liquid -> station -> craft
+        liquid,
+        market,
+    )
 
     constants = current()
     wanted = {name: tier for name, tier in (tiers or {}).items() if tier}
+    #: The container and the vessels in it (D-230): water for the dough is in
+    #: the canister, and the recipe need not know that.
+    within = await liquid.reach(session, current_catalog(), container)
     out: dict[str, list[Item]] = {}
     for name in names:
         rows = (
             (
                 await session.execute(
                     select(Item)
-                    .where(Item.container_id == container.id, Item.type_key == name)
+                    .where(Item.container_id.in_(within), Item.type_key == name)
                     .order_by(Item.quality.asc().nulls_first(), Item.created_at.asc())
                 )
             )

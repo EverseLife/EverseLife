@@ -74,6 +74,14 @@ KIB_PER_MIB = 1024
 #: be fractional, and floating point in vein remainders is unacceptable.
 AMOUNT_SCALE = 1_000
 
+#: The widest amount the column can hold, in pieces: `Item.amount` is a signed
+#: bigint of internal units. Not a balance number -- the width of the row, and
+#: therefore here rather than in the vault. Whoever takes an amount straight
+#: from a player checks against it: past this `amount()` overflows on insert,
+#: and an integrity error reaches the player as "the server failed" instead of
+#: as a refusal in words.
+AMOUNT_MAX = ((1 << 63) - 1) // AMOUNT_SCALE
+
 
 def money(value: Decimal | int | float | str) -> int:
     """TC -> minor units. Banker's rounding, to the nearest even."""

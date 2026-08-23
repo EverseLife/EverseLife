@@ -42,6 +42,11 @@ x-server: &server
     #: production: `^$` matches no origin. The double dollar is how compose
     #: writes a literal dollar; `^$` reaches the server.
     EVERSELIFE_ALLOWED_ORIGIN_REGEX: '^$$'
+    #: The alpha's debug widget (D-229): identity names as JSON. `[]` -- for
+    #: nobody, and that is the right value everywhere the alpha is not being
+    #: tested by its own developers. It spawns matter and finishes work out of
+    #: turn, so it is switched on deliberately rather than switched off later.
+    EVERSELIFE_ADMINS: ${EVERSELIFE_ADMINS:-[]}
   restart: unless-stopped
 
 services:

@@ -79,6 +79,20 @@ class Settings(BaseSettings):
     #: honest about not knowing, which is the case for a local run.
     release: str = ""
 
+    #: Who the alpha's debug widget opens for, by identity name (D-229). It
+    #: spawns matter and finishes work out of turn, so the default is an empty
+    #: list -- on a fresh copy nobody has it, and turning it on is a deliberate
+    #: line in the environment rather than something to remember to turn off.
+    #: `EVERSELIFE_ADMINS='["Тэрн"]'`, JSON as with `allowed_origins`.
+    #:
+    #: By name and not by account id because the list is written by a human
+    #: into a compose file. That makes the name public and guessable, so a
+    #: name listed here is **reserved**: registration refuses it whether or
+    #: not an identity already wears it (`api/session._join`). Otherwise, on
+    #: a database where the seed has not made that identity yet, the first
+    #: comer to type the name would register straight into the widget.
+    admins: list[str] = []
+
     log_level: str = "INFO"
 
     @property
@@ -89,3 +103,15 @@ class Settings(BaseSettings):
 @lru_cache(maxsize=1)
 def settings() -> Settings:
     return Settings()
+
+
+def is_admin(name: str) -> bool:
+    """Whether the alpha's debug widget opens for this identity name (D-229).
+
+    Next to the setting rather than next to the commands that use it: who is
+    allowed is a property of the copy being run, and both the socket greeting
+    and the commands themselves ask the same question.
+
+    Empty list -- for nobody, and that is the default on every copy.
+    """
+    return name in settings().admins

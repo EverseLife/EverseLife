@@ -49,6 +49,7 @@ describe("amounts", () => {
   it("reads pieces and measures off the book", () => {
     amounts.learn({
       bulk: ["Вода"],
+      materials: [],
       units: { Проволока: "м" },
       operations: [],
       recipes: [],

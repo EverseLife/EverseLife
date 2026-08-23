@@ -390,8 +390,11 @@ async def _update(state, db, message) -> dict:
     assert "plot" in reference["farm.sow"]["keys"]
     assert "spaceport" in reference["ship.found"]["doc"]
     assert "- city.found(name):" in commands.brief(reference)
-    #: Every registered command is in the reference, and none without a doc:
-    #: the model reads the reference, not the code.
+    #: Every command an agent may run is in the reference, and none without a
+    #: doc: the model reads the reference, not the code. The `hidden` ones are
+    #: the other half of the same invariant -- a command declared out of the
+    #: reference (the alpha's widget, D-229) must actually be out of it, or
+    #: hiding it was decoration.
     import subprocess
 
     backend = SESSION_SOURCE.parents[2]
@@ -404,7 +407,9 @@ async def _update(state, db, message) -> dict:
         [
             str(interpreter),
             "-c",
-            "import src.api.session; from src.api.registry import COMMANDS; print(len(COMMANDS))",
+            "import src.api.session; from src.api.registry import COMMANDS; "
+            "print(sum(not c.hidden for c in COMMANDS.values())); "
+            "print(' '.join(n for n, c in COMMANDS.items() if c.hidden))",
         ],
         cwd=backend,
         capture_output=True,
@@ -412,7 +417,11 @@ async def _update(state, db, message) -> dict:
         check=False,
     )
     assert listed.returncode == 0, listed.stderr[-500:]
-    assert len(reference) - 2 == int(listed.stdout.strip()), "справочник не совпадает с реестром"
+    open_count, hidden_names = (listed.stdout.splitlines() + [""])[:2]
+    assert len(reference) - 2 == int(open_count), "справочник не совпадает с реестром"
+    assert [name for name in hidden_names.split() if name in reference] == [], (
+        "скрытая команда всё-таки уехала агентам в промпт"
+    )
 
 
 def test_shrink_caps_lists_and_strings() -> None:

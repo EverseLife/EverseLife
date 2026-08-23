@@ -113,6 +113,11 @@ TOUCHES: dict[str, tuple[str, ...]] = {
     "identity": ("profile",),
     "market": ("orders", "market"),
     "money": ("money",),
+    #: The alpha's debug widget (D-229). Without a line here the widget would
+    #: work only because the client rereads the world after any action of its
+    #: own: a second tab of the same player would see nothing. The thing
+    #: printed rides in the inventory, the pulled-up term in the doings.
+    "alpha": ("inventory", "doings"),
 }
 #: Kinds with their own list, when the prefix rule is too coarse.
 TOUCHES_BY_KIND: dict[str, tuple[str, ...]] = {

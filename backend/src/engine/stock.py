@@ -23,7 +23,7 @@ from src.models.inventory import Item
 
 async def locked_stacks(
     session: AsyncSession,
-    container_id: uuid.UUID,
+    container_id: uuid.UUID | Sequence[uuid.UUID],
     type_keys: Iterable[str],
     *,
     worst_first: bool = False,
@@ -35,11 +35,12 @@ async def locked_stacks(
     and then decrements them. Without the lock the worker and a player
     carrying the same stack away write over each other (review 2026-08-23,
     wave 2). Order by id so two consumers of one yard never deadlock;
-    `worst_first` puts the lowest quality first for write-offs.
+    `worst_first` puts the lowest quality first for write-offs. Several
+    containers at once -- a pocket and the canisters in it (D-230) -- are one
+    query and one lock order, never two.
     """
-    stmt = select(Item).where(
-        Item.container_id == container_id, Item.type_key.in_(tuple(type_keys))
-    )
+    within = [container_id] if isinstance(container_id, uuid.UUID) else list(container_id)
+    stmt = select(Item).where(Item.container_id.in_(within), Item.type_key.in_(tuple(type_keys)))
     if worst_first:
         stmt = stmt.order_by(Item.quality.asc().nulls_first(), Item.id)
     else:

@@ -171,6 +171,13 @@ header nav.tabs {
 .chat {
   flex: none;
 }
+/* The alpha's debug widget (D-229): a compact strip above the view, not a
+   panel competing with it for the height. Everything else directly in `.main`
+   is a working surface and takes what is left; this one takes what it needs
+   and leaves. Goes out with the alpha, together with `panels/Alpha.tsx`. */
+.alpha {
+  flex: none;
+}
 
 /* Narrow screen: one column, ordinary page scrolling. The scene first: the
    map matters more than the sidebar when everything is in one column. */

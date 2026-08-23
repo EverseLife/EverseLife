@@ -23,12 +23,23 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import city as town
-from src.engine import customs, ledger, market, travel, world
+from src.engine import customs, gear, ledger, market, travel, world
 from src.models.ledger import AccountKind, PostingReason
 from src.models.world import Layer, Surface
 from src.units import money
 
 ORE = "Железная руда"
+
+
+def _kilograms(catalog: Catalog, units: float) -> float:
+    """What that many units of ore weigh.
+
+    The duty counts the norm in kilograms while the cargo lies in units, and
+    what converts one into the other is the mass from the vault (D-228). The
+    test goes the same way: a unit of ore is no longer a kilogram, and writing
+    the norm as a plain number would quietly mean something else.
+    """
+    return gear.mass_of(catalog, ORE, units)
 
 
 async def _world(session: AsyncSession, catalog: Catalog):
@@ -203,8 +214,8 @@ async def test_norm_separates_household_from_trade(
     norm."""
     city, marketplace, gate, field = await _world(session, catalog)
     await _deal(session, constants, catalog, marketplace, 3)
-    #: The norm is in kilograms, ore is a kilogram per unit (D-146).
-    await _duty(session, constants, catalog, city, rate=10, norm=30)
+    #: The norm is in kilograms and the cargo in units: thirty units of ore (D-123, D-228).
+    await _duty(session, constants, catalog, city, rate=10, norm=_kilograms(catalog, 30))
 
     _, small = await _merchant(session, gate, "Житель", funds=100, ore=20)
     charges = await customs.cross(session, constants, catalog, small, gate, field)
@@ -222,7 +233,7 @@ async def test_norm_counted_per_window_not_per_trip(
     """A norm reset by splitting the cargo into runs cannot be called a norm."""
     city, marketplace, gate, field = await _world(session, catalog)
     await _deal(session, constants, catalog, marketplace, 3)
-    await _duty(session, constants, catalog, city, rate=10, norm=30)
+    await _duty(session, constants, catalog, city, rate=10, norm=_kilograms(catalog, 30))
 
     identity, body = await _merchant(session, gate, "Хитрый", funds=100, ore=20)
     first = await customs.cross(session, constants, catalog, body, gate, field)
@@ -252,7 +263,7 @@ async def test_norm_counted_per_window_not_per_trip(
     assert second[0].duty > 0, "норма исчерпана прошлой ходкой"
     assert await customs.moved_in_window(
         session, constants, identity.id, city, customs.EXPORT, ORE
-    ) == pytest.approx(40)
+    ) == pytest.approx(_kilograms(catalog, 40))
 
 
 async def test_ban_is_absolute(
@@ -313,7 +324,7 @@ async def test_imports_and_exports_land_in_summary(
 
     summary = await panel.collect(session, constants, city)
     trade = summary["trade"]
-    assert trade["exported"][ORE] == pytest.approx(20)
+    assert trade["exported"][ORE] == pytest.approx(_kilograms(catalog, 20))
     assert trade["trips_out"] == 1
     assert trade["duty_collected"] > 0
 

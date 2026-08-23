@@ -212,6 +212,17 @@ LIFE_SUPPORT = "Жизнеобеспечение"
 FUEL = "Корабельное топливо"
 
 
+#: The class of vessels the engines draw from (D-230). Fuel in a canister
+#: aboard is cargo, not a reserve: a passage burns tanks only.
+TANK = "Топливный бак"
+
+
+#: The class of the console a ship is commanded from (D-230). Casting off and
+#: a passage are ordered standing at it, and it answers only in a room aboard:
+#: bolted to a yard on the ground it is furniture.
+BRIDGE = "Рубка"
+
+
 #: The node property marking a node as being aboard. A property rather than a
 #: fifth planet: the list of planets drags its own day length and environment
 #: wear behind it, a property drags nothing (D-201).
@@ -262,6 +273,10 @@ class ShipError(Refusal):
 
 class NotAboard(ShipError):
     """The body is not aboard. A ship is commanded from inside, not from the pier."""
+
+
+class NoConsole(ShipError):
+    """No working console here: a ship is commanded from its bridge, not from any room."""
 
 
 class NotYours(ShipError):

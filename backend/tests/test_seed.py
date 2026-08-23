@@ -21,13 +21,14 @@ import pytest
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.constants import Catalog, ConstantError
+from src.constants import Catalog, ConstantError, Constants
 from src.constants.catalog import ItemKind
-from src.engine import justice, market, ship, world
+from src.engine import estate, justice, market, ship, world
 from src.models.event import Event, EventKind
 from src.models.inventory import Container, ContainerKind, Item
-from src.models.world import Node
+from src.models.world import Layer, Node, Planet
 from src.seed import seed
+from src.seed_surfaces import AURORA_CITIES, PYROXIS_PORT, aurora_port_key
 
 
 @pytest.fixture
@@ -156,3 +157,36 @@ async def test_every_capital_machine_could_be_made_by_a_player(
             assert made.kind is ItemKind.STATION, (
                 f"«{thing}» делается на «{method.station}», а это не станция"
             )
+
+
+async def test_other_planets_have_somewhere_to_land(
+    capital: Node, session: AsyncSession, constants: Constants
+) -> None:
+    """A ship flies to a spaceport and nowhere else, so a planet exists for a
+    pilot only once a yard stands on it (D-230): one on the Anvil Plateau of
+    Pyroxis, one in each of the Forerunners' abandoned cities on Aurora -- so
+    a ship arriving there chooses a city -- and on Pyroxis nothing gets
+    built, the ground shakes too often.
+    """
+    by_planet: dict[str, int] = {}
+    for port in await ship.ports(session):
+        by_planet[port.planet.value] = by_planet.get(port.planet.value, 0) + 1
+    assert by_planet["pyroxis"] == 1
+    assert by_planet["aurora"] == AURORA_CITIES
+    #: Every port is the one door of its own city: a planet-layer node under Aurora.
+    first = await session.scalar(select(Node).where(Node.key == aurora_port_key(1)))
+    assert first is not None
+    city = await session.get(Node, first.parent_id)
+    assert city is not None and city.layer is Layer.PLANET and city.planet is Planet.AURORA
+
+    plateau = await session.scalar(select(Node).where(Node.key == PYROXIS_PORT))
+    assert plateau is not None
+    identity = await world.create_identity(session, "Пришелец")
+    body = await world.print_body(session, identity, plateau)
+    with pytest.raises(estate.EstateError, match="Пироксисе не строят"):
+        await estate.construct(session, constants, body, plateau, 20)
+
+    #: Running the seed again lays nothing twice.
+    await seed(session)
+    again = sum(1 for port in await ship.ports(session) if port.planet.value == "aurora")
+    assert again == AURORA_CITIES

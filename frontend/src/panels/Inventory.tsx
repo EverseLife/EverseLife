@@ -26,6 +26,7 @@ import { Refusal, useActions, useBook, useSession } from "../actions";
 import { Rule } from "../Rule";
 import { Amount } from "../Amount";
 import { chosen, tally } from "../amounts";
+import { fill, isVessel } from "../liquids";
 import {
   GROUPINGS,
   SORTINGS,
@@ -81,6 +82,10 @@ export function Inventory({ look }: Props) {
 
   const carried = look.carry;
   const chests = (look.storages ?? []).filter((chest) => chest.mine);
+  //: Vessels take a pour, not a "put" (D-230): a canister goes into a chest
+  //: like any thing, but what is in it goes into a tank by the hose.
+  const tanks = chests.filter((chest) => isVessel(book, chest.goods));
+  const boxes = chests.filter((chest) => !isVessel(book, chest.goods));
   const things = look.inventory;
   //: The engine lets a thing be put down anywhere but only picked up where the
   //: node allows it -- so on somebody else's land dropping is one-way, and the
@@ -310,7 +315,26 @@ export function Inventory({ look }: Props) {
                               и обратно вы его не возьмёте.
                             </p>
                           )}
-                          {chests.map((chest) => (
+                          {isVessel(book, thing.goods) &&
+                            [
+                              ...tanks.map((tank) => ({ id: tank.id, goods: tank.goods })),
+                              ...things
+                                .filter((other) => other.id !== thing.id && isVessel(book, other.goods))
+                                .map((other) => ({ id: other.id, goods: `${other.goods} в руках` })),
+                            ].map((target) => (
+                              <button
+                                key={`pour:${target.id}`}
+                                role="menuitem"
+                                onClick={() =>
+                                  send("liquid.pour", { from: thing.id, to: target.id })
+                                }
+                                disabled={busy || (thing.content ?? []).length === 0}
+                                title="перелить всё, что внутри, сколько войдёт"
+                              >
+                                Перелить в {target.goods.toLowerCase()}
+                              </button>
+                            ))}
+                          {boxes.map((chest) => (
                             <button
                               key={chest.id}
                               role="menuitem"
@@ -398,7 +422,14 @@ export function Inventory({ look }: Props) {
                     </div>
                   )}
                 </td>
-                <td>{thing.flavor ?? (thing.recipe ? `${thing.goods}: ${thing.recipe}` : thing.goods)}</td>
+                <td>
+                  {thing.flavor ?? (thing.recipe ? `${thing.goods}: ${thing.recipe}` : thing.goods)}
+                  {/* A vessel shows its fill (D-230): the water is in the canister,
+                      and nowhere else in the hands. */}
+                  {thing.content !== undefined && (
+                    <div className="note">{fill(book, thing)}</div>
+                  )}
+                </td>
                 <td className="num">{tally(thing.goods, thing.amount)}</td>
                 <td className="note">{tells(thing)}</td>
                 <td>

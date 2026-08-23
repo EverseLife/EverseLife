@@ -13,6 +13,13 @@
  * Thrust-to-mass, the floor it must clear and the price of every route are on
  * screen **before** the undocking, refusals included, with the reason named --
  * class or mass. A bare "unavailable" leaves nothing to act on.
+ *
+ * The **console** (D-230) is this panel opened at the bridge: the space map
+ * on top, the ship's card under it -- the engines one by one, the mass split
+ * into hull, machines and cargo, the speed that follows -- and the two orders
+ * a ship takes, casting off and the passage. Elsewhere aboard the card is
+ * read-only: the engine refuses an order given away from the console, and the
+ * panel says so before the button is pressed.
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -20,6 +27,8 @@ import { stationsOf, type Look } from "../api";
 import { Rule } from "../Rule";
 import { firstOfClass } from "../classes";
 import { Refusal, useActions, useBook, useEdition, useSession } from "../actions";
+import { planetName } from "../planets";
+import { GraphMap } from "./GraphMap";
 
 /**
  * Thing classes, not item names (D-215): the foundation a node aboard is laid
@@ -30,6 +39,8 @@ const FOUNDATION = "Основа корабля";
 const SPACEPORT = "Верфь";
 /** The node property that marks a node as being aboard: it arrives in `features`. */
 const ABOARD = "борт";
+/** The console's class: the ship is commanded from it (D-230). */
+const BRIDGE = "Рубка";
 
 type Route = {
   node: string;
@@ -41,11 +52,16 @@ type Route = {
   reachable: boolean;
 };
 
+type Engine = { name: string; count: number; thrust: number; class: number };
+
 type Vessel = {
   ship: string;
   name: string;
   nodes: number;
   mass: number;
+  /** Where the mass comes from: what to cut is read off this, not off the total (D-230). */
+  mass_parts: { hull: number; machines: number; cargo: number };
+  engines: Engine[];
   thrust: number;
   ratio: number;
   min_ratio: number;
@@ -62,6 +78,113 @@ type Vessel = {
 };
 
 /**
+ * Where to fly, by planet (D-230). A planet is one price -- the sky has one
+ * distance to it -- and may have hundreds of ports (Aurora): one row per
+ * planet with the port chosen in it, not a button per pier.
+ */
+function Routes({
+  vessel,
+  busy,
+  fly,
+}: {
+  vessel: Vessel;
+  busy: boolean;
+  fly: (port: string) => void;
+}) {
+  const [chosen, setChosen] = useState<Record<string, string>>({});
+  const planets = new Map<string, Route[]>();
+  for (const route of vessel.routes) {
+    planets.set(route.planet, [...(planets.get(route.planet) ?? []), route]);
+  }
+  return (
+    <>
+      {[...planets.entries()].map(([planet, routes]) => {
+        const first = routes[0];
+        const port = chosen[planet] ?? first.node;
+        return (
+          <p key={planet}>
+            <b>{planetName(planet)}</b> · {first.hours?.toFixed(1)} ч ·{" "}
+            {first.fuel?.toFixed(0)} топлива
+            {!first.reachable && ` · нужен класс ${first.class}`}{" "}
+            {routes.length > 1 ? (
+              <select
+                value={port}
+                onChange={(e) => setChosen((was) => ({ ...was, [planet]: e.target.value }))}
+                aria-label={`космодром на планете ${planetName(planet)}`}
+              >
+                {routes.map((route) => (
+                  <option key={route.node} value={route.node}>
+                    {route.name}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <span className="note">{first.name}</span>
+            )}{" "}
+            <button
+              onClick={() => fly(port)}
+              disabled={busy || !first.reachable}
+              title={
+                first.reachable
+                  ? undefined
+                  : `нужен двигатель ${first.class} класса либо меньше массы`
+              }
+            >
+              Лететь
+            </button>
+          </p>
+        );
+      })}
+    </>
+  );
+}
+
+/**
+ * The ship's card (D-230): the engines one by one, the mass by where it comes
+ * from, and the speed that follows. Three numbers the owner can act on
+ * separately -- a node is cut by not laying it, a machine by taking it down,
+ * cargo by unloading -- where one total would say nothing.
+ */
+function Card({ v }: { v: Vessel }) {
+  const parts = v.mass_parts;
+  return (
+    <table>
+      <tbody>
+        {v.engines.length === 0 && (
+          <tr>
+            <td>двигатели</td>
+            <td className="note">нет ни одного: корабль не летит</td>
+          </tr>
+        )}
+        {v.engines.map((engine) => (
+          <tr key={engine.name}>
+            <td>{engine.name}</td>
+            <td className="note">
+              ×{engine.count} · тяга {engine.thrust.toFixed(0)} каждый · класс {engine.class}
+            </td>
+          </tr>
+        ))}
+        <tr>
+          <td>масса</td>
+          <td className="note">
+            корпус {parts.hull.toFixed(0)} кг · станции {parts.machines.toFixed(0)} кг ·
+            груз {parts.cargo.toFixed(0)} кг
+          </td>
+        </tr>
+        <tr>
+          <td>скорость</td>
+          <td className="note">
+            {v.ratio.toFixed(2)} тяги на кг массы
+            {v.class != null && ` · маршруты до ${v.class} класса`}
+            {v.ratio < v.min_ratio && " · ниже порога отрыва"}
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  );
+}
+
+/**
  * The cheapest passage the ship could make from here.
  *
  * The engine refuses to undock without fuel for the way back, and that way
@@ -76,7 +199,7 @@ function cheapest(v: Vessel): number {
   return fuels.length ? Math.min(...fuels) : 0;
 }
 
-export function Ship({ look }: { look: Look }) {
+export function Ship({ look, console: atConsole = false }: { look: Look; console?: boolean }) {
   const session = useSession();
   const book = useBook();
   //: This panel's own waiting and its own refusal: laying a keel must not grey
@@ -89,6 +212,10 @@ export function Ship({ look }: { look: Look }) {
 
   const aboard = (look.node?.features ?? []).includes(ABOARD);
   const atPort = firstOfClass(book, stationsOf(look), SPACEPORT) !== undefined;
+  //: Orders are given at the bridge: a console standing in this very room,
+  //: and the room aboard (D-230). The engine refuses otherwise; the panel
+  //: does not offer what would be refused.
+  const bridge = aboard && firstOfClass(book, stationsOf(look), BRIDGE) !== undefined;
   const foundationName = firstOfClass(book, look.inventory.map((t) => t.goods), FOUNDATION);
   const foundation = look.inventory.find((t) => t.goods === foundationName);
 
@@ -109,6 +236,18 @@ export function Ship({ look }: { look: Look }) {
       await reload();
     });
 
+  if (atConsole && !aboard) {
+    return (
+      <section>
+        <h2>Консоль управления кораблём</h2>
+        <p className="note">
+          Консоль стоит на земле и молчит: она работает только в узле корабля —
+          на основании, заложенном на космодроме из «узла космического корабля».
+          Поставьте её на борт, и здесь откроются карта космоса и рейс.
+        </p>
+      </section>
+    );
+  }
   if (!aboard && !atPort) return null;
 
   //: Aboard the summary is about the ship underfoot; at a port -- about the
@@ -120,8 +259,13 @@ export function Ship({ look }: { look: Look }) {
   return (
     <section>
       <Refusal of={acting} />
+      {bridge && (
+        //: The space layer at the bridge: where the ship is and where it may go.
+        //: The map's own "enter" leads nowhere from here -- one is already aboard.
+        <GraphMap look={look} onEnter={() => undefined} initialLayer="space" />
+      )}
       <h2>
-        {aboard ? "Корабль" : "Космическая верфь"}
+        {bridge ? "Консоль управления кораблём" : aboard ? "Корабль" : "Космическая верфь"}
         <Rule>
           Корабль — не вещь, а группа узлов карты с одним выходом наружу. Стыковка и
           отстыковка — появление и исчезновение одного ребра, а полёт это его
@@ -141,13 +285,22 @@ export function Ship({ look }: { look: Look }) {
             тяговооружённость {v.ratio.toFixed(2)} при нужных{" "}
             {v.min_ratio.toFixed(2)}
             {v.ratio < v.min_ratio && <b> · не отрывается</b>} · экипаж {v.crew}{" "}
-            из {v.life_support} · топлива {v.fuel.toFixed(0)}
+            из {v.life_support} · топлива в баках {v.fuel.toFixed(0)}
             {v.docked
               ? ` · у верфи «${v.port}», место ${v.berth ?? "—"}`
               : " · в полёте"}
           </p>
 
-          {v.docked && (
+          {aboard && <Card v={v} />}
+
+          {aboard && !bridge && (
+            <p className="note">
+              Отстыковка и рейс отдаются от консоли управления: встаньте в отсек,
+              где она стоит. Без консоли на борту корабль никуда не летит.
+            </p>
+          )}
+
+          {bridge && v.docked && (
             <>
               <button
                 onClick={() => go(() => session.send("ship.undock", { ship: v.ship }))}
@@ -169,27 +322,13 @@ export function Ship({ look }: { look: Look }) {
             </>
           )}
 
-          {!v.docked &&
-            v.routes.map((route) => (
-              <button
-                key={route.node}
-                onClick={() =>
-                  go(() =>
-                    session.send("ship.fly", { ship: v.ship, port: route.node }),
-                  )
-                }
-                disabled={busy || !route.reachable}
-                title={
-                  route.reachable
-                    ? undefined
-                    : `нужен двигатель ${route.class} класса либо меньше массы`
-                }
-              >
-                {route.name} · {route.hours?.toFixed(1)} ч ·{" "}
-                {route.fuel?.toFixed(0)} топлива
-                {!route.reachable && ` · класс ${route.class}`}
-              </button>
-            ))}
+          {bridge && !v.docked && (
+            <Routes
+              vessel={v}
+              busy={busy}
+              fly={(port) => go(() => session.send("ship.fly", { ship: v.ship, port }))}
+            />
+          )}
         </div>
       ))}
 

@@ -29,7 +29,8 @@ from src.models.inventory import Item
 from src.models.travel import Harness
 from src.models.world import Node, Surface
 
-#: What we haul: raw material with a mass of a kilogram per unit (`inventory.mass_by_kind`).
+#: What we haul: bulk ore. A unit of it is not a kilogram (D-228), so the
+#: numbers below are kilograms and `_units` turns them into cargo.
 CARGO = "Железная руда"
 CART = "Повозка"
 BARROW = "Тачка"
@@ -52,6 +53,15 @@ async def _convoy(
     yard = await world.node_container(session, here)
     cart = await world.grant_item(session, yard, vehicle, amount=1, origin="сценарий теста")
     return here, there, body, cart
+
+
+def _units(catalog: Catalog, kilograms: float) -> float:
+    """How many units of cargo weigh that many kilograms.
+
+    Unit mass comes from the vault and moves with it (D-228), so counting units
+    as kilograms is no longer something a test may do.
+    """
+    return kilograms / gear.mass_of(catalog, CARGO, 1)
 
 
 async def _to_hands(session: AsyncSession, body: Body, qty: float) -> Item:
@@ -100,7 +110,7 @@ async def test_unharnessing_leaves_convoy_with_cargo(
     """Abandoning a loaded convoy is a normal move of the game, not an engine error."""
     _, _, body, cart = await _convoy(session)
     await transport.harness(session, constants, catalog, body, cart)
-    cargo = await _to_hands(session, body, 20)
+    cargo = await _to_hands(session, body, _units(catalog, 20))
     await transport.load(session, constants, catalog, body, cargo)
 
     await transport.unharness(session, body)
@@ -120,10 +130,10 @@ async def test_cargo_rides_in_hold_not_hands(
 
     hands_limit = await gear.capacity(session, constants, catalog, body)
     #: More than can be carried -- and all of it rides in the hold.
-    cargo = await _to_hands(session, body, hands_limit * 3)
+    cargo = await _to_hands(session, body, _units(catalog, hands_limit * 3))
     carried = await transport.load(session, constants, catalog, body, cargo)
 
-    assert carried == pytest.approx(hands_limit * 3)
+    assert carried == pytest.approx(_units(catalog, hands_limit * 3))
     assert await gear.load_of(session, catalog, body) == pytest.approx(0), (
         "погруженное больше не в руках"
     )
@@ -136,7 +146,7 @@ async def test_hold_is_not_elastic(
     _, _, body, cart = await _convoy(session, vehicle=BARROW)
     await transport.harness(session, constants, catalog, body, cart)
     limit = transport.capacity(constants, BARROW)
-    cargo = await _to_hands(session, body, limit + 1)
+    cargo = await _to_hands(session, body, _units(catalog, limit) + 1)
     with pytest.raises(transport.Overloaded):
         await transport.load(session, constants, catalog, body, cargo)
 
@@ -147,7 +157,8 @@ async def test_unloading_hits_hands_limit(
     """One takes from the hold by hand: the carry limit does not go anywhere (D-146)."""
     _, _, body, cart = await _convoy(session)
     await transport.harness(session, constants, catalog, body, cart)
-    cargo = await _to_hands(session, body, 100)
+    hands_limit = await gear.capacity(session, constants, catalog, body)
+    cargo = await _to_hands(session, body, _units(catalog, hands_limit * 3))
     await transport.load(session, constants, catalog, body, cargo)
 
     in_hold = (await transport.cargo_items(session, cart))[0]
@@ -155,8 +166,9 @@ async def test_unloading_hits_hands_limit(
         await transport.unload(session, constants, catalog, body, in_hold)
 
     #: A handful at a time is fine, and that is an honest price: the hand is small, the wagon big.
-    qty = await transport.unload(session, constants, catalog, body, in_hold, 10)
-    assert qty == pytest.approx(10)
+    handful = _units(catalog, 10)
+    qty = await transport.unload(session, constants, catalog, body, in_hold, handful)
+    assert qty == pytest.approx(handful)
     assert await gear.load_of(session, catalog, body) == pytest.approx(10)
 
 
@@ -256,7 +268,7 @@ async def test_convoy_arrives_with_cargo(
     async with factory() as session, session.begin():
         _, there, body, cart = await _convoy(session)
         await transport.harness(session, constants, catalog, body, cart)
-        cargo = await _to_hands(session, body, 30)
+        cargo = await _to_hands(session, body, _units(catalog, 30))
         await transport.load(session, constants, catalog, body, cargo)
         transit = await travel.depart(session, constants, body, there)
         term, body_id, there_id, cart_id = (
@@ -357,7 +369,9 @@ async def test_death_unharnesses(
     """The dead pull nothing, and the convoy stays standing with the cargo."""
     _, _, body, cart = await _convoy(session)
     await transport.harness(session, constants, catalog, body, cart)
-    await transport.load(session, constants, catalog, body, await _to_hands(session, body, 10))
+    await transport.load(
+        session, constants, catalog, body, await _to_hands(session, body, _units(catalog, 10))
+    )
 
     await death.die(session, constants, body, cause="сценарий теста")
     assert await transport.harnessed(session, body) is None

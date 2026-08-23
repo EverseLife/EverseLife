@@ -19,10 +19,12 @@ from src.engine import events, travel, world
 from src.engine.jobs import enqueue, handler
 from src.engine.ship._base import (
     _EPS,
+    BRIDGE,
     FUEL,
     SPACEPORT,
     Docked,
     InFlight,
+    NoConsole,
     NoFuel,
     NoLifeSupport,
     NoPort,
@@ -37,11 +39,11 @@ from src.engine.ship._base import (
 from src.engine.ship.belonging import aboard_of, crew_of, is_aboard, nodes_of
 from src.engine.ship.building import _planet_root, _spend
 from src.engine.ship.physics import (
-    _things,
     base_hours,
     engine_class,
     fuel_aboard,
     fuel_for,
+    fuel_stacks,
     life_support,
     mass,
     passage_hours,
@@ -61,11 +63,13 @@ from src.units import (
 
 
 async def _commanded_by(session: AsyncSession, body: Body, ship: Ship) -> None:
-    """Who may move the ship: its owner, standing aboard.
+    """Who may move the ship: its owner, standing at the console aboard (D-230).
 
     A guest aboard is carried away and cannot object -- that is deliberate
     (D-201): a ban would mean any stranger blocks a passage by standing in the
     hold. The dispute is a matter for the court (D-166), not for the engine.
+    Who gets to the console at all is the owner's door (`engine.access`): a
+    room aboard is theirs, and they list who may enter it.
     """
     if body.state is not BodyState.ALIVE:
         raise ShipError("мёртвое тело кораблём не управляет")
@@ -75,6 +79,12 @@ async def _commanded_by(session: AsyncSession, body: Body, ship: Ship) -> None:
     aboard = await aboard_of(session, body)
     if aboard is None or aboard.id != ship.id:
         raise NotAboard("кораблём управляют с борта: поднимитесь на него")
+    here = await session.get(Node, body.node_id)
+    if here is None or not await world.has_station(session, here, BRIDGE):
+        raise NoConsole(
+            "кораблём управляют от консоли: встаньте в отсек, где стоит "
+            "«Консоль управления кораблём»"
+        )
 
 
 async def undock(
@@ -213,15 +223,8 @@ async def fly(
     have_fuel = await fuel_aboard(session, ship)
     if have_fuel + _EPS < need_fuel:
         raise NoFuel(f"на рейс нужно {need_fuel:.1f} «{FUEL}», а на борту {have_fuel:.1f}")
-    burnt = await _spend(
-        session,
-        [
-            thing
-            for thing in await _things(session, ship)
-            if thing.type_key in world.station_names(FUEL)
-        ],
-        need_fuel,
-    )
+    #: Burnt out of the tanks (D-230): the engines reach nothing else.
+    burnt = await _spend(session, await fuel_stacks(session, ship), need_fuel)
 
     arrives = moment + timedelta(hours=hours)
     event = await events.record(

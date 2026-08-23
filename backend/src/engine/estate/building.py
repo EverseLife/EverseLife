@@ -24,7 +24,7 @@ from src.models.estate import Building
 from src.models.event import EventKind
 from src.models.identity import Body, BodyState
 from src.models.job import Job, JobKind, JobState
-from src.models.world import Node
+from src.models.world import Node, Planet
 from src.units import (
     MINUTES_PER_HOUR,
     amount_float,
@@ -304,6 +304,13 @@ async def construct(
         raise EstateError("участок не ваш: строят у себя")
     if floors < 1:
         raise EstateError("дом без этажей — это яма")
+    #: Pyroxis does not get built on (D-230): the ground shakes too often for
+    #: a wall to outlive its builder, and what stands there arrived by ship.
+    if node.planet is Planet.PYROXIS:
+        raise EstateError(
+            "на Пироксисе не строят: землетрясения рушат постройки быстрее, "
+            "чем их ставят. Жильё здесь — борт корабля"
+        )
 
     #: Unnamed, the house is of the plainest type there is: that is what the
     #: world was built of before types arrived, and the default must not silently

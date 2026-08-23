@@ -47,6 +47,7 @@ from src.engine import (
 )
 from src.engine.errors import Refusal
 from src.models.identity import Body, Identity
+from src.settings import is_admin
 
 log = logging.getLogger(__name__)
 
@@ -196,6 +197,12 @@ async def _hello(state: dict, db: AsyncSession, message: dict) -> dict:
         "body": None if body is None else str(body.id),
         "node": None if body is None else str(body.node_id),
         "constants": current().digest,
+        #: The alpha's debug widget, if this copy opens it for this name
+        #: (D-229). Said at the greeting and not in `look`: it cannot be
+        #: derived from anything already sent (D-225), and it does not change
+        #: while the session lasts -- repeating it on every look would be a
+        #: constant travelling as state.
+        **({"admin": True} if is_admin(identity.name) else {}),
     }
 
 
@@ -247,6 +254,14 @@ async def _join(state: dict, db: AsyncSession, message: dict) -> dict:
         raise Refused("эта почта уже занята")
     line = accounts.check_line(message.get("line"))
     name = accounts.check_name(message.get("name"))
+    if is_admin(name):
+        #: A name on the admin list is reserved, whether or not an identity
+        #: already wears it (D-229). Otherwise, on a copy where the seed has
+        #: not made that identity yet, the first comer to type the name would
+        #: register straight into the debug widget -- the list lives in a
+        #: compose file, so the name is public and guessable. The words are the
+        #: ones a taken name gets: guessing right must teach nothing.
+        raise Refused(f"имя {name!r} уже занято: имя сменить нельзя")
     profile = accounts.check_profile(message)
 
     key = str(message.get("node") or "").strip()
@@ -275,4 +290,7 @@ async def _join(state: dict, db: AsyncSession, message: dict) -> dict:
         "node": str(body.node_id),
         "money": await _money(db, identity.id),
         "constants": current().digest,
+        #: No `admin` key here, and it is not an oversight: a name on that list
+        #: cannot be registered at all (above), so a fresh identity never has
+        #: the widget. It arrives on the next `hello`, if ever.
     }

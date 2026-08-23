@@ -64,6 +64,12 @@ export type Thing = {
    */
   recipe?: string;
   key: string;
+  /**
+   * For a vessel only -- a canister, a tank (D-230): what is poured into it.
+   * A liquid never lies in the pocket by itself, so without this the water in
+   * the hands would be invisible. The capacity is the catalog's (`store`).
+   */
+  content?: Thing[];
 };
 
 /** Carried load: how much is carried, how much can be, and what is worn (D-146). */
@@ -1033,6 +1039,13 @@ export class Session {
   account = "";
   name = "";
   token = "";
+  /**
+   * The alpha's debug widget, if this copy opens it for this name (D-229).
+   * Said once at the greeting rather than in every `look`: it cannot be
+   * derived from anything else the server sends (D-225), and it does not
+   * change while the session lasts.
+   */
+  admin = false;
 
   /** The token of the last login, if any: auto-login starts from it. */
   static remembered(): string {
@@ -1177,6 +1190,7 @@ export class Session {
     this.remember("");
     this.name = "";
     this.account = "";
+    this.admin = false;
     this.seq = 0;
     await this.close();
   }
@@ -1189,6 +1203,7 @@ export class Session {
     const hello = await this.send(cmd, { ...args, since: this.seq });
     this.account = String(hello.account ?? "");
     this.name = String(hello.hello ?? "");
+    this.admin = hello.admin === true;
     if (typeof hello.token === "string") this.remember(hello.token);
     return hello;
   }
@@ -1332,6 +1347,9 @@ export type Recipe = {
   inputs: string[];
   amounts: Record<string, number>;
   station?: string;
+  /** Capacity as a storage, kg (D-181); `holds` says what it admits (D-230). */
+  store?: number | null;
+  holds?: string | null;
 };
 
 export type Operation = {
@@ -1344,6 +1362,15 @@ export type Operation = {
 
 export type RecipeBook = {
   bulk: string[];
+  /** Liquids (D-230): they exist only inside a vessel, never loose in the hands. */
+  liquid?: string[];
+  /**
+   * Things no recipe makes: world raw material and operation products (D-215).
+   * `/public/recipes` has always sent them; they are typed here because the
+   * alpha widget prints by name and a name is either a material or a recipe's
+   * output -- deriving the list beats a second server key for it (D-225).
+   */
+  materials: { name: string; class?: string | null }[];
   units: Record<string, string>;
   operations: Operation[];
   recipes: Recipe[];

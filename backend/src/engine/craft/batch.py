@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, ConstantError, Constants, current, current_catalog
 from src.constants import registry as R
-from src.engine import events, goods, occupation, travel, wear
+from src.engine import events, goods, liquid, occupation, travel, wear
 from src.engine import world as world_engine
 from src.engine.craft._base import (
     BENCHLESS,
@@ -513,7 +513,34 @@ async def _finish_make(
         #: out at exactly the same quality. The spread usually sees to it that
         #: it did not, and then the stacks stay apart, as they should.
         await world_engine.stack_up(session, fresh)
+        #: A liquid is poured, not handed over (D-230): into the vessels in
+        #: the master's hands, then into those at the machine. What fits
+        #: nowhere is spilled -- and said so, because matter that vanished in
+        #: silence is a bug report waiting to happen.
+        within = await _vessels_reach(session, batch, where)
+        spilled = await liquid.settle(session, catalog, fresh, within)
+        if spilled > 0:
+            await events.record(
+                session,
+                EventKind.STORAGE_SPILLED,
+                actor_identity_id=body.identity_id,
+                node_id=batch.node_id,
+                type_key=batch.output,
+                amount=spilled,
+            )
     return made
+
+
+async def _vessels_reach(
+    session: AsyncSession, batch: CraftBatch, where: Container
+) -> list[Container]:
+    """Where a liquid output may be poured: the hands first when the master is
+    at the machine, then the place itself. Away from the bench the hands are
+    out of reach, and only what stands at the machine takes it."""
+    yard = await node_container(session, await session.get(Node, batch.node_id))
+    if where.id == yard.id:
+        return [yard]
+    return [where, yard]
 
 
 async def _finish_repair(
