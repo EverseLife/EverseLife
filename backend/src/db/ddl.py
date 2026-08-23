@@ -98,12 +98,20 @@ FOR EACH ROW EXECUTE FUNCTION forbid_rewrite()
     )
 
 
+#: A partitioned table takes no rows until it has a partition. The default
+#: one catches what no month covers; the months themselves are created
+#: ahead by `engine.journal.ensure_partitions` (wave 4).
+DEFAULT_PARTITION = """
+CREATE TABLE IF NOT EXISTS event_default PARTITION OF event DEFAULT
+"""
+
+
 RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
     #: A posting can be neither rewritten nor deleted: correcting an error is a
     #: reversing posting, as in real bookkeeping. Otherwise the journal stops
     #: being evidence.
     ("ledger_entry", (BALANCE_FUNCTION, BALANCE_TRIGGER, *_append_only("ledger_entry"))),
-    ("event", (*_append_only("event"), ANNOUNCE_FUNCTION, ANNOUNCE_TRIGGER)),
+    ("event", (DEFAULT_PARTITION, *_append_only("event"), ANNOUNCE_FUNCTION, ANNOUNCE_TRIGGER)),
     ("ledger_transaction", _append_only("ledger_transaction")),
 )
 

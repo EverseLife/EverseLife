@@ -35,6 +35,9 @@ JOB_STATEMENT_TIMEOUT_MS = 600_000
 #: land tax before the debt collection, the snapshots after everything. A
 #: technical stagger, not a balance number (D-065 does not apply).
 TICK_STAGES: dict[str, int] = {"first": 0, "later": 5, "last": 15}
+#: The journal's partitions kept ready beyond the current month (wave 4).
+JOURNAL_MONTHS_AHEAD = 2
+MONTHS_IN_YEAR = 12
 
 #: How many price levels of the book are given out. Display depth, not a
 #: market property: the book itself is not bounded by anything.

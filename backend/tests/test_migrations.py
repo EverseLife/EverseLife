@@ -13,6 +13,7 @@ and requires that autogeneration finds not a single difference.
 from __future__ import annotations
 
 import os
+import re
 
 import pytest
 from alembic.autogenerate import compare_metadata
@@ -28,8 +29,24 @@ MIGRATED_URL = os.environ.get(
 )
 
 
+PARTITION = re.compile(r"^event_(\d{6}|default)$")
+PARTITION_INDEX = re.compile(r"^event_(\d{6}|default)_")
+
+
 def _differences(connection) -> list:
-    context = MigrationContext.configure(connection, opts={"compare_type": True})
+    #: The journal's partitions (`event_YYYYMM`, `event_default`) are tables
+    #: Postgres makes under the parent; the models know only the parent.
+    def include(name, type_, parent_names):
+        if name is None:
+            return True
+        partition = (type_ == "table" and PARTITION.match(name)) or (
+            type_ == "index" and PARTITION_INDEX.match(name)
+        )
+        return not partition
+
+    context = MigrationContext.configure(
+        connection, opts={"compare_type": True, "include_name": include}
+    )
     return compare_metadata(context, Base.metadata)
 
 

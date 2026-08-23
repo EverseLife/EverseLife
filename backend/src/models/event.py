@@ -18,7 +18,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
-from sqlalchemy import BigInteger, DateTime, Index, Uuid, func
+from sqlalchemy import BigInteger, DateTime, Index, PrimaryKeyConstraint, Sequence, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.db.base import Base
@@ -256,14 +256,22 @@ class EventKind(StrEnum):
 
 
 class Event(Base):
+    """Partitioned by month of `at` (wave 4): the journal only grows, and a
+    single table of years of it would make VACUUM, the indexes and every
+    catch-up scan pay for all of history. A partition's key must be in the
+    primary key, hence `(id, at)`; `id` stays the monotonic sequence the
+    push hub reads by. `engine.journal` keeps the months ahead created."""
+
     __tablename__ = "event"
     __table_args__ = (
+        PrimaryKeyConstraint("id", "at", name="event_pkey"),
         Index("ix_event_kind_at", "kind", "at"),
         Index("ix_event_actor_at", "actor_identity_id", "at"),
         Index("ix_event_node_at", "node_id", "at"),
+        {"postgresql_partition_by": "RANGE (at)"},
     )
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(BigInteger, Sequence("event_id_seq"), nullable=False)
     at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

@@ -37,6 +37,7 @@ from src.engine import (
     estate,
     events,
     food,
+    journal,
     panel,
     rig,
     road,
@@ -166,6 +167,11 @@ async def _metrics(session: AsyncSession, now: datetime) -> dict[str, Any]:
     return {"metrics": await metrics.store(session, current(), now=now)}
 
 
+async def _partitions(session: AsyncSession, now: datetime) -> dict[str, Any]:
+    #: The journal's months ahead (wave 4): cheap, idempotent, every day.
+    return {"partitions": await journal.ensure_partitions(session, now=now)}
+
+
 async def _cities(session: AsyncSession, now: datetime) -> dict[str, Any]:
     #: Each city's snapshot goes into the same table: the panel, the dashboard
     #: and the invariant check are computed by one formula (D-139, D-140).
@@ -189,6 +195,7 @@ DAILY_STEPS: dict[str, tuple[Step, str]] = {
     "sterilize": (_sterilize, "later"),
     "metrics": (_metrics, "last"),
     "cities": (_cities, "last"),
+    "partitions": (_partitions, "first"),
 }
 STEPS = {**WORLD_STEPS, **DAILY_STEPS}
 
