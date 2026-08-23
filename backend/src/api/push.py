@@ -482,9 +482,13 @@ class Hub:
                 )
                 return
             for row in rows:
-                await self._deliver(db, row, {sink})
+                await self._deliver(db, row, {sink}, indexed=False)
 
-    async def _deliver(self, db: AsyncSession, row: Event, sinks: set[Sink]) -> None:
+    async def _deliver(
+        self, db: AsyncSession, row: Event, sinks: set[Sink], *, indexed: bool = True
+    ) -> None:
+        """Tell the sinks concerned. `indexed`: the candidates come from the
+        identity/node indexes (the live pump); a replay names its one sink."""
         kind = row.kind
         prefix = kind.split(".", 1)[0]
         own = touches_of(kind)
@@ -493,16 +497,16 @@ class Hub:
         parties = _parties(row)
         city = _city_of(row)
         citizens: set[uuid.UUID] = set()
-        if sinks is self.sinks:
+        if indexed:
             self.reindex()
-        if city is not None and (self.by_identity if sinks is self.sinks else sinks):
+        if city is not None and (self.by_identity if indexed else sinks):
             found = await town.by_id(db, city)
             if found is not None:
                 citizens = {c.identity_id for c in await town.citizens_of(db, found)}
         who: str | None = None
 
         #: Only the sinks that can be concerned: parties, citizens, the room.
-        if sinks is self.sinks:
+        if indexed:
             candidates: set[Sink] = set()
             for identity in parties | citizens:
                 candidates |= self.by_identity.get(identity, set())

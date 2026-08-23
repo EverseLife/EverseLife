@@ -20,7 +20,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.constants import current, current_catalog
-from src.engine import ledger, market, world
+from src.engine import ledger, market, stock, world
 from src.models.ledger import AccountKind, PostingReason
 from src.models.market import Order
 from src.units import money
@@ -350,5 +350,5 @@ async def test_locked_stacks_reread_what_the_session_already_holds(
         assert held.amount == 10_000
         async with factory() as other, other.begin():
             await other.execute(update(Item).where(Item.id == coal.id).values(amount=7_000))
-        locked = await world.locked_stacks(db, yard.id, ("Уголь",))
+        locked = await stock.locked_stacks(db, yard.id, ("Уголь",))
         assert locked[0] is held and held.amount == 7_000, "замок обязан перечитать строку"

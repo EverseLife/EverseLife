@@ -63,7 +63,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.constants.catalog import Plant
-from src.engine import breed, events, food, occupation, travel, world
+from src.engine import breed, events, food, occupation, stock, travel, world
 from src.engine.errors import Refusal
 from src.engine.jobs import enqueue, handler
 from src.models.event import EventKind
@@ -689,7 +689,7 @@ async def _consume(
 ) -> None:
     """Write off from the pocket, worst first. Not enough -- the action did not start."""
     pocket = await world.body_container(session, body)
-    stacks = await world.locked_stacks(session, pocket.id, (type_key,), worst_first=True)
+    stacks = await stock.locked_stacks(session, pocket.id, (type_key,), worst_first=True)
     if sum(stack.amount for stack in stacks) < need:
         raise why
-    await world.consume(session, stacks, need)
+    await stock.consume(session, stacks, need)

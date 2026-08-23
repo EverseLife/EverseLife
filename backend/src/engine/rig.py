@@ -49,7 +49,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Constants, current_catalog
 from src.constants import registry as R
-from src.engine import events, travel, wear, world
+from src.engine import events, stock, travel, wear, world
 from src.engine.errors import Refusal
 from src.models.event import EventKind
 from src.models.identity import Body, BodyState
@@ -361,8 +361,8 @@ async def _coal_available(session: AsyncSession, container_id: uuid.UUID) -> flo
 
 
 async def _burn(session: AsyncSession, container_id: uuid.UUID, qty: float) -> None:
-    stacks = await world.locked_stacks(session, container_id, _fuel_names())
-    await world.consume(session, stacks, amount(qty))
+    stacks = await stock.locked_stacks(session, container_id, _fuel_names())
+    await stock.consume(session, stacks, amount(qty))
 
 
 def _deplete(constants: Constants, vein: Vein, moment: datetime, extracted_before: int) -> None:

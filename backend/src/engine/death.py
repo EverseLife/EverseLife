@@ -67,7 +67,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import Catalog, Constants, current_catalog
 from src.constants import registry as R
 from src.engine import city as town
-from src.engine import craft, energy, events, justice, ledger, luck, transport, world
+from src.engine import craft, energy, events, justice, ledger, luck, stock, transport, world
 from src.engine.errors import Refusal
 from src.engine.jobs import enqueue, handler
 from src.models.event import EventKind
@@ -380,7 +380,7 @@ async def _charge(
 
     iron_needed = constants[R.DEATH_IRON_COST]
     yard = await world.node_container(session, node)
-    ingots = await world.locked_stacks(session, yard.id, (IRON,))
+    ingots = await stock.locked_stacks(session, yard.id, (IRON,))
     have = sum(amount_float(ingot.amount) for ingot in ingots)
     if have < iron_needed:
         raise CannotPay(
@@ -416,7 +416,7 @@ async def _charge(
         #: it could have sold -- the same way as for its own buildings (D-149).
         price = 0
 
-    await world.consume(session, ingots, amount(iron_needed))
+    await stock.consume(session, ingots, amount(iron_needed))
 
     pool.stored = Decimal(str(float(pool.stored) - energy_needed))
     await session.flush()

@@ -55,7 +55,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Constants
 from src.constants import registry as R
-from src.engine import events, ledger, travel, world
+from src.engine import events, ledger, stock, travel, world
 from src.engine.errors import Refusal
 from src.models.energy import EnergyPool
 from src.models.event import EventKind
@@ -194,7 +194,7 @@ async def _burn_fuel(
 
     calories: dict[str, float] = constants[R.ENERGY_FUEL_ENERGY]
     need = constants[R.ENERGY_COAL_PLANT_FUEL_DRAW] * hours
-    stacks = await world.locked_stacks(session, container_id, calories)
+    stacks = await stock.locked_stacks(session, container_id, calories)
     have = sum(amount_float(stack.amount) for stack in stacks)
     to_burn = min(need, have)
     if to_burn <= 0:
@@ -209,7 +209,7 @@ async def _burn_fuel(
         take = min(left, stack.amount)
         produced += amount_float(take) * float(calories[stack.type_key])
         left -= take
-    await world.consume(session, stacks, amount(to_burn))
+    await stock.consume(session, stacks, amount(to_burn))
     return produced
 
 

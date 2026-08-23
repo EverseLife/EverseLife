@@ -55,7 +55,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import events, travel, world
+from src.engine import events, stock, travel, world
 from src.engine.errors import Refusal
 from src.engine.jobs import enqueue, handler
 from src.models.event import EventKind
@@ -343,5 +343,5 @@ async def _surface_at_hand(session: AsyncSession, body: Body) -> float:
 async def _take_surface(session: AsyncSession, body: Body, need_amount: float) -> float:
     """Write off surface from the hands. Returns how much could be taken."""
     pocket = await world.body_container(session, body)
-    stacks = await world.locked_stacks(session, pocket.id, world.station_names(SURFACE_GOODS))
-    return amount_float(await world.consume(session, stacks, amount(need_amount)))
+    stacks = await stock.locked_stacks(session, pocket.id, world.station_names(SURFACE_GOODS))
+    return amount_float(await stock.consume(session, stacks, amount(need_amount)))

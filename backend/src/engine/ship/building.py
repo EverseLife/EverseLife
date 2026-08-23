@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Constants, current
 from src.constants import registry as R
-from src.engine import events, travel, world
+from src.engine import events, stock, travel, world
 from src.engine.jobs import enqueue, handler
 from src.engine.ship._base import (
     _EPS,
@@ -67,8 +67,8 @@ async def _spend(session: AsyncSession, stacks: list[Item], quantity: float) -> 
 
     The stacks are locked first: the foundation in a pocket and the fuel in
     the rooms are shared with whoever carries them at the same moment."""
-    locked = await world.lock_items(session, stacks)
-    return amount_float(await world.consume(session, locked, to_amount(quantity)))
+    locked = await stock.lock_items(session, stacks)
+    return amount_float(await stock.consume(session, locked, to_amount(quantity)))
 
 
 async def found(
