@@ -126,10 +126,12 @@ services:
     #: The worker beats a file on every pass; a beat older than two minutes
     #: is a stuck worker, and without the worker the world stands still.
     healthcheck:
-      test: ["CMD-SHELL", "test -n \"$(find /tmp/everselife-worker.beat -mmin -2 2>/dev/null)\""]
+      #: The double dollar is how compose writes a literal one: the shell in
+      #: the container must see `$(find …)`, not an interpolation attempt.
+      test: ["CMD-SHELL", "test -n \"$$(find /tmp/everselife-worker.beat -mmin -2 2>/dev/null)\""]
       interval: 30s
       timeout: 5s
-      start-period: 30s
+      start_period: 30s
       retries: 3
 
   frontend:
