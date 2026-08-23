@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 Nurlan Urazkulov
 
+import type { RecipeBook } from "./api";
+
 /**
  * Reading the vault catalog on the client side.
  *
@@ -10,7 +12,7 @@
  */
 
 /** The canonical machine name: "Furnace" and "Smelting furnace" are one and the same. */
-function canon(book: any, name: string | null): string | null {
+function canon(book: RecipeBook | null, name: string | null): string | null {
   if (emptyName(name)) return null;
   const synonyms: Record<string, string> = book?.synonyms ?? {};
   return synonyms[name as string] ?? (name as string);
@@ -33,7 +35,7 @@ const emptyName = (name?: string | null) => name == null || BENCHLESS.includes(n
 
 /** What the player can make at this machine (`null` -- by hand). */
 export function craftableAt(
-  book: any,
+  book: RecipeBook | null,
   machine: string | null,
   knows: string[],
 ): string[] {
@@ -72,9 +74,9 @@ export function craftableAt(
 }
 
 /** At which machine this thing is made. Needed to repair at one's own machine. */
-export function stationOf(book: any, name: string): string | null {
-  const recipe = (book?.recipes ?? []).find((r: any) => r.name === name);
-  return recipe ? canon(book, recipe.station) : null;
+export function stationOf(book: RecipeBook | null, name: string): string | null {
+  const recipe = (book?.recipes ?? []).find((r) => r.name === name);
+  return recipe?.station ? canon(book, recipe.station) : null;
 }
 
 /**
@@ -82,7 +84,7 @@ export function stationOf(book: any, name: string): string | null {
  * or, for an operation output, what the operation consumes. Empty for what is
  * taken from the world (felling, mining) and for the unknown.
  */
-export function inputsOf(book: any, name: string, way?: string | null): string[] {
+export function inputsOf(book: RecipeBook | null, name: string, way?: string | null): string[] {
   if (!book) return [];
   const resolve = (n: string) => (book.synonyms?.[n] ?? n) as string;
   const recipe = (book.recipes ?? []).find((r: any) => r.name === name);

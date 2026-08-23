@@ -33,6 +33,7 @@
  */
 
 import { useState, type ReactNode } from "react";
+import type { RecipeBook } from "../api";
 import * as api from "../api";
 import type { Look, Session } from "../api";
 import { Deadline } from "../Deadline";
@@ -110,7 +111,7 @@ const ROW = "row";
 type Props = {
   look: Look;
   session: Session;
-  book: any;
+  book: RecipeBook | null;
   values: Record<string, any> | null;
   pow: PowSettings | null;
 };

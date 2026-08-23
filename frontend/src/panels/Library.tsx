@@ -20,6 +20,7 @@
  */
 
 import { useEffect, useState } from "react";
+import type { RecipeBook } from "../api";
 import * as api from "../api";
 import type { Look, Session } from "../api";
 import { Rule } from "../Rule";
@@ -41,7 +42,7 @@ export function Library({ look, session }: Omit<Props, "busy" | "act">) {
   const acting = useActions();
   const { busy, act } = acting;
 
-  const [book, setBook] = useState<any>(null);
+  const [book, setBook] = useState<RecipeBook | null>(null);
   const [crops, setCrops] = useState<{ id: string; name: string }[]>([]);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);

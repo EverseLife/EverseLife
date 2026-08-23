@@ -15,6 +15,7 @@
 
 
 import { useCallback, useEffect, useState } from "react";
+import type { RecipeBook } from "../api";
 import { firstOfClass } from "../classes";
 import type { Look, Session } from "../api";
 import { Rule } from "../Rule";
@@ -27,7 +28,7 @@ type Props = {
   look: Look;
   session: Session;
   /** The vault catalog: the rig is known by its class, not by name (D-215). */
-  book: any;
+  book: RecipeBook | null;
   busy: boolean;
   act: (what: () => Promise<unknown>) => Promise<void>;
 };

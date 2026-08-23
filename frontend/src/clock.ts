@@ -54,12 +54,12 @@ export function when(iso: string | null | undefined, at: Date = new Date()): str
   const left = (new Date(iso).getTime() - at.getTime()) / 1000;
   const size = Math.abs(left);
   if (size < 45) return left >= 0 ? "вот-вот" : "только что";
-  const said = длительность(size);
+  const said = duration(size);
   return left >= 0 ? `через ${said}` : `${said} назад`;
 }
 
 /** Duration in words: "3 мин", "2 ч 10 мин", "1.5 сут" by the world's day. */
-export function длительность(seconds: number, dayHours = 24): string {
+export function duration(seconds: number, dayHours = 24): string {
   const minutes = seconds / 60;
   if (minutes < 1) return `${Math.round(seconds)} с`;
   if (minutes < 60) return `${Math.round(minutes)} мин`;

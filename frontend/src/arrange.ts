@@ -11,6 +11,7 @@
  */
 
 import type { Thing } from "./api";
+import type { RecipeBook } from "./api";
 
 export type Grouping = "none" | "goods" | "tier" | "kind" | "maker";
 export type Sorting = "name" | "quality" | "amount" | "mass" | "condition" | "spoils";
@@ -33,7 +34,7 @@ export const SORTINGS: { id: Sorting; label: string }[] = [
 ];
 
 /** What kind of thing this is, in the player's words -- from vault data, not from the name. */
-export function kindOf(book: any, thing: Thing): string {
+export function kindOf(book: RecipeBook | null, thing: Thing): string {
   if (thing.recipe) return "носители";
   if (thing.fineness != null) return "монеты";
   const recipe = (book?.recipes ?? []).find((r: any) => r.name === thing.goods);
@@ -53,7 +54,7 @@ export function kindOf(book: any, thing: Thing): string {
 }
 
 /** The group a stack falls into under this axis. */
-export function groupKey(book: any, thing: Thing, by: Grouping): string {
+export function groupKey(book: RecipeBook | null, thing: Thing, by: Grouping): string {
   switch (by) {
     case "goods":
       return thing.recipe ? `${thing.goods}: ${thing.recipe}` : thing.goods;

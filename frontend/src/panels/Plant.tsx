@@ -15,7 +15,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { Look, Session } from "../api";
-import { длительность } from "../clock";
+import { duration } from "../clock";
 import { Refusal, useActions } from "../actions";
 
 type Props = {
@@ -79,7 +79,7 @@ export function Plant({ look, session }: Omit<Props, "busy" | "act">) {
         <b>
           {plant.hours_left == null
             ? "—"
-            : длительность(plant.hours_left * SECONDS_PER_HOUR)}
+            : duration(plant.hours_left * SECONDS_PER_HOUR)}
         </b>
       </p>
       <p className="note">

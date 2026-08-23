@@ -16,6 +16,7 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
+import type { RecipeBook } from "../api";
 import * as api from "../api";
 import type { Batch, Look, Session } from "../api";
 import { anyOfClass } from "../classes";
@@ -39,7 +40,7 @@ type Props = {
   busy: boolean;
   act: (what: () => Promise<unknown>) => Promise<void>;
   /** The vault catalog -- for the "craft" tab: what is made by hand. */
-  book?: any;
+  book: RecipeBook | null;
 };
 
 /**
@@ -170,7 +171,7 @@ export function Sidebar({ look, session, book }: Omit<Props, "busy" | "act">) {
   );
 }
 
-function Character({ look }: Omit<Props, "session" | "busy" | "act">) {
+function Character({ look }: Pick<Props, "look">) {
   const sleepingSince = look.body?.sleeping_since ?? null;
   const fed =
     look.body?.satiated_until != null &&
@@ -403,7 +404,7 @@ function Doings({ look, session, book, busy, act }: Props) {
   );
 }
 
-function Trade({ look, session, busy, act }: Props) {
+function Trade({ look, session, busy, act }: Omit<Props, "book">) {
   return (
     <div>
       {/* Бронь — единственный способ купить удалённо, и она с часами:

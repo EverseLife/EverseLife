@@ -1289,7 +1289,7 @@ async function read<T>(path: string): Promise<T> {
 export const constants = () => read<{ digest: string; values: Record<string, any> }>(
   "/public/constants",
 );
-export const recipes = () => read<any>("/public/recipes");
+export const recipes = () => read<RecipeBook>("/public/recipes");
 /** Doors into the world: read before identification -- a newcomer has no identity yet. */
 export const doors = () => read<{ doors: Door[] }>("/public/doors");
 /** Character lines and the number of players -- also before identification (D-187). */
@@ -1318,6 +1318,51 @@ export const book = (node: string, goods: string, tier: string) =>
     `/public/market/${encodeURIComponent(node)}/book` +
       `?goods=${encodeURIComponent(goods)}&tier=${encodeURIComponent(tier)}`,
   );
+
+/**
+ * The vault's recipe book as `/public/recipes` serves it: what the client
+ * needs to name, class and measure things. Mirrors `constants/catalog.py`;
+ * the fields the client does not read are not listed.
+ */
+export type Recipe = {
+  name: string;
+  level: number;
+  section?: string;
+  kind: string;
+  class?: string;
+  key: boolean;
+  roles: boolean;
+  food: boolean;
+  slot?: string;
+  tier?: string;
+  inputs: string[];
+  amounts: Record<string, number>;
+  station?: string;
+};
+
+export type Operation = {
+  name: string;
+  requires: string[];
+  gives: string[];
+  gives_class?: string;
+  consumes: string[];
+  place?: string;
+};
+
+export type RecipeBook = {
+  raw: string[];
+  bulk: string[];
+  units: Record<string, string>;
+  operations: Operation[];
+  recipes: Recipe[];
+  classes: Record<string, string[]>;
+  materials: { name: string }[];
+  tool_classes: Record<string, string[]>;
+  synonyms: Record<string, string>;
+  labor_hours: Record<string, number>;
+  /** The world's constants ride along (D-209): one book through every panel. */
+  constants?: Record<string, number>;
+};
 
 /** Money comes in minor units: 1 TC = 10 000. Not a cent is lost. */
 export const MONEY_SCALE = 10_000;

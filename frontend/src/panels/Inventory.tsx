@@ -20,6 +20,7 @@
  */
 
 import { useEffect, useState } from "react";
+import type { RecipeBook } from "../api";
 import type { Look, Session, Thing } from "../api";
 import { Refusal, useActions } from "../actions";
 import { Rule } from "../Rule";
@@ -39,7 +40,7 @@ import {
   type Summary,
 } from "../arrange";
 
-type Props = { look: Look; session: Session; book?: any };
+type Props = { look: Look; session: Session; book: RecipeBook | null };
 
 /** Somebody standing in the same node: the only possible receiver. */
 type Person = { body: string; name: string };
@@ -446,7 +447,7 @@ function sections(
   group: Grouping,
   sort: Sorting,
   desc: boolean,
-  book: any,
+  book: RecipeBook | null,
 ): { title: string | null; rows: Thing[]; summary: Summary }[] {
   const ordered = arrange(things, sort, desc);
   if (group === "none") return [{ title: null, rows: ordered, summary: summarize([]) }];

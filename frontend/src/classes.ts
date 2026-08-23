@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 Nurlan Urazkulov
 
+import type { RecipeBook } from "./api";
+
 /**
  * Thing classes on the client side (D-215).
  *
@@ -17,13 +19,13 @@
  * class falls back to itself, name-for-name -- the same fallback the engine
  * keeps in `world.station_names`, so a bare name still matches itself.
  */
-export function membersOf(book: any, thingClass: string): string[] {
+export function membersOf(book: RecipeBook | null, thingClass: string): string[] {
   const members = book?.classes?.[thingClass] as string[] | undefined;
   return members && members.length > 0 ? members : [thingClass];
 }
 
 /** The class of a thing, or `null` when it has none. */
-export function classOf(book: any, name: string): string | null {
+export function classOf(book: RecipeBook | null, name: string): string | null {
   const classes: Record<string, string[]> = book?.classes ?? {};
   for (const [thingClass, members] of Object.entries(classes)) {
     if (members.includes(name)) return thingClass;
@@ -32,13 +34,13 @@ export function classOf(book: any, name: string): string | null {
 }
 
 /** Whether any of the `names` is a thing of the class. */
-export function anyOfClass(book: any, names: readonly string[], thingClass: string): boolean {
+export function anyOfClass(book: RecipeBook | null, names: readonly string[], thingClass: string): boolean {
   return firstOfClass(book, names, thingClass) !== undefined;
 }
 
 /** The first of the `names` that is a thing of the class, or `undefined`. */
 export function firstOfClass(
-  book: any,
+  book: RecipeBook | null,
   names: readonly string[],
   thingClass: string,
 ): string | undefined {

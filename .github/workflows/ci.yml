@@ -103,6 +103,9 @@ jobs:
 
       - run: npm ci
       - run: npm run lint
+      #: The pure modules (clock, amounts, arrange, tiers) -- the first tests
+      #: the client had (review 2026-08-23).
+      - run: npm test
       # Contrast of every text/background pair in every theme and lightness
       # (D-077). Five planets in two lights is 150 pairs -- not an eye's job.
       - run: npm run check:tokens

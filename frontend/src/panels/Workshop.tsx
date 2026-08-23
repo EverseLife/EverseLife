@@ -27,6 +27,7 @@
  */
 
 import { useEffect, useState } from "react";
+import type { RecipeBook } from "../api";
 import * as api from "../api";
 import type { Invention, Look, Plan, Session, Thing } from "../api";
 import { anyOfClass, membersOf } from "../classes";
@@ -46,7 +47,7 @@ type Props = {
   /** The machine's name or `null` -- "By hand". */
   machine: string | null;
   /** The vault catalog: loaded once for the whole screen. */
-  book: any;
+  book: RecipeBook | null;
 };
 
 /**
@@ -393,7 +394,7 @@ function Invent({
   look: Look;
   session: Session;
   machine: string | null;
-  book: any;
+  book: RecipeBook | null;
 }) {
   const acting = useActions();
   const { busy, act } = acting;

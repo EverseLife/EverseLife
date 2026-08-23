@@ -12,6 +12,7 @@
  */
 
 import { useMemo, useState } from "react";
+import type { RecipeBook } from "../api";
 import type { Look, Session, Thing } from "../api";
 import { tally } from "../amounts";
 import { Rule } from "../Rule";
@@ -22,7 +23,7 @@ type Props = {
   look: Look;
   session: Session;
   /** The vault catalog: the coins and what goes under the die come from it. */
-  book: any;
+  book: RecipeBook | null;
   values: Record<string, any> | null;
   busy: boolean;
   act: (what: () => Promise<unknown>) => Promise<void>;
@@ -43,7 +44,7 @@ type Coin = {
  * recipe is a coin, its heavier input is the refined metal, the lighter one
  * the alloy. A third coin or a changed fineness is data, not a client change.
  */
-function coinsOf(book: any): Coin[] {
+function coinsOf(book: RecipeBook | null): Coin[] {
   return ((book?.recipes ?? []) as any[])
     .filter((r) => r.kind === "money")
     .map((r) => {

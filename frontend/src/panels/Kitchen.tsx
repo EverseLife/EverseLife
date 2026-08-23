@@ -14,6 +14,7 @@
  */
 
 import { useMemo, useState } from "react";
+import type { RecipeBook } from "../api";
 import type { Look, Session } from "../api";
 import { Rule } from "../Rule";
 import { Refusal, useActions } from "../actions";
@@ -23,7 +24,7 @@ type Props = {
   look: Look;
   session: Session;
   /** The vault catalog: a dish is a recipe with roles (D-119), not a name in a list. */
-  book: any;
+  book: RecipeBook | null;
   busy: boolean;
   act: (what: () => Promise<unknown>) => Promise<void>;
 };

@@ -30,6 +30,7 @@ import {
   type Enrollment,
   type LiveLook,
   type Look,
+  type RecipeBook,
   type Parts,
 } from "./api";
 import { Account } from "./panels/Account";
@@ -113,7 +114,7 @@ export default function App() {
   );
   const [values, setValues] = useState<Record<string, any> | null>(null);
   //: The vault catalog is needed by several machine panels at once: we load it once.
-  const [book, setBook] = useState<any>(null);
+  const [book, setBook] = useState<RecipeBook | null>(null);
   const [pow, setPow] = useState<PowSettings | null>(null);
   //: The screen before login: login or registration (D-187). The last login's
   //: token is tried silently: while it is checked, the login screen does not flicker.

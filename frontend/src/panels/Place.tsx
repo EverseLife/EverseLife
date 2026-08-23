@@ -29,6 +29,7 @@
  */
 
 import { useEffect, useState } from "react";
+import type { RecipeBook } from "../api";
 import * as api from "../api";
 import type { Bench, Look, Session, Vehicle } from "../api";
 import { Amount } from "../Amount";
@@ -43,7 +44,7 @@ type Props = {
   session: Session;
   busy: boolean;
   act: (what: () => Promise<unknown>) => Promise<void>;
-  book: any;
+  book: RecipeBook | null;
 };
 
 /** Whether the viewer disposes of this node: the holder, or the authority on civic land.
@@ -1023,7 +1024,7 @@ export const PLACES: Record<string, string> = {
  * in a catch-all window. Somebody else's forest belongs to its owner: own and
  * nobody's land only.
  */
-export function gatherSigns(look: Look, book: any): string[] {
+export function gatherSigns(look: Look, book: RecipeBook | null): string[] {
   const node = look.node;
   if (!node || !(api.isMine(look) || api.isWild(node))) return [];
   const signs: string[] = [];
@@ -1324,7 +1325,7 @@ export function Convoy({ look, session }: Omit<Props, "busy" | "act" | "book">) 
 }
 
 /** What in the hands is equipment of this kind: the kind comes from vault data (D-090). */
-function placeable(look: Look, book: any, kind: "station" | "furniture") {
+function placeable(look: Look, book: RecipeBook | null, kind: "station" | "furniture") {
   return look.inventory.filter((thing) =>
     (book?.recipes ?? []).some(
       (r: any) => r.name === thing.goods && r.kind === kind,

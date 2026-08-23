@@ -16,7 +16,7 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import { stationsOf, type Look, type Session } from "../api";
+import { stationsOf, type Look, type Session, type RecipeBook } from "../api";
 import { Rule } from "../Rule";
 import { firstOfClass } from "../classes";
 import { Refusal, useActions } from "../actions";
@@ -76,7 +76,7 @@ function cheapest(v: Vessel): number {
   return fuels.length ? Math.min(...fuels) : 0;
 }
 
-export function Ship({ look, session, book }: { look: Look; session: Session; book: any }) {
+export function Ship({ look, session, book }: { look: Look; session: Session; book: RecipeBook | null }) {
   //: This panel's own waiting and its own refusal: laying a keel must not grey
   //: out the chat and the map for eight hours of somebody else's work.
   const acting = useActions();
