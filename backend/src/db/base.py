@@ -158,6 +158,12 @@ def engine() -> AsyncEngine:
             #: sum must fit the database's `max_connections`.
             pool_size=conf.db_pool_size,
             max_overflow=conf.db_max_overflow,
+            #: No transaction inserting an event may outlive the push hub's
+            #: gap horizon (`api/push.GAP_HORIZON`): the watermark treats an
+            #: id-gap older than that as a rollback and steps over it. A
+            #: server-enforced ceiling makes that invariant real, not assumed
+            #: (review 2026-08-23). Well under 20 minutes.
+            connect_args={"server_settings": {"idle_in_transaction_session_timeout": "600000"}},
         )
     return _engine
 

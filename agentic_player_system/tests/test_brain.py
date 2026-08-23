@@ -440,3 +440,17 @@ def test_a_player_cannot_close_the_fence_from_inside_their_text() -> None:
     inner = fenced["name"]
     assert inner.startswith("⟦чужой текст: ") and inner.endswith("⟧")
     assert inner.count("⟧") == 1 and inner.count("⟦") == 1
+
+
+def test_a_rotated_key_still_opens_what_the_old_one_sealed(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    fernet = pytest.importorskip("cryptography.fernet")
+    from aps import secrets
+
+    old, new = fernet.Fernet.generate_key().decode(), fernet.Fernet.generate_key().decode()
+    monkeypatch.setenv("APS_SECRET_KEY", old)
+    sealed = secrets.seal("hunter2")
+    #: New key first, old kept: the store keeps reading, seals with the new.
+    monkeypatch.setenv("APS_SECRET_KEY", f"{new},{old}")
+    assert secrets.reveal(sealed) == "hunter2"

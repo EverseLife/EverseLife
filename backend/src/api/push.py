@@ -433,7 +433,14 @@ class Hub:
     def _advance(self, now: datetime) -> None:
         """Move the watermark up the unbroken run of delivered ids, and step
         over a gap that is only a rolled-back id -- proven rolled back because
-        a later id committed longer ago than any transaction may live."""
+        a later id committed longer ago than any transaction may live.
+
+        While a gap stays open, every pass rereads the delivered ids above the
+        watermark and skips them by `_ahead`; both cost stay bounded by the gap
+        horizon and the write rate. The database caps a transaction's life
+        below the horizon (`db.base`, `idle_in_transaction_session_timeout`),
+        so a gap is short in practice.
+        """
         while True:
             while (self._last_id + 1) in self._ahead:
                 self._ahead.pop(self._last_id + 1)

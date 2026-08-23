@@ -20,17 +20,29 @@ log = logging.getLogger(__name__)
 PREFIX = "enc:"
 
 
-def _cipher():
-    key = os.environ.get("APS_SECRET_KEY", "").strip()
-    if not key:
-        return None
-    try:
-        from cryptography.fernet import Fernet
+_CACHE: tuple[str, object | None] = ("", None)
 
-        return Fernet(key.encode())
-    except Exception as trouble:  # noqa: BLE001 -- a bad key is a config error, said once
-        log.error("APS_SECRET_KEY unusable: %s", trouble)
-        return None
+
+def _cipher():
+    """The cipher for `APS_SECRET_KEY`, cached by the key string. Several keys
+    separated by commas make a `MultiFernet`: the first seals, all open, so a
+    key rotates by prepending the new one and keeping the old to read what it
+    sealed."""
+    global _CACHE
+    raw = os.environ.get("APS_SECRET_KEY", "").strip()
+    if raw == _CACHE[0]:
+        return _CACHE[1]
+    cipher: object | None = None
+    if raw:
+        try:
+            from cryptography.fernet import Fernet, MultiFernet
+
+            keys = [Fernet(part.strip().encode()) for part in raw.split(",") if part.strip()]
+            cipher = MultiFernet(keys) if len(keys) > 1 else keys[0]
+        except Exception as trouble:  # noqa: BLE001 -- a bad key is a config error, said once
+            log.error("APS_SECRET_KEY unusable: %s", trouble)
+    _CACHE = (raw, cipher)
+    return cipher
 
 
 def sealing() -> bool:
