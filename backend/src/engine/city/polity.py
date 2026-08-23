@@ -165,7 +165,9 @@ async def establish(
     body,
     name: str,
 ) -> City:
-    """Found a city on your own planet node (D-023, D-098, D-159).
+    """Found a city on a planet node that is nobody's or one's own (D-023, D-098,
+    D-159). Outside a city land is never privatized (D-198), so a wild node needs
+    no title -- only the buildings.
 
     The entry threshold is buildings, not a coin: `city.foundation_cost` in the
     vault is an estimate of materials and labour, there is nobody to pay it to

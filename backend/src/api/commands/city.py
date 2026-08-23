@@ -36,10 +36,16 @@ from src.models.world import Node
 
 @command("city.found")
 async def _city_found(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Found a city on your own planet node (D-023, D-098, D-159).
+    """Found a city where you stand: a planet node nobody owns, or your own,
+    with four machines standing in a building on it.
 
-    The entry threshold is four buildings, not a coin. The land goes to the
-    city: from then on the authority hands it out, not the yard owner (D-089).
+    Land outside a city belongs to nobody and cannot be bought (D-198): a wild
+    node needs no title, whoever comes may build there. What is needed is the
+    building and the machines in it -- bioprinter, town hall, market terminal,
+    power source (`station.place`); the refusal names whichever is missing.
+    The entry threshold is those buildings, not a coin (D-023, D-098, D-159).
+    The land then goes to the city: from then on the authority hands it out,
+    not the yard owner (D-089).
     """
     body = await _alive(state, db)
     city = await town.establish(

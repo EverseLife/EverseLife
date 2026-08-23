@@ -117,6 +117,19 @@ def _place(look: dict[str, Any]) -> list[str]:
     if marks:
         lines[0] += " — " + "; ".join(marks)
 
+    #: Whose the ground is, in words. `floor.mine` is the server's own answer
+    #: to "may I build here"; without it in the digest an agent looked for a
+    #: way to own land that outside a city nobody owns (D-198) and searched
+    #: for a place to found a city turn after turn (agents' finding).
+    floor = look.get("floor") or {}
+    if not node.get("owner") and not node.get("owner_city"):
+        lines.append(
+            "Участок ничей"
+            + (": строить и ставить оборудование здесь можно." if floor.get("mine") else ".")
+        )
+    elif floor.get("mine"):
+        lines.append("Участок твой: строить и ставить оборудование здесь можно.")
+
     bench = [b for b in look.get("bench") or [] if isinstance(b, dict)]
     if bench:
         lines.append(
@@ -130,7 +143,11 @@ def _place(look: dict[str, Any]) -> list[str]:
     veins = [v for v in look.get("veins") or [] if isinstance(v, dict)]
     if veins:
         lines.append(
-            "Жилы здесь: " + ", ".join(str(v.get("goods") or v.get("kind")) for v in veins[:6])
+            "Жилы здесь: "
+            + ", ".join(
+                f"{v.get('resource')} (богатство {_num(v.get('richness'))}, id {v.get('id')})"
+                for v in veins[:6]
+            )
         )
     here = []
     for key, label in (

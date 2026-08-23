@@ -298,6 +298,34 @@ def test_observation_is_a_digest_with_changes_and_the_whole_look_every_few_turns
     assert mode == "full"
 
 
+def test_digest_says_whose_the_ground_is() -> None:
+    """Wild land is nobody's and needs no title (D-198): an agent that did not
+    know it hunted for a way to own a node instead of building on one."""
+    from aps import observe
+
+    wild = {
+        "look": {
+            "identity": "Марта",
+            "money": "10",
+            "body": {"stamina": 90.0},
+            "node": {"name": "Поляна", "key": "terra.wild.1"},
+            "floor": {"mine": True},
+        }
+    }
+    assert "Участок ничей: строить и ставить оборудование здесь можно." in observe.digest(wild)
+
+    someones = json.loads(json.dumps(wild))
+    someones["look"]["node"]["owner"] = "Пётр"
+    someones["look"]["floor"]["mine"] = False
+    text = observe.digest(someones)
+    assert "владелец Пётр" in text and "Участок ничей" not in text
+
+    own = json.loads(json.dumps(wild))
+    own["look"]["node"]["owner"] = "Марта"
+    text = observe.digest(own)
+    assert "Участок твой" in text
+
+
 def test_stuck_detection_needs_the_same_refused_action_in_a_row() -> None:
     turn = brain.Turn(actions=[("travel.go", "{}", False)] * 4)
     assert Runner._stuck(turn)
