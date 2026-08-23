@@ -11,7 +11,11 @@ COPY agentic_player_system/aps/ ./aps/
 RUN pip install --no-cache-dir .
 
 # The client protocol reference, frozen at build time with the same revision.
+# The engine rides along: a few handlers parse their request with a function
+# from there (`account.check_profile`), and without it those commands would
+# reach the model with no arguments named.
 COPY backend/src/api/commands/ /app/reference/commands/
+COPY backend/src/engine/ /app/reference/engine/
 ENV APS_SESSION_SOURCE=/app/reference/commands
 
 # Agents, their journal and the provider key live in SQLite on a volume.

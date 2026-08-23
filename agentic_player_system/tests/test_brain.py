@@ -327,6 +327,39 @@ async def _take(ctx: Ctx) -> dict:
 '''
     )
     assert ctx_style["thing.take"]["keys"] == ["thing", "amount", "into"]
+    #: A handler that hands the whole request to a parser names no key in its
+    #: own body. Believing that, an agent called `craft.plan` bare and got
+    #: `KeyError('output')` all day (agents' finding, 2026-08-23).
+    by_helper = extract(
+        '''
+def _craft_request(message):
+    return message["output"], float(message.get("units", 1))
+
+
+@command("craft.plan")
+async def _plan(state, db, message) -> dict:
+    """Forecast."""
+    output, units = _craft_request(message)
+    return {"plan": [output, units]}
+'''
+    )
+    assert by_helper["craft.plan"]["keys"] == ["output", "units"]
+    #: The parser may live in a neighbouring module, or in the engine.
+    borrowed = extract(
+        '''
+@command("account.update")
+async def _update(state, db, message) -> dict:
+    """Change the profile."""
+    return accounts.check_profile(message)
+''',
+        {"check_profile": ["surname", "age", "about"]},
+    )
+    assert borrowed["account.update"]["keys"] == ["surname", "age", "about"]
+
+    #: And the real thing: what the agents tripped over must be named now.
+    assert "output" in reference["craft.plan"]["keys"]
+    assert "city" in reference["city.found"]["keys"] or reference["city.found"]["keys"] == ["name"]
+    assert "plot" in reference["farm.sow"]["keys"]
     assert "spaceport" in reference["ship.found"]["doc"]
     assert "- city.found(name):" in commands.brief(reference)
     #: Every registered command is in the reference, and none without a doc:

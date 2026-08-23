@@ -87,9 +87,15 @@ async def play(socket: WebSocket) -> None:
             #: is answered, not dropped: an exception here used to close the
             #: socket without a close frame, and the player saw "connection
             #: lost" instead of what was wrong.
-            except (KeyError, ValueError, TypeError) as bad:
+            except KeyError as missing:
+                #: The name of the field, not the repr of the exception: the
+                #: player (and the AI citizen, D-224) must read which argument
+                #: the command wanted, not `KeyError('output')`.
+                log.warning("command %r without %s", message.get("cmd"), missing)
+                answer = {"refused": f"команде не хватает поля «{missing.args[0]}»"}
+            except (ValueError, TypeError) as bad:
                 log.warning("command %r not understood: %r", message.get("cmd"), bad)
-                answer = {"refused": f"команда не понята: {bad!r}"}
+                answer = {"refused": f"команда не понята: {bad}"}
             #: Anything else is our bug. It goes to the log whole, and the
             #: session survives it: the transaction was rolled back by
             #: `_dispatch`, so nothing half-done is left behind.

@@ -451,9 +451,17 @@ def test_malformed_command_is_refused_and_the_session_survives(client, miner) ->
         ws.receive_json()
 
         #: `mine.start` reads `message["challenge"]` -- a KeyError without it.
+        #: The refusal names the field: `KeyError('challenge')` told the player
+        #: nothing they could act on (agents' finding, D-224).
         ws.send_json({"cmd": "mine.start", "vein": miner["vein"]})
         answer = ws.receive_json()
-        assert "команда не понята" in answer["refused"]
+        assert answer["refused"] == "команде не хватает поля «challenge»"
+
+        #: A field parsed by a helper counts the same: `craft.plan` reads its
+        #: request with `_craft_request`, and the name of what is missing must
+        #: still come back.
+        ws.send_json({"cmd": "craft.plan"})
+        assert ws.receive_json()["refused"] == "команде не хватает поля «output»"
 
         #: A broken id is a ValueError from `uuid.UUID`.
         ws.send_json({"cmd": "mine.start", "challenge": "not-a-uuid", "vein": miner["vein"]})

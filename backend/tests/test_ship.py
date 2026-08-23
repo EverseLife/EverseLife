@@ -124,8 +124,12 @@ async def test_foundation_is_written_off_and_a_bare_intention_refused(
     """A ship is materials, not an intention."""
     port = await _port(session)
     _, body = await _shipwright(session, port, foundations=0)
-    with pytest.raises(ship.NoFoundation):
+    with pytest.raises(ship.NoFoundation) as refusal:
         await ship.found(session, constants, body, "Пустышка")
+    #: The refusal names a recipe, not the class: asked for the class by name,
+    #: the workshop answers that nothing makes it, and the player is stuck
+    #: (agents' finding, D-224).
+    assert "Основа узла корабля" in str(refusal.value)
 
     _, builder = await _shipwright(session, port, foundations=1)
     await ship.found(session, constants, builder, "Заря")

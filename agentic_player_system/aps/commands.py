@@ -81,17 +81,69 @@ def _command_name(node: ast.AsyncFunctionDef | ast.FunctionDef) -> str | None:
     return None
 
 
-def extract(source: str) -> dict[str, dict[str, Any]]:
-    """Commands of one module: every handler under `@command("name")` (the
-    game's `api/registry.py`), its docstring and the message keys it reads."""
+def _helpers(source: str) -> dict[str, list[str]]:
+    """Module-level functions that read request keys, and the keys they read.
+
+    Only those: a function that never touches the request tells the reference
+    nothing, and leaving it out keeps the map small enough to search the
+    engine's modules too, where a couple of parsers live (`check_profile`).
+    """
     tree = ast.parse(source)
+    found = {}
+    for node in tree.body:
+        if not isinstance(node, ast.AsyncFunctionDef | ast.FunctionDef):
+            continue
+        keys = _keys(node)
+        if keys:
+            found[node.name] = keys
+    return found
+
+
+def _passed_on(func: ast.AST) -> list[str]:
+    """Names of functions this handler hands the whole request to.
+
+    `craft.plan` parses its request with `_craft_request(message)` so that the
+    forecast and the batch read it the same way -- and the handler's own body
+    then names no key at all. Believing that, the model called the command
+    bare and got `KeyError('output')` (agents' finding, 2026-08-23). What a
+    helper reads, the command asks for.
+    """
+    called: list[str] = []
+    for node in ast.walk(func):
+        if not isinstance(node, ast.Call):
+            continue
+        name = None
+        if isinstance(node.func, ast.Name):
+            name = node.func.id
+        elif isinstance(node.func, ast.Attribute):
+            name = node.func.attr
+        if name is None or name in called:
+            continue
+        arguments = list(node.args) + [word.value for word in node.keywords]
+        if any(_reads_message(argument) for argument in arguments):
+            called.append(name)
+    return called
+
+
+def extract(source: str, helpers: dict[str, list[str]] | None = None) -> dict[str, dict[str, Any]]:
+    """Commands of one module: every handler under `@command("name")` (the
+    game's `api/registry.py`), its docstring and the request keys it reads --
+    its own and those of the helpers it hands the request to."""
+    tree = ast.parse(source)
+    known = {**(helpers or {}), **_helpers(source)}
     reference: dict[str, dict[str, Any]] = {}
     for node in tree.body:
         if not isinstance(node, ast.AsyncFunctionDef | ast.FunctionDef):
             continue
         command = _command_name(node)
-        if command is not None:
-            reference[command] = {"doc": ast.get_docstring(node) or "", "keys": _keys(node)}
+        if command is None:
+            continue
+        keys = _keys(node)
+        for helper in _passed_on(node):
+            for key in known.get(helper, ()):
+                if key not in keys:
+                    keys.append(key)
+        reference[command] = {"doc": ast.get_docstring(node) or "", "keys": keys}
     return reference
 
 
@@ -99,9 +151,27 @@ def load(path: Path, cached: str = "") -> dict[str, dict[str, Any]]:
     """Read the reference from the source -- the `api/commands/` package, one
     module per domain -- and fall back to a cached JSON copy."""
     if path.is_dir():
+        modules = {
+            module: module.read_text(encoding="utf-8") for module in sorted(path.glob("*.py"))
+        }
+        #: Helpers of the whole package first: a handler may parse its request
+        #: with one borrowed from a neighbouring module (`common.py`) or from
+        #: the engine itself (`account.check_profile`). The package wins on a
+        #: name it shares with the engine.
+        helpers: dict[str, list[str]] = {}
+        engine = path.parent.parent / "engine"
+        for source in modules.values():
+            for name, keys in _helpers(source).items():
+                helpers.setdefault(name, keys)
+        for module in sorted(engine.glob("*.py")) if engine.is_dir() else ():
+            try:
+                for name, keys in _helpers(module.read_text(encoding="utf-8")).items():
+                    helpers.setdefault(name, keys)
+            except (OSError, SyntaxError):  # pragma: no cover -- a half-written file
+                continue
         reference = dict(BUILTIN)
-        for module in sorted(path.glob("*.py")):
-            reference.update(extract(module.read_text(encoding="utf-8")))
+        for source in modules.values():
+            reference.update(extract(source, helpers))
         return reference
     if path.exists():
         found = extract(path.read_text(encoding="utf-8"))

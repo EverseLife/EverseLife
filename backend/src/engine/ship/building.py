@@ -156,8 +156,13 @@ async def _lay(
     stacks = await _foundation_at_hand(session, body)
     in_hands = sum(amount_float(stack.amount) for stack in stacks)
     if in_hands + _EPS < 1:
+        #: `FOUNDATION` is a class (D-215), and a class is not a recipe: asked
+        #: for it by that name, the workshop answers that nothing makes it.
+        #: So the refusal names what to actually make.
+        makes = ", ".join(f"«{name}»" for name in world.station_names(FOUNDATION))
         raise NoFoundation(
-            f"нужна «{FOUNDATION}», а её в руках нет: корабль — это материалы, а не намерение"
+            f"нужна «{FOUNDATION}», а её в руках нет: корабль — это материалы, "
+            f"а не намерение. Делается по рецепту: {makes}"
         )
     await _spend(session, stacks, 1)
 
