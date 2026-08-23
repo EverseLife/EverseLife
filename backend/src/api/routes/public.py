@@ -75,9 +75,7 @@ async def plants() -> dict[str, Any]:
     return {"plants": [plant.model_dump() for plant in catalog().plants.plants]}
 
 
-def _passage(
-    under_way: dict[str, Any] | None, by_id: dict[Any, str]
-) -> dict[str, str] | None:
+def _passage(under_way: dict[str, Any] | None, by_id: dict[Any, str]) -> dict[str, str] | None:
     """A ship's passage for the map: the port it is due at and the two moments.
 
     The destination is given as a node key rather than a planet: the client
@@ -120,9 +118,7 @@ async def world_map() -> dict[str, Any]:
         #: is seen past the gangway. The interior comes with `look`, to whoever
         #: is standing in it.
         inside = {
-            node.id
-            for node in every
-            if vessels.is_aboard(node) and node.layer is not Layer.SPACE
+            node.id for node in every if vessels.is_aboard(node) and node.layer is not Layer.SPACE
         }
         nodes = [node for node in every if node.id not in inside]
         edges = [
@@ -223,8 +219,7 @@ async def market_positions(node_key: str) -> dict[str, Any]:
         return {
             "node": node.key,
             "positions": [
-                {"goods": goods, "tier": tier}
-                for goods, tier in await market.positions(db, node)
+                {"goods": goods, "tier": tier} for goods, tier in await market.positions(db, node)
             ],
         }
 

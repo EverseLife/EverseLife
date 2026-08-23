@@ -16,7 +16,7 @@ from aps.game import Refused
 from aps.runner import Runner
 from aps.store import Store
 
-SESSION_SOURCE = Path(__file__).resolve().parents[2] / "backend" / "src" / "api" / "session.py"
+SESSION_SOURCE = Path(__file__).resolve().parents[2] / "backend" / "src" / "api" / "commands"
 
 
 class FakeGame:
@@ -29,7 +29,7 @@ class FakeGame:
         self.reconnects += 1
 
     #: The two-way socket (D-226): the fake has heard nothing unless told.
-    events: list[dict[str, Any]] = []
+    events: list[dict[str, Any]] = []  # noqa: RUF012 -- a test double, reset per test
 
     async def drain(self) -> None:
         pass
@@ -299,6 +299,26 @@ def test_reference_is_extracted_from_the_session_source() -> None:
     assert reference["ship.found"]["keys"] == ["name"]
     assert "spaceport" in reference["ship.found"]["doc"]
     assert "- city.found(name):" in commands.brief(reference)
+    #: Every registered command is in the reference, and none without a doc:
+    #: the model reads the reference, not the code.
+    import subprocess
+    import sys
+
+    listed = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "from src.api.registry import COMMANDS; import src.api.session; print(len(COMMANDS))",
+        ],
+        cwd=SESSION_SOURCE.parents[2],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if listed.returncode == 0:
+        assert len(reference) - 2 == int(listed.stdout.strip()), (
+            "справочник не совпадает с реестром"
+        )
 
 
 def test_shrink_caps_lists_and_strings() -> None:
@@ -313,8 +333,13 @@ def test_events_heard_between_turns_open_the_observation() -> None:
     told = observe.happened(
         [
             {"event": "knowledge.learned", "seq": 5, "touches": ["knowledge"], "key": "Кирка"},
-            {"event": "travel.arrived", "seq": 6, "touches": ["body", "node"], "who": "Тэрн",
-             "node": {"key": "terra.mine", "name": "Забой"}},
+            {
+                "event": "travel.arrived",
+                "seq": 6,
+                "touches": ["body", "node"],
+                "who": "Тэрн",
+                "node": {"key": "terra.mine", "name": "Забой"},
+            },
         ]
     )
     assert told.splitlines() == [

@@ -188,7 +188,7 @@ async def test_alive_locks_the_body_for_the_whole_command(
     body: the second command of the same identity waits for the first and
     sees its stamina, not the snapshot. Two foraging starts at once: the
     second must be refused as busy, not started twice."""
-    from src.api import session as api
+    from src.api.commands import common as api
     from src.engine import forage, occupation
 
     node = await world.create_node(
@@ -217,7 +217,7 @@ async def test_look_writes_nothing(
     container, no row of any kind (review 2026-08-23)."""
     from sqlalchemy import func
 
-    from src.api import session as api
+    from src.api.commands import look as api
     from src.models.inventory import Container
     from src.models.ledger import LedgerAccount
 

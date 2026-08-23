@@ -11,8 +11,8 @@ COPY agentic_player_system/aps/ ./aps/
 RUN pip install --no-cache-dir .
 
 # The client protocol reference, frozen at build time with the same revision.
-COPY backend/src/api/session.py /app/reference/session.py
-ENV APS_SESSION_SOURCE=/app/reference/session.py
+COPY backend/src/api/commands/ /app/reference/commands/
+ENV APS_SESSION_SOURCE=/app/reference/commands
 
 # Agents, their journal and the provider key live in SQLite on a volume.
 ENV APS_DB=/data/aps.sqlite3

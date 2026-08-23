@@ -50,37 +50,45 @@ def _keys(func: ast.AST) -> list[str]:
     return found
 
 
-def extract(source: str) -> dict[str, dict[str, Any]]:
-    tree = ast.parse(source)
-    functions = {
-        node.name: node
-        for node in tree.body
-        if isinstance(node, ast.AsyncFunctionDef | ast.FunctionDef)
-    }
-    table: dict[str, str] = {}
-    for node in tree.body:
+def _command_name(node: ast.AsyncFunctionDef | ast.FunctionDef) -> str | None:
+    """The name under `@command("...")`, when the function has one."""
+    for decorator in node.decorator_list:
+        call = decorator if isinstance(decorator, ast.Call) else None
         if (
-            isinstance(node, ast.Assign)
-            and any(isinstance(t, ast.Name) and t.id == "_COMMANDS" for t in node.targets)
-            and isinstance(node.value, ast.Dict)
+            call is not None
+            and isinstance(call.func, ast.Name)
+            and call.func.id == "command"
+            and call.args
+            and isinstance(call.args[0], ast.Constant)
         ):
-            for key, value in zip(node.value.keys, node.value.values, strict=True):
-                if isinstance(key, ast.Constant) and isinstance(value, ast.Name):
-                    table[str(key.value)] = value.id
-    reference: dict[str, dict[str, Any]] = dict(BUILTIN)
-    for command, name in table.items():
-        func = functions.get(name)
-        if func is None:
-            reference[command] = {"doc": "", "keys": []}
+            return str(call.args[0].value)
+    return None
+
+
+def extract(source: str) -> dict[str, dict[str, Any]]:
+    """Commands of one module: every handler under `@command("name")` (the
+    game's `api/registry.py`), its docstring and the message keys it reads."""
+    tree = ast.parse(source)
+    reference: dict[str, dict[str, Any]] = {}
+    for node in tree.body:
+        if not isinstance(node, ast.AsyncFunctionDef | ast.FunctionDef):
             continue
-        reference[command] = {"doc": ast.get_docstring(func) or "", "keys": _keys(func)}
+        command = _command_name(node)
+        if command is not None:
+            reference[command] = {"doc": ast.get_docstring(node) or "", "keys": _keys(node)}
     return reference
 
 
 def load(path: Path, cached: str = "") -> dict[str, dict[str, Any]]:
-    """Read the reference from the source; fall back to a cached JSON copy."""
+    """Read the reference from the source -- the `api/commands/` package, one
+    module per domain -- and fall back to a cached JSON copy."""
+    if path.is_dir():
+        reference = dict(BUILTIN)
+        for module in sorted(path.glob("*.py")):
+            reference.update(extract(module.read_text(encoding="utf-8")))
+        return reference
     if path.exists():
-        return extract(path.read_text(encoding="utf-8"))
+        return dict(BUILTIN) | extract(path.read_text(encoding="utf-8"))
     if cached:
         return json.loads(cached)
     return dict(BUILTIN)

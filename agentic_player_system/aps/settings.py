@@ -54,7 +54,7 @@ def load() -> Settings:
         game_url=env("APS_GAME_URL", "http://localhost:8000"),
         db_path=(ROOT / env("APS_DB", "./aps.sqlite3")).resolve(),
         session_source=(
-            ROOT / env("APS_SESSION_SOURCE", "../backend/src/api/session.py")
+            ROOT / env("APS_SESSION_SOURCE", "../backend/src/api/commands")
         ).resolve(),
         host=env("APS_HOST", "127.0.0.1"),
         port=int(env("APS_PORT", "8100")),
