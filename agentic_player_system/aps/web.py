@@ -52,6 +52,12 @@ async def lifespan(_: FastAPI):
 app = FastAPI(title="Everse.Life agentic player system", lifespan=lifespan)
 
 
+@app.get("/health")
+async def health() -> dict[str, object]:
+    """For the container's healthcheck: the process answers, the runner is up."""
+    return {"ok": True, "stopping": RUNNER._stop.is_set()}
+
+
 # --- auth ----------------------------------------------------------------------
 
 

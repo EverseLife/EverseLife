@@ -18,6 +18,7 @@ import logging
 import os
 import signal
 import socket
+from pathlib import Path
 
 from src import herald
 from src.constants import bootstrap
@@ -28,6 +29,16 @@ from src.runtime import WORKER_IDLE_SLEEP
 from src.settings import settings
 
 log = logging.getLogger("everselife.worker")
+
+
+#: Touched by every pass of every lane: the container's healthcheck reads its
+#: age ("без worker мир стоит", and nobody noticed for a day before this).
+HEARTBEAT = Path(os.environ.get("EVERSELIFE_WORKER_HEARTBEAT", "/tmp/everselife-worker.beat"))
+
+
+def _beat() -> None:
+    with contextlib.suppress(OSError):
+        HEARTBEAT.touch()
 
 
 async def main() -> None:
@@ -67,6 +78,7 @@ async def main() -> None:
         transaction with `SKIP LOCKED`, so lanes never take the same job."""
         name = f"{worker_id}/{index}"
         while not stopping.is_set():
+            _beat()
             done = await run_due(factory, limit=conf.job_batch, worker=name)
             if done == 0:
                 with contextlib.suppress(TimeoutError):

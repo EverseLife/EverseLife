@@ -123,8 +123,14 @@ services:
         condition: service_healthy
       seed:
         condition: service_completed_successfully
+    #: The worker beats a file on every pass; a beat older than two minutes
+    #: is a stuck worker, and without the worker the world stands still.
     healthcheck:
-      disable: true
+      test: ["CMD-SHELL", "test -n \"$(find /tmp/everselife-worker.beat -mmin -2 2>/dev/null)\""]
+      interval: 30s
+      timeout: 5s
+      start-period: 30s
+      retries: 3
 
   frontend:
     image: ghcr.io/${GHCR_OWNER:-everselife}/everselife-frontend:${TAG:-latest}
