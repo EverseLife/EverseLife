@@ -116,7 +116,13 @@ class LedgerEntry(Base):
     """One side of a posting. Sign: a debit is negative, a credit is positive."""
 
     __tablename__ = "ledger_entry"
-    __table_args__ = (Index("ix_ledger_entry_account", "account_id", "id"),)
+    __table_args__ = (
+        Index("ix_ledger_entry_account", "account_id", "id"),
+        #: The balance trigger sums the entries of one transaction on every
+        #: commit; without this index that is a scan of the whole journal,
+        #: and the journal only grows (review 2026-08-23).
+        Index("ix_ledger_entry_transaction", "transaction_id"),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     transaction_id: Mapped[uuid.UUID] = mapped_column(

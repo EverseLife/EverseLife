@@ -75,13 +75,14 @@ def is_storage(catalog: Catalog, type_key: str) -> bool:
     return limit is not None and limit > 0
 
 
-async def inside(session: AsyncSession, chest: Item) -> Container:
-    """The storage's inside. Created on first need."""
+async def inside(session: AsyncSession, chest: Item, *, create: bool = True) -> Container | None:
+    """The storage's inside. Created on first need -- by a write, never by a
+    read: with `create=False` an empty chest has no container and is None."""
     stmt = select(Container).where(
         Container.kind == ContainerKind.STORAGE, Container.owner_id == chest.id
     )
     container = (await session.execute(stmt)).scalar_one_or_none()
-    if container is None:
+    if container is None and create:
         container = Container(kind=ContainerKind.STORAGE, owner_id=chest.id)
         session.add(container)
         await session.flush()
@@ -89,7 +90,8 @@ async def inside(session: AsyncSession, chest: Item) -> Container:
 
 
 async def content(session: AsyncSession, chest: Item) -> list[Item]:
-    return list(await world.contents(session, await inside(session, chest)))
+    container = await inside(session, chest, create=False)
+    return [] if container is None else list(await world.contents(session, container))
 
 
 async def stored_mass(
@@ -106,7 +108,9 @@ async def stored_mass(
 
 async def is_empty(session: AsyncSession, chest: Item) -> bool:
     """Whether it is empty inside. This decides whether the furniture is handed over."""
-    container = await inside(session, chest)
+    container = await inside(session, chest, create=False)
+    if container is None:
+        return True
     found = await session.scalar(
         select(Item.id).where(Item.container_id == container.id).limit(1)
     )

@@ -28,6 +28,9 @@ dev = [
     # `pytest -n 8`: the suite is a run against a database, and the database is
     # the wait. Each worker gets a database of its own (see tests/conftest.py).
     "pytest-xdist>=3.6",
+    # Layers `api -> engine -> models -> constants` and no import cycles: checked,
+    # not hoped for (review 2026-08-23).
+    "import-linter>=2.0",
 ]
 
 [build-system]
@@ -59,3 +62,13 @@ extend-exclude = ["migrations/versions"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.importlinter]
+root_package = "src"
+# The review of 2026-08-23 counted 348 lazy imports and 29 mutual cycles in
+# `src.engine`. The layers contract is enforced now; the cycle contract for the
+# engine is the goal of wave 3 and stays commented until the cycles are broken.
+[[tool.importlinter.contracts]]
+name = "Layers: api -> engine -> models -> constants"
+type = "layers"
+layers = ["src.api", "src.engine", "src.models", "src.constants"]

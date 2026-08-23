@@ -51,6 +51,22 @@ class Posting:
     amount: int
 
 
+async def find_account(
+    session: AsyncSession,
+    kind: AccountKind,
+    owner_id: uuid.UUID | None,
+    currency: Currency = Currency.TK,
+) -> LedgerAccount | None:
+    """The account if it exists. Reads use this: no account means nothing
+    was ever posted, and a read must not create one."""
+    stmt = select(LedgerAccount).where(
+        LedgerAccount.kind == kind,
+        LedgerAccount.owner_id == owner_id,
+        LedgerAccount.currency == currency,
+    )
+    return (await session.execute(stmt)).scalar_one_or_none()
+
+
 async def account_for(
     session: AsyncSession,
     kind: AccountKind,
@@ -105,6 +121,19 @@ async def post(
             f"Деньги переходят, а не появляются (И2)"
         )
 
+    #: Every debited account is locked before its balance is read, in id
+    #: order so two operations touching the same pair never deadlock. Without
+    #: the lock two sockets of one identity -- or the API and the worker --
+    #: both see 100, both spend 100, and the balance is -100 with every
+    #: transaction perfectly balanced (review 2026-08-23).
+    debited = sorted({p.account_id for p in postings if p.amount < 0})
+    if debited:
+        await session.execute(
+            select(LedgerAccount.id)
+            .where(LedgerAccount.id.in_(debited))
+            .order_by(LedgerAccount.id)
+            .with_for_update()
+        )
     if not allow_overdraft:
         await _check_funds(session, postings)
 

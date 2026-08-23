@@ -723,7 +723,7 @@ async def arrive(session: AsyncSession, job: Job) -> None:
         #: A job retry after a failure does not become a second arrival.
         return
 
-    body = await session.get(Body, travel.body_id)
+    body = await session.get(Body, travel.body_id, with_for_update=True)
     target = await session.get(Node, travel.to_node_id)
     if body is None or target is None:  # pragma: no cover
         raise TravelError(f"переход {travel.id} ссылается в никуда")

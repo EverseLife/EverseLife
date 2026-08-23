@@ -199,6 +199,8 @@ async def advance(
         await _burn(session, yard.id, fuel * workers)
         #: The machine eats the vein twice as fast: capital speeds up the world's depletion.
         from_vein = amount(mined * constants[R.RIG_DEPLETION_MULTIPLIER])
+        #: Shared with the miners (`mining.swing`); same lock order: rig -> vein.
+        await session.refresh(vein, with_for_update=True)
         before = vein.extracted
         vein.extracted += min(from_vein, vein.remaining)
         vein.remaining = max(0, vein.remaining - from_vein)
@@ -243,6 +245,8 @@ async def empty_hopper(
     if rig.owner_identity_id not in (None, body.identity_id):
         raise NotYours("чужая установка: вывоз — по договору с хозяином")
 
+    #: Emptying is a write and races the world tick for the same row.
+    await session.refresh(rig, with_for_update=True)
     await advance(session, constants, rig, now=moment)
     taken = float(rig.hopper)
     if taken <= 0:
@@ -299,7 +303,9 @@ async def tick_rigs(
 ) -> float:
     """Advance all rigs of the world. The machine does not sleep -- that is its whole strength."""
     moment = now or datetime.now(UTC)
-    rigs = (await session.execute(select(RigRow))).scalars().all()
+    rigs = (
+        await session.execute(select(RigRow).order_by(RigRow.id).with_for_update())
+    ).scalars().all()
     result = 0.0
     for rig in rigs:
         result += await advance(session, constants, rig, now=moment)
@@ -309,13 +315,17 @@ async def tick_rigs(
 async def status(
     session: AsyncSession, constants: Constants, node_id: uuid.UUID
 ) -> list[dict]:
-    """What stands in the node and in what condition -- for the location scene."""
+    """What stands in the node and in what condition -- for the location scene.
+
+    A read: the hopper is shown as of the last tick (`counted_at`), the scene
+    does not move the machine. Advancing here used to race the world tick
+    and the emptying for the same row (review 2026-08-23).
+    """
     rigs = (
         await session.execute(select(RigRow).where(RigRow.node_id == node_id))
     ).scalars().all()
     out: list[dict] = []
     for rig in rigs:
-        await advance(session, constants, rig)
         machine = await session.get(Item, rig.item_id)
         vein = await session.get(Vein, rig.vein_id)
         yard = await world.node_container(
@@ -327,6 +337,8 @@ async def status(
                 "id": str(rig.id),
                 "resource": vein.resource if vein else None,
                 "hopper": float(rig.hopper),
+                #: When the hopper was last counted: the world tick moves it.
+                "counted_at": rig.counted_at.isoformat(),
                 "capacity": hopper_capacity(constants),
                 "full": float(rig.hopper) >= hopper_capacity(constants),
                 "fuel": coal_,

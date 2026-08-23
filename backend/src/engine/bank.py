@@ -307,6 +307,20 @@ async def borrow(
     return loan
 
 
+def accruable(constants: Constants, loan: Loan, *, now: datetime | None = None) -> int:
+    """Interest run up since the last accrual, without writing it: what a
+    view shows as owed right now. `accrue` writes it on repayment and on the
+    daily collection; a read must not (review 2026-08-23)."""
+    moment = now or datetime.now(UTC)
+    if loan.state is not LoanState.OPEN:
+        return 0
+    elapsed = (moment - loan.accrued_at).total_seconds() / timedelta(days=1).total_seconds()
+    if elapsed <= 0:
+        return 0
+    per_day = float(loan.rate) / PERCENT / constants[R.BANK_YEAR_DAYS]
+    return int(loan.outstanding * per_day * elapsed)
+
+
 async def accrue(
     session: AsyncSession, constants: Constants, loan: Loan, *, now: datetime | None = None
 ) -> int:
@@ -317,13 +331,9 @@ async def accrue(
     number, not an astronomical one.
     """
     moment = now or datetime.now(UTC)
-    if loan.state is not LoanState.OPEN:
+    accrued = accruable(constants, loan, now=moment)
+    if accrued <= 0:
         return 0
-    elapsed = (moment - loan.accrued_at).total_seconds() / timedelta(days=1).total_seconds()
-    if elapsed <= 0:
-        return 0
-    per_day = float(loan.rate) / PERCENT / constants[R.BANK_YEAR_DAYS]
-    accrued = int(loan.outstanding * per_day * elapsed)
     loan.outstanding += accrued
     loan.interest_accrued += accrued
     loan.accrued_at = moment

@@ -59,7 +59,11 @@ class Layer(StrEnum):
 
 class Node(Base):
     __tablename__ = "node"
-    __table_args__ = (Index("ix_node_parent", "parent_id"),)
+    __table_args__ = (
+        Index("ix_node_parent", "parent_id"),
+        #: `world.epoch()` is `min(created_at)`, asked by every look.
+        Index("ix_node_created", "created_at"),
+    )
 
     id: Mapped[uuid.UUID] = uuid_pk()
     #: A stable key for references from data and tests: `terra.capital`.

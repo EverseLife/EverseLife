@@ -62,7 +62,12 @@ async def epoch(session: AsyncSession) -> datetime | None:
     agree between the server and every client: the planet's clock (D-029) and
     the angle a planet stands at on its orbit.
     """
-    return await session.scalar(select(func.min(Node.created_at)))
+    #: Once per command: the clock and the orbit both ask, and the answer
+    #: never changes. The index on `created_at` makes the one ask cheap.
+    async def find() -> datetime | None:
+        return await session.scalar(select(func.min(Node.created_at)))
+
+    return await remember(session, ("epoch",), find)
 
 
 def orbit_of(node: Node) -> dict[str, float] | None:
@@ -103,6 +108,12 @@ async def create_node(
         properties=properties or {},
     )
     session.add(node)
+    await session.flush()
+    #: The yard is born with the node, as the pocket is with the body:
+    #: otherwise the first `look` at a new place creates it, and a read
+    #: must not write (review 2026-08-23). Old nodes without one are still
+    #: caught by `node_container`.
+    session.add(Container(kind=ContainerKind.NODE, owner_id=node.id))
     await session.flush()
     return node
 
@@ -599,6 +610,10 @@ async def move_stack(
     #: A counted thing moves in whole pieces (D-212). A fraction is floored,
     #: and a request smaller than one piece is refused rather than silently
     #: doing nothing.
+    #: The stack is locked and reread first: every move in the world comes
+    #: through here, and whoever moves the same stack at the same time must
+    #: see the remainder, not the snapshot (review 2026-08-23).
+    await session.refresh(item, with_for_update=True)
     qty = min(to_units(goods.at_least_one(item.type_key, quantity)), item.amount)
     if qty >= item.amount:
         item.container_id = target.id
@@ -683,13 +698,18 @@ async def stack_up(session: AsyncSession, item: Item) -> Item:
     #: The arrival may be brand new: without a flush it has neither an id to
     #: tell itself apart by nor the fields the table fills in.
     await session.flush()
+    #: Twins are locked: the merge deletes them, and a stack being taken
+    #: from by another transaction must not vanish under its hands.
     rows = (
         await session.execute(
-            select(Item).where(
+            select(Item)
+            .where(
                 Item.container_id == item.container_id,
                 Item.type_key == item.type_key,
                 Item.id != item.id,
             )
+            .order_by(Item.id)
+            .with_for_update()
         )
     ).scalars().all()
     twins = [other for other in rows if _same(other, item)]

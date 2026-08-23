@@ -300,7 +300,7 @@ async def survey(
 @handler(JobKind.EXPLORE_SURVEY)
 async def returned(session: AsyncSession, job: Job) -> None:
     """The scout returned. One roll, seeded by the job: a retry gives the same."""
-    body = await session.get(Body, uuid.UUID(job.payload["body"]))
+    body = await session.get(Body, uuid.UUID(job.payload["body"]), with_for_update=True)
     origin = await session.get(Node, uuid.UUID(job.payload["from"]))
     if body is None or origin is None:  # pragma: no cover
         raise ExploreError(f"заход {job.id} ссылается в никуда")

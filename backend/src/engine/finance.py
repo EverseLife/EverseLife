@@ -104,7 +104,10 @@ async def statement(
     Read remotely and shown to nobody but the owner: how much is in whose
     pocket is not public knowledge, unlike prices (D-047).
     """
-    account = await ledger.account_for(session, AccountKind.IDENTITY, identity_id)
+    account = await ledger.find_account(session, AccountKind.IDENTITY, identity_id)
+    if account is None:
+        #: Nothing was ever posted: an empty statement, not a new account.
+        return []
     rows = (
         await session.execute(
             select(LedgerEntry, LedgerTransaction)

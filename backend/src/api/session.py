@@ -837,7 +837,8 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
         or (node.owner_identity_id is None and node.owner_city_id is None),
     }
     seen["inventory"] = await _things(db, constants, await world.body_container(db, body))
-    seen["stall"] = await _things(db, constants, await market.stall(db, node, identity.id))
+    cell = await market.stall(db, node, identity.id, create=False)
+    seen["stall"] = [] if cell is None else await _things(db, constants, cell)
     #: Carried load: how much is carried, how much can be, and what is worn
     #: (D-146). The limit is why wagons exist, and the player must see it as a number.
     worn = await gear.equipped(db, body)
@@ -1582,9 +1583,7 @@ async def _plot(db: AsyncSession, message: dict):
 
 async def _food_eat(state: dict, db: AsyncSession, message: dict) -> dict:
     """Eat a portion. Works on the road too: hardtack en route is normal (D-091)."""
-    body = await _body(db, state["identity_id"])
-    if body is None:
-        raise Refused("нет живого тела")
+    body = await _alive(state, db)
     item = await _own_item(db, body, message["item"])
     restored = await food.eat(db, current(), current_catalog(), body, item)
     return {"restored": round(restored, 2), "stamina": float(body.stamina)}
@@ -3062,12 +3061,13 @@ async def _bank_view(state: dict, db: AsyncSession, message: dict) -> dict:
     ).scalars().first()
     loans = []
     for loan in await bank.loans_of(db, state["identity_id"]):
-        await bank.accrue(db, constants, loan)
+        #: Shown with the interest run up so far; written on repayment and
+        #: by the daily collection, never by a view.
         loans.append(
             {
                 "id": str(loan.id),
                 "principal": loan.principal,
-                "outstanding": loan.outstanding,
+                "outstanding": loan.outstanding + bank.accruable(constants, loan),
                 "rate": float(loan.rate),
                 "taken_at": loan.taken_at.isoformat(),
             }
@@ -3607,8 +3607,23 @@ async def _body(db: AsyncSession, identity_id: uuid.UUID) -> Body | None:
 
 
 async def _alive(state: dict, db: AsyncSession) -> Body:
-    """The body being acted with. Matter requires presence (D-044)."""
-    body = await _body(db, state["identity_id"])
+    """The body being acted with. Matter requires presence (D-044).
+
+    The body row is **locked** for the command: one body does one thing at a
+    time (D-211), and the lock is what makes that true under two sockets of
+    one identity or an action racing the worker. Everything in the pocket,
+    the stamina and the occupation are then changed by one transaction at a
+    time. Reads (`look`) go through `_body` and lock nothing.
+    """
+    stmt = (
+        select(Body)
+        .where(Body.identity_id == state["identity_id"], Body.state == BodyState.ALIVE)
+        .with_for_update()
+        #: A body already in the identity map is reread after the lock, not
+        #: served from before it.
+        .execution_options(populate_existing=True)
+    )
+    body = (await db.execute(stmt)).scalars().first()
     if body is None:
         raise Refused("нет живого тела")
     return body
@@ -3704,8 +3719,8 @@ async def _storages(
                 "mass": round(await storage.stored_mass(db, catalog, thing), 2),
                 "mine": allowed,
                 "content": (
-                    await _things(db, constants, await storage.inside(db, thing))
-                    if allowed
+                    await _things(db, constants, inside_)
+                    if allowed and (inside_ := await storage.inside(db, thing, create=False))
                     else []
                 ),
             }
@@ -3724,7 +3739,13 @@ async def _vehicles(db: AsyncSession, constants, node: Node) -> list[dict[str, A
 
     cat = current_catalog()
     things = await world.contents(db, await world.node_container(db, node))
-    harnessed_ = set((await db.execute(select(Harness.item_id))).scalars().all())
+    harnessed_ = set(
+        (
+            await db.execute(
+                select(Harness.item_id).where(Harness.item_id.in_([t.id for t in things]))
+            )
+        ).scalars().all()
+    ) if things else set()
     out: list[dict[str, Any]] = []
     for item in things:
         if not transport.is_vehicle(cat, item.type_key):
@@ -3749,9 +3770,11 @@ async def _vehicles(db: AsyncSession, constants, node: Node) -> list[dict[str, A
 
 
 async def _money(db: AsyncSession, identity_id: uuid.UUID) -> str:
-    """The identity's account. The balance is the sum of postings; there is no "money" field."""
-    account = await ledger.account_for(db, AccountKind.IDENTITY, identity_id)
-    return money_str(await ledger.balance(db, account.id))
+    """The identity's account. The balance is the sum of postings; there is no
+    "money" field. No account yet -- nothing was ever posted -- is zero, not a
+    new row: a read does not write."""
+    account = await ledger.find_account(db, AccountKind.IDENTITY, identity_id)
+    return money_str(0 if account is None else await ledger.balance(db, account.id))
 
 
 async def _things(db: AsyncSession, constants, container) -> list[dict[str, Any]]:

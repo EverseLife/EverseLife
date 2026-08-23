@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "backend/.venv/Scripts/python.exe tools/quickcheck.py",
+            "timeout": 150,
+            "statusMessage": "quickcheck: ruff / lint-imports / tsc"
+          }
+        ]
+      }
+    ]
+  }
+}

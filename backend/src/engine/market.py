@@ -86,7 +86,7 @@ from src.models.event import EventKind
 from src.models.identity import Body, BodyState, Identity
 from src.models.inventory import Container, ContainerKind, Item
 from src.models.job import Job, JobKind
-from src.models.ledger import AccountKind, PostingReason
+from src.models.ledger import AccountKind, LedgerAccount, PostingReason
 from src.models.market import (
     Order,
     OrderSide,
@@ -238,15 +238,30 @@ async def terminal(session: AsyncSession, node: Node) -> Item:
     return found
 
 
-async def stall(session: AsyncSession, node: Node, identity_id: uuid.UUID) -> Container:
-    """The identity's cell in the node's terminal: its loaded goods and its purchases."""
+async def stall(
+    session: AsyncSession,
+    node: Node,
+    identity_id: uuid.UUID,
+    *,
+    create: bool = True,
+    lock: bool = False,
+) -> Container | None:
+    """The identity's cell in the node's terminal: its loaded goods and its purchases.
+
+    With `create=False` a missing cell is None, not a new row: reads
+    (`look`) must not write. With `lock=True` the cell's row is locked for
+    the transaction: `sell`, `load` and `take` all read "what is free" and
+    then move it, and two of them at once on one cell must queue (review
+    2026-08-23). Lock order on the market: cell -> orders -> accounts."""
     stmt = select(Container).where(
         Container.kind == ContainerKind.MARKET,
         Container.owner_id == identity_id,
         Container.node_id == node.id,
     )
+    if lock:
+        stmt = stmt.with_for_update()
     container = (await session.execute(stmt)).scalar_one_or_none()
-    if container is None:
+    if container is None and create:
         container = Container(
             kind=ContainerKind.MARKET, owner_id=identity_id, node_id=node.id
         )
@@ -272,7 +287,7 @@ async def load(
     node = await _node_of(session, body)
     await terminal(session, node)
     inventory = await body_container(session, body)
-    into = await stall(session, node, body.identity_id)
+    into = await stall(session, node, body.identity_id, lock=True)
 
     from src.constants import current_catalog as _catalog
 
@@ -302,7 +317,7 @@ async def take(
     """Take your own from the terminal. What is committed to an order is not given twice."""
     node = await _node_of(session, body)
     await terminal(session, node)
-    stock = await stall(session, node, body.identity_id)
+    stock = await stall(session, node, body.identity_id, lock=True)
     inventory = await body_container(session, body)
 
     from src.constants import current_catalog as _catalog
@@ -426,6 +441,18 @@ async def reserve(
     reservation has a term and a price.
     """
     moment = now or datetime.now(UTC)
+    #: Lock order on the market: payer's account -> orders -> other accounts.
+    #: `buy` holds the buyer's account (`_hold`) before it locks the sell
+    #: orders; a reservation by the same identity from a second socket must
+    #: take them in the same order, or the two deadlock.
+    account = await ledger.account_for(session, AccountKind.IDENTITY, identity.id)
+    await session.execute(
+        select(LedgerAccount.id).where(LedgerAccount.id == account.id).with_for_update()
+    )
+    #: The order row is locked and reread before its remainder is read: two
+    #: buyers reserving the last ten at once must queue, not both succeed
+    #: (review 2026-08-23).
+    await session.refresh(order, with_for_update=True)
     if order.side is not OrderSide.SELL:
         raise BadOrder("бронируют товар, а не заявку на покупку")
     if order.state is not OrderState.ACTIVE:
@@ -446,7 +473,6 @@ async def reserve(
 
     cost = _cost(order.price, want)
     deposit = int(cost * constants[R.MARKET_RESERVATION_DEPOSIT] / PERCENT)
-    account = await ledger.account_for(session, AccountKind.IDENTITY, identity.id)
     escrow = await ledger.account_for(session, AccountKind.ESCROW, identity.id)
     await ledger.transfer(
         session,
@@ -517,6 +543,8 @@ async def redeem(
     """
     moment = now or datetime.now(UTC)
     await travel.require_here(session, body)
+    #: Redeem and lapse race for the same row: whoever locks it first wins.
+    await session.refresh(reservation, with_for_update=True)
     if reservation.buyer_identity_id != body.identity_id:
         raise NotYours("чужая бронь")
     if reservation.state is not ReservationState.HELD:
@@ -619,11 +647,18 @@ async def redeem(
 @handler(JobKind.MARKET_RESERVATION_EXPIRY)
 async def lapse(session: AsyncSession, job: Job) -> None:
     """The reservation term is up: deposit to the seller, goods back to the book (D-047)."""
-    reservation = await session.get(Reservation, uuid.UUID(job.payload["reservation"]))
+    reservation = await session.get(
+        Reservation, uuid.UUID(job.payload["reservation"]), with_for_update=True
+    )
     if reservation is None:  # pragma: no cover
         raise MarketError(f"задание {job.id}: брони нет")
     if reservation.state is not ReservationState.HELD:
         return
+
+    #: The order is locked before any money moves: every path on the market
+    #: takes orders first and accounts second, and this one must not be the
+    #: exception that closes a cycle with `buy` (review 2026-08-23).
+    order = await session.get(Order, reservation.order_id, with_for_update=True)
 
     escrow = await ledger.account_for(
         session, AccountKind.ESCROW, reservation.buyer_identity_id
@@ -643,7 +678,6 @@ async def lapse(session: AsyncSession, job: Job) -> None:
 
     #: The goods return to the book if the order is still alive. A cancelled
     #: order keeps them in the seller's cell -- they are at home anyway.
-    order = await session.get(Order, reservation.order_id)
     if order is not None and order.state is OrderState.ACTIVE:
         order.amount_left += reservation.amount
 
@@ -664,6 +698,7 @@ async def cancel(
     session: AsyncSession, order: Order, *, by: uuid.UUID, now: datetime | None = None
 ) -> Order:
     """Cancel an order. A remote action: disposing requires no presence."""
+    await session.refresh(order, with_for_update=True)
     if order.identity_id != by:
         raise NotYours("чужой ордер")
     if order.state is not OrderState.ACTIVE:
@@ -682,7 +717,7 @@ async def cancel(
 @handler(JobKind.MARKET_ORDER_EXPIRY)
 async def expire(session: AsyncSession, job: Job) -> None:
     """The order term is up. Expiry is a world event, not a consequence of reading."""
-    order = await session.get(Order, uuid.UUID(job.payload["order"]))
+    order = await session.get(Order, uuid.UUID(job.payload["order"]), with_for_update=True)
     if order is None:  # pragma: no cover
         raise MarketError(f"задание {job.id}: ордера нет")
     if order.state is not OrderState.ACTIVE:
@@ -862,6 +897,9 @@ async def _counterparts(session: AsyncSession, order: Order) -> Sequence[Order]:
         stmt = stmt.where(Order.price >= order.price).order_by(
             Order.price.desc(), Order.created_at
         )
+    #: Locked for the match: `amount_left` of a maker is decremented below,
+    #: and a concurrent taker must see the decrement, not the snapshot.
+    stmt = stmt.with_for_update()
     return (await session.execute(stmt)).scalars().all()
 
 
@@ -1069,8 +1107,11 @@ async def _free(
     type_key: str,
     tier: str | None,
 ) -> int:
-    """How much of the goods in the terminal is not committed to orders."""
-    stock = await stall(session, node, identity_id)
+    """How much of the goods in the terminal is not committed to orders.
+
+    Locks the cell: `sell` reads this and then commits the goods to an order,
+    and two sells at once must not both see the same free stock."""
+    stock = await stall(session, node, identity_id, lock=True)
     items = await _stacks(session, stock, type_key, tier, constants)
     have = sum(item.amount for item in items)
 
@@ -1103,10 +1144,13 @@ async def _stacks(
         #: A bare "Рецепт" on the counter is a blank one -- a written carrier
         #: is always named together with what is on it.
         stmt = stmt.where(Item.recipe_key.is_(None))
+    #: The stacks themselves are locked: `_move` splits and re-parents them,
+    #: and two trades off one stack must see each other's decrement.
     rows = (
         (
             await session.execute(
                 stmt.order_by(Item.quality.asc().nulls_first(), Item.created_at.asc())
+                .with_for_update()
             )
         )
         .scalars()

@@ -799,12 +799,18 @@ async def under_construction(session: AsyncSession, node: Node) -> list[dict]:
     """
     from src.models.job import Job, JobKind, JobState
 
+    #: Filtered in SQL by the node inside the payload, not in Python over
+    #: every pending build in the world (review 2026-08-23); the partial
+    #: index `ix_job_due` narrows it to pending jobs first.
     rows = (
         await session.execute(
-            select(Job).where(
+            select(Job)
+            .where(
                 Job.kind == JobKind.BUILD_FINISH.value,
                 Job.state == JobState.PENDING,
-            ).order_by(Job.run_at)
+                Job.payload["node"].astext == str(node.id),
+            )
+            .order_by(Job.run_at)
         )
     ).scalars().all()
     return [
@@ -815,7 +821,6 @@ async def under_construction(session: AsyncSession, node: Node) -> list[dict]:
             "ready_at": job.run_at.isoformat(),
         }
         for job in rows
-        if job.payload.get("node") == str(node.id)
     ]
 
 
@@ -1314,7 +1319,9 @@ async def finish_demolish(session: AsyncSession, job: Job) -> None:
         await session.delete(house)
     await session.flush()
 
-    body = None if job.body_id is None else await session.get(Body, job.body_id)
+    body = (
+        None if job.body_id is None else await session.get(Body, job.body_id, with_for_update=True)
+    )
     at_hand = (
         body is not None
         and body.state is BodyState.ALIVE

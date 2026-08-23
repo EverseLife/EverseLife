@@ -346,6 +346,10 @@ async def swing(
         * factor
         * crowd
     )
+    #: The vein is shared by every miner and by the rigs: locked and reread
+    #: before its remainder is spent, or two swings mine the same ore twice.
+    #: Lock order everywhere: body -> rig -> vein.
+    await session.refresh(vein, with_for_update=True)
     mined = min(amount(per_swing), vein.remaining)
 
     extracted_before = vein.extracted

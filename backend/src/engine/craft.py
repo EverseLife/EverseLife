@@ -854,7 +854,7 @@ async def finish(session: AsyncSession, job: Job) -> None:
         return
 
     constants, catalog = current(), current_catalog()
-    body = await session.get(Body, batch.body_id)
+    body = await session.get(Body, batch.body_id, with_for_update=True)
     node = await session.get(Node, batch.node_id)
     if body is None or node is None:  # pragma: no cover
         raise CraftError(f"партия {batch.id} ссылается в никуда")
@@ -1746,16 +1746,22 @@ async def _abandon(session: AsyncSession, batch: CraftBatch) -> None:
 
 async def wake_node(session: AsyncSession, node: Node, *, now: datetime | None = None) -> None:
     """A machine came free in the node: whoever stands here waiting for one gets it."""
+    #: `FOR UPDATE` does not go with `DISTINCT`: the waiting bodies are
+    #: named by a subquery instead of a join.
+    waiting = select(CraftBatch.body_id).where(
+        CraftBatch.node_id == node.id, CraftBatch.state == BatchState.WAITING
+    )
     stmt = (
         select(Body)
-        .join(CraftBatch, CraftBatch.body_id == Body.id)
         .where(
-            CraftBatch.node_id == node.id,
-            CraftBatch.state == BatchState.WAITING,
+            Body.id.in_(waiting),
             Body.node_id == node.id,
             Body.state == BodyState.ALIVE,
         )
-        .distinct()
+        .order_by(Body.id)
+        #: Their own commands hold the body row (`_alive`); one locked right
+        #: now is skipped and woken by the next machine that comes free.
+        .with_for_update(skip_locked=True)
     )
     for body in (await session.execute(stmt)).scalars().all():
         await wake(session, body, now=now)
