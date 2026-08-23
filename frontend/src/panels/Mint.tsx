@@ -43,14 +43,14 @@ type Coin = {
  * the alloy. A third coin or a changed fineness is data, not a client change.
  */
 function coinsOf(book: RecipeBook | null): Coin[] {
-  return ((book?.recipes ?? []) as any[])
+  return (book?.recipes ?? [])
     .filter((r) => r.kind === "money")
     .map((r) => {
       const parts = Object.entries(r.amounts ?? {}) as [string, number][];
       parts.sort((a, b) => b[1] - a[1]);
       const [metal, metalPerCoin] = parts[0] ?? ["", 0];
       const [alloy, alloyPerCoin] = parts[1] ?? ["", 0];
-      return { coin: r.name as string, metal, alloy, metalPerCoin, alloyPerCoin };
+      return { coin: r.name, metal, alloy, metalPerCoin, alloyPerCoin };
     });
 }
 

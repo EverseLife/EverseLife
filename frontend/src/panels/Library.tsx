@@ -20,11 +20,11 @@
  */
 
 import { useEffect, useState } from "react";
-import type { RecipeBook } from "../api";
+import type { Recipe } from "../api";
 import * as api from "../api";
 import type { Look } from "../api";
 import { Rule } from "../Rule";
-import { Refusal, useActions, useSession } from "../actions";
+import { Refusal, useActions, useBook, useSession } from "../actions";
 
 /** How many catalog rows to show at a time. A display quantity, not a game one. */
 const PAGE = 8;
@@ -42,13 +42,13 @@ export function Library({ look }: Omit<Props, "busy" | "act">) {
   const acting = useActions();
   const { busy, act } = acting;
 
-  const [book, setBook] = useState<RecipeBook | null>(null);
+  //: The book is the one loaded at login (`useBook`), not a second fetch.
+  const book = useBook();
   const [crops, setCrops] = useState<{ id: string; name: string }[]>([]);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
 
   useEffect(() => {
-    void api.recipes().then(setBook);
     void api.plants().then((p) => setCrops(p.plants));
   }, []);
 
@@ -56,8 +56,8 @@ export function Library({ look }: Omit<Props, "busy" | "act">) {
   //: The vault catalog supplies the details -- station, inputs, level -- and
   //: the shelf supplies the list and the contributors' names.
   const shelf = look.node?.shelf ?? [];
-  const byName: Record<string, any> = Object.fromEntries(
-    ((book?.recipes ?? []) as any[]).map((r) => [r.name, r]),
+  const byName: Record<string, Recipe> = Object.fromEntries(
+    (book?.recipes ?? []).map((r) => [r.name, r]),
   );
   const all = shelf.map((entry) => ({
     ...(byName[entry.recipe] ?? { name: entry.recipe, inputs: [], level: "?", station: null }),

@@ -27,6 +27,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useState,
   type ReactNode,
 } from "react";
@@ -71,6 +72,22 @@ export function useSession(): Session {
 /** The vault's recipe book, loaded once at login. */
 export function useBook(): RecipeBook | null {
   return useContext(BookContext);
+}
+
+/**
+ * A counter that moves when the server says something about these kinds
+ * (`"farm."`, `"ship."`): the dependency a panel's secondary read hangs on,
+ * instead of the whole `look` object that changes on every event (D-226).
+ */
+export function useEdition(...kinds: string[]): number {
+  const session = useSession();
+  const [edition, setEdition] = useState(0);
+  useEffect(() => {
+    const stops = kinds.map((kind) => session.on(kind, () => setEdition((n) => n + 1)));
+    return () => stops.forEach((stop) => stop());
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- the kinds are literals
+  }, [session, kinds.join("|")]);
+  return edition;
 }
 
 /**

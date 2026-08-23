@@ -19,7 +19,7 @@ import { tally } from "../amounts";
 import type { Look, Thing } from "../api";
 import { when } from "../clock";
 import { Rule } from "../Rule";
-import { Refusal, useActions, useSession } from "../actions";
+import { Refusal, useActions, useEdition, useSession } from "../actions";
 
 type Props = {
   look: Look;
@@ -59,10 +59,12 @@ export function Nursery({ look }: Omit<Props, "busy" | "act">) {
     setCultivars(answer.varieties as Variety[]);
     setBeds(answer.nurseries as Bed[]);
   }, [session]);
+  //: Reread when the world says so (D-226), not on every look.
+  const edition = useEdition("farm.", "knowledge.");
 
   useEffect(() => {
     void reload();
-  }, [reload, look]);
+  }, [reload, edition]);
 
   const go = (what: () => Promise<unknown>) =>
     act(async () => {

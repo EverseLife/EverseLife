@@ -16,7 +16,7 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import { useSession } from "../actions";
+import { useEdition, useSession } from "../actions";
 import * as api from "../api";
 import type { DeedView, Holding, Look, Thing } from "../api";
 import { Rule } from "../Rule";
@@ -59,10 +59,12 @@ export function Holdings({ look, busy, act }: Props) {
     const deeds = await session.send("deed.market");
     setDeedMarket((deeds.deeds as DeedView[]) ?? []);
   }, [session]);
+  //: Reread when the world says so (D-226), not on every look.
+  const edition = useEdition("deed.", "land.", "building.");
 
   useEffect(() => {
     void reload();
-  }, [reload, look]);
+  }, [reload, edition]);
 
   const go = (what: () => Promise<unknown>) =>
     act(async () => {

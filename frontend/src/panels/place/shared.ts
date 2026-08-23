@@ -88,11 +88,11 @@ export function gatherSigns(look: Look, book: RecipeBook | null): string[] {
   return signs;
 }
 
-export /** What in the hands is equipment of this kind: the kind comes from vault data (D-090). */
-function placeable(look: Look, book: RecipeBook | null, kind: "station" | "furniture") {
+/** What in the hands is equipment of this kind: the kind comes from vault data (D-090). */
+export function placeable(look: Look, book: RecipeBook | null, kind: "station" | "furniture") {
   return look.inventory.filter((thing) =>
     (book?.recipes ?? []).some(
-      (r: any) => r.name === thing.goods && r.kind === kind,
+      (r) => r.name === thing.goods && r.kind === kind,
     ),
   );
 }

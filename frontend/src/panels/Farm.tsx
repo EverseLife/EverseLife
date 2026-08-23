@@ -15,7 +15,7 @@ import * as api from "../api";
 import { tally } from "../amounts";
 import { busyWith } from "../busy";
 import type { Look } from "../api";
-import { Refusal, useActions, useSession } from "../actions";
+import { Refusal, useActions, useEdition, useSession } from "../actions";
 
 type Props = {
   look: Look;
@@ -98,12 +98,14 @@ export function Farm({ look }: Omit<Props, "busy" | "act">) {
     const answer = await session.send("farm.survey");
     setRows((answer.plots as Row[]).filter((row) => row.node_key === current_));
   }, [session, current_]);
+  //: Reread when the world says so (D-226), not on every look.
+  const edition = useEdition("farm.", "body.");
 
   //: The summary is reread together with the general poll: ploughing is
   //: finished by the worker, and its completion comes from the world, not a click.
   useEffect(() => {
     void reload();
-  }, [reload, look]);
+  }, [reload, edition]);
 
   useEffect(() => {
     void api.plants().then((p) => setPlants(p.plants));

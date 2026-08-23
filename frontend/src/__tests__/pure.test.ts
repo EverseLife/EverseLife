@@ -48,16 +48,13 @@ describe("clock", () => {
 describe("amounts", () => {
   it("reads pieces and measures off the book", () => {
     amounts.learn({
-      raw: [],
       bulk: ["Вода"],
       units: { Проволока: "м" },
       operations: [],
       recipes: [],
       classes: {},
-      materials: [],
       tool_classes: {},
       synonyms: { "Вода родниковая": "Вода" },
-      labor_hours: {},
     });
     expect(amounts.counted("Кирка")).toBe(true);
     expect(amounts.counted("Вода")).toBe(false);

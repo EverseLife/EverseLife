@@ -37,7 +37,7 @@ export const SORTINGS: { id: Sorting; label: string }[] = [
 export function kindOf(book: RecipeBook | null, thing: Thing): string {
   if (thing.recipe) return "носители";
   if (thing.fineness != null) return "монеты";
-  const recipe = (book?.recipes ?? []).find((r: any) => r.name === thing.goods);
+  const recipe = (book?.recipes ?? []).find((r) => r.name === thing.goods);
   if (!recipe) return "сырьё";
   if (recipe.food) return "еда";
   const KIND: Record<string, string> = {

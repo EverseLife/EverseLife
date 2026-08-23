@@ -18,7 +18,7 @@ import { useCallback, useEffect, useState } from "react";
 import { firstOfClass } from "../classes";
 import type { Look } from "../api";
 import { Rule } from "../Rule";
-import { Refusal, useActions, useBook, useSession } from "../actions";
+import { Refusal, useActions, useBook, useEdition, useSession } from "../actions";
 
 /** The thing class of a drilling machine, the word the engine binds to (`rig.RIG`). */
 const RIG = "Буровая";
@@ -59,10 +59,12 @@ export function Rig({ look }: Omit<Props, "busy" | "act">) {
     const answer = await session.send("rig.status");
     setRigs(answer.rigs as RigRow[]);
   }, [session]);
+  //: Reread when the world says so (D-226), not on every look.
+  const edition = useEdition("energy.", "station.");
 
   useEffect(() => {
     void reload();
-  }, [reload, look]);
+  }, [reload, edition]);
 
   const go = (what: () => Promise<unknown>) =>
     act(async () => {

@@ -402,7 +402,7 @@ function Doings({ look, busy, act }: Props) {
   );
 }
 
-function Trade({ look, busy, act }: Omit<Props, "book">) {
+function Trade({ look, busy, act }: Props) {
   const session = useSession();
   return (
     <div>

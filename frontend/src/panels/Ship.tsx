@@ -19,7 +19,7 @@ import { useCallback, useEffect, useState } from "react";
 import { stationsOf, type Look } from "../api";
 import { Rule } from "../Rule";
 import { firstOfClass } from "../classes";
-import { Refusal, useActions, useBook, useSession } from "../actions";
+import { Refusal, useActions, useBook, useEdition, useSession } from "../actions";
 
 /**
  * Thing classes, not item names (D-215): the foundation a node aboard is laid
@@ -96,10 +96,12 @@ export function Ship({ look }: { look: Look }) {
     const answer = await session.send("ship.view");
     setShips((answer.ships ?? []) as Vessel[]);
   }, [session]);
+  //: Reread when the world says so (D-226), not on every look.
+  const edition = useEdition("ship.", "transport.");
 
   useEffect(() => {
     void reload();
-  }, [reload, look]);
+  }, [reload, edition]);
 
   const go = (what: () => Promise<unknown>) =>
     act(async () => {

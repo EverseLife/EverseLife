@@ -45,28 +45,28 @@ export function craftableAt(
   //: fineness. The sign comes from vault data (`roles`, `kind`), not a name list.
   const special = new Set<string>(
     (book.recipes ?? [])
-      .filter((r: any) => r.roles || r.kind === "money")
-      .map((r: any) => r.name),
+      .filter((r) => r.roles || r.kind === "money")
+      .map((r) => r.name),
   );
 
   const recipes = (book.recipes ?? [])
     .filter(
-      (r: any) =>
-        canon(book, r.station) === machine &&
+      (r) =>
+        canon(book, r.station ?? null) === machine &&
         !special.has(r.name) &&
         knows.includes(r.name),
     )
-    .map((r: any) => r.name as string);
+    .map((r) => r.name);
 
   //: Operations without a recipe everyone can do: smelting is the boundary
   //: between "mined" and "made", and locking it behind knowledge would stop the economy.
   const operations = (book.operations ?? [])
     .filter(
-      (o: any) =>
+      (o) =>
         (o.consumes ?? []).length > 0 &&
         (o.requires ?? []).some((withWhat: string) => canon(book, withWhat) === machine),
     )
-    .flatMap((o: any) => o.gives as string[]);
+    .flatMap((o) => o.gives);
 
   return [...new Set([...recipes, ...operations])]
     .filter((name) => !special.has(name))
@@ -87,10 +87,10 @@ export function stationOf(book: RecipeBook | null, name: string): string | null 
 export function inputsOf(book: RecipeBook | null, name: string, way?: string | null): string[] {
   if (!book) return [];
   const resolve = (n: string) => (book.synonyms?.[n] ?? n) as string;
-  const recipe = (book.recipes ?? []).find((r: any) => r.name === name);
+  const recipe = (book.recipes ?? []).find((r) => r.name === name);
   if (recipe) return (recipe.inputs as string[]).map(resolve);
   const operations = (book.operations ?? []).filter(
-    (o: any) => (o.gives ?? []).includes(name) && (!way || o.name === way),
+    (o) => (o.gives ?? []).includes(name) && (!way || o.name === way),
   );
   const consumes = operations[0]?.consumes ?? [];
   return (consumes as string[]).map(resolve);

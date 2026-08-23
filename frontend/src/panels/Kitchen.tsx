@@ -41,7 +41,7 @@ export function Kitchen({ look }: Omit<Props, "busy" | "act">) {
   //: sign comes from the catalog, and a fourth dish in the vault is on the
   //: list without a client change.
   const withRoles = new Set<string>(
-    ((book?.recipes ?? []) as any[]).filter((r) => r.roles).map((r) => r.name as string),
+    (book?.recipes ?? []).filter((r) => r.roles).map((r) => r.name),
   );
   const dishes = look.knows.filter((name) => withRoles.has(name));
   const [dish, setDish] = useState(dishes[0] ?? "");

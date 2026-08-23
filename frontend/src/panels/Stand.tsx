@@ -47,7 +47,12 @@ import { Market } from "./Market";
 import { Mine } from "./Mine";
 import { Mint } from "./Mint";
 import { Nursery } from "./Nursery";
-import { Convoy, disposes, Gather, gatherSigns, Ground, House, PLACES, Plot } from "./Place";
+import { Convoy } from "./place/Convoy";
+import { Gather } from "./place/Gather";
+import { Ground } from "./place/Ground";
+import { House } from "./place/House";
+import { Plot } from "./place/Plot";
+import { disposes, gatherSigns, PLACES } from "./place/shared";
 import { Plant } from "./Plant";
 import { Rig } from "./Rig";
 import { Ship } from "./Ship";
@@ -259,8 +264,8 @@ function assemble({ look, values, pow }: Props, book: RecipeBook | null): Thing[
   //: own and are not benches.
   const workable = (machine: string) =>
     (book?.recipes ?? []).some(
-      (r: any) => (book?.synonyms?.[r.station] ?? r.station) === machine,
-    ) || (book?.operations ?? []).some((o: any) =>
+      (r) => r.station !== undefined && (book?.synonyms?.[r.station] ?? r.station) === machine,
+    ) || (book?.operations ?? []).some((o) =>
       (o.requires ?? []).some((w: string) => (book?.synonyms?.[w] ?? w) === machine),
     );
   for (const machine of stations) {
