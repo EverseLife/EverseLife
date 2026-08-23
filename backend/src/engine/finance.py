@@ -26,6 +26,7 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.engine import city as town
 from src.engine import events, ledger
 from src.engine.errors import Refusal
 from src.models.event import EventKind
@@ -151,8 +152,6 @@ async def _counterparty(
             if who is not None:
                 return who.name
         if account.kind is AccountKind.CITY_TREASURY:
-            from src.engine import city as town
-
             city = await town.by_node(session, account.owner_id)
             return f"казна: {city.name}" if city else "казна города"
         return _SIDES.get(account.kind, account.kind.value)

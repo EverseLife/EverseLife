@@ -48,7 +48,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import events, ledger
+from src.engine import bank, craft, death, events, ledger, world
+from src.engine import city as town
 from src.engine.errors import Refusal
 from src.engine.jobs import enqueue, handler
 from src.models.city import City, Power
@@ -57,6 +58,7 @@ from src.models.identity import Identity
 from src.models.job import Job, JobKind
 from src.models.justice import Case, CaseState, Sanction
 from src.models.ledger import AccountKind, PostingReason
+from src.models.world import Node
 from src.units import money, money_str
 
 #: Primitives the engine enforces. The rest are named in the header: the
@@ -74,22 +76,18 @@ ENFORCED = (FINE, PRISON, EXILE)
 
 async def is_prison(session: AsyncSession, node) -> bool:
     """Whether this node is a prison: the "Penal colony" machine or the old property (D-176)."""
-    from src.engine import world
 
     if (node.properties or {}).get(PRISON_NODE):
         return True
     return await world.has_station(session, node, KATORGA)
 
 
-async def held(
-    session: AsyncSession, constants: Constants, identity_id: uuid.UUID
-) -> bool:
+async def held(session: AsyncSession, constants: Constants, identity_id: uuid.UUID) -> bool:
     """Whether the prison holds the person: by verdict or by debt (D-166, D-168).
 
     By this sign the prison printer and the penal face open -- and close for
     everyone else (D-174, D-176).
     """
-    from src.engine import bank
 
     if await imprisoned(session, identity_id) is not None:
         return True
@@ -98,11 +96,10 @@ async def held(
 
 async def prisons_of(session: AsyncSession, city: City) -> list:
     """The city's penal colonies: nodes of its land with the "Penal colony" machine (D-176)."""
-    from src.models.world import Node
 
     nodes = (
-        await session.execute(select(Node).where(Node.owner_city_id == city.id))
-    ).scalars().all()
+        (await session.execute(select(Node).where(Node.owner_city_id == city.id))).scalars().all()
+    )
     result = []
     for node in nodes:
         if await is_prison(session, node):
@@ -156,14 +153,10 @@ async def sue(
                 "срок давности вышел"
             )
 
-    from src.engine import city as town
-
     duty = money(constants[R.JUSTICE_COURT_FEE])
     account = await ledger.account_for(session, AccountKind.IDENTITY, plaintiff.id)
     if await ledger.balance(session, account.id) < duty:
-        raise CannotPayFee(
-            f"пошлина суда {money_str(duty)} ₭, а на счету меньше"
-        )
+        raise CannotPayFee(f"пошлина суда {money_str(duty)} ₭, а на счету меньше")
     treasury = await town.treasury(session, city)
     await ledger.transfer(
         session,
@@ -213,7 +206,6 @@ async def judge(
     now: datetime | None = None,
 ) -> Sanction | None:
     """Deliver a verdict. Without a sanction it is an acquittal: there are no hanging cases."""
-    from src.engine import city as town
 
     moment = now or datetime.now(UTC)
     if case.state is not CaseState.OPEN:
@@ -302,11 +294,8 @@ async def _enforce(
     now: datetime,
 ) -> Sanction:
     """Enforce a sanction. No guards are needed for that: the engine enforces."""
-    from src.engine import city as town
 
-    penalty = Sanction(
-        case_id=case.id, city_id=city.id, identity_id=who.id, kind=kind
-    )
+    penalty = Sanction(case_id=case.id, city_id=city.id, identity_id=who.id, kind=kind)
 
     if kind == FINE:
         awarded = money(amount or 0)
@@ -339,7 +328,6 @@ async def _enforce(
         if cell_ is not None and body is not None:
             #: Taken away from the machine: the running work freezes where it
             #: was, and waits for the sentence to end (D-209).
-            from src.engine import craft
 
             await craft.freeze(session, body, now=now)
             body.node_id = cell_.id
@@ -407,16 +395,10 @@ async def active(
         conditions.append(Sanction.kind == kind)
     lines = (await session.execute(select(Sanction).where(*conditions))).scalars().all()
     now_ = datetime.now(UTC)
-    return [
-        penalty
-        for penalty in lines
-        if penalty.until is None or penalty.until > now_
-    ]
+    return [penalty for penalty in lines if penalty.until is None or penalty.until > now_]
 
 
-async def imprisoned(
-    session: AsyncSession, identity_id: uuid.UUID
-) -> Sanction | None:
+async def imprisoned(session: AsyncSession, identity_id: uuid.UUID) -> Sanction | None:
     """Imprisonment, if in force. The body is held by the node, not by persuasion."""
     sits = await active(session, identity_id, PRISON)
     return sits[0] if sits else None
@@ -426,11 +408,11 @@ async def cases_of(session: AsyncSession, city: City) -> list[Case]:
     return list(
         (
             await session.execute(
-                select(Case)
-                .where(Case.city_id == city.id)
-                .order_by(Case.opened_at.desc())
+                select(Case).where(Case.city_id == city.id).order_by(Case.opened_at.desc())
             )
-        ).scalars().all()
+        )
+        .scalars()
+        .all()
     )
 
 
@@ -463,13 +445,10 @@ async def _prison_choice(session: AsyncSession, city: City, prison_node: str | N
             raise JusticeError(f"«{prison_node}» — не каторга этого города")
         return chosen
     if len(penal_face) > 1:
-        raise JusticeError(
-            "в городе несколько каторг: суд называет, в какую отправить"
-        )
+        raise JusticeError("в городе несколько каторг: суд называет, в какую отправить")
     return penal_face[0] if penal_face else None
 
 
 async def _body_of(session: AsyncSession, who: Identity):
-    from src.engine import death
 
     return await death.alive_body(session, who.id)

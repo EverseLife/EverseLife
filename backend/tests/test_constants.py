@@ -62,7 +62,7 @@ def test_edit_gives_new_snapshot_and_fingerprint(constants: Constants) -> None:
 
 
 def test_roof_sign_bands_cover_scale(constants: Constants) -> None:
-    """"roof dry" -> "dust trickles" -> "roof creaks" -> "cracks" (D-143)."""
+    """ "roof dry" -> "dust trickles" -> "roof creaks" -> "cracks" (D-143)."""
     bands = constants[R.MINE_SIGN_BANDS]
     assert min(bands.values()) == 0, "нижняя полоса обязана доходить до нуля"
     assert len(set(bands.values())) == len(bands), "полосы не должны совпадать"

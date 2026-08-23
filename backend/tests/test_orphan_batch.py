@@ -56,19 +56,21 @@ async def _held(session: AsyncSession, body, name: str) -> float:
 
     pocket = await world.body_container(session, body)
     rows = (
-        await session.execute(
-            select(Item).where(Item.container_id == pocket.id, Item.type_key == name)
+        (
+            await session.execute(
+                select(Item).where(Item.container_id == pocket.id, Item.type_key == name)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return sum(amount_float(row.amount) for row in rows)
 
 
 async def _kill_job(session: AsyncSession, batch: CraftBatch) -> Job:
     """What a defect does after the retries run out."""
     job = (
-        await session.execute(
-            select(Job).where(Job.dedup_key == f"craft.batch:{batch.id}")
-        )
+        await session.execute(select(Job).where(Job.dedup_key == f"craft.batch:{batch.id}"))
     ).scalar_one()
     job.state = JobState.FAILED
     await session.flush()
@@ -94,9 +96,10 @@ async def test_a_batch_whose_job_died_is_swept_and_pays_back(
     #: И станок свободен: половина работы не держит верстак вечно.
     bench = (
         await session.execute(
-            select(Item).where(Item.container_id == (
-                await world.node_container(session, node)
-            ).id, Item.type_key == BENCH)
+            select(Item).where(
+                Item.container_id == (await world.node_container(session, node)).id,
+                Item.type_key == BENCH,
+            )
         )
     ).scalar_one()
     assert bench.busy_body_id is None
@@ -157,10 +160,10 @@ async def test_what_comes_back_is_written_into_the_journal(
     from src.models.event import Event
 
     said = (
-        await session.execute(
-            select(Event).where(Event.kind == EventKind.CRAFT_ABANDONED)
-        )
-    ).scalars().all()
+        (await session.execute(select(Event).where(Event.kind == EventKind.CRAFT_ABANDONED)))
+        .scalars()
+        .all()
+    )
     assert len(said) == 1
     payload = said[0].payload
     assert payload["output"] == MAKE
@@ -195,13 +198,17 @@ async def test_the_return_lands_at_the_machine_when_the_master_left(
 
     yard = await world.node_container(session, node)
     lying = (
-        await session.execute(
-            select(Item).where(Item.container_id == yard.id, Item.type_key == WOOD)
+        (
+            await session.execute(
+                select(Item).where(Item.container_id == yard.id, Item.type_key == WOOD)
+            )
         )
-    ).scalars().all()
-    assert sum(amount_float(row.amount) for row in lying) == pytest.approx(
-        batch.spent[WOOD]
-    ), "возврат остался у станка"
+        .scalars()
+        .all()
+    )
+    assert sum(amount_float(row.amount) for row in lying) == pytest.approx(batch.spent[WOOD]), (
+        "возврат остался у станка"
+    )
     assert await _held(session, body, WOOD) == pytest.approx(in_pocket), (
         "материя не поехала за тем, кто ушёл"
     )

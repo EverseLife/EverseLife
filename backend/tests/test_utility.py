@@ -39,8 +39,12 @@ async def _city(session: AsyncSession, catalog: Catalog):
         session, f"terra.{stamp}", "Терра", area_m2=1, layer=Layer.SPACE
     )
     delegate = await world.create_node(
-        session, f"terra.city.{stamp}", "Столица", area_m2=1,
-        layer=Layer.PLANET, parent=planet,
+        session,
+        f"terra.city.{stamp}",
+        "Столица",
+        area_m2=1,
+        layer=Layer.PLANET,
+        parent=planet,
     )
     home = await world.create_node(
         session, f"terra.city.{stamp}.home", "Дом", area_m2=100, parent=delegate
@@ -66,8 +70,11 @@ async def _resident(session: AsyncSession, node, name: str, *, funds: float = 0)
         account = await ledger.account_for(session, AccountKind.IDENTITY, identity.id)
         genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
         await ledger.transfer(
-            session, PostingReason.GENESIS,
-            debit=genesis.id, credit=account.id, amount=money(funds),
+            session,
+            PostingReason.GENESIS,
+            debit=genesis.id,
+            credit=account.id,
+            amount=money(funds),
         )
     return identity, body
 
@@ -92,7 +99,10 @@ async def test_no_meter_outside_city(
     """There is no grid there: one works from a battery, and there are no utility relations."""
     identity = await world.create_identity(session, f"Ферма-{uuid.uuid4().hex[:6]}")
     floodplain = await world.create_node(
-        session, f"terra.wild.{uuid.uuid4().hex[:8]}", "Пойма", area_m2=400,
+        session,
+        f"terra.wild.{uuid.uuid4().hex[:8]}",
+        "Пойма",
+        area_m2=400,
         layer=Layer.PLANET,
     )
     floodplain.owner_identity_id = identity.id
@@ -193,8 +203,11 @@ async def test_payment_reconnects_node(
     account = await ledger.account_for(session, AccountKind.IDENTITY, owner.id)
     genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
     await ledger.transfer(
-        session, PostingReason.GENESIS,
-        debit=genesis.id, credit=account.id, amount=debt,
+        session,
+        PostingReason.GENESIS,
+        debit=genesis.id,
+        credit=account.id,
+        amount=debt,
     )
     assert await utility.pay(session, constants, owner, home) == debt
     assert not meter.cut_off and meter.debt == 0
@@ -266,7 +279,10 @@ async def test_payer_of_reads_the_three_lines(
     assert await utility.payer_of(session, home) == utility.PAYER_NOBODY
 
     outside = await world.create_node(
-        session, f"terra.wild.{uuid.uuid4().hex[:8]}", "Пойма", area_m2=400,
+        session,
+        f"terra.wild.{uuid.uuid4().hex[:8]}",
+        "Пойма",
+        area_m2=400,
         layer=Layer.PLANET,
     )
     assert await utility.payer_of(session, outside) is None, "за городом счётчика нет"

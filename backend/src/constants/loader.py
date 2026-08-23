@@ -125,8 +125,7 @@ class ConstantsHolder:
         current = self._current
         if current is None:
             raise ConstantError(
-                "константы не загружены: движок обязан загрузить их при старте, "
-                "а не по требованию"
+                "константы не загружены: движок обязан загрузить их при старте, а не по требованию"
             )
         return current
 

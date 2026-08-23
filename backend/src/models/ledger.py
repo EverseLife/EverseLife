@@ -128,9 +128,7 @@ class LedgerEntry(Base):
     transaction_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("ledger_transaction.id", ondelete="CASCADE"), nullable=False
     )
-    account_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("ledger_account.id"), nullable=False
-    )
+    account_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("ledger_account.id"), nullable=False)
     #: Minor units (`units.MONEY_SCALE`). Integer -- so that not a cent is lost.
     amount: Mapped[int] = mapped_column(BigInteger, nullable=False)
 

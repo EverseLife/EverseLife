@@ -27,6 +27,7 @@ from src.engine import (
     gear,
     world,
 )
+from src.models.estate import Deed
 from src.models.world import Node
 
 
@@ -293,7 +294,6 @@ async def _deed_market(state: dict, db: AsyncSession, message: dict) -> dict:
 
 
 async def _deed(db: AsyncSession, message: dict):
-    from src.models.estate import Deed
 
     deed = await db.get(Deed, uuid.UUID(message["deed"]))
     if deed is None:

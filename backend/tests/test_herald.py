@@ -54,9 +54,7 @@ async def _node(session: AsyncSession, name: str = "Медный склон"):
     planet = await world.create_node(
         session, f"terra.{stamp}", "Терра", area_m2=1, layer=Layer.SPACE
     )
-    return await world.create_node(
-        session, f"terra.{stamp}.core", name, area_m2=100, parent=planet
-    )
+    return await world.create_node(session, f"terra.{stamp}.core", name, area_m2=100, parent=planet)
 
 
 # --- boundary ----------------------------------------------------------------
@@ -99,9 +97,7 @@ def test_long_feed_cut_by_discord_limit() -> None:
 # --- chronicle lines ---------------------------------------------------------
 
 
-async def test_city_founding_names_city_and_place(
-    session: AsyncSession, catalog: Catalog
-) -> None:
+async def test_city_founding_names_city_and_place(session: AsyncSession, catalog: Catalog) -> None:
     node = await _node(session)
     who = await world.create_identity(session, f"Ким-{uuid.uuid4().hex[:6]}")
     event = await events.record(
@@ -146,9 +142,7 @@ async def test_exploration_find_does_not_name_species(
     assert "медь" not in line
 
 
-async def test_silent_event_gives_no_line(
-    session: AsyncSession, catalog: Catalog
-) -> None:
+async def test_silent_event_gives_no_line(session: AsyncSession, catalog: Catalog) -> None:
     event = await events.record(session, EventKind.TICK_RAN, kind_of_tick="world")
     assert await chronicle.compose(session, [event]) == []
 
@@ -156,13 +150,9 @@ async def test_silent_event_gives_no_line(
 # --- feed pass ---------------------------------------------------------------
 
 
-async def test_first_pass_does_not_resend_history(
-    session: AsyncSession, catalog: Catalog
-) -> None:
+async def test_first_pass_does_not_resend_history(session: AsyncSession, catalog: Catalog) -> None:
     node = await _node(session)
-    event = await events.record(
-        session, EventKind.CITY_FOUNDED, node_id=node.id, name="Рудный"
-    )
+    event = await events.record(session, EventKind.CITY_FOUNDED, node_id=node.id, name="Рудный")
 
     sent: list[str] = []
 
@@ -175,13 +165,9 @@ async def test_first_pass_does_not_resend_history(
     assert boundary == event.id
 
 
-async def test_pass_sends_and_moves_cursor(
-    session: AsyncSession, catalog: Catalog
-) -> None:
+async def test_pass_sends_and_moves_cursor(session: AsyncSession, catalog: Catalog) -> None:
     node = await _node(session)
-    event = await events.record(
-        session, EventKind.CITY_FOUNDED, node_id=node.id, name="Рудный"
-    )
+    event = await events.record(session, EventKind.CITY_FOUNDED, node_id=node.id, name="Рудный")
 
     sent: list[str] = []
 
@@ -200,14 +186,10 @@ async def test_pass_sends_and_moves_cursor(
     assert sent == []
 
 
-async def test_cursor_moves_even_without_webhook(
-    session: AsyncSession, catalog: Catalog
-) -> None:
+async def test_cursor_moves_even_without_webhook(session: AsyncSession, catalog: Catalog) -> None:
     """Otherwise a herald switched on a month later would start with a month's tail."""
     node = await _node(session)
-    event = await events.record(
-        session, EventKind.CITY_FOUNDED, node_id=node.id, name="Рудный"
-    )
+    event = await events.record(session, EventKind.CITY_FOUNDED, node_id=node.id, name="Рудный")
 
     assert await run_once(session, after=0, url="") == event.id
 
@@ -224,12 +206,16 @@ async def test_herald_queues_next_link(
 
     async with factory() as session:
         costs = (
-            await session.execute(
-                select(Job).where(
-                    Job.state == JobState.PENDING, Job.kind == JobKind.HERALD_POST
+            (
+                await session.execute(
+                    select(Job).where(
+                        Job.state == JobState.PENDING, Job.kind == JobKind.HERALD_POST
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
 
     assert len(costs) == 1, "лента обязана продолжаться сама"
     assert costs[0].run_at > NOW

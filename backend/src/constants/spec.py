@@ -68,7 +68,8 @@ class Formula:
 
     def value(self, **names: float) -> float:
         """Evaluate the formula, substituting the named quantities."""
-        from src.constants.formula import evaluate
+        #: Lazy: `formula` reads these specs, the cycle closes otherwise.
+        from src.constants.formula import evaluate  # noqa: PLC0415
 
         return evaluate(self.text, **names)
 

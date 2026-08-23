@@ -52,9 +52,7 @@ async def _prepare_world() -> dict:
         await world.grant_item(db, yard, "Верёвка", amount=3, origin="сценарий теста")
         await world.grant_item(db, yard, "Кровать", quality=50, origin="сценарий теста")
         #: Mining requires a pickaxe since D-215 -- the vault said so all along.
-        await world.grant_item(
-            db, bag, "Каменная кирка", quality=50, origin="сценарий теста"
-        )
+        await world.grant_item(db, bag, "Каменная кирка", quality=50, origin="сценарий теста")
         account = await db.get(Account, identity.account_id)
         ready_ = {
             "name": identity.name,
@@ -165,8 +163,22 @@ def test_full_mining_session(client, miner, cheap_pow, constants: Constants) -> 
     #: roof stability could be derived is in the replies -- and that is checked
     #: over everything sent to the client, not one field.
     allowed_ = {
-        "sign", "mined", "swings", "timbers", "stamina", "pace", "state", "session",
-        "hello", "body", "node", "constants", "challenge", "nonce", "left", "haul",
+        "sign",
+        "mined",
+        "swings",
+        "timbers",
+        "stamina",
+        "pace",
+        "state",
+        "session",
+        "hello",
+        "body",
+        "node",
+        "constants",
+        "challenge",
+        "nonce",
+        "left",
+        "haul",
         #: The session token is identification, not game (D-187).
         "token",
         #: The client knows its own account: without it it cannot compute the
@@ -315,9 +327,7 @@ def test_face_not_opened_without_device_fee(client, miner, cheap_pow) -> None:
         assert "refused" in ws.receive_json()
 
 
-def test_exploration_names_run_price_before_leaving(
-    client, miner, constants: Constants
-) -> None:
+def test_exploration_names_run_price_before_leaving(client, miner, constants: Constants) -> None:
     """The run's price is a property of the place (D-156), and the client learns it before leaving.
 
     Untrodden surroundings must give a find in minutes: exploration is a

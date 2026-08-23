@@ -100,7 +100,7 @@ from decimal import Decimal
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.constants import Catalog, Constants
+from src.constants import Catalog, Constants, current
 from src.constants import registry as R
 from src.engine import events, gear, travel, world
 from src.engine.errors import Refusal
@@ -167,11 +167,11 @@ async def _free_berth(session: AsyncSession, port: Node) -> int:
     taken = set(
         (
             await session.execute(
-                select(Ship.berth).where(
-                    Ship.docked_node_id == port.id, Ship.berth.is_not(None)
-                )
+                select(Ship.berth).where(Ship.docked_node_id == port.id, Ship.berth.is_not(None))
             )
-        ).scalars().all()
+        )
+        .scalars()
+        .all()
     )
     place = 1
     while place in taken:
@@ -241,8 +241,10 @@ async def of_node(session: AsyncSession, node: Node) -> Ship | None:
     if not is_aboard(node) or node.parent_id is None:
         return None
     return (
-        await session.execute(select(Ship).where(Ship.node_id == node.parent_id))
-    ).scalars().first()
+        (await session.execute(select(Ship).where(Ship.node_id == node.parent_id)))
+        .scalars()
+        .first()
+    )
 
 
 async def nodes_of(session: AsyncSession, ship: Ship) -> list[Node]:
@@ -252,7 +254,9 @@ async def nodes_of(session: AsyncSession, ship: Ship) -> list[Node]:
             await session.execute(
                 select(Node).where(Node.parent_id == ship.node_id).order_by(Node.created_at)
             )
-        ).scalars().all()
+        )
+        .scalars()
+        .all()
     )
 
 
@@ -261,11 +265,11 @@ async def ships_of(session: AsyncSession, identity_id: uuid.UUID) -> list[Ship]:
     return list(
         (
             await session.execute(
-                select(Ship)
-                .where(Ship.owner_identity_id == identity_id)
-                .order_by(Ship.created_at)
+                select(Ship).where(Ship.owner_identity_id == identity_id).order_by(Ship.created_at)
             )
-        ).scalars().all()
+        )
+        .scalars()
+        .all()
     )
 
 
@@ -288,7 +292,9 @@ async def crew_of(session: AsyncSession, ship: Ship) -> list[Body]:
                     Body.state == BodyState.ALIVE,
                 )
             )
-        ).scalars().all()
+        )
+        .scalars()
+        .all()
     )
 
 
@@ -306,13 +312,17 @@ async def _things(session: AsyncSession, ship: Ship) -> list[Item]:
     if not nodes:  # pragma: no cover
         return []
     yards = (
-        await session.execute(
-            select(Container).where(
-                Container.kind == ContainerKind.NODE,
-                Container.owner_id.in_([node.id for node in nodes]),
+        (
+            await session.execute(
+                select(Container).where(
+                    Container.kind == ContainerKind.NODE,
+                    Container.owner_id.in_([node.id for node in nodes]),
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     if not yards:
         return []
 
@@ -321,29 +331,37 @@ async def _things(session: AsyncSession, ship: Ship) -> list[Item]:
             await session.execute(
                 select(Item).where(Item.container_id.in_([yard.id for yard in yards]))
             )
-        ).scalars().all()
+        )
+        .scalars()
+        .all()
     )
     inner_ = (
-        await session.execute(
-            select(Container).where(
-                Container.kind == ContainerKind.STORAGE,
-                Container.owner_id.in_([thing.id for thing in outer]),
+        (
+            await session.execute(
+                select(Container).where(
+                    Container.kind == ContainerKind.STORAGE,
+                    Container.owner_id.in_([thing.id for thing in outer]),
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     if not inner_:
         return outer
     inside = (
-        await session.execute(
-            select(Item).where(Item.container_id.in_([box.id for box in inner_]))
+        (
+            await session.execute(
+                select(Item).where(Item.container_id.in_([box.id for box in inner_]))
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return outer + list(inside)
 
 
-async def mass(
-    session: AsyncSession, constants: Constants, catalog: Catalog, ship: Ship
-) -> float:
+async def mass(session: AsyncSession, constants: Constants, catalog: Catalog, ship: Ship) -> float:
     """The ship's mass, kg: the nodes plus everything aboard.
 
     Both terms are the player's decisions, and that is the point: a node added
@@ -372,9 +390,7 @@ async def thrust(session: AsyncSession, constants: Constants, ship: Ship) -> flo
     )
 
 
-async def engine_class(
-    session: AsyncSession, constants: Constants, ship: Ship
-) -> int | None:
+async def engine_class(session: AsyncSession, constants: Constants, ship: Ship) -> int | None:
     """The ship's class: **the weakest** engine aboard (D-037, D-054).
 
     The same weakest-link rule as the quality ceiling: one poor engine in the
@@ -390,9 +406,7 @@ async def engine_class(
     return min(classes) if classes else None
 
 
-async def life_support(
-    session: AsyncSession, constants: Constants, ship: Ship
-) -> int:
+async def life_support(session: AsyncSession, constants: Constants, ship: Ship) -> int:
     """How many people the ship holds: `ship.life_support_crew` per system."""
     systems = sum(
         amount_float(thing.amount)
@@ -410,9 +424,7 @@ async def fuel_aboard(session: AsyncSession, ship: Ship) -> float:
     )
 
 
-async def ratio(
-    session: AsyncSession, constants: Constants, catalog: Catalog, ship: Ship
-) -> float:
+async def ratio(session: AsyncSession, constants: Constants, catalog: Catalog, ship: Ship) -> float:
     """Thrust-to-mass. Everything about a passage follows from this one number."""
     weight = await mass(session, constants, catalog, ship)
     if weight <= 0:  # pragma: no cover -- a ship always has at least one node
@@ -436,14 +448,18 @@ async def _sphere(session: AsyncSession, planet: Planet) -> Node | None:
     they are told apart by hanging on one. A planet hangs on nothing.
     """
     return (
-        await session.execute(
-            select(Node).where(
-                Node.layer == Layer.SPACE,
-                Node.planet == planet,
-                Node.parent_id.is_(None),
+        (
+            await session.execute(
+                select(Node).where(
+                    Node.layer == Layer.SPACE,
+                    Node.planet == planet,
+                    Node.parent_id.is_(None),
+                )
             )
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
 
 
 async def separation(
@@ -597,7 +613,9 @@ async def _foundation_at_hand(session: AsyncSession, body: Body) -> list[Item]:
                     Item.type_key.in_(world.station_names(FOUNDATION)),
                 )
             )
-        ).scalars().all()
+        )
+        .scalars()
+        .all()
     )
 
 
@@ -637,9 +655,7 @@ async def found(
     if port is None:  # pragma: no cover -- a body always stands in a node
         raise ShipError("тело вне узла")
     if not await world.has_station(session, port, SPACEPORT):
-        raise NoPort(
-            "основание корабля закладывают на космодроме: причалить больше некуда"
-        )
+        raise NoPort("основание корабля закладывают на космодроме: причалить больше некуда")
     #: Not onto another ship, even one carrying a spaceport aboard: that would
     #: be a second ship welded to the first for good, and ship-to-ship docking
     #: is a question of design, not a side effect (D-201). A ship is grown from
@@ -698,8 +714,7 @@ async def _lay(
     in_hands = sum(amount_float(stack.amount) for stack in stacks)
     if in_hands + _EPS < 1:
         raise NoFoundation(
-            f"нужна «{FOUNDATION}», а её в руках нет: корабль — это материалы, "
-            "а не намерение"
+            f"нужна «{FOUNDATION}», а её в руках нет: корабль — это материалы, а не намерение"
         )
     await _spend(session, stacks, 1)
 
@@ -740,7 +755,6 @@ async def keel_laid(session: AsyncSession, job: Job) -> None:
     are one action: the base couples to the port, every other node to the one
     it was laid from.
     """
-    from src.constants import current
 
     constants = current()
     at = await session.get(Node, uuid.UUID(job.payload["at"]))
@@ -828,9 +842,7 @@ async def _add_node(
     delegate = await session.get(Node, ship.node_id)
     if delegate is None:  # pragma: no cover
         raise ShipError("у корабля нет группы")
-    node = await _node_aboard(
-        session, constants, delegate, "Отсек", owner=owner, planet=at.planet
-    )
+    node = await _node_aboard(session, constants, delegate, "Отсек", owner=owner, planet=at.planet)
     #: A step between adjacent rooms is the shortest there is: inside a ship one
     #: walks as inside a city, and `travel.city_step` is that very step (D-045).
     await travel.connect(
@@ -870,7 +882,7 @@ async def _node_aboard(
         properties={ABOARD: True},
     )
     node.owner_identity_id = owner
-    from src.engine import estate
+    from src.engine import estate  # noqa: PLC0415 -- lazy: breaks the import cycle with estate
 
     session.add(
         Building(
@@ -959,8 +971,7 @@ async def undock(
     holds = await life_support(session, constants, ship)
     if crew > holds:
         raise NoLifeSupport(
-            f"на борту {crew} человек, а жизнеобеспечение держит {holds}: "
-            "ставьте ещё систему"
+            f"на борту {crew} человек, а жизнеобеспечение держит {holds}: ставьте ещё систему"
         )
 
     #: Fuel for at least the way back to this very port. An undocked ship has
@@ -970,9 +981,7 @@ async def undock(
     #: The return hop is the cheapest passage there is, so affording it
     #: guarantees at least one way home.
     weight = await mass(session, constants, catalog, ship)
-    table = await base_hours(
-        session, constants, connector.planet, port.planet, at=moment
-    )
+    table = await base_hours(session, constants, connector.planet, port.planet, at=moment)
     back = fuel_for(constants, weight, passage_hours(constants, table or 0, thrust_ratio))
     if await fuel_aboard(session, ship) + _EPS < back:
         raise NoFuel(
@@ -1034,13 +1043,9 @@ async def fly(
     #: The time is settled **here**, at the moment of casting off, and is not
     #: recomputed afterwards: otherwise the sky would turn under a ship already
     #: under way and the passage would grow longer than the one paid for.
-    table = await base_hours(
-        session, constants, connector.planet, port.planet, at=moment
-    )
+    table = await base_hours(session, constants, connector.planet, port.planet, at=moment)
     if table is None:
-        raise TooFar(
-            f"маршрута {connector.planet.value} — {port.planet.value} в мире нет"
-        )
+        raise TooFar(f"маршрута {connector.planet.value} — {port.planet.value} в мире нет")
     need_class = route_class(constants, connector.planet, port.planet)
     have_class = await engine_class(session, constants, ship)
     if have_class is None:
@@ -1064,9 +1069,7 @@ async def fly(
     need_fuel = fuel_for(constants, weight, hours)
     have_fuel = await fuel_aboard(session, ship)
     if have_fuel + _EPS < need_fuel:
-        raise NoFuel(
-            f"на рейс нужно {need_fuel:.1f} «{FUEL}», а на борту {have_fuel:.1f}"
-        )
+        raise NoFuel(f"на рейс нужно {need_fuel:.1f} «{FUEL}», а на борту {have_fuel:.1f}")
     burnt = await _spend(
         session,
         [
@@ -1109,7 +1112,6 @@ async def fly(
 @handler(JobKind.SHIP_FLIGHT)
 async def arrived(session: AsyncSession, job: Job) -> None:
     """The passage is over: the edge to the port appears, and one may walk aboard again."""
-    from src.constants import current
 
     ship = await session.get(Ship, uuid.UUID(job.payload["ship"]))
     port = await session.get(Node, uuid.UUID(job.payload["to"]))
@@ -1205,8 +1207,8 @@ async def _from_pier(
     the map has used from the start (D-045), not a second kind of node.
     """
     moored = (
-        await session.execute(select(Ship).where(Ship.docked_node_id == port.id))
-    ).scalars().all()
+        (await session.execute(select(Ship).where(Ship.docked_node_id == port.id))).scalars().all()
+    )
     if not moored:
         return None
 
@@ -1264,17 +1266,19 @@ async def _from_aboard(
         keys[delegate.id] = delegate.key
     #: The gangway too, when there is one: from inside the way out is a fact of
     #: the graph like any other, and without it the interior hangs on nothing.
-    port = (
-        None if ship.docked_node_id is None else await session.get(Node, ship.docked_node_id)
-    )
+    port = None if ship.docked_node_id is None else await session.get(Node, ship.docked_node_id)
     if port is not None:
         keys[port.id] = port.key
 
     ways = (
-        await session.execute(
-            select(Edge).where(or_(Edge.node_a_id.in_(keys), Edge.node_b_id.in_(keys)))
+        (
+            await session.execute(
+                select(Edge).where(or_(Edge.node_a_id.in_(keys), Edge.node_b_id.in_(keys)))
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return {
         "nodes": [
             {
@@ -1319,20 +1323,22 @@ async def passages(session: AsyncSession) -> dict[uuid.UUID, dict[str, object]]:
     Keyed by the delegate node, because that is what the map speaks in.
     """
     flights = (
-        await session.execute(
-            select(Job).where(
-                Job.kind == JobKind.SHIP_FLIGHT, Job.state == JobState.PENDING
+        (
+            await session.execute(
+                select(Job).where(Job.kind == JobKind.SHIP_FLIGHT, Job.state == JobState.PENDING)
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     if not flights:
         return {}
 
     afloat = {
         str(ship.id): ship
-        for ship in (
-            await session.execute(select(Ship).where(Ship.docked_node_id.is_(None)))
-        ).scalars().all()
+        for ship in (await session.execute(select(Ship).where(Ship.docked_node_id.is_(None))))
+        .scalars()
+        .all()
     }
     under_way: dict[uuid.UUID, dict[str, object]] = {}
     for job in flights:
@@ -1361,7 +1367,9 @@ async def ports(session: AsyncSession) -> list[Node]:
                 )
                 .distinct()
             )
-        ).scalars().all()
+        )
+        .scalars()
+        .all()
     )
 
 
@@ -1381,9 +1389,7 @@ async def profile(
     have_class = await engine_class(session, constants, ship)
     crew = len(await crew_of(session, ship))
     connector = await session.get(Node, ship.connector_node_id)
-    docked = (
-        None if ship.docked_node_id is None else await session.get(Node, ship.docked_node_id)
-    )
+    docked = None if ship.docked_node_id is None else await session.get(Node, ship.docked_node_id)
 
     #: The prices are for **this** moment: the sky turns, and a route quoted an
     #: hour ago is not the route one gets. The player sees what casting off now
@@ -1407,9 +1413,7 @@ async def profile(
                 "class": need_class,
                 "hours": None if hours is None else round(hours, ROUND_HOURS),
                 "fuel": (
-                    None
-                    if hours is None
-                    else round(fuel_for(constants, weight, hours), ROUND_MASS)
+                    None if hours is None else round(fuel_for(constants, weight, hours), ROUND_MASS)
                 ),
                 #: Why exactly it is unavailable -- the class or the thrust. A
                 #: bare "unavailable" leaves nothing to act on.

@@ -41,22 +41,27 @@ async def _workshop_(session: AsyncSession, *, automaton: bool = True, quality: 
         session, f"terra.town.{stamp}", "Город", area_m2=1, layer=Layer.PLANET
     )
     workshop = await world.create_node(
-        session, f"terra.town.{stamp}.shop", "Цех", area_m2=200,
-        layer=Layer.CITY, parent=capital,
+        session,
+        f"terra.town.{stamp}.shop",
+        "Цех",
+        area_m2=200,
+        layer=Layer.CITY,
+        parent=capital,
     )
     yard = await world.node_container(session, workshop)
     await world.grant_item(
-        session, yard, "Автоматическая станция" if automaton else BENCH,
-        quality=quality, origin="тест",
+        session,
+        yard,
+        "Автоматическая станция" if automaton else BENCH,
+        quality=quality,
+        origin="тест",
     )
     identity = await world.create_identity(session, f"Промышленник-{stamp}")
     body = await world.print_body(session, identity, workshop)
     await world.learn(session, identity, NAILS)
 
     pocket = await world.body_container(session, body)
-    await world.grant_item(
-        session, pocket, INGOT, amount=50, quality=70, origin="тест"
-    )
+    await world.grant_item(session, pocket, INGOT, amount=50, quality=70, origin="тест")
     return workshop, identity, body
 
 
@@ -72,8 +77,12 @@ async def _money(session, identity, qty: float = 500):
     account = await ledger.account_for(session, AccountKind.IDENTITY, identity.id)
     genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
     await ledger.transfer(
-        session, PostingReason.GENESIS, debit=genesis.id, credit=account.id,
-        amount=money(qty), memo={},
+        session,
+        PostingReason.GENESIS,
+        debit=genesis.id,
+        credit=account.id,
+        amount=money(qty),
+        memo={},
     )
     return account
 
@@ -95,9 +104,7 @@ async def test_automaton_twice_as_fast(
     by_hand = await craft.plan(session, constants, catalog, body, NAILS, 2)
     automated = await craft.plan(session, constants, catalog, body, NAILS, 2, auto=True)
 
-    assert automated.minutes == pytest.approx(
-        by_hand.minutes / constants[R.CRAFT_AUTO_SPEED_K]
-    )
+    assert automated.minutes == pytest.approx(by_hand.minutes / constants[R.CRAFT_AUTO_SPEED_K])
     assert automated.auto and not by_hand.auto
 
 
@@ -132,9 +139,7 @@ async def test_craft_can_outdo_machine(
 
     pocket = await world.body_container(session, body)
     for raw in ("Кварцевый песок", "Уголь"):
-        await world.grant_item(
-            session, pocket, raw, amount=100, quality=60, origin="тест"
-        )
+        await world.grant_item(session, pocket, raw, amount=100, quality=60, origin="тест")
 
     by_hand = await craft.plan(session, constants, catalog, body, glass, 1)
     automated = await craft.plan(session, constants, catalog, body, glass, 1, auto=True)
@@ -144,9 +149,7 @@ async def test_craft_can_outdo_machine(
     #: the machine. The machine is always even -- it is never better or worse than itself.
     proc = craft.procedure(catalog, glass)
     miss = {name: share * 3 for name, share in proc.per_unit.items()}
-    careless = await craft.plan(
-        session, constants, catalog, body, glass, 1, proportions=miss
-    )
+    careless = await craft.plan(session, constants, catalog, body, glass, 1, proportions=miss)
     assert careless.quality < automated.quality
     assert automated.accuracy == 1.0, "пропорция автомата — его настройка"
 
@@ -166,16 +169,12 @@ async def test_automaton_eats_energy_and_pays_tariff(
 
     plan = await craft.plan(session, constants, catalog, body, NAILS, 2, auto=True)
     hours = plan.minutes / MINUTES_PER_HOUR
-    assert plan.energy == pytest.approx(
-        constants[R.ENERGY_AUTO_BENCH_DRAW] * hours
-    )
+    assert plan.energy == pytest.approx(constants[R.ENERGY_AUTO_BENCH_DRAW] * hours)
 
     await craft.start(session, constants, catalog, body, NAILS, 2, auto=True)
     assert float(pool.stored) == pytest.approx(pool_before - plan.energy)
 
-    treasury = await ledger.account_for(
-        session, AccountKind.CITY_TREASURY, pool.node_id
-    )
+    treasury = await ledger.account_for(session, AccountKind.CITY_TREASURY, pool.node_id)
     paid_ = money_before - await ledger.balance(session, account.id)
     assert paid_ == plan.energy_cost > 0
     assert await ledger.balance(session, treasury.id) == paid_

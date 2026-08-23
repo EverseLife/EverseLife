@@ -44,8 +44,12 @@ async def _world(session: AsyncSession, *, funds: float = 100, ore: float = 30):
         account = await ledger.account_for(session, AccountKind.IDENTITY, identity.id)
         genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
         await ledger.transfer(
-            session, PostingReason.GENESIS, debit=genesis.id, credit=account.id,
-            amount=money(funds), memo={},
+            session,
+            PostingReason.GENESIS,
+            debit=genesis.id,
+            credit=account.id,
+            amount=money(funds),
+            memo={},
         )
     return node, identity, body
 
@@ -53,9 +57,7 @@ async def _world(session: AsyncSession, *, funds: float = 100, ore: float = 30):
 # --- money -------------------------------------------------------------------
 
 
-async def test_double_entry_intact(
-    session: AsyncSession, constants: Constants
-) -> None:
+async def test_double_entry_intact(session: AsyncSession, constants: Constants) -> None:
     """The sum of all postings is zero. Otherwise money appeared or vanished."""
     await _world(session, funds=250)
     checks = {p["code"]: p for p in await metrics.invariants(session, constants)}
@@ -68,9 +70,7 @@ async def test_double_entry_intact(
     assert emission["ok"] is True, "вся масса выпущена генезисом и только им"
 
 
-async def test_money_supply_and_distribution(
-    session: AsyncSession, constants: Constants
-) -> None:
+async def test_money_supply_and_distribution(session: AsyncSession, constants: Constants) -> None:
     """Median and Gini are computed over identity accounts."""
     await _world(session, funds=100, ore=0)
     await _world(session, funds=300, ore=0)
@@ -91,9 +91,7 @@ def test_gini_zero_for_equals_and_near_one_for_single_owner() -> None:
 # --- matter ------------------------------------------------------------------
 
 
-async def test_stock_counted_wherever_it_lies(
-    session: AsyncSession, constants: Constants
-) -> None:
+async def test_stock_counted_wherever_it_lies(session: AsyncSession, constants: Constants) -> None:
     """Matter is matter: pocket, node and terminal are counted together."""
     node, _, body = await _world(session, ore=10)
     yard = await world.node_container(session, node)
@@ -106,9 +104,7 @@ async def test_stock_counted_wherever_it_lies(
 # --- daily snapshot ----------------------------------------------------------
 
 
-async def test_snapshot_idempotent_per_day(
-    session: AsyncSession, constants: Constants
-) -> None:
+async def test_snapshot_idempotent_per_day(session: AsyncSession, constants: Constants) -> None:
     """A daily tick repeat after a failure does not spawn a second row."""
     await _world(session, funds=50)
     moment = datetime.now(UTC)
@@ -116,23 +112,17 @@ async def test_snapshot_idempotent_per_day(
     qty = await metrics.store(session, constants, now=moment)
     assert qty > 0
     line_count = await session.scalar(
-        select(func.count()).select_from(DailyMetric).where(
-            DailyMetric.day == moment.date()
-        )
+        select(func.count()).select_from(DailyMetric).where(DailyMetric.day == moment.date())
     )
 
     await metrics.store(session, constants, now=moment)
     again = await session.scalar(
-        select(func.count()).select_from(DailyMetric).where(
-            DailyMetric.day == moment.date()
-        )
+        select(func.count()).select_from(DailyMetric).where(DailyMetric.day == moment.date())
     )
     assert again == line_count, "второй строки за те же сутки не появилось"
 
 
-async def test_history_remembers_yesterday(
-    session: AsyncSession, constants: Constants
-) -> None:
+async def test_history_remembers_yesterday(session: AsyncSession, constants: Constants) -> None:
     """The check "grows two weeks in a row" needs memory, not a query."""
     await _world(session, ore=10)
     today = datetime.now(UTC)
@@ -141,10 +131,11 @@ async def test_history_remembers_yesterday(
     await metrics.store(session, constants, now=yesterday)
     await world.grant_item(
         session,
-        await world.node_container(
-            session, (await _world(session, funds=0, ore=0))[0]
-        ),
-        "Железная руда", amount=90, quality=50, origin="тест",
+        await world.node_container(session, (await _world(session, funds=0, ore=0))[0]),
+        "Железная руда",
+        amount=90,
+        quality=50,
+        origin="тест",
     )
     await metrics.store(session, constants, now=today)
 
@@ -156,9 +147,7 @@ async def test_history_remembers_yesterday(
 # --- honesty of checks -------------------------------------------------------
 
 
-async def test_unverifiable_has_no_verdict(
-    session: AsyncSession, constants: Constants
-) -> None:
+async def test_unverifiable_has_no_verdict(session: AsyncSession, constants: Constants) -> None:
     """Invariants without their systems are named by name and without a green tick."""
     checks = {p["code"]: p for p in await metrics.invariants(session, constants)}
 

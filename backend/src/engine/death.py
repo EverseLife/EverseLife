@@ -66,7 +66,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants, current_catalog
 from src.constants import registry as R
-from src.engine import events, world
+from src.engine import city as town
+from src.engine import craft, energy, events, justice, ledger, luck, transport, world
 from src.engine.errors import Refusal
 from src.engine.jobs import enqueue, handler
 from src.models.event import EventKind
@@ -74,6 +75,7 @@ from src.models.identity import Body, BodyState, Identity
 from src.models.inventory import Container, ContainerKind, Item
 from src.models.job import Job, JobKind, JobState
 from src.models.ledger import AccountKind, PostingReason
+from src.models.travel import Travel, TravelState
 from src.models.world import Node
 
 #: An hour in minutes is presentation, not balance: the Forerunners' twelve
@@ -139,8 +141,8 @@ async def die(
     node = await session.get(Node, body.node_id)
     pocket = await world.body_container(session, body)
     things = (
-        await session.execute(select(Item).where(Item.container_id == pocket.id))
-    ).scalars().all()
+        (await session.execute(select(Item).where(Item.container_id == pocket.id))).scalars().all()
+    )
 
     yard = await world.node_container(session, node) if node is not None else None
     survived = 0.0
@@ -151,8 +153,6 @@ async def die(
         #: losing every single tool of a kit was a fair coin's right, and it
         #: read as the world taking a personal dislike.
         if left <= 0:
-            from src.engine import luck
-
             kept = await luck.hit(
                 session, body.identity_id, luck.DEATH_KEEP, share * PERCENT, dice=dice
             )
@@ -171,28 +171,27 @@ async def die(
         survived += amount_float(left)
 
     #: An ongoing transit breaks off: a dead body arrives nowhere.
-    from src.models.travel import Travel, TravelState
 
     transits = (
-        await session.execute(
-            select(Travel).where(
-                Travel.body_id == body.id, Travel.state == TravelState.GOING
+        (
+            await session.execute(
+                select(Travel).where(Travel.body_id == body.id, Travel.state == TravelState.GOING)
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     for transit in transits:
         transit.state = TravelState.CANCELLED
 
     #: The harness falls apart: the dead pull nothing. The convoy with its
     #: cargo stays standing where it stopped -- like any matter without an owner (D-157).
-    from src.engine import transport
 
     await transport.unharness(session, body)
 
     #: The work at the machine stops with the master (D-209): the machine is
     #: freed, the batch stays frozen -- a dead body does not come back to it,
     #: and what was written off for it is lost with the body like the pocket.
-    from src.engine import craft
 
     await craft.freeze(session, body, now=moment)
 
@@ -228,31 +227,31 @@ async def printers(
     matters: a city prints at its own expense for its citizens, not for
     everyone (D-160).
     """
-    from src.engine import city as town
-    from src.engine import energy
 
     nodes = (
-        await session.execute(
-            select(Node)
-            .join(Container, Container.owner_id == Node.id)
-            .join(Item, Item.container_id == Container.id)
-            .where(
-                Container.kind == ContainerKind.NODE,
-                Item.type_key.in_(world.station_names(PRINTER)),
+        (
+            await session.execute(
+                select(Node)
+                .join(Container, Container.owner_id == Node.id)
+                .join(Item, Item.container_id == Container.id)
+                .where(
+                    Container.kind == ContainerKind.NODE,
+                    Item.type_key.in_(world.station_names(PRINTER)),
+                )
+                .distinct()
             )
-            .distinct()
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
 
     out: list[dict] = []
     for node in nodes:
         #: The prison printer is not another door into the world (D-174): it
         #: prints only those the prison holds and is not shown to the rest at all.
-        from src.engine import justice
 
         if await justice.is_prison(session, node) and not (
-            identity_id is not None
-            and await justice.held(session, constants, identity_id)
+            identity_id is not None and await justice.held(session, constants, identity_id)
         ):
             continue
         forerunners = bool(node.properties.get(PRECURSOR))
@@ -268,7 +267,8 @@ async def printers(
                 "energy": energy_amount,
                 "iron": iron,
                 "cost": (
-                    0 if forerunners
+                    0
+                    if forerunners
                     else await energy.price_of(session, constants, node, energy_amount)
                 ),
                 #: Minutes are the common display unit: the Forerunners' twelve
@@ -279,9 +279,7 @@ async def printers(
                     else constants[R.DEATH_PRINT_TIME_CITY]
                 ),
                 "iron_here": await _iron_here(session, node),
-                "at_city_expense": await _city_pays(
-                    session, constants, node, identity_id
-                ),
+                "at_city_expense": await _city_pays(session, constants, node, identity_id),
             }
         )
     return sorted(out, key=lambda door: door["minutes"])
@@ -367,13 +365,10 @@ async def _charge(
     point of D-013: the city must keep a stock in the printer, otherwise there
     is nothing to print with.
     """
-    from src.engine import energy, ledger
 
     pool = await energy.pool_of(session, constants, node)
     if pool is None:
-        raise CannotPay(
-            "городской сети здесь нет: печать требует энергии, а её негде взять"
-        )
+        raise CannotPay("городской сети здесь нет: печать требует энергии, а её негде взять")
     await energy.produce(session, constants, pool, now=moment)
 
     energy_needed = constants[R.ENERGY_BODY_PRINT]
@@ -389,18 +384,13 @@ async def _charge(
     have = sum(amount_float(ingot.amount) for ingot in ingots)
     if have < iron_needed:
         raise CannotPay(
-            f"в принтере {have:.0f} железа из {iron_needed:.0f}: "
-            "процессор не из чего собрать"
+            f"в принтере {have:.0f} железа из {iron_needed:.0f}: процессор не из чего собрать"
         )
-
-    from src.engine import justice
 
     if await justice.is_prison(session, node) and not await justice.held(
         session, constants, identity.id
     ):
-        raise DeathError(
-            "тюремный принтер печатает только заключённых: это не дверь в мир"
-        )
+        raise DeathError("тюремный принтер печатает только заключённых: это не дверь в мир")
 
     price = await energy.price_of(session, constants, node, energy_needed)
     at_city_expense = await _city_pays(session, constants, node, identity.id)
@@ -412,9 +402,7 @@ async def _charge(
                 f"печать стоит {money_str(price)} ₭, а на счету {money_str(remainder)} ₭. "
                 "Принтер Предтеч в столице печатает бесплатно — но двенадцать часов"
             )
-        treasury = await ledger.account_for(
-            session, AccountKind.CITY_TREASURY, pool.node_id
-        )
+        treasury = await ledger.account_for(session, AccountKind.CITY_TREASURY, pool.node_id)
         await ledger.transfer(
             session,
             PostingReason.ENERGY_BILL,
@@ -446,7 +434,6 @@ async def _city_pays(
     "citizens" means **citizens** (D-160): before citizenship existed the
     engine read this option as "everyone", and the city paid for strangers.
     """
-    from src.engine import city as town
 
     city = await town.of_node(session, node)
     if city is None:
@@ -455,19 +442,21 @@ async def _city_pays(
     if decision in ("", "нет", "-"):
         return False
     if "гражд" in decision:
-        return identity_id is not None and await town.is_citizen(
-            session, identity_id, city
-        )
+        return identity_id is not None and await town.is_citizen(session, identity_id, city)
     return True
 
 
 async def _iron_here(session: AsyncSession, node: Node) -> float:
     yard = await world.node_container(session, node)
     ingots = (
-        await session.execute(
-            select(Item).where(Item.container_id == yard.id, Item.type_key == IRON)
+        (
+            await session.execute(
+                select(Item).where(Item.container_id == yard.id, Item.type_key == IRON)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return sum(amount_float(ingot.amount) for ingot in ingots)
 
 
@@ -489,24 +478,28 @@ async def printed(session: AsyncSession, job: Job) -> None:
 
 async def alive_body(session: AsyncSession, identity_id: uuid.UUID) -> Body | None:
     return (
-        await session.execute(
-            select(Body).where(
-                Body.identity_id == identity_id, Body.state == BodyState.ALIVE
+        (
+            await session.execute(
+                select(Body).where(Body.identity_id == identity_id, Body.state == BodyState.ALIVE)
             )
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
 
 
 async def pending(session: AsyncSession, identity_id: uuid.UUID) -> Job | None:
     """This identity's ongoing print, if any."""
     return (
-        await session.execute(
-            select(Job).where(
-                Job.kind == JobKind.BODY_PRINT.value,
-                Job.state == JobState.PENDING,
-                Job.payload["identity"].astext == str(identity_id),
+        (
+            await session.execute(
+                select(Job).where(
+                    Job.kind == JobKind.BODY_PRINT.value,
+                    Job.state == JobState.PENDING,
+                    Job.payload["identity"].astext == str(identity_id),
+                )
             )
         )
-    ).scalars().first()
-
-
+        .scalars()
+        .first()
+    )

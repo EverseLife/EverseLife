@@ -20,11 +20,14 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.constants import Catalog, Constants, current
+from src.constants import Catalog, Constants, current, current_catalog
 from src.constants import registry as R
 from src.db.base import remember
-from src.engine import events
+from src.engine import account as accounts
+from src.engine import city as town
+from src.engine import events, goods
 from src.engine.errors import Refusal
+from src.models.craft import BatchState, CraftBatch
 from src.models.event import EventKind
 from src.models.identity import (
     Account,
@@ -37,7 +40,9 @@ from src.models.identity import (
 )
 from src.models.inventory import Container, ContainerKind, Item
 from src.models.world import Layer, Node, Planet, Vein
+from src.units import AMOUNT_SCALE
 from src.units import amount as to_amount
+from src.units import amount as to_units
 from src.units import money as to_money
 
 #: Where a planet stands on the space layer (D-045). Radius and period are
@@ -137,7 +142,7 @@ async def grant_node(session: AsyncSession, node: Node, owner: Identity) -> Node
     Working on nobody's land stays open to everyone: build, fell, gather, drop
     things on the ground. The ban is on the title, not on the labour.
     """
-    from src.engine import estate
+    from src.engine import estate  # noqa: PLC0415 -- lazy: breaks the import cycle with estate
 
     if node.owner_city_id is None:
         raise LandError(
@@ -194,7 +199,6 @@ async def create_identity(
     is created only by the seed and tests. Surname, age, description are
     self-description.
     """
-    from src.engine import account as accounts
 
     account = Account()
     session.add(account)
@@ -252,7 +256,6 @@ def station_names(thing_class: str) -> tuple[str, ...]:
     as a class falls back to itself, name-for-name -- so a test world with a
     bare catalog keeps working.
     """
-    from src.constants.catalog import current_catalog
 
     members = current_catalog().recipes.of_class(thing_class)
     return members or (thing_class,)
@@ -293,9 +296,10 @@ async def is_door(session: AsyncSession, node: Node) -> bool:
 
     The prison printer is not a door: it prints only those the prison holds (D-174).
     """
-    from src.engine import city as town
-    from src.engine import justice
-    from src.engine.death import PRECURSOR
+    from src.engine import justice  # noqa: PLC0415 -- lazy: breaks the import cycle with justice
+    from src.engine.death import (  # noqa: PLC0415 -- lazy: breaks the import cycle with death
+        PRECURSOR,
+    )
 
     if not await has_station(session, node, BIOPRINTER):
         return False
@@ -319,7 +323,9 @@ async def spawn_point(session: AsyncSession) -> Node | None:
     Searched across the world, not by a seed key: the world may consist of
     other nodes, and people have to print somewhere.
     """
-    from src.engine.death import PRECURSOR
+    from src.engine.death import (  # noqa: PLC0415 -- lazy: breaks the import cycle with death
+        PRECURSOR,
+    )
 
     open_ = [node for node in await printer_nodes(session) if await is_door(session, node)]
     for node in open_:
@@ -352,8 +358,9 @@ async def doors(
     shown -- one comes into the world through the core, not through any yard
     where a printer was assembled.
     """
-    from src.engine import city as town
-    from src.engine.death import PRECURSOR
+    from src.engine.death import (  # noqa: PLC0415 -- lazy: breaks the import cycle with death
+        PRECURSOR,
+    )
 
     listing: list[dict[str, Any]] = []
     for node in await printer_nodes(session):
@@ -468,8 +475,6 @@ async def spawn(
     and they must take effect at the same moment as the body -- otherwise the
     condition remains an announcement.
     """
-    from src.constants import current_catalog
-    from src.engine import city as town
 
     exists = (
         await session.execute(select(Identity).where(Identity.name == name))
@@ -484,7 +489,9 @@ async def spawn(
 
     city = await town.of_node(session, node)
     if city is not None:
-        from src.engine.death import PRECURSOR
+        from src.engine.death import (  # noqa: PLC0415 -- lazy: breaks the import cycle with death
+            PRECURSOR,
+        )
 
         constants, catalog = current(), current_catalog()
         #: Whoever owns the machine sets the conditions. The Forerunners'
@@ -674,9 +681,6 @@ async def move_stack(
     own copy sooner or later falls behind on the field list, and a thing
     quietly loses part of itself on one of the paths.
     """
-    from src.engine import goods
-    from src.units import AMOUNT_SCALE
-    from src.units import amount as to_units
 
     #: A counted thing moves in whole pieces (D-212). A fraction is floored,
     #: and a request smaller than one piece is refused rather than silently
@@ -761,8 +765,6 @@ async def stack_up(session: AsyncSession, item: Item) -> Item:
     Reading those together is the client's work -- the list groups by thing and
     says how much there is in total -- not a reason to average the numbers here.
     """
-    from src.engine import goods
-    from src.models.craft import BatchState, CraftBatch
 
     if not goods.stackable(item.type_key):
         return item
@@ -881,7 +883,6 @@ async def grant_item(
     #: give. Less than one piece is a refusal rather than a stack of nothing --
     #: the table forbids an empty stack, and an integrity error is a worse way
     #: to learn that.
-    from src.engine import goods
 
     amount = goods.at_least_one(type_key, amount)
     item = Item(

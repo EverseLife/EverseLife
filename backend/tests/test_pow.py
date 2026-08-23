@@ -86,9 +86,7 @@ async def test_challenge_is_single_use(session: AsyncSession, cheap: Constants) 
 
 async def test_challenges_differ_each_time(session: AsyncSession, cheap: Constants) -> None:
     account = await _account_(session)
-    nonces = {
-        (await device.issue(session, cheap, account.id, now=NOW)).nonce for _ in range(5)
-    }
+    nonces = {(await device.issue(session, cheap, account.id, now=NOW)).nonce for _ in range(5)}
     assert len(nonces) == 5
 
 

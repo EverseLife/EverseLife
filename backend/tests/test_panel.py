@@ -33,12 +33,20 @@ async def _capital(session: AsyncSession, catalog: Catalog, *, townhall: bool = 
         session, f"terra.{stamp}", "Терра", area_m2=1, layer=Layer.SPACE
     )
     delegate = await world.create_node(
-        session, f"terra.city.{stamp}", "Столица", area_m2=1,
-        layer=Layer.PLANET, parent=planet,
+        session,
+        f"terra.city.{stamp}",
+        "Столица",
+        area_m2=1,
+        layer=Layer.PLANET,
+        parent=planet,
     )
     core = await world.create_node(
-        session, f"terra.city.{stamp}.core", "Ядро", area_m2=100,
-        parent=delegate, properties={"кольцо": 0},
+        session,
+        f"terra.city.{stamp}.core",
+        "Ядро",
+        area_m2=100,
+        parent=delegate,
+        properties={"кольцо": 0},
     )
     city = await town.found(session, catalog, delegate, "Столица")
     core.owner_city_id = city.id
@@ -83,8 +91,11 @@ async def test_treasury_broken_down_by_grounds(
     treasury = await town.treasury(session, city)
     genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
     await ledger.transfer(
-        session, PostingReason.GENESIS,
-        debit=genesis.id, credit=treasury.id, amount=money(100),
+        session,
+        PostingReason.GENESIS,
+        debit=genesis.id,
+        credit=treasury.id,
+        amount=money(100),
     )
 
     snapshot = await panel.collect(session, constants, city, full=True)
@@ -103,9 +114,7 @@ async def test_panel_window_from_vault(
     assert snapshot["window_hours"] == constants[R.TRADE_REPORT_WINDOW]
 
 
-async def test_panel_right_is_separate(
-    session: AsyncSession, catalog: Catalog
-) -> None:
+async def test_panel_right_is_separate(session: AsyncSession, catalog: Catalog) -> None:
     """The dashboard is as narrow a right as a law: it is granted separately."""
     city, core = await _capital(session, catalog)
     president = await world.create_identity(session, f"П-{uuid.uuid4().hex[:6]}")
@@ -116,8 +125,13 @@ async def test_panel_right_is_separate(
     bookkeeper = await world.create_identity(session, f"С-{uuid.uuid4().hex[:6]}")
     await world.print_body(session, bookkeeper, core)
     await town.appoint(
-        session, president, city, bookkeeper,
-        title="Счетовод", powers=(Power.DASHBOARD.value,), body=body,
+        session,
+        president,
+        city,
+        bookkeeper,
+        title="Счетовод",
+        powers=(Power.DASHBOARD.value,),
+        body=body,
     )
     assert await town.may(session, bookkeeper.id, city, Power.DASHBOARD)
     assert not await town.may(session, bookkeeper.id, city, Power.TREASURY)

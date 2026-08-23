@@ -38,14 +38,22 @@ async def _court(session: AsyncSession, catalog: Catalog):
         session, f"terra.{stamp}", "Терра", area_m2=1, layer=Layer.SPACE
     )
     delegate = await world.create_node(
-        session, f"terra.city.{stamp}", "Суд", area_m2=1,
-        layer=Layer.PLANET, parent=planet,
+        session,
+        f"terra.city.{stamp}",
+        "Суд",
+        area_m2=1,
+        layer=Layer.PLANET,
+        parent=planet,
     )
     #: The core is also this city's door (D-206): its whole built-up area is one
     #: node, and the road out of prison has to be tied to something.
     core = await world.create_node(
-        session, f"terra.city.{stamp}.core", "Ядро", area_m2=100,
-        parent=delegate, properties={"кольцо": 0, travel.EXIT: True},
+        session,
+        f"terra.city.{stamp}.core",
+        "Ядро",
+        area_m2=100,
+        parent=delegate,
+        properties={"кольцо": 0, travel.EXIT: True},
     )
     city = await town.found(session, catalog, delegate, "Судоград")
     core.owner_city_id = city.id
@@ -64,9 +72,7 @@ async def _body(session: AsyncSession, who):
     return await death.alive_body(session, who.id)
 
 
-async def _resident(
-    session: AsyncSession, node, city, name: str, *, funds: float = 0
-):
+async def _resident(session: AsyncSession, node, city, name: str, *, funds: float = 0):
     identity = await world.create_identity(session, f"{name}-{uuid.uuid4().hex[:6]}")
     body = await world.print_body(session, identity, node)
     session.add(Citizen(identity_id=identity.id, city_id=city.id))
@@ -74,8 +80,12 @@ async def _resident(
         account = await ledger.account_for(session, AccountKind.IDENTITY, identity.id)
         genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
         await ledger.transfer(
-            session, PostingReason.GENESIS,
-            debit=genesis.id, credit=account.id, amount=money(funds), memo={},
+            session,
+            PostingReason.GENESIS,
+            debit=genesis.id,
+            credit=account.id,
+            amount=money(funds),
+            memo={},
         )
     await session.flush()
     return identity, body
@@ -91,9 +101,7 @@ async def test_fee_goes_to_treasury(
     city, _, _, plaintiff, defendant, _ = await _court(session, catalog)
     before = await town.treasury_balance(session, city)
 
-    case = await justice.sue(
-        session, constants, city, plaintiff, defendant, "увёл повозку"
-    )
+    case = await justice.sue(session, constants, city, plaintiff, defendant, "увёл повозку")
 
     after = await town.treasury_balance(session, city)
     assert after - before == money(constants[R.JUSTICE_COURT_FEE])
@@ -114,12 +122,15 @@ async def test_limitation_period_expired(
 ) -> None:
     """The court is not an archive of grudges."""
     city, _, _, plaintiff, defendant, _ = await _court(session, catalog)
-    long_ago = datetime.now(UTC) - timedelta(
-        days=constants[R.JUSTICE_CLAIM_WINDOW] + 1
-    )
+    long_ago = datetime.now(UTC) - timedelta(days=constants[R.JUSTICE_CLAIM_WINDOW] + 1)
     with pytest.raises(justice.TooLate):
         await justice.sue(
-            session, constants, city, plaintiff, defendant, "старая обида",
+            session,
+            constants,
+            city,
+            plaintiff,
+            defendant,
+            "старая обида",
             happened_at=long_ago,
         )
 
@@ -135,9 +146,7 @@ async def test_only_holder_of_right_judges(
     stranger, _ = await _resident(session, core, city, "Посторонний")
 
     with pytest.raises(justice.NotJudge):
-        await justice.judge(
-            session, constants, catalog, stranger, case, sanction=justice.FINE
-        )
+        await justice.judge(session, constants, catalog, stranger, case, sanction=justice.FINE)
 
 
 async def test_fine_collected_to_treasury_and_remainder_becomes_debt(
@@ -184,13 +193,17 @@ async def test_imprisonment_holds_body_in_node(
     from src.models.job import Job, JobKind, JobState
 
     job = (
-        await session.execute(
-            select(Job).where(
-                Job.kind == JobKind.SANCTION_LIFT.value,
-                Job.state == JobState.PENDING,
+        (
+            await session.execute(
+                select(Job).where(
+                    Job.kind == JobKind.SANCTION_LIFT.value,
+                    Job.state == JobState.PENDING,
+                )
             )
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
     assert job is not None
     await justice.lift(session, job)
     assert await justice.imprisoned(session, defendant.id) is None
@@ -204,8 +217,14 @@ async def test_imprisonment_no_longer_than_ceiling(
     case = await justice.sue(session, constants, city, plaintiff, defendant, "снос")
     now_ = datetime.now(UTC)
     penalty = await justice.judge(
-        session, constants, catalog, judge, case,
-        sanction=justice.PRISON, days=999, now=now_,
+        session,
+        constants,
+        catalog,
+        judge,
+        case,
+        sanction=justice.PRISON,
+        days=999,
+        now=now_,
     )
     ceiling = now_ + timedelta(days=constants[R.JUSTICE_PRISON_MAX])
     assert penalty.until == ceiling
@@ -217,9 +236,7 @@ async def test_exile_by_verdict_removes_citizenship(
     """Banishment, not death: the exiled lives quietly in another city."""
     city, _, judge, plaintiff, defendant, _ = await _court(session, catalog)
     case = await justice.sue(session, constants, city, plaintiff, defendant, "измена")
-    await justice.judge(
-        session, constants, catalog, judge, case, sanction=justice.EXILE
-    )
+    await justice.judge(session, constants, catalog, judge, case, sanction=justice.EXILE)
     assert await town.citizenship(session, defendant.id) is None
 
 
@@ -230,9 +247,7 @@ async def test_unenforceable_sanction_rejected_aloud(
     city, _, judge, plaintiff, defendant, _ = await _court(session, catalog)
     case = await justice.sue(session, constants, city, plaintiff, defendant, "спор")
     with pytest.raises(justice.Unenforceable):
-        await justice.judge(
-            session, constants, catalog, judge, case, sanction="confiscation"
-        )
+        await justice.judge(session, constants, catalog, judge, case, sanction="confiscation")
     assert case.state is CaseState.OPEN, "дело осталось нерассмотренным"
 
 
@@ -242,9 +257,7 @@ async def test_acquittal_is_also_verdict(
     """There are no hanging cases: each ends with a decision."""
     city, _, judge, plaintiff, defendant, _ = await _court(session, catalog)
     case = await justice.sue(session, constants, city, plaintiff, defendant, "напраслина")
-    penalty = await justice.judge(
-        session, constants, catalog, judge, case, verdict="не доказано"
-    )
+    penalty = await justice.judge(session, constants, catalog, judge, case, verdict="не доказано")
     assert penalty is None
     assert case.state is CaseState.DISMISSED
     assert case.verdict == "не доказано"
@@ -274,8 +287,13 @@ async def test_court_right_granted_separately(
     await world.grant_item(session, yard, town.HALL, quality=60, origin="тест")
     judge_body = await _body(session, judge)
     await town.appoint(
-        session, judge, city, magistrate, title="Мировой судья",
-        powers=[Power.JUSTICE.value], body=judge_body,
+        session,
+        judge,
+        city,
+        magistrate,
+        title="Мировой судья",
+        powers=[Power.JUSTICE.value],
+        body=judge_body,
     )
     case = await justice.sue(session, constants, city, plaintiff, defendant, "спор")
     await justice.judge(

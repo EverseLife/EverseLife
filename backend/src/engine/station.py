@@ -31,9 +31,11 @@ from __future__ import annotations
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.constants import Catalog
+from src.constants import Catalog, current
+from src.constants import registry as R
 from src.constants.catalog import ItemKind
-from src.engine import events, travel, world
+from src.engine import city as town
+from src.engine import craft, estate, events, storage, travel, world
 from src.engine.errors import Refusal
 from src.models.city import Power
 from src.models.event import EventKind
@@ -95,29 +97,22 @@ async def may_build(session: AsyncSession, body: Body, node: Node) -> bool:
     work on it is open to everyone: whoever comes may put up a machine. What is
     placed belongs to whoever placed it -- the ground under it, to nobody.
     """
-    from src.engine import city as town
 
     if node.owner_identity_id is not None:
         return node.owner_identity_id == body.identity_id
     if node.owner_city_id is None:
         return True
     city = await town.by_id(session, node.owner_city_id)
-    return city is not None and await town.may(
-        session, body.identity_id, city, Power.LAWS
-    )
+    return city is not None and await town.may(session, body.identity_id, city, Power.LAWS)
 
 
-async def place(
-    session: AsyncSession, catalog: Catalog, body: Body, item: Item
-) -> Item:
+async def place(session: AsyncSession, catalog: Catalog, body: Body, item: Item) -> Item:
     """Place a machine or furniture from the hands into the node's building.
 
     In person: machines are not teleported. Requires a building with free
     room: a machine takes area, and it does not stand in a yard under the open
     sky (D-106).
     """
-    from src.constants import current
-    from src.engine import estate
 
     if body.state is not BodyState.ALIVE:
         raise StationError("мёртвое тело ничего не ставит")
@@ -128,8 +123,7 @@ async def place(
         raise StationError("этой вещи нет в руках")
     if not placeable(catalog, item.type_key):
         raise NotStation(
-            f"«{item.type_key}» — не рабочая станция и не мебель: "
-            "в здание ставят оборудование"
+            f"«{item.type_key}» — не рабочая станция и не мебель: в здание ставят оборудование"
         )
 
     node = await session.get(Node, body.node_id)
@@ -146,12 +140,8 @@ async def place(
     constants = current()
     in_total, occupied = await estate.slots(session, constants, node)
     if in_total <= 0:
-        raise estate.NoBuilding(
-            "на участке нет здания: сначала строят, потом обставляют"
-        )
+        raise estate.NoBuilding("на участке нет здания: сначала строят, потом обставляют")
     if occupied >= in_total:
-        from src.constants import registry as R
-
         raise estate.NoRoom(
             f"в здании {in_total} мест по {constants[R.BUILD_SLOTS_PER_AREA]:g} м², "
             "и все заняты: стройте больше либо уносите лишнее"
@@ -170,15 +160,12 @@ async def place(
         type_key=item.type_key,
     )
     #: A machine appeared: whoever stood here waiting for one gets it (D-209).
-    from src.engine import craft
 
     await craft.wake_node(session, node)
     return item
 
 
-async def take(
-    session: AsyncSession, catalog: Catalog, body: Body, item: Item
-) -> Item:
+async def take(session: AsyncSession, catalog: Catalog, body: Body, item: Item) -> Item:
     """Take a machine or furniture back into the hands. One busy with work is not given up."""
     if body.state is not BodyState.ALIVE:
         raise StationError("мёртвое тело ничего не уносит")
@@ -199,14 +186,8 @@ async def take(
     #: A full chest is not carried away (D-181): otherwise "take the furniture"
     #: would become a way to carry a ton of cargo in the pocket past the carry limit (D-146).
 
-    from src.engine import storage
-
-    if storage.is_storage(catalog, item.type_key) and not await storage.is_empty(
-        session, item
-    ):
-        raise NotEmpty(
-            f"в «{item.type_key}» лежат вещи: сначала разберите, потом уносите"
-        )
+    if storage.is_storage(catalog, item.type_key) and not await storage.is_empty(session, item):
+        raise NotEmpty(f"в «{item.type_key}» лежат вещи: сначала разберите, потом уносите")
 
     pocket = await world.body_container(session, body)
     item.container_id = pocket.id

@@ -38,7 +38,10 @@ SPELT = "spelt"
 async def _farm(session: AsyncSession, *, area: float = 100, nursery: bool = False):
     stamp = uuid.uuid4().hex[:8]
     node = await world.create_node(
-        session, f"terra.field.{stamp}", "Поле", area_m2=area * 4,
+        session,
+        f"terra.field.{stamp}",
+        "Поле",
+        area_m2=area * 4,
         properties={"вода": "река", "плодородие": 60},
     )
     if nursery:
@@ -59,8 +62,14 @@ async def _seeds(
 
 
 async def _until_harvest(
-    session: AsyncSession, constants: Constants, catalog: Catalog, body, seeds: Item,
-    *, area: float = 100, care_count: int | None = None,
+    session: AsyncSession,
+    constants: Constants,
+    catalog: Catalog,
+    body,
+    seeds: Item,
+    *,
+    area: float = 100,
+    care_count: int | None = None,
 ):
     """Survey, plough, sow and bring the plot to ripeness."""
     plot = await farm.mark(session, constants, body, name="Делянка", area=area)
@@ -71,9 +80,7 @@ async def _until_harvest(
     plant = catalog.plants.by_id(plot.culture_id)
     #: Care by the test's hands: the round itself is checked in the farming tests.
     plot.care_credits = int(plant.cycle_days) if care_count is None else care_count
-    moment = datetime.now(UTC) + timedelta(
-        hours=plant.cycle_days * constants[R.TIME_DAY_TERRA] + 1
-    )
+    moment = datetime.now(UTC) + timedelta(hours=plant.cycle_days * constants[R.TIME_DAY_TERRA] + 1)
     return plot, moment
 
 
@@ -105,9 +112,7 @@ async def test_cannot_sow_harvest(
     """Grain is food, not sowing material: it has no cultivar."""
     _, _, body = await _farm(session)
     pocket = await world.body_container(session, body)
-    grain = await world.grant_item(
-        session, pocket, "Зерно", amount=500, quality=50, origin="тест"
-    )
+    grain = await world.grant_item(session, pocket, "Зерно", amount=500, quality=50, origin="тест")
     plot = await farm.mark(session, constants, body, name="Делянка", area=50)
     plot.state = PlotState.PLOWED
     await session.flush()
@@ -131,12 +136,14 @@ async def test_harvest_leaves_own_seed(
     plant = catalog.plants.by_id(SPELT)
     pocket = await world.body_container(session, body)
     fund = (
-        await session.execute(
-            select(Item).where(
-                Item.container_id == pocket.id, Item.type_key == plant.seed
+        (
+            await session.execute(
+                select(Item).where(Item.container_id == pocket.id, Item.type_key == plant.seed)
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     new_ = sum(amount_float(i_.amount) for i_ in fund if i_.id != seeds.id)
     assert new_ == pytest.approx(
         collected * constants[R.FARM_HARVEST_SEED_SHARE] / PERCENT, rel=0.01
@@ -192,12 +199,8 @@ async def test_weak_seed_yields_less(
 
     plot_a, moment_a = await _until_harvest(session, constants, catalog, full, many)
     plot_b, moment_b = await _until_harvest(session, constants, catalog, weak, little)
-    harvest_a = await farm.harvest(
-        session, constants, catalog, full, plot_a, now=moment_a
-    )
-    harvest_b = await farm.harvest(
-        session, constants, catalog, weak, plot_b, now=moment_b
-    )
+    harvest_a = await farm.harvest(session, constants, catalog, full, plot_a, now=moment_a)
+    harvest_b = await farm.harvest(session, constants, catalog, weak, plot_b, now=moment_b)
     assert harvest_b == pytest.approx(harvest_a / 2, rel=0.01)
 
 
@@ -221,16 +224,18 @@ async def test_crossing_takes_cycle_and_needs_nursery(
     #: The moment is set explicitly: the database sets `started_at`, and its
     #: `now()` is frozen for the transaction -- comparing it with the test clock is pointless.
     start = datetime.now(UTC)
-    nursery = await breed.cross(
-        session, constants, catalog, breeder, one, other, now=start
-    )
+    nursery = await breed.cross(session, constants, catalog, breeder, one, other, now=start)
 
     plant = catalog.plants.by_id(SPELT)
     cycle = timedelta(hours=plant.cycle_days * constants[R.TIME_DAY_TERRA])
     assert nursery.ready_at == start + cycle
     with pytest.raises(breed.BreedError):
         await breed.gather_cross(
-            session, constants, catalog, breeder, nursery,
+            session,
+            constants,
+            catalog,
+            breeder,
+            nursery,
             now=nursery.started_at,
         )
 
@@ -247,8 +252,13 @@ async def test_too_similar_cultivar_does_not_sprout(
     #: The parents are one and the same base cultivar: the offspring is indistinguishable from it.
     nursery = await breed.cross(session, constants, catalog, body, a, b)
     came_out = await breed.gather_cross(
-        session, constants, catalog, body, nursery,
-        now=nursery.ready_at, rng=random.Random(1),
+        session,
+        constants,
+        catalog,
+        body,
+        nursery,
+        now=nursery.ready_at,
+        rng=random.Random(1),
     )
     assert came_out is None, "неотличимое не прорастает"
     assert nursery.done and nursery.result_variety_id is None
@@ -266,8 +276,11 @@ async def test_different_parents_give_new_cultivar(
         name="Скороспелка",
         generation=0,
         stable=True,
-        traits={**base.traits, "yield_per_m2": base.traits["yield_per_m2"] * 2,
-                "cycle_days": base.traits["cycle_days"] / 2},
+        traits={
+            **base.traits,
+            "yield_per_m2": base.traits["yield_per_m2"] * 2,
+            "cycle_days": base.traits["cycle_days"] / 2,
+        },
     )
     session.add(other)
     await session.flush()
@@ -276,8 +289,13 @@ async def test_different_parents_give_new_cultivar(
     b = await _seeds(session, catalog, body, other)
     nursery = await breed.cross(session, constants, catalog, body, a, b)
     hybrid = await breed.gather_cross(
-        session, constants, catalog, body, nursery,
-        now=nursery.ready_at, rng=random.Random(7),
+        session,
+        constants,
+        catalog,
+        body,
+        nursery,
+        now=nursery.ready_at,
+        rng=random.Random(7),
     )
 
     assert hybrid is not None, "разные родители дают различимое потомство"
@@ -300,8 +318,12 @@ async def test_name_only_for_stable_cultivar_and_only_by_author(
     _, _, foreign = await _farm(session)
     base = await breed.landrace(session, catalog, SPELT)
     hybrid = Variety(
-        culture_id=SPELT, name=None, generation=1, stable=False,
-        traits=base.traits, author_identity_id=author.identity_id,
+        culture_id=SPELT,
+        name=None,
+        generation=1,
+        stable=False,
+        traits=base.traits,
+        author_identity_id=author.identity_id,
     )
     session.add(hybrid)
     await session.flush()

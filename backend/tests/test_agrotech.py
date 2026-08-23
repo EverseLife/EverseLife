@@ -34,7 +34,10 @@ SPELT = "spelt"
 async def _field(session: AsyncSession, *, library: bool = False, nursery: bool = False):
     stamp = uuid.uuid4().hex[:8]
     node = await world.create_node(
-        session, f"terra.agro.{stamp}", "Поле", area_m2=400,
+        session,
+        f"terra.agro.{stamp}",
+        "Поле",
+        area_m2=400,
         properties={"вода": "река", "плодородие": 30, "library": library},
     )
     if nursery:
@@ -133,10 +136,15 @@ async def test_bred_agrotech_known_only_to_author(
     from src.models.plant import Variety
 
     other = Variety(
-        culture_id=SPELT, name="Скороспелка", stable=True, generation=0,
-        traits={**base.traits,
-                "yield_per_m2": base.traits["yield_per_m2"] * 2,
-                "cycle_days": base.traits["cycle_days"] / 2},
+        culture_id=SPELT,
+        name="Скороспелка",
+        stable=True,
+        generation=0,
+        traits={
+            **base.traits,
+            "yield_per_m2": base.traits["yield_per_m2"] * 2,
+            "cycle_days": base.traits["cycle_days"] / 2,
+        },
     )
     session.add(other)
     await session.flush()
@@ -146,8 +154,13 @@ async def test_bred_agrotech_known_only_to_author(
     b = await breed.seed_lot(session, catalog, pocket.id, other, 500, PERCENT)
     nursery = await breed.cross(session, constants, catalog, author, a, b)
     hybrid = await breed.gather_cross(
-        session, constants, catalog, author, nursery,
-        now=nursery.ready_at, rng=random.Random(7),
+        session,
+        constants,
+        catalog,
+        author,
+        nursery,
+        now=nursery.ready_at,
+        rng=random.Random(7),
     )
     assert hybrid is not None
 

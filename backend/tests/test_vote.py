@@ -39,12 +39,20 @@ async def _city(session: AsyncSession, catalog: Catalog, **charter):
         session, f"terra.{stamp}", "Терра", area_m2=1, layer=Layer.SPACE
     )
     delegate = await world.create_node(
-        session, f"terra.city.{stamp}", "Вече", area_m2=1,
-        layer=Layer.PLANET, parent=planet,
+        session,
+        f"terra.city.{stamp}",
+        "Вече",
+        area_m2=1,
+        layer=Layer.PLANET,
+        parent=planet,
     )
     core = await world.create_node(
-        session, f"terra.city.{stamp}.core", "Ядро", area_m2=100,
-        parent=delegate, properties={"кольцо": 0},
+        session,
+        f"terra.city.{stamp}.core",
+        "Ядро",
+        area_m2=100,
+        parent=delegate,
+        properties={"кольцо": 0},
     )
     city = await town.found(session, catalog, delegate, "Вече")
     core.owner_city_id = city.id
@@ -68,9 +76,7 @@ async def _resident(session: AsyncSession, node, city, name: str, *, citizen=Tru
 
 
 async def _convene(session, constants, catalog, city, ruler, body) -> Vote:
-    await town.set_law(
-        session, constants, catalog, ruler, city, LAW, VALUE, body=body
-    )
+    await town.set_law(session, constants, catalog, ruler, city, LAW, VALUE, body=body)
     going = await vote.open_votes(session, city)
     assert len(going) == 1
     return going[0]
@@ -105,9 +111,7 @@ async def test_poll_term_from_vault(
 # --- who has a vote ----------------------------------------------------------
 
 
-async def test_citizens_vote(
-    session: AsyncSession, constants: Constants, catalog: Catalog
-) -> None:
+async def test_citizens_vote(session: AsyncSession, constants: Constants, catalog: Catalog) -> None:
     """Without this democracy is a multi-account contest (01-government-forms)."""
     city, core, ruler, body = await _city(session, catalog)
     poll = await _convene(session, constants, catalog, city, ruler, body)
@@ -123,9 +127,7 @@ async def test_residency_census(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
     """Yesterday's citizen does not decide the city's fate if the charter says so."""
-    city, core, ruler, body = await _city(
-        session, catalog, **{vote.QUALIFICATION: vote.RESIDENCE}
-    )
+    city, core, ruler, body = await _city(session, catalog, **{vote.QUALIFICATION: vote.RESIDENCE})
     city.charter_params = {vote.QUALIFICATION: 30}
     await session.flush()
 
@@ -141,9 +143,7 @@ async def test_residency_census(
 async def test_property_census(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    city, core, _, _ = await _city(
-        session, catalog, **{vote.QUALIFICATION: vote.PROPERTY}
-    )
+    city, core, _, _ = await _city(session, catalog, **{vote.QUALIFICATION: vote.PROPERTY})
     city.charter_params = {vote.QUALIFICATION: 100}
     await session.flush()
 
@@ -152,8 +152,12 @@ async def test_property_census(
     account = await ledger.account_for(session, AccountKind.IDENTITY, wealthy.id)
     genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
     await ledger.transfer(
-        session, PostingReason.GENESIS,
-        debit=genesis.id, credit=account.id, amount=money(500), memo={},
+        session,
+        PostingReason.GENESIS,
+        debit=genesis.id,
+        credit=account.id,
+        amount=money(500),
+        memo={},
     )
 
     assert not await vote.may_vote(session, city, poor_.id)
@@ -198,9 +202,7 @@ async def test_quorum_not_met(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
     """A minority does not decide for the city if the charter requires a quorum."""
-    city, core, ruler, body = await _city(
-        session, catalog, **{vote.QUORUM: "share"}
-    )
+    city, core, ruler, body = await _city(session, catalog, **{vote.QUORUM: "share"})
     city.charter_params = {vote.QUORUM: 60}
     await session.flush()
     for number in range(4):
@@ -262,12 +264,16 @@ async def _bring(session: AsyncSession, poll: Vote) -> None:
     from src.models.job import Job, JobKind, JobState
 
     job = (
-        await session.execute(
-            select(Job).where(
-                Job.kind == JobKind.VOTE_CLOSE.value, Job.state == JobState.PENDING
+        (
+            await session.execute(
+                select(Job).where(
+                    Job.kind == JobKind.VOTE_CLOSE.value, Job.state == JobState.PENDING
+                )
             )
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
     assert job is not None
     await vote.close(session, job)
     job.state = JobState.DONE
@@ -308,9 +314,7 @@ async def test_elected_gets_authority(
     assert await town.may(session, rival.id, city, "laws"), (
         "избранный получает набор прежнего правителя"
     )
-    assert not await town.may(session, ruler.id, city, "laws"), (
-        "прежняя должность сложена"
-    )
+    assert not await town.may(session, ruler.id, city, "laws"), "прежняя должность сложена"
 
 
 async def test_only_citizens_nominated(
@@ -394,7 +398,7 @@ async def test_recall_forbidden_by_charter_not_convened(
 async def test_term_of_office_removes_post_itself(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """"Elected for thirty days" must not mean "until they remember themselves"."""
+    """ "Elected for thirty days" must not mean "until they remember themselves"."""
     from sqlalchemy import select as _select
 
     from src.models.job import Job, JobKind, JobState
@@ -411,12 +415,16 @@ async def test_term_of_office_removes_post_itself(
     await _bring(session, election)
 
     term = (
-        await session.execute(
-            _select(Job).where(
-                Job.kind == JobKind.RULER_TERM.value, Job.state == JobState.PENDING
+        (
+            await session.execute(
+                _select(Job).where(
+                    Job.kind == JobKind.RULER_TERM.value, Job.state == JobState.PENDING
+                )
             )
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
     assert term is not None, "срок поставлен при вступлении в должность"
 
     await town.term_ended(session, term)
@@ -437,8 +445,13 @@ async def test_charter_edited_by_vote(
     #: We change the recall from the default "not allowed" to "by citizens'
     #: vote": a ruler given the charter would not have done that to themselves.
     await town.set_charter(
-        session, catalog, ruler, city, vote.RECALL_RULE,
-        vote.RECALL_BY_CITIZENS, body=body,
+        session,
+        catalog,
+        ruler,
+        city,
+        vote.RECALL_RULE,
+        vote.RECALL_BY_CITIZENS,
+        body=body,
     )
     assert city.charter[vote.RECALL_RULE] != vote.RECALL_BY_CITIZENS, (
         "правка ушла на голосование, а не применилась"
@@ -451,9 +464,7 @@ async def test_charter_edited_by_vote(
     await vote.cast(session, city, ruler, poll, True)
     await vote.cast(session, city, supporter, poll, True)
     await _bring(session, poll)
-    assert city.charter[vote.RECALL_RULE] == vote.RECALL_BY_CITIZENS, (
-        "принятое применилось само"
-    )
+    assert city.charter[vote.RECALL_RULE] == vote.RECALL_BY_CITIZENS, "принятое применилось само"
 
 
 async def test_two_thirds_not_reached(
@@ -466,8 +477,13 @@ async def test_two_thirds_not_reached(
     contra, _ = await _resident(session, core, city, "Против")
 
     await town.set_charter(
-        session, catalog, ruler, city, vote.RECALL_RULE,
-        vote.RECALL_BY_CITIZENS, body=body,
+        session,
+        catalog,
+        ruler,
+        city,
+        vote.RECALL_RULE,
+        vote.RECALL_BY_CITIZENS,
+        body=body,
     )
     poll = (await vote.open_votes(session, city))[0]
     await vote.cast(session, city, ruler, poll, True)
@@ -488,8 +504,13 @@ async def test_sealed_charter_does_not_change(
 
     with pytest.raises(vote.Sealed):
         await town.set_charter(
-            session, catalog, ruler, city, vote.RECALL_RULE,
-            vote.RECALL_BY_CITIZENS, body=body,
+            session,
+            catalog,
+            ruler,
+            city,
+            vote.RECALL_RULE,
+            vote.RECALL_BY_CITIZENS,
+            body=body,
         )
 
 
@@ -523,9 +544,7 @@ async def test_ruler_seats_council_no_more_than_charter_seats(
 async def test_elective_council_fills_as_many_as_seats(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    city, core, ruler, _ = await _with_council(
-        session, catalog, seats=2, how=vote.ELECTED_COUNCIL
-    )
+    city, core, ruler, _ = await _with_council(session, catalog, seats=2, how=vote.ELECTED_COUNCIL)
     a, _ = await _resident(session, core, city, "А")
     b, _ = await _resident(session, core, city, "Б")
     v_, _ = await _resident(session, core, city, "В")
@@ -572,7 +591,7 @@ async def test_council_approves_law_instead_of_citizens(
 async def test_council_member_proposes_law_without_laws_right(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """"The council proposes" means as many legislators as seats."""
+    """ "The council proposes" means as many legislators as seats."""
     city, core, ruler, _ = await _with_council(
         session, catalog, seats=2, how=vote.APPOINTED_COUNCIL
     )
@@ -583,13 +602,25 @@ async def test_council_member_proposes_law_without_laws_right(
     #: Without a council seat there are no rights at all.
     with pytest.raises(town.NotAllowed):
         await town.set_law(
-            session, constants, catalog, councillor, city, LAW, VALUE,
+            session,
+            constants,
+            catalog,
+            councillor,
+            city,
+            LAW,
+            VALUE,
             body=councillor_body,
         )
 
     await vote.appoint_to_council(session, city, ruler, councillor)
     await town.set_law(
-        session, constants, catalog, councillor, city, LAW, VALUE,
+        session,
+        constants,
+        catalog,
+        councillor,
+        city,
+        LAW,
+        VALUE,
         body=councillor_body,
     )
     assert await vote.open_votes(session, city), "внесённое ушло на голосование"
@@ -604,15 +635,11 @@ async def test_empty_chamber_does_not_lock_laws(
     is applied by whoever proposed it. Otherwise a city that answered "the
     council approves" and did not assemble one would stay without legislation forever.
     """
-    city, _, ruler, body = await _with_council(
-        session, catalog, seats=0, how=vote.ELECTED_COUNCIL
-    )
+    city, _, ruler, body = await _with_council(session, catalog, seats=0, how=vote.ELECTED_COUNCIL)
     city.charter = {**city.charter, vote.APPROVAL: vote.BY_COUNCIL}
     await session.flush()
 
-    await town.set_law(
-        session, constants, catalog, ruler, city, LAW, VALUE, body=body
-    )
+    await town.set_law(session, constants, catalog, ruler, city, LAW, VALUE, body=body)
     assert not await vote.open_votes(session, city), "голосовать некому"
     assert (city.laws or {}).get(LAW) == VALUE
 
@@ -684,9 +711,7 @@ async def test_empty_chamber_does_not_lock_authority(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
     """A charter that cannot be executed literally is executed by meaning (D-165)."""
-    city, _, ruler, _ = await _with_council(
-        session, catalog, seats=0, how=vote.ELECTED_COUNCIL
-    )
+    city, _, ruler, _ = await _with_council(session, catalog, seats=0, how=vote.ELECTED_COUNCIL)
     city.charter = {**city.charter, vote.SELECTION: vote.ELECTED_BY_COUNCIL}
     await session.flush()
 

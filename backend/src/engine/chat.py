@@ -43,7 +43,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Constants
 from src.constants import registry as R
-from src.engine import events, travel
+from src.engine import events, luck, travel
 from src.engine.errors import Refusal
 from src.models.chat import ChatGroup, ChatMember, ChatMessage, Utterance
 from src.models.identity import Body, BodyState, Identity
@@ -144,7 +144,6 @@ async def say(
             #: A memory of its own (D-213): a circle that leaked three times
             #: running is not a circle any more, and one that never leaks is
             #: not a secret worth keeping.
-            from src.engine import luck
 
             leaked = await luck.hit(session, body.identity_id, luck.CHAT_LEAK, chance, dice=noise)
 

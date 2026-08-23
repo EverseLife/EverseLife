@@ -91,8 +91,10 @@ async def test_delay_is_the_road_times_the_constant(
     from src.models.job import Job, JobKind
 
     jobs = (
-        await session.execute(select(Job).where(Job.kind == JobKind.NET_DELIVER.value))
-    ).scalars().all()
+        (await session.execute(select(Job).where(Job.kind == JobKind.NET_DELIVER.value)))
+        .scalars()
+        .all()
+    )
     assert [(j.run_at, j.payload) for j in jobs] == [
         (letter.delivered_at, {"identity": str(other.id), "event": "net.letter"})
     ]

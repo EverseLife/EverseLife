@@ -101,7 +101,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants, current, current_catalog
 from src.constants import registry as R
-from src.engine import events, travel, world
+from src.engine import city as town
+from src.engine import craft, events, food, luck, occupation, transport, travel, world
+from src.engine import ship as vessels
 from src.engine.errors import Refusal
 from src.engine.jobs import enqueue, handler
 from src.models.event import EventKind
@@ -150,14 +152,18 @@ class NotOut(ExploreError):
 async def pending(session: AsyncSession, body: Body) -> Job | None:
     """This body's ongoing run, if any."""
     return (
-        await session.execute(
-            select(Job).where(
-                Job.kind == JobKind.EXPLORE_SURVEY.value,
-                Job.body_id == body.id,
-                Job.state == JobState.PENDING,
+        (
+            await session.execute(
+                select(Job).where(
+                    Job.kind == JobKind.EXPLORE_SURVEY.value,
+                    Job.body_id == body.id,
+                    Job.state == JobState.PENDING,
+                )
             )
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
 
 
 async def survey(
@@ -194,7 +200,6 @@ async def survey(
     #: A run is an occupation (D-211): the scout leaves in person, and a body
     #: with a plot under the plough or a batch at the bench has no hands to
     #: leave with.
-    from src.engine import occupation
 
     await occupation.require_free(session, body, besides=frozenset({occupation.FIELD}))
 
@@ -206,32 +211,21 @@ async def survey(
     #: one left from, and an edge out of a ship node would be a second way in
     #: -- the connector must stay the only one, or the inspection at the
     #: gangway is walked around. There is no land under a hull to explore anyway.
-    from src.engine import ship as vessels
 
     if vessels.is_aboard(origin):
         raise ExploreError(
-            "с борта не разведывают: под кораблём земли нет. "
-            "Сойдите в порту и идите от него"
+            "с борта не разведывают: под кораблём земли нет. Сойдите в порту и идите от него"
         )
 
     #: The refusal must come at once, not on return: an impossible goal is
     #: visible before leaving, and the player must not spend stamina on it.
-    if goal == LOT:
-        from src.engine import city as town
-
-        if await town.of_node(session, origin) is None:
-            raise ExploreError(
-                "участок ищут в городе: за стенами городской застройки нет"
-            )
+    if goal == LOT and await town.of_node(session, origin) is None:
+        raise ExploreError("участок ищут в городе: за стенами городской застройки нет")
     if await pending(session, body) is not None:
         raise AlreadyOut("заход уже идёт: дождитесь возвращения")
 
-    from src.engine import food
-
     minutes = _minutes(constants, origin, random.Random())
-    spend = _stamina(constants, minutes) * food.drain_multiplier(
-        constants, body, moment
-    )
+    spend = _stamina(constants, minutes) * food.drain_multiplier(constants, body, moment)
     #: A shortage of strength does not lock the run but lengthens it: what was
     #: missing the scout sleeps off in the field per `body.hibernation_rate` and continues.
     have = float(body.stamina)
@@ -250,18 +244,11 @@ async def survey(
     #: Three things multiply into it, and they answer different questions: how
     #: trodden the surroundings are (D-156), how rare the sought species is
     #: (D-151), and how crowded the place the find will hang on already is (D-207).
-    press = await crowding(
-        session, constants, await anchor_of(session, origin, goal)
-    )
-    odds = (
-        chance(constants, origin)
-        * _aim(constants, current_catalog(), goal, resource)
-        * press
-    )
+    press = await crowding(session, constants, await anchor_of(session, origin, goal))
+    odds = chance(constants, origin) * _aim(constants, current_catalog(), goal, resource) * press
     will_return = moment + timedelta(minutes=minutes)
     #: In the field the scout is not at the machine: the running batch
     #: freezes and waits for the return (D-209).
-    from src.engine import craft
 
     await craft.freeze(session, body, now=moment)
     event = await events.record(
@@ -319,11 +306,8 @@ async def returned(session: AsyncSession, job: Job) -> None:
     #: The chance has a memory (D-213): it grows with every empty run and
     #: resets on a find, so the announced percent stays the mean and the
     #: twelve-run drought stops happening.
-    from src.engine import luck
 
-    if not await luck.hit(
-        session, body.identity_id, luck.EXPLORE_FIND, float(odds), dice=dice
-    ):
+    if not await luck.hit(session, body.identity_id, luck.EXPLORE_FIND, float(odds), dice=dice):
         await events.record(
             session,
             EventKind.EXPLORE_EMPTY,
@@ -333,7 +317,6 @@ async def returned(session: AsyncSession, job: Job) -> None:
             resource=requested,
         )
         #: Back at the exit node with empty hands: the frozen work goes on (D-209).
-        from src.engine import craft
 
         await craft.wake(session, body, now=job.run_at)
         return
@@ -351,7 +334,12 @@ async def returned(session: AsyncSession, job: Job) -> None:
         )
     )
     found = await _place(
-        session, constants, dice, origin, goal=goal, vein=with_vein,
+        session,
+        constants,
+        dice,
+        origin,
+        goal=goal,
+        vein=with_vein,
         who=body.identity_id,
     )
 
@@ -391,9 +379,7 @@ async def returned(session: AsyncSession, job: Job) -> None:
     #: -- which is exactly how the capital ended up with two ways out. The same
     #: node the chance was measured against at departure (D-207).
     anchor = await anchor_of(session, origin, goal)
-    await travel.connect(
-        session, anchor, found, base_seconds=seconds, surface=coverage
-    )
+    await travel.connect(session, anchor, found, base_seconds=seconds, surface=coverage)
 
     #: The surroundings became one find poorer -- for everyone who leaves from
     #: here next (D-156). Only luck counts: an empty run depletes nothing,
@@ -411,7 +397,6 @@ async def returned(session: AsyncSession, job: Job) -> None:
     #: The convoy follows, as in an ordinary transit (D-157): otherwise it would
     #: stay standing in the exit node, and the body would be "harnessed" to a
     #: wagon half a map away.
-    from src.engine import transport
 
     convoy = await transport.harnessed(session, body)
     if convoy is not None:
@@ -436,7 +421,6 @@ async def returned(session: AsyncSession, job: Job) -> None:
     #: The scout stands in the find now, not at the machine they left: what
     #: waited there stays frozen until they walk back (D-209). Whatever of
     #: theirs waited **here** -- unlikely, but possible -- goes on.
-    from src.engine import craft
 
     await craft.wake(session, body, now=job.run_at)
 
@@ -465,7 +449,6 @@ async def cancel(session: AsyncSession, body: Body) -> Job:
         resource=run.payload.get("resource"),
     )
     #: Turned back: the body is at the machine again, the frozen work goes on (D-209).
-    from src.engine import craft
 
     await craft.wake(session, body, now=run.finished_at)
     return run
@@ -484,9 +467,7 @@ def chance(constants: Constants, node: Node) -> float:
     eternal (D-007).
     """
     decline = constants[R.EXPLORE_FIND_DECAY] ** found_here(node)
-    return max(
-        constants[R.EXPLORE_FIND_FLOOR], constants[R.EXPLORE_FIND_CHANCE] * decline
-    )
+    return max(constants[R.EXPLORE_FIND_FLOOR], constants[R.EXPLORE_FIND_CHANCE] * decline)
 
 
 async def anchor_of(session: AsyncSession, origin: Node, goal: str) -> Node:
@@ -503,9 +484,7 @@ async def anchor_of(session: AsyncSession, origin: Node, goal: str) -> Node:
     return gate if gate is not None else origin
 
 
-async def crowding(
-    session: AsyncSession, constants: Constants, node: Node
-) -> float:
+async def crowding(session: AsyncSession, constants: Constants, node: Node) -> float:
     """Chance multiplier for the crowding of the graph around this node (D-207).
 
     A find is an edge, and edges pile up where everybody wants to be: at the
@@ -519,16 +498,15 @@ async def crowding(
     never search from again.
     """
     edges = (
-        await session.execute(
-            select(Edge).where(
-                or_(Edge.node_a_id == node.id, Edge.node_b_id == node.id)
+        (
+            await session.execute(
+                select(Edge).where(or_(Edge.node_a_id == node.id, Edge.node_b_id == node.id))
             )
         )
-    ).scalars().all()
-    neighbours = {
-        edge.node_b_id if edge.node_a_id == node.id else edge.node_a_id
-        for edge in edges
-    }
+        .scalars()
+        .all()
+    )
+    neighbours = {edge.node_b_id if edge.node_a_id == node.id else edge.node_a_id for edge in edges}
     degree = len(edges)
 
     #: The neighbours' degrees, in one query: every endpoint that falls inside the
@@ -536,18 +514,21 @@ async def crowding(
     around = 0
     if neighbours:
         rows = (
-            await session.execute(
-                select(Edge).where(
-                    or_(
-                        Edge.node_a_id.in_(neighbours),
-                        Edge.node_b_id.in_(neighbours),
+            (
+                await session.execute(
+                    select(Edge).where(
+                        or_(
+                            Edge.node_a_id.in_(neighbours),
+                            Edge.node_b_id.in_(neighbours),
+                        )
                     )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         incidences = sum(
-            (edge.node_a_id in neighbours) + (edge.node_b_id in neighbours)
-            for edge in rows
+            (edge.node_a_id in neighbours) + (edge.node_b_id in neighbours) for edge in rows
         )
         #: Minus the edges leading back here: those are already counted as `degree`.
         around = max(0, incidences - len(neighbours))
@@ -633,15 +614,11 @@ def mineable(catalog: Catalog) -> tuple[str, ...]:
     The engine keeps no species list: add a fifth in the vault and it appears
     both in the goal choice and in finds, without a code change (D-151).
     """
-    operation = next(
-        (op for op in catalog.recipes.operations if op.name == MINING_OPERATION), None
-    )
+    operation = next((op for op in catalog.recipes.operations if op.name == MINING_OPERATION), None)
     return tuple(operation.gives) if operation is not None else ()
 
 
-def _aim(
-    constants: Constants, catalog: Catalog, goal: str, requested: str | None
-) -> float:
+def _aim(constants: Constants, catalog: Catalog, goal: str, requested: str | None) -> float:
     """Chance multiplier for aiming.
 
     A named species is found worse than an unnamed one, and exactly as many
@@ -681,7 +658,6 @@ async def _place(
     planet and stays unowned -- the finder gets the right of first night, not
     ownership (D-152).
     """
-    from src.engine import city as town
 
     #: The node key must be stable and unique forever: the map is eternal,
     #: there are no wipes (D-007), and "wild plot 3" will sooner or later collide.
@@ -745,15 +721,12 @@ async def _properties(
     always where the woods are what the scout went looking for: the world gets
     forested without anybody asking, and timber becomes geography.
     """
-    from src.engine import luck
 
     budget = constants[R.SITE_QUALITY_BUDGET]
     #: Each of the place's signs is a chance with a memory (D-213): a scout
     #: who never once found a river is the same complaint as one who never
     #: found anything.
-    river = await luck.hit(
-        session, who, luck.SITE_RIVER, constants[R.SITE_RIVER_SHARE], dice=dice
-    )
+    river = await luck.hit(session, who, luck.SITE_RIVER, constants[R.SITE_RIVER_SHARE], dice=dice)
     for_water = dice.uniform(0, budget) if river else 0.0
     for_land = max(0.0, budget - for_water)
 
@@ -795,9 +768,7 @@ async def _resource(
     it would diverge from the first.
     """
     paces = constants[R.HARVEST_RATES]
-    operation = next(
-        (op for op in catalog.recipes.operations if op.name == MINING_OPERATION), None
-    )
+    operation = next((op for op in catalog.recipes.operations if op.name == MINING_OPERATION), None)
     if_missing = "Камень"
     if operation is None:  # pragma: no cover -- the mining operation exists by construction
         return if_missing
@@ -806,7 +777,6 @@ async def _resource(
         return if_missing
     #: Dealt from a deck by the same weights (D-213): the rare stays rare, but
     #: "six iron veins and never a copper one" is no longer a thing.
-    from src.engine import luck
 
     return await luck.draw(
         session,

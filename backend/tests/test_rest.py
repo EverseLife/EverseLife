@@ -39,9 +39,7 @@ async def _tired(session: AsyncSession, *, stamina: float = 40, bed: bool = Fals
     return node, body
 
 
-async def test_sleep_restores_over_time(
-    session: AsyncSession, constants: Constants
-) -> None:
+async def test_sleep_restores_over_time(session: AsyncSession, constants: Constants) -> None:
     """Credited on waking, by actual hours -- offline and without a tick."""
     _, body = await _tired(session, stamina=40)
     lay_down = datetime.now(UTC)
@@ -91,11 +89,10 @@ async def test_sleeper_unavailable_for_in_person(
     node, body = await _tired(session)
     vein = await world.create_vein(session, node, "Железная руда", richness=60, remaining=1000)
     pocket = await world.body_container(session, body)
-    await world.grant_item(
-        session, pocket, "Каменная кирка", quality=50, origin="сценарий теста"
+    await world.grant_item(session, pocket, "Каменная кирка", quality=50, origin="сценарий теста")
+    adjacent = await world.create_node(
+        session, f"terra.next.{uuid.uuid4().hex[:6]}", "Рядом", area_m2=50
     )
-    adjacent = await world.create_node(session, f"terra.next.{uuid.uuid4().hex[:6]}",
-                                       "Рядом", area_m2=50)
     await travel.connect(session, node, adjacent, base_seconds=10)
 
     await rest.sleep(session, constants, body)
@@ -117,8 +114,9 @@ async def test_sleeper_unavailable_for_in_person(
 
 async def test_no_lying_down_en_route(session: AsyncSession, constants: Constants) -> None:
     node, body = await _tired(session)
-    adjacent = await world.create_node(session, f"terra.far.{uuid.uuid4().hex[:6]}",
-                                       "Даль", area_m2=50)
+    adjacent = await world.create_node(
+        session, f"terra.far.{uuid.uuid4().hex[:6]}", "Даль", area_m2=50
+    )
     await travel.connect(session, node, adjacent, base_seconds=600)
     await travel.depart(session, constants, body, adjacent)
     with pytest.raises(travel.InTransit):

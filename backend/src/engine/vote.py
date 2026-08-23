@@ -51,17 +51,19 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.constants import Catalog, Constants
+from src.constants import Catalog, Constants, current
 from src.constants import registry as R
-from src.engine import events
+from src.engine import city as town
+from src.engine import events, ledger
 from src.engine.errors import Refusal
 from src.engine.jobs import enqueue, handler
 from src.models.city import City, CouncilSeat, Power
 from src.models.event import EventKind
 from src.models.identity import Identity
 from src.models.job import Job, JobKind
+from src.models.ledger import AccountKind
 from src.models.vote import Ballot, Vote, VoteKind, VoteState
-from src.units import PERCENT
+from src.units import PERCENT, money
 
 #: Charter questions from which the procedure is assembled.
 APPROVAL = "law_approval"
@@ -112,7 +114,6 @@ async def may_vote(
     Only citizens have a vote (D-160): without that democracy turns into a
     multi-account contest, and the whole political layer loses its value.
     """
-    from src.engine import city as town
 
     moment = now or datetime.now(UTC)
     entry = await town.citizenship(session, identity_id)
@@ -124,14 +125,8 @@ async def may_vote(
         term = timedelta(days=param(city, QUALIFICATION))
         return entry.since + term <= moment
     if census == PROPERTY:
-        from src.engine import ledger
-        from src.models.ledger import AccountKind
-        from src.units import money
-
         account = await ledger.account_for(session, AccountKind.IDENTITY, identity_id)
-        return await ledger.balance(session, account.id) >= money(
-            param(city, QUALIFICATION)
-        )
+        return await ledger.balance(session, account.id) >= money(param(city, QUALIFICATION))
     #: The treasury-contribution census is not enforced: contribution is not
     #: tracked (D-161). Such a city votes with all citizens rather than locking up.
     return True
@@ -148,7 +143,6 @@ async def electorate(
 
     The circle comes in two kinds: all citizens by census, or council members (D-164).
     """
-    from src.engine import city as town
 
     if voters == COUNCIL_VOTERS:
         return [place.identity_id for place in await council_of(session, city)]
@@ -258,9 +252,7 @@ async def cast(
 
     ballot = (
         await session.execute(
-            select(Ballot).where(
-                Ballot.vote_id == vote.id, Ballot.identity_id == identity.id
-            )
+            select(Ballot).where(Ballot.vote_id == vote.id, Ballot.identity_id == identity.id)
         )
     ).scalar_one_or_none()
     if ballot is None:
@@ -299,15 +291,13 @@ async def may_vote_in(
 async def standing(session: AsyncSession, vote: Vote) -> tuple[int, int]:
     """How many for and how many against right now. The poll is open."""
     ballots = (
-        await session.execute(select(Ballot).where(Ballot.vote_id == vote.id))
-    ).scalars().all()
+        (await session.execute(select(Ballot).where(Ballot.vote_id == vote.id))).scalars().all()
+    )
     pro = sum(1 for b in ballots if b.yes)
     return pro, len(ballots) - pro
 
 
-def passes(
-    constants: Constants, vote: Vote, pro: int, contra: int
-) -> tuple[bool, str]:
+def passes(constants: Constants, vote: Vote, pro: int, contra: int) -> tuple[bool, str]:
     """Whether it passed. Returns the decision and the reason -- the player sees it,
     not only the log.
 
@@ -339,14 +329,11 @@ def passes(
 @handler(JobKind.VOTE_CLOSE)
 async def close(session: AsyncSession, job: Job) -> None:
     """The term is up: we count the result and apply it ourselves (D-161)."""
-    from src.engine import city as town
 
     poll = await session.get(Vote, uuid.UUID(job.payload["vote"]))
     if poll is None or poll.state is not VoteState.OPEN:
         #: A job retry after a failure does not become a second decision.
         return
-
-    from src.constants import current
 
     city = await town.by_id(session, poll.city_id)
     pro, contra = await standing(session, poll)
@@ -392,11 +379,11 @@ async def open_votes(session: AsyncSession, city: City) -> list[Vote]:
     return list(
         (
             await session.execute(
-                select(Vote).where(
-                    Vote.city_id == city.id, Vote.state == VoteState.OPEN
-                )
+                select(Vote).where(Vote.city_id == city.id, Vote.state == VoteState.OPEN)
             )
-        ).scalars().all()
+        )
+        .scalars()
+        .all()
     )
 
 
@@ -448,9 +435,7 @@ async def view(
                 "no": contra,
                 "mine": None if mine is None else mine.yes,
                 "voters": poll.voters,
-                "may_vote": await may_vote_in(
-                    session, city, identity_id, poll
-                ),
+                "may_vote": await may_vote_in(session, city, identity_id, poll),
             }
         )
     return result
@@ -502,9 +487,7 @@ async def open_election(
 ) -> Vote:
     """Convene a ruler election. Candidates nominate themselves while the poll runs."""
     if not elects_ruler(city):
-        raise NotElective(
-            "устав города не отдал власть выборам: правитель определяется иначе"
-        )
+        raise NotElective("устав города не отдал власть выборам: правитель определяется иначе")
     return await _open(
         session,
         constants,
@@ -525,7 +508,6 @@ async def open_recall(
     now: datetime | None = None,
 ) -> Vote:
     """Convene a ruler recall. If it passes, the office is vacated and an election follows."""
-    from src.engine import city as town
 
     if not recallable(city):
         raise NotElective("устав города не допускает отзыва правителя")
@@ -602,9 +584,7 @@ async def choose(
 
     ballot = (
         await session.execute(
-            select(Ballot).where(
-                Ballot.vote_id == vote.id, Ballot.identity_id == identity.id
-            )
+            select(Ballot).where(Ballot.vote_id == vote.id, Ballot.identity_id == identity.id)
         )
     ).scalar_one_or_none()
     if ballot is None:
@@ -632,8 +612,8 @@ async def choose(
 async def tally(session: AsyncSession, vote: Vote) -> dict[str, int]:
     """How many votes each has. The poll is open, the tally is visible to all."""
     ballots = (
-        await session.execute(select(Ballot).where(Ballot.vote_id == vote.id))
-    ).scalars().all()
+        (await session.execute(select(Ballot).where(Ballot.vote_id == vote.id))).scalars().all()
+    )
     account: dict[str, int] = {}
     for b in ballots:
         if b.choice_identity_id is None:
@@ -650,7 +630,6 @@ async def _finish_election(session: AsyncSession, vote: Vote, city) -> str:
     would leave the city without a ruler with three candidates. The quorum is
     the common one.
     """
-    from src.engine import city as town
 
     account = await tally(session, vote)
     submitted = sum(account.values())
@@ -677,8 +656,6 @@ async def _finish_election(session: AsyncSession, vote: Vote, city) -> str:
 
 async def _finish_recall(session: AsyncSession, vote: Vote, city, elapsed: bool) -> None:
     """The recall passed -- the office is vacated, and an election is convened at once."""
-    from src.constants import current
-    from src.engine import city as town
 
     if not elapsed:
         return
@@ -808,16 +785,14 @@ async def council_of(session: AsyncSession, city: City) -> list[CouncilSeat]:
                     CouncilSeat.vacated_at.is_(None),
                 )
             )
-        ).scalars().all()
+        )
+        .scalars()
+        .all()
     )
 
 
-async def in_council(
-    session: AsyncSession, city: City, identity_id: uuid.UUID
-) -> bool:
-    return any(
-        place.identity_id == identity_id for place in await council_of(session, city)
-    )
+async def in_council(session: AsyncSession, city: City, identity_id: uuid.UUID) -> bool:
+    return any(place.identity_id == identity_id for place in await council_of(session, city))
 
 
 def voters_for(city: City, kind: VoteKind) -> str:
@@ -842,9 +817,7 @@ def voters_for(city: City, kind: VoteKind) -> str:
     return CITIZENS
 
 
-async def may_propose(
-    session: AsyncSession, city: City, identity_id: uuid.UUID
-) -> bool:
+async def may_propose(session: AsyncSession, city: City, identity_id: uuid.UUID) -> bool:
     """Whether this person may propose laws (`lawmaker`).
 
     The `laws` right always proposes a law -- that is authority. The council is
@@ -856,9 +829,7 @@ async def may_propose(
     return await in_council(session, city, identity_id)
 
 
-async def seat(
-    session: AsyncSession, city: City, who: Identity, *, how: str
-) -> CouncilSeat:
+async def seat(session: AsyncSession, city: City, who: Identity, *, how: str) -> CouncilSeat:
     """Seat a person on the council. No more seats than the charter set."""
     if not has_council(city):
         raise NoCouncil("устав этого города не заводит совета")
@@ -867,8 +838,7 @@ async def seat(
         return next(m for m in occupied_ if m.identity_id == who.id)
     if len(occupied_) >= council_seats(city):
         raise NoCouncil(
-            f"в совете {council_seats(city)} мест, и все заняты: "
-            "сначала освободить место"
+            f"в совете {council_seats(city)} мест, и все заняты: сначала освободить место"
         )
 
     place = CouncilSeat(city_id=city.id, identity_id=who.id, how=how)
@@ -908,12 +878,9 @@ async def appoint_to_council(
     session: AsyncSession, city: City, by: Identity, who: Identity
 ) -> CouncilSeat:
     """Appoint to the council. Only where the charter gave the seats to the ruler."""
-    from src.engine import city as town
 
     if council_mode(city) != APPOINTED_COUNCIL:
-        raise NoCouncil(
-            "места этого совета не назначают: устав отдал их выборам"
-        )
+        raise NoCouncil("места этого совета не назначают: устав отдал их выборам")
     await town.require(session, by.id, city, Power.OFFICES)
     if not await may_vote(session, city, who.id):
         raise NoVoice("в совет садятся граждане, отвечающие цензу устава")

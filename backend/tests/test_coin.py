@@ -50,9 +50,7 @@ async def _yard(session: AsyncSession, *, metal_: float = 100, iron: float = 100
             session, pocket, GOLD_METAL, amount=metal_, quality=60, origin="тест"
         )
     if iron:
-        await world.grant_item(
-            session, pocket, IRON, amount=iron, quality=55, origin="тест"
-        )
+        await world.grant_item(session, pocket, IRON, amount=iron, quality=55, origin="тест")
     await world.learn(session, identity, GOLD)
     return node, identity, body
 
@@ -60,9 +58,7 @@ async def _yard(session: AsyncSession, *, metal_: float = 100, iron: float = 100
 async def _bring_to(session: AsyncSession, batch: CraftBatch) -> None:
     """Finish **this** batch early by the test's hands -- as the worker would."""
     job = (
-        await session.execute(
-            select(Job).where(Job.dedup_key == f"craft.batch:{batch.id}")
-        )
+        await session.execute(select(Job).where(Job.dedup_key == f"craft.batch:{batch.id}"))
     ).scalar_one()
     job.run_at = datetime.now(UTC)
     await craft.finish(session, job)
@@ -269,10 +265,12 @@ async def test_coin_not_recycled_by_ordinary_recycling(
 async def _in_pocket(session: AsyncSession, body, type_key: str) -> float:
     pocket = await world.body_container(session, body)
     rows = (
-        await session.execute(
-            select(Item).where(
-                Item.container_id == pocket.id, Item.type_key == type_key
+        (
+            await session.execute(
+                select(Item).where(Item.container_id == pocket.id, Item.type_key == type_key)
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return sum(amount_float(item.amount) for item in rows)

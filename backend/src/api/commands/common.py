@@ -19,6 +19,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.registry import Refused
+from src.engine.world import body_container
 from src.models.identity import Body, BodyState, Identity
 from src.models.inventory import Item
 from src.models.world import Node
@@ -63,7 +64,6 @@ def _stamp(moment: datetime | None) -> str | None:
 
 async def _own_item(db: AsyncSession, body: Body, item_id: str) -> Item:
     """A thing in the hands. You repair and take apart your own, not what lies nearby."""
-    from src.engine.world import body_container
 
     item = await db.get(Item, uuid.UUID(item_id))
     inventory = await body_container(db, body)

@@ -70,8 +70,7 @@ async def test_capital_holds_only_things_the_vault_knows(
     could trade at.
     """
     unknown = [
-        (key, thing) for key, thing, _ in await _things(session)
-        if not _known(catalog, thing)
+        (key, thing) for key, thing, _ in await _things(session) if not _known(catalog, thing)
     ]
     assert not unknown, f"в столице стоит то, чего нет в вольте: {unknown}"
 
@@ -80,10 +79,9 @@ async def test_the_engine_recognises_the_city_it_was_handed(
     capital: Node, session: AsyncSession, catalog: Catalog
 ) -> None:
     """The seed places things; the engine looks for classes. They must meet."""
+
     async def node(key: str) -> Node:
-        found = (
-            await session.execute(select(Node).where(Node.key == key))
-        ).scalar_one()
+        found = (await session.execute(select(Node).where(Node.key == key))).scalar_one()
         return found
 
     #: Trade at all: no terminal, no order book (D-003).
@@ -109,10 +107,10 @@ async def test_the_capital_is_assembled_from_recipes(
     created at all instead of handing the player a city they could not repeat.
     """
     payloads = (
-        await session.execute(
-            select(Event.payload).where(Event.kind == EventKind.ITEM_CREATED)
-        )
-    ).scalars().all()
+        (await session.execute(select(Event.payload).where(Event.kind == EventKind.ITEM_CREATED)))
+        .scalars()
+        .all()
+    )
     grounds = [str(payload.get("origin", "")) for payload in payloads]
 
     assert any("сырьё столицы" in ground for ground in grounds), "сырьё не пришло в мир"
@@ -125,7 +123,8 @@ async def test_the_capital_is_assembled_from_recipes(
     book = catalog.recipes
     deliberate = {"Уголь", "Железная руда"}
     left = [
-        (key, thing) for key, thing, _ in await _things(session)
+        (key, thing)
+        for key, thing, _ in await _things(session)
         if book.is_raw(thing) and thing not in deliberate
     ]
     assert not left, f"после сборки в узлах осталось сырьё: {left}"

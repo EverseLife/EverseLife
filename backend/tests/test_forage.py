@@ -94,9 +94,7 @@ async def test_more_land_searches_faster_but_not_under_the_floor(
     assert forage.search_seconds(constants, reference * 1_000_000, random.Random(2)) == floor
 
 
-async def test_quality_is_mostly_ordinary(
-    session: AsyncSession, constants: Constants
-) -> None:
+async def test_quality_is_mostly_ordinary(session: AsyncSession, constants: Constants) -> None:
     """Triangular over the span, peak in the middle: the middle third beats either edge third.
 
     Quality is a magnitude, and magnitudes keep rolling plainly (D-213): a
@@ -189,10 +187,14 @@ async def test_take_puts_the_handful_in_the_hands_and_ends_the_search(
     await forage.take(session, constants, catalog, body, now=_later(row))
     pocket = await world.body_container(session, body)
     got = (
-        await session.execute(
-            select(Item).where(Item.container_id == pocket.id, Item.type_key == goods)
+        (
+            await session.execute(
+                select(Item).where(Item.container_id == pocket.id, Item.type_key == goods)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert len(got) == 1
     assert amount_float(got[0].amount) == units
     assert float(got[0].quality) == pytest.approx(quality)
@@ -212,8 +214,8 @@ async def test_pass_leaves_the_find_and_searches_on(
     following = await forage.pass_(session, constants, body, now=_later(row))
     pocket = await world.body_container(session, body)
     got = (
-        await session.execute(select(Item).where(Item.container_id == pocket.id))
-    ).scalars().all()
+        (await session.execute(select(Item).where(Item.container_id == pocket.id))).scalars().all()
+    )
     assert got == [], "оставленное не попадает в руки"
     assert following.id != row.id
 

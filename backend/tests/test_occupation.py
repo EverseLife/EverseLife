@@ -138,7 +138,7 @@ async def test_a_batch_refuses_the_search_and_the_plot(
 async def test_the_list_names_the_work_and_how_long_is_left(
     session: AsyncSession, constants: Constants
 ) -> None:
-    """"Дела" is the one place everything running is seen and stopped (D-211)."""
+    """ "Дела" is the one place everything running is seen and stopped (D-211)."""
     _, _, body = await _yard(session)
     plot = await farm.mark(session, constants, body, name="Северная", area=50)
     await farm.plow(session, constants, body, plot)
@@ -165,9 +165,9 @@ async def test_a_sleeping_body_has_one_line_and_no_clock(
     await rest.sleep(session, constants, body)
 
     doings = await occupation.all_of(session, body)
-    assert [(d.kind, d.title, d.until) for d in doings] == [
-        (occupation.SLEEP, "сон", None)
-    ], "сон кончается решением, а не сроком"
+    assert [(d.kind, d.title, d.until) for d in doings] == [(occupation.SLEEP, "сон", None)], (
+        "сон кончается решением, а не сроком"
+    )
 
 
 # --- sleep and the bench -----------------------------------------------------

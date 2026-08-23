@@ -76,12 +76,17 @@ from typing import NamedTuple
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.constants import bootstrap, current, current_catalog
+from src.constants import ConstantError, bootstrap, current, current_catalog
 from src.constants import registry as R
+from src.constants.catalog import ItemKind
 from src.db.base import dispose, session_factory
-from src.engine import city as town
+from src.engine import account as accounts
 from src.engine import (
+    breed,
     death,
+    energy,
+    estate,
+    goods,
     justice,
     ledger,
     library,
@@ -92,12 +97,17 @@ from src.engine import (
     utility,
     world,
 )
-from src.models.identity import Identity
-from src.models.inventory import Item
+from src.engine import city as town
+from src.models.city import City
+from src.models.estate import Building, Deed
+from src.models.identity import Account, Identity
+from src.models.inventory import Container, ContainerKind, Item
 from src.models.ledger import AccountKind, PostingReason
+from src.models.ship import Ship
 from src.models.world import Edge, Layer, Node, Planet, Surface
 from src.settings import settings
-from src.units import PERCENT, money
+from src.units import PERCENT, amount_float, money
+from src.units import amount as to_amount
 
 log = logging.getLogger("everselife.seed")
 
@@ -124,9 +134,7 @@ def _one_of(thing_class: str) -> str:
     """
     members = current_catalog().recipes.of_class(thing_class)
     if not members:
-        raise RuntimeError(
-            f"класс «{thing_class}» пуст: стартовому миру нечего поставить"
-        )
+        raise RuntimeError(f"класс «{thing_class}» пуст: стартовому миру нечего поставить")
     return members[0]
 
 
@@ -231,24 +239,25 @@ async def _system(session: AsyncSession) -> Node:
         ).scalar_one_or_none()
         if node is None:
             await world.create_node(
-                session, circle.key, circle.name, area_m2=1,
-                planet=circle.planet, layer=Layer.SPACE, properties=marks,
+                session,
+                circle.key,
+                circle.name,
+                area_m2=1,
+                planet=circle.planet,
+                layer=Layer.SPACE,
+                properties=marks,
             )
         else:
             #: A whole new dict rather than a key set in place: SQLAlchemy sees
             #: an assignment and misses a mutation inside a JSON column.
             node.properties = {**(node.properties or {}), **marks}
     await session.flush()
-    return (
-        await session.execute(select(Node).where(Node.key == "terra"))
-    ).scalar_one()
+    return (await session.execute(select(Node).where(Node.key == "terra"))).scalar_one()
 
 
 async def seed(session: AsyncSession) -> Node:
     """Create the starting world if it does not exist yet, otherwise bring it up to date."""
-    existing = (
-        await session.execute(select(Node).where(Node.key == CORE))
-    ).scalar_one_or_none()
+    existing = (await session.execute(select(Node).where(Node.key == CORE))).scalar_one_or_none()
     if existing is not None:
         log.info("the starting world already exists: %s", existing.key)
         await catch_up(session, existing)
@@ -263,56 +272,97 @@ async def seed(session: AsyncSession) -> Node:
     #: One walks on the leaves.
     terra = await _system(session)
     capital = await world.create_node(
-        session, "terra.capital", "Столица Терры", area_m2=1,
-        layer=Layer.PLANET, parent=terra, properties={},
+        session,
+        "terra.capital",
+        "Столица Терры",
+        area_m2=1,
+        layer=Layer.PLANET,
+        parent=terra,
+        properties={},
     )
 
     #: The core: every dead person comes to the bioprinter, so the city starts
     #: with it. The "forerunners" property is not decoration: by it the engine
     #: recognises that eternal machine which prints for free and slowly (D-028).
     core = await world.create_node(
-        session, CORE, "Ядро: Принтер Предтеч", area_m2=120,
-        parent=capital, properties={"кольцо": 0, "лес": False, "предтечи": True},
+        session,
+        CORE,
+        "Ядро: Принтер Предтеч",
+        area_m2=120,
+        parent=capital,
+        properties={"кольцо": 0, "лес": False, "предтечи": True},
     )
     library = await world.create_node(
-        session, "terra.capital.library", "Библиотека", area_m2=200,
-        parent=capital, properties={"кольцо": 1},
+        session,
+        "terra.capital.library",
+        "Библиотека",
+        area_m2=200,
+        parent=capital,
+        properties={"кольцо": 1},
     )
     marketplace = await world.create_node(
-        session, "terra.capital.market", "Рынок", area_m2=200,
-        parent=capital, properties={"кольцо": 1},
+        session,
+        "terra.capital.market",
+        "Рынок",
+        area_m2=200,
+        parent=capital,
+        properties={"кольцо": 1},
     )
     forge = await world.create_node(
-        session, "terra.capital.forge", "Мастерская", area_m2=260,
-        parent=capital, properties={"кольцо": 2},
+        session,
+        "terra.capital.forge",
+        "Мастерская",
+        area_m2=260,
+        parent=capital,
+        properties={"кольцо": 2},
     )
     face = await world.create_node(
-        session, "terra.capital.pit", "Забой у стены", area_m2=300,
-        parent=capital, properties={"кольцо": 3},
+        session,
+        "terra.capital.pit",
+        "Забой у стены",
+        area_m2=300,
+        parent=capital,
+        properties={"кольцо": 3},
     )
     #: The administration is the node where the "Administration" machine
     #: stands: what a building is, is set by the machine in it (D-106).
     #: Authority lives somewhere too.
     townhall = await world.create_node(
-        session, "terra.capital.hall", "Администрация", area_m2=180,
-        parent=capital, properties={"кольцо": 1},
+        session,
+        "terra.capital.hall",
+        "Администрация",
+        area_m2=180,
+        parent=capital,
+        properties={"кольцо": 1},
     )
     #: The city's two doors (D-206). The gate is where every road beyond the
     #: walls begins, the spaceport is where ship groups couple on; nothing else
     #: in the built-up area touches what lies outside.
     gate = await world.create_node(
-        session, "terra.capital.gate", "Выход из города", area_m2=80,
-        parent=capital, properties={"кольцо": 3, travel.EXIT: True},
+        session,
+        "terra.capital.gate",
+        "Выход из города",
+        area_m2=80,
+        parent=capital,
+        properties={"кольцо": 3, travel.EXIT: True},
     )
     port = await world.create_node(
-        session, PORT, "Космодром", area_m2=240,
-        parent=capital, properties={"кольцо": 3},
+        session,
+        PORT,
+        "Космодром",
+        area_m2=240,
+        parent=capital,
+        properties={"кольцо": 3},
     )
     #: The first ring beyond the walls: distance 1 (D-180) -- twenty seconds of
     #: walking, not twenty minutes. Near resources are hauled daily, and that is the whole point.
     mine_ = await world.create_node(
-        session, "terra.coal", "Угольная шахта", area_m2=400,
-        layer=Layer.PLANET, parent=terra,
+        session,
+        "terra.coal",
+        "Угольная шахта",
+        area_m2=400,
+        layer=Layer.PLANET,
+        parent=terra,
         #: Woods and stony ground by the shaft: the first axe is made here,
         #: with bare hands and without anybody's help (D-196).
         properties={"лес": True, "камни": True, "вода": "нет", travel.REACH: 1},
@@ -322,16 +372,23 @@ async def seed(session: AsyncSession) -> Node:
     #: prison, not a property: the authority builds new penal colonies itself,
     #: like any building.
     prison = await world.create_node(
-        session, "terra.capital.jail", "Каторжный забой", area_m2=120,
-        parent=capital, properties={"кольцо": 3},
+        session,
+        "terra.capital.jail",
+        "Каторжный забой",
+        area_m2=120,
+        parent=capital,
+        properties={"кольцо": 3},
     )
     #: Free plots of the second ring: the city hands them out to residents
     #: (D-089), and only on own land does a craftsman place their machine (D-150).
     plots = [
         await world.create_node(
-            session, f"terra.capital.lot{number}", f"Свободный участок {number}",
+            session,
+            f"terra.capital.lot{number}",
+            f"Свободный участок {number}",
             area_m2=dice.uniform(*_ring(constants)),
-            parent=capital, properties={"кольцо": 2, "участок": True},
+            parent=capital,
+            properties={"кольцо": 2, "участок": True},
         )
         for number in (1, 2, 3)
     ]
@@ -339,8 +396,12 @@ async def seed(session: AsyncSession) -> Node:
     #: spelt (D-089). Place properties are rolled by the seed's hand -- the node
     #: generator arrives with exploration (D-126, D-132).
     floodplain = await world.create_node(
-        session, "terra.floodplain", "Пойма у реки", area_m2=400,
-        layer=Layer.PLANET, parent=terra,
+        session,
+        "terra.floodplain",
+        "Пойма у реки",
+        area_m2=400,
+        layer=Layer.PLANET,
+        parent=terra,
         #: A meadow by the water: wild flax grows here, and fibre begins with it (D-196).
         properties={"вода": "река", "плодородие": 55, "луг": True, travel.REACH: 1},
     )
@@ -360,7 +421,9 @@ async def seed(session: AsyncSession) -> Node:
         *((forge, plot) for plot in plots),
     ):
         await travel.connect(
-            session, one, other,
+            session,
+            one,
+            other,
             base_seconds=dice.uniform(step.min, step.max),
             surface=Surface.PAVED,
         )
@@ -369,12 +432,16 @@ async def seed(session: AsyncSession) -> Node:
     #: the node's distance (D-180).
     for dest in (mine_, floodplain):
         await travel.connect(
-            session, gate, dest,
+            session,
+            gate,
+            dest,
             base_seconds=travel.frontier_seconds(constants, travel.reach_of(dest)),
             surface=Surface.ROAD,
         )
     await travel.connect(
-        session, gate, prison,
+        session,
+        gate,
+        prison,
         base_seconds=dice.uniform(step.min, step.max),
         surface=Surface.PAVED,
     )
@@ -424,14 +491,22 @@ async def seed(session: AsyncSession) -> Node:
     await _machine(session, forge, "Угольная станция", 60)
     forge_yard = await world.node_container(session, forge)
     await world.grant_item(
-        session, forge_yard, COAL, amount=200, quality=55,
+        session,
+        forge_yard,
+        COAL,
+        amount=200,
+        quality=55,
         origin="стартовый мир: первый подвоз угля на станцию",
     )
     #: An iron stock in the printer: the city must keep it, otherwise there is
     #: nothing to print from (D-013). From then on players replenish it -- that
     #: is what makes population inflow a political question, not a backdrop.
     await world.grant_item(
-        session, forge_yard, death.IRON, amount=50, quality=55,
+        session,
+        forge_yard,
+        death.IRON,
+        amount=50,
+        quality=55,
         origin="стартовый мир: запас процессоров в биопринтере",
     )
 
@@ -442,9 +517,7 @@ async def seed(session: AsyncSession) -> Node:
     #: The spaceport is city land like the gate: a door of the city is not
     #: somebody's yard, and only the authority moves the machine that makes it
     #: one (D-176, D-206).
-    for node in (
-        core, library, marketplace, forge, face, townhall, gate, port, prison, *plots
-    ):
+    for node in (core, library, marketplace, forge, face, townhall, gate, port, prison, *plots):
         node.owner_city_id = city.id
     await session.flush()
     await _treasury(session, city)
@@ -455,7 +528,6 @@ async def seed(session: AsyncSession) -> Node:
     await session.flush()
 
     #: The city pool is created at once: a city has one by construction (D-071).
-    from src.engine import energy
 
     await energy.ensure_pools(session, constants)
 
@@ -476,13 +548,10 @@ async def seed(session: AsyncSession) -> Node:
     #: The newcomer's seed fund: seeds are an item separate from the harvest
     #: (D-057). The cultivar is a base one, nobody's: everyone starts from it,
     #: and then the farmer either selects or watches the fund degrade.
-    from src.engine import breed
 
     for crop, qty in (("spelt", 300), ("turnip", 200)):
         cultivar = await breed.landrace(session, current_catalog(), crop)
-        await breed.seed_lot(
-            session, current_catalog(), pocket.id, cultivar, qty, PERCENT
-        )
+        await breed.seed_lot(session, current_catalog(), pocket.id, cultivar, qty, PERCENT)
     #: The newcomer's kitchen: cooking needs neither land nor capital (D-119)
     #: -- a hearth on the floodplain, utensils and products in the pocket.
     await _machine(session, floodplain, "Очаг", 70)
@@ -492,10 +561,17 @@ async def seed(session: AsyncSession) -> Node:
         session, pocket, "Глиняный горшок", quality=65, origin="стартовый мир: утварь"
     )
     for product, qty, quality in (
-        ("Бобы", 10, 60), ("Овощи", 10, 55), ("Масло", 3, 50), ("Соль", 3, 50),
+        ("Бобы", 10, 60),
+        ("Овощи", 10, 55),
+        ("Масло", 3, 50),
+        ("Соль", 3, 50),
     ):
         await world.grant_item(
-            session, pocket, product, amount=qty, quality=quality,
+            session,
+            pocket,
+            product,
+            amount=qty,
+            quality=quality,
             origin="стартовый мир: продукты",
         )
 
@@ -504,20 +580,32 @@ async def seed(session: AsyncSession) -> Node:
     #: assumption as with coal.
     for metal, qty in (("Аффинированное золото", 20), ("Аффинированное серебро", 60)):
         await world.grant_item(
-            session, pocket, metal, amount=qty, quality=60,
+            session,
+            pocket,
+            metal,
+            amount=qty,
+            quality=60,
             origin="стартовый мир: металл на пробу",
         )
 
     hyom, hyom_body = await world.spawn(session, "Хём", marketplace, **_acct("Хём"))
     hyom_pocket = await world.body_container(session, hyom_body)
     await world.grant_item(
-        session, hyom_pocket, IRON, amount=30, quality=64,
+        session,
+        hyom_pocket,
+        IRON,
+        amount=30,
+        quality=64,
         origin="стартовый мир: запас торговца",
     )
     #: So that there is something to look at in the book from the first minute.
     await market.load(session, constants, hyom_body, IRON, 30)
     await market.sell(
-        session, constants, current_catalog(), hyom, marketplace,
+        session,
+        constants,
+        current_catalog(),
+        hyom,
+        marketplace,
         type_key=IRON,
         tier=market.tier_of(constants, 64),
         price=money(3),
@@ -526,7 +614,10 @@ async def seed(session: AsyncSession) -> Node:
 
     #: A battery to Tern: energy does not lie in a sack, it is carried in one (D-071).
     await world.grant_item(
-        session, pocket, "Аккумулятор", quality=55,
+        session,
+        pocket,
+        "Аккумулятор",
+        quality=55,
         origin="стартовый мир: аккумулятор",
     )
 
@@ -589,8 +680,8 @@ async def catch_up(session: AsyncSession, core: Node) -> None:
     #: Civic land: the capital's built-up area belongs to the city, and from it
     #: the city collects taxes and on it spends energy (D-149).
     children = (
-        await session.execute(select(Node).where(Node.parent_id == capital.id))
-    ).scalars().all()
+        (await session.execute(select(Node).where(Node.parent_id == capital.id))).scalars().all()
+    )
     for node in children:
         if node.owner_city_id is None and node.owner_identity_id is None:
             node.owner_city_id = city.id
@@ -614,8 +705,10 @@ async def catch_up(session: AsyncSession, core: Node) -> None:
     #: person, not by a separate script (D-154).
     if city.founder_identity_id is None:
         first = (
-            await session.execute(select(Identity).order_by(Identity.created_at))
-        ).scalars().first()
+            (await session.execute(select(Identity).order_by(Identity.created_at)))
+            .scalars()
+            .first()
+        )
         if first is not None:
             await town.install_founder(session, city, first)
     elif await town.citizenship(session, city.founder_identity_id) is None:
@@ -641,16 +734,17 @@ async def catch_up(session: AsyncSession, core: Node) -> None:
         await _machine(session, townhall, "Администрация", 65)
         townhall.owner_city_id = city.id
         await travel.connect(
-            session, core, townhall,
-            base_seconds=dice.uniform(step.min, step.max), surface=Surface.PAVED,
+            session,
+            core,
+            townhall,
+            base_seconds=dice.uniform(step.min, step.max),
+            surface=Surface.PAVED,
         )
 
     #: The library and the penal colony are machines (D-176): worlds furnished
     #: before that get them retroactively, and the "free plot" in their place disappears.
     library = (
-        await session.execute(
-            select(Node).where(Node.key == "terra.capital.library")
-        )
+        await session.execute(select(Node).where(Node.key == "terra.capital.library"))
     ).scalar_one_or_none()
     if library is not None:
         await _machine_if_missing(session, library, _one_of(world.LIBRARY), 70)
@@ -660,14 +754,19 @@ async def catch_up(session: AsyncSession, core: Node) -> None:
     #: The capital's penal colony (D-174, D-176): a world created before it gets
     #: the node whole -- vein, printer, terminal and the "Penal colony" machine itself.
     new_prison = await _node_if_missing(
-        session, "terra.capital.jail", "Каторжный забой", 120, capital,
+        session,
+        "terra.capital.jail",
+        "Каторжный забой",
+        120,
+        capital,
         {"кольцо": 3},
     )
-    prison = new_prison or (
-        await session.execute(
-            select(Node).where(Node.key == "terra.capital.jail")
-        )
-    ).scalar_one_or_none()
+    prison = (
+        new_prison
+        or (
+            await session.execute(select(Node).where(Node.key == "terra.capital.jail"))
+        ).scalar_one_or_none()
+    )
     if prison is not None:
         prison.owner_city_id = city.id
         await _machine_if_missing(session, prison, _one_of(justice.KATORGA), 55)
@@ -676,21 +775,19 @@ async def catch_up(session: AsyncSession, core: Node) -> None:
     if new_prison is not None:
         await world.create_vein(session, new_prison, IRON, richness=35, remaining=20_000)
         output_ = (
-            await session.execute(
-                select(Node).where(Node.key == "terra.capital.gate")
-            )
+            await session.execute(select(Node).where(Node.key == "terra.capital.gate"))
         ).scalar_one_or_none()
         if output_ is not None:
             await travel.connect(
-                session, output_, new_prison,
+                session,
+                output_,
+                new_prison,
                 base_seconds=dice.uniform(step.min, step.max),
                 surface=Surface.PAVED,
             )
 
     forge = (
-        await session.execute(
-            select(Node).where(Node.key == "terra.capital.forge")
-        )
+        await session.execute(select(Node).where(Node.key == "terra.capital.forge"))
     ).scalar_one_or_none()
     if forge is not None:
         await _machine_if_missing(session, forge, _one_of(death.PRINTER), 60)
@@ -700,20 +797,29 @@ async def catch_up(session: AsyncSession, core: Node) -> None:
         yard = await world.node_container(session, forge)
         if not await _present_in(session, yard, death.IRON):
             await world.grant_item(
-                session, yard, death.IRON, amount=50, quality=55,
+                session,
+                yard,
+                death.IRON,
+                amount=50,
+                quality=55,
                 origin="догоняющий сид: запас процессоров в биопринтере",
             )
     for number in (1, 2, 3):
         plot = await _node_if_missing(
-            session, f"terra.capital.lot{number}", f"Свободный участок {number}",
-            dice.uniform(*_ring(constants)), capital,
+            session,
+            f"terra.capital.lot{number}",
+            f"Свободный участок {number}",
+            dice.uniform(*_ring(constants)),
+            capital,
             {"кольцо": 2, "участок": True},
         )
         if plot is not None:
             plot.owner_city_id = city.id
             if forge is not None:
                 await travel.connect(
-                    session, forge, plot,
+                    session,
+                    forge,
+                    plot,
                     base_seconds=dice.uniform(step.min, step.max),
                     surface=Surface.PAVED,
                 )
@@ -725,26 +831,26 @@ async def catch_up(session: AsyncSession, core: Node) -> None:
         await session.execute(select(Node).where(Node.key == "terra.capital.gate"))
     ).scalar_one_or_none()
     for key in ("terra.coal", "terra.floodplain"):
-        node = (
-            await session.execute(select(Node).where(Node.key == key))
-        ).scalar_one_or_none()
+        node = (await session.execute(select(Node).where(Node.key == key))).scalar_one_or_none()
         if node is None or gate is None:
             continue
         if travel.reach_of(node) == 0:
             node.properties = {**(node.properties or {}), travel.REACH: 1}
         edge = (
-            await session.execute(
-                select(Edge).where(
-                    ((Edge.node_a_id == gate.id) & (Edge.node_b_id == node.id))
-                    | ((Edge.node_a_id == node.id) & (Edge.node_b_id == gate.id))
+            (
+                await session.execute(
+                    select(Edge).where(
+                        ((Edge.node_a_id == gate.id) & (Edge.node_b_id == node.id))
+                        | ((Edge.node_a_id == node.id) & (Edge.node_b_id == gate.id))
+                    )
                 )
             )
-        ).scalars().first()
+            .scalars()
+            .first()
+        )
         seconds = travel.frontier_seconds(constants, travel.reach_of(node))
         if edge is None:
-            await travel.connect(
-                session, gate, node, base_seconds=seconds, surface=Surface.ROAD
-            )
+            await travel.connect(session, gate, node, base_seconds=seconds, surface=Surface.ROAD)
         else:
             edge.base_seconds = int(seconds)
             edge.surface = Surface.ROAD
@@ -752,18 +858,19 @@ async def catch_up(session: AsyncSession, core: Node) -> None:
     #: The capital's spaceport (D-203, D-206). A world furnished before space
     #: had nowhere to couple a ship to at all, so the node and its machine
     #: arrive whole -- by the gate, where the second door belongs.
-    new_port = await _node_if_missing(
-        session, PORT, "Космодром", 240, capital, {"кольцо": 3}
+    new_port = await _node_if_missing(session, PORT, "Космодром", 240, capital, {"кольцо": 3})
+    port = (
+        new_port
+        or (await session.execute(select(Node).where(Node.key == PORT))).scalar_one_or_none()
     )
-    port = new_port or (
-        await session.execute(select(Node).where(Node.key == PORT))
-    ).scalar_one_or_none()
     if port is not None:
         port.owner_city_id = city.id
         await _machine_if_missing(session, port, _one_of(ship.SPACEPORT), 60)
         if gate is not None:
             await travel.connect(
-                session, gate, port,
+                session,
+                gate,
+                port,
                 base_seconds=dice.uniform(step.min, step.max),
                 surface=Surface.PAVED,
             )
@@ -788,11 +895,7 @@ async def catch_up(session: AsyncSession, core: Node) -> None:
         "Космодром": "Космическая верфь",
         "Верфь": "Космическая мастерская",
     }
-    stale = (
-        await session.execute(
-            select(Item).where(Item.type_key.in_(renamed))
-        )
-    ).scalars().all()
+    stale = (await session.execute(select(Item).where(Item.type_key.in_(renamed)))).scalars().all()
     for machine in stale:
         machine.type_key = renamed[machine.type_key]
 
@@ -803,20 +906,16 @@ async def catch_up(session: AsyncSession, core: Node) -> None:
     #: Deeds retroactively: land taken before the title reform is documented
     #: too (D-116). Only where there is no deed yet: a repeated run does not
     #: touch those listed for sale.
-    from src.engine import estate
-    from src.models.estate import Deed
 
     holdings = (
-        await session.execute(select(Node).where(Node.owner_identity_id.is_not(None)))
-    ).scalars().all()
+        (await session.execute(select(Node).where(Node.owner_identity_id.is_not(None))))
+        .scalars()
+        .all()
+    )
     for node in holdings:
-        has_deed = await session.scalar(
-            select(Deed.id).where(Deed.node_id == node.id).limit(1)
-        )
+        has_deed = await session.scalar(select(Deed.id).where(Deed.node_id == node.id).limit(1))
         if has_deed is None:
             await estate.issue_deed(session, node, node.owner_identity_id)
-
-    from src.engine import energy
 
     await energy.ensure_pools(session, constants)
     await utility.ensure_meters(session, constants)
@@ -840,8 +939,6 @@ def _acct(name: str) -> dict:
 
 
 async def _accounts_catch_up(session: AsyncSession) -> None:
-    from src.engine import account as accounts
-    from src.models.identity import Account, Identity
 
     for name in FOUNDERS:
         identity = (
@@ -866,9 +963,6 @@ async def _buildings(session: AsyncSession) -> None:
     Idempotent: a second run adds nothing. The area is the whole plot: the
     city's built-up area is the building, it has no yard.
     """
-    from src.constants.catalog import ItemKind
-    from src.engine import estate
-    from src.models.inventory import Container, ContainerKind
 
     book = current_catalog().recipes
     rows = (
@@ -889,8 +983,6 @@ async def _buildings(session: AsyncSession) -> None:
             furnished[node.key] = node
     for node in furnished.values():
         if await estate.built_area(session, node) <= 0:
-            from src.models.estate import Building
-
             session.add(Building(node_id=node.id, area_m2=float(node.area_m2)))
     await session.flush()
 
@@ -908,9 +1000,7 @@ async def _base_shelf(session: AsyncSession, node: Node) -> None:
         log.info("library shelf at %s: %d recipes laid down", node.key, added)
 
 
-async def _machine_if_missing(
-    session: AsyncSession, node: Node, name: str, quality: float
-) -> None:
+async def _machine_if_missing(session: AsyncSession, node: Node, name: str, quality: float) -> None:
     """Place a machine if the node does not have it yet. Does not create a second one."""
     yard = await world.node_container(session, node)
     if not await _present_in(session, yard, name):
@@ -918,12 +1008,9 @@ async def _machine_if_missing(
 
 
 async def _present_in(session: AsyncSession, container, name: str) -> bool:
-    from src.models.inventory import Item
 
     found = await session.scalar(
-        select(Item.id)
-        .where(Item.container_id == container.id, Item.type_key == name)
-        .limit(1)
+        select(Item.id).where(Item.container_id == container.id, Item.type_key == name).limit(1)
     )
     return found is not None
 
@@ -935,7 +1022,6 @@ async def _gates_catch_up(session: AsyncSession) -> None:
     before this decision has none, and its own node becomes the gate -- that
     node **is** the whole city, so it is its own door.
     """
-    from src.models.city import City
 
     cities = (await session.execute(select(City))).scalars().all()
     for city in cities:
@@ -972,11 +1058,7 @@ async def _reroute_through_gates(session: AsyncSession) -> None:
             continue
         a, b = ends
         cities = [await town.of_node(session, a), await town.of_node(session, b)]
-        if (
-            cities[0] is not None
-            and cities[1] is not None
-            and cities[0].id == cities[1].id
-        ):
+        if cities[0] is not None and cities[1] is not None and cities[0].id == cities[1].id:
             continue
         for index, (end, city) in enumerate(zip(ends, cities, strict=True)):
             if city is None or await travel.is_exit(session, end):
@@ -986,18 +1068,23 @@ async def _reroute_through_gates(session: AsyncSession) -> None:
             if door is None or door.id == other.id:  # pragma: no cover
                 continue
             twin = (
-                await session.execute(
-                    select(Edge).where(
-                        ((Edge.node_a_id == door.id) & (Edge.node_b_id == other.id))
-                        | ((Edge.node_a_id == other.id) & (Edge.node_b_id == door.id))
+                (
+                    await session.execute(
+                        select(Edge).where(
+                            ((Edge.node_a_id == door.id) & (Edge.node_b_id == other.id))
+                            | ((Edge.node_a_id == other.id) & (Edge.node_b_id == door.id))
+                        )
                     )
                 )
-            ).scalars().first()
+                .scalars()
+                .first()
+            )
             if twin is not None:
                 await session.delete(edge)
                 log.info(
                     "stray road from %s dropped: the gate already reaches %s",
-                    end.name, other.name,
+                    end.name,
+                    other.name,
                 )
                 break
             if index == 0:
@@ -1005,19 +1092,18 @@ async def _reroute_through_gates(session: AsyncSession) -> None:
             else:
                 edge.node_b_id = door.id
             ends[index] = door
-            log.info(
-                "road %s -- %s moved onto the gate %s", end.name, other.name, door.name
-            )
+            log.info("road %s -- %s moved onto the gate %s", end.name, other.name, door.name)
     await session.flush()
 
 
 async def _berths(session: AsyncSession, constants) -> None:
     """Relay the gangway of every moored ship to the length its berth deserves."""
-    from src.models.ship import Ship
 
     for vessel in (
-        await session.execute(select(Ship).where(Ship.docked_node_id.is_not(None)))
-    ).scalars().all():
+        (await session.execute(select(Ship).where(Ship.docked_node_id.is_not(None))))
+        .scalars()
+        .all()
+    ):
         if vessel.berth is None:
             vessel.berth = await ship._free_berth(
                 session, await session.get(Node, vessel.docked_node_id)
@@ -1041,9 +1127,7 @@ async def _node_if_missing(
     properties: dict,
 ) -> Node | None:
     """Create a node if it does not exist yet. Otherwise nothing: the world is not rewritten."""
-    existing_ = (
-        await session.execute(select(Node).where(Node.key == key))
-    ).scalar_one_or_none()
+    existing_ = (await session.execute(select(Node).where(Node.key == key))).scalar_one_or_none()
     if existing_ is not None:
         return None
     return await world.create_node(
@@ -1086,7 +1170,6 @@ def _composition(book, name: str) -> dict[str, float] | None:
     `None` — дальше лестницы нет: это сырьё, его берут из мира. Добывающая
     операция (рубка, добыча) расхода не имеет и потому тоже кончает спуск.
     """
-    from src.constants import ConstantError
 
     try:
         recipe = book.recipe(name)
@@ -1116,7 +1199,6 @@ async def _assemble(
     это замысел мира, а не следствие пропорций. Материя же считается честно,
     по количествам вольта.
     """
-    from src.engine import goods
 
     catalog = current_catalog()
     book = catalog.recipes
@@ -1129,7 +1211,11 @@ async def _assemble(
     per_unit = _composition(book, name)
     if per_unit is None:
         await world.grant_item(
-            session, container, name, amount=amount, quality=quality,
+            session,
+            container,
+            name,
+            amount=amount,
+            quality=quality,
             origin="наследие Предтеч: сырьё столицы",
         )
         return
@@ -1139,32 +1225,34 @@ async def _assemble(
             continue
         #: Штучное уходит в работу целым (D-212): половину слитка не расходуют.
         need = goods.whole(item, per * amount, up=True, catalog=catalog)
-        await _assemble(session, container, item, quality=quality, amount=need,
-                        seen=(*seen, name))
+        await _assemble(session, container, item, quality=quality, amount=need, seen=(*seen, name))
     await _spend(session, container, per_unit, amount, catalog)
     await world.grant_item(
-        session, container, name, amount=amount, quality=quality,
+        session,
+        container,
+        name,
+        amount=amount,
+        quality=quality,
         origin=f"наследие Предтеч: собрано по рецепту «{name}»",
     )
 
 
 async def _spend(session: AsyncSession, container, per_unit: dict, units: float, catalog) -> None:
     """Списать то, что ушло в изделие. Не хватило — это дефект данных, не игры."""
-    from src.engine import goods
-    from src.units import amount as to_amount
-    from src.units import amount_float
 
     for name, per in per_unit.items():
         if name == INTANGIBLE:
             continue
         left = to_amount(goods.whole(name, per * units, up=True, catalog=catalog))
         stacks = (
-            await session.execute(
-                select(Item).where(
-                    Item.container_id == container.id, Item.type_key == name
+            (
+                await session.execute(
+                    select(Item).where(Item.container_id == container.id, Item.type_key == name)
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         for stack in stacks:
             if left <= 0:
                 break
@@ -1175,9 +1263,7 @@ async def _spend(session: AsyncSession, container, per_unit: dict, units: float,
                 stack.amount -= take
             left -= take
         if left > 0:
-            raise RuntimeError(
-                f"на сборку не хватило «{name}»: недостаёт {amount_float(left):g}"
-            )
+            raise RuntimeError(f"на сборку не хватило «{name}»: недостаёт {amount_float(left):g}")
     await session.flush()
 
 

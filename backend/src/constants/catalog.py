@@ -355,7 +355,6 @@ class CatalogHolder:
     too, where there is no FastAPI application at all.
     """
 
-
     def __init__(self) -> None:
         self._current: Catalog | None = None
 
@@ -365,9 +364,7 @@ class CatalogHolder:
     def current(self) -> Catalog:
         current = self._current
         if current is None:
-            raise ConstantError(
-                "каталоги не загружены: движок обязан загрузить их при старте"
-            )
+            raise ConstantError("каталоги не загружены: движок обязан загрузить их при старте")
         return current
 
     def is_loaded(self) -> bool:

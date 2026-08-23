@@ -17,10 +17,14 @@ from fastapi import APIRouter, HTTPException
 from sqlalchemy import select
 
 from src.constants import HOLDER, current
+from src.constants import current_catalog as catalog
 from src.constants import registry as R
 from src.db.base import session_factory
-from src.engine import market
-from src.models.world import Node
+from src.engine import account, market, world
+from src.engine import ship as vessels
+from src.engine import travel as roads
+from src.engine import world as places
+from src.models.world import Edge, Layer, Node
 from src.runtime import MARKET_BOOK_DEPTH
 from src.settings import settings
 
@@ -46,7 +50,6 @@ async def constants() -> dict[str, Any]:
 
 @router.get("/recipes")
 async def recipes() -> dict[str, Any]:
-    from src.api.app import catalog
 
     book = catalog().recipes
     return {
@@ -70,7 +73,6 @@ async def recipes() -> dict[str, Any]:
 
 @router.get("/plants")
 async def plants() -> dict[str, Any]:
-    from src.api.app import catalog
 
     return {"plants": [plant.model_dump() for plant in catalog().plants.plants]}
 
@@ -102,11 +104,6 @@ async def world_map() -> dict[str, Any]:
     to go (D-097). For now the whole map is public: there is no exploration
     yet, and with it wild nodes and veins become visible only to those who explored them.
     """
-    from src.constants import current
-    from src.engine import ship as vessels
-    from src.engine import travel as roads
-    from src.engine import world as places
-    from src.models.world import Edge, Layer, Node
 
     constants = current()
     async with session_factory()() as db:
@@ -187,8 +184,6 @@ async def doors() -> dict[str, Any]:
     Read **before any identification**: choosing a door is the first thing a
     person does in the game, and they have no identity at that moment yet.
     """
-    from src.api.app import catalog
-    from src.engine import world
 
     async with session_factory()() as db:
         return {"doors": await world.doors(db, current(), catalog())}
@@ -201,7 +196,6 @@ async def lines() -> dict[str, Any]:
     Read at registration, before identification. Nymphs are in the list and
     marked unplayable: a promise, not a deceptive stub (10-world/03).
     """
-    from src.engine import account
 
     async with session_factory()() as db:
         return {"lines": await account.lines(db)}
@@ -260,8 +254,6 @@ async def laws() -> dict[str, Any]:
 
     A new city works on defaults, filling in nothing (D-130).
     """
-
-    from src.api.app import catalog
 
     book = catalog().laws
     return {

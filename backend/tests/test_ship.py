@@ -39,9 +39,7 @@ FUEL = "Ракетное топливо"
 async def _port(session: AsyncSession, *, name: str = "Космодром", planet=Planet.TERRA):
     """A node with a spaceport: everything a ship starts from."""
     stamp = uuid.uuid4().hex[:8]
-    node = await world.create_node(
-        session, f"terra.port.{stamp}", name, area_m2=400, planet=planet
-    )
+    node = await world.create_node(session, f"terra.port.{stamp}", name, area_m2=400, planet=planet)
     session.add(Building(node_id=node.id, area_m2=400))
     await session.flush()
     yard = await world.node_container(session, node)
@@ -80,9 +78,7 @@ async def _laid(
 
 async def _equip(session: AsyncSession, node: Node, type_key: str, amount: float = 1):
     yard = await world.node_container(session, node)
-    return await world.grant_item(
-        session, yard, type_key, amount=amount, quality=60, origin="тест"
-    )
+    return await world.grant_item(session, yard, type_key, amount=amount, quality=60, origin="тест")
 
 
 async def _flightworthy(
@@ -136,9 +132,7 @@ async def test_foundation_is_written_off_and_a_bare_intention_refused(
     assert not await ship._foundation_at_hand(session, builder), "основа израсходована"
 
 
-async def test_foundation_only_at_a_spaceport(
-    session: AsyncSession, constants: Constants
-) -> None:
+async def test_foundation_only_at_a_spaceport(session: AsyncSession, constants: Constants) -> None:
     """There is nothing to couple to in a field: the first node is laid at a port."""
     bare = await world.create_node(
         session, f"terra.field.{uuid.uuid4().hex[:8]}", "Поле", area_m2=400
@@ -181,8 +175,10 @@ async def test_ship_grows_by_a_node_at_a_time(
     from sqlalchemy import select as sql_select
 
     housing = (
-        await session.execute(sql_select(Building).where(Building.node_id == added.id))
-    ).scalars().first()
+        (await session.execute(sql_select(Building).where(Building.node_id == added.id)))
+        .scalars()
+        .first()
+    )
     assert housing is not None and float(housing.area_m2) == constants[R.SHIP_NODE_AREA]
 
 
@@ -254,9 +250,7 @@ async def test_every_node_is_both_a_place_and_mass(
 
     #: Cargo weighs as well, and a chest does not hide it.
     await _equip(session, connector, "Слиток железа", amount=100)
-    assert await ship.mass(session, constants, catalog, vessel) > 2 * constants[
-        R.SHIP_NODE_MASS
-    ]
+    assert await ship.mass(session, constants, catalog, vessel) > 2 * constants[R.SHIP_NODE_MASS]
 
 
 async def test_thrust_and_class_come_from_the_vault_by_name(
@@ -278,9 +272,7 @@ async def test_thrust_and_class_come_from_the_vault_by_name(
     assert await ship.engine_class(session, constants, vessel) == 1
 
 
-async def test_passage_stretches_by_mass_and_has_a_ceiling(
-    constants: Constants
-) -> None:
+async def test_passage_stretches_by_mass_and_has_a_ceiling(constants: Constants) -> None:
     """Time is the table time times reference-over-actual, and never below the floor."""
     table = 24.0
     reference = constants[R.SHIP_REFERENCE_RATIO]
@@ -318,8 +310,12 @@ async def test_docking_leaves_land_measurements_alone(
         session, f"terra.spacetown.{stamp}", "Портовый", area_m2=1, layer=Layer.PLANET
     )
     core = await world.create_node(
-        session, f"terra.spacetown.{stamp}.core", "Ядро", area_m2=100,
-        parent=delegate, properties={"кольцо": 0, "предтечи": True},
+        session,
+        f"terra.spacetown.{stamp}.core",
+        "Ядро",
+        area_m2=100,
+        parent=delegate,
+        properties={"кольцо": 0, "предтечи": True},
     )
     yard = await world.node_container(session, core)
     await world.grant_item(session, yard, world.BIOPRINTER, quality=60, origin="тест")
@@ -393,9 +389,9 @@ async def test_overloaded_ship_does_not_tear_off(
 
     #: Enough cargo for the thrust-to-mass to drop below the floor.
     await _equip(session, connector, "Слиток железа", amount=100_000)
-    assert await ship.ratio(session, constants, catalog, vessel) < constants[
-        R.SHIP_MIN_THRUST_RATIO
-    ]
+    assert (
+        await ship.ratio(session, constants, catalog, vessel) < constants[R.SHIP_MIN_THRUST_RATIO]
+    )
     with pytest.raises(ship.NotEnoughThrust):
         await ship.undock(session, constants, catalog, body, vessel)
     assert vessel.docked_node_id == port.id, "перегруженный корабль остался в порту"
@@ -621,9 +617,7 @@ async def _sphere(
     )
 
 
-async def test_passage_time_follows_the_sky(
-    session: AsyncSession, constants: Constants
-) -> None:
+async def test_passage_time_follows_the_sky(session: AsyncSession, constants: Constants) -> None:
     """The same route costs differently at different hours (D-037).
 
     Two planets started level: at the epoch they stand on one side of the star
@@ -644,9 +638,7 @@ async def test_passage_time_follows_the_sky(
     window = constants[R.SHIP_ROUTE_WINDOW_HOURS]["aurora-terra"]
     apart = constants[R.SHIP_ROUTE_APART_HOURS]["aurora-terra"]
 
-    together = await ship.base_hours(
-        session, constants, Planet.TERRA, Planet.AURORA, at=origin
-    )
+    together = await ship.base_hours(session, constants, Planet.TERRA, Planet.AURORA, at=origin)
     opposite = await ship.base_hours(
         session, constants, Planet.TERRA, Planet.AURORA, at=origin + timedelta(days=2)
     )
@@ -657,9 +649,7 @@ async def test_passage_time_follows_the_sky(
     assert together == pytest.approx(window, rel=1e-3), (
         "в сближение рейс идёт по короткому краю вольта"
     )
-    assert opposite == pytest.approx(apart, rel=1e-3), (
-        "в противостояние — по длинному"
-    )
+    assert opposite == pytest.approx(apart, rel=1e-3), "в противостояние — по длинному"
     assert window < between < apart, "между краями время идёт по расстоянию"
 
 
@@ -689,8 +679,7 @@ async def test_berths_are_numbered_and_the_lowest_free_one_is_taken(
             if path.node_id == connector.id
         )
         assert way.seconds == pytest.approx(
-            vessel.berth * constants[R.SHIP_BERTH_SECONDS]
-            * constants[R.ROAD_PAVED_MULTIPLIER]
+            vessel.berth * constants[R.SHIP_BERTH_SECONDS] * constants[R.ROAD_PAVED_MULTIPLIER]
         ), "трап длиной в номер места"
 
     #: The middle ship leaves, and its berth is the one the next arrival gets.
@@ -713,10 +702,14 @@ async def _body_of(session: AsyncSession, vessel: Ship) -> Body:
     from sqlalchemy import select as sql_select
 
     return (
-        await session.execute(
-            sql_select(Body).where(Body.identity_id == vessel.owner_identity_id)
+        (
+            await session.execute(
+                sql_select(Body).where(Body.identity_id == vessel.owner_identity_id)
+            )
         )
-    ).scalars().one()
+        .scalars()
+        .one()
+    )
 
 
 async def test_long_passage_needs_more_fuel_than_a_hop(

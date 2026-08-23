@@ -17,6 +17,7 @@ does not block -- blocking on a half-written file would only get in the way.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -31,7 +32,16 @@ LINT_IMPORTS = BACKEND / ".venv" / "Scripts" / "lint-imports.exe"
 def _run(args: list[str], cwd: Path) -> str:
     try:
         done = subprocess.run(
-            args, cwd=cwd, capture_output=True, text=True, timeout=120, shell=False
+            args,
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=120,
+            shell=False,
+            #: import-linter prints emoji; a cp1251 console would crash on them.
+            env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+            encoding="utf-8",
+            errors="replace",
         )
     except (OSError, subprocess.TimeoutExpired) as trouble:
         return f"{args[0]}: {trouble}"

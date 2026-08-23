@@ -121,9 +121,7 @@ class CraftBatch(Base):
     remaining_seconds: Mapped[float | None] = mapped_column(Numeric(12, 3), nullable=True)
     #: When the current run began -- the near end of the deadline bar. Empty
     #: while waiting.
-    run_started_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    run_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     #: How many times the batch was (re)started. The finishing job carries the
     #: number it was queued for: a job left over from a run that was frozen
     #: must not finish the batch ahead of the resumed one.

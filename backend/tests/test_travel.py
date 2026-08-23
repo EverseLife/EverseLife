@@ -67,9 +67,7 @@ async def test_turning_back_returns_where_left_from(
     await travel.depart(session, constants, body, there)
 
 
-async def test_turning_back_needs_a_road(
-    session: AsyncSession, constants: Constants
-) -> None:
+async def test_turning_back_needs_a_road(session: AsyncSession, constants: Constants) -> None:
     """Standing still, there is nothing to turn back from."""
     _, _, body = await _two_nodes(session)
     with pytest.raises(travel.NotGoing):
@@ -141,9 +139,7 @@ async def test_undocking_removes_the_edge_and_isolates_the_ship(
 
     #: Docking is the same edge back: nothing else in the graph moved.
     await travel.connect(session, port, connector, base_seconds=30)
-    assert [path.key for path in await travel.exits(session, constants, port)] == [
-        connector.key
-    ]
+    assert [path.key for path in await travel.exits(session, constants, port)] == [connector.key]
     assert await travel.depart(session, constants, body, connector) is not None
 
 
@@ -297,9 +293,7 @@ async def test_autopath_builds_route_and_walks_itself(
         assert await travel.current(session, body) is None
 
 
-async def test_autopath_picks_fastest_route(
-    session: AsyncSession, constants: Constants
-) -> None:
+async def test_autopath_picks_fastest_route(session: AsyncSession, constants: Constants) -> None:
     """The route is computed by time with surface, not by node count."""
     stamp = uuid.uuid4().hex[:8]
     a = await world.create_node(session, f"terra.qa.{stamp}", "А", area_m2=100)
@@ -327,9 +321,7 @@ async def test_autopath_to_disconnected_node_refuses(
         await travel.depart(session, constants, body, island)
 
 
-async def test_cannot_walk_two_roads_at_once(
-    session: AsyncSession, constants: Constants
-) -> None:
+async def test_cannot_walk_two_roads_at_once(session: AsyncSession, constants: Constants) -> None:
     _, there, body = await _two_nodes(session)
     await travel.depart(session, constants, body, there)
     with pytest.raises(travel.AlreadyGoing):
@@ -398,9 +390,7 @@ async def test_no_batch_start_en_route(
 # --- the road costs stamina (D-147) ------------------------------------------
 
 
-async def test_road_costs_stamina(
-    session: AsyncSession, constants: Constants
-) -> None:
+async def test_road_costs_stamina(session: AsyncSession, constants: Constants) -> None:
     """Time is a poor price: close the tab and you have arrived. The body pays the second."""
     _, there, body = await _two_nodes(session, seconds=3600)
     before = float(body.stamina)
@@ -408,9 +398,7 @@ async def test_road_costs_stamina(
     #: An hour of road is exactly the vault rate per hour. The spend goes by
     #: time, not by transit count: otherwise a step across the quarter is pricier than crossing the
     #: steppe.
-    assert float(body.stamina) == pytest.approx(
-        before - constants[R.TRAVEL_STAMINA_PER_HOUR]
-    )
+    assert float(body.stamina) == pytest.approx(before - constants[R.TRAVEL_STAMINA_PER_HOUR])
 
 
 async def test_step_across_city_costs_almost_nothing(
@@ -424,9 +412,7 @@ async def test_step_across_city_costs_almost_nothing(
     assert 0 < spent_ < constants[R.TRAVEL_STAMINA_PER_HOUR]
 
 
-async def test_no_leaving_without_strength(
-    session: AsyncSession, constants: Constants
-) -> None:
+async def test_no_leaving_without_strength(session: AsyncSession, constants: Constants) -> None:
     """One cannot set out on a road there is not enough strength for -- like starting a batch."""
     from decimal import Decimal
 
@@ -464,9 +450,7 @@ async def test_road_price_visible_before_leaving(constants: Constants) -> None:
     walking = travel.stamina_cost(constants, hour, transport=False)
     with_wagon = travel.stamina_cost(constants, hour, transport=True)
     assert walking == pytest.approx(constants[R.TRAVEL_STAMINA_PER_HOUR])
-    assert with_wagon == pytest.approx(
-        walking * constants[R.TRANSPORT_STAMINA_K]
-    )
+    assert with_wagon == pytest.approx(walking * constants[R.TRANSPORT_STAMINA_K])
 
 
 async def _node(session: AsyncSession, body: Body):
@@ -490,22 +474,37 @@ async def _city(session: AsyncSession, catalog: Catalog):
         session, f"terra.{stamp}", "Терра", area_m2=1, layer=Layer.SPACE
     )
     delegate = await world.create_node(
-        session, f"terra.town.{stamp}", "Столица", area_m2=1,
-        layer=Layer.PLANET, parent=planet,
+        session,
+        f"terra.town.{stamp}",
+        "Столица",
+        area_m2=1,
+        layer=Layer.PLANET,
+        parent=planet,
     )
     gate = await world.create_node(
-        session, f"terra.town.{stamp}.gate", "Выход из города", area_m2=80,
-        parent=delegate, properties={travel.EXIT: True},
+        session,
+        f"terra.town.{stamp}.gate",
+        "Выход из города",
+        area_m2=80,
+        parent=delegate,
+        properties={travel.EXIT: True},
     )
     market_ = await world.create_node(
-        session, f"terra.town.{stamp}.market", "Торговый двор", area_m2=200,
+        session,
+        f"terra.town.{stamp}.market",
+        "Торговый двор",
+        area_m2=200,
         parent=delegate,
     )
     city = await town.found(session, catalog, delegate, "Столица")
     await session.flush()
     wild = await world.create_node(
-        session, f"terra.wild.{stamp}", "Глухая балка", area_m2=300,
-        layer=Layer.PLANET, parent=planet,
+        session,
+        f"terra.wild.{stamp}",
+        "Глухая балка",
+        area_m2=300,
+        layer=Layer.PLANET,
+        parent=planet,
     )
     return city, gate, market_, wild
 
@@ -527,17 +526,13 @@ async def test_road_beyond_the_walls_starts_at_the_gate(
     await travel.connect(session, gate, wild, base_seconds=1800)
 
 
-async def test_a_street_is_not_a_border(
-    session: AsyncSession, catalog: Catalog
-) -> None:
+async def test_a_street_is_not_a_border(session: AsyncSession, catalog: Catalog) -> None:
     """Inside one city nothing is checked: the doors face outwards."""
     _, gate, market_, _ = await _city(session, catalog)
     await travel.connect(session, market_, gate, base_seconds=6)
 
 
-async def test_spaceport_is_the_second_door(
-    session: AsyncSession, catalog: Catalog
-) -> None:
+async def test_spaceport_is_the_second_door(session: AsyncSession, catalog: Catalog) -> None:
     """A ship couples to the port, not to the gate (D-201, D-206).
 
     The port is a door because a machine stands in it: what a place is, is set
@@ -549,9 +544,7 @@ async def test_spaceport_is_the_second_door(
     assert not await travel.is_exit(session, market_)
 
     yard = await world.node_container(session, market_)
-    await world.grant_item(
-        session, yard, "Космическая верфь", quality=60, origin="тест"
-    )
+    await world.grant_item(session, yard, "Космическая верфь", quality=60, origin="тест")
     assert await travel.is_exit(session, market_), (
         "космодром делает узел выходом: к нему цепляются корабли"
     )

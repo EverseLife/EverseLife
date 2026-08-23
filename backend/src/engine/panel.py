@@ -54,37 +54,34 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Constants
 from src.constants import registry as R
+from src.engine import city as town
+from src.engine import customs, utility, world
 from src.models.city import City
+from src.models.energy import EnergyPool
 from src.models.event import Event, EventKind
 from src.models.identity import Body, BodyState
 from src.models.inventory import Item
 from src.models.ledger import LedgerEntry, LedgerTransaction
 from src.models.market import Trade
 from src.models.world import Node
-from src.telemetry.metrics import median
+from src.telemetry.metrics import median, remember
 from src.units import AMOUNT_SCALE, MONEY_SCALE
 
 
 async def city_nodes(session: AsyncSession, city: City) -> list[Node]:
     """The city's territory: nodes it owns."""
     return list(
-        (
-            await session.execute(select(Node).where(Node.owner_city_id == city.id))
-        ).scalars().all()
+        (await session.execute(select(Node).where(Node.owner_city_id == city.id))).scalars().all()
     )
 
 
 async def blind(session: AsyncSession, city: City) -> bool:
     """Whether the city went blind: no administration, or it is disconnected (D-140)."""
-    from src.engine import city as town
-    from src.engine import utility, world
 
     for node in await city_nodes(session, city):
         yard = await world.node_container(session, node)
         costs = await session.scalar(
-            select(Item.id)
-            .where(Item.container_id == yard.id, Item.type_key == town.HALL)
-            .limit(1)
+            select(Item.id).where(Item.container_id == yard.id, Item.type_key == town.HALL).limit(1)
         )
         if costs is not None and not await utility.cut_off(session, node):
             return False
@@ -182,27 +179,29 @@ async def _people(session: AsyncSession, nodes: list[uuid.UUID], *, since: datet
     return {"here": int(here or 0), "printed": int(printed_ or 0)}
 
 
-async def _production(
-    session: AsyncSession, nodes: list[uuid.UUID], *, since: datetime
-) -> dict:
+async def _production(session: AsyncSession, nodes: list[uuid.UUID], *, since: datetime) -> dict:
     """What the city produced over the window: mined, harvested, output by machines."""
     if not nodes:
         return {"mined": {}, "harvested": 0.0, "crafted": {}}
     events_ = (
-        await session.execute(
-            select(Event).where(
-                Event.node_id.in_(nodes),
-                Event.at >= since,
-                Event.kind.in_(
-                    (
-                        EventKind.MINING_SWING.value,
-                        EventKind.PLOT_HARVESTED.value,
-                        EventKind.CRAFT_FINISHED.value,
-                    )
-                ),
+        (
+            await session.execute(
+                select(Event).where(
+                    Event.node_id.in_(nodes),
+                    Event.at >= since,
+                    Event.kind.in_(
+                        (
+                            EventKind.MINING_SWING.value,
+                            EventKind.PLOT_HARVESTED.value,
+                            EventKind.CRAFT_FINISHED.value,
+                        )
+                    ),
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
 
     mined: dict[str, float] = {}
     done: dict[str, float] = {}
@@ -225,27 +224,26 @@ async def _energy(
     session: AsyncSession, constants: Constants, city: City, *, since: datetime
 ) -> dict:
     """The pool, release by meter and for work. Generation runs by time (D-082)."""
-    from src.models.energy import EnergyPool
 
     #: The pool is created **on the city's delegate node**, and `energy.pool_of`
     #: looks for it from a built-up node: for the delegate it would answer "no grid". Take it
     #: directly.
     pool = (
-        await session.execute(
-            select(EnergyPool).where(EnergyPool.node_id == city.node_id)
-        )
+        await session.execute(select(EnergyPool).where(EnergyPool.node_id == city.node_id))
     ).scalar_one_or_none()
 
     events_ = (
-        await session.execute(
-            select(Event).where(
-                Event.at >= since,
-                Event.kind.in_(
-                    (EventKind.ENERGY_DRAWN.value, EventKind.UTILITY_METERED.value)
-                ),
+        (
+            await session.execute(
+                select(Event).where(
+                    Event.at >= since,
+                    Event.kind.in_((EventKind.ENERGY_DRAWN.value, EventKind.UTILITY_METERED.value)),
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     for_work = 0.0
     for_household = 0.0
     for event in events_:
@@ -271,7 +269,6 @@ async def _goods(session: AsyncSession, nodes: list[uuid.UUID], *, since: dateti
     """
     if not nodes:
         return {}
-    from src.engine import world
 
     remainders: dict[str, float] = {}
     for node_id in nodes:
@@ -295,7 +292,6 @@ async def _trade(
     session: AsyncSession, constants: Constants, city: City, *, since: datetime
 ) -> dict:
     """Imported, exported, trips and duties paid (D-123, D-124)."""
-    from src.engine import customs
 
     return await customs.traffic(session, constants, city, since=since)
 
@@ -307,7 +303,6 @@ async def _treasury(session: AsyncSession, city: City, *, since: datetime) -> di
     charter shows the treasury to (`treasury_publicity`), and that is a
     separate mechanic (D-124).
     """
-    from src.engine import city as town
 
     account = await town.treasury(session, city)
     rows = (
@@ -346,8 +341,6 @@ async def store_daily(
     days, and it is kept by the same table as world metrics: one formula for
     the panel, the dashboard and the invariant check (D-139).
     """
-
-    from src.telemetry.metrics import remember
 
     moment = now or datetime.now(UTC)
     cities = (await session.execute(select(City))).scalars().all()

@@ -74,9 +74,7 @@ class City(Base):
 
     id: Mapped[uuid.UUID] = uuid_pk()
     #: The city's delegate node on the planet layer (D-045). One city -- one node.
-    node_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("node.id"), nullable=False, unique=True
-    )
+    node_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("node.id"), nullable=False, unique=True)
     name: Mapped[str] = mapped_column(nullable=False)
     #: The city's word to newcomers: what it announces about itself on the door
     #: card (D-183). A promise, not a contract -- the engine neither enforces nor parses it.
@@ -138,9 +136,7 @@ class CityGrant(Base):
     """
 
     __tablename__ = "city_grant"
-    __table_args__ = (
-        UniqueConstraint("city_id", "identity_id", name="uq_city_grant_identity"),
-    )
+    __table_args__ = (UniqueConstraint("city_id", "identity_id", name="uq_city_grant_identity"),)
 
     id: Mapped[uuid.UUID] = uuid_pk()
     city_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("city.id"), nullable=False)
@@ -160,9 +156,7 @@ class UtilityMeter(Base):
     __tablename__ = "utility_meter"
 
     id: Mapped[uuid.UUID] = uuid_pk()
-    node_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("node.id"), nullable=False, unique=True
-    )
+    node_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("node.id"), nullable=False, unique=True)
 
     #: Up to what moment household is already billed. Moved by a journal job.
     counted_at: Mapped[datetime] = created_column()
@@ -198,9 +192,7 @@ class Citizen(Base):
     )
 
     id: Mapped[uuid.UUID] = uuid_pk()
-    identity_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("identity.id"), nullable=False
-    )
+    identity_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("identity.id"), nullable=False)
     city_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("city.id"), nullable=False)
     #: Since when: the residency census (`vote_qualification`) is counted from it.
     since: Mapped[datetime] = created_column()
@@ -230,9 +222,7 @@ class CitizenshipRequest(Base):
     )
 
     id: Mapped[uuid.UUID] = uuid_pk()
-    identity_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("identity.id"), nullable=False
-    )
+    identity_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("identity.id"), nullable=False)
     city_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("city.id"), nullable=False)
     #: `application` -- from the person, `invite` -- from the authority.
     kind: Mapped[str] = mapped_column(nullable=False)
@@ -259,9 +249,7 @@ class CouncilSeat(Base):
 
     id: Mapped[uuid.UUID] = uuid_pk()
     city_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("city.id"), nullable=False)
-    identity_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("identity.id"), nullable=False
-    )
+    identity_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("identity.id"), nullable=False)
     #: How the seat was obtained: by election or appointment.
     how: Mapped[str] = mapped_column(nullable=False)
     created_at: Mapped[datetime] = created_column()

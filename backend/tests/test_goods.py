@@ -33,9 +33,7 @@ TERMINAL = "Терминал маркетплейса"
 
 async def _workshop(session: AsyncSession, *, machine: str | None = FORGE):
     stamp = uuid.uuid4().hex[:8]
-    node = await world.create_node(
-        session, f"terra.pieces.{stamp}", "Мастерская", area_m2=100
-    )
+    node = await world.create_node(session, f"terra.pieces.{stamp}", "Мастерская", area_m2=100)
     identity = await world.create_identity(session, f"Мастер-{stamp}")
     body = await world.print_body(session, identity, node)
     yard = await world.node_container(session, node)
@@ -138,9 +136,7 @@ async def test_a_work_spends_whole_pieces(
 
 
 async def test_the_bill_of_a_house_is_in_whole_pieces(constants: Constants) -> None:
-    lot = estate.bill(
-        constants, footprint=7, floors=1, kind=estate.kinds(constants)[0]
-    )
+    lot = estate.bill(constants, footprint=7, floors=1, kind=estate.kinds(constants)[0])
     for name, qty in lot.items():
         if goods.counted(name):
             assert qty == int(qty), f"{name}: {qty} — штучное считается штуками"
@@ -164,8 +160,15 @@ async def test_the_book_takes_no_half_ingots(
 
     with pytest.raises(goods.NotWhole):
         await market.sell(
-            session, constants, catalog, identity, node,
-            type_key=INGOT, tier="обычная", price=100, quantity=0.5,
+            session,
+            constants,
+            catalog,
+            identity,
+            node,
+            type_key=INGOT,
+            tier="обычная",
+            price=100,
+            quantity=0.5,
         )
 
 

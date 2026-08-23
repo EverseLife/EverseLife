@@ -25,6 +25,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from src import herald  # noqa: F401 -- registers the chronicle handler
+from src.api import push, session
+from src.api.routes import public
 from src.constants import HOLDER, Catalog, bootstrap, current_catalog
 from src.engine import tick  # noqa: F401 -- registers job handlers
 from src.engine.jobs import require_handlers
@@ -34,7 +36,10 @@ log = logging.getLogger(__name__)
 
 
 def catalog() -> Catalog:
-    """The process's catalogs. Loaded at startup, live in memory."""
+    """The process's catalogs. Loaded at startup, live in memory.
+
+    Routes read `constants.current_catalog` directly; this stays for callers
+    outside the package."""
     return current_catalog()
 
 
@@ -54,7 +59,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         len(loaded.recipes.recipes),
     )
     #: The server speaks first (D-226): the journal's listener lives with the process.
-    from src.api import push
 
     await push.hub.start()
     try:
@@ -74,9 +78,6 @@ def create_app() -> FastAPI:
         ),
     )
 
-    from src.api import session
-    from src.api.routes import public
-
     #: The client lives on its own port and comes here for catalogs and books.
     #: The client's port on another machine is not known in advance, so besides
     #: the list there is a local-network address pattern (`settings.allowed_origin_regex`).
@@ -95,7 +96,6 @@ def create_app() -> FastAPI:
 
     @app.get("/health", tags=["housekeeping"])
     async def health() -> dict[str, object]:
-        from src.api import push
 
         return {
             "ok": True,

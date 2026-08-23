@@ -36,8 +36,12 @@ async def _city(session: AsyncSession, *, river: bool = False):
         session, f"terra.city.{stamp}", "Столица", area_m2=1, layer=Layer.PLANET
     )
     yard = await world.create_node(
-        session, f"terra.city.{stamp}.yard", "Двор", area_m2=200,
-        layer=Layer.CITY, parent=capital,
+        session,
+        f"terra.city.{stamp}.yard",
+        "Двор",
+        area_m2=200,
+        layer=Layer.CITY,
+        parent=capital,
         properties={"вода": "река" if river else "нет"},
     )
     identity = await world.create_identity(session, f"Житель-{stamp}")
@@ -47,9 +51,7 @@ async def _city(session: AsyncSession, *, river: bool = False):
 
 async def _place(session: AsyncSession, node, what: str, qty=1, quality=60):
     yard = await world.node_container(session, node)
-    return await world.grant_item(
-        session, yard, what, amount=qty, quality=quality, origin="тест"
-    )
+    return await world.grant_item(session, yard, what, amount=qty, quality=quality, origin="тест")
 
 
 # --- pool --------------------------------------------------------------------
@@ -63,7 +65,10 @@ async def test_pool_exists_in_city_and_not_outside(
     assert await energy.pool_of(session, constants, yard) is not None
 
     wild = await world.create_node(
-        session, f"terra.wild.{uuid.uuid4().hex[:6]}", "Пустошь", area_m2=100,
+        session,
+        f"terra.wild.{uuid.uuid4().hex[:6]}",
+        "Пустошь",
+        area_m2=100,
         layer=Layer.PLANET,
     )
     assert await energy.pool_of(session, constants, wild) is None
@@ -73,8 +78,12 @@ async def test_one_pool_per_city(session: AsyncSession, constants: Constants) ->
     """Inside a city energy is not routed anywhere: the balance is shared (D-071)."""
     capital, yard, _, _ = await _city(session)
     second = await world.create_node(
-        session, f"{yard.key}.2", "Второй двор", area_m2=100,
-        layer=Layer.CITY, parent=capital,
+        session,
+        f"{yard.key}.2",
+        "Второй двор",
+        area_m2=100,
+        layer=Layer.CITY,
+        parent=capital,
     )
     one = await energy.pool_of(session, constants, yard)
     other = await energy.pool_of(session, constants, second)
@@ -85,9 +94,7 @@ async def test_one_pool_per_city(session: AsyncSession, constants: Constants) ->
 # --- production --------------------------------------------------------------
 
 
-async def test_water_wheel_works_only_by_river(
-    session: AsyncSession, constants: Constants
-) -> None:
+async def test_water_wheel_works_only_by_river(session: AsyncSession, constants: Constants) -> None:
     """Geography decides: wheels tie early cities to rivers."""
     _, by_river, _, _ = await _city(session, river=True)
     _, in_steppe, _, _ = await _city(session, river=False)
@@ -137,34 +144,34 @@ async def test_coal_station_burns_coal_and_dead_without_it(
         amount_float(i_.amount)
         for i_ in (
             await session.execute(
-                select(Item).where(
-                    Item.container_id == container.id, Item.type_key == "Уголь"
-                )
+                select(Item).where(Item.container_id == container.id, Item.type_key == "Уголь")
             )
-        ).scalars().all()
+        )
+        .scalars()
+        .all()
     )
     assert left == pytest.approx(100 - burned)
 
     #: The coal ran out -- the station stopped.
     for stack in (
-        await session.execute(
-            select(Item).where(
-                Item.container_id == container.id, Item.type_key == "Уголь"
+        (
+            await session.execute(
+                select(Item).where(Item.container_id == container.id, Item.type_key == "Уголь")
             )
         )
-    ).scalars().all():
+        .scalars()
+        .all()
+    ):
         await session.delete(stack)
     await session.flush()
     pool.counted_at = moment
-    assert await energy.produce(
-        session, constants, pool, now=moment + timedelta(hours=5)
-    ) == 0
+    assert await energy.produce(session, constants, pool, now=moment + timedelta(hours=5)) == 0
 
 
 async def test_windmill_unstable_within_vault_bounds(
     session: AsyncSession, constants: Constants
 ) -> None:
-    """"Depends on weather" is all the vault says about wind."""
+    """ "Depends on weather" is all the vault says about wind."""
     _, yard, _, _ = await _city(session)
     await _place(session, yard, energy.WINDMILL)
     wind = constants[R.ENERGY_WINDMILL_RATE]
@@ -192,17 +199,19 @@ async def test_charging_takes_from_pool_and_pays_treasury(
     pool.counted_at = datetime.now(UTC)
 
     pocket = await world.body_container(session, body)
-    battery = await world.grant_item(
-        session, pocket, energy.BATTERY, quality=55, origin="тест"
-    )
+    battery = await world.grant_item(session, pocket, energy.BATTERY, quality=55, origin="тест")
     account = await ledger.account_for(session, AccountKind.IDENTITY, identity.id)
     genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
     from src.models.ledger import PostingReason
     from src.units import money
 
     await ledger.transfer(
-        session, PostingReason.GENESIS, debit=genesis.id, credit=account.id,
-        amount=money(100), memo={},
+        session,
+        PostingReason.GENESIS,
+        debit=genesis.id,
+        credit=account.id,
+        amount=money(100),
+        memo={},
     )
 
     given = await energy.charge_battery(session, constants, body, battery, 200)
@@ -210,20 +219,14 @@ async def test_charging_takes_from_pool_and_pays_treasury(
     assert float(pool.stored) == pytest.approx(200)
     assert float(battery.charge) == pytest.approx(200)
 
-    treasury = await ledger.account_for(
-        session, AccountKind.CITY_TREASURY, pool.node_id
-    )
+    treasury = await ledger.account_for(session, AccountKind.CITY_TREASURY, pool.node_id)
     #: The tariff is given per hundred energy: two hundred -- two tariffs.
     expected = money(2 * constants[R.ENERGY_TARIFF_DEFAULT])
     assert await ledger.balance(session, treasury.id) == expected
-    assert money_str(await ledger.balance(session, account.id)) == money_str(
-        money(100) - expected
-    )
+    assert money_str(await ledger.balance(session, account.id)) == money_str(money(100) - expected)
 
 
-async def test_nowhere_to_charge_outside_city(
-    session: AsyncSession, constants: Constants
-) -> None:
+async def test_nowhere_to_charge_outside_city(session: AsyncSession, constants: Constants) -> None:
     stamp = uuid.uuid4().hex[:6]
     wild = await world.create_node(
         session, f"terra.far.{stamp}", "Застава", area_m2=100, layer=Layer.PLANET
@@ -231,16 +234,12 @@ async def test_nowhere_to_charge_outside_city(
     identity = await world.create_identity(session, f"Путник-{stamp}")
     body = await world.print_body(session, identity, wild)
     pocket = await world.body_container(session, body)
-    battery = await world.grant_item(
-        session, pocket, energy.BATTERY, quality=55, origin="тест"
-    )
+    battery = await world.grant_item(session, pocket, energy.BATTERY, quality=55, origin="тест")
     with pytest.raises(energy.NoGrid):
         await energy.charge_battery(session, constants, body, battery)
 
 
-async def test_battery_self_discharges(
-    session: AsyncSession, constants: Constants
-) -> None:
+async def test_battery_self_discharges(session: AsyncSession, constants: Constants) -> None:
     """Energy cannot be stockpiled: it is a perishable commodity.
 
     A day here is planetary -- `time.day_terra`, the same as for the plot and
@@ -248,9 +247,7 @@ async def test_battery_self_discharges(
     """
     _, yard, _, body = await _city(session)
     pocket = await world.body_container(session, body)
-    battery = await world.grant_item(
-        session, pocket, energy.BATTERY, quality=55, origin="тест"
-    )
+    battery = await world.grant_item(session, pocket, energy.BATTERY, quality=55, origin="тест")
     moment = datetime.now(UTC)
     battery.charge = Decimal("500")
     battery.charged_at = moment
@@ -259,22 +256,16 @@ async def test_battery_self_discharges(
     day = timedelta(hours=constants[R.TIME_DAY_TERRA])
     in_a_day = energy.charge_of(constants, battery, now=moment + day)
     leak = (
-        constants[R.ENERGY_BATTERY_CAPACITY]
-        * constants[R.ENERGY_BATTERY_SELFDISCHARGE]
-        / PERCENT
+        constants[R.ENERGY_BATTERY_CAPACITY] * constants[R.ENERGY_BATTERY_SELFDISCHARGE] / PERCENT
     )
     assert in_a_day == pytest.approx(500 - leak)
 
 
-async def test_energy_does_not_sit_in_sack(
-    session: AsyncSession, constants: Constants
-) -> None:
+async def test_energy_does_not_sit_in_sack(session: AsyncSession, constants: Constants) -> None:
     """Only the pool or a battery -- there is no third kind of storage (D-071)."""
     _, yard, _, body = await _city(session)
     pocket = await world.body_container(session, body)
-    sack = await world.grant_item(
-        session, pocket, "Шахтная крепь", quality=50, origin="тест"
-    )
+    sack = await world.grant_item(session, pocket, "Шахтная крепь", quality=50, origin="тест")
     with pytest.raises(energy.NotBattery):
         await energy.charge_battery(session, constants, body, sack)
 
@@ -289,9 +280,7 @@ async def test_battery_is_machine(catalog) -> None:
     assert station.is_station(catalog, energy.BATTERY)
 
 
-async def test_placed_battery_charges(
-    session: AsyncSession, constants: Constants
-) -> None:
+async def test_placed_battery_charges(session: AsyncSession, constants: Constants) -> None:
     """Charge is taken both into hands and into the house: a battery is property of the place
     (D-179)."""
     _, yard, identity, body = await _city(session)
@@ -307,8 +296,12 @@ async def test_placed_battery_charges(
     from src.units import money
 
     await ledger.transfer(
-        session, PostingReason.GENESIS, debit=genesis.id, credit=account.id,
-        amount=money(100), memo={},
+        session,
+        PostingReason.GENESIS,
+        debit=genesis.id,
+        credit=account.id,
+        amount=money(100),
+        memo={},
     )
 
     given = await energy.charge_battery(session, constants, body, battery, 150)

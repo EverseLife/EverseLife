@@ -33,15 +33,16 @@ async def _edge(
     stamp = uuid.uuid4().hex[:8]
     here = await world.create_node(session, f"terra.rda.{stamp}", "Здесь", area_m2=100)
     there = await world.create_node(session, f"terra.rdb.{stamp}", "Там", area_m2=100)
-    edge = await travel.connect(
-        session, here, there, base_seconds=600, surface=surface
-    )
+    edge = await travel.connect(session, here, there, base_seconds=600, surface=surface)
     identity = await world.create_identity(session, f"Дорожник-{stamp}")
     body = await world.print_body(session, identity, here)
     if surface_amount:
         pocket = await world.body_container(session, body)
         await world.grant_item(
-            session, pocket, "Дорожное полотно", amount=surface_amount,
+            session,
+            pocket,
+            "Дорожное полотно",
+            amount=surface_amount,
             origin="сценарий теста",
         )
     return here, there, body, edge
@@ -139,9 +140,7 @@ async def test_laid_road_opens_way_for_convoy(
     norm = constants[R.ROAD_SURFACE_PER_EDGE]
     here, there, body, edge = await _edge(session, surface_amount=norm)
     yard = await world.node_container(session, here)
-    cart = await world.grant_item(
-        session, yard, "Повозка", amount=1, origin="сценарий теста"
-    )
+    cart = await world.grant_item(session, yard, "Повозка", amount=1, origin="сценарий теста")
     await transport.harness(session, constants, catalog, body, cart)
 
     with pytest.raises(transport.Impassable):
@@ -224,9 +223,7 @@ async def test_road_laid_by_journal_job(
 ) -> None:
     """Closed the tab -- the road is laid anyway."""
     async with factory() as session, session.begin():
-        _, _, body, edge = await _edge(
-            session, surface_amount=constants[R.ROAD_SURFACE_PER_EDGE]
-        )
+        _, _, body, edge = await _edge(session, surface_amount=constants[R.ROAD_SURFACE_PER_EDGE])
         job = await road.lay(session, constants, catalog, body, edge)
         term, edge_id = job.run_at, edge.id
 

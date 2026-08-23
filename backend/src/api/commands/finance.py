@@ -28,6 +28,7 @@ from src.engine import (
     finance,
     utility,
 )
+from src.models.bank import Loan, RateDecision
 from src.units import money
 
 
@@ -73,7 +74,6 @@ async def _utility_pay(state: dict, db: AsyncSession, message: dict) -> dict:
 async def _bank_view(state: dict, db: AsyncSession, message: dict) -> dict:
     """The bank through the player's eyes: the rate with an explanation, own loans, the reserve
     (D-167)."""
-    from src.models.bank import RateDecision
 
     constants = current()
     decision = (
@@ -131,7 +131,6 @@ async def _bank_borrow(state: dict, db: AsyncSession, message: dict) -> dict:
 @command("bank.repay")
 async def _bank_repay(state: dict, db: AsyncSession, message: dict) -> dict:
     """Repay debt. Money goes to the reserve, not into circulation."""
-    from src.models.bank import Loan
 
     identity = await _identity(state, db)
     loan = await db.get(Loan, uuid.UUID(message["loan"]))

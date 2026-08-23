@@ -145,9 +145,7 @@ async def _city_charter_set(event: Event, names: Names) -> str | None:
 async def _vote_closed(event: Event, names: Names) -> str | None:
     city_row = await names.city(event.payload.get("city_id"))
     poll = await names.vote(event.payload.get("vote_id"))
-    subject = "голосование" if poll is None else POLLS.get(
-        poll.kind, "голосование"
-    )
+    subject = "голосование" if poll is None else POLLS.get(poll.kind, "голосование")
     result = "прошло" if event.payload.get("passed") else "не прошло"
     pro = plain(event.payload.get("yes"))
     contra = plain(event.payload.get("no"))

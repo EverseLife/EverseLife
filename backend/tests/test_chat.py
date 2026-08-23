@@ -48,17 +48,13 @@ async def _hears(session: AsyncSession, body: Body) -> list[str]:
 # --- room --------------------------------------------------------------------
 
 
-async def test_heard_by_those_in_location(
-    session: AsyncSession, constants: Constants
-) -> None:
+async def test_heard_by_those_in_location(session: AsyncSession, constants: Constants) -> None:
     _, (one, other) = await _room(session)
     await chat.say(session, constants, one, "почём нынче сталь?", kind=Utterance.SPEECH)
     assert await _hears(session, other) == ["почём нынче сталь?"]
 
 
-async def test_silence_from_other_location(
-    session: AsyncSession, constants: Constants
-) -> None:
+async def test_silence_from_other_location(session: AsyncSession, constants: Constants) -> None:
     """This is a conversation in a room, not a channel."""
     _, (speaker,) = await _room(session, people_count=1)
     _, (distant,) = await _room(session, people_count=1)
@@ -66,13 +62,12 @@ async def test_silence_from_other_location(
     assert await _hears(session, distant) == []
 
 
-async def test_left_means_left_conversation(
-    session: AsyncSession, constants: Constants
-) -> None:
+async def test_left_means_left_conversation(session: AsyncSession, constants: Constants) -> None:
     """On return you will not hear the continuation: heard only since arrival."""
     node, (one, other) = await _room(session)
-    away = await world.create_node(session, f"terra.away.{uuid.uuid4().hex[:6]}", "Прочь",
-                                    area_m2=50)
+    away = await world.create_node(
+        session, f"terra.away.{uuid.uuid4().hex[:6]}", "Прочь", area_m2=50
+    )
     await travel.connect(session, node, away, base_seconds=5)
 
     await chat.say(session, constants, one, "пока ты здесь", kind=Utterance.SPEECH)
@@ -137,34 +132,30 @@ async def test_kind_required_and_there_are_three(
     assert kinds == {Utterance.ACTION, Utterance.OOC}
 
 
-async def test_empty_and_endless_not_spoken(
-    session: AsyncSession, constants: Constants
-) -> None:
+async def test_empty_and_endless_not_spoken(session: AsyncSession, constants: Constants) -> None:
     _, (who,) = await _room(session, people_count=1)
     with pytest.raises(chat.ChatError):
         await chat.say(session, constants, who, "   ", kind=Utterance.SPEECH)
     from src.runtime import CHAT_TEXT_LIMIT
 
     with pytest.raises(chat.ChatError):
-        await chat.say(session, constants, who, "а" * (CHAT_TEXT_LIMIT + 1),
-                       kind=Utterance.SPEECH)
+        await chat.say(session, constants, who, "а" * (CHAT_TEXT_LIMIT + 1), kind=Utterance.SPEECH)
 
 
 # --- circles -----------------------------------------------------------------
 
 
-async def test_circle_visible_but_content_not(
-    session: AsyncSession, constants: Constants
-) -> None:
-    """"These ones are arranging something" is a strong social signal (D-043)."""
+async def test_circle_visible_but_content_not(session: AsyncSession, constants: Constants) -> None:
+    """ "These ones are arranging something" is a strong social signal (D-043)."""
     _, (conspirator, second, stranger) = await _room(session, people_count=3)
     circle = await chat.gather(session, conspirator, name="о ценах")
     await chat.join(session, second, circle.id)
 
     #: The seed is picked: with it the roll gives no leak.
     quiet = random.Random(3)
-    await chat.say(session, constants, conspirator, "скупаем сталь", kind=Utterance.SPEECH,
-                   rng=quiet)
+    await chat.say(
+        session, constants, conspirator, "скупаем сталь", kind=Utterance.SPEECH, rng=quiet
+    )
 
     #: An outsider sees the circle and its membership, but not what was said.
     assert await _hears(session, stranger) == []
@@ -178,9 +169,7 @@ async def test_circle_visible_but_content_not(
     assert await _hears(session, second) == ["скупаем сталь"]
 
 
-async def test_leak_marked_as_fragment(
-    session: AsyncSession, constants: Constants
-) -> None:
+async def test_leak_marked_as_fragment(session: AsyncSession, constants: Constants) -> None:
     """What leaked is one phrase without context, with the source circle named."""
     _, (whisperer, stranger) = await _room(session)
     await chat.gather(session, whisperer, name="сговор")
@@ -190,8 +179,9 @@ async def test_leak_marked_as_fragment(
     #: is below any of them.
     loud = random.Random()
     loud.random = lambda: 0.0
-    await chat.say(session, constants, whisperer, "делим жилу в полночь",
-                   kind=Utterance.SPEECH, rng=loud)
+    await chat.say(
+        session, constants, whisperer, "делим жилу в полночь", kind=Utterance.SPEECH, rng=loud
+    )
 
     overheard = await chat.hear(session, stranger)
     assert len(overheard) == 1
@@ -229,8 +219,9 @@ async def test_library_serves(session: AsyncSession, constants: Constants) -> No
 async def test_leaving_disbands_circle(session: AsyncSession, constants: Constants) -> None:
     """The circle does not follow: walked out -- left the conversation."""
     node, (one, second) = await _room(session)
-    away = await world.create_node(session, f"terra.out.{uuid.uuid4().hex[:6]}", "Прочь",
-                                    area_m2=50)
+    away = await world.create_node(
+        session, f"terra.out.{uuid.uuid4().hex[:6]}", "Прочь", area_m2=50
+    )
     await travel.connect(session, node, away, base_seconds=5)
     circle = await chat.gather(session, one)
     await chat.join(session, second, circle.id)
@@ -244,9 +235,7 @@ async def test_leaving_disbands_circle(session: AsyncSession, constants: Constan
 # --- a buffer, not history ---------------------------------------------------
 
 
-async def test_no_history_buffer_swept(
-    session: AsyncSession, constants: Constants
-) -> None:
+async def test_no_history_buffer_swept(session: AsyncSession, constants: Constants) -> None:
     """The server keeps no conversation history: nothing to bring up (D-070)."""
     from src.runtime import CHAT_BUFFER
 
@@ -267,8 +256,7 @@ async def test_world_tick_sweeps_buffer(factory, constants: Constants) -> None:
 
     async with factory() as session, session.begin():
         _, (who,) = await _room(session, people_count=1)
-        remark = await chat.say(session, constants, who, "мимолётное",
-                                 kind=Utterance.SPEECH)
+        remark = await chat.say(session, constants, who, "мимолётное", kind=Utterance.SPEECH)
         #: The tick sweeps by its own clock, not the test's: we age the remark
         #: rather than moving the world into the future.
 

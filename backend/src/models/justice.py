@@ -67,26 +67,18 @@ class Sanction(Base):
     )
 
     id: Mapped[uuid.UUID] = uuid_pk()
-    case_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("court_case.id"), nullable=True
-    )
+    case_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("court_case.id"), nullable=True)
     city_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("city.id"), nullable=False)
-    identity_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("identity.id"), nullable=False
-    )
+    identity_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("identity.id"), nullable=False)
     #: A primitive from `laws.json`: the engine keeps no list of its own (D-094).
     kind: Mapped[str] = mapped_column(nullable=False)
     #: For a fine -- how much is awarded; for imprisonment -- the node held in.
     amount: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
-    node_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("node.id"), nullable=True
-    )
+    node_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("node.id"), nullable=True)
     #: What could not be collected: debt to the city awaits its mechanic.
     debt: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
 
     created_at: Mapped[datetime] = created_column()
     #: Until when it is in force. Empty -- indefinite.
-    until: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     lifted_at: Mapped[datetime | None] = mapped_column(nullable=True)

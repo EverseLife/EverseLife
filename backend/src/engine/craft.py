@@ -80,7 +80,8 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import String as SqlString
+from sqlalchemy import case, cast, literal, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, ConstantError, Constants, current, current_catalog
@@ -181,8 +182,6 @@ BLANK = "Болванка"
 
 def carrier_names(catalog: Catalog | None = None) -> tuple[str, ...]:
     """Concrete carrier item names (D-215). One place asks, everybody agrees."""
-    from src.constants.catalog import current_catalog
-
     book = (catalog or current_catalog()).recipes
     return book.of_class(CARRIER) or (CARRIER,)
 
@@ -357,9 +356,7 @@ def _from_operation(catalog: Catalog, operation: Operation, output: str) -> Proc
     #: place extraction (D-177): felling runs as a batch without inputs.
     #: Without the field it is somebody else's mechanic (a vein).
     if not per_unit and operation.place is None:
-        raise Unmakeable(
-            f"операция «{operation.name}» ничего не расходует: это добыча, а не крафт"
-        )
+        raise Unmakeable(f"операция «{operation.name}» ничего не расходует: это добыча, а не крафт")
 
     station: str | None = None
     tools: list[str] = []
@@ -444,9 +441,7 @@ def optimal_amounts(
     scale = constants[R.QUALITY_SCALE]
     correction = 1 + (scale.mid - base_quality) / scale.max
     base = proc.inputs[0]
-    return {
-        name: value if name == base else value * correction for name, value in nominal.items()
-    }
+    return {name: value if name == base else value * correction for name, value in nominal.items()}
 
 
 def ratio_accuracy(actual: dict[str, float], optimal: dict[str, float]) -> float:
@@ -511,9 +506,7 @@ def quality_cap(
 ) -> float:
     """Only the craft premium rises above the ceiling, and only for a mix."""
     scale = constants[R.QUALITY_SCALE]
-    bonus = (
-        constants[R.QUALITY_HAND_CRAFT_BONUS] if proc.mix and not auto else 0.0
-    )
+    bonus = constants[R.QUALITY_HAND_CRAFT_BONUS] if proc.mix and not auto else 0.0
     return min(scale.max, ceiling + bonus)
 
 
@@ -599,11 +592,17 @@ async def start(
     #: The automaton's energy is written off up front, like materials: the city
     #: releases it at the tariff, and whoever burns it pays (D-085, D-135).
     if forecast.energy > 0:
-        from src.engine import energy as power
+        from src.engine import (  # noqa: PLC0415 -- lazy: breaks the import cycle with energy
+            energy as power,
+        )
 
         await power.draw_for_work(
-            session, constants, body, forecast.energy,
-            what=f"партия «{forecast.output}»", now=moment,
+            session,
+            constants,
+            body,
+            forecast.energy,
+            what=f"партия «{forecast.output}»",
+            now=moment,
         )
 
     for pick in ready.picks:
@@ -825,7 +824,7 @@ async def recycle(
     `quality.recycle_carryover`: a good thing taken apart gives better raw
     material, but worse than it was.
     """
-    from src.engine import coin
+    from src.engine import coin  # noqa: PLC0415 -- lazy: breaks the import cycle with coin
 
     if coin.is_coin(catalog, item.type_key):
         raise Unmakeable(
@@ -863,9 +862,7 @@ async def finish(session: AsyncSession, job: Job) -> None:
     #: The master stands at the machine -- takes it themselves; left or died --
     #: the output stays at the machine. Matter does not vanish with whoever ordered it.
     at_bench = body.state is BodyState.ALIVE and body.node_id == batch.node_id
-    where = (
-        await body_container(session, body) if at_bench else await node_container(session, node)
-    )
+    where = await body_container(session, body) if at_bench else await node_container(session, node)
 
     if batch.kind is BatchKind.REPAIR:
         made = await _finish_repair(session, constants, batch)
@@ -919,7 +916,7 @@ async def _finish_make(
 
     #: A coin has no quality at all: fineness describes it, and it comes off the
     #: batch together with the minter's mark (D-016).
-    from src.engine import coin
+    from src.engine import coin  # noqa: PLC0415 -- lazy: breaks the import cycle with coin
 
     coin_ = coin.is_coin(catalog, batch.output)
 
@@ -934,7 +931,7 @@ async def _finish_make(
         recipe = None
     spoils_at = None
     if recipe is not None and recipe.food:
-        from src.engine import food
+        from src.engine import food  # noqa: PLC0415 -- lazy: breaks the import cycle with food
 
         spoils_at = (
             food.cooked_spoils_at(constants, now=moment)
@@ -992,7 +989,7 @@ async def _finish_recycle(
     where: Container,
 ) -> list[float]:
     """Recycling: the thing is gone, and not all materials came back."""
-    from src.engine import coin
+    from src.engine import coin  # noqa: PLC0415 -- lazy: breaks the import cycle with coin
 
     #: A coin melts by its fineness, not by the recipe norm: a spoiled one has
     #: exactly as much metal as was put into it (D-016).
@@ -1015,9 +1012,7 @@ async def _finish_recycle(
         given = amount(goods.whole(name, per_unit * share, catalog=catalog))
         if given <= 0:
             continue
-        back_into = Item(
-            container_id=where.id, type_key=name, amount=given, quality=_num(back)
-        )
+        back_into = Item(container_id=where.id, type_key=name, amount=given, quality=_num(back))
         session.add(back_into)
         await world_engine.stack_up(session, back_into)
         returned.append(back)
@@ -1075,9 +1070,7 @@ async def _work_on(
 
     spent: dict[str, float] = {}
     if kind is BatchKind.REPAIR:
-        stock = await _stock(
-            session, inventory, proc.inputs, tiers=_tiers_by(catalog, tiers)
-        )
+        stock = await _stock(session, inventory, proc.inputs, tiers=_tiers_by(catalog, tiers))
         spent = {name: value * share for name, value in proc.per_unit.items()}
         for pick in _pick(stock, spent):
             if pick.item.amount > pick.take:
@@ -1137,12 +1130,10 @@ async def copy_recipe(
     #: A library holds what was put into it (D-068, D-209): the capital's has
     #: the base set, a city's has what people brought. What is not on the shelf
     #: is not here to copy -- go where it is, or bring it.
-    from src.engine import library
+    from src.engine import library  # noqa: PLC0415 -- lazy: breaks the import cycle with library
 
     if not await library.has(session, node, recipe.name):
-        raise NoLibrary(
-            f"в этой библиотеке нет «{recipe.name}»: его сюда ещё не принесли"
-        )
+        raise NoLibrary(f"в этой библиотеке нет «{recipe.name}»: его сюда ещё не принесли")
     identity = await session.get(Identity, body.identity_id)
     if identity is None:  # pragma: no cover
         raise CraftError("тело без личности")
@@ -1206,9 +1197,7 @@ async def read_carrier(
     return learned
 
 
-async def wipe_carrier(
-    session: AsyncSession, catalog: Catalog, body: Body, item: Item
-) -> Item:
+async def wipe_carrier(session: AsyncSession, catalog: Catalog, body: Body, item: Item) -> Item:
     """Erase a carrier: the recipe is gone from it, the blank is back in the hands.
 
     Nothing else about the thing changes -- its quality, mark and wear stay:
@@ -1228,9 +1217,7 @@ async def wipe_carrier(
     #: it can still be sold or melted down, but not written on (D-209).
     if item.quality is not None:
         scale = current()[R.QUALITY_SCALE]
-        item.quality = _num(
-            scale.clamp(float(item.quality) - current()[R.CARRIER_WIPE_WEAR])
-        )
+        item.quality = _num(scale.clamp(float(item.quality) - current()[R.CARRIER_WIPE_WEAR]))
     await session.flush()
     await events.record(
         session,
@@ -1315,8 +1302,7 @@ async def invent(
         raise CraftError("состав пуст: положите хоть что-нибудь")
     if len(laid) > constants[R.INVENT_MAX_INGREDIENTS]:
         raise CraftError(
-            f"в один состав кладут не больше {constants[R.INVENT_MAX_INGREDIENTS]:.0f} "
-            "видов вещей"
+            f"в один состав кладут не больше {constants[R.INVENT_MAX_INGREDIENTS]:.0f} видов вещей"
         )
     bench = None if station in (None, *BENCHLESS) else book.resolve(station)
 
@@ -1345,9 +1331,7 @@ async def invent(
         if set(map(book.resolve, operation.consumes)) == set(laid) and any(
             book.resolve(need) == bench for need in operation.requires
         ):
-            raise Unmakeable(
-                f"это «{operation.name}» — операция без рецепта, она и так в списке"
-            )
+            raise Unmakeable(f"это «{operation.name}» — операция без рецепта, она и так в списке")
 
     found = _match(catalog, bench, laid)
     if found is not None and await _knows(session, body, found):
@@ -1366,8 +1350,10 @@ async def invent(
         #: (D-209). Never more than was laid out: the laid amount is whole too.
         lost = {
             name: goods.whole(
-                name, value * dice.uniform(loss.min, loss.max) / PERCENT,
-                up=True, catalog=catalog,
+                name,
+                value * dice.uniform(loss.min, loss.max) / PERCENT,
+                up=True,
+                catalog=catalog,
             )
             for name, value in total.items()
         }
@@ -1397,8 +1383,7 @@ async def invent(
             batch=None,
             burned=burned,
             note=(
-                "Состав не сложился: часть выложенного сгорела. "
-                "Подсказок нет — думайте и пробуйте"
+                "Состав не сложился: часть выложенного сгорела. Подсказок нет — думайте и пробуйте"
             ),
         )
 
@@ -1454,8 +1439,7 @@ def _match(catalog: Catalog, bench: str | None, laid: dict[str, float]) -> str |
         if station != bench:
             continue
         norm = {
-            book.resolve(name): round(value, ROUND_RATIO)
-            for name, value in recipe.amounts.items()
+            book.resolve(name): round(value, ROUND_RATIO) for name, value in recipe.amounts.items()
         }
         if norm == want:
             return recipe.name
@@ -1481,7 +1465,7 @@ async def present(session: AsyncSession, body: Body, node_id: uuid.UUID) -> bool
         return False
     if await travel.current(session, body) is not None:
         return False
-    from src.engine import explore
+    from src.engine import explore  # noqa: PLC0415 -- lazy: breaks the import cycle with explore
 
     return await explore.pending(session, body) is None
 
@@ -1673,10 +1657,14 @@ async def sweep_orphans(session: AsyncSession) -> int:
         .exists()
     )
     orphans = (
-        await session.execute(
-            select(CraftBatch).where(CraftBatch.state == BatchState.RUNNING, ~alive)
+        (
+            await session.execute(
+                select(CraftBatch).where(CraftBatch.state == BatchState.RUNNING, ~alive)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     for batch in orphans:
         await _abandon(session, batch)
     return len(orphans)
@@ -1688,16 +1676,13 @@ def _batch_key(batch_id, runs):
     The first run keeps the plain key it always had; a resumed one carries its
     number, so that the two runs are two job rows and not one (D-209).
     """
-    from sqlalchemy import String as SqlString
-    from sqlalchemy import case, cast, literal
-
     plain = literal("craft.batch:") + cast(batch_id, SqlString)
     return case((runs == 1, plain), else_=plain + literal(":") + cast(runs, SqlString))
 
 
 async def _abandon(session: AsyncSession, batch: CraftBatch) -> None:
     """Give the batch back to the master and close it as cancelled."""
-    from src.engine import goods
+    from src.engine import goods  # noqa: PLC0415 -- lazy: breaks the import cycle with goods
 
     catalog = current_catalog()
     body = await session.get(Body, batch.body_id)
@@ -1711,9 +1696,7 @@ async def _abandon(session: AsyncSession, batch: CraftBatch) -> None:
     #: standing at the machine, otherwise beside it. Matter does not travel
     #: after whoever walked away.
     at_bench = body.state is BodyState.ALIVE and body.node_id == batch.node_id
-    where = (
-        await body_container(session, body) if at_bench else await node_container(session, node)
-    )
+    where = await body_container(session, body) if at_bench else await node_container(session, node)
 
     returned: dict[str, float] = {}
     for name, value in (batch.spent or {}).items():
@@ -1722,7 +1705,11 @@ async def _abandon(session: AsyncSession, batch: CraftBatch) -> None:
         if back <= 0:
             continue
         await world_engine.grant_item(
-            session, where, name, amount=back, quality=float(batch.quality),
+            session,
+            where,
+            name,
+            amount=back,
+            quality=float(batch.quality),
             origin=f"партия «{batch.output}» отменена: задания не стало",
         )
         returned[name] = back
@@ -1827,8 +1814,7 @@ async def _prepare(
         if node is None or not (node.properties or {}).get(proc.place):
             raise CraftError(f"здесь нет: {proc.place}")
         foreign = (
-            node.owner_identity_id is not None
-            and node.owner_identity_id != body.identity_id
+            node.owner_identity_id is not None and node.owner_identity_id != body.identity_id
         ) or (node.owner_identity_id is None and node.owner_city_id is not None)
         if foreign:
             raise CraftError(f"{proc.place} на чужой земле: рубить может хозяин")
@@ -1881,16 +1867,14 @@ async def _prepare(
     }
 
     picks = _pick(stock, required)
-    minutes = batch_minutes(
-        constants, proc, units, wear.effective(constants, station), auto=auto
-    )
+    minutes = batch_minutes(constants, proc, units, wear.effective(constants, station), auto=auto)
     #: The automaton eats energy for its working time. A manual workbench
     #: consumes nothing: craft stays available to those with no money for bills.
-    from src.engine import energy as power
-
-    energy = (
-        constants[R.ENERGY_AUTO_BENCH_DRAW] * minutes / MINUTES_PER_HOUR if auto else 0.0
+    from src.engine import (  # noqa: PLC0415 -- lazy: breaks the import cycle with energy
+        energy as power,
     )
+
+    energy = constants[R.ENERGY_AUTO_BENCH_DRAW] * minutes / MINUTES_PER_HOUR if auto else 0.0
     energy_price = 0
     if energy > 0:
         node = await session.get(Node, body.node_id)
@@ -2028,31 +2012,36 @@ async def _pick_station(
     queues behind the running one and takes a free machine when its turn comes
     (D-209). Somebody else's work still refuses.
     """
-    from src.engine import utility
+    from src.engine import utility  # noqa: PLC0415 -- lazy: breaks the import cycle with utility
 
     node = await session.get(Node, body.node_id)
     if node is None:  # pragma: no cover
         raise CraftError("тело вне узла")
     if await utility.cut_off(session, node):
         raise CutOff(
-            f"«{node.name}» отключён за неуплату: рабочие станции не работают, "
-            "пока долг не закрыт"
+            f"«{node.name}» отключён за неуплату: рабочие станции не работают, пока долг не закрыт"
         )
 
-    from src.engine.world import station_names
+    from src.engine.world import (  # noqa: PLC0415 -- lazy: breaks the import cycle with world
+        station_names,
+    )
 
     where = await node_container(session, node)
     moment = datetime.now(UTC)
     standing = (
-        await session.execute(
-            select(Item)
-            .where(
-                Item.container_id == where.id,
-                Item.type_key.in_(station_names(name)),
+        (
+            await session.execute(
+                select(Item)
+                .where(
+                    Item.container_id == where.id,
+                    Item.type_key.in_(station_names(name)),
+                )
+                .order_by(Item.quality.desc())
             )
-            .order_by(Item.quality.desc())
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     if not standing:
         raise NoStation(f"в узле нет рабочей станции «{name}»")
 
@@ -2073,8 +2062,11 @@ async def _pick_station(
         return own
     raise Busy(
         f"«{name}» занята"
-        + (" вашей же работой: дождитесь конца партии" if own is not None else
-           ": за рабочей станцией работает один. Свою ставят у себя")
+        + (
+            " вашей же работой: дождитесь конца партии"
+            if own is not None
+            else ": за рабочей станцией работает один. Свою ставят у себя"
+        )
     )
 
 
@@ -2147,7 +2139,7 @@ async def _stock(
     is touched, and too little of the chosen tier is a refusal, not a silent
     fallback to worse -- the choice was made for a reason (D-058).
     """
-    from src.engine import market
+    from src.engine import market  # noqa: PLC0415 -- lazy: breaks the import cycle with market
 
     constants = current()
     wanted = {name: tier for name, tier in (tiers or {}).items() if tier}
@@ -2169,9 +2161,8 @@ async def _stock(
             rows = [
                 item
                 for item in rows
-                if market.tier_of(
-                    constants, None if item.quality is None else float(item.quality)
-                ) == tier
+                if market.tier_of(constants, None if item.quality is None else float(item.quality))
+                == tier
             ]
         out[name] = list(rows)
     return out

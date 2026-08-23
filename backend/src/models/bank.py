@@ -37,9 +37,7 @@ class Loan(Base):
     __table_args__ = (Index("ix_loan_borrower", "identity_id", "state"),)
 
     id: Mapped[uuid.UUID] = uuid_pk()
-    identity_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("identity.id"), nullable=False
-    )
+    identity_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("identity.id"), nullable=False)
     #: Issued, in minor units.
     principal: Mapped[int] = mapped_column(BigInteger, nullable=False)
     #: How much is left to repay: principal plus accrued.
@@ -49,9 +47,7 @@ class Loan(Base):
     rate: Mapped[float] = mapped_column(Numeric(6, 2), nullable=False)
     #: Through which city the loan was issued (D-175). Empty -- a direct loan
     #: from the capital at the worse rate: cheap credit is a privilege of citizenship.
-    city_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("city.id"), nullable=True
-    )
+    city_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("city.id"), nullable=True)
     #: The city's margin in the rate, % above the key rate. Stored separately:
     #: on an interest payment its share goes to the city treasury, the rest to the capital's
     #: reserve.
@@ -60,9 +56,7 @@ class Loan(Base):
     printed: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     #: Interest: accrued and paid, cumulative (D-171). A payment covers it
     #: first, then the principal -- otherwise "system income" is unmeasurable.
-    interest_accrued: Mapped[int] = mapped_column(
-        BigInteger, nullable=False, default=0
-    )
+    interest_accrued: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     interest_paid: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
 
     state: Mapped[LoanState] = enum_column(
@@ -87,19 +81,13 @@ class RateDecision(Base):
     rate: Mapped[float] = mapped_column(Numeric(6, 2), nullable=False)
     #: What the sensors saw: inflation and the emission share of issue, percent.
     inflation: Mapped[float] = mapped_column(Numeric(8, 3), nullable=False, default=0)
-    emission_share: Mapped[float] = mapped_column(
-        Numeric(8, 3), nullable=False, default=0
-    )
+    emission_share: Mapped[float] = mapped_column(Numeric(8, 3), nullable=False, default=0)
     #: In words: why it came out exactly so.
     why: Mapped[str] = mapped_column(nullable=False, default="")
     #: Until when the rate is returned to the algorithm in emergency (D-172).
     #: Not a punishment for the Council but a fuse: the price of a mistake is everybody's money.
-    locked_until: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    decided_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
-    )
+    locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    decided_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     created_at: Mapped[datetime] = created_column()
 
 
@@ -111,11 +99,11 @@ class DefectReport(Base):
     One per identity per identity: inflating with one account is impossible by construction.
     """
 
-
     __tablename__ = "defect_report"
     __table_args__ = (
-        UniqueConstraint("reporter_identity_id", "target_identity_id",
-                         name="uq_defect_report_pair"),
+        UniqueConstraint(
+            "reporter_identity_id", "target_identity_id", name="uq_defect_report_pair"
+        ),
         Index("ix_defect_report_target", "target_identity_id"),
     )
 
@@ -123,7 +111,5 @@ class DefectReport(Base):
     reporter_identity_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("identity.id"), nullable=False
     )
-    target_identity_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("identity.id"), nullable=False
-    )
+    target_identity_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("identity.id"), nullable=False)
     created_at: Mapped[datetime] = created_column()

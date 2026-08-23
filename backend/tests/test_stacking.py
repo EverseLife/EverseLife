@@ -83,9 +83,7 @@ async def test_two_identical_lots_are_one_stack(session: AsyncSession) -> None:
     assert amount_float(lying[0].amount) == pytest.approx(8)
 
 
-async def test_a_swept_face_gives_one_heap(
-    session: AsyncSession, constants: Constants
-) -> None:
+async def test_a_swept_face_gives_one_heap(session: AsyncSession, constants: Constants) -> None:
     """Ten swings at one vein are ten lots of the same ore -- and one heap."""
     stamp = uuid.uuid4().hex[:8]
     node = await world.create_node(session, f"terra.face.{stamp}", "Забой", area_m2=100)
@@ -93,9 +91,7 @@ async def test_a_swept_face_gives_one_heap(
     identity = await world.create_identity(session, f"Шахтёр-{stamp}")
     body = await world.print_body(session, identity, node)
     pocket = await _hands(session, body)
-    await world.grant_item(
-        session, pocket, PICK, quality=50, origin="сценарий теста"
-    )
+    await world.grant_item(session, pocket, PICK, quality=50, origin="сценарий теста")
 
     face = await mining.start(session, constants, body, vein)
     for _ in range(10):
@@ -230,9 +226,7 @@ async def test_work_in_progress_is_not_swallowed(session: AsyncSession) -> None:
     _, _, body = await _person(session)
     hands = await _hands(session, body)
 
-    target = await world.grant_item(
-        session, hands, ORE, amount=4, quality=25, origin="тест"
-    )
+    target = await world.grant_item(session, hands, ORE, amount=4, quality=25, origin="тест")
     session.add(
         CraftBatch(
             body_id=body.id,

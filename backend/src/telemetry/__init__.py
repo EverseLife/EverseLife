@@ -23,7 +23,6 @@ vault did not set it, and inventing it in code is not allowed, neither in
 rules nor in observation.
 """
 
-
 from __future__ import annotations
 
 from src.telemetry import metrics

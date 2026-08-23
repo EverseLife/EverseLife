@@ -31,11 +31,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Constants
 from src.constants import registry as R
-from src.engine import events, travel, world
+from src.engine import craft, events, occupation, travel, world
 from src.engine.errors import Refusal
 from src.models.event import EventKind
 from src.models.identity import Body, BodyState
 from src.models.inventory import Item
+from src.models.world import Node
 from src.units import SECONDS_PER_HOUR
 
 #: The bed thing class (D-215): any furniture of this class grants hibernation.
@@ -70,11 +71,8 @@ async def sleep(
     #: Sleep is an occupation like any other (D-211): one does not lie down in
     #: the middle of a search or with a plot under the plough. The refusal
     #: names what is going on, so that the player ends it and comes back.
-    from src.engine import occupation
 
-    await occupation.require_free(
-        session, body, besides=frozenset({occupation.CRAFT})
-    )
+    await occupation.require_free(session, body, besides=frozenset({occupation.CRAFT}))
     if float(body.stamina) >= constants[R.BODY_STAMINA_MAX]:
         raise NotTired("выносливость полная: ложиться незачем")
 
@@ -85,7 +83,6 @@ async def sleep(
     #: A batch is not refused by sleep and does not refuse it: lying down is
     #: stepping away from the bench (D-211). The work freezes with its time
     #: left and the machine goes to whoever is awake.
-    from src.engine import craft
 
     await craft.freeze(session, body, now=moment)
 
@@ -133,7 +130,6 @@ async def wake(
 
     #: Back at the bench: the work frozen by sleep goes on, on a free machine
     #: of the same name -- somebody else may have taken the old one (D-211).
-    from src.engine import craft
 
     await craft.wake(session, body, now=moment)
 
@@ -150,7 +146,6 @@ async def wake(
 
 async def _bed_here(session: AsyncSession, body: Body) -> bool:
     """Whether there is a bed in the location. Until own buildings exist, the bed is the home."""
-    from src.models.world import Node
 
     node = await session.get(Node, body.node_id)
     if node is None:  # pragma: no cover

@@ -70,7 +70,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import events
+from src.engine import city as town
+from src.engine import events, gear, ledger, panel, world
 from src.engine.errors import Refusal
 from src.models.city import City
 from src.models.event import Event, EventKind
@@ -113,7 +114,6 @@ class Charge:
 
 
 def _law(catalog: Catalog, city: City, direction: str, kind: str) -> object:
-    from src.engine import city as town
 
     return town.law(catalog, city, f"{direction}_{kind}")
 
@@ -169,7 +169,6 @@ async def reference_price(
 
     `None` -- there were no deals. That is not zero: no duty is taken off an unknown price.
     """
-    from src.engine import panel
 
     moment = now or datetime.now(UTC)
     window = timedelta(hours=constants[R.TRADE_REFERENCE_PRICE_WINDOW])
@@ -177,14 +176,18 @@ async def reference_price(
     if not nodes:
         return None
     prices = (
-        await session.execute(
-            select(Trade.price).where(
-                Trade.node_id.in_(nodes),
-                Trade.type_key == type_key,
-                Trade.at >= moment - window,
+        (
+            await session.execute(
+                select(Trade.price).where(
+                    Trade.node_id.in_(nodes),
+                    Trade.type_key == type_key,
+                    Trade.at >= moment - window,
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     if not prices:
         return None
     return median([int(price) for price in prices]) / MONEY_SCALE
@@ -208,14 +211,18 @@ async def moved_in_window(
     moment = now or datetime.now(UTC)
     window = timedelta(hours=constants[R.TRADE_DUTY_FREE_WINDOW])
     lines = (
-        await session.execute(
-            select(Event).where(
-                Event.kind == EventKind.CUSTOMS_CROSSED.value,
-                Event.actor_identity_id == identity_id,
-                Event.at >= moment - window,
+        (
+            await session.execute(
+                select(Event).where(
+                    Event.kind == EventKind.CUSTOMS_CROSSED.value,
+                    Event.actor_identity_id == identity_id,
+                    Event.at >= moment - window,
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     in_total = 0.0
     for line in lines:
         cargo = line.payload or {}
@@ -240,7 +247,6 @@ async def assess(
     Forecast and write-off are computed by one code for the same reason as in
     craft: a diverged forecast is worse than none (D-092).
     """
-    from src.engine import gear, world
 
     moment = now or datetime.now(UTC)
     ban = banned(catalog, city, direction)
@@ -248,8 +254,8 @@ async def assess(
 
     pocket = await world.body_container(session, body)
     things = (
-        await session.execute(select(Item).where(Item.container_id == pocket.id))
-    ).scalars().all()
+        (await session.execute(select(Item).where(Item.container_id == pocket.id))).scalars().all()
+    )
 
     duty = 0.0
     taxed: dict[str, float] = {}
@@ -267,15 +273,18 @@ async def assess(
         condition = rate_table.get(thing.type_key) or rate_table.get("*")
         if condition is None or kilograms <= 0:
             continue
-        price = await reference_price(
-            session, constants, city, thing.type_key, now=moment
-        )
+        price = await reference_price(session, constants, city, thing.type_key, now=moment)
         if price is None:
             #: No deals -- no valuation. First the market, then customs (D-123).
             continue
 
         already = await moved_in_window(
-            session, constants, body.identity_id, city, direction, thing.type_key,
+            session,
+            constants,
+            body.identity_id,
+            city,
+            direction,
+            thing.type_key,
             now=moment,
         )
         norm = condition["free"]
@@ -313,8 +322,6 @@ async def cross(
     Returns charges by direction. A refusal is an exception: customs does not
     decide for the person what to drop, it only does not let through.
     """
-    from src.engine import city as town
-    from src.engine import ledger
 
     moment = now or datetime.now(UTC)
     origin = await town.of_node(session, from_node)
@@ -327,19 +334,13 @@ async def cross(
 
     charges: list[Charge] = []
     if origin is not None:
-        charges.append(
-            await assess(session, constants, catalog, body, origin, EXPORT, now=moment)
-        )
+        charges.append(await assess(session, constants, catalog, body, origin, EXPORT, now=moment))
     if dest is not None:
-        charges.append(
-            await assess(session, constants, catalog, body, dest, IMPORT, now=moment)
-        )
+        charges.append(await assess(session, constants, catalog, body, dest, IMPORT, now=moment))
 
     in_total = sum(charge.duty for charge in charges)
     if in_total > 0:
-        account = await ledger.account_for(
-            session, AccountKind.IDENTITY, body.identity_id
-        )
+        account = await ledger.account_for(session, AccountKind.IDENTITY, body.identity_id)
         remainder = await ledger.balance(session, account.id)
         if remainder < in_total:
             await events.record(
@@ -359,9 +360,7 @@ async def cross(
         if charge.city is None:  # pragma: no cover -- the city exists by construction
             continue
         if charge.duty > 0:
-            account = await ledger.account_for(
-                session, AccountKind.IDENTITY, body.identity_id
-            )
+            account = await ledger.account_for(session, AccountKind.IDENTITY, body.identity_id)
             treasury = await town.treasury(session, charge.city)
             await ledger.transfer(
                 session,
@@ -403,12 +402,16 @@ async def traffic(
     """
 
     lines = (
-        await session.execute(
-            select(Event).where(
-                Event.kind == EventKind.CUSTOMS_CROSSED.value, Event.at >= since
+        (
+            await session.execute(
+                select(Event).where(
+                    Event.kind == EventKind.CUSTOMS_CROSSED.value, Event.at >= since
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
 
     imports: dict[str, float] = {}
     exports: dict[str, float] = {}

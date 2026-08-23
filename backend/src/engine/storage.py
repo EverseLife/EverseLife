@@ -33,9 +33,9 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.constants import Catalog, Constants
+from src.constants import Catalog, Constants, current_catalog
 from src.constants import registry as R
-from src.engine import events, travel, world
+from src.engine import access, estate, events, gear, station, travel, world
 from src.engine.errors import Refusal
 from src.models.event import EventKind
 from src.models.identity import Body, BodyState
@@ -95,11 +95,8 @@ async def content(session: AsyncSession, chest: Item) -> list[Item]:
     return [] if container is None else list(await world.contents(session, container))
 
 
-async def stored_mass(
-    session: AsyncSession, catalog: Catalog, chest: Item
-) -> float:
+async def stored_mass(session: AsyncSession, catalog: Catalog, chest: Item) -> float:
     """How many kilograms already lie inside."""
-    from src.engine import gear
 
     return sum(
         gear.mass_of(catalog, thing.type_key, amount_float(thing.amount))
@@ -112,9 +109,7 @@ async def is_empty(session: AsyncSession, chest: Item) -> bool:
     container = await inside(session, chest, create=False)
     if container is None:
         return True
-    found = await session.scalar(
-        select(Item.id).where(Item.container_id == container.id).limit(1)
-    )
+    found = await session.scalar(select(Item.id).where(Item.container_id == container.id).limit(1))
     return found is None
 
 
@@ -138,16 +133,11 @@ async def put(
     if qty <= 0:
         raise StorageError("класть нечего")
 
-    from src.engine import gear
-
     bonus = gear.mass_of(catalog, item.type_key, qty)
     limit = capacity(catalog, chest.type_key) or 0.0
     free = limit - await stored_mass(session, catalog, chest)
     if bonus > free:
-        raise Full(
-            f"в «{chest.type_key}» свободно {free:.1f} кг, а это "
-            f"{bonus:.1f} кг"
-        )
+        raise Full(f"в «{chest.type_key}» свободно {free:.1f} кг, а это {bonus:.1f} кг")
 
     contents = await inside(session, chest)
     carried = await world.move_stack(session, item, contents, qty)
@@ -183,8 +173,6 @@ async def take(
     if qty <= 0:
         raise StorageError("забирать нечего")
 
-    from src.engine import gear
-
     await gear.check_carry(session, constants, catalog, body, item.type_key, qty)
 
     pocket = await world.body_container(session, body)
@@ -214,8 +202,6 @@ async def lying(session: AsyncSession, node: Node) -> list[Item]:
     Machines and furniture stand here too, but they are shown by their own
     windows and pay for their place by slots (D-106).
     """
-    from src.constants import current_catalog
-    from src.engine import estate
 
     catalog = current_catalog()
     things = await world.contents(session, await world.node_container(session, node))
@@ -234,13 +220,11 @@ async def _require_inside(session: AsyncSession, node: Node, body: Body) -> None
     one -- the leg between two jobs, a route that broke where the edge vanished.
     Standing there it is not a guest but a passer-by: the floor is not its business.
     """
-    from src.engine import access
 
     if await access.may_enter(session, node, body.identity_id):
         return
     raise NotYours(
-        f"«{node.name}» — чужая закрытая локация, вы здесь проходом: "
-        "проходом не берут и не кладут"
+        f"«{node.name}» — чужая закрытая локация, вы здесь проходом: проходом не берут и не кладут"
     )
 
 
@@ -258,7 +242,6 @@ async def drop(
     warehouse a decision rather than a formality. Whoever got in may put things
     down (D-204): the door decides who is inside, not this check.
     """
-    from src.engine import estate, gear
 
     if body.state is not BodyState.ALIVE:
         raise StorageError("мёртвое тело ничего не кладёт")
@@ -314,7 +297,6 @@ async def pick(
     in. Locked up means behind a shut door or in a chest (D-181), not behind a
     rule saying "do not take".
     """
-    from src.engine import gear
 
     if body.state is not BodyState.ALIVE:
         raise StorageError("мёртвое тело ничего не поднимает")
@@ -367,7 +349,6 @@ async def hand(
     The receiver's hands are not bottomless: the load limit is theirs to obey
     (D-146), so a full pair of hands refuses the parcel instead of swallowing it.
     """
-    from src.engine import gear
 
     if giver.state is not BodyState.ALIVE:
         raise StorageError("мёртвое тело ничего не передаёт")
@@ -404,11 +385,8 @@ async def hand(
     return given
 
 
-async def _allowed(
-    session: AsyncSession, catalog: Catalog, body: Body, chest: Item
-) -> Node:
+async def _allowed(session: AsyncSession, catalog: Catalog, body: Body, chest: Item) -> Node:
     """The common door of both actions: alive, here, entitled, and this is a storage."""
-    from src.engine import station
 
     if body.state is not BodyState.ALIVE:
         raise StorageError("мёртвое тело ничего не перекладывает")

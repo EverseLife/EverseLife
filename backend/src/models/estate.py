@@ -53,9 +53,7 @@ class Building(Base):
         CheckConstraint("area_m2 > 0", name="area_positive"),
         CheckConstraint("footprint_m2 > 0", name="footprint_positive"),
         CheckConstraint("floors >= 1", name="floors_positive"),
-        CheckConstraint(
-            "condition >= 0 AND condition <= 100", name="building_condition_in_scale"
-        ),
+        CheckConstraint("condition >= 0 AND condition <= 100", name="building_condition_in_scale"),
     )
 
     id: Mapped[uuid.UUID] = uuid_pk()
@@ -83,9 +81,7 @@ class Building(Base):
     #: The building type (D-218) -- the vault's own word, not a number: with
     #: the tier ladder gone the class of a house is a name, and the bill,
     #: the price of a floor and the rate of decay are all read by it.
-    kind: Mapped[str] = mapped_column(
-        String(64), nullable=False, server_default="деревянный"
-    )
+    kind: Mapped[str] = mapped_column(String(64), nullable=False, server_default="деревянный")
 
     #: How worn the house is now, on the same 0-100 scale as a tool's condition.
     #: Until it reaches zero the house stands at full strength -- it loses
@@ -113,12 +109,8 @@ class Deed(Base):
 
     id: Mapped[uuid.UUID] = uuid_pk()
     #: One plot -- one deed: a second deed for the same node is a forgery.
-    node_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("node.id"), nullable=False, unique=True
-    )
-    owner_identity_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("identity.id"), nullable=False
-    )
+    node_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("node.id"), nullable=False, unique=True)
+    owner_identity_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("identity.id"), nullable=False)
 
     #: The issue price: the purchase price in minor units, zero for taken wild land.
     paid: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)

@@ -89,9 +89,7 @@ class Ballot(Base):
 
     id: Mapped[uuid.UUID] = uuid_pk()
     vote_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("vote.id"), nullable=False)
-    identity_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("identity.id"), nullable=False
-    )
+    identity_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("identity.id"), nullable=False)
     #: "Yes/no" for a law and a recall. Means nothing in an election: there
     #: the subject is a person, named by `choice_identity_id`.
     yes: Mapped[bool] = mapped_column(nullable=False)

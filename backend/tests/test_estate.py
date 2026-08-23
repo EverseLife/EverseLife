@@ -49,24 +49,40 @@ async def _city(session: AsyncSession, catalog: Catalog):
         session, f"terra.{stamp}", "Терра", area_m2=1, layer=Layer.SPACE
     )
     delegate = await world.create_node(
-        session, f"terra.town.{stamp}", "Городок", area_m2=1,
-        layer=Layer.PLANET, parent=planet,
+        session,
+        f"terra.town.{stamp}",
+        "Городок",
+        area_m2=1,
+        layer=Layer.PLANET,
+        parent=planet,
     )
     core = await world.create_node(
-        session, f"terra.town.{stamp}.core", "Ядро", area_m2=100,
-        parent=delegate, properties={"кольцо": 0, "предтечи": True},
+        session,
+        f"terra.town.{stamp}.core",
+        "Ядро",
+        area_m2=100,
+        parent=delegate,
+        properties={"кольцо": 0, "предтечи": True},
     )
     #: The bioprinter distance is measured from: the city centre (D-089).
     core_yard = await world.node_container(session, core)
     await world.grant_item(session, core_yard, world.BIOPRINTER, quality=60, origin="тест")
 
     near = await world.create_node(
-        session, f"terra.town.{stamp}.lot1", "Ближний участок", area_m2=100,
-        parent=delegate, properties={"участок": True},
+        session,
+        f"terra.town.{stamp}.lot1",
+        "Ближний участок",
+        area_m2=100,
+        parent=delegate,
+        properties={"участок": True},
     )
     far = await world.create_node(
-        session, f"terra.town.{stamp}.lot2", "Дальний участок", area_m2=100,
-        parent=delegate, properties={"участок": True},
+        session,
+        f"terra.town.{stamp}.lot2",
+        "Дальний участок",
+        area_m2=100,
+        parent=delegate,
+        properties={"участок": True},
     )
     await travel.connect(session, core, near, base_seconds=30, surface=Surface.PAVED)
     await travel.connect(session, near, far, base_seconds=30, surface=Surface.PAVED)
@@ -97,8 +113,12 @@ async def _buyer(
         account = await ledger.account_for(session, AccountKind.IDENTITY, identity.id)
         genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
         await ledger.transfer(
-            session, PostingReason.GENESIS, debit=genesis.id, credit=account.id,
-            amount=money(funds), memo={},
+            session,
+            PostingReason.GENESIS,
+            debit=genesis.id,
+            credit=account.id,
+            amount=money(funds),
+            memo={},
         )
     return identity, body
 
@@ -229,13 +249,17 @@ async def test_a_city_that_lost_its_printer_keeps_its_rates(
     #: engine carries a machine away, and it is what empties the command's memory.
     yard = await world.node_container(session, core)
     printer = (
-        await session.execute(
-            sql_select(Item).where(
-                Item.container_id == yard.id,
-                Item.type_key.in_(world.station_names(world.BIOPRINTER)),
+        (
+            await session.execute(
+                sql_select(Item).where(
+                    Item.container_id == yard.id,
+                    Item.type_key.in_(world.station_names(world.BIOPRINTER)),
+                )
             )
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
     await session.delete(printer)
     await session.flush()
 
@@ -265,13 +289,17 @@ async def test_a_find_is_measured_without_a_printer_too(
 
     yard = await world.node_container(session, core)
     printer = (
-        await session.execute(
-            sql_select(Item).where(
-                Item.container_id == yard.id,
-                Item.type_key.in_(world.station_names(world.BIOPRINTER)),
+        (
+            await session.execute(
+                sql_select(Item).where(
+                    Item.container_id == yard.id,
+                    Item.type_key.in_(world.station_names(world.BIOPRINTER)),
+                )
             )
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
     await session.delete(printer)
     await session.flush()
     assert await town_.core(session, city) is None
@@ -445,9 +473,7 @@ async def test_land_handed_over_by_a_city_gives_a_deed(
     identity, body = await _buyer(session, plot, funds=0)
     await own_plot(plot, identity)
 
-    deed = (
-        await session.execute(select(Deed).where(Deed.node_id == plot.id))
-    ).scalar_one()
+    deed = (await session.execute(select(Deed).where(Deed.node_id == plot.id))).scalar_one()
     assert deed.owner_identity_id == identity.id
     assert deed.paid == 0
 
@@ -486,8 +512,12 @@ async def test_construction_spends_materials_and_places_building_on_term(
     area = 20.0
     for name, per_metre_ in norms.items():
         await world.grant_item(
-            session, pocket, name, amount=float(per_metre_) * area + 1,
-            quality=60, origin="тест",
+            session,
+            pocket,
+            name,
+            amount=float(per_metre_) * area + 1,
+            quality=60,
+            origin="тест",
         )
 
     job = await estate.construct(session, constants, body, plot, area)
@@ -495,9 +525,7 @@ async def test_construction_spends_materials_and_places_building_on_term(
 
     #: The term is the assembly labour: `build.labor_per_m2` hours per metre.
     minutes = area * constants[R.BUILD_LABOR_PER_M2] * 60
-    assert (job.run_at - datetime.now(UTC)).total_seconds() / 60 == pytest.approx(
-        minutes, rel=0.05
-    )
+    assert (job.run_at - datetime.now(UTC)).total_seconds() / 60 == pytest.approx(minutes, rel=0.05)
 
     await estate.finish_build(session, job)
     assert await estate.built_area(session, plot) == pytest.approx(area)
@@ -550,14 +578,10 @@ def test_type_names_the_materials_not_a_multiplier(constants: Constants) -> None
 def test_dear_types_decay_slower(constants: Constants) -> None:
     """What expensive materials buy is a rarer repair, not a stronger wall (D-218)."""
     ladder = estate.kinds(constants)
-    assert estate.decay_per_day(constants, ladder[0]) > estate.decay_per_day(
-        constants, ladder[-1]
-    )
+    assert estate.decay_per_day(constants, ladder[0]) > estate.decay_per_day(constants, ladder[-1])
     #: And the cheap type pays for that with a steeper floor: height is where a
     #: log house becomes ruinous.
-    assert estate.floor_growth(constants, ladder[0]) > estate.floor_growth(
-        constants, ladder[-1]
-    )
+    assert estate.floor_growth(constants, ladder[0]) > estate.floor_growth(constants, ladder[-1])
 
 
 def test_no_type_has_a_ceiling_of_height(constants: Constants) -> None:
@@ -612,9 +636,7 @@ async def test_storeys_give_area_without_eating_the_plot(
     await own_plot(plot, identity)
 
     pocket = await world.body_container(session, body)
-    needed = estate.estimate(
-        constants, footprint=10, floors=2, kind=estate.kinds(constants)[0]
-    )
+    needed = estate.estimate(constants, footprint=10, floors=2, kind=estate.kinds(constants)[0])
     for name, quantity in needed.items():
         await world.grant_item(
             session, pocket, name, amount=quantity + 1, quality=60, origin="тест"
@@ -658,9 +680,7 @@ async def test_started_sites_hold_their_ground(
 
     pocket = await world.body_container(session, body)
     plain = estate.kinds(constants)[0]
-    for name, quantity in estate.estimate(
-        constants, footprint=80, floors=1, kind=plain
-    ).items():
+    for name, quantity in estate.estimate(constants, footprint=80, floors=1, kind=plain).items():
         await world.grant_item(
             session, pocket, name, amount=quantity * 3, quality=60, origin="тест"
         )
@@ -732,9 +752,7 @@ async def test_demolition_takes_time_and_returns_a_share_of_materials(
     plot, identity, body = await _house(session, constants, own_plot)
     houses = await estate.buildings_of(session, plot)
     back = estate.salvage(constants, houses)
-    spent = estate.estimate(
-        constants, footprint=20.0, floors=1, kind=estate.kinds(constants)[0]
-    )
+    spent = estate.estimate(constants, footprint=20.0, floors=1, kind=estate.kinds(constants)[0])
 
     share = constants[R.BUILD_DEMOLISH_SALVAGE]
     for name, quantity in back.items():
@@ -748,9 +766,7 @@ async def test_demolition_takes_time_and_returns_a_share_of_materials(
     job = await estate.demolish(session, constants, body, plot)
     assert await estate.built_area(session, plot) > 0, "снос не мгновенен"
     minutes = estate.demolish_minutes(constants, houses)
-    assert (job.run_at - datetime.now(UTC)).total_seconds() / 60 == pytest.approx(
-        minutes, rel=0.05
-    )
+    assert (job.run_at - datetime.now(UTC)).total_seconds() / 60 == pytest.approx(minutes, rel=0.05)
     assert minutes < estate.build_minutes(
         constants, footprint=20.0, floors=1, kind=estate.kinds(constants)[0]
     ), "разбор быстрее сборки"
@@ -765,9 +781,9 @@ async def test_demolition_takes_time_and_returns_a_share_of_materials(
 
     at_hand = {
         thing.type_key: amount_float(thing.amount)
-        for thing in (
-            await session.execute(select(Item).where(Item.container_id == pocket.id))
-        ).scalars().all()
+        for thing in (await session.execute(select(Item).where(Item.container_id == pocket.id)))
+        .scalars()
+        .all()
     }
     for name, quantity in back.items():
         assert at_hand.get(name, 0) == pytest.approx(quantity, rel=0.01)
@@ -785,9 +801,7 @@ async def test_demolition_waits_for_the_yard_to_empty(
 
     plot, identity, body = await _house(session, constants, own_plot, area=40)
     yard = await world.node_container(session, plot)
-    bench = await world.grant_item(
-        session, yard, "Верстак", quality=60, origin="тест"
-    )
+    bench = await world.grant_item(session, yard, "Верстак", quality=60, origin="тест")
 
     reasons = await estate.demolish_blockers(session, constants, plot)
     assert reasons and "оборудование" in reasons[0]
@@ -804,9 +818,7 @@ async def test_demolition_waits_for_the_yard_to_empty(
     #: floor over twenty metres of ground (D-125).
     from src.engine import gear
 
-    tight, _, owner = await _house(
-        session, constants, own_plot, area=20, floors=2, plot_area=20
-    )
+    tight, _, owner = await _house(session, constants, own_plot, area=20, floors=2, plot_area=20)
     per_m2 = constants[R.BUILD_FLOOR_PER_M2]
     roofed = await estate.built_area(session, tight)
     #: Halfway between what the yard holds and what the house holds.
@@ -819,8 +831,7 @@ async def test_demolition_waits_for_the_yard_to_empty(
     )
     await storage.drop(session, constants, catalog, owner, goods, quantity)
     assert any(
-        "на полу" in reason
-        for reason in await estate.demolish_blockers(session, constants, tight)
+        "на полу" in reason for reason in await estate.demolish_blockers(session, constants, tight)
     )
 
 
@@ -848,11 +859,9 @@ async def test_demolition_is_not_ordered_twice(
     async def at_hand() -> dict[str, float]:
         return {
             thing.type_key: amount_float(thing.amount)
-            for thing in (
-                await session.execute(
-                    select(Item).where(Item.container_id == pocket.id)
-                )
-            ).scalars().all()
+            for thing in (await session.execute(select(Item).where(Item.container_id == pocket.id)))
+            .scalars()
+            .all()
         }
 
     once = await at_hand()
@@ -988,9 +997,7 @@ async def test_house_at_nothing_collapses_with_what_it_sheltered(
     house = (await estate.buildings_of(session, plot))[0]
 
     yard = await world.node_container(session, plot)
-    await world.grant_item(
-        session, yard, "Дерево", amount=5, quality=60, origin="тест"
-    )
+    await world.grant_item(session, yard, "Дерево", amount=5, quality=60, origin="тест")
 
     #: One step short of nothing the house is still whole: no places lost, no
     #: area lost. That is what makes repair a decision rather than a levy.
@@ -1002,9 +1009,7 @@ async def test_house_at_nothing_collapses_with_what_it_sheltered(
     worn, fallen = await estate.decay(session, constants)
     assert fallen == 1
     assert await estate.built_area(session, plot) == 0
-    left = (
-        await session.execute(select(Item).where(Item.container_id == yard.id))
-    ).scalars().all()
+    left = (await session.execute(select(Item).where(Item.container_id == yard.id))).scalars().all()
     assert left == [], "двор уходит вместе с крышей, которой над ним больше нет"
 
 
@@ -1125,8 +1130,11 @@ async def test_the_planet_s_own_land_is_nobody_s_and_pays_nothing(
     identity, _ = await _taxed_house(session, constants, catalog, where=near, city=city)
 
     wild = await world.create_node(
-        session, f"terra.wild.{uuid.uuid4().hex[:8]}", "Дикий участок",
-        area_m2=100, layer=Layer.PLANET,
+        session,
+        f"terra.wild.{uuid.uuid4().hex[:8]}",
+        "Дикий участок",
+        area_m2=100,
+        layer=Layer.PLANET,
     )
     wild.owner_identity_id = identity.id
     wild.owner_city_id = city.id
@@ -1158,7 +1166,10 @@ async def test_a_ship_is_not_land_and_pays_no_land_tax(
     cabins = []
     for _ in range(10):
         cabin = await world.create_node(
-            session, f"ship.node.{uuid.uuid4().hex[:8]}", "Отсек", area_m2=40,
+            session,
+            f"ship.node.{uuid.uuid4().hex[:8]}",
+            "Отсек",
+            area_m2=40,
             properties={ABOARD: True},
         )
         cabin.owner_identity_id = identity.id
@@ -1213,9 +1224,7 @@ async def test_what_cannot_be_paid_is_not_paid(
     shortfall must stay visible instead of quietly vanishing.
     """
     city, _, near, _ = await _city(session, catalog)
-    identity, _ = await _taxed_house(
-        session, constants, catalog, where=near, city=city, funds=0
-    )
+    identity, _ = await _taxed_house(session, constants, catalog, where=near, city=city, funds=0)
     owed = await estate.land_tax_of(session, constants, catalog, near)
     account = await ledger.account_for(session, AccountKind.IDENTITY, identity.id)
     assert await ledger.balance(session, account.id) == 0
@@ -1238,10 +1247,15 @@ async def test_the_city_does_not_tax_itself(
     from src.models.estate import Building
 
     city, core, _, _ = await _city(session, catalog)
-    session.add(Building(
-        node_id=core.id, area_m2=20, footprint_m2=20, floors=1,
-        kind=estate.kinds(constants)[0],
-    ))
+    session.add(
+        Building(
+            node_id=core.id,
+            area_m2=20,
+            footprint_m2=20,
+            floors=1,
+            kind=estate.kinds(constants)[0],
+        )
+    )
     await session.flush()
 
     assert await estate.built_area(session, core, ground=True) == pytest.approx(20)

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 Nurlan Urazkulov
 
-""""Roof" -- the E1 mining mechanic (D-143).
+""" "Roof" -- the E1 mining mechanic (D-143).
 
 Three buttons, one hidden number, two or three forks per session. Dig, set a
 support, leave; plus a pace lever. Roof stability is never shown to the player
@@ -54,10 +54,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Constants
 from src.constants import registry as R
-from src.engine import events, food, travel, wear
+from src.constants.catalog import CATALOG_HOLDER
+from src.engine import bank, customs, death, events, food, justice, luck, occupation, travel, wear
+from src.engine import city as town
 from src.engine import world as world_engine
 from src.engine.errors import Refusal
-from src.engine.world import body_container
+from src.engine.world import body_container, node_container
 from src.models.event import EventKind
 from src.models.identity import Body, BodyState, Wound
 from src.models.inventory import Container, ContainerKind, Item
@@ -151,9 +153,7 @@ def pace_factor(constants: Constants, pace: Pace) -> float:
     return constants[R.MINE_PACE_K] if pace is Pace.FAST else 1.0
 
 
-def swing_cost(
-    constants: Constants, body: Body, pace: Pace, moment: datetime
-) -> float:
+def swing_cost(constants: Constants, body: Body, pace: Pace, moment: datetime) -> float:
     """The stamina price of one swing -- the same formula as the write-off.
 
     Computed before the swing: a body at zero does not hit the vein, it sleeps
@@ -251,7 +251,6 @@ async def start(
         raise VeinDepleted(f"жила {vein.id} выработана")
     #: The penal face is only for those the prison holds (D-174, D-176): its
     #: vein is neither visible nor given to an outsider.
-    from src.engine import justice
 
     node = await session.get(Node, body.node_id)
     if (
@@ -272,7 +271,6 @@ async def start(
         raise SessionClosed("у тела уже открыта сессия: в двух забоях сразу не бьют")
     #: A face is an occupation like any other: it is not opened by a body that
     #: is already searching the land or ploughing a plot (D-211).
-    from src.engine import occupation
 
     await occupation.require_free(session, body, besides=frozenset({occupation.MINE}))
 
@@ -410,9 +408,7 @@ async def swing(
     return await _sight(session, constants, mining, body)
 
 
-async def timber(
-    session: AsyncSession, constants: Constants, mining: MiningSession
-) -> Sight:
+async def timber(session: AsyncSession, constants: Constants, mining: MiningSession) -> Sight:
     """Set a support: spends timber and a turn, restores stability up to the ceiling.
 
     Whether shoring pays depends on the price of support against the price of
@@ -505,9 +501,7 @@ async def leave(
     return haul
 
 
-async def sight(
-    session: AsyncSession, constants: Constants, mining: MiningSession
-) -> Sight:
+async def sight(session: AsyncSession, constants: Constants, mining: MiningSession) -> Sight:
     """Look at the face. Asking again is pointless: the sign does not change."""
     body = await session.get(Body, mining.body_id)
     if body is None:  # pragma: no cover
@@ -518,9 +512,7 @@ async def sight(
 # --- internal ----------------------------------------------------------------
 
 
-async def _require_active(
-    session: AsyncSession, mining: MiningSession
-) -> tuple[Body, Vein]:
+async def _require_active(session: AsyncSession, mining: MiningSession) -> tuple[Body, Vein]:
     if mining.state is not SessionState.ACTIVE:
         raise SessionClosed(f"сессия {mining.id} закрыта: {mining.state.value}")
     body = await session.get(Body, mining.body_id)
@@ -594,8 +586,6 @@ async def _required_tool(
     worlds) nothing is required -- there is nothing to read the rule from.
     """
     if catalog is None:
-        from src.constants.catalog import CATALOG_HOLDER
-
         if not CATALOG_HOLDER.is_loaded():  # pragma: no cover -- test worlds
             return None
         catalog = CATALOG_HOLDER.current()
@@ -618,11 +608,7 @@ async def _required_tool(
     names = book.of_class(requirement) or (requirement,)
     if tool_item_id is not None:
         chosen = await session.get(Item, tool_item_id)
-        if (
-            chosen is not None
-            and chosen.container_id == inventory.id
-            and chosen.type_key in names
-        ):
+        if chosen is not None and chosen.container_id == inventory.id and chosen.type_key in names:
             return chosen
     found = (
         await session.execute(
@@ -668,8 +654,10 @@ async def _carry_out(session: AsyncSession, mining: MiningSession, body: Body) -
     container = await session_container(session, mining)
     inventory = await body_container(session, body)
     items = (
-        await session.execute(select(Item).where(Item.container_id == container.id))
-    ).scalars().all()
+        (await session.execute(select(Item).where(Item.container_id == container.id)))
+        .scalars()
+        .all()
+    )
 
     haul = 0.0
     for item in items:
@@ -695,8 +683,10 @@ async def _collapse(
     """Collapse: everything mined during the session is lost, plus wear and maybe a wound."""
     container = await session_container(session, mining)
     lost_items = (
-        await session.execute(select(Item).where(Item.container_id == container.id))
-    ).scalars().all()
+        (await session.execute(select(Item).where(Item.container_id == container.id)))
+        .scalars()
+        .all()
+    )
     lost = sum(amount_float(item.amount) for item in lost_items)
     for item in lost_items:
         await session.delete(item)
@@ -712,7 +702,6 @@ async def _collapse(
     #: Both rolls remember (D-213). Death by a fair coin came twice in a row
     #: often enough, and the second one reads as the world having it in for
     #: you -- while the mean, which is what the vault states, is untouched.
-    from src.engine import luck
 
     killed = await luck.hit(
         session,
@@ -760,7 +749,6 @@ async def _collapse(
         #: The summary is assembled **before** death: the player must see how
         #: the session ended, not an empty screen. The body is dead after that.
         sight = await _sight(session, constants, mining, body)
-        from src.engine import death
 
         await death.die(session, constants, body, cause="обрушение свода", now=moment)
         return sight
@@ -781,10 +769,6 @@ async def _prison_workoff(
     ordinary face or there is nothing to credit with: then the yield goes to
     the prisoner in the usual way -- the vault forbids traps without exit (D-063).
     """
-    from src.engine import bank, customs, justice
-    from src.engine import city as town
-    from src.engine.world import node_container
-    from src.models.world import Node
 
     node = await session.get(Node, body.node_id)
     if node is None or not await justice.is_prison(session, node):
@@ -797,8 +781,10 @@ async def _prison_workoff(
 
     container = await session_container(session, mining)
     items = (
-        await session.execute(select(Item).where(Item.container_id == container.id))
-    ).scalars().all()
+        (await session.execute(select(Item).where(Item.container_id == container.id)))
+        .scalars()
+        .all()
+    )
     if not items:
         return 0.0
 
@@ -806,18 +792,14 @@ async def _prison_workoff(
     #: collusion. No price -- no credit: first the market, then the penal colony (D-174).
     cost = 0
     for item in items:
-        price = await customs.reference_price(
-            session, constants, city, item.type_key, now=now
-        )
+        price = await customs.reference_price(session, constants, city, item.type_key, now=now)
         if price is None:
             return None
         cost += int(price * amount_float(item.amount))
     if cost <= 0:
         return None
 
-    credited = await bank.prison_credit(
-        session, constants, city, body.identity_id, cost, now=now
-    )
+    credited = await bank.prison_credit(session, constants, city, body.identity_id, cost, now=now)
     if credited <= 0:
         #: The treasury is empty -- the ore stays with the prisoner: a prison is
         #: the city's investment, and an insolvent city earns nothing from penal labour.

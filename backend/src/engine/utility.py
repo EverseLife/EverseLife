@@ -40,11 +40,11 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.constants import Constants
+from src.constants import Constants, current
 from src.constants import registry as R
 from src.engine import energy, events, ledger
 from src.engine.errors import Refusal
-from src.engine.jobs import handler
+from src.engine.jobs import enqueue, handler
 from src.models.city import UtilityMeter
 from src.models.event import EventKind
 from src.models.identity import Identity
@@ -186,9 +186,7 @@ async def bill(
         await session.flush()
         return 0
 
-    account = await ledger.account_for(
-        session, AccountKind.IDENTITY, node.owner_identity_id
-    )
+    account = await ledger.account_for(session, AccountKind.IDENTITY, node.owner_identity_id)
     treasury = await ledger.account_for(session, AccountKind.CITY_TREASURY, pool.node_id)
     remainder = await ledger.balance(session, account.id)
 
@@ -258,9 +256,7 @@ async def pay(
     treasury = await ledger.account_for(session, AccountKind.CITY_TREASURY, pool.node_id)
     remainder = await ledger.balance(session, account.id)
     if remainder < meter.debt:
-        raise NotEnoughMoney(
-            f"долг {money_str(meter.debt)} ₭, а на счету {money_str(remainder)} ₭"
-        )
+        raise NotEnoughMoney(f"долг {money_str(meter.debt)} ₭, а на счету {money_str(remainder)} ₭")
 
     debt = meter.debt
     await ledger.transfer(
@@ -294,8 +290,10 @@ async def holdings(
     for the client not to show the section at all.
     """
     nodes = (
-        await session.execute(select(Node).where(Node.owner_identity_id == identity_id))
-    ).scalars().all()
+        (await session.execute(select(Node).where(Node.owner_identity_id == identity_id)))
+        .scalars()
+        .all()
+    )
 
     out: list[dict] = []
     for node in nodes:
@@ -305,9 +303,7 @@ async def holdings(
         online = await energy.grid_node(session, node) is not None
         pool = await energy.pool_of(session, constants, node, create=False)
         for_period = draw_for(constants, node, constants[R.ENERGY_METER_PERIOD])
-        tariff = (
-            float(pool.tariff) if pool is not None else constants[R.ENERGY_TARIFF_DEFAULT]
-        )
+        tariff = float(pool.tariff) if pool is not None else constants[R.ENERGY_TARIFF_DEFAULT]
         out.append(
             {
                 "node": node.key,
@@ -337,12 +333,16 @@ async def ensure_meters(session: AsyncSession, constants: Constants) -> int:
     owner and grid.
     """
     occupied_ = (
-        await session.execute(
-            select(Node).where(
-                Node.owner_identity_id.is_not(None) | Node.owner_city_id.is_not(None)
+        (
+            await session.execute(
+                select(Node).where(
+                    Node.owner_identity_id.is_not(None) | Node.owner_city_id.is_not(None)
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     opened = 0
     for node in occupied_:
         # The second call opens the meter, and it is reached only by one that
@@ -378,7 +378,6 @@ async def run_meters(
 
 
 def _period() -> timedelta:
-    from src.constants import current
 
     return timedelta(hours=current()[R.ENERGY_METER_PERIOD])
 
@@ -386,7 +385,6 @@ def _period() -> timedelta:
 async def schedule_next(session: AsyncSession, after: datetime) -> None:
     """Queue the next pass. The key is the period number, not the call time:
     two processes deciding to queue the meter at once will queue one job."""
-    from src.engine.jobs import enqueue
 
     period = _period()
     run_at = after + period
@@ -401,7 +399,6 @@ async def schedule_next(session: AsyncSession, after: datetime) -> None:
 
 async def ensure_scheduled(session: AsyncSession, now: datetime | None = None) -> None:
     """Make sure the meter ticks. Called together with the world clock."""
-    from src.engine.jobs import enqueue
 
     moment = now or datetime.now(UTC)
     period = _period()
@@ -417,7 +414,6 @@ async def ensure_scheduled(session: AsyncSession, now: datetime | None = None) -
 @handler(JobKind.UTILITY_METER)
 async def meter_tick(session: AsyncSession, job: Job) -> None:
     """The bill for all nodes at once and the next pass in a period."""
-    from src.constants import current
 
     listed = await run_meters(session, current(), now=job.run_at)
     await events.record(

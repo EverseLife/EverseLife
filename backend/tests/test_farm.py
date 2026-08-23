@@ -33,11 +33,15 @@ SPELT = "spelt"
 BEANS = "beans"
 
 
-async def _farmstead(session: AsyncSession, *, water: str = "река", fertility: float = 55,
-                 area: float = 200):
+async def _farmstead(
+    session: AsyncSession, *, water: str = "река", fertility: float = 55, area: float = 200
+):
     stamp = uuid.uuid4().hex[:8]
     node = await world.create_node(
-        session, f"terra.farm.{stamp}", "Хутор", area_m2=area,
+        session,
+        f"terra.farm.{stamp}",
+        "Хутор",
+        area_m2=area,
         properties={"вода": water, "плодородие": fertility},
     )
     identity = await world.create_identity(session, f"Фермер-{stamp}")
@@ -55,9 +59,7 @@ async def _grain(session: AsyncSession, body, cat: Catalog, culture: str, qty=20
 
     cultivar = await breed.landrace(session, cat, culture)
     pocket = await world.body_container(session, body)
-    return await breed.seed_lot(
-        session, cat, pocket.id, cultivar, qty, PERCENT
-    )
+    return await breed.seed_lot(session, cat, pocket.id, cultivar, qty, PERCENT)
 
 
 async def _ready(session, constants, catalog, body, *, area=10.0, culture=SPELT):
@@ -86,8 +88,9 @@ async def test_node_land_is_finite(session: AsyncSession, constants: Constants) 
 async def test_no_survey_below_minimum(session: AsyncSession, constants: Constants) -> None:
     _, _, body = await _farmstead(session)
     with pytest.raises(farm.TooSmall):
-        await farm.mark(session, constants, body, name="лоскут",
-                        area=constants[R.FARM_PLOT_MIN_AREA] - 1)
+        await farm.mark(
+            session, constants, body, name="лоскут", area=constants[R.FARM_PLOT_MIN_AREA] - 1
+        )
 
 
 async def test_land_bears_nothing_without_fertility(
@@ -105,8 +108,9 @@ async def test_land_bears_nothing_without_fertility(
 # --- cycle -------------------------------------------------------------------
 
 
-async def test_cycle_is_honest(session: AsyncSession, constants: Constants,
-                            catalog: Catalog) -> None:
+async def test_cycle_is_honest(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
     _, _, body = await _farmstead(session)
     plot = await farm.mark(session, constants, body, name="грядка", area=10)
     seeds = await _grain(session, body, catalog, SPELT)
@@ -129,7 +133,9 @@ async def test_ploughing_goes_by_job(
     async with factory() as session, session.begin():
         _, _, body = await _farmstead(session)
         plot = await farm.plow(
-            session, constants, body,
+            session,
+            constants,
+            body,
             await farm.mark(session, constants, body, name="грядка", area=10),
         )
         assert plot.state is PlotState.PLOWING
@@ -168,9 +174,7 @@ async def test_sowing_spends_seeds(
     )
     #: The sack from the first attempt stayed untouched: the batch does not
     #: start if seeds are short.
-    assert amount_float(int(left)) == pytest.approx(
-        101 - constants[R.FARM_SEED_RATE] * 10
-    )
+    assert amount_float(int(left)) == pytest.approx(101 - constants[R.FARM_SEED_RATE] * 10)
 
 
 async def test_harvest_from_vault_formula(
@@ -184,8 +188,7 @@ async def test_harvest_from_vault_formula(
     #: Full care: we do the round every day of the cycle.
     sown = plot.sown_at
     for day_ in range(int(plant.cycle_days)):
-        await farm.care(session, constants, body, plot,
-                        now=sown + _day(constants) * day_)
+        await farm.care(session, constants, body, plot, now=sown + _day(constants) * day_)
 
     ripeness = farm.ripe_at(constants, plot, plant)
     collected = await farm.harvest(session, constants, catalog, body, plot, now=ripeness)
@@ -198,10 +201,14 @@ async def test_harvest_from_vault_formula(
     #: and it equals fertility taken by full care.
     pocket = await world.body_container(session, body)
     stacks = (
-        await session.execute(
-            select(Item).where(Item.container_id == pocket.id, Item.type_key == plant.gives)
+        (
+            await session.execute(
+                select(Item).where(Item.container_id == pocket.id, Item.type_key == plant.gives)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     qualities = {None if s.quality is None else float(s.quality) for s in stacks}
     assert 55.0 in qualities, f"среди стопок нет урожая: {qualities}"
 
@@ -230,8 +237,7 @@ async def test_care_is_daily_not_hourly(
     plot = await _ready(session, constants, catalog, body)
     await farm.care(session, constants, body, plot, now=plot.sown_at)
     with pytest.raises(farm.WrongState):
-        await farm.care(session, constants, body, plot,
-                        now=plot.sown_at + timedelta(hours=1))
+        await farm.care(session, constants, body, plot, now=plot.sown_at + timedelta(hours=1))
 
 
 async def test_water_carried_by_hand_in_dry_place(
@@ -253,9 +259,7 @@ async def test_water_carried_by_hand_in_dry_place(
             Item.container_id == pocket.id, Item.type_key == farm.WATER
         )
     )
-    assert amount_float(int(left)) == pytest.approx(
-        100 - constants[R.FARM_WATER_PER_M2] * 10
-    )
+    assert amount_float(int(left)) == pytest.approx(100 - constants[R.FARM_WATER_PER_M2] * 10)
 
 
 # --- the land remembers ------------------------------------------------------
@@ -369,7 +373,7 @@ async def test_foreign_patch_left_alone(
 async def test_summary_counts_losses_on_accrual_day(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """"Minus half the harvest" is seen at once, not as a surprise at harvest.
+    """ "Minus half the harvest" is seen at once, not as a surprise at harvest.
 
     In numbers -- to whoever knows the agrotech: without it the same plot
     shows a symptom, not a loss count (D-057, checked in `test_agrotech`).
@@ -409,7 +413,10 @@ async def test_land_outside_a_city_is_never_privatized(
     """
     stamp = uuid.uuid4().hex[:8]
     wild = await world.create_node(
-        session, f"terra.wild.{stamp}", "Дикий угол", area_m2=100,
+        session,
+        f"terra.wild.{stamp}",
+        "Дикий угол",
+        area_m2=100,
         properties={"плодородие": 40},
     )
     first = await world.create_identity(session, f"Первый-{stamp}")
@@ -433,7 +440,10 @@ async def test_civic_plot_is_handed_over_once(
     """Title is issued by a city, and a plot already held is not issued again."""
     stamp = uuid.uuid4().hex[:8]
     civic = await world.create_node(
-        session, f"terra.town.{stamp}", "Городская земля", area_m2=100,
+        session,
+        f"terra.town.{stamp}",
+        "Городская земля",
+        area_m2=100,
         properties={"плодородие": 40},
     )
     civic.owner_city_id = uuid.uuid4()

@@ -75,11 +75,13 @@ class Item(Base):
         Index("ix_item_container", "container_id"),
         Index("ix_item_type", "type_key"),
         CheckConstraint("amount > 0", name="amount_positive"),
-        CheckConstraint("quality IS NULL OR (quality >= 0 AND quality <= 100)",
-                        name="quality_in_scale"),
+        CheckConstraint(
+            "quality IS NULL OR (quality >= 0 AND quality <= 100)", name="quality_in_scale"
+        ),
         CheckConstraint("condition >= 0 AND condition <= 100", name="condition_in_scale"),
-        CheckConstraint("fineness IS NULL OR (fineness > 0 AND fineness <= 1000)",
-                        name="fineness_in_permille"),
+        CheckConstraint(
+            "fineness IS NULL OR (fineness > 0 AND fineness <= 1000)", name="fineness_in_permille"
+        ),
     )
 
     id: Mapped[uuid.UUID] = uuid_pk()

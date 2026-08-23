@@ -35,9 +35,7 @@ MAKE = "Рукоять"
 
 async def _workshop(session: AsyncSession, *, machine_count: int = 1):
     stamp = uuid.uuid4().hex[:8]
-    node = await world.create_node(
-        session, f"terra.shop.{stamp}", "Мастерская", area_m2=200
-    )
+    node = await world.create_node(session, f"terra.shop.{stamp}", "Мастерская", area_m2=200)
     #: A machine lives in a building (D-106): the test's workshop is fully built.
     session.add(Building(node_id=node.id, area_m2=200))
     await session.flush()
@@ -52,9 +50,7 @@ async def _master(session: AsyncSession, node, name: str):
     body = await world.print_body(session, identity, node)
     await world.learn(session, identity, MAKE)
     pocket = await world.body_container(session, body)
-    await world.grant_item(
-        session, pocket, "Дерево", amount=50, quality=60, origin="тест"
-    )
+    await world.grant_item(session, pocket, "Дерево", amount=50, quality=60, origin="тест")
     return identity, body
 
 
@@ -119,12 +115,16 @@ async def test_machine_freed_when_batch_ends(
     from src.models.job import Job, JobKind, JobState
 
     job = (
-        await session.execute(
-            select(Job).where(
-                Job.kind == JobKind.CRAFT_BATCH.value, Job.state == JobState.PENDING
+        (
+            await session.execute(
+                select(Job).where(
+                    Job.kind == JobKind.CRAFT_BATCH.value, Job.state == JobState.PENDING
+                )
             )
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
     await craft.finish(session, job)
     await session.refresh(machine)
     assert machine.busy_body_id is None
@@ -138,9 +138,7 @@ async def test_machine_placed_at_own_place(
     identity, body = await _master(session, node, "Хозяин")
     stranger, stranger_body = await _master(session, node, "Чужой")
     pocket = await world.body_container(session, body)
-    machine = await world.grant_item(
-        session, pocket, BENCH, quality=60, origin="тест"
-    )
+    machine = await world.grant_item(session, pocket, BENCH, quality=60, origin="тест")
 
     await own_plot(node, stranger)
     with pytest.raises(station.NotYours):
@@ -154,9 +152,7 @@ async def test_machine_placed_at_own_place(
     assert machine.container_id == yard.id
 
 
-async def test_machine_stands_on_nobodys_land(
-    session: AsyncSession, catalog: Catalog
-) -> None:
+async def test_machine_stands_on_nobodys_land(session: AsyncSession, catalog: Catalog) -> None:
     """Land outside a city has no owner, and work on it is open to all (D-198)."""
     node = await _workshop(session, machine_count=0)
     assert node.owner_identity_id is None and node.owner_city_id is None
@@ -186,8 +182,12 @@ async def test_authority_does_not_run_foreign_house(
         session, f"terra.state.{stamp}", "Столица", area_m2=1, layer=Layer.PLANET
     )
     plot = await world.create_node(
-        session, f"terra.state.{stamp}.lot", "Участок", area_m2=200,
-        layer=Layer.CITY, parent=planet,
+        session,
+        f"terra.state.{stamp}.lot",
+        "Участок",
+        area_m2=200,
+        layer=Layer.CITY,
+        parent=planet,
     )
     city = await town.found(session, catalog, planet, "Столица")
     plot.owner_city_id = city.id
@@ -210,9 +210,7 @@ async def test_machine_not_placed_without_building(
 ) -> None:
     """Build first, then furnish (D-106): a yard is not a workshop."""
     stamp = uuid.uuid4().hex[:8]
-    node = await world.create_node(
-        session, f"terra.bare.{stamp}", "Пустырь", area_m2=200
-    )
+    node = await world.create_node(session, f"terra.bare.{stamp}", "Пустырь", area_m2=200)
     identity, body = await _master(session, node, "Хозяин")
     pocket = await world.body_container(session, body)
     machine = await world.grant_item(session, pocket, BENCH, quality=60, origin="тест")
@@ -227,9 +225,7 @@ async def test_machines_take_building_area(
     """A place is `build.slots_per_area` m2 per thing: in a cramped house machines do not
     multiply."""
     stamp = uuid.uuid4().hex[:8]
-    node = await world.create_node(
-        session, f"terra.tiny.{stamp}", "Тесный дом", area_m2=100
-    )
+    node = await world.create_node(session, f"terra.tiny.{stamp}", "Тесный дом", area_m2=100)
     #: A building for one place: a second does not fit.
     session.add(Building(node_id=node.id, area_m2=10))
     await session.flush()
@@ -260,17 +256,11 @@ async def test_furniture_placed_like_machine_but_as_furniture(
     assert bed.container_id == yard.id
 
 
-async def test_non_machine_not_placed_in_node(
-    session: AsyncSession, catalog: Catalog
-) -> None:
+async def test_non_machine_not_placed_in_node(session: AsyncSession, catalog: Catalog) -> None:
     node = await _workshop(session, machine_count=0)
     _, body = await _master(session, node, "Хозяин")
     pocket = await world.body_container(session, body)
-    sack = (
-        await world.grant_item(
-            session, pocket, "Дерево", amount=1, quality=60, origin="тест"
-        )
-    )
+    sack = await world.grant_item(session, pocket, "Дерево", amount=1, quality=60, origin="тест")
     with pytest.raises(station.NotStation):
         await station.place(session, catalog, body, sack)
 

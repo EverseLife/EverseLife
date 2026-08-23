@@ -192,9 +192,7 @@ async def _check_funds(session: AsyncSession, postings: Sequence[Posting]) -> No
             continue
         current = await balance(session, account_id)
         if current + delta < 0:
-            raise InsufficientFunds(
-                f"на счёте {account_id} {current}, требуется {-delta}"
-            )
+            raise InsufficientFunds(f"на счёте {account_id} {current}, требуется {-delta}")
 
 
 async def money_supply(session: AsyncSession, currency: Currency = Currency.TK) -> int:

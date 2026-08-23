@@ -83,13 +83,17 @@ async def run_once(
         return ceiling
 
     events_ = (
-        await session.execute(
-            select(Event)
-            .where(Event.id > after, Event.id <= ceiling, Event.kind.in_(PUBLIC))
-            .order_by(Event.id)
-            .limit(HERALD_BATCH)
+        (
+            await session.execute(
+                select(Event)
+                .where(Event.id > after, Event.id <= ceiling, Event.kind.in_(PUBLIC))
+                .order_by(Event.id)
+                .limit(HERALD_BATCH)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
 
     lines = await compose(session, events_)
     for piece in chunks(lines):

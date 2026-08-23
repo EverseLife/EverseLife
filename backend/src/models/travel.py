@@ -77,7 +77,6 @@ class Harness(Base):
     a caravan, and it will arrive with its own mechanic.
     """
 
-
     __tablename__ = "harness"
     __table_args__ = (
         UniqueConstraint("body_id", name="uq_harness_body"),

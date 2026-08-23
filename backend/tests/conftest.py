@@ -46,9 +46,7 @@ from src.models import Base
 BACKEND = Path(__file__).resolve().parents[1]
 #: The vault lies next to the game repo, and the server in its `backend/` subdirectory.
 VAULT_BUILD = Path(
-    os.environ.get(
-        "EVERSELIFE_VAULT_BUILD", BACKEND / ".." / ".." / "everselife-vault" / "build"
-    )
+    os.environ.get("EVERSELIFE_VAULT_BUILD", BACKEND / ".." / ".." / "everselife-vault" / "build")
 )
 
 #: The test database. If it is absent, tests that need it are skipped, and
@@ -122,8 +120,7 @@ def catalog(loaded: tuple[Constants, Catalog]) -> Catalog:
 #: emptying all fifty-eight blindly costs three hundred.
 _DIRTY = text(
     " UNION ALL ".join(
-        f"SELECT '{name}' WHERE EXISTS (SELECT 1 FROM \"{name}\")"
-        for name in Base.metadata.tables
+        f"SELECT '{name}' WHERE EXISTS (SELECT 1 FROM \"{name}\")" for name in Base.metadata.tables
     )
 )
 

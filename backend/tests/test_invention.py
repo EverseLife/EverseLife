@@ -51,9 +51,7 @@ BLANK = "Болванка рецепта"
 
 async def _yard(session: AsyncSession, *, machine: str | None = BENCH, name: str = "Мастер"):
     stamp = uuid.uuid4().hex[:8]
-    node = await world.create_node(
-        session, f"terra.yard.{stamp}", "Двор", area_m2=100
-    )
+    node = await world.create_node(session, f"terra.yard.{stamp}", "Двор", area_m2=100)
     identity = await world.create_identity(session, f"{name}-{stamp}")
     body = await world.print_body(session, identity, node)
     if machine is not None:
@@ -72,10 +70,14 @@ async def _give(session: AsyncSession, body, type_key: str, quantity: float, qua
 async def _held(session: AsyncSession, body, type_key: str) -> float:
     pocket = await world.body_container(session, body)
     rows = (
-        await session.execute(
-            select(Item).where(Item.container_id == pocket.id, Item.type_key == type_key)
+        (
+            await session.execute(
+                select(Item).where(Item.container_id == pocket.id, Item.type_key == type_key)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return sum(amount_float(item.amount) for item in rows)
 
 
@@ -104,9 +106,7 @@ async def test_right_composition_opens_recipe_and_starts_batch(
 
     known = (
         await session.execute(
-            select(Knowledge).where(
-                Knowledge.identity_id == identity.id, Knowledge.key == BEAM
-            )
+            select(Knowledge).where(Knowledge.identity_id == identity.id, Knowledge.key == BEAM)
         )
     ).scalar_one()
     assert known.kind is KnowledgeKind.RECIPE and known.discovered is True
@@ -134,11 +134,11 @@ async def test_wrong_composition_burns_what_was_laid_out(
         assert 1 <= burned <= laid
     assert await _held(session, body, WOOD) == pytest.approx(20 - result.burned[WOOD])
     assert await _held(session, body, INGOT) == pytest.approx(5 - result.burned[INGOT])
-    assert not (
-        await session.execute(
-            select(Knowledge).where(Knowledge.identity_id == identity.id)
-        )
-    ).scalars().all()
+    assert (
+        not (await session.execute(select(Knowledge).where(Knowledge.identity_id == identity.id)))
+        .scalars()
+        .all()
+    )
 
 
 async def test_amounts_tell_recipes_apart(
@@ -168,14 +168,12 @@ async def test_laid_out_must_be_in_hands_before_anything(
             session, constants, catalog, body, _norm(catalog, BEAM), 1, station=BENCH
         )
     with pytest.raises(craft.NotEnough):
-        await craft.invent(
-            session, constants, catalog, body, {WOOD: 4, INGOT: 1}, 1, station=BENCH
-        )
-    assert not (
-        await session.execute(
-            select(Knowledge).where(Knowledge.identity_id == identity.id)
-        )
-    ).scalars().all()
+        await craft.invent(session, constants, catalog, body, {WOOD: 4, INGOT: 1}, 1, station=BENCH)
+    assert (
+        not (await session.execute(select(Knowledge).where(Knowledge.identity_id == identity.id)))
+        .scalars()
+        .all()
+    )
 
 
 async def test_too_many_kinds_refused(
@@ -216,8 +214,13 @@ async def test_operation_is_not_invented(
     await _give(session, body, "Уголь", 10)
     with pytest.raises(craft.Unmakeable, match="операция"):
         await craft.invent(
-            session, constants, catalog, body,
-            {"Железная руда": 4, "Уголь": 1}, 1, station="Плавильная печь",
+            session,
+            constants,
+            catalog,
+            body,
+            {"Железная руда": 4, "Уголь": 1},
+            1,
+            station="Плавильная печь",
         )
     assert await _held(session, body, "Железная руда") == 10
 
@@ -261,9 +264,7 @@ async def test_carrier_is_written_only_by_who_knows(
         await craft.start(session, constants, catalog, body, CARRIER, 1)
 
     await world.learn(session, identity, NAILS)
-    batch = await craft.start(
-        session, constants, catalog, body, CARRIER, 1, recipe_key=NAILS
-    )
+    batch = await craft.start(session, constants, catalog, body, CARRIER, 1, recipe_key=NAILS)
     assert batch.recipe_key == NAILS
     assert batch.state is BatchState.RUNNING
 
@@ -277,9 +278,7 @@ async def test_written_carrier_arrives_with_recipe(
         await world.learn(session, identity, NAILS)
         #: One recipe takes exactly one blank: writing has no waste (D-209).
         await _give(session, body, BLANK, 1, quality=80)
-        batch = await craft.start(
-            session, constants, catalog, body, CARRIER, 1, recipe_key=NAILS
-        )
+        batch = await craft.start(session, constants, catalog, body, CARRIER, 1, recipe_key=NAILS)
         ready, body_id = batch.ready_at, body.id
         #: The carrier is the blank, one write poorer -- no spread, no ceiling.
         assert float(batch.quality) == pytest.approx(80 - constants[R.CARRIER_WRITE_WEAR])
@@ -577,9 +576,7 @@ async def test_coming_back_resumes_where_it_stopped(
         assert resumed.station_item_id is not None
         #: The resumed run has a job of its own.
         again = (
-            await session.execute(
-                select(Job).where(Job.dedup_key == f"craft.batch:{batch_id}:2")
-            )
+            await session.execute(select(Job).where(Job.dedup_key == f"craft.batch:{batch_id}:2"))
         ).scalar_one()
         assert again.run_at == resumed.ready_at
 

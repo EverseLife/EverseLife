@@ -26,7 +26,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog
-from src.engine import events, travel
+from src.engine import craft, events, travel
 from src.engine import world as world_engine
 from src.engine.errors import Refusal
 from src.engine.world import body_container
@@ -70,9 +70,7 @@ async def has(session: AsyncSession, node: Node, recipe: str) -> bool:
     return (await session.execute(stmt)).scalar_one_or_none() is not None
 
 
-async def stock(
-    session: AsyncSession, node: Node, recipes: Iterable[str]
-) -> int:
+async def stock(session: AsyncSession, node: Node, recipes: Iterable[str]) -> int:
     """Lay down entries without a contributor: the base set of a genesis library.
 
     Idempotent -- the seed's catch-up calls it on every start, and what is
@@ -100,7 +98,6 @@ async def contribute(
     shelf is not taken: the second carrier would add nothing, and refusing it
     keeps a thing worth money in its owner's hands rather than swallowing it.
     """
-    from src.engine import craft
 
     if body.state is not BodyState.ALIVE:
         raise LibraryError("мёртвое тело ничего не приносит")
@@ -118,9 +115,7 @@ async def contribute(
     if await has(session, node, recipe):
         raise AlreadyThere(f"«{recipe}» в этой библиотеке уже есть: носитель остаётся у вас")
 
-    entry = LibraryEntry(
-        node_id=node.id, recipe=recipe, contributor_identity_id=body.identity_id
-    )
+    entry = LibraryEntry(node_id=node.id, recipe=recipe, contributor_identity_id=body.identity_id)
     session.add(entry)
     #: The carrier is the library's now: not on the floor to be picked up, not
     #: in a chest -- on the shelf, and the shelf is the entry.
@@ -137,9 +132,7 @@ async def contribute(
     return entry
 
 
-async def contributors(
-    session: AsyncSession, rows: Iterable[LibraryEntry]
-) -> dict[uuid.UUID, str]:
+async def contributors(session: AsyncSession, rows: Iterable[LibraryEntry]) -> dict[uuid.UUID, str]:
     """Names for the entries' contributors, in one query."""
     ids = {entry.contributor_identity_id for entry in rows if entry.contributor_identity_id}
     if not ids:

@@ -41,14 +41,16 @@ async def _market(session: AsyncSession, *, price=3, qty=20, quality=64):
     seller = await world.create_identity(session, f"Продавец-{stamp}")
     seller_body = await world.print_body(session, seller, node)
     pocket = await world.body_container(session, seller_body)
-    await world.grant_item(
-        session, pocket, ORE, amount=qty, quality=quality, origin="тест"
-    )
+    await world.grant_item(session, pocket, ORE, amount=qty, quality=quality, origin="тест")
     constants, catalog = current(), current_catalog()
     await market.load(session, constants, seller_body, ORE, qty)
     order = (
         await market.sell(
-            session, constants, catalog, seller, node,
+            session,
+            constants,
+            catalog,
+            seller,
+            node,
             type_key=ORE,
             tier=market.tier_of(constants, quality),
             price=money(price),
@@ -61,8 +63,12 @@ async def _market(session: AsyncSession, *, price=3, qty=20, quality=64):
     account = await ledger.account_for(session, AccountKind.IDENTITY, buyer.id)
     genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
     await ledger.transfer(
-        session, PostingReason.GENESIS, debit=genesis.id, credit=account.id,
-        amount=money(500), memo={},
+        session,
+        PostingReason.GENESIS,
+        debit=genesis.id,
+        credit=account.id,
+        amount=money(500),
+        memo={},
     )
     return node, order, seller, buyer, merchant_body
 
@@ -76,8 +82,7 @@ async def test_reservation_takes_deposit_and_removes_goods_from_book(
     """A reserve costs money and is visible in the book: what is promised is not shown to others."""
     node, order, _, buyer, _ = await _market(session, price=3, qty=20)
     before = await ledger.balance(
-        session, (await ledger.account_for(
-            session, AccountKind.IDENTITY, buyer.id)).id
+        session, (await ledger.account_for(session, AccountKind.IDENTITY, buyer.id)).id
     )
 
     reservation = await market.reserve(session, constants, buyer, order, 10)
@@ -88,8 +93,7 @@ async def test_reservation_takes_deposit_and_removes_goods_from_book(
     assert amount_float(order.amount_left) == 10, "забронированное ушло из книги"
 
     after = await ledger.balance(
-        session, (await ledger.account_for(
-            session, AccountKind.IDENTITY, buyer.id)).id
+        session, (await ledger.account_for(session, AccountKind.IDENTITY, buyer.id)).id
     )
     assert before - after == expected_deposit
 
@@ -120,12 +124,8 @@ async def test_redemption_pays_remainder_and_hands_goods(
     node, order, seller, buyer, body = await _market(session, price=3, qty=20)
     reservation = await market.reserve(session, constants, buyer, order, 10)
 
-    merchant_account = await ledger.account_for(
-        session, AccountKind.IDENTITY, buyer.id
-    )
-    seller_account = await ledger.account_for(
-        session, AccountKind.IDENTITY, seller.id
-    )
+    merchant_account = await ledger.account_for(session, AccountKind.IDENTITY, buyer.id)
+    seller_account = await ledger.account_for(session, AccountKind.IDENTITY, seller.id)
     merchant_before = await ledger.balance(session, merchant_account.id)
     seller_before = await ledger.balance(session, seller_account.id)
 
@@ -148,10 +148,14 @@ async def test_redemption_pays_remainder_and_hands_goods(
     from src.models.inventory import Item
 
     goods = (
-        await session.execute(
-            select(Item).where(Item.container_id == cell.id, Item.type_key == ORE)
+        (
+            await session.execute(
+                select(Item).where(Item.container_id == cell.id, Item.type_key == ORE)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert sum(amount_float(i_.amount) for i_ in goods) == pytest.approx(10)
 
 
@@ -193,12 +197,8 @@ async def test_reservation_term_from_vault(
     """`market.reservation_period` days, and the day is planetary (D-008)."""
     _, order, _, buyer, _ = await _market(session)
     moment = datetime.now(UTC)
-    reservation = await market.reserve(
-        session, constants, buyer, order, 5, now=moment
-    )
-    term = timedelta(
-        hours=constants[R.MARKET_RESERVATION_PERIOD] * constants[R.TIME_DAY_TERRA]
-    )
+    reservation = await market.reserve(session, constants, buyer, order, 5, now=moment)
+    term = timedelta(hours=constants[R.MARKET_RESERVATION_PERIOD] * constants[R.TIME_DAY_TERRA])
     assert reservation.expires_at == moment + term
 
 
@@ -232,11 +232,13 @@ async def test_cannot_redeem_after_term(
 ) -> None:
     _, order, _, buyer, body = await _market(session)
     moment = datetime.now(UTC)
-    reservation = await market.reserve(
-        session, constants, buyer, order, 5, now=moment
-    )
+    reservation = await market.reserve(session, constants, buyer, order, 5, now=moment)
     with pytest.raises(market.BadOrder):
         await market.redeem(
-            session, constants, catalog, body, reservation,
+            session,
+            constants,
+            catalog,
+            body,
+            reservation,
             now=reservation.expires_at + timedelta(minutes=1),
         )

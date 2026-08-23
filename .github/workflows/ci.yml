@@ -69,6 +69,14 @@ jobs:
       - name: Lint
         run: uv run ruff check .
 
+      - name: Format
+        run: uv run ruff format --check .
+
+      #: Layers `api -> engine -> models -> constants`, no import upward
+      #: (review 2026-08-23; contract in pyproject.toml).
+      - name: Layers
+        run: uv run lint-imports
+
       - name: Migrations apply
         run: uv run alembic upgrade head
 

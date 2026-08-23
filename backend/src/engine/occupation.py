@@ -45,7 +45,9 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.engine import craft, explore, forage, mining, travel
 from src.engine.errors import Refusal
+from src.models.farm import Plot
 from src.models.identity import Body
 from src.models.job import Job, JobKind, JobState
 from src.units import MINUTES_PER_HOUR, SECONDS_PER_MINUTE
@@ -110,7 +112,6 @@ async def _sleeping(session: AsyncSession, body: Body) -> Doing | None:
 
 
 async def _travelling(session: AsyncSession, body: Body) -> Doing | None:
-    from src.engine import travel
 
     going = await travel.current(session, body)
     if going is None:
@@ -119,18 +120,14 @@ async def _travelling(session: AsyncSession, body: Body) -> Doing | None:
 
 
 async def _exploring(session: AsyncSession, body: Body) -> Doing | None:
-    from src.engine import explore
 
     run = await explore.pending(session, body)
     if run is None:
         return None
-    return Doing(
-        FIELD, "разведка", "тело в разведке — вернуть его можно на карте", run.run_at
-    )
+    return Doing(FIELD, "разведка", "тело в разведке — вернуть его можно на карте", run.run_at)
 
 
 async def _foraging(session: AsyncSession, body: Body) -> Doing | None:
-    from src.engine import forage
 
     row = await forage.current(session, body)
     if row is None:
@@ -160,7 +157,6 @@ async def _ploughing(session: AsyncSession, body: Body) -> Doing | None:
         return None
     #: The plot's name, so that the line says which strip is under the plough
     #: -- a farmer with four of them has nothing to go by otherwise.
-    from src.models.farm import Plot
 
     plot = await session.get(Plot, uuid.UUID(job.payload["plot"]))
     named = "" if plot is None else f" «{plot.name}»"
@@ -173,7 +169,6 @@ async def _crafting(session: AsyncSession, body: Body) -> Doing | None:
     A queued batch does not count: it is paid for and waiting, not being
     worked on, and one body may have any number of those (D-209).
     """
-    from src.engine import craft
 
     batch = await craft.running(session, body)
     if batch is None:
@@ -182,7 +177,6 @@ async def _crafting(session: AsyncSession, body: Body) -> Doing | None:
 
 
 async def _mining(session: AsyncSession, body: Body) -> Doing | None:
-    from src.engine import mining
 
     face = await mining.active(session, body)
     if face is None:

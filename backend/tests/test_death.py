@@ -38,19 +38,30 @@ async def _world(session: AsyncSession, catalog: Catalog, *, treasury: float = 0
         session, f"terra.{stamp}", "Терра", area_m2=1, layer=Layer.SPACE
     )
     delegate = await world.create_node(
-        session, f"terra.city.{stamp}", "Столица", area_m2=1,
-        layer=Layer.PLANET, parent=planet,
+        session,
+        f"terra.city.{stamp}",
+        "Столица",
+        area_m2=1,
+        layer=Layer.PLANET,
+        parent=planet,
     )
     #: The core is also this city's door (D-206): the whole built-up area here
     #: is two nodes, and a road out of it has to be tied to something.
     core = await world.create_node(
-        session, f"terra.city.{stamp}.core", "Ядро", area_m2=120,
+        session,
+        f"terra.city.{stamp}.core",
+        "Ядро",
+        area_m2=120,
         parent=delegate,
         properties={"кольцо": 0, death.PRECURSOR: True, travel.EXIT: True},
     )
     forge = await world.create_node(
-        session, f"terra.city.{stamp}.forge", "Кузница", area_m2=200,
-        parent=delegate, properties={"кольцо": 2},
+        session,
+        f"terra.city.{stamp}.forge",
+        "Кузница",
+        area_m2=200,
+        parent=delegate,
+        properties={"кольцо": 2},
     )
     city = await town.found(session, catalog, delegate, "Столица")
     for node in (core, forge):
@@ -59,26 +70,28 @@ async def _world(session: AsyncSession, catalog: Catalog, *, treasury: float = 0
 
     for node, quality in ((core, 90), (forge, 60)):
         yard = await world.node_container(session, node)
-        await world.grant_item(
-            session, yard, death.PRINTER, quality=quality, origin="тест"
-        )
+        await world.grant_item(session, yard, death.PRINTER, quality=quality, origin="тест")
     #: City decisions are made in the administration (D-155): without it the
     #: president cannot even allow printing at the treasury's expense.
     await world.grant_item(
-        session, await world.node_container(session, core),
-        town.HALL, quality=65, origin="тест",
+        session,
+        await world.node_container(session, core),
+        town.HALL,
+        quality=65,
+        origin="тест",
     )
     forge_yard = await world.node_container(session, forge)
-    await world.grant_item(
-        session, forge_yard, death.IRON, amount=50, quality=55, origin="тест"
-    )
+    await world.grant_item(session, forge_yard, death.IRON, amount=50, quality=55, origin="тест")
 
     if treasury:
         account = await town.treasury(session, city)
         genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
         await ledger.transfer(
-            session, PostingReason.GENESIS,
-            debit=genesis.id, credit=account.id, amount=money(treasury),
+            session,
+            PostingReason.GENESIS,
+            debit=genesis.id,
+            credit=account.id,
+            amount=money(treasury),
         )
     return city, core, forge
 
@@ -102,8 +115,11 @@ async def _resident(session: AsyncSession, node, name: str, *, funds: float = 0)
         account = await ledger.account_for(session, AccountKind.IDENTITY, identity.id)
         genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
         await ledger.transfer(
-            session, PostingReason.GENESIS,
-            debit=genesis.id, credit=account.id, amount=money(funds),
+            session,
+            PostingReason.GENESIS,
+            debit=genesis.id,
+            credit=account.id,
+            amount=money(funds),
         )
     return identity, body
 
@@ -125,29 +141,25 @@ async def test_death_takes_things_but_not_knowledge_and_account(
     _, core, _ = await _world(session, catalog)
     identity, body = await _resident(session, core, "Шахтёр", funds=40)
     pocket = await world.body_container(session, body)
-    await world.grant_item(
-        session, pocket, "Железная кирка", quality=60, origin="тест"
-    )
-    await world.grant_item(
-        session, pocket, "Уголь", amount=100, quality=50, origin="тест"
-    )
+    await world.grant_item(session, pocket, "Железная кирка", quality=60, origin="тест")
+    await world.grant_item(session, pocket, "Уголь", amount=100, quality=50, origin="тест")
     await world.learn(session, identity, "Гвозди")
 
     await death.die(session, constants, body, cause="обрушение свода")
 
     assert body.state is BodyState.DEAD and body.died_at is not None
     left = (
-        await session.execute(select(Item).where(Item.container_id == pocket.id))
-    ).scalars().all()
+        (await session.execute(select(Item).where(Item.container_id == pocket.id))).scalars().all()
+    )
     assert left == [], "карман погибшего пуст: вещи гибнут вместе с телом"
 
     account = await ledger.account_for(session, AccountKind.IDENTITY, identity.id)
     assert await ledger.balance(session, account.id) == money(40), "счёт телу не принадлежит"
     knowledge = (
-        await session.execute(
-            select(Knowledge).where(Knowledge.identity_id == identity.id)
-        )
-    ).scalars().all()
+        (await session.execute(select(Knowledge).where(Knowledge.identity_id == identity.id)))
+        .scalars()
+        .all()
+    )
     assert knowledge, "знание живёт в личности и не теряется"
 
 
@@ -167,8 +179,7 @@ async def test_death_en_route_cuts_transit(
     there = await world.create_node(
         session, f"terra.dead.{uuid.uuid4().hex[:8]}", "Там", area_m2=100
     )
-    await travel.connect(session, await session.get(Node, body.node_id), there,
-                         base_seconds=600)
+    await travel.connect(session, await session.get(Node, body.node_id), there, base_seconds=600)
     transit = await travel.depart(session, constants, body, there)
 
     await death.die(session, constants, body, cause="обрушение свода")
@@ -186,19 +197,21 @@ async def test_part_of_worn_stays_in_place_and_damaged(
     _, core, _ = await _world(session, catalog)
     _, body = await _resident(session, core, "Шахтёр")
     pocket = await world.body_container(session, body)
-    await world.grant_item(
-        session, pocket, "Уголь", amount=100, quality=50, origin="тест"
-    )
+    await world.grant_item(session, pocket, "Уголь", amount=100, quality=50, origin="тест")
 
     survived = await death.die(session, constants, body, cause="обвал")
     share = constants[R.DEATH_SALVAGE_RATIO] / 100
 
     yard = await world.node_container(session, core)
     in_place = (
-        await session.execute(
-            select(Item).where(Item.container_id == yard.id, Item.type_key == "Уголь")
+        (
+            await session.execute(
+                select(Item).where(Item.container_id == yard.id, Item.type_key == "Уголь")
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert len(in_place) == 1
     assert amount_float(in_place[0].amount) == pytest.approx(100 * share)
     assert float(in_place[0].condition) == pytest.approx(100 * share)
@@ -242,9 +255,7 @@ async def test_city_printer_takes_energy_iron_and_money(
     assert minutes == pytest.approx(constants[R.DEATH_PRINT_TIME_CITY], rel=0.01)
     assert minutes < constants[R.DEATH_PRINT_TIME_CAPITAL] * MINUTES_PER_HOUR
 
-    assert float(pool.stored) == pytest.approx(
-        energy_before - constants[R.ENERGY_BODY_PRINT]
-    )
+    assert float(pool.stored) == pytest.approx(energy_before - constants[R.ENERGY_BODY_PRINT])
     assert await death._iron_here(session, forge) == pytest.approx(
         iron_before - constants[R.DEATH_IRON_COST]
     )
@@ -280,7 +291,13 @@ async def test_city_can_print_at_own_expense(
     president, president_body = await _resident(session, core, "Президент")
     await town.install_founder(session, city, president)
     await town.set_law(
-        session, constants, catalog, president, city, "body_print", "всем",
+        session,
+        constants,
+        catalog,
+        president,
+        city,
+        "body_print",
+        "всем",
         body=president_body,
     )
 
@@ -313,12 +330,14 @@ async def test_print_brings_identity_back(
     #: A job retry after a failure does not become a second body (D-011).
     await death.printed(session, job)
     bodies = (
-        await session.execute(
-            select(Body).where(
-                Body.identity_id == identity.id, Body.state == BodyState.ALIVE
+        (
+            await session.execute(
+                select(Body).where(Body.identity_id == identity.id, Body.state == BodyState.ALIVE)
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert len(bodies) == 1
 
 
@@ -373,10 +392,7 @@ async def test_newcomer_doors_show_city_not_price(
     await _resident(session, core, "Старожил")
     await session.flush()
 
-    keys = {
-        door["node"]: door
-        for door in await world.doors(session, constants, catalog)
-    }
+    keys = {door["node"]: door for door in await world.doors(session, constants, catalog)}
     assert keys[core.key]["city"] == "Столица"
     assert keys[core.key]["grant"] == money(50)
     assert keys[core.key]["population"] == 1
@@ -427,7 +443,10 @@ async def test_printer_outside_a_city_is_no_door(
     """A machine on nobody's land: nothing was founded on it, and it is no entrance."""
     await _world(session, catalog)
     wild = await world.create_node(
-        session, f"terra.wild.{uuid.uuid4().hex[:6]}", "Заимка", area_m2=200,
+        session,
+        f"terra.wild.{uuid.uuid4().hex[:6]}",
+        "Заимка",
+        area_m2=200,
         layer=Layer.PLANET,
     )
     yard = await world.node_container(session, wild)
@@ -461,9 +480,7 @@ async def test_penal_colony_is_not_door_for_newcomer(
     assert (await world.door(session, core.key)) is not None
 
 
-async def test_only_node_with_printer_called_door(
-    session: AsyncSession, catalog: Catalog
-) -> None:
+async def test_only_node_with_printer_called_door(session: AsyncSession, catalog: Catalog) -> None:
     """A foreign key and a node without a printer refuse alike: nowhere to print."""
     _, core, _ = await _world(session, catalog)
     field = await world.create_node(

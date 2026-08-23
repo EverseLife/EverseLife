@@ -52,9 +52,7 @@ async def _kitchen(session: AsyncSession, *, hearth: float = 80, utensil: float 
 
 async def _product(session: AsyncSession, body, name: str, quality: float, qty=5):
     pocket = await world.body_container(session, body)
-    return await world.grant_item(
-        session, pocket, name, amount=qty, quality=quality, origin="тест"
-    )
+    return await world.grant_item(session, pocket, name, amount=qty, quality=quality, origin="тест")
 
 
 async def _cooked(session, constants, catalog, body, filling) -> Item:
@@ -64,8 +62,10 @@ async def _cooked(session, constants, catalog, body, filling) -> Item:
 
     job = (
         await session.execute(
-            select(Job).where(Job.kind == JobKind.CRAFT_BATCH.value)
-            .order_by(Job.created_at.desc()).limit(1)
+            select(Job)
+            .where(Job.kind == JobKind.CRAFT_BATCH.value)
+            .order_by(Job.created_at.desc())
+            .limit(1)
         )
     ).scalar_one()
     job.run_at = datetime.now(UTC)
@@ -74,10 +74,14 @@ async def _cooked(session, constants, catalog, body, filling) -> Item:
     assert batch_reloaded is not None
     pocket = await world.body_container(session, body)
     return (
-        await session.execute(
-            select(Item).where(Item.container_id == pocket.id, Item.type_key == STEW)
+        (
+            await session.execute(
+                select(Item).where(Item.container_id == pocket.id, Item.type_key == STEW)
+            )
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
 
 
 # --- pot ---------------------------------------------------------------------
@@ -92,7 +96,11 @@ async def test_pot_quality_by_formula_D128(
     await _product(session, body, "Овощи", 40)
 
     batch = await craft.cook(
-        session, constants, catalog, body, STEW,
+        session,
+        constants,
+        catalog,
+        body,
+        STEW,
         {"основа": "Бобы", "наполнитель": "Овощи"},
     )
 
@@ -119,11 +127,13 @@ async def test_empty_role_hurts_more_than_bad_product(
     await _product(session, body, "Бобы", 60, qty=10)
     await _product(session, body, "Масло", 5, qty=10)
 
-    without_fat = await craft.cook(
-        session, constants, catalog, body, STEW, {"основа": "Бобы"}
-    )
+    without_fat = await craft.cook(session, constants, catalog, body, STEW, {"основа": "Бобы"})
     with_cheap_fat = await craft.cook(
-        session, constants, catalog, body, STEW,
+        session,
+        constants,
+        catalog,
+        body,
+        STEW,
         {"основа": "Бобы", "жир": "Масло"},
     )
     assert float(with_cheap_fat.quality) > float(without_fat.quality)
@@ -156,7 +166,11 @@ async def test_pickaxe_does_not_go_into_pot(
     for inedible in ("Каменная кирка", "Шахтная крепь"):
         with pytest.raises(craft.NotIngredient):
             await craft.cook(
-                session, constants, catalog, body, STEW,
+                session,
+                constants,
+                catalog,
+                body,
+                STEW,
                 {"основа": "Бобы", "наполнитель": inedible},
             )
 
@@ -217,8 +231,7 @@ async def test_hot_gives_satiety_but_cheap_hot_does_not(
     body.stamina = Decimal("10")
 
     #: A good stew -- satiety for hot_duration x share of roles.
-    good = await _product(session, body, STEW, constants[R.COOK_HOT_QUALITY_MIN] + 10,
-                             qty=1)
+    good = await _product(session, body, STEW, constants[R.COOK_HOT_QUALITY_MIN] + 10, qty=1)
     good.flavor = f"{STEW} · тест"
     good.roles_filled = Decimal("0.5")
     moment = datetime.now(UTC)
@@ -228,14 +241,11 @@ async def test_hot_gives_satiety_but_cheap_hot_does_not(
     q = constants[R.COOK_HOT_QUALITY_MIN] + 10
     full_ = constants[R.BODY_FOOD_RESTORE] * (span.min + (span.max - span.min) * q / 100)
     assert returned == pytest.approx(full_ * constants[R.COOK_HOT_RESTORE_SHARE] / 100)
-    assert body.satiated_until == moment + timedelta(
-        hours=constants[R.COOK_HOT_DURATION] * 0.5
-    )
+    assert body.satiated_until == moment + timedelta(hours=constants[R.COOK_HOT_DURATION] * 0.5)
 
     #: Cheap hot food gives no satiety -- just food.
     body.satiated_until = None
-    cheap_ = await _product(session, body, STEW, constants[R.COOK_HOT_QUALITY_MIN] - 10,
-                             qty=1)
+    cheap_ = await _product(session, body, STEW, constants[R.COOK_HOT_QUALITY_MIN] - 10, qty=1)
     await food.eat(session, constants, catalog, body, cheap_, now=moment)
     assert body.satiated_until is None
 
@@ -250,9 +260,7 @@ async def test_fed_works_steadier(
     identity = await world.create_identity(session, f"Сытый-{stamp}")
     body = await world.print_body(session, identity, node)
     pocket = await world.body_container(session, body)
-    await world.grant_item(
-        session, pocket, "Каменная кирка", quality=50, origin="сценарий теста"
-    )
+    await world.grant_item(session, pocket, "Каменная кирка", quality=50, origin="сценарий теста")
 
     sess = await mining.start(session, constants, body, vein)
     before = float(body.stamina)
@@ -290,9 +298,7 @@ async def test_variety_counted_by_eaten(
         portion = await _product(session, body, name, 50, qty=1)
         body.stamina = Decimal("1")
         returned = await food.eat(session, constants, catalog, body, portion)
-    assert returned == pytest.approx(
-        steady * (1 + constants[R.BODY_DIET_VARIETY_BONUS] / 100)
-    )
+    assert returned == pytest.approx(steady * (1 + constants[R.BODY_DIET_VARIETY_BONUS] / 100))
 
 
 # --- spoilage ----------------------------------------------------------------
@@ -322,9 +328,7 @@ async def test_rotten_is_not_food(
     assert await session.get(Item, bread.id) is None, "тухлое исчезло на глазах"
 
 
-async def test_daily_tick_sweeps_rotten(
-    factory, constants: Constants, catalog: Catalog
-) -> None:
+async def test_daily_tick_sweeps_rotten(factory, constants: Constants, catalog: Catalog) -> None:
     """Spoilage is an honest matter sink: it works without witnesses too."""
     from src.engine import tick
 

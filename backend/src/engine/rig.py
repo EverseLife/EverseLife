@@ -47,7 +47,7 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.constants import Constants
+from src.constants import Constants, current_catalog
 from src.constants import registry as R
 from src.engine import events, travel, wear, world
 from src.engine.errors import Refusal
@@ -74,8 +74,6 @@ def _fuel_names() -> tuple[str, ...]:
     People haul the fuel -- that is the whole enterprise. The rig is a motor,
     not a generator: it eats `rig.fuel_per_hour` units whatever the material.
     """
-    from src.constants.catalog import current_catalog
-
     return tuple(current_catalog().recipes.fuels()) or ("Уголь",)
 
 
@@ -187,8 +185,7 @@ async def advance(
     hours_by_fuel = coal / fuel if fuel > 0 else hours
     hours_by_bunker = place / output_per_hour if output_per_hour > 0 else 0.0
     hours_by_vein = (
-        amount_float(vein.remaining)
-        / (output_per_hour * constants[R.RIG_DEPLETION_MULTIPLIER])
+        amount_float(vein.remaining) / (output_per_hour * constants[R.RIG_DEPLETION_MULTIPLIER])
         if output_per_hour > 0
         else 0.0
     )
@@ -257,12 +254,9 @@ async def empty_hopper(
     #: The hopper is emptied by hand, and hands are not bottomless: without a
     #: wagon the hopper cannot be emptied whole, and that is work for a carter (D-146).
     if vein is not None:
-        from src.constants import current_catalog
-        from src.engine import gear
+        from src.engine import gear  # noqa: PLC0415 -- lazy: breaks the import cycle with gear
 
-        await gear.check_carry(
-            session, constants, current_catalog(), body, vein.resource, taken
-        )
+        await gear.check_carry(session, constants, current_catalog(), body, vein.resource, taken)
 
     machine = await session.get(Item, rig.item_id)
     #: Three ceilings, and the lowest is taken: the vein gives no more than its
@@ -305,33 +299,29 @@ async def tick_rigs(
     """Advance all rigs of the world. The machine does not sleep -- that is its whole strength."""
     moment = now or datetime.now(UTC)
     rigs = (
-        await session.execute(select(RigRow).order_by(RigRow.id).with_for_update())
-    ).scalars().all()
+        (await session.execute(select(RigRow).order_by(RigRow.id).with_for_update()))
+        .scalars()
+        .all()
+    )
     result = 0.0
     for rig in rigs:
         result += await advance(session, constants, rig, now=moment)
     return result
 
 
-async def status(
-    session: AsyncSession, constants: Constants, node_id: uuid.UUID
-) -> list[dict]:
+async def status(session: AsyncSession, constants: Constants, node_id: uuid.UUID) -> list[dict]:
     """What stands in the node and in what condition -- for the location scene.
 
     A read: the hopper is shown as of the last tick (`counted_at`), the scene
     does not move the machine. Advancing here used to race the world tick
     and the emptying for the same row (review 2026-08-23).
     """
-    rigs = (
-        await session.execute(select(RigRow).where(RigRow.node_id == node_id))
-    ).scalars().all()
+    rigs = (await session.execute(select(RigRow).where(RigRow.node_id == node_id))).scalars().all()
     out: list[dict] = []
     for rig in rigs:
         machine = await session.get(Item, rig.item_id)
         vein = await session.get(Vein, rig.vein_id)
-        yard = await world.node_container(
-            session, await session.get(Node, rig.node_id)
-        )
+        yard = await world.node_container(session, await session.get(Node, rig.node_id))
         coal_ = await _coal_available(session, yard.id)
         out.append(
             {
@@ -356,13 +346,17 @@ async def status(
 
 async def _coal_available(session: AsyncSession, container_id: uuid.UUID) -> float:
     stacks = (
-        await session.execute(
-            select(Item).where(
-                Item.container_id == container_id,
-                Item.type_key.in_(_fuel_names()),
+        (
+            await session.execute(
+                select(Item).where(
+                    Item.container_id == container_id,
+                    Item.type_key.in_(_fuel_names()),
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return sum(amount_float(stack.amount) for stack in stacks)
 
 
@@ -371,12 +365,10 @@ async def _burn(session: AsyncSession, container_id: uuid.UUID, qty: float) -> N
     await world.consume(session, stacks, amount(qty))
 
 
-def _deplete(
-    constants: Constants, vein: Vein, moment: datetime, extracted_before: int
-) -> None:
+def _deplete(constants: Constants, vein: Vein, moment: datetime, extracted_before: int) -> None:
     """The vein depletes in the same tiers as from a pickaxe: one rule for all."""
-    from src.engine.mining import _deplete as by_general_rule
+    from src.engine.mining import (  # noqa: PLC0415 -- lazy: breaks the import cycle with mining
+        _deplete as by_general_rule,
+    )
 
     by_general_rule(constants, vein, moment, extracted_before)
-
-

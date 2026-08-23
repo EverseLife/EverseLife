@@ -37,9 +37,7 @@ async def _yard(session: AsyncSession):
     which is exactly what these tests must not be checking.
     """
     stamp = uuid.uuid4().hex[:8]
-    node = await world.create_node(
-        session, f"terra.home.{stamp}", "Дом", area_m2=200
-    )
+    node = await world.create_node(session, f"terra.home.{stamp}", "Дом", area_m2=200)
     node.owner_city_id = uuid.uuid4()
     session.add(Building(node_id=node.id, area_m2=200))
     await session.flush()
@@ -51,16 +49,12 @@ async def _yard(session: AsyncSession):
 
 async def _chest(session: AsyncSession, node):
     yard = await world.node_container(session, node)
-    return await world.grant_item(
-        session, yard, CHEST, quality=60, origin="тест"
-    )
+    return await world.grant_item(session, yard, CHEST, quality=60, origin="тест")
 
 
 async def _goods(session: AsyncSession, body, qty: float = 10):
     pocket = await world.body_container(session, body)
-    return await world.grant_item(
-        session, pocket, GOODS, amount=qty, quality=55, origin="тест"
-    )
+    return await world.grant_item(session, pocket, GOODS, amount=qty, quality=55, origin="тест")
 
 
 def test_vault_makes_storage(catalog: Catalog) -> None:
@@ -86,9 +80,7 @@ async def test_stored_lies_and_is_taken(
     assert await storage.stored_mass(session, catalog, chest) > 0
 
     #: And back: a chest is not a grave, things are taken out of it.
-    taken = await storage.take(
-        session, constants, catalog, body, chest, inner[0], 2
-    )
+    taken = await storage.take(session, constants, catalog, body, chest, inner[0], 2)
     assert taken == pytest.approx(2)
 
 
@@ -125,7 +117,10 @@ async def test_no_reaching_into_foreign_chest(
     foreign_thing = await world.grant_item(
         session,
         await world.body_container(session, guest_body),
-        GOODS, amount=2, quality=55, origin="тест",
+        GOODS,
+        amount=2,
+        quality=55,
+        origin="тест",
     )
 
     with pytest.raises(storage.NotYours):
@@ -232,7 +227,10 @@ async def test_the_floor_is_open_to_whoever_got_in(
     dropped = await world.grant_item(
         session,
         await world.node_container(session, wild),
-        GOODS, amount=3, quality=55, origin="тест",
+        GOODS,
+        amount=3,
+        quality=55,
+        origin="тест",
     )
     assert await storage.pick(session, constants, catalog, finder, dropped, 3) == 3
 
@@ -261,9 +259,7 @@ async def test_a_passer_by_does_not_reach_the_floor(
         await storage.pick(session, constants, catalog, walker_body, lying, 1)
 
     pocket = await world.body_container(session, walker_body)
-    theirs = await world.grant_item(
-        session, pocket, GOODS, amount=2, quality=55, origin="тест"
-    )
+    theirs = await world.grant_item(session, pocket, GOODS, amount=2, quality=55, origin="тест")
     with pytest.raises(storage.NotYours):
         await storage.drop(session, constants, catalog, walker_body, theirs, 2)
 

@@ -39,15 +39,11 @@ class Ship(Base):
     #: The ship belongs to a person, not to land: nodes aboard carry no title
     #: and never will -- there is no ground under them (D-198, D-201). Shares
     #: between builders are a contract (D-116), and the engine counts none.
-    owner_identity_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("identity.id"), nullable=False
-    )
+    owner_identity_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("identity.id"), nullable=False)
 
     #: The group's delegate node on the space layer. Nodes aboard are its
     #: children -- the same way a city's locations are children of its node.
-    node_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("node.id"), nullable=False, unique=True
-    )
+    node_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("node.id"), nullable=False, unique=True)
 
     #: The connector: the node laid first and the only one ever holding an edge
     #: outwards. A second one would turn the ship into a bridge between

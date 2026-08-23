@@ -53,7 +53,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Constants
 from src.constants import registry as R
-from src.engine import events, travel
+from src.engine import city as town
+from src.engine import events, ship, travel
 from src.engine.errors import Refusal
 from src.engine.jobs import enqueue, handler
 from src.models.city import City, Power
@@ -168,7 +169,6 @@ async def road_seconds(
     now: datetime,
 ) -> float:
     """How long the road between two nodes takes, seconds (D-222)."""
-    from src.engine import ship
 
     if here == there:
         return 0.0
@@ -208,9 +208,7 @@ async def delay_between(
 async def _where(session: AsyncSession, identity_id: uuid.UUID) -> uuid.UUID | None:
     """The node of the identity's living body, if it has one."""
     return await session.scalar(
-        select(Body.node_id).where(
-            Body.identity_id == identity_id, Body.state == BodyState.ALIVE
-        )
+        select(Body.node_id).where(Body.identity_id == identity_id, Body.state == BodyState.ALIVE)
     )
 
 
@@ -259,9 +257,7 @@ def _pair_key(one: uuid.UUID, other: uuid.UUID) -> str:
     return ":".join(sorted((str(one), str(other))))
 
 
-async def open_thread(
-    session: AsyncSession, me: Identity, other: Identity
-) -> NetThread:
+async def open_thread(session: AsyncSession, me: Identity, other: Identity) -> NetThread:
     """The correspondence with somebody: found, or started empty. Deciding to
     write is already a thread (D-222)."""
     if me.id == other.id:
@@ -284,9 +280,7 @@ async def open_thread(
     return thread
 
 
-async def _party(
-    session: AsyncSession, thread_id: uuid.UUID, identity_id: uuid.UUID
-) -> NetParty:
+async def _party(session: AsyncSession, thread_id: uuid.UUID, identity_id: uuid.UUID) -> NetParty:
     party = (
         await session.execute(
             select(NetParty).where(
@@ -317,12 +311,16 @@ async def write(
     #: The reader's road: the other party's body. Several readers would each
     #: need a delay of their own; with two there is one.
     others = (
-        await session.execute(
-            select(NetParty.identity_id).where(
-                NetParty.thread_id == thread_id, NetParty.identity_id != me.id
+        (
+            await session.execute(
+                select(NetParty.identity_id).where(
+                    NetParty.thread_id == thread_id, NetParty.identity_id != me.id
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     delay = timedelta(0)
     for reader in others:
         there = await _where(session, reader)
@@ -583,7 +581,6 @@ async def _channel(session: AsyncSession, channel_id: uuid.UUID) -> NetChannel:
 
 
 async def _native_city(session: AsyncSession, identity_id: uuid.UUID) -> City | None:
-    from src.engine import city as town
 
     citizenship = await town.citizenship(session, identity_id)
     if citizenship is None:
@@ -628,7 +625,6 @@ async def unsubscribe(session: AsyncSession, me: Identity, channel_id: uuid.UUID
 
 
 async def may_post(session: AsyncSession, me_id: uuid.UUID, channel: NetChannel) -> bool:
-    from src.engine import city as town
 
     if channel.owner_identity_id == me_id:
         return True
@@ -662,9 +658,7 @@ async def post(
             else "в канал города пишут с правом «channel»"
         )
     here = await _stand(session, me.id)
-    entry = NetPost(
-        channel_id=channel.id, identity_id=me.id, node_id=here, text=cleaned, at=moment
-    )
+    entry = NetPost(channel_id=channel.id, identity_id=me.id, node_id=here, text=cleaned, at=moment)
     session.add(entry)
     channel.last_at = moment
     await session.flush()
@@ -683,15 +677,13 @@ async def _readers(session: AsyncSession, channel: NetChannel) -> set[uuid.UUID]
     readers = set(
         (
             await session.execute(
-                select(NetSubscription.identity_id).where(
-                    NetSubscription.channel_id == channel.id
-                )
+                select(NetSubscription.identity_id).where(NetSubscription.channel_id == channel.id)
             )
-        ).scalars().all()
+        )
+        .scalars()
+        .all()
     )
     if channel.city_id is not None:
-        from src.engine import city as town
-
         city = await town.by_id(session, channel.city_id)
         if city is not None:
             readers.update(c.identity_id for c in await town.citizens_of(session, city))
@@ -744,7 +736,6 @@ async def channels(
     now: datetime | None = None,
 ) -> list[ChannelView]:
     """The reader's channels: own, chosen, and the city's by citizenship."""
-    from src.engine import city as town
 
     moment = now or datetime.now(UTC)
     native = await _native_city(session, me_id)
@@ -764,9 +755,7 @@ async def channels(
                 ),
                 isouter=True,
             )
-            .where(
-                or_(NetChannel.owner_identity_id == me_id, NetSubscription.id.is_not(None))
-            )
+            .where(or_(NetChannel.owner_identity_id == me_id, NetSubscription.id.is_not(None)))
         )
     ).scalars():
         seen.setdefault(channel.id, channel)
@@ -782,9 +771,12 @@ async def channels(
             city = await town.by_id(session, channel.city_id)
             by = city.name if city is not None else channel.name
         else:
-            by = await session.scalar(
-                select(Identity.name).where(Identity.id == channel.owner_identity_id)
-            ) or "?"
+            by = (
+                await session.scalar(
+                    select(Identity.name).where(Identity.id == channel.owner_identity_id)
+                )
+                or "?"
+            )
         out.append(
             ChannelView(
                 id=str(channel.id),
@@ -833,7 +825,6 @@ async def find_channels(
     session: AsyncSession, query: str, *, me_id: uuid.UUID
 ) -> list[tuple[NetChannel, str]]:
     """Channels by name, with who writes them: what there is to subscribe to."""
-    from src.engine import city as town
 
     typed = query.strip()
     stmt = select(NetChannel).order_by(NetChannel.last_at.desc().nulls_last()).limit(NET_PAGE)
@@ -845,9 +836,12 @@ async def find_channels(
             city = await town.by_id(session, channel.city_id)
             by = city.name if city is not None else channel.name
         else:
-            by = await session.scalar(
-                select(Identity.name).where(Identity.id == channel.owner_identity_id)
-            ) or "?"
+            by = (
+                await session.scalar(
+                    select(Identity.name).where(Identity.id == channel.owner_identity_id)
+                )
+                or "?"
+            )
         out.append((channel, by))
     return out
 

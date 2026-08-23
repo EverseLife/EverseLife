@@ -55,7 +55,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import events, world
+from src.engine import events, travel, world
 from src.engine.errors import Refusal
 from src.engine.jobs import enqueue, handler
 from src.models.event import EventKind
@@ -109,14 +109,18 @@ def lower_step(surface: Surface) -> Surface | None:
 async def pending(session: AsyncSession, edge: Edge) -> Job | None:
     """The ongoing work on this edge, if any."""
     return (
-        await session.execute(
-            select(Job).where(
-                Job.kind == JobKind.ROAD_WORK.value,
-                Job.state == JobState.PENDING,
-                Job.payload["edge"].astext == str(edge.id),
+        (
+            await session.execute(
+                select(Job).where(
+                    Job.kind == JobKind.ROAD_WORK.value,
+                    Job.state == JobState.PENDING,
+                    Job.payload["edge"].astext == str(edge.id),
+                )
             )
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
 
 
 def needed(constants: Constants, edge: Edge, *, mend: bool) -> float:
@@ -147,7 +151,6 @@ async def lay(
     Surface is written off up front, like batch materials: work that lacked
     material does not start at all.
     """
-    from src.engine import travel
 
     moment = now or datetime.now(UTC)
     if body.state is not BodyState.ALIVE:
@@ -232,8 +235,8 @@ async def decay(session: AsyncSession, constants: Constants) -> int:
     the very constant sink of materials which maintenance exists for at all (D-107).
     """
     edges = (
-        await session.execute(select(Edge).where(Edge.surface != Surface.TRAIL))
-    ).scalars().all()
+        (await session.execute(select(Edge).where(Edge.surface != Surface.TRAIL))).scalars().all()
+    )
 
     step = constants[R.ROAD_DECAY_RATE]
     overgrown = 0
@@ -263,22 +266,21 @@ async def decay(session: AsyncSession, constants: Constants) -> int:
     return overgrown
 
 
-async def view(
-    session: AsyncSession, constants: Constants, body: Body
-) -> list[dict]:
+async def view(session: AsyncSession, constants: Constants, body: Body) -> list[dict]:
     """Edges from this node through the client's eyes: what is laid and what can be laid."""
-    from src.engine import travel
 
     node = await session.get(Node, body.node_id)
     if node is None:  # pragma: no cover -- a body always stands in a node
         return []
     edges = (
-        await session.execute(
-            select(Edge).where(
-                or_(Edge.node_a_id == node.id, Edge.node_b_id == node.id)
+        (
+            await session.execute(
+                select(Edge).where(or_(Edge.node_a_id == node.id, Edge.node_b_id == node.id))
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
 
     in_hands = await _surface_at_hand(session, body)
     result: list[dict] = []
@@ -324,20 +326,22 @@ _EPS = 1 / AMOUNT_SCALE
 async def _surface_at_hand(session: AsyncSession, body: Body) -> float:
     pocket = await world.body_container(session, body)
     stacks = (
-        await session.execute(
-            select(Item).where(
-                Item.container_id == pocket.id,
-                Item.type_key.in_(world.station_names(SURFACE_GOODS)),
+        (
+            await session.execute(
+                select(Item).where(
+                    Item.container_id == pocket.id,
+                    Item.type_key.in_(world.station_names(SURFACE_GOODS)),
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return sum(amount_float(stack.amount) for stack in stacks)
 
 
 async def _take_surface(session: AsyncSession, body: Body, need_amount: float) -> float:
     """Write off surface from the hands. Returns how much could be taken."""
     pocket = await world.body_container(session, body)
-    stacks = await world.locked_stacks(
-        session, pocket.id, world.station_names(SURFACE_GOODS)
-    )
+    stacks = await world.locked_stacks(session, pocket.id, world.station_names(SURFACE_GOODS))
     return amount_float(await world.consume(session, stacks, amount(need_amount)))

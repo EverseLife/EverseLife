@@ -58,14 +58,10 @@ def _walk(node: ast.AST, text: str, names: dict[str, float]) -> Any:
         return float(node.value)
     if isinstance(node, ast.Name):
         if node.id not in names:
-            raise NotComputable(
-                f"формула {text!r} требует величину {node.id!r}, а её не передали"
-            )
+            raise NotComputable(f"формула {text!r} требует величину {node.id!r}, а её не передали")
         return float(names[node.id])
     if isinstance(node, ast.BinOp) and type(node.op) in BINARY:
-        return BINARY[type(node.op)](
-            _walk(node.left, text, names), _walk(node.right, text, names)
-        )
+        return BINARY[type(node.op)](_walk(node.left, text, names), _walk(node.right, text, names))
     if isinstance(node, ast.UnaryOp) and type(node.op) in UNARY:
         return UNARY[type(node.op)](_walk(node.operand, text, names))
     raise NotComputable(

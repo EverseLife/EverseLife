@@ -218,9 +218,7 @@ async def test_felling_asks_for_the_right_place(
     body = await world.print_body(session, identity, bare)
 
     with pytest.raises(craft.CraftError):
-        await craft.start(
-            session, constants, catalog, body, "Дерево", 1, way="Рубка дерева"
-        )
+        await craft.start(session, constants, catalog, body, "Дерево", 1, way="Рубка дерева")
 
 
 def test_dishes_wait_for_cooking(catalog: Catalog) -> None:
@@ -424,10 +422,14 @@ async def test_batch_arrives_by_job_exactly_once(
         assert reloaded is not None
         pocket = await world.body_container(session, reloaded)
         done = (
-            await session.execute(
-                select(Item).where(Item.container_id == pocket.id, Item.type_key == NAILS)
+            (
+                await session.execute(
+                    select(Item).where(Item.container_id == pocket.id, Item.type_key == NAILS)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         assert len(done) == 1, "гвозди складываются: одна стопка"
         assert amount_float(done[0].amount) == pytest.approx(2)
         assert done[0].maker_identity_id is not None, "клеймо обязательно (D-058)"
@@ -488,10 +490,14 @@ async def test_smelting_batch_reaches_end(
         reloaded = await session.get(Body, body_id)
         pocket = await world.body_container(session, reloaded)
         ingots = (
-            await session.execute(
-                select(Item).where(Item.container_id == pocket.id, Item.type_key == INGOT)
+            (
+                await session.execute(
+                    select(Item).where(Item.container_id == pocket.id, Item.type_key == INGOT)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         assert ingots, "слиток вышел из печи, а не сгинул вместе с заданием"
 
 
@@ -516,10 +522,14 @@ async def test_left_machine_output_stays_at_machine(
     async with factory() as session:
         yard = await world.node_container(session, await _node(session, node_id))
         done = (
-            await session.execute(
-                select(Item).where(Item.container_id == yard.id, Item.type_key == NAILS)
+            (
+                await session.execute(
+                    select(Item).where(Item.container_id == yard.id, Item.type_key == NAILS)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         assert len(done) == 1
 
 
@@ -542,12 +552,16 @@ async def test_wares_do_not_stack_each_with_own_quality(
         assert reloaded is not None
         pocket = await world.body_container(session, reloaded)
         pickaxes = (
-            await session.execute(
-                select(Item).where(
-                    Item.container_id == pocket.id, Item.type_key == "Железная кирка"
+            (
+                await session.execute(
+                    select(Item).where(
+                        Item.container_id == pocket.id, Item.type_key == "Железная кирка"
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         assert len(pickaxes) == 3, "каждая кирка — отдельная вещь со своим клеймом"
         assert all(amount_float(pickaxe.amount) == 1 for pickaxe in pickaxes)
 
@@ -592,10 +606,14 @@ async def test_result_stays_within_promised_spread(
         assert reloaded is not None
         pocket = await world.body_container(session, reloaded)
         nails = (
-            await session.execute(
-                select(Item).where(Item.container_id == pocket.id, Item.type_key == NAILS)
+            (
+                await session.execute(
+                    select(Item).where(Item.container_id == pocket.id, Item.type_key == NAILS)
+                )
             )
-        ).scalars().first()
+            .scalars()
+            .first()
+        )
         assert nails is not None and nails.quality is not None
         assert abs(float(nails.quality) - promised) <= spread_ + 0.01
 
@@ -628,9 +646,7 @@ async def test_copying_recipe_costs_stamina(
     _, identity, body = await _workshop(session, library=True)
     before = float(body.stamina)
     await craft.copy_recipe(session, catalog, body, NAILS)
-    assert float(body.stamina) == pytest.approx(
-        before - constants[R.CRAFT_COPY_STAMINA]
-    )
+    assert float(body.stamina) == pytest.approx(before - constants[R.CRAFT_COPY_STAMINA])
 
     #: What is already known is not rewritten: the same body does not pay twice.
     now_ = float(body.stamina)

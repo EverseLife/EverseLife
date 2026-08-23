@@ -29,9 +29,7 @@ async def _settled_node(session: AsyncSession):
     return node, identity, body
 
 
-async def test_body_printed_with_full_stamina(
-    session: AsyncSession, constants: Constants
-) -> None:
+async def test_body_printed_with_full_stamina(session: AsyncSession, constants: Constants) -> None:
     _, _, body = await _settled_node(session)
     await session.commit()
     assert float(body.stamina) == constants[R.BODY_STAMINA_MAX]
@@ -82,9 +80,7 @@ async def test_every_world_change_lands_in_journal(session: AsyncSession) -> Non
     await _settled_node(session)
     await session.commit()
 
-    kinds = set(
-        (await session.execute(select(Event.kind))).scalars().all()
-    )
+    kinds = set((await session.execute(select(Event.kind))).scalars().all())
     assert {"identity.created", "body.printed"} <= kinds
 
 
@@ -95,7 +91,5 @@ async def test_event_remembers_which_numbers_it_happened_on(
     await _settled_node(session)
     await session.commit()
 
-    event = (
-        await session.execute(select(Event).where(Event.kind == "body.printed"))
-    ).scalar_one()
+    event = (await session.execute(select(Event).where(Event.kind == "body.printed"))).scalar_one()
     assert event.constants_digest == constants.digest

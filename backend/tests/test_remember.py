@@ -97,9 +97,7 @@ async def test_a_thing_put_but_not_flushed_is_seen(session: AsyncSession):
     assert await world.contents(session, pocket) == ()
 
     #: Added and deliberately not flushed: this is the trap the guard exists for.
-    session.add(
-        Item(container_id=pocket.id, type_key="Гвозди", amount=to_amount(1), quality=50)
-    )
+    session.add(Item(container_id=pocket.id, type_key="Гвозди", amount=to_amount(1), quality=50))
 
     kinds = {thing.type_key for thing in await world.contents(session, pocket)}
     assert kinds == {"Гвозди"}

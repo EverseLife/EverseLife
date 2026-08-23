@@ -64,8 +64,7 @@ async def require_holder(session: AsyncSession, node: Node, identity: Identity) 
         #: civic land is regulated by citizenship and duties, land outside a
         #: city is not privatized at all (D-198).
         raise NotYours(
-            "это городская земля: вход на неё решают гражданством и пошлиной, "
-            "а не дверью локации"
+            "это городская земля: вход на неё решают гражданством и пошлиной, а не дверью локации"
             if node.owner_city_id is not None
             else "у этой земли нет хозяина: за городом дверей не ставят"
         )
@@ -73,9 +72,7 @@ async def require_holder(session: AsyncSession, node: Node, identity: Identity) 
         raise NotYours("локация не ваша: дверью распоряжается хозяин")
 
 
-async def set_gate(
-    session: AsyncSession, node: Node, identity: Identity, *, closed: bool
-) -> Node:
+async def set_gate(session: AsyncSession, node: Node, identity: Identity, *, closed: bool) -> Node:
     """Shut the location for entry, or open it. Visible from outside: not a trap.
 
     Passage is not touched by this: through a shut location one still walks (D-204).
@@ -97,9 +94,7 @@ async def listed(
     return [row[0] for row in rows]
 
 
-async def roster(
-    session: AsyncSession, node: Node, *, allowed: bool = True
-) -> list[str]:
+async def roster(session: AsyncSession, node: Node, *, allowed: bool = True) -> list[str]:
     """One list by names: the holder manages people, not identifiers."""
     names = await session.execute(
         select(Identity.name)
@@ -128,9 +123,7 @@ async def add(
         raise AccessError("себя в списках не держат: хозяин входит всегда")
     row = (
         await session.execute(
-            select(NodePass).where(
-                NodePass.node_id == node.id, NodePass.identity_id == who.id
-            )
+            select(NodePass).where(NodePass.node_id == node.id, NodePass.identity_id == who.id)
         )
     ).scalar_one_or_none()
     if row is None:
@@ -140,14 +133,10 @@ async def add(
     await session.flush()
 
 
-async def remove(
-    session: AsyncSession, node: Node, identity: Identity, who: Identity
-) -> None:
+async def remove(session: AsyncSession, node: Node, identity: Identity, who: Identity) -> None:
     await require_holder(session, node, identity)
     await session.execute(
-        delete(NodePass).where(
-            NodePass.node_id == node.id, NodePass.identity_id == who.id
-        )
+        delete(NodePass).where(NodePass.node_id == node.id, NodePass.identity_id == who.id)
     )
     await session.flush()
 
@@ -164,12 +153,16 @@ async def may_enter(session: AsyncSession, node: Node, identity_id: uuid.UUID) -
         return True
 
     rows = (
-        await session.execute(
-            select(NodePass.allowed).where(
-                NodePass.node_id == node.id, NodePass.identity_id == identity_id
+        (
+            await session.execute(
+                select(NodePass.allowed).where(
+                    NodePass.node_id == node.id, NodePass.identity_id == identity_id
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     #: Black beats white: named in the black list -- no entry, shut or open.
     if any(not allowed for allowed in rows):
         return False

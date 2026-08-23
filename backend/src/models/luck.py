@@ -38,9 +38,7 @@ class Luck(Base):
     )
 
     id: Mapped[uuid.UUID] = uuid_pk()
-    identity_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("identity.id"), nullable=False
-    )
+    identity_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("identity.id"), nullable=False)
     #: What the luck is about, by the engine's own key: `explore.find`,
     #: `mine.death`, `forage.what`. ASCII by design -- it is an id, not a word
     #: of the interface.

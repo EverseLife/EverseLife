@@ -61,7 +61,16 @@ src = [".", "tests"]
 extend-exclude = ["migrations/versions"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B", "SIM"]
+#: PLC0415 -- an import inside a function hides a cycle (348 of them before
+#: the review of 2026-08-23). The ones that remain are marked `noqa` with
+#: the cycle they break; a new one needs the same justification.
+select = ["E", "F", "I", "UP", "B", "SIM", "PLC0415"]
+
+[tool.ruff.lint.per-file-ignores]
+#: Tests import what they need where they need it; the cycle rule is for `src`.
+"tests/**" = ["PLC0415"]
+"migrations/**" = ["PLC0415"]
+"tools/**" = ["PLC0415"]
 
 [tool.importlinter]
 root_package = "src"

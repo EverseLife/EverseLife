@@ -48,6 +48,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Constants
 from src.constants import registry as R
+from src.engine import bank
 from src.models.identity import Identity
 from src.models.inventory import Item
 from src.models.ledger import AccountKind, LedgerAccount, LedgerEntry
@@ -119,9 +120,7 @@ def median(values: list[int]) -> float:
 async def prices(session: AsyncSession, *, since: datetime) -> dict[str, float]:
     """The median price of each goods from concluded deals."""
     rows = (
-        await session.execute(
-            select(Trade.type_key, Trade.price).where(Trade.at >= since)
-        )
+        await session.execute(select(Trade.type_key, Trade.price).where(Trade.at >= since))
     ).all()
     by_goods: dict[str, list[int]] = {}
     for name, price in rows:
@@ -138,7 +137,6 @@ async def collect(
 
     #: The price index is a monetary-policy sensor (D-087, D-169). The bank
     #: computes it: one formula for the panel, the dashboard and the rate, no second copy.
-    from src.engine import bank
 
     index = await bank.price_index(session, constants, now=moment)
 
@@ -154,9 +152,7 @@ async def collect(
             Trade.at >= moment - day
         )
     )
-    veins = await session.scalar(
-        select(func.coalesce(func.sum(Vein.remaining), 0))
-    )
+    veins = await session.scalar(select(func.coalesce(func.sum(Vein.remaining), 0)))
     people_ = await session.scalar(select(func.count()).select_from(Identity))
 
     result: dict[str, float] = {
@@ -180,9 +176,7 @@ async def collect(
     return result
 
 
-async def store(
-    session: AsyncSession, constants: Constants, *, now: datetime | None = None
-) -> int:
+async def store(session: AsyncSession, constants: Constants, *, now: datetime | None = None) -> int:
     """Write the daily snapshot. A repeat for the same day overwrites the value.
 
     Idempotent on purpose: the daily tick may repeat after a failure, and no
@@ -209,9 +203,9 @@ async def remember(
     day_ = moment.date()
     previous_ones = {
         row.key: row
-        for row in (
-            await session.execute(select(DailyMetric).where(DailyMetric.day == day_))
-        ).scalars().all()
+        for row in (await session.execute(select(DailyMetric).where(DailyMetric.day == day_)))
+        .scalars()
+        .all()
     }
     for key, value in values.items():
         line = previous_ones.get(key)
@@ -223,9 +217,7 @@ async def remember(
     return len(values)
 
 
-async def history(
-    session: AsyncSession, key: str, *, days: int = 14
-) -> list[tuple[date, float]]:
+async def history(session: AsyncSession, key: str, *, days: int = 14) -> list[tuple[date, float]]:
     """What this measurement was over the last day -- for a trend."""
     rows = (
         await session.execute(
@@ -252,10 +244,7 @@ async def invariants(
     #: Double-entry integrity. Not a metric but a law: the sum of all postings
     #: is zero, otherwise money appeared or vanished somewhere (01-tech-notes, pattern 2).
     postings_total = int(
-        await session.scalar(
-            select(func.coalesce(func.sum(LedgerEntry.amount), 0))
-        )
-        or 0
+        await session.scalar(select(func.coalesce(func.sum(LedgerEntry.amount), 0))) or 0
     )
     result.append(
         {
@@ -263,8 +252,7 @@ async def invariants(
             "value": postings_total / MONEY_SCALE,
             "ok": postings_total == 0,
             "corridor": "ровно 0",
-            "why": "сумма всех проводок обязана быть нулём: иначе деньги "
-            "появились или исчезли",
+            "why": "сумма всех проводок обязана быть нулём: иначе деньги появились или исчезли",
         }
     )
 
@@ -298,9 +286,9 @@ async def invariants(
 
     #: I1: a resource's stock must not grow for weeks. The vault set no growth
     #: threshold -- we show the measured and say so directly.
-    for key, resource_ in sorted(
-        (f"stock.{name}", name) for name in (await stock(session))
-    )[:BASKET_LIMIT]:
+    for key, resource_ in sorted((f"stock.{name}", name) for name in (await stock(session)))[
+        :BASKET_LIMIT
+    ]:
         row = await history(session, key, days=8)
         if len(row) < 2:
             continue
@@ -334,8 +322,7 @@ async def invariants(
                 "value": None,
                 "ok": None,
                 "corridor": f"ждёт {waiting_for}",
-                "why": "проверка того, чего нет, — зелёная галочка, "
-                "обманывающая себя",
+                "why": "проверка того, чего нет, — зелёная галочка, обманывающая себя",
             }
         )
     return result

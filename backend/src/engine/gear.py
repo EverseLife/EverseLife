@@ -75,21 +75,17 @@ def mass_of(catalog: Catalog, type_key: str, quantity: float) -> float:
     return catalog.recipes.mass_of(type_key) * quantity
 
 
-async def load_of(
-    session: AsyncSession, catalog: Catalog, body: Body
-) -> float:
+async def load_of(session: AsyncSession, catalog: Catalog, body: Body) -> float:
     """How much the body carries now, kg. What is worn counts along with everything."""
     things = await world.contents(session, await world.body_container(session, body))
-    return sum(
-        mass_of(catalog, thing.type_key, amount_float(thing.amount)) for thing in things
-    )
+    return sum(mass_of(catalog, thing.type_key, amount_float(thing.amount)) for thing in things)
 
 
 async def equipped(session: AsyncSession, body: Body) -> dict[str, Item]:
     """What is worn: slot -> thing."""
     lines = (
-        await session.execute(select(Equipped).where(Equipped.body_id == body.id))
-    ).scalars().all()
+        (await session.execute(select(Equipped).where(Equipped.body_id == body.id))).scalars().all()
+    )
     result: dict[str, Item] = {}
     for line in lines:
         thing = await session.get(Item, line.item_id)
@@ -105,8 +101,7 @@ async def capacity(
     bonuses = constants[R.INVENTORY_CARRY_BONUS]
     worn = await equipped(session, body)
     increment = sum(
-        bonuses.get(catalog.recipes.resolve(thing.type_key), 0.0)
-        for thing in worn.values()
+        bonuses.get(catalog.recipes.resolve(thing.type_key), 0.0) for thing in worn.values()
     )
     return constants[R.INVENTORY_CARRY_MASS] + increment
 
@@ -186,9 +181,7 @@ async def equip(
     return slot
 
 
-async def unequip(
-    session: AsyncSession, body: Body, slot: str
-) -> Item | None:
+async def unequip(session: AsyncSession, body: Body, slot: str) -> Item | None:
     """Take off what is worn from a slot. The thing stays in the hands -- it was there anyway."""
     line = (
         await session.execute(

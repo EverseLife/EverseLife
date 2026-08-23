@@ -49,7 +49,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import Catalog, ConstantError, Constants
 from src.constants import registry as R
 from src.constants.catalog import ItemKind
-from src.engine import events, travel, wear, world
+from src.engine import craft, events, travel, wear, world
 from src.engine.errors import Refusal
 from src.engine.world import body_container
 from src.models.craft import BatchKind, CraftBatch
@@ -92,9 +92,7 @@ def per_coin(catalog: Catalog, coin: str) -> dict[str, float]:
         raise NotCoin(f"{recipe.name!r} — не монета")
     if not recipe.amounts:
         raise NotCoin(f"у {recipe.name!r} не задан состав: чеканить не из чего")
-    return {
-        catalog.recipes.resolve(name): value for name, value in recipe.amounts.items()
-    }
+    return {catalog.recipes.resolve(name): value for name, value in recipe.amounts.items()}
 
 
 def metal_of(catalog: Catalog, coin: str) -> str:
@@ -146,7 +144,6 @@ async def mint(
 
     #: Import inside: `craft` knows about coins only through this module, not
     #: the other way round -- otherwise there would be a cycle.
-    from src.engine import craft
 
     recipe = catalog.recipes.recipe(coin)
     if recipe.kind is not ItemKind.MONEY:
@@ -176,7 +173,10 @@ async def mint(
     pocket = await body_container(session, body)
     #: Which metal goes under the die is the minter's choice by tier (D-058).
     stock = await craft._stock(  # noqa: SLF001
-        session, pocket, tuple(needed), tiers=craft._tiers_by(catalog, tiers)  # noqa: SLF001
+        session,
+        pocket,
+        tuple(needed),
+        tiers=craft._tiers_by(catalog, tiers),  # noqa: SLF001
     )
     picks = craft._pick(stock, needed)  # noqa: SLF001
 
@@ -192,9 +192,7 @@ async def mint(
             await session.delete(pick.item)
     await session.flush()
 
-    minutes = craft.batch_minutes(
-        constants, proc, count, wear.effective(constants, station)
-    )
+    minutes = craft.batch_minutes(constants, proc, count, wear.effective(constants, station))
     fineness = fineness_of(constants)
     batch = CraftBatch(
         body_id=body.id,
@@ -246,8 +244,6 @@ async def melt(
         raise CoinError("мёртвое тело не работает")
     await travel.require_here(session, body)
 
-    from src.engine import craft
-
     if not is_coin(catalog, item.type_key):
         raise NotCoin(f"{item.type_key!r} — не монета: это переработка, а не переплавка")
 
@@ -280,9 +276,7 @@ async def melt(
         await session.delete(item)
     await session.flush()
 
-    minutes = craft.batch_minutes(
-        constants, proc, count, wear.effective(constants, station)
-    )
+    minutes = craft.batch_minutes(constants, proc, count, wear.effective(constants, station))
     scale = constants[R.QUALITY_SCALE]
     batch = CraftBatch(
         body_id=body.id,

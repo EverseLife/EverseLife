@@ -29,7 +29,8 @@ from src.engine import (
     world,
 )
 from src.engine import city as town
-from src.models.city import Office, Power
+from src.models.bank import Loan
+from src.models.city import Citizen, Office, Power
 from src.models.identity import Identity
 from src.models.justice import Case
 from src.models.vote import Vote
@@ -56,7 +57,6 @@ async def _city_join(state: dict, db: AsyncSession, message: dict) -> dict:
     body = await _alive(state, db)
     city = await _city(state, db, message)
     result = await town.join(db, body, city)
-    from src.models.city import Citizen
 
     citizen = isinstance(result, Citizen)
     return {
@@ -296,7 +296,6 @@ async def _city_bail(state: dict, db: AsyncSession, message: dict) -> dict:
 
     In person and by treasury right: spending is an authority decision (D-155).
     """
-    from src.models.bank import Loan
 
     identity = await _identity(state, db)
     body = await _alive(state, db)

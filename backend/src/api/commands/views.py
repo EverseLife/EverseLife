@@ -23,6 +23,7 @@ from src.api.commands.common import _body, _node, _stamp
 from src.api.registry import Refused
 from src.constants import current, current_catalog
 from src.constants import registry as R
+from src.constants.catalog import ItemKind
 from src.engine import city as town
 from src.engine import (
     craft,
@@ -37,6 +38,7 @@ from src.engine import (
     transport,
     world,
 )
+from src.engine import world as places
 from src.models.craft import BatchState, CraftBatch
 from src.models.identity import Body, Identity, Knowledge, KnowledgeKind
 from src.models.ledger import AccountKind
@@ -48,6 +50,7 @@ from src.models.market import (
 )
 from src.models.mining import MiningSession
 from src.models.plant import Variety
+from src.models.travel import Harness
 from src.models.world import Node
 from src.units import amount_float, money_str
 
@@ -131,7 +134,6 @@ async def _bench(
     for furniture: a bed and a shelf are not machines, and the client shows
     them in a separate window.
     """
-    from src.constants.catalog import ItemKind
 
     expected_value = ItemKind.FURNITURE if furniture else ItemKind.STATION
     book = current_catalog().recipes
@@ -174,7 +176,6 @@ async def _clock(db: AsyncSession, constants, node: Node) -> dict[str, Any]:
     the vault's (D-029) -- Terra's day is 38 hours, and none of them match the
     player's own clock on purpose.
     """
-    from src.engine import world as places
 
     origin = await places.epoch(db)
     return {
@@ -224,7 +225,6 @@ async def _vehicles(db: AsyncSession, constants, node: Node) -> list[dict[str, A
     it. Whether a vehicle is taken by somebody else's harness is visible at once
     -- otherwise the player would learn it only from a refusal.
     """
-    from src.models.travel import Harness
 
     cat = current_catalog()
     things = await world.contents(db, await world.node_container(db, node))

@@ -188,6 +188,4 @@ async def ensure_scheduled(session: AsyncSession, now: datetime | None = None) -
     #: The key-rate review runs at its own rhythm (D-167): monetary policy has
     #: its own period, and the world clock need not know it.
 
-    from src.engine import bank
-
     await bank.schedule_review(session, current(), after=moment)

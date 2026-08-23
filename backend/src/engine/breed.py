@@ -71,7 +71,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.constants.catalog import Plant
-from src.engine import events, travel, world
+from src.engine import events, luck, travel, world
 from src.engine.errors import Refusal
 from src.models.event import EventKind
 from src.models.identity import Body, BodyState, Identity, Knowledge, KnowledgeKind
@@ -132,14 +132,18 @@ async def landrace(session: AsyncSession, catalog: Catalog, culture_id: str) -> 
     """
     plant = catalog.plants.by_id(culture_id)
     found = (
-        await session.execute(
-            select(Variety).where(
-                Variety.culture_id == culture_id,
-                Variety.author_identity_id.is_(None),
-                Variety.stable.is_(True),
+        (
+            await session.execute(
+                select(Variety).where(
+                    Variety.culture_id == culture_id,
+                    Variety.author_identity_id.is_(None),
+                    Variety.stable.is_(True),
+                )
             )
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
     if found is not None:
         return found
 
@@ -210,7 +214,6 @@ async def inherit(
     #: The chance keeps a memory (D-213): a breeder who never once saw a new
     #: trait in twenty crossings has the same complaint as a scout who never
     #: found anything, and the announced share is unchanged by the memory.
-    from src.engine import luck
 
     novel = (
         await luck.hit(
@@ -267,10 +270,14 @@ async def cross(
 
     node = await world.node_container(session, await _node(session, body))
     machines = (
-        await session.execute(
-            select(Item.type_key).where(Item.container_id == node.id).distinct()
+        (
+            await session.execute(
+                select(Item.type_key).where(Item.container_id == node.id).distinct()
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     if not set(machines) & set(world.station_names(NURSERY)):
         raise NoNursery(f"в узле нет постройки класса «{NURSERY}»")
 
@@ -288,9 +295,7 @@ async def cross(
     norm = amount(constants[R.FARM_SEED_RATE] * constants[R.FARM_PLOT_MIN_AREA])
     for batch in (seeds_a, seeds_b):
         if batch.amount < norm:
-            raise NotSeeds(
-                f"на питомник нужно {amount_float(norm):g} семян каждого сорта"
-            )
+            raise NotSeeds(f"на питомник нужно {amount_float(norm):g} семян каждого сорта")
     for batch in (seeds_a, seeds_b):
         batch.amount -= norm
         if batch.amount <= 0:
@@ -352,15 +357,19 @@ async def gather_cross(
         raise BreedError("родительский сорт исчез")
 
     signs = await inherit(
-        constants, father.traits, mother.traits,
-        rng=dice, session=session, who=body.identity_id,
+        constants,
+        father.traits,
+        mother.traits,
+        rng=dice,
+        session=session,
+        who=body.identity_id,
     )
     threshold = constants[R.BREED_DISTINCTNESS_THRESHOLD]
     neighbours = (
-        await session.execute(
-            select(Variety).where(Variety.culture_id == father.culture_id)
-        )
-    ).scalars().all()
+        (await session.execute(select(Variety).where(Variety.culture_id == father.culture_id)))
+        .scalars()
+        .all()
+    )
     similar = next(
         (nb for nb in neighbours if distance(signs, nb.traits) < threshold),
         None,
@@ -400,8 +409,11 @@ async def gather_cross(
     identity = await session.get(Identity, body.identity_id)
     if identity is not None:
         await world.learn(
-            session, identity, agrotech_key(hybrid),
-            kind=KnowledgeKind.AGROTECH, discovered=True,
+            session,
+            identity,
+            agrotech_key(hybrid),
+            kind=KnowledgeKind.AGROTECH,
+            discovered=True,
         )
 
     plant = catalog.plants.by_id(father.culture_id)
@@ -433,9 +445,7 @@ async def gather_cross(
     return hybrid
 
 
-def next_vigor(
-    constants: Constants, variety: Variety, vigor: float, *, selected: bool
-) -> float:
+def next_vigor(constants: Constants, variety: Variety, vigor: float, *, selected: bool) -> float:
     """Strength of the next seed generation.
 
     Selection is work: it holds the fund. Without selection the fund degrades,
@@ -463,14 +473,11 @@ async def select_generation(
     return variety
 
 
-async def name_variety(
-    session: AsyncSession, body: Body, variety: Variety, name: str
-) -> Variety:
+async def name_variety(session: AsyncSession, body: Body, variety: Variety, name: str) -> Variety:
     """Name a bred cultivar. The author's name is attached to it forever."""
     if not variety.stable:
         raise NotStable(
-            "сорт ещё не постоянен: имя даётся тому, что даёт тот же результат "
-            "из раза в раз"
+            "сорт ещё не постоянен: имя даётся тому, что даёт тот же результат из раза в раз"
         )
     if variety.author_identity_id != body.identity_id:
         raise BreedError("называет сорт тот, кто его вывел")
@@ -527,9 +534,7 @@ def agrotech_key(variety: Variety) -> str:
     return variety.culture_id if variety.author_identity_id is None else str(variety.id)
 
 
-async def knows_agrotech(
-    session: AsyncSession, identity_id: uuid.UUID, variety: Variety
-) -> bool:
+async def knows_agrotech(session: AsyncSession, identity_id: uuid.UUID, variety: Variety) -> bool:
     """Whether the identity knows what this cultivar needs.
 
     Knowledge does not forbid sowing or harvesting -- it decides **whether the
@@ -565,9 +570,7 @@ async def copy_agrotech(
     identity = await session.get(Identity, body.identity_id)
     if identity is None:  # pragma: no cover
         raise BreedError("тело без личности")
-    return await world.learn(
-        session, identity, plant.id, kind=KnowledgeKind.AGROTECH
-    )
+    return await world.learn(session, identity, plant.id, kind=KnowledgeKind.AGROTECH)
 
 
 async def _variety_of(session: AsyncSession, item: Item) -> Variety:

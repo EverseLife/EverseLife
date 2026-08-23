@@ -72,8 +72,15 @@ async def _trader(session: AsyncSession, node, name: str, *, funds: float = 0):
     return identity, body
 
 
-async def _with_goods(session: AsyncSession, constants: Constants, node, name: str,
-                     *, qty: float = 10, quality: float = 65):
+async def _with_goods(
+    session: AsyncSession,
+    constants: Constants,
+    node,
+    name: str,
+    *,
+    qty: float = 10,
+    quality: float = 65,
+):
     identity, body = await _trader(session, node, name)
     pocket = await world.body_container(session, body)
     await world.grant_item(
@@ -111,12 +118,11 @@ def test_qualityless_goods_have_one_position(constants: Constants) -> None:
 # --- presence ----------------------------------------------------------------
 
 
-async def test_no_trade_without_terminal(
-    session: AsyncSession, constants: Constants
-) -> None:
+async def test_no_trade_without_terminal(session: AsyncSession, constants: Constants) -> None:
     """A marketplace is a building, not a right. No building -- no market."""
-    node = await world.create_node(session, f"terra.field.{uuid.uuid4().hex[:6]}", "Поле",
-                                   area_m2=100)
+    node = await world.create_node(
+        session, f"terra.field.{uuid.uuid4().hex[:6]}", "Поле", area_m2=100
+    )
     _, body = await _trader(session, node, "Селянин")
     with pytest.raises(market.NoTerminal):
         await market.load(session, constants, body, ORE, 1)
@@ -151,11 +157,19 @@ async def test_committed_to_order_cannot_be_taken_back(
 ) -> None:
     """Otherwise the same sack is sold twice."""
     node = await _city(session)
-    identity, body = await _with_goods(session, constants, node, "Хитрец", qty=10,
-                                      quality=65)
+    identity, body = await _with_goods(session, constants, node, "Хитрец", qty=10, quality=65)
     tier = market.tier_of(constants, 65)
-    await market.sell(session, constants, catalog, identity, node,
-                      type_key=ORE, tier=tier, price=money(5), quantity=8)
+    await market.sell(
+        session,
+        constants,
+        catalog,
+        identity,
+        node,
+        type_key=ORE,
+        tier=tier,
+        price=money(5),
+        quantity=8,
+    )
 
     took = await market.take(session, constants, body, ORE, 10)
     assert took == pytest.approx(2), "свободны только те две, что не под ордером"
@@ -173,11 +187,21 @@ async def test_deal_at_price_of_resting_order(
     seller, _ = await _with_goods(session, constants, node, "Продавец", qty=10)
     buyer, body = await _trader(session, node, "Покупатель", funds=100)
 
-    await market.sell(session, constants, catalog, seller, node,
-                      type_key=ORE, tier=tier, price=money(4), quantity=10)
+    await market.sell(
+        session,
+        constants,
+        catalog,
+        seller,
+        node,
+        type_key=ORE,
+        tier=tier,
+        price=money(4),
+        quantity=10,
+    )
     #: The buyer is ready to give more -- and pays less, because it was not them resting.
-    deal = await market.buy(session, constants, catalog, body,
-                              type_key=ORE, tier=tier, price=money(6), quantity=4)
+    deal = await market.buy(
+        session, constants, catalog, body, type_key=ORE, tier=tier, price=money(6), quantity=4
+    )
     await session.commit()
 
     assert deal.traded == pytest.approx(4)
@@ -194,10 +218,20 @@ async def test_money_moves_not_appears(
     buyer, body = await _trader(session, node, "Купец", funds=100)
     mass_before = await ledger.money_supply(session)
 
-    await market.sell(session, constants, catalog, seller, node,
-                      type_key=ORE, tier=tier, price=money(5), quantity=10)
-    await market.buy(session, constants, catalog, body,
-                     type_key=ORE, tier=tier, price=money(5), quantity=10)
+    await market.sell(
+        session,
+        constants,
+        catalog,
+        seller,
+        node,
+        type_key=ORE,
+        tier=tier,
+        price=money(5),
+        quantity=10,
+    )
+    await market.buy(
+        session, constants, catalog, body, type_key=ORE, tier=tier, price=money(5), quantity=10
+    )
     await session.commit()
 
     assert await _balance(session, seller.id) == money(50)
@@ -214,10 +248,20 @@ async def test_bought_waits_in_terminal_and_taken_on_foot(
     seller, _ = await _with_goods(session, constants, node, "Шахтёр", qty=10)
     buyer, body = await _trader(session, node, "Скупщик", funds=100)
 
-    await market.sell(session, constants, catalog, seller, node,
-                      type_key=ORE, tier=tier, price=money(5), quantity=10)
-    await market.buy(session, constants, catalog, body,
-                     type_key=ORE, tier=tier, price=money(5), quantity=6)
+    await market.sell(
+        session,
+        constants,
+        catalog,
+        seller,
+        node,
+        type_key=ORE,
+        tier=tier,
+        price=money(5),
+        quantity=10,
+    )
+    await market.buy(
+        session, constants, catalog, body, type_key=ORE, tier=tier, price=money(5), quantity=6
+    )
 
     cell = await market.stall(session, node, buyer.id)
     lies = await session.scalar(
@@ -241,10 +285,20 @@ async def test_frozen_surplus_returned_immediately(
     seller, _ = await _with_goods(session, constants, node, "Рудокоп", qty=10)
     buyer, body = await _trader(session, node, "Богач", funds=100)
 
-    await market.sell(session, constants, catalog, seller, node,
-                      type_key=ORE, tier=tier, price=money(4), quantity=10)
-    await market.buy(session, constants, catalog, body,
-                     type_key=ORE, tier=tier, price=money(6), quantity=10)
+    await market.sell(
+        session,
+        constants,
+        catalog,
+        seller,
+        node,
+        type_key=ORE,
+        tier=tier,
+        price=money(4),
+        quantity=10,
+    )
+    await market.buy(
+        session, constants, catalog, body, type_key=ORE, tier=tier, price=money(6), quantity=10
+    )
     await session.commit()
 
     #: Paid four apiece though ready to pay six: twenty came back at once.
@@ -267,10 +321,20 @@ async def test_seller_pays_tax(
     commission = constants[R.MARKET_DEFAULT_FEE]
     assert rate > 0
 
-    await market.sell(session, constants, catalog, seller, node,
-                      type_key=ORE, tier=tier, price=money(5), quantity=10)
-    await market.buy(session, constants, catalog, body,
-                     type_key=ORE, tier=tier, price=money(5), quantity=10)
+    await market.sell(
+        session,
+        constants,
+        catalog,
+        seller,
+        node,
+        type_key=ORE,
+        tier=tier,
+        price=money(5),
+        quantity=10,
+    )
+    await market.buy(
+        session, constants, catalog, body, type_key=ORE, tier=tier, price=money(5), quantity=10
+    )
     await session.commit()
 
     price = money(50)
@@ -297,10 +361,20 @@ async def test_ownerless_node_withholds_nothing(
     seller, _ = await _with_goods(session, constants, node, "Вольный", qty=5)
     _, body = await _trader(session, node, "Вольный покупатель", funds=100)
 
-    await market.sell(session, constants, catalog, seller, node,
-                      type_key=ORE, tier=tier, price=money(5), quantity=5)
-    await market.buy(session, constants, catalog, body,
-                     type_key=ORE, tier=tier, price=money(5), quantity=5)
+    await market.sell(
+        session,
+        constants,
+        catalog,
+        seller,
+        node,
+        type_key=ORE,
+        tier=tier,
+        price=money(5),
+        quantity=5,
+    )
+    await market.buy(
+        session, constants, catalog, body, type_key=ORE, tier=tier, price=money(5), quantity=5
+    )
     await session.commit()
 
     assert await _balance(session, seller.id) == money(25)
@@ -315,13 +389,24 @@ async def test_no_deal_with_own_order(
     self_, body = await _with_goods(session, constants, node, "Сам себе", qty=5)
     account = await ledger.account_for(session, AccountKind.IDENTITY, self_.id)
     genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
-    await ledger.transfer(session, PostingReason.GENESIS, debit=genesis.id,
-                          credit=account.id, amount=money(100))
+    await ledger.transfer(
+        session, PostingReason.GENESIS, debit=genesis.id, credit=account.id, amount=money(100)
+    )
 
-    await market.sell(session, constants, catalog, self_, node,
-                      type_key=ORE, tier=tier, price=money(5), quantity=5)
-    deal = await market.buy(session, constants, catalog, body,
-                              type_key=ORE, tier=tier, price=money(5), quantity=5)
+    await market.sell(
+        session,
+        constants,
+        catalog,
+        self_,
+        node,
+        type_key=ORE,
+        tier=tier,
+        price=money(5),
+        quantity=5,
+    )
+    deal = await market.buy(
+        session, constants, catalog, body, type_key=ORE, tier=tier, price=money(5), quantity=5
+    )
     assert deal.traded == 0
 
 
@@ -334,11 +419,21 @@ async def test_cannot_buy_without_money(
     seller, _ = await _with_goods(session, constants, node, "Торговец", qty=5)
     _, body = await _trader(session, node, "Нищий")
 
-    await market.sell(session, constants, catalog, seller, node,
-                      type_key=ORE, tier=tier, price=money(5), quantity=5)
+    await market.sell(
+        session,
+        constants,
+        catalog,
+        seller,
+        node,
+        type_key=ORE,
+        tier=tier,
+        price=money(5),
+        quantity=5,
+    )
     with pytest.raises(market.NoMoney):
-        await market.buy(session, constants, catalog, body,
-                         type_key=ORE, tier=tier, price=money(5), quantity=5)
+        await market.buy(
+            session, constants, catalog, body, type_key=ORE, tier=tier, price=money(5), quantity=5
+        )
 
 
 async def test_order_remainder_rests_in_book(
@@ -350,10 +445,20 @@ async def test_order_remainder_rests_in_book(
     seller, _ = await _with_goods(session, constants, node, "Оптовик", qty=4)
     _, body = await _trader(session, node, "Ждущий", funds=100)
 
-    await market.sell(session, constants, catalog, seller, node,
-                      type_key=ORE, tier=tier, price=money(5), quantity=4)
-    deal = await market.buy(session, constants, catalog, body,
-                              type_key=ORE, tier=tier, price=money(5), quantity=10)
+    await market.sell(
+        session,
+        constants,
+        catalog,
+        seller,
+        node,
+        type_key=ORE,
+        tier=tier,
+        price=money(5),
+        quantity=4,
+    )
+    deal = await market.buy(
+        session, constants, catalog, body, type_key=ORE, tier=tier, price=money(5), quantity=10
+    )
     await session.commit()
 
     assert deal.traded == pytest.approx(4)
@@ -373,8 +478,9 @@ async def test_cancelled_order_returns_frozen(
     tier = market.tier_of(constants, 65)
     buyer, body = await _trader(session, node, "Передумавший", funds=100)
 
-    deal = await market.buy(session, constants, catalog, body,
-                              type_key=ORE, tier=tier, price=money(5), quantity=10)
+    deal = await market.buy(
+        session, constants, catalog, body, type_key=ORE, tier=tier, price=money(5), quantity=10
+    )
     assert await _balance(session, buyer.id) == money(50)
 
     await market.cancel(session, deal.order, by=buyer.id)
@@ -390,8 +496,9 @@ async def test_foreign_order_cannot_be_cancelled(
     _, body = await _trader(session, node, "Свой", funds=100)
     foreign, _ = await _trader(session, node, "Чужой")
 
-    deal = await market.buy(session, constants, catalog, body,
-                              type_key=ORE, tier=tier, price=money(5), quantity=1)
+    deal = await market.buy(
+        session, constants, catalog, body, type_key=ORE, tier=tier, price=money(5), quantity=1
+    )
     with pytest.raises(market.NotYours):
         await market.cancel(session, deal.order, by=foreign.id)
 
@@ -407,13 +514,12 @@ async def test_order_expires_by_job(
         node = await _city(session)
         tier = market.tier_of(constants, 65)
         buyer, body = await _trader(session, node, "Терпеливый", funds=100)
-        deal = await market.buy(session, constants, catalog, body,
-                                  type_key=ORE, tier=tier, price=money(5), quantity=10)
+        deal = await market.buy(
+            session, constants, catalog, body, type_key=ORE, tier=tier, price=money(5), quantity=10
+        )
         term, order_id, identity_id = deal.order.expires_at, deal.order.id, buyer.id
 
-    expected = timedelta(
-        hours=constants[R.MARKET_ORDER_LIFETIME] * constants[R.TIME_DAY_TERRA]
-    )
+    expected = timedelta(hours=constants[R.MARKET_ORDER_LIFETIME] * constants[R.TIME_DAY_TERRA])
     assert term - expected < datetime.now(UTC) + timedelta(minutes=1)
 
     #: Before the term the order lives.
@@ -439,18 +545,26 @@ async def test_deal_stays_in_journal(
     seller, _ = await _with_goods(session, constants, node, "Летописец", qty=3)
     _, body = await _trader(session, node, "Свидетель", funds=100)
 
-    await market.sell(session, constants, catalog, seller, node,
-                      type_key=ORE, tier=tier, price=money(7), quantity=3)
-    await market.buy(session, constants, catalog, body,
-                     type_key=ORE, tier=tier, price=money(7), quantity=3)
+    await market.sell(
+        session,
+        constants,
+        catalog,
+        seller,
+        node,
+        type_key=ORE,
+        tier=tier,
+        price=money(7),
+        quantity=3,
+    )
+    await market.buy(
+        session, constants, catalog, body, type_key=ORE, tier=tier, price=money(7), quantity=3
+    )
     await session.commit()
 
     deal_count = await session.scalar(
         select(func.count()).select_from(Trade).where(Trade.node_id == node.id)
     )
     assert deal_count == 1
-    orders_ = (
-        await session.execute(select(Order).where(Order.node_id == node.id))
-    ).scalars().all()
+    orders_ = (await session.execute(select(Order).where(Order.node_id == node.id))).scalars().all()
     assert {o.side for o in orders_} == {OrderSide.BUY, OrderSide.SELL}
     assert all(o.state is OrderState.FILLED for o in orders_)

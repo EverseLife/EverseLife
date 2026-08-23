@@ -112,9 +112,10 @@ def wears_out(
     if item is None:
         return False
     scale = constants[R.QUALITY_SCALE]
-    return float(item.condition) - spent_on(
-        constants, item, base, environment=environment
-    ) <= scale.min
+    return (
+        float(item.condition) - spent_on(constants, item, base, environment=environment)
+        <= scale.min
+    )
 
 
 async def spend(
@@ -162,29 +163,24 @@ async def spend(
     return True
 
 
-async def daily_gear_wear(
-    session: AsyncSession, constants: Constants, catalog: Catalog
-) -> int:
+async def daily_gear_wear(session: AsyncSession, constants: Constants, catalog: Catalog) -> int:
     """Daily gear wear on living bodies. Returns the number of things finished.
 
     Gear wears from wearing, not from use (sink S2), and the environment
     decides how fast: fourfold on Pyroxis.
     """
     rows = (
-        (
-            await session.execute(
-                select(Item, Node.planet, Body.identity_id)
-                .join(Container, Container.id == Item.container_id)
-                .join(Body, Body.id == Container.owner_id)
-                .join(Node, Node.id == Body.node_id)
-                .where(
-                    Container.kind == ContainerKind.BODY,
-                    Body.state == BodyState.ALIVE,
-                )
+        await session.execute(
+            select(Item, Node.planet, Body.identity_id)
+            .join(Container, Container.id == Item.container_id)
+            .join(Body, Body.id == Container.owner_id)
+            .join(Node, Node.id == Body.node_id)
+            .where(
+                Container.kind == ContainerKind.BODY,
+                Body.state == BodyState.ALIVE,
             )
         )
-        .all()
-    )
+    ).all()
 
     per_day = constants[R.WEAR_GEAR_PER_DAY]
     modifiers = constants[R.WEAR_ENVIRONMENT_K]

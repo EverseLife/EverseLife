@@ -77,12 +77,14 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.constants import Catalog, Constants
+from src.constants import Catalog, Constants, current_catalog
+from src.constants import current_catalog as _catalog
 from src.constants import registry as R
-from src.engine import events, ledger, travel, world
+from src.engine import city as town
+from src.engine import craft, events, gear, goods, ledger, travel, world
 from src.engine.errors import Refusal
 from src.engine.jobs import enqueue, handler
-from src.engine.world import body_container, node_container
+from src.engine.world import body_container, node_container, station_names
 from src.models.event import EventKind
 from src.models.identity import Body, BodyState, Identity
 from src.models.inventory import Container, ContainerKind, Item
@@ -181,7 +183,6 @@ CARRIER_SEP = ": "
 
 def goods_key(item: Item) -> str:
     """The name the counter knows this stack by."""
-    from src.engine import craft
 
     if item.type_key in craft.carrier_names() and item.recipe_key:
         return f"{item.type_key}{CARRIER_SEP}{item.recipe_key}"
@@ -190,7 +191,6 @@ def goods_key(item: Item) -> str:
 
 def split_key(goods: str) -> tuple[str, str | None]:
     """A counter name back into item type and, for a carrier, the recipe on it."""
-    from src.engine import craft
 
     head, sep, tail = goods.partition(CARRIER_SEP)
     if sep and head in craft.carrier_names() and tail:
@@ -222,7 +222,6 @@ def tier_of(constants: Constants, quality: float | None) -> str:
 async def terminal(session: AsyncSession, node: Node) -> Item:
     """The node's terminal. No terminal -- no trade, as there is none in an open field."""
     where = await node_container(session, node)
-    from src.engine.world import station_names
 
     found = (
         await session.execute(
@@ -263,9 +262,7 @@ async def stall(
         stmt = stmt.with_for_update()
     container = (await session.execute(stmt)).scalar_one_or_none()
     if container is None and create:
-        container = Container(
-            kind=ContainerKind.MARKET, owner_id=identity_id, node_id=node.id
-        )
+        container = Container(kind=ContainerKind.MARKET, owner_id=identity_id, node_id=node.id)
         session.add(container)
         await session.flush()
     return container
@@ -290,11 +287,15 @@ async def load(
     inventory = await body_container(session, body)
     into = await stall(session, node, body.identity_id, lock=True)
 
-    from src.constants import current_catalog as _catalog
-
-    moved = await _move(session, inventory, into, type_key,
-                        _volume(_catalog(), type_key, quantity), tier=tier,
-                        constants=constants)
+    moved = await _move(
+        session,
+        inventory,
+        into,
+        type_key,
+        _volume(_catalog(), type_key, quantity),
+        tier=tier,
+        constants=constants,
+    )
     await events.record(
         session,
         EventKind.MARKET_LOADED,
@@ -321,19 +322,19 @@ async def take(
     stock = await stall(session, node, body.identity_id, lock=True)
     inventory = await body_container(session, body)
 
-    from src.constants import current_catalog as _catalog
-
     free = await _free(session, constants, node, body.identity_id, type_key, tier)
     want = min(_volume(_catalog(), type_key, quantity), free)
     if want <= 0:
         raise NoGoods(f"свободного «{type_key}» в терминале нет: всё под ордерами")
 
     #: No more than the limit is taken in hand: for the rest come with a wagon (D-146).
-    from src.constants import current_catalog
-    from src.engine import gear
 
     await gear.check_carry(
-        session, constants, current_catalog(), body, split_key(type_key)[0],
+        session,
+        constants,
+        current_catalog(),
+        body,
+        split_key(type_key)[0],
         amount_float(want),
     )
 
@@ -377,8 +378,9 @@ async def sell(
             f"нужно {quantity}"
         )
 
-    order = await _place(session, constants, identity, node, OrderSide.SELL, type_key, tier,
-                         price, want, now=now)
+    order = await _place(
+        session, constants, identity, node, OrderSide.SELL, type_key, tier, price, want, now=now
+    )
     return await _match(session, constants, catalog, order, now=now)
 
 
@@ -411,8 +413,9 @@ async def buy(
     if identity is None:  # pragma: no cover
         raise MarketError("тело без личности")
 
-    order = await _place(session, constants, identity, node, OrderSide.BUY, type_key, tier,
-                         price, want, now=now)
+    order = await _place(
+        session, constants, identity, node, OrderSide.BUY, type_key, tier, price, want, now=now
+    )
     try:
         await _hold(session, order, _cost(price, want))
     except ledger.InsufficientFunds as empty:
@@ -461,15 +464,12 @@ async def reserve(
     if order.identity_id == identity.id:
         raise NotYours("свой товар бронировать незачем: он и так ваш")
 
-    from src.constants import current_catalog
-
     want = _volume(current_catalog(), order.type_key, quantity)
     if want <= 0:
         raise BadOrder("бронь из нуля")
     if want > order.amount_left:
         raise NoGoods(
-            f"в заявке свободно {amount_float(order.amount_left)}, "
-            f"а брони просят {quantity}"
+            f"в заявке свободно {amount_float(order.amount_left)}, а брони просят {quantity}"
         )
 
     cost = _cost(order.price, want)
@@ -487,9 +487,7 @@ async def reserve(
     #: The goods leave the book: somebody else's book must not show what is
     #: already promised to another.
     order.amount_left -= want
-    term = timedelta(
-        hours=constants[R.MARKET_RESERVATION_PERIOD] * constants[R.TIME_DAY_TERRA]
-    )
+    term = timedelta(hours=constants[R.MARKET_RESERVATION_PERIOD] * constants[R.TIME_DAY_TERRA])
     reservation = Reservation(
         order_id=order.id,
         node_id=order.node_id,
@@ -560,12 +558,8 @@ async def redeem(
 
     cost = _cost(reservation.price, reservation.amount)
     remainder = cost - reservation.deposit
-    account = await ledger.account_for(
-        session, AccountKind.IDENTITY, reservation.buyer_identity_id
-    )
-    escrow = await ledger.account_for(
-        session, AccountKind.ESCROW, reservation.buyer_identity_id
-    )
+    account = await ledger.account_for(session, AccountKind.IDENTITY, reservation.buyer_identity_id)
+    escrow = await ledger.account_for(session, AccountKind.ESCROW, reservation.buyer_identity_id)
     if remainder > 0:
         await ledger.transfer(
             session,
@@ -581,8 +575,13 @@ async def redeem(
     seller = await stall(session, node, reservation.seller_identity_id)
     buyer = await stall(session, node, reservation.buyer_identity_id)
     moved = await _move(
-        session, seller, buyer, reservation.type_key, reservation.amount,
-        tier=reservation.tier, constants=constants,
+        session,
+        seller,
+        buyer,
+        reservation.type_key,
+        reservation.amount,
+        tier=reservation.tier,
+        constants=constants,
     )
     if moved < reservation.amount:  # pragma: no cover -- the goods are held by the reservation
         raise NoGoods("товар исчез из терминала между бронью и выкупом")
@@ -661,12 +660,8 @@ async def lapse(session: AsyncSession, job: Job) -> None:
     #: exception that closes a cycle with `buy` (review 2026-08-23).
     order = await session.get(Order, reservation.order_id, with_for_update=True)
 
-    escrow = await ledger.account_for(
-        session, AccountKind.ESCROW, reservation.buyer_identity_id
-    )
-    seller = await ledger.account_for(
-        session, AccountKind.IDENTITY, reservation.seller_identity_id
-    )
+    escrow = await ledger.account_for(session, AccountKind.ESCROW, reservation.buyer_identity_id)
+    seller = await ledger.account_for(session, AccountKind.IDENTITY, reservation.seller_identity_id)
     #: The deposit is payment for the goods having waited: it stays with the seller.
     await ledger.transfer(
         session,
@@ -737,9 +732,7 @@ async def expire(session: AsyncSession, job: Job) -> None:
 # --- reading -----------------------------------------------------------------
 
 
-async def book(
-    session: AsyncSession, node: Node, type_key: str, tier: str, *, depth: int
-) -> Book:
+async def book(session: AsyncSession, node: Node, type_key: str, tier: str, *, depth: int) -> Book:
     """The book by position. Public: everyone knows the prices (D-047)."""
     bids = await _levels(session, node, type_key, tier, OrderSide.BUY, depth=depth)
     asks = await _levels(session, node, type_key, tier, OrderSide.SELL, depth=depth)
@@ -749,9 +742,7 @@ async def book(
         .order_by(Trade.at.desc())
         .limit(1)
     )
-    return Book(
-        node=node.id, type_key=type_key, tier=tier, bids=bids, asks=asks, last=last
-    )
+    return Book(node=node.id, type_key=type_key, tier=tier, bids=bids, asks=asks, last=last)
 
 
 async def positions(session: AsyncSession, node: Node) -> tuple[tuple[str, str], ...]:
@@ -781,7 +772,6 @@ def _volume(catalog: Catalog, type_key: str, quantity: float) -> int:
     Half an ingot cannot be delivered, so it cannot be offered either -- and an
     order for it would sit in the book unfillable, which is worse than a refusal.
     """
-    from src.engine import goods
 
     return amount(goods.at_least_one(type_key, quantity, catalog=catalog))
 
@@ -814,9 +804,7 @@ async def _place(
     now: datetime | None,
 ) -> Order:
     moment = now or datetime.now(UTC)
-    lifetime = timedelta(
-        hours=constants[R.MARKET_ORDER_LIFETIME] * constants[R.TIME_DAY_TERRA]
-    )
+    lifetime = timedelta(hours=constants[R.MARKET_ORDER_LIFETIME] * constants[R.TIME_DAY_TERRA])
     order = Order(
         node_id=node.id,
         identity_id=identity.id,
@@ -869,9 +857,7 @@ async def _match(
     for counter in await _counterparts(session, order):
         if order.amount_left <= 0:
             break
-        trades.append(
-            await _execute(session, constants, catalog, order, counter, moment)
-        )
+        trades.append(await _execute(session, constants, catalog, order, counter, moment))
 
     if order.amount_left <= 0:
         await _close(session, order, OrderState.FILLED, moment)
@@ -895,9 +881,7 @@ async def _counterparts(session: AsyncSession, order: Order) -> Sequence[Order]:
     if order.side is OrderSide.BUY:
         stmt = stmt.where(Order.price <= order.price).order_by(Order.price, Order.created_at)
     else:
-        stmt = stmt.where(Order.price >= order.price).order_by(
-            Order.price.desc(), Order.created_at
-        )
+        stmt = stmt.where(Order.price >= order.price).order_by(Order.price.desc(), Order.created_at)
     #: Locked for the match: `amount_left` of a maker is decremented below,
     #: and a concurrent taker must see the decrement, not the snapshot.
     stmt = stmt.with_for_update()
@@ -930,8 +914,13 @@ async def _execute(
     seller_stall = await stall(session, node, sell_order.identity_id)
     buyer_stall = await stall(session, node, buy_order.identity_id)
     moved = await _move(
-        session, seller_stall, buyer_stall, taker.type_key, quantity,
-        tier=taker.tier, constants=constants,
+        session,
+        seller_stall,
+        buyer_stall,
+        taker.type_key,
+        quantity,
+        tier=taker.tier,
+        constants=constants,
     )
     if moved < quantity:  # pragma: no cover -- the goods are held by the order
         raise NoGoods("товар исчез из терминала между проверкой и сделкой")
@@ -976,8 +965,9 @@ async def _execute(
     await _settle(session, buy_order, sell_order, node, cost, tax, fee, event_id=event.id)
     #: Bought cheaper than one was ready to pay -- the difference is released at
     #: once rather than waiting for the order to close. Exactly what may be needed is frozen.
-    await _release(session, buy_order, buy_order.escrowed - _cost(buy_order.price,
-                                                                 buy_order.amount_left))
+    await _release(
+        session, buy_order, buy_order.escrowed - _cost(buy_order.price, buy_order.amount_left)
+    )
     return trade
 
 
@@ -1050,9 +1040,7 @@ async def _release(session: AsyncSession, order: Order, sum_minor: int | None = 
     order.escrowed -= back
 
 
-async def _close(
-    session: AsyncSession, order: Order, state: OrderState, moment: datetime
-) -> None:
+async def _close(session: AsyncSession, order: Order, state: OrderState, moment: datetime) -> None:
     order.state = state
     order.closed_at = moment
     if order.side is OrderSide.BUY:
@@ -1067,7 +1055,6 @@ async def _treasury(session: AsyncSession, node: Node):
     created on its delegate node -- where the energy pool lives too. One place
     for all city money: otherwise taxes and tariff would land in different pockets.
     """
-    from src.engine import city as town
 
     city = await town.by_id(session, node.owner_city_id)
     if city is None:  # pragma: no cover -- an owner without a city is a bug
@@ -1089,7 +1076,6 @@ async def _charges(
     that way, but because there is nobody to pay them to: money cannot vanish
     into nowhere (I2).
     """
-    from src.engine import city as town
 
     if node.owner_city_id is None:
         return 0.0, 0.0
@@ -1150,8 +1136,9 @@ async def _stacks(
     rows = (
         (
             await session.execute(
-                stmt.order_by(Item.quality.asc().nulls_first(), Item.created_at.asc())
-                .with_for_update()
+                stmt.order_by(
+                    Item.quality.asc().nulls_first(), Item.created_at.asc()
+                ).with_for_update()
             )
         )
         .scalars()
@@ -1159,9 +1146,7 @@ async def _stacks(
     )
     if tier is None:
         return list(rows)
-    return [
-        item for item in rows if tier_of(constants, _quality(item)) == tier
-    ]
+    return [item for item in rows if tier_of(constants, _quality(item)) == tier]
 
 
 def _quality(item: Item) -> float | None:
@@ -1217,7 +1202,6 @@ async def _move(
 
 
 def _carrier() -> tuple[str, ...]:
-    from src.engine import craft
 
     return craft.carrier_names()
 

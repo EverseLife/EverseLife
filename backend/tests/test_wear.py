@@ -53,8 +53,7 @@ async def _master(session: AsyncSession, *, machine: str | None = BENCH):
     return node, identity, body
 
 
-async def _thing(session: AsyncSession, body, type_key: str, *, quality: float,
-                state: float = 100):
+async def _thing(session: AsyncSession, body, type_key: str, *, quality: float, state: float = 100):
     pocket = await world.body_container(session, body)
     item = await world.grant_item(
         session, pocket, type_key, quality=quality, origin="сценарий теста"
@@ -92,18 +91,14 @@ def test_good_thing_lasts_longer(constants: Constants) -> None:
 # --- condition ---------------------------------------------------------------
 
 
-async def test_wear_inverse_to_quality(
-    session: AsyncSession, constants: Constants
-) -> None:
+async def test_wear_inverse_to_quality(session: AsyncSession, constants: Constants) -> None:
     """A good pickaxe wears slower exactly as many times as it is better."""
     _, _, body = await _master(session)
     bad = await _thing(session, body, PICK, quality=20)
     good = await _thing(session, body, PICK, quality=90)
 
-    await wear.spend(session, constants, bad, constants[R.WEAR_TOOL_PER_SESSION],
-                     cause="проверка")
-    await wear.spend(session, constants, good, constants[R.WEAR_TOOL_PER_SESSION],
-                     cause="проверка")
+    await wear.spend(session, constants, bad, constants[R.WEAR_TOOL_PER_SESSION], cause="проверка")
+    await wear.spend(session, constants, good, constants[R.WEAR_TOOL_PER_SESSION], cause="проверка")
     await session.commit()
 
     assert float(good.condition) > float(bad.condition)
@@ -146,9 +141,7 @@ async def test_worn_works_worse(
     assert wear.effective(constants, None) == constants[R.QUALITY_SCALE].max
 
 
-async def test_mining_wears_tool(
-    session: AsyncSession, constants: Constants
-) -> None:
+async def test_mining_wears_tool(session: AsyncSession, constants: Constants) -> None:
     """The tool wears per session, not per swing (D-129)."""
     stamp = uuid.uuid4().hex[:8]
     node = await world.create_node(session, f"terra.pit.{stamp}", "Забой", area_m2=100)
@@ -273,12 +266,14 @@ async def test_recycling_returns_less_than_invested(
         reloaded = await session.get(Body, body_id)
         pocket = await world.body_container(session, reloaded)
         steel = (
-            await session.execute(
-                select(Item).where(
-                    Item.container_id == pocket.id, Item.type_key == STEEL
+            (
+                await session.execute(
+                    select(Item).where(Item.container_id == pocket.id, Item.type_key == STEEL)
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         assert steel, "часть материалов вернулась"
 
         share = constants[R.CRAFT_RECYCLE_RETURN] / 100
@@ -315,8 +310,10 @@ async def test_recycling_a_thing_of_single_pieces_returns_nothing(
         reloaded = await session.get(Body, body_id)
         pocket = await world.body_container(session, reloaded)
         back = (
-            await session.execute(select(Item).where(Item.container_id == pocket.id))
-        ).scalars().all()
+            (await session.execute(select(Item).where(Item.container_id == pocket.id)))
+            .scalars()
+            .all()
+        )
         assert back == [], "доля меньше штуки не возвращается"
 
 

@@ -58,8 +58,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.constants.catalog import ItemKind
-from src.engine import events, world
+from src.constants.catalog import ItemKind, current_catalog
+from src.engine import events, gear, travel, wear, world
 from src.engine.errors import Refusal
 from src.models.event import EventKind
 from src.models.identity import Body, BodyState
@@ -115,7 +115,6 @@ def word(constants: Constants, type_key: str) -> str | None:
     the vault and it flies without a code change. Substring matching over item
     names is gone -- it classified anything whose name merely contained the word.
     """
-    from src.constants.catalog import current_catalog
 
     thing_class = current_catalog().recipes.class_of(type_key)
     #: No class -- the thing's own name may be the table word itself ("Судно"):
@@ -170,7 +169,6 @@ async def harness(
     session: AsyncSession, constants: Constants, catalog: Catalog, body: Body, item: Item
 ) -> Item:
     """Harness to a vehicle standing here. In person: a convoy is not teleported."""
-    from src.engine import travel
 
     if body.state is not BodyState.ALIVE:
         raise TransportError("мёртвое тело никуда не впрягается")
@@ -256,16 +254,12 @@ async def cargo(session: AsyncSession, vehicle: Item) -> Container:
 
 
 async def cargo_items(session: AsyncSession, vehicle: Item) -> list[Item]:
-    from src.engine import world
 
     return list(await world.contents(session, await cargo(session, vehicle)))
 
 
-async def cargo_mass(
-    session: AsyncSession, catalog: Catalog, vehicle: Item
-) -> float:
+async def cargo_mass(session: AsyncSession, catalog: Catalog, vehicle: Item) -> float:
     """How many kilograms the hold already carries."""
-    from src.engine import gear
 
     return sum(
         gear.mass_of(catalog, thing.type_key, amount_float(thing.amount))
@@ -292,7 +286,6 @@ async def load(
     quantity: float | None = None,
 ) -> float:
     """Load from the hands into the hold. In person: nothing is moved while on the go."""
-    from src.engine import gear, travel
 
     if body.state is not BodyState.ALIVE:
         raise TransportError("мёртвое тело ничего не грузит")
@@ -309,9 +302,7 @@ async def load(
     if qty <= 0:
         raise TransportError("грузить нечего")
     bonus = gear.mass_of(catalog, item.type_key, qty)
-    free = capacity(constants, wagon.type_key) - await cargo_mass(
-        session, catalog, wagon
-    )
+    free = capacity(constants, wagon.type_key) - await cargo_mass(session, catalog, wagon)
     if bonus > free:
         raise Overloaded(
             f"в трюме свободно {free:.1f} кг, а это {bonus:.1f} кг: "
@@ -342,7 +333,6 @@ async def unload(
     quantity: float | None = None,
 ) -> float:
     """Unload from the hold into the hands. The hands limit does not go anywhere."""
-    from src.engine import gear, travel
 
     if body.state is not BodyState.ALIVE:
         raise TransportError("мёртвое тело ничего не выгружает")
@@ -407,7 +397,6 @@ async def wear_leg(
     A full hold wears twice as much as an empty one: it is not air that is
     hauled, and `wear.transport_per_leg` is given "adjusted for load" (D-129).
     """
-    from src.engine import wear
 
     load = await fill(session, constants, catalog, vehicle)
     price = constants[R.WEAR_TRANSPORT_PER_LEG] * (1 + load)
@@ -477,9 +466,7 @@ async def view(
     }
 
 
-async def _move(
-    session: AsyncSession, item: Item, target: Container, quantity: float
-) -> float:
+async def _move(session: AsyncSession, item: Item, target: Container, quantity: float) -> float:
     """Move a stack or part of it into the hold or out of it.
 
     The moving itself is common to the whole world (`world.move_stack`): the

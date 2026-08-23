@@ -99,9 +99,7 @@ class Node(Base):
     #: through a shut location, and departures are never stopped -- shutting the
     #: gate on a guest inside would be a way to take a body away, and death
     #: without a way out is forbidden.
-    gated: Mapped[bool] = mapped_column(
-        nullable=False, default=False, server_default="false"
-    )
+    gated: Mapped[bool] = mapped_column(nullable=False, default=False, server_default="false")
 
     #: How far this place is from its city's bioprinter, in nodes (D-220), and
     #: which printer that was. Land is dearer to buy and to hold near the
@@ -145,15 +143,11 @@ class NodePass(Base):
 
     id: Mapped[uuid.UUID] = uuid_pk()
     node_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("node.id"), nullable=False)
-    identity_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("identity.id"), nullable=False
-    )
+    identity_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("identity.id"), nullable=False)
     #: Which list the name is in: the white one (entry to a shut location) or
     #: the black one (no entry at all). The default is the white list -- the old
     #: single roster of a shut yard meant exactly that (D-199).
-    allowed: Mapped[bool] = mapped_column(
-        nullable=False, default=True, server_default="true"
-    )
+    allowed: Mapped[bool] = mapped_column(nullable=False, default=True, server_default="true")
     listed_at: Mapped[datetime] = created_column()
 
 

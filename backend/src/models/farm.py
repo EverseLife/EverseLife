@@ -48,9 +48,7 @@ class Plot(Base):
     id: Mapped[uuid.UUID] = uuid_pk()
     node_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("node.id"), nullable=False)
     #: Who surveyed it. Land title and rent arrive with cities (E3).
-    owner_identity_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("identity.id"), nullable=False
-    )
+    owner_identity_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("identity.id"), nullable=False)
 
     name: Mapped[str] = mapped_column(nullable=False)
     area_m2: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)

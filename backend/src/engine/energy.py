@@ -63,7 +63,7 @@ from src.models.identity import Body, BodyState
 from src.models.inventory import Item
 from src.models.ledger import AccountKind, PostingReason
 from src.models.world import Layer, Node
-from src.units import ENERGY_PER_TARIFF_UNIT, PERCENT, SECONDS_PER_HOUR, money
+from src.units import ENERGY_PER_TARIFF_UNIT, PERCENT, SECONDS_PER_HOUR, amount, amount_float, money
 
 #: Thing classes from `build/recipes.json` (D-215). Behaviour binds to the
 #: class, never to the item name: a second windmill or a peat-fired plant is
@@ -74,7 +74,6 @@ FUEL_PLANT = "Топливная станция"
 BATTERY = "Аккумулятор"
 #: Every generator class, for "the node has an energy source" checks.
 GENERATOR_CLASSES = (WHEEL, WINDMILL, FUEL_PLANT)
-
 
 
 class EnergyError(Refusal):
@@ -151,17 +150,17 @@ async def produce(
 
     dice = rng or random.Random(f"{pool.node_id}:{int(moment.timestamp())}")
     nodes = (
-        await session.execute(select(Node).where(Node.parent_id == pool.node_id))
-    ).scalars().all()
+        (await session.execute(select(Node).where(Node.parent_id == pool.node_id))).scalars().all()
+    )
 
     added = 0.0
     for node in nodes:
         yard = await world.node_container(session, node)
         machines = (
-            await session.execute(
-                select(Item).where(Item.container_id == yard.id)
-            )
-        ).scalars().all()
+            (await session.execute(select(Item).where(Item.container_id == yard.id)))
+            .scalars()
+            .all()
+        )
         river = node.properties.get("вода") == "река"
 
         wheels = set(world.station_names(WHEEL))
@@ -174,9 +173,7 @@ async def produce(
                 wind = constants[R.ENERGY_WINDMILL_RATE]
                 added += dice.uniform(wind.min, wind.max) * elapsed
             elif machine.type_key in fuel_plants:
-                added += await _burn_fuel(
-                    session, constants, yard.id, elapsed
-                )
+                added += await _burn_fuel(session, constants, yard.id, elapsed)
 
     pool.stored = Decimal(str(float(pool.stored) + added))
     pool.counted_at = moment
@@ -194,7 +191,6 @@ async def _burn_fuel(
     eats `energy.coal_plant_fuel_draw` units per hour whatever the fuel --
     the draw is a property of the furnace, the yield of the material.
     """
-    from src.units import amount, amount_float
 
     calories: dict[str, float] = constants[R.ENERGY_FUEL_ENERGY]
     need = constants[R.ENERGY_COAL_PLANT_FUEL_DRAW] * hours
@@ -220,31 +216,24 @@ async def _burn_fuel(
 # --- fuel station (D-189) -----------------------------------------------------
 
 
-async def plant_view(
-    session: AsyncSession, constants: Constants, node: Node
-) -> dict | None:
+async def plant_view(session: AsyncSession, constants: Constants, node: Node) -> dict | None:
     """What the station looks like from the outside: stock, draw, output.
 
     Supply is a matter of agreement between the city and the haulers, and both
     sides must see the same number -- hence the stock and the hours it lasts.
     """
-    from src.units import amount_float
 
     yard = await world.node_container(session, node)
     machines = (
-        await session.execute(select(Item).where(Item.container_id == yard.id))
-    ).scalars().all()
+        (await session.execute(select(Item).where(Item.container_id == yard.id))).scalars().all()
+    )
     plant_names = set(world.station_names(FUEL_PLANT))
     plants = [thing for thing in machines if thing.type_key in plant_names]
     if not plants:
         return None
 
     fuels: dict[str, float] = constants[R.ENERGY_FUEL_ENERGY]
-    stock = sum(
-        amount_float(stack.amount)
-        for stack in machines
-        if stack.type_key in fuels
-    )
+    stock = sum(amount_float(stack.amount) for stack in machines if stack.type_key in fuels)
     draw = constants[R.ENERGY_COAL_PLANT_FUEL_DRAW] * len(plants)
     return {
         "station": plants[0].type_key,
@@ -273,7 +262,6 @@ async def fuel(
     itself, not a privilege of the authority. There is no way back -- pouring
     in is a handover, otherwise the city's fuel pile would be a common pocket.
     """
-    from src.units import amount_float
 
     if body.state is not BodyState.ALIVE:
         raise EnergyError("мёртвое тело ничего не грузит")
@@ -317,9 +305,7 @@ def capacity(constants: Constants) -> float:
     return constants[R.ENERGY_BATTERY_CAPACITY]
 
 
-def charge_of(
-    constants: Constants, item: Item, *, now: datetime | None = None
-) -> float:
+def charge_of(constants: Constants, item: Item, *, now: datetime | None = None) -> float:
     """Battery charge with self-discharge -- by elapsed time.
 
     Energy is a perishable commodity: it cannot be stockpiled for years, and
@@ -331,9 +317,7 @@ def charge_of(
     countdown = item.charged_at or item.created_at
     #: A day here is planetary, like all other terms of the world (D-008).
     hours_per_day = constants[R.TIME_DAY_TERRA]
-    days = max(
-        0.0, (moment - countdown).total_seconds() / SECONDS_PER_HOUR / hours_per_day
-    )
+    days = max(0.0, (moment - countdown).total_seconds() / SECONDS_PER_HOUR / hours_per_day)
     leaked = capacity(constants) * constants[R.ENERGY_BATTERY_SELFDISCHARGE] / PERCENT
     return max(0.0, float(item.charge) - leaked * days)
 
@@ -385,8 +369,7 @@ async def charge_battery(
     pool = await pool_of(session, constants, node)
     if pool is None:
         raise NoGrid(
-            "здесь нет городской сети: вне города работают от аккумулятора, "
-            "и заряжают его в городе"
+            "здесь нет городской сети: вне города работают от аккумулятора, и заряжают его в городе"
         )
     await produce(session, constants, pool, now=moment)
 
@@ -396,17 +379,14 @@ async def charge_battery(
     will_give = min(wants, float(pool.stored))
     if will_give <= 0:
         raise NotEnough(
-            f"в пуле {float(pool.stored):.0f} энергии, а в аккумуляторе места "
-            f"на {place:.0f}"
+            f"в пуле {float(pool.stored):.0f} энергии, а в аккумуляторе места на {place:.0f}"
         )
 
     #: The tariff is given per hundred energy -- the bill is issued by it too.
     price = money(will_give / ENERGY_PER_TARIFF_UNIT * float(pool.tariff))
     if price > 0:
         account = await ledger.account_for(session, AccountKind.IDENTITY, body.identity_id)
-        treasury = await ledger.account_for(
-            session, AccountKind.CITY_TREASURY, pool.node_id
-        )
+        treasury = await ledger.account_for(session, AccountKind.CITY_TREASURY, pool.node_id)
         await ledger.transfer(
             session,
             PostingReason.ENERGY_BILL,
@@ -477,9 +457,7 @@ async def draw_for_work(
     price = money(energy_needed / ENERGY_PER_TARIFF_UNIT * float(pool.tariff))
     if price > 0:
         account = await ledger.account_for(session, AccountKind.IDENTITY, body.identity_id)
-        treasury = await ledger.account_for(
-            session, AccountKind.CITY_TREASURY, pool.node_id
-        )
+        treasury = await ledger.account_for(session, AccountKind.CITY_TREASURY, pool.node_id)
         await ledger.transfer(
             session,
             PostingReason.ENERGY_BILL,
@@ -532,9 +510,7 @@ async def ensure_pools(
     A city is a planet-layer node under which city-layer nodes stand. The pool
     is created once and lives by time from then on.
     """
-    cities = (
-        await session.execute(select(Node).where(Node.layer == Layer.CITY))
-    ).scalars().all()
+    cities = (await session.execute(select(Node).where(Node.layer == Layer.CITY))).scalars().all()
     opened = 0
     for node in cities:
         # The second call creates the pool, and it is reached only by one that

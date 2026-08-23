@@ -36,12 +36,20 @@ async def _capital(session: AsyncSession, catalog: Catalog, *, funds: float = 0)
         session, f"terra.{stamp}", "Терра", area_m2=1, layer=Layer.SPACE
     )
     delegate = await world.create_node(
-        session, f"terra.city.{stamp}", "Столица", area_m2=1,
-        layer=Layer.PLANET, parent=planet,
+        session,
+        f"terra.city.{stamp}",
+        "Столица",
+        area_m2=1,
+        layer=Layer.PLANET,
+        parent=planet,
     )
     core = await world.create_node(
-        session, f"terra.city.{stamp}.core", "Ядро", area_m2=100,
-        parent=delegate, properties={"кольцо": 0},
+        session,
+        f"terra.city.{stamp}.core",
+        "Ядро",
+        area_m2=100,
+        parent=delegate,
+        properties={"кольцо": 0},
     )
     city = await town.found(session, catalog, delegate, "Столица")
     core.owner_city_id = city.id
@@ -56,8 +64,11 @@ async def _capital(session: AsyncSession, catalog: Catalog, *, funds: float = 0)
         treasury = await town.treasury(session, city)
         genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
         await ledger.transfer(
-            session, PostingReason.GENESIS,
-            debit=genesis.id, credit=treasury.id, amount=money(funds),
+            session,
+            PostingReason.GENESIS,
+            debit=genesis.id,
+            credit=treasury.id,
+            amount=money(funds),
         )
     return city, core
 
@@ -71,22 +82,16 @@ async def _resident(session: AsyncSession, node, name: str):
 # --- offices and powers ------------------------------------------------------
 
 
-async def test_city_arises_working(
-    session: AsyncSession, catalog: Catalog
-) -> None:
+async def test_city_arises_working(session: AsyncSession, catalog: Catalog) -> None:
     """The charter is filled with vault defaults: no forty-question form (D-130)."""
     city, _ = await _capital(session, catalog)
     assert city.charter, "устав пуст: город возник неработающим"
     assert city.charter["ruler_selection"] == "founder"
     #: No own decisions yet -- so the vault default applies.
-    assert town.law(catalog, city, "tax_trade") == (
-        catalog.laws.code_law_defaults()["tax_trade"]
-    )
+    assert town.law(catalog, city, "tax_trade") == (catalog.laws.code_law_defaults()["tax_trade"])
 
 
-async def test_founder_gets_full_authority(
-    session: AsyncSession, catalog: Catalog
-) -> None:
+async def test_founder_gets_full_authority(session: AsyncSession, catalog: Catalog) -> None:
     city, core = await _capital(session, catalog)
     president, _ = await _resident(session, core, "Президент")
     await town.install_founder(session, city, president)
@@ -97,9 +102,7 @@ async def test_founder_gets_full_authority(
         await town.install_founder(session, city, president)
 
 
-async def test_founder_is_a_citizen_of_own_city(
-    session: AsyncSession, catalog: Catalog
-) -> None:
+async def test_founder_is_a_citizen_of_own_city(session: AsyncSession, catalog: Catalog) -> None:
     """A ruler must not be a stranger at home (D-195).
 
     Without citizenship they could not vote, borrowed at a newcomer's rate and
@@ -137,14 +140,10 @@ async def test_law_not_edited_without_power(
     city, core = await _capital(session, catalog)
     passerby, _ = await _resident(session, core, "Прохожий")
     with pytest.raises(town.NotAllowed):
-        await town.set_law(
-            session, constants, catalog, passerby, city, "tax_trade", "10"
-        )
+        await town.set_law(session, constants, catalog, passerby, city, "tax_trade", "10")
 
 
-async def test_can_give_only_own(
-    session: AsyncSession, catalog: Catalog
-) -> None:
+async def test_can_give_only_own(session: AsyncSession, catalog: Catalog) -> None:
     """Otherwise anyone given `offices` appoints themselves everything else."""
     city, core = await _capital(session, catalog)
     president, president_body = await _resident(session, core, "Президент")
@@ -152,19 +151,34 @@ async def test_can_give_only_own(
 
     hr_officer, hr_body = await _resident(session, core, "Кадровик")
     await town.appoint(
-        session, president, city, hr_officer,
-        title="Кадровик", powers=(Power.OFFICES.value,), body=president_body,
+        session,
+        president,
+        city,
+        hr_officer,
+        title="Кадровик",
+        powers=(Power.OFFICES.value,),
+        body=president_body,
     )
     third, _ = await _resident(session, core, "Третий")
     with pytest.raises(town.NotAllowed):
         await town.appoint(
-            session, hr_officer, city, third,
-            title="Казначей", powers=(Power.TREASURY.value,), body=hr_body,
+            session,
+            hr_officer,
+            city,
+            third,
+            title="Казначей",
+            powers=(Power.TREASURY.value,),
+            body=hr_body,
         )
     #: And what one has is passed on.
     await town.appoint(
-        session, hr_officer, city, third, title="Помощник",
-        powers=(Power.OFFICES.value,), body=hr_body,
+        session,
+        hr_officer,
+        city,
+        third,
+        title="Помощник",
+        powers=(Power.OFFICES.value,),
+        body=hr_body,
     )
     assert Power.OFFICES.value in await town.powers_of(session, third.id, city)
 
@@ -179,9 +193,7 @@ async def test_city_decision_beats_default(
     president, body = await _resident(session, core, "Президент")
     await town.install_founder(session, city, president)
 
-    await town.set_law(
-        session, constants, catalog, president, city, "tax_trade", "11", body=body
-    )
+    await town.set_law(session, constants, catalog, president, city, "tax_trade", "11", body=body)
     assert town.law(catalog, city, "tax_trade") == "11"
     assert town.law_number(constants, catalog, city, "tax_trade") == 11
 
@@ -216,9 +228,7 @@ async def test_default_by_reference_expands_to_constant(
 # --- treasury and settlement grant -------------------------------------------
 
 
-async def test_only_steward_spends_treasury(
-    session: AsyncSession, catalog: Catalog
-) -> None:
+async def test_only_steward_spends_treasury(session: AsyncSession, catalog: Catalog) -> None:
     city, core = await _capital(session, catalog, funds=100)
     president, body = await _resident(session, core, "Президент")
     await town.install_founder(session, city, president)
@@ -227,17 +237,13 @@ async def test_only_steward_spends_treasury(
     with pytest.raises(town.NotAllowed):
         await town.spend(session, resident, city, resident, money(10), body=resident_body)
 
-    await town.spend(
-        session, president, city, resident, money(10), memo="жалованье", body=body
-    )
+    await town.spend(session, president, city, resident, money(10), memo="жалованье", body=body)
     account = await ledger.account_for(session, AccountKind.IDENTITY, resident.id)
     assert await ledger.balance(session, account.id) == money(10)
     assert await town.treasury_balance(session, city) == money(90)
 
 
-async def test_empty_treasury_does_not_pay(
-    session: AsyncSession, catalog: Catalog
-) -> None:
+async def test_empty_treasury_does_not_pay(session: AsyncSession, catalog: Catalog) -> None:
     """An empty treasury is a political event, not a reason to print money."""
     city, core = await _capital(session, catalog)
     president, body = await _resident(session, core, "Президент")
@@ -248,9 +254,7 @@ async def test_empty_treasury_does_not_pay(
         await town.spend(session, president, city, resident, money(10), body=body)
 
 
-async def test_newcomer_printed_with_zero(
-    session: AsyncSession, catalog: Catalog
-) -> None:
+async def test_newcomer_printed_with_zero(session: AsyncSession, catalog: Catalog) -> None:
     """The world hands out no money: any such issue dilutes everyone's money (D-153)."""
     city, core = await _capital(session, catalog)
     identity, _ = await world.spawn(session, f"Новичок-{uuid.uuid4().hex[:6]}", core)
@@ -305,7 +309,10 @@ async def test_city_word_written_by_authority_seen_by_newcomer(
     await world.grant_item(session, yard, world.BIOPRINTER, quality=50, origin="тест")
 
     await town.describe(
-        session, president, city, "  Шахта, кузня и работа с первого дня.  ",
+        session,
+        president,
+        city,
+        "  Шахта, кузня и работа с первого дня.  ",
         body=body,
     )
     assert city.about == "Шахта, кузня и работа с первого дня."
@@ -315,28 +322,27 @@ async def test_city_word_written_by_authority_seen_by_newcomer(
     assert said[core.key] == "Шахта, кузня и работа с первого дня."
 
 
-async def test_city_word_not_given_to_stranger(
-    session: AsyncSession, catalog: Catalog
-) -> None:
+async def test_city_word_not_given_to_stranger(session: AsyncSession, catalog: Catalog) -> None:
     """The `citizens` right, not "I live here": authority is an office (D-155)."""
     city, core = await _capital(session, catalog)
     president, president_body = await _resident(session, core, "Президент")
     await town.install_founder(session, city, president)
     treasurer, treasurer_body = await _resident(session, core, "Казначей")
     await town.appoint(
-        session, president, city, treasurer,
-        title="Казначей", powers=(Power.TREASURY.value,), body=president_body,
+        session,
+        president,
+        city,
+        treasurer,
+        title="Казначей",
+        powers=(Power.TREASURY.value,),
+        body=president_body,
     )
 
     with pytest.raises(town.NotAllowed):
-        await town.describe(
-            session, treasurer, city, "казна щедра", body=treasurer_body
-        )
+        await town.describe(session, treasurer, city, "казна щедра", body=treasurer_body)
 
 
-async def test_city_word_length_limited(
-    session: AsyncSession, catalog: Catalog
-) -> None:
+async def test_city_word_length_limited(session: AsyncSession, catalog: Catalog) -> None:
     """The card is compared by eye: a page of text does not go on it."""
     from src.runtime import CITY_ABOUT_LIMIT
 
@@ -345,18 +351,14 @@ async def test_city_word_length_limited(
     await town.install_founder(session, city, president)
 
     with pytest.raises(town.CityError):
-        await town.describe(
-            session, president, city, "а" * (CITY_ABOUT_LIMIT + 1), body=body
-        )
+        await town.describe(session, president, city, "а" * (CITY_ABOUT_LIMIT + 1), body=body)
     assert city.about == ""
 
 
 # --- city land ---------------------------------------------------------------
 
 
-async def test_city_hands_out_plots(
-    session: AsyncSession, catalog: Catalog
-) -> None:
+async def test_city_hands_out_plots(session: AsyncSession, catalog: Catalog) -> None:
     """Civic land is not taken -- the city gives it (D-089)."""
     city, core = await _capital(session, catalog)
     president, president_body = await _resident(session, core, "Президент")
@@ -364,7 +366,10 @@ async def test_city_hands_out_plots(
     resident, body = await _resident(session, core, "Житель")
 
     plot = await world.create_node(
-        session, f"terra.lot.{uuid.uuid4().hex[:8]}", "Участок", area_m2=100,
+        session,
+        f"terra.lot.{uuid.uuid4().hex[:8]}",
+        "Участок",
+        area_m2=100,
         parent=await session.get(type(core), core.parent_id),
         properties={"участок": True},
     )
@@ -372,9 +377,7 @@ async def test_city_hands_out_plots(
     await session.flush()
 
     body.node_id = plot.id
-    await town.allot(
-        session, president, city, plot, resident, body=president_body
-    )
+    await town.allot(session, president, city, plot, resident, body=president_body)
     assert plot.owner_identity_id == resident.id
 
     #: And an allotted plot is not handed out a second time: it is title, not a
@@ -398,14 +401,23 @@ async def test_right_to_one_law_does_not_open_others(
 
     minister, minister_body = await _resident(session, core, "Министр")
     await town.appoint(
-        session, president, city, minister,
+        session,
+        president,
+        city,
+        minister,
         title="Министр экономики",
         powers=("law:import_duty", "law:export_duty", Power.DASHBOARD.value),
         body=president_body,
     )
 
     await town.set_law(
-        session, constants, catalog, minister, city, "import_duty", "7",
+        session,
+        constants,
+        catalog,
+        minister,
+        city,
+        "import_duty",
+        "7",
         body=minister_body,
     )
     assert town.law(catalog, city, "import_duty") == "7"
@@ -413,14 +425,18 @@ async def test_right_to_one_law_does_not_open_others(
     #: And the tax is not theirs: the right is narrow, and the engine checks that.
     with pytest.raises(town.NotAllowed):
         await town.set_law(
-            session, constants, catalog, minister, city, "tax_trade", "1",
+            session,
+            constants,
+            catalog,
+            minister,
+            city,
+            "tax_trade",
+            "1",
             body=minister_body,
         )
 
 
-async def test_broad_right_covers_narrow(
-    session: AsyncSession, catalog: Catalog
-) -> None:
+async def test_broad_right_covers_narrow(session: AsyncSession, catalog: Catalog) -> None:
     """A `laws` holder may grant `law:toll`; a `law:toll` holder may not."""
     city, core = await _capital(session, catalog)
     president, body = await _resident(session, core, "Президент")
@@ -430,7 +446,10 @@ async def test_broad_right_covers_narrow(
 
     narrow, narrow_body = await _resident(session, core, "Узкий")
     await town.appoint(
-        session, president, city, narrow,
+        session,
+        president,
+        city,
+        narrow,
         title="Смотритель дорог",
         powers=("law:toll", Power.OFFICES.value),
         body=body,
@@ -438,8 +457,13 @@ async def test_broad_right_covers_narrow(
     other, _ = await _resident(session, core, "Другой")
     with pytest.raises(town.NotAllowed):
         await town.appoint(
-            session, narrow, city, other,
-            title="Казначей", powers=(Power.LAWS.value,), body=narrow_body,
+            session,
+            narrow,
+            city,
+            other,
+            title="Казначей",
+            powers=(Power.LAWS.value,),
+            body=narrow_body,
         )
 
 
@@ -453,7 +477,10 @@ async def test_authority_exercised_in_administration(
 
     #: We leave the town hall for an adjacent node of the same city.
     warehouse = await world.create_node(
-        session, f"terra.store.{uuid.uuid4().hex[:8]}", "Склад", area_m2=100,
+        session,
+        f"terra.store.{uuid.uuid4().hex[:8]}",
+        "Склад",
+        area_m2=100,
         parent=await session.get(type(core), core.parent_id),
     )
     warehouse.owner_city_id = city.id
@@ -468,9 +495,7 @@ async def test_authority_exercised_in_administration(
     #: Back -- and the decision passes.
     body.node_id = core.id
     await session.flush()
-    await town.set_law(
-        session, constants, catalog, president, city, "tax_trade", "9", body=body
-    )
+    await town.set_law(session, constants, catalog, president, city, "tax_trade", "9", body=body)
     assert town.law(catalog, city, "tax_trade") == "9"
 
 
@@ -506,8 +531,13 @@ async def _wasteland(session: AsyncSession, name: str = "Основатель"):
         session, f"terra.{stamp}", "Терра", area_m2=1, layer=Layer.SPACE
     )
     place = await world.create_node(
-        session, f"terra.wild.{stamp}", "Место под город", area_m2=400,
-        layer=Layer.PLANET, parent=planet, properties={"дикий": True},
+        session,
+        f"terra.wild.{stamp}",
+        "Место под город",
+        area_m2=400,
+        layer=Layer.PLANET,
+        parent=planet,
+        properties={"дикий": True},
     )
     identity, body = await _resident(session, place, name)
     return place, identity, body
@@ -573,8 +603,12 @@ async def test_a_founded_city_gets_a_gate(
 
     #: And the door works: a road from the wild reaches the city through it.
     steppe = await world.create_node(
-        session, f"terra.steppe.{uuid.uuid4().hex[:8]}", "Степь", area_m2=300,
-        layer=Layer.PLANET, parent=await session.get(Node, place.parent_id),
+        session,
+        f"terra.steppe.{uuid.uuid4().hex[:8]}",
+        "Степь",
+        area_m2=300,
+        layer=Layer.PLANET,
+        parent=await session.get(Node, place.parent_id),
     )
     await travel.connect(session, place, steppe, base_seconds=1800)
 
@@ -756,9 +790,7 @@ async def test_exit_free_but_delayed(
     gone = datetime.now(UTC)
     entry = await town.leave(session, constants, identity, now=gone)
     assert entry.leaving_at == gone + timedelta(days=constants[R.CITY_EXIT_DELAY])
-    assert await town.is_citizen(session, identity.id, city), (
-        "до срока человек ещё гражданин"
-    )
+    assert await town.is_citizen(session, identity.id, city), "до срока человек ещё гражданин"
 
     #: The term is up -- the journal job closes the citizenship.
     from sqlalchemy import select as _select
@@ -766,13 +798,17 @@ async def test_exit_free_but_delayed(
     from src.models.job import Job, JobKind, JobState
 
     job = (
-        await session.execute(
-            _select(Job).where(
-                Job.kind == JobKind.CITIZENSHIP_EXIT.value,
-                Job.state == JobState.PENDING,
+        (
+            await session.execute(
+                _select(Job).where(
+                    Job.kind == JobKind.CITIZENSHIP_EXIT.value,
+                    Job.state == JobState.PENDING,
+                )
             )
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
     assert job is not None
     await town.exited(session, job)
     assert await town.citizenship(session, identity.id) is None
@@ -790,21 +826,15 @@ async def test_print_condition_grants_citizenship_for_term(
 
     was_printed = datetime.now(UTC)
     newcomer = await world.create_identity(session, f"Связанный-{uuid.uuid4().hex[:6]}")
-    entry = await town.bind(
-        session, constants, catalog, city, newcomer, now=was_printed
-    )
+    entry = await town.bind(session, constants, catalog, city, newcomer, now=was_printed)
     assert entry is not None and await town.is_citizen(session, newcomer.id, city)
     assert entry.bound_until == was_printed + timedelta(days=3)
 
     #: Cannot leave before the term: that is the enforcement of the condition.
     with pytest.raises(town.Bound):
-        await town.leave(
-            session, constants, newcomer, now=was_printed + timedelta(days=2)
-        )
+        await town.leave(session, constants, newcomer, now=was_printed + timedelta(days=2))
     #: After the term -- an ordinary exit with the delay (D-160).
-    gone = await town.leave(
-        session, constants, newcomer, now=was_printed + timedelta(days=4)
-    )
+    gone = await town.leave(session, constants, newcomer, now=was_printed + timedelta(days=4))
     assert gone.leaving_at is not None
 
 
@@ -835,15 +865,10 @@ async def test_city_without_conditions_binds_no_one(
     yard = await world.node_container(session, core)
     await world.grant_item(session, yard, world.BIOPRINTER, quality=50, origin="тест")
 
-    newcomer, _ = await world.spawn(
-        session, f"Вольный-{uuid.uuid4().hex[:6]}", core
-    )
+    newcomer, _ = await world.spawn(session, f"Вольный-{uuid.uuid4().hex[:6]}", core)
     assert await town.citizenship(session, newcomer.id) is None
 
-    door = next(
-        d for d in await world.doors(session, constants, catalog)
-        if d["node"] == core.key
-    )
+    door = next(d for d in await world.doors(session, constants, catalog) if d["node"] == core.key)
     assert door["citizenship"] is False and door["term"] == 0
 
 
@@ -864,15 +889,10 @@ async def test_forerunner_print_carries_no_conditions(
     await world.grant_item(session, yard, world.BIOPRINTER, quality=50, origin="тест")
     await session.flush()
 
-    freeman, _ = await world.spawn(
-        session, f"Ничей-{uuid.uuid4().hex[:6]}", core
-    )
+    freeman, _ = await world.spawn(session, f"Ничей-{uuid.uuid4().hex[:6]}", core)
     assert await town.citizenship(session, freeman.id) is None
 
-    door = next(
-        d for d in await world.doors(session, constants, catalog)
-        if d["node"] == core.key
-    )
+    door = next(d for d in await world.doors(session, constants, catalog) if d["node"] == core.key)
     assert door["precursor"] is True
     assert door["citizenship"] is False and door["term"] == 0
 
@@ -891,10 +911,7 @@ async def test_print_conditions_visible_before_choice(
     await world.grant_item(session, yard, world.BIOPRINTER, quality=50, origin="тест")
     await session.flush()
 
-    door = next(
-        d for d in await world.doors(session, constants, catalog)
-        if d["node"] == core.key
-    )
+    door = next(d for d in await world.doors(session, constants, catalog) if d["node"] == core.key)
     assert door["citizenship"] is True
     assert door["term"] == 7
     assert door["tax"] == 12
@@ -911,9 +928,7 @@ async def test_print_binds_newcomer_immediately(
     await world.grant_item(session, yard, world.BIOPRINTER, quality=50, origin="тест")
     await session.flush()
 
-    newcomer, _ = await world.spawn(
-        session, f"Принятый-{uuid.uuid4().hex[:6]}", core
-    )
+    newcomer, _ = await world.spawn(session, f"Принятый-{uuid.uuid4().hex[:6]}", core)
     entry = await town.citizenship(session, newcomer.id)
     assert entry is not None and entry.city_id == city.id
     assert entry.bound_until is not None
@@ -942,7 +957,7 @@ async def test_exile_goes_by_court_right(
 async def test_city_prints_at_own_expense_only_for_own(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """"citizens" means citizens: before D-160 the treasury paid for strangers."""
+    """ "citizens" means citizens: before D-160 the treasury paid for strangers."""
     from src.engine import death
 
     city, core = await _capital(session, catalog)
@@ -957,9 +972,7 @@ async def test_city_prints_at_own_expense_only_for_own(
     assert await death._city_pays(session, constants, core, own.id)
 
 
-async def test_city_land_taken_by_law_code(
-    session: AsyncSession, catalog: Catalog
-) -> None:
+async def test_city_land_taken_by_law_code(session: AsyncSession, catalog: Catalog) -> None:
     """`build_permit` by default gives plots to citizens (D-089, D-160)."""
     city, _ = await _capital(session, catalog)
     assert town.may_take_city_land(catalog, city, True)

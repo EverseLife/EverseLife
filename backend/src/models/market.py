@@ -72,16 +72,10 @@ class Reservation(Base):
     )
 
     id: Mapped[uuid.UUID] = uuid_pk()
-    order_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("market_order.id"), nullable=False
-    )
+    order_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("market_order.id"), nullable=False)
     node_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("node.id"), nullable=False)
-    buyer_identity_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("identity.id"), nullable=False
-    )
-    seller_identity_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("identity.id"), nullable=False
-    )
+    buyer_identity_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("identity.id"), nullable=False)
+    seller_identity_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("identity.id"), nullable=False)
 
     type_key: Mapped[str] = mapped_column(nullable=False)
     tier: Mapped[str] = mapped_column(nullable=False)
@@ -91,16 +85,14 @@ class Reservation(Base):
     deposit: Mapped[int] = mapped_column(BigInteger, nullable=False)
 
     state: Mapped[ReservationState] = enum_column(
-        ReservationState, "reservation_state", nullable=False,
+        ReservationState,
+        "reservation_state",
+        nullable=False,
         default=ReservationState.HELD,
     )
     created_at: Mapped[datetime] = created_column()
-    expires_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
-    )
-    closed_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class Order(Base):
@@ -153,9 +145,7 @@ class Trade(Base):
     """
 
     __tablename__ = "market_trade"
-    __table_args__ = (
-        Index("ix_market_trade_book", "node_id", "type_key", "tier", "at"),
-    )
+    __table_args__ = (Index("ix_market_trade_book", "node_id", "type_key", "tier", "at"),)
 
     id: Mapped[uuid.UUID] = uuid_pk()
     node_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("node.id"), nullable=False)
@@ -164,9 +154,7 @@ class Trade(Base):
     buy_order_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("market_order.id"), nullable=True
     )
-    sell_order_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("market_order.id"), nullable=False
-    )
+    sell_order_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("market_order.id"), nullable=False)
 
     type_key: Mapped[str] = mapped_column(nullable=False)
     tier: Mapped[str] = mapped_column(nullable=False)

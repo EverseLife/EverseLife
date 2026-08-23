@@ -66,17 +66,24 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.constants import Constants
+from src.constants import Constants, current
 from src.constants import registry as R
+from src.engine import city as town
 from src.engine import events, ledger
 from src.engine.errors import Refusal
 from src.engine.jobs import enqueue, handler
+from src.engine.world import node_container
 from src.models.bank import DefectReport, Loan, LoanState, RateDecision
 from src.models.city import City, Power
-from src.models.event import EventKind
+from src.models.event import Event, EventKind
 from src.models.identity import Identity
+from src.models.inventory import Item
 from src.models.job import Job, JobKind
 from src.models.ledger import AccountKind, LedgerAccount, PostingReason
+from src.models.market import Order, Trade
+from src.models.metrics import DailyMetric
+from src.models.world import Node
+from src.telemetry.metrics import median
 from src.units import MONEY_SCALE, PERCENT, amount_float, money, money_str
 
 #: Owner of the reserve account. One reserve per world: the bank is a single
@@ -109,13 +116,15 @@ async def reserve(session: AsyncSession) -> int:
 async def key_rate(session: AsyncSession, constants: Constants) -> float:
     """The key rate in force: the latest decision or the base one."""
     decision = (
-        await session.execute(
-            select(RateDecision).order_by(RateDecision.decided_at.desc()).limit(1)
+        (
+            await session.execute(
+                select(RateDecision).order_by(RateDecision.decided_at.desc()).limit(1)
+            )
         )
-    ).scalars().first()
-    return (
-        float(decision.rate) if decision is not None else constants[R.BANK_BASE_RATE]
+        .scalars()
+        .first()
     )
+    return float(decision.rate) if decision is not None else constants[R.BANK_BASE_RATE]
 
 
 def compute_rate(
@@ -146,17 +155,13 @@ def compute_rate(
         goal = constants[R.BANK_EMISSION_SHARE_TARGET]
         bonus = constants[R.BANK_EMISSION_REACTION_K] * (emission_share - goal)
         rate_value += bonus
-        reasons.append(
-            f"эмиссия {emission_share:.0f}% против цели {goal:g} → {bonus:+.2f}"
-        )
+        reasons.append(f"эмиссия {emission_share:.0f}% против цели {goal:g} → {bonus:+.2f}")
 
     #: The step is bounded: monetary policy does not twitch, otherwise it
     #: cannot be predicted, and prediction is half its point.
     step = constants[R.BANK_RATE_STEP_MAX]
     rate_value = max(previous - step, min(previous + step, rate_value))
-    rate_value = max(
-        constants[R.BANK_RATE_FLOOR], min(constants[R.BANK_RATE_CAP], rate_value)
-    )
+    rate_value = max(constants[R.BANK_RATE_FLOOR], min(constants[R.BANK_RATE_CAP], rate_value))
     return rate_value, "; ".join(reasons)
 
 
@@ -218,7 +223,6 @@ async def borrow(
     No citizenship or line exhausted -- a direct loan from the capital at the
     worse rate.
     """
-    from src.engine import city as town
 
     moment = now or datetime.now(UTC)
     total = money(amount)
@@ -363,9 +367,7 @@ async def repay(
         raise NothingToRepay("этот заём уже закрыт")
     await accrue(session, constants, loan, now=moment)
 
-    account = from_account or await ledger.account_for(
-        session, AccountKind.IDENTITY, who.id
-    )
+    account = from_account or await ledger.account_for(session, AccountKind.IDENTITY, who.id)
     have = await ledger.balance(session, account.id)
     wants = loan.outstanding if amount is None else money(amount)
     payment = min(wants, loan.outstanding, have)
@@ -397,7 +399,6 @@ async def _settle(session: AsyncSession, loan: Loan, account, payment: int) -> N
     (D-171): without separate accounting the city margin cannot be separated
     from the key part that is sterilised in the capital's reserve (D-175).
     """
-    from src.engine import city as town
 
     interest = min(payment, max(0, loan.interest_accrued - loan.interest_paid))
     city_margin = 0
@@ -432,11 +433,11 @@ async def loans_of(session: AsyncSession, identity_id: uuid.UUID) -> list[Loan]:
     return list(
         (
             await session.execute(
-                select(Loan).where(
-                    Loan.identity_id == identity_id, Loan.state == LoanState.OPEN
-                )
+                select(Loan).where(Loan.identity_id == identity_id, Loan.state == LoanState.OPEN)
             )
-        ).scalars().all()
+        )
+        .scalars()
+        .all()
     )
 
 
@@ -449,10 +450,10 @@ async def circulating(session: AsyncSession) -> int:
     result = 0
     for kind in (AccountKind.IDENTITY, AccountKind.CITY_TREASURY, AccountKind.ESCROW):
         accounts = (
-            await session.execute(
-                select(LedgerAccount.id).where(LedgerAccount.kind == kind)
-            )
-        ).scalars().all()
+            (await session.execute(select(LedgerAccount.id).where(LedgerAccount.kind == kind)))
+            .scalars()
+            .all()
+        )
         for account in accounts:
             result += await ledger.balance(session, account)
     return result
@@ -461,7 +462,6 @@ async def circulating(session: AsyncSession) -> int:
 @handler(JobKind.RATE_REVIEW)
 async def rate_review(session: AsyncSession, job: Job) -> None:
     """Scheduled rate review: once every `bank.rate_review_period` days."""
-    from src.constants import current
 
     constants = current()
     await review_rate(session, constants, now=job.run_at)
@@ -483,17 +483,20 @@ async def schedule_review(
 
 async def _inflation(session: AsyncSession, constants: Constants) -> float | None:
     """Inflation from daily metrics. No data -- we stay silent rather than invent."""
-    from src.models.metrics import DailyMetric
 
     window = int(constants[R.BANK_PRICE_INDEX_WINDOW])
     lines = (
-        await session.execute(
-            select(DailyMetric)
-            .where(DailyMetric.key == PRICE_INDEX)
-            .order_by(DailyMetric.day.desc())
-            .limit(window)
+        (
+            await session.execute(
+                select(DailyMetric)
+                .where(DailyMetric.key == PRICE_INDEX)
+                .order_by(DailyMetric.day.desc())
+                .limit(window)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     #: One point is not enough for a change: the sensor is silent until there is something to
     #: compare.
     if len(lines) <= 1:
@@ -511,9 +514,7 @@ async def _emission_share(
     window = now - timedelta(days=constants[R.BANK_PRICE_INDEX_WINDOW])
     line = (
         await session.execute(
-            select(func.sum(Loan.principal), func.sum(Loan.printed)).where(
-                Loan.taken_at >= window
-            )
+            select(func.sum(Loan.principal), func.sum(Loan.printed)).where(Loan.taken_at >= window)
         )
     ).one()
     issued_, printed = line[0] or 0, line[1] or 0
@@ -569,9 +570,7 @@ async def restrained(
     if debt <= await ledger.balance(session, account.id):
         return None
     threshold = constants[R.DEBT_PRISON_THRESHOLD]
-    overdue = [
-        loan for loan in loans if overdue_days(loan, moment) > threshold
-    ]
+    overdue = [loan for loan in loans if overdue_days(loan, moment) > threshold]
     if not overdue:
         return None
     return max(overdue, key=lambda loan: overdue_days(loan, moment))
@@ -593,15 +592,13 @@ async def collect(
     withheld = 0
 
     loans = (
-        await session.execute(select(Loan).where(Loan.state == LoanState.OPEN))
-    ).scalars().all()
+        (await session.execute(select(Loan).where(Loan.state == LoanState.OPEN))).scalars().all()
+    )
     for loan in loans:
         if not overdue(constants, loan, moment):
             continue
         await accrue(session, constants, loan, now=moment)
-        account = await ledger.account_for(
-            session, AccountKind.IDENTITY, loan.identity_id
-        )
+        account = await ledger.account_for(session, AccountKind.IDENTITY, loan.identity_id)
         have = await ledger.balance(session, account.id)
         payment = min(int(have * share), loan.outstanding)
         if payment <= 0:
@@ -641,13 +638,10 @@ async def price_index(
     price must not move monetary policy, and bread matters more than a rare
     alloy exactly as much as more of it is bought (D-087, D-169).
     """
-    from src.models.market import Trade
 
     moment = now or datetime.now(UTC)
     day = timedelta(hours=constants[R.TIME_DAY_TERRA])
-    deals = (
-        await session.execute(select(Trade).where(Trade.at >= moment - day))
-    ).scalars().all()
+    deals = (await session.execute(select(Trade).where(Trade.at >= moment - day))).scalars().all()
     if not deals:
         return None
 
@@ -655,16 +649,13 @@ async def price_index(
     turnover: dict[str, int] = {}
     for deal in deals:
         by_goods.setdefault(deal.type_key, []).append(deal.price)
-        turnover[deal.type_key] = (
-            turnover.get(deal.type_key, 0) + deal.price * deal.amount
-        )
+        turnover[deal.type_key] = turnover.get(deal.type_key, 0) + deal.price * deal.amount
     total_turnover = sum(turnover.values())
     if total_turnover <= 0:
         return None
 
     #: The median is the shared one: the same that telemetry computes. There
     #: must be no second copy of the formula -- it would diverge from the first (D-139).
-    from src.telemetry.metrics import median
 
     index = 0.0
     for goods, prices in by_goods.items():
@@ -672,9 +663,7 @@ async def price_index(
     return index
 
 
-async def sterilize(
-    session: AsyncSession, constants: Constants
-) -> int:
+async def sterilize(session: AsyncSession, constants: Constants) -> int:
     """Burn the reserve surplus above `bank.reserve_cap` of circulation (D-169).
 
     The ceiling is a share of the circulating supply, not an absolute sum: the
@@ -709,18 +698,12 @@ async def sterilize(
 # --- city credit line (D-175) ------------------------------------------------
 
 
-async def _turnover_by_city(
-    session: AsyncSession, since: datetime
-) -> dict[uuid.UUID, int]:
+async def _turnover_by_city(session: AsyncSession, since: datetime) -> dict[uuid.UUID, int]:
     """City turnover for the period: by deals on their territory.
 
     Turnover is the one quantity that cannot be faked without making real deals
     with real goods (D-171).
     """
-    from src.engine import city as town
-    from src.models.event import Event, EventKind
-    from src.models.market import Trade
-    from src.models.world import Node
 
     by_city: dict[uuid.UUID, int] = {}
     whose: dict[uuid.UUID, uuid.UUID | None] = {}
@@ -734,28 +717,28 @@ async def _turnover_by_city(
             whose[node_id] = None if city is None else city.id
         return whose[node_id]
 
-    deals = (
-        await session.execute(select(Trade).where(Trade.at >= since))
-    ).scalars().all()
+    deals = (await session.execute(select(Trade).where(Trade.at >= since))).scalars().all()
     for deal in deals:
         city_id = await city_of(deal.node_id)
         if city_id is None:
             continue
-        by_city[city_id] = by_city.get(city_id, 0) + int(
-            deal.price * amount_float(deal.amount)
-        )
+        by_city[city_id] = by_city.get(city_id, 0) + int(deal.price * amount_float(deal.amount))
 
     #: Land is turnover too (D-193): buying a plot from the city and selling a
     #: deed between people are real money for real property, and for the city's
     #: line they count the same as a stall on the market.
     land = (
-        await session.execute(
-            select(Event).where(
-                Event.at >= since,
-                Event.kind.in_((EventKind.LAND_BOUGHT.value, EventKind.DEED_SOLD.value)),
+        (
+            await session.execute(
+                select(Event).where(
+                    Event.at >= since,
+                    Event.kind.in_((EventKind.LAND_BOUGHT.value, EventKind.DEED_SOLD.value)),
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     for record in land:
         city_id = await city_of(record.node_id)
         if city_id is None:
@@ -782,8 +765,6 @@ async def cities_with_hall(session: AsyncSession) -> int:
     A city without a town hall is not an organ of power but a dot on the map:
     counting it when handing over the rate would give money to signboards (D-172).
     """
-    from src.engine import city as town
-    from src.models.world import Node
 
     cities = (await session.execute(select(City))).scalars().all()
     qty = 0
@@ -799,35 +780,38 @@ async def cities_with_hall(session: AsyncSession) -> int:
 
 
 async def _children(session: AsyncSession, node) -> list:
-    from src.models.world import Node
 
     return list(
-        (
-            await session.execute(select(Node).where(Node.parent_id == node.id))
-        ).scalars().all()
+        (await session.execute(select(Node).where(Node.parent_id == node.id))).scalars().all()
     )
 
 
 async def _has_hall(session: AsyncSession, town, node) -> bool:
-    from src.engine.world import node_container
-    from src.models.inventory import Item
 
     yard = await node_container(session, node)
     names = (
-        await session.execute(
-            select(Item.type_key).where(Item.container_id == yard.id).distinct()
+        (
+            await session.execute(
+                select(Item.type_key).where(Item.container_id == yard.id).distinct()
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return town.HALL in names
 
 
 async def locked_until(session: AsyncSession) -> datetime | None:
     """Until when the rate is returned to the algorithm in emergency (D-172)."""
     decision = (
-        await session.execute(
-            select(RateDecision).order_by(RateDecision.decided_at.desc()).limit(1)
+        (
+            await session.execute(
+                select(RateDecision).order_by(RateDecision.decided_at.desc()).limit(1)
+            )
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
     if decision is None or not decision.locked_until:
         return None
     return decision.locked_until
@@ -860,7 +844,6 @@ async def council_set_rate(
     and the capital with its head start must not lock in control forever. Here
     the decision itself is executed; how it is reached is the Council's business.
     """
-    from src.engine import city as town
 
     moment = now or datetime.now(UTC)
     if not await council_decides(session, constants, now=moment):
@@ -883,9 +866,7 @@ async def council_set_rate(
             f"алгоритм рекомендует {recommendation:.2f}%, отклониться можно на "
             f"{corridor:g} п.п. — просят {rate:.2f}%"
         )
-    rate_value = max(
-        constants[R.BANK_RATE_FLOOR], min(constants[R.BANK_RATE_CAP], rate)
-    )
+    rate_value = max(constants[R.BANK_RATE_FLOOR], min(constants[R.BANK_RATE_CAP], rate))
 
     decision = RateDecision(
         rate=rate_value,
@@ -907,12 +888,11 @@ async def council_set_rate(
     )
     return decision
 
+
 # --- credit limit from labour (D-173) ----------------------------------------
 
 
-async def trust(
-    session: AsyncSession, constants: Constants, identity_id: uuid.UUID
-) -> float:
+async def trust(session: AsyncSession, constants: Constants, identity_id: uuid.UUID) -> float:
     """Trust 0..1: each "defective print" report cuts it by
     `credit.report_penalty`, but not below `credit.trust_floor`.
 
@@ -920,9 +900,9 @@ async def trust(
     does the irreversible (D-173).
     """
     report_count = await session.scalar(
-        select(func.count()).select_from(DefectReport).where(
-            DefectReport.target_identity_id == identity_id
-        )
+        select(func.count())
+        .select_from(DefectReport)
+        .where(DefectReport.target_identity_id == identity_id)
     )
     share = (PERCENT - constants[R.CREDIT_REPORT_PENALTY] * int(report_count or 0)) / PERCENT
     return max(constants[R.CREDIT_TRUST_FLOOR] / PERCENT, share)
@@ -940,17 +920,20 @@ async def personal_turnover(
     Turnover cannot be faked without selling real goods to a real buyer: that
     is why the limit is computed from it, not from time in game (D-173).
     """
-    from src.models.market import Order, Trade
 
     moment = now or datetime.now(UTC)
     window = moment - timedelta(days=constants[R.CREDIT_WINDOW])
     deals = (
-        await session.execute(
-            select(Trade)
-            .join(Order, Order.id == Trade.sell_order_id)
-            .where(Order.identity_id == identity_id, Trade.at >= window)
+        (
+            await session.execute(
+                select(Trade)
+                .join(Order, Order.id == Trade.sell_order_id)
+                .where(Order.identity_id == identity_id, Trade.at >= window)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return sum(int(deal.price * amount_float(deal.amount)) for deal in deals)
 
 
@@ -1022,9 +1005,7 @@ async def report_defect(
     ).scalar_one_or_none()
     if exists is not None:
         return exists
-    report = DefectReport(
-        reporter_identity_id=reporter.id, target_identity_id=target.id
-    )
+    report = DefectReport(reporter_identity_id=reporter.id, target_identity_id=target.id)
     session.add(report)
     await session.flush()
     await events.record(
@@ -1036,9 +1017,7 @@ async def report_defect(
     return report
 
 
-async def withdraw_report(
-    session: AsyncSession, reporter: Identity, target: Identity
-) -> bool:
+async def withdraw_report(session: AsyncSession, reporter: Identity, target: Identity) -> bool:
     """Withdraw your report: one may err, and one must be able to correct it."""
     report = (
         await session.execute(
@@ -1066,7 +1045,6 @@ async def withdraw_report(
 
 def city_margin(constants: Constants, catalog, city) -> float:
     """City margin: code-law `bank_margin` with ceiling `bank.city_margin_cap`."""
-    from src.engine import city as town
 
     raw_item = town.law(catalog, city, "bank_margin")
     try:
@@ -1090,7 +1068,6 @@ async def offered_rate(
     The same arithmetic as `borrow`, only without taking the money: a rate that
     turns up after the fact reads as a swindle even when it is computed right.
     """
-    from src.engine import city as town
 
     moment = now or datetime.now(UTC)
     key = await key_rate(session, constants)
@@ -1169,7 +1146,6 @@ async def prison_credit(
     repayment, repayment to the capital's reserve. Returns how much could be
     credited; zero -- the treasury is empty, and the ore stays with the prisoner.
     """
-    from src.engine import city as town
 
     moment = now or datetime.now(UTC)
     treasury = await town.treasury(session, city)
@@ -1177,9 +1153,7 @@ async def prison_credit(
         return 0
 
     debtor = await session.get(Identity, debtor_identity_id)
-    loans = sorted(
-        await loans_of(session, debtor_identity_id), key=lambda loan: loan.taken_at
-    )
+    loans = sorted(await loans_of(session, debtor_identity_id), key=lambda loan: loan.taken_at)
     credited = 0
     remainder = cost
     for loan in loans:
@@ -1189,8 +1163,13 @@ async def prison_credit(
         if payment <= 0:
             continue
         await repay(
-            session, constants, debtor, loan, payment / MONEY_SCALE,
-            from_account=treasury, now=moment,
+            session,
+            constants,
+            debtor,
+            loan,
+            payment / MONEY_SCALE,
+            from_account=treasury,
+            now=moment,
         )
         credited += payment
         remainder -= payment

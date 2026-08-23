@@ -35,9 +35,11 @@ async def test_transfer_preserves_sum(session: AsyncSession) -> None:
     _, seller = await _funded(session, money(100))
     buyer = await ledger.account_for(session, AccountKind.IDENTITY, uuid.uuid4())
     await ledger.transfer(
-        session, PostingReason.GENESIS,
+        session,
+        PostingReason.GENESIS,
         debit=(await ledger.account_for(session, AccountKind.GENESIS, None)).id,
-        credit=buyer.id, amount=money(50),
+        credit=buyer.id,
+        amount=money(50),
     )
 
     await ledger.transfer(
@@ -159,9 +161,9 @@ async def test_posting_journal_immutable(session: AsyncSession) -> None:
 
     with pytest.raises(DBAPIError, match="только для добавления"):
         await session.execute(
-            LedgerEntry.__table__.update().where(LedgerEntry.account_id == wallet.id).values(
-                amount=money(999)
-            )
+            LedgerEntry.__table__.update()
+            .where(LedgerEntry.account_id == wallet.id)
+            .values(amount=money(999))
         )
         await session.commit()
     await session.rollback()

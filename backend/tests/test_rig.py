@@ -35,9 +35,7 @@ async def _face(session: AsyncSession, *, coal: float = 100, richness: float = 6
     )
     yard = await world.node_container(session, node)
     if coal > 0:
-        await world.grant_item(
-            session, yard, "Уголь", amount=coal, quality=55, origin="тест"
-        )
+        await world.grant_item(session, yard, "Уголь", amount=coal, quality=55, origin="тест")
     identity = await world.create_identity(session, f"Промышленник-{stamp}")
     body = await world.print_body(session, identity, node)
     pocket = await world.body_container(session, body)
@@ -55,9 +53,7 @@ def _via(installation, hours: float) -> datetime:
 # --- works without the player ------------------------------------------------
 
 
-async def test_mines_over_time_and_burns_coal(
-    session: AsyncSession, constants: Constants
-) -> None:
+async def test_mines_over_time_and_burns_coal(session: AsyncSession, constants: Constants) -> None:
     """The machine does not sleep: the hopper fills while the owner is busy elsewhere."""
     node, _, _, installation, machine = await _face(session)
     coal_before = 100.0
@@ -70,9 +66,7 @@ async def test_mines_over_time_and_burns_coal(
 
     yard = await world.node_container(session, node)
     left = await rig._coal_available(session, yard.id)  # noqa: SLF001
-    assert left == pytest.approx(
-        coal_before - constants[R.RIG_FUEL_PER_HOUR] * 4, rel=0.01
-    )
+    assert left == pytest.approx(coal_before - constants[R.RIG_FUEL_PER_HOUR] * 4, rel=0.01)
 
 
 async def test_machine_loses_to_human_in_output(
@@ -85,9 +79,7 @@ async def test_machine_loses_to_human_in_output(
 # --- three obligations -------------------------------------------------------
 
 
-async def test_rig_idle_without_coal(
-    session: AsyncSession, constants: Constants
-) -> None:
+async def test_rig_idle_without_coal(session: AsyncSession, constants: Constants) -> None:
     """Fuel ran out -- it stopped. Hence a standing contract with a coal hauler."""
     _, _, _, installation, _ = await _face(session, coal=0)
     mined = await rig.advance(session, constants, installation, now=_via(installation, 5))
@@ -95,9 +87,7 @@ async def test_rig_idle_without_coal(
     assert float(installation.hopper) == 0
 
 
-async def test_coal_lasts_exactly_its_hours(
-    session: AsyncSession, constants: Constants
-) -> None:
+async def test_coal_lasts_exactly_its_hours(session: AsyncSession, constants: Constants) -> None:
     """An hour and a half of fuel -- an hour and a half of work, not five."""
     hours = 1.5
     coal = constants[R.RIG_FUEL_PER_HOUR] * hours
@@ -107,9 +97,7 @@ async def test_coal_lasts_exactly_its_hours(
     assert mined == pytest.approx(constants[R.RIG_OUTPUT_PER_HOUR] * hours, rel=0.01)
 
 
-async def test_full_bunker_stops_machine(
-    session: AsyncSession, constants: Constants
-) -> None:
+async def test_full_bunker_stops_machine(session: AsyncSession, constants: Constants) -> None:
     """Coming is mandatory: without a carter the enterprise does not work."""
     _, _, _, installation, _ = await _face(session, coal=100_000)
     volume = rig.hopper_capacity(constants)
@@ -120,9 +108,7 @@ async def test_full_bunker_stops_machine(
     assert float(installation.hopper) == pytest.approx(volume, rel=0.02)
 
     #: And it grows no further, however long one waits.
-    more = await rig.advance(
-        session, constants, installation, now=_via(installation, hours)
-    )
+    more = await rig.advance(session, constants, installation, now=_via(installation, hours))
     assert more == 0
 
 
@@ -167,12 +153,14 @@ async def test_bunker_emptied_on_foot_and_quality_under_ceiling(
     from sqlalchemy import select
 
     ore_ = (
-        await session.execute(
-            select(Item).where(
-                Item.container_id == pocket.id, Item.type_key == vein.resource
+        (
+            await session.execute(
+                select(Item).where(Item.container_id == pocket.id, Item.type_key == vein.resource)
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert ore_, "бункер переехал в карман"
     quality = float(ore_[0].quality)
     assert quality == pytest.approx(constants[R.RIG_QUALITY_CAP])
@@ -180,9 +168,7 @@ async def test_bunker_emptied_on_foot_and_quality_under_ceiling(
     assert amount_float(ore_[0].amount) == pytest.approx(taken, rel=0.01)
 
 
-async def test_broken_machine_gives_worse_ore(
-    session: AsyncSession, constants: Constants
-) -> None:
+async def test_broken_machine_gives_worse_ore(session: AsyncSession, constants: Constants) -> None:
     """Maintenance is mandatory: a worn one does not break suddenly, it works worse."""
     _, _, body, installation, machine = await _face(session, richness=80)
     from decimal import Decimal
@@ -196,17 +182,19 @@ async def test_broken_machine_gives_worse_ore(
 
     pocket = await world.body_container(session, body)
     ore_ = (
-        await session.execute(
-            select(Item).where(Item.container_id == pocket.id, Item.type_key == "Железная руда")
+        (
+            await session.execute(
+                select(Item).where(Item.container_id == pocket.id, Item.type_key == "Железная руда")
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     quality = float(ore_[0].quality)
     assert quality < constants[R.RIG_QUALITY_CAP], "потолок опустился с износом"
 
 
-async def test_foreign_bunker_not_emptied(
-    session: AsyncSession, constants: Constants
-) -> None:
+async def test_foreign_bunker_not_emptied(session: AsyncSession, constants: Constants) -> None:
     """Emptying is by contract with the owner, not by showing up (D-116)."""
     node, _, _, installation, _ = await _face(session)
     foreign_id = await world.create_identity(session, f"Чужой-{uuid.uuid4().hex[:6]}")
@@ -216,9 +204,7 @@ async def test_foreign_bunker_not_emptied(
         await rig.empty_hopper(session, constants, foreign_body, installation)
 
 
-async def test_eats_vein_twice_as_fast(
-    session: AsyncSession, constants: Constants
-) -> None:
+async def test_eats_vein_twice_as_fast(session: AsyncSession, constants: Constants) -> None:
     """Capital speeds up the world's depletion -- and that is a reason for a dispute at the vein
     (D-101)."""
     _, vein, _, installation, _ = await _face(session)
@@ -226,6 +212,4 @@ async def test_eats_vein_twice_as_fast(
 
     mined = await rig.advance(session, constants, installation, now=_via(installation, 4))
     went = amount_float(before - vein.remaining)
-    assert went == pytest.approx(
-        mined * constants[R.RIG_DEPLETION_MULTIPLIER], rel=0.01
-    )
+    assert went == pytest.approx(mined * constants[R.RIG_DEPLETION_MULTIPLIER], rel=0.01)

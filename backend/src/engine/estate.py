@@ -59,20 +59,24 @@ from decimal import Decimal
 from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.constants import Catalog, Constants
+from src.constants import Catalog, Constants, current, current_catalog
 from src.constants import registry as R
+from src.constants.catalog import ItemKind
 from src.db.base import remember
-from src.engine import events, ledger, travel
+from src.engine import city as town
+from src.engine import craft, events, gear, goods, ledger, storage, travel, world
 from src.engine.errors import Refusal
 from src.engine.jobs import enqueue, handler
-from src.models.city import City
+from src.engine.ship import ABOARD
+from src.models.city import City, Power
 from src.models.estate import Building, Deed
 from src.models.event import EventKind
 from src.models.identity import Body, BodyState, Identity
-from src.models.inventory import Item
-from src.models.job import Job, JobKind
+from src.models.inventory import Container, ContainerKind, Item
+from src.models.job import Job, JobKind, JobState
 from src.models.ledger import AccountKind, PostingReason
-from src.models.world import Edge, Layer, Node
+from src.models.world import Edge, Layer, Node, Vein
+from src.runtime import LAND_NAME_LIMIT
 from src.units import (
     MINUTES_PER_HOUR,
     PERCENT,
@@ -140,11 +144,8 @@ async def center_of(session: AsyncSession, city: City) -> Node | None:
     **to** this node, so two names for the centre would mean measuring the city
     over and over, each reader disagreeing with what the last one wrote.
     """
-    from src.engine import city as town
 
-    return await remember(
-        session, ("center_of", city.id), lambda: town.core(session, city)
-    )
+    return await remember(session, ("center_of", city.id), lambda: town.core(session, city))
 
 
 async def forget_distances(session: AsyncSession) -> None:
@@ -184,7 +185,6 @@ async def note_new_place(session: AsyncSession, one: Node, other: Node) -> None:
     old world whose nodes were never measured is measured once, by the walk
     below, and grows by this rule from then on.
     """
-    from src.engine.ship import ABOARD
 
     for anchor, fresh in ((one, other), (other, one)):
         if fresh.center_steps is not None or anchor.center_steps is None:
@@ -201,7 +201,6 @@ async def note_new_place(session: AsyncSession, one: Node, other: Node) -> None:
 
 async def _measure_city(session: AsyncSession, center: Node, city: City) -> dict[uuid.UUID, int]:
     """Walk from the centre once and write the result down for the whole city."""
-    from src.engine.ship import ABOARD
 
     edges = (await session.execute(select(Edge))).scalars().all()
     neighbours: dict[uuid.UUID, list[uuid.UUID]] = {}
@@ -216,11 +215,7 @@ async def _measure_city(session: AsyncSession, center: Node, city: City) -> dict
     #: cabins of every ship in port, and the "farther than any road" number
     #: below moved with the shipping.
     afloat = set(
-        (
-            await session.execute(
-                select(Node.id).where(Node.properties.has_key(ABOARD))
-            )
-        ).scalars()
+        (await session.execute(select(Node.id).where(Node.properties.has_key(ABOARD)))).scalars()
     )
 
     steps = {center.id: 0}
@@ -241,16 +236,20 @@ async def _measure_city(session: AsyncSession, center: Node, city: City) -> dict
     #: holds it. Writing every node the walk reached instead would have the two
     #: cities of one road overwrite each other's measurements turn by turn.
     mine = (
-        await session.execute(
-            select(Node).where(
-                or_(
-                    Node.owner_city_id == city.id,
-                    Node.id == city.node_id,
-                    and_(Node.parent_id == city.node_id, Node.owner_city_id.is_(None)),
+        (
+            await session.execute(
+                select(Node).where(
+                    or_(
+                        Node.owner_city_id == city.id,
+                        Node.id == city.node_id,
+                        and_(Node.parent_id == city.node_id, Node.owner_city_id.is_(None)),
+                    )
                 )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     for plot in [*mine, center]:
         plot.center_node_id = center.id
         plot.center_steps = steps.get(plot.id, beyond)
@@ -302,14 +301,13 @@ async def price_of(
     `land.decay_per_node` -- the same decay the land tax follows, because both
     say the same thing about the same place (D-220).
     """
-    from src.engine import city as town
 
     rate = town.law_number(constants, catalog, city, "land_price")
     if rate <= 0:
         raise NotForSale("город не назначил цену земли: код-закон `land_price` пуст")
     decline = 1 - constants[R.LAND_DECAY_PER_NODE] / PERCENT
     steps = await nodes_from_center(session, node, city)
-    per_metre = rate * (decline ** steps)
+    per_metre = rate * (decline**steps)
     return max(1, money(per_metre * float(node.area_m2)))
 
 
@@ -330,8 +328,6 @@ async def land_tax_of(
     cost no ground (D-125). The yard is not taxed at all -- only what is built
     on (D-127).
     """
-    from src.engine import city as town
-    from src.engine.ship import ABOARD
 
     #: **Land tax is charged on the built-up area** -- the rings around the
     #: bioprinter, which is what the `city` layer is (D-089). What lies on the
@@ -361,7 +357,7 @@ async def land_tax_of(
         return 0
     decline = 1 - constants[R.LAND_DECAY_PER_NODE] / PERCENT
     steps = await nodes_from_center(session, node, city)
-    return money(rate * (decline ** steps) * ground)
+    return money(rate * (decline**steps) * ground)
 
 
 async def levy_land_tax(
@@ -381,8 +377,6 @@ async def levy_land_tax(
     (D-166). The shortfall goes into the journal, where arrears can be seen --
     and counted, once there is something to count them with.
     """
-    from src.engine import city as town
-    from src.engine.ship import ABOARD
 
     held = (
         (
@@ -416,9 +410,7 @@ async def levy_land_tax(
         city = await town.of_node(session, node)
         if city is None:  # pragma: no cover -- `land_tax_of` already returned 0
             continue
-        account = await ledger.account_for(
-            session, AccountKind.IDENTITY, node.owner_identity_id
-        )
+        account = await ledger.account_for(session, AccountKind.IDENTITY, node.owner_identity_id)
         have = await ledger.balance(session, account.id)
         paid = min(owed, have) if have > 0 else 0
         short = owed - paid
@@ -463,11 +455,8 @@ async def is_vacant(session: AsyncSession, constants: Constants, node: Node) -> 
     _, occupied = await slots(session, constants, node)
     if occupied > 0:
         return False
-    from src.models.world import Vein
 
-    vein = await session.scalar(
-        select(Vein.id).where(Vein.node_id == node.id).limit(1)
-    )
+    vein = await session.scalar(select(Vein.id).where(Vein.node_id == node.id).limit(1))
     return vein is None
 
 
@@ -485,7 +474,6 @@ async def buy(
     nowhere to pay and nobody to issue the paper -- yet everyone may work and
     build on it.
     """
-    from src.engine import city as town
 
     if body.state is not BodyState.ALIVE:
         raise EstateError("мёртвое тело не покупает")
@@ -500,9 +488,7 @@ async def buy(
             "но работать и строить там может всякий"
         )
     if not await is_vacant(session, constants, node):
-        raise NotForSale(
-            "узел не пустой: застройку и жилы города прейскурант не продаёт"
-        )
+        raise NotForSale("узел не пустой: застройку и жилы города прейскурант не продаёт")
 
     city = await town.by_id(session, node.owner_city_id)
     if city is None:  # pragma: no cover -- civic land without a city is a bug
@@ -522,9 +508,7 @@ async def buy(
     account = await ledger.account_for(session, AccountKind.IDENTITY, body.identity_id)
     remainder = await ledger.balance(session, account.id)
     if remainder < price:
-        raise NotEnoughMoney(
-            f"участок стоит {price} минорных единиц, а на счету {remainder}"
-        )
+        raise NotEnoughMoney(f"участок стоит {price} минорных единиц, а на счету {remainder}")
 
     treasury = await town.treasury(session, city)
     await ledger.transfer(
@@ -558,28 +542,21 @@ async def may_name(session: AsyncSession, body: Body, node: Node) -> bool:
     the `land` right: the same one it hands out that land with (D-089).
     Unowned land bears no name.
     """
-    from src.engine import city as town
-    from src.models.city import Power
 
     if node.owner_identity_id is not None:
         return node.owner_identity_id == body.identity_id
     if node.owner_city_id is None:
         return False
     city = await town.by_id(session, node.owner_city_id)
-    return city is not None and await town.may(
-        session, body.identity_id, city, Power.LAND
-    )
+    return city is not None and await town.may(session, body.identity_id, city, Power.LAND)
 
 
-async def rename(
-    session: AsyncSession, body: Body, node: Node, name: str
-) -> Node:
+async def rename(session: AsyncSession, body: Body, node: Node, name: str) -> Node:
     """Name a plot. The nameplate is nailed on the spot, not from the Net (D-178).
 
     The label changes, not the node key: `terra.capital.lot2` is referenced by
     deeds, edges and events, and renaming may not break them.
     """
-    from src.runtime import LAND_NAME_LIMIT
 
     if body.state is not BodyState.ALIVE:
         raise EstateError("мёртвое тело ничего не переименовывает")
@@ -588,8 +565,7 @@ async def rename(
         raise EstateError("до участка надо дойти: табличку прибивают на месте")
     if not await may_name(session, body, node):
         raise NotOwner(
-            "участок не ваш: имя даёт хозяин, а городской земле — власть с "
-            "правом на участки"
+            "участок не ваш: имя даёт хозяин, а городской земле — власть с правом на участки"
         )
 
     title = name.strip()
@@ -677,9 +653,7 @@ async def offer_deed(
     return deed
 
 
-async def buy_deed(
-    session: AsyncSession, buyer: Identity, deed: Deed
-) -> Deed:
+async def buy_deed(session: AsyncSession, buyer: Identity, deed: Deed) -> Deed:
     """Buy a listed deed: money to the seller, title to the buyer.
 
     A sale contract in one transaction: no escrow is needed because both money
@@ -699,9 +673,7 @@ async def buy_deed(
     if remainder < price:
         raise NotEnoughMoney(f"бумага стоит {price}, а на счету {remainder}")
 
-    seller = await ledger.account_for(
-        session, AccountKind.IDENTITY, deed.owner_identity_id
-    )
+    seller = await ledger.account_for(session, AccountKind.IDENTITY, deed.owner_identity_id)
     await ledger.transfer(
         session,
         PostingReason.TRADE,
@@ -736,24 +708,26 @@ async def buy_deed(
 
 async def deeds_of(session: AsyncSession, identity_id: uuid.UUID) -> list[Deed]:
     return list(
-        (
-            await session.execute(
-                select(Deed).where(Deed.owner_identity_id == identity_id)
-            )
-        ).scalars().all()
+        (await session.execute(select(Deed).where(Deed.owner_identity_id == identity_id)))
+        .scalars()
+        .all()
     )
 
 
 async def deeds_on_sale(session: AsyncSession, identity_id: uuid.UUID) -> list[Deed]:
     """Deeds this identity may buy: open ones and those addressed to it."""
     rows = (
-        await session.execute(
-            select(Deed).where(
-                Deed.sale_price.is_not(None),
-                Deed.owner_identity_id != identity_id,
+        (
+            await session.execute(
+                select(Deed).where(
+                    Deed.sale_price.is_not(None),
+                    Deed.owner_identity_id != identity_id,
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return [
         deed
         for deed in rows
@@ -766,9 +740,7 @@ async def deeds_on_sale(session: AsyncSession, identity_id: uuid.UUID) -> list[D
 
 async def buildings_of(session: AsyncSession, node: Node) -> list[Building]:
     return list(
-        (
-            await session.execute(select(Building).where(Building.node_id == node.id))
-        ).scalars().all()
+        (await session.execute(select(Building).where(Building.node_id == node.id))).scalars().all()
     )
 
 
@@ -780,6 +752,7 @@ async def built_area(session: AsyncSession, node: Node, *, ground: bool = False)
     Whatever is measured against the plot must ask for `ground`; machines,
     cargo and upkeep go by the usable area.
     """
+
     async def measure() -> float:
         column = Building.footprint_m2 if ground else Building.area_m2
         total = await session.scalar(
@@ -798,22 +771,25 @@ async def under_construction(session: AsyncSession, node: Node) -> list[dict]:
     Materials are written off at the start, and until this list existed the
     yard looked empty right after them -- as if the timber had vanished.
     """
-    from src.models.job import Job, JobKind, JobState
 
     #: Filtered in SQL by the node inside the payload, not in Python over
     #: every pending build in the world (review 2026-08-23); the partial
     #: index `ix_job_due` narrows it to pending jobs first.
     rows = (
-        await session.execute(
-            select(Job)
-            .where(
-                Job.kind == JobKind.BUILD_FINISH.value,
-                Job.state == JobState.PENDING,
-                Job.payload["node"].astext == str(node.id),
+        (
+            await session.execute(
+                select(Job)
+                .where(
+                    Job.kind == JobKind.BUILD_FINISH.value,
+                    Job.state == JobState.PENDING,
+                    Job.payload["node"].astext == str(node.id),
+                )
+                .order_by(Job.run_at)
             )
-            .order_by(Job.run_at)
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return [
         {
             "area": float(job.payload.get("area", 0)),
@@ -831,8 +807,6 @@ async def floor_mass(session: AsyncSession, node: Node) -> float:
     Only what lies loose: goods inside a chest are counted by the chest, not by
     the floor -- that is what a chest is for (D-181).
     """
-    from src.constants import current_catalog
-    from src.engine import gear, storage, world
 
     catalog = current_catalog()
     things = await world.contents(session, await world.node_container(session, node))
@@ -846,7 +820,6 @@ async def floor_mass(session: AsyncSession, node: Node) -> float:
 
 def _equipment(catalog, type_key: str) -> bool:
     """Machines and furniture pay for their place by slots, not by weight."""
-    from src.constants.catalog import ItemKind
 
     try:
         return catalog.recipes.recipe(type_key).kind in (
@@ -857,9 +830,7 @@ def _equipment(catalog, type_key: str) -> bool:
         return False
 
 
-async def space(
-    session: AsyncSession, constants: Constants, node: Node
-) -> dict[str, float]:
+async def space(session: AsyncSession, constants: Constants, node: Node) -> dict[str, float]:
     """The node's area budget: what it holds and what is already taken (D-192).
 
     A building is the roof over the goods; without one they lie in the yard,
@@ -884,17 +855,12 @@ async def space(
     }
 
 
-async def slots(
-    session: AsyncSession, constants: Constants, node: Node
-) -> tuple[int, int]:
+async def slots(session: AsyncSession, constants: Constants, node: Node) -> tuple[int, int]:
     """Capacity and occupancy: (total places, occupied places).
 
     A place is `build.slots_per_area` square metres of the building; it is
     taken by machines and furniture standing in the node.
     """
-    from src.constants import current_catalog
-    from src.constants.catalog import ItemKind
-    from src.engine import world
 
     area = await built_area(session, node)
     in_total = int(area // constants[R.BUILD_SLOTS_PER_AREA])
@@ -930,9 +896,7 @@ def composition(constants: Constants, kind: str) -> dict[str, float]:
     """
     types = constants[R.BUILD_TYPES]
     if kind not in types:
-        raise UnknownKind(
-            f"«{kind}» — не тип здания; строят из: {', '.join(types)}"
-        )
+        raise UnknownKind(f"«{kind}» — не тип здания; строят из: {', '.join(types)}")
     return types[kind]
 
 
@@ -942,9 +906,7 @@ def floor_growth(constants: Constants, kind: str) -> float:
     return float(constants[R.BUILD_FLOOR_GROWTH][kind])
 
 
-def estimate(
-    constants: Constants, *, footprint: float, floors: int, kind: str
-) -> dict[str, float]:
+def estimate(constants: Constants, *, footprint: float, floors: int, kind: str) -> dict[str, float]:
     """The bill of materials for a house, by the vault formula `build.cost_per_area`.
 
     The type gives the composition per square metre of floor, and each next
@@ -960,14 +922,10 @@ def estimate(
     #: The sum over floors, not "area times a coefficient": the eighth floor is
     #: expensive by itself, and averaging would hide exactly that.
     per_footprint = sum(growth ** (floor - 1) for floor in range(1, floors + 1))
-    return {
-        name: float(qty) * footprint * per_footprint for name, qty in norms.items()
-    }
+    return {name: float(qty) * footprint * per_footprint for name, qty in norms.items()}
 
 
-def bill(
-    constants: Constants, *, footprint: float, floors: int, kind: str
-) -> dict[str, float]:
+def bill(constants: Constants, *, footprint: float, floors: int, kind: str) -> dict[str, float]:
     """The same bill, in the amounts the world can actually hand over (D-212).
 
     A counted material goes into the wall whole: two and a half boards is
@@ -975,19 +933,14 @@ def bill(
     in `build_minutes` is about how heavy the lot is, not about what the saw
     could not halve -- and this is what is shown and what is written off.
     """
-    from src.engine import goods
 
     return {
         name: goods.whole(name, qty, up=True)
-        for name, qty in estimate(
-            constants, footprint=footprint, floors=floors, kind=kind
-        ).items()
+        for name, qty in estimate(constants, footprint=footprint, floors=floors, kind=kind).items()
     }
 
 
-def build_minutes(
-    constants: Constants, *, footprint: float, floors: int, kind: str
-) -> float:
+def build_minutes(constants: Constants, *, footprint: float, floors: int, kind: str) -> float:
     """The term: assembly labour, with the same correction for height and type.
 
     Effort follows the bill: what is dearer in materials is longer in hands.
@@ -995,9 +948,7 @@ def build_minutes(
     else is heavier than.
     """
     lot = estimate(constants, footprint=footprint, floors=floors, kind=kind)
-    plain = estimate(
-        constants, footprint=footprint, floors=1, kind=kinds(constants)[0]
-    )
+    plain = estimate(constants, footprint=footprint, floors=1, kind=kinds(constants)[0])
     total = sum(plain.values())
     heaviness = (sum(lot.values()) / total) if total else 1.0
     return footprint * constants[R.BUILD_LABOR_PER_M2] * MINUTES_PER_HOUR * heaviness
@@ -1017,9 +968,7 @@ async def planned_footprint(session: AsyncSession, node: Node) -> float:
 
 async def free_ground(session: AsyncSession, node: Node) -> float:
     """The plot's unbuilt remainder: the yard, minus what is already on the way."""
-    taken = await built_area(session, node, ground=True) + await planned_footprint(
-        session, node
-    )
+    taken = await built_area(session, node, ground=True) + await planned_footprint(session, node)
     return float(node.area_m2) - taken
 
 
@@ -1072,8 +1021,7 @@ async def construct(
     smallest = constants[R.BUILD_AREA_MIN]
     if area < smallest:
         raise TooSmall(
-            f"пятно меньше {smallest:.0f} м² — это навес, а не здание: "
-            f"просят {area:.0f}"
+            f"пятно меньше {smallest:.0f} м² — это навес, а не здание: просят {area:.0f}"
         )
 
     free = await free_ground(session, node)
@@ -1087,7 +1035,6 @@ async def construct(
 
     #: Materials come from the vault, per metre of floor. Written off at once:
     #: construction has started, and the timber is already in the wall, not in the sack.
-    from src.engine import craft, world
 
     needed = bill(constants, footprint=area, floors=floors, kind=kind)
     pocket = await world.body_container(session, body)
@@ -1171,7 +1118,6 @@ def salvage(constants: Constants, houses: list[Building]) -> dict[str, float]:
             back[name] = back.get(name, 0.0) + qty * share
     #: What comes back comes back whole, and downwards (D-212): taking a house
     #: apart must not mint a board that was not in it.
-    from src.engine import goods
 
     return {name: goods.whole(name, qty) for name, qty in back.items()}
 
@@ -1183,22 +1129,23 @@ async def demolishing(session: AsyncSession, node: Node) -> bool:
     running, and each of them carries its own salvage in the payload: the house
     is one, the materials would come back twice. Matter does not multiply.
     """
-    from src.models.job import JobState
 
     rows = (
-        await session.execute(
-            select(Job).where(
-                Job.kind == JobKind.BUILD_DEMOLISH.value,
-                Job.state == JobState.PENDING,
+        (
+            await session.execute(
+                select(Job).where(
+                    Job.kind == JobKind.BUILD_DEMOLISH.value,
+                    Job.state == JobState.PENDING,
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return any(job.payload.get("node") == str(node.id) for job in rows)
 
 
-async def demolish_blockers(
-    session: AsyncSession, constants: Constants, node: Node
-) -> list[str]:
+async def demolish_blockers(session: AsyncSession, constants: Constants, node: Node) -> list[str]:
     """What stands in the way of demolition, in words -- before the work, not after.
 
     The yard empties **first**: after the demolition the machines have nowhere
@@ -1305,7 +1252,6 @@ async def finish_demolish(session: AsyncSession, job: Job) -> None:
     into the hands of whoever is standing here, and onto the floor if they left or
     died. Matter does not vanish with whoever ordered the work.
     """
-    from src.engine import world
 
     node = await session.get(Node, uuid.UUID(job.payload["node"]))
     if node is None:  # pragma: no cover
@@ -1323,11 +1269,7 @@ async def finish_demolish(session: AsyncSession, job: Job) -> None:
     body = (
         None if job.body_id is None else await session.get(Body, job.body_id, with_for_update=True)
     )
-    at_hand = (
-        body is not None
-        and body.state is BodyState.ALIVE
-        and body.node_id == node.id
-    )
+    at_hand = body is not None and body.state is BodyState.ALIVE and body.node_id == node.id
     where = (
         await world.body_container(session, body)
         if at_hand and body is not None
@@ -1358,7 +1300,6 @@ async def finish_build(session: AsyncSession, job: Job) -> None:
     node = await session.get(Node, uuid.UUID(job.payload["node"]))
     if node is None:  # pragma: no cover
         raise EstateError(f"стройка {job.id} ссылается в никуда")
-    from src.constants import current
 
     #: Old jobs from before storeys carry no `floors`, and those from before
     #: types (D-218) name a tier instead of a type. Either way such a site
@@ -1426,7 +1367,6 @@ def repair_bill(constants: Constants, houses: list[Building]) -> dict[str, float
     lifting a house from nothing to full -- a part of building it, never all,
     because the walls are still standing.
     """
-    from src.engine import goods
 
     share = constants[R.BUILD_REPAIR_MATERIALS_K] * missing_share(houses)
     wanted: dict[str, float] = {}
@@ -1440,9 +1380,7 @@ def repair_bill(constants: Constants, houses: list[Building]) -> dict[str, float
         for name, qty in lot.items():
             wanted[name] = wanted.get(name, 0.0) + qty * share
     #: Whole pieces, upwards (D-212): half a board does not go into a wall.
-    return {
-        name: goods.whole(name, qty, up=True) for name, qty in wanted.items() if qty > 0
-    }
+    return {name: goods.whole(name, qty, up=True) for name, qty in wanted.items() if qty > 0}
 
 
 def repair_minutes(constants: Constants, houses: list[Building]) -> float:
@@ -1465,16 +1403,19 @@ async def repairing(session: AsyncSession, node: Node) -> bool:
     The same reason as for demolition: the materials are written off at the
     order, and two orders would take twice for one set of walls.
     """
-    from src.models.job import JobState
 
     rows = (
-        await session.execute(
-            select(Job).where(
-                Job.kind == JobKind.BUILD_REPAIR.value,
-                Job.state == JobState.PENDING,
+        (
+            await session.execute(
+                select(Job).where(
+                    Job.kind == JobKind.BUILD_REPAIR.value,
+                    Job.state == JobState.PENDING,
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return any(job.payload.get("node") == str(node.id) for job in rows)
 
 
@@ -1511,8 +1452,6 @@ async def repair(
         raise Ruined("чинить нечего: на участке нет здания")
     if missing_share(houses) <= 0:
         raise Ruined("дом целёхонек: чинить в нём нечего")
-
-    from src.engine import craft, world
 
     needed = repair_bill(constants, houses)
     pocket = await world.body_container(session, body)
@@ -1586,8 +1525,6 @@ async def collapse(session: AsyncSession, node: Node, house: Building) -> None:
     under it and survive. When the last one falls, the yard's contents go with
     it -- machines, furniture and the chests along with what was inside them.
     """
-    from src.engine import world
-    from src.models.inventory import Container, ContainerKind
 
     await session.delete(house)
     await session.flush()
@@ -1597,32 +1534,34 @@ async def collapse(session: AsyncSession, node: Node, house: Building) -> None:
     if last:
         yard = await world.node_container(session, node)
         things = (
-            await session.execute(select(Item).where(Item.container_id == yard.id))
-        ).scalars().all()
+            (await session.execute(select(Item).where(Item.container_id == yard.id)))
+            .scalars()
+            .all()
+        )
         for thing in things:
-            lost[thing.type_key] = lost.get(thing.type_key, 0.0) + amount_float(
-                thing.amount
-            )
+            lost[thing.type_key] = lost.get(thing.type_key, 0.0) + amount_float(thing.amount)
             #: A chest goes down with its contents: the inside is a container of
             #: its own, and left behind it would be goods in no place at all.
             inside = (
-                await session.execute(
-                    select(Container).where(
-                        Container.kind == ContainerKind.STORAGE,
-                        Container.owner_id == thing.id,
+                (
+                    await session.execute(
+                        select(Container).where(
+                            Container.kind == ContainerKind.STORAGE,
+                            Container.owner_id == thing.id,
+                        )
                     )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
             for box in inside:
                 stored = (
-                    await session.execute(
-                        select(Item).where(Item.container_id == box.id)
-                    )
-                ).scalars().all()
+                    (await session.execute(select(Item).where(Item.container_id == box.id)))
+                    .scalars()
+                    .all()
+                )
                 for held in stored:
-                    lost[held.type_key] = lost.get(held.type_key, 0.0) + amount_float(
-                        held.amount
-                    )
+                    lost[held.type_key] = lost.get(held.type_key, 0.0) + amount_float(held.amount)
                     await session.delete(held)
                 await session.delete(box)
             await session.delete(thing)
@@ -1647,12 +1586,9 @@ async def decay(session: AsyncSession, constants: Constants) -> tuple[int, int]:
     step is the type's own (`build.decay_by_type`), which is the whole point of
     paying for iron instead of timber.
     """
-    from src.engine.ship import ABOARD
 
     rows = (
-        await session.execute(
-            select(Building, Node).join(Node, Node.id == Building.node_id)
-        )
+        await session.execute(select(Building, Node).join(Node, Node.id == Building.node_id))
     ).all()
     worn = 0
     fallen: list[Building] = []

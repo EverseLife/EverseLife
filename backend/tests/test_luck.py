@@ -92,8 +92,7 @@ async def test_the_drought_makes_the_next_try_likelier(session: AsyncSession) ->
     #: reaches certainty, and even the most stubborn roll comes good.
     ceiling = int(1 / luck.growth(rare / PERCENT)) + 1
     assert any(
-        [await luck.hit(session, who, luck.MINE_DEATH, rare, dice=stubborn)
-         for _ in range(ceiling)]
+        [await luck.hit(session, who, luck.MINE_DEATH, rare, dice=stubborn) for _ in range(ceiling)]
     ), "засуха обязана кончиться сама"
 
 
@@ -119,10 +118,7 @@ async def test_the_deck_deals_every_card_before_repeating(session: AsyncSession)
 
     #: One deck's worth of draws shows everything the table names.
     size = sum(max(1, round(weight / min(table.values()))) for weight in table.values())
-    drawn = [
-        await luck.draw(session, who, luck.FORAGE_WHAT, table, dice=dice)
-        for _ in range(size)
-    ]
+    drawn = [await luck.draw(session, who, luck.FORAGE_WHAT, table, dice=dice) for _ in range(size)]
     assert set(drawn) == set(table), "колода обязана раздать всё, что в ней есть"
     assert drawn.count("Смола") == 1, "редкое остаётся редким"
 
@@ -131,10 +127,7 @@ async def test_the_deck_keeps_the_table_proportions(session: AsyncSession) -> No
     who = await _who(session)
     table = {"Камень": 3, "Смола": 1}
     dice = random.Random(9)
-    drawn = [
-        await luck.draw(session, who, luck.FORAGE_WHAT, table, dice=dice)
-        for _ in range(400)
-    ]
+    drawn = [await luck.draw(session, who, luck.FORAGE_WHAT, table, dice=dice) for _ in range(400)]
     assert drawn.count("Камень") / len(drawn) == pytest.approx(0.75, abs=0.02)
 
 

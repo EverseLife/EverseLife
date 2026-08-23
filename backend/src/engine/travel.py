@@ -146,9 +146,27 @@ from decimal import Decimal
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.constants import Constants
+from src.constants import Constants, current_catalog
+from src.constants import current as constants_now
 from src.constants import registry as R
-from src.engine import events
+from src.engine import (
+    access,
+    bank,
+    chat,
+    craft,
+    customs,
+    estate,
+    events,
+    explore,
+    food,
+    justice,
+    net,
+    ship,
+    transport,
+)
+from src.engine import city as town
+from src.engine import ship as vessels
+from src.engine import world as places
 from src.engine.errors import Refusal
 from src.engine.jobs import enqueue, handler
 from src.models.event import EventKind
@@ -256,8 +274,6 @@ async def is_exit(session: AsyncSession, node: Node) -> bool:
     """
     if (node.properties or {}).get(EXIT):
         return True
-    from src.engine import ship
-    from src.engine import world as places
 
     return await places.has_station(session, node, ship.SPACEPORT)
 
@@ -268,7 +284,6 @@ async def gate_of(session: AsyncSession, node: Node) -> Node | None:
     This is where a road from beyond the walls is tied: exploration lays its
     trail from here rather than from the node the scout set out from (D-206).
     """
-    from src.engine import city as town
 
     city = await town.of_node(session, node)
     if city is None:
@@ -294,9 +309,7 @@ async def exits(session: AsyncSession, constants: Constants, node: Node) -> tupl
     rows = (
         (
             await session.execute(
-                select(Edge).where(
-                    or_(Edge.node_a_id == node.id, Edge.node_b_id == node.id)
-                )
+                select(Edge).where(or_(Edge.node_a_id == node.id, Edge.node_b_id == node.id))
             )
         )
         .scalars()
@@ -304,15 +317,15 @@ async def exits(session: AsyncSession, constants: Constants, node: Node) -> tupl
     )
     #: All the far ends at once. One by one this was a query per road, and the
     #: node scene asks for exits on every look -- the commonest command there is.
-    far = {
-        edge.node_b_id if edge.node_a_id == node.id else edge.node_a_id for edge in rows
-    }
-    beyond = {
-        other.id: other
-        for other in (
-            await session.execute(select(Node).where(Node.id.in_(far)))
-        ).scalars()
-    } if far else {}
+    far = {edge.node_b_id if edge.node_a_id == node.id else edge.node_a_id for edge in rows}
+    beyond = (
+        {
+            other.id: other
+            for other in (await session.execute(select(Node).where(Node.id.in_(far)))).scalars()
+        }
+        if far
+        else {}
+    )
 
     found: list[Exit] = []
     for edge in rows:
@@ -342,7 +355,6 @@ async def has_transport(session: AsyncSession, body: Body) -> bool:
     can be pulled only when harnessed, and the harness is the only sign by
     which the road tells a carter from a walker.
     """
-    from src.engine import transport
 
     return await transport.harnessed(session, body) is not None
 
@@ -361,9 +373,7 @@ def stamina_cost(constants: Constants, seconds: float, *, transport: bool) -> fl
 
 async def current(session: AsyncSession, body: Body) -> Travel | None:
     """This body's ongoing transit, if any."""
-    stmt = select(Travel).where(
-        Travel.body_id == body.id, Travel.state == TravelState.GOING
-    )
+    stmt = select(Travel).where(Travel.body_id == body.id, Travel.state == TravelState.GOING)
     return (await session.execute(stmt)).scalars().first()
 
 
@@ -389,10 +399,8 @@ async def require_here(session: AsyncSession, body: Body) -> None:
     going = await current(session, body)
     if going is not None:
         raise InTransit(
-            f"тело в пути и придёт в {going.arrives_at.isoformat()}: "
-            "материя требует присутствия"
+            f"тело в пути и придёт в {going.arrives_at.isoformat()}: материя требует присутствия"
         )
-    from src.engine import explore
 
     run = await explore.pending(session, body)
     if run is not None:
@@ -427,14 +435,11 @@ async def route(
     does, and it is checked by `depart`, where a refusal can name the reason
     instead of reporting "no road at all".
     """
-    from src.engine import transport
 
     edges = (await session.execute(select(Edge))).scalars().all()
     graph: dict[uuid.UUID, list[tuple[uuid.UUID, float]]] = {}
     for edge in edges:
-        if vehicle is not None and not transport.passable(
-            constants, edge.surface, vehicle
-        ):
+        if vehicle is not None and not transport.passable(constants, edge.surface, vehicle):
             continue
         seconds = edge_seconds(constants, edge)
         if vehicle is not None:
@@ -505,7 +510,6 @@ async def depart(
     #: Imprisonment is a forced restriction of movement to the node (D-095,
     #: D-166). The engine enforces it, not guards: the verdict does not depend
     #: on whether anyone is online.
-    from src.engine import justice
 
     sits = await justice.imprisoned(session, body.identity_id)
     if sits is not None:
@@ -516,7 +520,6 @@ async def depart(
 
     #: Insolvency holds in the node the same way, but it is imposed not by the
     #: authority but by the banking system: world physics, not a verdict (D-063, D-168).
-    from src.engine import bank
 
     holds = await bank.restrained(session, constants, body.identity_id, now=moment)
     if holds is not None:
@@ -529,12 +532,10 @@ async def depart(
     #: (D-199): a road one cannot finish is not worth setting out on. Only the
     #: destination is refused -- the legs in between are passage, and passage is
     #: free (D-204).
-    from src.engine import access
 
     await access.require_entry(session, target, body)
 
     #: A convoy changes both speed and the passability of edges (D-107, D-157).
-    from src.engine import transport
 
     convoy = await transport.harnessed(session, body)
 
@@ -559,7 +560,6 @@ async def depart(
         plan = legs[1:] + plan
 
     #: Left the workshop -- left the conversation: the circle does not follow (D-043).
-    from src.engine import chat
 
     await chat.leave_groups(session, body.identity_id)
 
@@ -576,19 +576,21 @@ async def depart(
 
     #: The border is settled **before** leaving: both sides are already known,
     #: and paying on arrival would let into the city what cannot be paid for (D-123).
-    from src.constants import current_catalog
-    from src.engine import customs
 
     origin_node = await session.get(Node, body.node_id)
     if origin_node is not None:
         await customs.cross(
-            session, constants, current_catalog(), body, origin_node, target,
+            session,
+            constants,
+            current_catalog(),
+            body,
+            origin_node,
+            target,
             now=moment,
         )
 
     #: The road costs stamina, and it is paid up front (D-147). Satiety slows
     #: the spend exactly as at work: lunch is lunch.
-    from src.engine import food
 
     spend = stamina_cost(
         constants, seconds, transport=await has_transport(session, body)
@@ -615,8 +617,6 @@ async def depart(
     #: left in it and frees the bench (D-209). Not on the plan's later legs --
     #: there the body has already left, and there is nothing running.
     if _plan is None:
-        from src.engine import craft
-
         await craft.freeze(session, body, now=moment)
 
     event = await events.record(
@@ -646,9 +646,7 @@ class NotGoing(TravelError):
     """The body is not on the road: there is nothing to turn back from."""
 
 
-async def turn_back(
-    session: AsyncSession, body: Body, *, now: datetime | None = None
-) -> Travel:
+async def turn_back(session: AsyncSession, body: Body, *, now: datetime | None = None) -> Travel:
     """Turn back from the road: the body stays where it left from (D-194).
 
     There is no half of an edge in this world -- a node is the unit of place,
@@ -669,12 +667,8 @@ async def turn_back(
     if going is None:
         raise NotGoing("тело не в пути: возвращаться неоткуда")
 
-    from src.engine import access
-
     here = await session.get(Node, going.from_node_id)
-    if here is not None and not await access.may_enter(
-        session, here, body.identity_id
-    ):
+    if here is not None and not await access.may_enter(session, here, body.identity_id):
         raise access.Barred(
             f"«{here.name}» — чужая закрытая локация, и вы идёте через неё "
             "проходом: с полпути тут не поворачивают, проход идётся до конца"
@@ -687,14 +681,18 @@ async def turn_back(
 
     #: The leg's job is dropped so that the arrival does not fire on schedule.
     legs = (
-        await session.execute(
-            select(Job).where(
-                Job.kind == JobKind.TRAVEL_LEG.value,
-                Job.state == JobState.PENDING,
-                Job.payload["travel"].astext == str(going.id),
+        (
+            await session.execute(
+                select(Job).where(
+                    Job.kind == JobKind.TRAVEL_LEG.value,
+                    Job.state == JobState.PENDING,
+                    Job.payload["travel"].astext == str(going.id),
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     for leg in legs:
         leg.state = JobState.CANCELLED
         leg.finished_at = moment
@@ -708,7 +706,6 @@ async def turn_back(
         travel_id=str(going.id),
     )
     #: Never left after all: the frozen work goes on where the body still stands (D-209).
-    from src.engine import craft
 
     await craft.wake(session, body, now=moment)
     return going
@@ -750,21 +747,17 @@ async def arrive(session: AsyncSession, job: Job) -> None:
     #: (D-209). Only when the road ends here -- a leg of a longer route sends
     #: the body straight on below, and it would freeze again at once.
     if not travel.plan:
-        from src.engine import craft
-
         await craft.wake(session, body, now=job.run_at)
 
     #: The convoy arrived with the body and wore on this leg (D-157). One worn
     #: to zero stops here, and the cargo stays lying in the node.
-    from src.constants import current, current_catalog
-    from src.engine import transport
 
     convoy = await transport.harnessed(session, body)
     broke = False
     if convoy is not None:
         await transport.follow(session, convoy, target)
         broke = await transport.wear_leg(
-            session, current(), current_catalog(), body, convoy, target
+            session, constants_now(), current_catalog(), body, convoy, target
         )
         if broke:
             travel.plan = None
@@ -777,12 +770,9 @@ async def arrive(session: AsyncSession, job: Job) -> None:
         if next_node is None:  # pragma: no cover -- the route is over live nodes
             raise TravelError(f"переход {travel.id}: план ведёт в исчезнувший узел")
         rest = [uuid.UUID(raw) for raw in travel.plan[1:]]
-        from src.engine import customs
 
         try:
-            await depart(
-                session, current(), body, next_node, now=job.run_at, _plan=rest
-            )
+            await depart(session, constants_now(), body, next_node, now=job.run_at, _plan=rest)
         except (
             NoStrength,
             customs.CustomsError,
@@ -806,7 +796,6 @@ async def arrive(session: AsyncSession, job: Job) -> None:
             )
             #: The road ended here after all: whatever of theirs waited in
             #: this node goes on (D-209).
-            from src.engine import craft
 
             await craft.wake(session, body, now=job.run_at)
 
@@ -836,7 +825,6 @@ async def connect(
     await require_exit(session, a, b)
     #: Asked before the edge exists: whether either end is a place nothing led
     #: to yet. See below -- that decides whether measured distances survive.
-    from src.engine import ship as vessels
 
     dead_end = await _unconnected(session, a) or await _unconnected(session, b)
     afloat = vessels.is_aboard(a) or vessels.is_aboard(b)
@@ -867,7 +855,6 @@ async def connect(
     #:   again by whoever needs one. Nobody lays such an edge in play -- roads
     #:   only re-surface edges that exist -- so in practice this is the seed
     #:   catching an already-living world up to a changed map, once per deploy.
-    from src.engine import estate
 
     if dead_end and not afloat:
         #: The map grew at its edge: the new place stands one step further from
@@ -878,7 +865,6 @@ async def connect(
     elif not afloat:
         await estate.forget_distances(session)
     #: The Net's map of the roads changed either way, gangway or not (D-222).
-    from src.engine import net
 
     net.forget_graph()
     return edge
@@ -887,9 +873,7 @@ async def connect(
 async def _unconnected(session: AsyncSession, node: Node) -> bool:
     """Whether no edge leads to this node at all."""
     found = await session.scalar(
-        select(Edge.id)
-        .where(or_(Edge.node_a_id == node.id, Edge.node_b_id == node.id))
-        .limit(1)
+        select(Edge.id).where(or_(Edge.node_a_id == node.id, Edge.node_b_id == node.id)).limit(1)
     )
     return found is None
 
@@ -902,7 +886,6 @@ async def require_exit(session: AsyncSession, a: Node, b: Node) -> None:
     single city -- a street is not a border -- and an edge between nodes outside
     every city: wild land has no walls, so it has no doors either.
     """
-    from src.engine import city as town
 
     here = await town.of_node(session, a)
     there = await town.of_node(session, b)
@@ -939,12 +922,14 @@ async def disconnect(session: AsyncSession, a: Node, b: Node) -> bool:
         return False
 
     walking = (
-        await session.execute(
-            select(Travel).where(
-                Travel.edge_id == edge.id, Travel.state == TravelState.GOING
+        (
+            await session.execute(
+                select(Travel).where(Travel.edge_id == edge.id, Travel.state == TravelState.GOING)
             )
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
     if walking is not None:
         raise EdgeInUse(
             "по переходу сейчас идут: трап из-под идущего не убирают. "
@@ -959,21 +944,15 @@ async def disconnect(session: AsyncSession, a: Node, b: Node) -> bool:
     #: by this one gangway (D-201), and nothing on land counted its way through
     #: a hull. Today that is every removal there is; the check is here for the
     #: day something on land is taken apart.
-    from src.engine import ship as vessels
 
     if not (vessels.is_aboard(a) or vessels.is_aboard(b)):
-        from src.engine import estate
-
         await estate.forget_distances(session)
-    from src.engine import net
 
     net.forget_graph()
     return True
 
 
-async def _edge_between(
-    session: AsyncSession, one: uuid.UUID, other: uuid.UUID
-) -> Edge | None:
+async def _edge_between(session: AsyncSession, one: uuid.UUID, other: uuid.UUID) -> Edge | None:
     stmt = select(Edge).where(
         or_(
             (Edge.node_a_id == one) & (Edge.node_b_id == other),

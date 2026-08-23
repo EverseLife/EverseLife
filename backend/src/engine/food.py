@@ -40,6 +40,7 @@ together with containers and warehouses (04-items).
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -74,9 +75,7 @@ def shelf_hours(constants: Constants, *, rate: float) -> float:
     return constants[R.SPOILAGE_FOOD_BASE] * constants[R.TIME_DAY_TERRA] / rate
 
 
-def harvest_spoils_at(
-    constants: Constants, spoilage_k: float, *, now: datetime
-) -> datetime | None:
+def harvest_spoils_at(constants: Constants, spoilage_k: float, *, now: datetime) -> datetime | None:
     """When the harvest spoils. Crops spoil at their own speed."""
     if spoilage_k <= 0:
         return None
@@ -85,9 +84,7 @@ def harvest_spoils_at(
 
 def cooked_spoils_at(constants: Constants, *, now: datetime) -> datetime:
     """When cooked food spoils: `cook.spoilage_multiplier` times faster than raw."""
-    return now + timedelta(
-        hours=shelf_hours(constants, rate=constants[R.COOK_SPOILAGE_MULTIPLIER])
-    )
+    return now + timedelta(hours=shelf_hours(constants, rate=constants[R.COOK_SPOILAGE_MULTIPLIER]))
 
 
 def drain_multiplier(constants: Constants, body: Body, now: datetime) -> float:
@@ -145,9 +142,7 @@ async def eat(
         restore *= constants[R.COOK_HOT_RESTORE_SHARE] / PERCENT
         if quality >= constants[R.COOK_HOT_QUALITY_MIN]:
             filled = 1.0 if item.roles_filled is None else float(item.roles_filled)
-            body.satiated_until = moment + timedelta(
-                hours=constants[R.COOK_HOT_DURATION] * filled
-            )
+            body.satiated_until = moment + timedelta(hours=constants[R.COOK_HOT_DURATION] * filled)
             satiated = True
 
     flavor = item.flavor or item.type_key
@@ -160,7 +155,6 @@ async def eat(
 
     cap = constants[R.BODY_STAMINA_MAX]
     before = float(body.stamina)
-    from decimal import Decimal
 
     body.stamina = Decimal(str(min(cap, before + restore)))
 
@@ -191,9 +185,7 @@ async def sweep_spoiled(session: AsyncSession, *, now: datetime | None = None) -
     as loss in smelting.
     """
     moment = now or datetime.now(UTC)
-    rotten = (
-        await session.execute(select(Item).where(Item.spoils_at <= moment))
-    ).scalars().all()
+    rotten = (await session.execute(select(Item).where(Item.spoils_at <= moment))).scalars().all()
     for item in rotten:
         await events.record(
             session,
@@ -217,16 +209,18 @@ def _recipe_of(catalog: Catalog, type_key: str):
         return None
 
 
-async def _varied(
-    session: AsyncSession, constants: Constants, identity_id
-) -> bool:
+async def _varied(session: AsyncSession, constants: Constants, identity_id) -> bool:
     window = int(constants[R.FOOD_VARIETY_WINDOW])
     recent = (
-        await session.execute(
-            select(Meal.flavor)
-            .where(Meal.identity_id == identity_id)
-            .order_by(Meal.at.desc())
-            .limit(window)
+        (
+            await session.execute(
+                select(Meal.flavor)
+                .where(Meal.identity_id == identity_id)
+                .order_by(Meal.at.desc())
+                .limit(window)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return len(set(recent)) >= int(constants[R.FOOD_VARIETY_MIN_KINDS])

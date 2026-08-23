@@ -32,6 +32,23 @@ else
     exit 1
 fi
 
+#: The same runner, for the format check and the layers contract.
+runner="${lint% -m ruff check .}"
+runner="${runner%ruff check .}"
+if [ -n "$runner" ] && [ "$runner" != "$lint" ]; then
+    if ! $runner -m ruff format --check . > /dev/null 2>&1 && ! ${runner}ruff format --check . > /dev/null 2>&1; then
+        echo "pre-commit: ruff format --check failed -- cd backend && ruff format ." >&2
+        exit 1
+    fi
+fi
+#: `PYTHONIOENCODING`: import-linter draws with emoji, and a Windows console
+#: in cp1251 would crash on them before reporting anything.
+if [ -x .venv/Scripts/lint-imports.exe ]; then
+    PYTHONIOENCODING=utf-8 .venv/Scripts/lint-imports.exe > /dev/null || { echo "pre-commit: layers contract broken (lint-imports)" >&2; exit 1; }
+elif [ -x .venv/bin/lint-imports ]; then
+    .venv/bin/lint-imports > /dev/null || { echo "pre-commit: layers contract broken (lint-imports)" >&2; exit 1; }
+fi
+
 if ! $lint; then
     echo >&2
     echo "pre-commit: lint failed, CI would stop here too" >&2

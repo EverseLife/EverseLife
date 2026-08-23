@@ -74,17 +74,24 @@ there, the mechanics will arrive as their own task.
 
 from __future__ import annotations
 
+import json
 import uuid
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.constants import Catalog, Constants
-from src.engine import events, ledger
+from src.constants import Catalog, Constants, current
+from src.constants import registry as R
+from src.constants.spec import Num
+from src.engine import death, energy, estate, events, ledger, market, travel, utility, world
+from src.engine import vote as ballots
+from src.engine.death import PRECURSOR
 from src.engine.errors import Refusal
 from src.engine.jobs import enqueue, handler
+from src.engine.world import node_container, station_names
 from src.models.city import (
     LAW_SCOPE,
     Citizen,
@@ -94,12 +101,17 @@ from src.models.city import (
     Office,
     Power,
 )
+from src.models.energy import EnergyPool
+from src.models.estate import Deed
 from src.models.event import EventKind
-from src.models.identity import Identity
+from src.models.identity import BodyState, Identity
+from src.models.inventory import Item
 from src.models.job import Job, JobKind
 from src.models.ledger import AccountKind, PostingReason
-from src.models.world import Layer, Node
-from src.units import money, money_str
+from src.models.vote import VoteKind
+from src.models.world import Layer, Node, NodePass
+from src.runtime import CITY_ABOUT_LIMIT
+from src.units import ENERGY_PER_TARIFF_UNIT, money, money_str
 
 
 class CityError(Refusal):
@@ -145,9 +157,7 @@ async def by_id(session: AsyncSession, city_id: uuid.UUID) -> City | None:
 
 async def by_node(session: AsyncSession, node_id: uuid.UUID) -> City | None:
     """The city whose delegate node this is."""
-    return (
-        await session.execute(select(City).where(City.node_id == node_id))
-    ).scalar_one_or_none()
+    return (await session.execute(select(City).where(City.node_id == node_id))).scalar_one_or_none()
 
 
 async def of_node(session: AsyncSession, node: Node) -> City | None:
@@ -211,8 +221,6 @@ async def core(session: AsyncSession, city: City) -> Node | None:
     built later print the dead and the returning, but a newcomer does not come
     out of somebody's workshop.
     """
-    from src.engine import world
-    from src.engine.death import PRECURSOR
 
     own = await session.get(Node, city.node_id)
     if own is not None and await world.has_station(session, own, world.BIOPRINTER):
@@ -236,7 +244,6 @@ async def gate(session: AsyncSession, city: City) -> Node | None:
     for a city from before that decision which the catch-up seed has not reached
     yet -- and then a road into it is refused rather than tied to a random node.
     """
-    from src.engine import travel
 
     for node in await territory(session, city):
         if (node.properties or {}).get(travel.EXIT):
@@ -308,7 +315,6 @@ async def _mark_gate(session: AsyncSession, city: City, node: Node) -> None:
     A city that already has a gate keeps it: the capital's gate is a node of its
     own, and the seed marked it long before founding.
     """
-    from src.engine import travel
 
     ground = await territory(session, city)
     if any((place.properties or {}).get(travel.EXIT) for place in ground):
@@ -323,8 +329,6 @@ async def _mark_gate(session: AsyncSession, city: City, node: Node) -> None:
 #: describes no "warehouse" item: the engine may not require the nonexistent.
 def foundation_needs() -> tuple[tuple[str, tuple[str, ...]], ...]:
     """What must stand in the node before founding: role -> what satisfies it."""
-    from src.engine import death, energy, market
-    from src.engine.world import station_names
 
     return (
         ("биопринтер", station_names(death.PRINTER)),
@@ -341,12 +345,8 @@ def foundation_needs() -> tuple[tuple[str, tuple[str, ...]], ...]:
     )
 
 
-async def missing_for_foundation(
-    session: AsyncSession, node: Node
-) -> tuple[str, ...]:
+async def missing_for_foundation(session: AsyncSession, node: Node) -> tuple[str, ...]:
     """What the node lacks to become a city. Empty -- founding is possible."""
-    from src.engine.world import node_container
-    from src.models.inventory import Item
 
     yard = await node_container(session, node)
     costs = set(
@@ -358,9 +358,7 @@ async def missing_for_foundation(
         .scalars()
         .all()
     )
-    return tuple(
-        role for role, with_what in foundation_needs() if not set(with_what) & costs
-    )
+    return tuple(role for role, with_what in foundation_needs() if not set(with_what) & costs)
 
 
 async def establish(
@@ -381,8 +379,6 @@ async def establish(
     city and the deed for it is cancelled -- civic land is handed out by the
     authority, not the market (D-089).
     """
-    from src.engine import travel
-    from src.models.identity import BodyState
 
     if body.state is not BodyState.ALIVE:
         raise CityError("мёртвое тело городов не основывает")
@@ -392,9 +388,7 @@ async def establish(
     if node is None:  # pragma: no cover -- a body always stands in a node
         raise CityError("тело вне узла")
     if node.layer is not Layer.PLANET:
-        raise CityError(
-            "город закладывают на узле планеты: в чужой застройке города не заводят"
-        )
+        raise CityError("город закладывают на узле планеты: в чужой застройке города не заводят")
     #: Nobody's land needs no title before founding -- outside a city there is
     #: none to be had (D-198). Somebody else's plot is still somebody else's:
     #: a city is not founded over a living owner's head.
@@ -408,8 +402,9 @@ async def establish(
     shortfall = await missing_for_foundation(session, node)
     if shortfall:
         raise NotReady(
-            "для города не хватает: " + ", ".join(shortfall) +
-            ". Порог входа — постройки, а не монета"
+            "для города не хватает: "
+            + ", ".join(shortfall)
+            + ". Порог входа — постройки, а не монета"
         )
 
     title = name.strip()
@@ -451,11 +446,8 @@ async def _retire_deed(
     Two ways lead here, and the event must tell them apart: the founding of a
     city over the land, and the holder handing the plot back (`cede`).
     """
-    from src.models.estate import Deed
 
-    deed = (
-        await session.execute(select(Deed).where(Deed.node_id == node.id))
-    ).scalar_one_or_none()
+    deed = (await session.execute(select(Deed).where(Deed.node_id == node.id))).scalar_one_or_none()
     if deed is None:
         return
     await session.delete(deed)
@@ -556,18 +548,18 @@ async def _enrol_founder(session: AsyncSession, city: City, who: Identity) -> No
 async def offices(session: AsyncSession, city: City) -> list[Office]:
     """The city's current offices. Vacated ones stay in the journal but not here."""
     rows = (
-        await session.execute(
-            select(Office).where(
-                Office.city_id == city.id, Office.revoked_at.is_(None)
+        (
+            await session.execute(
+                select(Office).where(Office.city_id == city.id, Office.revoked_at.is_(None))
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return list(rows)
 
 
-async def powers_of(
-    session: AsyncSession, identity_id: uuid.UUID, city: City
-) -> set[str]:
+async def powers_of(session: AsyncSession, identity_id: uuid.UUID, city: City) -> set[str]:
     """This identity's rights in this city, as strings (D-155).
 
     A right can be broad (`treasury`) or narrow (`law:import_duty`). The engine
@@ -602,14 +594,11 @@ async def require(
     needed = power.value if isinstance(power, Power) else str(power)
     if not await may(session, identity_id, city, needed):
         raise NotAllowed(
-            f"нет права «{needed}» в городе «{city.name}»: "
-            "власть — это должность, а не намерение"
+            f"нет права «{needed}» в городе «{city.name}»: власть — это должность, а не намерение"
         )
 
 
-async def require_at_hall(
-    session: AsyncSession, body, city: City
-) -> None:
+async def require_at_hall(session: AsyncSession, body, city: City) -> None:
     """Governing is done **in the administration** of this city (D-155).
 
     Authority that can be exercised from across the ocean needs neither a
@@ -618,10 +607,6 @@ async def require_at_hall(
 
     Reading the panel is unaffected: figures travel over the Net (D-140).
     """
-    from src.engine import travel, utility, world
-    from src.models.identity import BodyState
-    from src.models.inventory import Item
-    from src.models.world import Node
 
     if body is None or body.state is not BodyState.ALIVE:
         raise NotAllowed("управлять городом можно только живым телом")
@@ -631,9 +616,7 @@ async def require_at_hall(
     if node is None:  # pragma: no cover
         raise NotAllowed("тело вне узла")
     if node.owner_city_id != city.id:
-        raise NotAllowed(
-            f"это не территория города «{city.name}»: власть осуществляется у себя"
-        )
+        raise NotAllowed(f"это не территория города «{city.name}»: власть осуществляется у себя")
     yard = await world.node_container(session, node)
     costs = await session.scalar(
         select(Item.id)
@@ -644,13 +627,9 @@ async def require_at_hall(
         .limit(1)
     )
     if costs is None:
-        raise NotAllowed(
-            "здесь нет администрации: решения города принимаются в ней"
-        )
+        raise NotAllowed("здесь нет администрации: решения города принимаются в ней")
     if await utility.cut_off(session, node):
-        raise NotAllowed(
-            "администрация отключена за неуплату: город без неё слеп и нем"
-        )
+        raise NotAllowed("администрация отключена за неуплату: город без неё слеп и нем")
 
 
 async def appoint(
@@ -674,10 +653,7 @@ async def appoint(
     own_items = await powers_of(session, by.id, city)
     extra = {right for right in powers if not covers(own_items, right)}
     if extra:
-        raise NotAllowed(
-            "нельзя передать то, чего нет у себя: "
-            + ", ".join(sorted(extra))
-        )
+        raise NotAllowed("нельзя передать то, чего нет у себя: " + ", ".join(sorted(extra)))
     if not powers:
         raise CityError("должность без полномочий — это не должность")
 
@@ -687,9 +663,7 @@ async def appoint(
             prior.revoked_at = datetime.now(UTC)
     await session.flush()
 
-    office = await _office(
-        session, city, whom.id, title=title, powers=tuple(powers), by=by.id
-    )
+    office = await _office(session, city, whom.id, title=title, powers=tuple(powers), by=by.id)
     await events.record(
         session,
         EventKind.CITY_OFFICE_APPOINTED,
@@ -715,8 +689,7 @@ async def revoke(
         raise CityError("должность не этого города")
     if office.identity_id == city.founder_identity_id:
         raise NotAllowed(
-            "основателя снимает устав, а не приказ: см. `ruler_recall` и "
-            "`charter.silence_days`"
+            "основателя снимает устав, а не приказ: см. `ruler_recall` и `charter.silence_days`"
         )
     office.revoked_at = datetime.now(UTC)
     await session.flush()
@@ -750,22 +723,16 @@ def law(catalog: Catalog, city: City, law_id: str):
     return catalog.laws.code_law_defaults().get(law_id)
 
 
-def law_number(
-    constants: Constants, catalog: Catalog, city: City | None, law_id: str
-) -> float:
+def law_number(constants: Constants, catalog: Catalog, city: City | None, law_id: str) -> float:
     """The same as a number. A default like `` `energy.tariff_default` `` expands
     into a vault constant: a law may reference it, the engine may not (D-065)."""
     raw = (
-        catalog.laws.code_law_defaults().get(law_id)
-        if city is None
-        else law(catalog, city, law_id)
+        catalog.laws.code_law_defaults().get(law_id) if city is None else law(catalog, city, law_id)
     )
     if raw is None:
         return 0.0
     text = str(raw).strip()
     if text.startswith("`") and text.endswith("`"):
-        from src.constants.spec import Num
-
         return float(constants[Num(text.strip("`"))])
     try:
         return float(text)
@@ -803,7 +770,6 @@ async def set_law(
     #: charter may add a council to the authority: "the council proposes laws"
     #: means as many legislators as seats, and the ruler is not the only one
     #: among them (D-164).
-    from src.engine import vote as ballots
 
     if not await ballots.may_propose(session, city, by.id):
         await require(session, by.id, city, f"{LAW_SCOPE}{law_id}")
@@ -814,7 +780,6 @@ async def set_law(
     #: what `law_approval` asks. Both the council and all citizens may approve
     #: -- the charter decides which (D-161, D-164). In both cases the ruler
     #: convenes rather than decides.
-    from src.models.vote import VoteKind
 
     voters = ballots.voters_for(city, VoteKind.LAW)
     if ballots.by_citizens(city) or voters == ballots.COUNCIL_VOTERS:
@@ -847,9 +812,6 @@ async def _apply_tariff(
     session: AsyncSession, constants: Constants, catalog: Catalog, city: City
 ) -> None:
     """Push the tariff through to the pool: the pool holds it as a column (D-085)."""
-    from decimal import Decimal
-
-    from src.models.energy import EnergyPool
 
     node = await session.get(Node, city.node_id)
     if node is None:  # pragma: no cover
@@ -895,15 +857,11 @@ async def set_charter(
     #: The charter is amended by the procedure it names itself (D-163): `never`
     #: -- not amended at all, two thirds or unanimity -- by a citizens' vote.
     #: Otherwise the ruler could single-handedly forbid their own recall.
-    from src.constants import current
-    from src.engine import vote as ballots
 
     if ballots.sealed(city):
         raise ballots.Sealed("устав этого города не меняется: так решил он сам")
     if ballots.amends_by_vote(city):
-        await ballots.open_charter(
-            session, current(), city, by, question_id, option_id, param
-        )
+        await ballots.open_charter(session, current(), city, by, question_id, option_id, param)
         return city
 
     charter = dict(city.charter or {})
@@ -934,9 +892,7 @@ SPAWN_TERM = "spawn_term"
 TRADE_TAX = "tax_trade"
 
 
-def spawn_terms(
-    constants: Constants, catalog: Catalog, city: City | None
-) -> tuple[bool, float]:
+def spawn_terms(constants: Constants, catalog: Catalog, city: City | None) -> tuple[bool, float]:
     """The city's print conditions: whether citizenship is mandatory and for how many days.
 
     A term without mandatory citizenship refers to nothing and is therefore
@@ -1001,7 +957,6 @@ async def describe(
     either read promises with code or forbid them altogether, leaving the city
     without a voice.
     """
-    from src.runtime import CITY_ABOUT_LIMIT
 
     await require_at_hall(session, body, city)
     await require(session, by.id, city, Power.CITIZENS)
@@ -1009,8 +964,7 @@ async def describe(
     word = text.strip()
     if len(word) > CITY_ABOUT_LIMIT:
         raise CityError(
-            f"слово города длиннее {CITY_ABOUT_LIMIT} знаков: карточку читают "
-            "за десять секунд"
+            f"слово города длиннее {CITY_ABOUT_LIMIT} знаков: карточку читают за десять секунд"
         )
 
     before, city.about = city.about, word
@@ -1063,9 +1017,7 @@ async def spend(
     treasury_account = await treasury(session, city)
     remainder = await ledger.balance(session, treasury_account.id)
     if remainder < amount:
-        raise NotEnoughTreasury(
-            f"в казне {money_str(remainder)} ₭, а нужно {money_str(amount)} ₭"
-        )
+        raise NotEnoughTreasury(f"в казне {money_str(remainder)} ₭, а нужно {money_str(amount)} ₭")
 
     to_whom = await ledger.account_for(session, AccountKind.IDENTITY, to.id)
     await ledger.transfer(
@@ -1115,9 +1067,7 @@ async def welcome(
 
     before = (
         await session.execute(
-            select(CityGrant).where(
-                CityGrant.city_id == city.id, CityGrant.identity_id == who.id
-            )
+            select(CityGrant).where(CityGrant.city_id == city.id, CityGrant.identity_id == who.id)
         )
     ).scalar_one_or_none()
     if before is not None:
@@ -1183,7 +1133,6 @@ async def allot(
     await session.flush()
 
     #: An allotted plot is documented by a deed, like a bought one (D-116).
-    from src.engine import estate
 
     await estate.issue_deed(session, node, to.id)
 
@@ -1218,10 +1167,6 @@ async def cede(session: AsyncSession, body, node: Node) -> City:
     a way to run machines and write the bill off onto the city; the debt is
     closed first, and only then is there anything to hand over.
     """
-    from src.engine import travel, utility
-    from src.models.estate import Deed
-    from src.models.identity import BodyState
-    from src.models.world import NodePass
 
     if body is None or body.state is not BodyState.ALIVE:
         raise CityError("мёртвое тело участками не распоряжается")
@@ -1236,9 +1181,7 @@ async def cede(session: AsyncSession, body, node: Node) -> City:
     if city is None:  # pragma: no cover -- civic land without a city is a bug
         raise NoCity("участок приписан к несуществующему городу")
 
-    deed = (
-        await session.execute(select(Deed).where(Deed.node_id == node.id))
-    ).scalar_one_or_none()
+    deed = (await session.execute(select(Deed).where(Deed.node_id == node.id))).scalar_one_or_none()
     if deed is not None and deed.sale_price is not None:
         raise CityError(
             "бумага на участок выставлена на продажу: снимите её с торгов, "
@@ -1270,9 +1213,7 @@ async def cede(session: AsyncSession, body, node: Node) -> City:
     return city
 
 
-async def upkeep_of(
-    session: AsyncSession, constants: Constants, city: City
-) -> dict:
+async def upkeep_of(session: AsyncSession, constants: Constants, city: City) -> dict:
     """What the city's own household costs it per meter period (D-149).
 
     The treasury pays for a civic node with energy rather than with money, and
@@ -1285,9 +1226,6 @@ async def upkeep_of(
     is the price of the decision, and that is exactly what makes it a figure
     worth showing.
     """
-    from src.constants import registry as R
-    from src.engine import energy, utility
-    from src.units import ENERGY_PER_TARIFF_UNIT
 
     period = constants[R.ENERGY_METER_PERIOD]
     pool = await energy.pool_of(
@@ -1316,9 +1254,7 @@ async def upkeep_of(
     }
 
 
-async def survey(
-    session: AsyncSession, constants: Constants, catalog: Catalog, city: City
-) -> dict:
+async def survey(session: AsyncSession, constants: Constants, catalog: Catalog, city: City) -> dict:
     """City summary: charter, laws, offices, treasury. Remote read.
 
     What is visible and to whom is a charter question (`treasury_publicity`),
@@ -1382,16 +1318,13 @@ async def survey(
     }
 
 
-def _shown(
-    constants: Constants, catalog: Catalog, city: City, law_id: str
-) -> str | None:
+def _shown(constants: Constants, catalog: Catalog, city: City, law_id: str) -> str | None:
     raw = law(catalog, city, law_id)
     if raw is None:
         return None
     if isinstance(raw, (dict, list)):
         #: A composite law (duty) goes to the client as is: showing it as a
         #: string would force the client to parse it back.
-        import json
 
         return json.dumps(raw, ensure_ascii=False)
     text = str(raw).strip()
@@ -1437,18 +1370,14 @@ async def citizenship(session: AsyncSession, identity_id: uuid.UUID) -> Citizen 
     ).scalar_one_or_none()
 
 
-async def is_citizen(
-    session: AsyncSession, identity_id: uuid.UUID, city: City
-) -> bool:
+async def is_citizen(session: AsyncSession, identity_id: uuid.UUID, city: City) -> bool:
     entry = await citizenship(session, identity_id)
     return entry is not None and entry.city_id == city.id
 
 
 async def citizens_of(session: AsyncSession, city: City) -> list[Citizen]:
     return list(
-        (
-            await session.execute(select(Citizen).where(Citizen.city_id == city.id))
-        ).scalars().all()
+        (await session.execute(select(Citizen).where(Citizen.city_id == city.id))).scalars().all()
     )
 
 
@@ -1465,29 +1394,26 @@ async def request_of(
     ).scalar_one_or_none()
 
 
-async def requests_of(
-    session: AsyncSession, city: City
-) -> list[CitizenshipRequest]:
+async def requests_of(session: AsyncSession, city: City) -> list[CitizenshipRequest]:
     """The queue: who applies and who was invited. Reference, not a decision."""
     return list(
         (
             await session.execute(
                 select(CitizenshipRequest).where(CitizenshipRequest.city_id == city.id)
             )
-        ).scalars().all()
+        )
+        .scalars()
+        .all()
     )
 
 
-async def join(
-    session: AsyncSession, body, city: City
-) -> Citizen | CitizenshipRequest:
+async def join(session: AsyncSession, body, city: City) -> Citizen | CitizenshipRequest:
     """Apply for citizenship. What comes of it is decided by the city charter (D-160).
 
     In person, in the administration: citizens are enrolled where the city
     makes every decision (D-155). Returns either citizenship or an application
     -- per the charter's answer to `citizenship_admission`.
     """
-    from src.engine import travel
 
     await travel.require_here(session, body)
     await require_at_hall(session, body, city)
@@ -1496,9 +1422,7 @@ async def join(
     if existing_amount is not None:
         if existing_amount.city_id == city.id:
             raise AlreadyCitizen("вы уже гражданин этого города")
-        raise AlreadyCitizen(
-            "гражданство одно на человека: сначала выйти из прежнего города"
-        )
+        raise AlreadyCitizen("гражданство одно на человека: сначала выйти из прежнего города")
 
     order_of = admission(city)
     call = await request_of(session, body.identity_id, city)
@@ -1510,16 +1434,12 @@ async def join(
         return await _enroll(session, city, body.identity_id, why=order_of)
 
     if order_of == INVITE:
-        raise NotAllowed(
-            "в этот город принимают только по приглашению: ждите зова власти"
-        )
+        raise NotAllowed("в этот город принимают только по приглашению: ждите зова власти")
 
     #: An application remains: it is filed and waits for the authority's decision.
     if call is not None:
         return call
-    order = CitizenshipRequest(
-        identity_id=body.identity_id, city_id=city.id, kind=APPLICATION
-    )
+    order = CitizenshipRequest(identity_id=body.identity_id, city_id=city.id, kind=APPLICATION)
     session.add(order)
     await session.flush()
     await events.record(
@@ -1561,9 +1481,7 @@ async def invite(
     return call
 
 
-async def admit(
-    session: AsyncSession, by: Identity, city: City, who: Identity
-) -> Citizen:
+async def admit(session: AsyncSession, by: Identity, city: City, who: Identity) -> Citizen:
     """Approve an application. Right `citizens`: the city's personnel is authority too."""
     await require(session, by.id, city, Power.CITIZENS)
     order = await request_of(session, who.id, city)
@@ -1587,9 +1505,6 @@ async def leave(
     Remote: the declaration goes over the Net. The delay exists so that one
     cannot leave the city right before a verdict.
     """
-    from src.constants import registry as R
-    from src.engine.jobs import enqueue
-    from src.models.job import JobKind
 
     moment = now or datetime.now(UTC)
     entry = await citizenship(session, identity.id)
@@ -1626,9 +1541,7 @@ async def leave(
     return entry
 
 
-async def exile(
-    session: AsyncSession, by: Identity, city: City, who: Identity
-) -> None:
+async def exile(session: AsyncSession, by: Identity, city: City, who: Identity) -> None:
     """Exile from the city. A sanction, not a personnel decision: right `justice`.
 
     The charter options `court` and `citizens_vote` are not enforced while there
@@ -1660,9 +1573,7 @@ async def _enroll(
     by: uuid.UUID | None = None,
     bound_until: datetime | None = None,
 ) -> Citizen:
-    entry = Citizen(
-        identity_id=identity_id, city_id=city.id, bound_until=bound_until
-    )
+    entry = Citizen(identity_id=identity_id, city_id=city.id, bound_until=bound_until)
     session.add(entry)
     await session.flush()
     await events.record(
@@ -1731,12 +1642,14 @@ async def ruler(session: AsyncSession, city: City) -> Office | None:
     inventions.
     """
     offices = (
-        await session.execute(
-            select(Office).where(
-                Office.city_id == city.id, Office.revoked_at.is_(None)
+        (
+            await session.execute(
+                select(Office).where(Office.city_id == city.id, Office.revoked_at.is_(None))
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     if not offices:
         return None
     return sorted(offices, key=lambda office: (-len(office.powers or []), office.created_at))[0]
@@ -1792,7 +1705,6 @@ async def schedule_term(
     `ruler_term: fixed` in days: on the term the office is vacated by itself.
     Otherwise "elected for thirty days" means "until they remember themselves".
     """
-    from src.engine import vote as ballots
 
     if ballots.answer(city, ballots.TERM, "unlimited") != ballots.FIXED_TERM:
         return
@@ -1812,8 +1724,6 @@ async def schedule_term(
 @handler(JobKind.RULER_TERM)
 async def term_ended(session: AsyncSession, job: Job) -> None:
     """The term is up: the office is vacated, and the city goes to an election if it can."""
-    from src.constants import current
-    from src.engine import vote as ballots
 
     office = await session.get(Office, uuid.UUID(job.payload["office"]))
     city = await by_id(session, uuid.UUID(job.payload["city"]))

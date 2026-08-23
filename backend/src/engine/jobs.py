@@ -208,6 +208,4 @@ def require_handlers() -> None:
 
     missing = {kind.value for kind in JobKind} - registered_kinds()
     if missing:
-        raise UnknownJobKind(
-            "нет обработчиков для видов заданий: " + ", ".join(sorted(missing))
-        )
+        raise UnknownJobKind("нет обработчиков для видов заданий: " + ", ".join(sorted(missing)))

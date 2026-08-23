@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 Nurlan Urazkulov
 
-""""Roof" (D-143).
+""" "Roof" (D-143).
 
 Checked is not "the function returns a number" but what the mechanic was written for:
 
@@ -62,9 +62,7 @@ async def _tool(session: AsyncSession, body):
     )
 
 
-async def test_mining_requires_a_pickaxe(
-    session: AsyncSession, constants: Constants
-) -> None:
+async def test_mining_requires_a_pickaxe(session: AsyncSession, constants: Constants) -> None:
     """`Добыча requires: [Кирка, Жила]` was in the vault from the start; the
     engine finally checks it (D-215): no tool of the class -- no session."""
     _, vein, body = await _face(session, tooled=False)
@@ -86,9 +84,7 @@ def test_sign_lies_both_ways(constants: Constants) -> None:
     """Without noise the bands are invertible into arithmetic, and the hidden number is gone."""
     bands = constants[R.MINE_SIGN_BANDS]
     border = bands["сыплется пыль"]
-    observations = {
-        mining.sign_of(constants, border, random.Random(seed)) for seed in range(200)
-    }
+    observations = {mining.sign_of(constants, border, random.Random(seed)) for seed in range(200)}
     assert len(observations) > 1, "на границе полосы признак обязан быть неоднозначным"
 
 
@@ -152,9 +148,7 @@ async def test_mined_accumulates_and_goes_to_inventory(
     assert yield_ == pytest.approx(kind.mined)
 
 
-async def test_collapse_costs_whole_session(
-    session: AsyncSession, constants: Constants
-) -> None:
+async def test_collapse_costs_whole_session(session: AsyncSession, constants: Constants) -> None:
     """The stake grows during the session -- that is all the tension (D-143)."""
     _, vein, body = await _face(session)
     pickaxe = await _tool(session, body)
@@ -212,9 +206,7 @@ async def test_collapse_sometimes_wounds(session: AsyncSession, constants: Const
     assert body.state is BodyState.ALIVE, "рана — не смерть"
 
 
-async def test_collapse_sometimes_kills(
-    session: AsyncSession, constants: Constants
-) -> None:
+async def test_collapse_sometimes_kills(session: AsyncSession, constants: Constants) -> None:
     """The environment is the only source of death in the alpha: combat is frozen (D-111).
 
     "Cave-in and gas kill newcomer and oldtimer alike" (08-danger), so the
@@ -246,10 +238,14 @@ async def test_collapse_sometimes_kills(
 
     yard = await world.node_container(session, node)
     left = (
-        await session.execute(
-            select(Item).where(Item.container_id == yard.id, Item.type_key == "Уголь")
+        (
+            await session.execute(
+                select(Item).where(Item.container_id == yard.id, Item.type_key == "Уголь")
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert left, "мёртвый оставляет треть, а не ничего"
 
 
@@ -287,9 +283,7 @@ async def test_roof_survives_leaving(session: AsyncSession, constants: Constants
     assert float(second.roof) == pytest.approx(shaken), "свод забоя обнулился уходом"
 
 
-async def test_support_stays_after_the_shift(
-    session: AsyncSession, constants: Constants
-) -> None:
+async def test_support_stays_after_the_shift(session: AsyncSession, constants: Constants) -> None:
     """A support is an investment in the working, not a consumable of one visit."""
     _, vein, body = await _face(session, richness=60)
     container = await world.body_container(session, body)
@@ -330,14 +324,10 @@ async def test_collapse_starts_the_working_over(
     await session.refresh(vein)
     assert vein.roof is None, "после обвала забой начинается заново"
     fresh = await mining.start(session, constants, body, vein)
-    assert float(fresh.roof) == pytest.approx(
-        mining.starting_roof(constants, float(vein.richness))
-    )
+    assert float(fresh.roof) == pytest.approx(mining.starting_roof(constants, float(vein.richness)))
 
 
-async def test_shaken_working_is_shared(
-    session: AsyncSession, constants: Constants
-) -> None:
+async def test_shaken_working_is_shared(session: AsyncSession, constants: Constants) -> None:
     """The roof is common to everyone digging the vein (D-099, D-188)."""
     node, vein, first_body = await _face(session, richness=60)
     await _tool(session, first_body)
@@ -416,9 +406,7 @@ async def test_vein_depletes_in_tiers(session: AsyncSession, constants: Constant
     assert float(vein.richness) == pytest.approx(before - constants[R.VEIN_RICHNESS_DECAY])
 
 
-async def test_neighbour_hinders_on_rich_vein(
-    session: AsyncSession, constants: Constants
-) -> None:
+async def test_neighbour_hinders_on_rich_vein(session: AsyncSession, constants: Constants) -> None:
     """Such a vein is fought over, guarded and licensed (D-099)."""
     rich = constants[R.MINING_RICH_THRESHOLD] + 20
     _, vein, first = await _face(session, richness=rich)
@@ -435,9 +423,7 @@ async def test_neighbour_hinders_on_rich_vein(
     assert together < self_
 
 
-async def test_neighbour_helps_on_poor_vein(
-    session: AsyncSession, constants: Constants
-) -> None:
+async def test_neighbour_helps_on_poor_vein(session: AsyncSession, constants: Constants) -> None:
     """A poor vein feeds a crew. The best entry into the social game (D-099)."""
     poor = constants[R.MINING_RICH_THRESHOLD] - 20
     _, vein, first = await _face(session, richness=poor)
@@ -451,18 +437,14 @@ async def test_neighbour_helps_on_poor_vein(
     assert await mining.crowd_factor(constants, session, vein) > 1.0
 
 
-async def test_cannot_dig_two_faces_at_once(
-    session: AsyncSession, constants: Constants
-) -> None:
+async def test_cannot_dig_two_faces_at_once(session: AsyncSession, constants: Constants) -> None:
     _, vein, body = await _face(session)
     await mining.start(session, constants, body, vein)
     with pytest.raises(mining.SessionClosed):
         await mining.start(session, constants, body, vein)
 
 
-async def test_must_walk_to_vein(
-    session: AsyncSession, constants: Constants
-) -> None:
+async def test_must_walk_to_vein(session: AsyncSession, constants: Constants) -> None:
     """Information travels over the Net, matter requires presence (D-044)."""
     _, vein, _ = await _face(session)
     other = await world.create_node(session, "terra.far", "Далеко", area_m2=100)
@@ -484,9 +466,7 @@ async def _node(session: AsyncSession, vein: Vein):
 # --- stamina (the zero constraint) -------------------------------------------
 
 
-async def test_no_digging_with_zero_stamina(
-    session: AsyncSession, constants: Constants
-) -> None:
+async def test_no_digging_with_zero_stamina(session: AsyncSession, constants: Constants) -> None:
     """A body at zero does not mine: a swing costs strength, and without it the vein is closed."""
     from decimal import Decimal
 

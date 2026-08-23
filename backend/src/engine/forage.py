@@ -46,7 +46,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.constants.spec import ConstantError
-from src.engine import estate, events, gear, travel, world
+from src.engine import estate, events, food, gear, luck, occupation, travel, world
 from src.engine.errors import Refusal
 from src.models.event import EventKind
 from src.models.forage import Forage
@@ -114,9 +114,7 @@ def finds(constants: Constants) -> dict[str, float]:
     handfuls = constants[R.FORAGE_HANDFUL]
     missing = sorted(set(paces) - set(handfuls))
     if missing:
-        raise ConstantError(
-            "forage.handful не называет горсть для: " + ", ".join(missing)
-        )
+        raise ConstantError("forage.handful не называет горсть для: " + ", ".join(missing))
     return paces
 
 
@@ -156,7 +154,6 @@ async def _roll(
     peak in the middle: what lies on the ground is mostly ordinary, and both a
     treasure and a piece of junk are rare. A magnitude has no droughts.
     """
-    from src.engine import luck
 
     found = await luck.draw(
         session, body.identity_id, luck.FORAGE_WHAT, finds(constants), dice=dice
@@ -209,7 +206,6 @@ async def start(
         raise AlreadySearching("поиск уже идёт: дождитесь находки или закончите")
     #: A search is an occupation (D-211): one does not walk the plot while a
     #: batch of one's own runs at a bench or a plot lies under the plough.
-    from src.engine import occupation
 
     await occupation.require_free(session, body, besides=frozenset({occupation.FORAGE}))
 
@@ -221,8 +217,7 @@ async def start(
     room = await empty_area(session, node)
     if room < constants[R.FORAGE_MIN_AREA]:
         raise NoRoom(
-            f"пустой земли {room:.0f} м², а собирать есть где от "
-            f"{constants[R.FORAGE_MIN_AREA]:.0f}"
+            f"пустой земли {room:.0f} м², а собирать есть где от {constants[R.FORAGE_MIN_AREA]:.0f}"
         )
 
     #: Seeded by the row's id: what this search finds is settled now and does
@@ -231,15 +226,9 @@ async def start(
     dice = random.Random(str(row_id))
     seconds = search_seconds(constants, room, dice)
 
-    from src.engine import food
-
-    spend = constants[R.FORAGE_SEARCH_STAMINA] * food.drain_multiplier(
-        constants, body, moment
-    )
+    spend = constants[R.FORAGE_SEARCH_STAMINA] * food.drain_multiplier(constants, body, moment)
     if spend > float(body.stamina):
-        raise NoStrength(
-            f"нет сил на поиск: нужно {spend:.2f}, есть {float(body.stamina):.2f}"
-        )
+        raise NoStrength(f"нет сил на поиск: нужно {spend:.2f}, есть {float(body.stamina):.2f}")
     body.stamina = Decimal(str(float(body.stamina) - spend))
 
     found, units, quality = await _roll(session, constants, body, dice)

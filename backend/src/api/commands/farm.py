@@ -25,6 +25,7 @@ from src.engine import (
     farm,
     forage,
 )
+from src.models.farm import Plot
 from src.models.plant import Nursery, Variety
 
 
@@ -191,7 +192,6 @@ async def _farm_survey(state: dict, db: AsyncSession, message: dict) -> dict:
 
 
 async def _plot(db: AsyncSession, message: dict):
-    from src.models.farm import Plot
 
     plot = await db.get(Plot, uuid.UUID(message["plot"]))
     if plot is None:

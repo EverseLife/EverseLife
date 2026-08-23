@@ -37,8 +37,12 @@ async def _borrower(session: AsyncSession, *, funds: float = 0):
         account = await ledger.account_for(session, AccountKind.IDENTITY, identity.id)
         genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
         await ledger.transfer(
-            session, PostingReason.GENESIS,
-            debit=genesis.id, credit=account.id, amount=money(funds), memo={},
+            session,
+            PostingReason.GENESIS,
+            debit=genesis.id,
+            credit=account.id,
+            amount=money(funds),
+            memo={},
         )
     return identity
 
@@ -152,9 +156,7 @@ async def test_silent_sensor_does_not_move_lever(constants: Constants) -> None:
 async def test_rate_step_is_bounded(constants: Constants) -> None:
     """Monetary policy does not twitch: prediction is half its point."""
     before = constants[R.BANK_BASE_RATE]
-    rate, _ = bank.compute_rate(
-        constants, previous=before, inflation=100, emission_share=100
-    )
+    rate, _ = bank.compute_rate(constants, previous=before, inflation=100, emission_share=100)
     assert rate <= before + constants[R.BANK_RATE_STEP_MAX] + 1e-9
 
 
@@ -218,9 +220,7 @@ async def test_borrower_rate_fixed_at_issue(
     from src.models.bank import RateDecision
 
     session.add(
-        RateDecision(
-            rate=constants[R.BANK_RATE_CAP], why="проверка", decided_at=datetime.now(UTC)
-        )
+        RateDecision(rate=constants[R.BANK_RATE_CAP], why="проверка", decided_at=datetime.now(UTC))
     )
     await session.flush()
     assert float(loan.rate) == was
@@ -253,10 +253,14 @@ async def test_no_deposit_interest(
     before = await _account(session, who)
     #: There is and must be no accrual on the balance in the engine.
     accounts = (
-        await session.execute(
-            select(LedgerAccount).where(LedgerAccount.kind == AccountKind.IDENTITY)
+        (
+            await session.execute(
+                select(LedgerAccount).where(LedgerAccount.kind == AccountKind.IDENTITY)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert accounts, "счёт есть"
     assert await _account(session, who) == before
 
@@ -329,8 +333,12 @@ async def test_debt_holds_in_node_and_releases_on_payoff(
     account = await ledger.account_for(session, AccountKind.IDENTITY, debtor.id)
     genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
     await ledger.transfer(
-        session, PostingReason.TRADE, debit=account.id, credit=genesis.id,
-        amount=await ledger.balance(session, account.id), memo={"прожито": "всё"},
+        session,
+        PostingReason.TRADE,
+        debit=account.id,
+        credit=genesis.id,
+        amount=await ledger.balance(session, account.id),
+        memo={"прожито": "всё"},
     )
     late = loan.taken_at + timedelta(days=constants[R.DEBT_PRISON_THRESHOLD] + 1)
 
@@ -360,9 +368,7 @@ async def test_paying_debtor_is_free(
 # --- price sensor and sterilisation (D-087, D-169) ---------------------------
 
 
-async def _deal(
-    session: AsyncSession, goods: str, price: float, qty: float, seller=None
-):
+async def _deal(session: AsyncSession, goods: str, price: float, qty: float, seller=None):
     """A concluded deal: the price index is computed from them."""
     from src.models.market import Trade
     from src.units import amount as _amount
@@ -455,9 +461,7 @@ async def test_reserve_within_ceiling_not_burned(
 # --- collateral ratio as a lever (D-170) -------------------------------------
 
 
-async def _city_with_turnover(
-    session: AsyncSession, catalog, turnover: float, goods: str = "Хлеб"
-):
+async def _city_with_turnover(session: AsyncSession, catalog, turnover: float, goods: str = "Хлеб"):
     """The city on whose territory the deals happened: the share is computed by them."""
     from src.engine import city as town
     from src.models.market import Order, OrderSide, Trade
@@ -469,28 +473,44 @@ async def _city_with_turnover(
         session, f"terra.{stamp}", "Терра", area_m2=1, layer=Layer.SPACE
     )
     delegate = await world.create_node(
-        session, f"terra.city.{stamp}", f"Город-{stamp}", area_m2=1,
-        layer=Layer.PLANET, parent=planet,
+        session,
+        f"terra.city.{stamp}",
+        f"Город-{stamp}",
+        area_m2=1,
+        layer=Layer.PLANET,
+        parent=planet,
     )
     marketplace = await world.create_node(
-        session, f"terra.city.{stamp}.market", "Рынок", area_m2=50,
+        session,
+        f"terra.city.{stamp}.market",
+        "Рынок",
+        area_m2=50,
         parent=delegate,
     )
     city = await town.found(session, catalog, delegate, f"Город-{stamp}")
     marketplace.owner_city_id = city.id
     seller = await world.create_identity(session, f"Купец-{stamp}")
     order_ = Order(
-        node_id=marketplace.id, identity_id=seller.id, side=OrderSide.SELL,
-        type_key=goods, tier="обычное", price=money(turnover),
-        amount_total=_amount(1), amount_left=0,
+        node_id=marketplace.id,
+        identity_id=seller.id,
+        side=OrderSide.SELL,
+        type_key=goods,
+        tier="обычное",
+        price=money(turnover),
+        amount_total=_amount(1),
+        amount_left=0,
         expires_at=datetime.now(UTC) + timedelta(days=1),
     )
     session.add(order_)
     await session.flush()
     session.add(
         Trade(
-            node_id=marketplace.id, sell_order_id=order_.id, type_key=goods,
-            tier="обычное", price=money(turnover), amount=_amount(1),
+            node_id=marketplace.id,
+            sell_order_id=order_.id,
+            type_key=goods,
+            tier="обычное",
+            price=money(turnover),
+            amount=_amount(1),
         )
     )
     await session.flush()
@@ -523,11 +543,18 @@ async def _city_with_townhall(session: AsyncSession, catalog: Catalog):
         session, f"terra.{stamp}", "Терра", area_m2=1, layer=Layer.SPACE
     )
     delegate = await world.create_node(
-        session, f"terra.town.{stamp}", f"Город-{stamp}", area_m2=1,
-        layer=Layer.PLANET, parent=planet,
+        session,
+        f"terra.town.{stamp}",
+        f"Город-{stamp}",
+        area_m2=1,
+        layer=Layer.PLANET,
+        parent=planet,
     )
     core = await world.create_node(
-        session, f"terra.town.{stamp}.core", "Ядро", area_m2=100,
+        session,
+        f"terra.town.{stamp}.core",
+        "Ядро",
+        area_m2=100,
         parent=delegate,
     )
     city = await town.found(session, catalog, delegate, f"Город-{stamp}")
@@ -573,9 +600,7 @@ async def test_corridor_bounds_council(
     threshold = int(constants[R.BANK_COUNCIL_HANDOVER_CITIES])
     cities = [await _city_with_townhall(session, catalog) for _ in range(threshold)]
     city, ruler = cities[0]
-    far_away = (
-        constants[R.BANK_BASE_RATE] + constants[R.BANK_COUNCIL_RATE_DEVIATION] + 1
-    )
+    far_away = constants[R.BANK_BASE_RATE] + constants[R.BANK_COUNCIL_RATE_DEVIATION] + 1
     with pytest.raises(bank.OutOfCorridor):
         await bank.council_set_rate(session, constants, city, ruler, far_away)
 
@@ -664,9 +689,7 @@ async def test_report_cuts_trust_but_does_not_bury(
 
     #: A dozen ill-wishers -- and trust hits the floor, not zero.
     for number in range(12):
-        foe = await world.create_identity(
-            session, f"Недруг-{number}-{uuid.uuid4().hex[:4]}"
-        )
+        foe = await world.create_identity(session, f"Недруг-{number}-{uuid.uuid4().hex[:4]}")
         await bank.report_defect(session, foe, who)
 
     faith = await bank.trust(session, constants, who.id)
@@ -694,9 +717,7 @@ async def test_report_one_per_pair_and_revocable(
 # --- loan through the city (D-175) -------------------------------------------
 
 
-async def _citizen_with_city(
-    session: AsyncSession, catalog: Catalog, *, turnover: float = 4000
-):
+async def _citizen_with_city(session: AsyncSession, catalog: Catalog, *, turnover: float = 4000):
     """A city with turnover and its citizen: the line is open, the margin is default."""
     from src.models.city import Citizen
 
@@ -717,9 +738,7 @@ async def test_citizen_borrows_from_city_with_margin(
     margin = bank.city_margin(constants, catalog, city)
     assert loan.city_id == city.id
     assert float(loan.margin) == pytest.approx(margin)
-    assert float(loan.rate) == pytest.approx(
-        constants[R.BANK_BASE_RATE] + margin
-    )
+    assert float(loan.rate) == pytest.approx(constants[R.BANK_BASE_RATE] + margin)
     _, occupied, _ = await bank.city_line(session, constants, city)
     assert occupied == loan.outstanding, "заём висит на линии города"
 
@@ -740,9 +759,7 @@ async def test_city_margin_goes_to_its_treasury(
     #: We repay exactly the interest: that is what is split between city and capital.
     interest = loan.interest_accrued
     payer = await _borrower(session, funds=1000)
-    await bank.repay(
-        session, constants, payer, loan, interest / 10_000, now=in_a_year
-    )
+    await bank.repay(session, constants, payer, loan, interest / 10_000, now=in_a_year)
 
     city_share = int(interest * float(loan.margin) / float(loan.rate))
     assert await town.treasury_balance(session, city) - treasury_before == city_share
@@ -793,8 +810,12 @@ async def test_treasury_pays_for_ore_toward_repayment(
     treasury = await town.treasury(session, city)
     genesis = await l.account_for(session, AccountKind.GENESIS, None)
     await l.transfer(
-        session, PR.GENESIS, debit=genesis.id, credit=treasury.id,
-        amount=money(500), memo={},
+        session,
+        PR.GENESIS,
+        debit=genesis.id,
+        credit=treasury.id,
+        amount=money(500),
+        memo={},
     )
 
     before = loan.outstanding
@@ -809,9 +830,7 @@ async def test_empty_treasury_gives_no_credit(
     """No money -- no penal labour: the ore stays with the prisoner (D-174)."""
     city, who = await _citizen_with_city(session, catalog)
     await bank.borrow(session, constants, catalog, who, 100)
-    assert await bank.prison_credit(
-        session, constants, city, who.id, money(60)
-    ) == 0
+    assert await bank.prison_credit(session, constants, city, who.id, money(60)) == 0
 
 
 async def test_labour_in_prison_face_repays_debt(
@@ -830,13 +849,15 @@ async def test_labour_in_prison_face_repays_debt(
         __import__("src.models.world", fromlist=["Node"]).Node, city.node_id
     )
     prison = await world.create_node(
-        session, f"terra.jail.{uuid.uuid4().hex[:6]}", "Каторга", area_m2=100,
-        parent=delegate, properties={justice.PRISON_NODE: True},
+        session,
+        f"terra.jail.{uuid.uuid4().hex[:6]}",
+        "Каторга",
+        area_m2=100,
+        parent=delegate,
+        properties={justice.PRISON_NODE: True},
     )
     prison.owner_city_id = city.id
-    vein = await world.create_vein(
-        session, prison, "Железная руда", richness=60, remaining=10_000
-    )
+    vein = await world.create_vein(session, prison, "Железная руда", richness=60, remaining=10_000)
     debtor = await world.create_identity(session, f"Должник-{uuid.uuid4().hex[:6]}")
     session.add(Citizen(identity_id=debtor.id, city_id=city.id))
     body = await world.print_body(session, debtor, prison)
@@ -846,23 +867,27 @@ async def test_labour_in_prison_face_repays_debt(
     account = await l.account_for(session, AccountKind.IDENTITY, debtor.id)
     genesis = await l.account_for(session, AccountKind.GENESIS, None)
     await l.transfer(
-        session, PR.TRADE, debit=account.id, credit=genesis.id,
-        amount=await l.balance(session, account.id), memo={"прожито": "всё"},
+        session,
+        PR.TRADE,
+        debit=account.id,
+        credit=genesis.id,
+        amount=await l.balance(session, account.id),
+        memo={"прожито": "всё"},
     )
-    loan.serviced_at = loan.taken_at - timedelta(
-        days=constants[R.DEBT_PRISON_THRESHOLD] + 1
-    )
+    loan.serviced_at = loan.taken_at - timedelta(days=constants[R.DEBT_PRISON_THRESHOLD] + 1)
     treasury = await town.treasury(session, city)
     await l.transfer(
-        session, PR.GENESIS, debit=genesis.id, credit=treasury.id,
-        amount=money(1000), memo={},
+        session,
+        PR.GENESIS,
+        debit=genesis.id,
+        credit=treasury.id,
+        amount=money(1000),
+        memo={},
     )
     await session.flush()
 
     pocket = await world.body_container(session, body)
-    await world.grant_item(
-        session, pocket, "Каменная кирка", quality=50, origin="сценарий теста"
-    )
+    await world.grant_item(session, pocket, "Каменная кирка", quality=50, origin="сценарий теста")
     sess = await mining.start(session, constants, body, vein)
     await mining.swing(session, constants, sess)
     before = loan.outstanding
@@ -872,14 +897,15 @@ async def test_labour_in_prison_face_repays_debt(
     assert loan.outstanding < before, "добыча зачлась в долг"
     from_yard = await world.node_container(session, prison)
     ore_ = (
-        await session.execute(
-            select(
-                __import__("src.models.inventory", fromlist=["Item"]).Item
-            ).where(
-                __import__("src.models.inventory", fromlist=["Item"]).Item.container_id
-                == from_yard.id
+        (
+            await session.execute(
+                select(__import__("src.models.inventory", fromlist=["Item"]).Item).where(
+                    __import__("src.models.inventory", fromlist=["Item"]).Item.container_id
+                    == from_yard.id
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert ore_, "добытое досталось городу, а не заключённому"
-

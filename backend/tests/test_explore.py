@@ -39,8 +39,12 @@ async def _scout(session: AsyncSession):
         session, f"terra.{stamp}", "Терра", area_m2=1, layer=Layer.SPACE
     )
     gate = await world.create_node(
-        session, f"terra.gate.{stamp}", "Выход", area_m2=80,
-        layer=Layer.PLANET, parent=planet,
+        session,
+        f"terra.gate.{stamp}",
+        "Выход",
+        area_m2=80,
+        layer=Layer.PLANET,
+        parent=planet,
     )
     identity = await world.create_identity(session, f"Разведчик-{stamp}")
     body = await world.print_body(session, identity, gate)
@@ -56,19 +60,31 @@ async def _townsman(session: AsyncSession, catalog):
         session, f"terra.{stamp}", "Терра", area_m2=1, layer=Layer.SPACE
     )
     delegate = await world.create_node(
-        session, f"terra.city.{stamp}", "Столица", area_m2=1,
-        layer=Layer.PLANET, parent=planet,
+        session,
+        f"terra.city.{stamp}",
+        "Столица",
+        area_m2=1,
+        layer=Layer.PLANET,
+        parent=planet,
     )
     core = await world.create_node(
-        session, f"terra.city.{stamp}.core", "Ядро", area_m2=100,
-        parent=delegate, properties={"кольцо": 0},
+        session,
+        f"terra.city.{stamp}.core",
+        "Ядро",
+        area_m2=100,
+        parent=delegate,
+        properties={"кольцо": 0},
     )
     #: The city's gate: the one node a road beyond the walls may be tied to (D-206).
     from src.engine import travel
 
     await world.create_node(
-        session, f"terra.city.{stamp}.gate", "Выход из города", area_m2=80,
-        parent=delegate, properties={"кольцо": 3, travel.EXIT: True},
+        session,
+        f"terra.city.{stamp}.gate",
+        "Выход из города",
+        area_m2=80,
+        parent=delegate,
+        properties={"кольцо": 3, travel.EXIT: True},
     )
     city = await town.found(session, catalog, delegate, "Столица")
     core.owner_city_id = city.id
@@ -87,23 +103,25 @@ async def _walk_over(session: AsyncSession, node: Node, *, finds: int) -> None:
 async def _return(session: AsyncSession, body) -> None:
     """Run the run to the end -- the same way the worker would."""
     job = (
-        await session.execute(
-            select(Job).where(
-                Job.kind == JobKind.EXPLORE_SURVEY.value,
-                Job.body_id == body.id,
-                Job.state == JobState.PENDING,
+        (
+            await session.execute(
+                select(Job).where(
+                    Job.kind == JobKind.EXPLORE_SURVEY.value,
+                    Job.body_id == body.id,
+                    Job.state == JobState.PENDING,
+                )
             )
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
     assert job is not None
     await explore.returned(session, job)
     job.state = JobState.DONE
     await session.flush()
 
 
-async def test_run_costs_stamina(
-    session: AsyncSession, constants: Constants
-) -> None:
+async def test_run_costs_stamina(session: AsyncSession, constants: Constants) -> None:
     """Paid by time in the field: a short run is cheap but not free (D-156)."""
     _, _, body = await _scout(session)
     before = float(body.stamina)
@@ -139,9 +157,7 @@ async def test_lack_of_strength_lengthens_run_not_blocks(
     assert was_going > ceiling, "дефицит сил досыпается в поле, и заход длиннее"
 
 
-async def test_scout_unavailable_like_sleeper(
-    session: AsyncSession, constants: Constants
-) -> None:
+async def test_scout_unavailable_like_sleeper(session: AsyncSession, constants: Constants) -> None:
     """Exploration is a body state: while the run goes, in-person is closed."""
     from src.engine import travel
 
@@ -151,9 +167,7 @@ async def test_scout_unavailable_like_sleeper(
         await travel.require_here(session, body)
 
 
-async def test_scout_does_not_walk_away(
-    session: AsyncSession, constants: Constants
-) -> None:
+async def test_scout_does_not_walk_away(session: AsyncSession, constants: Constants) -> None:
     """The body is in the field -- it has nowhere to walk from: it is not in the node (D-152).
 
     Setting out is checked by the same door as every in-person action: keeping
@@ -164,8 +178,12 @@ async def test_scout_does_not_walk_away(
 
     planet, gate, body = await _scout(session)
     adjacent = await world.create_node(
-        session, f"terra.next.{uuid.uuid4().hex[:8]}", "Соседний", area_m2=100,
-        layer=Layer.PLANET, parent=planet,
+        session,
+        f"terra.next.{uuid.uuid4().hex[:8]}",
+        "Соседний",
+        area_m2=100,
+        layer=Layer.PLANET,
+        parent=planet,
     )
     await travel.connect(session, gate, adjacent, base_seconds=30)
 
@@ -236,12 +254,14 @@ async def test_find_lands_on_map_as_edge(
         assert find.layer is Layer.PLANET
         assert find.owner_identity_id is None, "найденное ничьё"
         edges = (
-            await session.execute(
-                select(Edge).where(
-                    (Edge.node_a_id == find.id) | (Edge.node_b_id == find.id)
+            (
+                await session.execute(
+                    select(Edge).where((Edge.node_a_id == find.id) | (Edge.node_b_id == find.id))
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         assert edges, "находка без дороги — это телепорт"
 
 
@@ -274,12 +294,14 @@ async def test_distance_grows_and_road_gets_pricier(
     for find in finds_:
         assert travel.reach_of(find) == travel.reach_of(gate) + 1
         edge = (
-            await session.execute(
-                select(Edge).where(
-                    (Edge.node_a_id == find.id) | (Edge.node_b_id == find.id)
+            (
+                await session.execute(
+                    select(Edge).where((Edge.node_a_id == find.id) | (Edge.node_b_id == find.id))
                 )
             )
-        ).scalars().first()
+            .scalars()
+            .first()
+        )
         we_expect = travel.frontier_seconds(constants, travel.reach_of(find))
         assert edge.base_seconds == pytest.approx(we_expect, rel=0.01)
 
@@ -359,9 +381,7 @@ async def test_woods_are_found_when_asked_for(
         assert grove.properties.get(explore.WOODS) is True
 
 
-async def test_woods_grow_by_themselves(
-    session: AsyncSession, constants: Constants
-) -> None:
+async def test_woods_grow_by_themselves(session: AsyncSession, constants: Constants) -> None:
     """The world gets forested without asking: `explore.forest_share` of finds.
 
     Nobody's roll here (`who=None`): the share is a property of the world, and
@@ -382,9 +402,7 @@ async def test_woods_grow_by_themselves(
     assert abs(share - constants[R.EXPLORE_FOREST_SHARE]) < 15
 
 
-async def test_aiming_for_woods_narrows_the_chance(
-    constants: Constants, catalog: Catalog
-) -> None:
+async def test_aiming_for_woods_narrows_the_chance(constants: Constants, catalog: Catalog) -> None:
     """What is asked for narrows the chance by exactly the world's forest cover."""
     from src.units import PERCENT
 
@@ -399,9 +417,7 @@ async def test_species_taken_from_vault(
     """There is no "which ores exist" list in the engine: it reads the "Mining" operation."""
     import random
 
-    yield_ = next(
-        op for op in catalog.recipes.operations if op.name == explore.MINING_OPERATION
-    )
+    yield_ = next(op for op in catalog.recipes.operations if op.name == explore.MINING_OPERATION)
     rolled = {
         await explore._resource(session, constants, catalog, random.Random(grain))
         for grain in range(200)
@@ -413,9 +429,7 @@ async def test_species_taken_from_vault(
     assert "Железная руда" in rolled
 
 
-async def test_vein_has_stock_and_richness(
-    session: AsyncSession, constants: Constants
-) -> None:
+async def test_vein_has_stock_and_richness(session: AsyncSession, constants: Constants) -> None:
     """Veins are finite -- that is irrevocable (pillar P2)."""
     _, _, body = await _scout(session)
     for _ in range(12):
@@ -435,9 +449,7 @@ async def test_vein_has_stock_and_richness(
 # --- the run's price grows with place depletion (D-156) ----------------------
 
 
-async def test_first_run_takes_minutes(
-    session: AsyncSession, constants: Constants
-) -> None:
+async def test_first_run_takes_minutes(session: AsyncSession, constants: Constants) -> None:
     """Untrodden surroundings give a find at once.
 
     The first location must be found in minutes: the mechanic by which the map
@@ -452,9 +464,7 @@ async def test_first_run_takes_minutes(
     assert run.min <= minutes <= run.max
 
 
-async def test_each_find_raises_next_run_price(
-    session: AsyncSession, constants: Constants
-) -> None:
+async def test_each_find_raises_next_run_price(session: AsyncSession, constants: Constants) -> None:
     """The more nodes are opened from here, the pricier and rarer the next."""
     _, gate, body = await _scout(session)
     gone = datetime.now(UTC)
@@ -475,9 +485,7 @@ async def test_each_find_raises_next_run_price(
     assert explore.chance(constants, gate) < fresh_chance, "и находиться реже"
 
 
-async def test_duration_hits_ceiling(
-    session: AsyncSession, constants: Constants
-) -> None:
+async def test_duration_hits_ceiling(session: AsyncSession, constants: Constants) -> None:
     """Growth is not endless: a day per run is not difficulty but a wall."""
     _, gate, body = await _scout(session)
     await _walk_over(session, gate, finds=20)
@@ -496,9 +504,7 @@ async def test_chance_does_not_fall_below_floor(
     """Trodden surroundings grow poorer but are not locked for good."""
     _, gate, _ = await _scout(session)
     await _walk_over(session, gate, finds=200)
-    assert explore.chance(constants, gate) == pytest.approx(
-        constants[R.EXPLORE_FIND_FLOOR]
-    )
+    assert explore.chance(constants, gate) == pytest.approx(constants[R.EXPLORE_FIND_FLOOR])
 
 
 async def test_find_depletes_place_but_empty_run_does_not(
@@ -634,9 +640,7 @@ async def test_find_beyond_the_walls_hangs_on_the_gate(
         assert gate.id in ends, "находку не привязали к воротам"
 
 
-async def test_plot_not_sought_outside_walls(
-    session: AsyncSession, constants: Constants
-) -> None:
+async def test_plot_not_sought_outside_walls(session: AsyncSession, constants: Constants) -> None:
     """There is no city built-up area beyond the walls: nothing to seek there.
 
     The refusal comes **before** leaving: the player must not spend three
@@ -657,9 +661,7 @@ async def test_named_species_is_exactly_what_is_found(
     for _ in range(20):
         body.stamina = Decimal(str(constants[R.BODY_STAMINA_MAX]))
         await session.flush()
-        await explore.survey(
-            session, constants, body, goal=explore.VEIN, resource="Медная руда"
-        )
+        await explore.survey(session, constants, body, goal=explore.VEIN, resource="Медная руда")
         await _return(session, body)
 
     veins = (await session.execute(select(Vein))).scalars().all()
@@ -667,9 +669,7 @@ async def test_named_species_is_exactly_what_is_found(
     assert {vein.resource for vein in veins} == {"Медная руда"}
 
 
-async def test_rare_found_worse_than_common(
-    constants: Constants, catalog: Catalog
-) -> None:
+async def test_rare_found_worse_than_common(constants: Constants, catalog: Catalog) -> None:
     """Otherwise everyone would seek only the most expensive, and exploration would become a
     faucet."""
     iron_ = explore._aim(constants, catalog, explore.VEIN, "Железная руда")
@@ -680,14 +680,10 @@ async def test_rare_found_worse_than_common(
     assert 0 < tin <= 1
 
 
-async def test_nonexistent_species_not_sought(
-    session: AsyncSession, constants: Constants
-) -> None:
+async def test_nonexistent_species_not_sought(session: AsyncSession, constants: Constants) -> None:
     _, _, body = await _scout(session)
     with pytest.raises(explore.ExploreError):
-        await explore.survey(
-            session, constants, body, goal=explore.VEIN, resource="Мифрил"
-        )
+        await explore.survey(session, constants, body, goal=explore.VEIN, resource="Мифрил")
 
 
 # --- crowding of the graph (D-207) -------------------------------------------
@@ -721,9 +717,7 @@ async def test_crowded_node_searches_worse_than_a_roomy_one(
     _, roomy, _ = await _scout(session)
     _, crowded, _ = await _scout(session)
 
-    assert await explore.crowding(session, constants, roomy) == 1.0, (
-        "у пустого узла тесноты нет"
-    )
+    assert await explore.crowding(session, constants, roomy) == 1.0, "у пустого узла тесноты нет"
     await _spokes(session, roomy, constants[R.EXPLORE_CROWDING_FREE])
     assert await explore.crowding(session, constants, roomy) == 1.0, (
         "перекрёсток в норме рёбер ничего не стоит"
@@ -735,9 +729,7 @@ async def test_crowded_node_searches_worse_than_a_roomy_one(
     assert press >= constants[R.EXPLORE_CROWDING_FLOOR] / PERCENT
 
 
-async def test_crowding_never_locks_a_place(
-    session: AsyncSession, constants: Constants
-) -> None:
+async def test_crowding_never_locks_a_place(session: AsyncSession, constants: Constants) -> None:
     """The map is eternal (D-007): a crowded place searches badly, not never."""
     _, hub, _ = await _scout(session)
     await _spokes(session, hub, 60)
@@ -761,8 +753,11 @@ async def test_neighbours_crowd_too_but_a_chain_does_not(
     chain = hub
     for index in range(6):
         next_ = await world.create_node(
-            session, f"terra.chain.{stamp}.{index}", f"Звено {index}",
-            area_m2=100, layer=Layer.PLANET,
+            session,
+            f"terra.chain.{stamp}.{index}",
+            f"Звено {index}",
+            area_m2=100,
+            layer=Layer.PLANET,
         )
         await travel.connect(session, chain, next_, base_seconds=30)
         chain = next_

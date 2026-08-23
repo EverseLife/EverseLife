@@ -34,9 +34,7 @@ class EnergyPool(Base):
 
     id: Mapped[uuid.UUID] = uuid_pk()
     #: The city's delegate node. One pool per city.
-    node_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("node.id"), nullable=False, unique=True
-    )
+    node_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("node.id"), nullable=False, unique=True)
 
     #: How much energy is in the pool now.
     stored: Mapped[float] = mapped_column(Numeric(14, 3), nullable=False, default=0)

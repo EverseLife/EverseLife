@@ -9,5 +9,4 @@ vault (`../everselife-vault`), from which the engine reads only
 answers "what must be true and why".
 """
 
-
 __version__ = "0.0.1"

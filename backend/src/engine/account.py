@@ -180,15 +180,9 @@ async def by_token(session: AsyncSession, token: Any) -> Account:
     if not raw:
         raise AccountError("жетон пуст")
     found = (
-        await session.execute(
-            select(LoginToken).where(LoginToken.token_hash == _digest(raw))
-        )
+        await session.execute(select(LoginToken).where(LoginToken.token_hash == _digest(raw)))
     ).scalar_one_or_none()
-    if (
-        found is None
-        or found.revoked_at is not None
-        or found.expires_at <= datetime.now(UTC)
-    ):
+    if found is None or found.revoked_at is not None or found.expires_at <= datetime.now(UTC):
         raise AccountError("сессия истекла: войдите заново")
     account = await session.get(Account, found.account_id)
     if account is None or account.disabled_at is not None:
@@ -290,15 +284,9 @@ def profile(account: Account, identity: Identity) -> dict[str, Any]:
 async def lines(session: AsyncSession) -> list[dict[str, Any]]:
     """Lines with the number of players: the selection screen must show a living world."""
     counts = dict(
-        (
-            await session.execute(
-                select(Identity.line, func.count()).group_by(Identity.line)
-            )
-        ).all()
+        (await session.execute(select(Identity.line, func.count()).group_by(Identity.line))).all()
     )
-    return [
-        entry | {"players": int(counts.get(Line(entry["id"]), 0))} for entry in LINES
-    ]
+    return [entry | {"players": int(counts.get(Line(entry["id"]), 0))} for entry in LINES]
 
 
 async def account_of(session: AsyncSession, identity: Identity) -> Account:

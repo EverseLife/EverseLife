@@ -50,18 +50,14 @@ async def _convoy(
     identity = await world.create_identity(session, f"Возчик-{stamp}")
     body = await world.print_body(session, identity, here)
     yard = await world.node_container(session, here)
-    cart = await world.grant_item(
-        session, yard, vehicle, amount=1, origin="сценарий теста"
-    )
+    cart = await world.grant_item(session, yard, vehicle, amount=1, origin="сценарий теста")
     return here, there, body, cart
 
 
 async def _to_hands(session: AsyncSession, body: Body, qty: float) -> Item:
     """Put cargo into the hands. In the game that is several trips: the hand is small (D-146)."""
     pocket = await world.body_container(session, body)
-    return await world.grant_item(
-        session, pocket, CARGO, amount=qty, origin="сценарий теста"
-    )
+    return await world.grant_item(session, pocket, CARGO, amount=qty, origin="сценарий теста")
 
 
 # --- harness -----------------------------------------------------------------
@@ -264,7 +260,10 @@ async def test_convoy_arrives_with_cargo(
         await transport.load(session, constants, catalog, body, cargo)
         transit = await travel.depart(session, constants, body, there)
         term, body_id, there_id, cart_id = (
-            transit.arrives_at, body.id, there.id, cart.id,
+            transit.arrives_at,
+            body.id,
+            there.id,
+            cart.id,
         )
 
     assert await jobs.run_one(factory, now=term) is not None
@@ -284,13 +283,17 @@ async def test_convoy_wears_per_leg(
     factory: async_sessionmaker[AsyncSession], constants: Constants, catalog: Catalog
 ) -> None:
     """A full hold wears more than an empty one: it is not air that is hauled (D-129)."""
+
     async def drive(cargo_: float) -> float:
         async with factory() as session, session.begin():
             _, there, body, cart = await _convoy(session)
             await transport.harness(session, constants, catalog, body, cart)
             if cargo_:
                 await transport.load(
-                    session, constants, catalog, body,
+                    session,
+                    constants,
+                    catalog,
+                    body,
                     await _to_hands(session, body, cargo_),
                 )
             transit = await travel.depart(session, constants, body, there)
@@ -320,15 +323,11 @@ async def test_breakdown_stops_convoy_and_drops_cargo(
         identity = await world.create_identity(session, f"Возчик-{stamp}")
         body = await world.print_body(session, identity, a)
         yard = await world.node_container(session, a)
-        cart = await world.grant_item(
-            session, yard, CART, amount=1, origin="сценарий теста"
-        )
+        cart = await world.grant_item(session, yard, CART, amount=1, origin="сценарий теста")
         #: The wagon on its last legs: the next leg finishes it.
         cart.condition = Decimal("0.5")
         await transport.harness(session, constants, catalog, body, cart)
-        await transport.load(
-            session, constants, catalog, body, await _to_hands(session, body, 25)
-        )
+        await transport.load(session, constants, catalog, body, await _to_hands(session, body, 25))
 
         transit = await travel.depart(session, constants, body, c)
         assert transit.plan, "маршрут из двух отрезков"
@@ -345,8 +344,10 @@ async def test_breakdown_stops_convoy_and_drops_cargo(
 
         yard = await world.node_container(session, await session.get(Node, b_id))
         lies = (
-            await session.execute(select(Item).where(Item.container_id == yard.id))
-        ).scalars().all()
+            (await session.execute(select(Item).where(Item.container_id == yard.id)))
+            .scalars()
+            .all()
+        )
         assert [thing.type_key for thing in lies] == [CARGO], "груз остался в узле"
 
 
@@ -356,9 +357,7 @@ async def test_death_unharnesses(
     """The dead pull nothing, and the convoy stays standing with the cargo."""
     _, _, body, cart = await _convoy(session)
     await transport.harness(session, constants, catalog, body, cart)
-    await transport.load(
-        session, constants, catalog, body, await _to_hands(session, body, 10)
-    )
+    await transport.load(session, constants, catalog, body, await _to_hands(session, body, 10))
 
     await death.die(session, constants, body, cause="сценарий теста")
     assert await transport.harnessed(session, body) is None

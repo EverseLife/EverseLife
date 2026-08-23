@@ -40,9 +40,7 @@ async def _body(session: AsyncSession):
 
 async def _give(session: AsyncSession, body, what: str, qty: float = 1):
     pocket = await world.body_container(session, body)
-    return await world.grant_item(
-        session, pocket, what, amount=qty, quality=60, origin="тест"
-    )
+    return await world.grant_item(session, pocket, what, amount=qty, quality=60, origin="тест")
 
 
 # --- mass --------------------------------------------------------------------
@@ -97,9 +95,9 @@ async def test_only_the_worn_bag_counts(
     bonus = constants[R.INVENTORY_CARRY_BONUS]
 
     basket = await _give(session, body, BASKET)
-    assert await gear.capacity(session, constants, catalog, body) == pytest.approx(
-        base
-    ), "корзина в руках переносимого не добавляет"
+    assert await gear.capacity(session, constants, catalog, body) == pytest.approx(base), (
+        "корзина в руках переносимого не добавляет"
+    )
     await gear.equip(session, constants, catalog, body, basket)
     assert await gear.capacity(session, constants, catalog, body) == pytest.approx(
         base + bonus[BASKET]

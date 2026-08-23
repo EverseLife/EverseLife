@@ -63,7 +63,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.constants.catalog import Plant
-from src.engine import events, travel, world
+from src.engine import breed, events, food, occupation, travel, world
 from src.engine.errors import Refusal
 from src.engine.jobs import enqueue, handler
 from src.models.event import EventKind
@@ -136,9 +136,7 @@ async def mark(
     moment = now or datetime.now(UTC)
     await _here(session, body)
     if area < constants[R.FARM_PLOT_MIN_AREA]:
-        raise TooSmall(
-            f"меньше {constants[R.FARM_PLOT_MIN_AREA]} м² межевать бессмысленно"
-        )
+        raise TooSmall(f"меньше {constants[R.FARM_PLOT_MIN_AREA]} м² межевать бессмысленно")
 
     node = await session.get(Node, body.node_id)
     if node is None:  # pragma: no cover
@@ -151,9 +149,7 @@ async def mark(
     #: has an owner -- the crop is somebody's -- but the ground under it is not.
     nobody = node.owner_identity_id is None and node.owner_city_id is None
     if not nobody and node.owner_identity_id != body.identity_id:
-        raise NotYours(
-            "участок не ваш: городскую землю выкупают, а чужую — арендуют по договору"
-        )
+        raise NotYours("участок не ваш: городскую землю выкупают, а чужую — арендуют по договору")
 
     taken = float(
         await session.scalar(
@@ -163,8 +159,7 @@ async def mark(
     )
     if taken + area > float(node.area_m2):
         raise NoLand(
-            f"в узле {node.key} свободно {float(node.area_m2) - taken:g} м², "
-            f"просят {area:g}"
+            f"в узле {node.key} свободно {float(node.area_m2) - taken:g} м², просят {area:g}"
         )
 
     plot = Plot(
@@ -209,9 +204,7 @@ async def plow(
     plot.idle_since = None
     await session.flush()
 
-    ready = moment + timedelta(
-        minutes=constants[R.FARM_PLOW_TIME_PER_M2] * float(plot.area_m2)
-    )
+    ready = moment + timedelta(minutes=constants[R.FARM_PLOW_TIME_PER_M2] * float(plot.area_m2))
     event = await events.record(
         session,
         EventKind.PLOT_PLOWED,
@@ -264,8 +257,6 @@ async def sow(
     _owned(plot, body)
     if plot.state is not PlotState.PLOWED:
         raise WrongState(f"делянка {plot.name!r} не вспахана")
-
-    from src.engine import breed
 
     variety = await breed._variety_of(session, seeds)  # noqa: SLF001
     plant = catalog.plants.by_id(variety.culture_id)
@@ -336,9 +327,13 @@ async def care(
     node = await session.get(Node, plot.node_id)
     if node is None or node.properties.get("вода") != "река":
         need = amount(constants[R.FARM_WATER_PER_M2] * float(plot.area_m2))
-        await _consume(session, body, WATER, need, why=NoWater(
-            f"нужно {amount_float(need):g} воды: реки здесь нет, воду носят руками"
-        ))
+        await _consume(
+            session,
+            body,
+            WATER,
+            need,
+            why=NoWater(f"нужно {amount_float(need):g} воды: реки здесь нет, воду носят руками"),
+        )
 
     plot.care_credits += 1
     plot.cared_at = moment
@@ -383,15 +378,11 @@ async def harvest(
     if plot.state is not PlotState.SOWN or plot.culture_id is None:
         raise WrongState(f"на делянке {plot.name!r} нечего убирать")
 
-    from src.engine import breed
-
     plant = catalog.plants.by_id(plot.culture_id)
     #: The cultivar decides the numbers: what was sown from one's own fund no
     #: longer has the crop's catalogue numbers. Old plots without a cultivar count as base.
     variety = (
-        await session.get(Variety, plot.variety_id)
-        if plot.variety_id is not None
-        else None
+        await session.get(Variety, plot.variety_id) if plot.variety_id is not None else None
     ) or await breed.landrace(session, catalog, plant.id)
     signs = variety.traits or breed.traits_of_plant(plant)
     cycle = float(signs.get("cycle_days", plant.cycle_days))
@@ -399,9 +390,7 @@ async def harvest(
 
     ready = (plot.sown_at or moment) + timedelta(hours=cycle * day_hours(constants))
     if moment < ready:
-        raise WrongState(
-            f"культура дозреет к {ready.isoformat()}: цикл {cycle:g} суток"
-        )
+        raise WrongState(f"культура дозреет к {ready.isoformat()}: цикл {cycle:g} суток")
 
     area = float(plot.area_m2)
     fertility = float(plot.fertility)
@@ -421,8 +410,6 @@ async def harvest(
 
     pocket = await world.body_container(session, body)
     if got > 0:
-        from src.engine import food
-
         reaped = Item(
             container_id=pocket.id,
             type_key=plant.gives,
@@ -451,16 +438,10 @@ async def harvest(
         )
 
     #: The land remembers what grew on it: monoculture eats it, rotation does not.
-    depletion = (
-        constants[R.FARM_SOIL_DEPLETION] if plot.last_culture == plant.id else 0.0
-    )
+    depletion = constants[R.FARM_SOIL_DEPLETION] if plot.last_culture == plant.id else 0.0
     restored = plant.restores_fertility
-    plot.fertility = Decimal(
-        str(max(SCALE_MIN, min(SCALE_MAX, fertility - depletion + restored)))
-    )
-    plot.same_culture_cycles = (
-        plot.same_culture_cycles + 1 if plot.last_culture == plant.id else 1
-    )
+    plot.fertility = Decimal(str(max(SCALE_MIN, min(SCALE_MAX, fertility - depletion + restored))))
+    plot.same_culture_cycles = plot.same_culture_cycles + 1 if plot.last_culture == plant.id else 1
     plot.last_culture = plant.id
     plot.culture_id = None
     plot.variety_id = None
@@ -558,9 +539,7 @@ async def merge(
 
     a, b = float(one.area_m2), float(other.area_m2)
     one.area_m2 = Decimal(str(a + b))
-    one.fertility = Decimal(
-        str((float(one.fertility) * a + float(other.fertility) * b) / (a + b))
-    )
+    one.fertility = Decimal(str((float(one.fertility) * a + float(other.fertility) * b) / (a + b)))
     heavier = max((one, other), key=lambda p: p.same_culture_cycles)
     one.last_culture = heavier.last_culture
     one.same_culture_cycles = heavier.same_culture_cycles
@@ -600,19 +579,13 @@ async def survey(
             "culture": plot.culture_id,
         }
         if plot.state is PlotState.SOWN and plot.culture_id is not None and plot.sown_at:
-            from src.engine import breed
-
             plant = catalog.plants.by_id(plot.culture_id)
             variety = (
-                await session.get(Variety, plot.variety_id)
-                if plot.variety_id is not None
-                else None
+                await session.get(Variety, plot.variety_id) if plot.variety_id is not None else None
             ) or await breed.landrace(session, catalog, plant.id)
             signs = variety.traits or breed.traits_of_plant(plant)
             cycle = float(signs.get("cycle_days", plant.cycle_days))
-            fertility_needed = float(
-                signs.get("fertility", plant.requires.fertility)
-            )
+            fertility_needed = float(signs.get("fertility", plant.requires.fertility))
 
             ready = plot.sown_at + timedelta(hours=cycle * day_hours(constants))
             day = timedelta(hours=day_hours(constants))
@@ -641,9 +614,7 @@ async def survey(
                 row["missed_days"] = skipped
                 row["cycle_days"] = cycle
                 row["fertility_required"] = fertility_needed
-                row["water_need"] = (
-                    constants[R.FARM_WATER_PER_M2] * float(plot.area_m2)
-                )
+                row["water_need"] = constants[R.FARM_WATER_PER_M2] * float(plot.area_m2)
             else:
                 #: The engine names the sign, the client picks the word: a
                 #: symptom is what is seen, not what is computed.
@@ -675,7 +646,6 @@ async def _here(session: AsyncSession, body: Body) -> None:
     if body.state is not BodyState.ALIVE:
         raise FarmError("мёртвое тело не работает")
     await travel.require_here(session, body)
-    from src.engine import occupation
 
     await occupation.require_free(session, body)
 
@@ -705,8 +675,7 @@ def _accrue_fallow(constants: Constants, plot: Plot, moment: datetime) -> None:
         return
     days = max(
         0.0,
-        (moment - plot.idle_since).total_seconds()
-        / (day_hours(constants) * SECONDS_PER_HOUR),
+        (moment - plot.idle_since).total_seconds() / (day_hours(constants) * SECONDS_PER_HOUR),
     )
     if days <= 0:
         return
