@@ -7,9 +7,6 @@ Split out of `api/session.py` (review 2026-08-23, wave 3): the
 socket loop stayed there, the commands live by domain.
 """
 
-# SPDX-License-Identifier: AGPL-3.0-only
-# Copyright (C) 2026 Nurlan Urazkulov
-
 from __future__ import annotations
 
 import uuid
@@ -447,6 +444,7 @@ async def _city_appoint(state: dict, db: AsyncSession, message: dict) -> dict:
 
 @command("city.revoke")
 async def _city_revoke(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Strip an office: `office` is its id. Right `offices` or the ruler's (D-162)."""
     identity = await _identity(state, db)
     city = await _city(state, db, message)
     office = await db.get(Office, uuid.UUID(message["office"]))

@@ -7,9 +7,6 @@ Split out of `api/session.py` (review 2026-08-23, wave 3): the
 socket loop stayed there, the commands live by domain.
 """
 
-# SPDX-License-Identifier: AGPL-3.0-only
-# Copyright (C) 2026 Nurlan Urazkulov
-
 from __future__ import annotations
 
 import uuid
@@ -77,18 +74,23 @@ async def _mine_start(state: dict, db: AsyncSession, message: dict) -> dict:
 
 @command("mine.swing")
 async def _mine_swing(state: dict, db: AsyncSession, message: dict) -> dict:
+    """One swing of the pickaxe: ore into the hands, the roof a little weaker. The reply is the
+    sight, not the hidden number (D-092)."""
     session = await _active(state, db)
     return _sight(session, await mining.swing(db, current(), session))
 
 
 @command("mine.timber")
 async def _mine_timber(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Set a support: one timber from the hands props the roof (D-143)."""
     session = await _active(state, db)
     return _sight(session, await mining.timber(db, current(), session))
 
 
 @command("mine.pace")
 async def _mine_pace(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Set the pace of mining: `pace` is `careful`, `steady` or `hard` -- output against roof risk
+    (D-143)."""
     session = await _active(state, db)
     pace = Pace(message["pace"])
     return _sight(session, await mining.set_pace(db, current(), session, pace))
@@ -96,6 +98,7 @@ async def _mine_pace(state: dict, db: AsyncSession, message: dict) -> dict:
 
 @command("mine.leave")
 async def _mine_leave(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Leave the face: the session ends, what was mined is in the hands (D-143)."""
     session = await _active(state, db)
     haul = await mining.leave(db, current(), session)
     state.pop("session_id", None)

@@ -106,7 +106,7 @@ from src.engine.city.lookup import (  # noqa: F401
     of_node,
     territory,
 )
-from src.engine.city.polity import (  # noqa: F401  # noqa: F401
+from src.engine.city.polity import (  # noqa: F401
     ADMISSION,
     APPLICATION,
     INVITE,

@@ -7,9 +7,6 @@ Split out of `api/session.py` (review 2026-08-23, wave 3): the
 socket loop stayed there, the commands live by domain.
 """
 
-# SPDX-License-Identifier: AGPL-3.0-only
-# Copyright (C) 2026 Nurlan Urazkulov
-
 from __future__ import annotations
 
 import uuid
@@ -88,6 +85,7 @@ async def _rest_sleep(state: dict, db: AsyncSession, message: dict) -> dict:
 
 @command("rest.wake")
 async def _rest_wake(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Wake up before the sleep is over: what was slept counts, the rest does not."""
     body = await _alive(state, db)
     restored = await rest.wake(db, current(), body)
     return {"woke": True, "restored": round(restored, 2), "stamina": float(body.stamina)}

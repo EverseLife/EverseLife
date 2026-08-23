@@ -23,9 +23,6 @@ either those or a token issued by a previous login. The subscription (E7,
 D-027) will bind to the same account.
 """
 
-# SPDX-License-Identifier: AGPL-3.0-only
-# Copyright (C) 2026 Nurlan Urazkulov
-
 from __future__ import annotations
 
 import logging

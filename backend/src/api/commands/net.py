@@ -7,9 +7,6 @@ Split out of `api/session.py` (review 2026-08-23, wave 3): the
 socket loop stayed there, the commands live by domain.
 """
 
-# SPDX-License-Identifier: AGPL-3.0-only
-# Copyright (C) 2026 Nurlan Urazkulov
-
 from __future__ import annotations
 
 import uuid
@@ -84,6 +81,8 @@ async def _chat_gather(state: dict, db: AsyncSession, message: dict) -> dict:
 
 @command("chat.join")
 async def _chat_join(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Join a circle in the room: `circle` is its id from `chat.hear` (D-043). One circle at a
+    time."""
     body = await _alive(state, db)
     await chat.join(db, body, uuid.UUID(message["circle"]))
     return {"joined": message["circle"]}
@@ -91,6 +90,7 @@ async def _chat_join(state: dict, db: AsyncSession, message: dict) -> dict:
 
 @command("chat.leave")
 async def _chat_leave(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Leave the circle you are in. Walking out of the room does the same."""
     await chat.leave_groups(db, state["identity_id"])
     return {"left": True}
 
@@ -140,6 +140,7 @@ async def _net_open(state: dict, db: AsyncSession, message: dict) -> dict:
 
 @command("net.read")
 async def _net_read(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Read a thread of letters: `thread` is its id; a letter shows when it has arrived (D-222)."""
     me = await _identity(state, db)
     letters = await net.read_thread(db, me.id, uuid.UUID(message["thread"]))
     return {
@@ -159,6 +160,8 @@ async def _net_read(state: dict, db: AsyncSession, message: dict) -> dict:
 
 @command("net.write")
 async def _net_write(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Write a letter in a thread: `thread`, `text`. It leaves at once and arrives by the road
+    (D-222)."""
     me = await _identity(state, db)
     letter = await net.write(
         db, current(), me, uuid.UUID(message["thread"]), str(message.get("text", ""))
@@ -176,6 +179,7 @@ async def _net_people(state: dict, db: AsyncSession, message: dict) -> dict:
 
 @command("net.channel.create")
 async def _net_channel_create(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Open a channel of your own in the Net: `name`, optional `about` (D-222)."""
     me = await _identity(state, db)
     channel = await net.create_channel(
         db, me, str(message.get("name", "")), str(message.get("about", ""))
@@ -206,6 +210,8 @@ async def _net_channel_find(state: dict, db: AsyncSession, message: dict) -> dic
 
 @command("net.subscribe")
 async def _net_subscribe(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Subscribe to a channel: `channel` is its id. A city's channel needs no subscription from its
+    citizens."""
     me = await _identity(state, db)
     await net.subscribe(db, me, uuid.UUID(message["channel"]))
     return {"subscribed": message["channel"]}
@@ -213,6 +219,7 @@ async def _net_subscribe(state: dict, db: AsyncSession, message: dict) -> dict:
 
 @command("net.unsubscribe")
 async def _net_unsubscribe(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Drop a channel: `channel` is its id. The city's own cannot be dropped."""
     me = await _identity(state, db)
     await net.unsubscribe(db, me, uuid.UUID(message["channel"]))
     return {"unsubscribed": message["channel"]}
@@ -220,6 +227,8 @@ async def _net_unsubscribe(state: dict, db: AsyncSession, message: dict) -> dict
 
 @command("net.channel.read")
 async def _net_channel_read(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Read a channel: `channel` is its id; posts arrive by the road from where they were written
+    (D-222)."""
     me = await _identity(state, db)
     channel, posts = await net.read_channel(db, current(), me.id, uuid.UUID(message["channel"]))
     return {
@@ -245,6 +254,7 @@ async def _net_channel_read(state: dict, db: AsyncSession, message: dict) -> dic
 
 @command("net.post")
 async def _net_post(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Post in a channel you may write in: `channel`, `text` (D-222)."""
     me = await _identity(state, db)
     entry = await net.post(
         db, me, uuid.UUID(message["channel"]), str(message.get("text", "")), constants=current()

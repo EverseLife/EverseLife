@@ -7,9 +7,6 @@ Split out of `api/session.py` (review 2026-08-23, wave 3): the
 socket loop stayed there, the commands live by domain.
 """
 
-# SPDX-License-Identifier: AGPL-3.0-only
-# Copyright (C) 2026 Nurlan Urazkulov
-
 from __future__ import annotations
 
 import uuid
@@ -55,11 +52,6 @@ async def _alive(state: dict, db: AsyncSession) -> Body:
     if body is None:
         raise Refused("нет живого тела")
     return body
-
-
-def _stamp(moment: datetime | None) -> str | None:
-    """A moment for the client, or nothing: a waiting batch has no deadline yet."""
-    return None if moment is None else moment.isoformat()
 
 
 async def _own_item(db: AsyncSession, body: Body, item_id: str) -> Item:

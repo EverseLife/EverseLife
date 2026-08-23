@@ -7,9 +7,6 @@ Split out of `api/session.py` (review 2026-08-23, wave 3): the
 socket loop stayed there, the commands live by domain.
 """
 
-# SPDX-License-Identifier: AGPL-3.0-only
-# Copyright (C) 2026 Nurlan Urazkulov
-
 from __future__ import annotations
 
 import uuid
@@ -31,6 +28,7 @@ from src.models.plant import Nursery, Variety
 
 @command("farm.mark")
 async def _farm_mark(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Mark out a field on the plot you stand on: `area` in square metres (D-126)."""
     body = await _alive(state, db)
     plot = await farm.mark(
         db,
@@ -44,6 +42,7 @@ async def _farm_mark(state: dict, db: AsyncSession, message: dict) -> dict:
 
 @command("farm.plow")
 async def _farm_plow(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Plough the field: a work of hours finished by the worker (D-211)."""
     body = await _alive(state, db)
     plot = await farm.plow(db, current(), body, await _plot(db, message))
     return {"plowing": str(plot.id)}
@@ -64,6 +63,8 @@ async def _farm_sow(state: dict, db: AsyncSession, message: dict) -> dict:
 
 @command("farm.care")
 async def _farm_care(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Tend the field: water and weed, as the crop's agrotech asks (D-057). In person, the body
+    busy for the term."""
     body = await _alive(state, db)
     plot = await farm.care(db, current(), body, await _plot(db, message))
     return {"cared": str(plot.id), "credits": plot.care_credits}
@@ -172,6 +173,7 @@ async def _breed_varieties(state: dict, db: AsyncSession, message: dict) -> dict
 
 @command("farm.split")
 async def _farm_split(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Split a field into two: `area` goes to the new one."""
     body = await _alive(state, db)
     piece = await farm.split(
         db,

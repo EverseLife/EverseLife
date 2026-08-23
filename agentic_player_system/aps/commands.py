@@ -88,7 +88,14 @@ def load(path: Path, cached: str = "") -> dict[str, dict[str, Any]]:
             reference.update(extract(module.read_text(encoding="utf-8")))
         return reference
     if path.exists():
-        return dict(BUILTIN) | extract(path.read_text(encoding="utf-8"))
+        found = extract(path.read_text(encoding="utf-8"))
+        if not found:
+            #: An old `.env` still points at `session.py`: the commands moved to
+            #: `api/commands/` and an empty reference is a silent agent.
+            raise RuntimeError(
+                f"{path}: no @command handlers; point APS_SESSION_SOURCE at backend/src/api/commands"
+            )
+        return dict(BUILTIN) | found
     if cached:
         return json.loads(cached)
     return dict(BUILTIN)

@@ -72,8 +72,8 @@ python tools/spdx.py --apply
 
 Правила, которые нельзя нарушать молча:
 
-- **Файл длиннее 800 строк** (`api/session.py`, `engine/craft.py`, `city.py`,
-  `estate.py`, `ship.py`, `panels/Place.tsx`, `GraphMap.tsx`, `Admin.tsx`) —
+- **Файл длиннее 800 строк** (сейчас: `engine/city/polity.py`, `engine/world.py`,
+  `panels/GraphMap.tsx`, `panels/Admin.tsx`, `api.ts`, `index.css`) —
   перед правкой сказать об этом и предложить разрез. Добавлять в такой файл
   без упоминания нельзя.
 - **Деньги, количества, остатки, выносливость** меняются только под

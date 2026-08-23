@@ -302,23 +302,26 @@ def test_reference_is_extracted_from_the_session_source() -> None:
     #: Every registered command is in the reference, and none without a doc:
     #: the model reads the reference, not the code.
     import subprocess
-    import sys
 
+    backend = SESSION_SOURCE.parents[2]
+    interpreter = backend / ".venv" / "Scripts" / "python.exe"
+    if not interpreter.exists():
+        interpreter = backend / ".venv" / "bin" / "python"
+    if not interpreter.exists():
+        pytest.skip("нет venv бэкенда: реестр команд не с чем сверить")
     listed = subprocess.run(
         [
-            sys.executable,
+            str(interpreter),
             "-c",
-            "from src.api.registry import COMMANDS; import src.api.session; print(len(COMMANDS))",
+            "import src.api.session; from src.api.registry import COMMANDS; print(len(COMMANDS))",
         ],
-        cwd=SESSION_SOURCE.parents[2],
+        cwd=backend,
         capture_output=True,
         text=True,
         check=False,
     )
-    if listed.returncode == 0:
-        assert len(reference) - 2 == int(listed.stdout.strip()), (
-            "справочник не совпадает с реестром"
-        )
+    assert listed.returncode == 0, listed.stderr[-500:]
+    assert len(reference) - 2 == int(listed.stdout.strip()), "справочник не совпадает с реестром"
 
 
 def test_shrink_caps_lists_and_strings() -> None:
