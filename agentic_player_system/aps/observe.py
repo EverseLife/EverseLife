@@ -3,12 +3,16 @@
 
 """What the model is shown of `look`: a short digest plus what changed.
 
-The raw `look` is the browser's window into the world and weighs up to nine
+The raw `look` is the browser's window into the world and weighs a couple of
 thousand characters; most of it is the same turn after turn. The model gets
-the constant part as a digest (money, place, body, occupations, the sack in
-one line), the rest as a diff against the previous turn, and the whole thing
-only every few turns or when the diff would not be shorter. The raw reply is
-always in the journal, and `act("look")` still returns it whole on demand.
+the constant part as a digest (money, place, ways out, body, occupations, the
+sack in one line), the rest as a diff against the previous turn, and the whole
+thing only every few turns or when the diff would not be shorter. The raw
+reply is always in the journal, and `act("look")` still returns it whole.
+
+Since D-226 `look` carries the live part alone: recipes, orders, batches and
+deeds moved to `knowledge`, `orders`, `deeds`, `shelf`, and the stations of a
+place are the things standing in it (`bench`). The digest follows that shape.
 """
 
 from __future__ import annotations
@@ -20,8 +24,9 @@ from typing import Any
 VOLATILE = {"clock"}
 #: How many turns between two full views, at most.
 FULL_EVERY = 5
-#: Items named in the one-line sack.
+#: Items named in the one-line sack, and ways out named in the one line.
 SACK_ITEMS = 15
+EXITS = 10
 
 
 def _look(seen: dict[str, Any]) -> dict[str, Any]:
@@ -45,28 +50,16 @@ def digest(seen: dict[str, Any]) -> str:
         else:
             lines.append("Чтобы вернуться в мир, закажи печать тела (body.printers / body.print).")
         return "\n".join(lines)
-    node = look.get("node") or {}
     sleeping = "спит" if body.get("sleeping_since") else "бодрствует"
-    lines.append(
+    first = (
         f"Ты: {look.get('identity')}, деньги {look.get('money')}, сила тела "
-        f"{_num(body.get('stamina'))}, {sleeping}."
+        f"{_num(body.get('stamina'))}, {sleeping}"
     )
-    place = f"Место: {node.get('name')} [{node.get('key')}]"
-    extras = []
-    if node.get("stations"):
-        extras.append("станции: " + ", ".join(map(str, node["stations"][:8])))
-    if node.get("features"):
-        extras.append("есть: " + ", ".join(map(str, node["features"][:8])))
-    if node.get("owner_city"):
-        extras.append(f"город {node['owner_city']}")
-    elif node.get("owner"):
-        extras.append(f"владелец {node['owner']}")
-    if node.get("mine"):
-        extras.append("шахта")
-    lines.append(place + (" — " + "; ".join(extras) if extras else ""))
-    city = look.get("city")
-    if isinstance(city, dict) and city.get("name"):
-        lines.append(f"Твой город: {city.get('name')} (гражданство: {look.get('citizenship')})")
+    carry = look.get("carry") or {}
+    if carry.get("capacity"):
+        first += f", несёшь {_num(carry.get('load') or 0)}/{_num(carry['capacity'])} кг"
+    lines.append(first + ".")
+    lines.extend(_place(look))
     travel = look.get("travel")
     if isinstance(travel, dict):
         lines.append(
@@ -99,6 +92,79 @@ def _num(value: Any) -> str:
     if isinstance(value, float):
         return f"{value:.1f}".rstrip("0").rstrip(".")
     return str(value)
+
+
+def _place(look: dict[str, Any]) -> list[str]:
+    """Where the body stands and what of it matters for acting.
+
+    Work stations are things standing here (`bench`) rather than a field of
+    the node, and the ways out are `exits` -- without them in the digest the
+    agent has to read the whole `look` just to learn where it may walk.
+    """
+    node = look.get("node") or {}
+    lines = [f"Место: {node.get('name')} [{node.get('key')}]"]
+    marks = []
+    if node.get("owner_city"):
+        marks.append(f"город {node['owner_city']}")
+    elif node.get("owner"):
+        marks.append(f"владелец {node['owner']}")
+    if node.get("features"):
+        marks.append("есть: " + ", ".join(map(str, node["features"][:8])))
+    if node.get("gated"):
+        marks.append("вход закрыт")
+    if node.get("mine"):
+        marks.append("шахта")
+    if marks:
+        lines[0] += " — " + "; ".join(marks)
+
+    bench = [b for b in look.get("bench") or [] if isinstance(b, dict)]
+    if bench:
+        lines.append(
+            "Станции здесь: "
+            + ", ".join(
+                f"{b.get('goods')}{' (занята)' if b.get('busy') else ''}"
+                + (" — твоя" if b.get("mine") else "")
+                for b in bench[:8]
+            )
+        )
+    veins = [v for v in look.get("veins") or [] if isinstance(v, dict)]
+    if veins:
+        lines.append(
+            "Жилы здесь: " + ", ".join(str(v.get("goods") or v.get("kind")) for v in veins[:6])
+        )
+    here = []
+    for key, label in (
+        ("stall", "на прилавке позиций"),
+        ("storages", "хранилищ"),
+        ("vehicles", "транспорта"),
+        ("furniture", "мебели"),
+    ):
+        value = look.get(key)
+        if isinstance(value, list) and value:
+            here.append(f"{label}: {len(value)}")
+    if here:
+        lines.append("Здесь же — " + "; ".join(here) + ".")
+
+    exits = [e for e in look.get("exits") or [] if isinstance(e, dict)]
+    if exits:
+        named = [
+            f"{e.get('name')} [{e.get('key')}] {_num(e.get('seconds'))}с" for e in exits[:EXITS]
+        ]
+        more = f" …и ещё {len(exits) - EXITS}" if len(exits) > EXITS else ""
+        lines.append("Выходы: " + "; ".join(named) + more)
+
+    city = look.get("city")
+    if isinstance(city, dict) and city.get("name"):
+        who = "ты гражданин" if city.get("citizen") else "ты не гражданин"
+        line = f"Город здесь: {city['name']} [{city.get('node')}] — {who}"
+        if city.get("admission"):
+            line += f", приём: {city['admission']}"
+        if city.get("requested"):
+            line += ", заявка подана"
+        if city.get("powers"):
+            line += ", твои полномочия: " + ", ".join(map(str, city["powers"][:6]))
+        lines.append(line)
+    return lines
 
 
 def diff(previous: dict[str, Any] | None, current: dict[str, Any]) -> list[str]:

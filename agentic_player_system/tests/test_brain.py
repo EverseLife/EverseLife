@@ -258,7 +258,16 @@ def test_observation_is_a_digest_with_changes_and_the_whole_look_every_few_turns
             "identity": "Марта",
             "money": "120",
             "body": {"stamina": 90.0, "sleeping_since": None},
-            "node": {"name": "Ядро", "key": "terra.capital.core", "stations": ["биопринтер"]},
+            "node": {"name": "Ядро", "key": "terra.capital.core", "owner_city": "Столица"},
+            "carry": {"load": 3.0, "capacity": 30.0},
+            "bench": [{"goods": "Биопринтер", "busy": False}],
+            "exits": [{"key": "terra.capital.market", "name": "Рынок", "seconds": 5}],
+            "city": {
+                "name": "Столица",
+                "node": "terra.capital",
+                "citizen": False,
+                "admission": "open",
+            },
             "inventory": [{"goods": "Хлеб", "amount": 2}],
             "doings": [],
             "travel": None,
@@ -275,6 +284,11 @@ def test_observation_is_a_digest_with_changes_and_the_whole_look_every_few_turns
     text, mode = observe.observation(first, second, full=False, packed="x" * 5000)
     assert mode == "delta"
     assert "деньги 95" in text and "Сумка (2)" in text
+    #: The shape of `look` after D-226: stations are the things standing here,
+    #: citizenship lives in `city`, and the ways out are named in the digest.
+    assert "Станции здесь: Биопринтер" in text
+    assert "Выходы: Рынок [terra.capital.market] 5с" in text
+    assert "ты не гражданин" in text and "несёшь 3/30 кг" in text
     assert "money: 120 → 95" in text and "появилось Кирка×1" in text
     assert "clock" not in text
     text, mode = observe.observation(first, second, full=True, packed="{}")
@@ -297,6 +311,22 @@ def test_reference_is_extracted_from_the_session_source() -> None:
     reference = commands.load(SESSION_SOURCE)
     assert "city.found" in reference and "ship.found" in reference
     assert reference["ship.found"]["keys"] == ["name"]
+    #: A handler taking a context reads its arguments differently; the
+    #: reference must not go quietly empty as the game migrates to `Ctx`.
+    from aps.commands import extract
+
+    ctx_style = extract(
+        '''
+@command("thing.take")
+async def _take(ctx: Ctx) -> dict:
+    """Take a thing."""
+    what = ctx.arg("thing")
+    much = ctx.message["amount"]
+    where = ctx.message.get("into")
+    return {"took": [what, much, where]}
+'''
+    )
+    assert ctx_style["thing.take"]["keys"] == ["thing", "amount", "into"]
     assert "spaceport" in reference["ship.found"]["doc"]
     assert "- city.found(name):" in commands.brief(reference)
     #: Every registered command is in the reference, and none without a doc:

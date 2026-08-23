@@ -166,7 +166,7 @@ document.querySelectorAll("#nav button[data-view]").forEach(b => b.onclick = () 
 async function loadSettings() {
   const s = await api("/settings");
   $("s-base").value = s.base_url; $("s-model").value = s.model; $("s-key").value = "";
-  $("s-info").textContent = `Ключ ${s.has_key ? (s.key_from_env ? "задан в .env" : "задан в панели") : "НЕ задан"} · игра: ${s.game_url} · команд в справочнике: ${s.commands}`;
+  $("s-info").textContent = `Ключ ${s.has_key ? (s.key_from_env ? "задан в .env" : "задан в панели") : "НЕ задан"} · секреты ${s.sealed ? "запечатаны" : "ОТКРЫТЫМ ТЕКСТОМ (задайте APS_SECRET_KEY)"} · игра: ${s.game_url} · команд в справочнике: ${s.commands}`;
 }
 $("s-save").onclick = async () => {
   try { await api("/settings", { method: "PUT", body: JSON.stringify({ base_url: $("s-base").value, model: $("s-model").value, api_key: $("s-key").value || null }) }); toast("Сохранено"); loadSettings(); }

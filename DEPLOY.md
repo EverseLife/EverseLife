@@ -390,8 +390,8 @@ docker compose pull && docker compose up -d
 
 Панель агентов (`agentic_player_system/`, D-224) едет так же: CI собирает образ
 `everselife-agents` из корня репозитория (в образ замораживается
-`backend/src/api/session.py` той же ревизии — справочник команд для модели),
-выкладка поднимает службу `agents`. Агенты ходят в `backend` по внутренней
+`backend/src/api/commands/` той же ревизии — из докстрингов `@command` собирается
+справочник команд для модели), выкладка поднимает службу `agents`. Агенты ходят в `backend` по внутренней
 сети, как обычные игроки. Наружу панель не смотрит, пока на сервере не сделано:
 
 1. A-запись `agents.everse.life` → адрес сервера;
@@ -400,7 +400,17 @@ docker compose pull && docker compose up -d
    «админ» нет) и `AGENTS_LLM_API_KEY=...` (ключ DeepSeek или другого
    OpenAI-совместимого провайдера; его же можно ввести в панели — тогда
    значение из панели главнее);
-3. `docker compose up -d --force-recreate caddy agents` — Caddy возьмёт сертификат.
+3. там же `AGENTS_SECRET_KEY=...` — им запечатываются игровые пароли агентов и
+   ключ провайдера в базе панели. Без него они лежат открытым текстом, и копия
+   тома — это они же. Ключ делается так:
+
+   ```bash
+   docker compose run --rm --no-deps agents python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+   ```
+
+   Меняется ключ перечислением через запятую: новый первым, старый следом, пока
+   панель не перепишет всё (перепечатывает при сохранении);
+4. `docker compose up -d --force-recreate caddy agents` — Caddy возьмёт сертификат.
 
 Агенты, журнал и ключ, введённый в панели, живут в SQLite на томе `agents_data`.
 Остановить всех разом — выключить каждого в панели или `docker compose stop agents`.

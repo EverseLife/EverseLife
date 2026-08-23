@@ -24,24 +24,40 @@ BUILTIN = {
 }
 
 
+def _reads_message(node: ast.AST) -> bool:
+    """`message` itself, or the `ctx.message` of a handler taking a context."""
+    if isinstance(node, ast.Name):
+        return node.id == "message"
+    return isinstance(node, ast.Attribute) and node.attr == "message"
+
+
 def _keys(func: ast.AST) -> list[str]:
+    """Argument names the handler reads out of the request.
+
+    Three shapes, because the game is migrating handler by handler from
+    `(state, db, message)` to a context object (`api/registry.Ctx`, review
+    2026-08-23): `message.get("x")` / `message["x"]`, the same through
+    `ctx.message`, and `ctx.arg("x")`.
+    """
     found: list[str] = []
     for node in ast.walk(func):
         key = None
-        if (
-            isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Attribute)
-            and node.func.attr == "get"
-            and isinstance(node.func.value, ast.Name)
-            and node.func.value.id == "message"
-            and node.args
-            and isinstance(node.args[0], ast.Constant)
-        ):
-            key = node.args[0].value
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.args:
+            first = node.args[0]
+            reader = node.func
+            if isinstance(first, ast.Constant) and (
+                (reader.attr == "get" and _reads_message(reader.value))
+                #: `ctx.arg("node")` -- the context's own reader.
+                or (
+                    reader.attr == "arg"
+                    and isinstance(reader.value, ast.Name)
+                    and reader.value.id == "ctx"
+                )
+            ):
+                key = first.value
         elif (
             isinstance(node, ast.Subscript)
-            and isinstance(node.value, ast.Name)
-            and node.value.id == "message"
+            and _reads_message(node.value)
             and isinstance(node.slice, ast.Constant)
         ):
             key = node.slice.value

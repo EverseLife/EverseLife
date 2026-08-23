@@ -164,6 +164,10 @@ services:
       APS_LLM_BASE_URL: ${AGENTS_LLM_BASE_URL:-https://api.deepseek.com/v1}
       APS_LLM_MODEL: ${AGENTS_LLM_MODEL:-deepseek-chat}
       APS_LLM_API_KEY: ${AGENTS_LLM_API_KEY:-}
+      #: Seals the agents' game passwords and the provider key in the
+      #: store (`aps/secrets.py`): without it a backup of the volume is
+      #: those secrets in the clear. Rotates by listing the new key first.
+      APS_SECRET_KEY: ${AGENTS_SECRET_KEY:-}
       APS_LOG_LEVEL: ${EVERSELIFE_LOG_LEVEL:-INFO}
     volumes:
       - agents_data:/data
