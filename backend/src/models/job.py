@@ -40,6 +40,10 @@ class JobKind(StrEnum):
 
     WORLD_TICK = "world.tick"
     DAILY_TICK = "world.daily"
+    #: One step of a tick as a job of its own (wave 4): the tick schedules
+    #: them and returns; a long step no longer holds arrivals and finishes
+    #: behind it, and a failed step retries alone.
+    TICK_STEP = "world.step"
     CRAFT_BATCH = "craft.batch"
     TRAVEL_LEG = "travel.leg"
     MARKET_ORDER_EXPIRY = "market.order_expiry"

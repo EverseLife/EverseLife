@@ -191,7 +191,8 @@ async def _production(session: AsyncSession, nodes: list[uuid.UUID], *, since: d
                     Event.at >= since,
                     Event.kind.in_(
                         (
-                            EventKind.MINING_SWING.value,
+                            EventKind.MINING_LEFT.value,
+                            EventKind.MINING_COLLAPSED.value,
                             EventKind.PLOT_HARVESTED.value,
                             EventKind.CRAFT_FINISHED.value,
                         )
@@ -208,10 +209,13 @@ async def _production(session: AsyncSession, nodes: list[uuid.UUID], *, since: d
     harvested = 0.0
     for event in events_:
         cargo = event.payload or {}
-        if event.kind == EventKind.MINING_SWING.value:
-            #: The species is not named in the swing event: the vein knows it.
-            #: We count units -- the panel cares about volume, not sort (the market has sort).
-            mined["всего"] = mined.get("всего", 0.0) + float(cargo.get("mined", 0))
+        if event.kind == EventKind.MINING_LEFT.value:
+            #: Extracted from the world: what was carried out of the face.
+            #: Units, not sorts -- the panel cares about volume (the market has sort).
+            mined["всего"] = mined.get("всего", 0.0) + float(cargo.get("haul", 0) or 0)
+        elif event.kind == EventKind.MINING_COLLAPSED.value:
+            #: Mined and buried: out of the vein all the same.
+            mined["всего"] = mined.get("всего", 0.0) + float(cargo.get("lost", 0) or 0)
         elif event.kind == EventKind.PLOT_HARVESTED.value:
             harvested += float(cargo.get("harvested", 0) or 0)
         else:

@@ -24,7 +24,7 @@ from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -34,6 +34,7 @@ from src.runtime import (
     JOB_MAX_ATTEMPTS,
     JOB_RETRY_BASE,
     JOB_RETRY_GROWTH,
+    JOB_STATEMENT_TIMEOUT_MS,
 )
 
 log = logging.getLogger(__name__)
@@ -135,6 +136,13 @@ async def run_one(
             return job
 
         try:
+            #: A job that hangs on a lock or a scan must not hold the worker
+            #: (and the locked rows) for ever: the database cuts it, the
+            #: failure is recorded, the retry comes by the usual schedule.
+            #: `SET` takes no bind parameters; the value is our own integer.
+            await session.execute(
+                text(f"SET LOCAL statement_timeout = {int(JOB_STATEMENT_TIMEOUT_MS)}")
+            )
             await action(session, job)
         except Exception as exc:  # noqa: BLE001 -- the job's fate is decided below
             #: The rollback takes both the job's effects and the attempt mark --

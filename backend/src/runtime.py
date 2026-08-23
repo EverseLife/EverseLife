@@ -27,6 +27,14 @@ JOB_ERROR_LIMIT = 2000
 
 #: Worker pause when the queue is empty, seconds.
 WORKER_IDLE_SLEEP = 1.0
+#: The longest one statement of a job may run before the database cuts it.
+#: Ten minutes: a daily step over every body of a big world fits; a job
+#: stuck on a lock does not hold a lane for ever.
+JOB_STATEMENT_TIMEOUT_MS = 600_000
+#: When the steps of a tick run, in minutes after the tick's moment: the
+#: land tax before the debt collection, the snapshots after everything. A
+#: technical stagger, not a balance number (D-065 does not apply).
+TICK_STAGES: dict[str, int] = {"first": 0, "later": 5, "last": 15}
 
 #: How many price levels of the book are given out. Display depth, not a
 #: market property: the book itself is not bounded by anything.

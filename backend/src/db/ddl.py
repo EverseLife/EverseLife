@@ -64,12 +64,15 @@ $$ LANGUAGE plpgsql
 
 #: The journal tells the API process that something happened (D-226): the
 #: notification is queued inside the transaction and leaves with the commit,
-#: so a rolled-back event is never announced. The payload is the row id only;
-#: the listener reads the row itself and decides whom it concerns.
+#: so a rolled-back event is never announced. The payload is **empty** on
+#: purpose: Postgres delivers identical notifications of one transaction
+#: once, so a tick that writes a thousand rows wakes the listener once, and
+#: the commit does not queue a thousand entries behind the notify lock. The
+#: listener reads the journal from its mark; ids ride in the rows.
 ANNOUNCE_FUNCTION = """
 CREATE OR REPLACE FUNCTION announce_event() RETURNS trigger AS $$
 BEGIN
-    PERFORM pg_notify('event', NEW.id::text);
+    PERFORM pg_notify('event', '');
     RETURN NULL;
 END;
 $$ LANGUAGE plpgsql

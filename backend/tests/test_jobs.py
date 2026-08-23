@@ -11,7 +11,10 @@ shows as a double maintenance write-off a week after launch.
 from __future__ import annotations
 
 import asyncio
+import subprocess
+import sys
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pytest
 from sqlalchemy import func, select
@@ -47,16 +50,24 @@ async def test_tick_runs_and_queues_next(
     #: business: `_claim` orders by firing time, and the times are equal. So the
     #: queue is drained, not sipped -- otherwise the test checks the order of
     #: the Postgres plan rather than the world clock.
-    ran = [await jobs.run_one(factory, now=NOW) for _ in range(2)]
-    assert all(job is not None and job.state is JobState.DONE for job in ran)
-    assert {job.kind for job in ran} == {JobKind.WORLD_TICK, JobKind.DAILY_TICK}
+    #: The ticks fan their steps out as jobs of their own (wave 4), due at the
+    #: same moment: the queue is drained whole, and both clocks must be in it.
+    ran = []
+    while (job := await jobs.run_one(factory, now=NOW)) is not None:
+        ran.append(job)
+    assert all(job.state is JobState.DONE for job in ran), [j.last_error for j in ran]
+    assert {JobKind.WORLD_TICK, JobKind.DAILY_TICK} <= {job.kind for job in ran}
 
     async with factory() as session:
         pending = (
-            await session.execute(
-                select(Job).where(Job.state == JobState.PENDING, Job.kind == JobKind.WORLD_TICK)
+            (
+                await session.execute(
+                    select(Job).where(Job.state == JobState.PENDING, Job.kind == JobKind.WORLD_TICK)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         assert len(pending) == 1, "часы мира обязаны продолжать идти"
         assert pending[0].run_at > NOW
 
@@ -161,16 +172,42 @@ async def test_two_workers_do_not_take_same_job(
     assert len(taken) == 1, "задание обязано достаться ровно одному воркеру"
 
 
-async def test_all_job_kinds_have_handler() -> None:
+#: The two processes that drain or queue the journal. Each starts by calling
+#: `require_handlers()`, and each sees only the handlers its own imports
+#: registered -- so each is checked on its own.
+ENTRY_POINTS = ("src.worker", "src.api.app")
+
+
+@pytest.mark.parametrize("entry_point", ENTRY_POINTS)
+def test_all_job_kinds_have_handler(entry_point: str) -> None:
     """A job without a handler is a deferred divergence of the world from itself.
 
-    Handlers are registered by import, and exactly the same is imported here
-    as the worker imports: the engine and the herald. A third package with
-    jobs appears -- it will have to be added here, and that is the right price
-    for the check running at startup rather than in a tick in the middle of the night.
+    Registration is a side effect of import, and the registry is global to the
+    process -- so this check is only honest in a process that imported exactly
+    what the entry point imports. Run inside the suite it proved nothing: a
+    neighbouring test module importing the engine's every corner registered the
+    missing handler for it, and `net.deliver` reached production with a worker
+    that died at startup and a world that stopped ticking. Hence the subprocess.
     """
 
-    jobs.require_handlers()
+    proof = subprocess.run(  # noqa: S603 -- our own interpreter, our own source
+        #: `-X utf8`: the refusal is in Russian, and a Windows console would
+        #: hand back question marks instead of the missing job kind.
+        [
+            sys.executable,
+            "-X",
+            "utf8",
+            "-c",
+            f"import {entry_point}; import src.engine.jobs as j; j.require_handlers()",
+        ],
+        cwd=Path(__file__).resolve().parents[1],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    last = proof.stderr.strip().rsplit("\n", 1)[-1]
+    assert proof.returncode == 0, f"{entry_point} не поднимется: {last}"
 
 
 async def test_event_journal_immutable(session: AsyncSession) -> None:

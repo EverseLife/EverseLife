@@ -341,8 +341,8 @@ async def test_daily_tick_wears_gear(
         item_id = basket.id
         await tick.ensure_scheduled(session)
 
-    #: We drain both clock schedulings: the ordinary tick and the daily one.
-    await jobs.run_due(factory, limit=2)
+    #: The two clock schedulings, then the steps they fan out (wave 4).
+    await jobs.run_due(factory, limit=32)
 
     async with factory() as session:
         basket = await session.get(Item, item_id)

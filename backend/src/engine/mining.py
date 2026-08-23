@@ -391,15 +391,17 @@ async def swing(
     await remember_roof(session, mining, roof=float(mining.roof))
     await session.flush()
 
-    await events.record(
+    #: A swing is told, not journaled (D-227): the journal is evidence and
+    #: metrics, and a swing is neither -- the session's end (`mining.left`,
+    #: `mining.collapsed`) carries the totals. A thousand swings an hour were
+    #: a thousand rows and a thousand notifications.
+    await events.announce(
         session,
-        EventKind.MINING_SWING,
-        actor_identity_id=body.identity_id,
-        node_id=vein.node_id,
-        session_id=str(mining.id),
+        touches=("mining", "inventory"),
+        identity_id=body.identity_id,
+        event="mining.swing",
         mined=amount_float(mined),
         quality=quality,
-        crowd=crowd,
     )
 
     if float(mining.roof) <= SCALE_MIN:

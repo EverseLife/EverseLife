@@ -21,7 +21,9 @@ batches, caravans, growth and daily write-offs rest on it (07-implementation-map
 from __future__ import annotations
 
 import logging
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -43,6 +45,7 @@ from src.engine import (
 from src.engine.jobs import enqueue, handler
 from src.models.event import EventKind
 from src.models.job import Job, JobKind
+from src.runtime import TICK_STAGES
 from src.telemetry import metrics
 
 log = logging.getLogger(__name__)
@@ -84,86 +87,168 @@ async def schedule_next_day(session: AsyncSession, after: datetime) -> None:
     )
 
 
-@handler(JobKind.WORLD_TICK)
-async def world_tick(session: AsyncSession, job: Job) -> None:
-    """An ordinary tick. Everything it does is done in its transaction."""
-    now = job.run_at
+#: The steps of a tick, each a job of its own. Order within a tick is by
+#: `after` (minutes after the tick's moment): the land tax goes before the
+#: debt collection so a day's tax is not withheld twice; the snapshots go
+#: last. Steps of one tick share a dedup key prefix, so two processes
+#: scheduling the same tick queue each step once.
+Step = Callable[[AsyncSession, datetime], Awaitable[dict[str, Any]]]
+
+
+async def _chat(session: AsyncSession, now: datetime) -> dict[str, Any]:
     #: Live talk is not stored: the delivery buffer is swept by every tick.
-    swept = await chat.prune(session, now=now)
+    return {"chat_swept": await chat.prune(session, now=now)}
+
+
+async def _energy(session: AsyncSession, now: datetime) -> dict[str, Any]:
     #: Stations work without players: the pool fills by time, and the coal
     #: station burns the delivered coal all that time (D-082).
-    produced = await energy.tick_pools(session, current(), now=now)
+    return {"energy_produced": await energy.tick_pools(session, current(), now=now)}
+
+
+async def _rigs(session: AsyncSession, now: datetime) -> dict[str, Any]:
     #: The rig does not sleep either: it burns coal, fills the hopper and eats
     #: the vein while the owner is busy elsewhere (D-115). A full hopper stops it.
-    mined = await rig.tick_rigs(session, current(), now=now)
+    return {"rig_mined": await rig.tick_rigs(session, current(), now=now)}
+
+
+async def _orphans(session: AsyncSession, now: datetime) -> dict[str, Any]:
     #: A batch whose job died would otherwise stay "running" for ever, and its
     #: master would count as busy for ever with it (D-211, D-217). The world
     #: sweeps such work away and gives back what went into it.
-    abandoned = await craft.sweep_orphans(session)
-    await events.record(
-        session,
-        EventKind.TICK_RAN,
-        kind_of_tick="world",
-        at=now.isoformat(),
-        chat_swept=swept,
-        energy_produced=produced,
-        rig_mined=mined,
-        batches_abandoned=abandoned,
-    )
-    #: To come here: wear by time, order expiry. Batches do not wait for the
-    #: tick -- each arrives by its own job at its own time.
+    return {"batches_abandoned": await craft.sweep_orphans(session)}
+
+
+async def _wear(session: AsyncSession, now: datetime) -> dict[str, Any]:
+    #: Gear wears from wearing, not from use (sink S2, D-129).
+    return {"gear_worn_out": await wear.daily_gear_wear(session, current(), current_catalog())}
+
+
+async def _spoil(session: AsyncSession, now: datetime) -> dict[str, Any]:
+    #: The rotten disappears: spoilage is an honest matter sink (D-119).
+    return {"spoiled": await food.sweep_spoiled(session, now=now)}
+
+
+async def _roads(session: AsyncSession, now: datetime) -> dict[str, Any]:
+    #: A road without maintenance overgrows and returns to offroad (D-107).
+    return {"roads_decayed": await road.decay(session, current())}
+
+
+async def _houses(session: AsyncSession, now: datetime) -> dict[str, Any]:
+    #: A house wears out at the pace of what it is built of, and at nothing it
+    #: falls (D-218). Timber wants mending twice a year, metal once in a life.
+    worn, fallen = await estate.decay(session, current())
+    return {"houses_worn": worn, "houses_collapsed": fallen}
+
+
+async def _land_tax(session: AsyncSession, now: datetime) -> dict[str, Any]:
+    #: The land tax: the rate is announced at the bioprinter and falls with
+    #: every node away from it, so the centre costs more to hold, not only to
+    #: buy (D-127, D-220). Charged before the debt collection, so that a
+    #: day's tax cannot be withheld twice over.
+    return {"land_tax": await estate.levy_land_tax(session, current(), current_catalog())}
+
+
+async def _debt(session: AsyncSession, now: datetime) -> dict[str, Any]:
+    #: Overdue debt is repaid by force with a share of the balance (D-063, D-168).
+    return {"debt_withheld": await bank.collect(session, current(), now=now)}
+
+
+async def _sterilize(session: AsyncSession, now: datetime) -> dict[str, Any]:
+    #: The reserve surplus above the ceiling is burned: the bank's second lever (D-169).
+    return {"reserve_burned": await bank.sterilize(session, current())}
+
+
+async def _metrics(session: AsyncSession, now: datetime) -> dict[str, Any]:
+    #: The world's daily snapshot. The engine computes it, not the dashboard:
+    #: the panel shows the same as the city's in-game summary, and there must be
+    #: no second copy of the formulas (D-139, D-124).
+    return {"metrics": await metrics.store(session, current(), now=now)}
+
+
+async def _cities(session: AsyncSession, now: datetime) -> dict[str, Any]:
+    #: Each city's snapshot goes into the same table: the panel, the dashboard
+    #: and the invariant check are computed by one formula (D-139, D-140).
+    return {"cities": await panel.store_daily(session, current(), now=now)}
+
+
+#: name -> (step, stage): the stage names the delay (`runtime.TICK_STAGES`).
+WORLD_STEPS: dict[str, tuple[Step, str]] = {
+    "chat": (_chat, "first"),
+    "energy": (_energy, "first"),
+    "rigs": (_rigs, "first"),
+    "orphans": (_orphans, "first"),
+}
+DAILY_STEPS: dict[str, tuple[Step, str]] = {
+    "wear": (_wear, "first"),
+    "spoil": (_spoil, "first"),
+    "roads": (_roads, "first"),
+    "houses": (_houses, "first"),
+    "land_tax": (_land_tax, "first"),
+    "debt": (_debt, "later"),
+    "sterilize": (_sterilize, "later"),
+    "metrics": (_metrics, "last"),
+    "cities": (_cities, "last"),
+}
+STEPS = {**WORLD_STEPS, **DAILY_STEPS}
+
+
+async def _fan_out(
+    session: AsyncSession, kind: str, steps: dict[str, tuple[Step, str]], now: datetime
+) -> None:
+    for name, (_, stage) in steps.items():
+        await enqueue(
+            session,
+            JobKind.TICK_STEP,
+            now + timedelta(minutes=TICK_STAGES[stage]),
+            payload={"step": name, "tick": kind, "at": now.isoformat()},
+            dedup_key=f"world.step:{kind}:{name}:{now.isoformat()}",
+        )
+
+
+@handler(JobKind.WORLD_TICK)
+async def world_tick(session: AsyncSession, job: Job) -> None:
+    """An ordinary tick: schedules its steps and the next tick, nothing more.
+
+    Each step runs as a job of its own (wave 4): the tick used to do them all
+    in one transaction, and a slow one held the arrivals and the finishes
+    queued behind it.
+    """
+    now = job.run_at
+    await _fan_out(session, "world", WORLD_STEPS, now)
+    await events.record(session, EventKind.TICK_RAN, kind_of_tick="world", at=now.isoformat())
     await schedule_next_tick(session, now)
 
 
 @handler(JobKind.DAILY_TICK)
 async def daily_tick(session: AsyncSession, job: Job) -> None:
-    """The daily tick: taxes, maintenance, reports, deadlines."""
+    """The daily tick: taxes, maintenance, reports, deadlines -- as steps."""
     now = job.run_at
-    #: Gear wears from wearing, not from use (sink S2, D-129).
-    gone = await wear.daily_gear_wear(session, current(), current_catalog())
-    #: The rotten disappears: spoilage is an honest matter sink (D-119).
-    rotten = await food.sweep_spoiled(session, now=now)
-    #: A road without maintenance overgrows and returns to offroad (D-107).
-    overgrown = await road.decay(session, current())
-    #: A house wears out at the pace of what it is built of, and at nothing it
-    #: falls (D-218). Timber wants mending twice a year, metal once in a life.
-    houses_worn, houses_fallen = await estate.decay(session, current())
-    #: The land tax: the rate is announced at the bioprinter and falls with
-    #: every node away from it, so the centre costs more to hold, not only to
-    #: buy (D-127, D-220). Charged before the debt collection below, so that a
-    #: day's tax cannot be withheld twice over.
-    land_tax = await estate.levy_land_tax(session, current(), current_catalog())
-    #: Overdue debt is repaid by force with a share of the balance (D-063, D-168).
-    withheld = await bank.collect(session, current(), now=now)
-    #: The reserve surplus above the ceiling is burned: the bank's second lever (D-169).
-    burned = await bank.sterilize(session, current())
-    #: The world's daily snapshot. The engine computes it, not the dashboard:
-    #: the panel shows the same as the city's in-game summary, and there must be
-    #: no second copy of the formulas (D-139, D-124).
-    measurements = await metrics.store(session, current(), now=now)
-    #: Each city's snapshot goes into the same table: the panel, the dashboard
-    #: and the invariant check are computed by one formula (D-139, D-140).
-    city_count = await panel.store_daily(session, current(), now=now)
+    await _fan_out(session, "daily", DAILY_STEPS, now)
+    await events.record(session, EventKind.TICK_RAN, kind_of_tick="daily", at=now.isoformat())
+    #: The household meter does not run from here: it has its own period
+    #: (`energy.meter_period`) and its own job -- the planet's day and the meter
+    #: period need not coincide.
+    await schedule_next_day(session, now)
+
+
+@handler(JobKind.TICK_STEP)
+async def tick_step(session: AsyncSession, job: Job) -> None:
+    """One step of a tick, in a transaction of its own."""
+    name = str(job.payload.get("step"))
+    step, _ = STEPS[name]
+    now = datetime.fromisoformat(str(job.payload.get("at") or job.run_at.isoformat()))
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=UTC)
+    result = await step(session, now)
     await events.record(
         session,
         EventKind.TICK_RAN,
-        kind_of_tick="daily",
+        kind_of_tick=str(job.payload.get("tick")),
+        step=name,
         at=now.isoformat(),
-        gear_worn_out=gone,
-        spoiled=rotten,
-        roads_decayed=overgrown,
-        houses_worn=houses_worn,
-        houses_collapsed=houses_fallen,
-        land_tax=land_tax,
-        debt_withheld=withheld,
-        reserve_burned=burned,
-        metrics=measurements,
-        cities=city_count,
+        **result,
     )
-    #: The household meter does not run from here: it has its own period
-    #: (`energy.meter_period`) and its own job -- the planet's day and the meter
-    #: period need not coincide. To come here: the city trade summary.
-    await schedule_next_day(session, now)
 
 
 async def ensure_scheduled(session: AsyncSession, now: datetime | None = None) -> None:

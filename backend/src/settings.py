@@ -36,6 +36,10 @@ class Settings(BaseSettings):
 
     #: How many journal jobs the worker takes per pass.
     job_batch: int = 64
+    #: Jobs a worker process runs at once. `FOR UPDATE SKIP LOCKED` keeps the
+    #: claims apart; the daily tick is many small jobs, not one (wave 4), so
+    #: a long step no longer holds the arrivals and the finishes behind it.
+    job_concurrency: int = 4
 
     #: Where the browser client is allowed from. By default only the frontend
     #: dev server on this same machine: no reason to let just anyone into a player's session.

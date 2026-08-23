@@ -62,12 +62,18 @@ async def main() -> None:
         with contextlib.suppress(NotImplementedError):
             loop.add_signal_handler(sig, stopping.set)
 
-    try:
+    async def lane(index: int) -> None:
+        """One of `job_concurrency` loops over the queue; each claim is its own
+        transaction with `SKIP LOCKED`, so lanes never take the same job."""
+        name = f"{worker_id}/{index}"
         while not stopping.is_set():
-            done = await run_due(factory, limit=conf.job_batch, worker=worker_id)
+            done = await run_due(factory, limit=conf.job_batch, worker=name)
             if done == 0:
                 with contextlib.suppress(TimeoutError):
                     await asyncio.wait_for(stopping.wait(), timeout=WORKER_IDLE_SLEEP)
+
+    try:
+        await asyncio.gather(*(lane(i) for i in range(max(1, conf.job_concurrency))))
     finally:
         await dispose()
         log.info("worker stopped")

@@ -339,7 +339,8 @@ async def test_daily_tick_sweeps_rotten(factory, constants: Constants, catalog: 
         item_id = bread.id
         await tick.ensure_scheduled(session)
 
-    await jobs.run_due(factory, limit=2)
+    #: The two clock schedulings, then the steps they fan out (wave 4).
+    await jobs.run_due(factory, limit=32)
 
     async with factory() as session:
         assert await session.get(Item, item_id) is None

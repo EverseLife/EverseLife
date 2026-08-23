@@ -18,11 +18,19 @@ x-server: &server
     EVERSELIFE_VAULT_BUILD: /vault
     EVERSELIFE_LOG_LEVEL: ${EVERSELIFE_LOG_LEVEL:-INFO}
     EVERSELIFE_JOB_BATCH: ${EVERSELIFE_JOB_BATCH:-64}
+    #: Jobs the worker runs at once: the ticks are many small jobs (wave 4).
+    EVERSELIFE_JOB_CONCURRENCY: ${EVERSELIFE_JOB_CONCURRENCY:-4}
     #: How many database connections **one process** keeps. A session command
     #: holds a connection for its whole transaction, so this is the number of
     #: players served at the same instant. Every `--workers` process holds a
     #: pool of its own: four servers plus the worker is five pools, and their
-    #: sum must stay under the database's `max_connections` below.
+    #: sum must stay under the database's `max_connections` below. Each server
+    #: process also holds **one** connection outside its pool for the journal's
+    #: LISTEN (D-226), and the worker runs `EVERSELIFE_JOB_CONCURRENCY` jobs at
+    #: once from its pool. Budget: servers x (pool + overflow + 1) + worker
+    #: (pool + overflow) + migrate + seed < max_connections. Past ~8 server
+    #: processes put PgBouncer (transaction pooling) in front and set
+    #: `statement_cache_size=0` on asyncpg.
     EVERSELIFE_DB_POOL_SIZE: ${EVERSELIFE_DB_POOL_SIZE:-10}
     EVERSELIFE_DB_MAX_OVERFLOW: ${EVERSELIFE_DB_MAX_OVERFLOW:-5}
     #: The world chronicle to Discord (`src/herald/`). Empty -- the herald is

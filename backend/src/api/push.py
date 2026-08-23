@@ -43,7 +43,8 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.pool import NullPool
 
 from src.db.base import engine, session_factory
 from src.engine import city as town
@@ -67,6 +68,9 @@ OUTBOX_LIMIT = 256
 #: Journal rows read per pass of the pump: a tick that wrote thousands is
 #: delivered in slices, not held in memory whole.
 PUMP_BATCH = 500
+#: How far below its mark the pump looks for rows that took their id before
+#: the mark moved and committed after it. Ids below the window are history.
+PUMP_LOOKBACK = 256
 
 #: Which parts of the player's state an event kind changes, by prefix of the
 #: kind (`knowledge.learned` -> `knowledge`). The client rereads those parts.
@@ -316,10 +320,9 @@ class Hub:
         self._wake: asyncio.Event = asyncio.Event()
         self._task: asyncio.Task[None] | None = None
         self._touches: list[dict[str, Any]] = []
-        #: Ids named by notifications. A row can commit after a later one
-        #: has been delivered -- two transactions do not finish in id order --
-        #: so the mark alone would skip it; the announced ids are read by name.
-        self._announced: set[int] = set()
+        #: A row can commit after a later one has been delivered -- two
+        #: transactions do not finish in id order -- so the pump reads from
+        #: a window below its mark and remembers what it delivered.
         self._delivered: set[int] = set()
 
     def attach(self, sink: Sink) -> None:
@@ -357,11 +360,10 @@ class Hub:
 
     async def start(self) -> None:
         self._wake = asyncio.Event()
-        self._announced.clear()
         self._delivered.clear()
         self._touches.clear()
         async with session_factory()() as db:
-            self._last_id = (await db.execute(select(func.max(Event.id)))).scalar() or 0
+            await self._settle(db)
         self._task = asyncio.create_task(self._run(), name="push-hub")
 
     async def stop(self) -> None:
@@ -390,12 +392,15 @@ class Hub:
             if channel == "touch":
                 with contextlib.suppress(ValueError):
                     self._touches.append(json.loads(payload))
-            else:
-                with contextlib.suppress(ValueError):
-                    self._announced.add(int(payload))
+            #: The journal's notification carries nothing: it is a wake-up,
+            #: one per transaction whatever it wrote.
             loop.call_soon_threadsafe(self._wake.set)
 
-        async with engine().connect() as connection:
+        #: Its own connection, outside the command pool: the listener holds
+        #: one for the process's lifetime, and the pool's budget is the
+        #: players served at once (review 2026-08-23).
+        listener = create_async_engine(engine().url, poolclass=NullPool)
+        async with listener.connect() as connection:
             raw = await connection.get_raw_connection()
             driver = raw.driver_connection
             await driver.add_listener("event", on_notify)
@@ -410,32 +415,39 @@ class Hub:
                 with contextlib.suppress(Exception):
                     await driver.remove_listener("event", on_notify)
                     await driver.remove_listener("touch", on_notify)
+        await listener.dispose()
 
     # -- delivery ------------------------------------------------------------
+
+    async def _settle(self, db: AsyncSession) -> None:
+        """Move the mark to the journal's end and count the window below it
+        as delivered: a listener that comes later must not get the backlog."""
+        last = (await db.execute(select(func.max(Event.id)))).scalar() or 0
+        self._last_id = max(self._last_id, last)
+        seen = (
+            await db.execute(select(Event.id).where(Event.id > self._last_id - PUMP_LOOKBACK))
+        ).scalars()
+        self._delivered = set(seen)
 
     async def pump(self) -> None:
         """Deliver everything the journal holds after the last delivered row,
         and every touch that arrived. Safe to call at any time: it is what the
         listener does when woken, and what a test does instead of waiting."""
         touches, self._touches = self._touches, []
-        announced, self._announced = self._announced, set()
         for note in touches:
             await self._deliver_touch(note)
         if not any(sink.listening for sink in self.sinks):
             #: Nobody to tell: just move the mark, so the next listener does
             #: not get the backlog of an empty room.
             async with session_factory()() as db:
-                self._last_id = (
-                    await db.execute(select(func.max(Event.id)))
-                ).scalar() or self._last_id
-            self._delivered.clear()
+                await self._settle(db)
             return
         async with session_factory()() as db:
             while True:
-                wanted = Event.id > self._last_id
-                if announced:
-                    wanted = wanted | Event.id.in_(announced)
-                    announced = set()
+                #: From a window below the mark: a transaction that took its
+                #: id before ours and committed after is found here, and the
+                #: delivered set keeps it from going out twice.
+                wanted = Event.id > self._last_id - PUMP_LOOKBACK
                 rows = (
                     (
                         await db.execute(
@@ -445,19 +457,16 @@ class Hub:
                     .scalars()
                     .all()
                 )
-                for row in rows:
-                    if row.id in self._delivered:
-                        continue
+                fresh = [row for row in rows if row.id not in self._delivered]
+                for row in fresh:
                     await self._deliver(db, row, self.sinks)
                     self._delivered.add(row.id)
                     self._last_id = max(self._last_id, row.id)
                 if len(rows) < PUMP_BATCH:
                     break
-            #: The delivered set only needs to cover what a late commit could
-            #: still name: everything below the mark minus a window is history.
-            if len(self._delivered) > 4096:
-                floor = self._last_id - 1024
-                self._delivered = {i for i in self._delivered if i > floor}
+            #: Everything below the window is history.
+            floor = self._last_id - PUMP_LOOKBACK
+            self._delivered = {i for i in self._delivered if i > floor}
 
     async def replay(self, sink: Sink, since: int) -> None:
         """Catch a reconnected client up: what happened after `since` that it

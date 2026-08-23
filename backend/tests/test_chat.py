@@ -263,7 +263,8 @@ async def test_world_tick_sweeps_buffer(factory, constants: Constants) -> None:
         remark.at = datetime.now(UTC) - CHAT_BUFFER * 2
         await tick.ensure_scheduled(session)
 
-    await jobs.run_due(factory, limit=2)
+    #: The two clock schedulings, then the steps they fan out (wave 4).
+    await jobs.run_due(factory, limit=32)
 
     async with factory() as session:
         left = await session.scalar(select(func.count()).select_from(ChatMessage))
