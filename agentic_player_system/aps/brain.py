@@ -33,23 +33,49 @@ MONEY_COMMANDS = frozenset(
         "market.sell",
         "market.reserve",
         "market.redeem",
+        "market.load",
         "land.buy",
-        "land.claim",
+        "land.cede",
         "deed.buy",
-        "deed.offer",
         "bank.borrow",
         "bank.repay",
         "utility.pay",
-        "city.grant",
+        "city.allot",
         "city.spend",
         "body.print",
+        "item.hand",
+        "ground.drop",
+        "storage.put",
+        "transport.load",
+        "transport.unload",
+        "library.contribute",
+        "coin.melt",
+        "build.demolish",
+        "craft.recycle",
     }
 )
 MAX_MONEY_ACTIONS = 3
 #: Where other players' words come back to the model: those fields are
 #: fenced so the model reads them as data.
-FOREIGN_TEXT_KEYS = frozenset({"text", "preview", "about", "why", "essence", "claim", "verdict"})
-FOREIGN_TEXT_COMMANDS = ("chat.", "net.", "identity.profile", "city.", "people", "person.")
+FOREIGN_TEXT_KEYS = frozenset(
+    {
+        "text",
+        "preview",
+        "about",
+        "why",
+        "essence",
+        "claim",
+        "verdict",
+        "name",
+        "title",
+        "who",
+        "source",
+        "label",
+    }
+)
+#: The fence markers, stripped from a value before it is fenced so a player
+#: cannot close the fence from inside their own text.
+FENCE_OPEN, FENCE_CLOSE = "⟦", "⟧"
 MAX_REPLY_CHARS = 9000
 MAX_NOTES_CHARS = 4000
 DEFAULT_HISTORY = 20
@@ -229,14 +255,19 @@ def _parse_json(raw: str) -> dict[str, Any] | None:
     return value if isinstance(value, dict) else None
 
 
+def _fenced(text: str) -> str:
+    clean = text.replace(FENCE_OPEN, "").replace(FENCE_CLOSE, "")
+    return f"{FENCE_OPEN}чужой текст: {clean}{FENCE_CLOSE}"
+
+
 def fence(value: Any) -> Any:
-    """Other players' words, marked as such wherever they sit in the answer:
-    the model reads ⟦чужой текст: …⟧ as data, not as an instruction."""
+    """Other players' words, marked as such wherever they sit in the answer,
+    by key -- a name, a title, a who is as much theirs as a chat line: the
+    model reads ⟦чужой текст: …⟧ as data, not as an instruction (review
+    2026-08-23)."""
     if isinstance(value, dict):
         return {
-            k: (
-                f"⟦чужой текст: {v}⟧" if k in FOREIGN_TEXT_KEYS and isinstance(v, str) else fence(v)
-            )
+            k: (_fenced(v) if k in FOREIGN_TEXT_KEYS and isinstance(v, str) else fence(v))
             for k, v in value.items()
         }
     if isinstance(value, list):
@@ -510,9 +541,9 @@ async def _tool(
             )
         store.event(agent_id, "action", cmd=cmd, request=args, reply=shrink(answer))
         turn.actions.append((cmd, json.dumps(args, sort_keys=True), True))
-        if cmd.startswith(FOREIGN_TEXT_COMMANDS):
-            answer = fence(answer)
-        return pack(answer)
+        #: Player-authored strings (names, titles, lines) can sit in any
+        #: answer, so every answer is fenced by key.
+        return pack(fence(answer))
     if name == "help":
         return commands.help_text(reference, str(arguments.get("cmd") or ""))
     if name == "read":

@@ -35,12 +35,14 @@ async def test_months_ahead_exist_and_rows_land_in_them(session: AsyncSession) -
     )
     assert {"event_202608", "event_202609", "event_202610", "event_default"} <= names
 
+    #: A row of `now` lands in this month's partition, not the default.
+    await journal.ensure_partitions(session)
     row = await events.record(session, EventKind.TICK_RAN, kind_of_tick="test")
     await session.flush()
     where = await session.scalar(
         text("SELECT tableoid::regclass::text FROM event WHERE id = :id"), {"id": row.id}
     )
-    assert where == f"event_{datetime.now(UTC):%Y%m}" or where == "event_default"
+    assert where == f"event_{datetime.now(UTC):%Y%m}"
     #: The journal stays append-only on every partition.
     try:
         await session.execute(text("DELETE FROM event WHERE id = :id"), {"id": row.id})

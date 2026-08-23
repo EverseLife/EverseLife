@@ -79,7 +79,7 @@ async def main() -> None:
         name = f"{worker_id}/{index}"
         while not stopping.is_set():
             _beat()
-            done = await run_due(factory, limit=conf.job_batch, worker=name)
+            done = await run_due(factory, limit=conf.job_batch, worker=name, on_job=_beat)
             if done == 0:
                 with contextlib.suppress(TimeoutError):
                     await asyncio.wait_for(stopping.wait(), timeout=WORKER_IDLE_SLEEP)

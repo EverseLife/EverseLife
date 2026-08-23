@@ -248,14 +248,14 @@ async def tick_step(session: AsyncSession, job: Job) -> None:
     if now.tzinfo is None:
         now = now.replace(tzinfo=UTC)
     result = await step(session, now)
-    await events.record(
-        session,
-        EventKind.TICK_RAN,
-        kind_of_tick=str(job.payload.get("tick")),
-        step=name,
-        at=now.isoformat(),
-        **result,
-    )
+    #: A daily step is a metric and is always recorded; a world step that
+    #: changed nothing writes no row -- it would be noise in the hottest
+    #: table, one per tick per empty step (review 2026-08-23).
+    kind = str(job.payload.get("tick"))
+    if kind == "daily" or any(result.values()):
+        await events.record(
+            session, EventKind.TICK_RAN, kind_of_tick=kind, step=name, at=now.isoformat(), **result
+        )
 
 
 async def ensure_scheduled(session: AsyncSession, now: datetime | None = None) -> None:

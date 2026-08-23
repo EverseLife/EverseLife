@@ -52,6 +52,11 @@ from src.models.event import Event
 from src.models.identity import Identity
 from src.models.world import Node
 
+
+def _now() -> datetime:
+    return datetime.now(UTC)
+
+
 log = logging.getLogger(__name__)
 
 #: How far back `hello` with `since` reaches. Older than this the client reads
@@ -68,9 +73,10 @@ OUTBOX_LIMIT = 256
 #: Journal rows read per pass of the pump: a tick that wrote thousands is
 #: delivered in slices, not held in memory whole.
 PUMP_BATCH = 500
-#: How far below its mark the pump looks for rows that took their id before
-#: the mark moved and committed after it. Ids below the window are history.
-PUMP_LOOKBACK = 256
+#: How long a gap in the id run may stay open before the pump rules it a
+#: rolled-back id and steps the watermark over it. Longer than any job's
+#: transaction may live (`JOB_STATEMENT_TIMEOUT_MS`), with room to spare.
+GAP_HORIZON = timedelta(minutes=20)
 
 #: Which parts of the player's state an event kind changes, by prefix of the
 #: kind (`knowledge.learned` -> `knowledge`). The client rereads those parts.
@@ -314,16 +320,21 @@ class Hub:
         self.by_node: dict[uuid.UUID, set[Sink]] = {}
         self.dirty = True
         self.tally = Tally()
+        #: The watermark: every id at or below it has been delivered. It moves
+        #: only along the unbroken run, so a row whose transaction took an id
+        #: earlier and committed later is still read (`id > watermark`) and is
+        #: never skipped.
         self._last_id = 0
+        #: Ids delivered that sit above a gap in the run (later ids committed
+        #: before an earlier one) -> the moment they carry. The watermark
+        #: advances into this as the gaps close; a gap older than the horizon
+        #: is a rolled-back id and is stepped over.
+        self._ahead: dict[int, datetime] = {}
         #: Made in `start()`: an Event is bound to the loop it is made on, and
         #: the hub is made at import, before any loop exists.
         self._wake: asyncio.Event = asyncio.Event()
         self._task: asyncio.Task[None] | None = None
         self._touches: list[dict[str, Any]] = []
-        #: A row can commit after a later one has been delivered -- two
-        #: transactions do not finish in id order -- so the pump reads from
-        #: a window below its mark and remembers what it delivered.
-        self._delivered: set[int] = set()
 
     def attach(self, sink: Sink) -> None:
         self.sinks.add(sink)
@@ -360,7 +371,7 @@ class Hub:
 
     async def start(self) -> None:
         self._wake = asyncio.Event()
-        self._delivered.clear()
+        self._ahead.clear()
         self._touches.clear()
         async with session_factory()() as db:
             await self._settle(db)
@@ -415,58 +426,72 @@ class Hub:
                 with contextlib.suppress(Exception):
                     await driver.remove_listener("event", on_notify)
                     await driver.remove_listener("touch", on_notify)
-        await listener.dispose()
+                await listener.dispose()
 
     # -- delivery ------------------------------------------------------------
 
+    def _advance(self, now: datetime) -> None:
+        """Move the watermark up the unbroken run of delivered ids, and step
+        over a gap that is only a rolled-back id -- proven rolled back because
+        a later id committed longer ago than any transaction may live."""
+        while True:
+            while (self._last_id + 1) in self._ahead:
+                self._ahead.pop(self._last_id + 1)
+                self._last_id += 1
+            if not self._ahead:
+                return
+            low = min(self._ahead)
+            #: The lowest delivered id above the gap: if what it carries is
+            #: older than the horizon, every transaction that could still fill
+            #: the gap has ended, so the missing ids were rolled back.
+            if self._ahead[low] > now - GAP_HORIZON:
+                return
+            self._ahead.pop(low)
+            self._last_id = low
+
     async def _settle(self, db: AsyncSession) -> None:
-        """Move the mark to the journal's end and count the window below it
-        as delivered: a listener that comes later must not get the backlog."""
+        """Skip the backlog: a listener that comes later starts from now. The
+        watermark goes to the journal's end and nothing above it is pending."""
         last = (await db.execute(select(func.max(Event.id)))).scalar() or 0
         self._last_id = max(self._last_id, last)
-        seen = (
-            await db.execute(select(Event.id).where(Event.id > self._last_id - PUMP_LOOKBACK))
-        ).scalars()
-        self._delivered = set(seen)
+        self._ahead.clear()
 
     async def pump(self) -> None:
-        """Deliver everything the journal holds after the last delivered row,
-        and every touch that arrived. Safe to call at any time: it is what the
-        listener does when woken, and what a test does instead of waiting."""
+        """Deliver everything the journal holds after the watermark, and every
+        touch that arrived. Safe to call at any time: it is what the listener
+        does when woken, and what a test does instead of waiting."""
         touches, self._touches = self._touches, []
         for note in touches:
             await self._deliver_touch(note)
+        now = _now()
         if not any(sink.listening for sink in self.sinks):
-            #: Nobody to tell: just move the mark, so the next listener does
-            #: not get the backlog of an empty room.
+            #: Nobody to tell: just move the watermark, so the next listener
+            #: does not get the backlog of an empty room.
             async with session_factory()() as db:
                 await self._settle(db)
             return
         async with session_factory()() as db:
             while True:
-                #: From a window below the mark: a transaction that took its
-                #: id before ours and committed after is found here, and the
-                #: delivered set keeps it from going out twice.
-                wanted = Event.id > self._last_id - PUMP_LOOKBACK
                 rows = (
                     (
                         await db.execute(
-                            select(Event).where(wanted).order_by(Event.id).limit(PUMP_BATCH)
+                            select(Event)
+                            .where(Event.id > self._last_id)
+                            .order_by(Event.id)
+                            .limit(PUMP_BATCH)
                         )
                     )
                     .scalars()
                     .all()
                 )
-                fresh = [row for row in rows if row.id not in self._delivered]
-                for row in fresh:
+                for row in rows:
+                    if row.id in self._ahead:
+                        continue
                     await self._deliver(db, row, self.sinks)
-                    self._delivered.add(row.id)
-                    self._last_id = max(self._last_id, row.id)
+                    self._ahead[row.id] = row.at
+                self._advance(now)
                 if len(rows) < PUMP_BATCH:
                     break
-            #: Everything below the window is history.
-            floor = self._last_id - PUMP_LOOKBACK
-            self._delivered = {i for i in self._delivered if i > floor}
 
     async def replay(self, sink: Sink, since: int) -> None:
         """Catch a reconnected client up: what happened after `since` that it

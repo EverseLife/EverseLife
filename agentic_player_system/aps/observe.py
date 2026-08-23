@@ -203,7 +203,8 @@ def happened(events: list[dict[str, Any]], limit: int = 20) -> str:
                 continue
             #: A line of room talk is another player's words: fenced as data.
             if key == "line" and isinstance(value, dict) and isinstance(value.get("text"), str):
-                value = {**value, "text": f"⟦чужой текст: {value['text']}⟧"}
+                clean = value["text"].replace("⟦", "").replace("⟧", "")
+                value = {**value, "text": f"⟦чужой текст: {clean}⟧"}
             parts.append(f"{key}: {_short(value, 160)}")
         lines.append("- " + " · ".join(parts))
     if len(events) > limit:

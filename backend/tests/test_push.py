@@ -15,7 +15,7 @@ import asyncio
 import uuid
 
 from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
 from src.engine import world
@@ -361,3 +361,59 @@ def test_all_engine_errors_descend_from_refusal() -> None:
                 continue
             strays.append(f"{module.__name__}.{name}")
     assert strays == [], strays
+
+
+async def test_pump_delivers_a_late_committing_row_exactly_once(
+    factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """A row takes its id before a later one that commits ahead of it (review
+    2026-08-23): the later one is delivered, the straggler commits below the
+    old high-water, and it must still arrive -- exactly once."""
+    from sqlalchemy import func, select
+
+    from src.api import push
+    from src.engine import events
+    from src.models.event import Event, EventKind
+
+    real_factory = push.session_factory
+    push.session_factory = lambda: factory  # type: ignore[assignment]
+    got: list[int] = []
+
+    async def collect(message: dict) -> None:
+        if "seq" in message:
+            got.append(message["seq"])
+
+    who = uuid.uuid4()
+    sink = push.Sink(send_raw=collect, listening=True, identity_id=who)
+    hub = push.Hub()
+    sink.send = sink.send_raw  # type: ignore[method-assign]
+    hub.sinks.add(sink)
+    hub.dirty = True
+    try:
+        async with factory() as db:
+            hub._last_id = (await db.execute(select(func.max(Event.id)))).scalar() or 0
+
+        #: A takes an id and holds its transaction open.
+        a = factory()
+        await a.__aenter__()
+        trans = await a.begin()
+        straggler = await events.record(a, EventKind.KNOWLEDGE_LEARNED, actor_identity_id=who)
+        await a.flush()
+
+        #: B commits a later id first.
+        async with factory() as b, b.begin():
+            later = await events.record(b, EventKind.KNOWLEDGE_LEARNED, actor_identity_id=who)
+
+        assert straggler.id < later.id
+
+        await hub.pump()
+        assert got == [later.id], "виден только закоммиченный"
+
+        await trans.commit()
+        await a.__aexit__(None, None, None)
+        await hub.pump()
+
+        assert sorted(got) == [straggler.id, later.id]
+        assert got.count(straggler.id) == 1, "опоздавшая строка обязана дойти ровно раз"
+    finally:
+        push.session_factory = real_factory

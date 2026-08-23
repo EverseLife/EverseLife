@@ -164,10 +164,15 @@ async def run_due(
     limit: int,
     now: datetime | None = None,
     worker: str = "worker",
+    on_job: Callable[[], None] | None = None,
 ) -> int:
-    """Drain the queue up to `limit` jobs. Returns the number executed."""
+    """Drain the queue up to `limit` jobs. Returns the number executed.
+    `on_job` is called before each job -- the worker beats its heartbeat
+    there, so a batch of long jobs does not read as a dead worker."""
     done = 0
     for _ in range(limit):
+        if on_job is not None:
+            on_job()
         job = await run_one(factory, now=now, worker=worker)
         if job is None:
             break
