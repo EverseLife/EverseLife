@@ -431,9 +431,11 @@ async def _update(state, db, message) -> dict:
         [
             str(interpreter),
             "-c",
-            "import src.api.session; from src.api.registry import COMMANDS; "
-            "print(sum(not c.hidden for c in COMMANDS.values())); "
-            "print(' '.join(n for n, c in COMMANDS.items() if c.hidden))",
+            (
+                "import src.api.session; from src.api.registry import COMMANDS; "
+                "print(sum(not c.hidden for c in COMMANDS.values())); "
+                "print(' '.join(n for n, c in COMMANDS.items() if c.hidden))"
+            ),
         ],
         cwd=backend,
         capture_output=True,
