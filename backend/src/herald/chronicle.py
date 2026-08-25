@@ -172,10 +172,23 @@ async def _case_judged(event: Event, names: Names) -> str | None:
 
 
 async def _rate_decided(event: Event, names: Names) -> str | None:
+    """The key rate, and only when it moved.
+
+    The rate is reviewed on a period of its own (D-167) and most reviews change
+    nothing: the sensors read the same inflation and the algorithm returns the
+    same number. Announced anyway, those filled the chronicle with a line that
+    said "the rate is twelve, and it was twelve" over and over -- the journal
+    keeps every review, and the chronicle is for what is worth telling.
+
+    A decision of a council always goes out, changed or not: people took it,
+    and that is news even when the number stayed (D-172).
+    """
     rate = _number(event.payload.get("rate"))
     if rate is None:
         return None
     before = _number(event.payload.get("was"))
+    if not event.payload.get("by_council") and before is not None and rate == before:
+        return None
     whose = ""
     if event.payload.get("by_council"):
         whose = f" (решение совета, {plain(event.payload.get('city'))})"

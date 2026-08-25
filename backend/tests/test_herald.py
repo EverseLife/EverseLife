@@ -147,6 +147,33 @@ async def test_silent_event_gives_no_line(session: AsyncSession, catalog: Catalo
     assert await chronicle.compose(session, [event]) == []
 
 
+async def test_a_rate_that_did_not_move_is_not_told(
+    session: AsyncSession, catalog: Catalog
+) -> None:
+    """The rate is reviewed on a period of its own (D-167), and most reviews
+    change nothing: the same inflation gives the same number.
+
+    Announced anyway, those filled the chronicle -- and Discord -- with a line
+    saying "the rate is twelve, and it was twelve", over and over. The journal
+    keeps every review; the chronicle is for what is worth telling.
+    """
+    same = await events.record(
+        session, EventKind.RATE_DECIDED, rate=12, was=12, why="сенсоры молчат"
+    )
+    assert await chronicle.compose(session, [same]) == []
+
+    moved = await events.record(session, EventKind.RATE_DECIDED, rate=14, was=12, why="инфляция")
+    told = await chronicle.compose(session, [moved])
+    assert told and "14" in told[0] and "было 12" in told[0]
+
+    #: A council took its decision by hand, and that is news whether the number
+    #: moved or not: people did it (D-172).
+    council = await events.record(
+        session, EventKind.RATE_DECIDED, rate=14, was=14, by_council=True, city="Рудный"
+    )
+    assert await chronicle.compose(session, [council])
+
+
 # --- feed pass ---------------------------------------------------------------
 
 
