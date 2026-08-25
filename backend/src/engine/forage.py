@@ -46,7 +46,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.constants.spec import ConstantError
-from src.engine import estate, events, food, gear, luck, occupation, travel, world
+from src.engine import estate, events, food, frost, gear, luck, occupation, travel, world
 from src.engine.errors import Refusal
 from src.models.event import EventKind
 from src.models.forage import Forage
@@ -226,7 +226,11 @@ async def start(
     dice = random.Random(str(row_id))
     seconds = search_seconds(constants, room, dice)
 
-    spend = constants[R.FORAGE_SEARCH_STAMINA] * food.drain_multiplier(constants, body, moment)
+    spend = (
+        constants[R.FORAGE_SEARCH_STAMINA]
+        * food.drain_multiplier(constants, body, moment)
+        * await frost.drain_multiplier(session, constants, body)
+    )
     if spend > float(body.stamina):
         raise NoStrength(f"нет сил на поиск: нужно {spend:.2f}, есть {float(body.stamina):.2f}")
     body.stamina = Decimal(str(float(body.stamina) - spend))

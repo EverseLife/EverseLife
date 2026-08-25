@@ -102,14 +102,25 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import Catalog, Constants, current, current_catalog
 from src.constants import registry as R
 from src.engine import city as town
-from src.engine import craft, events, food, luck, occupation, transport, travel, world
+from src.engine import (
+    craft,
+    events,
+    food,
+    frost,
+    luck,
+    occupation,
+    ruins,
+    transport,
+    travel,
+    world,
+)
 from src.engine import ship as vessels
 from src.engine.errors import Refusal
 from src.engine.jobs import enqueue, handler
 from src.models.event import EventKind
 from src.models.identity import Body, BodyState
 from src.models.job import Job, JobKind, JobState
-from src.models.world import Edge, Layer, Node, Surface
+from src.models.world import Edge, Layer, Node, Planet, Surface
 from src.units import MINUTES_PER_HOUR, PERCENT
 
 #: The vault operation from which the engine learns what is mined in this world at all.
@@ -127,7 +138,21 @@ VEIN = "vein"
 #: Woods to fell (D-191). The find is an ordinary wild node -- what makes it a
 #: forest is the same place property the felling reads (D-177).
 FOREST = "forest"
-GOALS = (LOT, SITE, VEIN, FOREST)
+#: A room of a Forerunner city (D-232). The one goal that **reveals** instead of
+#: creating: the city stood before anybody came, and the search opens its next
+#: door (`engine.ruins`).
+ROOM = ruins.ROOM
+GOALS = (LOT, SITE, VEIN, FOREST, ROOM)
+
+#: The goals in the player's own words, for a refusal that names what **is**
+#: possible here rather than only what is not.
+_WORDS = {
+    LOT: "участок",
+    SITE: "новое место",
+    VEIN: "жилу",
+    FOREST: "лес",
+    ROOM: "помещения Предтеч",
+}
 
 #: The place property both the search and the felling operation look at.
 WOODS = "лес"
@@ -221,11 +246,29 @@ async def survey(
     #: visible before leaving, and the player must not spend stamina on it.
     if goal == LOT and await town.of_node(session, origin) is None:
         raise ExploreError("участок ищут в городе: за стенами городской застройки нет")
+    #: The goal must be one this very node offers (D-232). `possible` is what
+    #: the client draws its buttons from, and the door must agree with the
+    #: advice: a socket takes a goal from anybody, agents included, and
+    #: "search for city ground" from a room deep inside Merid would hang a
+    #: frozen city on a corridor and walk around the gate rule (D-206).
+    offers = await possible(session, origin)
+    if goal not in offers:
+        raise ExploreError(
+            f"отсюда так не ищут: здесь ищут "
+            f"{', '.join(_WORDS.get(one, one) for one in offers) if offers else 'ничего'}"
+        )
+    ruined = await ruins.city_of(session, origin)
+    if goal == ROOM and ruined is not None and ruins.exhausted(constants, ruined):
+        raise ExploreError(f"«{ruined.name}» выработан: всё, что можно было вскрыть, уже вскрыто")
     if await pending(session, body) is not None:
         raise AlreadyOut("заход уже идёт: дождитесь возвращения")
 
     minutes = _minutes(constants, origin, random.Random())
-    spend = _stamina(constants, minutes) * food.drain_multiplier(constants, body, moment)
+    spend = (
+        _stamina(constants, minutes)
+        * food.drain_multiplier(constants, body, moment)
+        * await frost.drain_multiplier(session, constants, body)
+    )
     #: A shortage of strength does not lock the run but lengthens it: what was
     #: missing the scout sleeps off in the field per `body.hibernation_rate` and continues.
     have = float(body.stamina)
@@ -246,6 +289,9 @@ async def survey(
     #: (D-151), and how crowded the place the find will hang on already is (D-207).
     press = await crowding(session, constants, await anchor_of(session, origin, goal))
     odds = chance(constants, origin) * _aim(constants, current_catalog(), goal, resource) * press
+    #: And a city of the Forerunners is worked out like a vein (D-232): the more
+    #: of its rooms are open, the oftener the next door leads nowhere.
+    odds *= await _wear(session, constants, origin, goal)
     will_return = moment + timedelta(minutes=minutes)
     #: In the field the scout is not at the machine: the running batch
     #: freezes and waits for the return (D-209).
@@ -308,17 +354,7 @@ async def returned(session: AsyncSession, job: Job) -> None:
     #: twelve-run drought stops happening.
 
     if not await luck.hit(session, body.identity_id, luck.EXPLORE_FIND, float(odds), dice=dice):
-        await events.record(
-            session,
-            EventKind.EXPLORE_EMPTY,
-            actor_identity_id=body.identity_id,
-            node_id=origin.id,
-            goal=goal,
-            resource=requested,
-        )
-        #: Back at the exit node with empty hands: the frozen work goes on (D-209).
-
-        await craft.wake(session, body, now=job.run_at)
+        await _empty(session, body, origin, goal=goal, resource=requested, now=job.run_at)
         return
 
     #: For a vein without a named species the old share `explore.vein_share`
@@ -333,20 +369,42 @@ async def returned(session: AsyncSession, job: Job) -> None:
             dice=dice,
         )
     )
-    found = await _place(
-        session,
-        constants,
-        dice,
-        origin,
-        goal=goal,
-        vein=with_vein,
-        who=body.identity_id,
-    )
+    #: Two finds reveal instead of creating (D-232): a room of a city that
+    #: stood before anybody came, and another city of the Forerunners beyond
+    #: the ice. Everything else is a place the world did not have until
+    #: somebody walked to it.
+    if goal == ROOM:
+        #: The city may have been worked out while this scout was in the field
+        #: -- somebody else took its last room. That is an **empty run**, not a
+        #: broken job: the roll simply found nothing, and the scout comes back
+        #: the way anybody comes back empty (D-232).
+        #: Under the lock, and before `open_room` takes it: two scouts coming
+        #: back at 23 rooms of 24 must both end their runs, one with the room
+        #: and one with nothing. Read without the lock, the loser would meet a
+        #: refusal thrown out of the job instead -- a retry, a backoff, and the
+        #: honest "empty" only on the second attempt.
+        city = await ruins.city_of(session, origin, lock=True)
+        if city is None or ruins.exhausted(constants, city):
+            await _empty(session, body, origin, goal=goal, resource=requested, now=job.run_at)
+            return
+        found = await ruins.open_room(session, constants, dice, origin, who=body.identity_id)
+    elif goal == SITE and await ruins.left_by_precursors(session, origin):
+        found = await ruins.lost_city(session, constants, origin, who=body.identity_id)
+    else:
+        found = await _place(
+            session,
+            constants,
+            dice,
+            origin,
+            goal=goal,
+            vein=with_vein,
+            who=body.identity_id,
+        )
 
     species = None
     if with_vein:
-        species = requested or await _resource(
-            session, constants, catalog, dice, who=body.identity_id
+        species = requested or await species_of(
+            session, constants, catalog, dice, planet=origin.planet, who=body.identity_id
         )
         richness = constants[R.EXPLORE_VEIN_RICHNESS]
         stock = constants[R.EXPLORE_VEIN_STOCK]
@@ -363,7 +421,10 @@ async def returned(session: AsyncSession, job: Job) -> None:
     #: A plot in the city is a step across the quarter; a find beyond the wall
     #: is a trail, and its length is set by the find's distance (D-180): the
     #: farther from the city, the pricier the step.
-    if goal == LOT:
+    if goal in (LOT, ROOM):
+        #: A plot is a step across the quarter, and a room a step along a
+        #: corridor: both are inside the built-up area, and the Forerunners
+        #: laid their floors better than anybody has since.
         step = constants[R.TRAVEL_CITY_STEP]
         seconds = dice.uniform(step.min, step.max)
         coverage = Surface.PAVED
@@ -371,6 +432,10 @@ async def returned(session: AsyncSession, job: Job) -> None:
     else:
         seconds = travel.frontier_seconds(constants, travel.reach_of(found))
         minutes = seconds / MINUTES_PER_HOUR
+        #: Snow is walked, not driven (D-232), and `Surface.TRAIL` is exactly
+        #: that: two to three times longer than a road, and no vehicle passes.
+        #: It is the slowest surface the world has, and the walk to a city
+        #: found beyond the ice is the brake on colonising the planet.
         coverage = Surface.TRAIL
     #: A plot is found inside the built-up area and hangs on the node it was
     #: sought from; a find beyond the walls hangs on the city's **gate** (D-206).
@@ -425,6 +490,29 @@ async def returned(session: AsyncSession, job: Job) -> None:
     await craft.wake(session, body, now=job.run_at)
 
 
+async def _empty(
+    session: AsyncSession,
+    body: Body,
+    origin: Node,
+    *,
+    goal: str,
+    resource: str | None,
+    now: datetime,
+) -> None:
+    """Came back with nothing. An empty run is normal (D-152), and it is the
+    only honest ending for a search that found no place to find one."""
+    await events.record(
+        session,
+        EventKind.EXPLORE_EMPTY,
+        actor_identity_id=body.identity_id,
+        node_id=origin.id,
+        goal=goal,
+        resource=resource,
+    )
+    #: Back at the exit node with empty hands: the frozen work goes on (D-209).
+    await craft.wake(session, body, now=now)
+
+
 async def cancel(session: AsyncSession, body: Body) -> Job:
     """Turn back: the run is cancelled, the body is in the exit node again.
 
@@ -470,6 +558,50 @@ def chance(constants: Constants, node: Node) -> float:
     return max(constants[R.EXPLORE_FIND_FLOOR], constants[R.EXPLORE_FIND_CHANCE] * decline)
 
 
+async def possible(session: AsyncSession, node: Node) -> tuple[str, ...]:
+    """Which goals make sense in this node at all.
+
+    The client draws its buttons from this rather than guessing by map layer,
+    and `survey` refuses anything not in it: a goal that would be refused must
+    not be offered, and one that is offered must not be refused.
+
+    Inside a city of the Forerunners one opens their next room -- and at its
+    **door** one may also set out for the ice, or there would be no way off the
+    three cities the seed lays (D-232). Inside a city of people a lot is added
+    to the open world rather than replacing it: a find beyond the walls ties
+    itself to the gate wherever it was sought from (D-206).
+    """
+    #: Nothing grows where the ground bakes (D-231, D-233): a grove found on
+    #: Pyroxis would be a place property nobody could explain, and felling it
+    #: reads the same property the search would have written.
+    beyond = (
+        (SITE, VEIN)
+        if await frost.climate_of(session, node) == frost.HEAT
+        else (
+            SITE,
+            VEIN,
+            FOREST,
+        )
+    )
+    #: Inside a city of the Forerunners the search is for their next room
+    #: (D-232): nothing is founded here and nothing is felled, and a frozen city
+    #: hung on a corridor would walk around the gate rule (D-206).
+    #:
+    #: **Except at the door.** A city's pier is where the ice plains begin, and
+    #: without this the whole of Aurora would end at three cities: the seed lays
+    #: no wild node on the planet, a ship lands only at a pier, and a search for
+    #: new cities would have nowhere to start from. From the door one goes out
+    #: onto the ice; from a corridor one goes deeper in.
+    if await ruins.city_of(session, node) is not None:
+        return (ROOM, *beyond) if await travel.is_exit(session, node) else (ROOM,)
+    #: Everywhere else the world beyond the walls is open from anywhere: a find
+    #: made from inside a city ties itself to the gate, not to the node one set
+    #: out from (D-206). A lot is the one goal that needs a city around it.
+    if node.layer is Layer.CITY and await town.of_node(session, node) is not None:
+        return (LOT, *beyond)
+    return beyond
+
+
 async def anchor_of(session: AsyncSession, origin: Node, goal: str) -> Node:
     """The node a find from here will hang on -- and whose crowding decides the chance.
 
@@ -478,7 +610,7 @@ async def anchor_of(session: AsyncSession, origin: Node, goal: str) -> Node:
     it here" is a question about the gate for the second case, and measuring the
     node one set out from would miss exactly the star the gate is growing.
     """
-    if goal == LOT:
+    if goal in (LOT, ROOM):
         return origin
     gate = await travel.gate_of(session, origin)
     return gate if gate is not None else origin
@@ -591,12 +723,20 @@ async def outlook(
     aim = _aim(constants, current_catalog(), goal, resource)
     anchor = await anchor_of(session, node, goal)
     press = await crowding(session, constants, anchor)
+    #: A worked-out city is the fourth thing that narrows the chance, and it
+    #: narrows it to nothing (D-232). Left out, the button would promise ninety
+    #: percent in a city where the true answer is none -- exactly the price in
+    #: advance that D-156 exists for.
+    wear = await _wear(session, constants, node, goal)
     return {
         "explored": found_here(node),
         "minutes": {"min": short, "max": long_},
         #: The largest possible: the player must know the ceiling, not the average.
         "stamina": _stamina(constants, long_),
-        "chance": chance(constants, node) * aim * press,
+        "chance": chance(constants, node) * aim * press * wear,
+        #: How much of the city is already open: a fact of the place the player
+        #: can act on -- by walking to the next city (D-232).
+        "worked_out": wear,
         #: By how much the species request narrowed the chance: the player sees
         #: not only "little" but why little (D-151).
         "aim": aim,
@@ -606,6 +746,18 @@ async def outlook(
         "anchor": anchor.name if anchor.id != node.id else None,
         "resource": resource,
     }
+
+
+async def _wear(session: AsyncSession, constants: Constants, node: Node, goal: str) -> float:
+    """How much a city already opened narrows the search in it (D-232).
+
+    One place, asked by both the forecast and the departure: a promise and a
+    price that disagreed would be worse than either.
+    """
+    if goal != ROOM:
+        return 1.0
+    city = await ruins.city_of(session, node)
+    return 1.0 if city is None else ruins.worked_out(constants, city)
 
 
 def mineable(catalog: Catalog) -> tuple[str, ...]:
@@ -660,8 +812,11 @@ async def _place(
     """
 
     #: The node key must be stable and unique forever: the map is eternal,
-    #: there are no wipes (D-007), and "wild plot 3" will sooner or later collide.
-    key = f"terra.wild.{uuid.uuid4().hex}"
+    #: there are no wipes (D-007), and "wild plot 3" will sooner or later
+    #: collide. Named after the planet it is actually on: keys are read by
+    #: people -- in the admin, in a migration, in a log line -- and a field of
+    #: Pyroxis called `terra.wild.*` is a lie told to whoever reads it next.
+    key = f"{origin.planet.value}.wild.{uuid.uuid4().hex}"
 
     if goal == LOT:
         city = await town.of_node(session, origin)
@@ -754,20 +909,29 @@ async def _properties(
     }
 
 
-async def _resource(
+async def species_of(
     session: AsyncSession,
     constants: Constants,
     catalog: Catalog,
     dice: random.Random,
     *,
+    planet: Planet = Planet.TERRA,
     who: uuid.UUID | None = None,
 ) -> str:
     """Which species. The list is from the vault, the weight from the mining pace (D-151).
 
     The rare is mined slower, so it also turns up rarer. No second rarity table:
     it would diverge from the first.
+
+    A planet bends those weights and does not replace them (D-232): Aurora is
+    generous with coal and poor in iron, and that one line is the whole economy
+    of the place -- fuel underfoot, metal brought in by ship.
     """
-    paces = constants[R.HARVEST_RATES]
+    paces = dict(constants[R.HARVEST_RATES])
+    bend: dict[str, float] = constants[R.HARVEST_PLANET_WEIGHTS].get(planet.value, {})
+    for name, weight in bend.items():
+        if name in paces:
+            paces[name] = paces[name] * weight
     operation = next((op for op in catalog.recipes.operations if op.name == MINING_OPERATION), None)
     if_missing = "Камень"
     if operation is None:  # pragma: no cover -- the mining operation exists by construction
@@ -781,7 +945,11 @@ async def _resource(
     return await luck.draw(
         session,
         who,
-        luck.EXPLORE_SPECIES,
+        #: A deck per planet (D-213, D-232): the species are the same names
+        #: everywhere and only the weights differ, so one shared deck would go
+        #: on dealing Terra's iron on Aurora -- exactly where "coal here, iron
+        #: brought in" is the first thing a player should feel.
+        f"{luck.EXPLORE_SPECIES}:{planet.value}",
         {name: float(paces[name]) for name in species},
         dice=dice,
     )

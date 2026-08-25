@@ -1,144 +1,372 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 Nurlan Urazkulov
 
-"""The surfaces of Pyroxis and Aurora: where a ship may land (D-230).
+"""The surfaces of Pyroxis and Aurora: where a ship may land (D-230, D-232).
 
 Split out of `seed.py` -- the starting world's module is long past the length
 a file should have, and the other planets are content of their own.
 
-A ship flies to a **spaceport** and nowhere else: the route list is the list
-of nodes with a yard in them (`ship.ports`). So a planet exists for a pilot
-only once something with a yard stands on it, and that is what the seed lays
-down here: a landing on the Anvil Plateau of Pyroxis, and the ports of the
-Forerunners' abandoned city on Aurora.
+A ship flies to a **spaceport** and nowhere else: the route list is the list of
+nodes with a yard in them whose beacon shines (`ship.lit_ports`). So a planet
+exists for a pilot only once something with a yard stands on it and something
+keeps that yard warm and fed.
 
-* **Pyroxis** -- one plateau, one spaceport. The plateau is a `planet`-layer
-  node like the capital, but it is no city: nobody founded it, nobody owns it
-  and nothing gets built on it (`estate.construct` refuses the planet). Its
-  built-up layer is a **camp**, and the client names it so. Players may bring
-  their own yards and found more.
-* **Aurora** -- the abandoned cities of the Forerunners, `AURORA_CITIES` of
-  them, each a `planet`-layer node of its own with one spaceport in it: a
-  ship arriving at Aurora chooses which city to land at. The scouts there do
-  not find empty lots, they find parts of a city that stood already -- the
-  rest of every city is for that scouting to reveal. The yards are **relics**,
-  not assembled by recipe the way the capital's machines are (D-216): nobody
-  made them in this world, they were found --
-  and assembling six hundred of them from raw stone would cost the seed a
-  minute and a half for a provenance nobody asked for.
+* **Pyroxis** -- a plateau and the black fields around it, and **no spaceport
+  at all** (D-233). There cannot be one: nothing is built on Pyroxis (D-230),
+  so there is nothing to put a yard into. A ship sets down in any surface node
+  of the planet, by the same single edge connector-to-node, and the only
+  infrastructure of the place is its own hull. The plateau is a `planet`-layer
+  node like the capital, but it is no city: nobody founded it, nobody owns it,
+  and its layer is a **camp**, which the client names so.
 
-Idempotent like the rest of the seed: a node found by key is left alone,
-and a world laid out before the planets had surfaces catches up on its own.
+  The fields carry the planet's veins: what is rare on Terra lies here in
+  plenty and what is ordinary lies poorly (`harvest.planet_weights`, D-233).
+  The plateau carries none: it is the one place the eruptions leave alone
+  (D-197), and a vein that never moved would be exactly the staked claim the
+  eruptions exist against.
+* **Aurora** -- **three** cities of the Forerunners, and not one of them is
+  like another (D-232). Each is a `planet`-layer node with two locations under
+  it: the central hall, where a «ТЭЦ Предтеч» and an «Изотопный реактор
+  Предтеч» stand, and the spaceport one step away -- inside the plant's heat,
+  because a port only works while its node is warm and its yard has power
+  (D-231). Everything of the Forerunners' here is a **relic**: found, not
+  assembled, and never taken down.
+
+  There used to be six hundred and sixty-six identical ports here instead. They
+  were a hedge against a race for a single berth, and they were the wrong
+  answer: a planet of six hundred copies of one pier is not a planet. Three
+  cities with faces, and the rest of Aurora found by walking (D-232).
+
+The reactor's countdown is anchored **in the node where it stands**, at the
+moment this seed lays the surface: the Forerunners did not wait for guests, and
+a world that had been running for a year before Aurora existed would otherwise
+receive the planet already dead.
+
+Idempotent like the rest of the seed: a node found by key is left alone, and a
+world laid out before the planets had surfaces catches up on its own.
 """
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+import random
+from dataclasses import dataclass
+from datetime import UTC, datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.constants import current_catalog
-from src.engine import ship, world
-from src.models.world import Layer, Node, Planet
+from src.constants import current, current_catalog
+from src.engine import energy, explore, plates, ruins, ship, travel, world
+from src.models.world import Layer, Node, Planet, Surface
 
-#: The Anvil Plateau: the one stable ground of Pyroxis (10-world/04).
+#: The Anvil Plateau: the one stable ground of Pyroxis (10-world/04, D-197).
 PYROXIS_PLATEAU = "pyroxis.anvil"
+#: The spaceport the seed used to lay on the plateau (D-230). Kept as a name so
+#: the migration that takes it away has something to name; nothing lays it now.
 PYROXIS_PORT = "pyroxis.anvil.port"
-
-#: The Forerunners' cities under the ice of Aurora (10-world/05).
-AURORA_RUINS = "aurora.ruins"
-#: How many abandoned cities there are, one spaceport in each. A great many on
-#: purpose: the race for Aurora is between cities of Terra, and a single pier
-#: would make it a race for one berth.
-AURORA_CITIES = 666
+#: The black fields: where the veins are, and where the map is redrawn. Enough
+#: of them for an eruption to have somewhere to move a vein to, few enough that
+#: the first expedition can walk the lot.
+PYROXIS_FIELDS = 6
+#: How rich a field's vein is and how much is in it. The same spans exploring
+#: uses (`explore.vein_richness`, `explore.vein_stock`) would do, but the seed
+#: has no scout: these are the planet's own, and generous -- Pyroxis is a shift
+#: worth flying to (10-world/04).
+PYROXIS_VEIN_RICHNESS = 70
+PYROXIS_VEIN_STOCK = 4000
+#: A walk across the black fields: they are neighbours of the plateau and of
+#: each other, and the ground between them is no road.
+PYROXIS_STEP_SECONDS = 900
 
 #: The area of a port node, the capital's own (D-206).
 PORT_AREA_M2 = 240
+#: A black field is open ground, and the whole of it is a working face.
+FIELD_AREA_M2 = 5000
+#: The plateau's mark: the one place on Pyroxis an eruption leaves alone
+#: (D-197). The engine's name for it, so the seed and the planet's own weather
+#: cannot drift apart over a spelling.
+ANVIL = plates.ANVIL
+#: The area of a Forerunner hall: they built for tens of thousands.
+HALL_AREA_M2 = 600
+#: From the hall to the pier: a walk across one square, no more. The port must
+#: stand inside the plant's heat -- its own node and its neighbours (D-231).
+PIER_SECONDS = 30
+
+#: The mark of the Forerunners on everything they left. The engine's, because
+#: exploring reads it too: a planet with this mark holds their cities, and a
+#: node with it is one of theirs (`engine.ruins`).
+PRECURSOR = ruins.PRECURSOR
 
 
-def aurora_city_key(number: int) -> str:
-    """The key of the n-th abandoned city, from 1."""
-    return f"{AURORA_RUINS}.{number:03d}"
+@dataclass(frozen=True, slots=True)
+class City:
+    """One of the three cities of Aurora (D-232).
+
+    Different by design, and the difference is content rather than decoration:
+    what a city was decides what its rooms hold when the scouts open them.
+    """
+
+    key: str
+    name: str
+    #: The central hall: where the plant and the reactor of the Forerunners stand.
+    hall: str
+    port: str
+    #: What the place was, in one word for the client and the scouting to come.
+    kind: str
 
 
-def aurora_port_key(number: int) -> str:
-    """The key of the one spaceport of the n-th abandoned city."""
-    return f"{aurora_city_key(number)}.port"
+AURORA_CITIES = (
+    City(
+        key="merid",
+        name="Мерид",
+        hall="Купольный зал",
+        port="Космодром Мерида",
+        kind="столица",
+    ),
+    City(
+        key="caldar",
+        name="Кальдар",
+        hall="Литейный двор",
+        port="Космодром Кальдара",
+        kind="цех",
+    ),
+    City(
+        key="veyr",
+        name="Вейр",
+        hall="Нулевой ярус",
+        port="Космодром Вейра",
+        kind="улей",
+    ),
+)
+
+#: The relics of the Forerunners, by thing class (D-215, D-232). The engine's
+#: names: the seed and the scouting place the same things, and a second reactor
+#: is a line in the vault rather than two lines here.
+RELIC_YARD = ruins.RELIC_YARD
+RELIC_PLANT = ruins.RELIC_PLANT
+RELIC_REACTOR = energy.REACTOR
 
 
-Machine = Callable[[AsyncSession, Node, str, float], Awaitable[None]]
+def aurora_city_key(city: City) -> str:
+    return f"aurora.{city.key}"
 
 
-async def surfaces(session: AsyncSession, machine: Machine) -> None:
-    """Lay the surfaces of both planets. `machine` places a yard, assembled by recipe."""
-    await _pyroxis(session, machine)
-    await _aurora(session, machine)
+def aurora_port_key(city: City) -> str:
+    """The key of the one spaceport of the city."""
+    return f"{aurora_city_key(city)}.port"
 
 
-async def _pyroxis(session: AsyncSession, machine: Machine) -> None:
+def aurora_hall_key(city: City) -> str:
+    return f"{aurora_city_key(city)}.hall"
+
+
+async def surfaces(session: AsyncSession) -> None:
+    """Lay the surfaces of both planets.
+
+    Neither of them gets a yard built by recipe any more: Aurora's piers are
+    relics the Forerunners left (D-232), and Pyroxis has no port at all and
+    cannot have one (D-233).
+    """
+    await _pyroxis(session)
+    await _aurora(session)
+
+
+async def _pyroxis(session: AsyncSession) -> None:
+    """The plateau, the fields, and the planet's own veins (D-233).
+
+    No yard anywhere: the planet takes a landing in any of its surface nodes,
+    and that property is written on the planet itself. A world seeded before
+    D-233 has a spaceport on the plateau; the migration takes it away, and this
+    lays nothing in its place -- there is nothing to lay.
+    """
     sphere = await _sphere(session, "pyroxis")
-    plateau = await _ensure(
-        session,
-        PYROXIS_PLATEAU,
-        "Плато Наковальни",
-        planet=Planet.PYROXIS,
-        layer=Layer.PLANET,
-        parent=sphere,
-        area=1,
-    )
-    port = await _ensure(
-        session,
-        PYROXIS_PORT,
-        "Космодром на плато",
-        planet=Planet.PYROXIS,
-        layer=Layer.CITY,
-        parent=plateau,
-        area=PORT_AREA_M2,
-        properties={"кольцо": 0},
-    )
-    await _yard(session, machine, port)
-
-
-async def _aurora(session: AsyncSession, machine: Machine) -> None:
-    sphere = await _sphere(session, "aurora")
-    #: A world that has its cities already is left alone at once: six hundred
-    #: key look-ups at every server start would be the price of idempotency
-    #: paid in the wrong place.
-    laid = await session.scalar(
-        select(func.count())
-        .select_from(Node)
-        .where(Node.parent_id == sphere.id, Node.layer == Layer.PLANET)
-    )
-    if laid == AURORA_CITIES:
-        return
-    for number in range(1, AURORA_CITIES + 1):
-        city = await _ensure(
+    #: The planet's own property, like its climate (D-231): a ship aims at
+    #: ground here, not at a pier.
+    sphere.properties = {**(sphere.properties or {}), ship.OPEN_LANDING: True}
+    plateau = (
+        await _ensure(
             session,
-            aurora_city_key(number),
-            f"Заброшенный город №{number}",
-            planet=Planet.AURORA,
+            PYROXIS_PLATEAU,
+            "Плато Наковальни",
+            planet=Planet.PYROXIS,
             layer=Layer.PLANET,
             parent=sphere,
             area=1,
-            properties={"предтечи": True},
+            properties={ANVIL: True},
         )
-        port = await _ensure(
+    ).node
+    #: And the mark is set **every** time, not only when the node is made.
+    #: `_ensure` leaves a node it found alone, and the plateau of a world laid
+    #: before D-233 was made without properties at all -- so it would come out
+    #: of the catch-up unmarked, and unmarked it is not the plateau at all:
+    #: `_exempt` would return nothing, the planet would shake its own anvil,
+    #: burn what stands on it, tear its ways and move a vein onto it, where
+    #: nothing could ever move it off again (D-197).
+    #:
+    #: Not player state and not a roll: the mark is a fact of the world's
+    #: structure, and the seed owns it. Written only when it is missing, so a
+    #: deploy does not touch the row for nothing.
+    if not (plateau.properties or {}).get(ANVIL):
+        plateau.properties = {**(plateau.properties or {}), ANVIL: True}
+        await session.flush()
+    dice = random.Random(PYROXIS_PLATEAU)
+    for number in range(1, PYROXIS_FIELDS + 1):
+        #: Laid **once**, and the whole field with it: the way to it, its vein,
+        #: its name. An eruption moves veins and redraws ways on purpose
+        #: (D-197), and a seed that ran again on every deploy would put them
+        #: back -- endless ore on a release schedule, and the one mechanic the
+        #: planet exists for undone. The roll is spent either way, so the
+        #: fields of a world caught up late are the fields of a fresh one.
+        laid = await _ensure(
             session,
-            aurora_port_key(number),
-            f"Космодром города №{number}",
+            pyroxis_field_key(number),
+            f"Чёрное поле №{number}",
+            planet=Planet.PYROXIS,
+            layer=Layer.PLANET,
+            parent=sphere,
+            area=FIELD_AREA_M2,
+        )
+        species = await explore.species_of(
+            session, current(), current_catalog(), dice, planet=Planet.PYROXIS
+        )
+        if laid.created:
+            await travel.connect(
+                session,
+                plateau,
+                laid.node,
+                base_seconds=PYROXIS_STEP_SECONDS,
+                surface=Surface.TRAIL,
+            )
+            await world.create_vein(
+                session,
+                laid.node,
+                species,
+                richness=PYROXIS_VEIN_RICHNESS,
+                remaining=PYROXIS_VEIN_STOCK,
+            )
+            laid.node.name = f"{laid.node.name}: {species.lower()}"
+            await session.flush()
+            #: And a way to the field before it. A star -- every field hanging
+            #: on the plateau alone -- would switch the planet's main mechanic
+            #: off on the day it is deployed: the plateau is never shaken and
+            #: is not a destination either, so a vein in a star has nowhere to
+            #: move and `_move_veins` returns nought on every eruption until a
+            #: bridge happens to fall between two fields. A ring of fields is
+            #: also the honest map: they lie next to each other on one plateau,
+            #: and walking from one to the next round the rim is shorter than
+            #: going back over the top every time.
+            #:
+            #: Inside the `created` guard with everything else, and for the same
+            #: reason: an eruption tears ways on purpose, and a seed that laid
+            #: this one again on every deploy would put back exactly what the
+            #: planet had just decided to take away. A world that already has
+            #: its fields keeps whatever shape the eruptions left it in.
+            before = (
+                await session.execute(select(Node).where(Node.key == pyroxis_field_key(number - 1)))
+            ).scalar_one_or_none()
+            if before is not None:
+                await travel.connect(
+                    session,
+                    before,
+                    laid.node,
+                    base_seconds=PYROXIS_STEP_SECONDS,
+                    surface=Surface.TRAIL,
+                )
+
+
+def pyroxis_field_key(number: int) -> str:
+    return f"{PYROXIS_PLATEAU}.field.{number:02d}"
+
+
+async def _aurora(session: AsyncSession) -> None:
+    """Three cities, each with a hall and a pier, and nothing else yet.
+
+    The rest of every city is for the scouting to reveal (D-232): a city has a
+    stock of rooms, and it is worked out like a vein.
+    """
+    sphere = await _sphere(session, "aurora")
+    #: The planet itself is marked: from here on, a search for city ground on
+    #: Aurora finds a city that already stands, not an empty place (D-232).
+    sphere.properties = {**(sphere.properties or {}), PRECURSOR: True}
+    now = datetime.now(UTC)
+    for city in AURORA_CITIES:
+        place = (
+            await _ensure(
+                session,
+                aurora_city_key(city),
+                city.name,
+                planet=Planet.AURORA,
+                layer=Layer.PLANET,
+                parent=sphere,
+                area=1,
+                properties={PRECURSOR: True, ruins.KIND: city.kind},
+            )
+        ).node
+        hall = (
+            await _ensure(
+                session,
+                aurora_hall_key(city),
+                city.hall,
+                planet=Planet.AURORA,
+                layer=Layer.CITY,
+                parent=place,
+                area=HALL_AREA_M2,
+                properties={
+                    "кольцо": 0,
+                    #: One step in from the pier: depth is counted from the
+                    #: spaceport, and the rooms go deeper from here (D-061, D-232).
+                    ruins.DEPTH: 1,
+                    PRECURSOR: True,
+                    #: The anchor of the reactor's fading, written where it
+                    #: stands and at the moment the surface appears (D-232).
+                    energy.REACTOR_SINCE: now.isoformat(),
+                },
+            )
+        ).node
+        pier = await _ensure(
+            session,
+            aurora_port_key(city),
+            city.port,
             planet=Planet.AURORA,
             layer=Layer.CITY,
-            parent=city,
+            parent=place,
             area=PORT_AREA_M2,
-            properties={"кольцо": 0, "предтечи": True},
+            properties={"кольцо": 1, ruins.DEPTH: 0, PRECURSOR: True},
         )
-        await _relic_yard(session, port)
+        port = pier.node
+        if pier.created:
+            #: One step from the hall: the port lives inside the plant's heat,
+            #: and that is the whole reason the city has a beacon (D-231). Laid
+            #: with the pier and never again -- the way between them is the
+            #: world's to change afterwards, not the seed's to restore.
+            await travel.connect(
+                session, hall, port, base_seconds=PIER_SECONDS, surface=Surface.PAVED
+            )
+        #: The same hand that lays the cities found by scouting lays these
+        #: (`engine.ruins`): one rule for what the Forerunners left.
+        for node, thing_class in ((hall, RELIC_PLANT), (hall, RELIC_REACTOR), (port, RELIC_YARD)):
+            await ruins.grant_relic(
+                session, node, thing_class, origin=f"наследие Предтеч: {city.name}"
+            )
 
 
 async def _sphere(session: AsyncSession, key: str) -> Node:
     """The planet's node on the space layer: `seed._system` lays it first."""
     return (await session.execute(select(Node).where(Node.key == key))).scalar_one()
+
+
+@dataclass(frozen=True, slots=True)
+class Laid:
+    """A node the seed asked for, and whether this run is what made it.
+
+    The difference matters wherever the world may have moved on since: a field
+    of Pyroxis gets its way and its vein **only** when it is new, because an
+    eruption is allowed to take both away and a deploy is not allowed to give
+    them back (D-197).
+    """
+
+    node: Node
+    created: bool
 
 
 async def _ensure(
@@ -151,12 +379,12 @@ async def _ensure(
     parent: Node,
     area: float,
     properties: dict[str, object] | None = None,
-) -> Node:
+) -> Laid:
     """The node by key, created if the world has none yet."""
     found = (await session.execute(select(Node).where(Node.key == key))).scalar_one_or_none()
     if found is not None:
-        return found
-    return await world.create_node(
+        return Laid(node=found, created=False)
+    made = await world.create_node(
         session,
         key,
         name,
@@ -166,28 +394,4 @@ async def _ensure(
         parent=parent,
         properties=dict(properties or {}),
     )
-
-
-async def _yard(session: AsyncSession, machine: Machine, port: Node) -> None:
-    """A spaceport is a node with a yard in it (D-206); one per node is enough."""
-    if await world.has_station(session, port, ship.SPACEPORT):
-        return
-    await machine(session, port, _yard_name(), 60)
-
-
-async def _relic_yard(session: AsyncSession, port: Node) -> None:
-    """A yard the Forerunners left: granted with its provenance, not assembled."""
-    if await world.has_station(session, port, ship.SPACEPORT):
-        return
-    await world.grant_item(
-        session,
-        await world.node_container(session, port),
-        _yard_name(),
-        quality=60,
-        origin="наследие Предтеч: космодром заброшенного города Авроры",
-    )
-
-
-def _yard_name() -> str:
-    """A concrete yard of the class: a world holds things, not classes (D-215)."""
-    return current_catalog().recipes.of_class(ship.SPACEPORT)[0]
+    return Laid(node=made, created=True)

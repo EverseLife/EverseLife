@@ -88,8 +88,10 @@ PRINTER = "Биопринтер"
 #: The processor metal. The vault names the price "10 iron" (D-033) -- a
 #: concrete payment material, not a behaviour class: deliberately a name.
 IRON = "Слиток железа"
-#: Node property: that very Forerunners' Printer, printing for free and slowly
-#: (D-028). A place property, not a node name: names change, the world's structure does not.
+#: Node property: the core of the capital, where the Forerunners' Printer
+#: stands (D-028). It says where the centre is; what prints for free is decided
+#: by the **machine** (`_original`), because a mark on the ground would make a
+#: free printer out of every place the Forerunners ever built (D-232).
 PRECURSOR = "предтечи"
 
 
@@ -140,8 +142,22 @@ async def die(
 
     node = await session.get(Node, body.node_id)
     pocket = await world.body_container(session, body)
+    #: Under the lock: an eruption moving a vein closes the faces at it in
+    #: another transaction (`plates._close_faces` -> `mining.leave`), and that
+    #: puts a haul **into this pocket**. Read without the lock, the new heap
+    #: would miss the snapshot and stay in a dead body's pocket for ever.
     things = (
-        (await session.execute(select(Item).where(Item.container_id == pocket.id))).scalars().all()
+        (
+            await session.execute(
+                select(Item)
+                .where(Item.container_id == pocket.id)
+                .order_by(Item.id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+        )
+        .scalars()
+        .all()
     )
 
     yard = await world.node_container(session, node) if node is not None else None
@@ -195,6 +211,19 @@ async def die(
 
     await craft.freeze(session, body, now=moment)
 
+    #: The face is abandoned the same way, and what was already mined stays
+    #: lying at it: it was out of the rock and in the node before the body
+    #: fell, so it stays in the node like everything else the place kept
+    #: (D-011). A session left open would hold its haul where nobody could
+    #: ever reach it again.
+
+    from src.engine import mining  # noqa: PLC0415 -- lazy: mining imports death (the face kills)
+
+    #: **After** the pocket is laid into the node, never before: the order of
+    #: locks -- the node's things, then the session at the face -- is the one
+    #: `plates.erupted` takes them in, and it is written out in full there.
+    abandoned = await mining.abandon(session, body, now=moment)
+
     body.state = BodyState.DEAD
     body.died_at = moment
     body.sleeping_since = None
@@ -208,11 +237,31 @@ async def die(
         body_id=str(body.id),
         cause=cause,
         salvaged=survived,
+        #: What was left lying at the face, told apart from what the pocket
+        #: saved: ore appears in the node from two different rules, and the
+        #: journal has to answer whose it is and where it came from. `leave`
+        #: writes `mining.left` and a collapse writes `mining.collapsed`; this
+        #: path had nothing at all.
+        abandoned=abandoned,
     )
     return survived
 
 
 # --- printing ----------------------------------------------------------------
+
+
+async def _original(session: AsyncSession, node: Node) -> bool:
+    """Whether the printer standing here is the Forerunners' own (D-028).
+
+    Free and slow, eternal and unlimited -- and there is exactly one of it in
+    the world, because it is a relic: found, never made, never taken down
+    (D-232). Asked of the machine and not of the node: Aurora is full of nodes
+    the Forerunners built, and a mark on the ground would turn every opened
+    room into a free maternity ward.
+    """
+    book = current_catalog().recipes
+    here = await world.thing_kinds(session, node)
+    return any(book.is_relic(name) for name in here & frozenset(world.station_names(PRINTER)))
 
 
 async def printers(
@@ -254,7 +303,7 @@ async def printers(
             identity_id is not None and await justice.held(session, constants, identity_id)
         ):
             continue
-        forerunners = bool(node.properties.get(PRECURSOR))
+        forerunners = await _original(session, node)
         energy_amount = 0.0 if forerunners else constants[R.ENERGY_BODY_PRINT]
         iron = 0.0 if forerunners else constants[R.DEATH_IRON_COST]
         city = await town.of_node(session, node)
@@ -318,8 +367,14 @@ async def order(
     )
     if has_printer is None:
         raise NoPrinter(f"в узле «{node.name}» нет биопринтера")
+    #: A machine in a frozen node does not work, the printer no less than the
+    #: workbench (D-231). Refused rather than hidden: the door is there, and the
+    #: one who wants through it must learn that the city let its heat go out.
+    from src.engine import frost  # noqa: PLC0415 -- lazy: breaks the cycle with frost
 
-    forerunners = bool(node.properties.get(PRECURSOR))
+    await frost.require_working(session, constants, node, PRINTER)
+
+    forerunners = await _original(session, node)
     if forerunners:
         minutes = constants[R.DEATH_PRINT_TIME_CAPITAL] * MINUTES_IN_HOUR
         paid_ = 0

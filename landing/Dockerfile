@@ -6,7 +6,8 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY app.py export.py index.html favicon.svg og.png ./
+COPY app.py export.py index.html gameplay.html world.html alpha.html ./
+COPY site.css site.js space.js favicon.svg og.png ./
 COPY fonts/ ./fonts/
 
 # Signups live in SQLite on a volume: the container is disposable, the database is not.

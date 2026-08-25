@@ -536,10 +536,19 @@ async def test_flight_docks_at_the_other_port_and_carries_the_passenger(
         assert ways == {there_id}
 
 
-async def test_interplanetary_route_needs_its_engine_class(
+async def test_no_route_is_closed_by_the_class_of_the_engine(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """The route's class is decided by the weakest engine aboard (D-037, D-054)."""
+    """Class is power and efficiency, never a licence for a route (D-235).
+
+    The world had it the other way round once: Aurora asked for a second-class
+    engine and Pyroxis for a third, and the ladder held exactly one engine, of
+    the first. Both planets were shut from the outside -- every mechanic on
+    them worked, and nobody could ever get there.
+
+    Now the weakest engine aboard flies anywhere the sky allows. What it costs
+    is another matter, and the console says so before the attempt.
+    """
     here = await _port(session)
     far = await _port(session, name="Порт Авроры", planet=Planet.AURORA)
     _, owner = await _shipwright(session, here)
@@ -549,15 +558,28 @@ async def test_interplanetary_route_needs_its_engine_class(
     await session.flush()
 
     await ship.undock(session, constants, catalog, owner, vessel)
-    with pytest.raises(ship.TooFar):
-        await ship.fly(session, constants, catalog, owner, vessel, far)
-
-    #: The route exists and is priced -- it is the class that is short, and the
-    #: summary says so before the attempt rather than after.
     summary = await ship.profile(session, constants, catalog, vessel)
     aurora = next(route for route in summary["routes"] if route["node"] == far.key)
-    assert aurora["class"] == 2 and not aurora["reachable"]
-    assert aurora["hours"] > 0
+    assert aurora["reachable"], "класс больше не запирает маршрут"
+    assert aurora["hours"] > 0 and aurora["fuel"] > 0
+    assert await ship.fly(session, constants, catalog, owner, vessel, far) is not None
+
+
+def test_a_better_class_burns_less_for_the_same_passage(constants: Constants) -> None:
+    """The other half of D-235: the reward for a better engine is the bill.
+
+    Nothing is unlocked by class any more, so the whole of what a higher class
+    buys has to be visible in the numbers -- fuel here, and hours through the
+    thrust it adds.
+    """
+    from src.engine.ship.physics import efficiency, fuel_for
+
+    weak = fuel_for(constants, weight=10_000, hours=100, klass=1)
+    strong = fuel_for(constants, weight=10_000, hours=100, klass=3)
+    assert strong < weak, "третий класс обязан жечь меньше первого"
+    assert efficiency(constants, 1) == 1, "первый класс — базовая линия расхода"
+    #: And an unknown class is the baseline rather than a free flight.
+    assert fuel_for(constants, weight=10_000, hours=100) == weak
 
 
 async def test_ship_takes_the_planet_of_the_port_it_stands_at(
@@ -602,7 +624,10 @@ async def test_ship_takes_the_planet_of_the_port_it_stands_at(
 
         summary = await ship.profile(session, constants, catalog, vessel)
         back = next(route for route in summary["routes"] if route["node"] == home_key)
-        assert back["class"] == constants[R.SHIP_ROUTE_CLASS]["aurora-terra"], (
+        #: The way back is an interplanetary passage, not a local hop: the sky
+        #: between the two is what it costs, and it is priced in hours and fuel
+        #: rather than in a class of engine somebody must own (D-235).
+        assert back["hours"] > 0 and back["fuel"] > 0, (
             "обратный рейс считается межпланетным, а не местным"
         )
 

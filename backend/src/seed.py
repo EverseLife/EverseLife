@@ -86,11 +86,13 @@ from src.engine import (
     death,
     energy,
     estate,
+    frost,
     goods,
     justice,
     ledger,
     library,
     market,
+    ruins,
     ship,
     tick,
     travel,
@@ -132,8 +134,11 @@ def _one_of(thing_class: str) -> str:
     constants are class names. What stands in a node is an item, and the seed
     must name one. Asked through the catalog rather than spelled out here, so a
     rename in the vault carries the seed with it.
+
+    A **made** thing, never a relic (D-232): what the capital stands on is
+    assembled by recipe, and the Forerunners left nothing on Terra.
     """
-    members = current_catalog().recipes.of_class(thing_class)
+    members = current_catalog().recipes.made_of_class(thing_class)
     if not members:
         raise RuntimeError(f"класс «{thing_class}» пуст: стартовому миру нечего поставить")
     return members[0]
@@ -200,16 +205,20 @@ class Orbit(NamedTuple):
     phase: float
     #: Drawn, but not playable yet (D-104).
     deferred: bool = False
+    #: The planet's climate (D-231): «мерзлота», «пекло» -- or nothing, where
+    #: the ground keeps a body alive by itself. A property of the world rather
+    #: than a constant: what a planet is, is written in the world.
+    climate: str | None = None
 
 
 #: The system, from the star outwards. Aquatica is here **because** it is out
 #: of the alpha: what cannot be reached is shown and marked, so that a player
 #: sees from the first day where the road does not go yet (50-interface/05).
 SYSTEM = (
-    Orbit("pyroxis", "Пироксис", Planet.PYROXIS, 60, 11, 0.80),
+    Orbit("pyroxis", "Пироксис", Planet.PYROXIS, 60, 11, 0.80, climate=frost.HEAT),
     Orbit("terra", "Терра", Planet.TERRA, 136, 28, 2.10),
     Orbit("aquatica", "Акватика", Planet.AQUATICA, 172, 70, 4.00, deferred=True),
-    Orbit("aurora", "Аврора", Planet.AURORA, 220, 130, 2.28),
+    Orbit("aurora", "Аврора", Planet.AURORA, 220, 130, 2.28, climate=frost.FROST),
 )
 
 
@@ -235,6 +244,8 @@ async def _system(session: AsyncSession) -> Node:
         }
         if circle.deferred:
             marks[world.DEFERRED] = True
+        if circle.climate is not None:
+            marks[circle.climate] = True
         node = (
             await session.execute(select(Node).where(Node.key == circle.key))
         ).scalar_one_or_none()
@@ -470,7 +481,11 @@ async def seed(session: AsyncSession) -> Node:
     await _base_shelf(session, library)
     #: The Forerunners' Printer: free and twelve hours (D-028). It is also the
     #: only door into the world that never closes, hence it stands in the core.
-    await _machine(session, core, _one_of(death.PRINTER), 99)
+    #: A **relic** (D-232): found, never made, never taken down -- and it is the
+    #: thing itself that prints for free, not the ground under it.
+    await ruins.grant_relic(
+        session, core, death.PRINTER, origin="наследие Предтеч: принтер столицы"
+    )
     #: The city printer at the forge: minutes instead of hours, but for energy
     #: and iron. The city sells not life but speed (D-028, D-033).
     await _machine(session, forge, _one_of(death.PRINTER), 60)
@@ -625,7 +640,7 @@ async def seed(session: AsyncSession) -> Node:
     #: The other planets' surfaces (D-230): a spaceport on Pyroxis, the ports
     #: of the abandoned city on Aurora. Laid before the buildings, so the yards
     #: there get theirs by the same rule as the capital's.
-    await surfaces(session, _machine)
+    await surfaces(session)
 
     #: Buildings of city nodes: a machine is placed in a building and takes area
     #: (D-106), and the seed must let the building stand before the machine.
@@ -640,6 +655,41 @@ async def seed(session: AsyncSession) -> Node:
         "starting world created: Terra's capital with administration, mine, players Tern and Hyom"
     )
     return core
+
+
+async def _original_printer(session: AsyncSession, core: Node) -> None:
+    """Put the Forerunners' own printer into the capital's core, once.
+
+    A world seeded before D-232 has an ordinary printer standing there: the seed
+    used to build one by recipe, and free printing hung on a property of the
+    node. `grant_relic` alone would not help -- it steps aside when a machine of
+    the class already stands here, and by that rule the original could never
+    replace the copy. So the copy goes: there is exactly one Forerunners'
+    Printer in the world (D-028), and the core is where it stands.
+    """
+    book = current_catalog().recipes
+    yard = await world.node_container(session, core)
+    standing = (
+        (
+            await session.execute(
+                select(Item).where(
+                    Item.container_id == yard.id,
+                    Item.type_key.in_(world.station_names(death.PRINTER)),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if any(book.is_relic(thing.type_key) for thing in standing):
+        return
+    for copy in standing:
+        log.info("ядро столицы: копия принтера уступает место оригиналу (D-028)")
+        await session.delete(copy)
+    await session.flush()
+    await ruins.grant_relic(
+        session, core, death.PRINTER, origin="наследие Предтеч: принтер столицы"
+    )
 
 
 async def catch_up(session: AsyncSession, core: Node) -> None:
@@ -731,7 +781,12 @@ async def catch_up(session: AsyncSession, core: Node) -> None:
     if not props.get(death.PRECURSOR):
         props[death.PRECURSOR] = True
         core.properties = props
-    await _machine_if_missing(session, core, _one_of(death.PRINTER), 90)
+    #: The **original** (D-028): eternal, free, unlimited, and there will never
+    #: be a second. A relic, therefore: found, not made, and not to be taken
+    #: down (D-232). What prints for free is the machine, not the ground it
+    #: stands on -- a mark on a node would make a free printer out of any place
+    #: the Forerunners ever built, Aurora's opened rooms included.
+    await _original_printer(session, core)
 
     townhall = await _node_if_missing(
         session, "terra.capital.hall", "Администрация", 180, capital, {"кольцо": 1}
@@ -910,7 +965,7 @@ async def catch_up(session: AsyncSession, core: Node) -> None:
 
     #: Surfaces of Pyroxis and Aurora (D-230): a world laid out while the other
     #: planets were bare dots in the sky gets somewhere to fly to.
-    await surfaces(session, _machine)
+    await surfaces(session)
 
     #: Buildings under already standing machines: a machine lives in a building
     #: (D-106), and nodes furnished before buildings get them retroactively.

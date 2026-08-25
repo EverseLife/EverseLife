@@ -26,6 +26,7 @@ import { Refusal, useActions, useBook, useSession } from "../actions";
 import { Rule } from "../Rule";
 import { Amount } from "../Amount";
 import { chosen, tally } from "../amounts";
+import { classOf } from "../classes";
 import { fill, isVessel } from "../liquids";
 import {
   GROUPINGS,
@@ -248,6 +249,19 @@ export function Inventory({ look }: Props) {
                               disabled={busy}
                             >
                               Съесть
+                            </button>
+                          )}
+                          {/* The warmer (D-231): a one-off handful of hours.
+                              Shown by class rather than by name -- a second
+                              warmer is data, like everything else. */}
+                          {classOf(book, thing.goods) === "Грелка" && (
+                            <button
+                              role="menuitem"
+                              onClick={() => send("frost.warm", { item: thing.id })}
+                              disabled={busy}
+                              title="сломать грелку: часы теплозапаса сразу, сверх потолка не копятся"
+                            >
+                              Согреться
                             </button>
                           )}
                           {/* A knowledge carrier (D-209): read it into the identity --

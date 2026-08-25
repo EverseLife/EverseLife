@@ -125,6 +125,9 @@ CRAFT_AMOUNT_CAP = Num("craft.amount_cap")
 #: Copying a recipe in the Library is paid with the body, not the account (D-148).
 CRAFT_COPY_STAMINA = Num("craft.copy_stamina")
 HARVEST_RATES = Table("harvest.rates")
+#: What a planet does to those rates (D-232): Aurora is generous with coal and
+#: poor in iron. Multipliers over one table, never a second rarity table.
+HARVEST_PLANET_WEIGHTS = Book("harvest.planet_weights")
 
 # --- Invention (D-064, D-209) -----------------------------------------------
 #: How many kinds of things may go into one attempt: without a cap the search
@@ -443,7 +446,78 @@ SHIP_HOP_HOURS = Num("ship.hop_hours")
 #: what the passage actually costs (D-037).
 SHIP_ROUTE_WINDOW_HOURS = Table("ship.route_window_hours")
 SHIP_ROUTE_APART_HOURS = Table("ship.route_apart_hours")
-SHIP_ROUTE_CLASS = Table("ship.route_class")
+#: The fuel multiplier by the ship's class (D-235). Class is power and
+#: efficiency, never a licence for a route: a first-class engine reaches
+#: Pyroxis too, it just takes longer and burns more.
+SHIP_ENGINE_EFFICIENCY = Table("ship.engine_efficiency")
+
+# --- Eruptions of Pyroxis (D-197, D-233) ------------------------------------
+#: The planet's rhythm, not an event of the server: how often the ground moves,
+#: and how long the free signal comes before it does (P6: the window to walk out).
+PYROXIS_ERUPTION_PERIOD = Span("pyroxis.eruption_period")
+PYROXIS_ERUPTION_WARNING = Num("pyroxis.eruption_warning")
+#: How much one eruption rebuilds: how many nodes it shakes, what share of a
+#: shaken node's ways it redraws, and what share of its veins moves next door.
+PYROXIS_NODES_SHIFTED = Span("pyroxis.nodes_shifted")
+PYROXIS_EDGE_REDRAW_SHARE = Num("pyroxis.edge_redraw_share")
+PYROXIS_VEIN_RELOCATE_SHARE = Num("pyroxis.vein_relocate_share")
+
+# --- The Forerunners' ruins (D-232) -----------------------------------------
+#: A city is finite: it holds this many rooms, every one opened makes the next
+#: search worse, and when the stock is out there is nothing left to open. A
+#: worked-out city is a worked-out vein, not a locked door: the map keeps it.
+RUINS_CITY_ROOMS = Num("ruins.city_rooms")
+#: What rooms a city holds, by what the city **was**, and what lies in a room,
+#: by what the room is. Two books, and both are content: a new kind of room is
+#: a line in the vault.
+RUINS_ROOM_TYPES = Book("ruins.room_types")
+RUINS_ROOM_FINDS = Book("ruins.room_finds")
+#: How much lies in a room, and how much richer each step deeper makes it (D-061).
+RUINS_ROOM_HAUL = Span("ruins.room_haul")
+RUINS_DEPTH_BONUS = Num("ruins.depth_bonus")
+#: How long ago the reactor of a **found** city was started, in lifetimes of a
+#: reactor: it died long before anybody came, and its beacon is dark.
+RUINS_NEW_CITY_AGE = Num("ruins.new_city_age")
+
+# --- The Forerunners' reactor (D-232) ---------------------------------------
+#: Decay heat into the city pool, without fuel and without people. The output
+#: falls from the moment the seed lays Aurora's surface and reaches zero in a
+#: year of real time -- not a switch but a fading, visible in advance.
+REACTOR_OUTPUT = Num("reactor.output")
+REACTOR_LIFETIME = Num("reactor.lifetime")
+
+# --- Frost and heat (D-231) -------------------------------------------------
+#: Oxygen (D-233, D-234): the second scale of survival, and only where there is
+#: no air -- in flight and on Pyroxis. Terra and Aurora never see it. The
+#: reserve is not on the body: it is the oxygen in the cylinders it carries,
+#: and a cylinder gives nothing without a suit to breathe it through.
+OXYGEN_CREW_DRAW = Num("oxygen.crew_draw")
+OXYGEN_BODY_DRAW = Num("oxygen.body_draw")
+OXYGEN_CYLINDER_STORE = Num("oxygen.cylinder_store")
+#: The balance target the rest of the group is derived from. Read by the
+#: simulation, never by the engine: three months is a promise about numbers,
+#: not a rule the world enforces.
+OXYGEN_AUTONOMY_TARGET = Num("oxygen.autonomy_target")
+
+#: The body's heat reserve, hours. Melts hour by hour in the cold, comes back
+#: `frost.warm_rate` hours per hour in a warm node.
+FROST_RESERVE_MAX = Num("frost.reserve_max")
+FROST_WARM_RATE = Num("frost.warm_rate")
+#: How much worn gear multiplies the reserve, by thing class -- keyed the way
+#: `inventory.carry_bonus` is: the engine keeps no list of warm clothes.
+FROST_SUIT_K = Table("frost.suit_k")
+#: Hours one warmer adds. The thing one walks into the cold with.
+FROST_WARMER_HOURS = Num("frost.warmer_hours")
+#: The frozen body: how much more it spends on any work, and how much stamina
+#: it burns on nothing but time.
+FROST_FROZEN_DRAIN_K = Num("frost.frozen_drain_k")
+FROST_FROZEN_STAMINA = Num("frost.frozen_stamina")
+#: What heat costs the city pool per hour, and what the brazier burns instead
+#: of a pool: heat is a round-the-clock drain, and that is the price of living
+#: on a frozen planet.
+FROST_PLANT_DRAW = Num("frost.plant_draw")
+FROST_HEATER_DRAW = Num("frost.heater_draw")
+FROST_BRAZIER_FUEL_DRAW = Num("frost.brazier_fuel_draw")
 
 # --- Place properties (D-126) -----------------------------------------------
 SITE_TEMP_RANGE = Span("site.temp_range")

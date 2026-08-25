@@ -322,6 +322,13 @@ async def _pick_station(
             f"«{node.name}» отключён за неуплату: рабочие станции не работают, пока долг не закрыт"
         )
 
+    #: A frozen node stops machines the same way non-payment does (D-231): what
+    #: does not burn its own fuel does not work in the cold. Asked by class, so
+    #: a stove of any name answers for itself.
+    from src.engine import frost  # noqa: PLC0415 -- lazy: breaks the import cycle with frost
+
+    await frost.require_working(session, current(), node, name)
+
     from src.engine.world import (  # noqa: PLC0415 -- lazy: breaks the import cycle with world
         station_names,
     )

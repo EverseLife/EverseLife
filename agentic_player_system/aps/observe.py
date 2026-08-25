@@ -18,12 +18,15 @@ place are the things standing in it (`bench`). The digest follows that shape.
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from typing import Any
 
 #: Keys that change every turn by themselves and would make every diff noisy.
 VOLATILE = {"clock"}
 #: How many turns between two full views, at most.
 FULL_EVERY = 5
+#: Seconds in an hour: the heat reserve is given in hours from a stamp.
+SECONDS_PER_HOUR = 3600
 #: Items named in the one-line sack, and ways out named in the one line.
 SACK_ITEMS = 15
 EXITS = 10
@@ -59,6 +62,14 @@ def digest(seen: dict[str, Any]) -> str:
     if carry.get("capacity"):
         first += f", несёшь {_num(carry.get('load') or 0)}/{_num(carry['capacity'])} кг"
     lines.append(first + ".")
+    #: The cold, where there is any (D-231). Said in the digest rather than left
+    #: for the model to dig out of the raw `look`: a body freezes to death by
+    #: not noticing, and an agent that has to ask for the hours never asks.
+    lines.extend(_frost(look))
+    #: And the ground about to move (D-197, P6). Same reason as the cold: an
+    #: agent that has to dig the announced hour out of the raw `look` never
+    #: digs, and the window to walk out is the whole licence for the burning.
+    lines.extend(_shaking(look))
     lines.extend(_place(look))
     travel = look.get("travel")
     if isinstance(travel, dict):
@@ -86,6 +97,62 @@ def digest(seen: dict[str, Any]) -> str:
     if counts:
         lines.append("; ".join(counts) + ".")
     return "\n".join(lines)
+
+
+def _shaking(look: dict[str, Any]) -> list[str]:
+    """The announced hour of an eruption, while the window is open.
+
+    What follows from it is spelled out, because the digest is the only thing
+    the agent reliably reads: what lies on the ground burns, the ways out are
+    redrawn, and a way breaking under somebody walking it kills them with
+    everything they carry.
+    """
+    when = (look.get("node") or {}).get("shaking_at")
+    if not when:
+        return []
+    return [
+        (
+            f"ЗЕМЛЯ ТРОНЕТСЯ здесь в {when}: лежащее на земле сгорит, дороги перечертит, "
+            "а порвавшаяся под идущим убивает вместе с сумкой. Унести вещи и уйти — "
+            "или улететь: под кораблём земля не двигается."
+        )
+    ]
+
+
+def _frost(look: dict[str, Any]) -> list[str]:
+    """The heat reserve in words: how long is left and what happens at zero.
+
+    The server names the hours as of a stamp and the rate they move at, so that
+    a client can draw the hand without asking again (D-226). The digest is that
+    same arithmetic, done once for the turn.
+    """
+    frost = look.get("frost")
+    if not isinstance(frost, dict):
+        return []
+    hours = _reserve(frost)
+    where = "узел обогрет" if frost.get("warm") else f"здесь {frost.get('climate')}"
+    if hours <= 0:
+        alarm = (
+            f"ЗАМЁРЗ ({where}): выносливость горит просто на времени, работа дороже, "
+            "кончится — смерть. Грелка (frost.warm) или тёплый узел. Числа — "
+            "в frost.* каталога констант."
+        )
+        return [alarm]
+    trend = "восполняется" if frost.get("warm") else "тает"
+    return [f"Тепло: {_num(round(hours, 1))} ч из {_num(frost.get('max'))}, {trend} ({where})."]
+
+
+def _reserve(frost: dict[str, Any]) -> float:
+    """What the reserve is now: what it was at the stamp, moved by the rate."""
+    try:
+        stamp = datetime.fromisoformat(str(frost.get("at")))
+    except ValueError:
+        return float(frost.get("hours") or 0)
+    if stamp.tzinfo is None:
+        stamp = stamp.replace(tzinfo=UTC)
+    hours = (datetime.now(UTC) - stamp).total_seconds() / SECONDS_PER_HOUR
+    moved = float(frost.get("hours") or 0) + float(frost.get("per_hour") or 0) * hours
+    return max(0.0, min(float(frost.get("max") or 0), moved))
 
 
 def _num(value: Any) -> str:

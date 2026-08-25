@@ -138,11 +138,18 @@ async def _bench(
 
     out: list[dict[str, Any]] = []
     for item in items:
-        try:
-            recipe = book.recipe(item.type_key)
-        except Exception:  # noqa: BLE001 -- raw material at the machine has no recipe
-            continue
-        if recipe.kind is not expected_value:
+        #: A relic has no recipe -- nobody made it -- but it is machinery all
+        #: the same, and the scene of a Forerunner city is built out of exactly
+        #: those (D-232). Furniture it never is.
+        relic = book.is_relic(item.type_key)
+        if not relic:
+            try:
+                recipe = book.recipe(item.type_key)
+            except Exception:  # noqa: BLE001 -- raw material at the machine has no recipe
+                continue
+            if recipe.kind is not expected_value:
+                continue
+        elif furniture:
             continue
         out.append(
             {

@@ -429,6 +429,12 @@ async def require_at_hall(session: AsyncSession, body, city: City) -> None:
         raise NotAllowed("здесь нет администрации: решения города принимаются в ней")
     if await utility.cut_off(session, node):
         raise NotAllowed("администрация отключена за неуплату: город без неё слеп и нем")
+    #: A frozen node closes the administration as surely as an unpaid bill
+    #: does (D-231): heat is a condition of the office, not its comfort.
+    from src.engine import frost  # noqa: PLC0415 -- lazy: breaks the import cycle with frost
+
+    if not await frost.is_warm(session, current(), node):
+        raise NotAllowed(f"«{node.name}» промёрз: администрация закрыта, пока узел не обогрет")
 
 
 async def appoint(

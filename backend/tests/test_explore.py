@@ -419,7 +419,7 @@ async def test_species_taken_from_vault(
 
     yield_ = next(op for op in catalog.recipes.operations if op.name == explore.MINING_OPERATION)
     rolled = {
-        await explore._resource(session, constants, catalog, random.Random(grain))
+        await explore.species_of(session, constants, catalog, random.Random(grain))
         for grain in range(200)
     }
     assert rolled, "порода не выбирается вовсе"

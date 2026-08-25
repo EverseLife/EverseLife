@@ -16,8 +16,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants
 from src.constants import registry as R
+from src.db.base import remember
 from src.engine import travel, world
-from src.engine.ship._base import SPACEPORT
+from src.engine.ship._base import OPEN_LANDING, SPACEPORT
 from src.engine.ship.belonging import crew_of, is_aboard, nodes_of, of_node
 from src.engine.ship.physics import (
     _things,
@@ -30,13 +31,12 @@ from src.engine.ship.physics import (
     mass,
     mass_parts,
     passage_hours,
-    route_class,
     thrust,
 )
 from src.models.inventory import Container, ContainerKind, Item
 from src.models.job import Job, JobKind, JobState
 from src.models.ship import Ship
-from src.models.world import Edge, Node, Planet
+from src.models.world import Edge, Layer, Node, Planet
 from src.units import (
     ROUND_HOURS,
     ROUND_MASS,
@@ -225,9 +225,83 @@ async def passages(session: AsyncSession) -> dict[uuid.UUID, dict[str, object]]:
     return under_way
 
 
+async def beacon_lit(session: AsyncSession, constants: Constants, port: Node) -> bool:
+    """Whether the port's beacon shines -- whether a ship may aim at it at all.
+
+    A spaceport works while its node is warm and its yard has power (D-231,
+    D-232). On a planet where nothing freezes the question does not arise: a
+    port there is a port, and an unpaid bill is the meter's business, not the
+    sky's.
+
+    This is the rule the whole of Aurora hangs on. **Its blackout is
+    irreversible**: let the last working spaceport of the planet go out and
+    there is nowhere left to land -- the planet is lost, and the world does not
+    insure anybody against it. A brazier is not enough to relight one: warmth
+    it gives, power it does not, and power has to be walked in.
+    """
+    #: Lazy: `ship` is imported by `frost` (a node aboard is always warm), and
+    #: `energy` comes along on the same line for the same reason.
+    from src.engine import energy, frost  # noqa: PLC0415 -- lazy: breaks the cycle with frost
+
+    if await frost.climate_of(session, port) != frost.FROST:
+        return True
+    #: Power first: it is one reading per **city**, remembered for the command,
+    #: while warmth is three per node and asks about the neighbours. A dark city
+    #: is the common case on a planet of dead cities, and it must cost one query.
+    return await energy.powered(session, constants, port) and await frost.is_warm(
+        session, constants, port
+    )
+
+
+async def lit_ports(session: AsyncSession, constants: Constants) -> list[Node]:
+    """The ports a ship may actually reach: the ones whose beacon shines.
+
+    Every city a scout finds beyond the ice comes with a pier of its own
+    (`ruins.lost_city`), and every one of them is dark: the list of ports grows
+    with play, and the dark ones must not cost a reading each. So the cheap half
+    of the answer -- has this city any energy at all -- is asked for **all**
+    cities in one query, and only the ports that pass it are asked the dear
+    question about warmth.
+    """
+    from src.engine import energy, frost  # noqa: PLC0415 -- lazy: breaks the cycle with frost
+
+    every = await landings(session)
+    if not every:  # pragma: no cover -- there is always the capital's pier
+        return []
+    powered = await energy.cities_with_power(session, constants)
+    found = []
+    for port in every:
+        #: Bare ground has no beacon to light: on a planet one lands anywhere
+        #: on, every surface node is a landing site and always was (D-233).
+        if await frost.climate_of(session, port) != frost.FROST:
+            found.append(port)
+            continue
+        if port.parent_id not in powered:
+            continue
+        if await frost.is_warm(session, constants, port):
+            found.append(port)
+    return found
+
+
+async def landings(session: AsyncSession) -> list[Node]:
+    """Everywhere a ship may aim at: the yards, and the bare ground of planets
+    that take a landing anywhere (D-233).
+
+    A dark port is here too -- being dark makes a place no less a place; what it
+    is not is a destination (`lit_ports`).
+    """
+    return [*await ports(session), *await open_landings(session)]
+
+
 async def ports(session: AsyncSession) -> list[Node]:
-    """Every node with a spaceport. What a ship may aim at at all."""
-    return list(
+    """Nodes with a **yard** in them, and only those.
+
+    The map draws its piers off this list (`routes.public`), so bare ground a
+    ship may set down on does not belong here: Pyroxis has no spaceport and
+    cannot have one (D-233), and a legend calling every black field a spaceport
+    would be a lie told six times over.
+    """
+    with_yard = (
         (
             await session.execute(
                 select(Node)
@@ -243,6 +317,73 @@ async def ports(session: AsyncSession) -> list[Node]:
         .scalars()
         .all()
     )
+    return list(with_yard)
+
+
+async def open_landings(session: AsyncSession) -> list[Node]:
+    """The surface nodes of planets one lands anywhere on (D-233).
+
+    Every node of the surface, and the surface only: the planet's own node is
+    where it stands in the sky, not a place to put a hull down on. A node
+    aboard a ship is not ground either, however low the ship flies.
+
+    A list, and it grows with the planet: every field a scout opens on Pyroxis
+    is another destination. D-233 wants the console to answer with the
+    **planet** instead, and the node to be chosen after the course is set --
+    which is a gesture the client does not have yet. The split is here already
+    (`ports` is yards and nothing else, so the map's piers are not lied to);
+    what is left is interface work, and it is named in the roadmap as such.
+    """
+    planets = await _open_planets(session)
+    if not planets:
+        return []
+    found = (
+        (
+            await session.execute(
+                select(Node).where(
+                    Node.planet.in_([planet.value for planet in planets]),
+                    Node.layer != Layer.SPACE,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return [node for node in found if not is_aboard(node)]
+
+
+async def lands_anywhere(session: AsyncSession, node: Node) -> bool:
+    """Whether a ship may set down **on this node**.
+
+    The planet's property and the node's own nature, both: the sphere of a
+    planet is where it stands in the sky, not ground to put a hull on, and a
+    room aboard another ship is not ground either. `open_landings` says the
+    same thing about the whole planet at once, and the two must not disagree --
+    a flight is refused by one and offered by the other.
+    """
+    if node.layer is Layer.SPACE or is_aboard(node):
+        return False
+    return node.planet in await _open_planets(session)
+
+
+async def _open_planets(session: AsyncSession) -> frozenset[Planet]:
+    """Which planets are landed on without a port. Four rows, one reading."""
+
+    async def read() -> frozenset[Planet]:
+        spheres = (
+            (
+                await session.execute(
+                    select(Node).where(Node.key.in_([planet.value for planet in Planet]))
+                )
+            )
+            .scalars()
+            .all()
+        )
+        return frozenset(
+            sphere.planet for sphere in spheres if (sphere.properties or {}).get(OPEN_LANDING)
+        )
+
+    return await remember(session, ("open_landing_planets",), read)
 
 
 async def profile(
@@ -275,9 +416,39 @@ async def profile(
     planet = Planet.TERRA if connector is None else connector.planet
     tables: dict[Planet, float | None] = {}
     routes: list[dict] = []
-    for port in await ports(session):
+    #: Only the landings whose beacon shines: a dark one is not on the console,
+    #: and a route to it does not exist (D-232).
+    #:
+    #: And a planet one lands **anywhere** on is one line, not one per node
+    #: (D-233): its fields differ in nothing the console can show -- same
+    #: hours, same fuel, same class -- and their number grows with every field
+    #: a scout opens. Six identical rows today, sixty later, in a socket answer
+    #: sent every time the console is opened. Which node the hull comes down in
+    #: is chosen on the map; until the client grows that gesture the row names
+    #: one, and `ship.fly` goes on taking any surface node of the planet.
+    anywhere = await _open_planets(session)
+    #: And such a planet is named by its own name in the row, not by the node
+    #: the row happens to carry: the hull comes down where the roll puts it
+    #: (D-235), and a row promising "Плато Наковальни" would be a promise the
+    #: landing does not keep.
+    spheres = {
+        node.planet: node.name
+        for node in (
+            await session.execute(
+                select(Node).where(Node.key.in_([planet.value for planet in anywhere]))
+            )
+        )
+        .scalars()
+        .all()
+    }
+    named: set[Planet] = set()
+    for port in sorted(await lit_ports(session, constants), key=lambda one: one.key):
         if docked is not None and port.id == docked.id:
             continue
+        if port.planet in anywhere:
+            if port.planet in named:
+                continue
+            named.add(port.planet)
         if port.planet not in tables:
             tables[port.planet] = await base_hours(
                 session, constants, planet, port.planet, at=moment
@@ -285,24 +456,36 @@ async def profile(
         table = tables[port.planet]
         if table is None:
             continue
-        need_class = route_class(constants, planet, port.planet)
         hours = passage_hours(constants, table, thrust_ratio) if thrust_ratio > 0 else None
         routes.append(
             {
                 "node": port.key,
-                "name": port.name,
+                "name": spheres.get(port.planet, port.name)
+                if port.planet in anywhere
+                else port.name,
                 "planet": port.planet.value,
-                "class": need_class,
+                #: What the ship is: the weakest engine aboard. Not a demand of
+                #: the route -- no route makes one (D-235) -- but the number
+                #: the fuel below was computed with.
+                "class": have_class,
+                #: The whole planet stands behind this row (D-233, D-235).
+                #: There is no port to choose and no picker to draw: the node
+                #: the hull comes down in is **rolled at the landing** -- one
+                #: sets down where the rock allows, not where it would be
+                #: convenient. The key here only names the destination planet.
+                **({"anywhere": True} if port.planet in anywhere else {}),
                 "hours": None if hours is None else round(hours, ROUND_HOURS),
                 "fuel": (
-                    None if hours is None else round(fuel_for(constants, weight, hours), ROUND_MASS)
+                    None
+                    if hours is None
+                    else round(fuel_for(constants, weight, hours, klass=have_class), ROUND_MASS)
                 ),
-                #: Why exactly it is unavailable -- the class or the thrust. A
-                #: bare "unavailable" leaves nothing to act on.
+                #: Reachable or not is about **thrust**, and nothing else: a
+                #: ship that cannot leave the ground cannot leave it for any
+                #: destination. Class closes no route (D-235).
                 "reachable": (
                     hours is not None
                     and have_class is not None
-                    and have_class >= need_class
                     and thrust_ratio >= constants[R.SHIP_MIN_THRUST_RATIO]
                 ),
             }

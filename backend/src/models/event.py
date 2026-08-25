@@ -41,6 +41,10 @@ class EventKind(StrEnum):
     BODY_SLEPT = "body.slept"
     MEAL_EATEN = "meal.eaten"
     BODY_WOKE = "body.woke"
+    #: The heat reserve ran out, and a warmer put some of it back (D-231).
+    #: Both are the body's own affair, and both make the client reread it.
+    BODY_FROZE = "body.froze"
+    BODY_WARMED = "body.warmed"
     KNOWLEDGE_LEARNED = "knowledge.learned"
 
     # property
@@ -71,6 +75,13 @@ class EventKind(StrEnum):
     ROAD_LAID = "road.laid"
     #: Overgrown: the surface dropped a tier without maintenance.
     ROAD_DECAYED = "road.decayed"
+
+    # the planet redraws its own map (D-197, D-233)
+    #: The free signal: these nodes will be shaken, and what lies in them burns.
+    PLATES_WARNED = "plates.warned"
+    #: It happened: ways gone and laid, veins moved, goods burnt, and whoever
+    #: was on a way that broke.
+    PLATES_ERUPTED = "plates.erupted"
 
     # ship as a subgraph (D-201, D-202)
     #: A foundation laid: the ship appeared with its first node -- the connector.

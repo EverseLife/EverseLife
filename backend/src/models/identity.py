@@ -162,6 +162,19 @@ class Body(Base):
     #: food adds no reserve -- it slows the spend, and that is not a buff but a meal.
     satiated_until: Mapped[datetime | None] = mapped_column(nullable=True)
 
+    #: The heat reserve, hours, as of `warmth_at` (D-231). Warmth is binary --
+    #: the node is warm or it is cold -- so the body needs no temperature, only
+    #: how long it has left: in the cold the reserve melts hour by hour, in a
+    #: warm node it comes back `frost.warm_rate` times faster than it went.
+    #:
+    #: **Empty means never measured**, and that is a body that has never been
+    #: cold: it reads as a full reserve. Kept as a pair rather than ticked into,
+    #: because a body on Terra stands in a warm node for ever and must cost the
+    #: world nothing -- and because zero would otherwise mean "frozen from
+    #: birth" for every body printed before the frost existed.
+    warmth: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
+    warmth_at: Mapped[datetime] = created_column()
+
     #: When the body took its node: by print or by arrival. Before that moment
     #: it heard nothing here (D-043) -- a chat horizon, not a biography.
     node_since: Mapped[datetime] = created_column()

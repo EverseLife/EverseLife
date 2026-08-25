@@ -101,6 +101,9 @@ TOUCHES: dict[str, tuple[str, ...]] = {
     "building": ("node",),
     "farm": ("farm",),
     "energy": ("node",),
+    #: The planet redrew the map around you (D-197): the ways out, what lies
+    #: here and what the veins are have all just changed.
+    "plates": ("node",),
     "utility": ("node", "money"),
     "station": ("node",),
     "storage": ("node", "inventory"),
@@ -132,6 +135,10 @@ TOUCHES_BY_KIND: dict[str, tuple[str, ...]] = {
 NODE_VISIBLE_PREFIXES = frozenset(
     {
         "road",
+        #: The signal before an eruption and the eruption itself (D-197). Free
+        #: and to everybody standing in the node: it is the window to walk out
+        #: of, and the whole licence for the burning and the deaths that follow.
+        "plates",
         "ship",
         "building",
         "land",

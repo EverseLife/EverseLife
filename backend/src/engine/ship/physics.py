@@ -392,7 +392,6 @@ def corridors(constants: Constants) -> list[dict[str, object]]:
     """
     window = constants[R.SHIP_ROUTE_WINDOW_HOURS]
     apart = constants[R.SHIP_ROUTE_APART_HOURS]
-    classes = constants[R.SHIP_ROUTE_CLASS]
     lines: list[dict[str, object]] = []
     for key in sorted(window):
         if key not in apart:  # pragma: no cover -- the vault gives both ends
@@ -404,19 +403,9 @@ def corridors(constants: Constants) -> list[dict[str, object]]:
                 "b": second,
                 "window_hours": float(window[key]),
                 "apart_hours": float(apart[key]),
-                "class": int(classes.get(key, 1)),
             }
         )
     return lines
-
-
-def route_class(constants: Constants, here: Planet, there: Planet) -> int:
-    """The lowest engine class the route takes. Within a planet -- any."""
-    if here is there:
-        return 1
-    classes = constants[R.SHIP_ROUTE_CLASS]
-    key = route_key(here, there)
-    return int(classes[key]) if key in classes else 1
 
 
 def passage_hours(constants: Constants, table_hours: float, thrust_ratio: float) -> float:
@@ -432,10 +421,35 @@ def passage_hours(constants: Constants, table_hours: float, thrust_ratio: float)
     return max(floor, stretched)
 
 
-def fuel_for(constants: Constants, weight: float, hours: float) -> float:
-    """Fuel for the passage: by mass and by days under way.
+def efficiency(constants: Constants, klass: int | None) -> float:
+    """How much of the baseline burn this class of ship spends (D-235).
+
+    Class is power and **efficiency**, never a licence for a route: a
+    first-class engine reaches Pyroxis like any other, it just takes longer to
+    get there and burns more doing it. The table is keyed by engine name, and
+    the ship's class is the weakest engine aboard (`engine_class`).
+    """
+    if klass is None:
+        return 1.0
+    table = constants[R.SHIP_ENGINE_EFFICIENCY]
+    thrusts = constants[R.SHIP_THRUST]
+    classes = constants[R.SHIP_ENGINE_CLASS]
+    for name in thrusts:
+        if int(classes.get(name, 1)) == klass and name in table:
+            return float(table[name])
+    return 1.0  # pragma: no cover -- the vault gives a line per engine
+
+
+def fuel_for(
+    constants: Constants, weight: float, hours: float, *, klass: int | None = None
+) -> float:
+    """Fuel for the passage: by mass, by days under way, and by the class of
+    what is pushing.
 
     So an extra node costs money on every passage rather than once at building:
-    the price of a badly designed ship is paid all its life.
+    the price of a badly designed ship is paid all its life. And a better
+    engine is worth building for the fuel alone (D-235) -- there is no route it
+    unlocks, only routes it makes cheaper.
     """
-    return constants[R.SHIP_FUEL_PER_TON_DAY] * weight / KG_PER_TON * hours / HOURS_PER_DAY
+    spend = constants[R.SHIP_FUEL_PER_TON_DAY] * weight / KG_PER_TON * hours / HOURS_PER_DAY
+    return spend * efficiency(constants, klass)

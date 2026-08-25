@@ -368,6 +368,13 @@ async def pick(
 
     await _require_inside(session, node, body)
 
+    #: A relic of the Forerunners is not picked up, ever (D-232): it was found
+    #: here, and the world holds no second copy of it. The refusal is here
+    #: rather than in the carry limit, which would only say "too heavy" and
+    #: leave a wagon as the loophole.
+    if catalog.recipes.is_relic(item.type_key):
+        raise StorageError(f"«{item.type_key}» — наследие Предтеч: его не поднимают и не уносят")
+
     qty = amount_float(item.amount) if quantity is None else quantity
     if qty <= 0:
         raise StorageError("поднимать нечего")

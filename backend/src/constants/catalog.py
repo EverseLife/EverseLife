@@ -56,6 +56,11 @@ class Material(Strict):
     forage: dict[str, float] | None = None
     #: Energy per unit when burned. Present -- the thing is a fuel (D-215).
     fuel: float | None = None
+    #: A relic of the Forerunners (D-232): found, never made. It is not taken
+    #: down, not taken apart and not picked up off the ground -- ever. The mark
+    #: lives here rather than in code so that the next relic is a line in the
+    #: vault, like everything else.
+    relic: bool = False
 
 
 class Recipe(Strict):
@@ -181,6 +186,17 @@ class RecipeBook(Strict):
         caller decides whether that is a refusal or just 'no such thing here'."""
         return self.classes.get(thing_class, ())
 
+    def made_of_class(self, thing_class: str) -> tuple[str, ...]:
+        """Members of the class that this world can actually make (D-232).
+
+        A relic is a member like any other -- behaviour binds to the class, and
+        a Forerunner plant heats exactly like a built one -- but nobody makes
+        it. Whoever needs a thing to **put somewhere** asks for this list; the
+        first name of `of_class` would sooner or later be a relic, and the
+        capital would find itself with the Forerunners' yard on its pier.
+        """
+        return tuple(name for name in self.of_class(thing_class) if not self.is_relic(name))
+
     def class_of(self, name: str) -> str | None:
         """The class of a thing, or None. Behaviour code asks this instead of
         comparing names: a second bed must work without a code change."""
@@ -192,6 +208,15 @@ class RecipeBook(Strict):
     def fuels(self) -> dict[str, float]:
         """Energy per unit for every burnable material (D-215)."""
         return {m.name: m.fuel for m in self.materials if m.fuel}
+
+    def is_relic(self, name: str) -> bool:
+        """Whether this thing is a relic of the Forerunners (D-232).
+
+        Asked by everything that would move a thing out of a place -- and asked
+        once per item of a node scene, so it reads a set rather than walking
+        every material in the world.
+        """
+        return self.resolve(name) in self._relics
 
     def mass_of(self, name: str, *, default: float = 0.0) -> float:
         """Unit mass of an item, kg (D-146).
@@ -244,11 +269,15 @@ class RecipeBook(Strict):
     _measured: set[str] = PrivateAttr(default_factory=set)
     _liquids: set[str] = PrivateAttr(default_factory=set)
     _class_by_name: dict[str, str] = PrivateAttr(default_factory=dict)
+    #: What the Forerunners left (D-232). A set, because every item of every
+    #: node scene is asked about it.
+    _relics: set[str] = PrivateAttr(default_factory=set)
 
     def model_post_init(self, _: Any) -> None:
         self._by_name.update({recipe.name: recipe for recipe in self.recipes})
         self._measured.update(self.bulk)
         self._liquids.update(self.liquid)
+        self._relics.update(material.name for material in self.materials if material.relic)
         for thing_class, members in self.classes.items():
             for member in members:
                 self._class_by_name[member] = thing_class

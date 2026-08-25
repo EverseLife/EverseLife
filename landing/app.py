@@ -3,7 +3,8 @@
 
 """The everse.life landing page: the page and beta signup intake.
 
-One service for the whole domain: serves `index.html` and accepts `POST /api/signup`.
+One service for the whole domain: serves the site's pages (see `PAGES`) with
+their shared `site.css`/`site.js`, and accepts `POST /api/signup`.
 A signup is an email in SQLite (`/data/signups.db`, a compose volume): its own
 small database, so as not to let the landing into the game world. Export --
 `python export.py` in the container.
@@ -28,7 +29,22 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel
 
 DB_PATH = Path(os.environ.get("LANDING_DB", "/data/signups.db"))
-INDEX = Path(__file__).parent / "index.html"
+ROOT = Path(__file__).parent
+
+#: The site's pages: URL path -> file. The front page carries the hero and the
+#: signup; the rest of the story is split across subpages so the front page
+#: stays light. The sitemap is generated from this same dict.
+PAGES = {
+    "/": ROOT / "index.html",
+    "/gameplay": ROOT / "gameplay.html",
+    "/world": ROOT / "world.html",
+    "/alpha": ROOT / "alpha.html",
+}
+
+#: Shared assets extracted from the pages. Unversioned names, so no immutable
+#: cache: `no-cache` makes the browser revalidate, and FileResponse's ETag
+#: turns that into a cheap 304 until the next deploy.
+ASSET_CACHE = "no-cache"
 
 #: Self-hosted typefaces (Onest, IBM Plex Mono, Literata -- all OFL), subset to
 #: Latin + Cyrillic. Served from our own domain: no CDN, no third-party
@@ -135,16 +151,47 @@ class Signup(BaseModel):
     website: str = ""
 
 
+def _page_handler(file: Path):
+    def handler() -> FileResponse:
+        #: no-cache like the assets: without it the browser's heuristic cache
+        #: may keep showing the previous deploy's page
+        return FileResponse(
+            file, media_type="text/html", headers={"Cache-Control": ASSET_CACHE}
+        )
+
+    return handler
+
+
 #: HEAD as well as GET: link checkers and uptime monitors ask for headers
 #: first, and a 405 there reads as a broken site.
-@app.api_route("/", methods=["GET", "HEAD"])
-def index() -> FileResponse:
-    return FileResponse(INDEX, media_type="text/html")
+for _path, _file in PAGES.items():
+    app.api_route(_path, methods=["GET", "HEAD"])(_page_handler(_file))
+
+
+#: The shared assets every page links: URL path -> (file, media type).
+ASSETS = {
+    "/site.css": (ROOT / "site.css", "text/css"),
+    "/site.js": (ROOT / "site.js", "text/javascript"),
+    "/space.js": (ROOT / "space.js", "text/javascript"),
+}
+
+
+def _asset_handler(file: Path, media_type: str):
+    def handler() -> FileResponse:
+        return FileResponse(
+            file, media_type=media_type, headers={"Cache-Control": ASSET_CACHE}
+        )
+
+    return handler
+
+
+for _path, (_file, _media) in ASSETS.items():
+    app.api_route(_path, methods=["GET", "HEAD"])(_asset_handler(_file, _media))
 
 
 @app.get("/favicon.svg")
 def favicon() -> FileResponse:
-    return FileResponse(INDEX.parent / "favicon.svg", media_type="image/svg+xml")
+    return FileResponse(ROOT / "favicon.svg", media_type="image/svg+xml")
 
 
 @app.get("/fonts/{name}")
@@ -178,13 +225,16 @@ def robots() -> Response:
 
 @app.get("/sitemap.xml")
 def sitemap() -> Response:
-    #: One page, so the sitemap is one entry; lastmod follows the deployed file.
-    stamp = datetime.fromtimestamp(INDEX.stat().st_mtime, UTC).date().isoformat()
+    #: One entry per page; lastmod follows each deployed file.
+    entries = []
+    for path, file in PAGES.items():
+        stamp = datetime.fromtimestamp(file.stat().st_mtime, UTC).date().isoformat()
+        entries.append(f"  <url><loc>{SITE}{path}</loc><lastmod>{stamp}</lastmod></url>\n")
     xml = (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
         '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
-        f"  <url><loc>{SITE}/</loc><lastmod>{stamp}</lastmod></url>\n"
-        "</urlset>\n"
+        + "".join(entries)
+        + "</urlset>\n"
     )
     return Response(xml, media_type="application/xml")
 

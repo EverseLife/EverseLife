@@ -69,6 +69,9 @@ from src.units import PERCENT
 EXPLORE_FIND = "explore.find"
 EXPLORE_VEIN = "explore.vein"
 EXPLORE_SPECIES = "explore.species"
+#: Which room of a Forerunner city is opened, and what lies in it (D-232).
+RUINS_ROOM = "ruins.room"
+RUINS_FIND = "ruins.find"
 SITE_RIVER = "site.river"
 SITE_WOODS = "site.woods"
 SITE_STONES = "site.stones"

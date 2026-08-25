@@ -141,6 +141,7 @@ async def mark(
     node = await session.get(Node, body.node_id)
     if node is None:  # pragma: no cover
         raise FarmError("тело вне узла")
+    await _open_ground(session, node)
     #: The plot's holder runs the estate: buy the land first (06-farming).
     #: Hiring is access plus a share by contract (D-116), not shared land.
     #:
@@ -633,6 +634,32 @@ async def survey(
 
 
 # --- internal ----------------------------------------------------------------
+
+
+async def _open_ground(session: AsyncSession, node: Node) -> None:
+    """Refuse a plot where nothing grows in the open ground (D-231).
+
+    A climate is a property of the planet, and both of the ones the world has
+    are lethal to a field: under the permafrost the soil never thaws, and where
+    the ground bakes a sprout burns the day it comes up. Aurora's plots want
+    greenhouses and Pyroxis wants nothing at all -- until that mechanic exists,
+    the food of both arrives by ship (D-232, D-233).
+
+    Refused at the marking out, not at the sowing: the plot is the estate, and
+    a plot nobody can ever sow would be a thing sold to a player for nothing.
+    """
+    from src.engine import frost  # noqa: PLC0415 -- lazy: breaks the import cycle with frost
+    from src.engine.ship import is_aboard  # noqa: PLC0415 -- lazy: ship imports farm through food
+
+    #: A node aboard a ship is not open ground and never was: the hull holds
+    #: its own air and its own warmth, and hydroponics lives there (D-234).
+    weather = await frost.climate_of(session, node)
+    if weather is None or is_aboard(node):
+        return
+    raise FarmError(
+        f"«{node.name}»: {weather} — в открытом грунте здесь ничего не растёт. "
+        "Еда сюда приходит кораблём"
+    )
 
 
 async def _here(session: AsyncSession, body: Body) -> None:

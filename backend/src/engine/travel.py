@@ -589,12 +589,23 @@ async def depart(
             now=moment,
         )
 
-    #: The road costs stamina, and it is paid up front (D-147). Satiety slows
-    #: the spend exactly as at work: lunch is lunch.
+    #: The reserve is settled **before** the body steps out (D-231): until this
+    #: moment it stood in this node and warmed or froze by it, and on the road
+    #: there is no shelter at all. Settled here rather than on arrival, because
+    #: only here is it still known where the hours were spent.
+    from src.engine import frost  # noqa: PLC0415 -- lazy: breaks the cycle with frost
 
-    spend = stamina_cost(
-        constants, seconds, transport=await has_transport(session, body)
-    ) * food.drain_multiplier(constants, body, moment)
+    await frost.settle(session, constants, current_catalog(), body, now=moment)
+
+    #: The road costs stamina, and it is paid up front (D-147). Satiety slows
+    #: the spend exactly as at work: lunch is lunch, and the cold makes every
+    #: step dearer the same way (D-231).
+
+    spend = (
+        stamina_cost(constants, seconds, transport=await has_transport(session, body))
+        * food.drain_multiplier(constants, body, moment)
+        * await frost.drain_multiplier(session, constants, body)
+    )
     if spend > float(body.stamina):
         raise NoStrength(
             f"на дорогу нужно {spend:.1f} выносливости, а есть "
@@ -725,6 +736,14 @@ async def arrive(session: AsyncSession, job: Job) -> None:
     target = await session.get(Node, travel.to_node_id)
     if body is None or target is None:  # pragma: no cover
         raise TravelError(f"переход {travel.id} ссылается в никуда")
+
+    #: The road ends here, and the hours on it were the cold itself (D-231):
+    #: the reserve is settled **before** the body takes the new node, or the
+    #: stretch from the last tick to the arrival would be counted by the warmth
+    #: of the place walked to rather than of the road walked.
+    from src.engine import frost  # noqa: PLC0415 -- lazy: breaks the cycle with frost
+
+    await frost.settle(session, constants_now(), current_catalog(), body, now=job.run_at)
 
     #: The inventory need not travel: it is bound to the body, not the place.
     #: Goods left in a terminal stay there -- things do not follow their owner.

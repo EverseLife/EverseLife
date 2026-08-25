@@ -177,6 +177,11 @@ async def take(session: AsyncSession, catalog: Catalog, body: Body, item: Item) 
     yard = await world.node_container(session, node)
     if item.container_id != yard.id:
         raise StationError("этой вещи нет в этом узле")
+    #: Named before the general refusal: a relic **is** machinery, and being
+    #: told it is "not a workstation" would read as a bug rather than as the
+    #: rule that the Forerunners' things stay where they were found (D-232).
+    if catalog.recipes.is_relic(item.type_key):
+        raise NotYours(f"«{item.type_key}» — наследие Предтеч: не снимается и не разбирается")
     if not placeable(catalog, item.type_key):
         raise NotStation(f"«{item.type_key}» — не рабочая станция и не мебель")
     if not await may_build(session, body, node):

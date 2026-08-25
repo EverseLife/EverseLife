@@ -24,6 +24,15 @@ export function membersOf(book: RecipeBook | null, thingClass: string): string[]
   return members && members.length > 0 ? members : [thingClass];
 }
 
+/**
+ * Whether the thing is a relic of the Forerunners (D-232): found, never made,
+ * and never taken down. The client asks the catalog rather than the look --
+ * what a thing **is** does not change from node to node (D-225).
+ */
+export function isRelic(book: RecipeBook | null, name: string): boolean {
+  return Boolean(book?.materials?.some((one) => one.name === name && one.relic));
+}
+
 /** The class of a thing, or `null` when it has none. */
 export function classOf(book: RecipeBook | null, name: string): string | null {
   const classes: Record<string, string[]> = book?.classes ?? {};

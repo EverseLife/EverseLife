@@ -111,11 +111,17 @@ async def _run(session: AsyncSession, batch: CraftBatch, body: Body, now: dateti
     the batch stays waiting and says why through the client. Returns whether it
     started.
     """
+    #: A frozen node stops a machine exactly as an unpaid bill does (D-231), and
+    #: the resumption must treat it the same way: the batch waits. Without it
+    #: the refusal would come out of `rest.wake` and out of the arrival job --
+    #: a body on Aurora could neither wake up nor finish its road.
+    from src.engine import frost  # noqa: PLC0415 -- lazy: breaks the import cycle with frost
+
     station: Item | None = None
     if batch.station is not None:
         try:
             station = await _pick_station(session, body, batch.station)
-        except (NoStation, Busy, CutOff):
+        except (NoStation, Busy, CutOff, frost.Frozen):
             return False
 
     left = float(batch.remaining_seconds or 0)

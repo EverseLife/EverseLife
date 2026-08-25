@@ -8,6 +8,7 @@ Split out of `engine/ship.py` along its sections (review 2026-08-23, wave 3).
 
 from __future__ import annotations
 
+import random
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -48,8 +49,8 @@ from src.engine.ship.physics import (
     mass,
     passage_hours,
     ratio,
-    route_class,
 )
+from src.engine.ship.view import beacon_lit, lands_anywhere, open_landings
 from src.models.event import EventKind
 from src.models.identity import Body, BodyState
 from src.models.job import Job, JobKind
@@ -184,10 +185,30 @@ async def fly(
     await _commanded_by(session, body, ship)
     if ship.docked_node_id is not None:
         raise Docked("корабль пристыкован: сначала отстыкуйтесь")
-    if not await world.has_station(session, port, SPACEPORT):
+    #: A yard, or the bare ground of a planet one lands anywhere on (D-233):
+    #: Pyroxis has no port and can have none -- nothing is built there, so
+    #: there is nothing to put a yard into, and a ship simply sets down.
+    if not await world.has_station(session, port, SPACEPORT) and not await lands_anywhere(
+        session, port
+    ):
         raise NoPort(f"в «{port.name}» нет космодрома: причалить не к чему")
     if is_aboard(port):  # pragma: no cover -- a port is never a ship node
         raise NoPort("к борту не причаливают: цель рейса — космодром")
+    #: A dark port takes nobody (D-231, D-232): the yard does not couple in a
+    #: frozen node, and its beacon does not shine without power. Refused before
+    #: the fuel is written off -- a ship must not set out for a place that will
+    #: not have it.
+    #:
+    #: Asked **here and not on arrival**, deliberately: a passage takes hours,
+    #: and a port that went dark while the ship was under way must not leave a
+    #: crew in the void with no port at all. The gamble belongs to whoever cast
+    #: off, and it is settled the way they left it.
+    if not await beacon_lit(session, constants, port):
+        raise NoPort(
+            f"маяк «{port.name}» не светит: узел промёрз или верфь без энергии. "
+            "Космодром работает, пока в его узле тепло и есть чем питать верфь — "
+            "принести туда генерацию можно только пешком"
+        )
 
     connector = await session.get(Node, ship.connector_node_id)
     if connector is None:  # pragma: no cover
@@ -199,15 +220,14 @@ async def fly(
     table = await base_hours(session, constants, connector.planet, port.planet, at=moment)
     if table is None:
         raise TooFar(f"маршрута {connector.planet.value} — {port.planet.value} в мире нет")
-    need_class = route_class(constants, connector.planet, port.planet)
+    #: No route is closed by class (D-235): class is power and efficiency, and
+    #: both are already priced -- a weak engine on a heavy hull flies longer
+    #: (`passage_hours`) and burns more for every hour of it (`fuel_for`). What
+    #: is still refused is having no engine at all, and having too little
+    #: thrust to leave the ground; neither is a licence, both are physics.
     have_class = await engine_class(session, constants, ship)
     if have_class is None:
         raise NotEnoughThrust("на корабле нет ни одного двигателя")
-    if have_class < need_class:
-        raise TooFar(
-            f"маршрут требует двигателя {need_class} класса, а слабейший на "
-            f"борту — {have_class}: класс задаёт самое слабое звено"
-        )
 
     thrust_ratio = await ratio(session, constants, catalog, ship)
     floor = constants[R.SHIP_MIN_THRUST_RATIO]
@@ -255,6 +275,18 @@ async def fly(
     return job
 
 
+async def _somewhere_on(session: AsyncSession, aim: Node, *, dice: random.Random) -> Node:
+    """A node of this planet's surface, taken at random.
+
+    Everything the planet takes a landing in is equal here: there are no piers,
+    no berths and no lit beacons, so there is nothing to prefer. Falls back to
+    the node aimed at if the planet somehow offers nothing -- an arrival must
+    not be lost because a roll came up empty.
+    """
+    ground = [node for node in await open_landings(session) if node.planet is aim.planet]
+    return dice.choice(sorted(ground, key=lambda one: one.key)) if ground else aim
+
+
 @handler(JobKind.SHIP_FLIGHT)
 async def arrived(session: AsyncSession, job: Job) -> None:
     """The passage is over: the edge to the port appears, and one may walk aboard again."""
@@ -263,13 +295,22 @@ async def arrived(session: AsyncSession, job: Job) -> None:
     port = await session.get(Node, uuid.UUID(job.payload["to"]))
     if ship is None or port is None:  # pragma: no cover
         raise ShipError(f"рейс {job.id} ведёт в никуда")
+    #: On a planet one lands anywhere on there is no port to aim at, so the
+    #: node is **rolled here, at the landing** (D-235): one sets down where the
+    #: rock allows, not where it would be convenient. Seeded by the job, so a
+    #: retry after a failure puts the ship down in the same place rather than
+    #: teleporting it across the planet on the second attempt.
+    if await lands_anywhere(session, port):
+        port = await _somewhere_on(session, port, dice=random.Random(str(job.id)))
     connector = await session.get(Node, ship.connector_node_id)
     if connector is None:  # pragma: no cover
         raise ShipError("у корабля нет коннектора")
 
     #: The berth is taken on arrival, and it is whichever is free **there**:
-    #: a ship does not carry its place from the port it left.
-    ship.berth = await _free_berth(session, port)
+    #: a ship does not carry its place from the port it left. On bare ground
+    #: there are no berths to queue for (D-233): ships set down beside one
+    #: another, and the walk down is always the same short one.
+    ship.berth = 1 if await lands_anywhere(session, port) else await _free_berth(session, port)
     await travel.connect(
         session,
         port,

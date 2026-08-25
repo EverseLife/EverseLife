@@ -38,15 +38,18 @@ from src.constants import current, current_catalog
 from src.engine import (
     access,
     death,
+    energy,
     estate,
     explore,
     forage,
+    frost,
     gear,
     justice,
     market,
     mining,
     net,
     occupation,
+    plates,
     rig,
     ship,
     station,
@@ -242,6 +245,21 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
         #: the buyer must see the second half before paying the first.
         "tax": await estate.land_tax_of(db, constants, current_catalog(), node),
     }
+    #: The Forerunners' reactor fades, and the fading must be visible long
+    #: before it matters (D-232): the day it goes silent is the day the city
+    #: has to be standing on its own coal. The output itself is not sent --
+    #: the line is straight and the catalog holds both its ends (D-225).
+    dies_at = energy.reactor_dies_at(constants, node)
+    if dies_at is not None:
+        seen["node"]["reactor_until"] = dies_at.isoformat()
+    #: The announced hour of the eruption, while the window is open (D-197, P6).
+    #: The free signal is an event, and an event reaches whoever is connected in
+    #: the second it is written -- somebody logging in ten minutes into a
+    #: six-hour window would otherwise stand on ground about to move and read
+    #: nothing about it. The place carries the warning for as long as it stands.
+    shaking_at = await plates.shaking(db, node)
+    if shaking_at is not None:
+        seen["node"]["shaking_at"] = shaking_at.isoformat()
     #: Both lists, and only to the holder: whom they let into a shut location
     #: and whom they let in nowhere (D-204).
     if node.owner_identity_id == identity.id:
@@ -344,6 +362,18 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
     #: Foraging on the empty land of the place (D-210): the window, its search
     #: and its find. Empty where the land is built up or somebody else's.
     seen["forage"] = await forage.view(db, constants, current_catalog(), body, node)
+
+    #: The cold, and only where there is any (D-231). The hours are not sent as
+    #: a number that goes stale in a second: the stamp, the rate and the ceiling
+    #: go out and the client counts the hand itself, as it does the clock (D-226).
+    #: Only where cold exists (D-231). An absent key, not a null: the same
+    #: convention as `shaking_at` and `reactor_until` right above -- a key that
+    #: would carry an empty value is left out (D-225), and on Terra that is
+    #: every look of every player. (`forage` nearby still sends its null; it is
+    #: older than the rule and not this change's to move.)
+    cold = await frost.view(db, constants, current_catalog(), body, node)
+    if cold is not None:
+        seen["frost"] = cold
 
     #: Everything the body is at (D-211). Two things live off this list: the
     #: client greys out what would be refused, with the reason on the button,

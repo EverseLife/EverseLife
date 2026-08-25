@@ -1104,6 +1104,13 @@ label > span > .hint,
   margin: 0.5rem 0 0;
 }
 
+/* Тревога прямо в строке шапки: извержение обещано, часы идут (D-197, P6). */
+.trouble-inline {
+  border: 1px solid var(--danger);
+  padding: 0.1rem 0.4rem;
+  white-space: nowrap;
+}
+
 .pocket {
   margin-top: 1rem;
 }

@@ -37,8 +37,10 @@ from src.engine import (
     estate,
     events,
     food,
+    frost,
     journal,
     panel,
+    plates,
     rig,
     road,
     wear,
@@ -48,6 +50,7 @@ from src.models.event import EventKind
 from src.models.job import Job, JobKind
 from src.runtime import TICK_STAGES
 from src.telemetry import metrics
+from src.units import MINUTES_PER_HOUR, ROUND_MASS
 
 log = logging.getLogger(__name__)
 
@@ -103,14 +106,28 @@ async def _chat(session: AsyncSession, now: datetime) -> dict[str, Any]:
 
 async def _energy(session: AsyncSession, now: datetime) -> dict[str, Any]:
     #: Stations work without players: the pool fills by time, and the coal
-    #: station burns the delivered coal all that time (D-082).
-    return {"energy_produced": await energy.tick_pools(session, current(), now=now)}
+    #: station burns the delivered coal all that time (D-082). What the city's
+    #: heat ate is off the same pass (D-231), so the number is the net change.
+    return {"energy_net": await energy.tick_pools(session, current(), now=now)}
 
 
 async def _rigs(session: AsyncSession, now: datetime) -> dict[str, Any]:
     #: The rig does not sleep either: it burns coal, fills the hopper and eats
     #: the vein while the owner is busy elsewhere (D-115). A full hopper stops it.
     return {"rig_mined": await rig.tick_rigs(session, current(), now=now)}
+
+
+async def _frost(session: AsyncSession, now: datetime) -> dict[str, Any]:
+    #: The cold does not wait for a login (D-231): the reserve of everybody
+    #: standing on a planet with a climate melts by the clock, and a body whose
+    #: stamina ran out in the frost dies where it lies. Braziers burn their fuel
+    #: in the same pass -- a fire nobody watches is still a fire.
+    constants = current()
+    dead = await frost.tick_bodies(session, constants, current_catalog(), now=now)
+    burnt = await frost.tick_fires(
+        session, constants, hours=constants[R.TIME_TICK] / MINUTES_PER_HOUR
+    )
+    return {"frozen_dead": dead, "brazier_fuel": round(burnt, ROUND_MASS)}
 
 
 async def _orphans(session: AsyncSession, now: datetime) -> dict[str, Any]:
@@ -184,6 +201,7 @@ WORLD_STEPS: dict[str, tuple[Step, str]] = {
     "energy": (_energy, "first"),
     "rigs": (_rigs, "first"),
     "orphans": (_orphans, "first"),
+    "frost": (_frost, "first"),
 }
 DAILY_STEPS: dict[str, tuple[Step, str]] = {
     "wear": (_wear, "first"),
@@ -281,3 +299,6 @@ async def ensure_scheduled(session: AsyncSession, now: datetime | None = None) -
     #: its own period, and the world clock need not know it.
 
     await bank.schedule_review(session, current(), after=moment)
+    #: And so does the ground of Pyroxis (D-197): an eruption is the planet's
+    #: weather, on a period of its own, and it queues its own next one.
+    await plates.ensure_scheduled(session, now=moment)

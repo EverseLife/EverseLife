@@ -52,6 +52,7 @@ import { Gather } from "./place/Gather";
 import { Ground } from "./place/Ground";
 import { House } from "./place/House";
 import { Plot } from "./place/Plot";
+import { Reactor, reactorState } from "./place/Reactor";
 import { disposes, gatherSigns, PLACES } from "./place/shared";
 import { Plant } from "./Plant";
 import { Rig } from "./Rig";
@@ -457,6 +458,21 @@ function assemble({ look, values, pow }: Props, book: RecipeBook | null): Thing[
         : home.sites.length > 0
           ? "строится"
           : "не построен",
+    );
+  }
+
+  //: The Forerunners' reactor: it feeds the city and it is running out (D-232).
+  //: Its own thing of the place rather than a line under a machine, because the
+  //: day it goes silent is the day the city must already be standing on its own
+  //: coal -- and that day has to be seen from far off.
+  if (node?.reactor_until) {
+    single(
+      "reactor",
+      "Реактор Предтеч",
+      "bench",
+      () => <Reactor look={look} />,
+      2,
+      reactorState(node.reactor_until),
     );
   }
 

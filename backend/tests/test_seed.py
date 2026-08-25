@@ -17,18 +17,30 @@ does the engine recognise the city it was handed.
 
 from __future__ import annotations
 
+import random
+from datetime import UTC, datetime
+
 import pytest
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.constants import Catalog, ConstantError, Constants
+from src.constants import Catalog, ConstantError, Constants, current_catalog
+from src.constants import registry as R
 from src.constants.catalog import ItemKind
-from src.engine import estate, justice, market, ship, world
+from src.engine import death, estate, explore, frost, justice, market, ship, travel, world
 from src.models.event import Event, EventKind
 from src.models.inventory import Container, ContainerKind, Item
-from src.models.world import Layer, Node, Planet
-from src.seed import seed
-from src.seed_surfaces import AURORA_CITIES, PYROXIS_PORT, aurora_port_key
+from src.models.world import Layer, Node, Planet, Vein
+from src.seed import CORE, seed
+from src.seed_surfaces import (
+    AURORA_CITIES,
+    PYROXIS_FIELDS,
+    PYROXIS_PLATEAU,
+    aurora_city_key,
+    aurora_hall_key,
+    aurora_port_key,
+    pyroxis_field_key,
+)
 
 
 @pytest.fixture
@@ -126,7 +138,10 @@ async def test_the_capital_is_assembled_from_recipes(
     left = [
         (key, thing)
         for key, thing, _ in await _things(session)
-        if book.is_raw(thing) and thing not in deliberate
+        #: A relic is in the registry of things that simply exist (D-215), like
+        #: ore -- but it is the Forerunners' machinery standing where they left
+        #: it (D-232), not raw material somebody failed to spend.
+        if book.is_raw(thing) and not book.is_relic(thing) and thing not in deliberate
     ]
     assert not left, f"после сборки в узлах осталось сырьё: {left}"
 
@@ -159,27 +174,113 @@ async def test_every_capital_machine_could_be_made_by_a_player(
             )
 
 
+async def test_the_planets_carry_their_climate(
+    capital: Node, session: AsyncSession, constants: Constants
+) -> None:
+    """Permafrost and furnace are properties of the **planet** (D-231), written
+    into its node on the space layer -- so what a planet does to a body is a
+    fact of the world and not a list of names in the engine."""
+    for key, weather in (("aurora", frost.FROST), ("pyroxis", frost.HEAT), ("terra", None)):
+        sphere = await session.scalar(select(Node).where(Node.key == key))
+        assert sphere is not None
+        assert await frost.climate_of(session, sphere) == weather
+
+    port = await session.scalar(select(Node).where(Node.key == aurora_port_key(AURORA_CITIES[0])))
+    assert port is not None
+    #: And the city is warm from the first minute, because its reactor is alive:
+    #: the plant of the Forerunners heats the hall and the pier one step away
+    #: (D-231, D-232). That is what a ship lands by.
+    assert await frost.is_warm(session, constants, port)
+
+
+async def test_the_capital_prints_on_the_original(
+    capital: Node, session: AsyncSession, constants: Constants
+) -> None:
+    """The door that never closes is the Forerunners' **machine** (D-028, D-232).
+
+    Free, slow, one of a kind -- and a relic, so nobody builds a second and
+    nobody takes this one down. Checked on the seeded world rather than on a
+    fixture: this is exactly the kind of thing a test of its own world would
+    keep passing while the world itself lost it.
+    """
+    doors = {door["node"]: door for door in await death.printers(session, constants)}
+    core = doors[CORE]
+    assert core["precursor"] is True
+    assert core["energy"] == 0 and core["iron"] == 0
+
+    place = await session.scalar(select(Node).where(Node.key == CORE))
+    assert place is not None
+    printers = [
+        thing.type_key
+        for thing in await world.contents(session, await world.node_container(session, place))
+        if thing.type_key in world.station_names(death.PRINTER)
+    ]
+    book = current_catalog().recipes
+    assert printers and all(book.is_relic(name) for name in printers), printers
+
+
+async def test_the_ice_of_aurora_is_reached_from_a_pier(
+    capital: Node, session: AsyncSession, constants: Constants
+) -> None:
+    """A city of the Forerunners is opened from inside and left through its door.
+
+    The seed lays no wild node on Aurora: a ship lands at a pier, and if the
+    pier offered nothing but its own rooms the planet would end at three cities
+    (D-232). From the hall one goes deeper in; from the pier, out onto the ice.
+    """
+    port = await session.scalar(select(Node).where(Node.key == aurora_port_key(AURORA_CITIES[0])))
+    hall = await session.scalar(select(Node).where(Node.key == aurora_hall_key(AURORA_CITIES[0])))
+    assert port is not None and hall is not None
+
+    assert await explore.possible(session, hall) == (explore.ROOM,)
+    from_pier = await explore.possible(session, port)
+    assert explore.ROOM in from_pier
+    assert explore.SITE in from_pier, "с причала выходят на лёд, иначе Аврора — тупик"
+
+
 async def test_other_planets_have_somewhere_to_land(
     capital: Node, session: AsyncSession, constants: Constants
 ) -> None:
-    """A ship flies to a spaceport and nowhere else, so a planet exists for a
-    pilot only once a yard stands on it (D-230): one on the Anvil Plateau of
-    Pyroxis, one in each of the Forerunners' abandoned cities on Aurora -- so
-    a ship arriving there chooses a city -- and on Pyroxis nothing gets
-    built, the ground shakes too often.
+    """A ship flies to a spaceport -- or, where there can be no spaceport, to the
+    ground itself.
+
+    Aurora: one pier in each of the three cities (D-232), so a ship arriving
+    chooses a city. Pyroxis: **no yard at all** and none possible, because
+    nothing is built there (D-230, D-233) -- every surface node is a landing
+    site, and the plateau is one of them.
     """
     by_planet: dict[str, int] = {}
-    for port in await ship.ports(session):
+    for port in await ship.landings(session):
         by_planet[port.planet.value] = by_planet.get(port.planet.value, 0) + 1
-    assert by_planet["pyroxis"] == 1
-    assert by_planet["aurora"] == AURORA_CITIES
-    #: Every port is the one door of its own city: a planet-layer node under Aurora.
-    first = await session.scalar(select(Node).where(Node.key == aurora_port_key(1)))
+    assert by_planet["aurora"] == len(AURORA_CITIES)
+    #: The plateau and its black fields, and not a spaceport among them: on
+    #: Pyroxis a ship sets down on the ground itself (D-233).
+    assert by_planet["pyroxis"] == 1 + PYROXIS_FIELDS
+    for place in await ship.open_landings(session):
+        assert not await world.has_station(session, place, ship.SPACEPORT), place.key
+    #: And the map draws piers, not landing sites: `ports` is the yards alone,
+    #: or the legend would call every black field a spaceport.
+    assert "pyroxis" not in {node.planet.value for node in await ship.ports(session)}
+    #: And all three are **lit**: their reactors are alive, and a lit port is
+    #: the only kind a ship may aim at (D-232).
+    lit = [port.key for port in await ship.lit_ports(session, constants)]
+    for one in AURORA_CITIES:
+        assert aurora_port_key(one) in lit
+
+    #: Every port is the one door of its own city: a planet-layer node under
+    #: Aurora, with the hall of the Forerunners one step away.
+    first = await session.scalar(select(Node).where(Node.key == aurora_port_key(AURORA_CITIES[0])))
     assert first is not None
     city = await session.get(Node, first.parent_id)
     assert city is not None and city.layer is Layer.PLANET and city.planet is Planet.AURORA
+    assert city.key == aurora_city_key(AURORA_CITIES[0])
+    hall = await session.scalar(select(Node).where(Node.key == aurora_hall_key(AURORA_CITIES[0])))
+    assert hall is not None
+    #: One edge between them: the plant heats its own node and its neighbours,
+    #: and the pier is the neighbour (D-231).
+    assert await travel.route(session, constants, first.id, hall.id) == [hall.id]
 
-    plateau = await session.scalar(select(Node).where(Node.key == PYROXIS_PORT))
+    plateau = await session.scalar(select(Node).where(Node.key == PYROXIS_PLATEAU))
     assert plateau is not None
     identity = await world.create_identity(session, "Пришелец")
     body = await world.print_body(session, identity, plateau)
@@ -189,4 +290,115 @@ async def test_other_planets_have_somewhere_to_land(
     #: Running the seed again lays nothing twice.
     await seed(session)
     again = sum(1 for port in await ship.ports(session) if port.planet.value == "aurora")
-    assert again == AURORA_CITIES
+    assert again == len(AURORA_CITIES)
+    twice = sum(1 for place in await ship.landings(session) if place.planet.value == "pyroxis")
+    assert twice == 1 + PYROXIS_FIELDS
+
+
+async def test_the_black_fields_carry_the_planets_own_veins(
+    capital: Node, session: AsyncSession, constants: Constants
+) -> None:
+    """What is rare on Terra lies here in plenty (D-233).
+
+    The weights are one table over the mining paces, not a second rarity table
+    (`harvest.planet_weights`), and the plateau carries no vein at all: it is
+    the one place an eruption leaves alone, and a vein that never moved would
+    be exactly the staked claim the eruptions exist against (D-197).
+    """
+    fields = [
+        await session.scalar(select(Node).where(Node.key == pyroxis_field_key(number)))
+        for number in range(1, PYROXIS_FIELDS + 1)
+    ]
+    assert all(field is not None for field in fields)
+    species = set()
+    for field in fields:
+        vein = await session.scalar(select(Vein).where(Vein.node_id == field.id))
+        assert vein is not None, f"{field.key} без жилы"
+        species.add(vein.resource)
+    #: Nothing here says which species must come up -- only that they come from
+    #: the planet's own table, and that the planet is not Terra.
+    assert species <= set(constants[R.HARVEST_RATES])
+
+    plateau = await session.scalar(select(Node).where(Node.key == PYROXIS_PLATEAU))
+    assert plateau is not None
+    assert await session.scalar(select(Vein).where(Vein.node_id == plateau.id)) is None
+
+
+async def test_the_plateau_of_an_old_world_gets_its_mark(
+    capital: Node, session: AsyncSession, constants: Constants
+) -> None:
+    """A world laid before D-233 has the plateau, and has it **bare**: the old
+    seed made that node with no properties at all.
+
+    Unmarked it is not the plateau: `plates._exempt` returns nothing, and the
+    planet shakes its own anvil -- burns what stands on it, tears its ways, and
+    moves a vein onto the one place from which nothing can ever move it off
+    again. The catch-up sets the mark; this is what says so.
+    """
+    from src.engine import plates
+    from src.seed import seed
+
+    plateau = await session.scalar(select(Node).where(Node.key == PYROXIS_PLATEAU))
+    assert plateau is not None
+    #: Back to how a world of before D-233 holds it.
+    plateau.properties = {}
+    await session.flush()
+    assert plateau.id not in await plates._exempt(session), "фикстура не воспроизвела старый мир"
+
+    await seed(session)
+
+    again = await session.scalar(select(Node).where(Node.key == PYROXIS_PLATEAU))
+    assert (again.properties or {}).get(plates.ANVIL) is True
+    assert again.id in await plates._exempt(session)
+    #: And the planet leaves it alone again.
+    for attempt in range(20):
+        shaken = await plates._choose(session, constants, random.Random(attempt))
+        assert again.id not in {node.id for node in shaken}
+
+
+async def test_a_vein_can_move_on_the_world_the_seed_lays(
+    capital: Node, session: AsyncSession, constants: Constants
+) -> None:
+    """Checked on the **seeded** topology, not on a shape a test built.
+
+    The plateau is never shaken and is not a destination either, so a star --
+    every field hanging on the plateau alone -- gives a vein nowhere to go: the
+    planet's main mechanic (D-197) would be switched off on the day of the
+    deploy, and every test of the move would still pass, because they lay their
+    fields in a chain. The seed lays a chain too, and this is what says so.
+    """
+    from src.engine import plates
+
+    fields = [
+        await session.scalar(select(Node).where(Node.key == pyroxis_field_key(number)))
+        for number in range(1, PYROXIS_FIELDS + 1)
+    ]
+    where = {
+        vein.id: vein.node_id
+        for vein in (
+            await session.execute(
+                select(Vein).where(Vein.node_id.in_([field.id for field in fields]))
+            )
+        )
+        .scalars()
+        .all()
+    }
+    assert where, "поля сида без жил"
+
+    moved = 0
+    for attempt in range(20):
+        moved += await plates._move_veins(
+            session, constants, random.Random(attempt), fields, now=datetime.now(UTC)
+        )
+        if moved:
+            break
+    assert moved, "на карте сида жилам некуда ехать — извержения ничего не решают"
+
+    after = {
+        vein.id: vein.node_id
+        for vein in (await session.execute(select(Vein).where(Vein.id.in_(where)))).scalars().all()
+    }
+    assert after != where
+    #: And not onto the plateau: there it would stand for ever.
+    plateau = await session.scalar(select(Node).where(Node.key == PYROXIS_PLATEAU))
+    assert plateau.id not in after.values()

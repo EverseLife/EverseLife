@@ -326,6 +326,30 @@ def test_digest_says_whose_the_ground_is() -> None:
     assert "Участок твой" in text
 
 
+def test_digest_says_the_ground_is_about_to_move() -> None:
+    """The window before an eruption is the whole licence for the burning
+    (D-197, P6), and an agent that has to dig the hour out of the raw `look`
+    never digs -- it would stand in a field and lose everything it carried."""
+    from aps import observe
+
+    quiet = {
+        "look": {
+            "identity": "Марта",
+            "money": "10",
+            "body": {"stamina": 90.0},
+            "node": {"name": "Чёрное поле", "key": "pyroxis.anvil.field.01"},
+        }
+    }
+    assert "ЗЕМЛЯ ТРОНЕТСЯ" not in observe.digest(quiet)
+
+    warned = json.loads(json.dumps(quiet))
+    warned["look"]["node"]["shaking_at"] = "2026-09-01T12:00:00+00:00"
+    text = observe.digest(warned)
+    assert "ЗЕМЛЯ ТРОНЕТСЯ здесь в 2026-09-01T12:00:00+00:00" in text
+    #: And what to do about it, or the warning is a decoration.
+    assert "сгорит" in text and "улететь" in text
+
+
 def test_stuck_detection_needs_the_same_refused_action_in_a_row() -> None:
     turn = brain.Turn(actions=[("travel.go", "{}", False)] * 4)
     assert Runner._stuck(turn)

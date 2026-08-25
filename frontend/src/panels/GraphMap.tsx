@@ -1137,7 +1137,6 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
         walkTargets={walkTargets}
         onExpand={expand}
         onEnter={onEnter}
-        layer={currentLayer}
       />
       </div>
     </section>
@@ -1166,7 +1165,6 @@ function Inspector({
   walkTargets,
   onExpand,
   onEnter,
-  layer,
 }: {
   look: Look;
   picked: string | null;
@@ -1175,7 +1173,6 @@ function Inspector({
   walkTargets: Record<string, { key: string; seconds: number }>;
   onExpand: (node: MapNode) => void;
   onEnter: () => void;
-  layer: LayerId;
 }) {
   const session = useSession();
   const acting = useActions();
@@ -1231,7 +1228,7 @@ function Inspector({
             </button>
           </div>
         )}
-        <Search look={look} busy={busy} act={act} layer={layer} />
+        <Search look={look} busy={busy} act={act} />
         <Refusal of={acting} />
       </aside>
     );
@@ -1511,7 +1508,7 @@ const SURFACE_LABEL: Record<RoadWork["surface"], string> = {
   paved: "тракт",
 };
 
-/** Exploration from the map: the goal depends on the layer the player looks at (D-152).
+/** Exploration from the map: **the server says what may be sought here** (D-152, D-232).
  *
  * The scout **leaves in person**: while the run goes, the body is in the field
  * and unavailable, as in sleep. Returning early is allowed -- the find then does not happen.
@@ -1523,12 +1520,10 @@ function Search({
   look,
   busy,
   act,
-  layer,
 }: {
   look: Look;
   busy: boolean;
   act: (what: () => Promise<unknown>) => Promise<void>;
-  layer: LayerId;
 }) {
   const session = useSession();
   const [speciesList, setSpeciesList] = useState<string[]>([]);
@@ -1536,20 +1531,42 @@ function Search({
   const [forecast, setForecast] = useState<Outlook | null>(null);
   //: Отдельный прогноз для леса: он сужает шанс на лесистость мира (D-191).
   const [woods, setWoods] = useState<Outlook | null>(null);
+  //: What may be sought here at all is the server's answer (D-232). The map
+  //: layer no longer decides it: inside a city of the Forerunners one opens
+  //: their rooms, and offering "a lot" there would be promising a refusal.
+  const [here, setHere] = useState<string[]>([]);
   const run = look.survey ?? null;
+  //: Inside a city of the Forerunners the only search is for their rooms, and
+  //: the forecast has to be asked for that same goal. Kept as a flag rather
+  //: than as an expression in the dependencies: the effect must run again
+  //: exactly once, when the server says so.
+  const rooms = here.includes("room");
+  //: A species asked for belongs to the place it was asked for in: carried into
+  //: a city of the Forerunners it would put a vein's forecast under a button
+  //: that opens rooms. Cleared with the node, so the choice is always about
+  //: where one is standing.
+  useEffect(() => setSpecies(""), [look.node?.key]);
 
   useEffect(() => {
     void session
       //: Прогноз просится под выбранную породу: редкая ищется хуже частой
       //: (D-151), и «шанс 90%» рядом с заказом золота был бы обманом.
-      .send("explore.goals", species ? { goal: "vein", resource: species } : {})
+      //: The forecast is asked for the goal this node actually offers: in a
+      //: worked-out city of the Forerunners the honest answer is "never", and a
+      //: promise made for another goal would be a lie (D-156, D-232).
+      .send(
+        "explore.goals",
+        species ? { goal: "vein", resource: species } : rooms ? { goal: "room" } : {},
+      )
       .then((answer) => {
         setSpeciesList((answer.resources as string[]) ?? []);
         setForecast((answer.outlook as Outlook | null) ?? null);
+        setHere((answer.here as string[]) ?? []);
       })
       .catch(() => {
         setSpeciesList([]);
         setForecast(null);
+        setHere([]);
       });
     //: Лес сужает шанс на лесистость мира (D-191), и это должно быть видно
     //: до выхода — как и с редкой породой.
@@ -1559,9 +1576,9 @@ function Search({
       .catch(() => setWoods(null));
     //: Заход меняет счёт находок узла, поэтому прогноз пересчитывается и по
     //: возвращении разведчика, а не только при переходе.
-  }, [session, look.node?.key, run?.returns_at, species]);
+  }, [session, look.node?.key, run?.returns_at, species, rooms]);
 
-  if (!run && layer !== "city" && layer !== "planet") return null;
+  if (!run && here.length === 0) return null;
 
   const seek = (goal: string, resource?: string) =>
     act(() => session.send("explore.survey", { goal, resource }));
@@ -1584,44 +1601,71 @@ function Search({
             силы не вернутся.
           </Hint>
         </>
-      ) : layer === "city" ? (
-        <>
-          <button onClick={() => seek("lot")} disabled={busy}>
-            Уйти искать участок
-          </button>
-          <Hint>
-            Найденный участок встанет городской землёй: её выкупают у города
-. Разведчик уходит сам, до возвращения недоступен, как во
-            сне, и остаётся на находке.
-          </Hint>
-        </>
       ) : (
         <>
-          <button onClick={() => seek("site")} disabled={busy}>
-            Уйти искать узел для города
-          </button>
-          <button onClick={() => seek("vein", species || undefined)} disabled={busy}>
-            Уйти искать жилу
-          </button>
-          <select value={species} onChange={(e) => setSpecies(e.target.value)}>
-            <option value="">любую породу</option>
-            {speciesList.map((name) => (
-              <option key={name}>{name}</option>
-            ))}
-          </select>
-          {/* Лес ищут так же, как жилу: он свойство места, и рубка читает то
-              же свойство (D-177, D-191). */}
-          <button
-            onClick={() => seek("forest")}
-            disabled={busy}
-            title={
-              woods
-                ? `шанс ${woods.chance >= 1 ? Math.round(woods.chance) : woods.chance.toFixed(1)}%: лес ищется дольше прочего`
-                : "рубить древесину можно там, где лес"
-            }
-          >
-            Уйти искать лес
-          </button>
+          {/* One button per goal the server named, and no branch of its own:
+              a pier of the Forerunners offers both their rooms and the ice
+              beyond it, and a city offers a lot beside the open world (D-206,
+              D-232). Anything not in the list would be a promised refusal. */}
+          {here.includes("room") && (
+            <>
+              <button onClick={() => seek("room")} disabled={busy}>
+                Вскрыть следующее помещение
+              </button>
+              <Hint>
+                Город Предтеч стоял здесь до вас: разведка не создаёт места, а
+                открывает следующую дверь. Помещение приходит сразу с
+                содержимым, и чем глубже от космодрома, тем оно богаче. Город
+                конечен: чем больше вскрыто, тем чаще заход возвращается ни с
+                чем, а потом и вовсе не с чем.
+              </Hint>
+            </>
+          )}
+          {here.includes("lot") && (
+            <>
+              <button onClick={() => seek("lot")} disabled={busy}>
+                Уйти искать участок
+              </button>
+              <Hint>
+                Найденный участок встанет городской землёй: её выкупают у города
+. Разведчик уходит сам, до возвращения недоступен, как во
+                сне, и остаётся на находке.
+              </Hint>
+            </>
+          )}
+          {here.includes("site") && (
+            <button onClick={() => seek("site")} disabled={busy}>
+              Уйти искать новое место
+            </button>
+          )}
+          {here.includes("vein") && (
+            <>
+              <button onClick={() => seek("vein", species || undefined)} disabled={busy}>
+                Уйти искать жилу
+              </button>
+              <select value={species} onChange={(e) => setSpecies(e.target.value)}>
+                <option value="">любую породу</option>
+                {speciesList.map((name) => (
+                  <option key={name}>{name}</option>
+                ))}
+              </select>
+            </>
+          )}
+          {/* Woods are sought the way a vein is: a forest is a property of the
+              place, and felling reads the same property (D-177, D-191). */}
+          {here.includes("forest") && (
+            <button
+              onClick={() => seek("forest")}
+              disabled={busy}
+              title={
+                woods
+                  ? `шанс ${woods.chance >= 1 ? Math.round(woods.chance) : woods.chance.toFixed(1)}%: лес ищется дольше прочего`
+                  : "рубить древесину можно там, где лес"
+              }
+            >
+              Уйти искать лес
+            </button>
+          )}
           <Hint>
             Разведчик уходит сам и до возвращения недоступен, как во сне.
             Кончатся силы — доспит в поле и продолжит. Нашёл — там и остаётся

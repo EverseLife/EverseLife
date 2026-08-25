@@ -77,7 +77,7 @@ async def sleep(
         raise NotTired("выносливость полная: ложиться незачем")
 
     body.sleeping_since = moment
-    body.sleeping_home = await _bed_here(session, body)
+    body.sleeping_home = await _bed_here(session, constants, body)
     await session.flush()
 
     #: A batch is not refused by sleep and does not refuse it: lying down is
@@ -144,11 +144,18 @@ async def wake(
     return after - before
 
 
-async def _bed_here(session: AsyncSession, body: Body) -> bool:
+async def _bed_here(session: AsyncSession, constants: Constants, body: Body) -> bool:
     """Whether there is a bed in the location. Until own buildings exist, the bed is the home."""
 
     node = await session.get(Node, body.node_id)
     if node is None:  # pragma: no cover
+        return False
+    #: Furniture does not work in a frozen node either (D-231): a bed in the
+    #: cold is a bed, not a home, and sleep there is the mistake Aurora kills
+    #: for -- the reserve melts while the sleeper does not see it.
+    from src.engine import frost  # noqa: PLC0415 -- lazy: breaks the import cycle with frost
+
+    if not await frost.is_warm(session, constants, node):
         return False
     where = await world.node_container(session, node)
     found = await session.scalar(

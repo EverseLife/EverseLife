@@ -56,11 +56,21 @@ async def center_of(session: AsyncSession, city: City) -> Node | None:
 async def forget_distances(session: AsyncSession) -> None:
     """Drop every measured distance: the graph itself has changed.
 
-    Called where an edge appears or goes, and nowhere else -- those are the
-    only two places in the engine (`travel.connect`, and the undocking that
-    removes a gangway). A trail laid by a scout may shorten the way to the
-    centre for a whole quarter, so measuring is not patched here -- it is
-    dropped, and the next reader measures again.
+    Called where an edge appears or goes, and nowhere else -- `travel.connect`
+    and the undocking that removes a gangway. A trail laid by a scout may
+    shorten the way to the centre for a whole quarter, so measuring is not
+    patched here -- it is dropped, and the next reader measures again.
+
+    Not free, and known not to be: **any** new edge drops the measurements of
+    the whole world, and Pyroxis lays one on every eruption (`plates._bridge`,
+    through `connect` like everything else). The cities then remeasure
+    themselves the next time somebody asks a price -- the same cost a scout's
+    trail already has, paid a few times a week rather than a few times a day.
+
+    The tearing side of an eruption deletes its edges itself and does not come
+    here, and that is not an omission: what is measured is the way to a city's
+    centre, and Pyroxis has no cities and never will (D-230, D-233). No node of
+    it carries a distance to drop.
 
     One statement for the world: this happens when a road is laid or a ship
     casts off, not in the course of a day's play. It touches only what was

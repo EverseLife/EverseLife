@@ -17,9 +17,10 @@
 
 import { useCallback, useEffect, useState } from "react";
 import * as api from "../api";
-import type { Batch, Look } from "../api";
+import type { Batch, Frost as FrostState, Look } from "../api";
 import { anyOfClass } from "../classes";
 import { busyWith, CRAFT, SLEEP } from "../busy";
+import { reserveNow } from "../warmth";
 import { Doing } from "../Deadline";
 import { Glyph } from "../Glyph";
 import { Inventory } from "./Inventory";
@@ -194,6 +195,16 @@ function Character({ look }: Pick<Props, "look">) {
             <td>сытость</td>
             <td className="num">{fed ? "сыт: расход ниже" : "—"}</td>
           </tr>
+          {/* Warmth is shown only where cold exists (D-231): on Terra there is
+              no row at all rather than an empty one. */}
+          {look.frost && (
+            <tr>
+              <td>{look.frost.climate === "пекло" ? "прохлада" : "тепло"}</td>
+              <td className="num">
+                <Warmth frost={look.frost} />
+              </td>
+            </tr>
+          )}
           <tr>
             <td>тело</td>
             <td className="num">
@@ -214,6 +225,37 @@ function Character({ look }: Pick<Props, "look">) {
       {/* Привал переехал в «дела» (D-211): сон — такое же занятие, как поиск и
           вспашка, и начинают их в одном месте, а не по разным окнам. */}
     </div>
+  );
+}
+
+/**
+ * The heat reserve, counted by the client (D-226, D-231).
+ *
+ * The server names the stamp and the rate once; the hand is drawn here, the
+ * same way the planet's clock is (`warmth.ts`). Asking the server for the hours
+ * every second would be a poll, and the number would still be stale between two
+ * answers. The effect hangs on the **values**, not on the object: a `look` that
+ * changed nothing about the cold must not restart the beat.
+ */
+function Warmth({ frost }: { frost: FrostState }) {
+  const [hours, setHours] = useState(() => reserveNow(frost));
+  useEffect(() => {
+    setHours(reserveNow(frost));
+    const timer = setInterval(() => setHours(reserveNow(frost)), 10_000);
+    return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [frost.at, frost.hours, frost.per_hour, frost.max, frost.warm]);
+  if (hours <= 0) {
+    return (
+      <b title="замёрзшее тело жжёт выносливость просто на времени и тратит на работу больше обычного; кончится — смерть">
+        замёрз
+      </b>
+    );
+  }
+  return (
+    <span title={frost.warm ? "узел обогрет: запас восполняется" : "узел холодный: запас тает"}>
+      {hours.toFixed(1)} ч {frost.warm ? "↑" : "↓"}
+    </span>
   );
 }
 

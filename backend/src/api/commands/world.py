@@ -16,7 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src import runtime
-from src.api.commands.common import _identity
+from src.api.commands.common import _body, _identity
 from src.api.registry import command
 from src.constants import current, current_catalog
 from src.constants import registry as R
@@ -188,6 +188,40 @@ async def _world_summary(state: dict, db: AsyncSession, message: dict) -> dict:
         .all()
     )
 
+    #: And what the **place** lived through while nobody of yours was looking.
+    #: An eruption has no actor (D-197): it is the planet's doing, it burns what
+    #: was left lying and it redraws the ways out, and a player who comes back
+    #: to a changed map must be told why it changed rather than work it out.
+    body = await _body(db, identity.id)
+    if body is not None:
+        #: Merged and **sorted again**, newest first: two lists each ordered by
+        #: themselves are not one ordered list, and the client draws the digest
+        #: in the order it is given. Cut back to the same limit afterwards, so
+        #: the two lists together are no longer than one -- by time, so a place
+        #: that lived through a very loud day can push out the player's older
+        #: doings. That is the right way round: the digest is about what one
+        #: comes back to.
+        happened = [
+            *happened,
+            *(
+                (
+                    await db.execute(
+                        select(Event)
+                        .where(
+                            Event.node_id == body.node_id,
+                            Event.at > since,
+                            Event.kind.in_(TOLD_OF_THE_PLACE),
+                        )
+                        .order_by(Event.at.desc())
+                        .limit(runtime.SUMMARY_LIMIT)
+                    )
+                )
+                .scalars()
+                .all()
+            ),
+        ]
+        happened = sorted(happened, key=lambda row: row.at, reverse=True)[: runtime.SUMMARY_LIMIT]
+
     return {
         "at": now_.isoformat(),
         "attention": attention,
@@ -196,6 +230,11 @@ async def _world_summary(state: dict, db: AsyncSession, message: dict) -> dict:
         ],
     }
 
+
+#: What the place lived through, with nobody to call its actor. Asked about the
+#: node the body stands in, and only about ends of things there: the ground
+#: moved, and the ground is about to move.
+TOLD_OF_THE_PLACE = frozenset({EventKind.PLATES_ERUPTED.value, EventKind.PLATES_WARNED.value})
 
 #: What is worth telling about on return. The journal records everything -- the
 #: swing of a pick, every ledger posting -- and a feed of that is not a summary

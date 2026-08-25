@@ -55,7 +55,9 @@ COVERED = (
     "frontend/*.mjs",
     "frontend/src/*.css",
     "frontend/index.html",
-    "landing/index.html",
+    "landing/*.html",
+    "landing/*.css",
+    "landing/*.js",
     ".githooks/pre-commit",
 )
 
@@ -76,6 +78,7 @@ STYLES: dict[str, list[str]] = {
     ".tsx": ["// {spdx}", "// {copy}"],
     ".mjs": ["// {spdx}", "// {copy}"],
     ".css": ["/* {spdx}", "   {copy} */"],
+    ".js": ["// {spdx}", "// {copy}"],
     ".html": ["<!--", "{spdx}", "{copy}", "-->"],
     "": ["# {spdx}", "# {copy}"],  # .githooks/pre-commit -- sh
 }

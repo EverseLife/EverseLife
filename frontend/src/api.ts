@@ -186,7 +186,6 @@ export type MapRoute = {
   b: string;
   window_hours: number;
   apart_hours: number;
-  class: number;
 };
 export type WorldMap = { nodes: MapNode[]; edges: MapEdge[]; routes: MapRoute[] };
 /** What of ships is visible from where one stands, and nothing beyond it
@@ -443,6 +442,21 @@ export type Look = {
      * everyone too: shutting stops entry, not passage.
      */
     gated: boolean;
+    /**
+     * When the Forerunners' reactor standing here goes silent (D-232). Absent
+     * where there is none. The output itself is not sent: the fading is a
+     * straight line, and `reactor.output` with `reactor.lifetime` from the
+     * catalog hold both its ends.
+     */
+    reactor_until?: string;
+    /**
+     * When the ground here is due to move (D-197, P6). Absent everywhere but
+     * Pyroxis, and there only while a warning stands. The free signal is an
+     * event, and an event reaches whoever is connected in the second it is
+     * written -- this is the same warning carried by the place itself, so
+     * somebody who logs in ten minutes into a six-hour window still sees it.
+     */
+    shaking_at?: string;
     /** Disconnected for non-payment: machines do not work (D-149). */
     cut_off: boolean;
     /**
@@ -530,6 +544,11 @@ export type Look = {
    * built up or somebody else's -- unless a search of ours is already going here.
    */
   forage?: Foraging;
+  /**
+   * The cold, and only where there is any (D-231). Absent on a planet without
+   * a climate: there is nothing to show and nothing to fear on Terra.
+   */
+  frost?: Frost;
   /**
    * Everything the body is at: one body does one thing (D-211), but a frozen
    * batch or a plough of one's own can stand beside the thing running now.
@@ -853,6 +872,32 @@ export function spell(seconds: number): string {
   if (seconds < 3600) return `${Math.round(seconds / 60)} мин`;
   return `${(seconds / 3600).toFixed(1)} ч`;
 }
+
+/**
+ * The heat reserve and the node it is spent in (D-231).
+ *
+ * The hours are **not** a number the server refreshes: `hours` was true at
+ * `at`, and it moves by `per_hour` from there. The client counts the hand
+ * itself, the way it counts the planet's clock -- the server would otherwise
+ * have to speak once a second (D-226).
+ */
+export type Frost = {
+  /** «мерзлота» or «пекло»: what the planet does to a body left in it. */
+  climate: string;
+  /** Whether **this** node is warm: a stove works here, or it is the board. */
+  warm: boolean;
+  hours: number;
+  at: string;
+  /** Hours of reserve gained per hour here; negative is the countdown. */
+  per_hour: number;
+  /**
+   * The ceiling, which depends on what is worn -- the client cannot derive it
+   * (D-225). What the frozen body pays is not here for the opposite reason:
+   * `frost.frozen_stamina` and `frost.frozen_drain_k` are catalog constants and
+   * live in `/public/constants`.
+   */
+  max: number;
+};
 
 /** The foraging window: the plot's empty land, the search and its find (D-210). */
 export type Foraging = {
@@ -1370,7 +1415,12 @@ export type RecipeBook = {
    * alpha widget prints by name and a name is either a material or a recipe's
    * output -- deriving the list beats a second server key for it (D-225).
    */
-  materials: { name: string; class?: string | null }[];
+  /**
+   * Everything that is not made by a recipe (D-215). `relic` marks what the
+   * Forerunners left (D-232): it is machinery, but nobody makes it, takes it
+   * down or carries it away -- and the client must not offer to.
+   */
+  materials: { name: string; class?: string | null; relic?: boolean }[];
   units: Record<string, string>;
   operations: Operation[];
   recipes: Recipe[];

@@ -23,7 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import city as town
-from src.engine import death, energy, ledger, travel, world
+from src.engine import death, energy, ledger, ruins, travel, world
 from src.models.identity import Body, BodyState, Knowledge
 from src.models.inventory import Item
 from src.models.ledger import AccountKind, PostingReason
@@ -68,9 +68,17 @@ async def _world(session: AsyncSession, catalog: Catalog, *, treasury: float = 0
         node.owner_city_id = city.id
     await session.flush()
 
-    for node, quality in ((core, 90), (forge, 60)):
-        yard = await world.node_container(session, node)
-        await world.grant_item(session, yard, death.PRINTER, quality=quality, origin="тест")
+    #: The **original** stands in the core (D-028): free, slow and one of a kind,
+    #: and it is a relic rather than a mark on the ground (D-232). The forge gets
+    #: an ordinary printer, the kind a city builds for itself.
+    await ruins.grant_relic(session, core, death.PRINTER, origin="тест: наследие Предтеч")
+    await world.grant_item(
+        session,
+        await world.node_container(session, forge),
+        death.PRINTER,
+        quality=60,
+        origin="тест",
+    )
     #: City decisions are made in the administration (D-155): without it the
     #: president cannot even allow printing at the treasury's expense.
     await world.grant_item(

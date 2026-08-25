@@ -77,7 +77,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.constants import Catalog, Constants, current_catalog
+from src.constants import Catalog, Constants, current, current_catalog
 from src.constants import current_catalog as _catalog
 from src.constants import registry as R
 from src.engine import city as town
@@ -235,6 +235,11 @@ async def terminal(session: AsyncSession, node: Node) -> Item:
     ).scalar_one_or_none()
     if found is None:
         raise NoTerminal(f"в узле {node.key} нет терминала маркетплейса")
+    #: A terminal in a frozen node is silent (D-231): the machine is here, the
+    #: heat is not, and the rule is the same one that stops the workbench.
+    from src.engine import frost  # noqa: PLC0415 -- lazy: breaks the import cycle with frost
+
+    await frost.require_working(session, current(), node, found.type_key)
     return found
 
 

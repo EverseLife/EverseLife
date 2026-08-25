@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 Nurlan Urazkulov
 
-"""Roads, exploring, gates, rest.
+"""Roads, exploring, gates, rest and the cold.
 
 Split out of `api/session.py` (review 2026-08-23, wave 3): the
 socket loop stayed there, the commands live by domain.
@@ -13,18 +13,20 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.api.commands.common import _alive, _body, _identity, _node
+from src.api.commands.common import _alive, _body, _identity, _node, _own_item
 from src.api.commands.views import _identity_by_name
 from src.api.registry import Refused, command
 from src.constants import current, current_catalog
 from src.engine import (
     access,
     explore,
+    frost,
     rest,
     road,
     travel,
 )
 from src.models.world import Edge, Node
+from src.units import ROUND_HOURS
 
 
 async def _lists(db: AsyncSession, node: Node) -> dict:
@@ -89,6 +91,20 @@ async def _rest_wake(state: dict, db: AsyncSession, message: dict) -> dict:
     body = await _alive(state, db)
     restored = await rest.wake(db, current(), body)
     return {"woke": True, "restored": round(restored, 2), "stamina": float(body.stamina)}
+
+
+@command("frost.warm")
+async def _frost_warm(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Break a warmer: hours straight into the heat reserve (D-231).
+
+    The answer is a confirmation, not a state: how many hours it gave. What the
+    reserve is now comes back with `look`, which the `body.warmed` event asks
+    the client to reread.
+    """
+    body = await _alive(state, db)
+    item = await _own_item(db, body, message["item"])
+    gained = await frost.use_warmer(db, current(), current_catalog(), body, item)
+    return {"warmed": round(gained, ROUND_HOURS)}
 
 
 @command("travel.go")
@@ -192,9 +208,20 @@ async def _explore_goals(state: dict, db: AsyncSession, message: dict) -> dict:
     #: requested species narrows the chance (D-151), and that must be visible
     #: before leaving rather than discovered after twenty empty runs.
     species = message.get("resource") or None
-    goal = str(message.get("goal") or explore.SITE)
+    standing = None if body is None else await db.get(Node, body.node_id)
+    here = () if standing is None else await explore.possible(db, standing)
+    #: Unasked, the forecast is for the **first goal this place offers**: in a
+    #: city of the Forerunners that is their rooms, and a first look that
+    #: answered about city ground would show a chance belonging to another
+    #: search (D-156).
+    goal = str(message.get("goal") or (here[0] if here else explore.SITE))
+    #: What may be sought **here** went out above: inside a city of the
+    #: Forerunners it is their next room, at its pier the ice as well, inside a
+    #: city of people a lot beside the open world (D-206, D-232). The client
+    #: draws its buttons from this and stops guessing by map layer.
     return {
         "goals": list(explore.GOALS),
+        "here": list(here),
         "resources": list(explore.mineable(current_catalog())),
         "outlook": (
             None

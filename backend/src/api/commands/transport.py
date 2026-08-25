@@ -32,7 +32,15 @@ from src.models.world import Node
 @command("energy.grid")
 async def _energy_grid(state: dict, db: AsyncSession, message: dict) -> dict:
     """The pool of the city we stand in. An empty pool is visible to all: that is politics
-    (D-071)."""
+    (D-071).
+
+    A **read**: the pool is brought up to date by the world's own tick, once a
+    minute, and not by whoever looks at it. It used to call `produce` here, and
+    since that pass took the pool's row for itself and wrote the hour's heat off
+    it (D-231, D-232), a glance at the grid would have queued behind every
+    charge in the city and moved the world's books besides -- while CLAUDE.md
+    says plainly that reads do not write.
+    """
     body = await _body(db, state["identity_id"])
     if body is None:
         raise Refused("нет живого тела")
@@ -40,7 +48,6 @@ async def _energy_grid(state: dict, db: AsyncSession, message: dict) -> dict:
     pool = await energy.pool_of(db, current(), node, create=False)
     if pool is None:
         return {"grid": None}
-    await energy.produce(db, current(), pool)
     city = await db.get(Node, pool.node_id)
     return {
         "grid": {
@@ -235,11 +242,16 @@ async def _ship_fly(state: dict, db: AsyncSession, message: dict) -> dict:
 
 @command("ship.ports")
 async def _ship_ports(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Where there is a spaceport at all. Public: ports are not a secret."""
+    """Where a ship may actually land. Public: ports are not a secret.
+
+    Only the ones whose beacon shines (D-232): a frozen or unpowered port is
+    not a destination, and a console that offered it would be offering a
+    flight that ends in a refusal.
+    """
     await _alive(state, db)
     return {
         "ports": [
             {"node": port.key, "name": port.name, "planet": port.planet.value}
-            for port in await ship.ports(db)
+            for port in await ship.lit_ports(db, current())
         ]
     }

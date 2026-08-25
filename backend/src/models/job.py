@@ -89,6 +89,10 @@ class JobKind(StrEnum):
     #: A letter or a post reaching its reader by the road (D-222): nothing is
     #: written, the reader is told it has arrived (D-226).
     NET_DELIVER = "net.deliver"
+    #: The planet's own clock (D-197): the free signal in the nodes about to be
+    #: shaken, and the eruption itself `pyroxis.eruption_warning` hours later.
+    PLATES_WARN = "plates.warn"
+    PLATES_ERUPT = "plates.erupt"
 
 
 class Job(Base):

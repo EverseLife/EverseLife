@@ -36,6 +36,7 @@ import {
 import { Account } from "./panels/Account";
 import { Alpha } from "./panels/Alpha";
 import { Chat } from "./panels/Chat";
+import { Deadline } from "./Deadline";
 import { Circles } from "./panels/Circles";
 import { GraphMap } from "./panels/GraphMap";
 import { Intro } from "./panels/Intro";
@@ -466,6 +467,14 @@ export default function App() {
               : look.node?.name}
           {asleep ? " · спит" : ""}
         </span>
+        {/* Земля здесь тронется (D-197, P6). В шапке, а не во вкладке места:
+            окно на то и окно, что уйти надо успеть, и часы до толчка должны
+            быть на виду с любой вкладки. */}
+        {look.node?.shaking_at && (
+          <span className="trouble-inline" title="извержение: лежащее на земле сгорит, дороги перечертит, а дорога, порвавшаяся под идущим, убивает вместе с сумкой. Постройки целы: мир не стирает построенное">
+            земля тронется через <Deadline until={look.node.shaking_at} label="извержение" size="row" />
+          </span>
+        )}
         {/* Local time of the planet: its day is 38 hours and matches nobody's
             wall clock on purpose (D-029). */}
         {look.clock && <WorldClock clock={look.clock} />}

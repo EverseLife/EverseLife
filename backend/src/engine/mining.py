@@ -55,7 +55,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import Constants
 from src.constants import registry as R
 from src.constants.catalog import CATALOG_HOLDER
-from src.engine import bank, customs, death, events, food, justice, luck, occupation, travel, wear
+from src.engine import (
+    bank,
+    customs,
+    death,
+    events,
+    food,
+    frost,
+    justice,
+    luck,
+    occupation,
+    travel,
+    wear,
+)
 from src.engine import city as town
 from src.engine import world as world_engine
 from src.engine.errors import Refusal
@@ -153,18 +165,25 @@ def pace_factor(constants: Constants, pace: Pace) -> float:
     return constants[R.MINE_PACE_K] if pace is Pace.FAST else 1.0
 
 
-def swing_cost(constants: Constants, body: Body, pace: Pace, moment: datetime) -> float:
+def swing_cost(
+    constants: Constants, body: Body, pace: Pace, moment: datetime, *, chill: float = 1.0
+) -> float:
     """The stamina price of one swing -- the same formula as the write-off.
 
     Computed before the swing: a body at zero does not hit the vein, it sleeps
     or eats (D-148). Otherwise stamina stops being a constraint at all: the
     floor is at zero, and the ore keeps coming.
+
+    `chill` is what the cold adds (D-231): asked for by the caller, which has a
+    session to ask the planet with, and passed in so that the price named to the
+    player and the price written off stay one formula.
     """
     return (
         constants[R.BODY_DRAIN_RATE].min
         * swing_hours(constants)
         * pace_factor(constants, pace)
         * food.drain_multiplier(constants, body, moment)
+        * chill
     )
 
 
@@ -260,7 +279,8 @@ async def start(
     ):
         raise SessionClosed("каторжный забой работает только на заключённых")
     #: A session is not opened by a body that cannot swing even once.
-    first_hit = swing_cost(constants, body, pace, datetime.now(UTC))
+    chill = await frost.drain_multiplier(session, constants, body)
+    first_hit = swing_cost(constants, body, pace, datetime.now(UTC), chill=chill)
     if float(body.stamina) < first_hit:
         raise NoStrength(
             f"на удар нужно {first_hit:.2f} выносливости, а есть "
@@ -322,11 +342,24 @@ async def swing(
     noise = rng or random.Random()
     moment = now or datetime.now(UTC)
     body, vein = await _require_active(session, mining)
+    #: The body is locked **first**, before its stamina is read: two sockets of
+    #: one identity swinging at once would otherwise both read the same reserve,
+    #: both find it enough and both write their own remainder -- one swing paid
+    #: for two. Stamina is on the same list as money and remainders, and the
+    #: order is the one this file keeps everywhere: body -> rig -> vein.
+    #:
+    #: Flushed before the reread, or the reread would undo it: `refresh` takes
+    #: the row as the database has it, and anything set on the body in this
+    #: transaction and not yet written -- a meal eaten a line earlier -- would
+    #: quietly go back to what it was.
+    await session.flush()
+    await session.refresh(body, with_for_update=True)
 
     #: A swing costs stamina, and a body at zero does not swing: the vein is
     #: not mined by free willpower. The check comes before all effects so that a
     #: refusal changes nothing in the world.
-    hit_price = swing_cost(constants, body, mining.pace, moment)
+    chill = await frost.drain_multiplier(session, constants, body)
+    hit_price = swing_cost(constants, body, mining.pace, moment, chill=chill)
     if float(body.stamina) < hit_price:
         raise NoStrength(
             f"на удар нужно {hit_price:.2f} выносливости, а есть "
@@ -370,19 +403,9 @@ async def swing(
     #: so they are one heap and not a row of identical lines (D-214).
     await world_engine.stack_up(session, swung)
 
-    #: Satiety slows the spend: hot food does not add reserve (D-119).
-    body.stamina = Decimal(
-        str(
-            max(
-                SCALE_MIN,
-                float(body.stamina)
-                - constants[R.BODY_DRAIN_RATE].min
-                * swing_hours(constants)
-                * factor
-                * food.drain_multiplier(constants, body, moment),
-            )
-        )
-    )
+    #: Satiety slows the spend, the cold speeds it up (D-119, D-231): the price
+    #: written off is the one named above, down to the last multiplier.
+    body.stamina = Decimal(str(max(SCALE_MIN, float(body.stamina) - hit_price)))
 
     mining.swings += 1
     mining.roof = Decimal(str(float(mining.roof) - constants[R.MINE_ROOF_PER_SWING] * factor))
@@ -474,9 +497,13 @@ async def leave(
     *,
     now: datetime | None = None,
 ) -> float:
-    """Leave: what was mined moves to the inventory. Returns the mined volume."""
+    """Leave: what was mined moves to the inventory. Returns the mined volume.
+
+    Allowed at a **worked-out** vein: see `_require_active`. Walking away is
+    the one thing a face never refuses.
+    """
     moment = now or datetime.now(UTC)
-    body, vein = await _require_active(session, mining)
+    body, vein = await _require_active(session, mining, working=False)
 
     #: Prison labour (D-174): in a prison node the insolvent's yield goes to
     #: the city, and the debt is repaid by the treasury at the reference price.
@@ -503,6 +530,88 @@ async def leave(
     return haul
 
 
+async def abandon(session: AsyncSession, body: Body, *, now: datetime | None = None) -> float:
+    """The miner is gone for good: the face closes and the haul stays at it.
+
+    Called where a body stops being able to come back -- today that is death.
+    The ore was already out of the rock and lying at the face, and the face is
+    a place in the node, so it stays in the node: the same rule that keeps what
+    a dead body carried where the body fell (D-011). It is not salvaged and not
+    rolled for, because it was never on the body to be damaged.
+
+    Left ACTIVE instead, the session would hold its haul in a container nobody
+    can ever open again -- a leak of matter with no decision behind it, and one
+    that also blocks `leave` for whoever inherits the face.
+
+    **Called after the caller has settled the node's things, not before.** This
+    takes the session row and then, through `stack_up`, the heaps already lying
+    in the node -- so a caller that took the session first and the node's
+    things second would face `plates.erupted`, which takes them the other way
+    round, and one of the two would be killed as a deadlock. The order is
+    written out in full in `plates.erupted`.
+    """
+    moment = now or datetime.now(UTC)
+    #: The session row is **taken for the transaction**, and its state reread
+    #: after the lock. Dying and leaving the same face are two writes to one
+    #: haul: the ground moved under the miner in the same second a rift took
+    #: them, and both `_close_faces` and this would carry the ore out -- one
+    #: into a pocket about to burn, one into the node. Whichever gets the row
+    #: first finishes; the second finds the session closed and does nothing.
+    open_faces = (
+        (
+            await session.execute(
+                select(MiningSession)
+                .where(
+                    MiningSession.body_id == body.id,
+                    MiningSession.state == SessionState.ACTIVE,
+                )
+                .order_by(MiningSession.id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    left = 0.0
+    for face in open_faces:
+        if face.state is not SessionState.ACTIVE:  # pragma: no cover -- closed under the lock
+            continue
+        vein = await session.get(Vein, face.vein_id)
+        where = await session.get(Node, vein.node_id) if vein is not None else None
+        container = await session_container(session, face)
+        #: And the haul under the same lock: a stack merged out from under us by
+        #: `stack_up` in another transaction would make this UPDATE hit nothing.
+        things = (
+            (
+                await session.execute(
+                    select(Item)
+                    .where(Item.container_id == container.id)
+                    .order_by(Item.id)
+                    .with_for_update()
+                    .execution_options(populate_existing=True)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        yard = await node_container(session, where) if where is not None else None
+        for thing in things:
+            if thing.container_id != container.id:  # pragma: no cover -- carried out first
+                continue
+            left += amount_float(thing.amount)
+            if yard is None:  # pragma: no cover -- a face always has its node
+                await session.delete(thing)
+                continue
+            thing.container_id = yard.id
+            #: Two heaps of the same ore lying in the same place are one heap (D-214).
+            await world_engine.stack_up(session, thing)
+        face.state = SessionState.LEFT
+        face.ended_at = moment
+    await session.flush()
+    return left
+
+
 async def sight(session: AsyncSession, constants: Constants, mining: MiningSession) -> Sight:
     """Look at the face. Asking again is pointless: the sign does not change."""
     body = await session.get(Body, mining.body_id)
@@ -514,14 +623,25 @@ async def sight(session: AsyncSession, constants: Constants, mining: MiningSessi
 # --- internal ----------------------------------------------------------------
 
 
-async def _require_active(session: AsyncSession, mining: MiningSession) -> tuple[Body, Vein]:
+async def _require_active(
+    session: AsyncSession, mining: MiningSession, *, working: bool = True
+) -> tuple[Body, Vein]:
+    """The open session, its body and its vein.
+
+    `working=False` allows a **worked-out** vein. Every kind of work at a face
+    needs rock left in it, but leaving one does not: the last swing is the one
+    that takes the remainder to nought, and it leaves the session open with the
+    haul in it. Refusing to leave then would shut the miner in a face they
+    could neither work nor walk out of -- and the ore mined by the swing before
+    would stay in a container nobody can ever open again.
+    """
     if mining.state is not SessionState.ACTIVE:
         raise SessionClosed(f"сессия {mining.id} закрыта: {mining.state.value}")
     body = await session.get(Body, mining.body_id)
     vein = await session.get(Vein, mining.vein_id)
     if body is None or vein is None:  # pragma: no cover
         raise MiningError("сессия ссылается в никуда")
-    if vein.remaining <= 0:
+    if working and vein.remaining <= 0:
         raise VeinDepleted(f"жила {vein.id} выработана")
     return body, vein
 

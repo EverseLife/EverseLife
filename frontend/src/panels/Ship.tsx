@@ -46,10 +46,23 @@ type Route = {
   node: string;
   name: string;
   planet: string;
-  class: number;
+  /**
+   * What the ship is: the weakest engine aboard. Not a demand of the route --
+   * no route makes one (D-235) -- but the number the fuel was computed with.
+   */
+  class: number | null;
   hours: number | null;
   fuel: number | null;
+  /** Enough thrust to leave the ground at all. Class closes no route. */
   reachable: boolean;
+  /**
+   * The whole planet stands behind this row: it takes a landing anywhere on
+   * its surface (D-233), and the node named here is only the one the console
+   * happened to pick. There is no port to choose, so no picker is drawn --
+   * until the map grows a "садиться сюда" gesture, the hull comes down where
+   * the row says.
+   */
+  anywhere?: boolean;
 };
 
 type Engine = { name: string; count: number; thrust: number; class: number };
@@ -81,6 +94,10 @@ type Vessel = {
  * Where to fly, by planet (D-230). A planet is one price -- the sky has one
  * distance to it -- and may have hundreds of ports (Aurora): one row per
  * planet with the port chosen in it, not a button per pier.
+ *
+ * A planet with no ports at all (Pyroxis) has nothing to choose: the node is
+ * rolled at the landing, and the row says so instead of naming a pier that
+ * will not be the one (D-233, D-235).
  */
 function Routes({
   vessel,
@@ -105,7 +122,7 @@ function Routes({
           <p key={planet}>
             <b>{planetName(planet)}</b> · {first.hours?.toFixed(1)} ч ·{" "}
             {first.fuel?.toFixed(0)} топлива
-            {!first.reachable && ` · нужен класс ${first.class}`}{" "}
+            {!first.reachable && " · тяги не хватает: снимите массу"}{" "}
             {routes.length > 1 ? (
               <select
                 value={port}
@@ -118,6 +135,13 @@ function Routes({
                   </option>
                 ))}
               </select>
+            ) : first.anywhere ? (
+              <span
+                className="note"
+                title="здесь нет космодромов: узел посадки разыгрывается при заходе, и садятся туда, куда пустила скала"
+              >
+                посадка вслепую
+              </span>
             ) : (
               <span className="note">{first.name}</span>
             )}{" "}
@@ -127,7 +151,7 @@ function Routes({
               title={
                 first.reachable
                   ? undefined
-                  : `нужен двигатель ${first.class} класса либо меньше массы`
+                  : "тяги не хватает, чтобы оторваться: снимите массу или добавьте двигатель"
               }
             >
               Лететь

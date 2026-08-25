@@ -228,6 +228,16 @@ BRIDGE = "Рубка"
 #: wear behind it, a property drags nothing (D-201).
 ABOARD = "борт"
 
+#: A planet property (D-233): a ship lands in **any** surface node of it, and
+#: there is no spaceport anywhere on it. Written on the planet's node by the
+#: seed, like its climate (D-231): what a planet is, is a fact of the world.
+#:
+#: Pyroxis is the one such planet, and for a reason: nothing is built there
+#: (D-230), so there is nothing to put a yard into. What follows is the whole
+#: character of the place -- the only infrastructure of Pyroxis is a ship's
+#: hull, and a crew whose ship has left is standing on bare rock.
+OPEN_LANDING = "посадка везде"
+
 
 #: Amounts split into thousandths, so "was there enough" must tolerate the last
 #: digit -- otherwise exactly enough fuel turns out to be short.

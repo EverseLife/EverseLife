@@ -18,6 +18,7 @@ from collections.abc import Iterable, Sequence
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.constants import current_catalog
 from src.models.inventory import Item
 
 
@@ -78,10 +79,17 @@ async def consume(session: AsyncSession, stacks: Sequence[Item], quantity: int) 
     """Take `quantity` (in amount units) from locked stacks in order, deleting
     what runs empty. Returns what was actually taken -- less than asked when
     the stacks run out. The caller decides whether that is a refusal."""
+    #: A relic of the Forerunners is not spent (D-232). The guard stands here
+    #: rather than at each caller because "consume" is the one door every
+    #: write-off goes through: a recipe naming a relic class, a station burning
+    #: its fuel, a hopper emptying itself -- all of them end up here.
+    book = current_catalog().recipes
     left = quantity
     for stack in stacks:
         if left <= 0:
             break
+        if book.is_relic(stack.type_key):
+            continue
         take = min(left, stack.amount)
         if take == stack.amount:
             await session.delete(stack)

@@ -41,7 +41,7 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.constants import Catalog, Constants
+from src.constants import Catalog, Constants, current_catalog
 from src.constants import registry as R
 from src.constants.catalog import ItemKind
 from src.constants.spec import ConstantError
@@ -130,6 +130,12 @@ async def spend(
 ) -> bool:
     """Write off wear. Returns True if the thing is finished by it."""
     if item is None:
+        return False
+    #: A relic of the Forerunners does not wear (D-232): it is not taken down,
+    #: not taken apart and not worn out. Without this a city's spaceport would
+    #: quietly grind itself to nothing at the hands of whoever used it, and the
+    #: beacon would go out for a reason nobody could see coming.
+    if current_catalog().recipes.is_relic(item.type_key):
         return False
     scale = constants[R.QUALITY_SCALE]
     spent = spent_on(constants, item, base, environment=environment)

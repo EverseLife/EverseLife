@@ -34,538 +34,19 @@ Copyright (C) 2026 Nurlan Urazkulov
 <meta property="og:image:alt" content="Заголовок «Не просто игра, а иммерсивная вселенная» и схема планетной системы на тёмном фоне — карточка Everse.Life.">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Everse.Life — Иммерсивная MMO-песочница с бесконечной прогрессией">
-<meta name="twitter:description" content="Иммерсивная MMO-песочница с бесконечной прогрессией. Альфа уже доступна.">
+<meta name="twitter:description" content="MMO-песочница с бесконечной прогрессией. Ни одного NPC, ни квестов, ни уровней. Мир один и вечный. Альфа уже идёт — вход через Discord.">
 <meta name="twitter:image" content="https://everse.life/og.png">
 <meta name="theme-color" content="#070B14">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="preload" href="/fonts/onest.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/fonts/plexmono.woff2" as="font" type="font/woff2" crossorigin>
-<style>
-  /* ── Typefaces: the same three voices as the game client (D-075) ───────── */
-  @font-face { font-family: Onest; src: url("/fonts/onest.woff2") format("woff2-variations"); font-weight: 100 900; font-display: swap; }
-  @font-face { font-family: "IBM Plex Mono"; src: url("/fonts/plexmono.woff2") format("woff2"); font-weight: 400; font-display: swap; }
-  @font-face { font-family: "IBM Plex Mono"; src: url("/fonts/plexmono-medium.woff2") format("woff2"); font-weight: 500; font-display: swap; }
-  @font-face { font-family: Literata; src: url("/fonts/literata.woff2") format("woff2-variations"); font-weight: 400 700; font-display: swap; }
-  @font-face { font-family: Literata; src: url("/fonts/literata-italic.woff2") format("woff2"); font-weight: 400; font-style: italic; font-display: swap; }
-
-  /* ── Tokens: Terra's dark scale from the client, plus planet tints ─────── */
-  :root {
-    --bg-950: #070B14; --bg-900: #0E1524; --bg-850: #141D30; --bg-800: #1C273D;
-    --line: #2A3852; --hair: #3B4B68;
-    --muted: #8794AE; --text: #C2CADA; --ink: #EDF1F8;
-    --accent: #B98CFF;            /* a living person -- and nothing else */
-    --warning: #E0A458; --danger: #E8574C; --success: #56C48A;
-    --terra: #7FB8E8; --aurora: #D6E4F5; --pyro: #F0895A; --aqua: #5BC8A5;
-    --sky: #9EDBFF;               /* the accent word: Terra's blue, brighter */
-    --f-ui: Onest, "Segoe UI", system-ui, -apple-system, sans-serif;
-    --f-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-    --f-world: Literata, "PT Serif", Georgia, "Times New Roman", serif;
-    --wrap: 1200px; --gutter: 24px;
-    --ease: cubic-bezier(.22, .61, .36, 1);
-    --ease-out: cubic-bezier(.16, 1, .3, 1);
-  }
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
-  body {
-    background: var(--bg-950); color: var(--text);
-    font: 400 18px/1.6 var(--f-ui);
-    -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
-    overflow-x: hidden;
-  }
-  ::selection { background: var(--ink); color: var(--bg-950); }
-  a { color: inherit; }
-  b, strong { color: var(--ink); font-weight: 600; }
-  em { font-style: italic; }
-  button, input { font: inherit; color: inherit; }
-  :focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
-  .num, .mono { font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
-  .world { font-family: var(--f-world); }
-  .wrap { max-width: var(--wrap); margin: 0 auto; padding: 0 var(--gutter); }
-  .measure { max-width: 68ch; }
-  .sr { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
-
-  /* ── Space: a sparse canvas and film grain, both silent ───────────────── */
-  #space { position: fixed; inset: 0; z-index: 0; pointer-events: none; }
-  .grain {
-    position: fixed; inset: -50%; z-index: 1; pointer-events: none; opacity: .045;
-    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 1 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
-    animation: grain 1.2s steps(6) infinite;
-  }
-  @keyframes grain {
-    0% { transform: translate(0,0); } 20% { transform: translate(-3%,2%); } 40% { transform: translate(2%,-4%); }
-    60% { transform: translate(-4%,-1%); } 80% { transform: translate(3%,3%); } 100% { transform: translate(-1%,4%); }
-  }
-  main, header.top, footer, .ticker { position: relative; z-index: 2; }
-
-  /* ── Header ───────────────────────────────────────────────────────────── */
-  header.top {
-    position: sticky; top: 0; z-index: 20;
-    border-bottom: 1px solid transparent; transition: border-color .3s, background .3s;
-  }
-  header.top.scrolled { background: rgba(7, 11, 20, .92); border-bottom-color: var(--line); }
-  header.top .bar { display: flex; align-items: center; gap: 28px; height: 64px; }
-  .brand { display: inline-flex; align-items: center; color: var(--ink); text-decoration: none; }
-  .brand svg { height: 42px; width: auto; display: block; }
-  nav.jump { display: flex; gap: 22px; margin-left: 12px; }
-  nav.jump a {
-    font-family: var(--f-mono); font-size: 12.5px; letter-spacing: .06em; text-transform: uppercase;
-    color: var(--muted); text-decoration: none; padding: 6px 0; position: relative;
-  }
-  nav.jump a::after { content: ""; position: absolute; left: 0; right: 100%; bottom: 2px; height: 1px; background: var(--ink); transition: right .3s var(--ease); }
-  nav.jump a:hover { color: var(--ink); }
-  nav.jump a:hover::after { right: 0; }
-  /* An outward link says so: the mark is the only difference from an anchor. */
-  .ext::before { content: "↗"; display: inline-block; margin-right: 5px; font-size: .9em; }
-  header.top .btn { margin-left: auto; }
-  .btn {
-    display: inline-flex; align-items: center; justify-content: center; gap: 10px;
-    min-height: 44px; padding: 0 20px; border: 1px solid var(--ink); border-radius: 2px;
-    background: var(--ink); color: var(--bg-950); font-weight: 600; font-size: 15px;
-    text-decoration: none; cursor: pointer; white-space: nowrap;
-    transition: background .2s, color .2s, transform .2s var(--ease-out);
-  }
-  .btn:hover { background: #fff; transform: translateY(-1px); }
-  .btn:active { transform: translateY(0); }
-  .btn.ghost { background: transparent; color: var(--ink); border-color: var(--hair); }
-  .btn.ghost:hover { border-color: var(--ink); background: transparent; }
-  .btn.sm { min-height: 38px; padding: 0 16px; font-size: 14px; }
-  .btn .arr { display: inline-block; transition: transform .25s var(--ease-out); }
-  .btn:hover .arr { transform: translateX(3px); }
-
-  /* ── Hero ─────────────────────────────────────────────────────────────── */
-  .hero { min-height: calc(100svh - 64px); display: grid; align-content: center; padding: 48px 0 40px; }
-  .hero-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 32px; align-items: center; }
-  .kicker {
-    display: inline-flex; align-items: center; gap: 12px; margin-bottom: 22px;
-    font-family: var(--f-mono); font-size: 12px; letter-spacing: .18em; text-transform: uppercase; color: var(--muted);
-  }
-  .kicker::before { content: ""; width: 28px; height: 1px; background: var(--hair); }
-  h1 {
-    font-weight: 800; letter-spacing: -.035em; line-height: .96; color: var(--ink);
-    font-size: clamp(40px, 4.9vw, 60px); margin-bottom: 30px; text-wrap: balance;
-  }
-  h1 .line { display: block; }
-  h1 .line > span { display: block; transform: translateY(110%); }
-  .ready h1 .line > span { animation: rise 1.1s var(--ease-out) forwards; }
-  .ready h1 .line:nth-child(2) > span { animation-delay: .12s; }
-  .ready h1 .line:nth-child(3) > span { animation-delay: .24s; }
-  @keyframes rise { to { transform: translateY(0); } }
-  h1 .accent {
-    position: relative;
-    display: inline-block;
-    font-family: var(--f-world);
-    font-style: italic;
-    font-weight: 400;
-    font-size: min(1.42em, 84px);
-    line-height: .82;
-    letter-spacing: -.005em;
-    color: var(--sky);
-    padding: 0 .06em 0 .02em;
-    margin-right: -.06em;
-    vertical-align: baseline;
-    margin-bottom: .3em;
-  }
-  /* The stroke under the word is a ribbon, not a bar. Its shape flows all the
-     time (the path itself is animated), a clip draws it in from the left once
-     and then leaves it be, and a fainter echo runs out of phase beneath it.
-     Nothing is on screen until the clip opens, so a slow font or a slow script
-     cannot leave a stray line under the word. */
-  h1 .accent svg { position: absolute; left: 0; bottom: -.14em; width: calc(100% - .04em); height: .22em; overflow: visible; pointer-events: none; }
-  h1 .accent svg path { fill: none; stroke: var(--sky); stroke-linecap: round; vector-effect: non-scaling-stroke; }
-  h1 .accent svg .ink { stroke-width: 3.5; }
-  h1 .accent svg .echo { stroke-width: 1.5; opacity: .45; }
-  .ready h1 .accent svg .ink { animation: thick 3.4s ease-in-out infinite alternate; }
-  @keyframes thick { from { stroke-width: 3; } to { stroke-width: 4.8; } }  .hero .lead { font-size: clamp(16px, 1.5vw, 18px); color: var(--text); max-width: 56ch; margin-bottom: 34px; opacity: 0; }
-  .hero .lead b { color: var(--ink); }
-  .ready .hero .lead { animation: fade .9s .55s var(--ease-out) forwards; }
-  .hero .actions { display: flex; align-items: center; gap: 22px; flex-wrap: wrap; opacity: 0; }
-  .ready .hero .actions { animation: fade .9s .75s var(--ease-out) forwards; }
-  .hero .actions .note { font-family: var(--f-mono); font-size: 12.5px; color: var(--muted); line-height: 1.5; max-width: 34ch; }
-  @keyframes fade { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
-
-  /* The system: a star, four planets and two asteroid belts, in that order
-     outward. Each planet rides its own group rotating about the star; the
-     label rides a second group counter-rotating at the same rate, so the name
-     travels with its planet and never turns upside down. */
-  .system { width: min(100%, 660px); margin-left: auto; opacity: 0; }
-  .ready .system { animation: fade 1.4s .5s var(--ease-out) forwards; }
-  .system svg { width: 100%; aspect-ratio: 1; display: block; overflow: visible; }
-  .system .orbit { fill: none; stroke: var(--hair); stroke-width: 1; stroke-dasharray: 2 7; opacity: .55; }
-  .system .belt { fill: none; stroke: var(--muted); stroke-linecap: round; transform-origin: 320px 320px; animation: spin var(--d) linear infinite; }
-  .system .transfer { fill: none; stroke: var(--hair); stroke-width: 1; stroke-dasharray: 1 12; opacity: .3; }
-  .system .craft path { fill: var(--ink); }
-  .system .craft line { stroke: var(--ink); stroke-width: 1; opacity: .3; }
-  .system .star { fill: var(--ink); }
-  .system .star-glow { fill: none; stroke: var(--ink); stroke-width: 1; opacity: .2; animation: breathe 7s ease-in-out infinite; }
-  .system .orb { transform-origin: 320px 320px; animation: spin var(--d) linear infinite; animation-delay: var(--t); }
-  .system .anti { animation: spin var(--d) linear infinite reverse; animation-delay: var(--t); }
-  .system .body { transform-box: fill-box; transform-origin: center; }
-  .system .halo { fill: none; stroke-width: 1; opacity: .35; animation: breathe 6s ease-in-out infinite; }
-  /* The dark outline keeps a name readable wherever its orbit carries it. */
-  .system .lbl { font-family: var(--f-mono); font-size: 13px; fill: var(--muted); letter-spacing: .04em; paint-order: stroke fill; stroke: var(--bg-950); stroke-width: 3.5px; stroke-linejoin: round; }
-  .system .lbl.name { fill: var(--ink); font-size: 16px; font-weight: 500; }
-  .system .lbl.off { opacity: .75; }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  @keyframes breathe { 0%, 100% { opacity: .18; } 50% { opacity: .5; } }
-  .system figcaption { margin-top: 14px; font-family: var(--f-mono); font-size: 11px; line-height: 1.5; color: var(--muted); letter-spacing: .04em; }
-  .cue { display: inline-flex; align-items: center; gap: 12px; margin-top: 56px; font-family: var(--f-mono); font-size: 11px; letter-spacing: .18em; text-transform: uppercase; color: var(--muted); opacity: 0; text-decoration: none; }
-  .cue:hover { color: var(--ink); }
-  .ready .cue { animation: fade .9s 1.2s var(--ease-out) forwards; }
-  .cue i { display: block; width: 44px; height: 1px; background: var(--hair); position: relative; overflow: hidden; }
-  .cue i::after { content: ""; position: absolute; inset: 0; background: var(--ink); transform: translateX(-100%); animation: cue 2.4s var(--ease) infinite; }
-  @keyframes cue { 0% { transform: translateX(-100%); } 60% { transform: translateX(0); } 100% { transform: translateX(100%); } }
-
-  /* ── Ticker ───────────────────────────────────────────────────────────── */
-  .ticker { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); overflow: hidden; background: rgba(14, 21, 36, .55); }
-  .ticker .track { display: flex; width: max-content; animation: marquee 70s linear infinite; }
-  .ticker:hover .track { animation-play-state: paused; }
-  .ticker span { font-family: var(--f-mono); font-size: 12.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); padding: 14px 0; white-space: nowrap; }
-  .ticker span b { color: var(--ink); font-weight: 500; }
-  .ticker span::after { content: "—"; margin: 0 26px; color: var(--hair); }
-  @keyframes marquee { to { transform: translateX(-50%); } }
-
-  /* ── Sections ─────────────────────────────────────────────────────────── */
-  /* An anchor must not land under the sticky header. */
-  section.sec { padding: 112px 0; border-bottom: 1px solid var(--line); scroll-margin-top: 84px; }
-  section.sec:last-of-type { border-bottom: 0; }
-  .sec-head { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 24px; margin-bottom: 56px; }
-  .sec-num { font-family: var(--f-mono); font-size: 12px; letter-spacing: .18em; color: var(--muted); padding-top: 14px; }
-  .sec-num::before { content: ""; display: block; width: 28px; height: 1px; background: var(--hair); margin-bottom: 14px; }
-  h2 { font-weight: 700; letter-spacing: -.025em; line-height: 1.05; color: var(--ink); font-size: clamp(32px, 4.2vw, 56px); text-wrap: balance; }
-  .sec-lead { margin-top: 22px; font-size: clamp(17px, 1.3vw, 20px); color: var(--text); max-width: 64ch; }
-  h3 { font-weight: 600; color: var(--ink); letter-spacing: -.01em; }
-  .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); }
-  .cell { padding: 34px 32px 34px 0; border-top: 1px solid var(--line); }
-  .grid-3 .cell + .cell { border-left: 1px solid var(--line); padding-left: 32px; }
-  .cell .n { font-family: var(--f-mono); font-size: 12px; letter-spacing: .18em; color: var(--muted); display: block; margin-bottom: 26px; }
-  .cell h3 { font-size: 22px; line-height: 1.25; margin-bottom: 14px; }
-  .cell p { color: var(--muted); font-size: 16.5px; }
-  .cell p b { color: var(--ink); }
-
-  /* reveal on scroll: staged, once */
-  .rv { opacity: 0; transform: translateY(26px); transition: opacity .9s var(--ease-out), transform .9s var(--ease-out); }
-  .rv.in { opacity: 1; transform: none; }
-  .rv-stag > * { opacity: 0; transform: translateY(22px); transition: opacity .8s var(--ease-out), transform .8s var(--ease-out); }
-  .rv-stag.in > * { opacity: 1; transform: none; }
-  .rv-stag.in > *:nth-child(2) { transition-delay: .1s; }
-  .rv-stag.in > *:nth-child(3) { transition-delay: .2s; }
-  .rv-stag.in > *:nth-child(4) { transition-delay: .3s; }
-  .rv-stag.in > *:nth-child(5) { transition-delay: .4s; }
-  .rv-stag.in > *:nth-child(6) { transition-delay: .5s; }
-  .rv-stag.in > *:nth-child(7) { transition-delay: .6s; }
-  .rv-stag.in > *:nth-child(8) { transition-delay: .7s; }
-  .rv-stag.in > *:nth-child(9) { transition-delay: .8s; }
-
-  /* ── The loop ─────────────────────────────────────────────────────────── */
-  .loop-grid { display: grid; grid-template-columns: minmax(0, 6fr) minmax(0, 6fr); gap: 48px; align-items: center; }
-  .loop-fig { width: min(100%, 560px); aspect-ratio: 1; margin: 0 auto; }
-  .loop-fig svg { width: 100%; height: 100%; overflow: visible; }
-  .loop-fig .track { fill: none; stroke: var(--line); stroke-width: 1; }
-  .loop-fig .draw { fill: none; stroke: var(--ink); stroke-width: 1.5; stroke-linecap: round; }
-  .loop-fig .node { fill: var(--bg-950); stroke: var(--hair); stroke-width: 1; transition: stroke .4s, fill .4s; }
-  .loop-fig .node.lit { fill: var(--ink); stroke: var(--ink); }
-  .loop-fig .word { font-family: var(--f-mono); font-size: 12.5px; letter-spacing: .06em; text-transform: uppercase; fill: var(--muted); transition: fill .4s; }
-  .loop-fig .word.lit { fill: var(--ink); }
-  .loop-fig .word.name { font-family: var(--f-ui); font-weight: 700; font-size: 34px; letter-spacing: -.02em; text-transform: none; fill: var(--ink); }
-  .loop-fig .arrow { fill: var(--ink); opacity: 0; transition: opacity .3s; }
-  .loop-fig .arrow.lit { opacity: 1; }
-  .loop-text p { font-size: 18px; color: var(--text); margin-bottom: 18px; }
-  .loop-text .steps { list-style: none; margin: 0 0 24px; padding: 0; }
-  .loop-text .steps li { display: grid; grid-template-columns: 34px 1fr; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); color: var(--muted); font-size: 16px; transition: color .4s; }
-  .loop-text .steps li:last-child { border-bottom: 1px solid var(--line); }
-  .loop-text .steps li .k { font-family: var(--f-mono); font-size: 12px; letter-spacing: .1em; padding-top: 4px; }
-  .loop-text .steps li b { color: var(--muted); transition: color .4s; }
-  .loop-text .steps li.lit { color: var(--text); }
-  .loop-text .steps li.lit b { color: var(--ink); }
-  .loop-text .rule { font-size: 20px; color: var(--ink); font-weight: 600; letter-spacing: -.01em; }
-
-  /* ── Roles: an accordion of long titles ───────────────────────────────── */
-  .acc { border-top: 1px solid var(--line); }
-  .acc-item { border-bottom: 1px solid var(--line); }
-  .acc-h {
-    width: 100%; display: grid; grid-template-columns: 64px 1fr auto; align-items: center; gap: 20px;
-    padding: 24px 0; background: none; border: 0; text-align: left; cursor: pointer; color: var(--ink);
-  }
-  .acc-h .k { font-family: var(--f-mono); font-size: 12px; letter-spacing: .18em; color: var(--muted); }
-  .acc-h .t { font-size: clamp(24px, 3vw, 40px); font-weight: 700; letter-spacing: -.025em; line-height: 1.1; transition: transform .35s var(--ease-out); }
-  .acc-h:hover .t { transform: translateX(8px); }
-  .acc-h .i { width: 40px; height: 40px; border: 1px solid var(--hair); border-radius: 50%; position: relative; transition: border-color .3s, transform .4s var(--ease-out); flex: none; }
-  .acc-h .i::before, .acc-h .i::after { content: ""; position: absolute; left: 50%; top: 50%; width: 14px; height: 1.5px; background: var(--ink); transform: translate(-50%, -50%); }
-  .acc-h .i::after { transform: translate(-50%, -50%) rotate(90deg); transition: transform .35s var(--ease-out); }
-  .acc-h[aria-expanded="true"] .i { border-color: var(--ink); transform: rotate(180deg); }
-  .acc-h[aria-expanded="true"] .i::after { transform: translate(-50%, -50%) rotate(0deg); }
-  .acc-p { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .55s var(--ease-out); }
-  .acc-h[aria-expanded="true"] + .acc-p { grid-template-rows: 1fr; }
-  .acc-c { overflow: hidden; }
-  .acc-b { display: grid; grid-template-columns: 64px minmax(0, 62ch) minmax(0, 1fr); gap: 20px 24px; padding: 0 0 32px; }
-  .acc-b p { color: var(--text); font-size: 17px; }
-  .acc-b p b { color: var(--ink); }
-  .acc-b .price { grid-column: 3; font-family: var(--f-mono); font-size: 13.5px; line-height: 1.6; color: var(--muted); border-left: 2px solid var(--warning); padding-left: 14px; align-self: start; }
-  .acc-b .price b { display: block; color: var(--warning); font-weight: 500; letter-spacing: .1em; text-transform: uppercase; font-size: 11px; margin-bottom: 4px; }
-  .acc-b .price.free { border-left-color: var(--hair); }
-  .acc-b .price.free b { color: var(--muted); }
-
-  /* ── The world ────────────────────────────────────────────────────────── */
-  .planets { border-top: 1px solid var(--line); }
-  .planet {
-    display: grid; grid-template-columns: 300px minmax(0, 1fr) 280px; gap: 32px; padding: 34px 0;
-    border-bottom: 1px solid var(--line); position: relative;
-  }
-  .planet .id { display: flex; gap: 18px; align-items: flex-start; }
-  .planet .dot { width: 18px; height: 18px; border-radius: 50%; flex: none; margin-top: 8px; background: var(--pc); box-shadow: 0 0 0 6px color-mix(in srgb, var(--pc) 14%, transparent); position: relative; }
-  .planet .dot::after { content: ""; position: absolute; inset: -12px; border-radius: 50%; border: 1px solid var(--pc); opacity: .35; animation: breathe 6s ease-in-out infinite; }
-  .planet.off .dot { background: transparent; border: 1px dashed var(--pc); box-shadow: none; }
-  .planet.off .dot::after { display: none; }
-  .planet h3 { font-size: 30px; letter-spacing: -.02em; line-height: 1.1; }
-  .planet .role { display: block; margin-top: 4px; font-family: var(--f-mono); font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: var(--pc); }
-  .planet .status { display: inline-block; margin-top: 10px; font-family: var(--f-mono); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); border: 1px solid var(--hair); padding: 3px 8px; border-radius: 2px; }
-  .planet p { color: var(--text); font-size: 16.5px; max-width: 58ch; }
-  .planet p b { color: var(--ink); }
-  .planet dl { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; font-family: var(--f-mono); font-size: 12.5px; line-height: 1.5; align-content: start; }
-  .planet dt { color: var(--muted); }
-  .planet dd { color: var(--ink); }
-  .planet.off p, .planet.off dd { color: var(--muted); }
-  .day { margin-top: 14px; display: grid; grid-template-columns: 1fr; gap: 6px; font-family: var(--f-mono); font-size: 11px; color: var(--muted); letter-spacing: .04em; }
-  .day .bar { position: relative; height: 4px; width: 100%; max-width: 240px; background: var(--bg-800); }
-  .day .bar i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--pc); width: 0; transition: width 1.4s .3s var(--ease-out); }
-  .day .bar u { position: absolute; top: -4px; bottom: -4px; width: 1px; background: var(--muted); }
-  .in .day .bar i { width: var(--w); }
-  .people { margin-top: 72px; display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 48px; align-items: start; }
-  .people h3 { font-size: clamp(26px, 3vw, 40px); letter-spacing: -.025em; line-height: 1.05; margin-bottom: 18px; }
-  .people .intro { color: var(--text); font-size: 17px; }
-  .people ul { list-style: none; border-top: 1px solid var(--line); }
-  .people li { display: grid; grid-template-columns: 170px 1fr; gap: 20px; padding: 18px 0; border-bottom: 1px solid var(--line); font-size: 16px; color: var(--muted); }
-  .people li b { color: var(--ink); font-size: 17px; }
-  .people li .st { display: block; font-family: var(--f-mono); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin-top: 6px; }
-  .people li.you .st { color: var(--accent); }
-  .tone { margin-top: 64px; padding-top: 40px; border-top: 1px solid var(--line); display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 24px; }
-  .tone p { font-family: var(--f-world); font-size: clamp(20px, 2vw, 26px); line-height: 1.45; color: var(--text); max-width: 60ch; }
-  .tone p em { color: var(--ink); }
-
-  /* ── Facts ────────────────────────────────────────────────────────────── */
-  .facts { list-style: none; counter-reset: f; border-top: 1px solid var(--line); }
-  .facts li { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 24px; padding: 30px 0; border-bottom: 1px solid var(--line); }
-  .facts li .k { font-family: var(--f-mono); font-size: 13px; letter-spacing: .18em; color: var(--muted); padding-top: 8px; }
-  .facts li h3 { font-size: clamp(22px, 2.4vw, 32px); letter-spacing: -.02em; line-height: 1.15; margin-bottom: 8px; }
-  .facts li p { color: var(--muted); font-size: 16.5px; max-width: 64ch; }
-  .facts li p b { color: var(--ink); }
-
-  /* ── What is not here ─────────────────────────────────────────────────── */
-  table.no { width: 100%; border-collapse: collapse; border-top: 1px solid var(--line); }
-  table.no th { text-align: left; font-family: var(--f-mono); font-size: 12px; letter-spacing: .18em; text-transform: uppercase; color: var(--muted); font-weight: 500; padding: 14px 0; border-bottom: 1px solid var(--line); }
-  table.no td { padding: 20px 32px 20px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
-  table.no td:first-child { width: 34%; font-size: clamp(19px, 2vw, 25px); font-weight: 600; color: var(--ink); letter-spacing: -.015em; line-height: 1.2; }
-  /* The strike is a background on the word, not a bar placed over it. An
-     absolutely positioned bar is laid out against the whole inline box, and a
-     wrapped phrase makes that box two lines tall, so the bar lands in the gap
-     between the lines instead of across the letters. Cloning the decoration
-     hands every line fragment its own background, and each line is struck
-     through on its own. */
-  table.no td:first-child span {
-    background-image: linear-gradient(var(--danger), var(--danger));
-    background-repeat: no-repeat;
-    background-position: 0 58%;
-    background-size: 0% 2px;
-    -webkit-box-decoration-break: clone;
-    box-decoration-break: clone;
-    transition: background-size .6s var(--ease-out);
-  }
-  table.no tr.in td:first-child span { background-size: 100% 2px; }
-  table.no td:last-child { color: var(--muted); font-size: 16px; }
-  table.no td:last-child b { color: var(--text); }
-  table.no tr { opacity: 0; transform: translateX(-10px); transition: opacity .6s var(--ease-out), transform .6s var(--ease-out); }
-  table.no tr.in { opacity: 1; transform: none; }
-  .no-note { margin-top: 22px; font-family: var(--f-mono); font-size: 12.5px; color: var(--muted); letter-spacing: .04em; }
-
-  /* ── The interface: built like the client, and labelled as a mock ─────── */
-  .ui-grid { display: grid; grid-template-columns: minmax(0, 8fr) minmax(0, 4fr); gap: 48px; align-items: start; }
-  .ui-text p { color: var(--text); font-size: 17px; margin-bottom: 16px; }
-  .ui-text .q { font-family: var(--f-world); font-size: 22px; line-height: 1.4; color: var(--ink); border-left: 2px solid var(--accent); padding-left: 18px; margin: 26px 0; }
-  .ui-text .cap { font-family: var(--f-mono); font-size: 12px; color: var(--muted); letter-spacing: .06em; line-height: 1.6; }
-  .shot {
-    background: var(--bg-900); border: 1px solid var(--line); color: var(--text);
-    font-family: var(--f-ui); font-size: 14px; line-height: 1.5; position: relative;
-  }
-  .shot * { box-sizing: border-box; }
-  .shot .h { display: flex; gap: 12px 20px; align-items: baseline; flex-wrap: wrap; padding: 12px 16px 8px; border-bottom: 1px solid var(--line); }
-  .shot .who { font-weight: 700; color: var(--ink); }
-  .shot .where { color: var(--text); }
-  .shot .clock { color: var(--muted); font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
-  .shot .tabs { margin-left: auto; display: flex; gap: 14px; }
-  .shot .tabs span { color: var(--muted); }
-  .shot .tabs span.on { color: var(--ink); text-decoration: underline; text-underline-offset: 4px; }
-  .shot .frame { display: grid; grid-template-columns: 240px 1fr; gap: 12px; padding: 12px 16px 0; }
-  .shot .side { border: 1px solid var(--line); padding: 12px; }
-  .shot h4 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--ink); font-weight: 600; padding-bottom: 5px; border-bottom: 1px solid var(--line); margin-bottom: 8px; }
-  .shot .side h4 + h4 { margin-top: 14px; }
-  .shot .doing { padding: 6px 0; border-bottom: 1px dashed var(--line); font-size: 13px; }
-  .shot .doing .t { color: var(--text); }
-  .shot .deadline { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
-  .shot .deadline-bar { flex: 1; height: 2px; background: var(--bg-800); overflow: hidden; }
-  .shot .deadline-bar i { display: block; height: 2px; background: var(--muted); width: 100%; transition: width 1s linear; }
-  .shot .deadline.near .deadline-bar i { background: var(--warning); }
-  .shot .deadline.near .left { color: var(--warning); }
-  .shot .deadline.over .deadline-bar i { background: var(--danger); }
-  .shot .deadline.over .left { color: var(--danger); }
-  .shot .left { flex: none; font-family: var(--f-mono); font-variant-numeric: tabular-nums; font-size: 12px; color: var(--muted); min-width: 5.5ch; text-align: right; }
-  .shot .kv { display: flex; justify-content: space-between; font-size: 13px; padding: 3px 0; }
-  .shot .kv .num { color: var(--ink); }
-  .shot .here { font-size: 13px; color: var(--muted); }
-  .shot .here b { color: var(--accent); font-weight: 600; }
-  .shot .main { min-width: 0; }
-  .shot .row { display: flex; gap: 8px; align-items: center; margin: 8px 0; flex-wrap: wrap; }
-  .shot .sel { border: 1px solid var(--hair); background: var(--bg-800); padding: 4px 8px; border-radius: 2px; color: var(--ink); font-size: 13px; }
-  .shot .sel::after { content: " ▾"; color: var(--muted); }
-  .shot table.book { width: 100%; border-collapse: collapse; font-size: 13px; }
-  .shot table.book th { text-align: left; font-weight: normal; color: var(--muted); border-bottom: 1px solid var(--line); padding: 4px 6px; font-size: 12px; }
-  .shot table.book td { padding: 4px 6px; border-bottom: 1px solid var(--bg-800); }
-  .shot table.book td:nth-child(2) { text-align: center; border-left: 1px solid var(--line); border-right: 1px solid var(--line); }
-  .shot table.book td.num { text-align: right; color: var(--ink); }
-  .shot table.book td:nth-child(2).num { text-align: center; }
-  .shot table.book tr.flash td { animation: flash 1.2s var(--ease-out); }
-  @keyframes flash { from { background: var(--bg-800); } to { background: transparent; } }
-  .shot .note { font-size: 12px; color: var(--muted); margin: 6px 0; }
-  .shot .b { border: 1px solid var(--hair); background: transparent; color: var(--ink); padding: 5px 10px; border-radius: 2px; font-size: 13px; cursor: default; }
-  .shot .b.quiet { color: var(--muted); }
-  .shot .chat { border-top: 1px solid var(--line); margin: 12px 16px 0; padding: 10px 0 12px; }
-  .shot .lines { height: 108px; overflow: hidden; border-bottom: 1px dashed var(--line); padding-bottom: 6px; display: flex; flex-direction: column; justify-content: flex-end; }
-  .shot .line { font-family: var(--f-world); font-size: 14px; margin: 3px 0; color: var(--text); animation: lineIn .5s var(--ease-out); }
-  @keyframes lineIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
-  .shot .line b { color: var(--accent); font-weight: 600; }
-  .shot .line.action { font-style: italic; }
-  .shot .line.ooc { font-family: var(--f-ui); font-size: 13px; color: var(--muted); }
-  .shot .line.ooc b { color: var(--muted); }
-  .shot .say { display: flex; gap: 8px; margin-top: 8px; }
-  .shot .say .in { flex: 1; border: 1px solid var(--hair); background: var(--bg-800); padding: 5px 8px; border-radius: 2px; color: var(--muted); font-size: 13px; }
-  .shot .stamp { position: absolute; right: 12px; bottom: 10px; font-family: var(--f-mono); font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
-
-  /* ── Not for you ──────────────────────────────────────────────────────── */
-  .nfy { list-style: none; border-top: 1px solid var(--line); counter-reset: n; }
-  .nfy li { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 24px; padding: 22px 0; border-bottom: 1px solid var(--line); font-size: clamp(19px, 2vw, 26px); color: var(--ink); font-weight: 500; letter-spacing: -.01em; line-height: 1.3; }
-  .nfy li::before { counter-increment: n; content: counter(n, decimal-leading-zero); font-family: var(--f-mono); font-size: 13px; letter-spacing: .18em; color: var(--muted); font-weight: 400; padding-top: 8px; }
-  .nfy li span { color: var(--muted); font-weight: 400; font-size: .72em; display: block; margin-top: 4px; }
-  .nfy-note { margin-top: 26px; font-family: var(--f-world); font-size: 20px; color: var(--text); }
-
-  /* ── Where we are ─────────────────────────────────────────────────────── */
-  .status { display: grid; grid-template-columns: 1fr 1fr; gap: 0 48px; border-top: 1px solid var(--line); }
-  .status > div { padding: 32px 0; }
-  .status > div + div { border-left: 1px solid var(--line); padding-left: 48px; }
-  .status h3 { font-family: var(--f-mono); font-size: 12px; letter-spacing: .18em; text-transform: uppercase; color: var(--muted); font-weight: 500; margin-bottom: 20px; }
-  .status ul { list-style: none; }
-  .status li { padding: 10px 0; border-bottom: 1px solid var(--bg-800); color: var(--text); font-size: 16px; display: grid; grid-template-columns: 22px 1fr; gap: 10px; }
-  .status li::before { content: "—"; color: var(--hair); }
-  .status li b { color: var(--ink); }
-  .status .ahead li::before { content: "·"; color: var(--muted); }
-  .status .ahead li { color: var(--muted); }
-  .status .ahead li b { color: var(--text); font-weight: 500; }
-  .status-line { margin-top: 40px; font-size: clamp(22px, 2.6vw, 34px); font-weight: 700; letter-spacing: -.02em; color: var(--ink); line-height: 1.15; }
-  .status-sub { margin-top: 12px; color: var(--muted); font-size: 16px; }
-
-  /* ── Money ────────────────────────────────────────────────────────────── */
-  .money { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 48px; }
-  .money .big { font-size: clamp(26px, 3.4vw, 46px); font-weight: 700; letter-spacing: -.025em; line-height: 1.08; color: var(--ink); }
-  .money .big span { display: block; color: var(--muted); font-weight: 500; font-size: .5em; letter-spacing: 0; margin-top: 16px; }
-  .money p { color: var(--text); font-size: 17px; margin-bottom: 18px; }
-  .money p b { color: var(--ink); }
-  .money .none { list-style: none; display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0 22px; }
-  .money .none li { font-family: var(--f-mono); font-size: 12.5px; letter-spacing: .04em; color: var(--text); border: 1px solid var(--hair); padding: 6px 10px; border-radius: 2px; text-decoration: line-through; text-decoration-color: var(--danger); text-decoration-thickness: 1.5px; }
-
-  /* ── Signup + FAQ ─────────────────────────────────────────────────────── */
-  .signup-grid { display: grid; grid-template-columns: minmax(0, 6fr) minmax(0, 6fr); gap: 64px; align-items: start; }
-  form.signup { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; margin-top: 30px; }
-  form.signup input[type=email] {
-    min-width: 0; height: 52px; background: var(--bg-900); color: var(--ink);
-    border: 1px solid var(--hair); border-radius: 2px; padding: 0 16px; font-size: 16px; outline: none;
-    transition: border-color .2s;
-  }
-  form.signup input[type=email]::placeholder { color: var(--muted); }
-  form.signup input[type=email]:focus { border-color: var(--ink); }
-  form.signup .btn { height: 52px; }
-  .trap { position: absolute; left: -9999px; opacity: 0; }
-  .form-msg { grid-column: 1 / -1; font-size: 15px; min-height: 1.5em; margin-top: 4px; }
-  .form-msg.ok { color: var(--success); }
-  .form-msg.err { color: var(--danger); }
-  .form-note { grid-column: 1 / -1; font-family: var(--f-mono); font-size: 12.5px; color: var(--muted); letter-spacing: .04em; }
-  .form-msg a, .beside a { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--hair); transition: text-decoration-color .2s; }
-  .form-msg a:hover, .beside a:hover { text-decoration-color: var(--ink); }
-  .beside { margin-top: 26px; padding-top: 22px; border-top: 1px solid var(--line); color: var(--muted); font-size: 16px; }
-  .band { display: flex; align-items: center; gap: 24px; flex-wrap: wrap; margin-top: 40px; padding-top: 32px; border-top: 1px solid var(--line); }
-  .band .note { color: var(--muted); font-size: 15px; max-width: 56ch; }
-  .faq { border-top: 1px solid var(--line); }
-  .faq details { border-bottom: 1px solid var(--line); }
-  .faq summary { list-style: none; cursor: pointer; padding: 18px 0; display: grid; grid-template-columns: 1fr 24px; gap: 16px; align-items: center; color: var(--ink); font-weight: 600; font-size: 17px; }
-  .faq summary::-webkit-details-marker { display: none; }
-  .faq summary::after { content: "+"; font-family: var(--f-mono); color: var(--muted); font-size: 18px; text-align: center; transition: transform .3s var(--ease-out); }
-  .faq details[open] summary::after { transform: rotate(45deg); }
-  .faq .a { padding: 0 40px 18px 0; color: var(--muted); font-size: 16px; }
-  .faq .a b { color: var(--text); }
-
-  /* ── Footer, sticky call ──────────────────────────────────────────────── */
-  footer { border-top: 1px solid var(--line); padding: 32px 0 44px; }
-  footer .bar { display: flex; align-items: center; gap: 24px; flex-wrap: wrap; font-family: var(--f-mono); font-size: 12.5px; letter-spacing: .06em; color: var(--muted); }
-  footer .bar a.ext { text-decoration: none; }
-  footer .bar a.ext:hover { color: var(--ink); }
-  footer .mark { height: 46px; width: auto; color: var(--muted); display: block; }
-  footer .bar .r { margin-left: auto; }
-
-  /* ── Responsive ───────────────────────────────────────────────────────── */
-  @media (max-width: 1100px) {
-    .planet { grid-template-columns: 240px minmax(0, 1fr); }
-    .planet .data, .planet.off > dl { grid-column: 2; }
-  }
-  @media (max-width: 960px) {
-    nav.jump { display: none; }
-    .hero-grid { grid-template-columns: 1fr; gap: 24px; }
-    .system { width: min(100%, 480px); margin: 0 auto; }
-    .sec-head { grid-template-columns: 1fr; gap: 12px; margin-bottom: 40px; }
-    .sec-num { padding-top: 0; }
-    .grid-3 { grid-template-columns: 1fr; }
-    .grid-3 .cell + .cell { border-left: 0; padding-left: 0; }
-    .cell { padding-right: 0; }
-    .loop-grid, .people, .ui-grid, .money, .signup-grid, .status { grid-template-columns: 1fr; }
-    .status > div + div { border-left: 0; padding-left: 0; border-top: 1px solid var(--line); }
-    .tone { grid-template-columns: 1fr; }
-    .acc-b { grid-template-columns: 1fr; }
-    .acc-b .price { grid-column: 1; }
-    .acc-h { grid-template-columns: 44px 1fr auto; gap: 12px; }
-    .planet { grid-template-columns: 1fr; gap: 16px; padding: 28px 0; }
-    .planet .data, .planet.off > dl { grid-column: 1; }
-    .facts li, .nfy li, .tone { grid-template-columns: 1fr; gap: 6px; }
-    .facts li .k, .nfy li::before { padding-top: 0; }
-    .people li { grid-template-columns: 1fr; gap: 6px; }
-    .shot .frame { grid-template-columns: 1fr; }
-    section.sec { padding: 72px 0; }
-  }
-  @media (max-width: 560px) {
-    body { font-size: 16px; }
-    .hero { padding: 24px 0 32px; }
-    h1 { font-size: clamp(30px, 9.6vw, 54px); }
-    h1 .accent { font-size: min(1.3em, 50px); margin-bottom: 0.26em }
-    header.top .bar { height: 58px; gap: 12px; }
-    .brand svg { height: 34px; }
-    form.signup { grid-template-columns: 1fr; }
-    table.no { table-layout: fixed; }
-    table.no td:first-child { width: 42%; padding-right: 14px; overflow-wrap: anywhere; font-size: 17px; }
-    table.no td:last-child { font-size: 14.5px; }
-    .system .lbl { font-size: 16px; }
-    .system .lbl.name { font-size: 20px; }
-    .shot .h .tabs { display: none; }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    html { scroll-behavior: auto; }
-    *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
-    .rv, .rv-stag > *, table.no tr, .hero .lead, .hero .actions, .system { opacity: 1; transform: none; }
-    h1 .line > span { transform: none; }
-    .grain { animation: none; }
-  }
-</style>
+<link rel="stylesheet" href="/site.css">
 <noscript><style>
   /* Without scripts nothing waits for a reveal: everything is simply visible. */
-  h1 .line > span, .hero .lead, .hero .actions, .system, .cue, .rv, .rv-stag > *, table.no tr { opacity: 1 !important; transform: none !important; }
+  h1 .line > span, .hero .lead, .hero .actions, .system, .cue, .rv, .rv-stag > *, table.no tr { opacity: 1 !important; transform: none !important; filter: none !important; }
+  .sec-head h1, .sec-head h2 { font-weight: 700 !important; }
   h1 .accent svg path { clip-path: none; }
   .in .day .bar i, .day .bar i { width: var(--w); }
-  #loop-fig::before { content: "внимание → сырьё → предмет → расстояние → прибыль → капитал → люди → власть → налог → внимание"; font-family: var(--f-mono); color: var(--muted); }
-  .loop-text .steps li, .loop-text .steps li b { color: var(--ink); }
   .acc-p { grid-template-rows: 1fr !important; }
   table.no td:first-child span { background-size: 100% 2px; }
 </style></noscript>
@@ -626,7 +107,7 @@ Copyright (C) 2026 Nurlan Urazkulov
      "name": "Когда запуск?",
      "acceptedAnswer": {
       "@type": "Answer",
-      "text": "Даты нет. Заявка гарантирует приглашение, а не срок."
+      "text": "Даты нет. Заявка гарантирует приглашение, а не срок. Но уже сейчас есть возможность поиграть в альфу."
      }
     },
     {
@@ -634,7 +115,7 @@ Copyright (C) 2026 Nurlan Urazkulov
      "name": "Что нужно, чтобы играть?",
      "acceptedAnswer": {
       "@type": "Answer",
-      "text": "Браузер. Десктоп основной, телефон — для того, что не требует присутствия."
+      "text": "Устройство с установленным браузером. Десктоп основной, телефон — для того, что не требует присутствия."
      }
     },
     {
@@ -642,15 +123,7 @@ Copyright (C) 2026 Nurlan Urazkulov
      "name": "Сколько времени она отнимает?",
      "acceptedAnswer": {
       "@type": "Answer",
-      "text": "Выносливость восстанавливается офлайн; сорок минут в день — рабочий режим. Присутствия требуют добыча, торг и опасность."
-     }
-    },
-    {
-     "@type": "Question",
-     "name": "Меня могут обмануть?",
-     "acceptedAnswer": {
-      "@type": "Answer",
-      "text": "Да. Это игровая стратегия с игровыми последствиями. Против неё — репутация, залог, поручительство и суд."
+      "text": "Выносливость восстанавливается офлайн; сорок минут в день — рабочий режим."
      }
     },
     {
@@ -658,7 +131,7 @@ Copyright (C) 2026 Nurlan Urazkulov
      "name": "Меня могут убить и забрать вещи?",
      "acceptedAnswer": {
       "@type": "Answer",
-      "text": "Да, и вещи потеряются. Знания — нет: они в процессоре и неотчуждаемы."
+      "text": "Да, и вещи потеряются. Знания — нет: они в облаке Биопринтеров — их не удалить."
      }
     },
     {
@@ -714,13 +187,9 @@ Copyright (C) 2026 Nurlan Urazkulov
       </svg>
     </a>
     <nav class="jump" aria-label="Разделы">
-      <a href="#what">Что это</a>
-      <a href="#loop">Как устроено</a>
-      <a href="#roles">Чем заняться</a>
-      <a href="#world">Мир</a>
-      <a href="#not">Чего нет</a>
-      <a href="#status">Где мы</a>
-      <a href="#discord">Альфа</a>
+      <a href="/gameplay">Геймплей</a>
+      <a href="/world">Сеттинг</a>
+      <a href="/alpha">Альфа релиз</a>
     </nav>
     <a class="btn sm" href="#signup">Получить приглашение</a>
   </div>
@@ -758,65 +227,33 @@ Copyright (C) 2026 Nurlan Urazkulov
           <circle class="orbit" cx="320" cy="320" r="172"/>
           <circle class="orbit" cx="320" cy="320" r="220"/>
           <!-- the belts: speckled rings, the inner rocks going round faster -->
-          <circle class="belt" cx="320" cy="320" r="90" style="--d: 64s; stroke-width: 2; stroke-dasharray: 1 11; opacity: .45"/>
-          <circle class="belt" cx="320" cy="320" r="99" style="--d: 76s; stroke-width: 3; stroke-dasharray: 1.5 9; opacity: .6"/>
-          <circle class="belt" cx="320" cy="320" r="108" style="--d: 92s; stroke-width: 2.2; stroke-dasharray: 1 13; opacity: .4"/>
-          <circle class="belt" cx="320" cy="320" r="196" style="--d: 120s; stroke-width: 1.8; stroke-dasharray: 1 15; opacity: .35"/>
-          <circle class="belt" cx="320" cy="320" r="202" style="--d: 140s; stroke-width: 2.2; stroke-dasharray: 1 12; opacity: .5"/>
+          <circle class="belt" cx="320" cy="320" r="90" style="--d: 64s; stroke-width: 2; stroke-dasharray: 1 11; opacity: .22"/>
+          <circle class="belt" cx="320" cy="320" r="99" style="--d: 76s; stroke-width: 3; stroke-dasharray: 1.5 9; opacity: .3"/>
+          <circle class="belt" cx="320" cy="320" r="108" style="--d: 92s; stroke-width: 2.2; stroke-dasharray: 1 13; opacity: .2"/>
+          <circle class="belt" cx="320" cy="320" r="196" style="--d: 120s; stroke-width: 1.8; stroke-dasharray: 1 15; opacity: .18"/>
+          <circle class="belt" cx="320" cy="320" r="202" style="--d: 140s; stroke-width: 2.2; stroke-dasharray: 1 12; opacity: .25"/>
           <!-- the star -->
-          <circle class="star-glow" cx="320" cy="320" r="18"/>
-          <circle class="star-glow" cx="320" cy="320" r="27"/>
           <circle class="star" cx="320" cy="320" r="7"/>
-          <!-- Traffic. Each lane is a transfer ellipse touching two orbits: the
-               star sits in its focus, so the shape is the one a ship actually
-               flies. Somebody built every one of these. -->
-          <g class="lane" transform="rotate(28 320 320)">
-            <path class="transfer" d="M380 320 A98 90 0 1 0 184 320 A98 90 0 1 0 380 320"/>
-            <g class="craft">
-              <line x1="-4" y1="0" x2="-16" y2="0"/>
-              <path d="M6 0 L-4 -3.4 L-2 0 L-4 3.4 Z"/>
-              <animateMotion dur="30s" repeatCount="indefinite" rotate="auto"
-                path="M380 320 A98 90 0 1 0 184 320 A98 90 0 1 0 380 320"/>
-            </g>
-          </g>
-          <g class="lane" transform="rotate(-58 320 320)">
-            <path class="transfer" d="M456 320 A178 173 0 1 0 100 320 A178 173 0 1 0 456 320"/>
-            <g class="craft">
-              <line x1="-4" y1="0" x2="-16" y2="0"/>
-              <path d="M6 0 L-4 -3.4 L-2 0 L-4 3.4 Z"/>
-              <animateMotion dur="46s" repeatCount="indefinite" rotate="auto"
-                path="M456 320 A178 173 0 1 0 100 320 A178 173 0 1 0 456 320"/>
-            </g>
-          </g>
-          <g class="lane" transform="rotate(152 320 320)">
-            <path class="transfer" d="M380 320 A140 115 0 1 0 100 320 A140 115 0 1 0 380 320"/>
-            <g class="craft">
-              <line x1="-4" y1="0" x2="-16" y2="0"/>
-              <path d="M6 0 L-4 -3.4 L-2 0 L-4 3.4 Z"/>
-              <animateMotion dur="58s" repeatCount="indefinite" rotate="auto" begin="-20s"
-                path="M380 320 A140 115 0 1 0 100 320 A140 115 0 1 0 380 320"/>
-            </g>
-          </g>
+          <!-- Ships fly planet to planet; site.js spawns them here. -->
+          <g class="ships"></g>
           <!-- Pyroxis: closest to the star, and it shows -->
-          <g class="orb" style="--d: 48s; --t: -45s">
-            <circle class="halo" cx="380" cy="320" r="14" stroke="var(--pyro)"/>
+          <g class="orb" style="--d: 48s; --t: -45s; color: var(--pyro)">
             <circle class="body" cx="380" cy="320" r="6" fill="var(--pyro)"/>
             <g class="anti" style="--d: 48s; --t: -45s; transform-origin: 380px 320px">
               <text class="lbl name" x="394" y="317">Пироксис</text>
-              <text class="lbl" x="394" y="334">пироксит</text>
+              <text class="lbl" x="394" y="334">узкое горло прогресса</text>
             </g>
           </g>
           <!-- Terra -->
-          <g class="orb" style="--d: 92s; --t: -52s">
-            <circle class="halo" cx="456" cy="320" r="18" stroke="var(--terra)"/>
+          <g class="orb" style="--d: 92s; --t: -52s; color: var(--terra)">
             <circle class="body" cx="456" cy="320" r="8.5" fill="var(--terra)"/>
             <g class="anti" style="--d: 92s; --t: -52s; transform-origin: 456px 320px">
               <text class="lbl name" x="472" y="317">Терра</text>
-              <text class="lbl" x="472" y="334">биопринтер</text>
+              <text class="lbl" x="472" y="334">колыбель · главный рынок</text>
             </g>
           </g>
           <!-- Aquatica: deferred (D-104), so it is drawn as an outline -->
-          <g class="orb" style="--d: 124s; --t: -34s">
+          <g class="orb" style="--d: 124s; --t: -34s; color: var(--aqua)">
             <circle class="body" cx="492" cy="320" r="6.5" fill="none" stroke="var(--aqua)" stroke-dasharray="2 3"/>
             <g class="anti" style="--d: 124s; --t: -34s; transform-origin: 492px 320px">
               <text class="lbl name off" x="506" y="317">Акватика</text>
@@ -824,12 +261,11 @@ Copyright (C) 2026 Nurlan Urazkulov
             </g>
           </g>
           <!-- Aurora -->
-          <g class="orb" style="--d: 168s; --t: -149s">
-            <circle class="halo" cx="540" cy="320" r="15" stroke="var(--aurora)"/>
+          <g class="orb" style="--d: 168s; --t: -149s; color: var(--aurora)">
             <circle class="body" cx="540" cy="320" r="6.5" fill="var(--aurora)"/>
             <g class="anti" style="--d: 168s; --t: -149s; transform-origin: 540px 320px">
               <text class="lbl name" x="554" y="317">Аврора</text>
-              <text class="lbl" x="554" y="334">руины</text>
+              <text class="lbl" x="554" y="334">руины Предтеч</text>
             </g>
           </g>
         </svg>
@@ -890,517 +326,57 @@ Copyright (C) 2026 Nurlan Urazkulov
       </div>
     </section>
 
-    <!-- ── 02 · The loop ───────────────────────────────────────────────── -->
-<!--    <section class="sec" id="loop">-->
-<!--      <div class="sec-head rv">-->
-<!--        <span class="sec-num">02 / Как это работает</span>-->
-<!--        <div>-->
-<!--          <h2>Жизненный цикл игры</h2>-->
-<!--          <p class="sec-lead">Это не набор фич, а система. Прокрутите — и круг замкнётся.</p>-->
-<!--        </div>-->
-<!--      </div>-->
-<!--      <div class="loop-grid">-->
-<!--        <figure class="loop-fig rv" id="loop-fig" aria-label="Круг: внимание, сырьё, предмет, расстояние, прибыль, капитал, люди, власть, налог — и снова внимание"></figure>-->
-<!--        <div class="loop-text rv">-->
-<!--          <ol class="steps" id="loop-steps">-->
-<!--            <li><span class="k">01</span><span>Человек тратит <b>внимание</b> — появляется сырьё.</span></li>-->
-<!--            <li><span class="k">02</span><span><b>Сырьё</b> кто-то плавит, куёт, шьёт — получается предмет.</span></li>-->
-<!--            <li><span class="k">03</span><span><b>Предмет</b> покупается кем-то и превращается в другой предмет.</span></li>-->
-<!--            <li><span class="k">04</span><span><b>Расстояние</b> — вот почему цены в двух городах разные.</span></li>-->
-<!--            <li><span class="k">05</span><span>Разница цен даёт <b>прибыль</b>.</span></li>-->
-<!--            <li><span class="k">06</span><span>Прибыль становится <b>капиталом</b>: рабочими станциями, землёй, кораблём.</span></li>-->
-<!--            <li><span class="k">07</span><span>Капитал нанимает <b>людей</b> и строит города.</span></li>-->
-<!--            <li><span class="k">08</span><span>Городам нужны правила — появляется <b>власть</b>.</span></li>-->
-<!--            <li><span class="k">09</span><span>Власть охраняет добычу и торговлю и берёт <b>налог</b> — круг замкнулся.</span></li>-->
-<!--          </ol>-->
-<!--        </div>-->
-<!--      </div>-->
-<!--    </section>-->
-
-    <!-- ── 02 · Roles ──────────────────────────────────────────────────── -->
-    <section class="sec" id="roles">
+    <!-- ── 02..04 · Teasers: one per subpage, a button to the details ──── -->
+    <section class="sec" id="gameplay-teaser">
       <div class="sec-head rv">
-        <span class="sec-num">02 / Чем заняться в игре</span>
+        <span class="sec-num">02 / Геймплей</span>
         <div>
-          <h2>Несколько примеров видов деятельности</h2>
-          <p class="sec-lead">Роль здесь не выбирают в меню создания персонажа. Её создают сами,
-            и сменить её можно в любой момент — если хватит денег, связей и наглости.</p>
+          <h2>Роль здесь не выбирают — её создают</h2>
+          <p class="sec-lead">Ремесленник, торговец, предприниматель, политик, экономист,
+            исследователь — или ниша, до которой не додумались другие. Что работает не так,
+            как вы привыкли, чего в игре нет — и как выглядит интерфейс.</p>
         </div>
       </div>
-      <div class="acc rv" id="roles-acc">
-        <div class="acc-item">
-          <button class="acc-h" aria-expanded="true" aria-controls="r1"><span class="k">01</span><span class="t">Ремесленник</span><span class="i" aria-hidden="true"></span></button>
-          <div class="acc-p" id="r1"><div class="acc-c"><div class="acc-b">
-            <span></span>
-            <p>Копаете руду, растите урожай или крафтите предметы. Понятный доход, видимое накопление
-              и ремесло, в котором можно стать лучшим в мире — буквально: благодаря механике качества
-              <b>ваш опыт имеет цену на рынке</b>. Создавайте предметы редчайшего тира и продавайте их
-              в десятки раз дороже, чем коллеги. Откройте рецепт космического двигателя III тира —
-              и <b>о вас узнает вся вселенная</b>, а имя не будет забыто.</p>
-            <p class="price"><b>Цена</b>Ремесло требует живого внимания. Зато качество, которое даёт рука,
-              на рынке ценится дороже станочного.</p>
-          </div></div></div>
-        </div>
-        <div class="acc-item">
-          <button class="acc-h" aria-expanded="false" aria-controls="r2"><span class="k">02</span><span class="t">Торговец</span><span class="i" aria-hidden="true"></span></button>
-          <div class="acc-p" id="r2"><div class="acc-c"><div class="acc-b">
-            <span></span>
-            <p>Скупаете дёшево в одном городе, продаёте дорого в другом. Следующий уровень —
-              <b>космическая торговля</b>: садитесь на корабль и возите товары между планетами. Цены в
-              двух городах, а тем более на двух планетах, разные, потому что между ними может быть
-              несколько реальных суток пути — и на этой разнице можно <b>нажить состояние</b>.</p>
-            <p class="price"><b>Цена</b>Можно купить неликвид или потерять груз в дороге. И придётся подолгу
-              быть в пути.</p>
-          </div></div></div>
-        </div>
-        <div class="acc-item">
-          <button class="acc-h" aria-expanded="false" aria-controls="r3"><span class="k">03</span><span class="t">Предприниматель</span><span class="i" aria-hidden="true"></span></button>
-          <div class="acc-p" id="r3"><div class="acc-c"><div class="acc-b">
-            <span></span>
-            <p>Скупаете дёшево, ставите производство, нанимаете людей, <b>масштабируете бизнес</b>.
-              Заполняйте рынок своими товарами и забирайте маржу. Монополизируйте и вытесняйте
-              конкурентов — или <b>объединяйтесь в картель</b> и максимизируйте прибыль. Сблизьтесь
-              с властью и <b>получайте льготы</b>. Предел здесь один — ваше умение договариваться.</p>
-            <p class="price"><b>Цена</b>Рабочие станции не дают высокого качества. И обанкротиться здесь легко.</p>
-          </div></div></div>
-        </div>
-        <div class="acc-item">
-          <button class="acc-h" aria-expanded="false" aria-controls="r4"><span class="k">04</span><span class="t">Политик</span><span class="i" aria-hidden="true"></span></button>
-          <div class="acc-p" id="r4"><div class="acc-c"><div class="acc-b">
-            <span></span>
-            <p>Будьте тем, кто сможет <b>поднять государство с колен</b>. Постройте демократическое
-              общество, куда будут стремиться игроки со всей вселенной. <b>Впишите своё имя в
-              историю</b> — ваши заслуги не будут забыты.<br>Или же…<br>Создайте свою
-              <b>монархию</b>: пройдите путь от маленькой деревни до государства с огромной казной
-              и бескрайними территориями. Пользуйтесь положением, но знайте: народ уйдёт, если
-              переборщите. А можно попробовать усидеть на двух стульях :)</p>
-            <p class="price"><b>Цена</b>Получить должность и удержать власть тяжело, а основать свой город —
-              ещё тяжелее.</p>
-          </div></div></div>
-        </div>
-        <div class="acc-item">
-          <button class="acc-h" aria-expanded="false" aria-controls="r5"><span class="k">05</span><span class="t">Экономист</span><span class="i" aria-hidden="true"></span></button>
-          <div class="acc-p" id="r5"><div class="acc-c"><div class="acc-b">
-            <span></span>
-            <p>Хотите проверить свои знания экономики в игре, где всё работает как в реальности?
-              Это то, что вы ищете. Анализируйте рынок, находите <b>сигналы роста и падения</b> —
-              и продавайте их другим игрокам. А может, вас назначат министром экономики, и вы будете
-              <b>напрямую влиять на ключевую ставку</b> и другие показатели. Грамотно настраивайте
-              пошлины, ограничивайте ввоз и вывоз, чтобы поднимать экономику. Каждая
-              <b>ваша ошибка может привести к кризису</b>, который сломает государство.</p>
-            <p class="price"><b>Цена</b>Нужны реальные знания экономики.</p>
-          </div></div></div>
-        </div>
-        <div class="acc-item">
-          <button class="acc-h" aria-expanded="false" aria-controls="r6"><span class="k">06</span><span class="t">Исследователь</span><span class="i" aria-hidden="true"></span></button>
-          <div class="acc-p" id="r6"><div class="acc-c"><div class="acc-b">
-            <span></span>
-            <p>Идите путями, <b>где не ступала нога человека</b>, находите локации с ценным лутом:
-              древние артефакты, редкие рецепты и кусочки лора вселенной. Найдите чертежи, которых
-              нет ни у кого, и продайте их за <b>баснословные деньги</b> — или отнесите в библиотеку.
-              Собирайте фрагменты лора и будьте первым, кто узнает, почему исчезли люди Предтеч.
-              А когда будете готовы — отправляйтесь на <b>Аврору</b>, колыбель древней цивилизации.
-              Там секреты, которых нет ни на одной другой планете.</p>
-            <p class="price"><b>Цена</b>Каждая вылазка может стоить вам жизни. Высокий риск — высокая
-              награда.</p>
-          </div></div></div>
-        </div>
-        <div class="acc-item">
-          <button class="acc-h" aria-expanded="false" aria-controls="r7"><span class="k">07</span><span class="t">Ваш вариант</span><span class="i" aria-hidden="true"></span></button>
-          <div class="acc-p" id="r7"><div class="acc-c"><div class="acc-b">
-            <span></span>
-            <p>Всё, что описано выше, — <b>не жёстко прописанные роли</b>, а примеры того, что
-              позволяет движок игры. Это лишь то, что первым приходит в голову. Придумайте что-то
-              своё и <b>займите нишу</b>, до которой не додумались другие.</p>
-            <p class="price free"><b>Ограничение</b>Ваша креативность.</p>
-          </div></div></div>
-        </div>
+      <div class="band solo rv">
+        <a class="btn ghost" href="/gameplay">Подробнее о геймплее <span class="arr" aria-hidden="true">→</span></a>
       </div>
     </section>
 
-    <!-- ── 03 · The world ──────────────────────────────────────────────── -->
-    <section class="sec" id="world">
+    <section class="sec" id="world-teaser">
       <div class="sec-head rv">
         <span class="sec-num">03 / Мир</span>
         <div>
           <h2>Четыре планеты. Между ними — только корабли, которые кто-то построил</h2>
-          <p class="sec-lead">У каждой планеты своя длина суток, свои ресурсы и своя роль:
-            <b>система устроена так, что ни одна планета не самодостаточна</b>. Порталов нет.
-            Единственный способ покинуть планету — корабль, собранный игроками: корпус, двигатель,
-            топливо, жизнеобеспечение. Это недели работы и десяток специалистов, поэтому первые
-            корабли будут акционерными просто по необходимости. Двигателя II класса нет
-            в Библиотеке — его придётся изобрести, кому-то первому и себе в убыток.
-            Сколько займёт перелёт, заранее не скажешь: планеты идут по своим орбитам, и дорога
-            между двумя из них — <b>от нескольких часов до нескольких суток</b>, смотря где они
-            сейчас стоят.</p>
+          <p class="sec-lead">У каждой планеты своя длина суток, свои ресурсы и своя роль —
+            ни одна не самодостаточна. Людей здесь печатает биопринтер — машина исчезнувших
+            Предтеч.</p>
         </div>
       </div>
-
-      <div class="planets">
-        <article class="planet rv" style="--pc: var(--terra)">
-          <div class="id">
-            <span class="dot" aria-hidden="true"></span>
-            <div>
-              <h3>Терра</h3>
-              <span class="role">Колыбель</span>
-              <span class="status">открыта</span>
-            </div>
-          </div>
-          <p>Родина людей-киборгов и главный рынок. Здесь стоит <b>Биопринтер</b> — машина Предтеч,
-            которая печатает людей. Карты нет: мир прирастает теми, кто вышел за стену. Найденное
-            увидят все, но первым придёте вы.</p>
-          <div class="data">
-            <dl>
-              <dt>сутки</dt><dd>38 ч</dd>
-              <dt>даёт</dt><dd>металлы, плодородную землю, леса, золото и серебро</dd>
-              <dt>опасность</dt><dd>низкая</dd>
-            </dl>
-            <div class="day" aria-hidden="true"><span class="bar"><i style="--w: 79%"></i><u style="left: 50%"></u></span><span>длина суток · засечка — земные 24 ч</span></div>
-          </div>
-        </article>
-
-        <article class="planet rv" style="--pc: var(--aurora)">
-          <div class="id">
-            <span class="dot" aria-hidden="true"></span>
-            <div>
-              <h3>Аврора</h3>
-              <span class="role">Руины</span>
-              <span class="status">первая цель космоса</span>
-            </div>
-          </div>
-          <p>Ледяная планета, а подо льдом — <b>города людей Предтеч</b>. Оттуда несут чертежи,
-            катализаторы и обрывки чужой истории. В глубину в одиночку не пройти. Насилие
-            разрешено: самая большая опасность здесь — другие исследователи. Совет: не заводите
-            здесь друзей.</p>
-          <div class="data">
-            <dl>
-              <dt>сутки</dt><dd>33 ч</dd>
-              <dt>даёт</dt><dd>чертежи, катализаторы, реликвии</dd>
-              <dt>опасность</dt><dd>высокая</dd>
-            </dl>
-            <div class="day" aria-hidden="true"><span class="bar"><i style="--w: 69%"></i><u style="left: 50%"></u></span><span>длина суток · засечка — земные 24 ч</span></div>
-          </div>
-        </article>
-
-        <article class="planet rv" style="--pc: var(--pyro)">
-          <div class="id">
-            <span class="dot" aria-hidden="true"></span>
-            <div>
-              <h3>Пироксис</h3>
-              <span class="role">Узкое горло прогресса</span>
-              <span class="status">дальше всех</span>
-            </div>
-          </div>
-          <p>Лавовые поля, пепельные бури, кальдеры с богатейшими жилами. Единственный источник
-            <b>пироксита</b>, без которого нет двигателей и реакторов. Извержения перекраивают
-            карту — придётся адаптироваться. Каждый килограмм оплачен дорогой туда и обратно.</p>
-          <div class="data">
-            <dl>
-              <dt>сутки</dt><dd>46 ч — самые длинные</dd>
-              <dt>даёт</dt><dd>пироксит</dd>
-              <dt>опасность</dt><dd>очень высокая</dd>
-            </dl>
-            <div class="day" aria-hidden="true"><span class="bar"><i style="--w: 96%"></i><u style="left: 50%"></u></span><span>длина суток · засечка — земные 24 ч</span></div>
-          </div>
-        </article>
-
-        <article class="planet off rv" style="--pc: var(--aqua)">
-          <div class="id">
-            <span class="dot" aria-hidden="true"></span>
-            <div>
-              <h3>Акватика</h3>
-              <span class="role">Второй полюс экономики</span>
-              <span class="status">в разработке</span>
-            </div>
-          </div>
-          <p>Океанический мир и дом нимф — экономика, устроенная иначе, чем человеческая.
-            <b>В бете её не будет.</b> Планета появится целиком и тогда, когда экономике станет
-            её не хватать, — а не ради строчки в списке возможностей.</p>
-          <dl>
-            <dt>статус</dt><dd>отложена вместе с линией нимф</dd>
-            <dt>даст</dt><dd>совершенно другой опыт игры</dd>
-          </dl>
-        </article>
-      </div>
-
-      <div class="people rv">
-        <div>
-          <h3>Людей здесь печатают</h3>
-          <p class="intro">Настоящая человеческая цивилизация — Предтечи — исчезла, оставив машину,
-            которая печатает людей. <b>Вы — то, что эта машина напечатала.</b></p>
-        </div>
-        <ul>
-          <li>
-            <div><b>Люди Предтеч</b><span class="st">исчезли</span></div>
-            <div>Настоящие люди, построившие биопринтер. Их города — подо льдом Авроры и под столицей
-              Терры. Вы им не потомки — вы их изделие.</div>
-          </li>
-          <li class="you">
-            <div><b>Люди-киборги</b><span class="st">это вы</span></div>
-            <div>Тело печатает биопринтер, мышление живёт на встроенном процессоре. Родиться здесь
-              нельзя — только быть напечатанным. Тело — расходник, личность бессмертна.</div>
-          </li>
-          <li>
-            <div><b>Нимфы</b><span class="st">в разработке</span></div>
-            <div>Океаническая линия Акватики. Отвергают технологию и выращивают вместо того, чтобы
-              ковать.</div>
-          </li>
-        </ul>
-      </div>
-
-      <div class="tone rv">
-        <span class="sec-num">Тон</span>
-        <p>Не героическая космоопера, а <em>колониальный фронтир</em>. Галактика молчит; всё сложное
-          вокруг — чужое, старое и не до конца понятное. Печатные люди разбирают наследство
-          исчезнувшей цивилизации и грызутся из-за руды. Лор здесь не показывают в заставке — его
-          находят фрагментами на Авроре, а потом продают, скрывают или подделывают.</p>
+      <div class="band solo rv">
+        <a class="btn ghost" href="/world">Подробнее о мире <span class="arr" aria-hidden="true">→</span></a>
       </div>
     </section>
 
-    <!-- ── 04 · Facts ──────────────────────────────────────────────────── -->
-    <section class="sec" id="facts">
-      <div class="sec-head rv">
-        <span class="sec-num">04 / Факты</span>
-        <div>
-          <h2>Что здесь работает не так, как вы привыкли</h2>
-        </div>
-      </div>
-      <ol class="facts rv-stag">
-        <li><span class="k">01</span><div><h3>Жилы кончаются навсегда</h3><p>Выработанная жила исчезает и не восстанавливается. <b>Шахтёрские города богатеют и умирают</b>, а богатый рудный узел — причина первых войн.</p></div></li>
-        <li><span class="k">02</span><div><h3>Расстояние стоит денег</h3><p>Глобального аукциона нет: в каждом городе свой стакан заявок. <b>Единая цена убила бы географию</b>, а с ней профессию перевозчика и смысл войн за маршруты. Связь между планетами почти мгновенная — но чтобы знать цену на Пироксисе, нужен свой человек на Пироксисе.</p></div></li>
-        <li><span class="k">03</span><div><h3>Обман возможен</h3><p>Движок гарантирует только физику. <b>Партнёр может кинуть, и это законно.</b> Против этого — репутация, залог, поручительство и суд, которые игроки строят сами.</p></div></li>
-        <li><span class="k">04</span><div><h3>Мастерство считается, а не выпадает</h3><p>Никакого лута: <b>прогноз качества виден до партии</b>, потолок задаёт слабейшее звено. Клеймо хорошего кузнеца — репутация, за которую платят.</p></div></li>
-        <li><span class="k">05</span><div><h3>Кредит дают под труд, а не под залог</h3><p>Лимит считается из оборота, возвращённых долгов и доверия. Ключевую ставку рекомендует формула, а решает совет городов. <b>Инфляция здесь — чей-то просчёт</b>, а не цифра в патчноуте.</p></div></li>
-        <li><span class="k">06</span><div><h3>Мир живёт, пока вы спите</h3><p>Караваны едут, поля растут, <b>город голосует без вас</b>. Сорок минут в день — рабочий режим; присутствия требуют добыча, торг и опасность.</p></div></li>
-        <li><span class="k">07</span><div><h3>Смерть стоит металла и энергии</h3><p>Тело печатают заново — за счёт города, в долг или за ваш. <b>Вещи теряются, знания — нет.</b></p></div></li>
-      </ol>
-    </section>
-
-    <!-- ── 05 · What is not here ───────────────────────────────────────── -->
-    <section class="sec" id="not">
-      <div class="sec-head rv">
-        <span class="sec-num">05 / Чего здесь нет</span>
-        <div>
-          <h2>Список отказов важнее списка возможностей</h2>
-          <p class="sec-lead">Каждый пункт — соблазн, который легко нарушить «одной маленькой уступкой». Мы отказываем.</p>
-        </div>
-      </div>
-      <table class="no" id="no-table">
-        <thead><tr><th>Нет</th><th>Потому что</th></tr></thead>
-        <tbody>
-          <tr><td><span>NPC-торговцев</span></td><td>Цена NPC — это дно и потолок рынка. Живой экономике они не нужны.</td></tr>
-          <tr><td><span>Квестов</span></td><td>Квест — это указание, что делать. Как только игра говорит, что делать, песочница кончилась.</td></tr>
-          <tr><td><span>Уровней персонажа</span></td><td>Прогресс — в имуществе, связях и власти, а не в цифре у ника.</td></tr>
-          <tr><td><span>Глобального аукциона</span></td><td>Единая цена убивает географию, а с ней профессию перевозчика.</td></tr>
-          <tr><td><span>Лутбоксов и дропа</span></td><td>Ни один предмет не появляется в мире сам.</td></tr>
-          <tr><td><span>Автоматической добычи</span></td><td>Добыча — единственный вход материи. Автоматизируешь её — обесценишь всё.</td></tr>
-          <tr><td><span>Админов, судящих игроков</span></td><td>Правосудие внутри игры — это контент. Мы отвечаем только за правила платформы.</td></tr>
-          <tr><td><span>Вайпов и сезонов</span></td><td>Мир один и вечный. Единственное исключение — <b>альфа</b>: она сгорит при старте, чтобы никто не вошёл в мир с форой.</td></tr>
-        </tbody>
-      </table>
-      <p class="no-note">Можно скринить.</p>
-    </section>
-
-    <!-- ── 06 · The interface ──────────────────────────────────────────── -->
-    <section class="sec" id="ui">
-      <div class="sec-head rv">
-        <span class="sec-num">06 / Интерфейс</span>
-        <div>
-          <h2>Выглядит как рабочее место оператора. Потому что им и является</h2>
-        </div>
-      </div>
-      <div class="ui-grid">
-        <div class="shot rv" id="shot" aria-label="Фрагмент интерфейса игры">
-          <div class="h">
-            <span class="who">Ансгар</span>
-            <span class="where">Столица Терры · Торговый двор</span>
-            <span class="clock" id="shot-clock">сутки — · —:—</span>
-            <span class="tabs"><span>место</span><span class="on">рынок</span><span>крафт</span><span>хозяйство</span></span>
-          </div>
-          <div class="frame">
-            <div class="side">
-              <h4>Дела</h4>
-              <div class="doing"><span class="t">Плавка железа · 8 шт</span><span class="deadline" data-total="900" data-left="612"><span class="deadline-bar"><i></i></span><span class="left"></span></span></div>
-              <div class="doing"><span class="t">Обоз → Пойма у реки</span><span class="deadline" data-total="6000" data-left="5170"><span class="deadline-bar"><i></i></span><span class="left"></span></span></div>
-              <div class="doing"><span class="t">Голосование: пошлина на уголь</span><span class="deadline" data-total="10800" data-left="1900"><span class="deadline-bar"><i></i></span><span class="left"></span></span></div>
-              <h4>Финансы</h4>
-              <div class="kv"><span>на счёте</span><span class="num">42,15 ₭</span></div>
-              <div class="kv"><span>в кармане</span><span class="num">3,40 ₭</span></div>
-              <h4>Здесь</h4>
-              <p class="here">вы, <b>Йорун</b>, <b>Веста</b> и <b>Хальвар</b></p>
-            </div>
-            <div class="main">
-              <h4>Рынок</h4>
-              <div class="row"><span class="sel">Железная руда, обычное</span><span class="sel num">10</span></div>
-              <table class="book" id="book">
-                <thead><tr><th>покупают</th><th>цена ₭</th><th>продают</th></tr></thead>
-                <tbody>
-                  <tr><td></td><td class="num">3,40</td><td class="num">12</td></tr>
-                  <tr><td></td><td class="num">3,25</td><td class="num">40</td></tr>
-                  <tr><td></td><td class="num">3,20</td><td class="num">6</td></tr>
-                  <tr><td class="num">25</td><td class="num">3,05</td><td></td></tr>
-                  <tr><td class="num">100</td><td class="num">2,90</td><td></td></tr>
-                  <tr><td class="num">8</td><td class="num">2,60</td><td></td></tr>
-                </tbody>
-              </table>
-              <p class="note">последняя сделка: <span class="num" id="last">3,20</span> ₭</p>
-              <div class="row"><span class="b">Быстро купить · 3,20 ₭</span><span class="b">Быстро продать · 3,05 ₭</span></div>
-              <p class="note">Быстрая сделка бьёт по лучшей цене; остаток встаёт ордером.</p>
-            </div>
-          </div>
-          <div class="chat">
-            <div class="lines" id="chat-lines"></div>
-            <div class="say"><span class="in">сказать…</span><span class="b quiet">сказать</span></div>
-          </div>
-          <span class="stamp">фрагмент интерфейса · данные — пример</span>
-        </div>
-        <div class="ui-text rv">
-          <p>На экране одновременно живут стакан заявок, дюжина сроков, карта и разговор — поэтому
-            игра выглядит как инструмент, а не как сцена. Никаких карточек и свечения: линия
-            вместо коробки, моноширинные цифры, чтобы колонка цен выравнивалась по разряду.</p>
-          <p class="q">Единственный цветной элемент интерфейса означает живого человека. Кнопки и
-            ссылки акцентного цвета не используют. Если на экране цвет — рядом кто-то есть.</p>
-          <p>Полоса срока — одна на всё, что имеет срок: партия, обоз, стройка, голосование,
-            окно ответа в суде. Это единственное, чему разрешено двигаться непрерывно. Всё
-            остальное мгновенно, потому что всё остальное — на чьём-то критическом пути.</p>
-          <p class="cap">Фрагмент свёрстан по реальному клиенту: те же шрифты, линии и полоса срока.
-            Имена и цифры — пример. Игра в разработке.</p>
-        </div>
-      </div>
-    </section>
-
-    <!-- ── 07 · Not for you ────────────────────────────────────────────── -->
-    <section class="sec" id="notyou">
-      <div class="sec-head rv">
-        <span class="sec-num">07 / Честно</span>
-        <div>
-          <h2>Не для вас, если</h2>
-        </div>
-      </div>
-      <ol class="nfy rv-stag">
-        <li>вы ждете что игра придумает цель за вас</li>
-        <li>вы всегда проходите обучение в играх</li>
-        <li>вы не хотите социальных взаимодействий</li>
-        <li>вы ждёте крутую графику и 3D</li>
-        <li>вы боитесь excel-таблиц (например как eve online)</li>
-        <li>вы хотите купить преимущество за деньги</li>
-      </ol>
-      <p class="nfy-note rv">Мы не обидимся. Игра нишевая, и эта страница обязана отсеивать не меньше, чем привлекать.</p>
-    </section>
-
-    <!-- ── 08 · Where we are ───────────────────────────────────────────── -->
-    <section class="sec" id="status">
-      <div class="sec-head rv">
-        <span class="sec-num">08 / Где мы сейчас</span>
-        <div>
-          <h2>Что уже работает, а что впереди</h2>
-          <p class="sec-lead">Без этого блока верить всему выше не стоило бы. Ниже — то, что уже
-            крутится в движке на нашем сервере, и то, чего ещё нет.</p>
-        </div>
-      </div>
-      <div class="status rv">
-        <div>
-          <h3>Уже работает</h3>
-          <ul>
-            <li><span><b>Альфа — играется прямо сейчас</b>, доступ выдаём в <a class="ext" href="https://discord.gg/eKhM3H9tKk" target="_blank" rel="noopener noreferrer">Discord</a>. Всё, что ниже, там уже крутится.</span></li>
-            <li><span><b>Добыча</b> — забой со скрытой прочностью свода, крепь, обвал; разведка, которая сама рисует карту.</span></li>
-            <li><span><b>Крафт по рецептам</b> — прогноз качества до партии, износ и ремонт, автоматические станции, энергия города.</span></li>
-            <li><span><b>Рынок</b> — стакан заявок в каждом узле, эскроу, бронь с задатком, таможня и пошлины.</span></li>
-            <li><span><b>Земля и еда</b> — участки, здания и этажи, делянки, селекция семян, готовка, порча.</span></li>
-            <li><span><b>Города</b> — устав, должности и права, законы, голосования, выборы, совет, суд и приговоры.</span></li>
-            <li><span><b>Банк</b> — резерв, ключевая ставка по формуле, кредит по труду без залога, несостоятельность и каторга; монета с пробой.</span></li>
-            <li><span><b>Дороги и обоз</b>, смерть и печать тела, чат места, сон и восстановление офлайн.</span></li>
-          </ul>
-        </div>
-        <div class="ahead">
-          <h3>Впереди, без дат</h3>
-          <ul>
-            <li><span><b>Космос:</b> корабли, двигатели, коридоры между планетами.</span></li>
-            <li><span><b>Аврора и Пироксис</b> — сейчас играбельна только Терра.</span></li>
-            <li><span><b>Конвои и риск на маршруте</b>, пиратство и страхование грузов.</span></li>
-            <li><span><b>Акватика и нимфы</b> — отложены целиком.</span></li>
-          </ul>
-        </div>
-      </div>
-      <p class="status-line rv">Дат мы не называем. Назовём — когда будет что показать.</p>
-      <p class="status-sub rv">Числа в этой игре берутся из журнала решений, а не выдумываются на ходу — каждая формула ведёт к записи, почему она такая. И часть этих решений принимается вместе с теми, кто уже играет в альфу.</p>
-    </section>
-
-    <!-- ── 09 · Money ──────────────────────────────────────────────────── -->
-    <section class="sec" id="money">
-      <div class="sec-head rv">
-        <span class="sec-num">10 / Монетизация</span>
-        <div>
-          <h2>За счёт чего живет проект.</h2>
-        </div>
-      </div>
-      <div class="money rv">
-        <div>
-          <p class="big">Подписка. Первые три месяца бесплатно.<span>
-              За это время вы успеваете понять нравится вам игра или нет,
-              находите друзей, наживаете имущество — и платите уже за место в сообществе, которое заняли.
-          </span></p>
-        </div>
-        <div>
-          <p><b>В игре нет платного контента и нет возможноти доната. Всё нужно добывать внутри игры:</b></p>
-          <ul class="none">
-            <li>ресурсы</li><li>предметы</li><li>деньги</li><li>выносливость</li>
-            <li>рецепты</li><li>должности</li><li>репутацию</li>
-          </ul>
-          <p>Все подписчики равны. Никто и никогда не сможет получить преимущество внутри игры за реальные деньги.</p>
-          <p>Но не исключается что в будущем будет возможность кастомизации персонажа за реальные деньги.
-              Вопрос еще открыт. Если вы против - <a href="https://discord.gg/eKhM3H9tKk" target="_blank" rel="noopener noreferrer">вступайте в наш Discord</a> сервер и примите участие в этом голосовании.</p>
-        </div>
-      </div>
-    </section>
-
-    <!-- ── 11 · Discord: the alpha, and who decides what the game becomes ─ -->
     <section class="sec" id="discord">
       <div class="sec-head rv">
-        <span class="sec-num">11 / Discord</span>
+        <span class="sec-num">04 / Альфа</span>
         <div>
-          <h2>Альфа уже идёт — и её собирают вместе с игроками</h2>
-          <p class="sec-lead">Пока мы не называем дат, игра не стоит на месте. Путь к ней один —
-            <b>Discord</b>: там выдают доступ в альфу и там же решается, какой игра станет дальше.</p>
+          <h2>Альфа уже идёт</h2>
+          <p class="sec-lead">Это не демонстрация и не трейлер, а тот самый движок: в нём уже
+            добывают руду, торгуют в стакане, строят города, судят и голосуют. Что уже
+            работает, что впереди и за счёт чего живёт проект — на отдельной странице.</p>
         </div>
       </div>
-      <div class="grid-3 rv-stag">
-        <div class="cell">
-          <span class="n">01</span>
-          <h3>Сыграть в альфу</h3>
-          <p>Доступ выдаём в Discord. Это <b>не демонстрация и не трейлер</b>, а тот самый движок:
-            в нём уже добывают руду, торгуют в стакане, строят города, судят и голосуют.
-            <b>Всё нажитое там сгорит при старте большого мира</b> — альфа проверяет механики,
-            а не даёт фору.</p>
-        </div>
-        <div class="cell">
-          <span class="n">02</span>
-          <h3>Влиять на то, какой игра будет</h3>
-          <p>Обновления, новые механики и правки баланса обсуждаются <b>до того, как попадут
-            в мир</b>. Аргумент, который сильнее нашего, меняет решение — ради этого альфа
-            и существует.</p>
-        </div>
-        <div class="cell">
-          <span class="n">03</span>
-          <h3>Попасть в команду</h3>
-          <p>Тех, кто приносит сильные разборы и идеи, <b>мы зовём делать игру</b>. Резюме не
-            нужно — нужен разбор, после которого мы меняем своё решение.
-              Говорим сразу: первое время участие будет<b>волонтёрское</b>.
-              Взамен — голос в решениях и имя в истории проекта.
-          </p>
-        </div>
-      </div>
-      <div class="band rv">
-        <a class="btn" href="https://discord.gg/eKhM3H9tKk" target="_blank" rel="noopener noreferrer">Войти в Discord <span class="arr" aria-hidden="true">→</span></a>
-        <span class="note">Открытый канал. Альфа — рабочий мир: в ней проверяют механики, что-то
-          в ней ломается, и при старте большого мира она сгорает целиком.</span>
+      <div class="band solo rv">
+        <a class="btn ghost" href="/alpha">Альфа и статус проекта <span class="arr" aria-hidden="true">→</span></a>
       </div>
     </section>
 
-    <!-- ── 12 · Signup + FAQ ───────────────────────────────────────────── -->
+
+    <!-- ── 05 · Signup + FAQ ───────────────────────────────────────────── -->
     <section class="sec" id="signup">
       <div class="sec-head rv">
-        <span class="sec-num">12 / Бета</span>
+        <span class="sec-num">05 / Бета</span>
         <div>
           <h2>Вселенная запускается один раз</h2>
         </div>
@@ -1490,261 +466,7 @@ Copyright (C) 2026 Nurlan Urazkulov
   </div>
 </footer>
 
-<script>
-  (() => {
-    const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const raf = (fn) => requestAnimationFrame(fn);
-    // The ships fly on SMIL, which the CSS rule for reduced motion cannot reach.
-    if (reduced) {
-      document.querySelectorAll(".system svg, h1 svg").forEach((s) => s.pauseAnimations());
-      // the ribbon's clip would otherwise stay shut: show it whole and still
-      document.querySelectorAll("h1 .accent path").forEach((p) => p.removeAttribute("clip-path"));
-    }
-
-    // ── First paint: let the hero rise ─────────────────────────────────────
-    document.fonts && document.fonts.ready
-      ? document.fonts.ready.then(() => document.documentElement.classList.add("ready"))
-      : document.documentElement.classList.add("ready");
-    setTimeout(() => document.documentElement.classList.add("ready"), 900);
-
-    // ── The header parts from the hero once the page moves ──────────────
-    const top = document.querySelector("header.top");
-    const onScroll = () => top.classList.toggle("scrolled", scrollY > 24);
-    addEventListener("scroll", onScroll, { passive: true });
-    onScroll();
-
-    // ── Reveal on scroll: once, staged ────────────────────────────────────
-    const io = new IntersectionObserver((entries) => {
-      for (const e of entries) if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); }
-    }, { rootMargin: "0px 0px -10% 0px", threshold: .08 });
-    document.querySelectorAll(".rv, .rv-stag").forEach((el) => io.observe(el));
-
-    // the refusal table: row by row, so the strikes land one after another
-    const rows = [...document.querySelectorAll("#no-table tbody tr")];
-    const rio = new IntersectionObserver((entries) => {
-      for (const e of entries) if (e.isIntersecting) {
-        const i = rows.indexOf(e.target);
-        setTimeout(() => e.target.classList.add("in"), reduced ? 0 : i * 90);
-        rio.unobserve(e.target);
-      }
-    }, { threshold: .3 });
-    rows.forEach((r) => rio.observe(r));
-
-    // ── Ticker: duplicate once so the loop is seamless ────────────────────
-    const ticker = document.getElementById("ticker");
-    ticker.innerHTML += ticker.innerHTML;
-
-    // ── Stars: sparse, crisp, a slow drift with depth ─────────────────────
-    (() => {
-      const canvas = document.getElementById("space");
-      const ctx = canvas.getContext("2d");
-      let w, h, stars = [], mx = 0, my = 0, tx = 0, ty = 0;
-      const resize = () => {
-        const dpr = Math.min(devicePixelRatio || 1, 2);
-        w = innerWidth; h = innerHeight;
-        canvas.width = w * dpr; canvas.height = h * dpr;
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        const n = Math.min(170, Math.floor(w * h / 11000));
-        stars = Array.from({ length: n }, () => ({
-          x: Math.random() * w, y: Math.random() * h,
-          z: .25 + Math.random() * .75,
-          r: .5 + Math.random() * (Math.random() < .08 ? 1.6 : .8),
-          a: .25 + Math.random() * .55,
-          ph: Math.random() * Math.PI * 2, sp: .3 + Math.random() * .7,
-        }));
-      };
-      const draw = (t) => {
-        ctx.clearRect(0, 0, w, h);
-        tx += (mx - tx) * .04; ty += (my - ty) * .04;
-        const sy = scrollY * .04;
-        for (const s of stars) {
-          const tw = reduced ? 1 : .8 + .2 * Math.sin(t / 1400 * s.sp + s.ph);
-          const x = s.x + tx * s.z * 18;
-          let y = s.y + ty * s.z * 18 - sy * s.z;
-          y = ((y % h) + h) % h;
-          ctx.globalAlpha = s.a * tw * (.55 + .45 * s.z);
-          ctx.fillStyle = "#e6ecf7";
-          ctx.beginPath(); ctx.arc(x, y, s.r * s.z, 0, Math.PI * 2); ctx.fill();
-        }
-        ctx.globalAlpha = 1;
-      };
-      const frame = (t) => { draw(t); for (const s of stars) { s.x -= s.z * .02; if (s.x < -2) s.x = w + 2; } raf(frame); };
-      addEventListener("resize", resize);
-      addEventListener("pointermove", (e) => { mx = e.clientX / innerWidth - .5; my = e.clientY / innerHeight - .5; }, { passive: true });
-      resize();
-      if (reduced) draw(0); else raf(frame);
-    })();
-
-    // ── The loop: drawn by scroll, one word at a time ─────────────────────
-    (() => {
-      const fig = document.getElementById("loop-fig");
-      const steps = [...document.querySelectorAll("#loop-steps li")];
-      const words = ["внимание", "сырьё", "предмет", "расстояние", "прибыль", "капитал", "люди", "власть", "налог"];
-      const S = 600, C = 300, R = 214, N = words.length;
-      const ns = "http://www.w3.org/2000/svg";
-      const svg = document.createElementNS(ns, "svg");
-      svg.setAttribute("viewBox", `0 0 ${S} ${S}`);
-      const el = (tag, attrs, parent = svg) => { const e = document.createElementNS(ns, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); parent.appendChild(e); return e; };
-      const at = (i, r = R) => { const a = -Math.PI / 2 + (i / N) * Math.PI * 2; return [C + r * Math.cos(a), C + r * Math.sin(a), a]; };
-      el("circle", { class: "track", cx: C, cy: C, r: R });
-      const [x0, y0] = at(0);
-      // the drawn arc starts at the top and runs clockwise back to the top
-      const arc = el("path", { class: "draw", d: `M ${x0} ${y0} A ${R} ${R} 0 1 1 ${x0 - .01} ${y0}` });
-      const len = arc.getTotalLength();
-      arc.style.strokeDasharray = len; arc.style.strokeDashoffset = len;
-      const nodes = [], labels = [], arrows = [];
-      words.forEach((wd, i) => {
-        const [x, y, a] = at(i);
-        nodes.push(el("circle", { class: "node", cx: x, cy: y, r: 5 }));
-        const [lx, ly] = at(i, R + 34);
-        const anchor = Math.abs(Math.cos(a)) < .2 ? "middle" : Math.cos(a) > 0 ? "start" : "end";
-        const t = el("text", { class: "word", x: lx, y: ly + 4, "text-anchor": anchor });
-        t.textContent = wd; labels.push(t);
-        // an arrowhead half-way to the next node
-        const [ax, ay, aa] = at(i + .5);
-        const deg = (aa + Math.PI / 2) * 180 / Math.PI;
-        arrows.push(el("path", { class: "arrow", d: "M-4 -3 L4 0 L-4 3 Z", transform: `translate(${ax} ${ay}) rotate(${deg})` }));
-      });
-      const name = el("text", { class: "word name", x: C, y: C - 6, "text-anchor": "middle" }); name.textContent = "Цикл";
-      const sub = el("text", { class: "word", x: C, y: C + 22, "text-anchor": "middle" }); sub.textContent = "и всё, что не в нём, лишнее";
-      fig.appendChild(svg);
-
-      let shown = -1;
-      const paint = (p) => {
-        arc.style.strokeDashoffset = len * (1 - p);
-        const k = Math.min(N - 1, Math.floor(p * N + .02));
-        if (k === shown) return; shown = k;
-        nodes.forEach((n, i) => n.classList.toggle("lit", i <= k));
-        labels.forEach((n, i) => n.classList.toggle("lit", i <= k));
-        arrows.forEach((n, i) => n.classList.toggle("lit", i < k || p > .98));
-        steps.forEach((n, i) => n.classList.toggle("lit", i <= k));
-      };
-      if (reduced) { paint(1); return; }
-      const section = document.getElementById("loop");
-      const tick = () => {
-        const r = section.getBoundingClientRect();
-        // progress: 0 when the section's top reaches 85% of the viewport, 1 when its bottom reaches 55%
-        const start = innerHeight * .85, end = innerHeight * .55;
-        const p = Math.min(1, Math.max(0, (start - r.top) / (r.height + start - end)));
-        paint(p);
-      };
-      addEventListener("scroll", tick, { passive: true }); addEventListener("resize", tick); tick();
-    })();
-
-    // ── Roles: one open at a time, the first by default ───────────────────
-    document.querySelectorAll("#roles-acc .acc-h").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        const open = btn.getAttribute("aria-expanded") === "true";
-        document.querySelectorAll("#roles-acc .acc-h").forEach((b) => b.setAttribute("aria-expanded", "false"));
-        btn.setAttribute("aria-expanded", open ? "false" : "true");
-      });
-    });
-
-    // ── The interface fragment: it lives, but nothing in it is real data ──
-    (() => {
-      // the planet's clock: Terra's day is 38 hours (D-029); the epoch is illustrative
-      const DAY = 38, EPOCH = Date.parse("2026-06-20T00:00:00Z");
-      const clock = document.getElementById("shot-clock");
-      const two = (n) => String(n).padStart(2, "0");
-      const tickClock = () => {
-        const gone = (Date.now() - EPOCH) / 3600000;
-        const day = Math.floor(gone / DAY) + 1, inDay = gone % DAY;
-        clock.textContent = `сутки ${day} · ${two(Math.floor(inDay))}:${two(Math.floor((inDay % 1) * 60))}`;
-      };
-      tickClock(); setInterval(tickClock, 15000);
-
-      // deadline bars: fill by share, colour by remainder, words next to colour
-      const spell = (s) => s <= 0 ? "вот-вот" : s < 3600 ? `${Math.ceil(s / 60)} мин` : `${Math.floor(s / 3600)} ч ${two(Math.floor((s % 3600) / 60))} мин`;
-      const bars = [...document.querySelectorAll("#shot .deadline")].map((d) => ({
-        el: d, bar: d.querySelector("i"), left: d.querySelector(".left"),
-        total: +d.dataset.total, remain: +d.dataset.left,
-      }));
-      const beat = () => {
-        for (const b of bars) {
-          b.remain -= reduced ? 0 : 1;
-          if (b.remain < -3) b.remain = b.total; // a fresh batch takes the finished one's place
-          const share = Math.max(0, b.remain / b.total);
-          b.bar.style.width = `${share * 100}%`;
-          b.left.textContent = spell(b.remain);
-          b.el.classList.toggle("near", b.remain > 0 && share < .2);
-          b.el.classList.toggle("over", b.remain <= 0);
-        }
-      };
-      beat(); setInterval(beat, 1000);
-
-      // the talk: four voices, cycling; the speaker is the only thing painted
-      const lines = [
-        ["say", "Йорун", "беру уголь партиями по пятьдесят, кто везёт с шахты?"],
-        ["act", "Веста", "осматривает наковальню и качает головой"],
-        ["say", "Хальвар", "к вечеру привезу сорок, цена как в стакане, задаток вперёд"],
-        ["ooc", "Йорун", "кто-нибудь знает, какая ставка на этой неделе?"],
-        ["say", "Веста", "две с половиной, совет держит. кредит под оборот, если что"],
-        ["act", "Хальвар", "впрягается в повозку и выходит к воротам"],
-        ["say", "Йорун", "задаток отправила. до Поймы полтора часа, не задерживайся"],
-      ];
-      const box = document.getElementById("chat-lines");
-      let li = 0;
-      const push = () => {
-        const [kind, who, text] = lines[li % lines.length]; li++;
-        const p = document.createElement("p");
-        p.className = "line" + (kind === "act" ? " action" : kind === "ooc" ? " ooc" : "");
-        p.innerHTML = kind === "act" ? `<b>${who}</b> ${text}` : kind === "ooc" ? `<b>[${who}]</b> ${text}` : `<b>${who}</b>: ${text}`;
-        box.appendChild(p);
-        while (box.children.length > 5) box.removeChild(box.firstChild);
-      };
-      push(); push(); push();
-      if (!reduced) setInterval(push, 5200);
-
-      // a deal now and then: the last price moves inside the spread, a row flashes
-      const book = document.querySelectorAll("#book tbody tr");
-      const last = document.getElementById("last");
-      const prices = ["3,20", "3,05", "3,20", "3,25", "3,05"];
-      let pi = 0;
-      if (!reduced) setInterval(() => {
-        pi = (pi + 1) % prices.length; last.textContent = prices[pi];
-        const row = book[[2, 3, 2, 1, 3][pi]]; row.classList.remove("flash"); void row.offsetWidth; row.classList.add("flash");
-      }, 7300);
-    })();
-
-    // ── Analytics events: the two actions the page is measured by ─────────
-    //    Guarded by `window.gtag`: a blocked script must not break a click.
-    document.querySelectorAll('a[href*="discord.gg"]').forEach((a) => {
-      a.addEventListener("click", () => {
-        if (window.gtag) gtag("event", "discord_click");
-      });
-    });
-
-    // ── The signup form: honest answers ───────────────────────────────────
-    document.querySelectorAll("form.signup").forEach((form) => {
-      const msg = form.querySelector(".form-msg");
-      form.addEventListener("submit", async (e) => {
-        e.preventDefault();
-        const button = form.querySelector("button");
-        msg.textContent = ""; msg.className = "form-msg"; button.disabled = true;
-        try {
-          const res = await fetch("/api/signup", {
-            method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ email: form.email.value, website: form.website.value }),
-          });
-          const data = await res.json().catch(() => ({}));
-          if (res.ok && data.ok) {
-            // Not "thank you": what happens next, and where the project lives meanwhile.
-            msg.innerHTML = 'Готово. Одно письмо, когда мир откроется, — и больше ничего. ' +
-              'До тех пор мы в <a class="ext" href="https://discord.gg/eKhM3H9tKk" target="_blank" rel="noopener noreferrer">Discord</a>.';
-            msg.className = "form-msg ok"; form.email.value = "";
-            // the conversion this page exists for
-            if (window.gtag) gtag("event", "signup_success");
-          } else {
-            msg.textContent = data.error || "Что-то пошло не так. Попробуйте ещё раз.";
-            msg.className = "form-msg err";
-          }
-        } catch {
-          msg.textContent = "Сеть не ответила. Попробуйте ещё раз.";
-          msg.className = "form-msg err";
-        } finally { button.disabled = false; }
-      });
-    });
-  })();
-</script>
+<script src="/space.js"></script>
+<script src="/site.js"></script>
 </body>
 </html>
