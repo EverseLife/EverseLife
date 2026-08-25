@@ -629,6 +629,12 @@ async def depart(
     #: there the body has already left, and there is nothing running.
     if _plan is None:
         await craft.freeze(session, body, now=moment)
+        #: And the wall the mason was mending: a repair runs only while the
+        #: body stands in the node, and what is left of it waits here for
+        #: whoever comes back (D-211).
+        from src.engine import estate  # noqa: PLC0415 -- lazy: estate imports travel
+
+        await estate.pause(session, body, now=moment)
 
     event = await events.record(
         session,

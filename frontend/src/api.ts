@@ -457,6 +457,13 @@ export type Look = {
      * somebody who logs in ten minutes into a six-hour window still sees it.
      */
     shaking_at?: string;
+    /**
+     * Own plots marked out here. Absent where there are none -- and its
+     * absence is what hides the farming window: a strip is marked out in the
+     * land window, and the cycle that follows gets a place of its own once
+     * there is a strip for it to happen on.
+     */
+    plots?: number;
     /** Disconnected for non-payment: machines do not work (D-149). */
     cut_off: boolean;
     /**

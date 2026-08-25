@@ -78,8 +78,6 @@ export function Farm({ look }: Omit<Props, "busy" | "act">) {
   const [plants, setPlants] = useState<
     { id: string; name: string; gives: string; seed: string }[]
   >([]);
-  const [name, setName] = useState("");
-  const [metres, setMetres] = useState(10);
   //: One sows with a batch of seeds, not a crop: the batch has its own cultivar and strength.
   const [batch, setBatch] = useState("");
 
@@ -254,30 +252,10 @@ export function Farm({ look }: Omit<Props, "busy" | "act">) {
         </div>
       ))}
 
-      <div className="row">
-        <input
-          value={name}
-          placeholder="имя делянки"
-          onChange={(e) => setName(e.target.value)}
-        />
-        <input
-          type="number"
-          value={metres}
-          onChange={(e) => setMetres(Number(e.target.value))}
-          title="площадь, м²"
-        />
-        <button
-          onClick={() =>
-            go(async () => {
-              await session.send("farm.mark", { name: name, area: metres });
-              setName("");
-            })
-          }
-          disabled={busy}
-        >
-          Разметить
-        </button>
-      </div>
+      <p className="note">
+        Новую делянку размечают в окне «Земля»: межевание — дело земли, а не
+        земледелия.
+      </p>
 
       <p className="note">
         Рост идёт офлайн, уход — раз в сутки и только ногами: пропущенные сутки

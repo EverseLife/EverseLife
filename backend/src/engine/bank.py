@@ -61,7 +61,7 @@ irreversible.
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, time, timedelta
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -78,7 +78,7 @@ from src.models.city import City, Power
 from src.models.event import Event, EventKind
 from src.models.identity import Identity
 from src.models.inventory import Item
-from src.models.job import Job, JobKind
+from src.models.job import Job, JobKind, JobState
 from src.models.ledger import AccountKind, LedgerAccount, PostingReason
 from src.models.market import Order, Trade
 from src.models.metrics import DailyMetric
@@ -471,14 +471,48 @@ async def rate_review(session: AsyncSession, job: Job) -> None:
 async def schedule_review(
     session: AsyncSession, constants: Constants, *, after: datetime | None = None
 ) -> None:
+    """Queue the next rate review. Called at process start and after each one.
+
+    Two guards, and both are needed, because this is called on **every** start
+    of **every** process. A pending review means the chain is already running,
+    and there is nothing to add: without that check each restart and each
+    deploy laid down another review, all of them fired, and the chronicle filled
+    with rate decisions -- several in one digest, for a rate the vault says
+    changes once every `bank.rate_review_period` days.
+
+    And the moment is counted from the **start of the day**, not from the
+    second somebody happened to call: two processes of one deploy start seconds
+    apart, and an offset added to each of their clocks gives two different
+    keys, so the dedup key would let both through.
+    """
     moment = after or datetime.now(UTC)
-    term = moment + timedelta(days=constants[R.BANK_RATE_REVIEW_PERIOD])
-    await enqueue(
+    running = await session.scalar(
+        select(Job.id)
+        .where(Job.kind == JobKind.RATE_REVIEW.value, Job.state == JobState.PENDING)
+        .limit(1)
+    )
+    if running is not None:
+        return
+    day = datetime.combine(moment.date(), time.min, tzinfo=UTC)
+    term = day + timedelta(days=constants[R.BANK_RATE_REVIEW_PERIOD])
+    queued = await enqueue(
         session,
         JobKind.RATE_REVIEW,
         term,
         dedup_key=f"bank.rate:{int(term.timestamp())}",
     )
+    #: Refused by the key with nothing pending means the second is held by a
+    #: review that has already run: a chain that came back round to a day it
+    #: had used. A minute later is a second nobody holds -- swallowing the
+    #: refusal would stop monetary policy until somebody restarted the world.
+    if queued is None:
+        later = term + timedelta(minutes=1)
+        await enqueue(
+            session,
+            JobKind.RATE_REVIEW,
+            later,
+            dedup_key=f"bank.rate:{int(later.timestamp())}",
+        )
 
 
 async def _inflation(session: AsyncSession, constants: Constants) -> float | None:

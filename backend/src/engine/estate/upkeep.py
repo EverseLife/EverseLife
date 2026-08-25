@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Constants
 from src.constants import registry as R
-from src.engine import craft, events, goods, travel, world
+from src.engine import craft, events, goods, occupation, travel, world
 from src.engine.estate._base import EstateError, Ruined
 from src.engine.estate.building import build_minutes, buildings_of, composition, estimate
 from src.engine.jobs import enqueue, handler
@@ -31,6 +31,7 @@ from src.models.world import Node
 from src.units import (
     SCALE_MAX,
     SCALE_MIN,
+    SECONDS_PER_MINUTE,
     amount_float,
 )
 
@@ -147,6 +148,9 @@ async def repair(
         raise EstateError("участок не ваш: чинят у себя")
     if await repairing(session, node):
         raise EstateError("ремонт уже идёт: второй раз его не заказывают")
+    #: Mending is an occupation like any other (D-211): one pair of hands does
+    #: one thing, and a body ploughing a strip is not also mending a wall.
+    await occupation.require_free(session, body)
 
     houses = await buildings_of(session, node)
     if not houses:
@@ -154,17 +158,23 @@ async def repair(
     if missing_share(houses) <= 0:
         raise Ruined("дом целёхонек: чинить в нём нечего")
 
-    needed = repair_bill(constants, houses)
-    pocket = await world.body_container(session, body)
-    stock = await craft._stock(session, pocket, tuple(needed), tiers=tiers)  # noqa: SLF001
-    for pick in craft._pick(stock, needed):  # noqa: SLF001
-        if pick.item.amount > pick.take:
-            pick.item.amount -= pick.take
-        else:
-            await session.delete(pick.item)
-    await session.flush()
+    #: A repair this body walked away from is **resumed**, not started again:
+    #: the materials went into the walls at the first order, and charging them
+    #: twice would make leaving the node a fine rather than an interruption.
+    frozen = await _frozen(session, node, body)
+    needed = {} if frozen is not None else repair_bill(constants, houses)
+    if needed:
+        pocket = await world.body_container(session, body)
+        stock = await craft._stock(session, pocket, tuple(needed), tiers=tiers)  # noqa: SLF001
+        for pick in craft._pick(stock, needed):  # noqa: SLF001
+            if pick.item.amount > pick.take:
+                pick.item.amount -= pick.take
+            else:
+                await session.delete(pick.item)
+        await session.flush()
 
-    term = moment + timedelta(minutes=repair_minutes(constants, houses))
+    left = repair_minutes(constants, houses) if frozen is None else frozen
+    term = moment + timedelta(minutes=left)
     event = await events.record(
         session,
         EventKind.CRAFT_STARTED,
@@ -186,6 +196,77 @@ async def repair(
     if job is None:  # pragma: no cover -- the key is unique per event
         raise EstateError("ремонт уже поставлен")
     return job
+
+
+async def _frozen(session: AsyncSession, node: Node, body: Body) -> float | None:
+    """Minutes left on a repair this body walked away from, if there is one.
+
+    Written down by `pause` and consumed here: the row is marked spent, so a
+    remainder is resumed once and not once per order.
+    """
+    rows = (
+        (
+            await session.execute(
+                select(Job)
+                .where(
+                    Job.kind == JobKind.BUILD_REPAIR.value,
+                    Job.state == JobState.CANCELLED,
+                    Job.body_id == body.id,
+                )
+                .order_by(Job.run_at.desc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for job in rows:
+        payload = job.payload or {}
+        if payload.get("node") != str(node.id) or payload.get("resumed"):
+            continue
+        left = payload.get("left_minutes")
+        if left is None:
+            continue
+        job.payload = {**payload, "resumed": True}
+        await session.flush()
+        return float(left)
+    return None
+
+
+async def pause(session: AsyncSession, body: Body, *, now: datetime | None = None) -> float | None:
+    """The mason left the wall: the repair stops with the time left in it.
+
+    Mending is done **by hand and on the spot**: a wall does not mend itself
+    while its owner is a planet away. So leaving the node stops the work rather
+    than letting it finish by itself -- the same rule the bench keeps
+    (`craft.freeze`), and for the same reason.
+
+    What is **not** lost is the materials: they went into the walls at the
+    order, and the remainder waits here for whoever comes back to it. Returns
+    the minutes left, or None if nothing was running.
+    """
+    moment = now or datetime.now(UTC)
+    job = (
+        (
+            await session.execute(
+                select(Job)
+                .where(
+                    Job.kind == JobKind.BUILD_REPAIR.value,
+                    Job.state == JobState.PENDING,
+                    Job.body_id == body.id,
+                )
+                .with_for_update()
+            )
+        )
+        .scalars()
+        .first()
+    )
+    if job is None:
+        return None
+    left = max(0.0, (job.run_at - moment).total_seconds() / SECONDS_PER_MINUTE)
+    job.state = JobState.CANCELLED
+    job.payload = {**(job.payload or {}), "left_minutes": left}
+    await session.flush()
+    return left
 
 
 @handler(JobKind.BUILD_REPAIR)

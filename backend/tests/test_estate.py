@@ -989,6 +989,63 @@ async def test_repair_costs_what_the_house_is_built_of(
     assert float(house.condition) == pytest.approx(SCALE_MAX)
 
 
+async def test_repair_is_an_occupation_and_stops_when_the_mason_leaves(
+    session: AsyncSession, constants: Constants, catalog: Catalog, own_plot
+) -> None:
+    """Mending is done by hand and on the spot (D-211).
+
+    Ordered and forgotten, a repair used to finish by itself while its owner
+    was a planet away: it was a journal job and nothing else -- not in the
+    activities, not blocking a second pair of hands, not needing anybody
+    present. Now it is an occupation, and leaving the node stops it with the
+    time left in it.
+
+    What is **not** lost is the materials: they went into the walls at the
+    order. Coming back and ordering again resumes the remainder and charges
+    nothing -- otherwise a step outside would be a fine.
+    """
+    from src.engine import occupation
+
+    plot, identity, body = await _house(session, constants, own_plot)
+    house = (await estate.buildings_of(session, plot))[0]
+    house.condition = Decimal("50")
+    await session.flush()
+
+    pocket = await world.body_container(session, body)
+    needed = estate.repair_bill(constants, await estate.buildings_of(session, plot))
+    for name, quantity in needed.items():
+        await world.grant_item(
+            session, pocket, name, amount=quantity + 1, quality=60, origin="тест"
+        )
+    job = await estate.repair(session, constants, body, plot)
+
+    #: It is in the activities, and these hands are busy.
+    doing = await occupation.current(session, body)
+    assert doing is not None and doing.kind == occupation.MEND
+    with pytest.raises(occupation.Busy):
+        await occupation.require_free(session, body)
+
+    #: The mason walks away: the work stops with the time left in it.
+    full = (job.run_at - datetime.now(UTC)).total_seconds() / 60
+    left = await estate.pause(session, body, now=datetime.now(UTC))
+    assert left is not None and left == pytest.approx(full, rel=0.05)
+    assert await occupation.current(session, body) is None, "ушёл, а ремонт всё идёт"
+    await session.refresh(house)
+    assert float(house.condition) == pytest.approx(50), "дом починился без мастера"
+
+    #: And back: the remainder resumes, and the pocket is not charged again.
+    had = {thing.type_key: thing.amount for thing in await world.contents(session, pocket)}
+    again = await estate.repair(session, constants, body, plot)
+    now = {thing.type_key: thing.amount for thing in await world.contents(session, pocket)}
+    assert now == had, "за возвращение взяли материалы второй раз"
+    resumed = (again.run_at - datetime.now(UTC)).total_seconds() / 60
+    assert resumed == pytest.approx(left, rel=0.05), "ремонт начался с начала, а не с остатка"
+
+    await estate.finish_repair(session, again)
+    await session.refresh(house)
+    assert float(house.condition) == pytest.approx(SCALE_MAX)
+
+
 async def test_house_at_nothing_collapses_with_what_it_sheltered(
     session: AsyncSession, constants: Constants, catalog: Catalog, own_plot
 ) -> None:
@@ -1086,15 +1143,30 @@ async def test_tax_goes_by_the_footprint_not_by_the_floors(
     assert await estate.built_area(session, far) == pytest.approx(60), "дом всё же в три этажа"
 
 
-async def test_the_yard_is_not_taxed(
+async def test_an_empty_plot_pays_for_the_ground_it_holds(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Only what is built on pays (D-127): an empty plot owes nothing."""
+    """Hold land and pay for land (D-236).
+
+    Charged on the footprint of the buildings instead, an empty plot in the
+    middle of a city cost its holder nothing at all, and buying up the centre
+    to sit on it was free. The base is the plot, and an empty one is exactly
+    the case the tax exists for.
+    """
     city, _, near, _ = await _city(session, catalog)
     identity, _ = await _buyer(session, near, city=city)
     near.owner_identity_id = identity.id
     await session.flush()
-    assert await estate.land_tax_of(session, constants, catalog, near) == 0
+
+    empty = await estate.land_tax_of(session, constants, catalog, near)
+    assert empty > 0, "пустой участок в центре снова держат бесплатно"
+
+    #: And building on it changes nothing: storeys cost no ground (D-125), and
+    #: now neither do walls -- the bill is the land, whatever stands on it.
+    session.add(Building(node_id=near.id, area_m2=40, footprint_m2=40))
+    await session.flush()
+    built = await estate.land_tax_of(session, constants, catalog, near)
+    assert built == empty, "налог поехал за застройкой, а он с земли"
 
 
 async def test_the_day_of_tax_reaches_the_treasury(

@@ -67,6 +67,7 @@ FORAGE = "forage"
 PLOT = "plot"
 MINE = "mine"
 CRAFT = "craft"
+MEND = "mend"
 
 
 def left_in_words(until: datetime, now: datetime | None = None) -> str:
@@ -163,6 +164,24 @@ async def _ploughing(session: AsyncSession, body: Body) -> Doing | None:
     return Doing(PLOT, "вспашка", f"идёт вспашка{named}", job.run_at)
 
 
+async def _mending(session: AsyncSession, body: Body) -> Doing | None:
+    """A repair of this body's that is still running.
+
+    Mending is done by hand and on the spot: the job is this body's, and it
+    stops when the body leaves the node (`estate.pause`). So while it is in the
+    journal, these hands are busy.
+    """
+    stmt = select(Job).where(
+        Job.body_id == body.id,
+        Job.kind == JobKind.BUILD_REPAIR.value,
+        Job.state.in_((JobState.PENDING, JobState.RUNNING)),
+    )
+    job = (await session.execute(stmt)).scalars().first()
+    if job is None:
+        return None
+    return Doing(MEND, "ремонт", "идёт ремонт дома", job.run_at)
+
+
 async def _crafting(session: AsyncSession, body: Body) -> Doing | None:
     """A batch of this body's that is actually moving.
 
@@ -193,6 +212,7 @@ _LOOKUP: tuple[tuple[str, Callable[[AsyncSession, Body], Awaitable[Doing | None]
     (MINE, _mining),
     (FORAGE, _foraging),
     (PLOT, _ploughing),
+    (MEND, _mending),
     (CRAFT, _crafting),
 )
 

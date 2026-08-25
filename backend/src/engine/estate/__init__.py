@@ -118,6 +118,7 @@ from src.engine.estate.upkeep import (  # noqa: F401
     decay_per_day,
     finish_repair,
     missing_share,
+    pause,
     repair,
     repair_bill,
     repair_minutes,

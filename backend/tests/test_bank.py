@@ -61,6 +61,60 @@ async def _account(session: AsyncSession, who) -> int:
 # --- reserve and emission ----------------------------------------------------
 
 
+async def test_every_restart_does_not_add_a_rate_review(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """The key rate is reviewed once every `bank.rate_review_period` days.
+
+    `schedule_review` is called at the start of **every** process: two
+    processes per deploy, and a deploy a day. Counted from the second of the
+    call, each of those laid down a review of its own -- a different second, a
+    different dedup key, a new job -- and every one of them fired. The
+    chronicle filled with rate decisions, several in one digest, for a number
+    the vault says moves once in three days.
+    """
+    from src.models.job import Job, JobKind, JobState
+
+    morning = datetime(2026, 9, 1, 9, 0, tzinfo=UTC)
+    for minute in (0, 7, 41):
+        await bank.schedule_review(session, constants, after=morning + timedelta(minutes=minute))
+    #: And again the next day, when the arithmetic alone stops covering us: a
+    #: fresh day gives a fresh key, and only the pending chain holds it back.
+    await bank.schedule_review(session, constants, after=morning + timedelta(days=1))
+
+    queued = (
+        (
+            await session.execute(
+                select(Job).where(
+                    Job.kind == JobKind.RATE_REVIEW.value, Job.state == JobState.PENDING
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(queued) == 1, f"на каждый запуск завелось по пересмотру: {len(queued)}"
+    assert queued[0].run_at > morning
+
+    #: A chain that ran and finished does not stop the policy: the second it
+    #: sat on is taken for ever, and the next review moves past it.
+    queued[0].state = JobState.DONE
+    await session.flush()
+    await bank.schedule_review(session, constants, after=morning)
+    alive = (
+        (
+            await session.execute(
+                select(Job).where(
+                    Job.kind == JobKind.RATE_REVIEW.value, Job.state == JobState.PENDING
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(alive) == 1, "погибшая цепочка выключила денежную политику"
+
+
 async def test_empty_reserve_prints_exactly_what_is_needed(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:

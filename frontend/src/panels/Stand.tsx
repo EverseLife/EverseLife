@@ -360,11 +360,25 @@ function assemble({ look, values, pow }: Props, book: RecipeBook | null): Thing[
     );
   }
 
+  //: Farming appears **with the first strip**, not with fertile ground: a
+  //: strip is marked out in the land window ("Земля"), and the cycle that
+  //: follows -- ploughing, sowing, the daily round, the harvest -- is a place
+  //: of its own that has nowhere to happen until there is a strip. Empty, this
+  //: window offered one button and looked like a mechanic nobody had started.
+  //:
   //: Plots are the holder's business: on somebody else's land one farms by
   //: contract, not by this window (06-farming). Nobody's land outside a city is
   //: farmed by whoever comes (D-198), and there the window is for everyone.
-  if ((look.node?.fertility ?? 0) > 0 && disposes(look)) {
-    single("farm", "Делянки", "full", () => <Farm look={look} />);
+  const strips = look.node?.plots ?? 0;
+  if (strips > 0 && disposes(look)) {
+    single(
+      "farm",
+      "Земледелие",
+      "full",
+      () => <Farm look={look} />,
+      3,
+      strips === 1 ? "одна делянка" : `делянок: ${strips}`,
+    );
   }
   //: Foraging, where the land has room to walk and is ours or nobody's
   //: (D-210): the server decides, the row only reads. A find waiting for its
@@ -484,7 +498,7 @@ function assemble({ look, values, pow }: Props, book: RecipeBook | null): Thing[
   if (forSale || owned) {
     single(
       "plot",
-      "Участок",
+      "Земля",
       "full",
       () => <Plot look={look} />,
       forSale ? 1 : 3,

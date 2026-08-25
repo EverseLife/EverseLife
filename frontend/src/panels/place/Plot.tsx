@@ -27,6 +27,71 @@ import { Foundation } from "./Foundation";
  * holder alone: civic land is regulated by citizenship and duties, not by a
  * list of names.
  */
+/**
+ * Marking a strip out of the land one holds.
+ *
+ * It lives here rather than in "Земледелие" because it is a thing done to
+ * **land**: the window of farming is about the cycle -- ploughing, sowing, the
+ * daily round, the harvest -- and that cycle has nowhere to happen until a
+ * strip exists. So the land gives birth to the plot, and the plot brings its
+ * own window with it.
+ */
+function Marking({ look, busy, act }: Props) {
+  const session = useSession();
+  const [name, setName] = useState("");
+  const [metres, setMetres] = useState(100);
+  const marked = look.node?.plots ?? 0;
+  //: Nothing grows in the open ground of a climate (D-231): the server refuses,
+  //: and the window says so before the refusal rather than after it.
+  const climate = look.frost?.climate ?? null;
+
+  if ((look.node?.fertility ?? 0) <= 0) return null;
+  return (
+    <div className="pocket">
+      <h3>Делянки</h3>
+      {climate ? (
+        <p className="note">
+          Здесь {climate}: в открытом грунте ничего не растёт, и обогрев узла
+          этого не меняет. Еда сюда приходит кораблём.
+        </p>
+      ) : (
+        <>
+          <div className="row">
+            <input
+              value={name}
+              placeholder="имя делянки"
+              onChange={(e) => setName(e.target.value)}
+            />
+            <input
+              type="number"
+              value={metres}
+              onChange={(e) => setMetres(Number(e.target.value))}
+              title="площадь, м²"
+            />
+            <button
+              onClick={() =>
+                act(async () => {
+                  await session.send("farm.mark", { name, area: metres });
+                  setName("");
+                })
+              }
+              disabled={busy}
+            >
+              Разметить
+            </button>
+          </div>
+          <p className="note">
+            {marked > 0
+              ? `Размечено делянок: ${marked}. Работа с ними — в окне «Земледелие».`
+              : "Размеченная делянка откроет окно «Земледелие»: вспашка, посев, уход и уборка."}
+          </p>
+        </>
+      )}
+    </div>
+  );
+}
+
+
 export function Plot({ look }: Omit<Props, "busy" | "act">) {
   const session = useSession();
   //: This window's own waiting and its own refusal: shutting the door here must
@@ -64,7 +129,8 @@ export function Plot({ look }: Omit<Props, "busy" | "act">) {
   //: биопринтера, поэтому центр дорог дважды — и купить, и держать, — и вторую
   //: половину счёта покупатель обязан видеть до того, как заплатит первую.
   const tax = node.tax > 0
-    ? `Земельный налог: ${api.tk(node.tax)} ₭ в сутки с застройки. Двор не облагается, и чем дальше от биопринтера, тем ставка ниже.`
+    ? `Земельный налог: ${api.tk(node.tax)} ₭ в сутки со всей площади участка — застроен он или нет.`
+      + ` Чем дальше от биопринтера, тем ставка ниже.`
     : null;
 
   const mine = api.isMine(look);
@@ -166,6 +232,7 @@ export function Plot({ look }: Omit<Props, "busy" | "act">) {
         </div>
       )}
       {mine && <Door look={look} busy={busy} act={act} />}
+      {mine && <Marking look={look} busy={busy} act={act} />}
     </section>
     {/* Founding a city is the plot's fate, so the section stands here:
         the server offers it only where founding is possible at all. */}

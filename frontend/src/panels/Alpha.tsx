@@ -91,12 +91,30 @@ export function Alpha({ values }: Props) {
       );
     });
 
+  //: Folded, the whole thing is **one small button** and nothing else: no
+  //: card, no border, no heading, no strip of padding above the map. A tool
+  //: nobody but a developer has must not sit over the scene taking a hand's
+  //: width of it -- and "свернуть" that left a bordered header behind was not
+  //: folding anything, only emptying it.
+  if (!open) {
+    return (
+      <button
+        className="quiet alpha-handle"
+        onClick={() => setOpen(true)}
+        aria-expanded={false}
+        title="служебное окно альфы: печать вещей и досрочное завершение сроков"
+      >
+        Альфа
+      </button>
+    );
+  }
+
   return (
     <section className="card alpha">
       <div className="row">
         <strong>Альфа</strong>
-        <button className="quiet" onClick={() => setOpen(!open)} aria-expanded={open}>
-          {open ? "свернуть" : "развернуть"}
+        <button className="quiet" onClick={() => setOpen(false)} aria-expanded>
+          свернуть
         </button>
       </div>
 

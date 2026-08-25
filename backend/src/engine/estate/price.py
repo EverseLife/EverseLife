@@ -24,7 +24,7 @@ from src.engine.estate.building import built_area, slots
 from src.engine.estate.deed import issue_deed
 from src.engine.ship import ABOARD
 from src.models.city import City, Power
-from src.models.estate import Building, Deed
+from src.models.estate import Deed
 from src.models.event import EventKind
 from src.models.identity import Body, BodyState
 from src.models.ledger import AccountKind, PostingReason
@@ -237,11 +237,11 @@ async def land_tax_of(
     to hold -- otherwise the buyer pays the premium once and then sits on the
     centre for free.
 
-    **The base is the footprint, not the usable area.** This is a tax on land,
-    and a tower takes exactly as much ground as the bungalow beside it; charging
-    the sum of the floors would undo the point of height, which is that storeys
-    cost no ground (D-125). The yard is not taxed at all -- only what is built
-    on (D-127).
+    **The base is the whole plot** (D-236), built on or not: hold land and pay
+    for land. Charged on the footprint instead, an empty plot in the centre
+    cost its holder nothing, and buying up the middle of a city to sit on it
+    was free. A tower and a shed on equal plots now pay equally -- storeys cost
+    no ground (D-125), and this carries that rule to its end.
     """
 
     #: **Land tax is charged on the built-up area** -- the rings around the
@@ -267,12 +267,12 @@ async def land_tax_of(
     rate = town.law_number(constants, catalog, city, "tax_land")
     if rate <= 0:
         return 0
-    ground = await built_area(session, node, ground=True)
-    if ground <= 0:
+    held = float(node.area_m2)
+    if held <= 0:  # pragma: no cover -- a plot without area is a delegate node
         return 0
     decline = 1 - constants[R.LAND_DECAY_PER_NODE] / PERCENT
     steps = await nodes_from_center(session, node, city)
-    return money(rate * (decline**steps) * ground)
+    return money(rate * (decline**steps) * held)
 
 
 async def levy_land_tax(
@@ -297,14 +297,18 @@ async def levy_land_tax(
         (
             await session.execute(
                 select(Node)
-                .join(Building, Building.node_id == Node.id)
                 .where(
                     Node.owner_identity_id.is_not(None),
-                    #: The same two rules as in `land_tax_of`, and they must
-                    #: stay the same two: the built-up area is taxed, the
-                    #: planet's own land is nobody's, and a hull is not land.
-                    #: Written into the query so that the nodes it does not
-                    #: charge are not read either.
+                    #: **Every held plot, built on or not** (D-236): the base
+                    #: is the ground, and an empty plot in the centre is
+                    #: exactly the case the tax exists for. Joined with
+                    #: `Building` before, it billed only what stood on the
+                    #: land, and holding the land itself was free.
+                    #:
+                    #: The other two rules are the ones `land_tax_of` keeps,
+                    #: and they must stay the same two: the planet's own land
+                    #: is nobody's, and a hull is not land. Written into the
+                    #: query so that the nodes it does not charge are not read.
                     Node.layer == Layer.CITY,
                     ~Node.properties.has_key(ABOARD),
                 )

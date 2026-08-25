@@ -13,7 +13,7 @@ import contextlib
 import uuid
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.commands.common import _body, _identity, _node
@@ -60,6 +60,7 @@ from src.engine import (
     world,
 )
 from src.engine import city as town
+from src.models.farm import Plot
 from src.models.identity import Identity, KnowledgeKind
 from src.models.mining import MiningSession, SessionState
 from src.models.world import Layer, Node, Vein
@@ -245,6 +246,20 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
         #: the buyer must see the second half before paying the first.
         "tax": await estate.land_tax_of(db, constants, current_catalog(), node),
     }
+    #: How many plots of one's own are marked out here. The client cannot work
+    #: it out from anything it already has (D-225), and it decides whether the
+    #: farming window exists at all: marking out a strip is something one does
+    #: to **land**, and the cycle that follows -- ploughing, sowing, the daily
+    #: round, the harvest -- is a place of its own that appears with the first
+    #: strip. A count rather than a flag: "земледелие · 3 делянки" is the row
+    #: the client draws, and it must not ask a second command for the number.
+    marked = await db.scalar(
+        select(func.count())
+        .select_from(Plot)
+        .where(Plot.node_id == node.id, Plot.owner_identity_id == identity.id)
+    )
+    if marked:
+        seen["node"]["plots"] = int(marked)
     #: The Forerunners' reactor fades, and the fading must be visible long
     #: before it matters (D-232): the day it goes silent is the day the city
     #: has to be standing on its own coal. The output itself is not sent --

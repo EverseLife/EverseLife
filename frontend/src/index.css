@@ -179,6 +179,16 @@ header nav.tabs {
   flex: none;
 }
 
+/* Folded, the widget is a handle and takes the height of a line: the scene
+   below it is the working surface, and a debug tool does not compete with it
+   for room. */
+.alpha-handle {
+  flex: none;
+  align-self: flex-start;
+  padding: 0.1rem 0.4rem;
+  font-size: 0.8rem;
+}
+
 /* Narrow screen: one column, ordinary page scrolling. The scene first: the
    map matters more than the sidebar when everything is in one column. */
 @media (max-width: 56rem) {
