@@ -515,7 +515,14 @@ async def test_the_whole_eruption_runs(session: AsyncSession, constants: Constan
     ways = await plates._adjacency(session)
     reached = plates._connected(ways, plateau.id)
     assert {node.id for node in await plates._surface(session)} <= reached
-    assert len(await _edges(session)) >= ways_before - len(shaken)
+    #: And the eruption's own tally squares with the graph: every way it says
+    #: it tore is gone, every one it says it laid is there. How many ways one
+    #: shaken node may lose is not a rule anywhere -- each way is rolled on its
+    #: own (`plates._redraw`) and only reachability holds the roll back -- so
+    #: counting breaks per node here would be asserting the dice.
+    assert len(await _edges(session)) == (
+        ways_before - whole[0].payload["ways_torn"] + whole[0].payload["ways_laid"]
+    )
 
 
 async def _edges(session: AsyncSession) -> list[Edge]:
