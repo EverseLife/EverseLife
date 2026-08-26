@@ -75,12 +75,14 @@
 	}
 }
 
-# `www.` lives as a separate line: it needs its own A record and its own
-# certificate. Once the DNS record exists -- remove the hashes, and www redirects to the bare domain.
-
-# www.{$LANDING_DOMAIN} {
-# 	redir https://{$LANDING_DOMAIN}{uri} permanent
-# }
+# `www.` lives as a separate line: it needs its own DNS record (an A record or
+# a CNAME to the bare domain -- ACME only needs the name to resolve here) and
+# its own certificate. Without this block Caddy has no site for that name, so
+# it breaks the TLS handshake instead of redirecting, and every `www.` link is
+# dead. The redirect is permanent, so search engines keep one address.
+www.{$LANDING_DOMAIN} {
+	redir https://{$LANDING_DOMAIN}{uri} permanent
+}
 
 # The old domain as a signpost, not a site: links to it are already out in
 # Discord and in beta invites, and a dead link is worse than a redirect. Set

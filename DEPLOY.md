@@ -425,6 +425,12 @@ docker compose pull && docker compose up -d
 2. `LANDING_DOMAIN=example.com` в `/opt/everselife/.env`;
 3. `docker compose up -d --force-recreate caddy` — Caddy возьмёт сертификат.
 
+`www.` — отдельное имя: ему нужна своя запись (A или CNAME на голый домен —
+ACME хватит того, что имя резолвится сюда) и свой сертификат. Блок
+`www.{$LANDING_DOMAIN}` в `Caddyfile` вечным редиректом уводит на голый домен;
+без него Caddy рвёт TLS-рукопожатие вместо ответа, и каждая ссылка с `www.`
+мертва.
+
 Заявки на бету копятся в SQLite на томе `landing_data`. Забрать:
 
 ```bash
