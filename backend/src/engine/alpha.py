@@ -6,7 +6,7 @@
 The alpha is tested by playing it, and playing it honestly means waiting out
 every term the world sets: a survey is minutes, a road is hours, a batch is a
 working day. Two levers exist for the alpha alone -- print a thing, and finish
-what this body is already doing.
+what this player has already started.
 
 Two rules keep them from becoming a hole in the world:
 
@@ -32,12 +32,12 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import events, world
+from src.engine import events, liquid, station, world
 from src.engine.errors import Refusal
 from src.models.craft import BatchState, CraftBatch
 from src.models.event import EventKind
@@ -45,20 +45,50 @@ from src.models.identity import Body
 from src.models.inventory import Item
 from src.models.job import Job, JobKind, JobState
 from src.models.travel import Travel, TravelState
+from src.models.world import Node
 from src.units import AMOUNT_MAX
 
 #: The ground written into the journal for everything printed here.
 ORIGIN = "alpha"
 
-#: What "hurry" reaches: the three waits a tester runs into constantly.
+#: What "hurry" reaches: the waits a tester runs into constantly. All of them
+#: are this body's own work, queued with its `body_id`.
 #: Everything else in the journal is the world's own business -- the daily
 #: tick, meters, spoilage, a vote counting down -- and pulling those forward
 #: would not speed a session up, it would falsify it.
+#:
+#: A keel, a passage, the works on a building and the ploughing are here
+#: because they are the longest of the lot (`ship.foundation_hours` is eight, a
+#: passage is hours more, a house is a working day, and a field is not sown
+#: until the furrow is turned): without them neither a ship, nor a house, nor a
+#: harvest could be looked at in a session at all, which is exactly the kind of
+#: wait this widget exists for (D-229). What makes reaching them safe is not
+#: the list but the filter under it: every one is queued with its `body_id`,
+#: and `hurry` selects by that, so no job but this body's can move.
+#:
+#: One of them moves more than this body all the same, and honestly:
+#: `SHIP_FLIGHT` carries the pilot's `body_id`, but a ship arrives whole, so
+#: everyone aboard lands early with it. That is the ship, not a hole in the
+#: filter -- a passage belongs to the hull and never to one passenger.
 HURRIED = (
     JobKind.EXPLORE_SURVEY.value,
     JobKind.TRAVEL_LEG.value,
     JobKind.CRAFT_BATCH.value,
+    JobKind.SHIP_KEEL.value,
+    JobKind.SHIP_FLIGHT.value,
+    JobKind.BUILD_FINISH.value,
+    JobKind.BUILD_DEMOLISH.value,
+    JobKind.BUILD_REPAIR.value,
+    JobKind.FARM_PLOW.value,
 )
+
+#: The one wait that belongs to nobody's hands: the body is what is being made,
+#: so there is no `body_id` on the job to filter by, and the asker has no body
+#: at all while it runs. It is reached by the identity written into the
+#: payload -- and it has to be reachable, because at twelve hours at the
+#: Forerunners' printer it is the longest term in the world, and a tester who
+#: died was the one player the widget could not help.
+BY_IDENTITY = (JobKind.BODY_PRINT.value,)
 
 
 class AlphaError(Refusal):
@@ -104,6 +134,13 @@ async def spawn(
     from the vault rather than a number written here: the scale is content
     (`quality.scale`), and a tool that knew better than the vault would be the
     second copy of it.
+
+    **A liquid is poured, not handed over** (D-230): it goes into the vessels
+    in the hands and then into those standing here, exactly as a batch's liquid
+    output does. Printed into the bare hands it would be matter in a state this
+    world has no place for -- unpourable, unusable, and heavy: `pour` moves a
+    liquid between vessels, so a stack that started outside one could never
+    reach a tank at all.
     """
     name = catalog.recipes.resolve(type_key)
     if name not in known(catalog):
@@ -133,6 +170,8 @@ async def spawn(
         #: and by reputation; the actor is named in the event below instead.
         maker_identity_id=None,
     )
+    if liquid.is_liquid(catalog, name):
+        item = await _poured(session, catalog, body, item, name)
     await events.record(
         session,
         EventKind.ALPHA_SPAWNED,
@@ -146,27 +185,83 @@ async def spawn(
     return item
 
 
+async def _poured(
+    session: AsyncSession,
+    catalog: Catalog,
+    body: Body,
+    item: Item,
+    name: str,
+) -> Item:
+    """Send a printed liquid into the vessels within reach, or refuse.
+
+    The vessels are the same two the workshop pours into (`craft.batch`): the
+    hands first, then what stands in the node -- and of those, only the ones
+    the printer may open, by the same question `pour` asks (D-181). Nothing
+    fits -- the print is refused whole rather than spilled. Spilling is the
+    honest end of work already done; here no work was done, so the tester is
+    told to bring a canister instead of being charged for one.
+
+    The stack itself survives the pouring: a fold keeps the arriving stack and
+    deletes the twin it met (`world.stack_up`), and the one path that deletes
+    this one -- a spill -- is refused above. So what comes back is the row that
+    was printed, wherever it now stands.
+    """
+    within = [await world.body_container(session, body)]
+    here = await session.get(Node, body.node_id)
+    if here is not None and await station.may_build(session, body, here):
+        within.append(await world.node_container(session, here))
+    if await liquid.settle(session, catalog, item, within) > 0:
+        raise AlphaError(
+            f"«{name}» — жидкость, и налить её некуда: возьмите канистру в руки "
+            "или встаньте там, где стоит бак. В ладонях жидкость не живёт"
+        )
+    return item
+
+
 async def hurry(
-    session: AsyncSession, body: Body, *, now: datetime | None = None
+    session: AsyncSession,
+    identity_id: uuid.UUID,
+    body: Body | None = None,
+    *,
+    now: datetime | None = None,
 ) -> tuple[str, ...]:
-    """Bring this body's running terms up to now. Returns the kinds moved.
+    """Bring this player's running terms up to now. Returns the kinds moved.
 
     The work itself is not done here -- the term is moved and the journal
     handler finishes it on its next pass, within `WORKER_IDLE_SLEEP`. So a
     hurried survey rolls its find the same way a waited-out one does, and a
     hurried batch spoils on bad inputs exactly as it would have.
 
+    Two ways of owning a term, and both are asked for by name rather than
+    trusted to the kind alone: the works of a pair of hands, found by the
+    `body_id` they were queued with, and the printing of a body, found by the
+    identity in its payload. Without a body only the second is possible, and
+    that is exactly the state the second exists for.
+
     A job the worker already holds is skipped rather than waited for: it is
     being finished as we ask, and there is nothing left to hurry. That is what
     `skip_locked` says here -- not "ignore contention" but "already running".
     """
+    if body is not None and body.identity_id != identity_id:
+        #: The whole guarantee of this lever is "your own terms and nobody
+        #: else's", and it would otherwise rest on every caller passing a
+        #: matching pair. One layer up is where the pair is assembled; this is
+        #: where the invariant belongs.
+        raise AlphaError("это тело не этой личности")
     moment = now or datetime.now(UTC)
+    owned = [
+        and_(
+            Job.kind.in_(BY_IDENTITY),
+            Job.payload["identity"].astext == str(identity_id),
+        )
+    ]
+    if body is not None:
+        owned.append(and_(Job.body_id == body.id, Job.kind.in_(HURRIED)))
     stmt = (
         select(Job)
         .where(
-            Job.body_id == body.id,
+            or_(*owned),
             Job.state == JobState.PENDING,
-            Job.kind.in_(HURRIED),
             Job.run_at > moment,
         )
         #: The term is a deadline the worker races us for: it selects pending
@@ -195,8 +290,10 @@ async def hurry(
     await events.record(
         session,
         EventKind.ALPHA_HURRIED,
-        actor_identity_id=body.identity_id,
-        node_id=body.node_id,
+        actor_identity_id=identity_id,
+        #: In the cloud there is no node to stamp: the asker is nowhere, which
+        #: is the whole of what "no body" means.
+        node_id=None if body is None else body.node_id,
         kinds=moved,
     )
     return tuple(moved)

@@ -68,6 +68,23 @@ export const PLACES: Record<string, string> = {
   луг: "Луг",
 };
 
+/**
+ * Whether this viewer may work the ground here: their own land, or nobody's.
+ *
+ * The engine's own rule, in one place. Land outside a city belongs to nobody
+ * and never will, and there the field is open -- whoever ploughs it, farms it
+ * (D-198); inside a city it is bought first. `farm.mark`, `build.construct`
+ * and the gathering all ask exactly this, and the four windows that mirror it
+ * used to spell it out one by one -- which is how the farming window came to
+ * ask for ownership alone and hid itself on every wild node in the world.
+ *
+ * Not `disposes()`: that one also says yes to the authority on civic land,
+ * which is right for the door and the name of a plot and wrong for working it.
+ */
+export function ownOrWild(look: Look): boolean {
+  return Boolean(look.node) && (api.isMine(look) || api.isWild(look.node));
+}
+
 /** Signs of the land offering extraction to this viewer: one row per sign (D-177).
  *
  * The row (`Stand.tsx`) asks what stands here; a forest is as much a thing to
@@ -77,7 +94,7 @@ export const PLACES: Record<string, string> = {
  */
 export function gatherSigns(look: Look, book: RecipeBook | null): string[] {
   const node = look.node;
-  if (!node || !(api.isMine(look) || api.isWild(node))) return [];
+  if (!node || !ownOrWild(look)) return [];
   const signs: string[] = [];
   for (const operation of book?.operations ?? []) {
     const sign = operation.place;

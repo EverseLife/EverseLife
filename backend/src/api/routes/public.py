@@ -20,10 +20,9 @@ from src.constants import HOLDER, current
 from src.constants import current_catalog as catalog
 from src.constants import registry as R
 from src.db.base import session_factory
-from src.engine import account, market, world
+from src.engine import account, market, places, world
 from src.engine import ship as vessels
 from src.engine import travel as roads
-from src.engine import world as places
 from src.models.world import Edge, Layer, Node
 from src.runtime import MARKET_BOOK_DEPTH
 from src.settings import settings
@@ -151,8 +150,16 @@ async def world_map() -> dict[str, Any]:
                     #: orbit: there a place is a function of time, not of the
                     #: spring layout the other layers settle into.
                     "planet": node.planet.value,
-                    "orbit": places.orbit_of(node),
-                    "deferred": bool(node.properties.get(places.DEFERRED)),
+                    #: Where the node stands, once and for everybody (D-237).
+                    #: The client draws this and settles nothing itself: a
+                    #: spring layout has no preferred orientation, so the same
+                    #: city came out turned differently on every opening and
+                    #: for every player. Empty on the space layer and for nodes
+                    #: laid before the rule -- there the client falls back to
+                    #: its own layout.
+                    "place": places.wire(node),
+                    "orbit": world.orbit_of(node),
+                    "deferred": bool(node.properties.get(world.DEFERRED)),
                     #: A ship is a group of ordinary nodes (D-201), and only
                     #: this mark tells them from ground: the map draws a hull
                     #: rather than a place, and one does not walk to a hull

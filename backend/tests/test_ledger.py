@@ -9,7 +9,9 @@ being impossible to post**: neither through engine code nor around it by a query
 
 from __future__ import annotations
 
+import re
 import uuid
+from pathlib import Path
 
 import pytest
 from sqlalchemy.exc import DBAPIError
@@ -174,3 +176,32 @@ async def test_account_reused_not_multiplied(session: AsyncSession) -> None:
     first = await ledger.account_for(session, AccountKind.IDENTITY, owner, Currency.TK)
     second = await ledger.account_for(session, AccountKind.IDENTITY, owner, Currency.TK)
     assert first.id == second.id
+
+
+def test_every_ground_has_a_word_in_the_client() -> None:
+    """A ground is an enum here and a sentence on two screens over there.
+
+    The statement and the city treasury both print grounds to a person, and
+    both read them out of one dictionary in `frontend/src/grounds.ts`. Nothing
+    but this test holds the two ends together, and the drift has already
+    happened once: `upkeep` gave way to `tax_land` (D-219, D-127), the word
+    stayed behind under the old key, and the treasury panel printed
+    `court_fee 20.00, duty 79.02` in the middle of a page in Russian.
+
+    Adding a `PostingReason` therefore fails here until the word exists.
+    """
+    words = Path(__file__).resolve().parents[2] / "frontend" / "src" / "grounds.ts"
+    if not words.exists():  # pragma: no cover -- backend checked out on its own
+        pytest.skip("клиент не выложен рядом: словарь оснований проверять не по чему")
+
+    #: The one dictionary, cut out by name before the keys are read: a pattern
+    #: loose enough to match any two-space key would let a second object in the
+    #: file cover a ground it knows nothing about -- and a contract test that
+    #: passes wrongly is worse than none.
+    text = words.read_text(encoding="utf-8")
+    body = re.search(r"const GROUND\b[^{]*\{(.*?)^\};", text, re.DOTALL | re.MULTILINE)
+    assert body is not None, "в grounds.ts нет словаря GROUND: тест смотрит не туда"
+
+    known = set(re.findall(r"^\s{2}(\w+):", body.group(1), re.MULTILINE))
+    missing = {reason.value for reason in PostingReason} - known
+    assert not missing, f"нет слова для оснований: {', '.join(sorted(missing))}"

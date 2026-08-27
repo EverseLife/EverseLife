@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from src.api.registry import Ctx, Refused, command
 from src.constants import current, current_catalog
-from src.engine import alpha
+from src.engine import alpha, death, liquid
 from src.models.identity import Identity
 from src.settings import is_admin
 from src.units import amount_float
@@ -45,31 +45,47 @@ async def _alpha_spawn(ctx: Ctx) -> dict:
     """
     await _admin(ctx)
     body = await ctx.alive()
+    asked = float(ctx.arg("amount", 1))
     item = await alpha.spawn(
         ctx.db,
         current(),
         current_catalog(),
         body,
         type_key=str(ctx.arg("goods")),
-        amount=float(ctx.arg("amount", 1)),
+        amount=asked,
         quality=None if ctx.arg("quality") is None else float(ctx.arg("quality")),
     )
     #: `Item.amount` is the internal integer (`units.AMOUNT_SCALE`); the player
     #: asked for pieces and is answered in pieces. And the answer is the item's
     #: own amount rather than the one asked for: a stack folds into a stack
     #: already lying there (D-214), and a counted thing is whole.
-    return {"spawned": item.type_key, "amount": amount_float(item.amount)}
+    #:
+    #: A liquid is the one thing that has no single stack to point at: it is
+    #: poured into the vessels within reach (D-230) and may end up split between
+    #: a canister and a tank. Nothing of it is lost -- a print that would spill
+    #: is refused whole -- so the honest answer there is what was asked for.
+    poured = liquid.is_liquid(current_catalog(), item.type_key)
+    return {
+        "spawned": item.type_key,
+        "amount": asked if poured else amount_float(item.amount),
+    }
 
 
 @command("alpha.hurry", hidden=True)
 async def _alpha_hurry(ctx: Ctx) -> dict:
-    """Finish what this body is doing now: survey, passage, batch (alpha only).
+    """Finish what this player is waiting on: survey, passage, batch, print
+    (alpha only).
+
+    A live body is **not** required. Without one the identity is in the cloud
+    with a single term running -- the printing of the next body -- and at
+    twelve hours at the Forerunners' printer that is the longest wait in the
+    world. Asking for a body here would have shut the widget off in the one
+    state that most needs it.
 
     The answer is a confirmation of what was moved, not the result of the work
     (D-226): the result comes as an event when the journal handler runs it, the
     same handler and the same way as a term waited out honestly.
     """
-    await _admin(ctx)
-    body = await ctx.alive()
-    moved = await alpha.hurry(ctx.db, body)
+    identity = await _admin(ctx)
+    moved = await alpha.hurry(ctx.db, identity.id, await death.alive_body(ctx.db, identity.id))
     return {"hurried": list(moved)}

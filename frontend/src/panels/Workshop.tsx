@@ -36,7 +36,7 @@ import { craftableAt, inputsOf, stationOf } from "../recipes";
 import { Rule } from "../Rule";
 import { Refusal, useActions, useBook, useSession } from "../actions";
 import { TierPick } from "../Tier";
-import { tiersOf } from "../tiers";
+import { stockOf } from "../tiers";
 
 type Props = {
   look: Look;
@@ -251,7 +251,7 @@ export function Workshop({ look, machine }: Omit<Props, "busy" | "act">) {
           {inputs.length > 0 && (
             <div className="inputs">
               {inputs.map((name) => {
-                const have = tiersOf(look.inventory, name).reduce((s, t) => s + t.amount, 0);
+                const have = stockOf(look.inventory, name);
                 return (
                   <div className="row" key={name}>
                     <span className="note">

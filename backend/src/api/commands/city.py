@@ -9,6 +9,7 @@ socket loop stayed there, the commands live by domain.
 
 from __future__ import annotations
 
+import json
 import uuid
 
 from sqlalchemy import select
@@ -386,10 +387,27 @@ async def _city_law(state: dict, db: AsyncSession, message: dict) -> dict:
         identity,
         city,
         str(message["law"]),
-        str(message["value"]),
+        _law_value(message["value"]),
         body=await _body(db, identity.id),
     )
     return {"law": message["law"], "value": message["value"]}
+
+
+def _law_value(value: object) -> str:
+    """A law is stored as text, and a law that is a table must stay readable.
+
+    Half the code-laws are numbers and words, and those are their own text. The
+    other half are tables and lists -- duties by goods, banned items -- and the
+    client sends those as JSON, which arrives here as a dict or a list. Handed
+    to `str()` they became a Python repr with single quotes: valid Python,
+    invalid JSON, and unreadable to everybody afterwards -- `customs.rates`
+    could not parse it and answered "no rates", the panel could not parse it
+    and drew "the border is open". A duty entered by the authority quietly did
+    nothing at all. So a table goes back to the JSON it arrived as.
+    """
+    if isinstance(value, str):
+        return value
+    return json.dumps(value, ensure_ascii=False)
 
 
 @command("city.charter")

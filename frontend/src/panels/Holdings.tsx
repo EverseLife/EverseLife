@@ -15,7 +15,7 @@
  * in-person: the server refuses if there is no city around.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useEdition, useSession } from "../actions";
 import * as api from "../api";
 import type { DeedView, Holding, Look, Thing } from "../api";
@@ -31,9 +31,21 @@ type Grid = { city: string; stored: number; tariff: number };
 
 export function Holdings({ look, busy, act }: Props) {
   const session = useSession();
-  const [grid, setGrid] = useState<Grid | null>(null);
+  //: Three states, not two: `undefined` is "not asked yet". Starting at `null`
+  //: made the panel open with "there is no grid here" -- a statement about the
+  //: world, printed before the world had been asked, and wrong wherever a grid
+  //: does exist. The battery button read the same `null` and greyed itself out
+  //: with "нет сети" on it.
+  const [grid, setGrid] = useState<Grid | null | undefined>(undefined);
   const [holdings, setHoldings] = useState<Holding[]>([]);
   const [deedMarket, setDeedMarket] = useState<DeedView[]>([]);
+  //: Whether the last reading failed outright, and the tables below are older
+  //: than they look.
+  const [trouble, setTrouble] = useState(false);
+  //: Which reading is the current one. The grid belongs to the city the body
+  //: stands in, so walking out of the walls while the answers are in flight
+  //: would otherwise settle the pool of the city just left.
+  const asked = useRef(0);
   //: A battery is a machine (D-179): it is either in the hands or stands
   //: here. Both are charged the same, and there is no reason to keep two windows for that.
   const batteries: { id: string; goods: string; charge: number; where: string }[] = [
@@ -51,20 +63,47 @@ export function Holdings({ look, busy, act }: Props) {
   ];
 
   const reload = useCallback(async () => {
-    const gridAnswer = await session.send("energy.grid");
-    setGrid((gridAnswer.grid as Grid | null) ?? null);
-    const own = await session.send("utility.holdings");
-    setHoldings((own.holdings as Holding[]) ?? []);
-    //: Deeds that can be bought: open contracts and those addressed to me.
-    const deeds = await session.send("deed.market");
-    setDeedMarket((deeds.deeds as DeedView[]) ?? []);
+    const mine = ++asked.current;
+    const current = () => mine === asked.current;
+    try {
+      const gridAnswer = await session.send("energy.grid");
+      if (current()) setGrid((gridAnswer.grid as Grid | null) ?? null);
+    } catch {
+      //: `energy.grid` asks where the body stands, and in the cloud there is no
+      //: body to ask about: it refuses rather than answering "no grid". That
+      //: refusal is an answer -- there is no grid to be had from here -- and
+      //: without catching it the panel waited for a reply that never came and
+      //: sat on "Сеть опрашивается…" for the rest of the session.
+      if (current()) setGrid(null);
+    }
+    try {
+      const own = await session.send("utility.holdings");
+      if (current()) setHoldings((own.holdings as Holding[]) ?? []);
+      //: Deeds that can be bought: open contracts and those addressed to me.
+      const deeds = await session.send("deed.market");
+      if (current()) {
+        setDeedMarket((deeds.deeds as DeedView[]) ?? []);
+        setTrouble(false);
+      }
+    } catch {
+      //: Neither of these two asks about a body, so they refuse for one reason
+      //: only: the server did not answer at all. Left uncaught inside the
+      //: `void reload()` of an effect, that is an unhandled rejection and a
+      //: table quietly frozen on the last answer.
+      if (current()) setTrouble(true);
+    }
   }, [session]);
   //: Reread when the world says so (D-226), not on every look.
   const edition = useEdition("deed.", "land.", "building.");
 
+  //: The node is a dependency of its own: the grid belongs to the city the body
+  //: stands in, so walking out of the walls changes the answer while no edition
+  //: does. Without it the panel kept showing the pool of the city just left,
+  //: and offered a charge the server was about to refuse.
+  const where = look.node?.key;
   useEffect(() => {
     void reload();
-  }, [reload, edition]);
+  }, [reload, edition, where]);
 
   const go = (what: () => Promise<unknown>) =>
     act(async () => {
@@ -76,6 +115,11 @@ export function Holdings({ look, busy, act }: Props) {
 
   return (
     <div>
+      {trouble && (
+        <p className="trouble">
+          Сервер не ответил: то, что ниже, — прошлое чтение. Нажмите «обновить».
+        </p>
+      )}
       <h3>
         Городская сеть
         <Rule>
@@ -83,7 +127,9 @@ export function Holdings({ look, busy, act }: Props) {
           города, а не посетителя.
         </Rule>
       </h3>
-      {grid ? (
+      {grid === undefined ? (
+        <p className="note">Сеть опрашивается…</p>
+      ) : grid ? (
         <p className="sign">
           {grid.city}: в пуле {grid.stored.toFixed(0)} · тариф {grid.tariff} ₭ за 100
         </p>
@@ -113,7 +159,13 @@ export function Holdings({ look, busy, act }: Props) {
                   <button
                     onClick={() => go(() => session.send("energy.charge", { item: battery.id }))}
                     disabled={busy || !grid || Boolean(look.travel)}
-                    title={grid ? "залить доверху по тарифу" : "здесь нет сети"}
+                    title={
+                      grid
+                        ? "залить доверху по тарифу"
+                        : grid === undefined
+                          ? "сеть ещё опрашивается"
+                          : "здесь нет сети"
+                    }
                   >
                     Зарядить
                   </button>
@@ -244,7 +296,7 @@ function Deeds({
                         onChange={(e) =>
                           setPrices({ ...prices, [deed.id]: Number(e.target.value) })
                         }
-                        title="цена договора, ТК"
+                        title="цена договора, ₭"
                       />
                       <input
                         placeholder="кому (пусто — всем)"

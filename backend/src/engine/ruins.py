@@ -235,6 +235,9 @@ async def open_room(
         area_m2=dice.uniform(area.min, area.max),
         layer=Layer.CITY,
         parent=city,
+        #: Next to the corridor it opened off, as it is joined to it: one goes
+        #: deeper through what is already open, and the map says so (D-237).
+        anchor=origin,
         properties={
             #: No `предтечи` here on purpose: the mark says "the Forerunners'
             #: **building**", and the engine reads it for the capital's core
@@ -343,6 +346,9 @@ async def lost_city(
         area_m2=1,
         layer=Layer.PLANET,
         parent=root,
+        #: A find stands next to what it was found from, on the planet's map
+        #: (D-206, D-237): the scout walked there from somewhere.
+        anchor=origin,
         properties={
             PRECURSOR: True,
             KIND: kind,
@@ -370,6 +376,7 @@ async def lost_city(
         area_m2=seed.uniform(area.min, area.max),
         layer=Layer.CITY,
         parent=city,
+        anchor=port,
         properties={
             PRECURSOR: True,
             DEPTH: 1,

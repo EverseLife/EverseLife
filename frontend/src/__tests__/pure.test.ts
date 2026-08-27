@@ -10,7 +10,8 @@ import * as amounts from "../amounts";
 import type { Thing } from "../api";
 import { arrange } from "../arrange";
 import { duration, hands, stamp, when, worldTime } from "../clock";
-import { tierLabel, tiersOf } from "../tiers";
+import { groundName } from "../grounds";
+import { stockOf, tierLabel, tiersOf } from "../tiers";
 
 const thing = (over: Partial<Thing>): Thing =>
   ({ id: "x", goods: "Руда", amount: 1, tier: "обычное", mass: 1, condition: 100, ...over }) as Thing;
@@ -42,6 +43,15 @@ describe("clock", () => {
     expect(duration(90)).toBe("2 мин");
     expect(duration(3600 * 2.5)).toBe("2 ч 30 мин");
     expect(duration(3600 * 45, 30)).toBe("1.5 сут");
+  });
+
+  it("carries the rounding instead of printing a full unit", () => {
+    //: Rounding each part on its own printed "7 ч 60 мин" for eight hours --
+    //: which is what a build site an instant short of ready actually showed.
+    expect(duration(3600 * 8 - 1)).toBe("8 ч");
+    expect(duration(3600 - 1)).toBe("1 ч");
+    expect(duration(59.7)).toBe("1 мин");
+    expect(duration(3600 * 24 - 1, 24)).toBe("1.0 сут");
   });
 });
 
@@ -116,5 +126,76 @@ describe("tiers", () => {
     ]);
     expect(tierLabel(stock[1])).toBe("обычное · 5 · кач. 40–45");
     expect(tierLabel(stock[0])).toBe("отличное · 1 · кач. 80");
+  });
+
+  it("counts what is held whether or not it is worth a tier", () => {
+    //: The bench asks how much is in the hands, and plenty of matter carries no
+    //: quality at all -- seeds carry a cultivar, a liquid carries nothing. Summed
+    //: over tiers it came out zero, and the master holding ten was told they had
+    //: none, while the batch started on it perfectly well.
+    const held = [
+      thing({ goods: "Ткань", amount: 10 }),
+      thing({ goods: "Руда", quality: 62, tier: "хорошее", amount: 18.6 }),
+      thing({ goods: "Руда", amount: 3 }),
+      thing({ goods: "Верёвка", quality: 90, tier: "отличное", amount: 9 }),
+    ];
+    expect(stockOf(held, "Ткань")).toBe(10);
+    expect(stockOf(held, "Руда")).toBe(21.6);
+    expect(stockOf(held, "Кирпич")).toBe(0);
+    //: The tier picker keeps its own rule: no quality, no band to choose.
+    expect(tiersOf(held, "Ткань")).toEqual([]);
+  });
+
+  it("reaches into a vessel: a liquid is never a stack of its own", () => {
+    //: Water lies in a canister as its `content` (D-230), and the engine
+    //: gathers a batch's materials the same way (`liquid.reach`). Counting only
+    //: the top level, bread and broth read "в руках 0" over a full canister.
+    const held = [
+      thing({
+        goods: "Канистра",
+        amount: 1,
+        content: [thing({ goods: "Вода", amount: 12 })],
+      }),
+      thing({ goods: "Канистра", amount: 1, content: [thing({ goods: "Вода", amount: 3 })] }),
+      thing({ goods: "Вода", amount: 1 }),
+    ];
+    expect(stockOf(held, "Вода")).toBe(16);
+    expect(stockOf(held, "Канистра")).toBe(2);
+    expect(stockOf(held, "Спирт")).toBe(0);
+  });
+
+  it("offers the tiers of a liquid too: poured, it keeps its quality", () => {
+    //: `liquid.settle` moves the stack whole, quality and all, and the engine
+    //: honours the tier chosen for it. Counting the water but refusing to offer
+    //: its bands would say "в руках 16" beside "в руках нет" on one row.
+    const held = [
+      thing({
+        goods: "Канистра",
+        amount: 1,
+        content: [thing({ goods: "Спирт", quality: 70, tier: "хорошее", amount: 4 })],
+      }),
+      thing({
+        goods: "Канистра",
+        amount: 1,
+        content: [thing({ goods: "Спирт", quality: 30, tier: "скверное", amount: 6 })],
+      }),
+    ];
+    expect(tiersOf(held, "Спирт").map((s) => [s.tier, s.amount])).toEqual([
+      ["хорошее", 4],
+      ["скверное", 6],
+    ]);
+  });
+});
+
+describe("grounds", () => {
+  it("says the ground in words", () => {
+    expect(groundName("tax_land")).toBe("земельный налог");
+    expect(groundName("court_fee")).toBe("пошлина суда");
+  });
+
+  //: A server newer than the client is no reason to drop the line: a key reads
+  //: worse than a word and better than a blank.
+  it("leaves an unknown ground as it came", () => {
+    expect(groundName("свежее_основание")).toBe("свежее_основание");
   });
 });

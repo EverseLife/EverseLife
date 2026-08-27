@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Constants, current
 from src.constants import registry as R
-from src.engine import events, stock, travel, world
+from src.engine import events, occupation, stock, travel, world
 from src.engine.jobs import enqueue, handler
 from src.engine.ship._base import (
     _EPS,
@@ -153,6 +153,10 @@ async def _lay(
     now: datetime,
 ) -> Job:
     """Common part of the two layings: check, write off, queue."""
+    #: Laying a keel is these hands for eight hours, like the plough (D-211):
+    #: while it goes, no search, no sleep, no second keel. Asked before the
+    #: foundation is written off -- a refusal must not cost material.
+    await occupation.require_free(session, body)
     stacks = await _foundation_at_hand(session, body)
     in_hands = sum(amount_float(stack.amount) for stack in stacks)
     if in_hands + _EPS < 1:
@@ -290,7 +294,9 @@ async def _add_node(
     delegate = await session.get(Node, ship.node_id)
     if delegate is None:  # pragma: no cover
         raise ShipError("у корабля нет группы")
-    node = await _node_aboard(session, constants, delegate, "Отсек", owner=owner, planet=at.planet)
+    node = await _node_aboard(
+        session, constants, delegate, "Отсек", owner=owner, planet=at.planet, beside=at
+    )
     #: A step between adjacent rooms is the shortest there is: inside a ship one
     #: walks as inside a city, and `travel.city_step` is that very step (D-045).
     await travel.connect(
@@ -311,6 +317,7 @@ async def _node_aboard(
     *,
     owner: uuid.UUID,
     planet: Planet,
+    beside: Node | None = None,
 ) -> Node:
     """A node aboard: a room with an area, an owner and a building in it.
 
@@ -327,6 +334,10 @@ async def _node_aboard(
         area_m2=constants[R.SHIP_NODE_AREA],
         layer=Layer.LOCATION,
         parent=delegate,
+        #: On the ship's own map a compartment stands next to the one it was
+        #: laid from -- the very node it is joined to (D-237). The first one
+        #: has nothing to stand next to and takes the group's origin.
+        anchor=beside,
         properties={ABOARD: True},
     )
     node.owner_identity_id = owner

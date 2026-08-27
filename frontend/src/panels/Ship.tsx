@@ -24,7 +24,9 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { stationsOf, type Look } from "../api";
+import { Deadline } from "../Deadline";
 import { Rule } from "../Rule";
+import { busyWith } from "../busy";
 import { firstOfClass } from "../classes";
 import { Refusal, useActions, useBook, useEdition, useSession } from "../actions";
 import { planetName } from "../planets";
@@ -41,6 +43,17 @@ const SPACEPORT = "Верфь";
 const ABOARD = "борт";
 /** The console's class: the ship is commanded from it (D-230). */
 const BRIDGE = "Рубка";
+/**
+ * The occupation a keel being laid is (D-211, `engine.occupation`).
+ *
+ * A keel takes `ship.foundation_hours` and the foundation goes out of the
+ * pocket the moment the button is pressed. Without a line saying so the item
+ * simply vanished and the node appeared eight hours later, which reads as a
+ * broken button rather than as work. The line comes from `look.doings` -- the
+ * server already names every occupation there, and a key of its own in the
+ * ship's answer would repeat what the client has (D-225).
+ */
+const KEEL = "keel";
 
 type Route = {
   node: string;
@@ -242,6 +255,14 @@ export function Ship({ look, console: atConsole = false }: { look: Look; console
   const bridge = aboard && firstOfClass(book, stationsOf(look), BRIDGE) !== undefined;
   const foundationName = firstOfClass(book, look.inventory.map((t) => t.goods), FOUNDATION);
   const foundation = look.inventory.find((t) => t.goods === foundationName);
+  //: A keel of this body's already under way. It is what the yard is doing, so
+  //: it is drawn even when nothing else about the ship exists yet -- the node
+  //: is not there until the deadline.
+  const keel = (look.doings ?? []).find((doing) => doing.kind === KEEL) ?? null;
+  //: One pair of hands lays one keel (D-211). The button says which occupation
+  //: is in the way **before** the press: a refusal collected after it says the
+  //: same thing one step too late.
+  const occupied = busyWith(look);
 
   const reload = useCallback(async () => {
     const answer = await session.send("ship.view");
@@ -356,16 +377,34 @@ export function Ship({ look, console: atConsole = false }: { look: Look; console
         </div>
       ))}
 
-      {aboard && (
+      {/* The keel itself: the eight hours between the foundation leaving the
+          pocket and the node appearing. Without this the yard was silent for
+          the whole of them. */}
+      {keel && (
+        <div className="doing">
+          <span className="doing-what">
+            {keel.title}: {keel.what}
+          </span>
+          {keel.until && <Deadline until={keel.until} label="закладка" />}
+          <span className="doing-aside note">
+            основа списана, узел появится сам — стоять у верфи не нужно. Но руки
+            заняты закладкой: до срока не выйдет ни спать, ни разведывать, ни
+            встать к станции. Ходить можно.
+          </span>
+        </div>
+      )}
+
+      {aboard && !keel && (
         <button
           onClick={() => go(() => session.send("ship.extend"))}
-          disabled={busy || !foundation}
+          disabled={busy || !foundation || occupied !== null}
+          title={occupied ?? undefined}
         >
           Заложить основание для космического корабля
         </button>
       )}
 
-      {!aboard && atPort && (
+      {!aboard && atPort && !keel && (
         <>
           <input
             value={name}
@@ -376,14 +415,17 @@ export function Ship({ look, console: atConsole = false }: { look: Look; console
             onClick={() =>
               go(() => session.send("ship.found", { name: name || "Корабль" }))
             }
-            disabled={busy || !foundation}
+            disabled={busy || !foundation || occupied !== null}
+            title={occupied ?? undefined}
           >
             Заложить основание для космического корабля
           </button>
         </>
       )}
 
-      {!foundation && (
+      {!keel && occupied !== null && <p className="note">{occupied}</p>}
+
+      {!keel && !foundation && (
         <p className="note">
           Нужна «{foundationName ?? "основа узла корабля"}» в руках — её делают в космической мастерской. Корабль растёт по
           узлу за раз: каждый следующий узел это и место, и лишняя масса.

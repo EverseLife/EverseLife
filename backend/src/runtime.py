@@ -142,6 +142,35 @@ POW_PARALLELISM = 1
 POW_STARTS_PER_WINDOW = 20
 POW_WINDOW = timedelta(minutes=10)
 
+#: Where a node stands on the map (D-237). Map units, not pixels and not
+#: metres: the client fits them to its own frame. Not balance either -- a node
+#: standing a step further from its neighbour changes nothing in the world, and
+#: the distance that does cost time is the edge's own seconds.
+#:
+#: One step from the node a new one was laid from, and never nearer than a
+#: label's width to anybody else.
+MAP_STEP = 150.0
+MAP_MIN_GAP = 96.0
+#: The angle between successive attempts to seat a node. The golden angle:
+#: whatever the count, the tried directions never fall into rays.
+MAP_TURN = 2.399963229728653
+#: How far the search for a free place walks out before it gives up and seats
+#: the node beyond the whole map. How many seats a ring has is not a number
+#: here: it is the ring's own circumference over `MAP_MIN_GAP`, because a fixed
+#: count puts the near rings' seats on top of each other and the far rings' a
+#: screen apart. So this is a bound on the walk and nothing else, and a generous
+#: one: the search widens by a ring per node already placed before it hits this.
+MAP_RINGS = 6
+#: How a key is turned into a direction: the classic string hash, and a prime
+#: to fold it into. Not a number of the world at all -- it decides only which
+#: way a node leans off its anchor, and it has to be the same on every server
+#: for ever, which is the whole reason it is written down rather than rolled.
+MAP_HASH_STEP = 31
+MAP_HASH_SPAN = 65_521
+#: Width of the advisory-lock key that holds one group's map while a node
+#: is being seated. Eight bytes, because Postgres takes a bigint.
+MAP_LOCK_BYTES = 8
+
 #: How many past events the return summary carries. A display depth, not a
 #: property of the world: the journal keeps everything, and a screen meant to be
 #: read in ten seconds cannot.

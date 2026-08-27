@@ -23,6 +23,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 
 import pytest
 from sqlalchemy import select
@@ -30,11 +31,24 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import alpha, craft, explore, jobs, travel, world
+from src.engine import (
+    alpha,
+    craft,
+    death,
+    estate,
+    explore,
+    farm,
+    jobs,
+    ruins,
+    ship,
+    storage,
+    travel,
+    world,
+)
 from src.models.craft import BatchState, CraftBatch
 from src.models.estate import Building
 from src.models.event import Event, EventKind
-from src.models.identity import Body
+from src.models.identity import Body, Identity
 from src.models.inventory import Item
 from src.models.job import Job, JobKind, JobState
 from src.models.travel import Travel
@@ -45,6 +59,9 @@ ORE = "Железная руда"
 BENCH = "Верстак"
 MAKE = "Рукоять"
 WOOD = "Дерево"
+#: A liquid and something to keep it in: liquids live only in vessels (D-230).
+FUEL = "Ракетное топливо"
+CANISTER = "Канистра"
 
 
 async def _body(session: AsyncSession) -> Body:
@@ -175,6 +192,35 @@ async def test_nothing_is_printed_by_a_zero_amount(
         await alpha.spawn(session, constants, catalog, body, type_key=ORE, amount=0)
 
 
+async def test_a_printed_liquid_is_poured_into_the_vessel_in_hand(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """A liquid is poured, not handed over (D-230). Printed into the bare hands
+    it would be matter this world has no place for: `pour` moves liquids
+    between vessels, so a stack outside one could never reach a tank at all."""
+    body = await _body(session)
+    pocket = await world.body_container(session, body)
+    canister = await world.grant_item(session, pocket, CANISTER, origin="тест")
+
+    made = await alpha.spawn(session, constants, catalog, body, type_key=FUEL, amount=3)
+
+    held = await storage.inside(session, canister)
+    assert made.container_id == held.id, "жидкость осталась в ладонях"
+    assert amount_float(made.amount) == 3.0
+    assert not [item for item in await _carried(session, body) if item.type_key == FUEL]
+
+
+async def test_a_printed_liquid_without_a_vessel_is_refused(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Refused whole rather than spilled: spilling is the honest end of work
+    already done, and here no work was done."""
+    body = await _body(session)
+    with pytest.raises(alpha.AlphaError):
+        await alpha.spawn(session, constants, catalog, body, type_key=FUEL, amount=3)
+    assert not [item for item in await _carried(session, body) if item.type_key == FUEL]
+
+
 # --- hurrying a term ---------------------------------------------------------
 
 
@@ -184,7 +230,7 @@ async def test_survey_term_comes_up_to_now(session: AsyncSession, constants: Con
     job = await explore.survey(session, constants, body)
     assert job.run_at > datetime.now(UTC)
 
-    moved = await alpha.hurry(session, body)
+    moved = await alpha.hurry(session, body.identity_id, body)
     assert moved == (JobKind.EXPLORE_SURVEY.value,)
     assert job.run_at <= datetime.now(UTC), "срок разведки остался в будущем"
 
@@ -198,7 +244,7 @@ async def test_hurried_survey_is_finished_by_the_ordinary_handler(
     anyway. There is no second path where a find could come out differently."""
     body = await _body(session)
     await explore.survey(session, constants, body)
-    await alpha.hurry(session, body)
+    await alpha.hurry(session, body.identity_id, body)
     await session.commit()
 
     ran = await jobs.run_one(factory)
@@ -213,7 +259,7 @@ async def test_passage_term_moves_with_its_job(session: AsyncSession, constants:
     passage = await travel.depart(session, constants, body, there)
     was = passage.arrives_at
 
-    moved = await alpha.hurry(session, body)
+    moved = await alpha.hurry(session, body.identity_id, body)
     assert moved == (JobKind.TRAVEL_LEG.value,)
 
     job = (
@@ -242,9 +288,31 @@ async def test_world_own_terms_are_left_alone(session: AsyncSession, constants: 
     )
     was = meter.run_at
 
-    moved = await alpha.hurry(session, body)
+    moved = await alpha.hurry(session, body.identity_id, body)
     assert moved == (JobKind.EXPLORE_SURVEY.value,)
     assert meter.run_at == was, "рычаг дотянулся до счётчика мира"
+
+
+async def _who(session: AsyncSession, identity_id) -> Identity:
+    found = await session.get(Identity, identity_id)
+    assert found is not None
+    return found
+
+
+async def _printing_ground(session: AsyncSession, catalog: Catalog):
+    """The Forerunners' own printer, and a body standing at it to die there.
+
+    The eternal one on purpose: it asks neither energy nor iron nor money
+    (D-028), so the test is about the term and nothing else -- and twelve hours
+    is the term in question.
+    """
+    stamp = uuid.uuid4().hex[:8]
+    node = await world.create_node(session, f"terra.core.{stamp}", "Ядро", area_m2=200)
+    session.add(Building(node_id=node.id, area_m2=200))
+    await session.flush()
+    await ruins.grant_relic(session, node, death.PRINTER, origin="тест: наследие Предтеч")
+    identity = await world.create_identity(session, f"Смертный-{stamp}")
+    return node, await world.print_body(session, identity, node)
 
 
 async def test_somebody_elses_term_is_not_touched(
@@ -256,15 +324,185 @@ async def test_somebody_elses_term_is_not_touched(
     job = await explore.survey(session, constants, theirs)
     was = job.run_at
 
-    assert await alpha.hurry(session, mine) == ()
+    assert await alpha.hurry(session, mine.identity_id, mine) == ()
     assert job.run_at == was
+
+
+async def test_body_print_comes_up_to_now_without_a_body(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Twelve hours at the Forerunners' printer is the longest term in the
+    world, and the one who is waiting it out has no body to filter jobs by --
+    the body is what is being made. So the print is reached by the identity in
+    the payload, and the lever works from the cloud, where there is nothing to
+    do but wait."""
+    node, body = await _printing_ground(session, catalog)
+    identity_id = body.identity_id
+    await death.die(session, constants, body, cause="обвал")
+    job = await death.order(session, constants, catalog, await _who(session, identity_id), node)
+    was = job.run_at
+    assert was > datetime.now(UTC)
+
+    moved = await alpha.hurry(session, identity_id, None)
+    assert moved == (JobKind.BODY_PRINT.value,)
+    assert job.run_at <= datetime.now(UTC), "срок печати остался в будущем"
+    assert job.run_at < was
+
+
+async def test_somebody_elses_print_is_not_hurried(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The identity in the payload is the whole of the guarantee: without it the
+    lever would finish the queue, not one's own term in it."""
+    node, body = await _printing_ground(session, catalog)
+    theirs = body.identity_id
+    await death.die(session, constants, body, cause="обвал")
+    job = await death.order(session, constants, catalog, await _who(session, theirs), node)
+    was = job.run_at
+    mine = await _body(session)
+
+    assert await alpha.hurry(session, mine.identity_id, mine) == ()
+    assert job.run_at == was
+
+
+async def test_keel_term_comes_up_to_now(session: AsyncSession, constants: Constants) -> None:
+    """The longest wait in the game is reachable, or a ship cannot be looked at
+    in one session at all: `ship.foundation_hours` is eight hours per node."""
+    stamp = uuid.uuid4().hex[:8]
+    port = await world.create_node(session, f"terra.port.{stamp}", "Космодром", area_m2=400)
+    session.add(Building(node_id=port.id, area_m2=400))
+    await session.flush()
+    await world.grant_item(
+        session, await world.node_container(session, port), "Космическая верфь", origin="тест"
+    )
+    identity = await world.create_identity(session, f"Корабел-{stamp}")
+    body = await world.print_body(session, identity, port)
+    await world.grant_item(
+        session, await world.body_container(session, body), "Основа узла корабля", origin="тест"
+    )
+    job = await ship.found(session, constants, body, "Странник")
+    assert job.run_at > datetime.now(UTC)
+
+    moved = await alpha.hurry(session, body.identity_id, body)
+    assert moved == (JobKind.SHIP_KEEL.value,)
+    assert job.run_at <= datetime.now(UTC), "срок закладки остался в будущем"
+
+
+async def _stocked(session: AsyncSession, constants: Constants, body: Body) -> None:
+    """The materials for twenty metres, into the pocket. Called again after a
+    build, because building spends them and mending asks for more."""
+    pocket = await world.body_container(session, body)
+    for goods, per_metre in estate.composition(constants, estate.kinds(constants)[0]).items():
+        await world.grant_item(
+            session, pocket, goods, amount=float(per_metre) * 20 + 1, quality=60, origin="тест"
+        )
+    await session.flush()
+
+
+async def _yard(session: AsyncSession, constants: Constants, name: str):
+    """A plot of one's own, with the materials for twenty metres in the pocket."""
+    stamp = uuid.uuid4().hex[:6]
+    plot = await world.create_node(
+        session, f"terra.plot.{stamp}", "Участок", area_m2=100, layer=Layer.PLANET
+    )
+    identity = await world.create_identity(session, f"{name}-{stamp}")
+    body = await world.print_body(session, identity, plot)
+    plot.owner_identity_id = identity.id
+    await _stocked(session, constants, body)
+    return body, plot
+
+
+async def _raised(session: AsyncSession, constants: Constants, name: str):
+    """A plot with the house already standing on it: what is demolished and repaired."""
+    body, plot = await _yard(session, constants, name)
+    raising = await estate.construct(session, constants, body, plot, 20.0)
+    await estate.finish_build(session, raising)
+    #: The handler is run by hand here, so the row is closed by hand too -- the
+    #: worker would have done it, and a job left pending would be hurried along
+    #: with the one the test is about.
+    raising.state = JobState.DONE
+    await _stocked(session, constants, body)
+    return body, plot
+
+
+async def _building(session: AsyncSession, constants: Constants, name: str) -> Job:
+    body, plot = await _yard(session, constants, name)
+    return await estate.construct(session, constants, body, plot, 20.0)
+
+
+async def _demolishing(session: AsyncSession, constants: Constants, name: str) -> Job:
+    body, plot = await _raised(session, constants, name)
+    return await estate.demolish(session, constants, body, plot)
+
+
+async def _repairing(session: AsyncSession, constants: Constants, name: str) -> Job:
+    body, plot = await _raised(session, constants, name)
+    #: Nothing to mend on a whole house: the walls are worn down first.
+    for house in await estate.buildings_of(session, plot):
+        house.condition = Decimal("50")
+    await session.flush()
+    return await estate.repair(session, constants, body, plot)
+
+
+async def _ploughing(session: AsyncSession, constants: Constants, name: str) -> Job:
+    """A furrow on nobody's fertile ground: the field is open there (D-198)."""
+    stamp = uuid.uuid4().hex[:6]
+    field = await world.create_node(
+        session,
+        f"terra.field.{stamp}",
+        "Пойма",
+        area_m2=400,
+        layer=Layer.PLANET,
+        properties={"вода": "река", "плодородие": 55},
+    )
+    identity = await world.create_identity(session, f"{name}-{stamp}")
+    body = await world.print_body(session, identity, field)
+    plot = await farm.mark(session, constants, body, name=f"Делянка-{stamp}", area=100)
+    await farm.plow(session, constants, body, plot)
+    return (
+        await session.execute(
+            select(Job).where(
+                Job.kind == JobKind.FARM_PLOW.value,
+                Job.body_id == body.id,
+                Job.state == JobState.PENDING,
+            )
+        )
+    ).scalar_one()
+
+
+@pytest.mark.parametrize(
+    ("kind", "start"),
+    [
+        (JobKind.BUILD_FINISH, _building),
+        (JobKind.BUILD_DEMOLISH, _demolishing),
+        (JobKind.BUILD_REPAIR, _repairing),
+        (JobKind.FARM_PLOW, _ploughing),
+    ],
+)
+async def test_journal_works_come_up_to_now_and_only_this_body_s(
+    session: AsyncSession, constants: Constants, kind: JobKind, start
+) -> None:
+    """A house is a working day and a furrow is hours, and the lever must reach
+    every one of those works -- but only the ones this body started. The safety
+    of the whole thing rests on the jobs being queued with a `body_id`, and that
+    lives in four different modules, so all four are pinned."""
+    job = await start(session, constants, "Хозяин")
+    theirs = await start(session, constants, "Сосед")
+    was = theirs.run_at
+    assert job.run_at > datetime.now(UTC)
+
+    mine = await session.get(Body, job.body_id)
+    moved = await alpha.hurry(session, mine.identity_id, mine)
+    assert moved == (kind.value,)
+    assert job.run_at <= datetime.now(UTC), "срок работ остался в будущем"
+    assert theirs.run_at == was, "рычаг дотянулся до чужой стройки"
 
 
 async def test_nothing_to_hurry_is_not_a_refusal(session: AsyncSession) -> None:
     """Standing still is an answer, not an error: the widget's button is
     pressed by a tester who has not started anything yet."""
     body = await _body(session)
-    assert await alpha.hurry(session, body) == ()
+    assert await alpha.hurry(session, body.identity_id, body) == ()
 
 
 async def test_batch_term_and_bench_clock_move_together(
@@ -284,7 +522,7 @@ async def test_batch_term_and_bench_clock_move_together(
     bench = await session.get(Item, batch.station_item_id)
     assert bench is not None and bench.busy_until == was
 
-    moved = await alpha.hurry(session, body)
+    moved = await alpha.hurry(session, body.identity_id, body)
     assert moved == (JobKind.CRAFT_BATCH.value,)
 
     job = (
@@ -308,7 +546,7 @@ async def test_hurried_batch_is_finished_by_the_ordinary_handler(
     runs anyway, and the bench comes free with them."""
     _, body = await _master(session)
     batch = await craft.start(session, constants, catalog, body, MAKE, 2)
-    await alpha.hurry(session, body)
+    await alpha.hurry(session, body.identity_id, body)
     await session.commit()
 
     ran = await jobs.run_one(factory)
@@ -340,7 +578,7 @@ async def test_a_frozen_batch_has_no_term_to_hurry(
     await craft.freeze(session, body)
     assert (await session.get(CraftBatch, batch.id)).state is BatchState.WAITING
 
-    assert await alpha.hurry(session, body) == ()
+    assert await alpha.hurry(session, body.identity_id, body) == ()
     assert job.run_at == was, "срок замороженного запуска всё-таки двинули"
 
 
@@ -373,7 +611,7 @@ async def test_a_leftover_run_is_not_hurried_beside_the_live_one(
     assert set(jobs_of_batch) >= {1, live}, f"ожидались задания обоих запусков: {jobs_of_batch}"
     stale_was = jobs_of_batch[1].run_at
 
-    assert await alpha.hurry(session, body) == (JobKind.CRAFT_BATCH.value,)
+    assert await alpha.hurry(session, body.identity_id, body) == (JobKind.CRAFT_BATCH.value,)
     assert jobs_of_batch[1].run_at == stale_was, "двинули срок брошенного запуска"
     assert jobs_of_batch[live].run_at < stale_was
 
@@ -492,7 +730,7 @@ async def test_two_levers_at_once_leave_one_term(
     async def rush() -> tuple[str, ...]:
         async with factory() as db, db.begin():
             mine = await db.get(Body, body_id)
-            return await alpha.hurry(db, mine)
+            return await alpha.hurry(db, mine.identity_id, mine)
 
     outcomes = await asyncio.gather(rush(), rush())
     assert sorted(len(one) for one in outcomes) == [0, 1], f"срок двинули дважды: {outcomes}"

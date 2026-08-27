@@ -92,6 +92,7 @@ from src.engine import (
     ledger,
     library,
     market,
+    places,
     ruins,
     ship,
     tick,
@@ -311,6 +312,7 @@ async def seed(session: AsyncSession) -> Node:
         area_m2=200,
         parent=capital,
         properties={"кольцо": 1},
+        anchor=core,
     )
     marketplace = await world.create_node(
         session,
@@ -319,6 +321,7 @@ async def seed(session: AsyncSession) -> Node:
         area_m2=200,
         parent=capital,
         properties={"кольцо": 1},
+        anchor=core,
     )
     forge = await world.create_node(
         session,
@@ -327,6 +330,7 @@ async def seed(session: AsyncSession) -> Node:
         area_m2=260,
         parent=capital,
         properties={"кольцо": 2},
+        anchor=marketplace,
     )
     face = await world.create_node(
         session,
@@ -335,6 +339,7 @@ async def seed(session: AsyncSession) -> Node:
         area_m2=300,
         parent=capital,
         properties={"кольцо": 3},
+        anchor=forge,
     )
     #: The administration is the node where the "Administration" machine
     #: stands: what a building is, is set by the machine in it (D-106).
@@ -346,6 +351,7 @@ async def seed(session: AsyncSession) -> Node:
         area_m2=180,
         parent=capital,
         properties={"кольцо": 1},
+        anchor=core,
     )
     #: The city's two doors (D-206). The gate is where every road beyond the
     #: walls begins, the spaceport is where ship groups couple on; nothing else
@@ -357,6 +363,7 @@ async def seed(session: AsyncSession) -> Node:
         area_m2=80,
         parent=capital,
         properties={"кольцо": 3, travel.EXIT: True},
+        anchor=core,
     )
     port = await world.create_node(
         session,
@@ -365,6 +372,7 @@ async def seed(session: AsyncSession) -> Node:
         area_m2=240,
         parent=capital,
         properties={"кольцо": 3},
+        anchor=gate,
     )
     #: The first ring beyond the walls: distance 1 (D-180) -- twenty seconds of
     #: walking, not twenty minutes. Near resources are hauled daily, and that is the whole point.
@@ -378,6 +386,7 @@ async def seed(session: AsyncSession) -> Node:
         #: Woods and stony ground by the shaft: the first axe is made here,
         #: with bare hands and without anybody's help (D-196).
         properties={"лес": True, "камни": True, "вода": "нет", travel.REACH: 1},
+        anchor=gate,
     )
     #: The capital's penal colony (D-174, D-176): a vein, a printer and a
     #: terminal behind one wall. The "Penal colony" machine makes the node a
@@ -390,6 +399,7 @@ async def seed(session: AsyncSession) -> Node:
         area_m2=120,
         parent=capital,
         properties={"кольцо": 3},
+        anchor=gate,
     )
     #: Free plots of the second ring: the city hands them out to residents
     #: (D-089), and only on own land does a craftsman place their machine (D-150).
@@ -401,6 +411,7 @@ async def seed(session: AsyncSession) -> Node:
             area_m2=dice.uniform(*_ring(constants)),
             parent=capital,
             properties={"кольцо": 2, "участок": True},
+            anchor=forge,
         )
         for number in (1, 2, 3)
     ]
@@ -416,6 +427,7 @@ async def seed(session: AsyncSession) -> Node:
         parent=terra,
         #: A meadow by the water: wild flax grows here, and fibre begins with it (D-196).
         properties={"вода": "река", "плодородие": 55, "луг": True, travel.REACH: 1},
+        anchor=gate,
     )
 
     #: Inside the city -- short edges, outside -- a real transit.
@@ -715,6 +727,13 @@ async def catch_up(session: AsyncSession, core: Node) -> None:
     #: planets arrive with their orbits, and Terra learns its own.
     await _system(session)
 
+    #: Places on the map (D-237). A world laid out before the rule has none,
+    #: and the client would go on settling it with springs -- turned differently
+    #: for every player and after every find. Nobody who has a place moves.
+    laid = await places.backfill(session)
+    if laid:
+        log.info("map places given to %s nodes", laid)
+
     #: Berths (D-201): a ship moored before the piers were numbered has a
     #: gangway of whatever length the old rule gave it. The number itself comes
     #: from the migration, in docking order; the walk is relaid here, because
@@ -789,7 +808,7 @@ async def catch_up(session: AsyncSession, core: Node) -> None:
     await _original_printer(session, core)
 
     townhall = await _node_if_missing(
-        session, "terra.capital.hall", "Администрация", 180, capital, {"кольцо": 1}
+        session, "terra.capital.hall", "Администрация", 180, capital, {"кольцо": 1}, core
     )
     if townhall is not None:
         await _machine(session, townhall, "Администрация", 65)
@@ -821,6 +840,7 @@ async def catch_up(session: AsyncSession, core: Node) -> None:
         120,
         capital,
         {"кольцо": 3},
+        core,
     )
     prison = (
         new_prison
@@ -873,6 +893,7 @@ async def catch_up(session: AsyncSession, core: Node) -> None:
             dice.uniform(*_ring(constants)),
             capital,
             {"кольцо": 2, "участок": True},
+            forge,
         )
         if plot is not None:
             plot.owner_city_id = city.id
@@ -919,7 +940,7 @@ async def catch_up(session: AsyncSession, core: Node) -> None:
     #: The capital's spaceport (D-203, D-206). A world furnished before space
     #: had nowhere to couple a ship to at all, so the node and its machine
     #: arrive whole -- by the gate, where the second door belongs.
-    new_port = await _node_if_missing(session, PORT, "Космодром", 240, capital, {"кольцо": 3})
+    new_port = await _node_if_missing(session, PORT, "Космодром", 240, capital, {"кольцо": 3}, gate)
     port = (
         new_port
         or (await session.execute(select(Node).where(Node.key == PORT))).scalar_one_or_none()
@@ -1193,13 +1214,14 @@ async def _node_if_missing(
     area: float,
     parent: Node,
     properties: dict,
+    anchor: Node | None = None,
 ) -> Node | None:
     """Create a node if it does not exist yet. Otherwise nothing: the world is not rewritten."""
     existing_ = (await session.execute(select(Node).where(Node.key == key))).scalar_one_or_none()
     if existing_ is not None:
         return None
     return await world.create_node(
-        session, key, name, area_m2=area, parent=parent, properties=properties
+        session, key, name, area_m2=area, parent=parent, properties=properties, anchor=anchor
     )
 
 

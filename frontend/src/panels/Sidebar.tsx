@@ -24,11 +24,10 @@ import { reserveNow } from "../warmth";
 import { Doing } from "../Deadline";
 import { Glyph } from "../Glyph";
 import { Inventory } from "./Inventory";
-import { Economy } from "./Economy";
 import { Finance } from "./Finance";
 import { Holdings } from "./Holdings";
+import { State } from "./State";
 import { Net } from "./Net";
-import { Population } from "./Population";
 import { Workshop } from "./Workshop";
 import { Rule } from "../Rule";
 import { Refusal, useActions, useBook, useSession } from "../actions";
@@ -158,12 +157,7 @@ export function Sidebar({ look }: Omit<Props, "busy" | "act">) {
           onWanted={forgetWanted}
         />
       )}
-      {current === "state" && (
-        <>
-          <Economy look={look} busy={busy} />
-          <Population look={look} busy={busy} />
-        </>
-      )}
+      {current === "state" && <State look={look} busy={busy} />}
     </aside>
   );
 }

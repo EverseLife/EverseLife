@@ -61,6 +61,7 @@ otherwise customs stops being politics and becomes physics (D-123).
 
 from __future__ import annotations
 
+import json
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -115,7 +116,30 @@ class Charge:
 
 def _law(catalog: Catalog, city: City, direction: str, kind: str) -> object:
 
-    return town.law(catalog, city, f"{direction}_{kind}")
+    return _unpacked(town.law(catalog, city, f"{direction}_{kind}"))
+
+
+def _unpacked(raw: object) -> object:
+    """A law written as a table comes back as the text it was stored as.
+
+    A law is text (`city.set_law`), and interpreting it belongs to the consumer
+    -- which is here. The two table laws of customs are entered in the
+    interface as a map of goods and a list of goods, travel as JSON and are
+    stored as JSON; a number and a word are their own text and pass through
+    untouched. Without this step the stored table was neither a dict nor a
+    number, and the duty read as "no rates" -- the authority's decision
+    silently did nothing.
+    """
+    if not isinstance(raw, str):
+        return raw
+    text = raw.strip()
+    if not text.startswith(("{", "[")):
+        return raw
+    try:
+        return json.loads(text)
+    except ValueError:
+        #: Not JSON after all: left as the text it is, and read as before.
+        return raw
 
 
 def banned(catalog: Catalog, city: City, direction: str) -> set[str]:

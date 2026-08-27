@@ -35,7 +35,6 @@ from src.engine import (
     transport,
     world,
 )
-from src.engine import world as places
 from src.models.craft import BatchState, CraftBatch
 from src.models.identity import Body, Identity, Knowledge, KnowledgeKind
 from src.models.ledger import AccountKind
@@ -181,7 +180,7 @@ async def _clock(db: AsyncSession, constants, node: Node) -> dict[str, Any]:
     player's own clock on purpose.
     """
 
-    origin = await places.epoch(db)
+    origin = await world.epoch(db)
     return {
         "planet": node.planet.value,
         "epoch": None if origin is None else origin.isoformat(),
@@ -522,7 +521,7 @@ async def _batches(db: AsyncSession, identity_id: uuid.UUID) -> list[dict[str, A
                 "station": batch.station,
                 "state": batch.state.value,
                 "waiting": why,
-                "node": places.get(batch.node_id),
+                "node": world.get(batch.node_id),
                 #: Both ends of the term, not just the far one: the deadline bar
                 #: shows a share of the whole, and a share needs a beginning.
                 #: The near end is the current run, not the first start -- a

@@ -832,6 +832,9 @@ async def _place(
             layer=Layer.CITY,
             parent=delegate,
             planet=origin.planet,
+            #: On the built-up map the plot lies where it was found: beside the
+            #: very node the scout set out from (D-237).
+            anchor=origin,
             properties={"участок": True, "кольцо": origin.properties.get("кольцо", 0)},
         )
         plot.owner_city_id = city.id
@@ -849,6 +852,10 @@ async def _place(
         layer=Layer.PLANET,
         parent=root,
         planet=origin.planet,
+        #: And it stands next to it on the map as well: sought from inside a
+        #: city, the find lies beside that city, because on the planet's map
+        #: the whole city is one point (D-206, D-237).
+        anchor=origin,
         #: Distance grows by a step from the node we left from (D-180): the
         #: frontier recedes by itself as it is pushed.
         properties=await _properties(

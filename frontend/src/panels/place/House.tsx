@@ -9,7 +9,7 @@ import * as api from "../../api";
 import { when } from "../../clock";
 import { Refusal, useActions, useSession } from "../../actions";
 import { TierPick } from "../../Tier";
-import type { Props } from "./shared";
+import { ownOrWild, type Props } from "./shared";
 import { Demolition } from "./Demolition";
 import { Equipment } from "./Equipment";
 import { Repair } from "./Repair";
@@ -61,7 +61,7 @@ export function House({ look }: Omit<Props, "busy" | "act">) {
   //: there. Above the early return on purpose -- a hook that sometimes does not
   //: run is a hook React counts wrong.
   const key = look.node?.key;
-  const buildable = api.isMine(look) || api.isWild(look.node);
+  const buildable = ownOrWild(look);
   useEffect(() => {
     if (!buildable) return;
     let dropped = false;

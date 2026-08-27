@@ -388,6 +388,28 @@ async def test_printers_visible_from_cloud(
     assert doors[0]["node"] == forge.key
 
 
+async def test_printer_row_names_what_is_on_hand_beside_what_is_asked(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The dead choose from the cloud and stand nowhere, so the pool behind a
+    printer is the one figure they cannot look up. Without it the row named the
+    demand alone, and a city holding a fifth of the energy needed read exactly
+    like one that could print."""
+    _, core, forge = await _world(session, catalog)
+    _, body = await _resident(session, core, "Погибший")
+    await death.die(session, constants, body, cause="обвал")
+
+    pool = await energy.pool_of(session, constants, forge)
+    pool.stored = Decimal("277")
+    await session.flush()
+
+    doors = {door["node"]: door for door in await death.printers(session, constants)}
+    assert doors[forge.key]["energy_here"] == 277
+    assert doors[forge.key]["energy"] == constants[R.ENERGY_BODY_PRINT]
+    #: The eternal printer asks nothing of a pool, and there is none behind it.
+    assert doors[core.key]["energy"] == 0
+
+
 # --- newcomer entry (D-013, D-182) -------------------------------------------
 
 

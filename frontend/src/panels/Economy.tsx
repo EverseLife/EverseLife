@@ -11,43 +11,13 @@
  */
 
 
-import { useCallback, useEffect, useState } from "react";
-import { useSession } from "../actions";
 import * as api from "../api";
-import type { CityPanel, CityView, Look } from "../api";
 import { Panel } from "./Admin";
 import { Rule } from "../Rule";
+import type { StateView } from "./State";
 
-type Props = { look: Look; busy: boolean };
-
-export function Economy({ look, busy }: Props) {
-  const session = useSession();
-  const [city, setCity] = useState<CityView | null>(null);
-  const [panel, setPanel] = useState<CityPanel | null>(null);
-  const [world, setWorld] = useState<Record<string, number>>({});
-
-  const reload = useCallback(async () => {
-    try {
-      const summary = await session.send("city.survey");
-      setCity((summary.city as CityView) ?? null);
-      const snapshot = await session.send("city.panel");
-      setPanel((snapshot.panel as CityPanel) ?? null);
-      const metrics = await session.send("world.metrics");
-      setWorld((metrics.metrics as Record<string, number>) ?? {});
-    } catch {
-      setCity(null);
-      setPanel(null);
-    }
-  }, [session]);
-
-  useEffect(() => {
-    void reload();
-  }, [reload, look.node?.key]);
-
-  if (!city) {
-    return <p className="note">Вы вне города: за стенами законов нет.</p>;
-  }
-
+export function Economy({ view }: { view: StateView }) {
+  const { city, panel, world } = view;
   const prices = Object.entries(world).filter(([k]) => k.startsWith("price."));
 
   return (
@@ -61,7 +31,7 @@ export function Economy({ look, busy }: Props) {
       <table>
         <tbody>
           <tr>
-            <td>масса ТК</td>
+            <td>масса ₭</td>
             <td className="num">{(world["money.total"] ?? 0).toFixed(2)}</td>
           </tr>
           <tr>
@@ -118,10 +88,6 @@ export function Economy({ look, busy }: Props) {
             ))}
         </tbody>
       </table>
-
-      <button className="quiet" onClick={() => void reload()} disabled={busy}>
-        Пересчитать
-      </button>
     </div>
   );
 }

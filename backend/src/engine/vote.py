@@ -242,6 +242,14 @@ async def cast(
 ) -> Ballot:
     """Vote. Remote: a vote is participation, not governing."""
     moment = now or datetime.now(UTC)
+    if vote.kind in (VoteKind.ELECTION, VoteKind.COUNCIL):
+        #: The mirror of the refusal `choose` gives a yes-or-no poll. An
+        #: election counts people, not approvals: every ballot in one names a
+        #: candidate. A bare "yes" cast into it would be a ballot for nobody --
+        #: counted among those who voted, choosing none of them -- and only the
+        #: interface's own good manners kept them out, which is no rule at all
+        #: for anyone sending commands straight down the socket (D-224).
+        raise VoteError("это выборы: здесь голосуют за человека, а не «за» или «против»")
     if vote.state is not VoteState.OPEN or vote.closes_at <= moment:
         raise Closed("голосование закрыто: опоздавший голос итога не меняет")
     if not await may_vote_in(session, city, identity.id, vote, now=moment):
@@ -413,6 +421,17 @@ async def view(
                         "id": raw_,
                         "name": None if who is None else who.name,
                         "votes": account.get(raw_, 0),
+                        #: Whether this one is the asker. The client cannot work
+                        #: it out: it knows its own name and nothing else, and a
+                        #: name is not an identity (two people may share one).
+                        #: Without it the "Выдвинуться" button stayed offered to
+                        #: somebody already standing, and the second press is a
+                        #: refusal the interface promised.
+                        #:
+                        #: Not `mine`: the poll around it already carries a
+                        #: `mine`, and there it means "my ballot, yes or no".
+                        #: One word with two meanings in one answer.
+                        "own": raw_ == str(identity_id),
                     }
                 )
         result.append(

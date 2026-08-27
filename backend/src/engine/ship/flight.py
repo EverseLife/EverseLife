@@ -12,6 +12,7 @@ import random
 import uuid
 from datetime import UTC, datetime, timedelta
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants, current
@@ -53,7 +54,7 @@ from src.engine.ship.physics import (
 from src.engine.ship.view import beacon_lit, lands_anywhere, open_landings
 from src.models.event import EventKind
 from src.models.identity import Body, BodyState
-from src.models.job import Job, JobKind
+from src.models.job import Job, JobKind, JobState
 from src.models.ship import Ship
 from src.models.world import Node, Surface
 from src.units import (
@@ -61,6 +62,33 @@ from src.units import (
     ROUND_MASS,
     ROUND_RATIO,
 )
+
+
+async def _passage_of(session: AsyncSession, ship: Ship) -> Job | None:
+    """The passage this ship is on, if it is on one.
+
+    A passage lives in its journal job alone: it was queued at the casting off
+    and fires on arrival, so an unfinished one **is** the ship being under way.
+
+    `RUNNING` is matched for the day the journal starts using it: today a
+    claimed job keeps `PENDING` and is held by `locked_by` (`jobs._claim`), so
+    the state never appears. It is listed rather than left out because the one
+    thing that must not happen here is an under-way hull reading as free --
+    and unlike a wedged hull, that one cannot be undone by waiting.
+    """
+    return (
+        (
+            await session.execute(
+                select(Job).where(
+                    Job.kind == JobKind.SHIP_FLIGHT.value,
+                    Job.state.in_((JobState.PENDING, JobState.RUNNING)),
+                    Job.payload["ship"].astext == str(ship.id),
+                )
+            )
+        )
+        .scalars()
+        .first()
+    )
 
 
 async def _commanded_by(session: AsyncSession, body: Body, ship: Ship) -> None:
@@ -106,6 +134,11 @@ async def undock(
     """
     moment = now or datetime.now(UTC)
     await _commanded_by(session, body, ship)
+    #: Held while it is decided, as in `fly`: this and that are the two writes
+    #: into the hull's row, and two casting-offs given together would both pass
+    #: an unlocked check. Nothing worse than a doubled event comes of it today,
+    #: but the pair of orders is one pair and is guarded as one.
+    await session.refresh(ship, with_for_update=True)
     if ship.docked_node_id is None:
         raise InFlight("корабль уже отстыкован")
 
@@ -183,8 +216,22 @@ async def fly(
     """
     moment = now or datetime.now(UTC)
     await _commanded_by(session, body, ship)
+    #: One hull, one passage -- and the hull is held while that is decided.
+    #: Undocking leaves the ship with no edge at all, and "not docked" was the
+    #: only thing asked here, so a second order given while the first was still
+    #: under way was taken: the fuel was burnt twice and two arrivals stood in
+    #: the journal, each ready to set the hull down in its own port. Two orders
+    #: given in the same second (two sockets of one player, an AI citizen of
+    #: D-224) would pass an unlocked check together, so the row is taken first
+    #: and every later order waits for this one to finish.
+    await session.refresh(ship, with_for_update=True)
     if ship.docked_node_id is not None:
         raise Docked("корабль пристыкован: сначала отстыкуйтесь")
+    running = await _passage_of(session, ship)
+    if running is not None:
+        goal = await session.get(Node, uuid.UUID(str(running.payload["to"])))
+        where = f" в «{goal.name}»" if goal is not None else ""
+        raise InFlight(f"корабль уже в рейсе{where}: до конца перехода он приказов не берёт")
     #: A yard, or the bare ground of a planet one lands anywhere on (D-233):
     #: Pyroxis has no port and can have none -- nothing is built there, so
     #: there is nothing to put a yard into, and a ship simply sets down.

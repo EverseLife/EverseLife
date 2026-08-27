@@ -163,10 +163,10 @@ from src.engine import (
     net,
     ship,
     transport,
+    world,
 )
 from src.engine import city as town
 from src.engine import ship as vessels
-from src.engine import world as places
 from src.engine.errors import Refusal
 from src.engine.jobs import enqueue, handler
 from src.models.event import EventKind
@@ -275,7 +275,7 @@ async def is_exit(session: AsyncSession, node: Node) -> bool:
     if (node.properties or {}).get(EXIT):
         return True
 
-    return await places.has_station(session, node, ship.SPACEPORT)
+    return await world.has_station(session, node, ship.SPACEPORT)
 
 
 async def gate_of(session: AsyncSession, node: Node) -> Node | None:

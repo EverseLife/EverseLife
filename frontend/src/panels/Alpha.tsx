@@ -26,10 +26,21 @@ import { useMemo, useState } from "react";
 import { Refusal, useActions, useBook, useSession } from "../actions";
 
 /** Job kinds the server may report as hurried, in the player's words. */
+//: Every kind the server will hurry, in words. The list on the server has grown
+//: since -- a keel, a passage between planets, the works on a building, the
+//: ploughing, the printing of a body -- and each one missing here came back to
+//: the widget as its own enum key: "срок подтянут: ship.keel".
 const MOVED: Record<string, string> = {
   "explore.survey": "разведка",
   "travel.leg": "переход",
   "craft.batch": "работа",
+  "ship.keel": "закладка корабля",
+  "ship.flight": "перелёт",
+  "build.finish": "стройка",
+  "build.demolish": "снос",
+  "build.repair": "ремонт",
+  "farm.plow": "вспашка",
+  "body.print": "печать тела",
 };
 
 type Props = {
@@ -37,9 +48,14 @@ type Props = {
    *  scale is one of them, and writing 0..100 here would be a second copy of
    *  a number the vault owns. */
   values: Record<string, any> | null;
+  /** Whether there is a body to print into. In the cloud there is not, and a
+   *  thing is printed into the hands: the half of the widget that does it is
+   *  hidden rather than left there to be refused. Hurrying stays -- the term
+   *  running there is the printing of the body itself. */
+  embodied?: boolean;
 };
 
-export function Alpha({ values }: Props) {
+export function Alpha({ values, embodied = true }: Props) {
   const session = useSession();
   const book = useBook();
   //: This panel's own waiting and its own refusal: printing a thing must not
@@ -120,49 +136,55 @@ export function Alpha({ values }: Props) {
 
       {open && (
         <>
-          <label>
-            <span>что напечатать</span>
-            <input
-              list="alpha-goods"
-              value={goods}
-              onChange={(e) => setGoods(e.target.value)}
-              placeholder="Железная руда"
-            />
-          </label>
-          <datalist id="alpha-goods">
-            {names.map((name) => (
-              <option key={name} value={name} />
-            ))}
-          </datalist>
+          {embodied && (
+            <>
+              <label>
+                <span>что напечатать</span>
+                <input
+                  list="alpha-goods"
+                  value={goods}
+                  onChange={(e) => setGoods(e.target.value)}
+                  placeholder="Железная руда"
+                />
+              </label>
+              <datalist id="alpha-goods">
+                {names.map((name) => (
+                  <option key={name} value={name} />
+                ))}
+              </datalist>
+
+              <div className="row">
+                <label>
+                  <span>сколько</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="any"
+                    value={amount}
+                    onChange={(e) => setAmount(e.target.value)}
+                  />
+                </label>
+                <label>
+                  <span>качество</span>
+                  <input
+                    type="number"
+                    {...(scale ? { min: scale.min, max: scale.max } : {})}
+                    step="any"
+                    value={quality}
+                    onChange={(e) => setQuality(e.target.value)}
+                    placeholder="без качества"
+                  />
+                </label>
+              </div>
+            </>
+          )}
 
           <div className="row">
-            <label>
-              <span>сколько</span>
-              <input
-                type="number"
-                min="0"
-                step="any"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-              />
-            </label>
-            <label>
-              <span>качество</span>
-              <input
-                type="number"
-                {...(scale ? { min: scale.min, max: scale.max } : {})}
-                step="any"
-                value={quality}
-                onChange={(e) => setQuality(e.target.value)}
-                placeholder="без качества"
-              />
-            </label>
-          </div>
-
-          <div className="row">
-            <button onClick={spawn} disabled={busy || goods.trim() === ""}>
-              Напечатать
-            </button>
+            {embodied && (
+              <button onClick={spawn} disabled={busy || goods.trim() === ""}>
+                Напечатать
+              </button>
+            )}
             <button onClick={hurry} disabled={busy}>
               Завершить сейчас
             </button>
@@ -170,10 +192,13 @@ export function Alpha({ values }: Props) {
 
           {said && <p className="note">{said}</p>}
           <p className="note">
-            Печатается в руки и в журнал: у вещи записано основание «alpha», и
-            найти всё, что мир не заработал, можно по нему. «Завершить сейчас»
-            двигает срок разведки, перехода и работы — доделывает их обычный
-            обработчик, тот же, что и при честном ожидании.
+            {embodied &&
+              "Печатается в руки и в журнал: у вещи записано основание «alpha», и " +
+                "найти всё, что мир не заработал, можно по нему. "}
+            «Завершить сейчас» двигает срок того, что вы уже начали, — разведки,
+            перехода, работы, стройки, вспашки, перелёта и печати тела:
+            доделывает их обычный обработчик, тот же, что и при честном
+            ожидании.
           </p>
         </>
       )}

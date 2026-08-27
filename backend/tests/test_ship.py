@@ -16,18 +16,20 @@ Checked is exactly what the design rests on:
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from datetime import timedelta
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import jobs, ship, storage, travel, world
+from src.engine import jobs, occupation, rest, ship, storage, travel, world
 from src.models.estate import Building
 from src.models.identity import Body
-from src.models.job import JobState
+from src.models.job import Job, JobKind, JobState
 from src.models.ship import Ship
 from src.models.world import Layer, Node, Planet, Surface
 
@@ -194,6 +196,77 @@ async def test_ship_grows_by_a_node_at_a_time(
         .first()
     )
     assert housing is not None and float(housing.area_m2) == constants[R.SHIP_NODE_AREA]
+
+
+async def test_the_keel_is_the_bodys_own_work_and_visible_while_it_goes(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """Between the foundation leaving the pocket and the node arriving lies work.
+
+    Eight hours of it, and until this it existed nowhere: the item was gone and
+    nothing on screen said why -- which reads as a broken button rather than as
+    a yard at work. The keel is an occupation of these hands like the plough
+    (D-211), so it is in `all_of` -- one place where everything running is seen
+    -- and it forbids a second one.
+    """
+    port = await _port(session)
+    _, body = await _shipwright(session, port, foundations=2)
+
+    assert await occupation.current(session, body) is None, "до закладки руки свободны"
+    job = await ship.found(session, constants, body, "Заря")
+
+    doings = {doing.kind: doing for doing in await occupation.all_of(session, body)}
+    assert occupation.KEEL in doings, "закладка видна в делах"
+    laying = doings[occupation.KEEL]
+    assert laying.until == job.run_at, "срок тот же, что у задания"
+    assert "Заря" in laying.what, "строка называет корабль"
+
+    #: One pair of hands lays one keel, and the second foundation stays in the
+    #: pocket: a refusal must not cost material.
+    with pytest.raises(occupation.Busy):
+        await ship.found(session, constants, body, "Вторая")
+    assert len(await ship._foundation_at_hand(session, body)) == 1, "вторая основа цела"
+
+    #: And the yard is not a place to sleep through: the body is busy.
+    with pytest.raises(occupation.Busy):
+        await rest.sleep(session, constants, body)
+
+
+async def test_the_keel_is_laid_by_the_worker_and_not_by_hand(
+    factory: async_sessionmaker[AsyncSession], constants: Constants
+) -> None:
+    """The whole way through the journal, as it goes in the world.
+
+    Every other test here calls `keel_laid` itself, so nothing checked the
+    path the player actually walks: enqueue, the worker takes the job at the
+    deadline, the node and its edge appear. A handler that failed there would
+    have looked exactly like the reported bug -- the foundation gone and no
+    node -- and no test would have said a word.
+    """
+    async with factory() as session, session.begin():
+        port = await _port(session, name="Космодром закладки")
+        _, body = await _shipwright(session, port)
+        identity_id = body.identity_id
+        job = await ship.found(session, constants, body, "Первая")
+        term, port_id, body_id = job.run_at, port.id, body.id
+
+    done = await jobs.run_one(factory, now=term)
+    assert done is not None and done.state is JobState.DONE, done and done.last_error
+
+    async with factory() as session:
+        mine = await ship.ships_of(session, identity_id)
+        assert len(mine) == 1, "закладка кончилась кораблём"
+        vessel = mine[0]
+        assert vessel.docked_node_id == port_id
+        nodes = await ship.nodes_of(session, vessel)
+        assert [node.id for node in nodes] == [vessel.connector_node_id]
+        #: The node without its edge would be a piece of map nobody can reach.
+        harbour = await session.get(Node, port_id)
+        ways = {way.node_id for way in await travel.exits(session, constants, harbour)}
+        assert ways == {vessel.connector_node_id}, "к порту пристыкован борт"
+        #: And the hands are free again: the work is over, not still counted.
+        builder = await session.get(Body, body_id)
+        assert await occupation.current(session, builder) is None, "закладка кончилась"
 
 
 async def test_the_connector_stays_the_only_way_in(
@@ -534,6 +607,100 @@ async def test_flight_docks_at_the_other_port_and_carries_the_passenger(
         arrived_node = await session.get(Node, connector_id)
         ways = {way.node_id for way in await travel.exits(session, constants, arrived_node)}
         assert ways == {there_id}
+
+
+async def test_a_ship_under_way_takes_no_second_order(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """One hull, one passage.
+
+    Undocking leaves the ship with no edge at all, and "not docked" was the
+    only thing the order asked -- so a second order given while the first was
+    still under way was taken: the fuel was burnt twice and two arrivals stood
+    in the journal, each ready to set the same hull down in its own port.
+    """
+    here = await _port(session, name="Космодром столицы")
+    there = await _port(session, name="Дальний космодром")
+    elsewhere = await _port(session, name="Третий космодром")
+    _, owner = await _shipwright(session, here)
+    vessel = await _laid(session, constants, owner, here)
+    await _flightworthy(session, constants, catalog, vessel)
+    connector = await session.get(Node, vessel.connector_node_id)
+    owner.node_id = connector.id
+    await session.flush()
+
+    await ship.undock(session, constants, catalog, owner, vessel)
+    await ship.fly(session, constants, catalog, owner, vessel, there)
+    burnt = await ship.fuel_aboard(session, vessel)
+
+    with pytest.raises(ship.InFlight):
+        await ship.fly(session, constants, catalog, owner, vessel, elsewhere)
+    assert await ship.fuel_aboard(session, vessel) == burnt, "отказ всё равно сжёг топливо"
+
+
+async def test_two_orders_in_one_second_send_the_ship_once(
+    factory: async_sessionmaker[AsyncSession], constants: Constants, catalog: Catalog
+) -> None:
+    """Two sockets of one player, or an AI citizen (D-224), pressing together.
+
+    A check-then-act without a lock lets both pass and both queue a passage:
+    the fuel goes twice and the hull is set down twice. The row is held while
+    the decision is made, so the second order waits for the first and is
+    refused by what it finds.
+    """
+    async with factory() as session, session.begin():
+        here = await _port(session, name="Космодром столицы")
+        there = await _port(session, name="Дальний космодром")
+        elsewhere = await _port(session, name="Третий космодром")
+        _, owner = await _shipwright(session, here)
+        vessel = await _laid(session, constants, owner, here)
+        await _flightworthy(session, constants, catalog, vessel)
+        connector = await session.get(Node, vessel.connector_node_id)
+        owner.node_id = connector.id
+        await session.flush()
+        await ship.undock(session, constants, catalog, owner, vessel)
+        ship_id, owner_id = vessel.id, owner.id
+        there_id, elsewhere_id = there.id, elsewhere.id
+        fuel_before = await ship.fuel_aboard(session, vessel)
+
+    #: Both transactions must be open and looking at the same hull before
+    #: either writes -- that is the window a check-then-act loses the ship in.
+    #: Without the barrier the first order simply commits before the second
+    #: starts, and the test would pass with no lock at all.
+    ready = asyncio.Barrier(2)
+
+    async def order(port_id: uuid.UUID) -> str:
+        async with factory() as db, db.begin():
+            mine = await db.get(Ship, ship_id)
+            me = await db.get(Body, owner_id)
+            aim = await db.get(Node, port_id)
+            await ready.wait()
+            try:
+                await ship.fly(db, constants, catalog, me, mine, aim)
+            except ship.InFlight:
+                return "refused"
+            return "flew"
+
+    answers = await asyncio.gather(order(there_id), order(elsewhere_id))
+    assert sorted(answers) == ["flew", "refused"], f"оба приказа прошли: {answers}"
+
+    async with factory() as session:
+        vessel = await session.get(Ship, ship_id)
+        flights = (
+            (
+                await session.execute(
+                    select(Job).where(
+                        Job.kind == JobKind.SHIP_FLIGHT.value,
+                        Job.payload["ship"].astext == str(ship_id),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert len(flights) == 1, "в журнале два рейса одного корпуса"
+        spent = fuel_before - await ship.fuel_aboard(session, vessel)
+        assert spent > 0, "рейс не сжёг топлива"
 
 
 async def test_no_route_is_closed_by_the_class_of_the_engine(

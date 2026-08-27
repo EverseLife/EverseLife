@@ -25,6 +25,21 @@ type Props = {
   act: (what: () => Promise<unknown>) => Promise<void>;
 };
 
+/**
+ * What a printer asks of a place, and what the place has if that is not enough.
+ *
+ * The shortfall is the only interesting half, and it is named only when there
+ * is one: "энергии 281 из 1000" is a reason the print will be refused, while
+ * "1000 энергии" is a price. The row used to print the demand and hide the
+ * remainder -- so a city holding a fifth of the energy needed looked exactly
+ * like one that could print -- and it put the demand first for the iron, where
+ * a surplus of fifty against a cost of ten read as "10 из 50", a shortage.
+ */
+function short(what: string, here: number, needed: number): string {
+  if (here >= needed) return `${needed.toFixed(0)} ${what}`;
+  return `${what} ${here.toFixed(0)} из ${needed.toFixed(0)}`;
+}
+
 export function Printer({ look }: Omit<Props, "busy" | "act">) {
   const session = useSession();
   //: This panel's own waiting and its own refusal: one action here
@@ -79,7 +94,11 @@ export function Printer({ look }: Omit<Props, "busy" | "act">) {
                 <td className="note">
                   {door.precursor
                     ? "энергии и железа не требует"
-                    : `${door.energy.toFixed(0)} энергии · железа ${door.iron.toFixed(0)} из ${door.iron_here.toFixed(0)}`}
+                    : `${short("энергии", door.energy_here, door.energy)} · ${short(
+                        "железа",
+                        door.iron_here,
+                        door.iron,
+                      )}`}
                 </td>
                 <td>
                   <button

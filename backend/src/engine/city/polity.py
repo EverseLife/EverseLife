@@ -514,10 +514,16 @@ async def revoke(
 def law(catalog: Catalog, city: City, law_id: str):
     """A code-law's value: the city's decision, otherwise the vault default.
 
-    Returned **as is**. A law is not only a number or a word: for duty it is a
-    map "goods -> rate and norm" (D-123), and casting it to a string would break
-    the law for the sake of uniformity. The consumer parses its own value -- no
-    branching on law type here (D-094).
+    Returned **as is**, and no branching on law type here (D-094): the consumer
+    parses its own value.
+
+    What "as is" holds is worth naming once, because three consumers read it
+    (`customs`, the city panel, `vote.open_law`). A law written by the interface
+    is **text**: `set_law` takes a string, and a law that is not a number or a
+    word -- duty as a map "goods -> rate and norm" (D-123), a ban as a list --
+    arrives as the JSON of it and is stored as that JSON. A vault default, on
+    the other hand, is whatever the vault wrote, map included. So a consumer of
+    a table law takes both: a mapping, or the text of one (`customs._unpacked`).
     """
     own_items = city.laws or {}
     if law_id in own_items:

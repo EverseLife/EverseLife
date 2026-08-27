@@ -31,6 +31,7 @@ import type {
   SanctionKind,
 } from "../api";
 import { when } from "../clock";
+import { groundName } from "../grounds";
 import { Rule } from "../Rule";
 import { Refusal, useActions, useSession } from "../actions";
 
@@ -846,13 +847,13 @@ export function Panel({ panel }: { panel: CityPanel | null }) {
           <p className="note">
             собрано:{" "}
             {Object.entries(panel.treasury.collected)
-              .map(([ground, qty]) => `${ground} ${qty.toFixed(2)}`)
+              .map(([ground, qty]) => `${groundName(ground)} ${qty.toFixed(2)} ₭`)
               .join(", ") || "—"}
           </p>
           <p className="note">
             потрачено:{" "}
             {Object.entries(panel.treasury.spent)
-              .map(([ground, qty]) => `${ground} ${qty.toFixed(2)}`)
+              .map(([ground, qty]) => `${groundName(ground)} ${qty.toFixed(2)} ₭`)
               .join(", ") || "—"}
           </p>
         </>
@@ -976,10 +977,12 @@ function Votes({
                 ) : convening.kind === "charter" ? (
                   <>
                     устав
-                    <span className="note">
-                      {" "}
-                      · порог из `charter_amendment`, а не из закона
-                    </span>
+                    {/* The player is not shown the name of the charter question
+                        the threshold comes from: that is a key out of the vault,
+                        and the sentence around it was written for whoever wrote
+                        the code. What matters here is that the charter sets its
+                        own bar for changing itself. */}
+                    <span className="note"> · порог задан самим уставом</span>
                   </>
                 ) : (
                   <>
@@ -990,7 +993,14 @@ function Votes({
               </td>
               <td className="note">
                 {convening.voters === "council" && "решает совет · "}
-                за {convening.yes} · против {convening.no} · из {convening.electorate} ·{" "}
+                {/* An election is not a for-or-against poll: every ballot in it
+                    names a candidate, so `no` is always zero there and "против
+                    0" read as "nobody objects" rather than as a word that does
+                    not apply. The candidates carry their own counts above. */}
+                {convening.kind === "election" || convening.kind === "council"
+                  ? `проголосовало ${convening.yes} из ${convening.electorate}`
+                  : `за ${convening.yes} · против ${convening.no} · из ${convening.electorate}`}
+                {" · "}
                 {threshold[convening.threshold] ?? convening.threshold}
                 {convening.quorum > 0 && ` · кворум ${convening.quorum}%`}
               </td>
@@ -998,16 +1008,19 @@ function Votes({
               <td>
                 {convening.kind === "election" || convening.kind === "council" ? (
                   <>
-                    <button
-                      className="quiet"
-                      onClick={() =>
-                        go(() => session.send("city.nominate", { vote: convening.id }))
-                      }
-                      disabled={busy}
-                      title="выдвинуться в правители"
-                    >
-                      Выдвинуться
-                    </button>
+                    {/* Standing twice is refused, so it is not offered twice. */}
+                    {!convening.candidates.some((one) => one.own) && (
+                      <button
+                        className="quiet"
+                        onClick={() =>
+                          go(() => session.send("city.nominate", { vote: convening.id }))
+                        }
+                        disabled={busy}
+                        title="выдвинуться в правители"
+                      >
+                        Выдвинуться
+                      </button>
+                    )}
                     {convening.candidates.map((candidate) => (
                       <button
                         key={candidate.id}
@@ -1068,6 +1081,16 @@ function Votes({
  * verdict without enforcement is worse than refusing a verdict.
  */
 
+/**
+ * A sanction in the player's words. The names come with the list the picker is
+ * built from, so a passed sentence is read the same way it was chosen: without
+ * this the decided case printed the engine's key -- `приговор: fine` -- in a
+ * row where the very next line offered «Штраф».
+ */
+function named(sanctions: SanctionKind[], kind: string | null | undefined): string {
+  return sanctions.find((one) => one.id === kind)?.name ?? kind ?? "—";
+}
+
 function Court({
   jobs,
   sanctions,
@@ -1108,8 +1131,14 @@ function Court({
                   {job.state === "open"
                     ? "ждёт суда"
                     : job.state === "judged"
-                      ? `приговор: ${job.verdict}`
-                      : `отказано: ${job.verdict}`}
+                      ? `приговор: ${named(sanctions, job.verdict)}`
+                      : /* A dismissal carries the judge's own words when there
+                           are any, and the engine's own "отказано" when there
+                           are none -- and repeating that after the colon read
+                           "отказано: отказано". */
+                        job.verdict && job.verdict !== "отказано"
+                        ? `отказано: ${job.verdict}`
+                        : "отказано"}
                 </td>
                 <td>
                   {can && job.state === "open" && (

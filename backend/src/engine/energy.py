@@ -701,13 +701,26 @@ async def draw_for_work(
     return price
 
 
+def price_at(constants: Constants, pool: EnergyPool | None, energy_needed: float) -> int:
+    """What this much energy costs at this pool. `None` -- there is no grid, and
+    the default tariff answers for a place that has none.
+
+    Split out of `price_of` for the caller that already holds the pool: the
+    printer list walks every printer in the world and asks both what the pool
+    holds and what it charges, and re-fetching the row for the second question
+    is a query per city for nothing. Passing the pool **through** `price_of`
+    would not have done it -- there `None` means "not given" and "no grid at
+    all" at once, so a node without a grid would have been looked up twice.
+    """
+    tariff = float(pool.tariff) if pool is not None else constants[R.ENERGY_TARIFF_DEFAULT]
+    return money(energy_needed / ENERGY_PER_TARIFF_UNIT * tariff)
+
+
 async def price_of(
     session: AsyncSession, constants: Constants, node: Node, energy_needed: float
 ) -> int:
     """What this much energy costs here. For a forecast -- before spending."""
-    pool = await pool_of(session, constants, node, create=False)
-    tariff = float(pool.tariff) if pool is not None else constants[R.ENERGY_TARIFF_DEFAULT]
-    return money(energy_needed / ENERGY_PER_TARIFF_UNIT * tariff)
+    return price_at(constants, await pool_of(session, constants, node, create=False), energy_needed)
 
 
 async def tick_pools(

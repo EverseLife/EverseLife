@@ -317,6 +317,34 @@ async def test_elected_gets_authority(
     assert not await town.may(session, ruler.id, city, "laws"), "прежняя должность сложена"
 
 
+async def test_the_view_names_the_asker_among_the_candidates(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """A name is not an identity, so the client cannot tell which candidate is
+    itself -- and while it could not, the interface went on offering
+    "Выдвинуться" to somebody already standing, and the second press was a
+    refusal the interface had promised."""
+    city, core, ruler, _ = await _elective(session, catalog)
+    rival, _ = await _resident(session, core, city, "Соперник")
+    election = await vote.open_election(session, constants, city, ruler)
+    await vote.nominate(session, city, ruler, election)
+    await vote.nominate(session, city, rival, election)
+
+    seen = await vote.view(session, catalog, city, ruler.id)
+    (poll,) = [one for one in seen if one["id"] == str(election.id)]
+    assert {one["name"]: one["own"] for one in poll["candidates"]} == {
+        ruler.name: True,
+        rival.name: False,
+    }
+    #: And from the other side of the same election.
+    seen = await vote.view(session, catalog, city, rival.id)
+    (poll,) = [one for one in seen if one["id"] == str(election.id)]
+    assert {one["name"]: one["own"] for one in poll["candidates"]} == {
+        ruler.name: False,
+        rival.name: True,
+    }
+
+
 async def test_only_citizens_nominated(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
@@ -325,6 +353,28 @@ async def test_only_citizens_nominated(
     guest, _ = await _resident(session, core, city, "Гость", citizen=False)
     with pytest.raises(vote.NotCandidate):
         await vote.nominate(session, city, guest, election)
+
+
+async def test_election_takes_no_yes_or_no_ballot(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The mirror of the refusal `choose` gives a yes-or-no poll.
+
+    An election counts people, not approvals: a bare "yes" cast into one is a
+    ballot for nobody, counted among those who voted and choosing none of them.
+    Only the interface's good manners kept such a ballot out, and commands go
+    down the socket raw (D-224).
+    """
+    city, core, ruler, _ = await _elective(session, catalog)
+    election = await vote.open_election(session, constants, city, ruler)
+    await vote.nominate(session, city, ruler, election)
+
+    with pytest.raises(vote.VoteError):
+        await vote.cast(session, city, ruler, election, True)
+
+    #: And the tally is untouched by the attempt.
+    pro, contra = await vote.standing(session, election)
+    assert (pro, contra) == (0, 0)
 
 
 async def test_no_vote_for_non_nominee(

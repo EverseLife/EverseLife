@@ -10,6 +10,7 @@ import { Refusal, useActions, useSession } from "../../actions";
 import type { Props } from "./shared";
 import { Door } from "./Door";
 import { Foundation } from "./Foundation";
+import { ownOrWild } from "./shared";
 
 
 /** The plot: whose it is, what it is called, who gets in -- and how it changes hands.
@@ -232,7 +233,12 @@ export function Plot({ look }: Omit<Props, "busy" | "act">) {
         </div>
       )}
       {mine && <Door look={look} busy={busy} act={act} />}
-      {mine && <Marking look={look} busy={busy} act={act} />}
+      {/* A strip is marked on one's own land -- and on nobody's, where the
+          field is open to whoever ploughs it (D-198, `farm.mark`). Asking for
+          ownership alone hid the form on every wild node, and the fertile
+          ground of the starting world is exactly that: the floodplain belongs
+          to no one, so farming had no way in at all. */}
+      {ownOrWild(look) && <Marking look={look} busy={busy} act={act} />}
     </section>
     {/* Founding a city is the plot's fate, so the section stands here:
         the server offers it only where founding is possible at all. */}

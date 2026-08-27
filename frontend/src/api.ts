@@ -163,6 +163,12 @@ export type MapNode = {
   port: boolean;
   /** Which planet the node belongs to. The space layer paints by it. */
   planet: string;
+  /** Where the node stands, once and for everybody (D-237). Given by the
+   *  server when the node is created and never recomputed, so the map is the
+   *  same map for every player and the same one tomorrow. Absent on the space
+   *  layer -- a planet's point comes from the clock -- and on a node laid
+   *  before the rule, where the client falls back to its own layout. */
+  place?: { x: number; y: number } | null;
   /** A planet's place in the system: display radius, a full circle in real
    *  days and the phase at the world's epoch. Only planets have one -- on the
    *  space layer a place is a function of time, not of a settled layout. */
@@ -678,7 +684,10 @@ export type Printer = {
   iron: number;
   cost: number;
   minutes: number;
+  /** What is on hand against what the print asks: iron in the node, energy in
+   *  the city pool. The dead choose from the cloud and can look up neither. */
   iron_here: number;
+  energy_here: number;
   /** The city prints at its own expense: code-law `body_print` (D-032). */
   at_city_expense: boolean;
 };
@@ -800,8 +809,10 @@ export type CityVote = {
   voters: "citizens" | "council";
   law?: string;
   value: unknown;
-  /** Candidates in the election: they nominate themselves while the poll runs (D-162). */
-  candidates: { id: string; name?: string; votes: number }[];
+  /** Candidates in the election: they nominate themselves while the poll runs (D-162).
+   *  `own` marks the asker: a name is not an identity, so the client cannot tell.
+   *  Not `mine` -- the poll's own `mine` below is a ballot, not a person. */
+  candidates: { id: string; name?: string; votes: number; own: boolean }[];
   /** Whom one's own vote in the election is for. */
   choice?: string;
   closes_at: string;
@@ -875,8 +886,10 @@ export const SURFACE: Record<Exit["surface"], string> = {
 
 /** Travel time in words: seconds for a step across the city, minutes for a road. */
 export function spell(seconds: number): string {
-  if (seconds < 60) return `${Math.round(seconds)} с`;
-  if (seconds < 3600) return `${Math.round(seconds / 60)} мин`;
+  //: Rounded before the unit is chosen, so 59.7 seconds reads as a minute
+  //: rather than as "60 с" -- the same carry `clock.duration` takes.
+  if (Math.round(seconds) < 60) return `${Math.round(seconds)} с`;
+  if (Math.round(seconds / 60) < 60) return `${Math.round(seconds / 60)} мин`;
   return `${(seconds / 3600).toFixed(1)} ч`;
 }
 

@@ -20,6 +20,7 @@ from src.models.event import EventKind
 from src.models.identity import Identity
 from src.models.ledger import AccountKind, PostingReason
 from src.models.world import Node
+from src.units import money_str
 
 
 async def issue_deed(
@@ -103,7 +104,9 @@ async def buy_deed(session: AsyncSession, buyer: Identity, deed: Deed) -> Deed:
     account = await ledger.account_for(session, AccountKind.IDENTITY, buyer.id)
     remainder = await ledger.balance(session, account.id)
     if remainder < price:
-        raise NotEnoughMoney(f"бумага стоит {price}, а на счету {remainder}")
+        raise NotEnoughMoney(
+            f"бумага стоит {money_str(price)} ₭, а на счету {money_str(remainder)} ₭"
+        )
 
     seller = await ledger.account_for(session, AccountKind.IDENTITY, deed.owner_identity_id)
     await ledger.transfer(

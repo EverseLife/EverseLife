@@ -10,41 +10,15 @@
  */
 
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { useSession } from "../actions";
-import type { CityPanel, CityView, Look } from "../api";
 import { Rule } from "../Rule";
+import type { StateView } from "./State";
 
-type Props = { look: Look; busy: boolean };
-
-export function Population({ look, busy }: Props) {
+export function Population({ view, busy }: { view: StateView; busy: boolean }) {
   const session = useSession();
   const [target, setTarget] = useState("");
-  const [city, setCity] = useState<CityView | null>(null);
-  const [panel, setPanel] = useState<CityPanel | null>(null);
-  const [world, setWorld] = useState<Record<string, number>>({});
-
-  const reload = useCallback(async () => {
-    try {
-      const summary = await session.send("city.survey");
-      setCity((summary.city as CityView) ?? null);
-      const snapshot = await session.send("city.panel");
-      setPanel((snapshot.panel as CityPanel) ?? null);
-      const metrics = await session.send("world.metrics");
-      setWorld((metrics.metrics as Record<string, number>) ?? {});
-    } catch {
-      setCity(null);
-      setPanel(null);
-    }
-  }, [session]);
-
-  useEffect(() => {
-    void reload();
-  }, [reload, look.node?.key]);
-
-  if (!city) {
-    return <p className="note">Вы вне города: за стенами законов нет.</p>;
-  }
+  const { city, panel, world } = view;
 
   return (
     <div>
@@ -119,10 +93,6 @@ export function Population({ look, busy }: Props) {
           отзовите.
         </span>
       </div>
-
-      <button className="quiet" onClick={() => void reload()} disabled={busy}>
-        Пересчитать
-      </button>
     </div>
   );
 }

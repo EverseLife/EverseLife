@@ -17,6 +17,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useSession } from "../actions";
 import type { Look } from "../api";
 import { when } from "../clock";
+import { groundName } from "../grounds";
 import { Bank } from "./Bank";
 import { Rule } from "../Rule";
 
@@ -35,27 +36,6 @@ type Entry = {
   incoming: boolean;
   memo: Record<string, string>;
   with: string | null;
-};
-
-/** Grounds in words: the player reads the statement, not the enum. */
-const REASON: Record<string, string> = {
-  genesis: "эмиссия",
-  trade: "сделка",
-  tax_trade: "налог с продажи",
-  market_fee: "сбор рынка",
-  duty: "пошлина",
-  salary: "жалованье",
-  upkeep: "содержание",
-  energy_bill: "энергия",
-  court_fee: "пошлина суда",
-  fine: "штраф",
-  escrow_hold: "задаток",
-  escrow_release: "возврат задатка",
-  loan: "кредит",
-  loan_repayment: "погашение",
-  seigniorage: "сеньораж",
-  bank_margin: "маржа города",
-  transfer: "перевод",
 };
 
 export function Finance({ look, busy, act }: Props) {
@@ -153,7 +133,7 @@ export function Finance({ look, busy, act }: Props) {
         <div className="facts">
           {entries.map((entry, index) => (
             <div className="fact" key={`${entry.at}-${index}`}>
-              <span className="fact-name">{REASON[entry.reason] ?? entry.reason}</span>
+              <span className="fact-name">{groundName(entry.reason)}</span>
               <span className="fact-val">
                 {entry.incoming ? "+" : "−"}
                 {entry.money} ₭

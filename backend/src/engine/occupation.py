@@ -11,10 +11,10 @@ and a sleeper gaining stamina, all on the same hour. D-209 added a fourth on
 purpose -- a batch went on while the master slept, "the body is on the spot".
 
 An occupation is what takes the body's time: the road, the field, sleep, the
-search, work on a plot, a batch at a machine, a working face. Starting a second
-one while the first runs is refused, and the refusal names what the body is at
-and until when -- so that the player has a decision to make ("finish the
-search, then lie down") rather than a mystery.
+search, work on a plot, a keel at a yard, a batch at a machine, a working face.
+Starting a second one while the first runs is refused, and the refusal names
+what the body is at and until when -- so that the player has a decision to make
+("finish the search, then lie down") rather than a mystery.
 
 ## Why this lives apart from `travel.require_here`
 
@@ -68,6 +68,7 @@ PLOT = "plot"
 MINE = "mine"
 CRAFT = "craft"
 MEND = "mend"
+KEEL = "keel"
 
 
 def left_in_words(until: datetime, now: datetime | None = None) -> str:
@@ -106,13 +107,34 @@ class Doing:
         return f"тело занято: {self.what}{term}"
 
 
-async def _sleeping(session: AsyncSession, body: Body) -> Doing | None:
+class Journal:
+    """This body's journal work, read once for a whole lookup and only if asked.
+
+    Three of the occupations below are journal jobs and differ by kind alone.
+    Asked one at a time they cost three round-trips of every `look`; asked
+    eagerly they cost one even for a body that is merely walking, and walking
+    is answered by the very first lookup. So: one query, on the first question,
+    and none at all if nobody asks.
+    """
+
+    def __init__(self, session: AsyncSession, body: Body) -> None:
+        self._session = session
+        self._body = body
+        self._read: dict[str, Job] | None = None
+
+    async def of(self, kind: JobKind) -> Job | None:
+        if self._read is None:
+            self._read = await _own_jobs(self._session, self._body)
+        return self._read.get(kind.value)
+
+
+async def _sleeping(session: AsyncSession, body: Body, jobs: Journal) -> Doing | None:
     if body.sleeping_since is None:
         return None
     return Doing(SLEEP, "сон", "тело спит — сначала проснуться")
 
 
-async def _travelling(session: AsyncSession, body: Body) -> Doing | None:
+async def _travelling(session: AsyncSession, body: Body, jobs: Journal) -> Doing | None:
 
     going = await travel.current(session, body)
     if going is None:
@@ -120,7 +142,7 @@ async def _travelling(session: AsyncSession, body: Body) -> Doing | None:
     return Doing(ROAD, "путь", "тело в пути", going.arrives_at)
 
 
-async def _exploring(session: AsyncSession, body: Body) -> Doing | None:
+async def _exploring(session: AsyncSession, body: Body, jobs: Journal) -> Doing | None:
 
     run = await explore.pending(session, body)
     if run is None:
@@ -128,7 +150,7 @@ async def _exploring(session: AsyncSession, body: Body) -> Doing | None:
     return Doing(FIELD, "разведка", "тело в разведке — вернуть его можно на карте", run.run_at)
 
 
-async def _foraging(session: AsyncSession, body: Body) -> Doing | None:
+async def _foraging(session: AsyncSession, body: Body, jobs: Journal) -> Doing | None:
 
     row = await forage.current(session, body)
     if row is None:
@@ -142,18 +164,29 @@ async def _foraging(session: AsyncSession, body: Body) -> Doing | None:
     return Doing(FORAGE, "собирательство", "идёт поиск", row.ready_at)
 
 
-async def _ploughing(session: AsyncSession, body: Body) -> Doing | None:
+#: The occupations the journal knows about: a job of this body's, still
+#: pending. All three are asked in one query -- `all_of` runs in every `look`,
+#: and three round-trips for one answer is three.
+_JOURNAL = (JobKind.FARM_PLOW, JobKind.BUILD_REPAIR, JobKind.SHIP_KEEL)
+
+
+async def _own_jobs(session: AsyncSession, body: Body) -> dict[str, Job]:
+    """This body's running journal work, by kind."""
+    stmt = select(Job).where(
+        Job.body_id == body.id,
+        Job.kind.in_([kind.value for kind in _JOURNAL]),
+        Job.state.in_((JobState.PENDING, JobState.RUNNING)),
+    )
+    return {job.kind: job for job in (await session.execute(stmt)).scalars().all()}
+
+
+async def _ploughing(session: AsyncSession, body: Body, jobs: Journal) -> Doing | None:
     """The plough: a journal job of this body's, still pending.
 
     The plot is not asked about its state -- a plot ploughs for whoever started
     it, and the journal is the only place that link is written down.
     """
-    stmt = select(Job).where(
-        Job.body_id == body.id,
-        Job.kind == JobKind.FARM_PLOW.value,
-        Job.state.in_((JobState.PENDING, JobState.RUNNING)),
-    )
-    job = (await session.execute(stmt)).scalars().first()
+    job = await jobs.of(JobKind.FARM_PLOW)
     if job is None:
         return None
     #: The plot's name, so that the line says which strip is under the plough
@@ -164,25 +197,40 @@ async def _ploughing(session: AsyncSession, body: Body) -> Doing | None:
     return Doing(PLOT, "вспашка", f"идёт вспашка{named}", job.run_at)
 
 
-async def _mending(session: AsyncSession, body: Body) -> Doing | None:
+async def _mending(session: AsyncSession, body: Body, jobs: Journal) -> Doing | None:
     """A repair of this body's that is still running.
 
     Mending is done by hand and on the spot: the job is this body's, and it
     stops when the body leaves the node (`estate.pause`). So while it is in the
     journal, these hands are busy.
     """
-    stmt = select(Job).where(
-        Job.body_id == body.id,
-        Job.kind == JobKind.BUILD_REPAIR.value,
-        Job.state.in_((JobState.PENDING, JobState.RUNNING)),
-    )
-    job = (await session.execute(stmt)).scalars().first()
+    job = await jobs.of(JobKind.BUILD_REPAIR)
     if job is None:
         return None
     return Doing(MEND, "ремонт", "идёт ремонт дома", job.run_at)
 
 
-async def _crafting(session: AsyncSession, body: Body) -> Doing | None:
+async def _keeling(session: AsyncSession, body: Body, jobs: Journal) -> Doing | None:
+    """A ship's keel of this body's that is still being laid (D-202).
+
+    The foundation is written off the moment the button is pressed and the node
+    arrives eight hours later. Between those two moments the work existed
+    nowhere on screen: the item was gone and nothing said why. It is a work of
+    these hands like the plough, so it belongs here -- one place where
+    everything running is seen.
+    """
+    job = await jobs.of(JobKind.SHIP_KEEL)
+    if job is None:
+        return None
+    #: The first node is laid under a name, every later one is an
+    #: extension of a ship that already has one -- and the line says which,
+    #: because a yard may be laying a keel for somebody's second hull.
+    named = job.payload.get("name")
+    what = f"идёт закладка корабля «{named}»" if named else "идёт закладка узла корабля"
+    return Doing(KEEL, "закладка", what, job.run_at)
+
+
+async def _crafting(session: AsyncSession, body: Body, jobs: Journal) -> Doing | None:
     """A batch of this body's that is actually moving.
 
     A queued batch does not count: it is paid for and waiting, not being
@@ -195,7 +243,7 @@ async def _crafting(session: AsyncSession, body: Body) -> Doing | None:
     return Doing(CRAFT, "партия", f"идёт работа «{batch.output}»", batch.ready_at)
 
 
-async def _mining(session: AsyncSession, body: Body) -> Doing | None:
+async def _mining(session: AsyncSession, body: Body, jobs: Journal) -> Doing | None:
 
     face = await mining.active(session, body)
     if face is None:
@@ -205,7 +253,9 @@ async def _mining(session: AsyncSession, body: Body) -> Doing | None:
 
 #: Order matters: the refusal names the first match, and the road comes before
 #: everything because a body away from here cannot do anything at all.
-_LOOKUP: tuple[tuple[str, Callable[[AsyncSession, Body], Awaitable[Doing | None]]], ...] = (
+_LOOKUP: tuple[
+    tuple[str, Callable[[AsyncSession, Body, Journal], Awaitable[Doing | None]]], ...
+] = (
     (ROAD, _travelling),
     (FIELD, _exploring),
     (SLEEP, _sleeping),
@@ -213,6 +263,7 @@ _LOOKUP: tuple[tuple[str, Callable[[AsyncSession, Body], Awaitable[Doing | None]
     (FORAGE, _foraging),
     (PLOT, _ploughing),
     (MEND, _mending),
+    (KEEL, _keeling),
     (CRAFT, _crafting),
 )
 
@@ -226,10 +277,11 @@ async def current(
     itself: a second batch is a queue entry rather than a second work (D-209),
     and foraging's own commands live inside the search.
     """
+    jobs = Journal(session, body)
     for kind, look in _LOOKUP:
         if kind in besides:
             continue
-        doing = await look(session, body)
+        doing = await look(session, body, jobs)
         if doing is not None:
             return doing
     return None
@@ -245,8 +297,9 @@ async def all_of(session: AsyncSession, body: Body) -> list[Doing]:
     each thing was started in.
     """
     found: list[Doing] = []
+    jobs = Journal(session, body)
     for _, look in _LOOKUP:
-        doing = await look(session, body)
+        doing = await look(session, body, jobs)
         if doing is not None:
             found.append(doing)
     return found

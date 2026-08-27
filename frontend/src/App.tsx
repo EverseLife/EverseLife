@@ -439,6 +439,11 @@ export default function App() {
         <div className="frame">
           <Sidebar look={look} />
           <div className="main">
+            {/* The alpha's widget stands here too (D-229). Twelve hours at the
+                Forerunners' printer is the longest term in the world, and the
+                one state the widget used to be hidden in was the one that had
+                nothing to do but wait it out. */}
+            {session.current.admin && <Alpha values={values} embodied={false} />}
             {/* No body, no place: the only thing to do here is print one. The
                 sidebar stays -- the account, the orders and the knowledge
                 belong to the identity, not to the body. */}

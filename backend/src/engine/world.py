@@ -25,7 +25,7 @@ from src.constants import registry as R
 from src.db.base import remember
 from src.engine import account as accounts
 from src.engine import city as town
-from src.engine import events, goods
+from src.engine import events, goods, places
 from src.engine.errors import Refusal
 from src.models.craft import BatchState, CraftBatch
 from src.models.event import EventKind
@@ -104,7 +104,16 @@ async def create_node(
     properties: dict[str, Any] | None = None,
     layer: Layer = Layer.CITY,
     parent: Node | None = None,
+    anchor: Node | None = None,
 ) -> Node:
+    """A new node of the world.
+
+    `anchor` is the node this one is laid next to -- the node a scout left
+    from, the corridor a room opened off, the port a keel was laid at. It
+    decides where the new node stands on the map, once and for everybody
+    (D-237, `engine.places`): without it the node lands at its group's origin,
+    which is right only for the group's own first node.
+    """
     node = Node(
         key=key,
         name=name,
@@ -116,6 +125,9 @@ async def create_node(
     )
     session.add(node)
     await session.flush()
+    #: The place is given here and never again: a map that redrew itself would
+    #: be the one thing in an eternal world that does (D-007, D-237).
+    await places.assign(session, node, anchor=anchor or parent)
     #: The yard is born with the node, as the pocket is with the body:
     #: otherwise the first `look` at a new place creates it, and a read
     #: must not write (review 2026-08-23). Old nodes without one are still

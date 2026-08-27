@@ -33,6 +33,7 @@ from src.runtime import LAND_NAME_LIMIT
 from src.units import (
     PERCENT,
     money,
+    money_str,
 )
 
 
@@ -427,7 +428,9 @@ async def buy(
     account = await ledger.account_for(session, AccountKind.IDENTITY, body.identity_id)
     remainder = await ledger.balance(session, account.id)
     if remainder < price:
-        raise NotEnoughMoney(f"участок стоит {price} минорных единиц, а на счету {remainder}")
+        raise NotEnoughMoney(
+            f"участок стоит {money_str(price)} ₭, а на счету {money_str(remainder)} ₭"
+        )
 
     treasury = await town.treasury(session, city)
     await ledger.transfer(

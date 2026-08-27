@@ -340,6 +340,47 @@ async def _balance(session: AsyncSession, identity_id) -> int:
     return await ledger.balance(session, account.id)
 
 
+async def test_a_duty_entered_by_the_authority_reaches_the_border(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The whole way in, from the interface to the rate customs reads.
+
+    The client sends a duty table as JSON, so the command receives a dict.
+    Handed to `str()` it became a Python repr with single quotes -- valid
+    Python, invalid JSON -- and neither `rates` nor the panel could read it
+    back: a duty entered by the authority quietly did nothing at all. The test
+    goes through the command, because that is the step that got it wrong.
+    """
+    #: The import is what registers the command; the registry is empty without it.
+    import src.api.commands.city  # noqa: F401 -- registers `city.law`
+    from src.api.registry import COMMANDS
+
+    city, marketplace, _, _ = await _world(session, catalog)
+    #: Governing is done in the administration and by the one who has the right
+    #: (D-155): both are the way in, so the test walks it rather than around it.
+    yard = await world.node_container(session, marketplace)
+    await world.grant_item(session, yard, "Администрация", quality=70, origin="тест")
+    ruler, _body = await _merchant(session, marketplace, "Глава")
+    await town.install_founder(session, city, ruler)
+
+    write = COMMANDS["city.law"]
+    state = {"identity_id": ruler.id}
+
+    async def law(which: str, value: object) -> None:
+        await write.run(state, session, {"cmd": "city.law", "law": which, "value": value})
+
+    #: Exactly what the interface sends: a map of goods, and a list of them.
+    await law("import_duty", {ORE: {"rate": 7, "free": 2}})
+    assert customs.rates(catalog, city, customs.IMPORT)[ORE] == {"rate": 7.0, "free": 2.0}
+
+    await law("import_ban", [ORE])
+    assert customs.banned(catalog, city, customs.IMPORT) == {ORE}
+
+    #: A number is its own text and passes through untouched.
+    await law("export_duty", "12")
+    assert customs.rates(catalog, city, customs.EXPORT)["*"]["rate"] == 12
+
+
 def test_numeric_rate_means_on_everything(catalog: Catalog) -> None:
     """The law is read in two ways, both honest (D-123)."""
     from src.models.city import City

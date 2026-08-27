@@ -58,16 +58,24 @@ export function when(iso: string | null | undefined, at: Date = new Date()): str
   return left >= 0 ? `через ${said}` : `${said} назад`;
 }
 
-/** Duration in words: "3 мин", "2 ч 10 мин", "1.5 сут" by the world's day. */
+/** Duration in words: "3 мин", "2 ч 10 мин", "1.5 сут" by the world's day.
+ *
+ * Rounded **before** it is split, and the carry taken: rounding each part on
+ * its own printed "7 ч 60 мин" for eight hours and "60 мин" for an hour, and
+ * that showed up wherever a term was nearly whole -- the build site, the road,
+ * the statement. */
 export function duration(seconds: number, dayHours = 24): string {
-  const minutes = seconds / 60;
-  if (minutes < 1) return `${Math.round(seconds)} с`;
-  if (minutes < 60) return `${Math.round(minutes)} мин`;
+  if (seconds < 60) {
+    const said = Math.round(seconds);
+    if (said < 60) return `${said} с`;
+    seconds = said;
+  }
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes} мин`;
   const hours = minutes / 60;
   if (hours < dayHours) {
-    const whole = Math.floor(hours);
-    const rest = Math.round((hours - whole) * 60);
-    return rest ? `${whole} ч ${rest} мин` : `${whole} ч`;
+    const rest = minutes % 60;
+    return rest ? `${(minutes - rest) / 60} ч ${rest} мин` : `${minutes / 60} ч`;
   }
   return `${(hours / dayHours).toFixed(1)} сут`;
 }

@@ -225,6 +225,7 @@ async def _pyroxis(session: AsyncSession) -> None:
             layer=Layer.PLANET,
             parent=sphere,
             area=FIELD_AREA_M2,
+            anchor=plateau,
         )
         species = await explore.species_of(
             session, current(), current_catalog(), dice, planet=Planet.PYROXIS
@@ -332,6 +333,7 @@ async def _aurora(session: AsyncSession) -> None:
             parent=place,
             area=PORT_AREA_M2,
             properties={"кольцо": 1, ruins.DEPTH: 0, PRECURSOR: True},
+            anchor=hall,
         )
         port = pier.node
         if pier.created:
@@ -379,8 +381,15 @@ async def _ensure(
     parent: Node,
     area: float,
     properties: dict[str, object] | None = None,
+    anchor: Node | None = None,
 ) -> Laid:
-    """The node by key, created if the world has none yet."""
+    """The node by key, created if the world has none yet.
+
+    `anchor` is the node this one is laid beside on the map (D-237): the
+    plateau a field is walked to from, the hall a pier opens off. Without it a
+    surface would come out as a ring round its planet's origin instead of
+    following its own ways.
+    """
     found = (await session.execute(select(Node).where(Node.key == key))).scalar_one_or_none()
     if found is not None:
         return Laid(node=found, created=False)
@@ -392,6 +401,7 @@ async def _ensure(
         area_m2=area,
         layer=layer,
         parent=parent,
+        anchor=anchor,
         properties=dict(properties or {}),
     )
     return Laid(node=made, created=True)

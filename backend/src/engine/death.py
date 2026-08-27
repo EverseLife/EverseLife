@@ -306,6 +306,21 @@ async def printers(
         forerunners = await _original(session, node)
         energy_amount = 0.0 if forerunners else constants[R.ENERGY_BODY_PRINT]
         iron = 0.0 if forerunners else constants[R.DEATH_IRON_COST]
+        #: What the pool actually holds, beside what the print asks of it. The
+        #: dead choose from the cloud and stand nowhere, so this is the one
+        #: figure they cannot look up for themselves -- and without it the row
+        #: named the demand and hid the shortfall: a printer whose city had 277
+        #: of the 1000 needed read exactly like one that could print.
+        #:
+        #: It is the pool as it stands, not as the world tick will leave it: the
+        #: charge at the moment of printing runs `produce` first and may find
+        #: more. So the figure is a reason to expect a refusal, not a promise of
+        #: one -- the same reading the city panel gives it.
+        #:
+        #: Asked for once and only where it is asked about: the eternal printer
+        #: takes neither energy nor money, and looking up a pool to tell it so
+        #: would be a query per relic for a pair of zeroes.
+        pool = None if forerunners else await energy.pool_of(session, constants, node, create=False)
         city = await town.of_node(session, node)
         out.append(
             {
@@ -315,11 +330,7 @@ async def printers(
                 "precursor": forerunners,
                 "energy": energy_amount,
                 "iron": iron,
-                "cost": (
-                    0
-                    if forerunners
-                    else await energy.price_of(session, constants, node, energy_amount)
-                ),
+                "cost": 0 if forerunners else energy.price_at(constants, pool, energy_amount),
                 #: Minutes are the common display unit: the Forerunners' twelve
                 #: hours and the city's three minutes cannot otherwise be compared.
                 "minutes": (
@@ -328,6 +339,7 @@ async def printers(
                     else constants[R.DEATH_PRINT_TIME_CITY]
                 ),
                 "iron_here": await _iron_here(session, node),
+                "energy_here": 0.0 if pool is None else round(float(pool.stored), 1),
                 "at_city_expense": await _city_pays(session, constants, node, identity_id),
             }
         )
