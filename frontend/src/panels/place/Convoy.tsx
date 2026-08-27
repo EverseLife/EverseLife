@@ -9,6 +9,8 @@ import type { Vehicle } from "../../api";
 import { Amount } from "../../Amount";
 import { chosen, tally } from "../../amounts";
 import { Refusal, useActions, useSession } from "../../actions";
+import { DropZone } from "../../DragMove";
+import { grip, noDrag } from "../../drag";
 import type { Props } from "./shared";
 
 
@@ -52,82 +54,124 @@ export function Convoy({ look }: Omit<Props, "busy" | "act">) {
             </b>{" "}
             · скорость ×{convoy.speed_k} · сост. {convoy.condition.toFixed(0)}
           </p>
-          {convoy.cargo.length > 0 && (
-            <table>
-              <tbody>
-                {convoy.cargo.map((thing) => (
-                  <tr key={thing.id}>
-                    <td>{thing.type_key}</td>
-                    <td className="note">{tally(thing.type_key, thing.amount)}</td>
-                    <td>
-                      <Amount
-                        goods={thing.type_key}
-                        value={parts[thing.id] ?? null}
-                        max={thing.amount}
-                        onChange={(value) => setPart(thing.id, value)}
-                      />
-                    </td>
-                    <td>
-                      <button
-                        className="quiet"
-                        onClick={() =>
-                          act(() =>
-                            session.send("transport.unload", {
-                              item: thing.id,
-                              amount: chosen(parts[thing.id] ?? null, thing.amount),
-                            }),
-                          )
-                        }
-                        disabled={busy}
-                        title="выгрузить в руки — сколько поместится"
-                      >
-                        Выгрузить
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-          {inHands.length > 0 && (
-            <table>
-              <tbody>
-                {inHands.map((thing) => (
-                  <tr key={thing.id}>
-                    <td>{thing.goods}</td>
-                    <td className="note">
-                      {tally(thing.goods, thing.amount)} ·{" "}
-                      {(thing.mass * thing.amount).toFixed(1)} кг
-                    </td>
-                    <td>
-                      <Amount
-                        goods={thing.goods}
-                        value={parts[thing.id] ?? null}
-                        max={thing.amount}
-                        onChange={(value) => setPart(thing.id, value)}
-                      />
-                    </td>
-                    <td>
-                      <button
-                        className="quiet"
-                        onClick={() =>
-                          act(() =>
-                            session.send("transport.load", {
-                              item: thing.id,
-                              amount: chosen(parts[thing.id] ?? null, thing.amount),
-                            }),
-                          )
-                        }
-                        disabled={busy}
-                      >
-                        Погрузить
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
+          {/* The drag pair (D-238): hands rows drop into the hold, cargo rows
+              drop back into the hands -- same commands as the buttons. */}
+          <DropZone
+            zone="hold"
+            accepts={["hands"]}
+            disabled={busy}
+            onMove={(stack, amount) =>
+              act(() => session.send("transport.load", { item: stack.item, amount }))
+            }
+          >
+            {convoy.cargo.length > 0 ? (
+              <table>
+                <tbody>
+                  {convoy.cargo.map((thing) => (
+                    <tr
+                      key={thing.id}
+                      {...grip({
+                        item: thing.id,
+                        goods: thing.type_key,
+                        label: thing.type_key,
+                        amount: thing.amount,
+                        zone: "hold",
+                      })}
+                    >
+                      <td>{thing.type_key}</td>
+                      <td className="note">{tally(thing.type_key, thing.amount)}</td>
+                      <td {...noDrag}>
+                        <Amount
+                          goods={thing.type_key}
+                          value={parts[thing.id] ?? null}
+                          max={thing.amount}
+                          onChange={(value) => setPart(thing.id, value)}
+                        />
+                      </td>
+                      <td>
+                        <button
+                          className="quiet"
+                          onClick={() =>
+                            act(() =>
+                              session.send("transport.unload", {
+                                item: thing.id,
+                                amount: chosen(parts[thing.id] ?? null, thing.amount),
+                              }),
+                            )
+                          }
+                          disabled={busy}
+                          title="выгрузить в руки — сколько поместится; строку можно и перетащить вниз"
+                        >
+                          Выгрузить
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <p className="note">трюм пуст</p>
+            )}
+          </DropZone>
+          <DropZone
+            zone="hands"
+            accepts={["hold"]}
+            disabled={busy}
+            onMove={(stack, amount) =>
+              act(() => session.send("transport.unload", { item: stack.item, amount }))
+            }
+          >
+            {inHands.length > 0 ? (
+              <table>
+                <tbody>
+                  {inHands.map((thing) => (
+                    <tr
+                      key={thing.id}
+                      {...grip({
+                        item: thing.id,
+                        goods: thing.goods,
+                        label: thing.goods,
+                        amount: thing.amount,
+                        zone: "hands",
+                      })}
+                    >
+                      <td>{thing.goods}</td>
+                      <td className="note">
+                        {tally(thing.goods, thing.amount)} ·{" "}
+                        {(thing.mass * thing.amount).toFixed(1)} кг
+                      </td>
+                      <td {...noDrag}>
+                        <Amount
+                          goods={thing.goods}
+                          value={parts[thing.id] ?? null}
+                          max={thing.amount}
+                          onChange={(value) => setPart(thing.id, value)}
+                        />
+                      </td>
+                      <td>
+                        <button
+                          className="quiet"
+                          onClick={() =>
+                            act(() =>
+                              session.send("transport.load", {
+                                item: thing.id,
+                                amount: chosen(parts[thing.id] ?? null, thing.amount),
+                              }),
+                            )
+                          }
+                          disabled={busy}
+                        >
+                          Погрузить
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <p className="note">руки пусты — сюда можно перетащить из трюма</p>
+            )}
+          </DropZone>
           <div className="row">
             <button
               onClick={() => act(() => session.send("transport.unharness"))}

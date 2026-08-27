@@ -1,0 +1,442 @@
+/* SPDX-License-Identifier: AGPL-3.0-only
+   Copyright (C) 2026 Nurlan Urazkulov */
+
+/*
+ * The redesign's HUD pieces (D-238): the header's instrument strip and the
+ * sidebar's icon rail. Zone layout and the shared controls stay in
+ * `index.css`; this file only styles what the redesign added. No colour
+ * literals -- tokens only, like everywhere else.
+ */
+
+/* --- the header: an instrument strip -------------------------------------- */
+
+.brand {
+  display: flex;
+  align-items: center;
+  color: var(--base-50);
+}
+.brand .logo {
+  display: block;
+  height: 26px;
+  width: auto;
+}
+
+/* A quick button: a figure that acts. No frame -- the header is one line of
+   instruments, and seven bordered boxes in a row would read as a form. */
+button.hud {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.45rem;
+  border: 0;
+  background: transparent;
+  color: var(--base-200);
+}
+button.hud .glyph {
+  color: var(--base-400);
+}
+button.hud b {
+  font-weight: 500;
+}
+button.hud:not(:disabled):hover {
+  background: var(--wash);
+  color: var(--base-50);
+}
+
+/* The popover under a quick button: the one shadowed kind of layer. */
+.hud-anchor {
+  position: relative;
+}
+.hud-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 30;
+  width: min(16rem, 80vw);
+  background: var(--base-850);
+  border: 1px solid var(--base-600);
+  border-radius: var(--r-pop);
+  box-shadow: var(--shadow-pop);
+  padding: 0.65rem 0.7rem;
+}
+/* Anchored at the bottom of the screen (the chat's circle chip): opens up. */
+.hud-pop.up {
+  top: auto;
+  bottom: calc(100% + 6px);
+  width: min(20rem, 90vw);
+}
+.hud-pop .circle-row {
+  justify-content: space-between;
+  margin: 0.25rem 0;
+}
+
+/* The body's readings, pushed to the right edge of the strip. */
+.vitals {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  margin-left: auto;
+}
+.vital {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: var(--base-200);
+}
+.vital .glyph {
+  color: var(--base-400);
+}
+.vital b {
+  font-weight: 500;
+}
+/* A reading in trouble: the warning pair, and the word in the title says why
+   -- colour is never the only carrier. */
+.vital.low,
+.vital.low .glyph {
+  color: var(--warning);
+}
+/* A reading at rest ("не ел"): muted, not hidden -- the row must not jump. */
+.vital.dim,
+.vital.dim .glyph {
+  color: var(--base-400);
+}
+
+/* --- the sidebar: an icon rail -------------------------------------------- */
+
+.rail {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  width: 52px;
+  padding: 0.4rem 0;
+  border-right: 1px solid var(--hairline);
+}
+button.rail-tab {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-control);
+  background: transparent;
+  color: var(--base-400);
+}
+button.rail-tab .glyph {
+  width: 17px;
+  height: 17px;
+}
+button.rail-tab:not(:disabled):hover {
+  color: var(--base-50);
+  background: var(--wash);
+}
+/* The open tab: contrast plus the inset bar in the action colour (D-238). */
+button.rail-tab.on {
+  color: var(--base-50);
+  background: var(--base-800);
+  box-shadow: inset 2px 0 0 var(--act);
+}
+button.rail-tab .tally {
+  position: absolute;
+  top: 1px;
+  right: 3px;
+  margin: 0;
+  font-size: 0.68rem;
+}
+/* Office tabs stand below this line: they come and go with the office. */
+.rail-line {
+  width: 26px;
+  height: 1px;
+  background: var(--hairline);
+  margin: 0.4rem 0;
+}
+/* The nearest running term on the tab itself -- the taskbar trick. Same
+   language as the deadline bar, and the only other thing allowed to move. */
+.rail-progress {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 4px;
+  height: 3px;
+  background: var(--base-700);
+  overflow: hidden;
+}
+.rail-progress i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--base-200);
+  transition: width 1s linear;
+}
+@media (prefers-reduced-motion: reduce) {
+  .rail-progress i {
+    transition: none;
+  }
+}
+
+/* The panel beside the rail: it scrolls, the rail does not. */
+.side-body {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  padding: 0.85rem;
+}
+.side-body .side-title {
+  margin: 0;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--base-400);
+}
+
+/* --- dragging a stack (D-238, amendment 4) -------------------------------- */
+
+/* A draggable row says so with the hand; its buttons still work as before. */
+tr[draggable="true"] {
+  cursor: grab;
+}
+tr[draggable="true"]:active {
+  cursor: grabbing;
+}
+tr.dragging {
+  opacity: 0.45;
+}
+
+.drop-zone {
+  border: 1px dashed transparent;
+  border-radius: var(--r-control);
+  transition: border-color 0.1s, background-color 0.1s;
+}
+/* A foreign stack hovers: the zone answers in the action colour. */
+.drop-zone.drop-over {
+  border-color: var(--act);
+  background-color: var(--wash);
+}
+/* The one-shot "landed" flash: the end of the gesture, nothing continuous. */
+.drop-zone.drop-landed {
+  animation: drop-landed 0.45s ease-out 1;
+}
+@keyframes drop-landed {
+  from {
+    background-color: var(--wash);
+    border-color: var(--act);
+  }
+  to {
+    background-color: transparent;
+    border-color: transparent;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .drop-zone,
+  .drop-zone.drop-landed {
+    animation: none;
+    transition: none;
+  }
+}
+
+/* The drop's question rides the pointer: fixed, unlike the header popover. */
+.drop-pop {
+  position: fixed;
+  width: 14rem;
+  display: grid;
+  gap: 0.5rem;
+}
+.drop-pop .drop-what {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--base-200);
+}
+.drop-pop input {
+  flex: 1;
+  min-width: 0;
+}
+.drop-head {
+  margin-top: 0.85rem;
+}
+
+/* --- gauges, chips and state cards (D-238, amendment 5) -------------------- */
+
+/* A reading on a track: the deadline bar's build, standing still. */
+.gauge {
+  display: grid;
+  grid-template-columns: 6.5rem 1fr auto;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.82rem;
+}
+.gauge-label {
+  color: var(--base-400);
+}
+.gauge-track {
+  position: relative;
+  height: 4px;
+  background: var(--base-700);
+}
+.gauge-track i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--base-200);
+}
+.gauge-spread {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: color-mix(in srgb, var(--base-200) 35%, transparent);
+}
+.gauge-mark {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 1.5px;
+  background: var(--base-400);
+}
+.gauge-reading {
+  color: var(--base-200);
+  font-size: 0.8rem;
+}
+/* Short of the norm: the warning pair, and the words beside it say why. */
+.gauge.warn .gauge-label,
+.gauge.warn .gauge-reading {
+  color: var(--warning);
+}
+.gauge.warn .gauge-track i {
+  background: var(--warning);
+}
+
+/* A chip: one fact of the state, instead of its clause in a sentence. */
+.chips {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.78rem;
+  color: var(--base-200);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-control);
+  padding: 0.1rem 0.45rem;
+}
+.chip .glyph {
+  width: 12px;
+  height: 12px;
+  color: var(--base-400);
+}
+.chip b {
+  font-family: var(--font-num);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.chip.warn {
+  color: var(--warning);
+  border-color: color-mix(in srgb, var(--warning) 45%, transparent);
+}
+.chip.warn .glyph {
+  color: var(--warning);
+}
+.chip.good {
+  color: var(--success);
+  border-color: color-mix(in srgb, var(--success) 45%, transparent);
+}
+.chip.dim {
+  color: var(--base-400);
+  font-style: italic;
+}
+
+/* A state card: one bed, one machine -- bordered by a line, not boxed. */
+.state-card {
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-control);
+  padding: 0.55rem 0.65rem;
+  margin: 0.5rem 0;
+  display: grid;
+  gap: 0.45rem;
+}
+.state-card .card-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.state-card .card-act {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+/* --- class and node-type marks (D-238, amendment 1) ------------------------ */
+
+/* A planet's identity tint by its route row: the same colour the space layer
+   paints the body with -- a name, not a meaning. */
+.planet-dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  margin-right: 0.4rem;
+  vertical-align: 0;
+}
+
+/* The class mark before a goods name: the glyph sorts, the word names. */
+.goods-mark {
+  display: inline-flex;
+  vertical-align: -2px;
+  margin-right: 0.35rem;
+  color: var(--base-400);
+}
+.goods-mark .glyph {
+  width: 13px;
+  height: 13px;
+}
+
+/* The type mark inside a map node's circle. It never takes the pointer:
+   the circle under it stays the thing being clicked. */
+.node-mark {
+  pointer-events: none;
+}
+.node-mark path {
+  stroke: currentColor;
+}
+/* Your own node is filled with the full tone: the mark inverts to stay read. */
+.node.me .node-mark path {
+  stroke: var(--base-900);
+}
+
+/* The account tab: a panel now, not a modal (D-238). */
+.account > footer {
+  margin-top: 1rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--line);
+}
+.account nav.tabs {
+  margin: 0.5rem 0;
+}
+
+/* On a phone the sidebar is the "я" section at full width: the rail lies
+   down across the top and the panel takes the page's own scrolling. */
+@media (max-width: 56rem) {
+  .sidebar {
+    flex-direction: column;
+  }
+  .rail {
+    flex-direction: row;
+    width: auto;
+    padding: 0.25rem 0.4rem;
+    border-right: 0;
+    border-bottom: 1px solid var(--hairline);
+  }
+  .rail-line {
+    width: 1px;
+    height: 26px;
+    margin: 0 0.4rem;
+  }
+  .side-body {
+    overflow: visible;
+  }
+}

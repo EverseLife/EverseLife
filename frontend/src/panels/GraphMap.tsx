@@ -53,6 +53,8 @@ import * as api from "../api";
 import { Hint } from "../Hint";
 import { SURFACE, spell, type Look, type MapNode, type WorldMap } from "../api";
 import { useActions } from "../actions";
+import { SHAPES } from "../glyphs";
+import { nodeGlyph } from "../marks";
 import { cityWord } from "../planets";
 import { Inspector } from "./map/Inspector";
 import { NodeMenu } from "./map/NodeMenu";
@@ -563,6 +565,7 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
           <button
             key={option.id}
             className={currentLayer === option.id ? "" : "quiet"}
+            aria-current={currentLayer === option.id || undefined}
             onClick={() => setLayer(option.id)}
           >
             {option.label}
@@ -693,6 +696,39 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
                     {group && (
                       <circle cx={p.x} cy={p.y} r={mine ? 18 : 16} className="halo" />
                     )}
+                    {/* The node says what it is before the click (D-238): the
+                        type's glyph inside the circle -- a fir for a forest,
+                        a colonnade for a settlement. Bare circles stay for
+                        what has no type to speak of. */}
+                    {(() => {
+                      const sign = nodeGlyph({
+                        emblem: node.emblem,
+                        features: node.features,
+                        settlement: group,
+                        port: node.port,
+                      });
+                      if (!sign) return null;
+                      const size = mine ? 14 : 12;
+                      return (
+                        <svg
+                          x={p.x - size / 2}
+                          y={p.y - size / 2}
+                          width={size}
+                          height={size}
+                          viewBox="0 0 16 16"
+                          className="node-mark"
+                          aria-hidden="true"
+                        >
+                          <path
+                            d={SHAPES[sign]}
+                            fill="none"
+                            strokeWidth={1.6}
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        </svg>
+                      );
+                    })()}
                   </>
                 )}
                 {chosen && (

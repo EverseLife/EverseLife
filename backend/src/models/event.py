@@ -130,6 +130,8 @@ class EventKind(StrEnum):
     LAND_BOUGHT = "land.bought"
     #: A plot was named (D-178). The node key stays the same.
     LAND_RENAMED = "land.renamed"
+    #: The owner nailed a mark on the node: the map draws it as the type glyph (D-238).
+    LAND_MARKED = "land.marked"
     #: The holder handed the plot back to the city (D-089, D-149). From this
     #: moment the meter for it is charged to the treasury, not to a person.
     LAND_CEDED = "land.ceded"

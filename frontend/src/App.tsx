@@ -11,9 +11,10 @@
  *   trade, knowledge, holdings. Always available, even from the road:
  *   household bills are money, not matter (D-149). No city governing here:
  *   authority is in-person and lives in the administration (D-155);
- * - **main window** -- tabs: map - location - circles. Location and circles
- *   are in-person: en route they are gone, because you are not in the node;
- * - **bottom strip** -- the location's live chat.
+ * - **main window** -- tabs: map - location. The location is in-person: en
+ *   route it is gone, because you are not in the node;
+ * - **bottom strip** -- the location's live chat, circles included (D-238):
+ *   they only decide who hears what is said.
  *
  * The organising principle is the same as the world's: the sidebar is remote,
  * the main window is in-person. The player absorbs the world's structure just
@@ -33,11 +34,8 @@ import {
   type RecipeBook,
   type Parts,
 } from "./api";
-import { Account } from "./panels/Account";
 import { Alpha } from "./panels/Alpha";
 import { Chat } from "./panels/Chat";
-import { Deadline } from "./Deadline";
-import { Circles } from "./panels/Circles";
 import { GraphMap } from "./panels/GraphMap";
 import { Intro } from "./panels/Intro";
 import { Login } from "./panels/Login";
@@ -47,29 +45,14 @@ import { Register } from "./panels/Register";
 import { Sidebar } from "./panels/Sidebar";
 import { Summary, markSeen, useDigest } from "./panels/Summary";
 import { Stand } from "./panels/Stand";
-import { hands, stamp, worldTime } from "./clock";
+import { TopBar } from "./panels/TopBar";
+import { type View } from "./views";
 import { powSettings, type PowSettings } from "./pow";
 import { wearPlanet } from "./theme";
 import { useNarrow } from "./narrow";
 import { ActionsProvider } from "./actions";
+import { onSidebarTab } from "./hud";
 import { onProfile, onThread } from "./people";
-
-
-//: Where the source of this build lives -- AGPL §13 asks for the source of
-//: *this* version, and the repository's head is not it. `VITE_RELEASE` is
-//: baked in by the image build (`Dockerfile`, CI passes `github.sha`); without
-//: it -- a hand build, a dev server -- the repository is the honest answer.
-const REPOSITORY = "https://github.com/EverseLife/EverseLife";
-const SOURCE_URL = import.meta.env.VITE_RELEASE
-  ? `${REPOSITORY}/tree/${import.meta.env.VITE_RELEASE}`
-  : REPOSITORY;
-
-const VIEWS = [
-  { id: "map", label: "карта" },
-  { id: "place", label: "локация" },
-  { id: "circles", label: "кружки" },
-] as const;
-type View = (typeof VIEWS)[number]["id"];
 
 /** The phone's four sections: the same zones, one at a time (brief section 9). */
 const ZONES = [
@@ -123,13 +106,14 @@ export default function App() {
   const [screen, setScreen] = useState<"login" | "register">("login");
   const [resuming, setResuming] = useState(() => Boolean(Session.remembered()));
   const resumed = useRef(false);
-  const [account_, setAccount_] = useState(false);
   //: Somebody's card, asked for by right-clicking a name anywhere (D-222).
   const [card, setCard] = useState<string | null>(null);
   useEffect(() => onProfile(setCard), []);
   //: "Write" from the card: the Net lives in the sidebar, and on a phone the
-  //: sidebar is the "я" section.
+  //: sidebar is the "я" section. The header's quick buttons open sidebar tabs
+  //: the same way (D-238).
   useEffect(() => onThread(() => setWhere_("me")), []);
+  useEffect(() => onSidebarTab(() => setWhere_("me")), []);
   const [intro, setIntro] = useState(false);
   //: The summary is shown once on arrival, not on every refresh: a curtain that
   //: comes back every five seconds is a fault, not a notification.
@@ -259,7 +243,6 @@ export default function App() {
   const logout = () =>
     act(async () => {
       await session.current.logout();
-      setAccount_(false);
       setLive(null);
       setParts(null);
       setScreen("login");
@@ -269,7 +252,6 @@ export default function App() {
   const waiting = digest?.attention.length ?? 0;
 
   const ongoing = Boolean(look?.travel);
-  const asleep = Boolean(look?.body?.sleeping_since);
   //: Exploration is a body state (D-152): the scout left on their own, and
   //: while in the field, in-person is closed, as in sleep. Return -- by a button on the map.
   const exploring = Boolean(look?.survey);
@@ -334,7 +316,6 @@ export default function App() {
       session.current.on("session.lost", () => {
         setLive(null);
         setParts(null);
-        setAccount_(false);
         setScreen("login");
       }),
     [],
@@ -400,28 +381,6 @@ export default function App() {
     );
   }
 
-  //: The account panel -- in place of the bare name in the header (D-187).
-  const who = (
-    <button
-      className="who"
-      onClick={() => setAccount_(true)}
-      title="аккаунт: персонаж, пароль, выход"
-    >
-      {look.identity}
-      {look.profile?.surname ? ` ${look.profile.surname}` : ""}
-    </button>
-  );
-  const accountWindow = account_ && look.profile && (
-    <Account
-      key={look.profile.email ?? look.identity}
-      profile={look.profile}
-      busy={busy}
-      act={act}
-      onClose={() => setAccount_(false)}
-      onLogout={logout}
-    />
-  );
-
   //: No body -- the identity is in the cloud (D-012). No in-person screen
   //: exists in this state at all: nobody to look at the location. The sidebar
   //: stays: account, orders and knowledge belong to the identity, not the body.
@@ -429,15 +388,16 @@ export default function App() {
     return (
       <ActionsProvider refresh={settle} session={session.current} book={book}>
       <main>
-        <header>
-          {who}
-          <span>в облаке</span>
-          <button className="quiet" onClick={() => void refresh()}>
-            обновить
-          </button>
-        </header>
+        <TopBar
+          look={look}
+          waiting={waiting}
+          narrow={narrow}
+          onSummary={() => setDigestShown(true)}
+          onIntro={() => setIntro(true)}
+          onRefresh={() => void refresh()}
+        />
         <div className="frame">
-          <Sidebar look={look} />
+          <Sidebar look={look} onLogout={() => void logout()} />
           <div className="main">
             {/* The alpha's widget stands here too (D-229). Twelve hours at the
                 Forerunners' printer is the longest term in the world, and the
@@ -452,7 +412,6 @@ export default function App() {
             </div>
           </div>
         </div>
-        {accountWindow}
         {trouble && <p className="trouble">{trouble}</p>}
       </main>
       </ActionsProvider>
@@ -462,82 +421,20 @@ export default function App() {
   return (
     <ActionsProvider refresh={settle} session={session.current} book={book}>
     <main>
-      <header>
-        {who}
-        <span>
-          {ongoing
-            ? `в пути: ${look.travel!.final ?? look.travel!.to}`
-            : exploring
-              ? `в разведке от: ${look.node?.name}`
-              : look.node?.name}
-          {asleep ? " · спит" : ""}
-        </span>
-        {/* Земля здесь тронется (D-197, P6). В шапке, а не во вкладке места:
-            окно на то и окно, что уйти надо успеть, и часы до толчка должны
-            быть на виду с любой вкладки. */}
-        {look.node?.shaking_at && (
-          <span className="trouble-inline" title="извержение: лежащее на земле сгорит, дороги перечертит, а дорога, порвавшаяся под идущим, убивает вместе с сумкой. Постройки целы: мир не стирает построенное">
-            земля тронется через <Deadline until={look.node.shaking_at} label="извержение" size="row" />
-          </span>
-        )}
-        {/* Local time of the planet: its day is 38 hours and matches nobody's
-            wall clock on purpose (D-029). */}
-        {look.clock && <WorldClock clock={look.clock} />}
-        {/* On a phone the bar at the bottom chooses the zone, and a second set
-            of the same choices in the header would only take the row. */}
-        {!narrow && (
-          <nav className="row tabs">
-            {VIEWS.map((option) => (
-              <button
-                key={option.id}
-                className={view === option.id ? "" : "quiet"}
-                onClick={() => setView(option.id)}
-                //: In-person tabs are unavailable en route and while exploring --
-                //: you are not in the node (D-107, D-152).
-                disabled={option.id !== "map" && away}
-              >
-                {option.label}
-              </button>
-            ))}
-          </nav>
-        )}
-        <button
-          className="quiet"
-          onClick={() => setDigestShown(true)}
-          title="что произошло, пока вас не было"
-        >
-          сводка
-          {waiting > 0 && <span className="tally alarm">{waiting}</span>}
-        </button>
-        {/* Вступление под рукой всегда: прочитанное однажды не должно
-            становиться недоступным, а непрочитанное — обязательным (D-182). */}
-        <button
-          className="quiet"
-          onClick={() => setIntro(true)}
-          title="кто вы и с чего начать"
-        >
-          ?
-        </button>
-        <button className="quiet" onClick={() => void refresh()}>
-          обновить
-        </button>
-        {/* Исходники этой версии. Требование §13 AGPL: тому, кто играет по
-            сети, их надо предложить, а не спрятать в README. Машиночитаемый
-            ответ на тот же вопрос -- `/public/source`. */}
-        <a
-          className="quiet"
-          href={SOURCE_URL}
-          target="_blank"
-          rel="noopener noreferrer"
-          title="исходный код этой версии"
-        >
-          исходники
-        </a>
-      </header>
+      <TopBar
+        look={look}
+        waiting={waiting}
+        narrow={narrow}
+        onSummary={() => setDigestShown(true)}
+        onIntro={() => setIntro(true)}
+        onRefresh={() => void refresh()}
+        view={view}
+        onView={setView}
+      />
 
       <div className={`frame${narrow ? " one" : ""}`}>
         {(!narrow || where_ === "me") && (
-          <Sidebar look={look} />
+          <Sidebar look={look} onLogout={() => void logout()} />
         )}
 
         {(!narrow || where_ !== "me") && (
@@ -566,14 +463,6 @@ export default function App() {
                   values={values}
                   pow={pow}
                 />
-              )}
-
-            {/* People nearby: the groups and the talk. On a wide screen the
-                circles have a tab of their own; on a phone they share the
-                section, because both answer "who is here". */}
-            {!away &&
-              ((!narrow && view === "circles") || (narrow && where_ === "talk")) && (
-                <Circles place={look.node?.key ?? ""} />
               )}
 
             {!away &&
@@ -630,7 +519,6 @@ export default function App() {
         />
       )}
       {intro && <Intro onClose={() => setIntro(false)} />}
-      {accountWindow}
 
       {trouble && <p className="trouble">{trouble}</p>}
     </main>
@@ -638,24 +526,3 @@ export default function App() {
   );
 }
 
-/** Local clock of the planet in the header (D-029).
- *
- * A Terran day is 38 hours, so the hands drift against the player's own clock
- * -- that drift is the point: the world lives by its own time, not by the
- * time zone of whoever is looking.
- */
-function WorldClock({ clock }: { clock: NonNullable<Look["clock"]> }) {
-  const [now, setNow] = useState(() => new Date());
-  useEffect(() => {
-    //: A world minute is a real minute: half-minute ticking is enough for the
-    //: hands never to lag behind by a visible amount.
-    const timer = setInterval(() => setNow(new Date()), 30_000);
-    return () => clearInterval(timer);
-  }, []);
-  return (
-    <span className="clock" title={`местное время: ${stamp(clock, now)}`}>
-      {hands(clock, now)}
-      <span className="note"> · сутки {worldTime(clock, now).day}</span>
-    </span>
-  );
-}

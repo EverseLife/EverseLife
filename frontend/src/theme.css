@@ -31,6 +31,16 @@
  * close to the base of its own theme. It is this invariant -- not any
  * particular hex -- that lets a player read colour without reading labels.
  *
+ * ## The action colour (D-238)
+ *
+ * `--act` is the one addition of the redesign: "here is your hand" -- the
+ * picked node and row, the open tab, keyboard focus, a drop target. It never
+ * fills a button, never colours a link or a heading: the primary button stays
+ * the inverse slab, and the screen stays ~95% neutral. Each palette picks its
+ * own value at a distance from its base tone, its accent and all three
+ * semantics -- on Aquatica cyan already means completion, so act moves to
+ * periwinkle; on Aurora cyan would sink into the base, so act goes lavender.
+ *
  * Terra and Aquatica come from `07-design-brief.md` section 3, with one
  * correction: the vault's own `--base-400` fails the vault's own 4.5:1
  * requirement (Terra 4.29 on `--base-800`, Aquatica 3.73). Both are lifted two
@@ -40,6 +50,43 @@
  * Every pair is checked by `scripts/check-tokens.mjs`, which runs in CI: the
  * number of checks grows with the number of planets, so it cannot be done by eye.
  */
+
+/* --- the faces themselves (D-075, closes the gap noted in fonts/README.md) --
+   Subset to latin + cyrillic + typographic marks and served from our own
+   domain: no third-party CDN, no third-party data collection. Onest and
+   Literata are variable (weight is an axis); Plex Mono ships two statics.
+   `font-display: swap` -- text in the fallback face beats no text. */
+@font-face {
+  font-family: Onest;
+  src: url("/fonts/onest.woff2") format("woff2-variations");
+  font-weight: 100 900;
+  font-display: swap;
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  src: url("/fonts/ibm-plex-mono.woff2") format("woff2");
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  src: url("/fonts/ibm-plex-mono-bold.woff2") format("woff2");
+  font-weight: 700;
+  font-display: swap;
+}
+@font-face {
+  font-family: Literata;
+  src: url("/fonts/literata.woff2") format("woff2-variations");
+  font-weight: 400 700;
+  font-display: swap;
+}
+@font-face {
+  font-family: Literata;
+  src: url("/fonts/literata-italic.woff2") format("woff2-variations");
+  font-style: italic;
+  font-weight: 400 700;
+  font-display: swap;
+}
 
 :root {
   /* --- three voices (D-075) -------------------------------------------
@@ -114,11 +161,13 @@
   --d-700: #2A3852; --d-600: #3B4B68; --d-400: #8794AE; --d-200: #C2CADA;
   --d-50:  #EDF1F8;
   --d-accent: #B98CFF; --d-warning: #E0A458; --d-danger: #E8574C; --d-success: #56C48A;
+  --d-act: #57B8D8;
 
   --l-950: #FFFFFF; --l-900: #F4F6FA; --l-850: #E9EDF4; --l-800: #DFE5EF;
   --l-700: #CFD6E2; --l-600: #B6C0D0; --l-400: #566178; --l-200: #33405A;
   --l-50:  #0E1524;
   --l-accent: #6A3BC4; --l-warning: #7E5208; --l-danger: #B0231A; --l-success: #1B6E44;
+  --l-act: #0E6A86;
 }
 
 /* --- Aquatica: deep green. "Completion" leaves green for cyan, because
@@ -128,11 +177,13 @@
   --d-700: #223B30; --d-600: #2F4E41; --d-400: #859C8F; --d-200: #BFCEC4;
   --d-50:  #EAF2EC;
   --d-accent: #FF8FBF; --d-warning: #E8B45C; --d-danger: #E8574C; --d-success: #6FD8E8;
+  --d-act: #9AB4FF;
 
   --l-950: #FFFFFF; --l-900: #F3F7F3; --l-850: #E7EFE8; --l-800: #DCE6DE;
   --l-700: #CDD9CF; --l-600: #B0C2B5; --l-400: #4E5E52; --l-200: #2E453A;
   --l-50:  #0B1712;
   --l-accent: #A81858; --l-warning: #7A5408; --l-danger: #B0231A; --l-success: #0D6070;
+  --l-act: #3B54B4;
 }
 
 /* --- Pyroxis: warm graphite -- ash and basalt.
@@ -145,11 +196,13 @@
   --d-700: #352C26; --d-600: #493D35; --d-400: #9C8E82; --d-200: #DBD2CB;
   --d-50:  #F6F1ED;
   --d-accent: #C79BFF; --d-warning: #F0C75E; --d-danger: #FF6F5E; --d-success: #5FD08D;
+  --d-act: #5CC8DC;
 
   --l-950: #FFFFFF; --l-900: #F7F4F1; --l-850: #EDE8E3; --l-800: #E4DDD6;
   --l-700: #D8D0C8; --l-600: #C0B4A8; --l-400: #655B52; --l-200: #443B33;
   --l-50:  #14100E;
   --l-accent: #6A3BC4; --l-warning: #74520A; --l-danger: #B32517; --l-success: #1B6E44;
+  --l-act: #0E6B7E;
 }
 
 /* --- Aurora: cold blue-steel, darker and colder than Terra. A planet of
@@ -161,11 +214,13 @@
   --d-700: #1B2637; --d-600: #27354A; --d-400: #7A8AA0; --d-200: #B9C5D6;
   --d-50:  #E8EEF6;
   --d-accent: #FF9BD4; --d-warning: #E0A458; --d-danger: #F0574C; --d-success: #5CCB90;
+  --d-act: #B9A8FF;
 
   --l-950: #FFFFFF; --l-900: #F2F5FA; --l-850: #E5EAF3; --l-800: #DAE1EC;
   --l-700: #C9D2E0; --l-600: #AFBACB; --l-400: #54617A; --l-200: #2C3950;
   --l-50:  #080D15;
   --l-accent: #A81B72; --l-warning: #7E5208; --l-danger: #B0231A; --l-success: #17734A;
+  --l-act: #5A3BB0;
 }
 
 /* --- The void: a ship is not a planet. The darkest and least saturated
@@ -176,11 +231,13 @@
   --d-700: #1A1F25; --d-600: #262D35; --d-400: #7C848E; --d-200: #C2C8CF;
   --d-50:  #EEF1F4;
   --d-accent: #AE8CE8; --d-warning: #D2A163; --d-danger: #DE6055; --d-success: #5FBE8C;
+  --d-act: #7FC4D8;
 
   --l-950: #FFFFFF; --l-900: #F5F6F7; --l-850: #E8EAEC; --l-800: #E0E3E6;
   --l-700: #D2D6DA; --l-600: #B7BCC2; --l-400: #5A6167; --l-200: #343A40;
   --l-50:  #07090B;
   --l-accent: #5D3BAE; --l-warning: #6F4E0C; --l-danger: #A9271C; --l-success: #1B6640;
+  --l-act: #175E70;
 }
 
 /* --- Planets: identity marks, not meanings --------------------------
@@ -220,6 +277,7 @@
   --base-400: var(--d-400); --base-200: var(--d-200); --base-50:  var(--d-50);
   --accent: var(--d-accent); --warning: var(--d-warning);
   --danger: var(--d-danger); --success: var(--d-success);
+  --act: var(--d-act);
   --planet-terra: var(--d-planet-terra); --planet-aurora: var(--d-planet-aurora);
   --planet-pyroxis: var(--d-planet-pyroxis); --planet-aquatica: var(--d-planet-aquatica);
 
@@ -233,6 +291,7 @@
     --base-400: var(--l-400); --base-200: var(--l-200); --base-50:  var(--l-50);
     --accent: var(--l-accent); --warning: var(--l-warning);
     --danger: var(--l-danger); --success: var(--l-success);
+    --act: var(--l-act);
     --planet-terra: var(--l-planet-terra); --planet-aurora: var(--l-planet-aurora);
     --planet-pyroxis: var(--l-planet-pyroxis); --planet-aquatica: var(--l-planet-aquatica);
 
@@ -246,6 +305,7 @@
   --base-400: var(--l-400); --base-200: var(--l-200); --base-50:  var(--l-50);
   --accent: var(--l-accent); --warning: var(--l-warning);
   --danger: var(--l-danger); --success: var(--l-success);
+  --act: var(--l-act);
   --planet-terra: var(--l-planet-terra); --planet-aurora: var(--l-planet-aurora);
   --planet-pyroxis: var(--l-planet-pyroxis); --planet-aquatica: var(--l-planet-aquatica);
 

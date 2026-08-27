@@ -28,7 +28,7 @@ const source = readFileSync(join(here, "..", "src", "theme.css"), "utf8");
 
 /** Every step and role a palette must define. A planet missing one is a bug. */
 const STEPS = ["950", "900", "850", "800", "700", "600", "400", "200", "50"];
-const ROLES = ["accent", "warning", "danger", "success"];
+const ROLES = ["accent", "warning", "danger", "success", "act"];
 const NAMES = [...STEPS, ...ROLES];
 
 /**
@@ -54,6 +54,13 @@ const PAIRS = [
   ["danger", "danger", "850"],
   ["success", "success", "900"],
   ["success", "success", "850"],
+  //: The action colour (D-238) marks selection, focus and drop targets. It
+  //: never carries running text, but it is held to the same floor: a focus
+  //: ring nobody can see fails the same player a grey word does. `--base-800`
+  //: is in its list because the selected row is exactly where it lands.
+  ["act (your hand)", "act", "900"],
+  ["act (your hand)", "act", "850"],
+  ["act (your hand)", "act", "800"],
 ];
 
 const FLOOR = 4.5;

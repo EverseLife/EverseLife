@@ -29,6 +29,7 @@
  */
 
 @import "./theme.css";
+@import "./hud.css";
 
 :root {
   font-family: var(--font-ui);
@@ -103,23 +104,18 @@ main {
   padding: 0.75rem 1rem;
 }
 
+/* The instrument strip (D-238): the wordmark and the working figures on the
+   left, the body's readings and the service row on the right. Centred, not
+   baseline: a logo has no baseline to sit on. */
 header {
   flex: none;
   display: flex;
-  gap: 0.75rem 1.25rem;
-  align-items: baseline;
+  gap: 0.5rem 0.9rem;
+  align-items: center;
   flex-wrap: wrap;
   padding-bottom: 0.5rem;
   border-bottom: 1px solid var(--line);
   margin-bottom: 0.75rem;
-}
-/* Scene tabs at the right edge: "who and where" on the left, "where to look" on the right. */
-header nav.tabs {
-  margin-left: auto;
-}
-
-.who {
-  font-weight: bold;
 }
 
 /* The planet's clock: digits must not jump as the minute changes. Family and
@@ -139,10 +135,12 @@ header nav.tabs {
   align-items: stretch;
 }
 
+/* The rail and the panel beside it (D-238): the rail is pinned, the panel
+   scrolls on its own (`hud.css` styles both). */
 .sidebar {
   border: 1px solid var(--line);
-  padding: 0.85rem;
-  overflow-y: auto;
+  display: flex;
+  overflow: hidden;
   min-height: 0;
 }
 .sidebar h3 {
@@ -233,6 +231,21 @@ header nav.tabs {
 .tally.alarm {
   color: var(--warning);
   font-weight: 600;
+}
+
+/* The open tab wears the action colour (D-238): an underline bar instead of
+   the inverse slab, which now belongs to primary actions alone. Contrast and
+   weight still mark it -- the colour is never the only carrier. */
+.tabs button:not(.quiet):not(.link):not(.bare):not(:disabled) {
+  background: transparent;
+  color: var(--base-50);
+  border-color: transparent;
+  font-weight: 600;
+  box-shadow: inset 0 -2px 0 var(--act);
+}
+.tabs button:not(.quiet):not(.link):not(.bare):not(:disabled):hover {
+  filter: none;
+  background: var(--wash);
 }
 
 /* --- the phone's four zones (brief section 9) -----------------------------
@@ -523,7 +536,7 @@ button.dots[aria-expanded="true"] {
 .obj[aria-pressed="true"] {
   background: var(--wash);
   color: var(--base-50);
-  box-shadow: inset 2px 0 0 var(--base-50);
+  box-shadow: inset 2px 0 0 var(--act);
 }
 .obj[aria-pressed="true"] .obj-name {
   font-weight: 600;
@@ -612,8 +625,11 @@ button:not(:disabled) {
   cursor: pointer;
 }
 /* `.bare` is a button that is not a button-shaped thing: a row of the stand, a
-   structural control. It gets no fill, or the screen fills with white slabs. */
-button:not(.quiet):not(.link):not(.bare) {
+   structural control. It gets no fill, or the screen fills with white slabs.
+   `:not(:disabled)` because the slab now means "an action you can take"
+   (D-238): a refused button must fall through to the muted rule below, not
+   wear the slab it cannot honour. */
+button:not(.quiet):not(.link):not(.bare):not(:disabled) {
   background-color: var(--base-50);
   color: var(--base-900);
   border-color: var(--base-50);
@@ -655,9 +671,10 @@ button:not(:disabled):active {
   transform: translateY(1px);
 }
 
-/* Keyboard focus is visible always and explicitly: full-tone, 2px (D-077). */
+/* Keyboard focus is visible always and explicitly, 2px (D-077); it wears the
+   action colour (D-238) -- "here is your hand" -- like every selection mark. */
 :focus-visible {
-  outline: 2px solid var(--base-50);
+  outline: 2px solid var(--act);
   outline-offset: 2px;
 }
 
@@ -1220,6 +1237,21 @@ textarea.word {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  /* The layer switcher floats in the map's corner (D-238): the pane is its
+     anchor, and the row it used to occupy goes back to the map. */
+  position: relative;
+}
+.map-pane > nav.tabs {
+  position: absolute;
+  top: 0.5rem;
+  left: 0.5rem;
+  z-index: 5;
+  margin: 0;
+  gap: 0.1rem;
+  padding: 0.15rem;
+  background: color-mix(in srgb, var(--base-900) 84%, transparent);
+  border: 1px solid var(--base-700);
+  border-radius: var(--r-control);
 }
 
 /* The face and the inspector side by side. Three strips under the map used to
@@ -1271,13 +1303,14 @@ textarea.word {
   margin: 0.35rem 0 0;
 }
 
-/* The picked node wears a ring: full tone, because the accent means a person. */
+/* The picked node wears a ring in the action colour (D-238): the accent still
+   means a person, and the pick is your hand, not somebody's presence. */
 .node.picked circle:first-of-type {
   stroke-width: 3;
 }
 .node .ring {
   fill: none;
-  stroke: var(--base-50);
+  stroke: var(--act);
   stroke-width: 1.5;
 }
 .node {
@@ -2030,8 +2063,8 @@ button.eye:not(:disabled):active {
   color: var(--base-400);
 }
 .line.picked {
-  border-color: var(--base-50);
-  box-shadow: inset 0 0 0 1px var(--base-50);
+  border-color: var(--act);
+  box-shadow: inset 0 0 0 1px var(--act);
 }
 .soon-tag {
   display: inline-block;
@@ -2056,39 +2089,5 @@ button.eye:not(:disabled):active {
   width: min(20rem, 100%);
 }
 
-/* The name in the header is now the account button, but looks like a name. */
-header button.who {
-  border: none;
-  box-shadow: none;
-  padding: 0 0.15rem;
-  font-weight: bold;
-  text-decoration: underline;
-  text-decoration-style: dotted;
-  text-underline-offset: 0.2em;
-}
-header button.who:not(:disabled):hover {
-  background: var(--wash);
-}
-
-/* The account panel: the same window as the intro, but with tabs. */
-.intro.account > header {
-  border: none;
-  padding: 0;
-  gap: 0.5rem 0.75rem;
-}
-.intro.account > header h2 {
-  margin: 0;
-}
-.intro.account > header button {
-  margin-left: auto;
-}
-.intro.account nav.tabs {
-  margin: 0.5rem 0;
-}
-.intro.account > footer {
-  margin-top: 1rem;
-  padding-top: 0.75rem;
-  border-top: 1px solid var(--line);
-  opacity: 1;
-  font-size: inherit;
-}
+/* The account moved from a header modal to the sidebar's tab (D-238):
+   its panel styles live in `hud.css` with the rest of the redesign. */

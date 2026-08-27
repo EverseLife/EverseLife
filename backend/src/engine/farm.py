@@ -611,6 +611,10 @@ async def survey(
             row["agrotech"] = knows
             if knows:
                 row["ripe_at"] = ready.isoformat()
+                #: The start of the term, so the client can draw the deadline
+                #: bar's share and not only the countdown (D-225: the client
+                #: cannot derive when the bed was sown).
+                row["sown_at"] = plot.sown_at.isoformat()
                 row["asks_care"] = needs_care
                 row["missed_days"] = skipped
                 row["cycle_days"] = cycle

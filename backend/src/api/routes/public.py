@@ -20,7 +20,7 @@ from src.constants import HOLDER, current
 from src.constants import current_catalog as catalog
 from src.constants import registry as R
 from src.db.base import session_factory
-from src.engine import account, market, places, world
+from src.engine import account, estate, market, places, world
 from src.engine import ship as vessels
 from src.engine import travel as roads
 from src.models.world import Edge, Layer, Node
@@ -166,6 +166,16 @@ async def world_map() -> dict[str, Any]:
                     #: across the void -- one boards it by the gangway.
                     "aboard": vessels.is_aboard(node),
                     "flight": _passage(under_way.get(node.id), by_id),
+                    #: Place signs ("лес", "камни"): the map draws the node's
+                    #: type glyph by them (D-238). An allowlist on purpose --
+                    #: this endpoint answers the whole internet, and `look`'s
+                    #: broader everything-true derivation belongs to whoever
+                    #: stands in the node.
+                    "features": world.public_signs(node),
+                    #: The owner's mark, if one is nailed on (D-238): the map
+                    #: draws it in place of the type glyph. Belted to the
+                    #: allowlist like the signs above.
+                    "emblem": estate.public_emblem(node),
                 }
                 for node in nodes
             ],

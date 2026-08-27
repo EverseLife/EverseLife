@@ -25,6 +25,7 @@ import type { Look, Thing } from "../api";
 import { Refusal, useActions, useBook, useSession } from "../actions";
 import { Rule } from "../Rule";
 import { Amount } from "../Amount";
+import { GoodsMark } from "../Glyph";
 import { chosen, tally } from "../amounts";
 import { classOf } from "../classes";
 import { fill, isVessel } from "../liquids";
@@ -437,6 +438,9 @@ export function Inventory({ look }: Props) {
                   )}
                 </td>
                 <td>
+                  {/* The class mark before the name (D-238): the name stays,
+                      the glyph only lets the eye sort the column. */}
+                  <GoodsMark book={book} goods={thing.goods} />
                   {thing.flavor ?? (thing.recipe ? `${thing.goods}: ${thing.recipe}` : thing.goods)}
                   {/* A vessel shows its fill (D-230): the water is in the canister,
                       and nowhere else in the hands. */}
@@ -471,7 +475,10 @@ export function Inventory({ look }: Props) {
               {look.stall.map((thing) => (
                 <tr key={thing.id}>
                   <td />
-                  <td>{thing.flavor ?? (thing.recipe ? `${thing.goods}: ${thing.recipe}` : thing.goods)}</td>
+                  <td>
+                    <GoodsMark book={book} goods={thing.goods} />
+                    {thing.flavor ?? (thing.recipe ? `${thing.goods}: ${thing.recipe}` : thing.goods)}
+                  </td>
                   <td className="num">{tally(thing.goods, thing.amount)}</td>
                   <td className="note">{tells(thing)}</td>
                   <td />

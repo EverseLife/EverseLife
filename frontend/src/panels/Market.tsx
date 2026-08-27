@@ -16,11 +16,14 @@
 
 import { useEffect, useState } from "react";
 import * as api from "../api";
-import type { Book, Look, Thing } from "../api";
+import type { Book, Look, RecipeBook, Thing } from "../api";
 import { Amount } from "../Amount";
 import { chosen, tally } from "../amounts";
 import { Rule } from "../Rule";
-import { Refusal, useActions, useSession } from "../actions";
+import { Refusal, useActions, useBook, useSession } from "../actions";
+import { DropZone } from "../DragMove";
+import { grip, noDrag } from "../drag";
+import { GoodsMark } from "../Glyph";
 
 type Props = {
   look: Look;
@@ -37,6 +40,7 @@ const exactly = (qty: number) =>
 
 export function Market({ look }: Omit<Props, "busy" | "act">) {
   const session = useSession();
+  const book = useBook();
   //: This panel's own waiting and its own refusal: one action here
   //: must not grey out the chat, the map and somebody else's orders.
   const acting = useActions();
@@ -295,22 +299,45 @@ export function Market({ look }: Omit<Props, "busy" | "act">) {
         </div>
 
         <div>
+          {/* The drag pair (D-238): pocket rows drop onto the terminal to
+              load, terminal rows drop back to take. The commands are keyed by
+              goods and tier, so the move looks the stack up in its source
+              list -- same commands as the buttons either way. */}
           <h3>Карман</h3>
-          <Own
-            things={pocket}
-            choice={choice}
-            mark={setChoice}
-            button="Загрузить"
-            action={(t, amount) =>
-              //: The row is a stack of one quality: what is loaded is that
-              //: tier, not the worst of the name (D-058).
+          <DropZone
+            zone="pocket"
+            accepts={["terminal"]}
+            disabled={busy}
+            onMove={(stack, amount) =>
+              //: The stack carries its own key and tier (grip below): the
+              //: command needs no lookup that could miss after a reread.
               act(() =>
-                session.send("market.load", { goods: t.key ?? t.goods, amount, tier: t.tier }),
+                session.send("market.take", {
+                  goods: stack.key ?? stack.goods,
+                  tier: stack.tier,
+                  amount,
+                }),
               )
             }
-            busy={busy}
-            empty="в кармане пусто"
-          />
+          >
+            <Own
+              things={pocket}
+              zone="pocket"
+              book={book}
+              choice={choice}
+              mark={setChoice}
+              button="Загрузить"
+              action={(t, amount) =>
+                //: The row is a stack of one quality: what is loaded is that
+                //: tier, not the worst of the name (D-058).
+                act(() =>
+                  session.send("market.load", { goods: t.key ?? t.goods, amount, tier: t.tier }),
+                )
+              }
+              busy={busy}
+              empty="в кармане пусто"
+            />
+          </DropZone>
 
           <h3>
             Терминал
@@ -319,23 +346,40 @@ export function Market({ look }: Omit<Props, "busy" | "act">) {
               строке выбирает позицию.
             </Rule>
           </h3>
-          <Own
-            things={terminal}
-            choice={choice}
-            mark={setChoice}
-            button="Забрать"
-            action={(t, amount) =>
+          <DropZone
+            zone="terminal"
+            accepts={["pocket"]}
+            disabled={busy}
+            onMove={(stack, amount) =>
               act(() =>
-                session.send("market.take", {
-                  goods: t.key ?? t.goods,
-                  tier: t.tier,
+                session.send("market.load", {
+                  goods: stack.key ?? stack.goods,
                   amount,
+                  tier: stack.tier,
                 }),
               )
             }
-            busy={busy}
-            empty="в терминале ничего вашего"
-          />
+          >
+            <Own
+              things={terminal}
+              zone="terminal"
+              book={book}
+              choice={choice}
+              mark={setChoice}
+              button="Забрать"
+              action={(t, amount) =>
+                act(() =>
+                  session.send("market.take", {
+                    goods: t.key ?? t.goods,
+                    tier: t.tier,
+                    amount,
+                  }),
+                )
+              }
+              busy={busy}
+              empty="в терминале ничего вашего"
+            />
+          </DropZone>
         </div>
       </div>
     </section>
@@ -344,6 +388,8 @@ export function Market({ look }: Omit<Props, "busy" | "act">) {
 
 function Own({
   things,
+  zone,
+  book,
   choice,
   mark,
   button,
@@ -352,6 +398,9 @@ function Own({
   empty,
 }: {
   things: Thing[];
+  /** The drag surface these rows lie on; the wrapping DropZone names it too. */
+  zone: string;
+  book: RecipeBook | null;
   choice: Position | null;
   mark: (p: Position) => void;
   button: string;
@@ -376,13 +425,25 @@ function Own({
               key={t.id}
               className={`pick ${selected ? "picked" : ""}`}
               onClick={() => mark({ goods: name, tier: t.tier })}
+              {...grip({
+                item: t.id,
+                goods: t.goods,
+                label: t.flavor ?? name,
+                amount: t.amount,
+                zone,
+                tier: t.tier,
+                key: t.key ?? undefined,
+              })}
             >
-              <td>{t.flavor ?? name}</td>
+              <td>
+                <GoodsMark book={book} goods={t.goods} />
+                {t.flavor ?? name}
+              </td>
               <td className="num">{tally(t.goods, t.amount)}</td>
               <td className="note">
                 {t.quality == null ? "" : `${t.quality.toFixed(0)} · ${t.tier}`}
               </td>
-              <td onClick={(e) => e.stopPropagation()}>
+              <td onClick={(e) => e.stopPropagation()} {...noDrag}>
                 <Amount
                   goods={t.goods}
                   value={parts[t.id] ?? null}

@@ -181,6 +181,11 @@ export type MapNode = {
    *  the map is a share of the way between the port it left and the one it is
    *  due at -- nothing in the graph could say it. */
   flight: { to: string; started_at: string; arrives_at: string } | null;
+  /** Place-sign properties ("лес", "камни"): the map draws the node's type
+   *  glyph by them (D-238). Optional: older servers do not send it. */
+  features?: string[];
+  /** The owner's nailed mark, if any (D-238): beats the place signs. */
+  emblem?: string | null;
 };
 export type MapEdge = { a: string; b: string; surface: Exit["surface"]; seconds: number };
 /** A corridor between two planets: not an edge of the graph but the price of a

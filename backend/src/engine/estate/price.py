@@ -473,6 +473,81 @@ async def may_name(session: AsyncSession, body: Body, node: Node) -> bool:
     return city is not None and await town.may(session, body.identity_id, city, Power.LAND)
 
 
+#: What an owner may nail on the node as its map mark (D-238). A closed list
+#: on purpose: the world's own signs -- the Forerunners, a settlement -- must
+#: not be forgeable, so neither "руины" nor "город" is offered.
+EMBLEMS = frozenset(
+    {
+        "дом",
+        "поле",
+        "лес",
+        "луг",
+        "камни",
+        "мастерская",
+        "рынок",
+        "склад",
+        "еда",
+        "вода",
+        "разметка",
+    }
+)
+
+#: The property the mark lives under. A string value, so `look`'s boolean
+#: feature derivation never picks it up.
+EMBLEM_PROPERTY = "значок"
+
+
+def public_emblem(node: Node) -> str | None:
+    """The node's mark as the public map serves it (D-238).
+
+    Belted to the allowlist on the way out too: `emblem()` is the only writer
+    today, but a value planted by a seed, an admin edit or future code must
+    not reach the unauthenticated internet verbatim.
+    """
+
+    value = (node.properties or {}).get(EMBLEM_PROPERTY)
+    return value if isinstance(value, str) and value in EMBLEMS else None
+
+
+async def emblem(session: AsyncSession, body: Body, node: Node, mark: str | None) -> Node:
+    """Nail a map mark on the node, or take it down (D-238).
+
+    The same right and the same spot as the nameplate: the owner disposes of
+    their land, the authority with the `land` right -- of civic land, and the
+    mark is nailed in person.
+    """
+
+    if body.state is not BodyState.ALIVE:
+        raise EstateError("мёртвое тело значков не прибивает")
+    await travel.require_here(session, body)
+    if body.node_id != node.id:
+        raise EstateError("до участка надо дойти: значок прибивают на месте")
+    if not await may_name(session, body, node):
+        raise NotOwner(
+            "участок не ваш: значок ставит хозяин, а городской земле — власть с правом на участки"
+        )
+    if mark is not None and mark not in EMBLEMS:
+        raise BadName("такого значка нет: выбирают из предложенных")
+
+    was = node.properties.get(EMBLEM_PROPERTY)
+    #: Reassigned whole rather than mutated: the JSON column does not watch
+    #: its insides, and a quiet in-place write would never reach the base.
+    fresh = {key: value for key, value in node.properties.items() if key != EMBLEM_PROPERTY}
+    if mark is not None:
+        fresh[EMBLEM_PROPERTY] = mark
+    node.properties = fresh
+    await session.flush()
+    await events.record(
+        session,
+        EventKind.LAND_MARKED,
+        actor_identity_id=body.identity_id,
+        node_id=node.id,
+        was=was,
+        now=mark,
+    )
+    return node
+
+
 async def rename(session: AsyncSession, body: Body, node: Node, name: str) -> Node:
     """Name a plot. The nameplate is nailed on the spot, not from the Net (D-178).
 

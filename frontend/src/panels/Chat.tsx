@@ -8,9 +8,11 @@
  * out-of-game. Styled differently -- without that roleplay is
  * indistinguishable from remarks, and metagame leaks into the in-game, up to the court.
  *
- * Circle management lives in a separate tab of the main window; here only
- * the talk itself -- and a mark if you speak in a circle rather than to the
- * whole room. There is no history: this is a conversation in a room, not correspondence.
+ * Circles live here now (D-238): they only decide who hears what is said,
+ * and that choice belongs beside the saying, not on a scene tab of its own.
+ * The chip by the input names the current channel; the popover under it
+ * joins, leaves and gathers. There is no history: this is a conversation in
+ * a room, not correspondence.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -39,7 +41,7 @@ export function Chat({ place }: Omit<Props, "busy" | "act">) {
   const { busy, act } = acting;
 
   const [lines, setLines] = useState<ChatLine[]>([]);
-  const [mine, setMine] = useState<Circle | null>(null);
+  const [circles, setCircles] = useState<Circle[]>([]);
   const [text, setText] = useState("");
   const [kind, setKind] = useState<(typeof KINDS)[number]["value"]>("speech");
   const [quiet, setQuiet] = useState(false);
@@ -49,19 +51,34 @@ export function Chat({ place }: Omit<Props, "busy" | "act">) {
     try {
       const answer = await session.send("chat.hear");
       setLines(answer.lines as ChatLine[]);
-      setMine(((answer.circles as Circle[]) ?? []).find((c) => c.mine) ?? null);
+      setCircles((answer.circles as Circle[]) ?? []);
     } catch {
       //: В пути слушать нечего — панель всё равно скрыта.
     }
   }, [session]);
+  //: Only who stands with whom. `chat.hear` serves the delivery buffer of the
+  //: last half hour, and replacing `lines` with it would wipe what the room
+  //: accumulated through `chat.said` -- so a circle forming across the room
+  //: must not touch the talk at all.
+  const listenCircles = useCallback(async () => {
+    try {
+      const answer = await session.send("chat.hear");
+      setCircles((answer.circles as Circle[]) ?? []);
+    } catch {
+      //: В пути слушать нечего — панель всё равно скрыта.
+    }
+  }, [session]);
+  const mine = circles.find((circle) => circle.mine) ?? null;
 
   //: The line itself rides with `chat.said` (D-226, wave 2): it is added
   //: here, once by `id` -- a circle member may get it twice, whole and as a
-  //: leak. `chat.hear` reads the room on entry and after a break.
+  //: leak. `chat.hear` reads the room whole on entry and after a break; who
+  //: stands with whom is told by the room too (`chat.circled`).
   useEffect(() => {
     setLines([]);
+    setCircles([]);
     void listen();
-    return session.on("chat.said", (happening) => {
+    const saidOff = session.on("chat.said", (happening) => {
       const line = happening.line as ChatLine | undefined;
       if (!line) {
         void listen();
@@ -73,7 +90,12 @@ export function Chat({ place }: Omit<Props, "busy" | "act">) {
           : [...known, { ...line, overheard: Boolean(line.overheard) }],
       );
     });
-  }, [listen, place, session]);
+    const circledOff = session.on("chat.circled", () => void listenCircles());
+    return () => {
+      saidOff();
+      circledOff();
+    };
+  }, [listen, listenCircles, place, session]);
 
   useEffect(() => {
     scroll.current?.scrollTo({ top: scroll.current.scrollHeight });
@@ -101,6 +123,7 @@ export function Chat({ place }: Omit<Props, "busy" | "act">) {
       </div>
 
       <div className="row chat-input">
+        <CircleChip circles={circles} busy={busy} act={act} onChanged={listenCircles} />
         {KINDS.map((option) => (
           <button
             key={option.value}
@@ -138,9 +161,143 @@ export function Chat({ place }: Omit<Props, "busy" | "act">) {
       <p className="note">
         {mine
           ? `Вы в кружке «${mine.name ?? "без имени"}»: слышат участники, остальным долетают обрывки.`
-          : "Слышат все, кто здесь. Кружки — в соседнем табе."}
+          : "Слышат все, кто здесь. Собраться потише — кнопкой кружка слева."}
       </p>
     </section>
+  );
+}
+
+/**
+ * The channel by the input (D-238): who will hear what you are about to say,
+ * and the door to change that. The popover carries what the "кружки" scene
+ * tab used to: join, step away, gather. Groups are visible, their content is
+ * not -- walking up to a circle is seen by everybody (D-043).
+ */
+function CircleChip({
+  circles,
+  busy,
+  act,
+  onChanged,
+}: {
+  circles: Circle[];
+  busy: boolean;
+  act: (what: () => Promise<unknown>) => Promise<void>;
+  /** Reread the room after an own move: dissolving one's last circle does
+   *  not always come back as `chat.circled`, and the chip must not stale. */
+  onChanged: () => Promise<void>;
+}) {
+  const session = useSession();
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+  const anchor = useRef<HTMLSpanElement | null>(null);
+  const pop = useRef<HTMLDivElement | null>(null);
+  const chip = useRef<HTMLButtonElement | null>(null);
+  const mine = circles.find((circle) => circle.mine) ?? null;
+  const move = (what: () => Promise<unknown>) =>
+    act(async () => {
+      await what();
+      await onChanged();
+    });
+
+  useEffect(() => {
+    if (!open) return;
+    //: A dialog owns the focus: the first control inside takes it.
+    pop.current?.querySelector<HTMLElement>("input, button")?.focus();
+    const onDown = (event: PointerEvent) => {
+      if (anchor.current && !anchor.current.contains(event.target as Node)) setOpen(false);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setOpen(false);
+        chip.current?.focus();
+      }
+    };
+    window.addEventListener("pointerdown", onDown);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("pointerdown", onDown);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  return (
+    <span className="hud-anchor" ref={anchor}>
+      <button
+        ref={chip}
+        className="quiet"
+        onClick={() => setOpen((was) => !was)}
+        aria-expanded={open}
+        aria-haspopup="dialog"
+        title="кому слышно сказанное; клик — подойти к кружку или собрать свой"
+      >
+        {mine ? `кружок «${mine.name ?? "без имени"}»` : "вслух"}
+      </button>
+      {open && (
+        <div ref={pop} className="hud-pop up" role="dialog" aria-label="Кружки">
+          {circles.length === 0 && (
+            <p className="note">Никто не шепчется: весь разговор локации — общий.</p>
+          )}
+          {circles.map((circle) => (
+            <div className="row circle-row" key={circle.id}>
+              <span>
+                <b>{circle.name ?? "кружок без имени"}</b>
+                <span className="note">
+                  {" "}
+                  ·{" "}
+                  {circle.members.map((member, i) => (
+                    <span key={member}>
+                      {i > 0 && ", "}
+                      <PersonName name={member} />
+                    </span>
+                  ))}
+                </span>
+              </span>
+              {circle.mine ? (
+                <button
+                  className="quiet"
+                  onClick={() => move(() => session.send("chat.leave"))}
+                  disabled={busy}
+                >
+                  отойти
+                </button>
+              ) : (
+                <button
+                  className="quiet"
+                  onClick={() => move(() => session.send("chat.join", { circle: circle.id }))}
+                  disabled={busy}
+                >
+                  подойти
+                </button>
+              )}
+            </div>
+          ))}
+          {!mine && (
+            <div className="row">
+              <input
+                value={name}
+                placeholder="имя кружка (можно без)"
+                onChange={(e) => setName(e.target.value)}
+              />
+              <button
+                onClick={() =>
+                  move(async () => {
+                    await session.send("chat.gather", { name: name.trim() || undefined });
+                    setName("");
+                  })
+                }
+                disabled={busy}
+              >
+                Собрать
+              </button>
+            </div>
+          )}
+          <p className="note">
+            Подошедшего к кружку видно всем; закрытых кружков нет. Пока вы в
+            кружке, реплики слышат участники — с шансом утечки к чужим ушам.
+          </p>
+        </div>
+      )}
+    </span>
   );
 }
 

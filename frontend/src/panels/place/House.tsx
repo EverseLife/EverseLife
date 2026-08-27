@@ -6,8 +6,9 @@
 
 import { useEffect, useState } from "react";
 import * as api from "../../api";
-import { when } from "../../clock";
 import { Refusal, useActions, useSession } from "../../actions";
+import { Deadline } from "../../Deadline";
+import { Gauge } from "../../Gauge";
 import { TierPick } from "../../Tier";
 import { ownOrWild, type Props } from "./shared";
 import { Demolition } from "./Demolition";
@@ -42,6 +43,10 @@ export function House({ look }: Omit<Props, "busy" | "act">) {
   //: that the default lives in the vault and not in two places at once.
   const [kind, setKind] = useState<string>("");
   const [bill, setBill] = useState<any>(null);
+  //: Why there is no bill: the refusal is part of the answer, same as the
+  //: workshop's forecast -- a swallowed refusal leaves a stale bill lying
+  //: under fresh parameters.
+  const [refusal, setRefusal] = useState<string | null>(null);
   //: The shop window and the smallest footprint outlive the bill: the bill is
   //: cleared once the order is placed, and these two must not go with it --
   //: without them the picker would empty out and the minimum would read wrong
@@ -55,27 +60,37 @@ export function House({ look }: Omit<Props, "busy" | "act">) {
   };
   //: Which quality of each material goes into the wall (D-058).
   const [tiers, setTiers] = useState<Record<string, string | null>>({});
-  //: The shop window of types comes back with the bill, so before the first
-  //: estimate there is nothing to choose from. Hence one estimate on arrival:
-  //: the type is chosen before the numbers, and the numbers must already be
-  //: there. Above the early return on purpose -- a hook that sometimes does not
-  //: run is a hook React counts wrong.
+  //: The bill counts itself while the player is still choosing (D-238, the
+  //: workshop's `craft.plan` pattern): the estimate is a read, the debounce
+  //: keeps it one question per pause, and the one button left is the one that
+  //: builds. The shop window of types comes back with the bill, so the first
+  //: answer also fills the picker. Above the early return on purpose -- a
+  //: hook that sometimes does not run is a hook React counts wrong.
   const key = look.node?.key;
   const buildable = ownOrWild(look);
   useEffect(() => {
     if (!buildable) return;
     let dropped = false;
-    void session
-      .send("build.estimate", { area, floors, kind: kind || undefined })
-      .then((first: any) => {
-        if (!dropped) take(first);
-      })
-      .catch(() => undefined);
+    const timer = setTimeout(() => {
+      void session
+        .send("build.estimate", { area, floors, kind: kind || undefined })
+        .then((answer: any) => {
+          if (dropped) return;
+          take(answer);
+          setRefusal(null);
+        })
+        .catch((error: unknown) => {
+          if (dropped) return;
+          setBill(null);
+          setRefusal(error instanceof Error ? error.message : String(error));
+        });
+    }, 300);
     return () => {
       dropped = true;
+      clearTimeout(timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, buildable]);
+  }, [key, buildable, area, floors, kind]);
   if (!look.node) return null;
 
   const going = home.sites;
@@ -85,9 +100,6 @@ export function House({ look }: Omit<Props, "busy" | "act">) {
   const started = going.reduce((sum, work) => sum + work.area, 0);
   const free = Math.max(0, plot - home.ground - started);
 
-  const count = async () => {
-    take(await session.send("build.estimate", { area, floors, kind: kind || undefined }));
-  };
   const picked = kind || shelf[0]?.kind || "";
 
   const short = (bill?.materials ?? []).filter((m: any) => m.have < m.need);
@@ -97,41 +109,50 @@ export function House({ look }: Omit<Props, "busy" | "act">) {
     <section>
       <Refusal of={acting} />
       <h2>Дом</h2>
+      {/* The house as a state card (D-238): the condition on a track, the
+          wear as a warning chip -- instead of the figures buried in a sentence. */}
       {home.area > 0 ? (
-        <p>
-          жилой площади <b>{home.area.toFixed(0)} м²</b> в{" "}
-          <b>{home.floors}</b> эт. на {home.ground.toFixed(0)} м² земли · мест
-          под оборудование{" "}
-          <b>
-            {home.used} из {home.slots}
-          </b>
-          {home.kind && (
-            <>
-              {" · "}
-              {home.kind}, состояние <b>{(home.condition ?? 0).toFixed(0)}%</b>
-              {home.decay > 0 && ` (−${home.decay}% в сутки)`}
-            </>
+        <div className="state-card">
+          <div className="card-head">
+            <b>{home.kind ?? "Дом"}</b>
+            <span className="note">
+              {home.area.toFixed(0)} м² в {home.floors} эт. на{" "}
+              {home.ground.toFixed(0)} м² земли · мест под оборудование{" "}
+              {home.used} из {home.slots}
+            </span>
+          </div>
+          {home.condition != null && (
+            <Gauge
+              label="состояние"
+              value={home.condition}
+              reading={`${home.condition.toFixed(0)}%`}
+            />
           )}
-        </p>
+          {home.decay > 0 && (
+            <div className="chips">
+              <span className="chip warn" title="порча идёт каждые сутки; чинят в этом же окне">
+                порча · <b>−{home.decay}%/сут</b>
+              </span>
+            </div>
+          )}
+        </div>
       ) : (
         <p className="note">
           Дома нет — только двор. Рабочие станции и мебель ставят в дом: сначала строят.
         </p>
       )}
 
-      {going.length > 0 && (
-        <p className="note">
-          Строится:{" "}
-          {going
-            .map(
-              (w) =>
-                `${w.area.toFixed(0)} м² в ${w.floors} эт.${w.kind ? ` (${w.kind})` : ""}`,
-            )
-            .join(", ")}
-          {" · готово "}
-          {when(going[0].ready_at)}. Материалы уже в стене.
-        </p>
-      )}
+      {/* A site under way speaks the deadline bar, like every other term. */}
+      {going.map((w, i) => (
+        <div className="doing" key={`${w.ready_at}-${i}`}>
+          <span className="doing-what">
+            стройка: {w.area.toFixed(0)} м² в {w.floors} эт.
+            {w.kind ? ` (${w.kind})` : ""}
+          </span>
+          <span className="doing-aside note">материалы уже в стене</span>
+          <Deadline until={w.ready_at} label="стройка" size="row" />
+        </div>
+      ))}
 
       {/* Ничью землю за городом строит всякий пришедший (D-198): окно нужно и
           там, иначе правило есть, а руки к нему не приложить. */}
@@ -171,12 +192,6 @@ export function House({ look }: Omit<Props, "busy" | "act">) {
               onChange={(e) => setFloors(Number(e.target.value))}
               title="этажей"
             />
-            <button
-              onClick={() => act(count)}
-              disabled={busy || area < least || area > free}
-            >
-              Посчитать смету
-            </button>
             <span className="note">
               {area} м² × {floors} эт. = {area * floors} м² жилой площади.
               Свободно {free.toFixed(0)} м² двора, меньше {least} м² не строится.
@@ -184,6 +199,12 @@ export function House({ look }: Omit<Props, "busy" | "act">) {
             </span>
           </div>
 
+          {!bill &&
+            (refusal ? (
+              <p className="reason">{refusal}</p>
+            ) : (
+              <p className="note">Смета считается сама, пока вы выбираете.</p>
+            ))}
           {bill && (
             <>
               <table>
@@ -222,7 +243,17 @@ export function House({ look }: Omit<Props, "busy" | "act">) {
                       setBill(null);
                     })
                   }
-                  disabled={busy || short.length > 0 || area > free || area < least}
+                  disabled={
+                    //: The bill echoes what it was counted for: while the
+                    //: typed parameters run ahead of it, the button waits for
+                    //: the recount rather than billing one thing and building another.
+                    busy ||
+                    short.length > 0 ||
+                    area > free ||
+                    area < least ||
+                    bill.area !== area ||
+                    bill.floors !== floors
+                  }
                 >
                   Строить {area} м² в {floors} эт.
                 </button>

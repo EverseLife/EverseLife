@@ -15,13 +15,20 @@
 сервису. Замена допустима только на гарнитуру со свободной лицензией и **полной
 кириллицей**: язык запуска русский (D-024).
 
-## Чего здесь пока нет
+## Что здесь лежит
 
-Файлов. `theme.css` называет гарнитуры в стеке первыми, и у кого они стоят в
-системе — видит их; у остальных подставляется запасная. Это временно и на бою
-недопустимо: облик не должен зависеть от того, что установлено у игрока.
+Пять файлов woff2 (подрезаны до латиницы, кириллицы и типографских знаков) и
+три `OFL-*.txt` — тексты лицензий, класть их рядом требует сама OFL:
 
-## Как положить их сюда
+| Файл | Что это |
+|---|---|
+| `onest.woff2` | Onest, переменный, вес 100–900 |
+| `ibm-plex-mono.woff2`, `ibm-plex-mono-bold.woff2` | Plex Mono 400 и 700 |
+| `literata.woff2`, `literata-italic.woff2` | Literata, переменная по весу 400–700, ось `opsz` зафиксирована на 12 |
+
+`@font-face` объявлены в `src/theme.css` перед стеками, с `font-display: swap`.
+
+## Как они собраны (и как пересобрать)
 
 Сторонние CDN не используются: это внешняя зависимость и сторонний сбор данных
 на ровном месте. Файлы кладутся в эту папку и отдаются со своего домена.
@@ -30,26 +37,20 @@
 pip install fonttools brotli
 ```
 
-Скачать исходники с GitHub проектов (`onest`, `IBM/plex`, `googlefonts/literata`),
-затем подрезать под кириллицу и латиницу и сжать в woff2:
+Скачать исходники (варианты с осями и OFL) из `google/fonts` (`ofl/onest`,
+`ofl/ibmplexmono`, `ofl/literata`), затем подрезать и сжать в woff2:
 
 ```bash
-pyftsubset Onest[wght].ttf --output-file=onest.woff2 --flavor=woff2 --layout-features='*' --unicodes="U+0000-00FF,U+0400-045F,U+2010-2027,U+20A0-20BF,U+2116,U+2212"
+pyftsubset "Onest[wght].ttf" --output-file=onest.woff2 --flavor=woff2 --layout-features='*' --unicodes="U+0000-00FF,U+0400-045F,U+2010-2027,U+20A0-20BF,U+2116,U+2212"
 ```
 
-То же для `IBMPlexMono-Regular.ttf` и `Literata[opsz,wght].ttf`. Диапазон выше —
-латиница, кириллица, типографские знаки, валюты и `№`.
+Диапазон — латиница, кириллица, типографские знаки, валюты и `№`. То же для
+обоих начертаний Plex Mono. Literata перед подрезкой инстанцируется — оптический
+размер в интерфейсе один, а полная ось почти утраивает файл:
 
-После этого в `theme.css` добавляется `@font-face` с `font-display: swap` перед
-объявлением стеков:
-
-```css
-@font-face {
-  font-family: Onest;
-  src: url("/fonts/onest.woff2") format("woff2-variations");
-  font-weight: 100 900;
-  font-display: swap;
-}
+```bash
+python -m fontTools.varLib.instancer "Literata[opsz,wght].ttf" opsz=12 wght=400:700 -o Literata-text.ttf
 ```
 
-Лицензии (`OFL.txt`) кладутся рядом с файлами — этого требует сама лицензия.
+После пересборки файлов правится только этот README и, если менялись имена или
+веса, `@font-face` в `src/theme.css`.

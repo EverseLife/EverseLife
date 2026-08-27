@@ -8,6 +8,8 @@ import { useState } from "react";
 import { Amount } from "../../Amount";
 import { chosen, tally } from "../../amounts";
 import { useSession } from "../../actions";
+import { DropZone } from "../../DragMove";
+import { grip, noDrag } from "../../drag";
 import type { Props } from "./shared";
 
 
@@ -44,92 +46,138 @@ export function Floor({ look, busy, act }: Props) {
         {room.slots_used > 0 && ` · оборудования ${room.slots_used}`}
       </p>
 
-      {floor.things.length > 0 ? (
-        <table>
-          <tbody>
-            {floor.things.map((thing) => (
-              <tr key={thing.id}>
-                <td>{thing.flavor ?? thing.goods}</td>
-                <td className="note">
-                  {tally(thing.goods, thing.amount)} ·{" "}
-                  {(thing.mass * thing.amount).toFixed(1)} кг
-                </td>
-                <td>
-                  {open && (
-                    <Amount
-                      goods={thing.goods}
-                      value={parts[thing.id] ?? null}
-                      max={thing.amount}
-                      onChange={(value) => setPart(thing.id, value)}
-                    />
-                  )}
-                </td>
-                <td>
-                  {open && (
-                    <button
-                      className="quiet"
-                      onClick={() =>
-                        act(() =>
-                          session.send("ground.pick", {
-                            item: thing.id,
-                            amount: chosen(parts[thing.id] ?? null, thing.amount),
-                          }),
-                        )
-                      }
-                      disabled={busy}
-                      title="взять в руки — сколько унесёте"
-                    >
-                      Взять
-                    </button>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      ) : (
-        <p className="note">пусто</p>
-      )}
+      {/* The drag pair (D-238): floor rows drag into the hands zone below,
+          hands rows drag up here. The buttons stay the equal path -- same
+          commands, and the only path for keyboards and touch. */}
+      <DropZone
+        zone="floor"
+        accepts={["hands"]}
+        disabled={!open || busy}
+        onMove={(stack, amount) =>
+          act(() => session.send("ground.drop", { item: stack.item, amount }))
+        }
+      >
+        {floor.things.length > 0 ? (
+          <table>
+            <tbody>
+              {floor.things.map((thing) => (
+                <tr
+                  key={thing.id}
+                  {...(open
+                    ? grip({
+                        item: thing.id,
+                        goods: thing.goods,
+                        label: thing.flavor ?? thing.goods,
+                        amount: thing.amount,
+                        zone: "floor",
+                      })
+                    : {})}
+                >
+                  <td>{thing.flavor ?? thing.goods}</td>
+                  <td className="note">
+                    {tally(thing.goods, thing.amount)} ·{" "}
+                    {(thing.mass * thing.amount).toFixed(1)} кг
+                  </td>
+                  <td {...noDrag}>
+                    {open && (
+                      <Amount
+                        goods={thing.goods}
+                        value={parts[thing.id] ?? null}
+                        max={thing.amount}
+                        onChange={(value) => setPart(thing.id, value)}
+                      />
+                    )}
+                  </td>
+                  <td>
+                    {open && (
+                      <button
+                        className="quiet"
+                        onClick={() =>
+                          act(() =>
+                            session.send("ground.pick", {
+                              item: thing.id,
+                              amount: chosen(parts[thing.id] ?? null, thing.amount),
+                            }),
+                          )
+                        }
+                        disabled={busy}
+                        title="взять в руки — сколько унесёте; строку можно и перетащить вниз"
+                      >
+                        Взять
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <p className="note">пусто</p>
+        )}
+      </DropZone>
 
-      {open && inHands.length > 0 && (
-        <table>
-          <tbody>
-            {inHands.map((thing) => (
-              <tr key={thing.id}>
-                <td>{thing.goods}</td>
-                <td className="note">
-                  {tally(thing.goods, thing.amount)} ·{" "}
-                  {(thing.mass * thing.amount).toFixed(1)} кг
-                </td>
-                <td>
-                  <Amount
-                    goods={thing.goods}
-                    value={parts[thing.id] ?? null}
-                    max={thing.amount}
-                    onChange={(value) => setPart(thing.id, value)}
-                  />
-                </td>
-                <td>
-                  <button
-                    className="quiet"
-                    onClick={() =>
-                      act(() =>
-                        session.send("ground.drop", {
-                          item: thing.id,
-                          amount: chosen(parts[thing.id] ?? null, thing.amount),
-                        }),
-                      )
-                    }
-                    disabled={busy}
-                    title="положить здесь — сколько поместится"
+      {open && (
+        <DropZone
+          zone="hands"
+          accepts={["floor"]}
+          disabled={busy}
+          onMove={(stack, amount) =>
+            act(() => session.send("ground.pick", { item: stack.item, amount }))
+          }
+        >
+          <h3 className="drop-head">В руках</h3>
+          {inHands.length > 0 ? (
+            <table>
+              <tbody>
+                {inHands.map((thing) => (
+                  <tr
+                    key={thing.id}
+                    {...grip({
+                      item: thing.id,
+                      goods: thing.goods,
+                      label: thing.goods,
+                      amount: thing.amount,
+                      zone: "hands",
+                    })}
                   >
-                    Положить
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                    <td>{thing.goods}</td>
+                    <td className="note">
+                      {tally(thing.goods, thing.amount)} ·{" "}
+                      {(thing.mass * thing.amount).toFixed(1)} кг
+                    </td>
+                    <td {...noDrag}>
+                      <Amount
+                        goods={thing.goods}
+                        value={parts[thing.id] ?? null}
+                        max={thing.amount}
+                        onChange={(value) => setPart(thing.id, value)}
+                      />
+                    </td>
+                    <td>
+                      <button
+                        className="quiet"
+                        onClick={() =>
+                          act(() =>
+                            session.send("ground.drop", {
+                              item: thing.id,
+                              amount: chosen(parts[thing.id] ?? null, thing.amount),
+                            }),
+                          )
+                        }
+                        disabled={busy}
+                        title="положить здесь — сколько поместится; строку можно и перетащить вверх"
+                      >
+                        Положить
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <p className="note">руки пусты — сюда можно перетащить лежащее</p>
+          )}
+        </DropZone>
       )}
 
       <p className="note">

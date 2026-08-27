@@ -9,6 +9,8 @@ import { Amount } from "../../Amount";
 import { chosen, tally } from "../../amounts";
 import { Rule } from "../../Rule";
 import { useBook, useSession } from "../../actions";
+import { DropZone } from "../../DragMove";
+import { CHEST_ANY, chestOf, chestZone, grip, noDrag } from "../../drag";
 import { isVessel } from "../../liquids";
 import type { Props } from "./shared";
 
@@ -115,85 +117,142 @@ export function Storages({ look, busy, act }: Props) {
             <p className="note">Чужое хранилище: что внутри — не ваше дело.</p>
           ) : (
             <>
-              {chest.content.length > 0 && (
-                <table>
-                  <tbody>
-                    {chest.content.map((thing) => (
-                      <tr key={thing.id}>
-                        <td>{thing.goods}</td>
-                        <td className="note">{tally(thing.goods, thing.amount)}</td>
-                        <td>
-                          <Amount
-                            goods={thing.goods}
-                            value={parts[thing.id] ?? null}
-                            max={thing.amount}
-                            onChange={(value) => setPart(thing.id, value)}
-                          />
-                        </td>
-                        <td>
-                          <button
-                            className="quiet"
-                            onClick={() =>
-                              act(() =>
-                                session.send("storage.take", {
-                                  storage: chest.id,
-                                  item: thing.id,
-                                  amount: chosen(parts[thing.id] ?? null, thing.amount),
-                                }),
-                              )
-                            }
-                            disabled={busy}
-                            title="забрать в руки — сколько унесёте"
-                          >
-                            Забрать
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-              {chest.content.length === 0 && <p className="note">пусто</p>}
-              {inHands.length > 0 && (
-                <table>
-                  <tbody>
-                    {inHands.map((thing) => (
-                      <tr key={thing.id}>
-                        <td>{thing.goods}</td>
-                        <td className="note">
-                          {tally(thing.goods, thing.amount)} ·{" "}
-                          {(thing.mass * thing.amount).toFixed(1)} кг
-                        </td>
-                        <td>
-                          <Amount
-                            goods={thing.goods}
-                            value={parts[thing.id] ?? null}
-                            max={thing.amount}
-                            onChange={(value) => setPart(thing.id, value)}
-                          />
-                        </td>
-                        <td>
-                          <button
-                            className="quiet"
-                            onClick={() =>
-                              act(() =>
-                                session.send("storage.put", {
-                                  storage: chest.id,
-                                  item: thing.id,
-                                  amount: chosen(parts[thing.id] ?? null, thing.amount),
-                                }),
-                              )
-                            }
-                            disabled={busy}
-                          >
-                            Положить
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
+              {/* The drag pair (D-238): hands rows drop into the chest, chest
+                  rows drop into the hands below -- same commands as the
+                  buttons, which stay the path for keyboards and touch. */}
+              <DropZone
+                zone={chestZone(chest.id)}
+                accepts={["hands"]}
+                disabled={busy}
+                onMove={(stack, amount) =>
+                  act(() =>
+                    session.send("storage.put", {
+                      storage: chest.id,
+                      item: stack.item,
+                      amount,
+                    }),
+                  )
+                }
+              >
+                {chest.content.length > 0 ? (
+                  <table>
+                    <tbody>
+                      {chest.content.map((thing) => (
+                        <tr
+                          key={thing.id}
+                          {...grip({
+                            item: thing.id,
+                            goods: thing.goods,
+                            label: thing.goods,
+                            amount: thing.amount,
+                            zone: chestZone(chest.id),
+                          })}
+                        >
+                          <td>{thing.goods}</td>
+                          <td className="note">{tally(thing.goods, thing.amount)}</td>
+                          <td {...noDrag}>
+                            <Amount
+                              goods={thing.goods}
+                              value={parts[thing.id] ?? null}
+                              max={thing.amount}
+                              onChange={(value) => setPart(thing.id, value)}
+                            />
+                          </td>
+                          <td>
+                            <button
+                              className="quiet"
+                              onClick={() =>
+                                act(() =>
+                                  session.send("storage.take", {
+                                    storage: chest.id,
+                                    item: thing.id,
+                                    amount: chosen(parts[thing.id] ?? null, thing.amount),
+                                  }),
+                                )
+                              }
+                              disabled={busy}
+                              title="забрать в руки — сколько унесёте; строку можно и перетащить вниз"
+                            >
+                              Забрать
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                ) : (
+                  <p className="note">пусто</p>
+                )}
+              </DropZone>
+              <DropZone
+                zone="hands"
+                //: Any chest, not only the one above: three hands-tables may
+                //: stand in one window, and the player drops on the nearest.
+                //: The exact chest rides in the stack's own zone name.
+                accepts={[CHEST_ANY]}
+                disabled={busy}
+                onMove={(stack, amount) =>
+                  act(() =>
+                    session.send("storage.take", {
+                      storage: chestOf(stack.zone),
+                      item: stack.item,
+                      amount,
+                    }),
+                  )
+                }
+              >
+                {inHands.length > 0 ? (
+                  <table>
+                    <tbody>
+                      {inHands.map((thing) => (
+                        <tr
+                          key={thing.id}
+                          {...grip({
+                            item: thing.id,
+                            goods: thing.goods,
+                            label: thing.goods,
+                            amount: thing.amount,
+                            zone: "hands",
+                          })}
+                        >
+                          <td>{thing.goods}</td>
+                          <td className="note">
+                            {tally(thing.goods, thing.amount)} ·{" "}
+                            {(thing.mass * thing.amount).toFixed(1)} кг
+                          </td>
+                          <td {...noDrag}>
+                            <Amount
+                              goods={thing.goods}
+                              value={parts[thing.id] ?? null}
+                              max={thing.amount}
+                              onChange={(value) => setPart(thing.id, value)}
+                            />
+                          </td>
+                          <td>
+                            <button
+                              className="quiet"
+                              onClick={() =>
+                                act(() =>
+                                  session.send("storage.put", {
+                                    storage: chest.id,
+                                    item: thing.id,
+                                    amount: chosen(parts[thing.id] ?? null, thing.amount),
+                                  }),
+                                )
+                              }
+                              disabled={busy}
+                            >
+                              Положить
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                ) : (
+                  <p className="note">руки пусты — сюда можно перетащить из хранилища</p>
+                )}
+              </DropZone>
             </>
           )}
         </section>

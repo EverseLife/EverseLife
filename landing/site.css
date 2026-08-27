@@ -174,8 +174,8 @@ h1 .accent svg .echo { stroke-width: 1.5; opacity: .45; }
 .system .anti { animation: spin var(--d) linear infinite reverse; animation-delay: var(--t); }
 .system .body { transform-box: fill-box; transform-origin: center; filter: drop-shadow(0 0 6px currentColor) drop-shadow(0 0 18px currentColor); }
 /* The dark outline keeps a name readable wherever its orbit carries it. */
-.system .lbl { font-family: var(--f-mono); font-size: 13px; fill: var(--muted); letter-spacing: .04em; paint-order: stroke fill; stroke: var(--bg-950); stroke-width: 3.5px; stroke-linejoin: round; }
-.system .lbl.name { fill: var(--ink); font-size: 16px; font-weight: 500; }
+.system .lbl { font-family: var(--f-mono); font-size: 10px; fill: var(--muted); letter-spacing: .04em; paint-order: stroke fill; stroke: var(--bg-950); stroke-width: 2.6px; stroke-linejoin: round; }
+.system .lbl.name { fill: var(--ink); font-size: 12.5px; font-weight: 500; }
 .system .lbl.off { opacity: .75; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes breathe { 0%, 100% { opacity: .18; } 50% { opacity: .5; } }
@@ -563,6 +563,8 @@ footer .bar .r { margin-left: auto; }
   nav.jump { display: none; }
   .hero-grid { grid-template-columns: 1fr; gap: 24px; }
   .system { width: min(100%, 480px); margin: 0 auto; }
+  .system .lbl { font-size: 13px; }
+  .system .lbl.name { font-size: 16px; }
   .sec-head { grid-template-columns: 1fr; gap: 12px; margin-bottom: 40px; }
   .sec-num { padding-top: 0; }
   .grid-3 { grid-template-columns: 1fr; }
@@ -593,8 +595,8 @@ footer .bar .r { margin-left: auto; }
   table.no { table-layout: fixed; }
   table.no td:first-child { width: 42%; padding-right: 14px; overflow-wrap: anywhere; font-size: 17px; }
   table.no td:last-child { font-size: 14.5px; }
-  .system .lbl { font-size: 16px; }
-  .system .lbl.name { font-size: 20px; }
+  .system .lbl { font-size: 18px; }
+  .system .lbl.name { font-size: 22px; }
   .shot .h .tabs { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {

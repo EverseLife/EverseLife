@@ -15,14 +15,14 @@
  * obligations arrive with their systems (E3-E4).
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import * as api from "../api";
-import type { Batch, Frost as FrostState, Look } from "../api";
+import type { Batch, Look } from "../api";
 import { anyOfClass } from "../classes";
 import { busyWith, CRAFT, SLEEP } from "../busy";
-import { reserveNow } from "../warmth";
 import { Doing } from "../Deadline";
-import { Glyph } from "../Glyph";
+import { Glyph, GoodsMark } from "../Glyph";
+import { Account } from "./Account";
 import { Inventory } from "./Inventory";
 import { Finance } from "./Finance";
 import { Holdings } from "./Holdings";
@@ -31,29 +31,34 @@ import { Net } from "./Net";
 import { Workshop } from "./Workshop";
 import { Rule } from "../Rule";
 import { Refusal, useActions, useBook, useSession } from "../actions";
+import { onSidebarTab, pendingSidebarTab } from "../hud";
 import { onThread } from "../people";
 
+/** What the inner panels (Doings, Trade) take from the sidebar's own actions. */
 type Props = {
   look: Look;
   busy: boolean;
   act: (what: () => Promise<unknown>) => Promise<void>;
-  /** The vault catalog -- for the "craft" tab: what is made by hand. */
 };
 
 /**
- * Six tabs, not ten.
+ * Seven tabs on an icon rail (D-238).
  *
- * The vault kept this open as a question -- "nine is a lot, candidates for
- * joining are inventory+character and bank+trade" -- and the measurement
- * settles it: eight labels wrapped into three rows and took 111px, 18% of the
- * sidebar's height, before a single line of content. An official had ten.
+ * The tabs used to be a wrapping row of "icon + word" and took up to three
+ * rows before a single line of content. The rail is a fixed column of marks:
+ * the word moved into the open panel's title and each button's tooltip, so
+ * the brief's rule -- a mark never *instead* of the label -- is kept, only
+ * the label moved. Office tabs stand below a hairline: they come and go with
+ * the office, and the divide says so.
  *
  * They are joined the way a person thinks about them rather than the way the
- * engine is built: what I am, what I am doing, what I own, what I know, what I
- * keep, and the state -- if the state is any of my business.
+ * engine is built: my account, what I am doing, what I own, what I know, what
+ * I keep, and the state -- if the state is any of my business.
  */
 const TABS = [
-  { id: "me", label: "персонаж", icon: "me", of: "персонаж: состояние и счёт" },
+  //: The account, not the character (D-238): the body's readings live in the
+  //: header's instrument strip, and this tab manages the account alone.
+  { id: "me", label: "аккаунт", icon: "me", of: "данные персонажа, пароль, почта, вид, выход" },
   //: Goods left "персонаж" for a tab of their own: the inventory is a table
   //: with a menu per row, and it does not share a screen with anything.
   { id: "goods", label: "инвентарь", icon: "goods", of: "что в руках и что надето" },
@@ -75,7 +80,7 @@ const STATE_TAB = {
 } as const;
 type Tab = (typeof TABS)[number]["id"] | (typeof STATE_TAB)["id"];
 
-export function Sidebar({ look }: Omit<Props, "busy" | "act">) {
+export function Sidebar({ look, onLogout }: { look: Look; onLogout: () => void }) {
   //: This panel's own waiting and its own refusal: one action here
   //: must not grey out the chat, the map and somebody else's orders.
   const acting = useActions();
@@ -92,6 +97,20 @@ export function Sidebar({ look }: Omit<Props, "busy" | "act">) {
       }),
     [],
   );
+  //: The header's quick buttons open tabs here too: the carried weight opens
+  //: the inventory, the balance's popover links to finance (D-238). On a
+  //: narrow screen the ask switches the zone that mounts this sidebar, so at
+  //: dispatch time nobody was listening -- the pending ask is collected at
+  //: mount, and consumed either way so a stale one never reapplies later.
+  useEffect(() => {
+    const known = (name: string) => TABS.some((t) => t.id === name) || name === STATE_TAB.id;
+    const asked = pendingSidebarTab();
+    if (asked && known(asked)) setTab(asked as Tab);
+    return onSidebarTab((name) => {
+      pendingSidebarTab();
+      if (known(name)) setTab(name as Tab);
+    });
+  }, []);
   const forgetWanted = useCallback(() => setWanted(null), []);
 
   //: A state office is at least one power in a city (D-155).
@@ -108,147 +127,131 @@ export function Sidebar({ look }: Omit<Props, "busy" | "act">) {
     net: look.net_unread ?? 0,
   };
 
+  //: The nearest running term, drawn on the "активности" tab itself -- the
+  //: taskbar trick: the work is visible without opening the tab. Only spans
+  //: with a known start can be drawn as a share (same rule as `Deadline`).
+  const running = useMemo(() => {
+    const spans: { until: string; since: string }[] = [];
+    if (look.travel?.arrives_at && look.travel.started_at) {
+      spans.push({ until: look.travel.arrives_at, since: look.travel.started_at });
+    }
+    for (const job of look.batches) {
+      if (job.state === "running" && job.ready_at && job.started_at) {
+        spans.push({ until: job.ready_at, since: job.started_at });
+      }
+    }
+    if (!spans.length) return null;
+    return spans.reduce((a, b) =>
+      new Date(a.until).getTime() <= new Date(b.until).getTime() ? a : b,
+    );
+  }, [look.travel, look.batches]);
+
+  const mark = (t: { id: Tab; label: string; icon: Parameters<typeof Glyph>[0]["name"]; of: string }) => {
+    const count = counts[t.id] ?? 0;
+    return (
+      <button
+        key={t.id}
+        className={`bare rail-tab${current === t.id ? " on" : ""}`}
+        aria-pressed={current === t.id}
+        //: The glyph is aria-hidden and the tally is a bare number, so without
+        //: this the button's accessible name would be "3": the label names the
+        //: tab, with the count, and the tally stays visual.
+        aria-label={count > 0 ? `${t.label} · ${count}` : t.label}
+        onClick={() => setTab(t.id)}
+        title={`${t.label} — ${t.of}`}
+      >
+        <Glyph name={t.icon} />
+        {count > 0 && (
+          <span className="tally" aria-hidden="true">
+            {count}
+          </span>
+        )}
+        {t.id === "work" && running && (
+          <RailProgress until={running.until} since={running.since} />
+        )}
+      </button>
+    );
+  };
+
   return (
     <aside className="sidebar">
-      <Refusal of={acting} />
-      <nav className="row tabs">
-        {tabs.map((t) => (
-          <button
-            key={t.id}
-            className={current === t.id ? "" : "quiet"}
-            onClick={() => setTab(t.id)}
-            title={t.of}
-          >
-            <Glyph name={t.icon} />
-            {t.label}
-            {(counts[t.id] ?? 0) > 0 && <span className="tally">{counts[t.id]}</span>}
-          </button>
-        ))}
+      {/* The rail: marks only, every tab pinned to the top. The word lives in
+          the panel's title and in the tooltip, not nowhere (the brief's rule,
+          moved rather than dropped). */}
+      <nav className="rail" aria-label="разделы сайдбара">
+        {TABS.map(mark)}
+        {official && (
+          <>
+            <span className="rail-line" aria-hidden="true" />
+            {mark(STATE_TAB)}
+          </>
+        )}
       </nav>
 
-      {current === "me" && <Character look={look} />}
-      {current === "goods" && <Inventory look={look} />}
-      {/* Ручной крафт живёт в сайдбаре: верёвку вьют там, где стоят, и рабочая
-          станция этому месту не нужна. Запуск всё равно присутственный: в пути
-          и во сне сервер откажет. */}
-      {current === "work" && (
-        <>
-          <Doings look={look} busy={busy} act={act} />
-          <Workshop machine={null} look={look} />
-        </>
-      )}
-      {current === "knows" && <Knowledge look={look} />}
-      {/* Хозяйство — деньги и документы, а не материя: счета за быт и ценные
-          бумаги живут в Сети (D-116, D-149). */}
-      {current === "money" && (
-        <>
-          <Finance look={look} busy={busy} act={act} />
-          <Trade look={look} busy={busy} act={act} />
-        </>
-      )}
-      {/* Хозяйство — счета за быт, сеть и ценные бумаги: имущество, а не деньги. */}
-      {current === "estate" && (
-        <Holdings look={look} busy={busy} act={act} />
-      )}
-      {current === "net" && (
-        <Net
-          unread={look.net_unread ?? 0}
-          wanted={wanted}
-          onWanted={forgetWanted}
-        />
-      )}
-      {current === "state" && <State look={look} busy={busy} />}
+      <div className="side-body">
+        <Refusal of={acting} />
+        <h3 className="side-title">{tabs.find((t) => t.id === current)!.label}</h3>
+
+        {current === "me" &&
+          (look.profile ? (
+            <Account profile={look.profile} onLogout={onLogout} />
+          ) : (
+            <p className="note">аккаунт недоступен: перечитайте экран</p>
+          ))}
+        {current === "goods" && <Inventory look={look} />}
+        {/* Ручной крафт живёт в сайдбаре: верёвку вьют там, где стоят, и рабочая
+            станция этому месту не нужна. Запуск всё равно присутственный: в пути
+            и во сне сервер откажет. */}
+        {current === "work" && (
+          <>
+            <Doings look={look} busy={busy} act={act} />
+            <Workshop machine={null} look={look} />
+          </>
+        )}
+        {current === "knows" && <Knowledge look={look} />}
+        {/* Хозяйство — деньги и документы, а не материя: счета за быт и ценные
+            бумаги живут в Сети (D-116, D-149). */}
+        {current === "money" && (
+          <>
+            <Finance look={look} busy={busy} act={act} />
+            <Trade look={look} busy={busy} act={act} />
+          </>
+        )}
+        {/* Хозяйство — счета за быт, сеть и ценные бумаги: имущество, а не деньги. */}
+        {current === "estate" && (
+          <Holdings look={look} busy={busy} act={act} />
+        )}
+        {current === "net" && (
+          <Net
+            unread={look.net_unread ?? 0}
+            wanted={wanted}
+            onWanted={forgetWanted}
+          />
+        )}
+        {current === "state" && <State look={look} busy={busy} />}
+      </div>
     </aside>
   );
 }
 
-function Character({ look }: Pick<Props, "look">) {
-  const sleepingSince = look.body?.sleeping_since ?? null;
-  const fed =
-    look.body?.satiated_until != null &&
-    new Date(look.body.satiated_until).getTime() > Date.now();
-  return (
-    <div>
-      <p className="sign">
-        {look.identity}
-        <Rule>
-          Личность бессмертна, тело — расходник; выносливость возвращает сон.
-        </Rule>
-      </p>
-      <table>
-        <tbody>
-          <tr>
-            <td>выносливость</td>
-            <td className="num">{look.body?.stamina.toFixed(1) ?? "—"}</td>
-          </tr>
-          <tr>
-            <td>счёт</td>
-            <td className="num">{look.money} ₭</td>
-          </tr>
-          <tr>
-            <td>сытость</td>
-            <td className="num">{fed ? "сыт: расход ниже" : "—"}</td>
-          </tr>
-          {/* Warmth is shown only where cold exists (D-231): on Terra there is
-              no row at all rather than an empty one. */}
-          {look.frost && (
-            <tr>
-              <td>{look.frost.climate === "пекло" ? "прохлада" : "тепло"}</td>
-              <td className="num">
-                <Warmth frost={look.frost} />
-              </td>
-            </tr>
-          )}
-          <tr>
-            <td>тело</td>
-            <td className="num">
-              {look.body == null
-                ? "нет"
-                : sleepingSince
-                  ? "спит"
-                  : look.survey
-                    ? "в разведке"
-                    : look.travel
-                      ? "в пути"
-                      : "здесь"}
-            </td>
-          </tr>
-        </tbody>
-      </table>
-
-      {/* Привал переехал в «дела» (D-211): сон — такое же занятие, как поиск и
-          вспашка, и начинают их в одном месте, а не по разным окнам. */}
-    </div>
-  );
-}
-
 /**
- * The heat reserve, counted by the client (D-226, D-231).
- *
- * The server names the stamp and the rate once; the hand is drawn here, the
- * same way the planet's clock is (`warmth.ts`). Asking the server for the hours
- * every second would be a poll, and the number would still be stale between two
- * answers. The effect hangs on the **values**, not on the object: a `look` that
- * changed nothing about the cold must not restart the beat.
+ * The share of a running term on the rail's tab, one-second beat like the
+ * deadline bar it borrows the language of. Hidden from readers on purpose:
+ * the tally and the tab's title carry the same news in words.
  */
-function Warmth({ frost }: { frost: FrostState }) {
-  const [hours, setHours] = useState(() => reserveNow(frost));
+function RailProgress({ until, since }: { until: string; since: string }) {
+  const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
-    setHours(reserveNow(frost));
-    const timer = setInterval(() => setHours(reserveNow(frost)), 10_000);
+    const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [frost.at, frost.hours, frost.per_hour, frost.max, frost.warm]);
-  if (hours <= 0) {
-    return (
-      <b title="замёрзшее тело жжёт выносливость просто на времени и тратит на работу больше обычного; кончится — смерть">
-        замёрз
-      </b>
-    );
-  }
+  }, []);
+  const ends = new Date(until).getTime();
+  const starts = new Date(since).getTime();
+  if (!(ends > starts)) return null;
+  const share = Math.min(1, Math.max(0, (ends - now) / (ends - starts)));
   return (
-    <span title={frost.warm ? "узел обогрет: запас восполняется" : "узел холодный: запас тает"}>
-      {hours.toFixed(1)} ч {frost.warm ? "↑" : "↓"}
+    <span className="rail-progress" aria-hidden="true">
+      <i style={{ width: `${(share * 100).toFixed(1)}%` }} />
     </span>
   );
 }
@@ -498,6 +501,7 @@ function Trade({ look, busy, act }: Props) {
 }
 
 function Knowledge({ look }: { look: Look }) {
+  const book = useBook();
   const discovered = new Set(look.discovered ?? []);
   return (
     <div>
@@ -516,6 +520,7 @@ function Knowledge({ look }: { look: Look }) {
       ) : (
         look.knows.map((name) => (
           <p key={name}>
+            <GoodsMark book={book} goods={name} />
             {name}
             {discovered.has(name) && (
               <span className="note" title="открыт вами: первооткрыватель">

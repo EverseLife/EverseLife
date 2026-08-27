@@ -36,7 +36,7 @@ from src.models.estate import Building, Deed
 from src.models.inventory import Item
 from src.models.job import JobState
 from src.models.ledger import AccountKind, PostingReason
-from src.models.world import Layer, Node, Surface
+from src.models.world import Layer, Node, Planet, Surface
 from src.units import PERCENT, SCALE_MAX, money
 
 
@@ -368,6 +368,80 @@ async def test_owner_names_plot(
 
     assert near.name == "Кузня у ворот", "пробелы по краям обрезаются"
     assert near.key == key, "ключ узла переименованием не трогают"
+
+
+async def test_owner_marks_plot_and_takes_the_mark_down(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The map mark is nailed and pulled by the same hand as the nameplate (D-238)."""
+    city, _, near, _ = await _city(session, catalog)
+    _, body = await _buyer(session, near, city=city)
+    await estate.buy(session, constants, catalog, body, near)
+
+    await estate.emblem(session, body, near, "мастерская")
+    assert near.properties[estate.EMBLEM_PROPERTY] == "мастерская"
+
+    await estate.emblem(session, body, near, None)
+    assert estate.EMBLEM_PROPERTY not in near.properties
+
+
+async def test_unknown_mark_refused(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The list is the engine's: the world's own signs must not be forgeable."""
+    city, _, near, _ = await _city(session, catalog)
+    _, body = await _buyer(session, near, city=city)
+    await estate.buy(session, constants, catalog, body, near)
+
+    with pytest.raises(estate.BadName):
+        await estate.emblem(session, body, near, "руины")
+    assert estate.EMBLEM_PROPERTY not in near.properties
+
+
+async def test_cannot_mark_foreign_plot(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Somebody's mark is not repainted -- even standing nearby."""
+    city, _, near, _ = await _city(session, catalog)
+    _, owner = await _buyer(session, near, city=city)
+    await estate.buy(session, constants, catalog, owner, near)
+
+    _, passerby = await _buyer(session, near, city=city)
+    with pytest.raises(estate.NotOwner):
+        await estate.emblem(session, passerby, near, "дом")
+    assert estate.EMBLEM_PROPERTY not in near.properties
+
+
+def test_public_map_serves_signs_by_allowlist() -> None:
+    """The public map shows the type signs and nothing else (D-238, D-097).
+
+    Default-open would leak every future boolean to the unauthenticated
+    internet; the emblem and the ring are not booleans and must not slip in
+    either.
+    """
+    node = Node(
+        key="x",
+        name="x",
+        layer=Layer.CITY,
+        planet=Planet.TERRA,
+        area_m2=Decimal("1"),
+        properties={
+            "лес": True,
+            "предтечи": True,
+            "library": True,
+            "будущий-флаг": True,
+            "кольцо": 2,
+            estate.EMBLEM_PROPERTY: "дом",
+        },
+    )
+    assert world.public_signs(node) == ["предтечи", "лес"]
+    #: The emblem wears the same belt on the way out: a value planted past
+    #: the command -- junk, or not a string at all -- stays inside.
+    assert estate.public_emblem(node) == "дом"
+    node.properties = {**node.properties, estate.EMBLEM_PROPERTY: "руины"}
+    assert estate.public_emblem(node) is None
+    node.properties = {**node.properties, estate.EMBLEM_PROPERTY: 7}
+    assert estate.public_emblem(node) is None
 
 
 async def test_cannot_rename_foreign_plot(

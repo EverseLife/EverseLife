@@ -33,6 +33,7 @@ import { anyOfClass, isRelic, membersOf } from "../classes";
 import { tally } from "../amounts";
 import { busyWith, CRAFT } from "../busy";
 import { craftableAt, inputsOf, stationOf } from "../recipes";
+import { Gauge } from "../Gauge";
 import { Rule } from "../Rule";
 import { Refusal, useActions, useBook, useSession } from "../actions";
 import { TierPick } from "../Tier";
@@ -288,11 +289,18 @@ export function Workshop({ look, machine }: Omit<Props, "busy" | "act">) {
           <div className="plan">
             {forecast ? (
               <>
+                {/* The forecast as an instrument (D-238): the quality on a
+                    track with its spread band and the machine's ceiling as a
+                    notch; the figures keep standing beside it. */}
+                <Gauge
+                  label="качество"
+                  value={forecast.quality}
+                  spread={forecast.spread}
+                  mark={forecast.ceiling}
+                  markTitle={`потолок станка: ${forecast.ceiling.toFixed(0)}`}
+                  reading={`${forecast.quality.toFixed(1)} ± ${forecast.spread.toFixed(1)}`}
+                />
                 <p>
-                  качество <b className="num">{forecast.quality.toFixed(1)}</b> ±{" "}
-                  <span className="num">{forecast.spread.toFixed(1)}</span>
-                  {" · "}потолок <span className="num">{forecast.ceiling.toFixed(0)}</span>
-                  {" · "}
                   {forecast.minutes < 1 ? (
                     <>
                       <span className="num">{(forecast.minutes * 60).toFixed(1)}</span> с
@@ -303,6 +311,7 @@ export function Workshop({ look, machine }: Omit<Props, "busy" | "act">) {
                     </>
                   )}
                   {" · "}потери <span className="num">{forecast.waste.toFixed(1)}</span>%
+                  {" · "}потолок <span className="num">{forecast.ceiling.toFixed(0)}</span>
                 </p>
                 <p className="note">
                   уйдёт:{" "}

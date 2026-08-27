@@ -2,16 +2,19 @@
 // Copyright (C) 2026 Nurlan Urazkulov
 
 /**
- * The account panel (D-187): opens from the header, where the bare name used to stand.
+ * The account tab of the sidebar (D-187, D-238).
+ *
+ * It used to be a modal opened from the header; the redesign gives the account
+ * a tab of its own and clears the header of account controls entirely.
  *
  * **Nothing game-related** here: the account is payment and device, the
- * identity is the game. Surname, age, description, password, email change;
+ * identity is the game. The body's readings live in the header's instrument
+ * strip, not on this tab. Surname, age, description, password, email change;
  * the name -- never (D-011). Logout revokes the session token.
  */
 
-
 import { type FormEvent, useState } from "react";
-import { useSession } from "../actions";
+import { Refusal, useActions, useSession } from "../actions";
 import type { Profile } from "../api";
 import { DENSITIES, DENSITY_NAMES, setDensity, useDensity } from "../density";
 import { Rule } from "../Rule";
@@ -19,9 +22,6 @@ import { Secret } from "./Secret";
 
 type Props = {
   profile: Profile;
-  busy: boolean;
-  act: (what: () => Promise<unknown>) => Promise<void>;
-  onClose: () => void;
   onLogout: () => void;
 };
 
@@ -35,8 +35,12 @@ const TABS = [
 ] as const;
 type Tab = (typeof TABS)[number]["id"];
 
-export function Account({ profile, busy, act, onClose, onLogout }: Props) {
+export function Account({ profile, onLogout }: Props) {
   const session = useSession();
+  //: The tab's own waiting and refusal: saving a surname must not grey out
+  //: the map or the chat (same rule as every sidebar panel).
+  const acting = useActions();
+  const { busy, act } = acting;
   const [tab, setTab] = useState<Tab>("who");
   const [surname, setSurname] = useState(profile.surname);
   const [age, setAge] = useState(profile.age == null ? "" : String(profile.age));
@@ -87,28 +91,28 @@ export function Account({ profile, busy, act, onClose, onLogout }: Props) {
   const s = new Date(profile.since);
 
   return (
-    <div className="veil" role="dialog" aria-modal="true" aria-label="Аккаунт">
-      <section className="intro account">
-        <header className="row">
-          <h2>
-            {profile.name}
-            {profile.surname ? ` ${profile.surname}` : ""}
-          </h2>
-          <span className="note">
-            {line}
-            {profile.age != null ? ` · ${profile.age}` : ""} · в мире с{" "}
-            {s.toLocaleDateString("ru-RU")}
-          </span>
-          <button className="quiet" onClick={onClose} title="закрыть" aria-label="закрыть">
-            ×
-          </button>
-        </header>
+    <div className="account">
+      <Refusal of={acting} />
+      <p className="sign">
+        {profile.name}
+        {profile.surname ? ` ${profile.surname}` : ""}
+        <Rule>
+          Аккаунт — это оплата и устройство, личность — это игра. Имя несменяемо:
+          на нём держится репутация.
+        </Rule>
+      </p>
+      <p className="note">
+        {line}
+        {profile.age != null ? ` · ${profile.age}` : ""} · в мире с{" "}
+        {s.toLocaleDateString("ru-RU")}
+      </p>
 
-        <nav className="row tabs">
+      <nav className="row tabs">
           {TABS.map((t) => (
             <button
               key={t.id}
               className={tab === t.id ? "" : "quiet"}
+              aria-current={tab === t.id || undefined}
               onClick={() => {
                 setTab(t.id);
                 setDone(null);
@@ -235,7 +239,6 @@ export function Account({ profile, busy, act, onClose, onLogout }: Props) {
           </button>
           <span className="note">Жетон этой сессии будет отозван.</span>
         </footer>
-      </section>
     </div>
   );
 }

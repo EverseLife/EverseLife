@@ -9,6 +9,8 @@ import { describe, expect, it } from "vitest";
 import * as amounts from "../amounts";
 import type { Thing } from "../api";
 import { arrange } from "../arrange";
+import { answered, askless, CHEST_ANY, chestOf, chestZone, fits, halved } from "../drag";
+import { goodsGlyph, nodeGlyph } from "../marks";
 import { duration, hands, stamp, when, worldTime } from "../clock";
 import { groundName } from "../grounds";
 import { stockOf, tierLabel, tiersOf } from "../tiers";
@@ -87,6 +89,118 @@ describe("amounts", () => {
     expect(amounts.trim(3)).toBe("3");
     expect(amounts.trim(3.5)).toBe("3.5");
     expect(amounts.trim(0.25)).toBe("0.25");
+  });
+});
+
+describe("drag", () => {
+  //: The book from the amounts suite above is already learned: Вода is
+  //: measured, everything else is pieces.
+  const pieces = (amount: number) => ({ goods: "Кирка", amount });
+  const water = (amount: number) => ({ goods: "Вода", amount });
+
+  it("skips the question for a single counted piece only", () => {
+    expect(askless(pieces(1))).toBe(true);
+    expect(askless(pieces(2))).toBe(false);
+    //: A measured litre still asks: 0.4 of it is a legal move.
+    expect(askless(water(1))).toBe(false);
+  });
+
+  it("halves pieces to whole ones and measures to any part", () => {
+    expect(halved(pieces(5))).toBe(2);
+    expect(halved(pieces(1))).toBe(0);
+    expect(halved(water(5))).toBe(2.5);
+  });
+
+  it("clamps the typed answer to the stack and floors pieces", () => {
+    expect(answered(pieces(5), 3)).toBe(3);
+    expect(answered(pieces(5), 12)).toBe(5);
+    expect(answered(pieces(5), 2.7)).toBe(2);
+    expect(answered(water(5), 2.7)).toBe(2.7);
+    expect(answered(water(5), 12)).toBe(5);
+  });
+
+  it("refuses an answer that is not a move", () => {
+    expect(answered(pieces(5), 0)).toBeNull();
+    expect(answered(pieces(5), -2)).toBeNull();
+    expect(answered(pieces(5), Number.NaN)).toBeNull();
+    //: 0.4 of a piece floors to zero pieces: no move either.
+    expect(answered(pieces(5), 0.4)).toBeNull();
+  });
+
+  it("matches zones exactly and families by prefix", () => {
+    expect(fits(["hands"], "hands")).toBe(true);
+    expect(fits(["hands"], "floor")).toBe(false);
+    expect(fits([CHEST_ANY], chestZone("a1"))).toBe(true);
+    expect(fits([CHEST_ANY], "hold")).toBe(false);
+    //: An exact chest entry does not become a family by accident.
+    expect(fits([chestZone("a1")], chestZone("a2"))).toBe(false);
+  });
+
+  it("reads the chest id back out of its zone name", () => {
+    expect(chestOf(chestZone("a1"))).toBe("a1");
+    //: A colon inside the id survives the round trip.
+    expect(chestOf(chestZone("x:y"))).toBe("x:y");
+  });
+});
+
+describe("marks", () => {
+  const recipe = (name: string, kind: string, food = false) =>
+    ({ name, level: 1, kind, roles: false, food, inputs: [], amounts: {} });
+  const BOOK = {
+    bulk: [],
+    liquid: ["Вода"],
+    materials: [
+      { name: "Железная руда", class: "Ископаемое" },
+      { name: "Брёвна", class: "Растительное" },
+    ],
+    units: {},
+    operations: [],
+    recipes: [
+      recipe("Хлеб", "consumable", true),
+      recipe("Верстак", "station"),
+      recipe("Куртка", "gear"),
+      recipe("Зубило", "tool"),
+    ],
+    classes: {},
+    tool_classes: { "Кирка": ["Железная кирка"], "Топор": ["Топор"] },
+    synonyms: { "Вода родниковая": "Вода" },
+  } as never;
+
+  it("marks goods by class, never by name", () => {
+    expect(goodsGlyph(BOOK, "Железная кирка")).toBe("pick");
+    expect(goodsGlyph(BOOK, "Топор")).toBe("axe");
+    //: A tool of no named class wears the plain hammer.
+    expect(goodsGlyph(BOOK, "Зубило")).toBe("tool");
+    expect(goodsGlyph(BOOK, "Хлеб")).toBe("food");
+    expect(goodsGlyph(BOOK, "Верстак")).toBe("station");
+    expect(goodsGlyph(BOOK, "Куртка")).toBe("gear");
+    expect(goodsGlyph(BOOK, "Железная руда")).toBe("ore");
+    expect(goodsGlyph(BOOK, "Брёвна")).toBe("plant");
+    //: A liquid is found through its synonym, like everything else.
+    expect(goodsGlyph(BOOK, "Вода родниковая")).toBe("water");
+  });
+
+  it("falls back to the honest crate", () => {
+    expect(goodsGlyph(BOOK, "Нечто безвестное")).toBe("goods");
+    expect(goodsGlyph(null, "Хлеб")).toBe("goods");
+  });
+
+  it("marks nodes by their place signs", () => {
+    expect(nodeGlyph({ features: ["лес"] })).toBe("forest");
+    //: The Forerunners' sign outranks the woods that grew over it.
+    expect(nodeGlyph({ features: ["лес", "предтечи"] })).toBe("ruins");
+    //: The rarer resource outranks the woods too: a stony forest is mined.
+    expect(nodeGlyph({ features: ["лес", "камни"] })).toBe("ore");
+    expect(nodeGlyph({ features: ["луг"] })).toBe("glade");
+    expect(nodeGlyph({ settlement: true })).toBe("state");
+    expect(nodeGlyph({ port: true })).toBe("port");
+    expect(nodeGlyph({})).toBeNull();
+  });
+
+  it("lets the owner's emblem beat the land's signs", () => {
+    expect(nodeGlyph({ emblem: "мастерская", features: ["лес"] })).toBe("station");
+    //: An unknown word from a newer server falls back to the signs.
+    expect(nodeGlyph({ emblem: "неведомое", features: ["лес"] })).toBe("forest");
   });
 });
 

@@ -59,6 +59,19 @@ ORBIT_PHASE = "фаза"
 #: that: unreachable routes are shown, marked as unreachable.
 DEFERRED = "отложена"
 
+#: The place signs the public map may show (D-238): an allowlist, never
+#: "everything true". A boolean property added tomorrow must not leak to the
+#: unauthenticated internet silently, and what only `look` should say to
+#: whoever stands in the node stays with `look`. Deliberately narrow: the
+#: node-type glyphs the client draws, and nothing else.
+PUBLIC_SIGNS = ("предтечи", "камни", "лес", "луг", "участок")
+
+
+def public_signs(node: Node) -> list[str]:
+    """The node's place signs as the public map serves them."""
+    held = node.properties or {}
+    return [name for name in PUBLIC_SIGNS if held.get(name) is True]
+
 
 async def epoch(session: AsyncSession) -> datetime | None:
     """When the world began: the birth of its first node.

@@ -74,6 +74,22 @@ async def _land_rename(state: dict, db: AsyncSession, message: dict) -> dict:
     return {"renamed": node.key, "name": node.name}
 
 
+@command("land.emblem")
+async def _land_emblem(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Nail a map mark on the plot, or take it down: empty means down (D-238).
+
+    The same right and the same spot as the nameplate. The list of marks is
+    the engine's -- the map must not be forgeable into the world's own signs.
+    """
+    body = await _alive(state, db)
+    node = await db.get(Node, body.node_id)
+    if node is None:  # pragma: no cover
+        raise Refused("тело вне узла")
+    asked = str(message.get("emblem") or "").strip()
+    await estate.emblem(db, body, node, asked or None)
+    return {"marked": node.key, "emblem": asked or None}
+
+
 @command("build.construct")
 async def _build_construct(state: dict, db: AsyncSession, message: dict) -> dict:
     """Build a house on your own plot. Materials at once, the building on schedule.

@@ -7,6 +7,7 @@
 import { useState } from "react";
 import * as api from "../../api";
 import { Refusal, useActions, useSession } from "../../actions";
+import { EMBLEM_MARKS } from "../../marks";
 import type { Props } from "./shared";
 import { Door } from "./Door";
 import { Foundation } from "./Foundation";
@@ -101,6 +102,7 @@ export function Plot({ look }: Omit<Props, "busy" | "act">) {
   const { busy, act } = acting;
   const node = look.node;
   const [name, setName] = useState("");
+  const [mark, setMark] = useState("");
   //: Handing a plot over is asked twice: the deed is cancelled by it, and the
   //: way back is a purchase at the price list.
   const [giving, setGiving] = useState(false);
@@ -230,6 +232,39 @@ export function Plot({ look }: Omit<Props, "busy" | "act">) {
           <span className="note">
             Имя увидят все на карте; ключ локации не меняется.
           </span>
+        </div>
+      )}
+      {node.may_name && (
+        //: The map mark is nailed where the nameplate is (D-238): the same
+        //: right, the same spot. The words are the engine's closed list --
+        //: the world's own signs are not offered.
+        <div className="row">
+          <select
+            value={mark}
+            onChange={(e) => setMark(e.target.value)}
+            title="значок узла на карте"
+          >
+            <option value="">— значок узла —</option>
+            {Object.keys(EMBLEM_MARKS).map((word) => (
+              <option key={word} value={word}>
+                {word}
+              </option>
+            ))}
+          </select>
+          <button
+            onClick={() => act(() => session.send("land.emblem", { emblem: mark }))}
+            disabled={busy || !mark}
+          >
+            Прибить значок
+          </button>
+          <button
+            className="quiet"
+            onClick={() => act(() => session.send("land.emblem", { emblem: "" }))}
+            disabled={busy}
+            title="узел вернётся к значку своей земли"
+          >
+            Снять
+          </button>
         </div>
       )}
       {mine && <Door look={look} busy={busy} act={act} />}

@@ -133,6 +133,13 @@ function Routes({
         const port = chosen[planet] ?? first.node;
         return (
           <p key={planet}>
+            {/* The planet's identity tint, the same dot as on the space layer
+                (D-238): the destination is told by colour before the word. */}
+            <span
+              className="planet-dot"
+              style={{ background: `var(--planet-${planet})` }}
+              aria-hidden="true"
+            />
             <b>{planetName(planet)}</b> · {first.hours?.toFixed(1)} ч ·{" "}
             {first.fuel?.toFixed(0)} топлива
             {!first.reachable && " · тяги не хватает: снимите массу"}{" "}

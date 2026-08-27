@@ -124,6 +124,7 @@ export function Admin({ look }: Omit<Props, "busy" | "act">) {
           <button
             key={name}
             className={kind === name ? "" : "quiet"}
+            aria-current={kind === name || undefined}
             onClick={() => setKind(name)}
           >
             {name}

@@ -16,6 +16,9 @@ import { tally } from "../amounts";
 import { busyWith } from "../busy";
 import type { Look } from "../api";
 import { Refusal, useActions, useEdition, useSession } from "../actions";
+import { Doing } from "../Deadline";
+import { Gauge } from "../Gauge";
+import { Glyph } from "../Glyph";
 import { ownOrWild } from "./place/shared";
 
 type Props = {
@@ -44,6 +47,8 @@ type Row = {
   water_need?: number;
   /** Without agrotech only this is seen -- what to do about it, guess. */
   symptoms?: string[];
+  /** The start of the growth term, named with agrotech (the bar's share). */
+  sown_at?: string;
 };
 
 //: Symptoms are common to all crops, norms differ. So an experienced person
@@ -62,6 +67,40 @@ const STATE: Record<Row["state"], string> = {
   plowed: "вспахана",
   sown: "растёт",
 };
+
+/** One fact of the bed per chip; nothing to say -- no container either. */
+function PlotChips({ row }: { row: Row }) {
+  const chips: React.ReactNode[] = [];
+  if (row.agrotech && row.asks_care && row.water_need != null) {
+    chips.push(
+      <span className="chip warn" key="water">
+        <Glyph name="water" />
+        полить сегодня · <b>{row.water_need.toFixed(0)} л</b>
+      </span>,
+    );
+  }
+  if ((row.missed_days ?? 0) > 0) {
+    chips.push(
+      <span className="chip warn" key="missed">
+        пропущено · <b>{row.missed_days} сут.</b>
+      </span>,
+    );
+  }
+  if (row.ripe) chips.push(<span className="chip good" key="ripe">созрело — пора убирать</span>);
+  if (!row.agrotech) {
+    //: The "ripe" symptom is the good chip's news said twice: the flag comes
+    //: to everybody, the symptom only to those without agrotech.
+    for (const code of (row.symptoms ?? []).filter((s) => s !== "ripe")) {
+      chips.push(
+        <span className="chip dim" key={code}>
+          {SYMPTOM[code] ?? code}
+        </span>,
+      );
+    }
+  }
+  if (chips.length === 0) return null;
+  return <div className="chips">{chips}</div>;
+}
 
 export function Farm({ look }: Omit<Props, "busy" | "act">) {
   const session = useSession();
@@ -152,36 +191,53 @@ export function Farm({ look }: Omit<Props, "busy" | "act">) {
           сколько вы нарежете.</p>
       )}
 
+      {/* A bed is a card of instruments (D-238): the fertility on a track with
+          the norm's notch, the term on the deadline bar, one fact per chip --
+          instead of the comma sentence all of it used to be. */}
       {rows.map((row) => (
-        <div className="row plot" key={row.id}>
-          <span>
-            <b>{row.name}</b> · {row.area} м² · {STATE[row.state]}
-            {row.state === "sown" && row.culture_name && (
-              <> · {row.culture_name}{row.variety ? ` (${row.variety})` : ""}</>
-            )}
-            {" · плодородие "}{row.fertility.toFixed(0)}
-            {/* С агротехникой — норма и остаток до неё; без неё — симптом.
-                Знание превращает угадайку в решённую задачу (D-057). */}
-            {row.state === "sown" && row.agrotech && (
-              <>
-                {row.fertility_required != null && (
-                  <> из {row.fertility_required.toFixed(0)} нужных</>
-                )}
-                {row.asks_care && row.water_need != null && (
-                  <> · полить сегодня, {row.water_need.toFixed(0)} л</>
-                )}
-                {(row.missed_days ?? 0) > 0 && (
-                  <b> · пропущено {row.missed_days} сут.</b>
-                )}
-              </>
-            )}
-            {row.state === "sown" && !row.agrotech && (row.symptoms?.length ?? 0) > 0 && (
-              <i>
-                {" · "}
-                {row.symptoms!.map((code) => SYMPTOM[code] ?? code).join(", ")}
-              </i>
-            )}
-          </span>
+        <div className="state-card" key={row.id}>
+          <div className="card-head">
+            <b>{row.name}</b>
+            <span className="note">
+              {row.area} м² · {STATE[row.state]}
+              {row.state === "sown" && row.culture_name && (
+                <> · {row.culture_name}{row.variety ? ` (${row.variety})` : ""}</>
+              )}
+            </span>
+          </div>
+
+          {/* With agrotech the norm stands as a notch on the track; without
+              it -- a bare track and symptoms as chips. Knowledge turns
+              guesswork into a solved problem (D-057). */}
+          <Gauge
+            label="плодородие"
+            value={row.fertility}
+            mark={row.state === "sown" && row.agrotech ? row.fertility_required : undefined}
+            markTitle={
+              row.fertility_required != null
+                ? `норма сорта: ${row.fertility_required.toFixed(0)}`
+                : undefined
+            }
+            warn={
+              row.state === "sown" &&
+              row.agrotech === true &&
+              row.fertility_required != null &&
+              row.fertility < row.fertility_required
+            }
+            reading={
+              row.state === "sown" && row.agrotech && row.fertility_required != null
+                ? `${row.fertility.toFixed(0)} из ${row.fertility_required.toFixed(0)}`
+                : row.fertility.toFixed(0)
+            }
+          />
+
+          {row.state === "sown" && !row.ripe && row.ripe_at && (
+            <Doing what="созреет" until={row.ripe_at} since={row.sown_at} />
+          )}
+
+          {row.state === "sown" && <PlotChips row={row} />}
+
+          <div className="card-act">
           {row.state === "idle" && (
             <button
               onClick={() => go(() => session.send("farm.plow", { plot: row.id }))}
@@ -256,6 +312,7 @@ export function Farm({ look }: Omit<Props, "busy" | "act">) {
               </button>
             </>
           )}
+          </div>
         </div>
       ))}
 

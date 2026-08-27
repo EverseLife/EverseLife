@@ -17,7 +17,9 @@ import { useCallback, useEffect, useState } from "react";
 import { useSession } from "../actions";
 import type { Look } from "../api";
 import { when } from "../clock";
+import { Glyph } from "../Glyph";
 import { groundName } from "../grounds";
+import { groundGlyph } from "../marks";
 import { Bank } from "./Bank";
 import { Rule } from "../Rule";
 
@@ -133,7 +135,12 @@ export function Finance({ look, busy, act }: Props) {
         <div className="facts">
           {entries.map((entry, index) => (
             <div className="fact" key={`${entry.at}-${index}`}>
-              <span className="fact-name">{groundName(entry.reason)}</span>
+              <span className="fact-name">
+                <span className="goods-mark">
+                  <Glyph name={groundGlyph(entry.reason)} />
+                </span>
+                {groundName(entry.reason)}
+              </span>
               <span className="fact-val">
                 {entry.incoming ? "+" : "−"}
                 {entry.money} ₭
