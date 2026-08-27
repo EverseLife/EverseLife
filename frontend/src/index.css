@@ -97,11 +97,13 @@ h3 {
 
 /* --- frame: the whole screen ---------------------------------------------- */
 
+/* Zones run edge to edge and meet at hairlines (D-238, the mockup's sheet):
+   no outer margin around the screen, no gaps between the zones. */
 main {
   height: 100%;
   display: flex;
   flex-direction: column;
-  padding: 0.75rem 1rem;
+  padding: 0;
 }
 
 /* The instrument strip (D-238): the wordmark and the working figures on the
@@ -113,9 +115,8 @@ header {
   gap: 0.5rem 0.9rem;
   align-items: center;
   flex-wrap: wrap;
-  padding-bottom: 0.5rem;
+  padding: 0.35rem 0.9rem;
   border-bottom: 1px solid var(--line);
-  margin-bottom: 0.75rem;
 }
 
 /* The planet's clock: digits must not jump as the minute changes. Family and
@@ -131,14 +132,17 @@ header {
   min-height: 0;
   display: grid;
   grid-template-columns: minmax(17rem, 21rem) 1fr;
-  gap: 1rem;
+  gap: 0;
   align-items: stretch;
 }
 
 /* The rail and the panel beside it (D-238): the rail is pinned, the panel
-   scrolls on its own (`hud.css` styles both). */
+   scrolls on its own (`hud.css` styles both). Half a tone darker than the
+   scene and split from it by one line, not a box: the sidebar is the remote
+   register, and the tone says so (brief, two registers of presence). */
 .sidebar {
-  border: 1px solid var(--line);
+  border-right: 1px solid var(--line);
+  background: var(--base-850);
   display: flex;
   overflow: hidden;
   min-height: 0;
@@ -147,12 +151,22 @@ header {
   margin-top: 0.85rem;
 }
 
-/* The scene: the content scrolls, the chat stays pinned to the bottom. */
+/* The scene: the content scrolls, the chat stays pinned to the bottom.
+   No gaps: the chat meets the scene at its own hairline. */
 .main {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  gap: 0.75rem;
+  gap: 0;
+}
+/* Working surfaces breathe inside their zone; the map bleeds to the edges. */
+.main > .panels,
+.main > .stand,
+.main > section:not(.chat):not(.map-pane) {
+  padding: 0.8rem 0.9rem;
+}
+.main > .alpha {
+  margin: 0.5rem 0.9rem 0;
 }
 .main > .panels,
 .main > .stand,
@@ -166,8 +180,12 @@ header {
 .main > .stand {
   overflow: hidden;
 }
+/* The bottom strip meets the scene at one line, not in a box of its own. */
 .chat {
   flex: none;
+  border: 0;
+  border-top: 1px solid var(--line);
+  padding: 0.35rem 0.9rem 0.5rem;
 }
 /* The alpha's debug widget (D-229): a compact strip above the view, not a
    panel competing with it for the height. Everything else directly in `.main`
@@ -201,6 +219,9 @@ header {
   .sidebar {
     order: 2;
     overflow: visible;
+    /* One column: the split line lies above the sidebar, not beside it. */
+    border-right: 0;
+    border-top: 1px solid var(--line);
   }
   .main,
   .main > .panels,
@@ -345,9 +366,52 @@ header {
   color: var(--base-400);
 }
 
-/* The inventory: a table, and the verbs behind one mark per row. */
+/* The inventory: a table, and the verbs behind one mark per row. The mark
+   stands at the row's end and shows itself on hover (D-238, the mockup's
+   rows): the list reads as goods, not as a form. */
 .goods {
   table-layout: auto;
+  width: 100%;
+}
+.goods td {
+  padding: 0.26rem 0.4rem;
+}
+.goods td:first-child {
+  padding-left: 0.15rem;
+}
+.goods tbody tr:not(.group):hover {
+  background: var(--wash);
+}
+.goods tr .dots {
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+.goods tr:hover .dots,
+.goods tr:focus-within .dots,
+.goods .dots[aria-expanded="true"] {
+  opacity: 1;
+}
+/* A finger has no hover: where hovering is absent or the pointer is coarse
+   (hybrids included), the handle is always visible. */
+@media (hover: none), (pointer: coarse) {
+  .goods tr .dots {
+    opacity: 1;
+  }
+}
+/* The handle moved to the row's end: its menu hangs off the right edge. */
+.goods td.handle .menu {
+  right: 0;
+}
+.menu-amount {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.1rem 0.5rem 0.35rem;
+  padding-bottom: 0.35rem;
+  border-bottom: 1px solid var(--hairline);
+}
+.menu-amount input {
+  width: 5rem;
 }
 .goods tr.group td {
   padding-top: 0.6rem;
@@ -501,42 +565,42 @@ button.dots[aria-expanded="true"] {
   gap: 0.75rem;
 }
 
+/* The objects of the place as a strip of chips (D-238, the mockup's row):
+   one chip per object -- name, state, a mini term -- instead of a boxed
+   column that ate the surface's height. */
 .objects {
   flex: none;
   display: flex;
-  flex-direction: column;
-  border: 1px solid var(--line);
+  flex-wrap: wrap;
+  gap: 0.45rem;
 }
 .obj {
-  display: grid;
-  grid-template-columns: 1fr auto;
+  display: inline-flex;
   align-items: center;
-  gap: 0.15rem 0.75rem;
-  width: 100%;
-  min-height: var(--row-h);
-  padding: 0.3rem 0.7rem;
+  flex-wrap: wrap;
+  gap: 0.2rem 0.5rem;
+  min-height: 0;
+  max-width: 100%;
+  padding: 0.3rem 0.65rem;
   text-align: left;
   font: inherit;
+  font-size: 0.84rem;
   color: var(--base-200);
-  background: transparent;
-  border: 0;
-  border-bottom: 1px solid var(--hairline);
-  border-radius: 0;
+  background: var(--base-850);
+  border: 1px solid var(--base-700);
+  border-radius: var(--r-control);
   cursor: pointer;
-}
-.obj:last-child {
-  border-bottom: 0;
+  transition: border-color 0.1s, color 0.1s;
 }
 .obj:hover {
-  background: var(--wash);
+  border-color: var(--base-400);
   color: var(--base-50);
 }
-/* The chosen row is marked by a full-tone bar and weight, never by the accent:
-   the accent means a living person, and a furnace is not one. */
+/* The open one wears the action colour, like every selection (D-238). */
 .obj[aria-pressed="true"] {
-  background: var(--wash);
   color: var(--base-50);
-  box-shadow: inset 2px 0 0 var(--act);
+  border-color: var(--act);
+  box-shadow: inset 0 -2px 0 var(--act);
 }
 .obj[aria-pressed="true"] .obj-name {
   font-weight: 600;
@@ -544,19 +608,25 @@ button.dots[aria-expanded="true"] {
 .obj-state {
   font-family: var(--font-num);
   font-variant-numeric: tabular-nums;
-  font-size: 0.8rem;
+  font-size: 0.76rem;
   color: var(--base-400);
-  text-align: right;
   white-space: nowrap;
 }
 .obj-why {
-  grid-column: 1 / -1;
-  font-size: 0.8rem;
+  font-size: 0.76rem;
   line-height: 1.4;
   color: var(--warning);
 }
+/* The term inside a chip is a sliver: the bar speaks, the surface details. */
 .obj-bar {
-  grid-column: 1 / -1;
+  flex: none;
+  width: 3.5rem;
+}
+.obj-bar .deadline-bar {
+  width: 100%;
+}
+.obj-bar .deadline-left {
+  display: none;
 }
 .obj.off .obj-name {
   color: var(--base-400);
@@ -576,6 +646,15 @@ button.dots[aria-expanded="true"] {
 section {
   border: 1px solid var(--line);
   padding: var(--pad-panel);
+}
+/* Inside the stand and the sidebar the surface itself is the sheet (D-238):
+   sections lie flat on it, split by headings and hairline cards, not boxed.
+   The box stays for free-standing panels (`.panels` -- the market, the printer). */
+.stand-open > section,
+.side-body section {
+  border: 0;
+  padding: 0;
+  margin: 0 0 1.1rem;
 }
 
 .row {
@@ -1130,6 +1209,14 @@ label > span > .hint,
   padding: 0.4rem 0.6rem;
   margin: 0.5rem 0 0;
 }
+/* The shell's own strip runs the full width and meets the edges bare;
+   the same class inside a panel keeps its framed look above. */
+main > .trouble {
+  border-left: 0;
+  border-right: 0;
+  margin: 0;
+  padding: 0.4rem 0.9rem;
+}
 
 /* Тревога прямо в строке шапки: извержение обещано, часы идут (D-197, P6). */
 .trouble-inline {
@@ -1153,6 +1240,8 @@ footer {
 main.entry {
   justify-content: center;
   border: none;
+  /* The login sheet is not the four-zone shell: it keeps its margins. */
+  padding: 0.75rem 1rem;
 }
 .entry > * {
   width: min(34rem, 100%);

@@ -191,7 +191,7 @@ export function Inventory({ look }: Props) {
                 ? []
                 : [
                     <tr key={`group:${title}`} className="group">
-                      <td colSpan={5}>
+                      <td colSpan={4}>
                         <button
                           type="button"
                           className="bare fold"
@@ -215,6 +215,19 @@ export function Inventory({ look }: Props) {
                   ]),
               ...(title !== null && !opened.has(title) ? [] : rows).map((thing) => (
               <tr key={thing.id}>
+                <td>
+                  {/* The class mark before the name (D-238): the name stays,
+                      the glyph only lets the eye sort the column. */}
+                  <GoodsMark book={book} goods={thing.goods} />
+                  {thing.flavor ?? (thing.recipe ? `${thing.goods}: ${thing.recipe}` : thing.goods)}
+                  {/* A vessel shows its fill (D-230): the water is in the canister,
+                      and nowhere else in the hands. */}
+                  {thing.content !== undefined && (
+                    <div className="note">{fill(book, thing)}</div>
+                  )}
+                </td>
+                <td className="num">{tally(thing.goods, thing.amount)}</td>
+                <td className="note">{tells(thing)}</td>
                 <td className="handle">
                   <button
                     className="bare dots"
@@ -234,6 +247,22 @@ export function Inventory({ look }: Props) {
                     <div className="menu" role="menu">
                       {asking.about === "menu" && (
                         <>
+                          {/* How much of the stack the verbs below move: the
+                              question lives with the verbs now, not as a
+                              field in every row (D-238, the mockup's menu). */}
+                          {thing.amount > 1 && (
+                            <div className="menu-amount">
+                              <span className="note">сколько</span>
+                              <Amount
+                                goods={thing.goods}
+                                value={parts[thing.id] ?? null}
+                                max={thing.amount}
+                                onChange={(value) =>
+                                  setParts((was) => ({ ...was, [thing.id]: value }))
+                                }
+                              />
+                            </div>
+                          )}
                           {thing.slot && (
                             <button
                               role="menuitem"
@@ -310,7 +339,11 @@ export function Inventory({ look }: Props) {
 
                       {asking.about === "where" && (
                         <>
-                          <p className="menu-ask">Куда положить</p>
+                          {/* The typed amount stays visible while choosing
+                              where: the field is a step behind by now. */}
+                          <p className="menu-ask">
+                            Куда положить · {tally(thing.goods, part(thing))}
+                          </p>
                           {mayDropHere ? (
                             <button
                               role="menuitem"
@@ -406,7 +439,9 @@ export function Inventory({ look }: Props) {
 
                       {asking.about === "whom" && (
                         <>
-                          <p className="menu-ask">Кому передать</p>
+                          <p className="menu-ask">
+                            Кому передать · {tally(thing.goods, part(thing))}
+                          </p>
                           {people.length === 0 ? (
                             <p className="note">
                               Здесь никого больше нет: передают из рук в руки.
@@ -437,29 +472,6 @@ export function Inventory({ look }: Props) {
                     </div>
                   )}
                 </td>
-                <td>
-                  {/* The class mark before the name (D-238): the name stays,
-                      the glyph only lets the eye sort the column. */}
-                  <GoodsMark book={book} goods={thing.goods} />
-                  {thing.flavor ?? (thing.recipe ? `${thing.goods}: ${thing.recipe}` : thing.goods)}
-                  {/* A vessel shows its fill (D-230): the water is in the canister,
-                      and nowhere else in the hands. */}
-                  {thing.content !== undefined && (
-                    <div className="note">{fill(book, thing)}</div>
-                  )}
-                </td>
-                <td className="num">{tally(thing.goods, thing.amount)}</td>
-                <td className="note">{tells(thing)}</td>
-                <td>
-                  <Amount
-                    goods={thing.goods}
-                    value={parts[thing.id] ?? null}
-                    max={thing.amount}
-                    onChange={(value) =>
-                      setParts((was) => ({ ...was, [thing.id]: value }))
-                    }
-                  />
-                </td>
               </tr>
               )),
             ])}
@@ -474,14 +486,12 @@ export function Inventory({ look }: Props) {
             <tbody>
               {look.stall.map((thing) => (
                 <tr key={thing.id}>
-                  <td />
                   <td>
                     <GoodsMark book={book} goods={thing.goods} />
                     {thing.flavor ?? (thing.recipe ? `${thing.goods}: ${thing.recipe}` : thing.goods)}
                   </td>
                   <td className="num">{tally(thing.goods, thing.amount)}</td>
                   <td className="note">{tells(thing)}</td>
-                  <td />
                 </tr>
               ))}
             </tbody>
