@@ -23,7 +23,9 @@ from src.engine.ship._base import (
     _EPS,
     BRIDGE,
     FUEL,
+    GROUND_BRIDGE,
     SPACEPORT,
+    Deaf,
     Docked,
     InFlight,
     NoConsole,
@@ -61,10 +63,11 @@ from src.units import (
     ROUND_HOURS,
     ROUND_MASS,
     ROUND_RATIO,
+    SECONDS_PER_HOUR,
 )
 
 
-async def _passage_of(session: AsyncSession, ship: Ship) -> Job | None:
+async def _passage_of(session: AsyncSession, ship: Ship, *, lock: bool = False) -> Job | None:
     """The passage this ship is on, if it is on one.
 
     A passage lives in its journal job alone: it was queued at the casting off
@@ -76,23 +79,48 @@ async def _passage_of(session: AsyncSession, ship: Ship) -> Job | None:
     thing that must not happen here is an under-way hull reading as free --
     and unlike a wedged hull, that one cannot be undone by waiting.
     """
-    return (
-        (
-            await session.execute(
-                select(Job).where(
-                    Job.kind == JobKind.SHIP_FLIGHT.value,
-                    Job.state.in_((JobState.PENDING, JobState.RUNNING)),
-                    Job.payload["ship"].astext == str(ship.id),
-                )
-            )
-        )
-        .scalars()
-        .first()
+    stmt = select(Job).where(
+        Job.kind == JobKind.SHIP_FLIGHT.value,
+        Job.state.in_((JobState.PENDING, JobState.RUNNING)),
+        Job.payload["ship"].astext == str(ship.id),
     )
+    if lock:
+        #: **Before** the hull's own row, never after. The journal claims a job
+        #: first and writes the ship second (`jobs._claim`, `arrived`), so an
+        #: order that took the ship first and reached for the job second would
+        #: be the other half of a deadlock -- and a player would get a database
+        #: error where a refusal belongs.
+        stmt = stmt.with_for_update().execution_options(populate_existing=True)
+    return (await session.execute(stmt)).scalars().first()
+
+
+async def _has_bridge(session: AsyncSession, ship: Ship) -> bool:
+    """Whether the hull carries a console of its own -- something to receive an order.
+
+    Asked of every room: a bridge is a machine standing somewhere aboard, and
+    which compartment it is in is the owner's business.
+    """
+    for room in await nodes_of(session, ship):
+        if await world.has_station(session, room, BRIDGE):
+            return True
+    return False
 
 
 async def _commanded_by(session: AsyncSession, body: Body, ship: Ship) -> None:
-    """Who may move the ship: its owner, standing at the console aboard (D-230).
+    """Who may move the ship: its owner, at a console -- aboard, or on the ground.
+
+    Two places, and the second is why the first is not enough (D-242). Standing
+    at the bridge aboard is the ordinary way (D-230). But a crew that dies in
+    flight leaves a hull with no edges: unreachable on foot, deaf to every
+    order, hanging with its cargo for ever -- and this world does not build
+    traps with no way out (pillar P6). So the owner may also stand at a
+    **«Наземная консоль управления»** in a building of their own and give the
+    same orders: an order is information, and information travels the Net while
+    matter requires presence (D-044).
+
+    What the ground console does **not** do is make a bridge optional: the hull
+    must carry one to have anything to receive the order with. A ship built
+    without a console does not fly at all, by its crew or by anybody.
 
     A guest aboard is carried away and cannot object -- that is deliberate
     (D-201): a ban would mean any stranger blocks a passage by standing in the
@@ -105,14 +133,43 @@ async def _commanded_by(session: AsyncSession, body: Body, ship: Ship) -> None:
     await travel.require_here(session, body)
     if ship.owner_identity_id != body.identity_id:
         raise NotYours("это чужой корабль")
-    aboard = await aboard_of(session, body)
-    if aboard is None or aboard.id != ship.id:
-        raise NotAboard("кораблём управляют с борта: поднимитесь на него")
+
     here = await session.get(Node, body.node_id)
-    if here is None or not await world.has_station(session, here, BRIDGE):
-        raise NoConsole(
-            "кораблём управляют от консоли: встаньте в отсек, где стоит "
-            "«Консоль управления кораблём»"
+    if here is None:  # pragma: no cover -- a body always stands in a node
+        raise ShipError("тело вне узла")
+
+    aboard = await aboard_of(session, body)
+    if aboard is not None and aboard.id == ship.id:
+        if not await world.has_station(session, here, BRIDGE):
+            raise NoConsole(
+                "кораблём управляют от консоли: встаньте в отсек, где стоит "
+                "«Консоль управления кораблём»"
+            )
+        return
+
+    #: Not aboard this hull. Then it is the ground console or nothing -- and the
+    #: hull must have something to hear it with.
+    if not await world.has_station(session, here, GROUND_BRIDGE):
+        raise NotAboard(
+            "кораблём управляют с борта или от «Наземной консоли управления»: "
+            "поднимитесь на него либо встаньте к наземной консоли"
+        )
+    #: **Your own** console, on land you dispose of (D-242). Not a security
+    #: measure -- the ship is refused to a stranger by its owner above -- but
+    #: the difference between a private pult and a public one: a single console
+    #: in the capital would otherwise fly every fleet in the world.
+    #: Lazy: `station` reaches `estate`, and `estate` reaches back here.
+    from src.engine import station  # noqa: PLC0415 -- lazy: breaks the cycle with estate
+
+    if not await station.may_build(session, body, here):
+        raise NotYours(
+            "консоль чужая: приказы отдают со своей. Поставьте «Наземную консоль "
+            "управления» в своём здании"
+        )
+    if not await _has_bridge(session, ship):
+        raise Deaf(
+            f"на «{ship.name}» нет рубки: приказ с земли принимать нечем. "
+            "Поставьте на борт «Консоль управления кораблём»"
         )
 
 
@@ -183,6 +240,10 @@ async def undock(
     #: The berth is given back with the gangway: a ship in flight holds no place
     #: at a pier, and the next arrival gets this one rather than a longer walk.
     ship.berth = None
+    #: Where it came from, remembered (D-242). Undocking is the moment that
+    #: erases the other end of every later passage, and "turn back" has to point
+    #: somewhere: the job under way knows only where it is going.
+    ship.left_node_id = port.id
     await session.flush()
 
     await events.record(
@@ -286,7 +347,11 @@ async def fly(
 
     hours = passage_hours(constants, table, thrust_ratio)
     weight = await mass(session, constants, catalog, ship)
-    need_fuel = fuel_for(constants, weight, hours)
+    #: By class, exactly as the console quoted it (`view.profile`) and as the
+    #: turn-back charges it. Class is power and **efficiency** (D-235), and a
+    #: passage that ignored it charged one price on the screen and another at
+    #: the tanks.
+    need_fuel = fuel_for(constants, weight, hours, klass=have_class)
     have_fuel = await fuel_aboard(session, ship)
     if have_fuel + _EPS < need_fuel:
         raise NoFuel(f"на рейс нужно {need_fuel:.1f} «{FUEL}», а на борту {have_fuel:.1f}")
@@ -322,6 +387,114 @@ async def fly(
     return job
 
 
+async def recall(
+    session: AsyncSession,
+    constants: Constants,
+    catalog: Catalog,
+    body: Body,
+    ship: Ship,
+    *,
+    now: datetime | None = None,
+) -> Job:
+    """Turn a passage back: the hull returns to the pier it cast off from (D-242).
+
+    A passage used to be irreversible -- settled at the casting off and not
+    recomputed, because a sky turning under a flying ship would make the trip
+    longer than the one paid for (D-201). That rule is about the **sky**, not
+    about the helm, and it survives here: the turn-back is not a recomputation
+    of the passage but a second passage, priced by the only honest number there
+    is -- how long this one has been under way.
+
+    So the way home takes exactly as long as the way out has taken so far, and
+    costs fuel by the same formula. Halfway to Aurora is a day back; an hour out
+    is an hour back. Not enough fuel for it -- refused, and the hull flies on:
+    a turn-back that emptied the tanks in the void would be the very trap the
+    fuel rule exists against.
+    """
+    moment = now or datetime.now(UTC)
+    await _commanded_by(session, body, ship)
+    #: The job first, the hull second: the journal takes them in that order
+    #: (`jobs._claim`), and two orders that disagree about it deadlock.
+    running = await _passage_of(session, ship, lock=True)
+    await session.refresh(ship, with_for_update=True)
+    if running is None:
+        raise Docked("корабль никуда не идёт: разворачивать нечего")
+    #: A turn-back is not turned back. It is already going home, and the hours
+    #: it counts are the hours of the passage it replaced -- counted afresh
+    #: from itself they would be nought, and two clicks would bring a hull home
+    #: from anywhere in the sky, instantly and for free.
+    if running.payload.get("back"):
+        raise InFlight(
+            f"«{ship.name}» уже возвращается: разворачивать разворот некуда, дождитесь прихода"
+        )
+    home = None if ship.left_node_id is None else await session.get(Node, ship.left_node_id)
+    if home is None:
+        raise NoPort(
+            f"неизвестно, откуда «{ship.name}» ушёл: развернуться не к чему, "
+            "и рейс придётся довести до конца"
+        )
+    #: The same question `fly` asks of a destination, and for the same reason
+    #: (D-232): a hull must not be sent where it will not be taken. A rescue
+    #: that fails down a chain is not a rescue -- but a dark pier is not a
+    #: chain, it is the answer, and the hull flies on to the port it aimed at.
+    if not await beacon_lit(session, constants, home):
+        raise NoPort(
+            f"маяк «{home.name}» не светит: возвращаться некуда. Корабль дойдёт до цели рейса"
+        )
+
+    #: How long it has been flying is how long it has to fly back. Counted from
+    #: the job that carries the passage: it was created at the casting off, and
+    #: that is the one honest moment there is.
+    gone = (moment - running.created_at).total_seconds() / SECONDS_PER_HOUR
+    if gone <= 0:  # pragma: no cover -- a job is never created in the future
+        gone = 0.0
+    weight = await mass(session, constants, catalog, ship)
+    have_class = await engine_class(session, constants, ship)
+    need_fuel = fuel_for(constants, weight, gone, klass=have_class)
+    have_fuel = await fuel_aboard(session, ship)
+    if have_fuel + _EPS < need_fuel:
+        raise NoFuel(
+            f"на разворот нужно {need_fuel:.1f} «{FUEL}», а в баках {have_fuel:.1f}: "
+            "с пустыми баками в пустоте не разворачиваются — идите до конца"
+        )
+    burnt = await _spend(session, await fuel_stacks(session, ship), need_fuel)
+
+    #: The passage that was is over the moment the helm goes over. Its job is
+    #: dropped rather than left to fire: two arrivals for one hull would set it
+    #: down twice.
+    running.state = JobState.CANCELLED
+    running.finished_at = moment
+    await session.flush()
+
+    arrives = moment + timedelta(hours=gone)
+    event = await events.record(
+        session,
+        EventKind.SHIP_RECALLED,
+        actor_identity_id=body.identity_id,
+        node_id=home.id,
+        ship_id=str(ship.id),
+        name=ship.name,
+        to=home.key,
+        hours=round(gone, ROUND_HOURS),
+        fuel=burnt,
+        arrives_at=arrives.isoformat(),
+    )
+    job = await enqueue(
+        session,
+        JobKind.SHIP_FLIGHT,
+        arrives,
+        #: Marked as the way back: a turn-back counts the hours of the passage
+        #: it replaced, and has none of its own to count.
+        payload={"ship": str(ship.id), "to": str(home.id), "back": True},
+        dedup_key=f"ship.flight:{ship.id}:{event.id}",
+        cause_event_id=event.id,
+        body_id=body.id,
+    )
+    if job is None:  # pragma: no cover -- the key is unique per event
+        raise ShipError("разворот уже поставлен")
+    return job
+
+
 async def _somewhere_on(session: AsyncSession, aim: Node, *, dice: random.Random) -> Node:
     """A node of this planet's surface, taken at random.
 
@@ -338,10 +511,15 @@ async def _somewhere_on(session: AsyncSession, aim: Node, *, dice: random.Random
 async def arrived(session: AsyncSession, job: Job) -> None:
     """The passage is over: the edge to the port appears, and one may walk aboard again."""
 
-    ship = await session.get(Ship, uuid.UUID(job.payload["ship"]))
+    ship = await session.get(Ship, uuid.UUID(job.payload["ship"]), with_for_update=True)
     port = await session.get(Node, uuid.UUID(job.payload["to"]))
     if ship is None or port is None:  # pragma: no cover
         raise ShipError(f"рейс {job.id} ведёт в никуда")
+    #: Already down. A hull is docked by exactly one arrival, and a second one
+    #: -- a retry after a failure, a job that outlived a turn-back -- would lay
+    #: a second gangway and moor a ship that is already moored.
+    if ship.docked_node_id is not None:
+        return
     #: On a planet one lands anywhere on there is no port to aim at, so the
     #: node is **rolled here, at the landing** (D-235): one sets down where the
     #: rock allows, not where it would be convenient. Seeded by the job, so a

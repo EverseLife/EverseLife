@@ -191,6 +191,15 @@ async def _mark_failure(
         job = await session.get(Job, job_id, with_for_update=True)
         if job is None:  # pragma: no cover
             return
+        #: Cancelled while it was being run. Somebody decided this job must not
+        #: happen -- a ship turning back drops the passage it was on (D-242) --
+        #: and putting it back to PENDING here would resurrect exactly what was
+        #: dropped: two arrivals booked for one hull, each ready to set it down
+        #: in its own port. A failure retries what is still wanted, and nothing
+        #: else.
+        if job.state is JobState.CANCELLED:
+            log.warning("job %s failed after being cancelled, left alone: %s", job.id, exc)
+            return
         #: The rollback took the incremented attempt counter too -- we count
         #: again here, otherwise a broken job would spin forever.
         job.attempts += 1

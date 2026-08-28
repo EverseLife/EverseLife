@@ -1069,3 +1069,263 @@ async def test_card_lists_engines_and_where_the_mass_comes_from(
     assert parts["hull"] == constants[R.SHIP_NODE_MASS]
     assert parts["machines"] > 0 and parts["cargo"] > 0
     assert card["mass"] == pytest.approx(sum(parts.values()), abs=0.1)
+
+
+# --- the ground console, and turning back (D-242) -----------------------------
+
+
+GROUND = "Наземная консоль управления"
+
+
+async def _ground_console(session: AsyncSession, node: Node) -> None:
+    """A ground console standing in a node: the second place an order comes from."""
+    yard = await world.node_container(session, node)
+    await world.grant_item(session, yard, GROUND, quality=60, origin="тест")
+
+
+async def test_a_hull_whose_crew_died_is_brought_home_from_the_ground(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The hole D-242 exists for: nobody alive aboard, no edges, no way to order.
+
+    Before the ground console this hull hung with its cargo for ever -- the one
+    trap a ship could still make, and this world does not build those (P6).
+    """
+    home = await _port(session, name="Космодром столицы")
+    away = await _port(session, name="Дальний космодром")
+    _, owner = await _shipwright(session, home)
+    vessel = await _laid(session, constants, owner, home)
+    await _flightworthy(session, constants, catalog, vessel)
+    connector = await session.get(Node, vessel.connector_node_id)
+
+    owner.node_id = connector.id
+    await session.flush()
+    await ship.undock(session, constants, catalog, owner, vessel)
+    #: The crew is gone: the owner is back on the ground, printed anew.
+    owner.node_id = home.id
+    await session.flush()
+
+    #: From bare ground the hull is deaf, exactly as before.
+    with pytest.raises(ship.NotAboard):
+        await ship.fly(session, constants, catalog, owner, vessel, away)
+
+    await _ground_console(session, home)
+    job = await ship.fly(session, constants, catalog, owner, vessel, away)
+    assert job is not None, "с наземной консоли приказ проходит"
+
+
+async def test_a_hull_without_a_bridge_hears_nothing_from_the_ground(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The ground console talks to the ship's console: no bridge, no order (D-242).
+
+    That is what keeps the bridge worth building after the ground one exists.
+    """
+    home = await _port(session, name="Космодром столицы")
+    away = await _port(session, name="Дальний космодром")
+    _, owner = await _shipwright(session, home)
+    vessel = await _laid(session, constants, owner, home)
+    connector = await session.get(Node, vessel.connector_node_id)
+    #: Everything a passage needs **except** a console aboard.
+    await _equip(session, connector, ENGINE)
+    await _equip(session, connector, LIFE)
+    await _fuel(session, connector, 200)
+    owner.node_id = connector.id
+    await session.flush()
+
+    #: Aboard, the missing console is refused as it always was.
+    with pytest.raises(ship.NoConsole):
+        await ship.undock(session, constants, catalog, owner, vessel)
+
+    await _equip(session, connector, CONSOLE)
+    await ship.undock(session, constants, catalog, owner, vessel)
+    #: Now take the console away and try from the ground.
+    yard = await world.node_container(session, connector)
+    for thing in await world.contents(session, yard):
+        if thing.type_key == CONSOLE:
+            await session.delete(thing)
+    await session.flush()
+
+    owner.node_id = home.id
+    await _ground_console(session, home)
+    await session.flush()
+    with pytest.raises(ship.Deaf):
+        await ship.fly(session, constants, catalog, owner, vessel, away)
+
+
+async def test_turning_back_costs_the_way_already_flown(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The way home is as long as the way out has been, and burns its own fuel."""
+    home = await _port(session, name="Космодром столицы")
+    away = await _port(session, name="Дальний космодром")
+    _, owner = await _shipwright(session, home)
+    vessel = await _laid(session, constants, owner, home)
+    await _flightworthy(session, constants, catalog, vessel)
+    connector = await session.get(Node, vessel.connector_node_id)
+    owner.node_id = connector.id
+    await session.flush()
+
+    await ship.undock(session, constants, catalog, owner, vessel)
+    assert vessel.left_node_id == home.id, "причал, с которого ушли, запомнен"
+    flight = await ship.fly(session, constants, catalog, owner, vessel, away)
+    #: `created_at` is the database's own stamp: read it back rather than off
+    #: an object that has not seen the row since the insert.
+    await session.refresh(flight)
+
+    #: An hour out. The way back is an hour, to the pier it left.
+    gone = timedelta(hours=1)
+    moment = flight.created_at + gone
+    before = await ship.fuel_aboard(session, vessel)
+    back = await ship.recall(session, constants, catalog, owner, vessel, now=moment)
+
+    assert back.payload["to"] == str(home.id)
+    assert back.run_at - moment == gone
+    assert await ship.fuel_aboard(session, vessel) < before, "разворот сжёг своё топливо"
+
+    await session.refresh(flight)
+    assert flight.state is JobState.CANCELLED, "прежний рейс снят: два прихода на один корпус"
+
+
+async def test_a_turn_back_is_not_turned_back(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Two clicks must not bring a hull home from anywhere, instantly and free.
+
+    A turn-back counts the hours of the passage it replaced. Counted afresh
+    from **itself** they are nought: no fuel, no time, and the hull lands at
+    home the same second. That is the whole price of a turn-back gone, so the
+    second one is refused outright -- the ship is already going there.
+    """
+    home = await _port(session, name="Космодром столицы")
+    away = await _port(session, name="Дальний космодром")
+    _, owner = await _shipwright(session, home)
+    vessel = await _laid(session, constants, owner, home)
+    await _flightworthy(session, constants, catalog, vessel)
+    connector = await session.get(Node, vessel.connector_node_id)
+    owner.node_id = connector.id
+    await session.flush()
+
+    await ship.undock(session, constants, catalog, owner, vessel)
+    flight = await ship.fly(session, constants, catalog, owner, vessel, away)
+    await session.refresh(flight)
+    moment = flight.created_at + timedelta(hours=1)
+    back = await ship.recall(session, constants, catalog, owner, vessel, now=moment)
+
+    burnt = await ship.fuel_aboard(session, vessel)
+    with pytest.raises(ship.InFlight):
+        await ship.recall(
+            session, constants, catalog, owner, vessel, now=moment + timedelta(seconds=1)
+        )
+    assert await ship.fuel_aboard(session, vessel) == burnt, "отказ не сжёг топлива"
+    #: And the way home is still the hour it was, not nought.
+    await session.refresh(back)
+    assert back.run_at - moment == timedelta(hours=1)
+
+
+async def test_a_turn_back_to_a_dark_pier_is_refused(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The same question `fly` asks of a destination (D-232): a hull is not sent
+    where it will not be taken. The passage it is on stands."""
+    home = await _port(session, name="Космодром столицы")
+    away = await _port(session, name="Дальний космодром")
+    _, owner = await _shipwright(session, home)
+    vessel = await _laid(session, constants, owner, home)
+    await _flightworthy(session, constants, catalog, vessel)
+    connector = await session.get(Node, vessel.connector_node_id)
+    owner.node_id = connector.id
+    await session.flush()
+
+    await ship.undock(session, constants, catalog, owner, vessel)
+    flight = await ship.fly(session, constants, catalog, owner, vessel, away)
+    await session.refresh(flight)
+
+    #: The yard is carried off while the hull is under way: the pier it left is
+    #: no longer a pier at all.
+    yard = await world.node_container(session, home)
+    for thing in await world.contents(session, yard):
+        if thing.type_key == "Космическая верфь":
+            await session.delete(thing)
+    await session.flush()
+
+    with pytest.raises(ship.NoPort):
+        await ship.recall(
+            session, constants, catalog, owner, vessel, now=flight.created_at + timedelta(hours=1)
+        )
+
+
+async def test_two_turn_backs_in_one_second_burn_one_return(
+    factory: async_sessionmaker[AsyncSession], constants: Constants, catalog: Catalog
+) -> None:
+    """Two sockets of one player, or an AI citizen (D-224), pressing together.
+
+    The turn-back writes twice -- the passage's job and the tanks -- and both
+    writes are worth doubling. The hull's passage is taken under lock before
+    anything is decided, so the second order finds a hull already going home.
+    """
+    async with factory() as session, session.begin():
+        home = await _port(session, name="Космодром столицы")
+        away = await _port(session, name="Дальний космодром")
+        _, owner = await _shipwright(session, home)
+        vessel = await _laid(session, constants, owner, home)
+        await _flightworthy(session, constants, catalog, vessel)
+        connector = await session.get(Node, vessel.connector_node_id)
+        owner.node_id = connector.id
+        await session.flush()
+        await ship.undock(session, constants, catalog, owner, vessel)
+        flight = await ship.fly(session, constants, catalog, owner, vessel, away)
+        await session.refresh(flight)
+        ship_id, owner_id = vessel.id, owner.id
+        moment = flight.created_at + timedelta(hours=1)
+        before = await ship.fuel_aboard(session, vessel)
+
+    ready = asyncio.Barrier(2)
+
+    async def turn() -> str:
+        async with factory() as db, db.begin():
+            mine = await db.get(Ship, ship_id)
+            me = await db.get(Body, owner_id)
+            await ready.wait()
+            try:
+                await ship.recall(db, constants, catalog, me, mine, now=moment)
+            except ship.InFlight:
+                return "refused"
+            return "turned"
+
+    answers = await asyncio.gather(turn(), turn())
+    assert sorted(answers) == ["refused", "turned"], f"оба разворота прошли: {answers}"
+
+    async with factory() as session:
+        vessel = await session.get(Ship, ship_id)
+        left = await ship.fuel_aboard(session, vessel)
+        going = (
+            (
+                await session.execute(
+                    select(Job).where(
+                        Job.kind == JobKind.SHIP_FLIGHT.value,
+                        Job.state == JobState.PENDING,
+                        Job.payload["ship"].astext == str(ship_id),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+    assert len(going) == 1, "на корпусе один рейс, а не два"
+    assert left < before, "топливо списано, и один раз"
+
+
+async def test_a_hull_that_is_not_flying_has_nothing_to_turn_back(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    port = await _port(session)
+    _, owner = await _shipwright(session, port)
+    vessel = await _laid(session, constants, owner, port)
+    await _flightworthy(session, constants, catalog, vessel)
+    connector = await session.get(Node, vessel.connector_node_id)
+    owner.node_id = connector.id
+    await session.flush()
+
+    with pytest.raises(ship.Docked):
+        await ship.recall(session, constants, catalog, owner, vessel)

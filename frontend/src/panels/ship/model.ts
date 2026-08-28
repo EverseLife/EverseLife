@@ -78,6 +78,13 @@ export type Vessel = {
   port: string | null;
   /** Which berth of that port: the gangway is as long as its number (D-201). */
   berth: number | null;
+  /** Whether the hull carries a console of its own. It is the receiver: a
+   *  ground console talks to it, and a hull without one takes no order at all
+   *  -- its own crew's or anybody's (D-242). */
+  bridge: boolean;
+  /** The pier it cast off from, if it has ever cast off: what a turn-back
+   *  aims at, by name. Empty means there is nothing to turn back to. */
+  left: string | null;
   connector: string | null;
   flight: Flight | null;
   routes: Route[];

@@ -206,7 +206,11 @@ async def _ship_view(state: dict, db: AsyncSession, message: dict) -> dict:
     """
     body = await _alive(state, db)
     asked = message.get("ship")
-    if not asked and await ship.aboard_of(db, body) is None:
+    #: `fleet` asks for every hull of one's own whatever the body is standing
+    #: in. The ground console wants exactly that (D-242), and it may perfectly
+    #: well stand in a compartment of the flagship -- where the plain reading
+    #: would collapse to the one hull underfoot and hide the rest of the fleet.
+    if not asked and (message.get("fleet") or await ship.aboard_of(db, body) is None):
         mine = await ship.ships_of(db, body.identity_id)
         return {"ships": [await _seen(db, body, one) for one in mine]}
     vessel = await _ship_of(db, body, asked)
@@ -273,6 +277,19 @@ async def _ship_fly(state: dict, db: AsyncSession, message: dict) -> dict:
         raise Refused("нет такого узла")
     job = await ship.fly(db, current(), current_catalog(), body, vessel, port)
     return {"flight": str(job.id), "arrives_at": job.run_at.isoformat()}
+
+
+@command("ship.recall")
+async def _ship_recall(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Turn a passage back to the pier it cast off from (D-242).
+
+    Not a recomputation of the passage -- that stays settled at the casting off
+    (D-201) -- but a second one, as long as the first has been under way.
+    """
+    body = await _alive(state, db)
+    vessel = await _ship_of(db, body, message.get("ship"))
+    job = await ship.recall(db, current(), current_catalog(), body, vessel)
+    return {"recalled": str(job.id), "arrives_at": job.run_at.isoformat()}
 
 
 @command("ship.ports")

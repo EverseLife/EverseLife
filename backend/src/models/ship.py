@@ -63,6 +63,13 @@ class Ship(Base):
     #: departed one stood. Empty in flight, along with the port.
     berth: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
+    #: The pier the hull last cast off from (D-242). Kept because "back where
+    #: you came from" has to point somewhere: a passage under way knows only
+    #: where it is going, and undocking is what erases the other end. Empty for
+    #: a hull that has never left a port -- and for one that has, it stays
+    #: written after the arrival too: it is a memory, not a state.
+    left_node_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+
     #: When the hull's air was last settled (D-233). A stamp, and the reserve is
     #: elsewhere for the same reason a body's is: oxygen is a liquid and lives
     #: in the tanks aboard (D-230, D-234). Nothing is ticked while the ship sits

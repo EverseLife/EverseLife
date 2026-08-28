@@ -218,9 +218,22 @@ TANK = "Топливный бак"
 
 
 #: The class of the console a ship is commanded from (D-230). Casting off and
-#: a passage are ordered standing at it, and it answers only in a room aboard:
-#: bolted to a yard on the ground it is furniture.
+#: a passage are ordered standing at it, and aboard it is the **receiver** as
+#: well: a hull without one takes no order at all, its own crew's or the
+#: ground's (D-242).
 BRIDGE = "Рубка"
+
+
+#: The same console on the ground (D-242). An order is **information**, and
+#: information travels the Net while matter requires presence (D-044) -- so
+#: commanding one's own hull from a building on one's own land was always
+#: allowed by the world; there was simply nothing to do it with.
+#:
+#: It exists because of a hole that had no bottom: a crew that dies in flight
+#: leaves a hull with no edges, unreachable on foot and deaf to every order,
+#: hanging with its cargo for ever. This world does not build traps with no way
+#: out (pillar P6), and this was the only one a ship could still make.
+GROUND_BRIDGE = "Наземная рубка"
 
 
 #: The node property marking a node as being aboard. A property rather than a
@@ -287,6 +300,10 @@ class NotAboard(ShipError):
 
 class NoConsole(ShipError):
     """No working console here: a ship is commanded from its bridge, not from any room."""
+
+
+class Deaf(ShipError):
+    """The hull carries no bridge: there is nothing aboard to receive an order (D-242)."""
 
 
 class NotYours(ShipError):

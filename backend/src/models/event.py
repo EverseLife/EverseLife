@@ -104,6 +104,9 @@ class EventKind(StrEnum):
     #: The tanks stopped covering the hour the crew breathes (D-233): said once,
     #: while there is still a settling left to do something about it.
     SHIP_AIRLESS = "ship.airless"
+    #: The helm went over (D-242): the passage is dropped and the hull is coming
+    #: back to the pier it left, for as long as it has already flown.
+    SHIP_RECALLED = "ship.recalled"
 
     # transport and convoy (D-157)
     TRANSPORT_HARNESSED = "transport.harnessed"

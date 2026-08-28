@@ -72,6 +72,8 @@ import { TERMINAL, anyOfClass, classOf, firstOfClass } from "../classes";
 const SPACEPORT = "Верфь";
 /** The ship's console: the bridge the ship is commanded from (D-230). */
 const BRIDGE = "Рубка";
+/** The same console on the ground (D-242): one's own hulls, wherever they are. */
+const GROUND_BRIDGE = "Наземная рубка";
 const RIG = "Буровая";
 const KITCHEN = "Кухня";
 const NURSERY = "Питомник";
@@ -369,6 +371,24 @@ function assemble({ look, values, pow }: Props, book: RecipeBook | null): Thing[
       "Окно рубки: карта рейса этого корабля, отстыковка и курс на планету.",
     );
   }
+  //: The ground console (D-242): every hull of one's own, and the same orders
+  //: the bridge gives. It exists because a crew that dies in flight leaves a
+  //: hull with no edges -- unreachable on foot and deaf to every order -- and
+  //: this world does not build traps with no way out.
+  const groundBridge = firstOfClass(book, stations, GROUND_BRIDGE);
+  if (groundBridge !== undefined) {
+    single(
+      "ground",
+      groundBridge,
+      "full",
+      () => <Ship look={look} ground />,
+      1,
+      undefined,
+      "Окно наземной консоли: свои корабли где бы они ни были — карта рейса,"
+        + " отстыковка, курс, посадка и разворот.",
+    );
+  }
+
   //: The ship's own card stands in **every** compartment (D-240). It used to
   //: be hidden wherever the console was, so the room the bridge stood in --
   //: usually the base -- was the one room aboard with no way to read the hull.

@@ -141,6 +141,126 @@ function AirBar({ v }: { v: Vessel }) {
 }
 
 /**
+ * Coming back down, on the planet the hull is already over.
+ *
+ * Undocking lifts the ship off the pier and there it hangs, taking no orders
+ * but a course -- and the course the player wants first is almost always
+ * "put it back". It **is** an ordinary passage: a hop of `ship.hop_hours`
+ * between two points of one sky, priced like any other. But on the chart it is
+ * a corridor from a planet to itself -- a line of no length, drawn under its
+ * own dot -- so the one destination that is always available was the one with
+ * nothing to click. Hence a row of its own, beside the chart rather than on it.
+ */
+function Landing({
+  vessel,
+  busy,
+  fly,
+}: {
+  vessel: Vessel;
+  busy: boolean;
+  fly: (port: string) => void;
+}) {
+  const home: Route[] = vessel.routes.filter((route) => route.planet === vessel.planet);
+  const [chosen, setChosen] = useState("");
+  if (home.length === 0) {
+    return (
+      <p className="note">
+        Садиться здесь некуда: ни одного космодрома с горящим маяком на этой планете.
+        Курс на другую планету задаётся на карте.
+      </p>
+    );
+  }
+  const first = home[0];
+  const port = chosen || first.node;
+  return (
+    <p>
+      <b>Сесть обратно</b> · {planetName(vessel.planet)} · {first.hours?.toFixed(1)} ч ·{" "}
+      {first.fuel?.toFixed(0)} топлива{" "}
+      {home.length > 1 ? (
+        <select
+          value={port}
+          onChange={(e) => setChosen(e.target.value)}
+          aria-label="космодром для посадки"
+        >
+          {home.map((route) => (
+            <option key={route.node} value={route.node}>
+              {route.name}
+            </option>
+          ))}
+        </select>
+      ) : first.anywhere ? (
+        <span
+          className="note"
+          title="здесь нет космодромов: узел посадки разыгрывается при заходе, и садятся туда, куда пустила скала"
+        >
+          посадка вслепую
+        </span>
+      ) : (
+        <span className="note">{first.name}</span>
+      )}{" "}
+      <button
+        onClick={() => fly(port)}
+        disabled={busy || !first.reachable}
+        title={
+          first.reachable
+            ? "посадка — такой же переход, как любой другой: время и топливо по этому корпусу"
+            : "тяги не хватает даже на посадку: снимите массу"
+        }
+      >
+        Сесть
+      </button>
+    </p>
+  );
+}
+
+/**
+ * A passage under way: where it goes, how far it has got, and when it ends.
+ *
+ * The bar is the one every term in this world wears (D-238). It matters more
+ * here than anywhere: a hull in flight takes no orders at all, so the only
+ * thing the console can honestly offer is the answer to "how long".
+ */
+function Passage({
+  v,
+  busy,
+  deaf,
+  recall,
+}: {
+  v: Vessel;
+  busy: boolean;
+  /** No console aboard: the hull hears nothing from the ground (D-242). */
+  deaf: boolean;
+  recall: () => void;
+}) {
+  if (!v.flight) return null;
+  return (
+    <div className="doing">
+      <span className="doing-what">
+        рейс в «{v.flight.name}»
+        {v.flight.planet && ` · ${planetName(v.flight.planet)}`}
+      </span>
+      <Deadline until={v.flight.arrives_at} since={v.flight.started_at} label="рейс" />
+      <span className="doing-aside note">
+        Время сосчитано на отходе и не пересчитывается: небо, повернувшееся под
+        летящим кораблём, сделало бы рейс длиннее оплаченного. Курс менять
+        нельзя — но можно развернуться.
+      </span>
+      {/* The helm may still go over (D-242): the way back is as long as the way
+          out has been, and costs its own fuel. Named with the pier it aims at,
+          because "cancel" alone would not say where the hull ends up. */}
+      <button className="quiet" onClick={recall} disabled={busy || deaf || !v.left}>
+        Развернуться{v.left ? ` в «${v.left}»` : ""}
+      </button>
+      {!v.left && (
+        <span className="note">
+          Неизвестно, откуда корабль ушёл: развернуться не к чему, он дойдёт до конца.
+        </span>
+      )}
+    </div>
+  );
+}
+
+/**
  * The course: what the chart's chosen planet costs, and the order to fly it.
  *
  * One planet is one price -- the sky has one distance to it -- and may have
@@ -253,7 +373,17 @@ function Nameplate({
   );
 }
 
-export function Ship({ look, console: atConsole = false }: { look: Look; console?: boolean }) {
+export function Ship({
+  look,
+  console: atConsole = false,
+  ground = false,
+}: {
+  look: Look;
+  /** The bridge aboard: the ship one is standing in, and its orders. */
+  console?: boolean;
+  /** The ground console (D-242): every hull of one's own, and the same orders. */
+  ground?: boolean;
+}) {
   const session = useSession();
   const book = useBook();
   //: This panel's own waiting and its own refusal: laying a keel must not grey
@@ -287,9 +417,12 @@ export function Ship({ look, console: atConsole = false }: { look: Look; console
   const occupied = busyWith(look);
 
   const reload = useCallback(async () => {
-    const answer = await session.send("ship.view");
+    //: The ground console asks for the whole fleet: it may itself stand in a
+    //: compartment of the flagship, and the plain reading would then collapse
+    //: to that one hull and hide the rest (D-242).
+    const answer = await session.send("ship.view", ground ? { fleet: true } : {});
     setShips((answer.ships ?? []) as Vessel[]);
-  }, [session]);
+  }, [session, ground]);
   //: Reread when the world says so (D-226), not on every look.
   const edition = useEdition("ship.", "transport.");
 
@@ -297,12 +430,15 @@ export function Ship({ look, console: atConsole = false }: { look: Look; console
     void reload();
   }, [reload, edition]);
 
+  //: Whether this window gives orders at all: the bridge aboard, or the ground
+  //: console. The ship's own card gives none and asks for no chart.
+  const orders = atConsole || ground;
   useEffect(() => {
-    if (!atConsole) return;
+    if (!orders) return;
     void worldMap(session.token)
       .then((map) => setSky(map.nodes.filter((node) => node.orbit)))
       .catch(() => setSky([]));
-  }, [atConsole, session]);
+  }, [orders, session]);
 
   const go = (what: () => Promise<unknown>) =>
     act(async () => {
@@ -317,27 +453,37 @@ export function Ship({ look, console: atConsole = false }: { look: Look; console
         <p className="note">
           Консоль стоит на земле и молчит: она работает только в узле корабля —
           на основании, заложенном на космодроме из «узла космического корабля».
-          Поставьте её на борт, и здесь откроются карта рейса и курс.
+          Для приказов с земли есть другая вещь — «Наземная консоль управления».
         </p>
       </section>
     );
   }
-  if (!aboard && !atPort) return null;
+  if (!ground && !aboard && !atPort) return null;
 
   //: Aboard the summary is about the ship underfoot; at a port -- about the
-  //: ones that are yours, because from the pier one commands one's own.
-  const shown = aboard
+  //: ones that are yours, because from the pier one commands one's own. At the
+  //: ground console -- about every hull of one's own, wherever it is: that is
+  //: the whole point of it (D-242).
+  const shown = ground
     ? ships
-    : ships.filter((v) => v.docked === look.node?.key || v.docked == null);
-  //: The console speaks about the hull one is standing in and no other: a
-  //: bridge commands its own ship (D-230).
+    : aboard
+      ? ships
+      : ships.filter((v) => v.docked === look.node?.key || v.docked == null);
+  //: The bridge speaks about the hull one is standing in and no other: it
+  //: commands its own ship (D-230). The ground console speaks about all of them.
   const commanded = atConsole ? shown.slice(0, 1) : shown;
 
   return (
     <section>
       <Refusal of={acting} />
       <h2>
-        {atConsole ? "Консоль управления кораблём" : aboard ? "Корабль" : "Космическая верфь"}
+        {ground
+          ? "Наземная консоль управления"
+          : atConsole
+            ? "Консоль управления кораблём"
+            : aboard
+              ? "Корабль"
+              : "Космическая верфь"}
         <Rule>
           Корабль — не вещь, а группа узлов карты с одним выходом наружу. Стыковка и
           отстыковка — появление и исчезновение одного ребра, а полёт это его
@@ -348,7 +494,12 @@ export function Ship({ look, console: atConsole = false }: { look: Look; console
         </Rule>
       </h2>
 
-      {commanded.map((v) => (
+      {commanded.map((v) => {
+        //: A hull with no console of its own hears nothing from the ground
+        //: (D-242). Said once, above, and every order greyed out with it --
+        //: a refusal collected after the click says the same thing too late.
+        const deaf = ground && !v.bridge;
+        return (
         <div key={v.ship}>
           <p className="sign">
             {v.name} · {v.nodes} узл. · тяга {v.thrust.toFixed(0)} на массу {v.mass.toFixed(0)} кг
@@ -365,17 +516,24 @@ export function Ship({ look, console: atConsole = false }: { look: Look; console
                 : " · отстыкован"}
           </p>
           {/* A passage is a term like any other, and every term in this world
-              is drawn the same way. */}
-          {v.flight && (
-            <Deadline
-              until={v.flight.arrives_at}
-              since={v.flight.started_at}
-              label="рейс"
-            />
+              is drawn the same way. At the console the whole card stands
+              instead (`Passage`); in the ship's own window the bar alone is
+              what there is room for. */}
+          {v.flight && !orders && (
+            <Deadline until={v.flight.arrives_at} since={v.flight.started_at} label="рейс" />
           )}
 
-          {atConsole ? (
+          {orders ? (
             <>
+              {/* A hull with no console of its own hears nothing from here: the
+                  ground station talks to the bridge, and there is none. Said
+                  before the buttons rather than as a refusal after them. */}
+              {deaf && (
+                <p className="reason">
+                  На борту нет рубки: приказ с земли принимать нечем. Поставьте в
+                  отсек «Консоль управления кораблём».
+                </p>
+              )}
               <Chart
                 vessel={v}
                 planets={sky}
@@ -388,7 +546,11 @@ export function Ship({ look, console: atConsole = false }: { look: Look; console
                   <button
                     onClick={() => go(() => session.send("ship.undock", { ship: v.ship }))}
                     disabled={
-                      busy || v.ratio < v.min_ratio || v.crew > v.life_support || v.fuel < cheapest(v)
+                      busy ||
+                      deaf ||
+                      v.ratio < v.min_ratio ||
+                      v.crew > v.life_support ||
+                      v.fuel < cheapest(v)
                     }
                   >
                     Отстыковаться
@@ -405,16 +567,29 @@ export function Ship({ look, console: atConsole = false }: { look: Look; console
                   </p>
                 </>
               ) : v.flight ? (
-                <p className="note">
-                  Корабль в рейсе: до конца перехода он приказов не берёт.
-                </p>
-              ) : (
-                <Course
-                  vessel={v}
-                  planet={course}
+                <Passage
+                  v={v}
                   busy={busy}
-                  fly={(port) => go(() => session.send("ship.fly", { ship: v.ship, port }))}
+                  deaf={deaf}
+                  recall={() => go(() => session.send("ship.recall", { ship: v.ship }))}
                 />
+              ) : (
+                <>
+                  {/* Down first: it is the order most often wanted and the one
+                      the chart cannot draw -- a corridor from a planet to
+                      itself has no length. */}
+                  <Landing
+                    vessel={v}
+                    busy={busy || deaf}
+                    fly={(port) => go(() => session.send("ship.fly", { ship: v.ship, port }))}
+                  />
+                  <Course
+                    vessel={v}
+                    planet={course}
+                    busy={busy || deaf}
+                    fly={(port) => go(() => session.send("ship.fly", { ship: v.ship, port }))}
+                  />
+                </>
               )}
             </>
           ) : (
@@ -454,12 +629,13 @@ export function Ship({ look, console: atConsole = false }: { look: Look; console
             )
           )}
         </div>
-      ))}
+        );
+      })}
 
       {/* The keel itself: the eight hours between the foundation leaving the
           pocket and the node appearing. Without this the yard was silent for
           the whole of them. */}
-      {!atConsole && keel && (
+      {!orders && keel && (
         <div className="doing">
           <span className="doing-what">
             {keel.title}: {keel.what}
@@ -473,7 +649,7 @@ export function Ship({ look, console: atConsole = false }: { look: Look; console
         </div>
       )}
 
-      {!atConsole && aboard && !keel && (
+      {!orders && aboard && !keel && (
         <button
           onClick={() => go(() => session.send("ship.extend"))}
           disabled={busy || !foundation || occupied !== null}
@@ -483,7 +659,7 @@ export function Ship({ look, console: atConsole = false }: { look: Look; console
         </button>
       )}
 
-      {!atConsole && !aboard && atPort && !keel && (
+      {!orders && !aboard && atPort && !keel && (
         <>
           <input
             value={name}
@@ -502,9 +678,9 @@ export function Ship({ look, console: atConsole = false }: { look: Look; console
         </>
       )}
 
-      {!atConsole && !keel && occupied !== null && <p className="note">{occupied}</p>}
+      {!orders && !keel && occupied !== null && <p className="note">{occupied}</p>}
 
-      {!atConsole && !keel && !foundation && (
+      {!orders && !keel && !foundation && (
         <p className="note">
           Нужна «{foundationName ?? "основа узла корабля"}» в руках — её делают в космической
           мастерской. Корабль растёт по узлу за раз: каждый следующий узел это и место, и

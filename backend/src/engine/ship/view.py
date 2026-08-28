@@ -18,7 +18,7 @@ from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.db.base import remember
 from src.engine import places, travel, world
-from src.engine.ship._base import OPEN_LANDING, SPACEPORT
+from src.engine.ship._base import BRIDGE, OPEN_LANDING, SPACEPORT
 from src.engine.ship.belonging import crew_of, is_aboard, nodes_of, of_node
 from src.engine.ship.physics import (
     _things,
@@ -443,6 +443,7 @@ async def profile(
     #: The hold is read once and asked every question: seven readings of the
     #: same rooms were the price of the summary before (review 2026-08-23).
     things = await _things(session, ship)
+    consoles = frozenset(world.station_names(BRIDGE))
     weight = await mass(session, constants, catalog, ship, things=things)
     pull = await thrust(session, constants, ship, things=things)
     thrust_ratio = pull / weight if weight > 0 else 0.0
@@ -450,6 +451,7 @@ async def profile(
     crew = len(await crew_of(session, ship))
     connector = await session.get(Node, ship.connector_node_id)
     docked = None if ship.docked_node_id is None else await session.get(Node, ship.docked_node_id)
+    home = None if ship.left_node_id is None else await session.get(Node, ship.left_node_id)
 
     #: The prices are for **this** moment: the sky turns, and a route quoted an
     #: hour ago is not the route one gets. The player sees what casting off now
@@ -572,6 +574,19 @@ async def profile(
         "planet": planet.value,
         "docked": None if docked is None else docked.key,
         "port": None if docked is None else docked.name,
+        #: Whether the hull has a console of its own. It is the **receiver**: a
+        #: ground console talks to it, and a hull without one takes no order at
+        #: all, its crew's or anybody's (D-242). The client cannot derive it --
+        #: what stands aboard is not in this answer (D-225).
+        #:
+        #: Off the hold already read: asking room by room was a query apiece,
+        #: and `ship.view` answers for a whole fleet at once.
+        "bridge": any(thing.type_key in consoles for thing in things),
+        #: The pier it cast off from, if it has ever cast off: what a turn-back
+        #: aims at, and what the button names. The name alone -- the key would
+        #: be a second way to say the same thing, and `ship.recall` takes no
+        #: destination (D-225).
+        "left": None if home is None else home.name,
         #: The passage under way, if there is one (D-240). The console draws the
         #: hull on its own chart and must say where it is going: a ship in
         #: flight has no edges at all, so nothing else in the answer could tell.

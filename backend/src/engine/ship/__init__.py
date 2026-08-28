@@ -99,10 +99,12 @@ from src.engine.ship._base import (  # noqa: F401
     BRIDGE,
     FOUNDATION,
     FUEL,
+    GROUND_BRIDGE,
     LIFE_SUPPORT,
     OPEN_LANDING,
     SPACEPORT,
     TANK,
+    Deaf,
     Docked,
     InFlight,
     NoConsole,
@@ -143,6 +145,7 @@ from src.engine.ship.flight import (  # noqa: F401
     _moor_to,
     arrived,
     fly,
+    recall,
     undock,
 )
 from src.engine.ship.physics import (  # noqa: F401
