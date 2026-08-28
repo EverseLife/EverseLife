@@ -99,11 +99,13 @@ from src.engine.estate.demolition import (  # noqa: F401
     salvage,
 )
 from src.engine.estate.price import (  # noqa: F401
+    ABOUT_PROPERTY,
     EMBLEM_PROPERTY,
     EMBLEMS,
     _measure_city,
     buy,
     center_of,
+    describe,
     emblem,
     forget_distances,
     is_vacant,
@@ -113,6 +115,7 @@ from src.engine.estate.price import (  # noqa: F401
     nodes_from_center,
     note_new_place,
     price_of,
+    public_about,
     public_emblem,
     rename,
 )

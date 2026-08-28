@@ -1,0 +1,365 @@
+/* SPDX-License-Identifier: AGPL-3.0-only
+   Copyright (C) 2026 Nurlan Urazkulov */
+
+/*
+ * Before the world: login, registration and the doors one is printed at.
+ */
+
+/* --- login, registration, account panel (D-187) -------------------------- */
+
+/* The login screen: the logo on top, the card in the centre, the road to registration below. */
+main.entry.auth {
+  gap: 0.75rem;
+  overflow-y: auto;
+}
+.entry.auth > * {
+  width: min(26rem, 100%);
+}
+/* Wide steps -- lines and doors -- do not fit into the narrow column. */
+.entry.auth > .wide,
+.entry.auth > .doors-step {
+  width: min(56rem, 100%);
+  border: none;
+  padding: 0;
+}
+.entry.auth h1 {
+  margin: 0 0 0.75rem;
+  font-size: 1.25rem;
+  text-align: center;
+}
+.entry.auth .center {
+  text-align: center;
+}
+.brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+  margin-bottom: 0.5rem;
+}
+.brand .logo {
+  max-width: 100%;
+  height: auto;
+}
+.brand .note {
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+}
+
+/* A find on the ground (D-210): one thing, one decision. Framed so that it
+   reads as the answer the search gave, not as one more line of the note. */
+.find {
+  display: flex;
+  gap: 0.75rem;
+  align-items: baseline;
+  flex-wrap: wrap;
+  border: 1px solid var(--base-600);
+  padding: 0.5rem 0.75rem;
+  margin: 0.5rem 0;
+}
+.find b {
+  font-size: 1.1em;
+}
+
+/* The form card: labels above fields, fields across the whole width. */
+.card {
+  border: 1px solid var(--line);
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+.card.flat {
+  border: none;
+  padding: 0.5rem 0 0;
+}
+.card label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+.card label > span {
+  font-size: 0.8rem;
+  color: var(--base-400);
+}
+.card input,
+.card textarea,
+.card .secret {
+  width: 100%;
+  box-sizing: border-box;
+}
+.card textarea {
+  font: inherit;
+  padding: 0.25rem 0.6rem;
+  border: 1px solid var(--base-600);
+  background-color: var(--base-800);
+  color: var(--base-50);
+  resize: vertical;
+}
+.card input[type="number"] {
+  width: 8rem;
+}
+.card .row {
+  margin-bottom: 0;
+  justify-content: space-between;
+}
+.card .row > button[type="submit"] {
+  margin-left: auto;
+}
+.card .trouble {
+  margin: 0;
+}
+
+/* A link-button: text, not a border. */
+button.link {
+  border: none;
+  box-shadow: none;
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+  text-decoration-color: var(--line);
+}
+button.link:not(:disabled):hover {
+  background: none;
+  text-decoration-color: var(--base-50);
+}
+
+/* The password field with an eye. The eye stands inside the field on the
+   right; a glint runs across the field on every toggle; letters emerge from dots through a blur. */
+.secret {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+}
+.secret input {
+  flex: 1;
+  padding-right: 2.6rem;
+  transition: letter-spacing 0.3s ease;
+}
+.secret.shut input {
+  letter-spacing: 0.12em;
+}
+.secret.open input {
+  animation: secret-reveal 0.45s ease-out;
+}
+@keyframes secret-reveal {
+  from {
+    filter: blur(3px);
+    opacity: 0.4;
+  }
+  to {
+    filter: blur(0);
+    opacity: 1;
+  }
+}
+.secret.invalid input {
+  border-color: var(--base-50);
+  border-style: dashed;
+}
+.secret-flash {
+  position: absolute;
+  inset: 1px 2.5rem 1px 1px;
+  pointer-events: none;
+  background: linear-gradient(
+    100deg,
+    transparent 30%,
+    color-mix(in srgb, var(--base-50) 22%, transparent) 50%,
+    transparent 70%
+  );
+  background-size: 250% 100%;
+  background-position: 120% 0;
+  opacity: 0;
+  animation: secret-flash 0.55s ease-out;
+}
+@keyframes secret-flash {
+  0% {
+    background-position: 120% 0;
+    opacity: 1;
+  }
+  100% {
+    background-position: -120% 0;
+    opacity: 0;
+  }
+}
+button.eye {
+  position: absolute;
+  top: 50%;
+  right: 0.35rem;
+  transform: translateY(-50%);
+  padding: 0.1rem 0.25rem;
+  border: none;
+  box-shadow: none;
+  line-height: 0;
+  color: inherit;
+}
+button.eye:not(:disabled):hover {
+  background: none;
+}
+button.eye:not(:disabled):active {
+  transform: translateY(-50%) translateY(1px);
+}
+.eye svg {
+  display: block;
+  overflow: visible;
+}
+/* The lid lowers from above: vertical scale from the top edge of the almond.
+   The open eye under it and the closed one over it swap places smoothly. */
+.eye-lid {
+  transform-origin: 16px 2px;
+  transform: scaleY(0);
+  transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.secret.shut .eye-lid {
+  transform: scaleY(1.05);
+}
+.eye-open {
+  transition: opacity 0.2s ease 0.1s;
+}
+.secret.shut .eye-open {
+  opacity: 0;
+  transition-delay: 0s;
+}
+.eye-iris {
+  transition: transform 0.25s ease-out;
+}
+.eye-shut {
+  opacity: 0;
+  transform: translateY(-3px);
+  transition:
+    opacity 0.2s ease,
+    transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.secret.shut .eye-shut {
+  opacity: 1;
+  transform: translateY(0);
+  transition-delay: 0.12s;
+}
+/* The open eye blinks from time to time: alive, not a pictogram. The whole
+   open group blinks by vertical compression -- the lid is busy with the
+   transition, and an animation on it would fight it for transform. */
+.secret.open .eye-open {
+  transform-origin: 16px 11px;
+  animation: eye-blink 6s ease-in-out 2s infinite;
+}
+@keyframes eye-blink {
+  0%,
+  93%,
+  100% {
+    transform: scaleY(1);
+  }
+  96% {
+    transform: scaleY(0.08);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .secret input,
+  .secret-flash,
+  .eye-lid,
+  .eye-open,
+  .eye-shut,
+  .eye-iris {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+/* Registration steps: four numbers in a row, the current one highlighted. */
+.steps {
+  display: flex;
+  justify-content: center;
+  gap: 0.75rem 1.25rem;
+  flex-wrap: wrap;
+  list-style: none;
+  padding: 0;
+  margin: 0 auto 0.5rem;
+  font-size: 0.85rem;
+}
+.steps li {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--base-400);
+}
+.steps li.now {
+  color: var(--base-50);
+  font-weight: bold;
+}
+.steps li.done {
+  color: var(--base-200);
+}
+.steps .n {
+  display: inline-grid;
+  place-items: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border: 1px solid var(--base-600);
+  border-radius: 50%;
+  font-size: 0.75rem;
+}
+.steps li.now .n {
+  background: var(--base-50);
+  color: var(--base-900);
+}
+.steps li.done .n {
+  border-style: dashed;
+}
+
+/* Character lines: two cards side by side; the unavailable one is muted. */
+.lines {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(18rem, 100%), 1fr));
+  gap: 0.75rem;
+  align-items: stretch;
+  margin: 0.75rem 0;
+}
+.line {
+  display: flex;
+  flex-direction: column;
+}
+.line ul {
+  margin: 0.35rem 0;
+  padding-left: 1.1rem;
+  font-size: 0.9rem;
+}
+.line li {
+  margin: 0.2rem 0;
+}
+.line table {
+  margin-top: auto;
+}
+/* A promise, not a stub (D-104): the card is muted by tone and a dashed
+   border, never by opacity -- its own hint would go under the floor. */
+.line.soon,
+.line.soon .note {
+  border-style: dashed;
+  color: var(--base-400);
+}
+.line.picked {
+  border-color: var(--act);
+  box-shadow: inset 0 0 0 1px var(--act);
+}
+.soon-tag {
+  display: inline-block;
+  padding: 0.25rem 0.6rem;
+  border: 1px dashed var(--base-600);
+  color: var(--base-400);
+  font-style: italic;
+}
+
+/* Doors inside registration: the same grid as before. */
+.doors-step .doors {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(16rem, 100%), 1fr));
+  gap: 0.75rem;
+  align-items: start;
+  margin: 0.75rem 0;
+}
+.doors-step .search {
+  justify-content: center;
+}
+.doors-step .search input {
+  width: min(20rem, 100%);
+}
+
+/* The account moved from a header modal to the sidebar's tab (D-238):
+   its panel styles live in `hud.css` with the rest of the redesign. */

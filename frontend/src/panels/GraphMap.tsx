@@ -51,25 +51,26 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as api from "../api";
 import { Hint } from "../Hint";
-import { SURFACE, spell, type Look, type MapNode, type WorldMap } from "../api";
+import { type Look, type MapNode, type WorldMap } from "../api";
 import { useActions } from "../actions";
-import { SHAPES } from "../glyphs";
-import { nodeGlyph } from "../marks";
+import { createCamera, viewBoxOf, type Camera } from "./map/camera";
 import { cityWord } from "../planets";
 import { Inspector } from "./map/Inspector";
 import { NodeMenu } from "./map/NodeMenu";
+import { Edges, Nodes } from "./map/Nodes";
 import { settle } from "./map/layout";
 import { SkyBackdrop, SkyClock } from "./map/Sky";
 import { useSky } from "./map/useSky";
 import {
-  DASH,
   H,
   LAYERS,
   W,
   delegate,
   homeCity,
+  journeyOf,
   nearby,
   offworld,
+  sceneKey,
   type LayerId,
   type Link,
   type Point,
@@ -274,8 +275,21 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
   } | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
 
-  //: Pan and zoom: the viewBox is the camera.
-  const [camera, setCamera] = useState({ x: 0, y: 0, scale: 1 });
+  /**
+   * The camera (`map/camera`): outside React, painted straight onto the
+   * `viewBox`. The render reads the same object, so a render that happens for
+   * its own reasons never puts back a frame the animation has moved on from.
+   */
+  const camera = useRef<Camera | null>(null);
+  if (!camera.current) {
+    camera.current = createCamera({
+      onFrame: (f) => svgRef.current?.setAttribute("viewBox", viewBoxOf(f)),
+      still: () => window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+    });
+  }
+  const cam = camera.current;
+  //: Nothing of the camera outlives the map.
+  useEffect(() => () => cam.stop(), [cam]);
 
   /**
    * The layer's layout, whole and finished before it is drawn.
@@ -330,8 +344,8 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
     const svg = svgRef.current;
     if (!svg) return null;
     const rect = svg.getBoundingClientRect();
-    const worldW = W / camera.scale;
-    const worldH = H / camera.scale;
+    const worldW = W / cam.frame().scale;
+    const worldH = H / cam.frame().scale;
     const k = Math.min(rect.width / worldW, rect.height / worldH);
     return {
       rect,
@@ -345,8 +359,8 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
     const m = lens();
     if (!m) return { x: 0, y: 0 };
     return {
-      x: camera.x + (e.clientX - m.rect.left - m.offX) / m.k,
-      y: camera.y + (e.clientY - m.rect.top - m.offY) / m.k,
+      x: cam.frame().x + (e.clientX - m.rect.left - m.offX) / m.k,
+      y: cam.frame().y + (e.clientY - m.rect.top - m.offY) / m.k,
     };
   };
 
@@ -363,12 +377,15 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
 
   const grabField = (e: React.PointerEvent) => {
     capture(e);
+    //: A press is not yet a pan: the frame changes hands only once the hand
+    //: actually moves it (below). A click on the field -- to shut a menu, to
+    //: miss a node -- must not stop the walker being followed.
     dragging.current = {
       moved: false,
       startX: e.clientX,
       startY: e.clientY,
-      panX0: camera.x,
-      panY0: camera.y,
+      panX0: cam.frame().x,
+      panY0: cam.frame().y,
     };
   };
 
@@ -377,26 +394,27 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
     if (!drag) return;
     const dx = e.clientX - drag.startX;
     const dy = e.clientY - drag.startY;
-    if (Math.hypot(dx, dy) > 4) drag.moved = true;
+    if (!drag.moved && Math.hypot(dx, dy) > 4) {
+      drag.moved = true;
+      //: Here the hand takes the frame, and keeps it: no autopilot argues
+      //: with a pan under way, and none resumes until the player's own step.
+      cam.takeFrame();
+      //: What the hand drags is where the frame is **now** -- a chase may
+      //: have moved it since the press.
+      drag.panX0 = cam.frame().x;
+      drag.panY0 = cam.frame().y;
+      drag.startX = e.clientX;
+      drag.startY = e.clientY;
+      return;
+    }
     if (!drag.moved) return;
     const m = lens();
     const k = m ? 1 / m.k : 1;
-    setCamera((cam) => ({ ...cam, x: drag.panX0 - dx * k, y: drag.panY0 - dy * k }));
+    cam.panTo(drag.panX0 - dx * k, drag.panY0 - dy * k);
   };
 
   const releasePointer = () => {
     dragging.current = null;
-  };
-
-  /**
-   * A press on a node. Only ever a pick -- a node is not dragged (D-237).
-   *
-   * The press does not reach the field beneath, so picking a node never pans
-   * the map by the two pixels a hand moves while clicking.
-   */
-  const grabNode = (node: MapNode) => (e: React.PointerEvent) => {
-    e.stopPropagation();
-    click(node);
   };
 
   //: The wheel over the map is zoom, and only zoom. React attaches wheel
@@ -411,16 +429,14 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
   }, [map, visible.length]);
 
   const zoom = (e: React.WheelEvent) => {
+    //: A wheel is the hand too: it takes the frame from every autopilot.
     const p = toWorld(e);
-    setCamera((cam) => {
-      const scale = Math.min(4, Math.max(0.4, cam.scale * (e.deltaY < 0 ? 1.15 : 1 / 1.15)));
-      //: Zoom to the cursor: the point under the mouse stays under the mouse.
-      return {
-        scale,
-        x: p.x - (p.x - cam.x) * (cam.scale / scale),
-        y: p.y - (p.y - cam.y) * (cam.scale / scale),
-      };
-    });
+    cam.takeFrame();
+    const scale = Math.min(
+      4,
+      Math.max(0.4, cam.frame().scale * (e.deltaY < 0 ? 1.15 : 1 / 1.15)),
+    );
+    cam.zoomTo(p, scale);
   };
 
   // --- node behaviour -------------------------------------------------------
@@ -463,17 +479,56 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
    * camera aimed at nothing shows nothing.
    */
   const skyPlaces = sky.places;
+  //: Which scene the frame was last aimed at. A different one shares no
+  //: coordinates with this one -- another layer, another city, another
+  //: planet -- so the frame is cut to it rather than flown across nothing.
+  const shownScene = useRef<string | null>(null);
+
+  //: Read through a ref, and deliberately not depended on: the layout is
+  //: rebuilt on every push from the server, and depending on it re-aimed the
+  //: frame every few seconds -- dragging back, unasked, the hand that had
+  //: just panned somewhere to look. The **reasons** to re-aim are below.
+  const groundRef = useRef(ground);
+  groundRef.current = ground;
+  const drawn = Boolean(map);
   useEffect(() => {
+    const laid = groundRef.current;
     const middle = orbiting
       ? (skyPlaces.current.get(myRepr ?? "") ?? STAR)
-      : (ground.get(myRepr ?? "") ?? [...ground.values()][0]);
+      : (laid.get(myRepr ?? "") ?? [...laid.values()][0]);
     if (!middle) return;
-    setCamera((cam) => ({
-      ...cam,
-      x: middle.x - W / (2 * cam.scale),
-      y: middle.y - H / (2 * cam.scale),
-    }));
-  }, [myRepr, currentLayer, orbiting, ground, skyPlaces]);
+    const scene = sceneKey(currentLayer, focus, sphereShown);
+    const cut = shownScene.current !== scene;
+    shownScene.current = scene;
+    //: A new scene is moved to **whatever else is going on**, walking or not:
+    //: its coordinates are not the old ones, and a frame left in them shows
+    //: an empty field. The walker cannot bring it back either -- on somebody
+    //: else's city the legs of the transit are not drawn at all.
+    if (cut) {
+      cam.cut(middle);
+      return;
+    }
+    //: Within one scene, while the walk is being followed, the frame already
+    //: has its aim: the dot.
+    if (cam.following()) return;
+    cam.aimAt(middle);
+    //: Every reason the frame may move by itself: you moved, the scene
+    //: changed, or the map has just landed and there is at last a place to
+    //: aim at. A push from the server is not one of them.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [myRepr, currentLayer, orbiting, focus, sphereShown, drawn]);
+
+  /**
+   * A journey: the frame follows the dot while it lasts (D-238).
+   *
+   * Told to the camera as one journey, not deduced from the legs: a walk of
+   * five nodes remounts the walker's loop five times, and a hand that took
+   * the frame on the first leg must keep it to the last.
+   */
+  const journey = journeyOf(ongoing);
+  useEffect(() => {
+    cam.follow(journey !== null);
+  }, [journey, cam]);
 
   /**
    * The walker moves by frames, not renders.
@@ -487,6 +542,9 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
    * space layer the planets under the dot are moving even while it walks.
    */
   const walkerRef = useRef<SVGCircleElement | null>(null);
+  //: While walking the camera follows the dot, frame by frame (D-238): the
+  //: player watches themselves go, and arrival lands with nothing left to
+  //: jump. A grab or a zoom hands the frame back to the hand.
   useEffect(() => {
     if (!ongoing) return;
     let raf = 0;
@@ -498,17 +556,26 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
         const t0 = new Date(ongoing.started_at).getTime();
         const t1 = new Date(ongoing.arrives_at).getTime();
         const share = Math.min(1, Math.max(0, (Date.now() - t0) / Math.max(1, t1 - t0)));
-        circle.setAttribute("cx", String(from.x + (to.x - from.x) * share));
-        circle.setAttribute("cy", String(from.y + (to.y - from.y) * share));
+        const dot = {
+          x: from.x + (to.x - from.x) * share,
+          y: from.y + (to.y - from.y) * share,
+        };
+        circle.setAttribute("cx", String(dot.x));
+        circle.setAttribute("cy", String(dot.y));
+        //: The dot names where it is; the camera decides whether to chase it
+        //: -- it does, unless the hand has taken the frame for this journey.
+        cam.toDot(dot);
       }
       raf = requestAnimationFrame(step);
     };
     raf = requestAnimationFrame(step);
     return () => cancelAnimationFrame(raf);
-    //: В зависимостях поля перехода, а не сам `идёт`: объект приходит новым с
-    //: каждым опросом сервера, и эффект пересоздавался бы дважды в секунду —
-    //: то самое дёрганье, от которого мы уходим. Все читаемые поля перечислены,
-    //: поэтому замыкание не устаревает; линтеру этого не доказать.
+    //: The legs of the transit rather than `ongoing` itself: the object
+    //: arrives new with every poll, and the effect would be rebuilt twice a
+    //: second -- the very stutter this is here to avoid. Every field the
+    //: closure reads is listed, so it never goes stale, and the camera is one
+    //: object for the life of the map; the linter cannot be shown either.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     ongoing?.from_key,
     ongoing?.to_key,
@@ -516,6 +583,7 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
     ongoing?.arrives_at,
     currentLayer,
     repr,
+    cam,
   ]);
 
   if (!map) {
@@ -539,6 +607,38 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
     return { x: from.x + (to.x - from.x) * share, y: from.y + (to.y - from.y) * share };
   })();
 
+  /**
+   * Which node wears the player, if any.
+   *
+   * On the road the body stands in no node at all (D-107), so the node one
+   * walked out of must stop wearing them -- but only where the dot on the
+   * road says where they are instead. On a layer that draws neither end of
+   * the leg there is no dot, and a map that says nothing at all is worse than
+   * one that says where the walk began. A scout in the field (D-152) keeps
+   * the mark for the same reason: they went **from** the node, they come back
+   * to it, and no dot is drawn for them.
+   */
+  const standingAt = walker ? null : myRepr;
+
+  /**
+   * Whether a step leads to the node -- the map's judgement, drawn by `Nodes`.
+   *
+   * The scout goes nowhere: they are in the field, and not in the node (D-152).
+   * And to a planet one does not walk at all: it is reached by ship from a
+   * spaceport (D-201) -- a step across the void is not a road the map may draw.
+   * A button the server will refuse anyway is a promise the interface may not
+   * make.
+   */
+  const reachable = (node: MapNode) =>
+    !ongoing &&
+    !look.survey &&
+    node.key !== standingAt &&
+    !node.orbit &&
+    //: Another planet's surface is looked at, not walked to (D-201): its nodes
+    //: must not light up as reachable.
+    !offworld(byKey, here, node) &&
+    (groups.has(node.key) ? Boolean(walkTargets[node.key]) : true);
+
   const expand = (node: MapNode) => {
     if (currentLayer === "space") {
       //: Opening a planet means opening **this** planet: without that the
@@ -556,7 +656,10 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
     setPicked(node.key);
   };
 
-  const vb = `${camera.x} ${camera.y} ${W / camera.scale} ${H / camera.scale}`;
+  //: Read off the live frame rather than a state that lags it: a render that
+  //: happens for its own reasons -- a push, a pick -- must not put back a
+  //: camera the chase has already moved on from.
+  const vb = cam.viewBox();
 
   return (
     <section className="map-pane">
@@ -605,162 +708,23 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
             <SkyBackdrop map={map} visible={visible} at={at} repr={repr} fit={fit} />
           )}
 
-          {shownEdges.map((edge) => {
-            const a = at(edge.a);
-            const b = at(edge.b);
-            if (!a || !b) return null;
-            return (
-              <g key={`${edge.a}|${edge.b}`}>
-                <line
-                  x1={a.x} y1={a.y} x2={b.x} y2={b.y}
-                  className={`edge ${edge.surface}`}
-                  strokeDasharray={DASH[edge.surface]}
-                />
-                {/* In space an edge is a gangway and nothing else: the only
-                    thing coupled to a planet is a ship standing at its port
-                    (D-201). "21 s of paved highway" would be a road's label on
-                    something that is not a road, so the tie is drawn bare. */}
-                {!orbiting && (
-                  <text x={(a.x + b.x) / 2} y={(a.y + b.y) / 2 - 6} className="edge-label">
-                    {spell(edge.seconds)} · {SURFACE[edge.surface as keyof typeof SURFACE]}
-                  </text>
-                )}
-              </g>
-            );
-          })}
+          <Edges edges={shownEdges} at={at} labelled={!orbiting} />
+          <Nodes
+            nodes={visible}
+            at={at}
+            standingAt={standingAt}
+            picked={picked}
+            reachable={reachable}
+            group={(key) => groups.has(key)}
+            onPick={click}
+            onMenu={(node, spot) => {
+              setPicked(node.key);
+              setMenu({ key: node.key, ...spot });
+            }}
+          />
 
-          {visible.map((node) => {
-            const p = at(node.key);
-            if (!p) return null;
-            const mine = node.key === myRepr;
-            //: The scout goes nowhere: they are in the field, and not in the
-            //: node (D-152). A button the server will refuse anyway is a
-            //: promise the interface may not make.
-            //: And to a planet one does not walk at all: it is reached by ship
-            //: from a spaceport (D-201). A step across the void is not a road
-            //: the map may draw.
-            const near =
-              !ongoing &&
-              !look.survey &&
-              !mine &&
-              !node.orbit &&
-              //: Another planet's surface is looked at, not walked to (D-201):
-              //: its nodes must not light up as reachable.
-              !offworld(byKey, here, node) &&
-              (groups.has(node.key) ? Boolean(walkTargets[node.key]) : true);
-            const group = groups.has(node.key);
-            const chosen = node.key === picked;
-            //: A planet is not a city node and must not look like one: a body
-            //: with its own colour, on its own ring, instead of a circle on a
-            //: spring. The colour is the planet's identity and the same from
-            //: everywhere -- Terra is that blue seen from Terra and from Pyroxis.
-            const sphere = Boolean(node.orbit);
-            //: A ship is neither a planet nor a place: a hull, drawn by its own
-            //: mark, standing beside its port or somewhere along a passage.
-            const hull = node.aboard;
-            return (
-              <g
-                key={node.key}
-                style={
-                  sphere
-                    ? ({ "--pc": `var(--planet-${node.planet})` } as React.CSSProperties)
-                    : undefined
-                }
-                className={`node ${sphere ? "sphere" : ""} ${hull ? "ship" : ""} ${
-                  node.deferred ? "later" : ""
-                } ${mine ? "me" : ""} ${near || group ? "near" : ""}${
-                  chosen ? " picked" : ""
-                }`}
-                onPointerDown={grabNode(node)}
-                onContextMenu={(e) => {
-                  e.preventDefault();
-                  setPicked(node.key);
-                  setMenu({ key: node.key, x: e.clientX, y: e.clientY });
-                }}
-              >
-                {hull ? (
-                  <path
-                    className="hull"
-                    d={`M${p.x} ${p.y - 8} L${p.x + 6} ${p.y} L${p.x} ${p.y + 8} L${
-                      p.x - 6
-                    } ${p.y} Z`}
-                  />
-                ) : sphere ? (
-                  <>
-                    <circle cx={p.x} cy={p.y} r={mine ? 13 : 11} className="corona" />
-                    <circle cx={p.x} cy={p.y} r={mine ? 9 : 7} className="orb" />
-                  </>
-                ) : (
-                  <>
-                    <circle cx={p.x} cy={p.y} r={mine ? 14 : group ? 12 : 10} />
-                    {group && (
-                      <circle cx={p.x} cy={p.y} r={mine ? 18 : 16} className="halo" />
-                    )}
-                    {/* The node says what it is before the click (D-238): the
-                        type's glyph inside the circle -- a fir for a forest,
-                        a colonnade for a settlement. Bare circles stay for
-                        what has no type to speak of. */}
-                    {(() => {
-                      const sign = nodeGlyph({
-                        emblem: node.emblem,
-                        features: node.features,
-                        settlement: group,
-                        port: node.port,
-                      });
-                      if (!sign) return null;
-                      const size = mine ? 14 : 12;
-                      return (
-                        <svg
-                          x={p.x - size / 2}
-                          y={p.y - size / 2}
-                          width={size}
-                          height={size}
-                          viewBox="0 0 16 16"
-                          className="node-mark"
-                          aria-hidden="true"
-                        >
-                          <path
-                            d={SHAPES[sign]}
-                            fill="none"
-                            strokeWidth={1.6}
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          />
-                        </svg>
-                      );
-                    })()}
-                  </>
-                )}
-                {chosen && (
-                  <circle cx={p.x} cy={p.y} r={mine ? 20 : 18} className="ring" />
-                )}
-                {/* A ship's name hangs below the hull: above it there is
-                    already a planet's name, and two ships at one port would
-                    write over it and over each other. */}
-                <text x={p.x} y={hull ? p.y + 21 : p.y - 20} className="node-label">
-                  {node.name}
-                </text>
-                {/* Aquatica is drawn precisely because one cannot go there
-                    (D-104): the map shows the unreachable and says so. */}
-                {node.deferred && (
-                  <text x={p.x} y={p.y + 30} className="node-door">
-                    вне альфы
-                  </text>
-                )}
-                {/* The city's two doors (D-206): every road beyond the walls
-                    starts at the gate, every ship couples to the spaceport.
-                    Unmarked, the graph reads as an arbitrary tangle -- and it
-                    is not one. */}
-                {(node.exit || node.port) && (
-                  <text x={p.x} y={p.y + 30} className="node-door">
-                    {node.exit ? "ворота" : "космодром"}
-                  </text>
-                )}
-              </g>
-            );
-          })}
-
-          {/* Первый кадр рисуется по расчёту, дальше кружок ведёт rAF. */}
+          {/* The first frame is drawn from the reckoning; after it the dot is
+              led by rAF, outside React. */}
           {walker && (
             <circle
               ref={walkerRef}

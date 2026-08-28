@@ -1,0 +1,30 @@
+/* SPDX-License-Identifier: AGPL-3.0-only
+   Copyright (C) 2026 Nurlan Urazkulov */
+
+/*
+ * Tabs and their marks: a glyph beside the label, never instead of it.
+ */
+
+/* Sidebar tabs: a mark beside the label, never instead of it. */
+.tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+/* The tabs are a plain wrapping flex row: every tab is as wide as its own word
+   plus its mark, and the row takes however many lines that needs. Squeezing the
+   padding to save a line was traded away for labels that read as words. */
+.sidebar nav.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+.sidebar nav.tabs button {
+  flex: 0 0 auto;
+}
+.glyph {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  display: block;
+}

@@ -25,7 +25,9 @@ import type { Look, Thing } from "../api";
 import { Refusal, useActions, useBook, useSession } from "../actions";
 import { Rule } from "../Rule";
 import { Amount } from "../Amount";
+import { DropZone } from "../DragMove";
 import { GoodsMark } from "../Glyph";
+import { CHEST_ANY, chestOf, grip, noDrag } from "../drag";
 import { chosen, tally } from "../amounts";
 import { classOf } from "../classes";
 import { fill, isVessel } from "../liquids";
@@ -181,6 +183,35 @@ export function Inventory({ look }: Props) {
         </div>
       )}
 
+      {/* The whole list is a drop target (D-238): whatever lies on the open
+          surface -- the floor, a chest, a hold, the terminal -- drags into
+          the pocket. Each source keeps its own command, byte for byte the
+          same one its buttons send. */}
+      <DropZone
+        zone="hands"
+        accepts={["floor", CHEST_ANY, "hold", "terminal"]}
+        disabled={busy}
+        hint="перетащите сюда предмет, чтобы взять в руки"
+        onMove={(stack, amount) => {
+          if (stack.zone === "floor") {
+            void send("ground.pick", { item: stack.item, amount });
+          } else if (stack.zone.startsWith("chest:")) {
+            void send("storage.take", {
+              storage: chestOf(stack.zone),
+              item: stack.item,
+              amount,
+            });
+          } else if (stack.zone === "hold") {
+            void send("transport.unload", { item: stack.item, amount });
+          } else if (stack.zone === "terminal") {
+            void send("market.take", {
+              goods: stack.key ?? stack.goods,
+              tier: stack.tier,
+              amount,
+            });
+          }
+        }}
+      >
       {things.length === 0 ? (
         <p className="note">В руках ничего нет.</p>
       ) : (
@@ -214,7 +245,19 @@ export function Inventory({ look }: Props) {
                     </tr>,
                   ]),
               ...(title !== null && !opened.has(title) ? [] : rows).map((thing) => (
-              <tr key={thing.id}>
+              <tr
+                key={thing.id}
+                //: The sidebar's rows are drag sources too (D-238): the floor,
+                //: a chest and a hold in the scene accept the "hands" zone, so
+                //: a stack drags straight out of the pocket into the room.
+                {...grip({
+                  item: thing.id,
+                  goods: thing.goods,
+                  label: thing.flavor ?? thing.goods,
+                  amount: thing.amount,
+                  zone: "hands",
+                })}
+              >
                 <td>
                   {/* The class mark before the name (D-238): the name stays,
                       the glyph only lets the eye sort the column. */}
@@ -244,7 +287,10 @@ export function Inventory({ look }: Props) {
                     ⋯
                   </button>
                   {asking?.item === thing.id && (
-                    <div className="menu" role="menu">
+                    //: The menu lives inside a draggable row: without `noDrag`
+                    //: a swipe in the amount field -- or a sloppy click on a
+                    //: verb -- starts a row drag instead.
+                    <div className="menu" role="menu" {...noDrag}>
                       {asking.about === "menu" && (
                         <>
                           {/* How much of the stack the verbs below move: the
@@ -478,6 +524,7 @@ export function Inventory({ look }: Props) {
           </tbody>
         </table>
       )}
+      </DropZone>
 
       {look.stall && look.stall.length > 0 && (
         <>

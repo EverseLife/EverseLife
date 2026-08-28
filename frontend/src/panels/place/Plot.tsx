@@ -7,6 +7,7 @@
 import { useState } from "react";
 import * as api from "../../api";
 import { Refusal, useActions, useSession } from "../../actions";
+import { Glyph } from "../../Glyph";
 import { EMBLEM_MARKS } from "../../marks";
 import type { Props } from "./shared";
 import { Door } from "./Door";
@@ -102,7 +103,10 @@ export function Plot({ look }: Omit<Props, "busy" | "act">) {
   const { busy, act } = acting;
   const node = look.node;
   const [name, setName] = useState("");
-  const [mark, setMark] = useState("");
+  //: `null` -- nothing picked yet: the grid then shows what is nailed on.
+  const [mark, setMark] = useState<string | null>(null);
+  //: Same rule for the words: `null` shows what is already written.
+  const [about, setAbout] = useState<string | null>(null);
   //: Handing a plot over is asked twice: the deed is cancelled by it, and the
   //: way back is a purchase at the price list.
   const [giving, setGiving] = useState(false);
@@ -155,6 +159,8 @@ export function Plot({ look }: Omit<Props, "busy" | "act">) {
         {node.gated && " · закрыта для входа"}
         {node.cut_off && " · отключена за неуплату"}
       </p>
+      {/* The place's own words: the world voice, to whoever enters (D-075). */}
+      {node.about && <p className="place-about">{node.about}</p>}
       {tax && <p className="note">{tax}</p>}
       {upkeep && <p className="note">{upkeep}</p>}
       {/* Only civic land is handed over: a ship's cabin is owned too, and there
@@ -236,36 +242,81 @@ export function Plot({ look }: Omit<Props, "busy" | "act">) {
       )}
       {node.may_name && (
         //: The map mark is nailed where the nameplate is (D-238): the same
-        //: right, the same spot. The words are the engine's closed list --
-        //: the world's own signs are not offered.
-        <div className="row">
-          <select
-            value={mark}
-            onChange={(e) => setMark(e.target.value)}
-            title="значок узла на карте"
-          >
-            <option value="">— значок узла —</option>
-            {Object.keys(EMBLEM_MARKS).map((word) => (
-              <option key={word} value={word}>
-                {word}
-              </option>
-            ))}
-          </select>
-          <button
-            onClick={() => act(() => session.send("land.emblem", { emblem: mark }))}
-            disabled={busy || !mark}
-          >
-            Прибить значок
-          </button>
-          <button
-            className="quiet"
-            onClick={() => act(() => session.send("land.emblem", { emblem: "" }))}
-            disabled={busy}
-            title="узел вернётся к значку своей земли"
-          >
-            Снять
-          </button>
-        </div>
+        //: right, the same spot. The marks themselves are shown, not their
+        //: names in a list -- one picks a picture by the picture. The set is
+        //: the engine's closed list: the world's own signs are not offered.
+        <>
+          {(() => {
+            //: What the grid highlights: the fresh pick, or what is already
+            //: nailed on -- the owner sees their mark, not a blank grid.
+            const shown = mark ?? node.emblem ?? "";
+            return (
+              <>
+                <div className="emblem-grid" role="group" aria-label="значок узла на карте">
+                  {Object.entries(EMBLEM_MARKS).map(([word, glyph]) => (
+                    <button
+                      key={word}
+                      type="button"
+                      className="bare emblem-pick"
+                      aria-pressed={shown === word}
+                      onClick={() => setMark(shown === word ? "" : word)}
+                      title={word}
+                    >
+                      <Glyph name={glyph} />
+                      <span>{word}</span>
+                    </button>
+                  ))}
+                </div>
+                <div className="row">
+                  <button
+                    onClick={() => act(() => session.send("land.emblem", { emblem: shown }))}
+                    disabled={busy || !shown || shown === (node.emblem ?? "")}
+                  >
+                    Прибить значок
+                  </button>
+                  <button
+                    className="quiet"
+                    onClick={() =>
+                      act(async () => {
+                        await session.send("land.emblem", { emblem: "" });
+                        setMark(null);
+                      })
+                    }
+                    disabled={busy || !node.emblem}
+                    title="узел вернётся к значку своей земли"
+                  >
+                    Снять
+                  </button>
+                </div>
+              </>
+            );
+          })()}
+          {/* The place's own words, beside the name and the mark (D-238):
+              empty and saved means wiped. */}
+          <div className="form">
+            <label>
+              <span>описание места</span>
+              <textarea
+                value={about ?? node.about ?? ""}
+                onChange={(e) => setAbout(e.target.value)}
+                rows={3}
+                maxLength={300}
+                placeholder="что это за место — увидит всякий вошедший"
+              />
+            </label>
+            <button
+              onClick={() =>
+                act(async () => {
+                  await session.send("land.describe", { about: (about ?? "").trim() });
+                  setAbout(null);
+                })
+              }
+              disabled={busy || about === null || about.trim() === (node.about ?? "")}
+            >
+              Сохранить описание
+            </button>
+          </div>
+        </>
       )}
       {mine && <Door look={look} busy={busy} act={act} />}
       {/* A strip is marked on one's own land -- and on nobody's, where the

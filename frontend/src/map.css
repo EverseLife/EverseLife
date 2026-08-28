@@ -1,0 +1,334 @@
+/* SPDX-License-Identifier: AGPL-3.0-only
+   Copyright (C) 2026 Nurlan Urazkulov */
+
+/*
+ * The graph map: nodes, roads, the walker -- and the space layer, where a
+ * place is a function of the hour rather than of a layout.
+ */
+
+/* --- graph map ----------------------------------------------------------- */
+
+/* The map is the only panel that does not scroll but stretches: the svg takes
+   everything left over from hints and buttons. */
+.main > .map-pane {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+}
+/* The layer switcher is a slim bar in flow above the map: floating over the
+   field covered nodes and labels, and a control must not sit on the work. */
+.map-pane > nav.tabs {
+  flex: none;
+  margin: 0;
+  gap: 0.1rem;
+  padding: 0.25rem 0.5rem;
+  border-bottom: 1px solid var(--hairline);
+}
+
+/* The face and the inspector side by side. Three strips under the map used to
+   eat 178px of 605; a column beside it costs the map width, of which there is
+   more, and speaks about one node instead of everything at once. */
+.map-face {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 1fr minmax(15rem, 19rem);
+  gap: 0.75rem;
+}
+/* The svg carries an intrinsic ratio from its viewBox, and inside a grid cell
+   that ratio wins over stretching -- the map kept sizing itself to 880:540 and
+   left the rest of the cell empty. Told to fill the height, it fills it. */
+.map-face > svg {
+  align-self: stretch;
+  height: 100%;
+  min-height: 0;
+}
+.inspect {
+  border-left: 1px solid var(--line);
+  padding-left: 0.75rem;
+  overflow-y: auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.inspect h3 {
+  margin: 0;
+  text-decoration: none;
+  font-size: 1rem;
+  color: var(--base-50);
+}
+.inspect .sign {
+  margin: 0;
+  font-size: 1.05rem;
+  color: var(--base-50);
+}
+.inspect .row {
+  margin: 0.35rem 0 0;
+}
+.inspect .roads,
+.inspect .search {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.35rem;
+  margin: 0.35rem 0 0;
+}
+
+/* The picked node wears a ring in the action colour (D-238): the accent still
+   means a person, and the pick is your hand, not somebody's presence. */
+.node.picked circle:first-of-type {
+  stroke-width: 3;
+}
+.node .ring {
+  fill: none;
+  stroke: var(--act);
+  stroke-width: 1.5;
+}
+.node {
+  cursor: pointer;
+}
+
+/* Narrow screen: the column drops under the map and the frame unravels. */
+@media (max-width: 56rem) {
+  .map-face {
+    display: flex;
+    flex-direction: column;
+    min-height: auto;
+  }
+  .inspect {
+    border-left: 0;
+    border-top: 1px solid var(--line);
+    padding-left: 0;
+    padding-top: 0.6rem;
+    overflow: visible;
+  }
+}
+
+.map-pane svg {
+  flex: 1;
+  min-height: 12rem;
+  width: 100%;
+  border: 1px solid var(--line);
+  display: block;
+  cursor: grab;
+  /* Dragging nodes must not select labels or scroll the page. */
+  user-select: none;
+  touch-action: none;
+}
+.map-pane svg:active {
+  cursor: grabbing;
+}
+@media (max-width: 56rem) {
+  .main > .map-pane {
+    flex: none;
+    overflow: visible;
+  }
+  .map-pane svg {
+    flex: none;
+    aspect-ratio: 880 / 540;
+    min-height: 0;
+    height: auto;
+  }
+}
+
+.edge {
+  stroke: var(--base-600);
+  stroke-width: 1;
+}
+.edge.paved {
+  stroke-width: 2.5;
+}
+
+.edge-label,
+.node-label,
+.node-hint {
+  fill: currentColor;
+  font-size: 11px;
+  text-anchor: middle;
+}
+.edge-label {
+  fill: var(--base-400);
+}
+
+/* The city's doors (D-206): a caption under the node, quieter than the name --
+   it explains the shape of the graph rather than naming the place. */
+.node-door {
+  fill: var(--base-400);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-anchor: middle;
+  text-transform: uppercase;
+}
+
+/* The fog lifts, it does not blink (D-238): a node or a road entering the
+   window fades in once. Leaving is instant -- the camera is already gliding
+   away from it, and a ghost lingering under the walker would read as a node. */
+.node,
+.map-pane svg g.road {
+  animation: map-in 0.25s ease-out both;
+}
+@keyframes map-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .node,
+  .map-pane svg g.road {
+    animation: none;
+  }
+}
+
+.node circle {
+  fill: var(--base-900);
+  stroke: currentColor;
+  stroke-width: 1.5;
+}
+.node.me circle {
+  fill: currentColor;
+}
+.node.near {
+  cursor: pointer;
+}
+.node.near circle {
+  stroke-width: 3;
+}
+.node.near .node-hint {
+  text-decoration: underline;
+}
+
+.walker {
+  fill: currentColor;
+}
+
+/* A group node: the second ring says "there is something to expand inside". */
+.node .halo {
+  fill: none;
+  stroke: var(--base-600);
+  stroke-width: 1;
+  stroke-dasharray: 3 4;
+}
+
+/* --- the space layer: a star, orbits and planets --------------------------
+   A planet must not read as a city node: it is a body of its own colour on a
+   ring of its own, and it stands where the clock puts it rather than where a
+   spring left it. Hairlines only -- glow and starfields stay out of a surface
+   that carries numbers (D-072). */
+.system .orbit {
+  fill: none;
+  stroke: var(--base-700);
+  stroke-width: 1;
+  stroke-dasharray: 2 7;
+}
+.system .star {
+  fill: var(--base-50);
+}
+.system .star-glow {
+  fill: none;
+  stroke: var(--base-50);
+  stroke-width: 1;
+  opacity: 0.2;
+}
+.node.sphere .orb {
+  fill: var(--pc);
+  stroke: none;
+}
+.node.sphere .corona {
+  fill: none;
+  stroke: var(--pc);
+  stroke-width: 1;
+  opacity: 0.35;
+}
+/* Out of the alpha (D-104): an outline instead of a body -- shown, and plainly
+   not a place one goes to. */
+.node.sphere.later .orb {
+  fill: none;
+  stroke: var(--pc);
+  stroke-width: 1;
+  stroke-dasharray: 2 3;
+}
+.node.sphere.later .corona {
+  display: none;
+}
+
+/* A corridor between two planets: not a road but a price. Thin and quiet --
+   what matters on it is the number, and the number is what a passage costs if
+   one casts off now. */
+.corridor line {
+  stroke: var(--base-700);
+  stroke-width: 1;
+  stroke-dasharray: 1 5;
+}
+.passage {
+  fill: var(--base-400);
+  font-family: var(--font-num);
+  font-size: 10px;
+  text-anchor: middle;
+}
+/* The window is open: the planets are as close as they get, and waiting buys
+   nothing. The one place on this layer where a colour means something. */
+.passage.open {
+  fill: var(--success);
+}
+
+/* A ship: a hull, not a place. Colourless on purpose -- the tints belong to
+   planets, and a ship is somebody's property passing by, not a body of the
+   system. Sharp corners tell it from every circle on the map at a glance. */
+.node.ship .hull {
+  fill: var(--base-900);
+  stroke: var(--base-200);
+  stroke-width: 1.5;
+}
+.node.ship.me .hull {
+  fill: var(--base-200);
+}
+/* A ship's name is quieter than a planet's: the system is the map, ships are
+   what moves across it. */
+.node.ship .node-label {
+  fill: var(--base-400);
+  font-size: 10px;
+}
+/* The way a ship is on. There is no edge under it: undocking took the only one
+   away, so this line is the passage itself and not a road anybody may walk. */
+.route {
+  fill: none;
+  stroke: var(--base-600);
+  stroke-width: 1;
+  stroke-dasharray: 4 6;
+}
+
+/* The sky's clock: a quiet strip, and the slider takes the width left over. */
+.sky {
+  align-items: center;
+  gap: var(--s2);
+}
+.sky input[type="range"] {
+  flex: 1 1 8rem;
+  min-width: 6rem;
+  accent-color: var(--base-400);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .walker {
+    animation: throb 1s ease-in-out infinite alternate;
+  }
+  @keyframes throb {
+    from { r: 4; }
+    to { r: 7; }
+  }
+}
+
+.map-bar {
+  margin-top: 0.5rem;
+  /* The strips under the map neither shrink nor clip: a road's button gone
+     under the panel's edge reads as broken. The map gives up the room. */
+  flex: none;
+}
+.map-pane svg {
+  min-height: 8rem;
+}

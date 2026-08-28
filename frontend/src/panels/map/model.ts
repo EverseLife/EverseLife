@@ -16,7 +16,7 @@
  * projected onto delegates -- the graph stays one and the same (D-045, D-097).
  */
 
-import type { MapNode } from "../../api";
+import type { MapNode, Transit } from "../../api";
 
 /** The frame the map is drawn in. The camera (`viewBox`) moves over it. */
 export const W = 880;
@@ -47,6 +47,36 @@ export type Point = { x: number; y: number };
 export type Link = { a: string; b: string; surface: string; seconds: number };
 
 export const DASH: Record<string, string | undefined> = { trail: "4 6" };
+
+/**
+ * The identity of a journey: where it ends, by key, or nothing when one
+ * stands still (D-238).
+ *
+ * A walk of five nodes is **one** journey. The camera follows a journey and
+ * lets the hand take the frame for the whole of it -- so what identifies it
+ * must not change with every leg. `final_key` is the plan's last node and
+ * comes on every leg but the last, where the leg's own end is the plan's end
+ * anyway; by key, never by name, because a name is a label two places can
+ * share.
+ */
+export function journeyOf(travel: Transit | null | undefined): string | null {
+  if (!travel) return null;
+  return travel.final_key ?? travel.to_key;
+}
+
+/**
+ * The scene the frame stands in: a layer of one city on one planet.
+ *
+ * Two scenes share no coordinates, so a frame moving between them is cut,
+ * never flown -- the flight would sweep across places that hold nothing.
+ */
+export function sceneKey(
+  layer: string,
+  city: string | null,
+  planet: string | null,
+): string {
+  return `${layer}|${city ?? ""}|${planet ?? ""}`;
+}
 
 /** The layer in words: the player reads a place, not an enum. */
 export const LAYER_NAME: Record<string, string> = {

@@ -237,6 +237,51 @@ tr.dragging {
   }
 }
 
+/* The standing invitation of a zone (D-238): where a stack can be dropped,
+   the zone says so in words, always -- not only while something hovers it. */
+.drop-hint {
+  margin: 0.4rem 0 0;
+  padding: 0.35rem 0.6rem;
+  border: 1px dashed var(--base-600);
+  border-radius: var(--r-control);
+  font-size: 0.78rem;
+  color: var(--base-400);
+  text-align: center;
+}
+.drop-zone.drop-over .drop-hint {
+  border-color: var(--act);
+  color: var(--base-50);
+}
+
+/* The chat's own head: the label and the fold, one slim line. */
+.chat-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.chat-head .note {
+  margin: 0;
+}
+button.chat-fold {
+  border: 0;
+  background: transparent;
+  padding: 0.1rem 0.3rem;
+  font-size: 0.78rem;
+  color: var(--base-400);
+}
+button.chat-fold:not(:disabled):hover {
+  color: var(--base-50);
+}
+
+/* The place's own words: the world voice (D-075). */
+.place-about {
+  font-family: var(--font-world);
+  font-style: italic;
+  color: var(--base-200);
+  max-width: 60ch;
+}
+
 /* The drop's question rides the pointer: fixed, unlike the header popover. */
 .drop-pop {
   position: fixed;
@@ -406,6 +451,45 @@ tr.dragging {
 /* Your own node is filled with the full tone: the mark inverts to stay read. */
 .node.me .node-mark path {
   stroke: var(--base-900);
+}
+
+/* The owner's mark picker (D-238): the marks themselves, in a grid. */
+.emblem-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(4.2rem, 1fr));
+  gap: 0.35rem;
+  margin: 0.5rem 0;
+  max-width: 28rem;
+}
+button.emblem-pick {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.45rem 0.2rem;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-control);
+  background: transparent;
+  color: var(--base-200);
+  font-size: 0.68rem;
+  transition: border-color 0.1s, color 0.1s;
+}
+button.emblem-pick .glyph {
+  width: 18px;
+  height: 18px;
+  color: var(--base-400);
+}
+button.emblem-pick:hover {
+  border-color: var(--base-400);
+  color: var(--base-50);
+}
+button.emblem-pick[aria-pressed="true"] {
+  border-color: var(--act);
+  color: var(--base-50);
+  box-shadow: inset 0 -2px 0 var(--act);
+}
+button.emblem-pick[aria-pressed="true"] .glyph {
+  color: var(--base-50);
 }
 
 /* The account tab: a panel now, not a modal (D-238). */

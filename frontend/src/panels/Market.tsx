@@ -308,6 +308,7 @@ export function Market({ look }: Omit<Props, "busy" | "act">) {
             zone="pocket"
             accepts={["terminal"]}
             disabled={busy}
+            hint="перетащите сюда предмет, чтобы забрать из терминала"
             onMove={(stack, amount) =>
               //: The stack carries its own key and tier (grip below): the
               //: command needs no lookup that could miss after a reread.
@@ -350,6 +351,7 @@ export function Market({ look }: Omit<Props, "busy" | "act">) {
             zone="terminal"
             accepts={["pocket"]}
             disabled={busy}
+            hint="перетащите сюда предмет, чтобы выложить в терминал"
             onMove={(stack, amount) =>
               act(() =>
                 session.send("market.load", {

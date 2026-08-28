@@ -53,6 +53,7 @@ export function Floor({ look, busy, act }: Props) {
         zone="floor"
         accepts={["hands"]}
         disabled={!open || busy}
+        hint="перетащите сюда предмет, чтобы положить на пол"
         onMove={(stack, amount) =>
           act(() => session.send("ground.drop", { item: stack.item, amount }))
         }
@@ -121,6 +122,7 @@ export function Floor({ look, busy, act }: Props) {
           zone="hands"
           accepts={["floor"]}
           disabled={busy}
+          hint="перетащите сюда предмет, чтобы взять в руки"
           onMove={(stack, amount) =>
             act(() => session.send("ground.pick", { item: stack.item, amount }))
           }
@@ -175,7 +177,7 @@ export function Floor({ look, busy, act }: Props) {
               </tbody>
             </table>
           ) : (
-            <p className="note">руки пусты — сюда можно перетащить лежащее</p>
+            <p className="note">руки пусты</p>
           )}
         </DropZone>
       )}

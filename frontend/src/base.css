@@ -1,0 +1,72 @@
+/* SPDX-License-Identifier: AGPL-3.0-only
+   Copyright (C) 2026 Nurlan Urazkulov */
+
+/*
+ * The page's own voice: the sizes everything is measured in, the reset, and
+ * what a heading, a paragraph and a link look like before any panel says
+ * otherwise.
+ */
+
+:root {
+  font-family: var(--font-ui);
+  font-size: 15px;
+  line-height: 1.5;
+  /* Structural lines. Between zones is heavier than inside one: the eye reads
+     the screen's division before it reads a table's rows. */
+  --line: var(--base-700);
+  --hairline: var(--base-600);
+  --wash: var(--base-800);
+}
+@media (max-width: 40rem) {
+  :root {
+    font-size: 14px;
+  }
+}
+
+* {
+  box-sizing: border-box;
+  scrollbar-width: thin;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  /* The ground is the planet's, and the tokens are already resolved by the
+     time the first frame paints: `data-planet` is set before React mounts. */
+  background: var(--base-900);
+  color: var(--base-200);
+  overflow-wrap: break-word;
+}
+
+/* Headings take the full tone; running text stays a step below it. */
+h1,
+h2,
+h3 {
+  color: var(--base-50);
+}
+
+h1 {
+  font-size: 1.4rem;
+  margin: 0 0 0.5rem;
+}
+h2 {
+  font-size: 1rem;
+  margin: 0 0 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding-bottom: 0.35rem;
+  border-bottom: 1px solid var(--line);
+}
+h3 {
+  font-size: 0.9rem;
+  margin: 1rem 0 0.35rem;
+  font-weight: normal;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-color: var(--line);
+}

@@ -1,0 +1,203 @@
+/* SPDX-License-Identifier: AGPL-3.0-only
+   Copyright (C) 2026 Nurlan Urazkulov */
+
+/*
+ * Live talk in the room, and the Net: the two kinds of speech, and they do not
+ * look alike on purpose.
+ */
+
+/* --- live talk: the bottom strip (D-050) ---------------------------------- */
+
+.chat {
+  margin-top: 0;
+}
+
+.chat-lines {
+  /* Elastic height: on a big screen the conversation has more room. */
+  height: clamp(6rem, 22vh, 16rem);
+  overflow-y: auto;
+  border-bottom: 1px dashed var(--line);
+  padding-bottom: 0.5rem;
+}
+@media (max-width: 56rem) {
+  .chat-lines {
+    height: auto;
+    max-height: 14rem;
+  }
+}
+
+/*
+ * The talk's four voices (D-075, 02-channels).
+ *
+ * The typeface does the separating, and it must be visible from an arm's
+ * length: speech and action are the world and are set in the antiqua,
+ * out-of-game is the interface's own grotesque and muted. Without that,
+ * roleplay is indistinguishable from a remark by a player -- and metagame
+ * leaks into the world, up to and including a court case.
+ *
+ * The rules are scoped to `.chat-lines`: `.line` also names a character-line
+ * card on the registration screen, and the two must not collide.
+ */
+.chat-lines .line {
+  margin: 0.25rem 0;
+  font-family: var(--font-world);
+}
+/* The speaker is a living person -- the only thing the accent ever marks. */
+.chat-lines .line b {
+  color: var(--accent);
+  font-weight: 600;
+}
+.chat-lines .line.action {
+  font-style: italic;
+  color: var(--base-200);
+}
+.chat-lines .line.ooc {
+  font-family: var(--font-ui);
+  font-size: 0.9em;
+  color: var(--base-400);
+}
+.chat-lines .line.ooc b {
+  color: var(--base-400);
+}
+.chat-lines .line.overheard {
+  color: var(--base-400);
+  border-left: 3px dotted var(--base-600);
+  padding-left: 0.5rem;
+}
+
+.chat-text {
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+
+/* --- the Net (D-222) -------------------------------------------------------
+ *
+ * Correspondence in the sidebar. The list is rows that open, like the
+ * inventory's; a row is a button the width of the column, with the name, what
+ * is waiting and when, and the last words under them in the muted tone. The
+ * letters reuse the room's typography: a letter is the world's speech too.
+ */
+.net h3 {
+  margin-bottom: 0.35rem;
+}
+.net-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.net-list li {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.net-list li > .net-row {
+  flex: 1;
+  min-width: 0;
+}
+/* The row carries `bare` in the markup: without it the base rule paints every
+   button `--base-50`, and `.net-head b` -- also `--base-50` -- vanishes into
+   the slab. The declarations below only reach the row once `bare` is on it. */
+.net-row {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  width: 100%;
+  text-align: left;
+  gap: 0.1rem;
+  padding: 0.4rem 0.5rem;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  font-weight: 400;
+  color: var(--base-200);
+}
+.net-row:hover {
+  background: var(--base-850);
+  color: var(--base-50);
+}
+.net-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  min-width: 0;
+}
+.net-head b {
+  color: var(--base-50);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.net-when {
+  margin-left: auto;
+  padding-left: 0.5rem;
+  font-family: var(--font-num);
+  font-size: 0.75rem;
+  color: var(--base-400);
+  white-space: nowrap;
+}
+.net-preview {
+  font-size: 0.85rem;
+  color: var(--base-400);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The city's mark: a label, not a badge -- it says what the channel is, and
+   nothing else in the row is shaped like it. */
+.official {
+  font-family: var(--font-ui);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0 0.3rem;
+  border: 1px solid var(--base-600);
+  border-radius: var(--r-control);
+  color: var(--base-300);
+  white-space: nowrap;
+}
+.net-who {
+  font-family: var(--font-world);
+  font-size: 1.05rem;
+  color: var(--base-50);
+}
+button.link.net-who {
+  padding: 0;
+}
+.net-letters {
+  height: clamp(10rem, 40vh, 28rem);
+}
+.net-letters .line .net-when {
+  display: inline-block;
+  margin-left: 0.5rem;
+}
+/* A post is a paragraph, not a remark: the author on a line of their own. */
+.net-letters .line.post {
+  margin: 0.6rem 0;
+  white-space: pre-wrap;
+}
+.net-letters .line.post .net-when {
+  margin-left: 0.5rem;
+}
+.net .chat-input textarea {
+  resize: vertical;
+}
+/* A name that answers to a right-click: no change of colour -- a name in the
+   room's talk is already the accent, and the menu is the affordance. */
+.person {
+  cursor: context-menu;
+}
+.profile .about {
+  font-family: var(--font-world);
+  white-space: pre-wrap;
+}
+
+.circle {
+  border: 1px dashed var(--line);
+  padding: 0.1rem 0.5rem;
+}
+.circle.mine {
+  border-style: solid;
+  border-color: var(--base-50);
+}

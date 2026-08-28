@@ -1,0 +1,54 @@
+/* SPDX-License-Identifier: AGPL-3.0-only
+   Copyright (C) 2026 Nurlan Urazkulov */
+
+/*
+ * The one popping layer, and the only shadow in the system: the row's menu in
+ * the inventory and the right-click menu on the map are the same thing in two
+ * places.
+ */
+
+/* --- a menu: the one popping layer, and the only shadow in the system ------
+ *
+ * The brief allows exactly one shadow, and only for layers that float above the
+ * page. This is that layer: the row menu in the inventory and the right-click
+ * menu on the map are the same thing in two places.
+ */
+.menu,
+.node-menu {
+  position: absolute;
+  z-index: 9;
+  min-width: 11rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 0.2rem;
+  background: var(--base-850);
+  border: 1px solid var(--base-600);
+  border-radius: var(--r-pop);
+  box-shadow: var(--shadow-pop);
+}
+.node-menu {
+  position: fixed;
+}
+.menu button,
+.node-menu button {
+  text-align: left;
+  border: 0;
+  border-radius: var(--r-control);
+  background: transparent;
+  color: var(--base-200);
+  font-weight: 400;
+  padding: 0.3rem 0.5rem;
+  min-height: 36px;
+}
+.menu button:hover,
+.node-menu button:hover {
+  background: var(--base-800);
+  color: var(--base-50);
+}
+.menu-ask {
+  margin: 0.1rem 0.5rem 0.25rem;
+  font-family: var(--font-num);
+  font-size: 0.78rem;
+  color: var(--base-400);
+}

@@ -1,0 +1,104 @@
+/* SPDX-License-Identifier: AGPL-3.0-only
+   Copyright (C) 2026 Nurlan Urazkulov */
+
+/*
+ * The inventory as a list of goods: rows, the groups they fold into, and the
+ * mark at the row's end that opens what can be done with a stack.
+ */
+
+/* The inventory: a table, and the verbs behind one mark per row. The mark
+   stands at the row's end and shows itself on hover (D-238, the mockup's
+   rows): the list reads as goods, not as a form. */
+.goods {
+  table-layout: auto;
+  width: 100%;
+}
+.goods td {
+  padding: 0.26rem 0.4rem;
+}
+.goods td:first-child {
+  padding-left: 0.15rem;
+}
+.goods tbody tr:not(.group):hover {
+  background: var(--wash);
+}
+.goods tr .dots {
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+.goods tr:hover .dots,
+.goods tr:focus-within .dots,
+.goods .dots[aria-expanded="true"] {
+  opacity: 1;
+}
+/* A finger has no hover: where hovering is absent or the pointer is coarse
+   (hybrids included), the handle is always visible. */
+@media (hover: none), (pointer: coarse) {
+  .goods tr .dots {
+    opacity: 1;
+  }
+}
+/* The handle moved to the row's end: its menu hangs off the right edge. */
+.goods td.handle .menu {
+  right: 0;
+}
+.menu-amount {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.1rem 0.5rem 0.35rem;
+  padding-bottom: 0.35rem;
+  border-bottom: 1px solid var(--hairline);
+}
+.menu-amount input {
+  width: 5rem;
+}
+.goods tr.group td {
+  padding-top: 0.6rem;
+  border-bottom: 1px solid var(--line);
+}
+/* A group opens and closes, and it starts closed -- so its header has to read
+   as a control rather than as a caption. Hence the whole line is the button:
+   the arrow alone would be a target the size of a letter. */
+button.fold {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  width: 100%;
+  padding: 0.15rem 0;
+  text-align: left;
+}
+button.fold .mark {
+  flex: none;
+  width: 0.8rem;
+  color: var(--base-400);
+}
+button.fold .note {
+  margin: 0;
+}
+button.fold:not(:disabled):hover b {
+  color: var(--base-50);
+}
+button.fold:not(:disabled):hover .mark {
+  color: var(--base-200);
+}
+.arrange select {
+  max-width: 11rem;
+}
+.goods td.handle {
+  position: relative;
+  width: 1.8rem;
+  padding-right: 0.25rem;
+}
+button.dots {
+  width: 1.6rem;
+  min-height: 28px;
+  padding: 0;
+  color: var(--base-400);
+  font-size: 1.1rem;
+  line-height: 1;
+}
+button.dots:hover,
+button.dots[aria-expanded="true"] {
+  color: var(--base-50);
+}

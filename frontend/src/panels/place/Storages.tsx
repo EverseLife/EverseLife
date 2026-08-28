@@ -124,6 +124,7 @@ export function Storages({ look, busy, act }: Props) {
                 zone={chestZone(chest.id)}
                 accepts={["hands"]}
                 disabled={busy}
+                hint="перетащите сюда предмет, чтобы убрать в хранилище"
                 onMove={(stack, amount) =>
                   act(() =>
                     session.send("storage.put", {
@@ -191,6 +192,7 @@ export function Storages({ look, busy, act }: Props) {
                 //: The exact chest rides in the stack's own zone name.
                 accepts={[CHEST_ANY]}
                 disabled={busy}
+                hint="перетащите сюда предмет, чтобы забрать в руки"
                 onMove={(stack, amount) =>
                   act(() =>
                     session.send("storage.take", {
@@ -250,7 +252,7 @@ export function Storages({ look, busy, act }: Props) {
                     </tbody>
                   </table>
                 ) : (
-                  <p className="note">руки пусты — сюда можно перетащить из хранилища</p>
+                  <p className="note">руки пусты</p>
                 )}
               </DropZone>
             </>

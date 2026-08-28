@@ -398,6 +398,50 @@ async def test_unknown_mark_refused(
     assert estate.EMBLEM_PROPERTY not in near.properties
 
 
+async def test_owner_describes_plot_and_wipes_the_words(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The place's words are written and wiped by the same hand as the nameplate (D-238)."""
+    city, _, near, _ = await _city(session, catalog)
+    _, body = await _buyer(session, near, city=city)
+    await estate.buy(session, constants, catalog, body, near)
+
+    await estate.describe(session, body, near, "  Кузня на отшибе, стучим с утра.  ")
+    assert near.properties[estate.ABOUT_PROPERTY] == "Кузня на отшибе, стучим с утра."
+    assert estate.public_about(near) == "Кузня на отшибе, стучим с утра."
+
+    await estate.describe(session, body, near, "")
+    assert estate.ABOUT_PROPERTY not in near.properties
+    assert estate.public_about(near) is None
+
+
+async def test_overlong_description_refused(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """A paragraph, not a page: the limit refuses before the base sees it."""
+    city, _, near, _ = await _city(session, catalog)
+    _, body = await _buyer(session, near, city=city)
+    await estate.buy(session, constants, catalog, body, near)
+
+    with pytest.raises(estate.BadName):
+        await estate.describe(session, body, near, "х" * 301)
+    assert estate.ABOUT_PROPERTY not in near.properties
+
+
+async def test_cannot_describe_foreign_plot(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Somebody's words are not rewritten -- even standing nearby."""
+    city, _, near, _ = await _city(session, catalog)
+    _, owner = await _buyer(session, near, city=city)
+    await estate.buy(session, constants, catalog, owner, near)
+
+    _, passerby = await _buyer(session, near, city=city)
+    with pytest.raises(estate.NotOwner):
+        await estate.describe(session, passerby, near, "Моё слово")
+    assert estate.ABOUT_PROPERTY not in near.properties
+
+
 async def test_cannot_mark_foreign_plot(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:

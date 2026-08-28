@@ -1,0 +1,220 @@
+/* SPDX-License-Identifier: AGPL-3.0-only
+   Copyright (C) 2026 Nurlan Urazkulov */
+
+/*
+ * Time and what floats over it: the deadline bar (the brief's fourth
+ * signature) and the lines of business it measures, the hint that explains a
+ * rule, and the windows that dim the world behind them.
+ */
+
+/* --- the deadline bar (brief signature 4) --------------------------------- */
+
+.deadline {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+.deadline.dl-row {
+  flex: 1 1 8rem;
+}
+/* Four pixels, not the two the brief names: at two the bar was there and
+   nobody saw it. Still a line and not a box -- it keeps the vertical space
+   dense tables need. */
+.deadline-bar {
+  flex: 1 1 6rem;
+  min-width: 4rem;
+  /* Height, not flex-basis, decides the thickness: in a column container the
+     basis would govern the height instead, which is exactly how the bar once
+     came out sixty pixels tall. */
+  height: 4px;
+  max-height: 4px;
+  align-self: center;
+  background: var(--base-700);
+  border-radius: var(--r-control);
+  overflow: hidden;
+}
+.deadline-bar i {
+  display: block;
+  height: 4px;
+  background: var(--base-400);
+}
+/* The remainder speaks twice -- by colour and by the word next to it -- because
+   meaning is never carried by colour alone (D-077). */
+.deadline.near .deadline-bar i {
+  background: var(--warning);
+}
+.deadline.near .deadline-left {
+  color: var(--warning);
+}
+.deadline.over .deadline-bar i {
+  background: var(--danger);
+}
+.deadline.over .deadline-left {
+  color: var(--danger);
+}
+.deadline-left {
+  flex: none;
+  font-family: var(--font-num);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.8rem;
+  color: var(--base-400);
+}
+/* The step is a second either way; the transition only smooths between steps,
+   so dropping it leaves the bar correct and merely less fluid. */
+@media (prefers-reduced-motion: no-preference) {
+  .deadline-bar i {
+    transition: width 1s linear;
+  }
+}
+
+/* A line of business: title, remark, bar, action. */
+.doing {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  flex-wrap: wrap;
+  min-height: var(--row-h);
+  padding: 0.15rem 0;
+  border-bottom: 1px solid var(--hairline);
+}
+.doing:last-child {
+  border-bottom: none;
+}
+.doing-what {
+  color: var(--base-50);
+}
+.doing-aside {
+  font-size: 0.8rem;
+  color: var(--base-400);
+}
+.doing-act {
+  flex: none;
+  margin-left: auto;
+}
+
+.note {
+  color: var(--base-400);
+  font-size: 0.8rem;
+  line-height: 1.35;
+  margin: 0.2rem 0;
+}
+/* Hints do not pile up: adjacent notes have one gap, not the sum of two. */
+.note + .note {
+  margin-top: 0;
+}
+
+/* An explanation on demand: the icon in view, the text in a layer beside it.
+   The icon is the same everywhere -- a hint about a screen and a rule of the
+   world are one thing to the player -- and it stands by the title of whatever
+   it explains, not in a row of its own. */
+.hint {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* Beside a title the circle is centred on the words, not sat on their
+     baseline: 0.15em of its own type is exactly the difference. */
+  vertical-align: 0.15em;
+  width: 1.3em;
+  height: 1.3em;
+  flex: none;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: transparent;
+  font-size: 0.75rem;
+  font-weight: 400;
+  line-height: 1;
+  color: var(--base-400);
+  cursor: help;
+  user-select: none;
+}
+/* Beside a title the icon needs air, and the title's own weight is not its:
+   `font-size` is set above, so the circle stays small under any heading. */
+h2 > .hint,
+h3 > .hint,
+label > span > .hint,
+.sign > .hint {
+  margin-left: 0.4rem;
+}
+/* The circle is small on purpose -- it stands among words, not beside them.
+   The finger gets a bigger target from an invisible pad that costs no room.
+   The pad is half the row's gap: any wider and it would lie over the
+   neighbouring button and swallow taps meant for it. */
+.hint::after {
+  content: "";
+  position: absolute;
+  inset: -0.25rem;
+}
+.hint:hover,
+.hint[aria-expanded="true"] {
+  color: var(--base-50);
+  border-color: var(--base-400);
+}
+
+/* The explanation itself: the floating layer of the brief, the same one the
+   menus use -- and the only one the page gets. It is `fixed`, so it lies
+   outside the flow of every panel and is clipped by none: expanding in place
+   it used to push the row apart, and inside the map panel it went under the
+   panel's own cut. Placed by `Hint`, which measures it first. */
+.hint-pop {
+  display: block;
+  position: fixed;
+  z-index: 20;
+  width: min(22rem, calc(100vw - 1rem));
+  padding: 0.45rem 0.6rem;
+  background: var(--base-850);
+  border: 1px solid var(--base-600);
+  border-radius: var(--r-pop);
+  box-shadow: var(--shadow-pop);
+  /* It hangs beside a heading and inside a `.sign`, and must read as neither:
+     type, weight and colour are its own. */
+  font-family: var(--font-ui);
+  font-size: 0.8rem;
+  font-weight: 400;
+  font-style: normal;
+  line-height: 1.4;
+  letter-spacing: normal;
+  text-transform: none;
+  text-align: left;
+  white-space: normal;
+  color: var(--base-200);
+  cursor: auto;
+}
+
+/* An error is always in view: a strip under the frame, not deep in the scroll. */
+.trouble {
+  flex: none;
+  border: 2px solid var(--danger);
+  background-color: var(--wash);
+  padding: 0.4rem 0.6rem;
+  margin: 0.5rem 0 0;
+}
+/* The shell's own strip runs the full width and meets the edges bare;
+   the same class inside a panel keeps its framed look above. */
+main > .trouble {
+  border-left: 0;
+  border-right: 0;
+  margin: 0;
+  padding: 0.4rem 0.9rem;
+}
+
+/* The alarm right in the header's line: an eruption is promised and the clock
+   is running (D-197, P6). */
+.trouble-inline {
+  border: 1px solid var(--danger);
+  padding: 0.1rem 0.4rem;
+  white-space: nowrap;
+}
+
+.pocket {
+  margin-top: 1rem;
+}
+
+footer {
+  flex: none;
+  margin-top: 0.5rem;
+  color: var(--base-400);
+  font-size: 0.8rem;
+}

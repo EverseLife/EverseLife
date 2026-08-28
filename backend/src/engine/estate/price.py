@@ -29,7 +29,7 @@ from src.models.event import EventKind
 from src.models.identity import Body, BodyState
 from src.models.ledger import AccountKind, PostingReason
 from src.models.world import Edge, Layer, Node, Vein
-from src.runtime import LAND_NAME_LIMIT
+from src.runtime import LAND_ABOUT_LIMIT, LAND_NAME_LIMIT
 from src.units import (
     PERCENT,
     money,
@@ -495,6 +495,64 @@ EMBLEMS = frozenset(
 #: The property the mark lives under. A string value, so `look`'s boolean
 #: feature derivation never picks it up.
 EMBLEM_PROPERTY = "значок"
+
+
+#: The property the place's own words live under (D-238). A string value,
+#: like the emblem: `look`'s boolean feature derivation never picks it up.
+ABOUT_PROPERTY = "описание"
+
+
+async def describe(session: AsyncSession, body: Body, node: Node, text: str | None) -> Node:
+    """Write the place's description, or wipe it (D-238).
+
+    The same right and the same spot as the nameplate and the emblem: the
+    owner disposes of their land, the authority with the `land` right -- of
+    civic land, and the words are written in person.
+    """
+
+    if body.state is not BodyState.ALIVE:
+        raise EstateError("мёртвое тело ничего не описывает")
+    await travel.require_here(session, body)
+    if body.node_id != node.id:
+        raise EstateError("до участка надо дойти: описание пишут на месте")
+    if not await may_name(session, body, node):
+        raise NotOwner(
+            "участок не ваш: описание даёт хозяин, а городской земле — власть с правом на участки"
+        )
+
+    words = (text or "").strip()
+    if len(words) > LAND_ABOUT_LIMIT:
+        raise BadName(f"описание длиннее {LAND_ABOUT_LIMIT} знаков")
+
+    was = node.properties.get(ABOUT_PROPERTY)
+    #: Reassigned whole rather than mutated, like the emblem: the JSON column
+    #: does not watch its insides.
+    fresh = {key: value for key, value in node.properties.items() if key != ABOUT_PROPERTY}
+    if words:
+        fresh[ABOUT_PROPERTY] = words
+    node.properties = fresh
+    await session.flush()
+    await events.record(
+        session,
+        EventKind.LAND_DESCRIBED,
+        actor_identity_id=body.identity_id,
+        node_id=node.id,
+        was=was,
+        now=words or None,
+    )
+    return node
+
+
+def public_about(node: Node) -> str | None:
+    """The place's description as `look` serves it: a string or nothing.
+
+    The belt matters less than the emblem's -- the value is free text by
+    design -- but a non-string planted past the command must not reach a
+    client expecting words.
+    """
+
+    value = (node.properties or {}).get(ABOUT_PROPERTY)
+    return value if isinstance(value, str) and value else None
 
 
 def public_emblem(node: Node) -> str | None:

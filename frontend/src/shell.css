@@ -1,0 +1,233 @@
+/* SPDX-License-Identifier: AGPL-3.0-only
+   Copyright (C) 2026 Nurlan Urazkulov */
+
+/*
+ * The four zones of the screen (D-050): the instrument strip, the sidebar, the
+ * scene and the strip of talk -- and how the four become the phone's four
+ * sections when there is one column instead of two.
+ */
+
+/* --- frame: the whole screen ---------------------------------------------- */
+
+/* Zones run edge to edge and meet at hairlines (D-238, the mockup's sheet):
+   no outer margin around the screen, no gaps between the zones. */
+main {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+}
+
+/* The instrument strip (D-238): the wordmark and the working figures on the
+   left, the body's readings and the service row on the right. Centred, not
+   baseline: a logo has no baseline to sit on. */
+header {
+  flex: none;
+  display: flex;
+  gap: 0.5rem 0.9rem;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 0.35rem 0.9rem;
+  border-bottom: 1px solid var(--line);
+}
+
+/* The planet's clock: digits must not jump as the minute changes. Family and
+   tabular numerals come from the shared figure rule below. */
+.clock {
+  color: var(--base-400);
+}
+
+/* The frame: sidebar on the left (the Net), main window on the right (in-person).
+   Both columns each scroll on their own -- header and bottom always in place. */
+.frame {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(17rem, 21rem) 1fr;
+  gap: 0;
+  align-items: stretch;
+}
+
+/* The rail and the panel beside it (D-238): the rail is pinned, the panel
+   scrolls on its own (`hud.css` styles both). Half a tone darker than the
+   scene and split from it by one line, not a box: the sidebar is the remote
+   register, and the tone says so (brief, two registers of presence). */
+.sidebar {
+  border-right: 1px solid var(--line);
+  background: var(--base-850);
+  display: flex;
+  overflow: hidden;
+  min-height: 0;
+}
+.sidebar h3 {
+  margin-top: 0.85rem;
+}
+
+/* The scene: the content scrolls, the chat stays pinned to the bottom.
+   No gaps: the chat meets the scene at its own hairline. */
+.main {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  gap: 0;
+}
+/* Working surfaces breathe inside their zone; the map bleeds to the edges. */
+.main > .panels,
+.main > .stand,
+.main > section:not(.chat):not(.map-pane) {
+  padding: 0.8rem 0.9rem;
+}
+.main > .alpha {
+  margin: 0.5rem 0.9rem 0;
+}
+.main > .panels,
+.main > .stand,
+.main > section:not(.chat):not(.map-pane) {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+/* The stand scrolls inside its open surface, not as a whole: the row of
+   objects must stay put while the surface under it moves. */
+.main > .stand {
+  overflow: hidden;
+}
+/* The bottom strip meets the scene at one line, not in a box of its own. */
+.chat {
+  flex: none;
+  border: 0;
+  border-top: 1px solid var(--line);
+  padding: 0.35rem 0.9rem 0.5rem;
+}
+/* The alpha's debug widget (D-229): a compact strip above the view, not a
+   panel competing with it for the height. Everything else directly in `.main`
+   is a working surface and takes what is left; this one takes what it needs
+   and leaves. Goes out with the alpha, together with `panels/Alpha.tsx`. */
+.alpha {
+  flex: none;
+}
+
+/* Folded, the widget is a handle and takes the height of a line: the scene
+   below it is the working surface, and a debug tool does not compete with it
+   for room. */
+.alpha-handle {
+  flex: none;
+  align-self: flex-start;
+  padding: 0.1rem 0.4rem;
+  font-size: 0.8rem;
+}
+
+/* Narrow screen: one column, ordinary page scrolling. The scene first: the
+   map matters more than the sidebar when everything is in one column. */
+@media (max-width: 56rem) {
+  main {
+    height: auto;
+    min-height: 100%;
+  }
+  .frame {
+    display: flex;
+    flex-direction: column;
+  }
+  .sidebar {
+    order: 2;
+    overflow: visible;
+    /* One column: the split line lies above the sidebar, not beside it. */
+    border-right: 0;
+    border-top: 1px solid var(--line);
+  }
+  .main,
+  .main > .panels,
+  .main > .stand,
+  .main > section:not(.chat):not(.map-pane) {
+    min-height: auto;
+    overflow: visible;
+    flex: none;
+  }
+}
+
+.tabs button {
+  text-transform: lowercase;
+}
+/* A counter on a tab means "there is something here waiting", so it rides the
+   tab itself rather than making the player open all six to find out. */
+.tally {
+  margin-left: 0.35rem;
+  font-family: var(--font-num);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.75rem;
+}
+.tabs button.quiet .tally {
+  color: var(--base-400);
+}
+/* A count of what is waiting on a term: the warning tone, because something is
+   running out. Never the accent -- that means a person, and a deadline is not one. */
+.tally.alarm {
+  color: var(--warning);
+  font-weight: 600;
+}
+
+/* The open tab wears the action colour (D-238): an underline bar instead of
+   the inverse slab, which now belongs to primary actions alone. Contrast and
+   weight still mark it -- the colour is never the only carrier. */
+.tabs button:not(.quiet):not(.link):not(.bare):not(:disabled) {
+  background: transparent;
+  color: var(--base-50);
+  border-color: transparent;
+  font-weight: 600;
+  box-shadow: inset 0 -2px 0 var(--act);
+}
+.tabs button:not(.quiet):not(.link):not(.bare):not(:disabled):hover {
+  filter: none;
+  background: var(--wash);
+}
+
+/* --- the phone's four zones (brief section 9) -----------------------------
+ *
+ * The same four zones as the desktop's, one at a time, chosen from a bar where
+ * a thumb reaches. Before this the frame simply unravelled into document flow:
+ * the sidebar slid under the map, the chat ended up 1303px down, and the layout
+ * that teaches the world's structure stopped existing exactly where half the
+ * sessions happen.
+ */
+.bottom {
+  position: fixed;
+  inset: auto 0 0 0;
+  z-index: 8;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  background: var(--base-850);
+  border-top: 1px solid var(--base-700);
+  /* The phone's own bar sits below ours on most of them. */
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+.bottom button {
+  min-height: 52px;
+  border: 0;
+  border-radius: 0;
+  border-right: 1px solid var(--base-700);
+  background: transparent;
+  color: var(--base-400);
+  font-weight: 400;
+}
+.bottom button:last-child {
+  border-right: 0;
+}
+.bottom button[aria-pressed="true"] {
+  background: var(--base-800);
+  color: var(--base-50);
+  font-weight: 600;
+  box-shadow: inset 0 2px 0 var(--base-50);
+}
+
+/* One zone at a time: the other is not there to lay out. */
+.frame.one {
+  display: block;
+}
+
+/* Room for the bar, so the last line of a section is not under it. */
+@media (max-width: 56rem) {
+  main {
+    padding-bottom: calc(56px + env(safe-area-inset-bottom, 0px));
+  }
+}

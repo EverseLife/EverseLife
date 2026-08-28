@@ -39,6 +39,7 @@ export function DropZone({
   accepts,
   onMove,
   disabled,
+  hint,
   children,
 }: {
   zone: string;
@@ -48,6 +49,8 @@ export function DropZone({
   onMove: (stack: DragStack, amount: number) => void;
   /** While the panel is busy the zone goes deaf rather than queueing moves. */
   disabled?: boolean;
+  /** The standing invitation, shown always: "перетащите сюда, чтобы …". */
+  hint?: string;
   children: React.ReactNode;
 }) {
   const [over, setOver] = useState(false);
@@ -119,6 +122,7 @@ export function DropZone({
       }}
     >
       {children}
+      {hint && !disabled && <p className="drop-hint">{hint}</p>}
       {ask && (
         <AmountAsk
           ask={ask}

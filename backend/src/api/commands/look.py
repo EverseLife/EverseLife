@@ -217,6 +217,9 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
             for name, value in (node.properties or {}).items()
             if value is True and name != "library"
         ),
+        #: The owner's map mark, if one is nailed on (D-238): the plot window
+        #: preselects it in the picker. Belted like the public map's copy.
+        "emblem": estate.public_emblem(node),
         #: Fertility is a place property (D-126): the plots scene is shown by it.
         "fertility": float(node.properties.get("плодородие", 0) or 0),
         #: Whose plot: the holder runs the estate, others by contract (D-116).
@@ -246,6 +249,11 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
         #: the buyer must see the second half before paying the first.
         "tax": await estate.land_tax_of(db, constants, current_catalog(), node),
     }
+    #: The place's own words, written by whoever disposes of it (D-238):
+    #: absent rather than empty, like every other empty key of the node.
+    about = estate.public_about(node)
+    if about:
+        seen["node"]["about"] = about
     #: How many plots of one's own are marked out here. The client cannot work
     #: it out from anything it already has (D-225), and it decides whether the
     #: farming window exists at all: marking out a strip is something one does

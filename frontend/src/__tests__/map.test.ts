@@ -5,9 +5,30 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { MapNode } from "../api";
+import type { MapNode, Transit } from "../api";
+import {
+  ARRIVED,
+  CHASE_TAU,
+  LONGEST_STEP,
+  arrived,
+  chase,
+  createCamera,
+  frameOn,
+  type Frame,
+} from "../panels/map/camera";
 import { settle } from "../panels/map/layout";
-import { DEPTH, delegate, homeCity, nearby, offworld, type Link } from "../panels/map/model";
+import {
+  DEPTH,
+  H,
+  W,
+  delegate,
+  homeCity,
+  journeyOf,
+  nearby,
+  offworld,
+  sceneKey,
+  type Link,
+} from "../panels/map/model";
 import { mooring, passage, term } from "../panels/map/orbits";
 import { long, price, spread } from "../panels/map/words";
 
@@ -60,6 +81,229 @@ describe("nearby", () => {
   it("does not reach what no edge leads to", () => {
     const near = nearby("n0", [...keys(3), "lone"], chain(3));
     expect(near.has("lone")).toBe(false);
+  });
+});
+
+describe("camera", () => {
+  it("puts the aimed place in the middle of the frame", () => {
+    expect(frameOn({ x: 0, y: 0 }, 1)).toEqual({ x: -W / 2, y: -H / 2 });
+    //: Zoomed in twice, the frame covers half the world and the same point
+    //: still stands in its centre.
+    expect(frameOn({ x: 100, y: 100 }, 2)).toEqual({ x: 100 - W / 4, y: 100 - H / 4 });
+  });
+
+  it("closes the gap by a share of itself, never overshooting", () => {
+    const from = { x: 0, y: 0 };
+    const to = { x: 100, y: 200 };
+    const step = chase(from, to, CHASE_TAU);
+    //: One tau: about a third of the gap is left, on both axes alike.
+    expect(step.x).toBeCloseTo(100 * (1 - 1 / Math.E), 6);
+    expect(step.y).toBeCloseTo(200 * (1 - 1 / Math.E), 6);
+    //: Within one frame's worth of time the frame lands short of its aim.
+    const frame = chase(from, to, 64);
+    expect(frame.x).toBeLessThan(to.x);
+    expect(frame.y).toBeLessThan(to.y);
+    //: However long the step, it never lands past the aim -- a step that
+    //: swallows the whole gap stops exactly on it.
+    const far = chase(from, to, 10_000);
+    expect(far.x).toBeLessThanOrEqual(to.x);
+    expect(far.y).toBeLessThanOrEqual(to.y);
+    expect(far.x).toBeCloseTo(100, 6);
+  });
+
+  it("does not move without time, and time never runs backwards", () => {
+    const from = { x: 7, y: -3 };
+    const to = { x: 100, y: 100 };
+    expect(chase(from, to, 0)).toEqual(from);
+    //: A clock that jumped back must not drag the frame the other way.
+    expect(chase(from, to, -50)).toEqual(from);
+  });
+
+  it("moves the same distance whether the time comes in one step or four", () => {
+    const from = { x: 0, y: 0 };
+    const to = { x: 100, y: 0 };
+    const once = chase(from, to, 64);
+    let split = from;
+    for (let i = 0; i < 4; i++) split = chase(split, to, 16);
+    expect(split.x).toBeCloseTo(once.x, 6);
+  });
+
+  it("calls the chase over only within a fraction of a pixel", () => {
+    expect(arrived({ x: 0, y: 0 }, { x: ARRIVED / 2, y: 0 })).toBe(true);
+    expect(arrived({ x: 0, y: 0 }, { x: 1, y: 0 })).toBe(false);
+  });
+});
+
+/**
+ * The camera's orchestration -- who holds the frame and when the follow comes
+ * back -- on a clock and an animation loop of our own: the browser's are
+ * exactly what a test cannot wait for.
+ */
+describe("the camera", () => {
+  const loop = () => {
+    let booked: ((t: number) => void)[] = [];
+    let id = 0;
+    let clock = 0;
+    return {
+      now: () => clock,
+      raf: (step: (t: number) => void) => {
+        booked.push(step);
+        return ++id;
+      },
+      cancel: () => {
+        booked = [];
+      },
+      /** Run `n` frames, `ms` apart -- 16ms is what a browser gives. */
+      pump(n = 1, ms = 16) {
+        for (let i = 0; i < n; i++) {
+          clock += ms;
+          const due = booked;
+          booked = [];
+          for (const step of due) step(clock);
+        }
+      },
+      booked: () => booked.length,
+    };
+  };
+
+  const rig = (still = false) => {
+    const beat = loop();
+    const seen: Frame[] = [];
+    const cam = createCamera({
+      onFrame: (f) => seen.push({ ...f }),
+      still: () => still,
+      now: beat.now,
+      raf: beat.raf,
+      cancel: beat.cancel,
+    });
+    return { beat, seen, cam };
+  };
+
+  //: The middle of the frame at scale 1 stands half a screen up and left.
+  const middleOf = (f: Frame) => ({ x: f.x + W / 2, y: f.y + H / 2 });
+
+  it("cuts to a place at once and books no frames", () => {
+    const { beat, cam } = rig();
+    cam.cut({ x: 300, y: 100 });
+    expect(middleOf(cam.frame())).toEqual({ x: 300, y: 100 });
+    expect(beat.booked()).toBe(0);
+  });
+
+  it("chases a place, shrinking every step, and stops on arrival", () => {
+    const { beat, cam } = rig();
+    cam.aimAt({ x: 600, y: 0 });
+    const xs = [cam.frame().x];
+    for (let i = 0; i < 3; i++) {
+      beat.pump();
+      xs.push(cam.frame().x);
+    }
+    const steps = xs.slice(1).map((x, i) => x - xs[i]);
+    expect(steps[0]).toBeGreaterThan(0);
+    //: Every next step is smaller: that is the softness of the landing.
+    expect(steps[1]).toBeLessThan(steps[0]);
+    expect(steps[2]).toBeLessThan(steps[1]);
+    //: And the first step is nowhere near the whole way -- no teleport.
+    expect(steps[0]).toBeLessThan(600 / 2);
+
+    beat.pump(60);
+    expect(middleOf(cam.frame())).toEqual({ x: 600, y: 0 });
+    //: Arrived means arrived: nothing is booked for the next frame.
+    expect(beat.booked()).toBe(0);
+  });
+
+  it("gives the frame to the hand and does not take it back mid-journey", () => {
+    const { beat, cam } = rig();
+    cam.follow(true);
+    cam.toDot({ x: 500, y: 0 });
+    beat.pump();
+    const chased = cam.frame().x;
+    expect(chased).toBeGreaterThan(-W / 2);
+
+    //: The hand takes the frame: the chase stops where it stood.
+    cam.takeFrame();
+    const held = cam.frame().x;
+    beat.pump(5);
+    expect(cam.frame().x).toBe(held);
+    expect(cam.following()).toBe(false);
+
+    //: The next leg of the same walk must not steal it back.
+    cam.toDot({ x: 900, y: 0 });
+    beat.pump(5);
+    expect(cam.frame().x).toBe(held);
+
+    //: A new journey does bring the follow back.
+    cam.follow(true);
+    cam.toDot({ x: 900, y: 0 });
+    beat.pump();
+    expect(cam.frame().x).toBeGreaterThan(held);
+  });
+
+  it("keeps still where motion is unwanted", () => {
+    const { beat, cam } = rig(true);
+    cam.aimAt({ x: 400, y: 0 });
+    //: Cut, not chased: nothing to animate for whoever asked for no motion.
+    expect(middleOf(cam.frame())).toEqual({ x: 400, y: 0 });
+    expect(beat.booked()).toBe(0);
+    cam.follow(true);
+    expect(cam.following()).toBe(false);
+  });
+
+  it("never lets one long step swallow the whole distance", () => {
+    const { beat, cam } = rig();
+    const before = cam.frame();
+    cam.aimAt({ x: 1000, y: 0 });
+    //: A tab that was hidden for ten seconds comes back with one huge gap:
+    //: the step must be no longer than the longest one allowed, or the
+    //: smoothing turns back into the jump it was put there to remove.
+    beat.pump(1, 10_000);
+    const moved = cam.frame().x - before.x;
+    const longest = chase(before, frameOn({ x: 1000, y: 0 }, 1), LONGEST_STEP).x - before.x;
+    expect(moved).toBeCloseTo(longest, 6);
+    //: And that is a fraction of the way, not the whole of it.
+    expect(moved).toBeLessThan((frameOn({ x: 1000, y: 0 }, 1).x - before.x) / 2);
+  });
+});
+
+describe("journeyOf", () => {
+  const leg = (over: Partial<Transit>): Transit =>
+    ({
+      to: "Рынок",
+      to_key: "market",
+      from_key: "gate",
+      started_at: "2026-08-28T00:00:00Z",
+      arrives_at: "2026-08-28T00:01:00Z",
+      ...over,
+    }) as Transit;
+
+  it("names a journey by where it ends, not by the leg under way", () => {
+    //: An autopath of several legs: every leg but the last carries the plan's
+    //: last node, so the journey keeps one identity from the first step.
+    const first = journeyOf(leg({ to_key: "gate2", final_key: "far" }));
+    const second = journeyOf(leg({ to_key: "cross", final_key: "far" }));
+    //: The last leg's own end **is** the plan's end, and the plan is gone.
+    const last = journeyOf(leg({ to_key: "far" }));
+    expect(first).toBe("far");
+    expect(second).toBe("far");
+    expect(last).toBe("far");
+  });
+
+  it("is nothing at all while one stands still", () => {
+    expect(journeyOf(null)).toBeNull();
+    expect(journeyOf(undefined)).toBeNull();
+  });
+});
+
+describe("sceneKey", () => {
+  it("tells apart a layer, a city and a planet", () => {
+    expect(sceneKey("city", "capital", "terra")).toBe("city|capital|terra");
+    expect(sceneKey("city", "capital", "terra")).not.toBe(
+      sceneKey("city", "harbour", "terra"),
+    );
+    expect(sceneKey("planet", null, "terra")).not.toBe(
+      sceneKey("planet", null, "pyroxis"),
+    );
+    //: Nothing is nothing, however it arrives.
+    expect(sceneKey("space", null, null)).toBe(sceneKey("space", null, null));
   });
 });
 

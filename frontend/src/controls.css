@@ -1,0 +1,378 @@
+/* SPDX-License-Identifier: AGPL-3.0-only
+   Copyright (C) 2026 Nurlan Urazkulov */
+
+/*
+ * The things a hand touches and the things a table shows: buttons, fields,
+ * rows and columns, a figure and its grounds, a form as a column.
+ */
+
+/* --- interactive: full tone ------------------------------------------------ */
+
+/* A row of controls: the one horizontal primitive the whole client is built
+   from -- a title and its buttons, a field and its unit, a figure and what may
+   be done to it. */
+.row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+  margin: 0.5rem 0;
+}
+
+/* `a.quiet` is here for the one link the client has -- the source of this
+   version in the header (AGPL §13). It stands in a row of quiet buttons and
+   would read as a different kind of thing left to the browser's default. */
+button,
+select,
+input,
+a.quiet {
+  font: inherit;
+  padding: 0.25rem 0.6rem;
+  border: 1px solid var(--base-600);
+  border-radius: var(--r-control);
+  background: transparent;
+  color: var(--base-200);
+  max-width: 100%;
+}
+
+/*
+ * `option` is drawn by the system, not by the page, so it is given the field's
+ * own pair explicitly. Left to inherit, it used to come out white on white in
+ * the dark theme -- the system painted its own background under our text.
+ */
+select,
+input,
+option {
+  background-color: var(--base-800);
+  color: var(--base-50);
+}
+
+/*
+ * The main button is inverse and high-contrast, the quiet one is a hairline
+ * frame. Interactivity is marked by contrast and border, never by the accent:
+ * the accent means a living person and nothing else.
+ */
+button:not(:disabled) {
+  cursor: pointer;
+}
+/* `.bare` is a button that is not a button-shaped thing: a row of the stand, a
+   structural control. It gets no fill, or the screen fills with white slabs.
+   `:not(:disabled)` because the slab now means "an action you can take"
+   (D-238): a refused button must fall through to the muted rule below, not
+   wear the slab it cannot honour. */
+button:not(.quiet):not(.link):not(.bare):not(:disabled) {
+  background-color: var(--base-50);
+  color: var(--base-900);
+  border-color: var(--base-50);
+  font-weight: 600;
+}
+button.quiet,
+a.quiet {
+  background-color: transparent;
+  color: var(--base-200);
+  border-color: var(--base-600);
+  font-weight: 400;
+  text-decoration: none;
+}
+/*
+ * A refusal is shown together with its reason next to the control, so the
+ * disabled state only has to read as "not now" -- but it still has to be read.
+ * Muting by opacity is what made that impossible: it composites against
+ * whatever lies beneath, stacks with any other opacity on the way up, and
+ * lands wherever it lands. The muted tone is a token instead, and the token is
+ * the one CI proves legible on every surface of every theme.
+ */
+button:not(.link):disabled {
+  background-color: transparent;
+  color: var(--base-400);
+  border-color: var(--base-700);
+  font-weight: 400;
+  cursor: not-allowed;
+}
+button:not(.quiet):not(.link):not(.bare):not(:disabled):hover {
+  filter: brightness(0.9);
+}
+button.quiet:not(:disabled):hover,
+a.quiet:hover {
+  background-color: var(--wash);
+  color: var(--base-50);
+  border-color: var(--base-400);
+}
+button:not(:disabled):active {
+  transform: translateY(1px);
+}
+
+/* Keyboard focus is visible always and explicitly, 2px (D-077); it wears the
+   action colour (D-238) -- "here is your hand" -- like every selection mark. */
+:focus-visible {
+  outline: 2px solid var(--act);
+  outline-offset: 2px;
+}
+
+/*
+ * On a phone the finger's target is 44px whatever the density says. Every one
+ * of the client's controls used to be 30px, all twenty-five of them, and a
+ * significant share of sessions happen from a phone -- the vault calls it an
+ * obligatory platform, not a later one.
+ */
+@media (pointer: coarse), (max-width: 40rem) {
+  button,
+  select,
+  input:not([type="checkbox"]),
+  textarea {
+    min-height: 44px;
+  }
+  /* A link-button is a word inside a sentence: given 44px it would tear the
+     line apart. It gets the room around it instead. */
+  button.link,
+  button.eye {
+    min-height: 0;
+    padding-block: 0.5rem;
+  }
+  /* The hint is a circle beside a button, not a button: at 44px it would grow
+     into the tallest thing in the row. It grows to a finger's size instead --
+     the row is 44px tall here anyway, so the bigger circle costs no room. */
+  button.hint {
+    min-height: 0;
+    width: 1.9em;
+    height: 1.9em;
+    font-size: 0.85rem;
+  }
+}
+
+input[type="number"] {
+  width: 6.5rem;
+}
+input[type="checkbox"] {
+  accent-color: currentColor;
+}
+
+/* --- tables ---------------------------------------------------------------- */
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+}
+td,
+th {
+  padding: var(--pad-cell) 0.5rem var(--pad-cell) 0;
+  text-align: left;
+  vertical-align: baseline;
+  border-bottom: 1px solid var(--hairline);
+}
+tbody tr:last-child td {
+  border-bottom: none;
+}
+th {
+  font-weight: normal;
+  color: var(--base-400);
+  border-bottom: 1px solid var(--line);
+}
+/*
+ * Every figure is monospaced with tabular numerals (D-075). The game is an
+ * economic one: a column of prices has to line up by digit, or the order book
+ * is unreadable. The side effect is that a number is recognised as a number
+ * wherever it stands.
+ */
+.num,
+.clock,
+.money,
+input[type="number"] {
+  font-family: var(--font-num);
+  font-variant-numeric: tabular-nums;
+}
+.num {
+  text-align: right;
+}
+
+.book td:nth-child(2) {
+  text-align: center;
+  border-left: 1px solid var(--line);
+  border-right: 1px solid var(--line);
+}
+
+/* A panel across the whole scene: the market is cramped in the common grid. */
+.panels .wide {
+  grid-column: 1 / -1;
+}
+
+.market-grid {
+  display: grid;
+  grid-template-columns: 3fr 2fr;
+  gap: 1.25rem;
+  align-items: start;
+}
+@media (max-width: 56rem) {
+  .market-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Own goods row: a click selects the position in the book. */
+tr.pick {
+  cursor: pointer;
+}
+tr.pick:hover {
+  background-color: var(--wash);
+}
+tr.pick td:first-child {
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+tr.picked td:first-child {
+  font-weight: bold;
+}
+
+.sign {
+  font-size: 1.2rem;
+  margin: 0.5rem 0;
+}
+
+.plan {
+  border: 1px dashed var(--line);
+  padding: 0.5rem;
+  margin: 0.5rem 0;
+}
+
+/* --- a figure and its grounds (D-030) -------------------------------------
+ *
+ * The bank publishes five figures and composes an explanation for every one of
+ * them: where the rate came from, what the limit is made of, why this borrower
+ * is offered that. Each explanation is a list of clauses the engine joins with
+ * "; " -- and printed as a sentence trailing its number it became a page of
+ * prose in a 17rem column, with the numbers lost inside it. Publishing the
+ * grounds is what monetary policy is argued with; unreadable, they are not
+ * published at all.
+ *
+ * So the number stands alone in its row, right-aligned like a column of prices,
+ * and the grounds fall out beneath it as the clauses they were joined from. The
+ * same row serves a line of the statement: a name on the left, a sum on the
+ * right, the circumstances under it.
+ */
+.facts {
+  display: flex;
+  flex-direction: column;
+  margin: 0.5rem 0;
+  border-top: 1px solid var(--hairline);
+}
+.fact {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: baseline;
+  gap: 0.15rem 0.6rem;
+  padding: 0.35rem 0;
+  border-bottom: 1px solid var(--hairline);
+}
+.fact-name {
+  color: var(--base-400);
+  font-size: 0.85rem;
+}
+.fact-val {
+  font-family: var(--font-num);
+  font-variant-numeric: tabular-nums;
+  color: var(--base-50);
+  text-align: right;
+  white-space: nowrap;
+}
+/* The figure a block is about -- the limit you have, the rate you are offered --
+   is a step larger than the ones that merely stand beside it. */
+.fact-val.lead {
+  font-size: 1.1rem;
+}
+/* A second line about the same fact: the counterparty, the memo, the moment. */
+.fact > .note {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+/* What is done about the fact -- repay this loan -- goes under it, at the end
+   of the line: the sum is what the row is read for, the verb is what happens
+   after it has been read. */
+.fact > button {
+  grid-column: 1 / -1;
+  justify-self: end;
+  margin-top: 0.15rem;
+}
+
+.why {
+  grid-column: 1 / -1;
+  margin: 0.2rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+.why li {
+  position: relative;
+  padding-left: 0.75rem;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  color: var(--base-400);
+}
+.why li::before {
+  content: "·";
+  position: absolute;
+  left: 0.15rem;
+}
+
+/* The name of a block inside a section. An `h3` divides the tab itself, and the
+   bank is four blocks inside one of its parts -- given `h3` each, the tab would
+   read as eight equal sections rather than three with parts. */
+.sub {
+  margin: 0.9rem 0 0.25rem;
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--base-400);
+}
+
+/* --- a form is a column, not a row ---------------------------------------
+ *
+ * `.row` is for controls that belong side by side. A recipient's name, a sum
+ * and the grounds for a payment are not those: in the sidebar's column the text
+ * box shrank to whatever the 6.5rem number box left it, the button wrapped to
+ * its own line anyway, and the widest field in the form held the shortest value
+ * in it. Here every field takes the whole width and says above itself what it
+ * is -- a placeholder disappears the moment it is filled in.
+ */
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin: 0.5rem 0;
+}
+.form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+.form label > span {
+  font-size: 0.8rem;
+  color: var(--base-400);
+}
+.form input,
+.form select,
+.form textarea {
+  width: 100%;
+}
+/* The number box's own 6.5rem is for a row of controls; here the box is the row. */
+.form input[type="number"] {
+  width: 100%;
+}
+/* The action closes the form across its whole width, where the last field ended. */
+.form > button {
+  width: 100%;
+}
+
+/*
+ * A refusal in place of the action it refuses (01-interaction-model).
+ *
+ * A grey button without a reason reads as a broken client, and a reason hidden
+ * in a `title` does not exist at all on a phone. So the reason stands where the
+ * hand was going, in the warning tone -- not as an alarm: nothing was lost, the
+ * thing simply cannot be done yet.
+ */
+.reason {
+  margin: 0.35rem 0;
+  padding: 0.1rem 0 0.1rem 0.6rem;
+  border-left: 2px solid var(--warning);
+  font-size: 0.85rem;
+  color: var(--base-200);
+}

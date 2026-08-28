@@ -1,0 +1,88 @@
+/* SPDX-License-Identifier: AGPL-3.0-only
+   Copyright (C) 2026 Nurlan Urazkulov */
+
+/*
+ * The doors into the world: the screen one is printed at -- the cities to
+ * choose between, each speaking for itself, and the words the choice is made
+ * in. Login and registration are the file after this one.
+ */
+
+/* The login screen: one column in the centre of the screen. */
+main.entry {
+  justify-content: center;
+  border: none;
+  /* The login sheet is not the four-zone shell: it keeps its margins. */
+  padding: 0.75rem 1rem;
+}
+.entry > * {
+  width: min(34rem, 100%);
+  margin-inline: auto;
+}
+
+/* Doors into the world: cards side by side so cities compare by eye (D-182).
+   The login screen is narrowed to 34rem -- too little for the doors, they are wider than their column. */
+.entry > .doors {
+  width: min(52rem, 100%);
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(16rem, 100%), 1fr));
+  gap: 0.75rem;
+  align-items: start;
+  margin: 0.75rem auto;
+}
+
+/* The city's word (D-183): somebody's speech, not an engine line. Set off by
+   italics and a line on the left -- the same device as an overheard remark in chat. */
+/* The city's word (D-183) is somebody's speech, not an engine line -- so it is
+   set in the world's antiqua, like everything spoken inside the world. */
+.say {
+  margin: 0.5rem 0;
+  padding-left: 0.6rem;
+  border-left: 3px solid var(--line);
+  font-family: var(--font-world);
+  font-style: italic;
+  color: var(--base-200);
+}
+
+/* The field for that same word: the same input fields, but multi-line text. */
+textarea.word {
+  font: inherit;
+  width: 100%;
+  min-height: 4.5rem;
+  padding: 0.25rem 0.6rem;
+  border: 1px solid var(--base-600);
+  background-color: var(--base-800);
+  color: var(--base-50);
+  resize: vertical;
+}
+
+/* The intro: a curtain over the world. The world is visible at the edges --
+   reading is optional, and the closed window breaks nothing. */
+.veil {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: color-mix(in srgb, var(--base-950) 82%, transparent);
+}
+.intro {
+  width: min(38rem, 100%);
+  max-height: 100%;
+  overflow-y: auto;
+  /* Opaque background and full-tone border: this is the only window that
+     speaks on the game's behalf, and it must not merge with the panels under it. */
+  background: var(--base-900);
+  border-color: var(--base-50);
+}
+.intro p {
+  margin: 0.5rem 0;
+}
+.intro ol {
+  margin: 0.35rem 0;
+  padding-left: 1.2rem;
+}
+.intro li {
+  margin: 0.35rem 0;
+}

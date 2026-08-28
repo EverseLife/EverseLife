@@ -1,0 +1,180 @@
+/* SPDX-License-Identifier: AGPL-3.0-only
+   Copyright (C) 2026 Nurlan Urazkulov */
+
+/*
+ * The place one stands in: what needs you on return, and the stand -- the
+ * tiles of the location and the window that opens under them.
+ */
+
+/* --- what needs you, on return ------------------------------------------- */
+
+.needs {
+  display: flex;
+  flex-direction: column;
+}
+.need {
+  display: grid;
+  grid-template-columns: 4.5rem 1fr;
+  align-items: baseline;
+  gap: 0.2rem 0.6rem;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid var(--hairline);
+}
+.need:last-of-type {
+  border-bottom: 0;
+}
+.need .deadline {
+  grid-column: 2;
+}
+.need-kind {
+  font-family: var(--font-num);
+  font-size: 0.76rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--base-400);
+  border: 1px solid var(--base-600);
+  border-radius: var(--r-control);
+  padding: 0.05rem 0.3rem;
+  text-align: center;
+}
+/* A case is the only one of the four that ends in a sanction whether or not it
+   was noticed, so it is the only one that speaks in the alarm tone. */
+.need-kind.case {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+.need-kind.debt {
+  color: var(--warning);
+  border-color: var(--warning);
+}
+.need-what {
+  color: var(--base-50);
+}
+
+.panels {
+  display: grid;
+  /* min(22rem, 100%): the column need not be wider than the screen. */
+  grid-template-columns: repeat(auto-fit, minmax(min(22rem, 100%), 1fr));
+  gap: 0.75rem;
+  align-items: start;
+  align-content: start;
+}
+
+/* --- the stand: a place and its objects -----------------------------------
+ *
+ * A closed row is not a title -- it is a status line, and that is the whole
+ * point: watch everything at once, work at one thing. The open surface takes
+ * whatever is left, and scrolls on its own so the row never leaves the screen.
+ */
+.stand {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  gap: 0.75rem;
+}
+.stand-open {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* The objects of the place as tiles (D-238): a grid of small cards, each
+   carrying the object's whole standing -- name, state, the reason it waits,
+   the running term -- with room for the place's own words when the vault
+   starts sending them. */
+.objects {
+  flex: none;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr));
+  gap: 0.5rem;
+}
+/* The "?" sits beside the tile, not inside it: a button may not nest a
+   button, and the hint must not open the window. */
+.obj-wrap {
+  position: relative;
+  display: flex;
+}
+.obj-wrap > .obj {
+  flex: 1;
+  padding-right: 1.9rem;
+}
+.obj-hint {
+  position: absolute;
+  top: 0.35rem;
+  right: 0.4rem;
+}
+.obj {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.25rem;
+  min-height: 0;
+  padding: 0.5rem 0.65rem;
+  text-align: left;
+  font: inherit;
+  font-size: 0.86rem;
+  color: var(--base-200);
+  background: transparent;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-control);
+  cursor: pointer;
+  transition: border-color 0.1s, color 0.1s;
+}
+.obj:hover {
+  border-color: var(--base-400);
+  color: var(--base-50);
+}
+/* The open one wears the action colour, like every selection (D-238). */
+.obj[aria-pressed="true"] {
+  color: var(--base-50);
+  border-color: var(--act);
+  box-shadow: inset 0 -2px 0 var(--act);
+}
+.obj-name {
+  font-weight: 600;
+}
+.obj-state {
+  font-family: var(--font-num);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.78rem;
+  color: var(--base-400);
+}
+.obj-why {
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: var(--warning);
+}
+.obj-bar {
+  width: 100%;
+}
+.obj-bar .deadline-bar {
+  width: 100%;
+}
+.obj.off .obj-name {
+  color: var(--base-400);
+}
+
+/* Narrow screen: the row and the open surface simply follow one another. */
+@media (max-width: 56rem) {
+  .stand,
+  .stand-open {
+    min-height: auto;
+    overflow: visible;
+    flex: none;
+  }
+}
+
+/* Padding follows the density; the border and the position never do. */
+section {
+  border: 1px solid var(--line);
+  padding: var(--pad-panel);
+}
+/* Inside the stand and the sidebar the surface itself is the sheet (D-238):
+   sections lie flat on it, split by headings and hairline cards, not boxed.
+   The box stays for free-standing panels (`.panels` -- the market, the printer). */
+.stand-open > section,
+.side-body section {
+  border: 0;
+  padding: 0;
+  margin: 0 0 1.1rem;
+}

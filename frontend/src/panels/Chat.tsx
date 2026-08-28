@@ -45,6 +45,9 @@ export function Chat({ place }: Omit<Props, "busy" | "act">) {
   const [text, setText] = useState("");
   const [kind, setKind] = useState<(typeof KINDS)[number]["value"]>("speech");
   const [quiet, setQuiet] = useState(false);
+  //: The strip folds to one line (D-238): the talk gives the scene its
+  //: height back when it is not being read.
+  const [folded, setFolded] = useState(false);
   const scroll = useRef<HTMLDivElement>(null);
 
   const listen = useCallback(async () => {
@@ -112,6 +115,22 @@ export function Chat({ place }: Omit<Props, "busy" | "act">) {
 
   return (
     <section className="chat">
+      <div className="chat-head">
+        <span className="note">
+          разговор
+          {mine && ` · кружок «${mine.name ?? "без имени"}»`}
+        </span>
+        <button
+          type="button"
+          className="bare chat-fold"
+          onClick={() => setFolded((was) => !was)}
+          aria-expanded={!folded}
+        >
+          {folded ? "развернуть ▸" : "свернуть ▾"}
+        </button>
+      </div>
+      {!folded && (
+      <>
       <Refusal of={acting} />
       <div className="chat-lines" ref={scroll}>
         {lines.length === 0 && (
@@ -161,8 +180,10 @@ export function Chat({ place }: Omit<Props, "busy" | "act">) {
       <p className="note">
         {mine
           ? `Вы в кружке «${mine.name ?? "без имени"}»: слышат участники, остальным долетают обрывки.`
-          : "Слышат все, кто здесь. Собраться потише — кнопкой кружка слева."}
+          : "Слышат все, кто здесь. Собраться потише — кнопкой «кружки» слева."}
       </p>
+      </>
+      )}
     </section>
   );
 }
@@ -230,7 +251,7 @@ function CircleChip({
         aria-haspopup="dialog"
         title="кому слышно сказанное; клик — подойти к кружку или собрать свой"
       >
-        {mine ? `кружок «${mine.name ?? "без имени"}»` : "вслух"}
+        {mine ? `кружок «${mine.name ?? "без имени"}»` : "кружки"}
       </button>
       {open && (
         <div ref={pop} className="hud-pop up" role="dialog" aria-label="Кружки">

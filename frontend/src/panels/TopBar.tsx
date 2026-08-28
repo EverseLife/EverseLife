@@ -309,8 +309,9 @@ function WorldClock({ clock }: { clock: NonNullable<Look["clock"]> }) {
   }, []);
   return (
     <span className="clock" title={`местное время: ${stamp(clock, now)}`}>
-      {hands(clock, now)}
-      <span className="note"> · сутки {worldTime(clock, now).day}</span>
+      {/* One size for the whole reading: the day is part of the time, not a
+          footnote to it. */}
+      {hands(clock, now)} · сутки {worldTime(clock, now).day}
     </span>
   );
 }

@@ -60,6 +60,7 @@ export function Convoy({ look }: Omit<Props, "busy" | "act">) {
             zone="hold"
             accepts={["hands"]}
             disabled={busy}
+            hint="перетащите сюда предмет, чтобы погрузить в трюм"
             onMove={(stack, amount) =>
               act(() => session.send("transport.load", { item: stack.item, amount }))
             }
@@ -117,6 +118,7 @@ export function Convoy({ look }: Omit<Props, "busy" | "act">) {
             zone="hands"
             accepts={["hold"]}
             disabled={busy}
+            hint="перетащите сюда предмет, чтобы выгрузить в руки"
             onMove={(stack, amount) =>
               act(() => session.send("transport.unload", { item: stack.item, amount }))
             }
@@ -169,7 +171,7 @@ export function Convoy({ look }: Omit<Props, "busy" | "act">) {
                 </tbody>
               </table>
             ) : (
-              <p className="note">руки пусты — сюда можно перетащить из трюма</p>
+              <p className="note">руки пусты</p>
             )}
           </DropZone>
           <div className="row">

@@ -10,17 +10,20 @@
  * The windows are cut by intent, not by where the code happened to grow, and
  * each stands on its own in the location's row (`Stand.tsx`):
  *
- * - **Участок** -- everything about the land itself: whose it is and what it is
- *   called, the door and the two lists (D-204), buying an empty plot, founding
- *   a city (D-159). Shut stops entry, never passage, so a neighbour is never
- *   cut off from their home;
- * - **Дом** -- build, then furnish: the walls and their demolition (D-205), and
- *   the machines and furniture that go into the house and take its slots
- *   (D-106, D-150). Working at somebody's machine is another matter: the
- *   machine has a row of its own;
- * - **На земле** -- storage, for everyone: the floor where whoever got in puts
- *   things down and picks them up (D-192, D-204), and the chests standing in
- *   the room (D-181). The door and the chest are the protection, not a rule;
+ * - **Земля** -- everything about the land itself: whose it is, what it is
+ *   called, its mark and its description, the door and the two lists (D-204),
+ *   buying an empty plot, founding a city (D-159). Shut stops entry, never
+ *   passage, so a neighbour is never cut off from their home. Under an open
+ *   sky it also holds the storage below;
+ * - **Здание** -- build, then furnish: the walls and their demolition (D-205),
+ *   and the machines and furniture that go into the building and take its
+ *   slots (D-106, D-150). Working at somebody's machine is another matter: the
+ *   machine has a tile of its own. A roofed room also holds the storage below;
+ * - the **storage** of the place, for everyone: the floor where whoever got in
+ *   puts things down and picks them up (D-192, D-204), and the chests standing
+ *   in the room (D-181). The door and the chest are the protection, not a rule.
+ *   It is not a window of its own (D-238): things lie **in** something, so the
+ *   surface belongs to the building that holds it, or to the bare land;
  * - **Обоз** -- the wagon: harnessing, and the hold that carries what hands
  *   cannot (D-157);
  * - **Лес / Камни / Луг** -- extraction by the sign of the land (D-177), one

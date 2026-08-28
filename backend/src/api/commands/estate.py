@@ -90,6 +90,20 @@ async def _land_emblem(state: dict, db: AsyncSession, message: dict) -> dict:
     return {"marked": node.key, "emblem": asked or None}
 
 
+@command("land.describe")
+async def _land_describe(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Write the plot's description, or wipe it: empty means wiped (D-238).
+
+    The same right and the same spot as the nameplate and the emblem.
+    """
+    body = await _alive(state, db)
+    node = await db.get(Node, body.node_id)
+    if node is None:  # pragma: no cover
+        raise Refused("тело вне узла")
+    await estate.describe(db, body, node, str(message.get("about") or ""))
+    return {"described": node.key, "about": estate.public_about(node)}
+
+
 @command("build.construct")
 async def _build_construct(state: dict, db: AsyncSession, message: dict) -> dict:
     """Build a house on your own plot. Materials at once, the building on schedule.

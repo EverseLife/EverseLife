@@ -34,7 +34,11 @@ export function NodeMenu({
   const { busy, act } = acting;
   if (!node) return null;
 
-  const here = node.key === (look.node?.key ?? "");
+  //: On the road the body stands in no node at all (D-107): `look.node` still
+  //: names the node one walked out of, and a menu on it used to answer "Вы
+  //: здесь." right above "Пока идёшь, никуда не выйти." -- two opposite things
+  //: about the same moment.
+  const here = !look.travel && node.key === (look.node?.key ?? "");
   //: Same rule as in the column: a planet is flown to, not walked to (D-201),
   //: and so is any place on one -- the surface is walked, the void is not.
   const may =

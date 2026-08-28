@@ -442,6 +442,10 @@ export type Look = {
     name: string;
     /** Place-sign properties ("forest", "outcrop"): place extraction is shown by them (D-177). */
     features: string[];
+    /** The owner's map mark, if one is nailed on (D-238). */
+    emblem?: string | null;
+    /** The place's own words, written by whoever disposes of it (D-238). */
+    about?: string;
     fertility: number;
     /** Whose plot: the holder runs the estate (06-farming). */
     owner?: string;

@@ -37,6 +37,7 @@ import { useBook } from "../actions";
 import * as api from "../api";
 import type { Look, RecipeBook } from "../api";
 import { Deadline } from "../Deadline";
+import { Hint } from "../Hint";
 import { craftableAt } from "../recipes";
 import { Admin } from "./Admin";
 import { Farm } from "./Farm";
@@ -80,7 +81,8 @@ const MINT = "Монетный двор";
 type Kind =
   /** A workbench: opens in place, the rest of the node stays in view. */
   | "bench"
-  /** A scene or a dense panel: takes the window and folds the row away. */
+  /** A scene or a dense panel; since D-238 it opens under the tiles like
+   *  everything else -- the word only ranks what deserves the window first. */
   | "full";
 
 type Thing = {
@@ -95,6 +97,8 @@ type Thing = {
   why?: ReactNode;
   /** A term to draw a deadline bar for. */
   running?: { until: string; since?: string | null };
+  /** What the window is for -- the tile's "?" hint (D-238). */
+  about?: string;
   view: () => ReactNode;
 };
 
@@ -108,11 +112,12 @@ type Thing = {
 const OPENED = new Map<string, string>();
 
 /**
- * The place itself as a choice -- the row of objects with no window over it.
+ * The place itself as a choice: the tiles standing alone, with no window
+ * open under them.
  *
- * Not an object's id: a node whose things are all full windows (an empty plot,
- * a square with one terminal) has no bench to fall back to, and without this
- * state "назад к месту" would lead back into the window it just left.
+ * Not an object's id, because it is not an object: it is the state a click on
+ * the open tile folds back into (D-238). Without it a node whose things are
+ * all windows would have nothing to close into.
  */
 const ROW = "row";
 
@@ -131,11 +136,11 @@ export function Stand({ look, values, pow }: Props) {
   const bench = things.find((t) => t.kind === "bench");
   //: A remembered choice can vanish -- the machine was carried off while we
   //: were away. Then the first thing worth attention takes over.
-  //: `ROW` is the one choice that may open nothing: where the node has no
-  //: bench, the place is the row standing on its own.
+  //: `ROW` is the closed state: the tiles stand on their own, no window under
+  //: them -- clicking the open tile again folds its window away (D-238).
   const open =
     chosen === ROW
-      ? bench
+      ? undefined
       : (things.find((t) => t.id === chosen) ?? bench ?? things[0]);
 
   const show = (id: string) => {
@@ -152,47 +157,42 @@ export function Stand({ look, values, pow }: Props) {
     );
   }
 
-  //: A full-window surface suppresses the row: the vault asks exactly this of
-  //: the mining scene, and a dense table has the same appetite for width.
-  if (open && open.kind === "full") {
-    return (
-      <div className="stand">
-        <div className="stand-back">
-          <button type="button" className="quiet" onClick={() => show(ROW)}>
-            ← назад к месту
-          </button>
-          <span className="note">{look.node?.name}</span>
-        </div>
-        <div className="stand-open">{open.view()}</div>
-      </div>
-    );
-  }
-
+  //: One rule for every tile (D-238): the window opens under the tiles, the
+  //: tiles never leave the screen, and the open tile folds its window away
+  //: when clicked again. No full-window takeover, no "назад к месту".
   return (
     <div className="stand">
       <div className="objects">
         {things.map((thing) => (
-          <button
-            key={thing.id}
-            type="button"
-            className={`obj bare${thing.why ? " off" : ""}`}
-            aria-pressed={thing.id === open?.id}
-            onClick={() => show(thing.id)}
-          >
-            <span className="obj-name">{thing.name}</span>
-            {thing.state && <span className="obj-state">{thing.state}</span>}
-            {thing.why && <span className="obj-why">{thing.why}</span>}
-            {thing.running && (
-              <span className="obj-bar">
-                <Deadline
-                  until={thing.running.until}
-                  since={thing.running.since}
-                  label={thing.name}
-                  size="row"
-                />
+          <div className="obj-wrap" key={thing.id}>
+            <button
+              type="button"
+              className={`obj bare${thing.why ? " off" : ""}`}
+              aria-pressed={thing.id === open?.id}
+              onClick={() => show(thing.id === open?.id ? ROW : thing.id)}
+            >
+              <span className="obj-name">{thing.name}</span>
+              {thing.state && <span className="obj-state">{thing.state}</span>}
+              {thing.why && <span className="obj-why">{thing.why}</span>}
+              {thing.running && (
+                <span className="obj-bar">
+                  <Deadline
+                    until={thing.running.until}
+                    since={thing.running.since}
+                    label={thing.name}
+                    size="row"
+                  />
+                </span>
+              )}
+            </button>
+            {/* The "?" beside the tile, not inside it: a button may not nest
+                a button, and the hint must not open the window. */}
+            {thing.about && (
+              <span className="obj-hint">
+                <Hint>{thing.about}</Hint>
               </span>
             )}
-          </button>
+          </div>
         ))}
       </div>
       {open && <div className="stand-open">{open.view()}</div>}
@@ -239,6 +239,7 @@ function assemble({ look, values, pow }: Props, book: RecipeBook | null): Thing[
       kind: "full",
       rank: open ? 0 : 1,
       state: open ? "сессия идёт" : `жила: ${look.veins[0].resource}`,
+      about: "Окно забоя: спуститься в жилу и рубить, порода за породой.",
       view: () => <Mine look={look} pow={pow} />,
     });
   }
@@ -276,6 +277,14 @@ function assemble({ look, values, pow }: Props, book: RecipeBook | null): Thing[
     const special = thingClass === null ? undefined : SPECIAL[thingClass];
     const recipes = craftableAt(book, machine, look.knows).length > 0 || workable(machine);
     if (!special && !recipes) continue;
+    //: The tile's hint: what the window is for, in one line. The special
+    //: classes add their trade -- the hearth cooks, the mint strikes coin.
+    const TRADES: Record<string, string> = {
+      [KITCHEN]: " Здесь готовят еду.",
+      [NURSERY]: " Здесь разводят животных.",
+      [FUEL_PLANT]: " Здесь гонят корабельное топливо.",
+      [MINT]: " Здесь чеканят монету города.",
+    };
     const batch = batchAt(machine);
     things.push({
       id: `bench:${machine}`,
@@ -285,6 +294,9 @@ function assemble({ look, values, pow }: Props, book: RecipeBook | null): Thing[
       state: batch ? `партия · ${batch.output}` : machineState(machine),
       running:
         batch && batch.ready_at ? { until: batch.ready_at, since: batch.started_at } : undefined,
+      about:
+        `Окно рабочей станции «${machine}»: партии по рецептам, ремонт и попытки без рецепта.` +
+        ((thingClass && TRADES[thingClass]) ?? ""),
       view: () => (
         <>
           {special?.()}
@@ -303,14 +315,21 @@ function assemble({ look, values, pow }: Props, book: RecipeBook | null): Thing[
     view: () => ReactNode,
     rank = 1,
     state?: ReactNode,
-  ) => things.push({ id, name, kind, rank, state, view });
+    about?: string,
+  ) => things.push({ id, name, kind, rank, state, about, view });
 
   //: A forest is as much a thing to work at as a furnace: extraction by the
   //: sign of the land stands next to the machines, one row per sign (D-177).
   for (const sign of gatherSigns(look, book)) {
-    single(`gather:${sign}`, PLACES[sign] ?? sign, "bench", () => (
-      <Gather look={look} sign={sign} />
-    ));
+    single(
+      `gather:${sign}`,
+      PLACES[sign] ?? sign,
+      "bench",
+      () => <Gather look={look} sign={sign} />,
+      1,
+      undefined,
+      "Добыча по знаку земли: работа руками прямо на месте.",
+    );
   }
 
   //: A rig, only where there is one to work with: standing in the node, or in
@@ -326,6 +345,7 @@ function assemble({ look, values, pow }: Props, book: RecipeBook | null): Thing[
       () => <Rig look={look} />,
       1,
       look.rig_here ? undefined : "в руках: поставить на жилу",
+      "Окно буровой: поставить на жилу и бурить вглубь.",
     );
   }
 
@@ -346,6 +366,7 @@ function assemble({ look, values, pow }: Props, book: RecipeBook | null): Thing[
       () => <Ship look={look} console />,
       aboard ? 0 : 2,
       aboard ? undefined : "работает только на борту корабля",
+      "Окно рубки: карта космоса, отстыковка и перелёты между планетами.",
     );
   }
   if (bridge === undefined && (yard !== undefined || aboard)) {
@@ -357,6 +378,9 @@ function assemble({ look, values, pow }: Props, book: RecipeBook | null): Thing[
       aboard ? "Корабль" : yard ?? SPACEPORT,
       "full",
       () => <Ship look={look} />,
+      1,
+      undefined,
+      "Окно корабля и верфи: заложить корпус, смотреть швартовку и борт.",
     );
   }
 
@@ -378,6 +402,7 @@ function assemble({ look, values, pow }: Props, book: RecipeBook | null): Thing[
       () => <Farm look={look} />,
       3,
       strips === 1 ? "одна делянка" : `делянок: ${strips}`,
+      "Окно земледелия: вспашка, посев, ежедневный уход и уборка делянок.",
     );
   }
   //: Foraging, where the land has room to walk and is ours or nobody's
@@ -400,22 +425,40 @@ function assemble({ look, values, pow }: Props, book: RecipeBook | null): Thing[
       running: searching
         ? { until: foraging.ready_at as string, since: foraging.started_at }
         : undefined,
+      about: "Окно собирательства: поиск полезного на пустой земле.",
       view: () => <Forage look={look} />,
     });
   }
   //: A library and a hall are machines (D-176, D-215): both are read off the bench.
   if (anyOfClass(book, stations, "Библиотека")) {
-    single("library", "Библиотека", "full", () => <Library look={look} />);
+    single(
+      "library",
+      "Библиотека",
+      "full",
+      () => <Library look={look} />,
+      1,
+      undefined,
+      "Окно библиотеки: взять рецепты и отдать свои.",
+    );
   }
   if (look.city && anyOfClass(book, stations, "Администрация")) {
-    single("hall", "Администрация", "full", () => <Admin look={look} />);
+    single(
+      "hall",
+      "Администрация",
+      "full",
+      () => <Admin look={look} />,
+      1,
+      undefined,
+      "Окно администрации: гражданство, власть, суд и законы города.",
+    );
   }
   const terminal = firstOfClass(book, stations, TERMINAL);
   if (terminal !== undefined) {
     const mine = (look.stall ?? []).length;
     single("market", terminal, "full",
       () => <Market look={look} values={values} />, 1,
-      mine > 0 ? `вашего товара: ${mine}` : undefined);
+      mine > 0 ? `вашего товара: ${mine}` : undefined,
+      "Окно рынка: стакан заявок, покупка, продажа и свой товар в терминале.");
   }
 
   //: The location's own windows, last and in one group: they are about the place
@@ -427,18 +470,19 @@ function assemble({ look, values, pow }: Props, book: RecipeBook | null): Thing[
   const home = api.houseOf(node);
 
   //: Storage of the place, for everyone (D-192, D-204): the floor and the
-  //: chests answer one question -- "where do my things go here".
+  //: chests answer one question -- "where do my things go here". It is not a
+  //: window of its own any more (D-238): things lie **in** something, and the
+  //: surface belongs to whatever holds it -- a roofed room to the building,
+  //: bare ground to the land. Two windows about one place were two answers to
+  //: the same question.
+  //:
+  //: The floor comes with every node one stands in, so in practice there is
+  //: always a surface and the roof alone decides whose window holds it;
+  //: `stores` is the guard for a node that arrives without either, and it is
+  //: what keeps an empty tile from appearing then.
   const room = look.floor?.space;
-  if (look.floor || (look.storages ?? []).length > 0) {
-    single(
-      "ground",
-      (room?.roofed ?? 0) > 0 ? "В здании" : "На земле",
-      "full",
-      () => <Ground look={look} />,
-      3,
-      room ? `${room.used.toFixed(0)} / ${room.area.toFixed(0)} м²` : undefined,
-    );
-  }
+  const roofed = (room?.roofed ?? 0) > 0;
+  const stores = Boolean(look.floor) || (look.storages ?? []).length > 0;
 
   //: The wagon is an object of the node like any machine, only one harnesses
   //: to it instead of working at it (D-157).
@@ -454,24 +498,36 @@ function assemble({ look, values, pow }: Props, book: RecipeBook | null): Thing[
       convoy
         ? `трюм ${convoy.mass.toFixed(0)} из ${convoy.capacity.toFixed(0)} кг`
         : `стоит: ${carts[0].goods}`,
+      "Окно обоза: впрячься и возить в трюме больше, чем унесут руки.",
     );
   }
 
-  //: The house is the holder's, and one window covers its whole story: build,
-  //: demolish, and place the machines and furniture into it (D-106, D-205).
-  if (own && node) {
+  //: The building is the holder's, and one window covers its whole story:
+  //: build, demolish, place the machines and furniture into it (D-106,
+  //: D-205) -- and what lies on its floor and in its chests. A guest gets the
+  //: window too, with the storage half alone: the floor of a room one stands
+  //: in is everybody's business (D-192), the building of it is not.
+  if ((own && node) || (roofed && stores)) {
     single(
       "house",
-      "Дом",
+      "Здание",
       "full",
-      () => <House look={look} />,
+      () => (
+        <>
+          {own && node && <House look={look} />}
+          {roofed && stores && <Ground look={look} />}
+        </>
+      ),
       3,
       home.area > 0
-        ? `${home.area.toFixed(0)} м² в ${home.floors} эт. · мест ${home.used} из ${home.slots}`
+        ? `${home.area.toFixed(0)} м² в ${home.floors} эт.`
+          + (roofed && room ? ` · пол ${room.used.toFixed(0)} / ${room.area.toFixed(0)} м²` : "")
           + (home.condition == null ? "" : ` · состояние ${home.condition.toFixed(0)}%`)
         : home.sites.length > 0
           ? "строится"
           : "не построен",
+      "Окно здания: стройка, ремонт, снос и расстановка станков и мебели — и то,"
+        + " что лежит на полу здания и в его хранилищах.",
     );
   }
 
@@ -487,20 +543,29 @@ function assemble({ look, values, pow }: Props, book: RecipeBook | null): Thing[
       () => <Reactor look={look} />,
       2,
       reactorState(node.reactor_until),
+      "Окно реактора Предтеч: сколько энергии осталось городу.",
     );
   }
 
   //: The land itself: whose, the name, the door, the purchase and the founding
-  //: of a city. Shown to guests too -- ownership is a public fact (D-178) --
-  //: and an empty plot for sale is the main thing of its node, hence the rank.
+  //: of a city -- and, under an open sky, whatever lies on it (D-238). Shown
+  //: to guests too: ownership is a public fact (D-178), and what lies on the
+  //: ground is taken by whoever was let in (D-192). An empty plot for sale is
+  //: the main thing of its node, hence the rank.
   const forSale = Boolean(node && !node.owner && (api.isWild(node) || node.price !== undefined));
   const owned = Boolean(node?.owner || node?.owner_city);
-  if (forSale || owned) {
+  const bare = !roofed && stores;
+  if (forSale || owned || bare) {
     single(
       "plot",
       "Земля",
       "full",
-      () => <Plot look={look} />,
+      () => (
+        <>
+          <Plot look={look} />
+          {bare && <Ground look={look} />}
+        </>
+      ),
       forSale ? 1 : 3,
       node?.cut_off
         ? "отключена за неуплату"
@@ -510,11 +575,19 @@ function assemble({ look, values, pow }: Props, book: RecipeBook | null): Thing[
             ? node?.price !== undefined
               ? `продаётся за ${api.tk(node.price)} ₭`
               : "ничья земля"
-            : api.isMine(look)
-              ? undefined
-              : node?.owner
-                ? `хозяин ${node.owner}`
-                : `город ${node?.owner_city}`,
+            : bare && room
+              ? `лежит ${room.used.toFixed(0)} / ${room.area.toFixed(0)} м²`
+              : api.isMine(look)
+                ? undefined
+                : node?.owner
+                  ? `хозяин ${node.owner}`
+                  : `город ${node?.owner_city}`,
+      //: On land nobody holds and nobody sells, the window has no plot half
+      //: to show: the hint must promise only what the player will find.
+      forSale || owned
+        ? "Окно земли: управление локацией — имя, значок и описание узла, доступ,"
+          + " выкуп и основание города — и то, что лежит на земле."
+        : "Окно земли: то, что лежит здесь на земле — положить и взять.",
     );
   }
 

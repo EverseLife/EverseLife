@@ -69,6 +69,9 @@ NET_SEARCH_LIMIT = 8
 #: Plot name length limit (D-178). The same hygiene: a map label must fit in a
 #: map label, and there is nothing to balance here.
 LAND_NAME_LIMIT = 40
+#: Plot description length limit (D-238): a paragraph of the place's own
+#: words, not a page. Hygiene again, nothing to balance.
+LAND_ABOUT_LIMIT = 300
 
 
 #: How the growth constant of a remembered chance is solved (D-213). None of

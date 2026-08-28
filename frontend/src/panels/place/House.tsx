@@ -16,7 +16,11 @@ import { Equipment } from "./Equipment";
 import { Repair } from "./Repair";
 
 
-/** The house: build it, take it apart -- and furnish it.
+/** The building: raise it, take it apart -- and furnish it.
+ *
+ * What lies **inside** it -- the floor and the chests -- is put into the same
+ * window by the stand (D-238), because things lie in a building rather than
+ * beside it; under an open sky the same surface belongs to the land instead.
  *
  * Storeys are the point of the building part (D-125, D-145): the plot limits
  * the footprint, not the workshop -- a house grows upwards where the ground
@@ -108,7 +112,7 @@ export function House({ look }: Omit<Props, "busy" | "act">) {
     <>
     <section>
       <Refusal of={acting} />
-      <h2>Дом</h2>
+      <h2>Здание</h2>
       {/* The house as a state card (D-238): the condition on a track, the
           wear as a warning chip -- instead of the figures buried in a sentence. */}
       {home.area > 0 ? (
