@@ -38,9 +38,6 @@ export function Convoy({ look }: Omit<Props, "busy" | "act">) {
   const setPart = (id: string, value: number | null) =>
     setParts((before) => ({ ...before, [id]: value }));
 
-  //: What in the hands has weight: no point loading the weightless, it rides anyway.
-  const inHands = look.inventory.filter((thing) => thing.mass > 0);
-
   return (
     <section>
       <Refusal of={acting} />
@@ -54,8 +51,11 @@ export function Convoy({ look }: Omit<Props, "busy" | "act">) {
             </b>{" "}
             · скорость ×{convoy.speed_k} · сост. {convoy.condition.toFixed(0)}
           </p>
-          {/* The drag pair (D-238): hands rows drop into the hold, cargo rows
-              drop back into the hands -- same commands as the buttons. */}
+          {/* One inventory, not two (D-238): the sidebar's is the hands, and
+              it is on screen beside this window. A stack drags from there into
+              the hold and a cargo row drags back into it; for a keyboard or a
+              finger the same two moves are "Выгрузить" here and "В трюм" in
+              the sidebar's row menu. */}
           <DropZone
             zone="hold"
             accepts={["hands"]}
@@ -112,66 +112,6 @@ export function Convoy({ look }: Omit<Props, "busy" | "act">) {
               </table>
             ) : (
               <p className="note">трюм пуст</p>
-            )}
-          </DropZone>
-          <DropZone
-            zone="hands"
-            accepts={["hold"]}
-            disabled={busy}
-            hint="перетащите сюда предмет, чтобы выгрузить в руки"
-            onMove={(stack, amount) =>
-              act(() => session.send("transport.unload", { item: stack.item, amount }))
-            }
-          >
-            {inHands.length > 0 ? (
-              <table>
-                <tbody>
-                  {inHands.map((thing) => (
-                    <tr
-                      key={thing.id}
-                      {...grip({
-                        item: thing.id,
-                        goods: thing.goods,
-                        label: thing.goods,
-                        amount: thing.amount,
-                        zone: "hands",
-                      })}
-                    >
-                      <td>{thing.goods}</td>
-                      <td className="note">
-                        {tally(thing.goods, thing.amount)} ·{" "}
-                        {(thing.mass * thing.amount).toFixed(1)} кг
-                      </td>
-                      <td {...noDrag}>
-                        <Amount
-                          goods={thing.goods}
-                          value={parts[thing.id] ?? null}
-                          max={thing.amount}
-                          onChange={(value) => setPart(thing.id, value)}
-                        />
-                      </td>
-                      <td>
-                        <button
-                          className="quiet"
-                          onClick={() =>
-                            act(() =>
-                              session.send("transport.load", {
-                                item: thing.id,
-                                amount: chosen(parts[thing.id] ?? null, thing.amount),
-                              }),
-                            )
-                          }
-                          disabled={busy}
-                        >
-                          Погрузить
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            ) : (
-              <p className="note">руки пусты</p>
             )}
           </DropZone>
           <div className="row">

@@ -60,7 +60,7 @@ import { Rig } from "./Rig";
 import { Ship } from "./Ship";
 import { Workshop } from "./Workshop";
 import type { PowSettings } from "../pow";
-import { anyOfClass, classOf, firstOfClass } from "../classes";
+import { TERMINAL, anyOfClass, classOf, firstOfClass } from "../classes";
 
 /**
  * Thing classes the stand opens windows by (D-215): the terminal is the
@@ -68,7 +68,6 @@ import { anyOfClass, classOf, firstOfClass } from "../classes";
  * come from the catalog; the client knows only the class words, the same ones
  * the engine binds its behaviour to.
  */
-const TERMINAL = "Терминал";
 const SPACEPORT = "Верфь";
 /** The ship's console: the bridge the ship is commanded from (D-230). */
 const BRIDGE = "Рубка";

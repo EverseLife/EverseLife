@@ -55,6 +55,9 @@ class Runner:
             base_url=self.store.setting("llm.base_url") or self.settings.llm_base_url,
             api_key=self.store.setting("llm.api_key") or self.settings.llm_api_key,
             model=self.store.setting("llm.model") or self.settings.llm_model,
+            reasoning_effort=(
+                self.store.setting("llm.reasoning_effort") or self.settings.llm_reasoning_effort
+            ),
         )
 
     def load_reference(self) -> None:

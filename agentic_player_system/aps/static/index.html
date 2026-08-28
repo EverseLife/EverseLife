@@ -71,6 +71,7 @@
       <label>Base URL (OpenAI-совместимый) <input id="s-base" placeholder="https://api.deepseek.com/v1"></label>
       <label>Модель по умолчанию <input id="s-model" placeholder="deepseek-chat"></label>
       <label>API-ключ <input id="s-key" type="password" placeholder="оставьте пустым, чтобы не менять"></label>
+      <label>Рассуждения <input id="s-effort" placeholder="пусто — как у провайдера; none — не думать"></label>
     </div>
     <p class="dim" id="s-info"></p>
     <button class="primary" id="s-save">Сохранить</button>
@@ -166,10 +167,11 @@ document.querySelectorAll("#nav button[data-view]").forEach(b => b.onclick = () 
 async function loadSettings() {
   const s = await api("/settings");
   $("s-base").value = s.base_url; $("s-model").value = s.model; $("s-key").value = "";
+  $("s-effort").value = s.reasoning_effort || "";
   $("s-info").textContent = `Ключ ${s.has_key ? (s.key_from_env ? "задан в .env" : "задан в панели") : "НЕ задан"} · секреты ${s.sealed ? "запечатаны" : "ОТКРЫТЫМ ТЕКСТОМ (задайте APS_SECRET_KEY)"} · игра: ${s.game_url} · команд в справочнике: ${s.commands}`;
 }
 $("s-save").onclick = async () => {
-  try { await api("/settings", { method: "PUT", body: JSON.stringify({ base_url: $("s-base").value, model: $("s-model").value, api_key: $("s-key").value || null }) }); toast("Сохранено"); loadSettings(); }
+  try { await api("/settings", { method: "PUT", body: JSON.stringify({ base_url: $("s-base").value, model: $("s-model").value, api_key: $("s-key").value || null, reasoning_effort: $("s-effort").value }) }); toast("Сохранено"); loadSettings(); }
   catch (e) { toast(e.message, true); }
 };
 

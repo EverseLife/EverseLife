@@ -12,7 +12,7 @@ from typing import Any
 import pytest
 
 from aps import brain, commands, llm
-from aps.game import Refused
+from aps.game import Game, GameError, Refused
 from aps.runner import Runner
 from aps.store import Store
 
@@ -580,3 +580,357 @@ def test_a_rotated_key_still_opens_what_the_old_one_sealed(
     #: New key first, old kept: the store keeps reading, seals with the new.
     monkeypatch.setenv("APS_SECRET_KEY", f"{new},{old}")
     assert secrets.reveal(sealed) == "hunter2"
+
+
+async def test_a_tool_name_inside_act_is_corrected_and_not_sent_to_the_game(
+    monkeypatch: pytest.MonkeyPatch, store: Store, agent: dict[str, Any]
+) -> None:
+    """A small model routes every tool through `act`; the game must not see it."""
+    replies = iter(
+        [
+            llm.Reply(
+                content="",
+                tool_calls=[_call("act", cmd="help", args={"cmd": "city.found"})],
+                prompt_tokens=1,
+                completion_tokens=1,
+            ),
+            llm.Reply(
+                content="",
+                tool_calls=[_call("finish", thought="понял")],
+                prompt_tokens=1,
+                completion_tokens=1,
+            ),
+        ]
+    )
+
+    async def fake_chat(*_: Any, **__: Any) -> llm.Reply:
+        return next(replies)
+
+    monkeypatch.setattr(llm, "chat", fake_chat)
+    game = FakeGame({"look": {"money": 0}})
+    await brain.run_turn(
+        agent=agent,
+        game=game,  # type: ignore[arg-type]
+        store=store,
+        provider=llm.Provider("u", "k", "m"),
+        reference=commands.load(SESSION_SOURCE),
+    )
+    assert [cmd for cmd, _ in game.sent] == ["look", "look"], "help ушёл на сервер как команда"
+    assert not [e for e in store.events(agent["id"]) if e["kind"] == "refused"]
+
+
+async def test_the_same_read_twice_in_a_row_costs_one_call_not_two(
+    monkeypatch: pytest.MonkeyPatch, store: Store, agent: dict[str, Any]
+) -> None:
+    """look, look -- nothing happened in between, so the second is answered here."""
+    replies = iter(
+        [
+            llm.Reply(
+                content="",
+                tool_calls=[_call("act", cmd="look"), _call("act", cmd="look")],
+                prompt_tokens=1,
+                completion_tokens=1,
+            ),
+            llm.Reply(
+                content="",
+                tool_calls=[_call("finish", thought="осмотрелась")],
+                prompt_tokens=1,
+                completion_tokens=1,
+            ),
+        ]
+    )
+
+    async def fake_chat(*_: Any, **__: Any) -> llm.Reply:
+        return next(replies)
+
+    monkeypatch.setattr(llm, "chat", fake_chat)
+    game = FakeGame({"look": {"money": 0}})
+    await brain.run_turn(
+        agent=agent,
+        game=game,  # type: ignore[arg-type]
+        store=store,
+        provider=llm.Provider("u", "k", "m"),
+        reference=commands.load(SESSION_SOURCE),
+    )
+    acted = [e for e in store.events(agent["id"]) if e["kind"] == "action"]
+    assert [e["cmd"] for e in acted] == ["look"]
+
+
+def test_the_reference_is_one_short_clause_per_command() -> None:
+    """The reference rides in every prompt: no vault numbers, no second sentence."""
+    reference = commands.load(SESSION_SOURCE)
+    lines = commands.brief(reference).splitlines()
+    assert len(lines) == len(reference) - len(commands.BUILTIN)
+    assert all(len(line) < 130 for line in lines), max(lines, key=len)
+    assert not [line for line in lines if "D-" in line or line.rstrip().endswith(":")]
+    assert any(l.startswith("- city.found(name): Found a city where you stand") for l in lines)
+
+
+async def test_a_refusal_of_an_argumentless_call_carries_the_argument_list(
+    monkeypatch: pytest.MonkeyPatch, store: Store, agent: dict[str, Any]
+) -> None:
+    """`act(cmd="market.buy")` with no args: the model gets the keys, not another turn."""
+    seen: list[str] = []
+
+    replies = iter(
+        [
+            llm.Reply(
+                content="",
+                tool_calls=[_call("act", cmd="market.buy")],
+                prompt_tokens=1,
+                completion_tokens=1,
+            ),
+            llm.Reply(
+                content="",
+                tool_calls=[_call("finish", thought="поняла")],
+                prompt_tokens=1,
+                completion_tokens=1,
+            ),
+        ]
+    )
+
+    async def fake_chat(_p: Any, messages: list[dict[str, Any]], *_a: Any, **_k: Any) -> llm.Reply:
+        seen.extend(str(m.get("content")) for m in messages if m.get("role") == "tool")
+        return next(replies)
+
+    monkeypatch.setattr(llm, "chat", fake_chat)
+    game = FakeGame(
+        {"look": {"money": 0}, "market.buy": Refused("команде не хватает поля «goods»")}
+    )
+    await brain.run_turn(
+        agent=agent,
+        game=game,  # type: ignore[arg-type]
+        store=store,
+        provider=llm.Provider("u", "k", "m"),
+        reference=commands.load(SESSION_SOURCE),
+    )
+    hint = "".join(seen)
+    assert "ОТКАЗ: команде не хватает поля «goods»" in hint
+    assert "Аргументы market.buy: goods" in hint
+
+
+async def test_a_call_packed_one_level_deeper_is_unwrapped(
+    monkeypatch: pytest.MonkeyPatch, store: Store, agent: dict[str, Any]
+) -> None:
+    """`act(args={"cmd": "travel.go", "args": {...}})`: the command, not an empty one."""
+    replies = iter(
+        [
+            llm.Reply(
+                content="",
+                tool_calls=[_call("act", args={"cmd": "travel.go", "args": {"node": "n-1"}})],
+                prompt_tokens=1,
+                completion_tokens=1,
+            ),
+            llm.Reply(
+                content="",
+                tool_calls=[_call("finish", thought="иду")],
+                prompt_tokens=1,
+                completion_tokens=1,
+            ),
+        ]
+    )
+
+    async def fake_chat(*_: Any, **__: Any) -> llm.Reply:
+        return next(replies)
+
+    monkeypatch.setattr(llm, "chat", fake_chat)
+    game = FakeGame({"look": {"money": 0}, "travel.go": {"to": "Рынок"}})
+    await brain.run_turn(
+        agent=agent,
+        game=game,  # type: ignore[arg-type]
+        store=store,
+        provider=llm.Provider("u", "k", "m"),
+        reference=commands.load(SESSION_SOURCE),
+    )
+    assert ("travel.go", {"node": "n-1"}) in game.sent
+
+
+async def test_an_empty_answer_is_nudged_and_the_turn_goes_on(
+    monkeypatch: pytest.MonkeyPatch, store: Store, agent: dict[str, Any]
+) -> None:
+    """Silence once, then a real call: the nudge is the point, not the giving up."""
+    replies = iter(
+        [
+            llm.Reply(content="", tool_calls=[], prompt_tokens=1, completion_tokens=1),
+            llm.Reply(
+                content="",
+                tool_calls=[_call("act", cmd="look")],
+                prompt_tokens=1,
+                completion_tokens=1,
+            ),
+            llm.Reply(
+                content="",
+                tool_calls=[_call("finish", thought="осмотрелась")],
+                prompt_tokens=1,
+                completion_tokens=1,
+            ),
+        ]
+    )
+    seen: list[list[dict[str, Any]]] = []
+
+    async def fake_chat(_p: Any, messages: list[dict[str, Any]], *_a: Any, **_k: Any) -> llm.Reply:
+        seen.append([dict(m) for m in messages])
+        return next(replies)
+
+    monkeypatch.setattr(llm, "chat", fake_chat)
+    game = FakeGame({"look": {"money": 0}})
+    turn = await brain.run_turn(
+        agent=agent,
+        game=game,  # type: ignore[arg-type]
+        store=store,
+        provider=llm.Provider("u", "k", "m"),
+        reference=commands.load(SESSION_SOURCE),
+    )
+    assert "пустым" in str(seen[1][-1]["content"])
+    assert turn.thought == "осмотрелась"
+    #: The count is "in a row": the answer in between cleared it.
+    assert turn.empty_replies == 0
+
+
+async def test_an_empty_answer_twice_ends_the_turn_without_losing_it(
+    monkeypatch: pytest.MonkeyPatch, store: Store, agent: dict[str, Any]
+) -> None:
+    """A silent model must not cost the turn its epilogue: the body may be walking."""
+
+    async def fake_chat(*_: Any, **__: Any) -> llm.Reply:
+        return llm.Reply(content="", tool_calls=[], prompt_tokens=1, completion_tokens=1)
+
+    monkeypatch.setattr(llm, "chat", fake_chat)
+    busy = "2026-08-28T09:00:00+00:00"
+    game = FakeGame({"look": {"money": 0, "travel": {"arrives_at": busy}}})
+    turn = await brain.run_turn(
+        agent=agent,
+        game=game,  # type: ignore[arg-type]
+        store=store,
+        provider=llm.Provider("u", "k", "m"),
+        reference=commands.load(SESSION_SOURCE),
+    )
+    assert turn.finished and turn.empty_replies == brain.MAX_EMPTY_REPLIES
+    #: The epilogue ran: the world was asked when the body is free again.
+    assert turn.busy_until is not None
+    errors = [e for e in store.events(agent["id"]) if e["kind"] == "error"]
+    assert any("пусто" in (e.get("text") or "") for e in errors)
+
+
+async def test_a_flat_nested_call_keeps_every_argument(
+    monkeypatch: pytest.MonkeyPatch, store: Store, agent: dict[str, Any]
+) -> None:
+    """`act(cmd="act", args={"cmd": ..., "args": {...}, "hurry": true})`: nothing dropped."""
+    replies = iter(
+        [
+            llm.Reply(
+                content="",
+                tool_calls=[
+                    _call("act", cmd="act", args={"cmd": "travel.go", "node": "n-1"}),
+                    _call(
+                        "act",
+                        args={"cmd": "travel.go", "args": {"node": "n-2"}, "hurry": True},
+                    ),
+                ],
+                prompt_tokens=1,
+                completion_tokens=1,
+            ),
+            llm.Reply(
+                content="",
+                tool_calls=[_call("finish", thought="иду")],
+                prompt_tokens=1,
+                completion_tokens=1,
+            ),
+        ]
+    )
+
+    async def fake_chat(*_: Any, **__: Any) -> llm.Reply:
+        return next(replies)
+
+    monkeypatch.setattr(llm, "chat", fake_chat)
+    game = FakeGame({"look": {"money": 0}, "travel.go": {"to": "Рынок"}})
+    await brain.run_turn(
+        agent=agent,
+        game=game,  # type: ignore[arg-type]
+        store=store,
+        provider=llm.Provider("u", "k", "m"),
+        reference=commands.load(SESSION_SOURCE),
+    )
+    assert ("travel.go", {"node": "n-1"}) in game.sent
+    assert ("travel.go", {"node": "n-2", "hurry": True}) in game.sent
+
+
+async def test_a_look_after_a_dropped_socket_is_not_taken_for_a_repeat(
+    monkeypatch: pytest.MonkeyPatch, store: Store, agent: dict[str, Any]
+) -> None:
+    """The socket dropped and the code itself asked for a `look`: it must go through."""
+    replies = iter(
+        [
+            llm.Reply(
+                content="",
+                tool_calls=[
+                    _call("act", cmd="look"),
+                    _call("act", cmd="travel.go", args={"node": "n-1"}),
+                    _call("act", cmd="look"),
+                ],
+                prompt_tokens=1,
+                completion_tokens=1,
+            ),
+            llm.Reply(
+                content="",
+                tool_calls=[_call("finish", thought="проверила")],
+                prompt_tokens=1,
+                completion_tokens=1,
+            ),
+        ]
+    )
+
+    async def fake_chat(*_: Any, **__: Any) -> llm.Reply:
+        return next(replies)
+
+    monkeypatch.setattr(llm, "chat", fake_chat)
+    game = FakeGame({"look": {"money": 0}, "travel.go": GameError("сокет упал")})
+    await brain.run_turn(
+        agent=agent,
+        game=game,  # type: ignore[arg-type]
+        store=store,
+        provider=llm.Provider("u", "k", "m"),
+        reference=commands.load(SESSION_SOURCE),
+    )
+    acted = [e["cmd"] for e in store.events(agent["id"]) if e["kind"] == "action"]
+    assert acted == ["look", "look"], "второй look съеден защитой от повтора"
+    assert game.reconnects == 1
+
+
+def test_read_commands_all_exist_in_the_registry() -> None:
+    """The read guard names commands by hand: a rename in the game must be loud."""
+    reference = commands.load(SESSION_SOURCE)
+    assert sorted(c for c in brain.READ_COMMANDS if c not in reference) == []
+    suffixed = [c for c in reference if c.endswith((".view", ".status"))]
+    assert suffixed, "суффиксное правило перестало что-либо покрывать"
+
+
+def test_headline_keeps_the_half_that_tells_commands_apart() -> None:
+    """The colon introduces the substance in these docstrings; the vault number does not."""
+    assert commands.headline("Buy: a limit order from a present body (D-101).") == (
+        "Buy: a limit order from a present body"
+    )
+    assert commands.headline("Take a loan. Money comes from the reserve.") == "Take a loan"
+    assert commands.headline("The most important screen (04-notifications)") == (
+        "The most important screen"
+    )
+    long = commands.headline("Do " + "very " * 40 + "much")
+    assert len(long) <= commands.HEADLINE_LIMIT + 1 and long.endswith("…")
+
+
+async def test_arguments_cannot_replace_the_command_in_the_envelope() -> None:
+    """`args={"cmd": ...}` must not send a command of its own (nor break `id`)."""
+    sent: list[dict[str, Any]] = []
+
+    class Socket:
+        async def send(self, raw: str) -> None:
+            sent.append(json.loads(raw))
+
+        async def recv(self) -> str:
+            return json.dumps({"id": sent[-1]["id"], "ok": True})
+
+    game = Game("http://game", "ws://game/session/ws")
+    game.socket = Socket()
+    await game.send("look", {"cmd": "finance.transfer", "id": 999, "amount": 1})
+    assert sent[-1]["cmd"] == "look"
+    assert sent[-1]["id"] != 999

@@ -208,6 +208,62 @@ input[type="number"] {
   }
 }
 
+/* Choosing a position: the catalogue as a field of names, not a drop-down of
+   the few that happened to trade here. It is capped in height on purpose --
+   the list is for picking out of, and a hundred and seventy names would push
+   the book and the order form off the screen. */
+.market-pick {
+  max-height: 11rem;
+  overflow-y: auto;
+  margin: 0.4rem 0;
+  border: 1px solid var(--hairline);
+  padding: 0.3rem;
+}
+.picks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.picks button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+/* The quality tiers of the chosen name: five books, and one of them is open. */
+.row.tiers {
+  gap: 0.25rem;
+  margin: 0.4rem 0;
+}
+
+/* One order in one place: how much, at what price, and what it comes to. */
+.order {
+  border: 1px solid var(--hairline);
+  padding: 0.5rem 0.6rem;
+  margin: 0.6rem 0;
+}
+.order label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.3rem 0;
+}
+.order label > span {
+  flex: 1 1 auto;
+  color: var(--base-400);
+  font-size: 0.8rem;
+}
+.order label > input {
+  flex: 0 0 8rem;
+}
+.order-total {
+  margin: 0.4rem 0;
+  border-top: 1px solid var(--hairline);
+  padding-top: 0.4rem;
+}
+
 /* Own goods row: a click selects the position in the book. */
 tr.pick {
   cursor: pointer;

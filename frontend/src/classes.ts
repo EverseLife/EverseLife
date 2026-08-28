@@ -15,6 +15,14 @@ import type { RecipeBook } from "./api";
  */
 
 /**
+ * The counter goods are sold off (D-047). It lives here rather than in the
+ * panel that opens the market, because two panels ask about it now: the market
+ * itself, and the inventory, which offers "В терминал" only where there is one.
+ * A vault word written twice is a vault word that will be renamed once.
+ */
+export const TERMINAL = "Терминал";
+
+/**
  * Concrete item names of a class. A word the catalog does not know as a
  * class falls back to itself, name-for-name -- the same fallback the engine
  * keeps in `world.station_names`, so a bare name still matches itself.

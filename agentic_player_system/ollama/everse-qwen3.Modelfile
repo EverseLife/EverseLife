@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
+# The local model for the agents: qwen3:8b with a context that holds a turn.
+#
+# Ollama's default context is 4k and it truncates a longer prompt in silence --
+# the agent would lose its system part, the command reference with it, and look
+# stupid instead of broken. One turn is the system part (~4k tokens with the
+# tools) plus notes, history, the observation and up to `max_steps` tool
+# answers, so 16k is the working size and it still fits an 8 GB card next to
+# the weights.
+#
+#     ollama create everse-qwen3 -f ollama/everse-qwen3.Modelfile
+#
+# Thinking is not turned off here -- it is a property of the request, not of
+# the model: APS sends `reasoning_effort` (`APS_LLM_REASONING_EFFORT=none`).
+
+FROM qwen3:8b
+
+PARAMETER num_ctx 16384

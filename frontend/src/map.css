@@ -9,7 +9,11 @@
 /* --- graph map ----------------------------------------------------------- */
 
 /* The map is the only panel that does not scroll but stretches: the svg takes
-   everything left over from hints and buttons. */
+   everything left over from hints and buttons.
+   And the only one with no padding of its own: a panel's padding is there to
+   keep words off its frame, and the map is not words -- the field runs to the
+   line and the line is the frame. What needs the air is the column beside it,
+   and it takes its own below. */
 .main > .map-pane {
   flex: 1;
   min-height: 0;
@@ -17,38 +21,128 @@
   flex-direction: column;
   overflow: hidden;
   position: relative;
+  padding: 0;
 }
-/* The layer switcher is a slim bar in flow above the map: floating over the
-   field covered nodes and labels, and a control must not sit on the work. */
-.map-pane > nav.tabs {
-  flex: none;
-  margin: 0;
-  gap: 0.1rem;
-  padding: 0.25rem 0.5rem;
-  border-bottom: 1px solid var(--hairline);
-}
-
-/* The face and the inspector side by side. Three strips under the map used to
-   eat 178px of 605; a column beside it costs the map width, of which there is
-   more, and speaks about one node instead of everything at once. */
+/* The face and the inspector side by side, with nothing between them. Three
+   strips under the map used to eat 178px of 605; a column beside it costs the
+   map width, of which there is more, and speaks about one node instead of
+   everything at once. The two share one hairline: a gap here reads as two
+   panels that happened to be put next to each other, and they are one. */
 .map-face {
   flex: 1;
   min-height: 0;
   display: grid;
   grid-template-columns: 1fr minmax(15rem, 19rem);
-  gap: 0.75rem;
+}
+/* The map's own field: the frame the switcher floats in. */
+.map-field {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 /* The svg carries an intrinsic ratio from its viewBox, and inside a grid cell
    that ratio wins over stretching -- the map kept sizing itself to 880:540 and
    left the rest of the cell empty. Told to fill the height, it fills it. */
-.map-face > svg {
+.map-field > svg {
   align-self: stretch;
   height: 100%;
-  min-height: 0;
 }
+/* Nothing stands in flow above the map any more, so the empty layer's line
+   would sit under the switcher. It steps down past it. */
+.map-field > .note {
+  /* Clear of the switcher: it stands 0.4rem down and is a little over 2.5rem
+     tall, and a line half-covered by a floating bar reads as a fault. */
+  margin-top: 3.4rem;
+  padding-inline: 0.6rem;
+}
+
+/* Two bars float over the field, and they are one thing in two places (D-238):
+   the layer switcher along the top edge, the sky's winder along the bottom.
+   Both ask about the view rather than about the world -- from what height am I
+   looking, does the camera come with me, at what hour do the planets stand --
+   so both belong on the map, where the eye already is, and neither may steal a
+   line of the field's height. What they cost is honest: each hides a strip at
+   its own edge -- a node or two a step north of the body, the same to the
+   south -- and that is why they are as small as they are, and why on a narrow
+   screen they go back into the flow instead. */
+.map-layers,
+.map-field > .sky {
+  position: absolute;
+  /* No `z-index`. Being positioned is enough to paint over the map, which is a
+     static sibling -- and a `z-index` here would make each bar a stacking
+     context, trapping the hint's popup (fixed, z-index 20) at the bar's own
+     level, under the node menu and the strip of talk. The one layer that must
+     float over everything would have ended up under two of them. */
+  /* Centred by two zero offsets and an auto margin, not by `left: 50%` and a
+     shift back: from half-way a bar has only half the field to be wide in,
+     and it wrapped into two lines while the room beside it stood empty. */
+  left: 0;
+  right: 0;
+  max-width: calc(100% - 1rem);
+  margin: 0 auto;
+  padding: 0.2rem 0.35rem;
+  background: var(--base-900);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-pop);
+}
+.map-layers {
+  top: 0.4rem;
+  width: fit-content;
+  gap: 0.15rem;
+}
+/* The winder is not as wide as it likes: its slider would take whatever it is
+   given, and a scrubber across the whole sky is a control that hides its own
+   subject. A fixed measure, and the field around it stays sky. */
+.map-field > .sky {
+  bottom: 0.5rem;
+  width: min(32rem, calc(100% - 1rem));
+}
+
+/* The words go when the map's column is too narrow for them. The threshold is
+   the window's width and not the column's, and that is deliberate: a container
+   query would make the field a containing block, and the hint's popup is
+   `fixed` precisely so that no panel can clip it.
+   So the number is measured rather than guessed. The column comes out 627px
+   narrower than the window (the sidebar and the inspector take the rest), and
+   the bar with its words wants 470 -- about 560 in the rare case of a fourth
+   layer and a long city name. 76rem (1216px) leaves the column 589: room for
+   the usual bar with a hundred to spare, and for the rare one exactly. Below
+   that the marks stand alone, which fits any width down to a phone. */
+@media (max-width: 76rem) {
+  .map-layers .tab-word {
+    display: none;
+  }
+  /* A mark alone is 14px wide; a finger needs more than that. The hint keeps
+     its own circle -- it is round, and a minimum width would make it an egg. */
+  .map-layers button:not(.hint) {
+    min-width: 2rem;
+    justify-content: center;
+  }
+}
+/* The tether is a state, not a fifth layer. Left alone it wore the act
+   underline a chosen tab wears, and two underlined things in a bar where
+   exactly one layer is ever chosen read as two chosen tabs. It says "on" by
+   its frame and its full tone instead, and the act colour goes back to
+   meaning the one thing it means. */
+.tabs button.cam-tie:not(.quiet):not(.link):not(.bare):not(:disabled) {
+  box-shadow: none;
+  border-color: var(--base-600);
+}
+
+/* The two questions are not one row of equals: the height is a set of
+   alternatives, the tether is a state of its own. */
+.map-sep {
+  width: 1px;
+  align-self: stretch;
+  margin: 0.1rem 0.25rem;
+  background: var(--hairline);
+}
+/* The column takes the air the panel no longer gives: it is words, and words
+   set against a frame read as a fault. */
 .inspect {
   border-left: 1px solid var(--line);
-  padding-left: 0.75rem;
+  padding: 0.6rem 0.75rem;
   overflow-y: auto;
   min-height: 0;
   display: flex;
@@ -98,38 +192,59 @@
     flex-direction: column;
     min-height: auto;
   }
+  /* One column: the divider moves from the column's left side to its top, and
+     it meets the map's bottom edge directly -- a gap there would read as two
+     panels, and the map has no border of its own to sit against. */
   .inspect {
     border-left: 0;
     border-top: 1px solid var(--line);
-    padding-left: 0;
-    padding-top: 0.6rem;
     overflow: visible;
+  }
+  /* The switcher keeps floating here -- it is marks alone by now (above), and
+     marks fit. The winder cannot be marks alone -- it is a slider and two
+     numbers -- so it is the one that steps out of the way, into the flow
+     under the map. */
+  .map-field > .sky {
+    position: static;
+    width: auto;
+    max-width: none;
+    justify-content: center;
+    margin: 0.4rem 0 0;
   }
 }
 
-.map-pane svg {
+.map-field > svg {
   flex: 1;
-  min-height: 12rem;
+  min-height: 8rem;
   width: 100%;
-  border: 1px solid var(--line);
+  /* No frame of its own. With the panel's padding gone the panel's own line
+     runs along the map's three outer edges, and the fourth is the inspector's
+     left line: a border here would draw every one of them twice. */
+  border: 0;
   display: block;
   cursor: grab;
   /* Dragging nodes must not select labels or scroll the page. */
   user-select: none;
   touch-action: none;
 }
-.map-pane svg:active {
+.map-field > svg:active {
   cursor: grabbing;
+}
+/* Tethered, the field is not draggable: the cursor must not promise a pan the
+   camera will not give (D-238). The wheel still works, and says so by leaving
+   the arrow alone rather than by a hand that grabs nothing. */
+.map-field > svg.tethered,
+.map-field > svg.tethered:active {
+  cursor: default;
 }
 @media (max-width: 56rem) {
   .main > .map-pane {
     flex: none;
     overflow: visible;
   }
-  .map-pane svg {
+  .map-field > svg {
     flex: none;
     aspect-ratio: 880 / 540;
-    min-height: 0;
     height: auto;
   }
 }
@@ -167,7 +282,7 @@
    window fades in once. Leaving is instant -- the camera is already gliding
    away from it, and a ghost lingering under the walker would read as a node. */
 .node,
-.map-pane svg g.road {
+.map-field > svg g.road {
   animation: map-in 0.25s ease-out both;
 }
 @keyframes map-in {
@@ -180,7 +295,7 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .node,
-  .map-pane svg g.road {
+  .map-field > svg g.road {
     animation: none;
   }
 }
@@ -303,7 +418,10 @@
   stroke-dasharray: 4 6;
 }
 
-/* The sky's clock: a quiet strip, and the slider takes the width left over. */
+/* The sky's clock: the row inside the floating bar above, and the slider takes
+   the width left over by the words around it. It keeps the row's wrapping: on
+   a phone in flow the box can be narrower than the slider's own minimum, and a
+   second line inside the frame is better than buttons hanging outside it. */
 .sky {
   align-items: center;
   gap: var(--s2);
@@ -323,12 +441,3 @@
   }
 }
 
-.map-bar {
-  margin-top: 0.5rem;
-  /* The strips under the map neither shrink nor clip: a road's button gone
-     under the panel's edge reads as broken. The map gives up the room. */
-  flex: none;
-}
-.map-pane svg {
-  min-height: 8rem;
-}

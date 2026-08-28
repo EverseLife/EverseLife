@@ -8,13 +8,23 @@
  * remotely**. Loading and taking -- on foot, an order -- from anywhere,
  * buying -- standing here.
  *
- * The layout is two columns across the whole scene: the book and deals on the
- * left, own goods on the right. A quick deal hits the book's best price; a
- * custom price is for those ready to wait. A click on a goods row selects the
- * position in the book.
+ * The panel is two columns: on the left one chooses a position and places an
+ * order on it, on the right stands the terminal -- the shelf the goods are
+ * actually sold off. There is no copy of the pocket here any more (D-238): the
+ * sidebar's inventory is the hands, it is on screen beside this panel, and a
+ * stack drags from it onto the terminal and back.
+ *
+ * ## A position is any goods, not only a traded one
+ *
+ * The picker used to offer what had already been traded in this node plus what
+ * the player was carrying -- a handful of names on a fresh market, and no way
+ * at all to bid for something nobody had brought yet. That is backwards: a
+ * market starts with somebody wanting what is not there. So the search runs
+ * over the whole catalogue, and the short familiar list is what an empty
+ * search shows.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import * as api from "../api";
 import type { Book, Look, RecipeBook, Thing } from "../api";
 import { Amount } from "../Amount";
@@ -38,6 +48,30 @@ type Position = { goods: string; tier: string };
 const exactly = (qty: number) =>
   qty.toFixed(3).replace(/\.?0+$/, "") || "0";
 
+/**
+ * A sum of money without lies either, to the last minor unit.
+ *
+ * `tk` rounds to the coin's two decimals, which is right for a price in a
+ * table and wrong for the total under an order: an order of one minor unit
+ * would read "0 ₭" beside a live button, and a zero beside a live button is a
+ * lie, not brevity.
+ */
+const coins = (minor: number) =>
+  (minor / api.MONEY_SCALE).toFixed(4).replace(/\.?0+$/, "") || "0";
+
+/** Everything that can stand in a book: made things and the world's own stuff.
+ *
+ *  What the Forerunners left is not in it (D-232): nobody makes those, takes
+ *  them down or carries them away, so an order for one is an order for a thing
+ *  that cannot be delivered. */
+function catalogue(book: RecipeBook | null): string[] {
+  if (!book) return [];
+  const names = new Set<string>();
+  for (const recipe of book.recipes) names.add(recipe.name);
+  for (const material of book.materials) if (!material.relic) names.add(material.name);
+  return [...names].sort((a, b) => a.localeCompare(b, "ru"));
+}
+
 export function Market({ look }: Omit<Props, "busy" | "act">) {
   const session = useSession();
   const book = useBook();
@@ -49,8 +83,14 @@ export function Market({ look }: Omit<Props, "busy" | "act">) {
   const [positions, setPositions] = useState<Position[]>([]);
   const [choice, setChoice] = useState<Position | null>(null);
   const [orderBook, setOrderBook] = useState<Book | null>(null);
+  const [tiers, setTiers] = useState<string[]>([]);
+  const [query, setQuery] = useState("");
   const [price, setPrice] = useState(3);
   const [volume, setVolume] = useState(1);
+  //: Whether the price in the field is the player's own. Until it is, the
+  //: field follows the position: opening a book and reading a price off it
+  //: only to type it back in is work the panel can do itself.
+  const priceIsMine = useRef(false);
   //: Other people's sell orders in this node -- what can be reserved.
   const [foreign, setForeign] = useState<
     { id: string; goods: string; tier: string; price: number; left: number }[]
@@ -63,6 +103,10 @@ export function Market({ look }: Omit<Props, "busy" | "act">) {
   //: event, none for a swing at the face next door.
   const [edition, setEdition] = useState(0);
   useEffect(() => session.on("market.", () => setEdition((n) => n + 1)), [session]);
+
+  useEffect(() => {
+    void api.tiers().then(({ tiers }) => setTiers(tiers.map((t) => t.name)));
+  }, []);
 
   useEffect(() => {
     if (!node) return;
@@ -84,25 +128,75 @@ export function Market({ look }: Omit<Props, "busy" | "act">) {
       .catch(() => setForeign([]));
   }, [session, node, edition]);
 
-  //: Book positions are goods plus quality tier: "ore, good" is a separate
-  //: row, not a range (D-058). Own goods are added to the traded ones: one
-  //: may also sell what has not been traded here yet.
-  const pocket = look.inventory ?? [];
   const terminal = look.stall ?? [];
-  const all: Position[] = [
-    ...positions,
-    ...[...pocket, ...terminal]
-      .filter((t) => t.quality != null)
+  const inHands = look.inventory ?? [];
+  //: What the two lists **are**, as one string each: `look` arrives anew every
+  //: few seconds, and the same stacks must not rebuild the picker under a hand
+  //: reaching for it.
+  const carrying = inHands.map((t) => `${t.key ?? t.goods}|${t.tier}`).join(",");
+  const shelved = terminal.map((t) => `${t.key ?? t.goods}|${t.tier}`).join(",");
+
+  //: Book positions are goods plus quality tier: "ore, good" is a separate
+  //: row, not a range (D-058). What an empty search offers: what trades here
+  //: and what the player has to sell -- the two lists a hand reaches for.
+  const near = useMemo(() => {
+    const seen = new Map<string, Position>();
+    for (const p of positions) seen.set(`${p.goods}|${p.tier}`, p);
+    for (const t of [...inHands, ...terminal]) {
+      if (t.quality == null) continue;
       //: The counter's name, not the item's: a written carrier is a position
       //: per recipe -- "Рецепт: Стекло" (D-209).
-      .map((t) => ({ goods: t.key ?? t.goods, tier: t.tier })),
-  ].filter(
-    (p, i, everything) => everything.findIndex((d) => d.goods === p.goods && d.tier === p.tier) === i,
-  );
+      const goods = t.key ?? t.goods;
+      seen.set(`${goods}|${t.tier}`, { goods, tier: t.tier });
+    }
+    return [...seen.values()];
+    //: Keyed by what the lists hold, not by the objects that hold them.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [positions, carrying, shelved]);
+
+  const everything = useMemo(() => catalogue(book), [book]);
+  const found = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return null;
+    //: The whole catalogue, and the names one already deals in first: the
+    //: search is for finding the unknown, not for losing the known.
+    const mine = new Set(near.map((p) => p.goods));
+    return everything
+      .filter((name) => name.toLowerCase().includes(q))
+      .sort((a, b) => Number(mine.has(b)) - Number(mine.has(a)));
+  }, [query, everything, near]);
 
   const bestSell = orderBook?.asks[0] ?? null; // what they sell at: buy here
   const bestBuy = orderBook?.bids[0] ?? null; // what they take at: sell here
 
+  //: A price to start from, so that the field is never a guess: the last deal
+  //: if there was one, otherwise whichever side of the book exists.
+  //: Divided out rather than run through `tk`, which rounds to the coin's two
+  //: decimals: a standing bid of one minor unit came back as a price of zero,
+  //: and the field then kept the zero into the next position.
+  useEffect(() => {
+    if (priceIsMine.current) return;
+    const suggestion = orderBook?.last ?? bestSell?.price ?? bestBuy?.price ?? null;
+    if (suggestion != null && suggestion > 0) setPrice(suggestion / api.MONEY_SCALE);
+  }, [orderBook, bestSell, bestBuy]);
+
+  const pick = (position: Position) => {
+    setChoice(position);
+    //: A new position is a new price question; the field follows again.
+    priceIsMine.current = false;
+  };
+
+  const nameOf = (t: Thing) => t.key ?? t.goods;
+  const onShelf = choice
+    ? terminal
+        .filter((t) => nameOf(t) === choice.goods && t.tier === choice.tier)
+        .reduce((sum, t) => sum + t.amount, 0)
+    : 0;
+  const atHand = choice
+    ? inHands
+        .filter((t) => nameOf(t) === choice.goods && t.tier === choice.tier)
+        .reduce((sum, t) => sum + t.amount, 0)
+    : 0;
 
   const deal = (side: "market.buy" | "market.sell", price: number) =>
     act(() =>
@@ -121,29 +215,84 @@ export function Market({ look }: Omit<Props, "busy" | "act">) {
       <h2>Рынок</h2>
       <div className="market-grid">
         <div>
-          <div className="row">
-            <select
-              value={choice ? `${choice.goods}|${choice.tier}` : ""}
-              onChange={(e) => {
-                const [goods, tier] = e.target.value.split("|");
-                setChoice({ goods, tier });
-              }}
-            >
-              {all.map((p) => (
-                <option key={`${p.goods}|${p.tier}`} value={`${p.goods}|${p.tier}`}>
-                  {p.goods}, {p.tier}
-                </option>
-              ))}
-            </select>
+          {/* Choosing what to trade: search over the whole catalogue, and the
+              quality tier beside it -- "ore, good" is its own book (D-058). */}
+          <div className="row search">
             <input
-              type="number"
-              step="1"
-              min="1"
-              value={volume}
-              onChange={(e) => setVolume(Number(e.target.value))}
-              title="объём сделки"
+              type="search"
+              placeholder="найти товар"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              aria-label="поиск товара"
             />
+            <span className="note">
+              {found
+                ? `${found.length} из ${everything.length}`
+                : "торгуется здесь и лежит у вас; ищите — найдётся любое"}
+            </span>
           </div>
+
+          <div className="market-pick">
+            {(found ?? near.map((p) => p.goods)).length === 0 ? (
+              <p className="note">
+                {found ? "ничего не нашлось" : "здесь ещё ничем не торговали"}
+              </p>
+            ) : (
+              <ul className="picks">
+                {[...new Set(found ?? near.map((p) => p.goods))]
+                  .slice(0, 40)
+                  .map((goods) => (
+                    <li key={goods}>
+                      <button
+                        className={choice?.goods === goods ? "" : "quiet"}
+                        aria-pressed={choice?.goods === goods}
+                        onClick={() =>
+                          pick({
+                            goods,
+                            //: Keep the tier being looked at; a name picked
+                            //: from a search has none of its own.
+                            tier:
+                              choice?.tier ??
+                              near.find((p) => p.goods === goods)?.tier ??
+                              tiers[2] ??
+                              "обычное",
+                          })
+                        }
+                      >
+                        <GoodsMark book={book} goods={goods} />
+                        {goods}
+                      </button>
+                    </li>
+                  ))}
+              </ul>
+            )}
+          </div>
+
+          {choice && tiers.length > 0 && (
+            <div className="row tiers">
+              <span className="note">качество</span>
+              {tiers.map((tier) => (
+                <button
+                  key={tier}
+                  className={choice.tier === tier ? "" : "quiet"}
+                  aria-pressed={choice.tier === tier}
+                  onClick={() => pick({ goods: choice.goods, tier })}
+                >
+                  {tier}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {choice && (
+            <p className="sign">
+              {choice.goods} · {choice.tier}
+              <span className="note">
+                {" "}
+                в терминале {exactly(onShelf)} · в руках {exactly(atHand)}
+              </span>
+            </p>
+          )}
 
           {orderBook && (orderBook.asks.length > 0 || orderBook.bids.length > 0) ? (
             <table className="book">
@@ -155,17 +304,33 @@ export function Market({ look }: Omit<Props, "busy" | "act">) {
                 </tr>
               </thead>
               <tbody>
+                {/* A click on a rung puts its price in the field: reading a
+                    number off the book to type it back in is work. */}
                 {[...orderBook.asks].reverse().map((u) => (
-                  <tr key={`a${u.price}`}>
+                  <tr
+                    key={`a${u.price}`}
+                    className="pick"
+                    onClick={() => {
+                      setPrice(u.price / api.MONEY_SCALE);
+                      priceIsMine.current = true;
+                    }}
+                  >
                     <td />
-                    <td className="num">{api.tk(u.price)}</td>
+                    <td className="num">{coins(u.price)}</td>
                     <td className="num">{tally(choice!.goods, u.amount)}</td>
                   </tr>
                 ))}
                 {orderBook.bids.map((u) => (
-                  <tr key={`b${u.price}`}>
+                  <tr
+                    key={`b${u.price}`}
+                    className="pick"
+                    onClick={() => {
+                      setPrice(u.price / api.MONEY_SCALE);
+                      priceIsMine.current = true;
+                    }}
+                  >
                     <td className="num">{tally(choice!.goods, u.amount)}</td>
-                    <td className="num">{api.tk(u.price)}</td>
+                    <td className="num">{coins(u.price)}</td>
                     <td />
                   </tr>
                 ))}
@@ -178,55 +343,80 @@ export function Market({ look }: Omit<Props, "busy" | "act">) {
             <p className="note">последняя сделка: {api.tk(orderBook.last)} ₭</p>
           )}
 
-          <div className="row">
-            <button
-              onClick={() => deal("market.buy", bestSell!.price)}
-              disabled={busy || !choice || !bestSell}
-              title="купить по лучшей цене продавцов"
-            >
-              Быстро купить{bestSell ? ` · ${api.tk(bestSell.price)} ₭` : ""}
-            </button>
-            <button
-              onClick={() => deal("market.sell", bestBuy!.price)}
-              disabled={busy || !choice || !bestBuy}
-              title="продать по лучшей цене покупателей; товар должен лежать в терминале"
-            >
-              Быстро продать{bestBuy ? ` · ${api.tk(bestBuy.price)} ₭` : ""}
-            </button>
+          {/* One order, one place: how much, at what price, and what it comes
+              to. The two quick buttons underneath are the same order with the
+              book's own best price already in it. */}
+          <div className="order">
+            <label>
+              <span>сколько</span>
+              <input
+                type="number"
+                step="0.1"
+                min="0"
+                value={volume}
+                onChange={(e) => setVolume(Number(e.target.value))}
+              />
+            </label>
+            <label>
+              <span>цена за единицу, ₭</span>
+              <input
+                type="number"
+                step="0.1"
+                min="0"
+                value={price}
+                onChange={(e) => {
+                  setPrice(Number(e.target.value));
+                  priceIsMine.current = true;
+                }}
+              />
+            </label>
+            <p className="order-total">
+              итого <b className="num">{coins(api.minor(price) * volume)} ₭</b>
+              <span className="note"> · налог платит продавец</span>
+            </p>
+            <div className="row">
+              <button
+                onClick={() => deal("market.buy", api.minor(price))}
+                disabled={busy || !choice || volume <= 0 || price <= 0}
+                title="встать в стакан со своей ценой; что дешевле — купится сразу"
+              >
+                Купить
+              </button>
+              <button
+                onClick={() => deal("market.sell", api.minor(price))}
+                disabled={busy || !choice || volume <= 0 || price <= 0 || onShelf <= 0}
+                title={
+                  onShelf > 0
+                    ? "встать в стакан со своей ценой; что дороже — продастся сразу"
+                    : "продавать нечего: товар должен лежать в терминале"
+                }
+              >
+                Продать
+              </button>
+            </div>
+            <div className="row">
+              <button
+                className="quiet"
+                onClick={() => deal("market.buy", bestSell!.price)}
+                disabled={busy || !choice || !bestSell || volume <= 0}
+                title="купить по лучшей цене продавцов"
+              >
+                По рынку купить{bestSell ? ` · ${api.tk(bestSell.price)} ₭` : ""}
+              </button>
+              <button
+                className="quiet"
+                onClick={() => deal("market.sell", bestBuy!.price)}
+                disabled={busy || !choice || !bestBuy || volume <= 0 || onShelf <= 0}
+                title="продать по лучшей цене покупателей; товар должен лежать в терминале"
+              >
+                По рынку продать{bestBuy ? ` · ${api.tk(bestBuy.price)} ₭` : ""}
+              </button>
+            </div>
+            <p className="note">
+              Остаток заявки встаёт ордером и ждёт. Покупают стоя здесь; свои
+              ордера — в «торговле».
+            </p>
           </div>
-          <p className="note">
-            Быстрая сделка бьёт по лучшей цене; остаток встаёт ордером.
-          </p>
-
-          <h3>Своя цена</h3>
-          <div className="row">
-            <input
-              type="number"
-              step="0.1"
-              min="0"
-              value={price}
-              onChange={(e) => setPrice(Number(e.target.value))}
-              title="цена за единицу, ₭"
-            />
-            <button
-              className="quiet"
-              onClick={() => deal("market.buy", api.minor(price))}
-              disabled={busy || !choice}
-            >
-              Купить
-            </button>
-            <button
-              className="quiet"
-              onClick={() => deal("market.sell", api.minor(price))}
-              disabled={busy || !choice}
-            >
-              Продать
-            </button>
-          </div>
-          <p className="note">
-            Покупают стоя здесь; свои ордера — в «торговле». Налог платит
-            продавец.
-          </p>
 
           {/* Бронь — единственное исключение из «купить только стоя здесь»:
               купец, собираясь в дорогу, резервирует партию задатком (D-047). */}
@@ -299,60 +489,26 @@ export function Market({ look }: Omit<Props, "busy" | "act">) {
         </div>
 
         <div>
-          {/* The drag pair (D-238): pocket rows drop onto the terminal to
-              load, terminal rows drop back to take. The commands are keyed by
-              goods and tier, so the move looks the stack up in its source
-              list -- same commands as the buttons either way. */}
-          <h3>Карман</h3>
-          <DropZone
-            zone="pocket"
-            accepts={["terminal"]}
-            disabled={busy}
-            hint="перетащите сюда предмет, чтобы забрать из терминала"
-            onMove={(stack, amount) =>
-              //: The stack carries its own key and tier (grip below): the
-              //: command needs no lookup that could miss after a reread.
-              act(() =>
-                session.send("market.take", {
-                  goods: stack.key ?? stack.goods,
-                  tier: stack.tier,
-                  amount,
-                }),
-              )
-            }
-          >
-            <Own
-              things={pocket}
-              zone="pocket"
-              book={book}
-              choice={choice}
-              mark={setChoice}
-              button="Загрузить"
-              action={(t, amount) =>
-                //: The row is a stack of one quality: what is loaded is that
-                //: tier, not the worst of the name (D-058).
-                act(() =>
-                  session.send("market.load", { goods: t.key ?? t.goods, amount, tier: t.tier }),
-                )
-              }
-              busy={busy}
-              empty="в кармане пусто"
-            />
-          </DropZone>
-
           <h3>
             Терминал
             <Rule>
-              Продаётся то, что в терминале; купленное забирается отсюда же . Клик по
-              строке выбирает позицию.
+              Продаётся то, что в терминале; купленное забирается отсюда же. Клик по
+              строке выбирает позицию. Перетащите сюда строку из инвентаря, чтобы
+              выложить, и обратно в инвентарь — чтобы забрать.
             </Rule>
           </h3>
+          {/* The drag pair (D-238): the sidebar's inventory is the other half
+              of it. A stack dropped here is loaded, a row dragged out of here
+              into the sidebar is taken back -- the same two commands the
+              buttons send. */}
           <DropZone
             zone="terminal"
-            accepts={["pocket"]}
+            accepts={["hands"]}
             disabled={busy}
-            hint="перетащите сюда предмет, чтобы выложить в терминал"
+            hint="перетащите сюда предмет из инвентаря, чтобы выложить"
             onMove={(stack, amount) =>
+              //: The stack carries its own key and tier (grip below): the
+              //: command needs no lookup that could miss after a reread.
               act(() =>
                 session.send("market.load", {
                   goods: stack.key ?? stack.goods,
@@ -362,24 +518,21 @@ export function Market({ look }: Omit<Props, "busy" | "act">) {
               )
             }
           >
-            <Own
+            <Shelf
               things={terminal}
-              zone="terminal"
               book={book}
               choice={choice}
-              mark={setChoice}
-              button="Забрать"
-              action={(t, amount) =>
+              mark={pick}
+              busy={busy}
+              take={(t, amount) =>
                 act(() =>
                   session.send("market.take", {
-                    goods: t.key ?? t.goods,
+                    goods: nameOf(t),
                     tier: t.tier,
                     amount,
                   }),
                 )
               }
-              busy={busy}
-              empty="в терминале ничего вашего"
             />
           </DropZone>
         </div>
@@ -388,33 +541,27 @@ export function Market({ look }: Omit<Props, "busy" | "act">) {
   );
 }
 
-function Own({
+/** What lies on the counter: rows to sell from, and a way to take them back. */
+function Shelf({
   things,
-  zone,
   book,
   choice,
   mark,
-  button,
-  action,
+  take,
   busy,
-  empty,
 }: {
   things: Thing[];
-  /** The drag surface these rows lie on; the wrapping DropZone names it too. */
-  zone: string;
   book: RecipeBook | null;
   choice: Position | null;
   mark: (p: Position) => void;
-  button: string;
-  action: (t: Thing, amount: number) => void;
+  take: (t: Thing, amount: number) => void;
   busy: boolean;
-  empty: string;
 }) {
-  //: How much of each stack to move. Empty means the whole of it: selling
-  //: everything is the common case, selling part of it is the one that used
-  //: to be impossible (D-047).
+  //: How much of each stack to take back. Empty means the whole of it.
   const [parts, setParts] = useState<Record<string, number | null>>({});
-  if (things.length === 0) return <p className="note">{empty}</p>;
+  if (things.length === 0) {
+    return <p className="note">в терминале ничего вашего</p>;
+  }
   return (
     <table>
       <tbody>
@@ -432,7 +579,7 @@ function Own({
                 goods: t.goods,
                 label: t.flavor ?? name,
                 amount: t.amount,
-                zone,
+                zone: "terminal",
                 tier: t.tier,
                 key: t.key ?? undefined,
               })}
@@ -450,9 +597,7 @@ function Own({
                   goods={t.goods}
                   value={parts[t.id] ?? null}
                   max={t.amount}
-                  onChange={(value) =>
-                    setParts((was) => ({ ...was, [t.id]: value }))
-                  }
+                  onChange={(value) => setParts((was) => ({ ...was, [t.id]: value }))}
                 />
               </td>
               <td>
@@ -460,11 +605,11 @@ function Own({
                   className="quiet"
                   onClick={(e) => {
                     e.stopPropagation();
-                    action(t, part);
+                    take(t, part);
                   }}
                   disabled={busy || part <= 0}
                 >
-                  {button}
+                  Забрать
                 </button>
               </td>
             </tr>

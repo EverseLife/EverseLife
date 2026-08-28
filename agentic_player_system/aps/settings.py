@@ -38,6 +38,7 @@ class Settings:
     llm_base_url: str
     llm_model: str
     llm_api_key: str
+    llm_reasoning_effort: str
 
     @property
     def ws_url(self) -> str:
@@ -60,4 +61,5 @@ def load() -> Settings:
         llm_base_url=env("APS_LLM_BASE_URL", "https://api.deepseek.com/v1"),
         llm_model=env("APS_LLM_MODEL", "deepseek-chat"),
         llm_api_key=env("APS_LLM_API_KEY", ""),
+        llm_reasoning_effort=env("APS_LLM_REASONING_EFFORT", ""),
     )

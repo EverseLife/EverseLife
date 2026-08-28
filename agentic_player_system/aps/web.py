@@ -103,10 +103,17 @@ async def me(request: Request) -> dict[str, Any]:
 # --- provider settings ---------------------------------------------------------
 
 
+#: What the endpoints understand: OpenAI's ladder and Ollama's "none". An
+#: unknown value is rejected by the provider itself, so a typo in the panel
+#: would not cost one turn but every turn of every agent, with a 400 each.
+REASONING_EFFORTS = ("", "none", "minimal", "low", "medium", "high")
+
+
 class ProviderSettings(BaseModel):
     base_url: str = ""
     model: str = ""
     api_key: str | None = None
+    reasoning_effort: str = ""
 
 
 @app.get("/api/settings", dependencies=[Depends(admin)])
@@ -115,6 +122,7 @@ async def get_settings() -> dict[str, Any]:
     return {
         "base_url": provider.base_url,
         "model": provider.model,
+        "reasoning_effort": provider.reasoning_effort,
         "has_key": bool(provider.api_key),
         "key_from_env": not STORE.setting("llm.api_key") and bool(SETTINGS.llm_api_key),
         #: Whether passwords and the key are sealed at rest (APS_SECRET_KEY).
@@ -128,6 +136,12 @@ async def get_settings() -> dict[str, Any]:
 async def put_settings(body: ProviderSettings) -> dict[str, Any]:
     STORE.set_setting("llm.base_url", body.base_url.strip())
     STORE.set_setting("llm.model", body.model.strip())
+    effort = body.reasoning_effort.strip().lower()
+    if effort not in REASONING_EFFORTS:
+        raise HTTPException(
+            422, f"рассуждения: пусто или одно из {', '.join(REASONING_EFFORTS[1:])}"
+        )
+    STORE.set_setting("llm.reasoning_effort", effort)
     if body.api_key is not None and body.api_key.strip():
         STORE.set_setting("llm.api_key", body.api_key.strip())
     return await get_settings()

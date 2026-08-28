@@ -16,6 +16,7 @@ import {
   frameOn,
   type Frame,
 } from "../panels/map/camera";
+import { lensOn, worldAt } from "../panels/map/hand";
 import { settle } from "../panels/map/layout";
 import {
   DEPTH,
@@ -179,8 +180,11 @@ describe("the camera", () => {
     return { beat, seen, cam };
   };
 
-  //: The middle of the frame at scale 1 stands half a screen up and left.
-  const middleOf = (f: Frame) => ({ x: f.x + W / 2, y: f.y + H / 2 });
+  //: What the frame is looking at: its own middle, whatever the scale.
+  const middleOf = (f: Frame) => ({
+    x: f.x + W / (2 * f.scale),
+    y: f.y + H / (2 * f.scale),
+  });
 
   it("cuts to a place at once and books no frames", () => {
     const { beat, cam } = rig();
@@ -248,6 +252,30 @@ describe("the camera", () => {
     expect(cam.following()).toBe(false);
   });
 
+  it("zooms a tethered camera without moving what is in the middle", () => {
+    const { beat, cam } = rig();
+    cam.cut({ x: 300, y: 200 });
+    cam.zoomOnMiddle(2);
+    //: The whole of what a hand may do to a tethered camera: less world in the
+    //: frame, the same thing in the centre of it.
+    expect(cam.frame().scale).toBe(2);
+    expect(middleOf(cam.frame())).toEqual({ x: 300, y: 200 });
+    expect(beat.booked()).toBe(0);
+  });
+
+  it("keeps the aim on a place, not on a frame, when the scale changes", () => {
+    const { beat, cam } = rig();
+    cam.follow(true);
+    cam.toDot({ x: 400, y: 0 });
+    beat.pump();
+    //: The wheel turns mid-walk. An aim remembered as a ready-made frame would
+    //: have been worked out for scale 1, and the walker would land off centre.
+    cam.zoomOnMiddle(2);
+    beat.pump(120);
+    expect(cam.frame().scale).toBe(2);
+    expect(middleOf(cam.frame())).toEqual({ x: 400, y: 0 });
+  });
+
   it("never lets one long step swallow the whole distance", () => {
     const { beat, cam } = rig();
     const before = cam.frame();
@@ -261,6 +289,58 @@ describe("the camera", () => {
     expect(moved).toBeCloseTo(longest, 6);
     //: And that is a fraction of the way, not the whole of it.
     expect(moved).toBeLessThan((frameOn({ x: 1000, y: 0 }, 1).x - before.x) / 2);
+  });
+});
+
+describe("the hand's arithmetic", () => {
+  //: A field of exactly the world's proportions: no margins to account for.
+  const snug = { left: 0, top: 0, width: W, height: H };
+
+  it("measures the field against the world at any zoom", () => {
+    expect(lensOn(snug, 1)).toEqual({ k: 1, offX: 0, offY: 0 });
+    //: Zoomed in twice, half the world fills the same pixels.
+    expect(lensOn(snug, 2).k).toBe(2);
+  });
+
+  it("counts the empty room the kept proportions leave at the edges", () => {
+    //: A field twice as wide as the world's shape: the picture is as tall as
+    //: it can be and the room left over is split between left and right.
+    const wide = { left: 0, top: 0, width: 2 * W, height: H };
+    const m = lensOn(wide, 1);
+    expect(m.k).toBe(1);
+    expect(m.offX).toBe(W / 2);
+    expect(m.offY).toBe(0);
+  });
+
+  it("finds the world under a point, margins and all", () => {
+    const frame = { x: 0, y: 0, scale: 1 };
+    expect(worldAt(snug, frame, { clientX: 0, clientY: 0 })).toEqual({ x: 0, y: 0 });
+    expect(worldAt(snug, frame, { clientX: 10, clientY: 4 })).toEqual({ x: 10, y: 4 });
+    //: The frame's own offset moves the answer with it.
+    expect(worldAt(snug, { x: 100, y: 50, scale: 1 }, { clientX: 10, clientY: 4 })).toEqual({
+      x: 110,
+      y: 54,
+    });
+    //: On a field wider than the world's shape, a click in the left margin
+    //: lands left of the picture -- and must not be read as a click on it.
+    const wide = { left: 0, top: 0, width: 2 * W, height: H };
+    expect(worldAt(wide, frame, { clientX: 0, clientY: 0 }).x).toBe(-W / 2);
+    expect(worldAt(wide, frame, { clientX: W / 2, clientY: 0 }).x).toBe(0);
+  });
+
+  it("reads the same point back after a zoom to it", () => {
+    //: What the wheel promises: the place under the cursor stays under it.
+    const frame = { x: 0, y: 0, scale: 1 };
+    const at = { clientX: 300, clientY: 200 };
+    const under = worldAt(snug, frame, at);
+    const zoomed = {
+      scale: 2,
+      x: under.x - (under.x - frame.x) * (frame.scale / 2),
+      y: under.y - (under.y - frame.y) * (frame.scale / 2),
+    };
+    const again = worldAt(snug, zoomed, at);
+    expect(again.x).toBeCloseTo(under.x, 6);
+    expect(again.y).toBeCloseTo(under.y, 6);
   });
 });
 

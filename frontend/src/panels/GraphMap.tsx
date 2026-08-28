@@ -50,7 +50,6 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as api from "../api";
-import { Hint } from "../Hint";
 import { type Look, type MapNode, type WorldMap } from "../api";
 import { useActions } from "../actions";
 import { createCamera, viewBoxOf, type Camera } from "./map/camera";
@@ -58,13 +57,13 @@ import { cityWord } from "../planets";
 import { Inspector } from "./map/Inspector";
 import { NodeMenu } from "./map/NodeMenu";
 import { Edges, Nodes } from "./map/Nodes";
+import { useHand } from "./map/hand";
 import { settle } from "./map/layout";
 import { SkyBackdrop, SkyClock } from "./map/Sky";
+import { Switcher } from "./map/Switcher";
 import { useSky } from "./map/useSky";
 import {
-  H,
   LAYERS,
-  W,
   delegate,
   homeCity,
   journeyOf,
@@ -76,6 +75,17 @@ import {
   type Point,
 } from "./map/model";
 import { STAR } from "./map/orbits";
+
+/**
+ * Whether the camera was left tied to the body, remembered past the panel.
+ *
+ * The map is unmounted every time one looks at the location tab, and a player
+ * who set the camera loose to watch a road would find it tied again on coming
+ * back -- a setting that has to be made anew after every glance elsewhere is a
+ * setting nobody uses. It lives for the session and no longer: this is a way
+ * of looking, not a preference worth writing down.
+ */
+let cameraTied = true;
 
 type Props = {
   look: Look;
@@ -145,6 +155,20 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
   //: click predictable -- and this is the shortcut for whoever already knows
   //: where they are going and does not want the column in between.
   const [menu, setMenu] = useState<{ key: string; x: number; y: number } | null>(null);
+  /**
+   * Whether the camera is tied to the body (D-238).
+   *
+   * Tethered -- the default, and what the map has always done: you are the
+   * middle of the frame, the frame comes with you, and the hand may only
+   * change how much of the world is in it. Loose, the frame is the hand's:
+   * it stays where it was put, and a walk does not drag it along -- which is
+   * how one watches a caravan arrive at a node one is not standing in.
+   */
+  const [tethered, setTethered] = useState(cameraTied);
+  const tether = (on: boolean) => {
+    cameraTied = on;
+    setTethered(on);
+  };
   const [cityFocus, setCityFocus] = useState<string | null>(null);
   //: Whose surface the planet layer shows. There are four planets in the sky
   //: now, and "everything of layer `planet`" would mix their nodes into one
@@ -263,16 +287,6 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
 
   // --- where everything stands ----------------------------------------------
 
-  //: A grab on the field is a pan; a grab on a node is only ever a click. The
-  //: nodes themselves are not moved by hand -- the map is the same map for
-  //: everybody (D-237), and a rearranged one would be the one exception.
-  const dragging = useRef<{
-    moved: boolean;
-    startX: number;
-    startY: number;
-    panX0: number;
-    panY0: number;
-  } | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
 
   /**
@@ -338,106 +352,15 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
 
   // --- mouse: pan, zoom, pick -----------------------------------------------
 
-  /** Pixels -> world. The svg is elastic, and the viewBox keeps proportions (`meet`),
-   *  so margins appear at the edges -- without accounting for them a click misses the node. */
-  const lens = () => {
-    const svg = svgRef.current;
-    if (!svg) return null;
-    const rect = svg.getBoundingClientRect();
-    const worldW = W / cam.frame().scale;
-    const worldH = H / cam.frame().scale;
-    const k = Math.min(rect.width / worldW, rect.height / worldH);
-    return {
-      rect,
-      k,
-      offX: (rect.width - worldW * k) / 2,
-      offY: (rect.height - worldH * k) / 2,
-    };
-  };
-
-  const toWorld = (e: { clientX: number; clientY: number }) => {
-    const m = lens();
-    if (!m) return { x: 0, y: 0 };
-    return {
-      x: cam.frame().x + (e.clientX - m.rect.left - m.offX) / m.k,
-      y: cam.frame().y + (e.clientY - m.rect.top - m.offY) / m.k,
-    };
-  };
-
-  //: Pointer capture is a convenience (the pan does not break at the edge),
-  //: not a condition: a pointer without capture (touch emulation, tests) must
-  //: not break panning.
-  const capture = (e: React.PointerEvent) => {
-    try {
-      (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
-    } catch {
-      /* no pointer with that id: panning works without the capture too */
-    }
-  };
-
-  const grabField = (e: React.PointerEvent) => {
-    capture(e);
-    //: A press is not yet a pan: the frame changes hands only once the hand
-    //: actually moves it (below). A click on the field -- to shut a menu, to
-    //: miss a node -- must not stop the walker being followed.
-    dragging.current = {
-      moved: false,
-      startX: e.clientX,
-      startY: e.clientY,
-      panX0: cam.frame().x,
-      panY0: cam.frame().y,
-    };
-  };
-
-  const movePointer = (e: React.PointerEvent) => {
-    const drag = dragging.current;
-    if (!drag) return;
-    const dx = e.clientX - drag.startX;
-    const dy = e.clientY - drag.startY;
-    if (!drag.moved && Math.hypot(dx, dy) > 4) {
-      drag.moved = true;
-      //: Here the hand takes the frame, and keeps it: no autopilot argues
-      //: with a pan under way, and none resumes until the player's own step.
-      cam.takeFrame();
-      //: What the hand drags is where the frame is **now** -- a chase may
-      //: have moved it since the press.
-      drag.panX0 = cam.frame().x;
-      drag.panY0 = cam.frame().y;
-      drag.startX = e.clientX;
-      drag.startY = e.clientY;
-      return;
-    }
-    if (!drag.moved) return;
-    const m = lens();
-    const k = m ? 1 / m.k : 1;
-    cam.panTo(drag.panX0 - dx * k, drag.panY0 - dy * k);
-  };
-
-  const releasePointer = () => {
-    dragging.current = null;
-  };
-
-  //: The wheel over the map is zoom, and only zoom. React attaches wheel
-  //: passively, and preventDefault from there does not work -- the page
-  //: scrolled along with the zoom. Suppressed by a native listener with passive: false.
-  useEffect(() => {
-    const svg = svgRef.current;
-    if (!svg) return;
-    const block = (e: WheelEvent) => e.preventDefault();
-    svg.addEventListener("wheel", block, { passive: false });
-    return () => svg.removeEventListener("wheel", block);
-  }, [map, visible.length]);
-
-  const zoom = (e: React.WheelEvent) => {
-    //: A wheel is the hand too: it takes the frame from every autopilot.
-    const p = toWorld(e);
-    cam.takeFrame();
-    const scale = Math.min(
-      4,
-      Math.max(0.4, cam.frame().scale * (e.deltaY < 0 ? 1.15 : 1 / 1.15)),
-    );
-    cam.zoomTo(p, scale);
-  };
+  //: What a hand may do to the frame lives in `map/hand`: the rule differs by
+  //: whether the camera is tied to the body, and it is one rule in one place
+  //: rather than a check repeated at every handler.
+  const { grabField, movePointer, releasePointer, zoom } = useHand({
+    cam,
+    svg: svgRef,
+    tethered,
+    ready: Boolean(map) && visible.length > 0,
+  });
 
   // --- node behaviour -------------------------------------------------------
 
@@ -508,15 +431,19 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
       cam.cut(middle);
       return;
     }
+    //: A loose camera moves for nothing but a new scene -- not for a step, not
+    //: for a walk. That is what loose means, and the tether coming back is
+    //: itself a reason to re-aim: the frame glides home the moment it is tied.
+    if (!tethered) return;
     //: Within one scene, while the walk is being followed, the frame already
     //: has its aim: the dot.
     if (cam.following()) return;
     cam.aimAt(middle);
     //: Every reason the frame may move by itself: you moved, the scene
-    //: changed, or the map has just landed and there is at last a place to
-    //: aim at. A push from the server is not one of them.
+    //: changed, the tether was tied back on, or the map has just landed and
+    //: there is at last a place to aim at. A push from the server is not one.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [myRepr, currentLayer, orbiting, focus, sphereShown, drawn]);
+  }, [myRepr, currentLayer, orbiting, focus, sphereShown, drawn, tethered]);
 
   /**
    * A journey: the frame follows the dot while it lasts (D-238).
@@ -524,11 +451,18 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
    * Told to the camera as one journey, not deduced from the legs: a walk of
    * five nodes remounts the walker's loop five times, and a hand that took
    * the frame on the first leg must keep it to the last.
+   *
+   * A loose camera follows nothing: the walk goes on without it, and the dot
+   * leaves the frame if that is where the road goes.
    */
   const journey = journeyOf(ongoing);
   useEffect(() => {
+    //: Letting the tether go stops the frame **where it is**: `follow(false)`
+    //: alone leaves a chase already booked to play out, and the map would
+    //: coast for another half second after the very click that said stop.
+    if (!tethered) return cam.takeFrame();
     cam.follow(journey !== null);
-  }, [journey, cam]);
+  }, [journey, cam, tethered]);
 
   /**
    * The walker moves by frames, not renders.
@@ -663,33 +597,19 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
 
   return (
     <section className="map-pane">
-      <nav className="row tabs">
-        {layers.map((option) => (
-          <button
-            key={option.id}
-            className={currentLayer === option.id ? "" : "quiet"}
-            aria-current={currentLayer === option.id || undefined}
-            onClick={() => setLayer(option.id)}
-          >
-            {option.label}
-          </button>
-        ))}
-        <Hint>
-          Вы всегда в середине карты, и она едет за вами. Видно два шага графа
-          вокруг — куда можно дойти и что видно оттуда; остальное открывается
-          ходьбой. Узлы стоят там, где стоят: место узла одно и то же у всех
-          игроков и завтра, поэтому мышью их не двигают. Фон — панорама, колесо
-          — зум. Слои: космос, планета, город — один и тот же граф с разной
-          высоты.
-        </Hint>
-      </nav>
-
-      {orbiting && <SkyClock sky={sky} />}
-
       {/* The face and its inspector stand side by side: the map keeps the whole
           height it can get, and what used to be three strips beneath it is now
           one column that speaks about the node you picked. */}
       <div className="map-face">
+      <div className="map-field">
+      <Switcher
+        layers={layers}
+        current={currentLayer}
+        onLayer={setLayer}
+        tethered={tethered}
+        onTether={tether}
+      />
+
       {visible.length === 0 ? (
         <p className="note">На этом слое пока ничего нет.</p>
       ) : (
@@ -698,6 +618,7 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
           viewBox={vb}
           role="img"
           aria-label="карта мира"
+          className={tethered ? "tethered" : undefined}
           onPointerDown={grabField}
           onPointerMove={movePointer}
           onPointerUp={releasePointer}
@@ -736,6 +657,13 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
           )}
         </svg>
       )}
+
+      {/* The winder belongs to the sky it winds, so it floats on it -- opposite
+          the switcher, along the bottom edge, where a scrubber is looked for.
+          In flow it stole a line of the map's height on the one layer whose
+          whole subject is where the bodies stand at a given hour. */}
+      {orbiting && <SkyClock sky={sky} />}
+      </div>
 
       {menu && (
         <NodeMenu

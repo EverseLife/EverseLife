@@ -10,7 +10,7 @@ import { chosen, tally } from "../../amounts";
 import { Rule } from "../../Rule";
 import { useBook, useSession } from "../../actions";
 import { DropZone } from "../../DragMove";
-import { CHEST_ANY, chestOf, chestZone, grip, noDrag } from "../../drag";
+import { chestZone, grip, noDrag } from "../../drag";
 import { isVessel } from "../../liquids";
 import type { Props } from "./shared";
 
@@ -117,9 +117,11 @@ export function Storages({ look, busy, act }: Props) {
             <p className="note">Чужое хранилище: что внутри — не ваше дело.</p>
           ) : (
             <>
-              {/* The drag pair (D-238): hands rows drop into the chest, chest
-                  rows drop into the hands below -- same commands as the
-                  buttons, which stay the path for keyboards and touch. */}
+              {/* One inventory, not two (D-238): what is in the hands is in
+                  the sidebar, on screen beside this window, and a stack drags
+                  from there into the chest and back out of it. For a keyboard
+                  or a finger the same moves are "Забрать" here and "В сундук"
+                  in the sidebar's row menu. */}
               <DropZone
                 zone={chestZone(chest.id)}
                 accepts={["hands"]}
@@ -183,76 +185,6 @@ export function Storages({ look, busy, act }: Props) {
                   </table>
                 ) : (
                   <p className="note">пусто</p>
-                )}
-              </DropZone>
-              <DropZone
-                zone="hands"
-                //: Any chest, not only the one above: three hands-tables may
-                //: stand in one window, and the player drops on the nearest.
-                //: The exact chest rides in the stack's own zone name.
-                accepts={[CHEST_ANY]}
-                disabled={busy}
-                hint="перетащите сюда предмет, чтобы забрать в руки"
-                onMove={(stack, amount) =>
-                  act(() =>
-                    session.send("storage.take", {
-                      storage: chestOf(stack.zone),
-                      item: stack.item,
-                      amount,
-                    }),
-                  )
-                }
-              >
-                {inHands.length > 0 ? (
-                  <table>
-                    <tbody>
-                      {inHands.map((thing) => (
-                        <tr
-                          key={thing.id}
-                          {...grip({
-                            item: thing.id,
-                            goods: thing.goods,
-                            label: thing.goods,
-                            amount: thing.amount,
-                            zone: "hands",
-                          })}
-                        >
-                          <td>{thing.goods}</td>
-                          <td className="note">
-                            {tally(thing.goods, thing.amount)} ·{" "}
-                            {(thing.mass * thing.amount).toFixed(1)} кг
-                          </td>
-                          <td {...noDrag}>
-                            <Amount
-                              goods={thing.goods}
-                              value={parts[thing.id] ?? null}
-                              max={thing.amount}
-                              onChange={(value) => setPart(thing.id, value)}
-                            />
-                          </td>
-                          <td>
-                            <button
-                              className="quiet"
-                              onClick={() =>
-                                act(() =>
-                                  session.send("storage.put", {
-                                    storage: chest.id,
-                                    item: thing.id,
-                                    amount: chosen(parts[thing.id] ?? null, thing.amount),
-                                  }),
-                                )
-                              }
-                              disabled={busy}
-                            >
-                              Положить
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                ) : (
-                  <p className="note">руки пусты</p>
                 )}
               </DropZone>
             </>

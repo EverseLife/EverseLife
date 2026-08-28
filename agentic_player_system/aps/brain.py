@@ -79,6 +79,9 @@ FENCE_OPEN, FENCE_CLOSE = "⟦", "⟧"
 MAX_REPLY_CHARS = 9000
 MAX_NOTES_CHARS = 4000
 DEFAULT_HISTORY = 20
+#: An answer with no tool call and no text at all, in a row: nudged once, then
+#: the turn ends as an error rather than as a turn that did nothing.
+MAX_EMPTY_REPLIES = 2
 #: The longest the agent may ask to sleep: a day. Beyond that it is "off".
 MAX_WAIT = 24 * 3600
 
@@ -206,6 +209,21 @@ TOOLS: list[dict[str, Any]] = [
     },
 ]
 
+#: The tools by name: the prompt lists them, and a model that puts one of them
+#: into `act` is corrected here instead of by the game. A local 8B model routes
+#: everything through the first tool it was told about -- `act(cmd="help")` --
+#: and spends the whole turn on refusals from the server.
+TOOL_NAMES = frozenset(tool["function"]["name"] for tool in TOOLS)
+#: Commands that only read: the whole-state ones by name, the rest by the
+#: suffix the game keeps for them (CLAUDE.md: `look`, `*.view`, `*.status` do
+#: not write).
+READ_COMMANDS = frozenset({"look", "knowledge", "orders", "deeds", "shelf"})
+
+
+def _reads_only(cmd: str) -> bool:
+    return cmd in READ_COMMANDS or cmd.endswith((".view", ".status"))
+
+
 SYSTEM = """Ты — житель мира Everse.Life, обычный игрок. Тебя зовут {name}.
 Ты действуешь в игре только через инструмент act: это те же команды, которыми пользуется
 клиент игры. Мир честный и медленный: денег с неба нет, всё добывается, делается и
@@ -214,6 +232,12 @@ SYSTEM = """Ты — житель мира Everse.Life, обычный игро�
 Твой характер: {persona}
 
 Твоя цель: {goal}
+
+Инструменты и команды — разное. Инструменты ({tools}) ты вызываешь напрямую,
+как функции. Команды игры (look, travel.go, market.buy и остальные из списка в
+конце) живут только внутри act: act(cmd="travel.go", args={{...}}). Имя
+инструмента командой не бывает: act(cmd="help") — ошибка, help вызывается сам
+по себе.
 
 Как играть:
 - Сначала посмотри, что ты видишь: «Наблюдение» — сводка и что изменилось с прошлого
@@ -244,7 +268,8 @@ SYSTEM = """Ты — житель мира Everse.Life, обычный игро�
   деньги или отдают вещи (покупка, бронь, перевод, заём, сделка с землёй). Лишние
   система отклонит — это защита от поспешных трат.
 
-Команды сессии (имя(аргументы): что делает):
+Команды сессии — имя(аргументы): что делает, коротко. Описание здесь урезано до
+одной строки; полное описание и все аргументы одной команды даёт help.
 {reference}
 """
 
@@ -305,6 +330,11 @@ class Turn:
     actions: list[tuple[str, str, bool]] = field(default_factory=list)
     #: Money or property moved this turn: capped at `MAX_MONEY_ACTIONS`.
     money_actions: int = 0
+    #: Answers with neither a tool call nor a word, in a row.
+    empty_replies: int = 0
+    #: The previous `act` of this turn: command, arguments, whether it reached
+    #: the game and was answered. Every path through `act` sets it.
+    last_act: tuple[str, str, bool] | None = None
     finished: bool = False
     thought: str = ""
     #: The agent's own wish: wake me no earlier than this many seconds from now.
@@ -366,14 +396,18 @@ async def run_turn(
         observation = f"Что произошло с прошлого хода:\n{news}\n\n{observation}"
     store.event(agent_id, "look", cmd="look", reply=shrink(seen), text=mode)
 
+    #: The same string in the system part and in the prompt's weight note: it
+    #: is built from 170-odd docstrings, so it is built once per turn.
+    catalogue = commands.brief(reference)
     system = SYSTEM.format(
         name=agent["name"],
         persona=agent["persona"] or "спокойный, практичный, любопытный",
         goal=agent["goal"] or "жить, зарабатывать и обустраиваться",
         max_steps=max_steps,
+        tools=", ".join(sorted(TOOL_NAMES)),
         money_limit=MAX_MONEY_ACTIONS,
         notes_limit=MAX_NOTES_CHARS,
-        reference=commands.brief(reference),
+        reference=catalogue,
     )
     notes = render_notes(agent["notes"])
     recent = _history(store, agent_id, history)
@@ -396,7 +430,7 @@ async def run_turn(
         "prompt",
         text=(
             f"промпт: системная часть {len(system)} зн. (из них справочник команд "
-            f"{len(commands.brief(reference))}), заметки {len(notes)}, история {len(recent)} "
+            f"{len(catalogue)}), заметки {len(notes)}, история {len(recent)} "
             f"({history} записей), наблюдение {len(observation)} ({mode})"
         ),
         #: The exact text, so "what did the model actually see" has an answer.
@@ -423,11 +457,46 @@ async def run_turn(
             },
         )
 
+        if reply.tool_calls or reply.content.strip():
+            #: "In a row" means in a row: an answer that said something clears
+            #: the count.
+            turn.empty_replies = 0
+
         if not reply.tool_calls:
-            #: Plain text without a tool call: treat it as the closing thought.
-            turn.thought = reply.content.strip()
-            turn.finished = True
-            break
+            if reply.content.strip():
+                #: Plain text without a tool call: the closing thought.
+                turn.thought = reply.content.strip()
+                turn.finished = True
+                break
+            #: Nothing at all -- no call, no word. Ollama answers this way when
+            #: it cannot parse what the model wrote as a tool call, and the next
+            #: turn would build the very same prompt and get the very same
+            #: silence. Nudge once, then end the turn loudly -- but as a turn,
+            #: not as an exception: what the agent already did this turn still
+            #: has to be scheduled around (the body may be walking for an hour).
+            turn.empty_replies += 1
+            if turn.empty_replies >= MAX_EMPTY_REPLIES:
+                store.event(
+                    agent_id,
+                    "error",
+                    text=(
+                        f"модель ответила пусто {turn.empty_replies} раза подряд "
+                        "(ни вызова инструмента, ни текста) — ход прерван"
+                    ),
+                )
+                turn.finished = True
+                break
+            messages.append(
+                {
+                    "role": "user",
+                    "content": (
+                        "Твой ответ пришёл пустым: ни вызова инструмента, ни текста. "
+                        "Вызови инструмент — act, чтобы действовать, или finish, чтобы "
+                        "закончить ход."
+                    ),
+                }
+            )
+            continue
 
         for call in reply.tool_calls:
             turn.steps += 1
@@ -507,8 +576,41 @@ async def _tool(
         args = arguments.get("args") or {}
         if not isinstance(args, dict):
             args = {}
+        #: `act(args={"cmd": "travel.go", "node": "..."})`, and the same wrapped
+        #: in `act` once more: the call packed a level deeper than the schema,
+        #: which a small model does often. Unwrap it -- otherwise an empty
+        #: command goes to the server, or the model is told to stop doing what
+        #: it just did.
+        if (not cmd or cmd == "act") and isinstance(args.get("cmd"), str):
+            args = dict(args)
+            cmd = str(args.pop("cmd"))
+            inner = args.pop("args", None)
+            if isinstance(inner, dict):
+                #: The siblings of the nested `args` are arguments too: dropping
+                #: them silently would send half a command.
+                args = {**args, **inner}
+        #: What this step did, whatever happens below: the guard against a
+        #: repeated read compares against the previous step, and every early
+        #: return has to move it -- otherwise a `look` asked for by the code
+        #: itself (after a dropped socket) is refused as a repeat.
+        previous, turn.last_act = turn.last_act, (cmd, "", False)
+        if cmd in TOOL_NAMES:
+            return (
+                f"{cmd} — это инструмент, а не команда игры: вызови его сам по себе, не через act."
+            )
         if cmd in ("hello", "join", "account.logout", "account.password", "account.email"):
             return "Эта команда делается за тебя системой; выбери другое действие."
+        key = json.dumps(args, sort_keys=True)
+        turn.last_act = (cmd, key, False)
+        #: The same read twice in a row inside one turn: nothing has happened in
+        #: between, so the answer would be the same -- a wasted step and one more
+        #: copy of the answer in the context. Only reads: two identical buys are
+        #: two purchases, and the model is allowed to mean that.
+        if _reads_only(cmd) and previous == (cmd, key, True):
+            return (
+                f"Ты только что выполнил {cmd} с теми же аргументами, и с тех пор ничего не "
+                "менялось: ответ будет тот же. Сделай что-то другое или заверши ход через finish."
+            )
         if cmd in MONEY_COMMANDS:
             if turn.money_actions >= MAX_MONEY_ACTIONS:
                 store.event(
@@ -523,7 +625,18 @@ async def _tool(
             answer = await game.act(cmd, args)
         except Refused as refusal:
             store.event(agent_id, "refused", cmd=cmd, request=args, text=str(refusal))
-            turn.actions.append((cmd, json.dumps(args, sort_keys=True), False))
+            turn.actions.append((cmd, key, False))
+            #: The commonest miss of a small model: the command name with no
+            #: arguments at all. The reference knows them, so the refusal takes
+            #: the list with it instead of costing another step and another
+            #: refusal.
+            keys = (reference.get(cmd) or {}).get("keys") or []
+            if not args and keys:
+                return (
+                    f"ОТКАЗ: {refusal}\n"
+                    f"Аргументы {cmd}: {', '.join(keys)} — передавай их в args: "
+                    f'act(cmd="{cmd}", args={{…}}). Подробно — help(cmd="{cmd}").'
+                )
             return f"ОТКАЗ: {refusal}"
         except GameError as trouble:
             #: The socket dropped on this command. Come back on a new one and
@@ -542,7 +655,8 @@ async def _tool(
                 "повторять, и если обрыв повторится на той же команде — report_bug."
             )
         store.event(agent_id, "action", cmd=cmd, request=args, reply=shrink(answer))
-        turn.actions.append((cmd, json.dumps(args, sort_keys=True), True))
+        turn.actions.append((cmd, key, True))
+        turn.last_act = (cmd, key, True)
         #: Player-authored strings (names, titles, lines) can sit in any
         #: answer, so every answer is fenced by key.
         return pack(fence(answer))

@@ -34,6 +34,11 @@ class Provider:
     base_url: str
     api_key: str
     model: str
+    #: How much the model is allowed to think before answering, when it can
+    #: think at all. Sent only when set, because most endpoints reject an
+    #: unknown value. On a local thinking model "none" is the difference
+    #: between six and eighty seconds per call.
+    reasoning_effort: str = ""
 
     @property
     def configured(self) -> bool:
@@ -57,6 +62,8 @@ async def chat(
         "temperature": temperature,
         "max_tokens": max_tokens,
     }
+    if provider.reasoning_effort:
+        body["reasoning_effort"] = provider.reasoning_effort
     url = provider.base_url.rstrip("/") + "/chat/completions"
     headers = {"Authorization": f"Bearer {provider.api_key}"}
     async with httpx.AsyncClient(timeout=180) as http:
@@ -74,8 +81,9 @@ async def chat(
     usage = data.get("usage") or {}
     return Reply(
         content=message.get("content") or "",
-        #: DeepSeek reasoner and friends: the thinking before the answer.
-        reasoning=message.get("reasoning_content") or "",
+        #: The thinking before the answer: `reasoning_content` is DeepSeek's
+        #: name for it, `reasoning` is Ollama's for a thinking model.
+        reasoning=message.get("reasoning_content") or message.get("reasoning") or "",
         tool_calls=message.get("tool_calls") or [],
         prompt_tokens=int(usage.get("prompt_tokens") or 0),
         completion_tokens=int(usage.get("completion_tokens") or 0),

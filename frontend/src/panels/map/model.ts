@@ -17,17 +17,25 @@
  */
 
 import type { MapNode, Transit } from "../../api";
+import type { GlyphName } from "../../glyphs";
 
 /** The frame the map is drawn in. The camera (`viewBox`) moves over it. */
 export const W = 880;
 export const H = 540;
 
+/**
+ * The four layers, each with the mark it wears in the switcher (D-238).
+ *
+ * The city's mark is the colonnade the map already draws on a settlement, so
+ * the tab and the node it opens say the same thing -- a switcher whose icons
+ * were invented apart from the map would be a second vocabulary to learn.
+ */
 export const LAYERS = [
-  { id: "space", label: "космос" },
-  { id: "planet", label: "планета" },
-  { id: "city", label: "город" },
-  { id: "location", label: "локация" },
-] as const;
+  { id: "space", label: "космос", mark: "orbit" },
+  { id: "planet", label: "планета", mark: "globe" },
+  { id: "city", label: "город", mark: "state" },
+  { id: "location", label: "локация", mark: "rooms" },
+] as const satisfies readonly { id: string; label: string; mark: GlyphName }[];
 export type LayerId = (typeof LAYERS)[number]["id"];
 
 /**

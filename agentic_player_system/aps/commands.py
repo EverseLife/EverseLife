@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import ast
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -205,15 +206,38 @@ def load(path: Path, cached: str = "") -> dict[str, dict[str, Any]]:
     return dict(BUILTIN)
 
 
+#: The reference rides in every prompt of every turn, so a command gets one
+#: clause here and the rest through `help`: a whole first docstring line is
+#: mostly sentences about the mechanics, which do not help pick a command, and
+#: the vault numbers in them (`D-172`) mean nothing to the model at all. Half
+#: the reference is bought back this way -- on a local model the prompt is the
+#: whole budget.
+HEADLINE_LIMIT = 72
+#: `(D-172)`, `(04-notifications)`: a pointer into the vault, not into the game.
+_VAULT_REF = re.compile(r"\s*\([^()]*(?:D-\d+|\d\d-[a-z])[^()]*\)")
+#: A full stop or a semicolon ends the clause; a colon does not -- in these
+#: docstrings it introduces the substance ("Buy: a limit order from a present
+#: body"), and the half after it is the half that tells commands apart.
+_CLAUSE_END = re.compile(r"(?<=[.;])\s")
+
+
+def headline(doc: str, limit: int = HEADLINE_LIMIT) -> str:
+    """The first clause of a docstring: what the command does, and no more."""
+    line = _VAULT_REF.sub("", doc.strip().split("\n", 1)[0]).strip()
+    clause = _CLAUSE_END.split(line, maxsplit=1)[0].rstrip(" .;:")
+    if len(clause) > limit:
+        clause = clause[:limit].rsplit(" ", 1)[0] + "…"
+    return clause
+
+
 def brief(reference: dict[str, dict[str, Any]]) -> str:
-    """One line per command: the name, the arguments, the first line of the doc."""
+    """One line per command: the name, the arguments, one clause of the doc."""
     lines = []
     for command, entry in sorted(reference.items()):
         if command in BUILTIN:
             continue
-        first = entry["doc"].strip().split("\n", 1)[0].strip()
-        args = ", ".join(entry["keys"])
-        lines.append(f"- {command}({args}): {first}")
+        args = ",".join(entry["keys"])
+        lines.append(f"- {command}({args}): {headline(entry['doc'])}")
     return "\n".join(lines)
 
 

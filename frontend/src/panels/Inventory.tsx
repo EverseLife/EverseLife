@@ -21,7 +21,7 @@
 
 import { useEffect, useState } from "react";
 import type { RecipeBook } from "../api";
-import type { Look, Thing } from "../api";
+import { stationsOf, type Look, type Thing } from "../api";
 import { Refusal, useActions, useBook, useSession } from "../actions";
 import { Rule } from "../Rule";
 import { Amount } from "../Amount";
@@ -29,7 +29,7 @@ import { DropZone } from "../DragMove";
 import { GoodsMark } from "../Glyph";
 import { CHEST_ANY, chestOf, grip, noDrag } from "../drag";
 import { chosen, tally } from "../amounts";
-import { classOf } from "../classes";
+import { TERMINAL, classOf, firstOfClass } from "../classes";
 import { fill, isVessel } from "../liquids";
 import {
   GROUPINGS,
@@ -96,6 +96,9 @@ export function Inventory({ look }: Props) {
   //: thing stays for its owner. The interface does not offer a door that only
   //: opens outward: where it cannot be taken back, it is not offered.
   const mayDropHere = Boolean(look.floor?.mine);
+  //: Whether a counter stands here at all: without one there is nothing to
+  //: lay goods out on, and the market panel is not open either.
+  const atTerminal = firstOfClass(book, stationsOf(look), TERMINAL) !== undefined;
 
   const part = (thing: Thing) => chosen(parts[thing.id] ?? null, thing.amount);
   const close = () => setAsking(null);
@@ -256,6 +259,12 @@ export function Inventory({ look }: Props) {
                   label: thing.flavor ?? thing.goods,
                   amount: thing.amount,
                   zone: "hands",
+                  //: The market counts by name and quality tier, not by the
+                  //: item's identity (D-058), so a stack dragged to a terminal
+                  //: carries both -- and a written carrier carries the name the
+                  //: counter knows it by (D-209).
+                  tier: thing.tier,
+                  key: thing.key ?? undefined,
                 })}
               >
                 <td>
@@ -475,6 +484,26 @@ export function Inventory({ look }: Props) {
                               disabled={busy}
                             >
                               В трюм
+                            </button>
+                          )}
+                          {/* Onto the counter, where a terminal stands (D-047):
+                              only what lies in it is sold. The market panel
+                              takes the same stack by drag, and this is the
+                              path a keyboard and a finger have. */}
+                          {atTerminal && (
+                            <button
+                              role="menuitem"
+                              onClick={() =>
+                                send("market.load", {
+                                  goods: thing.key ?? thing.goods,
+                                  tier: thing.tier,
+                                  amount: part(thing),
+                                })
+                              }
+                              disabled={busy}
+                              title="выложить в терминал: продаётся то, что в нём лежит"
+                            >
+                              В терминал
                             </button>
                           )}
                           <button className="quiet" onClick={close}>

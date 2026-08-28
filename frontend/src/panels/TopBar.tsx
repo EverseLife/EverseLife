@@ -5,10 +5,14 @@
  * The header as an instrument strip (D-238).
  *
  * Left of the divide: the wordmark, then the figures a player keeps glancing
- * at -- the balance, the carried weight, the planet's clock. They are buttons,
- * not captions: the balance opens a quick transfer on the spot, the weight
- * opens the inventory tab. The frequent action lives one click from the
- * number; the full functionality stays in its own tab.
+ * at -- the balance and the planet's clock. The balance is a button, not a
+ * caption: it opens a quick transfer on the spot. The frequent action lives
+ * one click from the number; the full functionality stays in its own tab.
+ *
+ * The carried weight is not here. It stood beside the balance and opened the
+ * inventory, but the inventory is a tab in the sidebar that says the same
+ * figure at its top -- and the strip is for what one glances at from anywhere,
+ * not for a second door into a room one is already standing in.
  *
  * Right of the divide: the body's readings -- stamina, satiety, warmth --
  * and the service row (summary, intro, refresh, sources). Account controls
@@ -69,19 +73,6 @@ export function TopBar({ look, waiting, narrow, onSummary, onIntro, onRefresh, v
       </span>
 
       <MoneyQuick money={look.money} />
-
-      {embodied && look.carry && (
-        <button
-          className="bare hud"
-          onClick={() => askSidebarTab("goods")}
-          title="в руках — открыть инвентарь"
-        >
-          <Glyph name="goods" />
-          <b className="num">
-            {look.carry.load.toFixed(1)} из {look.carry.capacity.toFixed(0)} кг
-          </b>
-        </button>
-      )}
 
       {look.clock && <WorldClock clock={look.clock} />}
 

@@ -106,6 +106,9 @@ export function createCamera({
   cancel = cancelAnimationFrame,
 }: Wiring) {
   let frame: Frame = { x: 0, y: 0, scale: 1 };
+  //: The aim is a **middle**, not a ready-made frame: the scale can change
+  //: under a chase (the wheel turns while the walker is followed), and a frame
+  //: worked out for the old scale would land the body off centre.
   let aim: Point | null = null;
   let chasing = 0;
   let chasedAt = 0;
@@ -120,13 +123,14 @@ export function createCamera({
     if (!aim) return;
     const dt = Math.min(LONGEST_STEP, Math.max(0, t - chasedAt));
     chasedAt = t;
-    if (arrived(frame, aim)) {
-      frame = { ...frame, ...aim };
+    const target = frameOn(aim, frame.scale);
+    if (arrived(frame, target)) {
+      frame = { ...frame, ...target };
       aim = null;
       show();
       return;
     }
-    frame = { ...frame, ...chase(frame, aim, dt) };
+    frame = { ...frame, ...chase(frame, target, dt) };
     show();
     chasing = raf(step);
   };
@@ -154,9 +158,15 @@ export function createCamera({
    *  through coordinates that hold nothing -- a layer or a city change. */
   const aimAt = (middle: Point, atOnce = false) => {
     if (atOnce || still()) return cut(middle);
-    aim = frameOn(middle, frame.scale);
+    aim = middle;
     book();
   };
+
+  /** Where the frame is looking now: the world point in its middle. */
+  const middleOf = (f: Frame): Point => ({
+    x: f.x + W / (2 * f.scale),
+    y: f.y + H / (2 * f.scale),
+  });
 
   return {
     frame: () => frame,
@@ -175,7 +185,7 @@ export function createCamera({
     /** The walker names where it is; the frame chases it if it is following. */
     toDot(dot: Point) {
       if (!following) return;
-      aim = frameOn(dot, frame.scale);
+      aim = dot;
       book();
     },
 
@@ -188,6 +198,19 @@ export function createCamera({
     /** A pan: the hand puts the frame exactly where it drags it. */
     panTo(x: number, y: number) {
       frame = { ...frame, x, y };
+      show();
+    },
+
+    /**
+     * A zoom that keeps the middle (D-238): what is centred stays centred.
+     *
+     * This is the whole of what a hand may do to a tethered camera. Zooming to
+     * the cursor would slide the body out of the frame, and a camera that is
+     * held to the body and does not hold it is worse than either mode.
+     */
+    zoomOnMiddle(scale: number) {
+      const middle = middleOf(frame);
+      frame = { scale, ...frameOn(middle, scale) };
       show();
     },
 

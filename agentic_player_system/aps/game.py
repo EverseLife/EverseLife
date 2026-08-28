@@ -104,7 +104,10 @@ class Game:
             raise GameError("нет соединения")
         self._ticket += 1
         ticket = self._ticket
-        payload = {"id": ticket, "cmd": cmd, **(args or {})}
+        #: The envelope wins over the arguments: a model that puts `cmd` in them
+        #: would otherwise send a command nobody asked for, and one that puts
+        #: `id` there would break the matching and hang the turn on the timeout.
+        payload = {**(args or {}), "id": ticket, "cmd": cmd}
         async with self._lock:
             try:
                 await self.socket.send(json.dumps(payload, ensure_ascii=False))

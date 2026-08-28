@@ -49,7 +49,12 @@ export type GlyphName =
   | "plot"
   | "ruins"
   | "market"
-  | "port";
+  | "port"
+  | "orbit"
+  | "globe"
+  | "rooms"
+  | "pinned"
+  | "loose";
 
 /** One stroke width for all of them, so a row of icons reads as one set. */
 export const GLYPH_WIDTH = 1.25;
@@ -117,4 +122,14 @@ export const SHAPES: Record<GlyphName, string> = {
   market: "M8 2.6v10.8M5 13.4h6M3.4 4.6h9.2M3.4 4.6L2 8.6a2 1.6 0 004 0zM12.6 4.6L11 8.6a2 1.6 0 004 0z",
   //: A rocket over the pad: the spaceport.
   port: "M8 1.8c1.6 1.4 2.4 3.2 2.4 5.4L8 9.4 5.6 7.2c0-2.2.8-4 2.4-5.4zM5.6 7.6L4.2 10M10.4 7.6l1.4 2.4M8 9.4v1.8M4.5 13.4h7",
+  //: A star and a body on its ring: the space layer.
+  orbit: "M8 6.4a1.6 1.6 0 100 3.2 1.6 1.6 0 100-3.2M1.6 8a6.4 3.2 0 1012.8 0 6.4 3.2 0 10-12.8 0M2.6 9.6a1.1 1.1 0 102.2 0 1.1 1.1 0 10-2.2 0",
+  //: A globe with a latitude and a meridian: one planet's surface.
+  globe: "M8 2.4a5.6 5.6 0 100 11.2 5.6 5.6 0 100-11.2M2.8 6.4c3.2 1.6 7.2 1.6 10.4 0M8 2.4c-2.2 3-2.2 8.2 0 11.2",
+  //: A plan cut into rooms: the sub-nodes of one place.
+  rooms: "M2.6 3.2h10.8v9.6H2.6zM8 3.2v9.6M8 8h5.4",
+  //: A sight on the middle: the camera holds the body.
+  pinned: "M8 3.6a4.4 4.4 0 100 8.8 4.4 4.4 0 100-8.8M8 6.8a1.2 1.2 0 100 2.4 1.2 1.2 0 100-2.4M8 1.4v2.2M8 12.4v2.2M1.4 8h2.2M12.4 8h2.2",
+  //: Arrows to the four sides: the frame goes where the hand takes it.
+  loose: "M8 2.2v11.6M2.2 8h11.6M6.4 3.8L8 2.2l1.6 1.6M6.4 12.2L8 13.8l1.6-1.6M3.8 6.4L2.2 8l1.6 1.6M12.2 6.4L13.8 8l-1.6 1.6",
 };
