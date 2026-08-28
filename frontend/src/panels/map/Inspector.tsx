@@ -134,7 +134,8 @@ export function Inspector({
           : node.layer === "city"
             ? cityWord(node.planet).within
             : (LAYER_NAME[node.layer] ?? node.layer)}
-        {group && !node.aboard ? " · есть что раскрыть" : ""}
+        {group && !node.aboard && !off ? " · есть что раскрыть" : ""}
+        {off && !sphere ? " · другая планета: смотреть отсюда нечего" : ""}
       </p>
       {/* A passage is a term like any other, and it is shown the way every
           term in this world is shown. */}
@@ -204,8 +205,11 @@ export function Inspector({
           </button>
         )}
         {/* A ship is not opened from space: its rooms are walked into by the
-            gangway, and "expand" here would show somebody else's surface. */}
-        {group && !node.aboard && (
+            gangway, and "expand" here would show somebody else's surface.
+            Neither is another planet (D-240): its surface is not in the answer
+            at all, and a button that opened an empty layer would promise a
+            look nobody has -- one gets there by flying. */}
+        {group && !node.aboard && !off && (
           <button className="quiet" onClick={() => onExpand(node)} disabled={busy}>
             Раскрыть
           </button>

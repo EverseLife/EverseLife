@@ -740,6 +740,13 @@ async def catch_up(session: AsyncSession, core: Node) -> None:
     #: what a berth is worth in seconds is the vault's business.
     await _berths(session, constants)
 
+    #: A step across a hull is one second (D-240). Hulls built before that rule
+    #: have their corridors laid at the city's step, so a ship of ten
+    #: compartments walked like a small town and its owner had no way to shorten
+    #: it. Relaid here rather than by the migration, for the same reason the
+    #: gangways are: what a step is worth in seconds is the vault's number.
+    await _ship_steps(session, constants)
+
     #: Login by email and password (D-187): identities created before it get
     #: the seed's test accounts. Only those without an email yet -- anything
     #: set by hand or from the account panel the catch-up does not touch.
@@ -1204,6 +1211,30 @@ async def _berths(session: AsyncSession, constants) -> None:
         gangway = await travel._edge_between(session, port.id, connector.id)
         if gangway is not None:
             gangway.base_seconds = int(ship._gangway_seconds(constants, vessel.berth))
+    await session.flush()
+
+
+async def _ship_steps(session: AsyncSession, constants) -> None:
+    """Relay every corridor aboard to `ship.step_seconds` (D-240).
+
+    Only edges with a node aboard at **both** ends: the gangway has one aboard
+    and one on the pier, and its length is the berth's number -- `_berths`
+    settles that one and the two rules must not fight over the same row.
+    """
+    aboard = select(Node.id).where(Node.properties.has_key(ship.ABOARD))
+    corridors = (
+        (
+            await session.execute(
+                select(Edge).where(Edge.node_a_id.in_(aboard), Edge.node_b_id.in_(aboard))
+            )
+        )
+        .scalars()
+        .all()
+    )
+    step = int(constants[R.SHIP_STEP_SECONDS])
+    for edge in corridors:
+        if edge.base_seconds != step:
+            edge.base_seconds = step
     await session.flush()
 
 

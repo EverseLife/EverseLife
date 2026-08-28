@@ -1,0 +1,168 @@
+/* SPDX-License-Identifier: AGPL-3.0-only
+   Copyright (C) 2026 Nurlan Urazkulov */
+
+/*
+ * The ship's two drawings (D-240): the bridge's chart of the sky, and the
+ * owner's floor plan of the hull.
+ *
+ * Both are maps and neither is *the* map, so they borrow the map's ink and none
+ * of its furniture: no switcher, no inspector, no camera. Colour is used the
+ * way the rest of the client uses it -- the planet tints tell the destinations
+ * apart, and everything else is a hairline (D-055, D-238).
+ */
+
+.chart,
+.hull-plan {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 46vh;
+  border: 1px solid var(--base-600);
+  background: var(--base-900);
+  touch-action: none;
+}
+
+/* --- the bridge's chart ---------------------------------------------------- */
+
+.chart-orbit {
+  fill: none;
+  stroke: var(--base-600);
+  stroke-width: 1;
+}
+
+.chart-star {
+  fill: var(--warning);
+}
+
+.chart-way line {
+  stroke: var(--base-400);
+  stroke-width: 1.5;
+}
+
+.chart-way text {
+  fill: var(--base-400);
+  font-size: 11px;
+  pointer-events: none;
+}
+
+.chart-way .chart-fuel {
+  font-size: 10px;
+}
+
+.chart-way {
+  cursor: pointer;
+}
+
+.chart-way.off line {
+  stroke-dasharray: 3 5;
+  opacity: 0.45;
+}
+
+.chart-way.off text {
+  opacity: 0.55;
+}
+
+.chart-way.picked line {
+  stroke: var(--base-50);
+  stroke-width: 2.5;
+}
+
+.chart-way.picked text {
+  fill: var(--base-50);
+}
+
+.chart-planet {
+  cursor: pointer;
+}
+
+.chart-planet text {
+  fill: var(--base-400);
+  font-size: 11px;
+  pointer-events: none;
+}
+
+.chart-planet.mine circle {
+  stroke: var(--base-50);
+  stroke-width: 2;
+}
+
+.chart-planet.picked text {
+  fill: var(--base-50);
+}
+
+.chart-planet.picked circle {
+  stroke: var(--base-50);
+  stroke-width: 2;
+  stroke-dasharray: 2 3;
+}
+
+.chart-hull circle {
+  fill: var(--base-50);
+}
+
+.chart-hull text {
+  fill: var(--base-50);
+  font-size: 11px;
+}
+
+/* --- the hull's floor plan ------------------------------------------------- */
+
+.hull-grid {
+  stroke: var(--base-600);
+  stroke-width: 0.5;
+  fill: none;
+}
+
+.hull-link {
+  stroke: var(--base-400);
+  stroke-width: 2;
+}
+
+.hull-room rect {
+  fill: var(--base-900);
+  stroke: var(--base-600);
+  stroke-width: 1;
+}
+
+.hull-room text {
+  fill: var(--base-400);
+  font-size: 10px;
+  pointer-events: none;
+}
+
+.hull-room.here rect {
+  stroke: var(--base-50);
+  stroke-width: 2;
+}
+
+.hull-room.held rect {
+  stroke-dasharray: 3 3;
+  opacity: 0.7;
+}
+
+.hull-room.movable {
+  cursor: grab;
+}
+
+.hull-room.movable:active {
+  cursor: grabbing;
+}
+
+/* The air gauge: the second scale of survival, beside the cold's (D-233). */
+.air-bar {
+  display: block;
+  width: 100%;
+  height: 4px;
+  border: 1px solid var(--base-600);
+  margin: 2px 0 4px;
+}
+
+.air-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--base-400);
+}
+
+.air-bar.low > span {
+  background: var(--danger);
+}

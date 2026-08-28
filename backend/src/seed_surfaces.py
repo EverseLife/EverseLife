@@ -56,7 +56,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import current, current_catalog
-from src.engine import energy, explore, plates, ruins, ship, travel, world
+from src.engine import energy, explore, oxygen, plates, ruins, ship, travel, world
 from src.models.world import Layer, Node, Planet, Surface
 
 #: The Anvil Plateau: the one stable ground of Pyroxis (10-world/04, D-197).
@@ -180,9 +180,16 @@ async def _pyroxis(session: AsyncSession) -> None:
     lays nothing in its place -- there is nothing to lay.
     """
     sphere = await _sphere(session, "pyroxis")
-    #: The planet's own property, like its climate (D-231): a ship aims at
-    #: ground here, not at a pier.
-    sphere.properties = {**(sphere.properties or {}), ship.OPEN_LANDING: True}
+    #: The planet's own properties, like its climate (D-231): a ship aims at
+    #: ground here rather than at a pier, and there is nothing to breathe when
+    #: it gets there (D-233, D-234). Both are facts of the world, so both are
+    #: written on the world -- on the planet's own node, where `ship` and
+    #: `oxygen` read them.
+    sphere.properties = {
+        **(sphere.properties or {}),
+        ship.OPEN_LANDING: True,
+        oxygen.AIRLESS: True,
+    }
     plateau = (
         await _ensure(
             session,

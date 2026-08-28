@@ -435,6 +435,10 @@ SHIP_ROUTE_MIN_SHARE = Num("ship.route_min_share")
 #: The gangway: docking and undocking are not instant, and the edge to the port
 #: costs exactly this to walk.
 SHIP_BERTH_SECONDS = Num("ship.berth_seconds")
+#: A step between two rooms aboard, and the same for every pair (D-240): a ship
+#: is a room one walks through, not ground one crosses -- there is no distance
+#: between compartments to measure.
+SHIP_STEP_SECONDS = Num("ship.step_seconds")
 SHIP_FUEL_PER_TON_DAY = Num("ship.fuel_per_ton_day")
 SHIP_LIFE_SUPPORT_CREW = Num("ship.life_support_crew")
 #: Passage times: hours between two ports of one planet, days between planets.

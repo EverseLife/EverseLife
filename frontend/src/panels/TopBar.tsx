@@ -25,7 +25,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import type { Frost as FrostState, Look } from "../api";
+import type { Air, Frost as FrostState, Look } from "../api";
 import { Refusal, useActions, useSession } from "../actions";
 import { hands, stamp, worldTime } from "../clock";
 import { Deadline } from "../Deadline";
@@ -33,7 +33,7 @@ import { Glyph } from "../Glyph";
 import { askSidebarTab } from "../hud";
 import { Logo } from "../Logo";
 import { VIEWS, type View } from "../views";
-import { reserveNow } from "../warmth";
+import { leftNow, reserveNow } from "../warmth";
 
 //: Where the source of this build lives -- AGPL §13 asks for the source of
 //: *this* version, and the repository's head is not it. `VITE_RELEASE` is
@@ -115,6 +115,10 @@ export function TopBar({ look, waiting, narrow, onSummary, onIntro, onRefresh, v
           {/* Warmth is shown only where cold exists (D-231): on Terra there is
               no reading at all rather than an empty one. */}
           {look.frost && <Warmth frost={look.frost} />}
+          {/* The air stands beside the cold because it is the same kind of
+              thing: a scale that only exists where the planet says so, and one
+              that kills when it runs out (D-233). */}
+          {look.air && <Breath air={look.air} />}
         </span>
       )}
 
@@ -303,6 +307,61 @@ function WorldClock({ clock }: { clock: NonNullable<Look["clock"]> }) {
       {/* One size for the whole reading: the day is part of the time, not a
           footnote to it. */}
       {hands(clock, now)} · сутки {worldTime(clock, now).day}
+    </span>
+  );
+}
+
+/**
+ * The air, counted by the client exactly as the cold is (D-226, D-233).
+ *
+ * Units rather than hours, because that is what the reserve is: a liquid in a
+ * cylinder or in the ship's tanks. The rate turns it into hours, and the rate
+ * is the server's -- what the hull makes against what its crew breathes.
+ */
+function Breath({ air }: { air: Air }) {
+  const [units, setUnits] = useState(() => leftNow(air));
+  useEffect(() => {
+    setUnits(leftNow(air));
+    const timer = setInterval(() => setUnits(leftNow(air)), 10_000);
+    return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [air.at, air.units, air.per_hour, air.where, air.suit]);
+  //: A bagful of cylinders and no suit is the one case where the number is not
+  //: the answer: nothing connects the body to them, and it is suffocating with
+  //: a full bag (D-234).
+  if (air.where === "скафандр" && !air.suit) {
+    return (
+      <span
+        className="vital low"
+        title="дышать нечем: баллон соединяет с телом скафандр, и без него воздуха нет, сколько бы баллонов ни лежало в мешке"
+      >
+        <Glyph name="warmth" />
+        <b className="num">без скафандра</b>
+      </span>
+    );
+  }
+  if (units <= 0) {
+    return (
+      <span className="vital low" title="кислород кончился: следующий счёт — смерть">
+        <Glyph name="warmth" />
+        <b className="num">нечем дышать</b>
+      </span>
+    );
+  }
+  const hours = air.per_hour < 0 ? units / -air.per_hour : null;
+  return (
+    <span
+      className="vital"
+      title={
+        air.where === "борт"
+          ? "воздух борта: жизнеобеспечение гонит его из воды и энергии, экипаж дышит"
+          : "кислород из баллона через скафандр: снаружи он тратится впятеро быстрее"
+      }
+    >
+      <Glyph name="warmth" />
+      <b className="num">
+        {hours == null ? `${units.toFixed(0)} ед.` : `${hours.toFixed(1)} ч ↓`}
+      </b>
     </span>
   );
 }

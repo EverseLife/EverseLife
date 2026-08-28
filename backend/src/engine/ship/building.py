@@ -297,13 +297,15 @@ async def _add_node(
     node = await _node_aboard(
         session, constants, delegate, "Отсек", owner=owner, planet=at.planet, beside=at
     )
-    #: A step between adjacent rooms is the shortest there is: inside a ship one
-    #: walks as inside a city, and `travel.city_step` is that very step (D-045).
+    #: A step between two rooms is one second, and the same for every pair
+    #: (D-240). A ship is a room one walks through, not ground one crosses:
+    #: measuring a corridor by the city's step made a hull of ten compartments
+    #: read as a small town, and the owner had no way to shorten it.
     await travel.connect(
         session,
         at,
         node,
-        base_seconds=constants[R.TRAVEL_CITY_STEP].min,
+        base_seconds=constants[R.SHIP_STEP_SECONDS],
         surface=Surface.PAVED,
     )
     return node

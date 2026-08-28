@@ -51,11 +51,12 @@ export function Convoy({ look }: Omit<Props, "busy" | "act">) {
             </b>{" "}
             · скорость ×{convoy.speed_k} · сост. {convoy.condition.toFixed(0)}
           </p>
-          {/* One inventory, not two (D-238): the sidebar's is the hands, and
-              it is on screen beside this window. A stack drags from there into
-              the hold and a cargo row drags back into it; for a keyboard or a
-              finger the same two moves are "Выгрузить" here and "В трюм" in
-              the sidebar's row menu. */}
+          {/* One inventory, not two (D-238): the sidebar's is the hands. A
+              stack drags from there into the hold and a cargo row drags back
+              into it; for a keyboard or a finger -- or a narrow screen, where
+              the sidebar and the scene are different zones and never on screen
+              together -- the same two moves are "Выгрузить" here and "В трюм"
+              in the sidebar's row menu. */}
           <DropZone
             zone="hold"
             accepts={["hands"]}

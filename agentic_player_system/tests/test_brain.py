@@ -6,12 +6,13 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from aps import brain, commands, llm
+from aps import brain, commands, llm, observe
 from aps.game import Game, GameError, Refused
 from aps.runner import Runner
 from aps.store import Store
@@ -125,6 +126,7 @@ async def test_turn_records_actions_refusals_notes_and_thought(
     kinds = [e["kind"] for e in store.events(agent["id"])]
     assert kinds == [
         "look",
+        "standing",
         "prompt",
         "model",
         "refused",
@@ -140,7 +142,10 @@ async def test_turn_records_actions_refusals_notes_and_thought(
     assert json.loads(model_events[0]["reply"])["tool_calls"][0]["name"] == "act"
     assert store.reports()[0]["text"] == "город не основался"
     assert store.usage_today(agent["id"])["total"] == 440
-    assert game.sent[0] == ("look", {}) and game.sent[1] == ("city.found", {"name": "Новгород"})
+    #: The turn opens with the two reads -- the place and one's own standing
+    #: affairs -- and only then does what the model asked for.
+    assert [cmd for cmd, _ in game.sent[:2]] == ["look", "orders"]
+    assert game.sent[2] == ("city.found", {"name": "Новгород"})
     assert game.sent[-1] == ("look", {}) and turn.busy_until is None
 
 
@@ -404,7 +409,7 @@ async def _update(state, db, message) -> dict:
     """Change the profile."""
     return accounts.check_profile(message)
 ''',
-        {"check_profile": ["surname", "age", "about"]},
+        {"check_profile": {"keys": ["surname", "age", "about"], "ids": []}},
     )
     assert borrowed["account.update"]["keys"] == ["surname", "age", "about"]
 
@@ -615,7 +620,9 @@ async def test_a_tool_name_inside_act_is_corrected_and_not_sent_to_the_game(
         provider=llm.Provider("u", "k", "m"),
         reference=commands.load(SESSION_SOURCE),
     )
-    assert [cmd for cmd, _ in game.sent] == ["look", "look"], "help ушёл на сервер как команда"
+    assert [cmd for cmd, _ in game.sent] == ["look", "orders", "look"], (
+        "help ушёл на сервер как команда"
+    )
     assert not [e for e in store.events(agent["id"]) if e["kind"] == "refused"]
 
 
@@ -796,7 +803,9 @@ async def test_an_empty_answer_twice_ends_the_turn_without_losing_it(
         return llm.Reply(content="", tool_calls=[], prompt_tokens=1, completion_tokens=1)
 
     monkeypatch.setattr(llm, "chat", fake_chat)
-    busy = "2026-08-28T09:00:00+00:00"
+    #: An hour from now, not a fixed stamp: a past one means "free", and the
+    #: test would pass only before that hour of that day.
+    busy = (datetime.now(UTC) + timedelta(hours=1)).isoformat()
     game = FakeGame({"look": {"money": 0, "travel": {"arrives_at": busy}}})
     turn = await brain.run_turn(
         agent=agent,
@@ -897,12 +906,18 @@ async def test_a_look_after_a_dropped_socket_is_not_taken_for_a_repeat(
     assert game.reconnects == 1
 
 
-def test_read_commands_all_exist_in_the_registry() -> None:
-    """The read guard names commands by hand: a rename in the game must be loud."""
+def test_the_read_guard_follows_the_games_own_declaration() -> None:
+    """`readonly` belongs to the game (`api/registry.py`), and the agent must
+    not keep a second list of its own: the property is checked, not the roster,
+    so declaring one more read in the game is not a failure here."""
     reference = commands.load(SESSION_SOURCE)
-    assert sorted(c for c in brain.READ_COMMANDS if c not in reference) == []
-    suffixed = [c for c in reference if c.endswith((".view", ".status"))]
-    assert suffixed, "суффиксное правило перестало что-либо покрывать"
+    assert brain._reads_only(reference, "look")
+    assert not brain._reads_only(reference, "market.buy")
+    #: A command the game has not declared is treated as one that writes.
+    assert not brain._reads_only(reference, "нет.такой")
+    declared = {c for c, e in reference.items() if e.get("readonly")}
+    assert {"look", "orders"} <= declared
+    assert not declared & set(brain.MONEY_COMMANDS)
 
 
 def test_headline_keeps_the_half_that_tells_commands_apart() -> None:
@@ -934,3 +949,376 @@ async def test_arguments_cannot_replace_the_command_in_the_envelope() -> None:
     await game.send("look", {"cmd": "finance.transfer", "id": 999, "amount": 1})
     assert sent[-1]["cmd"] == "look"
     assert sent[-1]["id"] != 999
+
+
+def test_the_purse_is_shown_in_both_units() -> None:
+    """`look` gives coins, every price is in ten-thousandths: 56 of 194 refusals."""
+    assert observe.money("25") == "деньги 25 монет (в ценах команд это 250000)"
+    assert observe.money("0") == "деньги 0 монет (в ценах команд это 0)"
+    assert observe.money("0.5") == "деньги 0.5 монет (в ценах команд это 5000)"
+    #: Nonsense from the server must not take the digest down with it.
+    assert observe.money(None) == "деньги None"
+
+
+def test_standing_affairs_are_named_or_declared_empty() -> None:
+    """An agent that does not see its own orders posts them again and waits for
+    a delivery it never ordered -- both in the journal."""
+    own = {
+        "orders": {
+            "orders": [
+                {"id": "o-1", "side": "buy", "goods": "Железная руда", "price": 30000, "left": 5.0}
+            ],
+            "reservations": [
+                {
+                    "id": "r-1",
+                    "goods": "Шахтная крепь",
+                    "amount": 5.0,
+                    "node": "Рынок",
+                    "expires_at": "2026-09-02T03:52:32+00:00",
+                }
+            ],
+            "batches": [
+                {"output": "Железная деталь", "units": 1, "ready_at": "2026-08-28T12:00:00"}
+            ],
+        }
+    }
+    said = observe.standing(own)
+    assert "покупка «Железная руда» ×5 по 30000 [o-1]" in said
+    assert "Шахтная крепь" in said and "[r-1]" in said
+    assert "Железная деталь" in said
+    assert observe.standing({"orders": {"orders": [], "reservations": [], "batches": []}}) == (
+        "Ни заявок, ни броней, ни партий, ни товара в терминале — ждать нечего."
+    )
+
+
+async def test_the_turn_reads_its_own_orders_into_the_observation(
+    monkeypatch: pytest.MonkeyPatch, store: Store, agent: dict[str, Any]
+) -> None:
+    async def fake_chat(*_: Any, **__: Any) -> llm.Reply:
+        return llm.Reply(
+            content="",
+            tool_calls=[_call("finish", thought="ясно")],
+            prompt_tokens=1,
+            completion_tokens=1,
+        )
+
+    monkeypatch.setattr(llm, "chat", fake_chat)
+    game = FakeGame(
+        {
+            "look": {"money": 0},
+            "orders": {
+                "orders": {
+                    "orders": [
+                        {"id": "o-9", "side": "buy", "goods": "Соль", "price": 100, "left": 2.0}
+                    ],
+                    "reservations": [],
+                    "batches": [],
+                }
+            },
+        }
+    )
+    await brain.run_turn(
+        agent=agent,
+        game=game,  # type: ignore[arg-type]
+        store=store,
+        provider=llm.Provider("u", "k", "m"),
+        reference=commands.load(SESSION_SOURCE),
+    )
+    prompt = next(e for e in store.events(agent["id"]) if e["kind"] == "prompt")
+    assert "покупка «Соль» ×2 по 100 [o-9]" in json.loads(prompt["reply"])["user"]
+
+
+async def test_the_turn_survives_a_server_that_refuses_orders(
+    monkeypatch: pytest.MonkeyPatch, store: Store, agent: dict[str, Any]
+) -> None:
+    """The extra read is a convenience, not a condition for playing."""
+
+    async def fake_chat(*_: Any, **__: Any) -> llm.Reply:
+        return llm.Reply(
+            content="",
+            tool_calls=[_call("finish", thought="ладно")],
+            prompt_tokens=1,
+            completion_tokens=1,
+        )
+
+    monkeypatch.setattr(llm, "chat", fake_chat)
+    game = FakeGame({"look": {"money": 0}, "orders": Refused("нет живого тела")})
+    turn = await brain.run_turn(
+        agent=agent,
+        game=game,  # type: ignore[arg-type]
+        store=store,
+        provider=llm.Provider("u", "k", "m"),
+        reference=commands.load(SESSION_SOURCE),
+    )
+    assert turn.thought == "ладно"
+
+
+def test_identifier_arguments_are_marked_in_the_reference() -> None:
+    """«Плавильная печь» where an id is wanted answers `badly formed hexadecimal
+    UUID string`, which names no argument (11 refusals in the journal)."""
+    reference = commands.load(SESSION_SOURCE)
+    assert commands.argument_list(reference["market.reserve"]) == "order:id,amount"
+    #: Through a helper: `craft.start` parses `tool` in `_craft_request`.
+    assert "tool:id" in commands.argument_list(reference["craft.start"])
+    #: A name is a name: goods are named, not identified.
+    assert "goods:id" not in commands.argument_list(reference["market.buy"])
+    assert "«:id»" in commands.help_text(reference, "market.reserve")
+
+
+async def test_a_missing_field_refusal_carries_the_arguments_even_with_args(
+    monkeypatch: pytest.MonkeyPatch, store: Store, agent: dict[str, Any]
+) -> None:
+    """Half the arguments given is the commonest miss, not none of them."""
+    seen: list[str] = []
+
+    replies = iter(
+        [
+            llm.Reply(
+                content="",
+                tool_calls=[_call("act", cmd="market.buy", args={"goods": "Соль"})],
+                prompt_tokens=1,
+                completion_tokens=1,
+            ),
+            llm.Reply(
+                content="",
+                tool_calls=[_call("finish", thought="поняла")],
+                prompt_tokens=1,
+                completion_tokens=1,
+            ),
+        ]
+    )
+
+    async def fake_chat(_p: Any, messages: list[dict[str, Any]], *_a: Any, **_k: Any) -> llm.Reply:
+        seen.extend(str(m.get("content")) for m in messages if m.get("role") == "tool")
+        return next(replies)
+
+    monkeypatch.setattr(llm, "chat", fake_chat)
+    game = FakeGame(
+        {"look": {"money": 0}, "market.buy": Refused("команде не хватает поля «amount»")}
+    )
+    await brain.run_turn(
+        agent=agent,
+        game=game,  # type: ignore[arg-type]
+        store=store,
+        provider=llm.Provider("u", "k", "m"),
+        reference=commands.load(SESSION_SOURCE),
+    )
+    assert "Аргументы market.buy: goods, tier, price, amount" in "".join(seen)
+
+
+def test_the_terminal_shelf_says_what_is_free_to_sell() -> None:
+    """`market.sell` refuses on the free amount; the shelf minus own sell orders
+    in this node is the only way to know it before being refused."""
+    look = {
+        "look": {
+            "node": {"key": "terra.capital.market", "name": "Рынок"},
+            "stall": [
+                {"goods": "Железная руда", "tier": "хорошее", "amount": 5.0},
+                {"goods": "Соль", "tier": "обычное", "amount": 2.0},
+            ],
+        }
+    }
+    own = {
+        "orders": {
+            "orders": [
+                {
+                    "id": "o1",
+                    "side": "sell",
+                    "goods": "Железная руда",
+                    "tier": "хорошее",
+                    "price": 30000,
+                    "left": 3.0,
+                    "node_key": "terra.capital.market",
+                },
+                #: The same goods committed in another node must not be
+                #: subtracted from the shelf standing here.
+                {
+                    "id": "o2",
+                    "side": "sell",
+                    "goods": "Соль",
+                    "tier": "обычное",
+                    "price": 100,
+                    "left": 2.0,
+                    "node_key": "terra.other",
+                },
+            ],
+            "reservations": [],
+            "batches": [],
+        }
+    }
+    said = observe.standing(own, look)
+    assert "«Железная руда» (хорошее) ×5, свободно 2" in said
+    assert "«Соль» (обычное) ×2;" in said or "«Соль» (обычное) ×2." in said
+    assert "свободно 2; «Соль»" not in said.replace("×5, свободно 2", "")
+
+
+def test_a_batch_says_why_it_is_not_moving() -> None:
+    """«away» means walk back to the machine, not wait -- the difference is the turn."""
+    frozen = {
+        "orders": {
+            "orders": [],
+            "reservations": [],
+            "batches": [{"output": "Гвозди", "units": 200, "waiting": "away", "node": "Кузница"}],
+        }
+    }
+    assert "тебя нет у станка в Кузница" in observe.standing(frozen)
+
+
+def test_long_lists_say_how_many_were_left_out() -> None:
+    """Silently cut orders are orders the agent posts a second time."""
+    many = [
+        {"id": f"o{i}", "side": "sell", "goods": "Соль", "price": 10, "left": 1}
+        for i in range(observe.STANDING_ROWS + 3)
+    ]
+    said = observe.standing({"orders": {"orders": many, "reservations": [], "batches": []}})
+    assert "…и ещё 3" in said
+
+
+def test_sums_in_coins_are_marked_apart_from_prices() -> None:
+    """A price is in ten-thousandths, a bank sum is in coins: mixing them up is
+    the class of refusal the money line was added to kill, in reverse."""
+    reference = commands.load(SESSION_SOURCE)
+    assert "amount:coins" in commands.argument_list(reference["finance.transfer"])
+    assert "amount:coins" in commands.argument_list(reference["bank.borrow"])
+    #: A market price is not in coins and must not be marked.
+    assert "price:coins" not in commands.argument_list(reference["market.buy"])
+    assert "«:coins»" in commands.help_text(reference, "bank.borrow")
+
+
+def test_the_coin_arguments_named_by_hand_still_exist() -> None:
+    """The list is here because the conversion happens in `engine/bank.py`,
+    across a call the parser does not follow -- so the game must be able to
+    break it loudly."""
+    reference = commands.load(SESSION_SOURCE)
+    for command, keys in commands.COIN_ARGUMENTS.items():
+        assert command in reference, command
+        for key in keys:
+            assert key in reference[command]["keys"], (command, key)
+
+
+def test_an_identifier_passed_by_value_is_marked_too() -> None:
+    """`_own_item(db, body, message["item"])`: the helper names the position,
+    the call site names the key. Without it `storage.put` and `storage.take`
+    disagreed about the same argument."""
+    reference = commands.load(SESSION_SOURCE)
+    assert "item:id" in commands.argument_list(reference["storage.put"])
+    assert "item:id" in commands.argument_list(reference["storage.take"])
+    assert "item:id" in commands.argument_list(reference["ground.drop"])
+
+
+async def test_standing_is_reread_on_the_events_that_move_it(
+    monkeypatch: pytest.MonkeyPatch, store: Store, agent: dict[str, Any]
+) -> None:
+    """D-226: the server says when to reread; between two market events the
+    answer is the same answer, and `orders` costs the server a query per batch."""
+
+    async def fake_chat(*_: Any, **__: Any) -> llm.Reply:
+        return llm.Reply(
+            content="",
+            tool_calls=[_call("finish", thought="жду")],
+            prompt_tokens=1,
+            completion_tokens=1,
+        )
+
+    monkeypatch.setattr(llm, "chat", fake_chat)
+    game = FakeGame(
+        {
+            "look": {"money": 0},
+            "orders": {"orders": {"orders": [], "reservations": [], "batches": []}},
+        }
+    )
+
+    async def turn() -> None:
+        await brain.run_turn(
+            agent=agent,
+            game=game,  # type: ignore[arg-type]
+            store=store,
+            provider=llm.Provider("u", "k", "m"),
+            reference=commands.load(SESSION_SOURCE),
+        )
+
+    await turn()
+    assert [cmd for cmd, _ in game.sent].count("orders") == 1
+    #: Nothing happened and the agent did nothing: the block is reused.
+    await turn()
+    assert [cmd for cmd, _ in game.sent].count("orders") == 1
+    #: The server said a deal went through: reread.
+    game.events = [{"event": "market.filled", "seq": 1}]
+    await turn()
+    assert [cmd for cmd, _ in game.sent].count("orders") == 2
+
+
+def test_a_server_that_does_not_place_orders_makes_the_shelf_cautious() -> None:
+    """Against a server without the node on an order, every sell order counts
+    against the shelf: a shelf that looks all free sent the agent into
+    `market.take` eighteen times in ten minutes."""
+    look = {
+        "look": {
+            "node": {"key": "terra.capital.market"},
+            "stall": [{"goods": "Железная руда", "tier": "хорошее", "amount": 5.0}],
+        }
+    }
+    old = {
+        "orders": {
+            "orders": [
+                {
+                    "id": "o1",
+                    "side": "sell",
+                    "goods": "Железная руда",
+                    "tier": "хорошее",
+                    "price": 30000,
+                    "left": 5.0,
+                }
+            ],
+            "reservations": [],
+            "batches": [],
+        }
+    }
+    said = observe.standing(old, look)
+    assert "свободно не больше 0" in said
+
+
+async def test_a_name_where_an_id_was_wanted_gets_the_arguments_back(
+    monkeypatch: pytest.MonkeyPatch, store: Store, agent: dict[str, Any]
+) -> None:
+    """`badly formed hexadecimal UUID string` names no argument, and the model
+    tries the next name it can read -- three station names in a row."""
+    seen: list[str] = []
+    replies = iter(
+        [
+            llm.Reply(
+                content="",
+                tool_calls=[
+                    _call("act", cmd="craft.start", args={"output": "Слиток", "tool": "Кузница"})
+                ],
+                prompt_tokens=1,
+                completion_tokens=1,
+            ),
+            llm.Reply(
+                content="",
+                tool_calls=[_call("finish", thought="поняла")],
+                prompt_tokens=1,
+                completion_tokens=1,
+            ),
+        ]
+    )
+
+    async def fake_chat(_p: Any, messages: list[dict[str, Any]], *_a: Any, **_k: Any) -> llm.Reply:
+        seen.extend(str(m.get("content")) for m in messages if m.get("role") == "tool")
+        return next(replies)
+
+    monkeypatch.setattr(llm, "chat", fake_chat)
+    game = FakeGame(
+        {
+            "look": {"money": 0},
+            "craft.start": Refused("команда не понята: badly formed hexadecimal UUID string"),
+        }
+    )
+    await brain.run_turn(
+        agent=agent,
+        game=game,  # type: ignore[arg-type]
+        store=store,
+        provider=llm.Provider("u", "k", "m"),
+        reference=commands.load(SESSION_SOURCE),
+    )
+    assert "tool:id" in "".join(seen)

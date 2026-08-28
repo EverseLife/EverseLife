@@ -406,17 +406,22 @@ async def _discovered(db: AsyncSession, identity_id: uuid.UUID) -> list[str]:
 
 
 async def _orders(db: AsyncSession, identity_id: uuid.UUID) -> list[dict[str, Any]]:
+    """Own active orders, with the node each one stands in.
+
+    The node is here for the same reason it is on a reservation: without it
+    nothing outside the server can tell how much of the goods on the terminal
+    shelf is still free to sell. The shelf is `look.stall`, what is committed
+    is the sum of one's own sell orders *in this node* -- and orders in another
+    node must not be subtracted from it (D-225: the key is here because the
+    client cannot derive it).
+    """
     rows = (
-        (
-            await db.execute(
-                select(Order).where(
-                    Order.identity_id == identity_id, Order.state == OrderState.ACTIVE
-                )
-            )
+        await db.execute(
+            select(Order, Node.name, Node.key)
+            .join(Node, Node.id == Order.node_id)
+            .where(Order.identity_id == identity_id, Order.state == OrderState.ACTIVE)
         )
-        .scalars()
-        .all()
-    )
+    ).all()
     return [
         {
             "id": str(order.id),
@@ -425,8 +430,10 @@ async def _orders(db: AsyncSession, identity_id: uuid.UUID) -> list[dict[str, An
             "tier": order.tier,
             "price": order.price,
             "left": amount_float(order.amount_left),
+            "node": name,
+            "node_key": key,
         }
-        for order in rows
+        for order, name, key in rows
     ]
 
 

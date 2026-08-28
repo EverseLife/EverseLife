@@ -63,4 +63,12 @@ class Ship(Base):
     #: departed one stood. Empty in flight, along with the port.
     berth: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
+    #: When the hull's air was last settled (D-233). A stamp, and the reserve is
+    #: elsewhere for the same reason a body's is: oxygen is a liquid and lives
+    #: in the tanks aboard (D-230, D-234). Nothing is ticked while the ship sits
+    #: at a port of a planet that has air -- the stamp simply moves with the
+    #: clock, so a month at a Terran pier is never charged to the tanks the hour
+    #: it casts off.
+    air_at: Mapped[datetime] = created_column()
+
     created_at: Mapped[datetime] = created_column()

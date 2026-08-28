@@ -10,9 +10,11 @@
  *
  * The panel is two columns: on the left one chooses a position and places an
  * order on it, on the right stands the terminal -- the shelf the goods are
- * actually sold off. There is no copy of the pocket here any more (D-238): the
- * sidebar's inventory is the hands, it is on screen beside this panel, and a
- * stack drags from it onto the terminal and back.
+ * actually sold off. There is no copy of the pocket here any more (D-238):
+ * the sidebar's inventory is the hands, and a stack drags from it onto the
+ * terminal and back. Where the two are not on screen together -- a narrow
+ * screen puts the sidebar and the scene in different zones -- the way through
+ * is the row menu's "В терминал" and the "Забрать" button here.
  *
  * ## A position is any goods, not only a traded one
  *
@@ -28,51 +30,34 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import * as api from "../api";
 import type { Book, Look, RecipeBook, Thing } from "../api";
 import { Amount } from "../Amount";
-import { chosen, tally } from "../amounts";
+import { chosen, counted, tally, unit } from "../amounts";
 import { Rule } from "../Rule";
 import { Refusal, useActions, useBook, useSession } from "../actions";
 import { DropZone } from "../DragMove";
 import { grip, noDrag } from "../drag";
 import { GoodsMark } from "../Glyph";
+import { catalogue, coins, exactly } from "../market";
 
-type Props = {
-  look: Look;
-  values: Record<string, any> | null;
-  busy: boolean;
-  act: (what: () => Promise<unknown>) => Promise<void>;
-};
+//: The panel keeps its own waiting and its own refusal, so it takes neither.
+type Props = { look: Look };
 
 type Position = { goods: string; tier: string };
 
-/** A quantity without lies: fractional is shown fractional, whole -- whole. */
-const exactly = (qty: number) =>
-  qty.toFixed(3).replace(/\.?0+$/, "") || "0";
-
 /**
- * A sum of money without lies either, to the last minor unit.
+ * A row that acts on a click acts on Enter and Space too.
  *
- * `tk` rounds to the coin's two decimals, which is right for a price in a
- * table and wrong for the total under an order: an order of one minor unit
- * would read "0 ₭" beside a live button, and a zero beside a live button is a
- * lie, not brevity.
+ * The rows here are `<tr>` rather than buttons because a button cannot hold a
+ * table row, and the alternative -- a button inside every cell -- would put
+ * three controls where the eye reads one line. So the row carries the button's
+ * manners instead: a role, a stop on the tab ring, and these two keys.
  */
-const coins = (minor: number) =>
-  (minor / api.MONEY_SCALE).toFixed(4).replace(/\.?0+$/, "") || "0";
+const onEnter = (event: React.KeyboardEvent, act: () => void) => {
+  if (event.key !== "Enter" && event.key !== " ") return;
+  event.preventDefault();
+  act();
+};
 
-/** Everything that can stand in a book: made things and the world's own stuff.
- *
- *  What the Forerunners left is not in it (D-232): nobody makes those, takes
- *  them down or carries them away, so an order for one is an order for a thing
- *  that cannot be delivered. */
-function catalogue(book: RecipeBook | null): string[] {
-  if (!book) return [];
-  const names = new Set<string>();
-  for (const recipe of book.recipes) names.add(recipe.name);
-  for (const material of book.materials) if (!material.relic) names.add(material.name);
-  return [...names].sort((a, b) => a.localeCompare(b, "ru"));
-}
-
-export function Market({ look }: Omit<Props, "busy" | "act">) {
+export function Market({ look }: Props) {
   const session = useSession();
   const book = useBook();
   //: This panel's own waiting and its own refusal: one action here
@@ -116,9 +101,24 @@ export function Market({ look }: Omit<Props, "busy" | "act">) {
     });
   }, [node, edition]);
 
+  //: The book belongs to a position, and the answer must prove it does before
+  //: it is shown. Without that a click on a new name left the old book on
+  //: screen for as long as the fetch took -- and "по рынку" is one click away
+  //: from it, so an order for the new goods went out at the old goods' price.
+  //: Cleared first for the same reason: an empty book disables those buttons,
+  //: a stale one does not.
   useEffect(() => {
     if (!node || !choice) return;
-    void api.book(node, choice.goods, choice.tier).then(setOrderBook);
+    let current = true;
+    setOrderBook(null);
+    void api.book(node, choice.goods, choice.tier).then((answer) => {
+      if (!current) return;
+      if (answer.type_key !== choice.goods || answer.tier !== choice.tier) return;
+      setOrderBook(answer);
+    });
+    return () => {
+      current = false;
+    };
   }, [node, choice, edition]);
 
   useEffect(() => {
@@ -143,7 +143,9 @@ export function Market({ look }: Omit<Props, "busy" | "act">) {
     const seen = new Map<string, Position>();
     for (const p of positions) seen.set(`${p.goods}|${p.tier}`, p);
     for (const t of [...inHands, ...terminal]) {
-      if (t.quality == null) continue;
+      //: Everything held, quality or none: a coin and a seed have a tier as
+      //: much as an ore does (the engine's lowest one), and the old list left
+      //: them out -- so what a player was carrying could not be offered.
       //: The counter's name, not the item's: a written carrier is a position
       //: per recipe -- "Рецепт: Стекло" (D-209).
       const goods = t.key ?? t.goods;
@@ -166,8 +168,21 @@ export function Market({ look }: Omit<Props, "busy" | "act">) {
       .sort((a, b) => Number(mine.has(b)) - Number(mine.has(a)));
   }, [query, everything, near]);
 
-  const bestSell = orderBook?.asks[0] ?? null; // what they sell at: buy here
-  const bestBuy = orderBook?.bids[0] ?? null; // what they take at: sell here
+  /**
+   * The book, but only if it is this position's book.
+   *
+   * Clearing it in the effect is not enough on its own: the click that changes
+   * the position renders once with the new name and the old book still in
+   * hand, and in that frame "по рынку" would send an order for the new goods
+   * at the old goods' price. Asked of the data instead of the order of events,
+   * the stale book is invisible from the same render the choice changes in.
+   */
+  const liveBook =
+    orderBook && orderBook.type_key === choice?.goods && orderBook.tier === choice?.tier
+      ? orderBook
+      : null;
+  const bestSell = liveBook?.asks[0] ?? null; // what they sell at: buy here
+  const bestBuy = liveBook?.bids[0] ?? null; // what they take at: sell here
 
   //: A price to start from, so that the field is never a guess: the last deal
   //: if there was one, otherwise whichever side of the book exists.
@@ -176,15 +191,43 @@ export function Market({ look }: Omit<Props, "busy" | "act">) {
   //: and the field then kept the zero into the next position.
   useEffect(() => {
     if (priceIsMine.current) return;
-    const suggestion = orderBook?.last ?? bestSell?.price ?? bestBuy?.price ?? null;
+    const suggestion = liveBook?.last ?? bestSell?.price ?? bestBuy?.price ?? null;
     if (suggestion != null && suggestion > 0) setPrice(suggestion / api.MONEY_SCALE);
-  }, [orderBook, bestSell, bestBuy]);
+  }, [liveBook, bestSell, bestBuy]);
 
   const pick = (position: Position) => {
+    //: A new position is a new price question, and the field follows again --
+    //: but only when the position really changed. Clicking the row one is
+    //: already on (the terminal's rows pick too) must not wipe a typed price.
+    if (choice?.goods !== position.goods || choice?.tier !== position.tier) {
+      priceIsMine.current = false;
+    }
     setChoice(position);
-    //: A new position is a new price question; the field follows again.
-    priceIsMine.current = false;
   };
+
+  /**
+   * The tier to open a name at.
+   *
+   * What trades here wins: looking at "ore, excellent" and then searching out
+   * bread must not land on "bread, excellent" -- the books are matched by tier
+   * exactly (D-058), and an order in a tier nobody deals in would stand for
+   * ever. The tier being looked at is kept only when this name is traded in it.
+   */
+  const tierFor = (goods: string): string => {
+    const here = near.filter((p) => p.goods === goods).map((p) => p.tier);
+    if (choice && here.includes(choice.tier)) return choice.tier;
+    return here[0] ?? choice?.tier ?? tiers[2] ?? "обычное";
+  };
+
+  /** A rung of the book becomes the price in the field: reading a number off
+   *  the screen to type it back in is work the panel can do. */
+  const takePrice = (minor: number) => {
+    setPrice(minor / api.MONEY_SCALE);
+    priceIsMine.current = true;
+  };
+
+  //: Whether this position is counted in pieces rather than measured (D-212).
+  const whole = choice ? counted(choice.goods) : false;
 
   const nameOf = (t: Thing) => t.key ?? t.goods;
   const onShelf = choice
@@ -238,32 +281,22 @@ export function Market({ look }: Omit<Props, "busy" | "act">) {
                 {found ? "ничего не нашлось" : "здесь ещё ничем не торговали"}
               </p>
             ) : (
+              /* Every match, not the first forty: the box scrolls, and a list
+                 silently cut at forty is a list that does not contain what the
+                 search says it found. */
               <ul className="picks">
-                {[...new Set(found ?? near.map((p) => p.goods))]
-                  .slice(0, 40)
-                  .map((goods) => (
-                    <li key={goods}>
-                      <button
-                        className={choice?.goods === goods ? "" : "quiet"}
-                        aria-pressed={choice?.goods === goods}
-                        onClick={() =>
-                          pick({
-                            goods,
-                            //: Keep the tier being looked at; a name picked
-                            //: from a search has none of its own.
-                            tier:
-                              choice?.tier ??
-                              near.find((p) => p.goods === goods)?.tier ??
-                              tiers[2] ??
-                              "обычное",
-                          })
-                        }
-                      >
-                        <GoodsMark book={book} goods={goods} />
-                        {goods}
-                      </button>
-                    </li>
-                  ))}
+                {[...new Set(found ?? near.map((p) => p.goods))].map((goods) => (
+                  <li key={goods}>
+                    <button
+                      className={choice?.goods === goods ? "" : "quiet"}
+                      aria-pressed={choice?.goods === goods}
+                      onClick={() => pick({ goods, tier: tierFor(goods) })}
+                    >
+                      <GoodsMark book={book} goods={goods} />
+                      {goods}
+                    </button>
+                  </li>
+                ))}
               </ul>
             )}
           </div>
@@ -294,7 +327,7 @@ export function Market({ look }: Omit<Props, "busy" | "act">) {
             </p>
           )}
 
-          {orderBook && (orderBook.asks.length > 0 || orderBook.bids.length > 0) ? (
+          {liveBook && (liveBook.asks.length > 0 || liveBook.bids.length > 0) ? (
             <table className="book">
               <thead>
                 <tr>
@@ -306,28 +339,30 @@ export function Market({ look }: Omit<Props, "busy" | "act">) {
               <tbody>
                 {/* A click on a rung puts its price in the field: reading a
                     number off the book to type it back in is work. */}
-                {[...orderBook.asks].reverse().map((u) => (
+                {[...liveBook.asks].reverse().map((u) => (
                   <tr
                     key={`a${u.price}`}
                     className="pick"
-                    onClick={() => {
-                      setPrice(u.price / api.MONEY_SCALE);
-                      priceIsMine.current = true;
-                    }}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`цена ${coins(u.price)} за единицу`}
+                    onClick={() => takePrice(u.price)}
+                    onKeyDown={(e) => onEnter(e, () => takePrice(u.price))}
                   >
                     <td />
                     <td className="num">{coins(u.price)}</td>
                     <td className="num">{tally(choice!.goods, u.amount)}</td>
                   </tr>
                 ))}
-                {orderBook.bids.map((u) => (
+                {liveBook.bids.map((u) => (
                   <tr
                     key={`b${u.price}`}
                     className="pick"
-                    onClick={() => {
-                      setPrice(u.price / api.MONEY_SCALE);
-                      priceIsMine.current = true;
-                    }}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`цена ${coins(u.price)} за единицу`}
+                    onClick={() => takePrice(u.price)}
+                    onKeyDown={(e) => onEnter(e, () => takePrice(u.price))}
                   >
                     <td className="num">{tally(choice!.goods, u.amount)}</td>
                     <td className="num">{coins(u.price)}</td>
@@ -339,8 +374,8 @@ export function Market({ look }: Omit<Props, "busy" | "act">) {
           ) : (
             <p className="note">по этой позиции стакан пуст: цену назначает первый</p>
           )}
-          {orderBook?.last != null && (
-            <p className="note">последняя сделка: {api.tk(orderBook.last)} ₭</p>
+          {liveBook?.last != null && (
+            <p className="note">последняя сделка: {api.tk(liveBook.last)} ₭</p>
           )}
 
           {/* One order, one place: how much, at what price, and what it comes
@@ -348,20 +383,31 @@ export function Market({ look }: Omit<Props, "busy" | "act">) {
               book's own best price already in it. */}
           <div className="order">
             <label>
-              <span>сколько</span>
+              <span>сколько{choice ? `, ${unit(choice.goods)}` : ""}</span>
+              {/* The field obeys the thing (D-212): a counted one steps and
+                  rounds to whole pieces -- the engine refuses a half loaf, and
+                  a field must not offer what cannot be done. */}
               <input
                 type="number"
-                step="0.1"
+                step={whole ? 1 : "any"}
                 min="0"
                 value={volume}
-                onChange={(e) => setVolume(Number(e.target.value))}
+                onChange={(e) => {
+                  const typed = Number(e.target.value);
+                  if (!Number.isFinite(typed)) return;
+                  const held = Math.max(0, typed);
+                  setVolume(whole ? Math.floor(held) : held);
+                }}
               />
             </label>
             <label>
               <span>цена за единицу, ₭</span>
+              {/* Money steps by the coin's own hundredth; the field still takes
+                  a typed price down to the last minor unit, because the book
+                  has rungs there. */}
               <input
                 type="number"
-                step="0.1"
+                step="0.01"
                 min="0"
                 value={price}
                 onChange={(e) => {
@@ -573,7 +619,12 @@ function Shelf({
             <tr
               key={t.id}
               className={`pick ${selected ? "picked" : ""}`}
+              role="button"
+              tabIndex={0}
+              aria-pressed={selected}
+              aria-label={`позиция ${name}, ${t.tier}`}
               onClick={() => mark({ goods: name, tier: t.tier })}
+              onKeyDown={(e) => onEnter(e, () => mark({ goods: name, tier: t.tier }))}
               {...grip({
                 item: t.id,
                 goods: t.goods,

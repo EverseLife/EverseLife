@@ -39,6 +39,7 @@ from src.engine import (
     food,
     frost,
     journal,
+    oxygen,
     panel,
     plates,
     rig,
@@ -130,6 +131,18 @@ async def _frost(session: AsyncSession, now: datetime) -> dict[str, Any]:
     return {"frozen_dead": dead, "brazier_fuel": round(burnt, ROUND_MASS)}
 
 
+async def _oxygen(session: AsyncSession, now: datetime) -> dict[str, Any]:
+    #: Breathing does not wait for a login either (D-233): a hull under way
+    #: makes and spends its air by the clock, and a body left on the black
+    #: fields of Pyroxis empties its cylinder whether anybody is watching or
+    #: not. Two sweeps, and they never touch the same body: the hull settles
+    #: its crew, this settles everybody standing outside one.
+    constants = current()
+    made, lost = await oxygen.tick_ships(session, constants, current_catalog(), now=now)
+    outside = await oxygen.tick_bodies(session, constants, current_catalog(), now=now)
+    return {"air_made": round(made, ROUND_MASS), "choked": lost + outside}
+
+
 async def _orphans(session: AsyncSession, now: datetime) -> dict[str, Any]:
     #: A batch whose job died would otherwise stay "running" for ever, and its
     #: master would count as busy for ever with it (D-211, D-217). The world
@@ -202,6 +215,7 @@ WORLD_STEPS: dict[str, tuple[Step, str]] = {
     "rigs": (_rigs, "first"),
     "orphans": (_orphans, "first"),
     "frost": (_frost, "first"),
+    "oxygen": (_oxygen, "first"),
 }
 DAILY_STEPS: dict[str, tuple[Step, str]] = {
     "wear": (_wear, "first"),

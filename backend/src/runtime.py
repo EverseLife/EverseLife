@@ -174,6 +174,28 @@ MAP_HASH_SPAN = 65_521
 #: is being seated. Eight bytes, because Postgres takes a bigint.
 MAP_LOCK_BYTES = 8
 
+#: How far the map reaches from the body, in steps of the graph (D-240). Not
+#: balance: what a player may reach is decided by edges and their seconds, and
+#: this decides only how much of the reachable is drawn at once. Two, because
+#: one shows the ways out and nothing to choose between them, and three already
+#: draws the next city over.
+MAP_SIGHT = 2
+#: How far the planet's surface reaches. One step: past it lies what one has
+#: still to walk to, and a planet drawn whole is a planet nobody explores.
+MAP_SIGHT_PLANET = 1
+
+#: The grid a ship's rooms snap to when the owner arranges them (D-240). One
+#: cell is exactly the gap two nodes may never be nearer than, so a tidy hull
+#: is also a legible one -- and no arrangement can put two rooms on one point.
+SHIP_GRID = MAP_MIN_GAP
+#: How far from the origin a room may be dragged, in cells. A bound on the
+#: picture, not on the ship: a hull whose rooms are a hundred cells apart is
+#: unreadable at any zoom, and nothing in the world counts these units.
+SHIP_GRID_REACH = 16
+#: Ship name length limit. The same hygiene as a plot's nameplate: it has to
+#: fit where a name is drawn, and there is nothing to balance.
+SHIP_NAME_LIMIT = 40
+
 #: How many past events the return summary carries. A display depth, not a
 #: property of the world: the journal keeps everything, and a screen meant to be
 #: read in ten seconds cannot.

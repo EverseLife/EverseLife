@@ -48,6 +48,7 @@ import { Market } from "./Market";
 import { Mine } from "./Mine";
 import { Mint } from "./Mint";
 import { Nursery } from "./Nursery";
+import { Berth } from "./place/Berth";
 import { Convoy } from "./place/Convoy";
 import { Gather } from "./place/Gather";
 import { Ground } from "./place/Ground";
@@ -365,10 +366,14 @@ function assemble({ look, values, pow }: Props, book: RecipeBook | null): Thing[
       () => <Ship look={look} console />,
       aboard ? 0 : 2,
       aboard ? undefined : "работает только на борту корабля",
-      "Окно рубки: карта космоса, отстыковка и перелёты между планетами.",
+      "Окно рубки: карта рейса этого корабля, отстыковка и курс на планету.",
     );
   }
-  if (bridge === undefined && (yard !== undefined || aboard)) {
+  //: The ship's own card stands in **every** compartment (D-240). It used to
+  //: be hidden wherever the console was, so the room the bridge stood in --
+  //: usually the base -- was the one room aboard with no way to read the hull.
+  //: Nothing on the card moves the ship, so nothing on it asks for the bridge.
+  if (yard !== undefined || aboard) {
     //: Aboard the window is the ship, on the ground it is the yard the ship is
     //: laid down and moored at: one panel, and its name says which of the two
     //: the player is looking at.
@@ -379,7 +384,9 @@ function assemble({ look, values, pow }: Props, book: RecipeBook | null): Thing[
       () => <Ship look={look} />,
       1,
       undefined,
-      "Окно корабля и верфи: заложить корпус, смотреть швартовку и борт.",
+      aboard
+        ? "Окно корабля: тяга против массы, кислород, имя и чертёж — расстановка отсеков."
+        : "Окно верфи: заложить корпус и смотреть швартовку.",
     );
   }
 
@@ -455,7 +462,7 @@ function assemble({ look, values, pow }: Props, book: RecipeBook | null): Thing[
   if (terminal !== undefined) {
     const mine = (look.stall ?? []).length;
     single("market", terminal, "full",
-      () => <Market look={look} values={values} />, 1,
+      () => <Market look={look} />, 1,
       mine > 0 ? `вашего товара: ${mine}` : undefined,
       "Окно рынка: стакан заявок, покупка, продажа и свой товар в терминале.");
   }
@@ -506,7 +513,22 @@ function assemble({ look, values, pow }: Props, book: RecipeBook | null): Thing[
   //: D-205) -- and what lies on its floor and in its chests. A guest gets the
   //: window too, with the storage half alone: the floor of a room one stands
   //: in is everybody's business (D-192), the building of it is not.
-  if ((own && node) || (roofed && stores)) {
+  //: Aboard neither window has an answer (D-240): there is no ground under a
+  //: hull, so a compartment is not built, not bought, not fenced and no city is
+  //: founded in it. One window instead, and it answers the one question a
+  //: compartment has -- what stands in it and what lies in it.
+  if (aboard) {
+    single(
+      "berth",
+      "Отсек",
+      "full",
+      () => <Berth look={look} />,
+      3,
+      room ? `пол ${room.used.toFixed(0)} / ${room.area.toFixed(0)} м²` : undefined,
+      "Окно отсека: станки и мебель на борту, пол отсека с вещами и имя отсека.",
+    );
+  }
+  if (!aboard && ((own && node) || (roofed && stores))) {
     single(
       "house",
       "Здание",
@@ -554,7 +576,7 @@ function assemble({ look, values, pow }: Props, book: RecipeBook | null): Thing[
   const forSale = Boolean(node && !node.owner && (api.isWild(node) || node.price !== undefined));
   const owned = Boolean(node?.owner || node?.owner_city);
   const bare = !roofed && stores;
-  if (forSale || owned || bare) {
+  if (!aboard && (forSale || owned || bare)) {
     single(
       "plot",
       "Земля",

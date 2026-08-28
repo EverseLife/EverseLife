@@ -571,6 +571,9 @@ export type Look = {
    * a climate: there is nothing to show and nothing to fear on Terra.
    */
   frost?: Frost;
+  /** The air, and only where there is none (D-233, D-234): in flight and on an
+   *  airless world. Absent on Terra and Aurora, for everybody, always. */
+  air?: Air;
   /**
    * Everything the body is at: one body does one thing (D-211), but a frozen
    * batch or a plough of one's own can stand beside the thing running now.
@@ -926,6 +929,23 @@ export type Frost = {
    * live in `/public/constants`.
    */
   max: number;
+};
+
+/**
+ * The air one is breathing (D-233, D-234). The second scale of survival, told
+ * the same way the first is: a level, a rate and a stamp, with the client
+ * counting the hand -- a number of units would go stale between pushes (D-226).
+ */
+export type Air = {
+  /** Where the breath comes from: the hull's tanks, or a cylinder through a suit. */
+  where: "борт" | "скафандр";
+  units: number;
+  /** Units spent per hour; negative is the countdown, zero is nothing to spend
+   *  it through -- a bagful of cylinders and no suit to connect them. */
+  per_hour: number;
+  at: string;
+  /** Whether a suit is worn. Without one a cylinder gives nothing at all. */
+  suit: boolean;
 };
 
 /** The foraging window: the plot's empty land, the search and its find (D-210). */
@@ -1369,8 +1389,14 @@ export class Session {
   }
 }
 
-async function read<T>(path: string): Promise<T> {
-  const answer = await fetch(HTTP + path);
+async function read<T>(path: string, token?: string): Promise<T> {
+  //: The token travels in the ordinary header and only where it means
+  //: something. Catalogs are the same for everybody and are asked for without
+  //: one; the map is not (D-240) -- what it answers with depends on where the
+  //: body stands, and without a token it answers with the sky.
+  const answer = await fetch(HTTP + path, {
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+  });
   if (!answer.ok) throw new Error(`${path}: ${answer.status}`);
   return answer.json();
 }
@@ -1386,7 +1412,14 @@ export const lines = () => read<{ lines: Line[] }>("/public/lines");
 export const tiers = () => read<{ tiers: { from: number; to: number; name: string }[] }>(
   "/public/quality/tiers",
 );
-export const worldMap = () => read<WorldMap>("/public/map");
+/**
+ * The map as it looks from where you stand (D-240).
+ *
+ * Two steps of the graph around the body, one step of the planet's surface,
+ * and the sky. Without a token -- the sky alone: the surface asks for a body.
+ * So this is the one public read that takes one.
+ */
+export const worldMap = (token?: string) => read<WorldMap>("/public/map", token);
 export const plants = () =>
   read<{
     plants: {
@@ -1460,10 +1493,10 @@ export type RecipeBook = {
   constants?: Record<string, number>;
 };
 
-/** Money comes in minor units: 1 TC = 10 000. Not a cent is lost. */
-export const MONEY_SCALE = 10_000;
-export const tk = (minor: number) => (minor / MONEY_SCALE).toFixed(2).replace(/\.?0+$/, "");
-export const minor = (tk: number) => Math.round(tk * MONEY_SCALE);
+/** Money comes in minor units: 1 TC = 10 000. Not a cent is lost. It lives in
+ *  `money.ts`, which no browser is needed to load, and is re-exported here so
+ *  that every call site that ever knew it still does. */
+export { MONEY_SCALE, minor, tk } from "./money";
 
 /**
  * The plot's building block, or an empty yard where the server sent none:

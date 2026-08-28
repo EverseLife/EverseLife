@@ -298,9 +298,6 @@ button.chat-fold:not(:disabled):hover {
   flex: 1;
   min-width: 0;
 }
-.drop-head {
-  margin-top: 0.85rem;
-}
 
 /* --- gauges, chips and state cards (D-238, amendment 5) -------------------- */
 

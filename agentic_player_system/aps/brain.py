@@ -82,6 +82,14 @@ DEFAULT_HISTORY = 20
 #: An answer with no tool call and no text at all, in a row: nudged once, then
 #: the turn ends as an error rather than as a turn that did nothing.
 MAX_EMPTY_REPLIES = 2
+#: Events after which one's own orders, reservations and batches may have
+#: moved. D-226: the server says when to reread, the client does not poll.
+STANDING_EVENTS = ("market.", "craft.", "deed.")
+#: Refusals answered by naming the arguments again: a field the command wanted
+#: and did not get, and a name where an identifier was wanted -- for the second
+#: the server says only `badly formed hexadecimal UUID string`, which names no
+#: argument at all, and the model tries the next name it can read.
+ARGUMENT_REFUSALS = ("не хватает поля", "hexadecimal UUID")
 #: The longest the agent may ask to sleep: a day. Beyond that it is "off".
 MAX_WAIT = 24 * 3600
 
@@ -214,14 +222,46 @@ TOOLS: list[dict[str, Any]] = [
 #: everything through the first tool it was told about -- `act(cmd="help")` --
 #: and spends the whole turn on refusals from the server.
 TOOL_NAMES = frozenset(tool["function"]["name"] for tool in TOOLS)
-#: Commands that only read: the whole-state ones by name, the rest by the
-#: suffix the game keeps for them (CLAUDE.md: `look`, `*.view`, `*.status` do
-#: not write).
-READ_COMMANDS = frozenset({"look", "knowledge", "orders", "deeds", "shelf"})
 
 
-def _reads_only(cmd: str) -> bool:
-    return cmd in READ_COMMANDS or cmd.endswith((".view", ".status"))
+def _advice(
+    reference: dict[str, dict[str, Any]], cmd: str, args: dict[str, Any], refusal: str
+) -> str:
+    """What a refusal is right about but does not say, added to it.
+
+    Both cases retire on their own: the first when the model stops calling
+    commands bare, the second when the server names the ways itself (it does,
+    since `craft/method_of_making.py` was taught to).
+    """
+    #: The commonest miss of a small model: the command name with no arguments
+    #: at all, or a name where an identifier was wanted. The reference knows
+    #: them, so the refusal takes the list with it instead of costing another
+    #: step and another refusal.
+    keys = commands.argument_list(reference.get(cmd) or {}, ", ")
+    if keys and (not args or any(mark in refusal for mark in ARGUMENT_REFUSALS)):
+        return (
+            f"\nАргументы {cmd}: {keys} — передавай их в args: "
+            f'act(cmd="{cmd}", args={{…}}). Подробно — help(cmd="{cmd}").'
+        )
+    #: An older server says only "not this way" and leaves the model guessing
+    #: the next English word for it. One thing always works: the way is
+    #: optional, and without it the game takes the main one.
+    if "не делается способом" in refusal and "способы:" not in refusal:
+        return "\nСпособ можно не указывать: без way игра берёт основной способ."
+    return ""
+
+
+def _touches(events: list[dict[str, Any]], prefixes: tuple[str, ...]) -> bool:
+    """Whether the server said anything of these kinds since the last turn."""
+    return any(str(happening.get("event") or "").startswith(prefixes) for happening in events)
+
+
+def _reads_only(reference: dict[str, dict[str, Any]], cmd: str) -> bool:
+    """The game's own word (`@command(..., readonly=True)`), carried into the
+    reference. Not a guess by name here: a command the game has not declared
+    is treated as one that writes, and repeating it is the agent's business.
+    """
+    return bool((reference.get(cmd) or {}).get("readonly"))
 
 
 SYSTEM = """Ты — житель мира Everse.Life, обычный игрок. Тебя зовут {name}.
@@ -267,6 +307,15 @@ SYSTEM = """Ты — житель мира Everse.Life, обычный игро�
 - Деньги и имущество: за один ход не больше {money_limit} команд, которые тратят
   деньги или отдают вещи (покупка, бронь, перевод, заём, сделка с землёй). Лишние
   система отклонит — это защита от поспешных трат.
+
+Две вещи про аргументы, на которых легко ошибиться:
+- Деньги считают в двух единицах. В наблюдении твои деньги названы обеими: в
+  монетах и в мелких долях (1 монета = 10000). Цена на рынке — в книге ордеров,
+  в предложении и в аргументе price — всегда в мелких; сравнивай цену именно со
+  вторым числом, иначе закажешь то, на что не хватит. Наоборот, аргумент с
+  пометкой «:coins» — сумма в монетах.
+- Аргумент с пометкой «:id» — это идентификатор из ответа сервера (длинная
+  строка вида 5198c44e-…), а не название вещи. Название туда не подходит.
 
 Команды сессии — имя(аргументы): что делает, коротко. Описание здесь урезано до
 одной строки; полное описание и все аргументы одной команды даёт help.
@@ -383,7 +432,8 @@ async def run_turn(
         seen = await game.act("look")
     except Refused as refusal:
         seen = {"refused": str(refusal)}
-    news = observe.happened(game.take_events())
+    heard = game.take_events()
+    news = observe.happened(heard)
     #: The previous look, and how long since the model last saw one whole: the
     #: observation is a digest plus a diff, the whole thing every few turns.
     previous_looks = store.recent(agent_id, ("look",), observe.FULL_EVERY)
@@ -392,9 +442,33 @@ async def run_turn(
         e["text"] == "full" for e in previous_looks
     )
     observation, mode = observe.observation(previous, shrink(seen), full=full, packed=pack(seen))
+    #: Own orders, reservations and batches. They left `look` with D-226 and
+    #: the model does not go looking for them: in the journal the same order
+    #: goes up turn after turn, and a turn is spent waiting for a delivery that
+    #: was never ordered. Reread the way D-226 says to -- on the events that
+    #: move them, not every turn: the server pays for this read (a query per
+    #: batch), and the answer between two market events is the same answer.
+    known = store.recent(agent_id, ("standing",), 1)
+    acted = store.recent(agent_id, ("action",), 1)
+    #: The block is written at the start of a turn, so an action with a higher
+    #: id is an action of a later turn: the agent moved something itself and
+    #: the block it saw is out of date.
+    fresh = bool(known) and (not acted or acted[-1]["id"] < known[-1]["id"])
+    if fresh and not _touches(heard, STANDING_EVENTS):
+        standing = known[-1]["text"]
+    else:
+        try:
+            standing = observe.standing(await game.act("orders"), shrink(seen))
+        except Refused as refusal:
+            standing = ""
+            log.warning("agent %s: orders unread: %s", agent_id, refusal)
+    if standing:
+        observation += "\n\n" + standing
     if news:
         observation = f"Что произошло с прошлого хода:\n{news}\n\n{observation}"
     store.event(agent_id, "look", cmd="look", reply=shrink(seen), text=mode)
+    if standing:
+        store.event(agent_id, "standing", text=standing)
 
     #: The same string in the system part and in the prompt's weight note: it
     #: is built from 170-odd docstrings, so it is built once per turn.
@@ -606,7 +680,7 @@ async def _tool(
         #: between, so the answer would be the same -- a wasted step and one more
         #: copy of the answer in the context. Only reads: two identical buys are
         #: two purchases, and the model is allowed to mean that.
-        if _reads_only(cmd) and previous == (cmd, key, True):
+        if _reads_only(reference, cmd) and previous == (cmd, key, True):
             return (
                 f"Ты только что выполнил {cmd} с теми же аргументами, и с тех пор ничего не "
                 "менялось: ответ будет тот же. Сделай что-то другое или заверши ход через finish."
@@ -626,18 +700,7 @@ async def _tool(
         except Refused as refusal:
             store.event(agent_id, "refused", cmd=cmd, request=args, text=str(refusal))
             turn.actions.append((cmd, key, False))
-            #: The commonest miss of a small model: the command name with no
-            #: arguments at all. The reference knows them, so the refusal takes
-            #: the list with it instead of costing another step and another
-            #: refusal.
-            keys = (reference.get(cmd) or {}).get("keys") or []
-            if not args and keys:
-                return (
-                    f"ОТКАЗ: {refusal}\n"
-                    f"Аргументы {cmd}: {', '.join(keys)} — передавай их в args: "
-                    f'act(cmd="{cmd}", args={{…}}). Подробно — help(cmd="{cmd}").'
-                )
-            return f"ОТКАЗ: {refusal}"
+            return f"ОТКАЗ: {refusal}{_advice(reference, cmd, args, str(refusal))}"
         except GameError as trouble:
             #: The socket dropped on this command. Come back on a new one and
             #: let the model decide what to do about it; only a second failure

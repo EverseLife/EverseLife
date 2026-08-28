@@ -68,7 +68,6 @@ from src.models.world import Layer, Node
 from src.units import (
     ENERGY_PER_TARIFF_UNIT,
     HOURS_PER_DAY,
-    PERCENT,
     SECONDS_PER_HOUR,
     amount,
     amount_float,
@@ -81,7 +80,6 @@ from src.units import (
 WHEEL = "Водяное колесо"
 WINDMILL = "Ветряк"
 FUEL_PLANT = "Топливная станция"
-BATTERY = "Аккумулятор"
 #: The Forerunners' reactor (D-232): decay heat, no fuel and no people. It is
 #: a relic -- found, never made -- and its energy never reaches a battery: it
 #: pays for the relics of its own city and for nothing else. Free energy for
@@ -106,10 +104,6 @@ class NoGrid(EnergyError):
 
 class NotEnough(EnergyError):
     """The pool does not have that much. An empty pool is a political event, not an error."""
-
-
-class NotBattery(EnergyError):
-    pass
 
 
 async def grid_node(session: AsyncSession, node: Node) -> Node | None:
@@ -519,119 +513,20 @@ async def fuel(
 
 
 # --- battery -----------------------------------------------------------------
-
-
-def capacity(constants: Constants) -> float:
-    return constants[R.ENERGY_BATTERY_CAPACITY]
-
-
-def charge_of(constants: Constants, item: Item, *, now: datetime | None = None) -> float:
-    """Battery charge with self-discharge -- by elapsed time.
-
-    Energy is a perishable commodity: it cannot be stockpiled for years, and
-    that makes it constant demand rather than treasure.
-    """
-    if item.charge is None:
-        return 0.0
-    moment = now or datetime.now(UTC)
-    countdown = item.charged_at or item.created_at
-    #: A day here is planetary, like all other terms of the world (D-008).
-    hours_per_day = constants[R.TIME_DAY_TERRA]
-    days = max(0.0, (moment - countdown).total_seconds() / SECONDS_PER_HOUR / hours_per_day)
-    leaked = capacity(constants) * constants[R.ENERGY_BATTERY_SELFDISCHARGE] / PERCENT
-    return max(0.0, float(item.charge) - leaked * days)
-
-
-async def settle_charge(
-    session: AsyncSession, constants: Constants, item: Item, *, now: datetime | None = None
-) -> float:
-    """Write into the battery its actual charge as of now."""
-    moment = now or datetime.now(UTC)
-    charge_ = charge_of(constants, item, now=moment)
-    item.charge = Decimal(str(charge_))
-    item.charged_at = moment
-    await session.flush()
-    return charge_
-
-
-async def charge_battery(
-    session: AsyncSession,
-    constants: Constants,
-    body: Body,
-    item: Item,
-    amount_wanted: float | None = None,
-    *,
-    now: datetime | None = None,
-) -> float:
-    """Charge a battery from the city pool at the tariff.
-
-    In person: charge is taken in the city and by hand. The taker pays -- into
-    the city treasury: there is no free energy, and zero is a tariff too (D-085).
-
-    Both the one in hand and the one standing here as a machine are charged
-    (D-179): a battery is property of the place no less than a load.
-    """
-    moment = now or datetime.now(UTC)
-    if body.state is not BodyState.ALIVE:
-        raise EnergyError("мёртвое тело не заряжает")
-    await travel.require_here(session, body)
-
-    if item.type_key not in world.station_names(BATTERY):
-        raise NotBattery(f"{item.type_key!r} — не аккумулятор: энергия в мешке не лежит")
-
-    node = await session.get(Node, body.node_id)
-    if node is None:  # pragma: no cover
-        raise EnergyError("тело вне узла")
-    pocket = await world.body_container(session, body)
-    yard = await world.node_container(session, node)
-    if item.container_id not in (pocket.id, yard.id):
-        raise EnergyError("аккумулятор не в руках и не стоит здесь")
-    pool = await pool_of(session, constants, node, lock=True)
-    if pool is None:
-        raise NoGrid(
-            "здесь нет городской сети: вне города работают от аккумулятора, и заряжают его в городе"
-        )
-    await produce(session, constants, pool, now=moment)
-
-    have = await settle_charge(session, constants, item, now=moment)
-    place = max(0.0, capacity(constants) - have)
-    wants = place if amount_wanted is None else min(float(amount_wanted), place)
-    will_give = min(wants, float(pool.stored))
-    if will_give <= 0:
-        raise NotEnough(
-            f"в пуле {float(pool.stored):.0f} энергии, а в аккумуляторе места на {place:.0f}"
-        )
-
-    #: The tariff is given per hundred energy -- the bill is issued by it too.
-    price = money(will_give / ENERGY_PER_TARIFF_UNIT * float(pool.tariff))
-    if price > 0:
-        account = await ledger.account_for(session, AccountKind.IDENTITY, body.identity_id)
-        treasury = await ledger.account_for(session, AccountKind.CITY_TREASURY, pool.node_id)
-        await ledger.transfer(
-            session,
-            PostingReason.ENERGY_BILL,
-            debit=account.id,
-            credit=treasury.id,
-            amount=price,
-            memo={"энергии": will_give, "тариф": float(pool.tariff)},
-        )
-
-    pool.stored = Decimal(str(float(pool.stored) - will_give))
-    item.charge = Decimal(str(have + will_give))
-    item.charged_at = moment
-    await session.flush()
-
-    await events.record(
-        session,
-        EventKind.ENERGY_CHARGED,
-        actor_identity_id=body.identity_id,
-        node_id=body.node_id,
-        item_id=str(item.id),
-        energy=will_give,
-        paid=price,
-        tariff=float(pool.tariff),
-    )
-    return will_give
+#: The cell itself lives in `engine.battery` (see its docstring for the seam).
+#: Re-exported so `energy.charge_of` and `energy.BATTERY` read as they always
+#: did, and so nothing outside had to move when the file was cut.
+from src.engine.battery import (  # noqa: E402, F401
+    BATTERY,
+    BatteryError,
+    NotBattery,
+    batteries_in,
+    capacity,
+    charge_battery,
+    charge_of,
+    drain_batteries,
+    settle_charge,
+)
 
 
 async def draw_for_work(

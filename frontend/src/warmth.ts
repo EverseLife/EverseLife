@@ -26,3 +26,20 @@ export function reserveAt(frost: Frost, at: number): number {
 
 /** What the reserve is now. */
 export const reserveNow = (frost: Frost): number => reserveAt(frost, Date.now());
+
+/**
+ * The air left in the cylinder or the tanks, counted the same way (D-233).
+ *
+ * The server names a level, a rate and the moment both were measured at; the
+ * hand is the client's, so a screen that has not been pushed to in a minute
+ * still shows the truth. Never below nothing: an empty cylinder is empty, and
+ * how long ago it emptied is the world's business, not the gauge's.
+ */
+export type Breathing = { units: number; per_hour: number; at: string };
+
+export function leftAt(air: Breathing, at: number): number {
+  const hours = (at - new Date(air.at).getTime()) / MS_PER_HOUR;
+  return Math.max(0, air.units + air.per_hour * hours);
+}
+
+export const leftNow = (air: Breathing): number => leftAt(air, Date.now());

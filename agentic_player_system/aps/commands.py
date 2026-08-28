@@ -67,9 +67,104 @@ def _keys(func: ast.AST) -> list[str]:
     return found
 
 
-def _command_name(node: ast.AsyncFunctionDef | ast.FunctionDef) -> str | None:
-    """The name under `@command("...")`, when the function has one and it is
-    not declared `hidden`.
+#: Arguments given in coins, not in the ten-thousandths a price is quoted in.
+#: `finance.transfer` converts in the handler and the parser below finds it;
+#: these three hand the bare number to `engine/bank.py`, which converts it
+#: there -- across a call boundary the AST does not follow. Pinned by a test
+#: against the game's source, so a rename there fails here.
+COIN_ARGUMENTS = {
+    "bank.borrow": ("amount",),
+    "bank.repay": ("amount",),
+    "city.bail": ("amount",),
+}
+
+
+def _is_uuid_call(node: ast.Call) -> bool:
+    """`uuid.UUID(...)`, `_optional_uuid(...)` -- a parse into an identifier."""
+    if isinstance(node.func, ast.Attribute):
+        return node.func.attr.lower() == "uuid"
+    return isinstance(node.func, ast.Name) and node.func.id.lower().endswith("uuid")
+
+
+def _is_money_call(node: ast.Call) -> bool:
+    """`money(...)` -- coins in, minor units out (`src/units.py`)."""
+    return isinstance(node.func, ast.Name) and node.func.id == "money"
+
+
+def _coin_keys(func: ast.AST) -> list[str]:
+    """Arguments the handler itself converts from coins."""
+    found: list[str] = []
+    for node in ast.walk(func):
+        if isinstance(node, ast.Call) and _is_money_call(node):
+            for key in _keys(node):
+                if key not in found:
+                    found.append(key)
+    return found
+
+
+def _uuid_positions(func: ast.AsyncFunctionDef | ast.FunctionDef) -> list[int]:
+    """Which of the function's own parameters it parses as an identifier.
+
+    `_own_item(db, body, item_id)` does `uuid.UUID(item_id)` on its third
+    parameter, so every handler calling `_own_item(db, body, message["item"])`
+    wants an id in `item` -- the helper never touches the request itself, and
+    without this the mark lands on `storage.take` and not on `storage.put`.
+    """
+    names = [argument.arg for argument in func.args.args]
+    spots: list[int] = []
+    for node in ast.walk(func):
+        if not isinstance(node, ast.Call) or not _is_uuid_call(node):
+            continue
+        for argument in node.args:
+            if isinstance(argument, ast.Name) and argument.id in names:
+                index = names.index(argument.id)
+                if index not in spots:
+                    spots.append(index)
+    return spots
+
+
+def _called_name(call: ast.Call) -> str | None:
+    if isinstance(call.func, ast.Name):
+        return call.func.id
+    return call.func.attr if isinstance(call.func, ast.Attribute) else None
+
+
+def _id_keys(func: ast.AST) -> list[str]:
+    """Arguments the handler parses as an identifier rather than a name.
+
+    The model passes what it can read -- the name of the thing where the
+    handler wants the id of that particular one -- and the answer is
+    `badly formed hexadecimal UUID string`, which says nothing about which
+    argument was wrong. Marked in the reference, the question does not arise.
+    """
+    found: list[str] = []
+    for node in ast.walk(func):
+        if isinstance(node, ast.Call) and _is_uuid_call(node):
+            for key in _keys(node):
+                if key not in found:
+                    found.append(key)
+    return found
+
+
+def argument_list(entry: dict[str, Any], separator: str = ",") -> str:
+    """The arguments of one command: identifiers and sums in coins marked."""
+    ids = set(entry.get("ids") or ())
+    coins = set(entry.get("coins") or ())
+
+    def marked(key: str) -> str:
+        if key in ids:
+            return f"{key}:id"
+        return f"{key}:coins" if key in coins else key
+
+    return separator.join(marked(key) for key in entry.get("keys") or ())
+
+
+def _declared(node: ast.AsyncFunctionDef | ast.FunctionDef) -> tuple[str, bool] | None:
+    """The name under `@command("...")` and whether it is declared `readonly`,
+    when the function has one and it is not declared `hidden`.
+
+    `readonly` is the game's own word about a command (`api/registry.py`), so
+    the agent takes it from there instead of keeping a second list that drifts.
 
     A hidden command is one only a developer may run -- the alpha's debug
     widget (D-229). Its handler refuses everyone else on its own; leaving it
@@ -88,7 +183,7 @@ def _command_name(node: ast.AsyncFunctionDef | ast.FunctionDef) -> str | None:
         ):
             if _flagged(call, "hidden"):
                 return None
-            return str(call.args[0].value)
+            return str(call.args[0].value), _flagged(call, "readonly")
     return None
 
 
@@ -100,8 +195,9 @@ def _flagged(call: ast.Call, name: str) -> bool:
     )
 
 
-def _helpers(source: str) -> dict[str, list[str]]:
-    """Module-level functions that read request keys, and the keys they read.
+def _helpers(source: str) -> dict[str, dict[str, list[str]]]:
+    """Module-level functions that read request keys: the keys they read and
+    which of them they parse as identifiers.
 
     Only those: a function that never touches the request tells the reference
     nothing, and leaving it out keeps the map small enough to search the
@@ -113,8 +209,9 @@ def _helpers(source: str) -> dict[str, list[str]]:
         if not isinstance(node, ast.AsyncFunctionDef | ast.FunctionDef):
             continue
         keys = _keys(node)
-        if keys:
-            found[node.name] = keys
+        spots = _uuid_positions(node)
+        if keys or spots:
+            found[node.name] = {"keys": keys, "ids": _id_keys(node), "uuid_at": spots}
     return found
 
 
@@ -144,7 +241,9 @@ def _passed_on(func: ast.AST) -> list[str]:
     return called
 
 
-def extract(source: str, helpers: dict[str, list[str]] | None = None) -> dict[str, dict[str, Any]]:
+def extract(
+    source: str, helpers: dict[str, dict[str, list[str]]] | None = None
+) -> dict[str, dict[str, Any]]:
     """Commands of one module: every handler under `@command("name")` (the
     game's `api/registry.py`), its docstring and the request keys it reads --
     its own and those of the helpers it hands the request to."""
@@ -154,15 +253,44 @@ def extract(source: str, helpers: dict[str, list[str]] | None = None) -> dict[st
     for node in tree.body:
         if not isinstance(node, ast.AsyncFunctionDef | ast.FunctionDef):
             continue
-        command = _command_name(node)
-        if command is None:
+        declaration = _declared(node)
+        if declaration is None:
             continue
+        command, readonly = declaration
         keys = _keys(node)
+        ids = _id_keys(node)
+        #: What a helper reads, the command asks for -- and what the helper
+        #: parses as an identifier, the command wants as one (`craft.start`
+        #: takes `tool` through `_craft_request`).
         for helper in _passed_on(node):
-            for key in known.get(helper, ()):
+            borrowed = known.get(helper) or {}
+            for key in borrowed.get("keys", ()):
                 if key not in keys:
                     keys.append(key)
-        reference[command] = {"doc": ast.get_docstring(node) or "", "keys": keys}
+            for key in borrowed.get("ids", ()):
+                if key not in ids:
+                    ids.append(key)
+        #: And the commonest shape of all: not the whole request, one value out
+        #: of it -- `_own_item(db, body, message["item"])`. The helper says
+        #: which of its parameters it parses as an identifier; the call site
+        #: says which key sits there.
+        for call in ast.walk(node):
+            if not isinstance(call, ast.Call):
+                continue
+            spots = (known.get(_called_name(call) or "") or {}).get("uuid_at") or ()
+            for index in spots:
+                if index < len(call.args):
+                    for key in _keys(call.args[index]):
+                        if key not in ids:
+                            ids.append(key)
+        reference[command] = {
+            "doc": ast.get_docstring(node) or "",
+            "keys": keys,
+            "readonly": readonly,
+            "ids": ids,
+            "coins": _coin_keys(node)
+            + [key for key in COIN_ARGUMENTS.get(command, ()) if key in keys],
+        }
     return reference
 
 
@@ -184,8 +312,8 @@ def load(path: Path, cached: str = "") -> dict[str, dict[str, Any]]:
                 helpers.setdefault(name, keys)
         for module in sorted(engine.glob("*.py")) if engine.is_dir() else ():
             try:
-                for name, keys in _helpers(module.read_text(encoding="utf-8")).items():
-                    helpers.setdefault(name, keys)
+                for name, read in _helpers(module.read_text(encoding="utf-8")).items():
+                    helpers.setdefault(name, read)
             except (OSError, SyntaxError):  # pragma: no cover -- a half-written file
                 continue
         reference = dict(BUILTIN)
@@ -236,8 +364,7 @@ def brief(reference: dict[str, dict[str, Any]]) -> str:
     for command, entry in sorted(reference.items()):
         if command in BUILTIN:
             continue
-        args = ",".join(entry["keys"])
-        lines.append(f"- {command}({args}): {headline(entry['doc'])}")
+        lines.append(f"- {command}({argument_list(entry)}): {headline(entry['doc'])}")
     return "\n".join(lines)
 
 
@@ -245,5 +372,8 @@ def help_text(reference: dict[str, dict[str, Any]], command: str) -> str:
     entry = reference.get(command)
     if entry is None:
         return f"Нет такой команды: {command}"
-    args = ", ".join(entry["keys"]) or "без аргументов"
-    return f"{command}\nАргументы: {args}\n\n{entry['doc'] or '(описания нет)'}"
+    args = argument_list(entry, ", ") or "без аргументов"
+    hint = "\n«:id» — идентификатор из ответа сервера, а не название." if entry.get("ids") else ""
+    if entry.get("coins"):
+        hint += "\n«:coins» — сумма в монетах, а не в мелких долях, как цена."
+    return f"{command}\nАргументы: {args}{hint}\n\n{entry['doc'] or '(описания нет)'}"

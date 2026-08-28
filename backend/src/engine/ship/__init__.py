@@ -162,7 +162,15 @@ from src.engine.ship.physics import (  # noqa: F401
     ratio,
     route_key,
     separation,
+    tank_stacks,
+    tanks_of,
     thrust,
+)
+from src.engine.ship.shape import (  # noqa: F401
+    BadName,
+    OffTheGrid,
+    arrange,
+    rename,
 )
 from src.engine.ship.view import (  # noqa: F401
     _from_aboard,

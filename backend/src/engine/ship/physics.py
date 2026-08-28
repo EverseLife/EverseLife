@@ -168,12 +168,12 @@ async def life_support(
     return int(systems * constants[R.SHIP_LIFE_SUPPORT_CREW])
 
 
-async def fuel_stacks(session: AsyncSession, ship: Ship) -> list[Item]:
-    """The fuel the engines can reach: what lies in the **tanks** aboard (D-230).
+async def tanks_of(session: AsyncSession, ship: Ship) -> list[Container]:
+    """The insides of the tanks standing aboard: where a ship's liquids live.
 
-    A canister of fuel in the hold is cargo -- it weighs, it does not burn.
-    The tanks are machines standing in the rooms, and their insides are the
-    reserve; fuel lying anywhere else aboard is not counted.
+    A tank is a machine in a room and its storage is the reserve (D-230). What
+    lies in a canister in the hold is cargo -- it weighs and it is carried, but
+    no engine and no life support reaches it.
     """
     nodes = await nodes_of(session, ship)
     if not nodes:  # pragma: no cover
@@ -184,15 +184,35 @@ async def fuel_stacks(session: AsyncSession, ship: Ship) -> list[Item]:
     tanks = select(Item.id).where(
         Item.container_id.in_(yards), Item.type_key.in_(world.station_names(TANK))
     )
-    insides = select(Container.id).where(
-        Container.kind == ContainerKind.STORAGE, Container.owner_id.in_(tanks)
+    rows = await session.execute(
+        select(Container)
+        .where(Container.kind == ContainerKind.STORAGE, Container.owner_id.in_(tanks))
+        .order_by(Container.id)
     )
+    return list(rows.scalars().all())
+
+
+async def tank_stacks(session: AsyncSession, ship: Ship, *what: str) -> list[Item]:
+    """Stacks of the named liquids lying in the ship's tanks, in id order.
+
+    One reading for every liquid the hull runs on: fuel for the engines, water
+    and oxygen for the life support (D-233). They live in the same tanks and
+    are found by the same walk -- what differs is only the name asked for.
+    """
+    insides = await tanks_of(session, ship)
+    if not insides:
+        return []
     rows = await session.execute(
         select(Item)
-        .where(Item.container_id.in_(insides), Item.type_key.in_(world.station_names(FUEL)))
+        .where(Item.container_id.in_([box.id for box in insides]), Item.type_key.in_(what))
         .order_by(Item.id)
     )
     return list(rows.scalars().all())
+
+
+async def fuel_stacks(session: AsyncSession, ship: Ship) -> list[Item]:
+    """The fuel the engines can reach: what lies in the **tanks** aboard (D-230)."""
+    return await tank_stacks(session, ship, *world.station_names(FUEL))
 
 
 async def fuel_aboard(session: AsyncSession, ship: Ship) -> float:

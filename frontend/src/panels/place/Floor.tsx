@@ -45,14 +45,20 @@ export function Floor({ look, busy, act }: Props) {
 
       {/* One inventory, not two (D-238). This window used to carry a copy of
           what is in the hands, so that a row had somewhere to be dragged to
-          and from; the sidebar's inventory is that surface now, and it is on
-          screen beside this one. Rows drag from there onto the floor and back
-          out of it, and for a keyboard or a finger the same moves are the
-          "Взять" button here and "Положить…" in the sidebar's row menu. */}
+          and from; the sidebar's inventory is that surface now. Rows drag from
+          it onto the floor and back out of it, and for a keyboard or a finger
+          -- or a narrow screen, where the sidebar and the scene are different
+          zones and never on screen together -- the same two moves are the
+          "Взять" button here and "Положить…" in the sidebar's row menu.
+
+          Somebody else's floor takes nothing: the engine refuses to pick up
+          from one (D-192), so a drop there is one-way, and the interface does
+          not offer a door that only opens outward. The row menu has always
+          said so; the drop zone now says the same. */}
       <DropZone
         zone="floor"
         accepts={["hands"]}
-        disabled={!open || busy}
+        disabled={!open || !floor.mine || busy}
         hint="перетащите сюда предмет, чтобы положить на пол"
         onMove={(stack, amount) =>
           act(() => session.send("ground.drop", { item: stack.item, amount }))

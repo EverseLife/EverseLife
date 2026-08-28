@@ -13,17 +13,20 @@ from __future__ import annotations
 from dataclasses import asdict
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Response
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import HOLDER, current
 from src.constants import current_catalog as catalog
 from src.constants import registry as R
 from src.db.base import session_factory
-from src.engine import account, estate, market, places, world
+from src.engine import account, estate, market, places, sight, world
 from src.engine import ship as vessels
 from src.engine import travel as roads
-from src.models.world import Edge, Layer, Node
+from src.engine.errors import Refusal
+from src.models.identity import Body, BodyState, Identity
+from src.models.world import Layer, Node
 from src.runtime import MARKET_BOOK_DEPTH
 from src.settings import settings
 
@@ -98,18 +101,64 @@ def _passage(under_way: dict[str, Any] | None, by_id: dict[Any, str]) -> dict[st
     }
 
 
-@router.get("/map")
-async def world_map() -> dict[str, Any]:
-    """The world map: nodes and edges with transit time.
+async def _standing(db: AsyncSession, authorization: str | None) -> Node | None:
+    """Where the asker's body stands, if the header names one at all.
 
-    Cities and highways are public -- otherwise a newcomer will not find where
-    to go (D-097). For now the whole map is public: there is no exploration
-    yet, and with it wild nodes and veins become visible only to those who explored them.
+    A bad, expired or revoked token is **not** an error here: this route answers
+    the whole internet, and the answer to "who are you" being "nobody" is a
+    perfectly good one -- it means the sky. Refusing would turn a stale tab into
+    a broken map instead of a distant one.
     """
+    scheme, _, raw = (authorization or "").partition(" ")
+    if scheme.lower() != "bearer" or not raw.strip():
+        return None
+    try:
+        who = await account.by_token(db, raw.strip())
+    except Refusal:
+        return None
+    body = (
+        (
+            await db.execute(
+                select(Body)
+                .join(Identity, Identity.id == Body.identity_id)
+                .where(Identity.account_id == who.id, Body.state == BodyState.ALIVE)
+            )
+        )
+        .scalars()
+        .first()
+    )
+    return None if body is None else await db.get(Node, body.node_id)
+
+
+@router.get("/map")
+async def world_map(
+    response: Response, authorization: str | None = Header(default=None)
+) -> dict[str, Any]:
+    """The map as it looks from where the asker stands (D-240).
+
+    **Not the world any more.** Two steps of the graph around the body, one step
+    of the planet's surface, and the sky -- which is everybody's, because a
+    planet's place is arithmetic over the epoch and hiding it would only make
+    passages unplannable. The surfaces of other planets are simply absent, so
+    there is nothing to expand: one reaches a planet by flying to it.
+
+    The token is read from the ordinary `Authorization: Bearer` header and is
+    **optional**: without one the answer is the sky alone. The route stays under
+    `/public` because what it gives an anonymous reader is still public -- the
+    system, its corridors and the hulls in it (D-097 in that part).
+    """
+
+    #: The answer stopped being everybody's the day it started depending on
+    #: where the asker stands. Said out loud to whatever sits in front of this
+    #: one day: a shared cache would hand one player another player's
+    #: neighbourhood, and that is the one failure this route must not have.
+    response.headers["Cache-Control"] = "private, no-store"
+    response.headers["Vary"] = "Authorization"
 
     constants = current()
     async with session_factory()() as db:
-        every = (await db.execute(select(Node))).scalars().all()
+        standing = await _standing(db, authorization)
+        every, all_edges = await sight.read(db)
         #: A ship's rooms are **not** public (D-201). From outside a ship is one
         #: hull: how many cabins it has, what is joined to what and where the
         #: hold is, is exactly what somebody planning to board it would like to
@@ -119,12 +168,13 @@ async def world_map() -> dict[str, Any]:
         inside = {
             node.id for node in every if vessels.is_aboard(node) and node.layer is not Layer.SPACE
         }
-        nodes = [node for node in every if node.id not in inside]
-        edges = [
-            edge
-            for edge in (await db.execute(select(Edge))).scalars().all()
-            if edge.node_a_id not in inside and edge.node_b_id not in inside
-        ]
+        #: The neighbourhood is walked over the **whole** graph, hulls included:
+        #: standing aboard, the gangway is the step that reaches the pier, and a
+        #: walk that could not cross it would show a crew nothing at all.
+        seen = sight.around(standing, nodes=every, edges=all_edges)
+        nodes = [node for node in every if node.id in seen and node.id not in inside]
+        shown = {node.id for node in nodes}
+        edges = [edge for edge in all_edges if edge.node_a_id in shown and edge.node_b_id in shown]
         by_id = {node.id: node.key for node in nodes}
         #: The city's two doors are shown on the map (D-206): every road beyond
         #: the walls starts at the gate, every ship couples to the spaceport, and

@@ -7,12 +7,13 @@
 import { describe, expect, it } from "vitest";
 
 import * as amounts from "../amounts";
-import type { Thing } from "../api";
+import type { RecipeBook, Thing } from "../api";
 import { arrange } from "../arrange";
 import { answered, askless, CHEST_ANY, chestOf, chestZone, fits, halved } from "../drag";
 import { goodsGlyph, nodeGlyph } from "../marks";
 import { duration, hands, stamp, when, worldTime } from "../clock";
 import { groundName } from "../grounds";
+import { catalogue, coins, exactly } from "../market";
 import { stockOf, tierLabel, tiersOf } from "../tiers";
 
 const thing = (over: Partial<Thing>): Thing =>
@@ -311,5 +312,55 @@ describe("grounds", () => {
   //: worse than a word and better than a blank.
   it("leaves an unknown ground as it came", () => {
     expect(groundName("свежее_основание")).toBe("свежее_основание");
+  });
+});
+
+describe("market", () => {
+  const book = {
+    bulk: [],
+    liquid: ["Вода", "Спирт"],
+    materials: [
+      { name: "Железная руда" },
+      { name: "Вода" },
+      { name: "Биопринтер Предтеч", relic: true },
+    ],
+    units: {},
+    operations: [],
+    recipes: [{ name: "Хлеб" }, { name: "Спирт" }],
+    classes: {},
+    tool_classes: {},
+    synonyms: {},
+  } as unknown as RecipeBook;
+
+  it("prints money to the last minor unit", () => {
+    //: A bid of one minor unit is a real bid: printed as "0" beside a live
+    //: button it would be a lie about what the button does.
+    expect(coins(1)).toBe("0.0001");
+    expect(coins(10)).toBe("0.001");
+    expect(coins(30000)).toBe("3");
+    expect(coins(0)).toBe("0");
+    expect(coins(12345)).toBe("1.2345");
+  });
+
+  it("keeps out of the catalogue what an order could never be filled with", () => {
+    const names = catalogue(book);
+    expect(names).toContain("Железная руда");
+    expect(names).toContain("Хлеб");
+    //: A relic is found, never made or carried (D-232); a liquid lives only in
+    //: a vessel (D-230), so no stack of one can ever lie on the counter --
+    //: an order for either would hold money until it expires.
+    expect(names).not.toContain("Биопринтер Предтеч");
+    expect(names).not.toContain("Вода");
+    expect(names).not.toContain("Спирт");
+  });
+
+  it("answers with an empty catalogue before the book arrives", () => {
+    expect(catalogue(null)).toEqual([]);
+  });
+
+  it("shows a quantity as it is, whole or fractional", () => {
+    expect(exactly(4)).toBe("4");
+    expect(exactly(0.5)).toBe("0.5");
+    expect(exactly(0)).toBe("0");
   });
 });

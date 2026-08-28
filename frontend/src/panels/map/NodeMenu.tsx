@@ -72,7 +72,8 @@ export function NodeMenu({
           Идти{step ? ` · ${spell(step.seconds)}` : ""}
         </button>
       )}
-      {group && !node.aboard && (
+      {/* Another planet is not opened either (D-240): one flies there. */}
+      {group && !node.aboard && !offworld && (
         <button role="menuitem" className="quiet" onClick={onExpand} disabled={busy}>
           Раскрыть
         </button>

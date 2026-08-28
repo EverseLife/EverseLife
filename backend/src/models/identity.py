@@ -175,6 +175,16 @@ class Body(Base):
     warmth: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
     warmth_at: Mapped[datetime] = created_column()
 
+    #: When the body's breathing was last settled (D-233, D-234). A stamp and
+    #: **no reserve beside it**: the oxygen is in the cylinder the body carries,
+    #: not in the body, and a copy of how full it is here would be a second
+    #: place to keep one number. What the pair with `choking_since` says is only
+    #: how long ago the last accounting was and whether the last one came up
+    #: short: a body that had nothing to breathe for a whole stretch is given
+    #: one more, and dies on the next.
+    air_at: Mapped[datetime] = created_column()
+    choking_since: Mapped[datetime | None] = mapped_column(nullable=True)
+
     #: When the body took its node: by print or by arrival. Before that moment
     #: it heard nothing here (D-043) -- a chat horizon, not a biography.
     node_since: Mapped[datetime] = created_column()

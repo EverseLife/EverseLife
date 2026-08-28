@@ -559,6 +559,26 @@ async def depart(
         target = next_node
         plan = legs[1:] + plan
 
+    #: Nothing to breathe where the leg ends (D-233): refused **before** the
+    #: step, never at the far end -- death by ignorance in one click is not this
+    #: world's way. The leg and not the destination, because every leg is
+    #: departed in its turn and each one asks this for itself.
+    #:
+    #: Lazy: `oxygen` reads the hull through `engine.ship`, and that reaches
+    #: back here for docking and the gangway.
+    from src.engine import oxygen  # noqa: PLC0415 -- lazy: breaks the cycle with ship
+
+    await oxygen.require_air(
+        session,
+        constants,
+        current_catalog(),
+        body,
+        target,
+        #: The leg's own length: a cylinder must hold the whole of the walk, not
+        #: merely be non-empty when it starts.
+        seconds=edge_seconds(constants, edge),
+    )
+
     #: Left the workshop -- left the conversation: the circle does not follow (D-043).
 
     await chat.leave_groups(session, body.identity_id)
@@ -596,6 +616,10 @@ async def depart(
     from src.engine import frost  # noqa: PLC0415 -- lazy: breaks the cycle with frost
 
     await frost.settle(session, constants, current_catalog(), body, now=moment)
+    #: And the breathing, for the same reason and at the same moment: the hours
+    #: just spent were spent **here**, and only here is it known whether here
+    #: had air (D-233).
+    await oxygen.settle(session, constants, current_catalog(), body, now=moment)
 
     #: The road costs stamina, and it is paid up front (D-147). Satiety slows
     #: the spend exactly as at work: lunch is lunch, and the cold makes every
@@ -796,6 +820,10 @@ async def arrive(session: AsyncSession, job: Job) -> None:
             raise TravelError(f"переход {travel.id}: план ведёт в исчезнувший узел")
         rest = [uuid.UUID(raw) for raw in travel.plan[1:]]
 
+        #: Lazy for the same reason as in `depart`: `oxygen` reads the hull
+        #: through `engine.ship`, which reaches back here.
+        from src.engine import oxygen  # noqa: PLC0415 -- lazy: breaks the cycle with ship
+
         try:
             await depart(session, constants_now(), body, next_node, now=job.run_at, _plan=rest)
         except (
@@ -803,13 +831,15 @@ async def arrive(session: AsyncSession, job: Job) -> None:
             customs.CustomsError,
             transport.Impassable,
             NoEdge,
+            oxygen.NoAir,
         ) as stop:
             #: The route breaks off here -- not enough strength (D-147), the
             #: border did not let the cargo through (D-123), the road does not
-            #: let the convoy through (D-107), or the edge itself is gone: the
-            #: ship undocked while the route was being walked (D-201). The body
-            #: stays in the node rather than dropping mid-leg: got as far as
-            #: allowed, the player decides the rest.
+            #: let the convoy through (D-107), the edge itself is gone (the ship
+            #: undocked while the route was being walked, D-201), or the next
+            #: node has no air and the body nothing to breathe it with (D-233).
+            #: The body stays in the node rather than dropping mid-leg: got as
+            #: far as allowed, the player decides the rest.
             await events.record(
                 session,
                 EventKind.TRAVEL_ARRIVED,

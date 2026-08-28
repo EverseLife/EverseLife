@@ -118,10 +118,11 @@ export function Storages({ look, busy, act }: Props) {
           ) : (
             <>
               {/* One inventory, not two (D-238): what is in the hands is in
-                  the sidebar, on screen beside this window, and a stack drags
-                  from there into the chest and back out of it. For a keyboard
-                  or a finger the same moves are "Забрать" here and "В сундук"
-                  in the sidebar's row menu. */}
+                  the sidebar, and a stack drags from there into the chest and
+                  back out of it. For a keyboard or a finger -- or a narrow
+                  screen, where the sidebar and the scene are different zones --
+                  the same moves are "Забрать" here and "В сундук" in the
+                  sidebar's row menu. */}
               <DropZone
                 zone={chestZone(chest.id)}
                 accepts={["hands"]}

@@ -208,11 +208,46 @@ async def _ship_view(state: dict, db: AsyncSession, message: dict) -> dict:
     asked = message.get("ship")
     if not asked and await ship.aboard_of(db, body) is None:
         mine = await ship.ships_of(db, body.identity_id)
-        return {
-            "ships": [await ship.profile(db, current(), current_catalog(), one) for one in mine]
-        }
+        return {"ships": [await _seen(db, body, one) for one in mine]}
     vessel = await _ship_of(db, body, asked)
-    return {"ships": [await ship.profile(db, current(), current_catalog(), vessel)]}
+    return {"ships": [await _seen(db, body, vessel)]}
+
+
+async def _seen(db: AsyncSession, body: Body, vessel: Ship) -> dict:
+    """The hull's summary, plus whose it is.
+
+    Ownership is the **viewer's** fact, not the ship's, so it is added here
+    rather than inside `profile`: a guest standing in somebody's hold reads the
+    same card and is offered none of the buttons that would be refused (D-240).
+    """
+    card = await ship.profile(db, current(), current_catalog(), vessel)
+    return {**card, "yours": vessel.owner_identity_id == body.identity_id}
+
+
+@command("ship.rename")
+async def _ship_rename(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Name the ship. The nameplate is nailed on the spot, like a plot's (D-240)."""
+    body = await _alive(state, db)
+    vessel = await _ship_of(db, body, message.get("ship"))
+    await ship.rename(db, body, vessel, str(message.get("name", "")))
+    return {"renamed": str(vessel.id), "name": vessel.name}
+
+
+@command("ship.arrange")
+async def _ship_arrange(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Put the ship's rooms into their cells on the ship's own map (D-240).
+
+    The whole arrangement at once, node key -> `[x, y]` in cells: a hull is laid
+    out as a shape, and half a shape is one nobody asked for. Nothing about the
+    graph changes -- rooms stay joined exactly as they were laid.
+    """
+    body = await _alive(state, db)
+    vessel = await _ship_of(db, body, message.get("ship"))
+    asked = message.get("spots")
+    if not isinstance(asked, dict):
+        raise Refused("нужна раскладка: ключ узла — клетка")
+    moved = await ship.arrange(db, body, vessel, asked)
+    return {"arranged": str(vessel.id), "moved": moved}
 
 
 @command("ship.undock")

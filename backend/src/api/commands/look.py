@@ -49,6 +49,7 @@ from src.engine import (
     mining,
     net,
     occupation,
+    oxygen,
     plates,
     rig,
     ship,
@@ -397,6 +398,14 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
     cold = await frost.view(db, constants, current_catalog(), body, node)
     if cold is not None:
         seen["frost"] = cold
+
+    #: The air, and only where there is none (D-233, D-234). The second scale
+    #: beside the cold and told the same way: the level, the rate and the stamp,
+    #: with the client counting the hand. Absent on Terra and Aurora -- for
+    #: everybody, always -- by the same rule as the key above.
+    air = await oxygen.view(db, constants, current_catalog(), body, node)
+    if air is not None:
+        seen["air"] = air
 
     #: Everything the body is at (D-211). Two things live off this list: the
     #: client greys out what would be refused, with the reason on the button,

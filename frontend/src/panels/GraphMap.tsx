@@ -51,7 +51,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as api from "../api";
 import { type Look, type MapNode, type WorldMap } from "../api";
-import { useActions } from "../actions";
+import { useActions, useSession } from "../actions";
 import { createCamera, viewBoxOf, type Camera } from "./map/camera";
 import { cityWord } from "../planets";
 import { Inspector } from "./map/Inspector";
@@ -101,6 +101,9 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
   //: setting off, laying a road, going out to explore -- belongs to the
   //: inspector beside it, which keeps its own waiting and its own refusal.
   const { busy } = useActions();
+  //: The map is answered from where the body stands (D-240), so the read
+  //: carries the session's token: without it the server shows the sky alone.
+  const session = useSession();
 
   const [world, setWorld] = useState<WorldMap | null>(null);
   const here = look.node?.key ?? "";
@@ -111,7 +114,10 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
   const exits = (look.exits ?? []).map((path) => path.key).join("|");
   const exploring = look.survey?.returns_at ?? "";
   useEffect(() => {
-    void api.worldMap().then(setWorld);
+    void api.worldMap(session.token).then(setWorld);
+    //: The token is read inside and is the session's own for its whole life:
+    //: it is not a reason to reread the map, and the reasons are listed here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [here, exits, exploring]);
   const ongoing = look.travel ?? null;
   //: Ships are not on the public map at all (D-201): from a distance a ship is
@@ -574,6 +580,10 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
     (groups.has(node.key) ? Boolean(walkTargets[node.key]) : true);
 
   const expand = (node: MapNode) => {
+    //: Another planet does not open (D-240): its surface is not in the answer
+    //: at all, and switching to an empty layer would read as a broken map
+    //: rather than as a place one has still to fly to.
+    if (offworld(byKey, here, node)) return;
     if (currentLayer === "space") {
       //: Opening a planet means opening **this** planet: without that the
       //: layer below would show somebody else's surface.

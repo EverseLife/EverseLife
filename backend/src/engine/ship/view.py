@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.db.base import remember
-from src.engine import travel, world
+from src.engine import places, travel, world
 from src.engine.ship._base import OPEN_LANDING, SPACEPORT
 from src.engine.ship.belonging import crew_of, is_aboard, nodes_of, of_node
 from src.engine.ship.physics import (
@@ -37,11 +37,23 @@ from src.models.inventory import Container, ContainerKind, Item
 from src.models.job import Job, JobKind, JobState
 from src.models.ship import Ship
 from src.models.world import Edge, Layer, Node, Planet
+from src.runtime import SHIP_GRID, SHIP_GRID_REACH
 from src.units import (
     ROUND_HOURS,
     ROUND_MASS,
     ROUND_RATIO,
 )
+
+
+def _oxygen():
+    """The oxygen module, imported late.
+
+    `oxygen` reads a hull through this very package, so the import cannot stand
+    at the top: this is the one edge of that cycle, named where it is broken.
+    """
+    from src.engine import oxygen  # noqa: PLC0415 -- lazy: breaks the cycle with oxygen
+
+    return oxygen
 
 
 async def in_sight(
@@ -158,6 +170,14 @@ async def _from_aboard(
                 "name": room.name,
                 "layer": room.layer.value,
                 "parent": None if delegate is None else delegate.key,
+                #: Where the room stands on the ship's **own** map (D-237,
+                #: D-240). Sent only from aboard: from the pier a hull is one
+                #: node, and these coordinates are the interior's -- drawing a
+                #: moored ship by them would put its cabins across the city.
+                #: With this the client stops settling a hull with springs, and
+                #: the arrangement its owner made is the one everybody aboard
+                #: sees.
+                "place": places.wire(room),
                 "ring": None,
                 "exit": False,
                 "port": False,
@@ -386,6 +406,30 @@ async def _open_planets(session: AsyncSession) -> frozenset[Planet]:
     return await remember(session, ("open_landing_planets",), read)
 
 
+async def _flight(session: AsyncSession, ship: Ship) -> dict[str, object] | None:
+    """Where this hull is bound and when it is due, or nothing if it is not flying.
+
+    Read off the job that carries it: a passage lives in that job and nowhere
+    else, and a second place to keep it would be a second opinion about where
+    the ship is. Asked about **this** hull rather than through `passages` --
+    that one gathers every flight in the world, and the console asks about one.
+    """
+    #: Lazy: `flight` reads the beacon and the landings from this module.
+    from src.engine.ship.flight import _passage_of  # noqa: PLC0415 -- lazy: breaks the cycle
+
+    job = await _passage_of(session, ship)
+    if job is None:
+        return None
+    goal = await session.get(Node, uuid.UUID(str(job.payload["to"])))
+    return {
+        "to": None if goal is None else goal.key,
+        "name": None if goal is None else goal.name,
+        "planet": None if goal is None else goal.planet.value,
+        "started_at": job.created_at.isoformat(),
+        "arrives_at": job.run_at.isoformat(),
+    }
+
+
 async def profile(
     session: AsyncSession, constants: Constants, catalog: Catalog, ship: Ship
 ) -> dict:
@@ -512,8 +556,26 @@ async def profile(
         "crew": crew,
         "life_support": await life_support(session, constants, ship, things=things),
         "fuel": round(await fuel_aboard(session, ship), ROUND_MASS),
+        #: The air (D-233, D-234). On the console rather than in `look`, because
+        #: it is a fact about the **hull** and not about the room one stands in:
+        #: the whole ship shares one atmosphere, and every compartment of it
+        #: reads the same number. The hold is handed over rather than read
+        #: again: `oxygen` would otherwise walk the same rooms a third time.
+        "air": await _oxygen().gauge(session, constants, catalog, ship, crew=crew, things=things),
+        #: The grid the console's floor plan snaps to (D-240). An execution
+        #: number of the server's, and the client cannot derive it: a copy of it
+        #: in the client would silently skew every hull the day it changes.
+        "grid": {"cell": SHIP_GRID, "reach": SHIP_GRID_REACH},
+        #: Which planet the hull is at. The console's chart draws it there, and
+        #: it cannot be derived from `docked`: a ship that has cast off has no
+        #: port at all and still stands in somebody's sky (D-225).
+        "planet": planet.value,
         "docked": None if docked is None else docked.key,
         "port": None if docked is None else docked.name,
+        #: The passage under way, if there is one (D-240). The console draws the
+        #: hull on its own chart and must say where it is going: a ship in
+        #: flight has no edges at all, so nothing else in the answer could tell.
+        "flight": await _flight(session, ship),
         #: Which berth of that port, and therefore how long the gangway is: a
         #: busy yard boards you further from the door (D-201).
         "berth": ship.berth,

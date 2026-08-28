@@ -96,6 +96,14 @@ class EventKind(StrEnum):
     SHIP_LAUNCHED = "ship.launched"
     #: Docked: the edge to the port appeared, one may walk aboard again.
     SHIP_DOCKED = "ship.docked"
+    #: The owner renamed the hull. Nothing but the nameplate changed (D-240).
+    SHIP_RENAMED = "ship.renamed"
+    #: The owner moved rooms about on the ship's own map (D-240). The graph is
+    #: untouched: what is joined to what was decided when the rooms were laid.
+    SHIP_ARRANGED = "ship.arranged"
+    #: The tanks stopped covering the hour the crew breathes (D-233): said once,
+    #: while there is still a settling left to do something about it.
+    SHIP_AIRLESS = "ship.airless"
 
     # transport and convoy (D-157)
     TRANSPORT_HARNESSED = "transport.harnessed"

@@ -568,3 +568,39 @@ async def test_deal_stays_in_journal(
     orders_ = (await session.execute(select(Order).where(Order.node_id == node.id))).scalars().all()
     assert {o.side for o in orders_} == {OrderSide.BUY, OrderSide.SELL}
     assert all(o.state is OrderState.FILLED for o in orders_)
+
+
+async def test_own_orders_say_which_node_they_stand_in(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Otherwise nobody outside the server can tell what is still free to sell.
+
+    The shelf is `look.stall`, the committed part is one's own sell orders --
+    but only those in this node. An AI citizen (D-224) without the node spent
+    ten minutes on «в терминале свободно 0» because it could not subtract.
+    """
+    import src.api.session  # noqa: F401, PLC0415 -- registers the commands
+    from src.api.registry import COMMANDS
+
+    here, elsewhere = await _city(session), await _city(session)
+    seller, _ = await _with_goods(session, constants, here, "Продавец", qty=10, quality=65)
+    tier = market.tier_of(constants, 65)
+    await market.sell(
+        session,
+        constants,
+        catalog,
+        seller,
+        here,
+        type_key=ORE,
+        tier=tier,
+        price=money(5),
+        quantity=8,
+    )
+
+    answer = await COMMANDS["orders"].run({"identity_id": seller.id}, session, {})
+    rows = answer["orders"]["orders"]
+    assert len(rows) == 1
+    assert rows[0]["node_key"] == here.key and rows[0]["node"] == here.name
+    assert rows[0]["node_key"] != elsewhere.key
+    #: The reading changes nothing: `orders` is declared readonly.
+    assert COMMANDS["orders"].readonly

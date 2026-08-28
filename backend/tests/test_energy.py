@@ -321,5 +321,5 @@ async def test_foreign_battery_in_other_node_not_chargeable(
     _, adjacent, _, _ = await _city(session)
     foreign_ = await _place(session, adjacent, energy.BATTERY, quality=55)
 
-    with pytest.raises(energy.EnergyError):
+    with pytest.raises(energy.BatteryError):
         await energy.charge_battery(session, constants, body, foreign_)

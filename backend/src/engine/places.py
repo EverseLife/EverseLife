@@ -50,6 +50,7 @@ import math
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.engine.errors import Refusal
 from src.models.world import Edge, Layer, Node
 from src.runtime import (
     MAP_HASH_SPAN,
@@ -70,6 +71,11 @@ PLACE_Y = "y"
 
 #: Where a group's first node stands when there is nothing to stand next to.
 ORIGIN = (0.0, 0.0)
+
+
+class PlaceIsFixed(Refusal):
+    """A node of the world does not move: its place is given once (D-237)."""
+
 
 #: The layers a place is stored for. Space is not among them: there a node's
 #: point is computed from the clock, and a stored one would contradict it.
@@ -246,6 +252,34 @@ async def assign(
     #: anchor and a lone node look exactly alike.
     spot = centre if _free(centre, taken) else _seat(centre, taken, _direction(node.key))
     taken.append(spot)
+    node.properties = {**(node.properties or {}), PLACE: {PLACE_X: spot[0], PLACE_Y: spot[1]}}
+    await session.flush()
+
+
+async def move(session: AsyncSession, node: Node, spot: tuple[float, float]) -> None:
+    """Put an existing node at this place -- the one way a place ever changes.
+
+    **Ground never moves** (D-237): the capital stands where it stands, for
+    everybody and tomorrow, and that is the whole worth of the rule. The single
+    exception is a room aboard a ship (D-240), and it is an exception for a
+    reason of the same kind: a ship's interior is not on the public map at all
+    (D-201). Nobody else sees it, so there is no shared north to break and no
+    neighbour to disagree with -- there is only the owner, arranging their own
+    rooms into a shape they can read.
+
+    Refused for anything else here rather than at the caller: one rule, one
+    place, and no second way to write a place into a node.
+    """
+    #: Lazy: `ship` reaches `places` through `world.create_node`, and the mark
+    #: it reads is one key of `properties` -- the cycle is not worth a column.
+    from src.engine.ship import is_aboard  # noqa: PLC0415 -- lazy: breaks the cycle with ship
+
+    if not is_aboard(node):
+        raise PlaceIsFixed(
+            f"«{node.name}» стоит на карте мира: место узла задаётся один раз "
+            "и не двигается. Переставлять можно только отсеки корабля"
+        )
+    await _hold(session, node)
     node.properties = {**(node.properties or {}), PLACE: {PLACE_X: spot[0], PLACE_Y: spot[1]}}
     await session.flush()
 

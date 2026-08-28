@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
+from decimal import Decimal
 from typing import Any
 
 #: Keys that change every turn by themselves and would make every diff noisy.
@@ -30,10 +31,138 @@ SECONDS_PER_HOUR = 3600
 #: Items named in the one-line sack, and ways out named in the one line.
 SACK_ITEMS = 15
 EXITS = 10
+#: Ten-thousandths of a coin (`src/units.MONEY_SCALE`). `look` gives the purse
+#: in coins, while every price -- in the book, in an offer, in an argument of
+#: `market.buy` -- is in these. The digest says both numbers, because a model
+#: that sees a purse of 25 next to a price of 30000 buys what it cannot pay
+#: for: that was 56 of 194 refusals in the agents' journal.
+MONEY_SCALE = 10_000
+#: Own orders, reservations and batches named in the standing block.
+STANDING_ROWS = 8
 
 
 def _look(seen: dict[str, Any]) -> dict[str, Any]:
     return seen.get("look") if isinstance(seen.get("look"), dict) else seen
+
+
+def money(purse: Any) -> str:
+    """The purse in both units at once -- coins, as `look` gives it, and the
+    same sum in the units every price is quoted in."""
+    try:
+        minor = int(Decimal(str(purse)) * MONEY_SCALE)
+    except (ArithmeticError, TypeError, ValueError):
+        return f"деньги {purse}"
+    return f"деньги {purse} монет (в ценах команд это {minor})"
+
+
+#: Why a batch is not moving, in the server's own words. `away` is the one
+#: that matters most: the work is frozen until the master comes back to the
+#: machine, and "ждёт очереди" would send the agent on waiting instead of
+#: walking.
+WAITING = {
+    "away": "стоит: тебя нет у станка в {node}",
+    "queued": "ждёт очереди за другой твоей работой",
+    "no_station": "негде делать: свободного станка здесь нет",
+}
+
+
+def _more(rows: list[Any]) -> str:
+    return f" …и ещё {len(rows) - STANDING_ROWS}" if len(rows) > STANDING_ROWS else ""
+
+
+def _batch(batch: dict[str, Any]) -> str:
+    said = f"{batch.get('output')} ×{_num(batch.get('units'))}"
+    if batch.get("ready_at"):
+        return f"{said} готово к {batch['ready_at']}"
+    why = WAITING.get(str(batch.get("waiting") or ""), "ждёт")
+    return f"{said} — {why.format(node=batch.get('node') or 'том узле')}"
+
+
+def _terminal(look: dict[str, Any], orders: list[dict[str, Any]]) -> list[str]:
+    """Own goods on the terminal shelf here, and how much of them is free.
+
+    The shelf is `look.stall`; what is committed is one's own sell orders in
+    *this* node, which is why an order carries its node. `market.sell` refuses
+    on the free amount, and without this line the agent learns it only by being
+    refused: 26 of 38 refusals in ten minutes were «в терминале свободно 0».
+    """
+    stall = [thing for thing in look.get("stall") or [] if isinstance(thing, dict)]
+    if not stall:
+        return []
+    here = (look.get("node") or {}).get("key")
+    sells = [order for order in orders if order.get("side") == "sell"]
+    #: An older server does not say which node an order stands in. Then every
+    #: sell order counts against this shelf: too little free is a wasted plan,
+    #: too much free is a refusal, and the shelf that looks all free is what
+    #: sent the agent into `market.take` eighteen times in ten minutes.
+    located = all("node_key" in order for order in sells)
+    committed: dict[tuple[str, str], float] = {}
+    for order in sells:
+        if located and order.get("node_key") != here:
+            continue
+        spot = (str(order.get("goods")), str(order.get("tier")))
+        committed[spot] = committed.get(spot, 0.0) + float(order.get("left") or 0)
+    said = []
+    for thing in stall[:STANDING_ROWS]:
+        have = float(thing.get("amount") or 0)
+        held = committed.get((str(thing.get("goods")), str(thing.get("tier"))), 0.0)
+        free = max(0.0, have - held)
+        line = f"«{thing.get('goods')}» ({thing.get('tier')}) ×{_num(have)}"
+        if held:
+            line += f", свободно {'' if located else 'не больше '}{_num(free)}"
+        said.append(line)
+    return [
+        "В терминале здесь твоё: "
+        + "; ".join(said)
+        + _more(stall)
+        + ". Продать можно только свободное; забрать в сумку — market.take."
+    ]
+
+
+def standing(seen: dict[str, Any], look: dict[str, Any] | None = None) -> str:
+    """Own orders, reservations, batches and the terminal shelf, in one block.
+
+    None of it is in `look` (D-226) except the shelf, which is there but as a
+    bare count: the agent has to ask `orders` for the rest. An agent that does
+    not ask waits for a delivery it never ordered, posts the same order every
+    turn and sells what is already committed -- all three in the journal.
+    """
+    own = seen.get("orders") if isinstance(seen.get("orders"), dict) else seen
+    lines: list[str] = []
+    orders = [o for o in own.get("orders") or [] if isinstance(o, dict)]
+    if look:
+        lines.extend(_terminal(_look(look), orders))
+    if orders:
+        lines.append(
+            "Твои заявки на рынке: "
+            + "; ".join(
+                f"{'покупка' if o.get('side') == 'buy' else 'продажа'} «{o.get('goods')}»"
+                f" ×{_num(o.get('left'))} по {o.get('price')} [{o.get('id')}]"
+                for o in orders[:STANDING_ROWS]
+            )
+            + _more(orders)
+            + ". Свою заявку не выкупают: она исполнится сама, когда сойдётся встречная."
+        )
+    held = [r for r in own.get("reservations") or [] if isinstance(r, dict)]
+    if held:
+        lines.append(
+            "Твои брони: "
+            + "; ".join(
+                f"«{r.get('goods')}» ×{_num(r.get('amount'))} в {r.get('node')} до"
+                f" {r.get('expires_at')} [{r.get('id')}]"
+                for r in held[:STANDING_ROWS]
+            )
+            + _more(held)
+            + ". Бронь забирают через market.redeem."
+        )
+    batches = [b for b in own.get("batches") or [] if isinstance(b, dict)]
+    if batches:
+        lines.append(
+            "Твои партии: " + "; ".join(map(_batch, batches[:STANDING_ROWS])) + _more(batches)
+        )
+    if not lines:
+        return "Ни заявок, ни броней, ни партий, ни товара в терминале — ждать нечего."
+    return "\n".join(lines)
 
 
 def digest(seen: dict[str, Any]) -> str:
@@ -45,7 +174,7 @@ def digest(seen: dict[str, Any]) -> str:
     body = look.get("body")
     if body is None:
         lines.append(
-            f"Ты: {look.get('identity')}, деньги {look.get('money')}. ТЕЛА НЕТ — ты в облаке."
+            f"Ты: {look.get('identity')}, {money(look.get('money'))}. ТЕЛА НЕТ — ты в облаке."
         )
         printing = look.get("printing")
         if printing:
@@ -55,7 +184,7 @@ def digest(seen: dict[str, Any]) -> str:
         return "\n".join(lines)
     sleeping = "спит" if body.get("sleeping_since") else "бодрствует"
     first = (
-        f"Ты: {look.get('identity')}, деньги {look.get('money')}, сила тела "
+        f"Ты: {look.get('identity')}, {money(look.get('money'))}, сила тела "
         f"{_num(body.get('stamina'))}, {sleeping}"
     )
     carry = look.get("carry") or {}
@@ -217,8 +346,9 @@ def _place(look: dict[str, Any]) -> list[str]:
             )
         )
     here = []
+    #: `stall` is not counted here: it is one's own shelf in the terminal, and
+    #: it is said by name in the standing block, with the free part.
     for key, label in (
-        ("stall", "на прилавке позиций"),
         ("storages", "хранилищ"),
         ("vehicles", "транспорта"),
         ("furniture", "мебели"),

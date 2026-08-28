@@ -5,32 +5,41 @@
  * The ship: a group of nodes, not a vehicle (D-201, D-202).
  *
  * There is no "ship screen" and there must not be one -- the ship **is** the
- * map: one walks aboard along an edge and around it as around a city. This
- * panel is only what the map cannot show by itself: how much thrust stands
- * against how much mass, and what that buys in hours and fuel on every route.
+ * map: one walks aboard along an edge and around it as around a city. What this
+ * panel adds is what the map cannot say by itself, and it says it in two
+ * windows rather than one (D-240):
  *
- * The one thing it must never do is spring a refusal after the hold is loaded.
- * Thrust-to-mass, the floor it must clear and the price of every route are on
- * screen **before** the undocking, refusals included, with the reason named --
- * class or mass. A bare "unavailable" leaves nothing to act on.
+ * * **«Корабль»** -- in any compartment. The hull's card: the engines one by
+ *   one, the mass split into hull, machines and cargo, the speed that follows,
+ *   the air aboard, the name, and the floor plan the owner arranges. Nothing
+ *   here moves the ship, so nothing here asks for the bridge;
+ * * **«Консоль управления кораблём»** -- at the bridge and nowhere else. The
+ *   ship's **own chart** of the sky, the two orders a hull takes -- casting off
+ *   and the passage -- and the course, which is set on the chart.
  *
- * The **console** (D-230) is this panel opened at the bridge: the space map
- * on top, the ship's card under it -- the engines one by one, the mass split
- * into hull, machines and cargo, the speed that follows -- and the two orders
- * a ship takes, casting off and the passage. Elsewhere aboard the card is
- * read-only: the engine refuses an order given away from the console, and the
- * panel says so before the button is pressed.
+ * The console used to open the world map instead. A world map answers "what is
+ * where"; a bridge asks "where can I go, for how long and at what cost", and
+ * that answer is different for every hull because it comes from this ship's
+ * thrust against this ship's mass. Two questions, two drawings.
+ *
+ * The one thing this panel must never do is spring a refusal after the hold is
+ * loaded. Thrust-to-mass, the floor it must clear and the price of every course
+ * are on screen **before** the undocking, refusals included, with the reason
+ * named -- class or mass. A bare "unavailable" leaves nothing to act on.
  */
 
 import { useCallback, useEffect, useState } from "react";
-import { stationsOf, type Look } from "../api";
+import { stationsOf, worldMap, type Look, type MapNode } from "../api";
 import { Deadline } from "../Deadline";
 import { Rule } from "../Rule";
 import { busyWith } from "../busy";
 import { firstOfClass } from "../classes";
 import { Refusal, useActions, useBook, useEdition, useSession } from "../actions";
 import { planetName } from "../planets";
-import { GraphMap } from "./GraphMap";
+import { Chart } from "./ship/Chart";
+import { Plan } from "./ship/Plan";
+import { autonomy, cheapest, type Route, type Vessel } from "./ship/model";
+import { term } from "./map/orbits";
 
 /**
  * Thing classes, not item names (D-215): the foundation a node aboard is laid
@@ -54,143 +63,18 @@ const BRIDGE = "Рубка";
  * ship's answer would repeat what the client has (D-225).
  */
 const KEEL = "keel";
-
-type Route = {
-  node: string;
-  name: string;
-  planet: string;
-  /**
-   * What the ship is: the weakest engine aboard. Not a demand of the route --
-   * no route makes one (D-235) -- but the number the fuel was computed with.
-   */
-  class: number | null;
-  hours: number | null;
-  fuel: number | null;
-  /** Enough thrust to leave the ground at all. Class closes no route. */
-  reachable: boolean;
-  /**
-   * The whole planet stands behind this row: it takes a landing anywhere on
-   * its surface (D-233), and the node named here is only the one the console
-   * happened to pick. There is no port to choose, so no picker is drawn --
-   * until the map grows a "садиться сюда" gesture, the hull comes down where
-   * the row says.
-   */
-  anywhere?: boolean;
-};
-
-type Engine = { name: string; count: number; thrust: number; class: number };
-
-type Vessel = {
-  ship: string;
-  name: string;
-  nodes: number;
-  mass: number;
-  /** Where the mass comes from: what to cut is read off this, not off the total (D-230). */
-  mass_parts: { hull: number; machines: number; cargo: number };
-  engines: Engine[];
-  thrust: number;
-  ratio: number;
-  min_ratio: number;
-  class: number | null;
-  crew: number;
-  life_support: number;
-  fuel: number;
-  docked: string | null;
-  port: string | null;
-  /** Which berth of that port: the gangway is as long as its number (D-201). */
-  berth: number | null;
-  connector: string | null;
-  routes: Route[];
-};
+/** Below this share of a full tank the air reads as an alarm, not a number. */
+const AIR_LOW = 0.25;
 
 /**
- * Where to fly, by planet (D-230). A planet is one price -- the sky has one
- * distance to it -- and may have hundreds of ports (Aurora): one row per
- * planet with the port chosen in it, not a button per pier.
- *
- * A planet with no ports at all (Pyroxis) has nothing to choose: the node is
- * rolled at the landing, and the row says so instead of naming a pier that
- * will not be the one (D-233, D-235).
- */
-function Routes({
-  vessel,
-  busy,
-  fly,
-}: {
-  vessel: Vessel;
-  busy: boolean;
-  fly: (port: string) => void;
-}) {
-  const [chosen, setChosen] = useState<Record<string, string>>({});
-  const planets = new Map<string, Route[]>();
-  for (const route of vessel.routes) {
-    planets.set(route.planet, [...(planets.get(route.planet) ?? []), route]);
-  }
-  return (
-    <>
-      {[...planets.entries()].map(([planet, routes]) => {
-        const first = routes[0];
-        const port = chosen[planet] ?? first.node;
-        return (
-          <p key={planet}>
-            {/* The planet's identity tint, the same dot as on the space layer
-                (D-238): the destination is told by colour before the word. */}
-            <span
-              className="planet-dot"
-              style={{ background: `var(--planet-${planet})` }}
-              aria-hidden="true"
-            />
-            <b>{planetName(planet)}</b> · {first.hours?.toFixed(1)} ч ·{" "}
-            {first.fuel?.toFixed(0)} топлива
-            {!first.reachable && " · тяги не хватает: снимите массу"}{" "}
-            {routes.length > 1 ? (
-              <select
-                value={port}
-                onChange={(e) => setChosen((was) => ({ ...was, [planet]: e.target.value }))}
-                aria-label={`космодром на планете ${planetName(planet)}`}
-              >
-                {routes.map((route) => (
-                  <option key={route.node} value={route.node}>
-                    {route.name}
-                  </option>
-                ))}
-              </select>
-            ) : first.anywhere ? (
-              <span
-                className="note"
-                title="здесь нет космодромов: узел посадки разыгрывается при заходе, и садятся туда, куда пустила скала"
-              >
-                посадка вслепую
-              </span>
-            ) : (
-              <span className="note">{first.name}</span>
-            )}{" "}
-            <button
-              onClick={() => fly(port)}
-              disabled={busy || !first.reachable}
-              title={
-                first.reachable
-                  ? undefined
-                  : "тяги не хватает, чтобы оторваться: снимите массу или добавьте двигатель"
-              }
-            >
-              Лететь
-            </button>
-          </p>
-        );
-      })}
-    </>
-  );
-}
-
-/**
- * The ship's card (D-230): the engines one by one, the mass by where it comes
- * from, and the speed that follows. Three numbers the owner can act on
+ * The hull's card (D-230): the engines one by one, the mass by where it comes
+ * from, the speed that follows, and the air. Numbers the owner can act on
  * separately -- a node is cut by not laying it, a machine by taking it down,
  * cargo by unloading -- where one total would say nothing.
  */
 function Card({ v }: { v: Vessel }) {
   const parts = v.mass_parts;
+  const hours = autonomy(v.air);
   return (
     <table>
       <tbody>
@@ -211,16 +95,29 @@ function Card({ v }: { v: Vessel }) {
         <tr>
           <td>масса</td>
           <td className="note">
-            корпус {parts.hull.toFixed(0)} кг · станции {parts.machines.toFixed(0)} кг ·
-            груз {parts.cargo.toFixed(0)} кг
+            корпус {parts.hull.toFixed(0)} кг · станции {parts.machines.toFixed(0)} кг · груз{" "}
+            {parts.cargo.toFixed(0)} кг
           </td>
         </tr>
         <tr>
           <td>скорость</td>
           <td className="note">
             {v.ratio.toFixed(2)} тяги на кг массы
-            {v.class != null && ` · маршруты до ${v.class} класса`}
+            {v.class != null && ` · класс ${v.class}`}
             {v.ratio < v.min_ratio && " · ниже порога отрыва"}
+          </td>
+        </tr>
+        {/* The air (D-233, D-234). Shown always, because "nothing is being
+            spent" is itself the answer to "how long can we stay out there". */}
+        <tr>
+          <td>кислород</td>
+          <td className="note">
+            {v.air.units.toFixed(0)} в баках · вода {v.air.water.toFixed(0)}
+            {v.air.sealed
+              ? hours != null
+                ? ` · расход ${(-v.air.per_hour).toFixed(2)} в час · хватит на ${term(hours)}`
+                : " · жизнеобеспечение покрывает экипаж"
+              : " · за бортом воздух, генерация спит"}
           </td>
         </tr>
       </tbody>
@@ -228,19 +125,132 @@ function Card({ v }: { v: Vessel }) {
   );
 }
 
+/** The air as a bar: the second scale of survival, read at a glance (D-233). */
+function AirBar({ v }: { v: Vessel }) {
+  if (!v.air.sealed) return null;
+  const hours = autonomy(v.air);
+  //: A full bar is a hull that makes as much as it breathes; the bar falls only
+  //: once the tanks are actually going down, which is the only case worth a
+  //: colour. Scaled by a day of the reserve it started the stretch with.
+  const share = hours == null ? 1 : Math.min(1, hours / 24);
+  return (
+    <span className={`air-bar${share < AIR_LOW ? " low" : ""}`} aria-hidden="true">
+      <span style={{ width: `${Math.round(share * 100)}%` }} />
+    </span>
+  );
+}
+
 /**
- * The cheapest passage the ship could make from here.
+ * The course: what the chart's chosen planet costs, and the order to fly it.
  *
- * The engine refuses to undock without fuel for the way back, and that way
- * back is the cheapest passage there is -- so the cheapest route on the board
- * is the number to compare against. No routes to compare with (a single port
- * in the world): let the engine speak, and it names the figure in its refusal.
+ * One planet is one price -- the sky has one distance to it -- and may have
+ * several piers (Aurora): the pier is picked here, in a line, because the
+ * chart's business is the sky and not the pier. A planet with no piers at all
+ * (Pyroxis) has nothing to pick: the node is rolled at the landing (D-235).
  */
-function cheapest(v: Vessel): number {
-  const fuels = v.routes
-    .map((route) => route.fuel)
-    .filter((fuel): fuel is number => fuel != null);
-  return fuels.length ? Math.min(...fuels) : 0;
+function Course({
+  vessel,
+  planet,
+  busy,
+  fly,
+}: {
+  vessel: Vessel;
+  planet: string | null;
+  busy: boolean;
+  fly: (port: string) => void;
+}) {
+  const [chosen, setChosen] = useState<Record<string, string>>({});
+  if (planet === null) {
+    return <p className="note">Курс задаётся на карте: выберите планету.</p>;
+  }
+  const routes: Route[] = vessel.routes.filter((route) => route.planet === planet);
+  if (routes.length === 0) {
+    return <p className="note">Отсюда туда хода нет: маршрута в мире не заведено.</p>;
+  }
+  const first = routes[0];
+  const port = chosen[planet] ?? first.node;
+  return (
+    <p>
+      <span
+        className="planet-dot"
+        style={{ background: `var(--planet-${planet})` }}
+        aria-hidden="true"
+      />
+      <b>{planetName(planet)}</b> · {first.hours?.toFixed(1)} ч · {first.fuel?.toFixed(0)} топлива
+      {!first.reachable && " · тяги не хватает: снимите массу"}{" "}
+      {routes.length > 1 ? (
+        <select
+          value={port}
+          onChange={(e) => setChosen((was) => ({ ...was, [planet]: e.target.value }))}
+          aria-label={`космодром на планете ${planetName(planet)}`}
+        >
+          {routes.map((route) => (
+            <option key={route.node} value={route.node}>
+              {route.name}
+            </option>
+          ))}
+        </select>
+      ) : first.anywhere ? (
+        <span
+          className="note"
+          title="здесь нет космодромов: узел посадки разыгрывается при заходе, и садятся туда, куда пустила скала"
+        >
+          посадка вслепую
+        </span>
+      ) : (
+        <span className="note">{first.name}</span>
+      )}{" "}
+      <button
+        onClick={() => fly(port)}
+        disabled={busy || !first.reachable}
+        title={
+          first.reachable
+            ? undefined
+            : "тяги не хватает, чтобы оторваться: снимите массу или добавьте двигатель"
+        }
+      >
+        Лететь
+      </button>
+    </p>
+  );
+}
+
+/** The nameplate: the owner's word, and the engine makes nothing of it (D-240). */
+function Nameplate({
+  vessel,
+  busy,
+  rename,
+}: {
+  vessel: Vessel;
+  busy: boolean;
+  rename: (name: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(vessel.name);
+  if (!editing) {
+    return (
+      <button className="quiet" onClick={() => (setName(vessel.name), setEditing(true))}>
+        Переименовать
+      </button>
+    );
+  }
+  return (
+    <>
+      <input value={name} onChange={(e) => setName(e.target.value)} aria-label="имя корабля" />
+      <button
+        onClick={() => {
+          rename(name);
+          setEditing(false);
+        }}
+        disabled={busy || !name.trim()}
+      >
+        Назвать
+      </button>
+      <button className="quiet" onClick={() => setEditing(false)}>
+        Отмена
+      </button>
+    </>
+  );
 }
 
 export function Ship({ look, console: atConsole = false }: { look: Look; console?: boolean }) {
@@ -253,6 +263,11 @@ export function Ship({ look, console: atConsole = false }: { look: Look; console
 
   const [ships, setShips] = useState<Vessel[]>([]);
   const [name, setName] = useState("");
+  const [course, setCourse] = useState<string | null>(null);
+  //: The spheres for the chart. The sky is answered to everybody (D-240), so
+  //: this read works in flight, where the hull has no edges and the world map
+  //: would otherwise be able to say nothing at all about where it is.
+  const [sky, setSky] = useState<MapNode[]>([]);
 
   const aboard = (look.node?.features ?? []).includes(ABOARD);
   const atPort = firstOfClass(book, stationsOf(look), SPACEPORT) !== undefined;
@@ -282,6 +297,13 @@ export function Ship({ look, console: atConsole = false }: { look: Look; console
     void reload();
   }, [reload, edition]);
 
+  useEffect(() => {
+    if (!atConsole) return;
+    void worldMap(session.token)
+      .then((map) => setSky(map.nodes.filter((node) => node.orbit)))
+      .catch(() => setSky([]));
+  }, [atConsole, session]);
+
   const go = (what: () => Promise<unknown>) =>
     act(async () => {
       await what();
@@ -295,7 +317,7 @@ export function Ship({ look, console: atConsole = false }: { look: Look; console
         <p className="note">
           Консоль стоит на земле и молчит: она работает только в узле корабля —
           на основании, заложенном на космодроме из «узла космического корабля».
-          Поставьте её на борт, и здесь откроются карта космоса и рейс.
+          Поставьте её на борт, и здесь откроются карта рейса и курс.
         </p>
       </section>
     );
@@ -307,79 +329,129 @@ export function Ship({ look, console: atConsole = false }: { look: Look; console
   const shown = aboard
     ? ships
     : ships.filter((v) => v.docked === look.node?.key || v.docked == null);
+  //: The console speaks about the hull one is standing in and no other: a
+  //: bridge commands its own ship (D-230).
+  const commanded = atConsole ? shown.slice(0, 1) : shown;
 
   return (
     <section>
       <Refusal of={acting} />
-      {bridge && (
-        //: The space layer at the bridge: where the ship is and where it may go.
-        //: The map's own "enter" leads nowhere from here -- one is already aboard.
-        <GraphMap look={look} onEnter={() => undefined} initialLayer="space" />
-      )}
       <h2>
-        {bridge ? "Консоль управления кораблём" : aboard ? "Корабль" : "Космическая верфь"}
+        {atConsole ? "Консоль управления кораблём" : aboard ? "Корабль" : "Космическая верфь"}
         <Rule>
           Корабль — не вещь, а группа узлов карты с одним выходом наружу. Стыковка и
           отстыковка — появление и исчезновение одного ребра, а полёт это его
           отсутствие: с борта просто некуда сойти. Скорость выводится из тяги против
           массы, поэтому грузоподъёмности числом нет — перегруженный корабль остаётся в
-          порту.
+          порту. Курс задаётся на карте рубки: она показывает часы и топливо
+          именно этого корпуса.
         </Rule>
       </h2>
 
-      {shown.map((v) => (
+      {commanded.map((v) => (
         <div key={v.ship}>
           <p className="sign">
-            {v.name} · {v.nodes} узл. · тяга {v.thrust.toFixed(0)} на массу{" "}
-            {v.mass.toFixed(0)} кг
+            {v.name} · {v.nodes} узл. · тяга {v.thrust.toFixed(0)} на массу {v.mass.toFixed(0)} кг
           </p>
+          <AirBar v={v} />
           <p className="note">
-            тяговооружённость {v.ratio.toFixed(2)} при нужных{" "}
-            {v.min_ratio.toFixed(2)}
-            {v.ratio < v.min_ratio && <b> · не отрывается</b>} · экипаж {v.crew}{" "}
-            из {v.life_support} · топлива в баках {v.fuel.toFixed(0)}
+            тяговооружённость {v.ratio.toFixed(2)} при нужных {v.min_ratio.toFixed(2)}
+            {v.ratio < v.min_ratio && <b> · не отрывается</b>} · экипаж {v.crew} из{" "}
+            {v.life_support} · топлива в баках {v.fuel.toFixed(0)}
             {v.docked
               ? ` · у верфи «${v.port}», место ${v.berth ?? "—"}`
-              : " · в полёте"}
+              : v.flight
+                ? ` · в рейсе в «${v.flight.name}»`
+                : " · отстыкован"}
           </p>
-
-          {aboard && <Card v={v} />}
-
-          {aboard && !bridge && (
-            <p className="note">
-              Отстыковка и рейс отдаются от консоли управления: встаньте в отсек,
-              где она стоит. Без консоли на борту корабль никуда не летит.
-            </p>
+          {/* A passage is a term like any other, and every term in this world
+              is drawn the same way. */}
+          {v.flight && (
+            <Deadline
+              until={v.flight.arrives_at}
+              since={v.flight.started_at}
+              label="рейс"
+            />
           )}
 
-          {bridge && v.docked && (
+          {atConsole ? (
             <>
-              <button
-                onClick={() => go(() => session.send("ship.undock", { ship: v.ship }))}
-                disabled={
-                  busy ||
-                  v.ratio < v.min_ratio ||
-                  v.crew > v.life_support ||
-                  v.fuel < cheapest(v)
-                }
-              >
-                Отстыковаться
-              </button>
-              {v.fuel < cheapest(v) && (
+              <Chart
+                vessel={v}
+                planets={sky}
+                epoch={look.clock?.epoch ?? null}
+                chosen={course}
+                onChoose={setCourse}
+              />
+              {v.docked ? (
+                <>
+                  <button
+                    onClick={() => go(() => session.send("ship.undock", { ship: v.ship }))}
+                    disabled={
+                      busy || v.ratio < v.min_ratio || v.crew > v.life_support || v.fuel < cheapest(v)
+                    }
+                  >
+                    Отстыковаться
+                  </button>
+                  {v.fuel < cheapest(v) && (
+                    <p className="note">
+                      Топлива меньше, чем нужно на один рейс. Отстыкованному кораблю
+                      его не привезут: рёбер к нему нет, и с борта не сойти.
+                    </p>
+                  )}
+                  <p className="note">
+                    Курс задаётся на карте, но сперва — отстыковка: пока трап на
+                    месте, корабль никуда не идёт.
+                  </p>
+                </>
+              ) : v.flight ? (
                 <p className="note">
-                  Топлива меньше, чем нужно на один рейс. Отстыкованному кораблю
-                  его не привезут: рёбер к нему нет, и с борта не сойти.
+                  Корабль в рейсе: до конца перехода он приказов не берёт.
                 </p>
+              ) : (
+                <Course
+                  vessel={v}
+                  planet={course}
+                  busy={busy}
+                  fly={(port) => go(() => session.send("ship.fly", { ship: v.ship, port }))}
+                />
               )}
             </>
-          )}
-
-          {bridge && !v.docked && (
-            <Routes
-              vessel={v}
-              busy={busy}
-              fly={(port) => go(() => session.send("ship.fly", { ship: v.ship, port }))}
-            />
+          ) : (
+            aboard && (
+              <>
+                <Card v={v} />
+                {v.yours && (
+                  <p>
+                    <Nameplate
+                      vessel={v}
+                      busy={busy}
+                      rename={(next) =>
+                        go(() => session.send("ship.rename", { ship: v.ship, name: next }))
+                      }
+                    />
+                  </p>
+                )}
+                {look.ships && (
+                  <Plan
+                    sight={look.ships}
+                    here={look.node?.key ?? ""}
+                    mine={v.yours}
+                    grid={v.grid}
+                    busy={busy}
+                    onArrange={(spots) =>
+                      go(() => session.send("ship.arrange", { ship: v.ship, spots }))
+                    }
+                  />
+                )}
+                {!bridge && (
+                  <p className="note">
+                    Отстыковка и рейс отдаются от консоли управления: встаньте в отсек,
+                    где она стоит. Без консоли на борту корабль никуда не летит.
+                  </p>
+                )}
+              </>
+            )
           )}
         </div>
       ))}
@@ -387,7 +459,7 @@ export function Ship({ look, console: atConsole = false }: { look: Look; console
       {/* The keel itself: the eight hours between the foundation leaving the
           pocket and the node appearing. Without this the yard was silent for
           the whole of them. */}
-      {keel && (
+      {!atConsole && keel && (
         <div className="doing">
           <span className="doing-what">
             {keel.title}: {keel.what}
@@ -401,7 +473,7 @@ export function Ship({ look, console: atConsole = false }: { look: Look; console
         </div>
       )}
 
-      {aboard && !keel && (
+      {!atConsole && aboard && !keel && (
         <button
           onClick={() => go(() => session.send("ship.extend"))}
           disabled={busy || !foundation || occupied !== null}
@@ -411,7 +483,7 @@ export function Ship({ look, console: atConsole = false }: { look: Look; console
         </button>
       )}
 
-      {!aboard && atPort && !keel && (
+      {!atConsole && !aboard && atPort && !keel && (
         <>
           <input
             value={name}
@@ -430,12 +502,13 @@ export function Ship({ look, console: atConsole = false }: { look: Look; console
         </>
       )}
 
-      {!keel && occupied !== null && <p className="note">{occupied}</p>}
+      {!atConsole && !keel && occupied !== null && <p className="note">{occupied}</p>}
 
-      {!keel && !foundation && (
+      {!atConsole && !keel && !foundation && (
         <p className="note">
-          Нужна «{foundationName ?? "основа узла корабля"}» в руках — её делают в космической мастерской. Корабль растёт по
-          узлу за раз: каждый следующий узел это и место, и лишняя масса.
+          Нужна «{foundationName ?? "основа узла корабля"}» в руках — её делают в космической
+          мастерской. Корабль растёт по узлу за раз: каждый следующий узел это и место, и
+          лишняя масса.
         </p>
       )}
     </section>
