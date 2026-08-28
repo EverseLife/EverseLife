@@ -1322,3 +1322,24 @@ async def test_a_name_where_an_id_was_wanted_gets_the_arguments_back(
         reference=commands.load(SESSION_SOURCE),
     )
     assert "tool:id" in "".join(seen)
+
+
+def test_a_refusal_about_the_way_says_the_way_is_optional() -> None:
+    """Only while the server does not name the ways itself: an older build says
+    «не делается способом 'forge'» and the model guesses the next English word."""
+    reference = commands.load(SESSION_SOURCE)
+    old = brain._advice(
+        reference,
+        "craft.start",
+        {"output": "Слиток", "way": "forge"},
+        "'Слиток железа' не делается способом 'forge'",
+    )
+    assert "без way игра берёт основной" in old
+    #: The server that names them needs no help, and the advice retires.
+    new = brain._advice(
+        reference,
+        "craft.start",
+        {"output": "Слиток", "way": "forge"},
+        "'Слиток железа' не делается способом 'forge'; способы: Плавка",
+    )
+    assert new == ""
