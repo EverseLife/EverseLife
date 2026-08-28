@@ -26,7 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import jobs, occupation, rest, ship, storage, travel, world
+from src.engine import frost, jobs, occupation, rest, ship, storage, travel, world
 from src.models.estate import Building
 from src.models.identity import Body
 from src.models.job import Job, JobKind, JobState
@@ -1227,9 +1227,27 @@ async def test_a_turn_back_to_a_dark_pier_is_refused(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
     """The same question `fly` asks of a destination (D-232): a hull is not sent
-    where it will not be taken. The passage it is on stands."""
-    home = await _port(session, name="Космодром столицы")
-    away = await _port(session, name="Дальний космодром")
+    where it will not be taken.
+
+    A pier on the permafrost works while its node is warm and its yard has
+    power. An unpowered one on Aurora is dark, and a hull turning back to it
+    would be turning back to nowhere -- so the turn-back is refused and the
+    passage it is on stands. Not a chain of failures: the way on is still
+    there, and the fuel for it was guaranteed at the casting off.
+    """
+    #: The planet's own node carries its climate (D-231): the engine reads the
+    #: world, not a constant.
+    await world.create_node(
+        session,
+        Planet.AURORA.value,
+        "Аврора",
+        area_m2=1,
+        planet=Planet.AURORA,
+        layer=Layer.SPACE,
+        properties={frost.FROST: True},
+    )
+    home = await _port(session, name="Космодром Мерида", planet=Planet.AURORA)
+    away = await _port(session, name="Космодром столицы")
     _, owner = await _shipwright(session, home)
     vessel = await _laid(session, constants, owner, home)
     await _flightworthy(session, constants, catalog, vessel)
@@ -1240,14 +1258,8 @@ async def test_a_turn_back_to_a_dark_pier_is_refused(
     await ship.undock(session, constants, catalog, owner, vessel)
     flight = await ship.fly(session, constants, catalog, owner, vessel, away)
     await session.refresh(flight)
-
-    #: The yard is carried off while the hull is under way: the pier it left is
-    #: no longer a pier at all.
-    yard = await world.node_container(session, home)
-    for thing in await world.contents(session, yard):
-        if thing.type_key == "Космическая верфь":
-            await session.delete(thing)
-    await session.flush()
+    #: No city, no pool, no heat: the pier it left is dark.
+    assert not await ship.beacon_lit(session, constants, home)
 
     with pytest.raises(ship.NoPort):
         await ship.recall(
@@ -1289,7 +1301,12 @@ async def test_two_turn_backs_in_one_second_burn_one_return(
             await ready.wait()
             try:
                 await ship.recall(db, constants, catalog, me, mine, now=moment)
-            except ship.InFlight:
+            #: Whichever refusal the loser gets is the right one, and which it is
+            #: depends on where it was standing when the winner committed: the
+            #: passage it meant to cancel is gone (`Docked`), or it has already
+            #: read the turn-back that replaced it (`InFlight`). What matters is
+            #: that the second order changes nothing, and that is asserted below.
+            except ship.ShipError:
                 return "refused"
             return "turned"
 
