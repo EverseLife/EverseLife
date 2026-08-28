@@ -38,9 +38,19 @@ def procedure(catalog: Catalog, output: str, *, way: str | None = None) -> Proce
         if name in {book.resolve(gives) for gives in operation.gives}
     ]
     if way is not None:
-        ways = [operation for operation in ways if operation.name == way]
-        if not ways:
-            raise Unmakeable(f"{output!r} не делается способом {way!r}")
+        chosen = [operation for operation in ways if operation.name == way]
+        if not chosen:
+            #: The ways that do make it are named in the refusal: they have just
+            #: been computed, and a refusal that only says "not this way" leaves
+            #: the asker guessing the next word. An AI citizen (D-224) guessed
+            #: `forge`, `smelt` and `forge` again, twenty-eight refusals in ten
+            #: minutes, while the catalog calls the operation «Плавка».
+            known = ", ".join(sorted(operation.name for operation in ways))
+            raise Unmakeable(
+                f"{output!r} не делается способом {way!r}"
+                + (f"; способы: {known}" if known else "")
+            )
+        ways = chosen
     if ways:
         return _from_operation(catalog, ways[0], name)
     raise Unmakeable(f"{output!r} не делается ни по рецепту, ни операцией")

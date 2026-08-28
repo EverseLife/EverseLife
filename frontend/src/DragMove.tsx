@@ -40,6 +40,7 @@ export function DropZone({
   onMove,
   disabled,
   hint,
+  whole,
   children,
 }: {
   zone: string;
@@ -51,6 +52,15 @@ export function DropZone({
   disabled?: boolean;
   /** The standing invitation, shown always: "перетащите сюда, чтобы …". */
   hint?: string;
+  /**
+   * The zone takes the stack as it is, and asks nothing.
+   *
+   * For a move the engine has no "how much" for: putting equipment into a
+   * building is one command over one stack (`station.place`), and a popover
+   * offering to install three of five machines would be offering something
+   * the server cannot do.
+   */
+  whole?: boolean;
   children: React.ReactNode;
 }) {
   const [over, setOver] = useState(false);
@@ -116,8 +126,8 @@ export function DropZone({
         event.preventDefault();
         const stack = dropCarried()!;
         //: One piece has no "how much": the question would cost a click and
-        //: answer itself.
-        if (askless(stack)) move(stack, stack.amount);
+        //: answer itself. Neither has a zone that takes the stack whole.
+        if (whole || askless(stack)) move(stack, stack.amount);
         else setAsk({ stack, x: event.clientX, y: event.clientY });
       }}
     >

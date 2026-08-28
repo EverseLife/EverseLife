@@ -42,6 +42,8 @@ AIR = "Кислород"
 WATER = "Вода"
 TANK = "Топливный бак"
 CYLINDER = "Кислородный баллон"
+CANISTER = "Канистра"
+CHEST = "Сундук"
 SUIT = "Жаростойкий скафандр"
 BATTERY = "Аккумулятор"
 LIFE = "Система жизнеобеспечения"
@@ -102,6 +104,14 @@ async def _in_tank(session: AsyncSession, node: Node, what: str, amount: float) 
     yard = await world.node_container(session, node)
     tank = await world.grant_item(session, yard, TANK, quality=60, origin="тест")
     inside = await storage.inside(session, tank)
+    await world.grant_item(session, inside, what, amount=amount, quality=60, origin="тест")
+
+
+async def _in_canister(session: AsyncSession, node: Node, what: str, amount: float) -> None:
+    """A canister standing in the room, with a liquid in it. Not a tank."""
+    yard = await world.node_container(session, node)
+    can = await world.grant_item(session, yard, CANISTER, quality=60, origin="тест")
+    inside = await storage.inside(session, can)
     await world.grant_item(session, inside, what, amount=amount, quality=60, origin="тест")
 
 
@@ -462,3 +472,70 @@ async def test_two_hulls_settling_together_do_not_drink_one_tank_twice(
     assert made == pytest.approx(constants[R.OXYGEN_CREW_DRAW], abs=0.01), (
         f"воздуха отчитано {made:.3f} при воде на {constants[R.OXYGEN_CREW_DRAW]:.3f}"
     )
+
+
+async def test_the_life_support_reaches_a_canister_as_readily_as_a_tank(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Air and its water come from any vessel **standing in a compartment**.
+
+    Deliberately wider than the fuel a passage burns (D-230): the engines are
+    plumbed to the tanks, the life support is a machine somebody carries a
+    canister to. A crew suffocating beside a hold full of oxygen because the
+    bottles were the wrong shape would be a bug with an explanation. Where that
+    reach stops is pinned by the test below.
+    """
+    await _sphere(session, Planet.TERRA, airless=False)
+    port = await _port(session)
+    vessel, body, connector = await _hull(session, constants, port)
+    yard = await world.node_container(session, connector)
+    await world.grant_item(session, yard, LIFE, quality=60, origin="тест")
+    await _charged(session, connector, cells=8)
+    #: Not one tank aboard: everything is in canisters.
+    await _in_canister(session, connector, AIR, 4)
+    await _in_canister(session, connector, WATER, 5000)
+    vessel.docked_node_id = None
+    await session.flush()
+
+    assert await oxygen.reserve(session, vessel) == pytest.approx(4, abs=0.01)
+    assert await oxygen.water_aboard(session, vessel) == pytest.approx(5000, abs=0.01)
+    reading = await oxygen.gauge(session, constants, catalog, vessel, crew=1)
+    assert reading["per_hour"] == 0, "воду из канистры система видит и покрывает дыхание"
+
+    #: And spends it: with the water gone the canister of air is the reserve.
+    vessel.air_at = datetime.now(UTC) - timedelta(hours=2)
+    await session.flush()
+    await oxygen.tick_ships(session, constants, catalog)
+    assert await oxygen.water_aboard(session, vessel) < 5000, "вода из канистры израсходована"
+    assert await oxygen.reserve(session, vessel) == pytest.approx(4, abs=0.01), (
+        "воздуха хватило: баллоны трогать не пришлось"
+    )
+
+
+async def test_a_canister_packed_into_a_chest_is_stowed_cargo(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The reach is one level: what stands in the room, and what is inside it.
+
+    The rule is the same one step along -- nothing rummages through luggage --
+    and it is pinned here because it is exactly the kind of boundary a crew
+    finds out about by dying: the spare oxygen was put away tidily.
+    """
+    await _sphere(session, Planet.TERRA, airless=False)
+    port = await _port(session)
+    vessel, _, connector = await _hull(session, constants, port)
+    yard = await world.node_container(session, connector)
+
+    chest = await world.grant_item(session, yard, CHEST, quality=60, origin="тест")
+    packed = await storage.inside(session, chest)
+    can = await world.grant_item(session, packed, CANISTER, quality=60, origin="тест")
+    await world.grant_item(
+        session, await storage.inside(session, can), AIR, amount=9, quality=60, origin="тест"
+    )
+
+    assert await oxygen.reserve(session, vessel) == 0, "убранное в сундук — груз, а не запас"
+
+    #: The same canister standing in the room is the reserve.
+    can.container_id = yard.id
+    await session.flush()
+    assert await oxygen.reserve(session, vessel) == pytest.approx(9, abs=0.01)

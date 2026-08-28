@@ -13,16 +13,22 @@ nothing in this module is ever asked.
 Where there is none -- in flight and on Pyroxis -- two things breathe, and they
 breathe from different places:
 
-* **a hull** breathes its tanks. Oxygen is a liquid (D-230) and exists only
-  inside a vessel, so the ship's reserve is what lies in the **tanks aboard**,
-  exactly as its fuel is. The crew draws `oxygen.crew_draw` an hour a head, and
+* **a hull** breathes what stands in it. Oxygen is a liquid (D-230) and exists
+  only inside a vessel, so the ship's reserve is what lies in any vessel
+  **standing in a compartment** -- a tank, a canister, a bottle. Wider than the
+  fuel a passage burns, and on purpose: the engines are plumbed to the tanks and
+  reach nothing else, while the life support is a machine standing in a room,
+  and what a crew carries to it, it uses. Narrower than the hold, and for the
+  same reason: a canister packed into a chest is stowed cargo, and nothing
+  rummages through luggage. The crew draws `oxygen.crew_draw` an hour a head,
+  and
   the **life support makes air** to cover it: water out of the same tanks plus
   charge out of the batteries of its own node, by the vault's own recipe for
   «Кислород». One system covers as many people as it holds
   (`ship.life_support_crew`) -- more crew than that wants a second system, the
   same number that has always decided how many the ship may carry (D-202).
-  What it makes is **breathed, never stored**: the tanks are what the crew
-  lives on when the water or the charge runs out, and filling them -- or a
+  What it makes is **breathed, never stored**: the vessels aboard are what the
+  crew lives on when the water or the charge runs out, and filling them -- or a
   cylinder for going outside -- is deliberate work at an «Электролизёр», which
   is the very recipe this runs by;
 * **a body outside** breathes a cylinder, and only through a suit. A cylinder
@@ -176,27 +182,58 @@ async def sealed(session: AsyncSession, ship: Ship) -> bool:
 # --- what a hull holds ---------------------------------------------------------
 
 
+async def breathable_stacks(
+    session: AsyncSession, ship: Ship, *what: str, things: list[Item] | None = None
+) -> list[Item]:
+    """The named liquids in any vessel **standing in a compartment**.
+
+    Wider than the fuel a passage burns, and narrower than "everything aboard".
+    Both edges are meant:
+
+    * fuel goes from the tanks and nowhere else (D-230), because the engines are
+      plumbed to them: a canister in the hold weighs and does not burn. Air and
+      the water it is made of are plumbed nowhere -- the life support is a
+      machine standing in a room, and what a crew carries to it, it uses. A crew
+      suffocating beside a hold full of oxygen because the bottles were the
+      wrong shape is not a rule, it is a bug with an explanation;
+    * a vessel **packed into a chest** is stowed cargo, and the system does not
+      reach into somebody's luggage for it. It is the same rule one step along,
+      so it is said out loud here and in D-240 rather than left to be discovered
+      by a crew that put the spare oxygen away tidily.
+
+    Hence exactly one level: what stands in the room, and what is inside it.
+    `things` is that reading when the caller already has it (`ship._things`
+    walks precisely those two levels).
+    """
+    hold = things if things is not None else await vessels._things(session, ship)
+    wanted = set(what)
+    return sorted((one for one in hold if one.type_key in wanted), key=lambda one: str(one.id))
+
+
 async def reserve(session: AsyncSession, ship: Ship) -> float:
-    """Oxygen in the ship's tanks. A canister in the hold is cargo, not a reserve."""
-    stacks = await vessels.tank_stacks(session, ship, AIR)
+    """Oxygen the crew can actually breathe: what lies in the vessels aboard."""
+    stacks = await breathable_stacks(session, ship, AIR)
     return sum(amount_float(stack.amount) for stack in stacks)
 
 
-async def water_aboard(session: AsyncSession, ship: Ship) -> float:
-    """Water in the ship's tanks: what the life support turns into air."""
-    return sum(
-        amount_float(stack.amount) for stack in await vessels.tank_stacks(session, ship, WATER)
-    )
+async def water_aboard(
+    session: AsyncSession, ship: Ship, *, things: list[Item] | None = None
+) -> float:
+    """Water aboard: what the life support turns into air."""
+    stacks = await breathable_stacks(session, ship, WATER, things=things)
+    return sum(amount_float(stack.amount) for stack in stacks)
 
 
-async def _liquids(session: AsyncSession, ship: Ship) -> tuple[float, float]:
+async def _liquids(
+    session: AsyncSession, ship: Ship, *, things: list[Item] | None = None
+) -> tuple[float, float]:
     """Air and water at once, in **one** reading of the hold.
 
-    The console asks both of every hull it lists, and the walk to a tank is
+    The console asks both of every hull it lists, and the walk into a vessel is
     three joins: asking twice was the same fan-out `profile` was cut down for
     once already (review 2026-08-23).
     """
-    stacks = await vessels.tank_stacks(session, ship, AIR, WATER)
+    stacks = await breathable_stacks(session, ship, AIR, WATER, things=things)
     air = sum(amount_float(one.amount) for one in stacks if one.type_key == AIR)
     water = sum(amount_float(one.amount) for one in stacks if one.type_key == WATER)
     return air, water
@@ -614,12 +651,22 @@ async def _breathe(
         await session.flush()
         return 0.0, 0
 
+    #: The hold, once. Everything below asks it something -- how many life
+    #: support systems stand there, how much water they have, where the air is
+    #: -- and each question used to walk the rooms again: five readings of one
+    #: hull per tick. It is a **reading**; every write-off below relocks its
+    #: stacks by id under `FOR UPDATE`, so nothing is decided from these numbers.
+    hold = await vessels._things(session, locked)
+    _, water = await _liquids(session, locked, things=hold)
+
     need = hull_draw(constants, len(crew)) * hours
-    can = await hull_output(session, constants, catalog, locked) * hours
-    grew = await _make_air(session, constants, catalog, locked, min(need, can))
+    can = (await hull_output(session, constants, catalog, locked, things=hold, water=water)) * hours
+    grew = await _make_air(session, constants, catalog, locked, min(need, can), things=hold)
     short = max(0.0, need - grew)
     if short > _EPS:
-        stacks = await stock.lock_items(session, await vessels.tank_stacks(session, locked, AIR))
+        stacks = await stock.lock_items(
+            session, await breathable_stacks(session, locked, AIR, things=hold)
+        )
         short -= amount_float(await stock.consume(session, stacks, amount(short)))
     await session.flush()
 
@@ -673,12 +720,17 @@ async def _make_air(
     catalog: Catalog,
     ship: Ship,
     wanted: float,
+    *,
+    things: list[Item] | None = None,
 ) -> float:
-    """Run the electrolysis: water out of the tanks, charge out of the batteries.
+    """Run the electrolysis: water out of the vessels, charge out of the batteries.
 
     Makes less when either runs short, and that is the whole autonomy problem
     (D-234): two tonnes of water and a crate of batteries are the price of
     breathing for a season, and they are mass on every passage.
+
+    `things` is the hold when the caller has read it already; the write-off
+    below relocks whatever it takes, so a stale reading cannot overspend.
     """
     if wanted <= _EPS:
         return 0.0
@@ -686,7 +738,7 @@ async def _make_air(
     per_energy = _per_unit(catalog, ENERGY)
 
     if per_water > 0:
-        have = await water_aboard(session, ship)
+        have = await water_aboard(session, ship, things=things)
         wanted = min(wanted, have / per_water)
     if wanted <= _EPS:
         return 0.0
@@ -702,7 +754,9 @@ async def _make_air(
     #: the reading above promised: another hand may have drained the tank
     #: between the two, and reporting air that was never made would let a crew
     #: survive an hour it did not survive.
-    stacks = await stock.lock_items(session, await vessels.tank_stacks(session, ship, WATER))
+    stacks = await stock.lock_items(
+        session, await breathable_stacks(session, ship, WATER, things=things)
+    )
     spent = amount_float(await stock.consume(session, stacks, amount(wanted * per_water)))
     return min(wanted, spent / per_water)
 
@@ -746,7 +800,7 @@ async def gauge(
     `things` is the hold when the caller has read it already: the console asks
     this of every hull it lists.
     """
-    air, water = await _liquids(session, ship)
+    air, water = await _liquids(session, ship, things=things)
     shut = await sealed(session, ship)
     drawn = hull_draw(constants, crew) if shut else 0.0
     made = min(

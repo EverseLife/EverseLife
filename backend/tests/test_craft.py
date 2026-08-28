@@ -179,10 +179,19 @@ def test_wood_is_felled_by_a_named_way(catalog: Catalog) -> None:
         craft.procedure(catalog, "Дерево", way="Сбор валежника")
 
 
-def test_unknown_way_is_refused(catalog: Catalog) -> None:
-    """A made-up way is not silently replaced by any other."""
-    with pytest.raises(craft.Unmakeable):
+def test_unknown_way_is_refused_and_the_real_ones_are_named(catalog: Catalog) -> None:
+    """A made-up way is not silently replaced by any other -- and the refusal
+    says which ways do make the thing.
+
+    The resolver has just computed them, and a refusal that only says "not this
+    way" leaves the asker guessing: an AI citizen (D-224) spent ten minutes
+    trying `forge` and `smelt` at a catalog that says «Рубка дерева».
+    """
+    with pytest.raises(craft.Unmakeable) as refusal:
         craft.procedure(catalog, "Дерево", way="Телекинез")
+    said = str(refusal.value)
+    assert "Телекинез" in said and "способы: " in said
+    assert "Рубка дерева" in said
 
 
 def test_stone_axe_ladder_needs_no_tools(catalog: Catalog, constants: Constants) -> None:
@@ -219,6 +228,38 @@ async def test_felling_asks_for_the_right_place(
 
     with pytest.raises(craft.CraftError):
         await craft.start(session, constants, catalog, body, "Дерево", 1, way="Рубка дерева")
+
+
+async def test_a_tool_from_the_node_is_refused_by_name_of_what_tool_means(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """`tool` is a thing in the hands; the machine standing here is taken by the
+    engine. The refusal says so, because an AI citizen (D-224) read the id of
+    the smelter off the place and sent it here twenty-four times running.
+    """
+    stamp = uuid.uuid4().hex[:8]
+    forest = await world.create_node(
+        session, f"terra.forest.{stamp}", "Лес", area_m2=10_000, properties={"лес": True}
+    )
+    identity = await world.create_identity(session, f"Дровосек-{stamp}")
+    body = await world.print_body(session, identity, forest)
+    pocket = await world.body_container(session, body)
+    await world.grant_item(session, pocket, "Топор", quality=60, origin="сценарий теста")
+    yard = await world.node_container(session, forest)
+    standing = await world.grant_item(session, yard, "Плавильная печь", quality=70, origin="тест")
+
+    with pytest.raises(craft.NoTool) as refusal:
+        await craft.start(
+            session,
+            constants,
+            catalog,
+            body,
+            "Дерево",
+            1,
+            way="Рубка дерева",
+            tool_item_id=standing.id,
+        )
+    assert "вещь из твоей сумки" in str(refusal.value)
 
 
 def test_dishes_wait_for_cooking(catalog: Catalog) -> None:

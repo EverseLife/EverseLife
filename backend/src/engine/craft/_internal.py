@@ -426,7 +426,15 @@ async def _tool_items(
     if tool_item_id is not None and all(item.id != tool_item_id for item in found):
         chosen = await session.get(Item, tool_item_id)
         if chosen is None or chosen.container_id != inventory.id:
-            raise NoTool("инструмента нет в инвентаре")
+            #: What `tool` is, not just that this one is wrong: it names a
+            #: thing in the worker's own hands, while the machine standing in
+            #: the node is taken by the engine itself. An AI citizen (D-224)
+            #: read the id of the smelter off the place and sent it here
+            #: twenty-four times in seven minutes.
+            raise NoTool(
+                "этого инструмента нет в руках: tool — вещь из твоей сумки, "
+                "а станок в узле берётся сам"
+            )
         found.append(chosen)
     return found
 

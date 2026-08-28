@@ -27,22 +27,30 @@ const SLOP = 4;
 type Box = { left: number; top: number; width: number; height: number };
 
 /**
- * The scale between the field's pixels and the world, and the margins around
- * the picture.
+ * The scale between an elastic svg's pixels and the field it draws, and the
+ * margins around the picture.
  *
- * The svg is elastic and its viewBox keeps proportions (`meet`), so unless the
- * two ratios happen to agree there is empty room at two of the edges. Without
- * counting it a click lands beside the node it was aimed at.
+ * An svg's viewBox keeps proportions (`meet`), so unless the element's ratio
+ * and the viewBox's happen to agree there is empty room at two of the edges --
+ * letterboxing. Without counting it a click lands beside the thing it was
+ * aimed at, and a zoom "about the pointer" slides out from under it.
+ *
+ * Shared: the world map has a frame given as a scale, the ship's floor plan one
+ * given as a width and a height (`panels/ship/Plan`). One formula, and it is
+ * this one -- two copies of it would drift the day one of them was fixed.
  */
-export function lensOn(box: Box, scale: number) {
-  const worldW = W / scale;
-  const worldH = H / scale;
+export function lensFor(box: Box, worldW: number, worldH: number) {
   const k = Math.min(box.width / worldW, box.height / worldH);
   return {
     k,
     offX: (box.width - worldW * k) / 2,
     offY: (box.height - worldH * k) / 2,
   };
+}
+
+/** The same lens for the world map, whose frame is a scale over `W`×`H`. */
+export function lensOn(box: Box, scale: number) {
+  return lensFor(box, W / scale, H / scale);
 }
 
 /** Where a point on the screen is in the world. */
