@@ -57,6 +57,42 @@ class Layer(StrEnum):
     LOCATION = "location"
 
 
+#: The node property a storey lives in (D-247): which floor of the house this
+#: node is, counting the ground floor as the first. A `properties` key rather
+#: than a column, like `борт` and `участок` beside it: it is one fact about one
+#: node and nothing indexes by it.
+#:
+#: **Only floors above the ground get a node of their own.** The ground floor
+#: *is* the plot -- that is where the door, the yard and the way in are -- so a
+#: one-storey house adds no nodes at all and the world before storeys needs no
+#: rewriting.
+#:
+#: It lives here, with the column it is a key of, rather than in `estate`: half
+#: the engine asks "is this a floor" in passing -- the door, the meter, the city
+#: it stands in, the right to place a machine in it -- and every one of those
+#: modules is one `estate` imports. A question answerable from a row one already
+#: holds must not need a package to answer it.
+STOREY = "этаж"
+
+#: Which floor the ground is. Not a balance number: it is what "the ground floor
+#: is the plot itself" means, written down once so that the arithmetic of
+#: opening floors above it reads as the sentence it is.
+GROUND_FLOOR = 1
+
+
+def storey_of(node: Node) -> int | None:
+    """Which floor of a house this node is, or `None` if it is ground (D-247).
+
+    Read off the node's own properties and nothing else: whether a place is a
+    storey must be answerable without a query, because half the engine asks it
+    in passing -- the yard, the foraging, the marking out, the tax, the door.
+    """
+    floor = (node.properties or {}).get(STOREY)
+    if isinstance(floor, bool) or not isinstance(floor, int):
+        return None
+    return floor if floor > GROUND_FLOOR else None
+
+
 class Node(Base):
     __tablename__ = "node"
     __table_args__ = (

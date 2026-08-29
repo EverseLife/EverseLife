@@ -19,7 +19,7 @@ from src.engine.death import PRECURSOR
 from src.models.city import (
     City,
 )
-from src.models.world import Layer, Node
+from src.models.world import Layer, Node, storey_of
 
 
 async def by_id(session: AsyncSession, city_id: uuid.UUID) -> City | None:
@@ -49,7 +49,16 @@ async def of_node(session: AsyncSession, node: Node) -> City | None:
     if node.parent_id is None:
         return None
     parent = await session.get(Node, node.parent_id)
-    if parent is None or parent.layer is not Layer.PLANET:
+    if parent is None:
+        return None
+    #: A storey stands in whatever city the plot under it stands in (D-247): a
+    #: workshop on the third floor is inside the walls exactly as much as the
+    #: yard below it, and laws, taxes, the market and the boundary check on the
+    #: stairs must not think otherwise. A compartment aboard is not a storey and
+    #: still belongs to no city (D-202) -- the answer it had before.
+    if storey_of(node) is not None:
+        return await of_node(session, parent)
+    if parent.layer is not Layer.PLANET:
         return None
     return await by_node(session, parent.id)
 
@@ -57,7 +66,13 @@ async def of_node(session: AsyncSession, node: Node) -> City | None:
 async def territory(session: AsyncSession, city: City) -> Sequence[Node]:
     """Every node of the city: the delegate, its built-up area, its land.
 
-    The same three ways of belonging `of_node` reads, only from the other end.
+    The same three ways of belonging `of_node` reads, only from the other end
+    -- with one exception, and it is deliberate: **the floors of a house are
+    not listed** (D-247). `of_node` climbs from a storey to the plot under it,
+    because laws and taxes must not stop at the first floor; this list is what
+    the city walks over to find its printers, its gate and its meters, and a
+    floor has none of those. Adding them would make every such walk longer by
+    the height of the city and answer nothing new.
     """
     return (
         (

@@ -50,7 +50,7 @@ from src.models.event import EventKind
 from src.models.identity import Identity
 from src.models.job import Job, JobKind
 from src.models.ledger import AccountKind, PostingReason
-from src.models.world import Node
+from src.models.world import Layer, Node, storey_of
 from src.units import ENERGY_PER_TARIFF_UNIT, SECONDS_PER_HOUR, money, money_str
 
 
@@ -99,6 +99,20 @@ PAYER_CITY = "city"
 PAYER_NOBODY = "nobody"
 
 
+async def _metered(session: AsyncSession, node: Node) -> Node:
+    """The node the meter actually stands on (D-247).
+
+    A storey has no household of its own: it is lit and heated by the house,
+    and the bill for it comes to the plot below. Asked of the storey itself, the
+    grid answered "no grid" -- and a workshop on the third floor kept working
+    through a disconnection the ground floor was shut down by.
+    """
+    if storey_of(node) is None or node.parent_id is None:
+        return node
+    under = await session.get(Node, node.parent_id)
+    return node if under is None else await _metered(session, under)
+
+
 async def payer_of(session: AsyncSession, node: Node) -> str | None:
     """Who pays for this node: the holder, the city, or nobody. `None` -- no grid.
 
@@ -108,6 +122,7 @@ async def payer_of(session: AsyncSession, node: Node) -> str | None:
     ownership fields in the client -- there it would drift away from the engine
     on the first change.
     """
+    node = await _metered(session, node)
     if await energy.grid_node(session, node) is None:
         return None
     if node.owner_identity_id is not None:
@@ -119,7 +134,7 @@ async def payer_of(session: AsyncSession, node: Node) -> str | None:
 
 async def cut_off(session: AsyncSession, node: Node) -> bool:
     """Whether the node is disconnected for non-payment. Checked before machine work."""
-    meter = await meter_of(session, node, create=False)
+    meter = await meter_of(session, await _metered(session, node), create=False)
     return meter is not None and meter.cut_off
 
 
@@ -289,8 +304,19 @@ async def holdings(
     An empty list is not "the panel broke" but "no holdings": that is enough
     for the client not to show the section at all.
     """
+    #: Places one holds, not every row that carries one's name (D-247). A sub-node
+    #: -- a floor of one's house, a compartment of one's ship -- is part of the
+    #: thing actually held and has no meter of its own: listed here it would be
+    #: a holding with a household bill nobody ever issues, and a tall house
+    #: would fill the table with them.
     nodes = (
-        (await session.execute(select(Node).where(Node.owner_identity_id == identity_id)))
+        (
+            await session.execute(
+                select(Node).where(
+                    Node.owner_identity_id == identity_id, Node.layer != Layer.LOCATION
+                )
+            )
+        )
         .scalars()
         .all()
     )

@@ -24,6 +24,7 @@ from src.engine import (
     bank,
     finance,
     utility,
+    works,
 )
 from src.models.bank import Loan, RateDecision
 from src.units import money
@@ -94,9 +95,11 @@ async def _bank_view(state: dict, db: AsyncSession, message: dict) -> dict:
     return {
         "rate": await bank.key_rate(db, constants),
         "why": None if decision is None else decision.why,
-        #: Reserve and circulation are public: monetary policy is never secret (D-030).
+        #: Reserve, circulation and the works fund are public: monetary policy
+        #: is never secret (D-030, D-248).
         "reserve": await bank.reserve(db),
         "circulating": await bank.circulating(db),
+        "fund": await works.fund_balance(db),
         #: The limit is a public formula from labour (D-173): the player sees
         #: both the number and what it is made of before going for a loan.
         "limit": (limits := await bank.credit_limit(db, constants, state["identity_id"]))[0],
@@ -115,6 +118,12 @@ async def _bank_view(state: dict, db: AsyncSession, message: dict) -> dict:
         "your_rate_why": offer[1],
         "loans": loans,
     }
+
+
+@command("works.board")
+async def _works_board(state: dict, db: AsyncSession, message: dict) -> dict:
+    """The state order board (D-248). Remote: the board is public reference."""
+    return {"orders": await works.board(db), "fund": await works.fund_balance(db)}
 
 
 @command("bank.borrow")
@@ -156,7 +165,7 @@ async def _bank_council(state: dict, db: AsyncSession, message: dict) -> dict:
     recommendation, reason = bank.compute_rate(
         constants,
         previous=await bank.key_rate(db, constants),
-        inflation=await bank._inflation(db, constants),
+        inflation=await bank.inflation(db, constants),
         emission_share=await bank._emission_share(db, constants, now=_now()),
     )
     until = await bank.locked_until(db)

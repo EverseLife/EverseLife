@@ -11,6 +11,62 @@
     document.querySelectorAll("h1 .accent path").forEach((p) => p.removeAttribute("clip-path"));
   }
 
+  // ── Words: the page tells the script which language it is written in ───
+  //    The pages themselves are two hand-written translations, so the only
+  //    strings kept here are the ones this file writes into the page: the
+  //    carousel's arrow labels, the living interface fragment and the form's
+  //    answers.
+  const SAID = {
+    ru: {
+      prevPlanet: "Предыдущая планета",
+      nextPlanet: "Следующая планета",
+      day: (n) => `сутки ${n}`,
+      soon: "вот-вот",
+      minutes: (m) => `${m} мин`,
+      hours: (h, m) => `${h} ч ${m} мин`,
+      talk: [
+        ["say", "Йорун", "беру уголь партиями по пятьдесят, кто везёт с шахты?"],
+        ["act", "Веста", "осматривает наковальню и качает головой"],
+        ["say", "Хальвар", "к вечеру привезу сорок, цена как в стакане, задаток вперёд"],
+        ["ooc", "Йорун", "кто-нибудь знает, какая ставка на этой неделе?"],
+        ["say", "Веста", "две с половиной, совет держит. кредит под оборот, если что"],
+        ["act", "Хальвар", "впрягается в повозку и выходит к воротам"],
+        ["say", "Йорун", "задаток отправила. до Поймы полтора часа, не задерживайся"],
+      ],
+      // the last price walks inside the spread; the decimal mark is the
+      // page's, so the moving figure matches the book printed beside it
+      prices: ["3,20", "3,05", "3,20", "3,25", "3,05"],
+      signedUp: "Готово. Одно письмо, когда мир откроется, — и больше ничего. До тех пор мы в ",
+      failed: "Что-то пошло не так. Попробуйте ещё раз.",
+      offline: "Сеть не ответила. Попробуйте ещё раз.",
+    },
+    en: {
+      prevPlanet: "Previous planet",
+      nextPlanet: "Next planet",
+      day: (n) => `day ${n}`,
+      soon: "any moment",
+      minutes: (m) => `${m} min`,
+      hours: (h, m) => `${h} h ${m} min`,
+      talk: [
+        ["say", "Jorunn", "buying coal in lots of fifty, who is hauling from the pit?"],
+        ["act", "Vesta", "looks over the anvil and shakes her head"],
+        ["say", "Halvard", "forty by evening, price off the book, deposit up front"],
+        ["ooc", "Jorunn", "anyone know what the rate is this week?"],
+        ["say", "Vesta", "two and a half, the council is holding it. credit against turnover if you need it"],
+        ["act", "Halvard", "harnesses the cart and heads for the gate"],
+        ["say", "Jorunn", "deposit sent. ninety minutes to Rivermeadow, do not dawdle"],
+      ],
+      prices: ["3.20", "3.05", "3.20", "3.25", "3.05"],
+      signedUp: "Done. One letter when the world opens, and nothing else. Until then we are on ",
+      failed: "Something went wrong. Try again.",
+      offline: "The network did not answer. Try again.",
+    },
+  };
+  //    Looked up by the page's own language, and Russian when we have no
+  //    words for it -- a third language then reads the original rather than
+  //    printing `undefined` where a sentence should be.
+  const WORDS = SAID[document.documentElement.lang] || SAID.ru;
+
   // ── First paint: let the hero rise ─────────────────────────────────────
   document.fonts && document.fonts.ready
     ? document.fonts.ready.then(() => document.documentElement.classList.add("ready"))
@@ -227,9 +283,9 @@
       tabsBox.appendChild(b);
       return b;
     });
-    nav.appendChild(mkArrow("←", "Предыдущая планета", -1));
+    nav.appendChild(mkArrow("←", WORDS.prevPlanet, -1));
     nav.appendChild(tabsBox);
-    nav.appendChild(mkArrow("→", "Следующая планета", 1));
+    nav.appendChild(mkArrow("→", WORDS.nextPlanet, 1));
     planetsBox.after(nav);
 
     const cardKey = (card) => ((card.getAttribute("style") || "").match(/--(terra|aurora|pyro|aqua)/) || [])[1];
@@ -301,12 +357,14 @@
     const tickClock = () => {
       const gone = (Date.now() - EPOCH) / 3600000;
       const day = Math.floor(gone / DAY) + 1, inDay = gone % DAY;
-      clock.textContent = `сутки ${day} · ${two(Math.floor(inDay))}:${two(Math.floor((inDay % 1) * 60))}`;
+      clock.textContent = `${WORDS.day(day)} · ${two(Math.floor(inDay))}:${two(Math.floor((inDay % 1) * 60))}`;
     };
     tickClock(); setInterval(tickClock, 15000);
 
     // deadline bars: fill by share, colour by remainder, words next to colour
-    const spell = (s) => s <= 0 ? "вот-вот" : s < 3600 ? `${Math.ceil(s / 60)} мин` : `${Math.floor(s / 3600)} ч ${two(Math.floor((s % 3600) / 60))} мин`;
+    const spell = (s) => s <= 0 ? WORDS.soon
+      : s < 3600 ? WORDS.minutes(Math.ceil(s / 60))
+      : WORDS.hours(Math.floor(s / 3600), two(Math.floor((s % 3600) / 60)));
     const bars = [...document.querySelectorAll("#shot .deadline")].map((d) => ({
       el: d, bar: d.querySelector("i"), left: d.querySelector(".left"),
       total: +d.dataset.total, remain: +d.dataset.left,
@@ -325,15 +383,7 @@
     beat(); setInterval(beat, 1000);
 
     // the talk: four voices, cycling; the speaker is the only thing painted
-    const lines = [
-      ["say", "Йорун", "беру уголь партиями по пятьдесят, кто везёт с шахты?"],
-      ["act", "Веста", "осматривает наковальню и качает головой"],
-      ["say", "Хальвар", "к вечеру привезу сорок, цена как в стакане, задаток вперёд"],
-      ["ooc", "Йорун", "кто-нибудь знает, какая ставка на этой неделе?"],
-      ["say", "Веста", "две с половиной, совет держит. кредит под оборот, если что"],
-      ["act", "Хальвар", "впрягается в повозку и выходит к воротам"],
-      ["say", "Йорун", "задаток отправила. до Поймы полтора часа, не задерживайся"],
-    ];
+    const lines = WORDS.talk;
     const box = document.getElementById("chat-lines");
     let li = 0;
     const push = () => {
@@ -350,7 +400,7 @@
     // a deal now and then: the last price moves inside the spread, a row flashes
     const book = document.querySelectorAll("#book tbody tr");
     const last = document.getElementById("last");
-    const prices = ["3,20", "3,05", "3,20", "3,25", "3,05"];
+    const prices = WORDS.prices;
     let pi = 0;
     if (!reduced) setInterval(() => {
       pi = (pi + 1) % prices.length; last.textContent = prices[pi];
@@ -376,22 +426,28 @@
       try {
         const res = await fetch("/api/signup", {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: form.email.value, website: form.website.value }),
+          body: JSON.stringify({
+            email: form.email.value,
+            website: form.website.value,
+            // The page's own language, not the browser's: a refusal must come
+            // back in the language being read, whatever the locale says.
+            lang: document.documentElement.lang,
+          }),
         });
         const data = await res.json().catch(() => ({}));
         if (res.ok && data.ok) {
           // Not "thank you": what happens next, and where the project lives meanwhile.
-          msg.innerHTML = 'Готово. Одно письмо, когда мир откроется, — и больше ничего. ' +
-            'До тех пор мы в <a class="ext" href="https://discord.gg/eKhM3H9tKk" target="_blank" rel="noopener noreferrer">Discord</a>.';
+          msg.innerHTML = WORDS.signedUp +
+            '<a class="ext" href="https://discord.gg/eKhM3H9tKk" target="_blank" rel="noopener noreferrer">Discord</a>.';
           msg.className = "form-msg ok"; form.email.value = "";
           // the conversion this page exists for
           if (window.gtag) gtag("event", "signup_success");
         } else {
-          msg.textContent = data.error || "Что-то пошло не так. Попробуйте ещё раз.";
+          msg.textContent = data.error || WORDS.failed;
           msg.className = "form-msg err";
         }
       } catch {
-        msg.textContent = "Сеть не ответила. Попробуйте ещё раз.";
+        msg.textContent = WORDS.offline;
         msg.className = "form-msg err";
       } finally { button.disabled = false; }
     });

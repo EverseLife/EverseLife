@@ -24,6 +24,10 @@
  *   in the room (D-181). The door and the chest are the protection, not a rule.
  *   It is not a window of its own (D-238): things lie **in** something, so the
  *   surface belongs to the building that holds it, or to the bare land;
+ * - **Этаж** -- a floor above the ground (D-247): a node of its own, reached by
+ *   a staircase. It has no land at all, so it answers the one question a floor
+ *   has -- what stands in it and what lies in it. The house itself is the
+ *   plot's business, downstairs;
  * - **Обоз** -- the wagon: harnessing, and the hold that carries what hands
  *   cannot (D-157);
  * - **Лес / Камни / Луг** -- extraction by the sign of the land (D-177), one

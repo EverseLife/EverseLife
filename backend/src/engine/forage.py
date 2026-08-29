@@ -9,8 +9,9 @@ and in practice only the wood ever got gathered. Foraging replaces all of it
 with one occupation that lives on any plot with room to walk:
 
 - **empty land** is the plot minus the building footprint (the first floor:
-  storeys above the ground take nothing from it). Below `forage.min_area`
-  there is nowhere to forage and no window;
+  storeys above the ground take nothing from it) and minus the strips marked
+  out of it (D-246): a bed is worked land, not land to walk over. Below
+  `forage.min_area` there is nowhere to forage and no window;
 - **what turns up is not chosen.** One starts a search; by the deadline the
   land shows a single random find -- a handful of one thing. Take it and the
   foraging ends there: searching again is the player's decision, not the
@@ -86,12 +87,15 @@ class NoStrength(ForageError):
 
 
 async def empty_area(session: AsyncSession, node: Node) -> float:
-    """Empty land of the plot: its area minus the building footprint (D-210).
+    """Empty land of the plot: what neither a house nor a bed stands on (D-210, D-246).
 
     The footprint, not the usable area: a two-storey house of ten metres takes
-    ten from the yard, not twenty (D-125).
+    ten from the yard, not twenty (D-125). Marked-out strips take their metres
+    too: a bed is worked land, and there is nothing left to gather on it -- the
+    plot's whole area used to answer here as long as no wall stood on it, so a
+    garden cut out of the yard cost the foraging nothing at all.
     """
-    return max(0.0, float(node.area_m2) - await estate.built_area(session, node, ground=True))
+    return max(0.0, await estate.spare_ground(session, node))
 
 
 def is_yours(node: Node, body: Body) -> bool:

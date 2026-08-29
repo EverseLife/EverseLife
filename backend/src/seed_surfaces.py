@@ -260,7 +260,7 @@ async def _aurora(session: AsyncSession) -> None:
 
 
 async def _sphere(session: AsyncSession, key: str) -> Node:
-    """The planet's node on the space layer: `seed._system` lays it first."""
+    """The planet's node on the space layer: `seed_parts.system` lays it first."""
     return (await session.execute(select(Node).where(Node.key == key))).scalar_one()
 
 

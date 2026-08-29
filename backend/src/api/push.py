@@ -116,6 +116,9 @@ TOUCHES: dict[str, tuple[str, ...]] = {
     "identity": ("profile",),
     "market": ("orders", "market"),
     "money": ("money",),
+    #: The works fund paid or the board changed (D-248): the wallet and the
+    #: public bank numbers both move.
+    "works": ("money", "bank"),
     #: The alpha's debug widget (D-229). Without a line here the widget would
     #: work only because the client rereads the world after any action of its
     #: own: a second tab of the same player would see nothing. The thing

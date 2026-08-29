@@ -24,6 +24,7 @@ from src.engine import (
     justice,
     panel,
     vote,
+    works_city,
     world,
 )
 from src.engine import city as town
@@ -506,6 +507,135 @@ async def _city_allot(state: dict, db: AsyncSession, message: dict) -> dict:
     to_whom = await _identity_by_name(db, str(message["whom"]))
     await town.allot(db, identity, city, plot, to_whom, body=await _body(db, identity.id))
     return {"allotted": plot.key, "whom": to_whom.name}
+
+
+# --- city orders on the works board and the treasury as a borrower (D-248) ----
+
+
+@command("city.works_repair")
+async def _city_works_repair(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Order the mending of the city's plot: the offer covers the worker's materials."""
+    order = await works_city.post_repair_order(
+        db,
+        current(),
+        await _city(state, db, message),
+        await _identity(state, db),
+        await _alive(state, db),
+        await _node(db, str(message.get("node") or "")),
+        offer=float(message.get("offer") or 0),
+    )
+    return {"order": str(order.id), "tariff": order.tariff}
+
+
+@command("city.works_build")
+async def _city_works_build(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Order a building on the city's plot: kind, footprint and floors to the letter."""
+    order = await works_city.post_build_order(
+        db,
+        current(),
+        await _city(state, db, message),
+        await _identity(state, db),
+        await _alive(state, db),
+        await _node(db, str(message.get("node") or "")),
+        building_kind=str(message.get("kind") or ""),
+        footprint=float(message.get("footprint") or 0),
+        floors=int(message.get("floors") or 1),
+        offer=float(message.get("offer") or 0),
+    )
+    return {"order": str(order.id), "tariff": order.tariff}
+
+
+@command("city.works_fuel")
+async def _city_works_fuel(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Order fuel hauled to a station in the city: the price per unit is the city's offer."""
+    order = await works_city.post_fuel_order(
+        db,
+        current(),
+        current_catalog(),
+        await _city(state, db, message),
+        await _identity(state, db),
+        await _alive(state, db),
+        await _node(db, str(message.get("node") or "")),
+        type_key=str(message.get("fuel") or ""),
+        amount=float(message.get("amount") or 0),
+        price_per_unit=float(message.get("price") or 0),
+    )
+    return {"order": str(order.id), "tariff": order.tariff}
+
+
+@command("city.works_cancel")
+async def _city_works_cancel(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Withdraw the city's order: the unpaid remainder comes home, the licence closes."""
+    try:
+        order_id = uuid.UUID(str(message.get("order") or ""))
+    except ValueError as bad:
+        raise Refused("нет такого заказа") from bad
+    to_treasury, to_fund = await works_city.cancel_city_order(
+        db,
+        await _city(state, db, message),
+        await _identity(state, db),
+        await _alive(state, db),
+        order_id,
+    )
+    return {"returned": to_treasury, "to_fund": to_fund}
+
+
+@command("city.loans")
+async def _city_loans(state: dict, db: AsyncSession, message: dict) -> dict:
+    """The treasury's own loans and the city line. Remote: public figures (D-030)."""
+    city = await _city(state, db, message)
+    constants = current()
+    permitted, occupied, free = await bank.city_line(db, constants, city)
+    return {
+        "line": {"permitted": permitted, "occupied": occupied, "free": free},
+        "loans": [
+            {
+                "id": str(loan.id),
+                "principal": loan.principal,
+                "outstanding": loan.outstanding + bank.accruable(constants, loan),
+                "rate": float(loan.rate),
+                "taken_at": loan.taken_at.isoformat(),
+            }
+            for loan in await works_city.treasury_loans(db, city)
+        ],
+    }
+
+
+@command("city.borrow")
+async def _city_borrow(state: dict, db: AsyncSession, message: dict) -> dict:
+    """The treasury borrows from the CB (D-248): key rate, no margin, on the city line."""
+    loan = await works_city.borrow_for_works(
+        db,
+        current(),
+        await _city(state, db, message),
+        await _identity(state, db),
+        await _alive(state, db),
+        float(message.get("amount") or 0),
+    )
+    return {"loan": str(loan.id), "rate": float(loan.rate)}
+
+
+@command("city.loan_repay")
+async def _city_loan_repay(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Repay the treasury's own loan from the treasury."""
+    city = await _city(state, db, message)
+    try:
+        loan_id = uuid.UUID(str(message.get("loan") or ""))
+    except ValueError as bad:
+        raise Refused("нет такого займа") from bad
+    loan = await db.get(Loan, loan_id)
+    if loan is None:
+        raise Refused("нет такого займа")
+    paid = await works_city.repay_for_works(
+        db,
+        current(),
+        city,
+        await _identity(state, db),
+        await _alive(state, db),
+        loan,
+        None if message.get("amount") is None else float(message["amount"]),
+    )
+    return {"paid": paid, "left": loan.outstanding}
 
 
 async def _citizens(db: AsyncSession) -> list[str]:

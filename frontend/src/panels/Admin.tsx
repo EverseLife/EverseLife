@@ -34,6 +34,7 @@ import { when } from "../clock";
 import { groundName } from "../grounds";
 import { Rule } from "../Rule";
 import { Refusal, useActions, useSession } from "../actions";
+import { CityWorks } from "./CityWorks";
 
 type Props = {
   look: Look;
@@ -362,6 +363,10 @@ export function Admin({ look }: Omit<Props, "busy" | "act">) {
               </div>
             </>
           )}
+
+          {/* Госзаказ и кредит казне (D-248): решения властью «казна» у себя в
+              администрации, как и любая трата. */}
+          {can("treasury") && decides && <CityWorks busy={busy} act={act} />}
 
           <h3>
             Устав

@@ -121,7 +121,7 @@ export function House({ look }: Omit<Props, "busy" | "act">) {
             <b>{home.kind ?? "Дом"}</b>
             <span className="note">
               {home.area.toFixed(0)} м² в {home.floors} эт. на{" "}
-              {home.ground.toFixed(0)} м² земли · мест под оборудование{" "}
+              {home.ground.toFixed(0)} м² земли · мест на первом этаже{" "}
               {home.used} из {home.slots}
             </span>
           </div>
@@ -138,6 +138,14 @@ export function House({ look }: Omit<Props, "busy" | "act">) {
                 порча · <b>−{home.decay}%/сут</b>
               </span>
             </div>
+          )}
+          {/* Floors above the ground are places of their own, climbed by a
+              staircase (D-247): each has its own floor and its own slots. */}
+          {home.floors > 1 && (
+            <p className="note">
+              Этажей выше первого: {home.floors - 1}. На каждый ведёт лестница, и у
+              каждого свой пол и свои места под оборудование — они на карте рядом.
+            </p>
           )}
         </div>
       ) : (
@@ -197,7 +205,8 @@ export function House({ look }: Omit<Props, "busy" | "act">) {
               title="этажей"
             />
             <span className="note">
-              {area} м² × {floors} эт. = {area * floors} м² жилой площади.
+              {area} м² × {floors} эт. = {area * floors} м² жилой площади,
+              и каждый этаж выше первого станет отдельным местом с лестницей.
               Свободно {free.toFixed(0)} м² двора, меньше {least} м² не строится.
               {" "}Этажность не ограничена — за высоту платит смета.
             </span>

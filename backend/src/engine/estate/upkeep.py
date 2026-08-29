@@ -15,7 +15,7 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.constants import Constants, current_catalog
+from src.constants import Constants, current, current_catalog
 from src.constants import registry as R
 from src.engine import craft, events, goods, occupation, storage, travel, world
 from src.engine.estate._base import EstateError, Ruined
@@ -23,8 +23,11 @@ from src.engine.estate.building import (
     _equipment,
     build_minutes,
     buildings_of,
+    close_storeys,
     composition,
     estimate,
+    hold_ground,
+    spare_storeys,
 )
 from src.engine.jobs import enqueue, handler
 from src.engine.ship import ABOARD
@@ -33,6 +36,7 @@ from src.models.event import EventKind
 from src.models.identity import Body, BodyState
 from src.models.inventory import Container, ContainerKind, Item
 from src.models.job import Job, JobKind, JobState
+from src.models.works import WorkOrderKind
 from src.models.world import Node
 from src.units import (
     SCALE_MAX,
@@ -151,7 +155,15 @@ async def repair(
         raise EstateError("чинят руками: дойдите до участка")
     nobodys = node.owner_identity_id is None and node.owner_city_id is None
     if not nobodys and node.owner_identity_id != body.identity_id:
-        raise EstateError("участок не ваш: чинят у себя")
+        #: An open city repair order is a licence (D-248): the city posted it
+        #: holding the TREASURY power, and withdrawing it closes the plot again.
+        from src.engine import works_city  # noqa: PLC0415 -- lazy: works_city imports estate
+
+        allowed = node.owner_city_id is not None and await works_city.licensed(
+            session, WorkOrderKind.BUILDING_REPAIR, node
+        )
+        if not allowed:
+            raise EstateError("участок не ваш: чинят у себя")
     if await repairing(session, node):
         raise EstateError("ремонт уже идёт: второй раз его не заказывают")
     #: Mending is an occupation like any other (D-211): one pair of hands does
@@ -299,6 +311,86 @@ async def finish_repair(session: AsyncSession, job: Job) -> None:
         node_id=node.id,
         houses=len(houses),
     )
+    #: A mending the city ordered collects its pay (D-248): the houses are
+    #: whole again, the engine saw it in its own data.
+    from src.engine import works_city  # noqa: PLC0415 -- lazy: works_city imports estate
+
+    await works_city.pay_repair_order(
+        session,
+        current(),
+        node,
+        uuid.UUID(job.payload["identity"]),
+        now=job.run_at,
+    )
+
+
+async def _bury(
+    session: AsyncSession,
+    store: Container,
+    lost: dict[str, float],
+    *,
+    filtered: bool,
+) -> None:
+    """Destroy what a fallen roof was over, counting it into `lost`.
+
+    `filtered` is the ground floor's question and only its (D-244): a plot has
+    two surfaces, and what lay in the yard was rained on all along -- a house
+    falling on the far side does not crush it. A storey has one surface and it
+    is all indoors, so nothing there is spared.
+
+    The mark is read raw rather than through `estate.split`: the house is
+    deleted around this call, so asking "is there a building" would answer no
+    and spare everything. What the mark says is what the thing was standing
+    under a minute ago, and that is the question.
+
+    For **cargo**, that is. Equipment and chests are indoors by what they are --
+    placed into a building, counted against its slots, worked at (D-106, D-181)
+    -- and their mark is not to be trusted: carrying a bench out and putting it
+    down in the yard leaves it marked, and it keeps that mark when carried back
+    in. Two ordinary commands would otherwise make every machine and every chest
+    in a house proof against its collapse, losing neither its slot nor its use.
+    """
+    catalog = current_catalog()
+    things = [
+        thing
+        for thing in (
+            (await session.execute(select(Item).where(Item.container_id == store.id)))
+            .scalars()
+            .all()
+        )
+        if not filtered
+        or not thing.outdoors
+        or _equipment(catalog, thing.type_key)
+        or storage.is_storage(catalog, thing.type_key)
+    ]
+    for thing in things:
+        lost[thing.type_key] = lost.get(thing.type_key, 0.0) + amount_float(thing.amount)
+        #: A chest goes down with its contents: the inside is a container of
+        #: its own, and left behind it would be goods in no place at all.
+        inside = (
+            (
+                await session.execute(
+                    select(Container).where(
+                        Container.kind == ContainerKind.STORAGE,
+                        Container.owner_id == thing.id,
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for box in inside:
+            stored = (
+                (await session.execute(select(Item).where(Item.container_id == box.id)))
+                .scalars()
+                .all()
+            )
+            for held in stored:
+                lost[held.type_key] = lost.get(held.type_key, 0.0) + amount_float(held.amount)
+                await session.delete(held)
+            await session.delete(box)
+        await session.delete(thing)
+    await session.flush()
 
 
 async def collapse(session: AsyncSession, node: Node, house: Building) -> None:
@@ -318,68 +410,39 @@ async def collapse(session: AsyncSession, node: Node, house: Building) -> None:
     survive: the indoor surface is one for the node, not one per building, and
     that is deliberate -- two houses on a plot are two roofs over one floor,
     not two floors.
+
+    **The floors nothing else holds up fall too** (D-247), and they fall whole:
+    a storey has no yard to be rained on, so everything on it is under the roof.
+    A neighbouring house that reaches as high keeps them standing: floors belong
+    to the plot, and two houses are two roofs over each floor they both reach.
     """
+
+    #: The plot's row first, and for the same reason building takes it
+    #: (`estate.hold_ground`, D-246): what the floors are is read off what
+    #: stands here, and a build finishing in another session in this same second
+    #: would leave a four-storey house with no stair to any of its floors.
+    await hold_ground(session, node)
 
     await session.delete(house)
     await session.flush()
 
-    last = not await buildings_of(session, node)
+    #: The floors nothing holds up any more fall with the walls (D-247), and
+    #: everything on them goes down: upstairs there is no yard to be rained on,
+    #: every metre of a storey is under the roof. A neighbouring house that
+    #: reaches as high keeps them standing -- floors belong to the plot, and two
+    #: houses are two roofs over each floor they both reach.
     lost: dict[str, float] = {}
+    rooms = await spare_storeys(session, node)
+    for room in rooms:
+        await _bury(session, await world.node_container(session, room), lost, filtered=False)
+    await close_storeys(session, node, rooms)
+
+    last = not await buildings_of(session, node)
     if last:
-        #: What was **under the roof**, and only that (D-244). The mark is read
-        #: raw here, not through `estate.split`: the house has just been deleted
-        #: above, so asking "is there a building" would answer no and spare
-        #: everything. What the mark says is what the thing was standing under a
-        #: minute ago, and that is the question.
-        #:
-        #: For **cargo**, that is. Equipment and chests are indoors by what they
-        #: are -- placed into a building, counted against its slots, worked at
-        #: (D-106, D-181) -- and their mark is not to be trusted: carrying a
-        #: bench out and putting it down in the yard leaves it marked, and it
-        #: keeps that mark when carried back in. Two ordinary commands would
-        #: otherwise make every machine and every chest in a house proof against
-        #: its collapse, losing neither its slot nor its use.
-        catalog = current_catalog()
-        yard = await world.node_container(session, node)
-        things = [
-            thing
-            for thing in (
-                (await session.execute(select(Item).where(Item.container_id == yard.id)))
-                .scalars()
-                .all()
-            )
-            if not thing.outdoors
-            or _equipment(catalog, thing.type_key)
-            or storage.is_storage(catalog, thing.type_key)
-        ]
-        for thing in things:
-            lost[thing.type_key] = lost.get(thing.type_key, 0.0) + amount_float(thing.amount)
-            #: A chest goes down with its contents: the inside is a container of
-            #: its own, and left behind it would be goods in no place at all.
-            inside = (
-                (
-                    await session.execute(
-                        select(Container).where(
-                            Container.kind == ContainerKind.STORAGE,
-                            Container.owner_id == thing.id,
-                        )
-                    )
-                )
-                .scalars()
-                .all()
-            )
-            for box in inside:
-                stored = (
-                    (await session.execute(select(Item).where(Item.container_id == box.id)))
-                    .scalars()
-                    .all()
-                )
-                for held in stored:
-                    lost[held.type_key] = lost.get(held.type_key, 0.0) + amount_float(held.amount)
-                    await session.delete(held)
-                await session.delete(box)
-            await session.delete(thing)
-        await session.flush()
+        #: The ground floor loses only what was under the roof (D-244) -- see
+        #: `_bury`. While another house still stands here the goods move under
+        #: it and survive.
+        await _bury(session, await world.node_container(session, node), lost, filtered=True)
 
     await events.record(
         session,

@@ -37,7 +37,9 @@ class Loan(Base):
     __table_args__ = (Index("ix_loan_borrower", "identity_id", "state"),)
 
     id: Mapped[uuid.UUID] = uuid_pk()
-    identity_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("identity.id"), nullable=False)
+    #: Empty for a treasury loan (D-248): the borrower is then the city in
+    #: `city_id`, at the key rate with no margin, on the same city line.
+    identity_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("identity.id"), nullable=True)
     #: Issued, in minor units.
     principal: Mapped[int] = mapped_column(BigInteger, nullable=False)
     #: How much is left to repay: principal plus accrued.

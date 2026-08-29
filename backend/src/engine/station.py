@@ -41,7 +41,7 @@ from src.models.city import Power
 from src.models.event import EventKind
 from src.models.identity import Body, BodyState
 from src.models.inventory import Item
-from src.models.world import Node
+from src.models.world import Node, storey_of
 
 
 class StationError(Refusal):
@@ -100,6 +100,14 @@ async def may_build(session: AsyncSession, body: Body, node: Node) -> bool:
 
     if node.owner_identity_id is not None:
         return node.owner_identity_id == body.identity_id
+    #: A storey with no holder of its own is disposed of by the plot under it
+    #: (D-247). Read as land, a floor of a **civic** house was nobody's -- no
+    #: holder on the row and no city either -- and any passer-by could carry a
+    #: machine up into it.
+    if node.owner_city_id is None and storey_of(node) is not None and node.parent_id is not None:
+        place = await session.get(Node, node.parent_id)
+        if place is not None:
+            return await may_build(session, body, place)
     if node.owner_city_id is None:
         return True
     city = await town.by_id(session, node.owner_city_id)

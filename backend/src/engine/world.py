@@ -154,6 +154,43 @@ class LandError(Refusal):
     pass
 
 
+async def hand_over(session: AsyncSession, node: Node, owner_id: uuid.UUID | None) -> None:
+    """Give the plot a holder -- and with it the floors of the house on it (D-247).
+
+    A storey is not held apart from the ground it stands on: it is not bought,
+    not sold and not fenced on its own. Land changes hands in six places -- a
+    purchase, an allotment, a deed sold, a plot ceded, a city founded, a wild
+    node granted -- and every one of them must carry the whole house, or the
+    seller keeps the workshop upstairs and the buyer cannot reach it.
+
+    Written here rather than in `estate`: this is a fact about the node tree,
+    and `estate` is what the node tree is read by.
+    """
+    #: The plot's row for the transaction. The floors are read **after** it is
+    #: taken: a build finishing in another session opens its rooms with the
+    #: holder it read before this one wrote, and without the lock the plot would
+    #: go to the buyer while the workshop upstairs stayed with the seller.
+    await session.execute(
+        select(Node)
+        .where(Node.id == node.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    node.owner_identity_id = owner_id
+    rooms = (
+        (
+            await session.execute(
+                select(Node).where(Node.parent_id == node.id, Node.layer == Layer.LOCATION)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for room in rooms:
+        room.owner_identity_id = owner_id
+    await session.flush()
+
+
 async def grant_node(session: AsyncSession, node: Node, owner: Identity) -> Node:
     """Hand a plot to a person: title plus the deed for it (D-116, D-198).
 
@@ -177,8 +214,7 @@ async def grant_node(session: AsyncSession, node: Node, owner: Identity) -> Node
     if node.owner_identity_id is not None:
         raise LandError("участок уже за кем-то")
 
-    node.owner_identity_id = owner.id
-    await session.flush()
+    await hand_over(session, node, owner.id)
     await estate.issue_deed(session, node, owner.id)
 
     await events.record(

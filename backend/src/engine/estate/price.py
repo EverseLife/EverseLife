@@ -18,7 +18,7 @@ from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.db.base import remember
 from src.engine import city as town
-from src.engine import events, ledger, travel
+from src.engine import events, ledger, travel, world
 from src.engine.estate._base import BadName, EstateError, NotEnoughMoney, NotForSale, NotOwner
 from src.engine.estate.building import built_area, slots
 from src.engine.estate.deed import issue_deed
@@ -442,7 +442,8 @@ async def buy(
         memo={"выкуп участка": node.key, "город": city.name},
     )
 
-    node.owner_identity_id = body.identity_id
+    #: The floors of a house go with the plot (D-247).
+    await world.hand_over(session, node, body.identity_id)
     deed = await issue_deed(session, node, body.identity_id, paid=price)
 
     await events.record(

@@ -72,10 +72,15 @@ async def stock(session: AsyncSession) -> dict[str, float]:
 
 async def money_supply(session: AsyncSession) -> int:
     """The TC supply on identity accounts, in minor units."""
+    return await kind_total(session, AccountKind.IDENTITY)
+
+
+async def kind_total(session: AsyncSession, kind: AccountKind) -> int:
+    """The sum over all accounts of one kind, minor units. Read-only: creates nothing."""
     result = await session.scalar(
         select(func.coalesce(func.sum(LedgerEntry.amount), 0))
         .join(LedgerAccount, LedgerAccount.id == LedgerEntry.account_id)
-        .where(LedgerAccount.kind == AccountKind.IDENTITY)
+        .where(LedgerAccount.kind == kind)
     )
     return int(result or 0)
 
@@ -159,6 +164,10 @@ async def collect(
         "money.total": await money_supply(session) / MONEY_SCALE,
         "money.median": median(accounts) / MONEY_SCALE,
         "money.gini": gini(accounts),
+        #: The whole supply splits into circulation, the reserve and the works
+        #: fund (D-248) -- the invariant's three terms, each on its own line.
+        "money.reserve": await kind_total(session, AccountKind.BANK_RESERVE) / MONEY_SCALE,
+        "money.fund": await kind_total(session, AccountKind.WORKS_FUND) / MONEY_SCALE,
         "people": float(people_ or 0),
         "trades.count": float(deal_count or 0),
         #: Turnover is counted in minor units per internal units of goods.

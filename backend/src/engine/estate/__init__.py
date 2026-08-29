@@ -53,6 +53,7 @@ the names so `from src.engine import estate` reads as before.
 """
 
 from src.engine.estate._base import (  # noqa: F401
+    STOREY,
     BadName,
     EstateError,
     NoBuilding,
@@ -63,6 +64,7 @@ from src.engine.estate._base import (  # noqa: F401
     Ruined,
     TooSmall,
     UnknownKind,
+    storey_of,
 )
 from src.engine.estate.building import (  # noqa: F401
     _equipment,
@@ -70,17 +72,26 @@ from src.engine.estate.building import (  # noqa: F401
     build_minutes,
     buildings_of,
     built_area,
+    close_storeys,
     composition,
     construct,
     estimate,
     floor_growth,
     floor_mass,
     free_ground,
+    height_of,
+    hold_ground,
     kinds,
+    marked_ground,
+    open_storeys,
     planned_footprint,
     slots,
     space,
+    spare_ground,
+    spare_storeys,
     split,
+    storey_area,
+    storeys_of,
     under_construction,
     yard,
     yard_mass,

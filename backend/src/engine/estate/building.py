@@ -9,23 +9,35 @@ Split out of `engine/estate.py` along its sections (review 2026-08-23, wave 3).
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Constants, current_catalog
 from src.constants import registry as R
 from src.constants.catalog import ItemKind
-from src.db.base import remember
+from src.db.base import forget, remember
 from src.engine import craft, events, gear, goods, storage, travel, world
-from src.engine.estate._base import EstateError, NoRoom, TooSmall, UnknownKind
+from src.engine.estate._base import (
+    GROUND_FLOOR,
+    STOREY,
+    EstateError,
+    NoRoom,
+    TooSmall,
+    UnknownKind,
+    storey_of,
+)
 from src.engine.jobs import enqueue
 from src.models.estate import Building
 from src.models.event import EventKind
+from src.models.farm import Plot
 from src.models.identity import Body, BodyState
 from src.models.inventory import Item
 from src.models.job import Job, JobKind, JobState
-from src.models.world import Node, Planet
+from src.models.travel import Travel, TravelState
+from src.models.works import WorkOrderKind
+from src.models.world import Edge, Layer, Node, Planet, Surface
 from src.units import (
     MINUTES_PER_HOUR,
     amount_float,
@@ -57,6 +69,68 @@ async def built_area(session: AsyncSession, node: Node, *, ground: bool = False)
     #: The plot's own screen asks for this three times over -- usable area,
     #: footprint, and again usable from `slots` (`db.base.remember`).
     return await remember(session, ("built_area", node.id, ground), measure)
+
+
+async def height_of(session: AsyncSession, node: Node) -> int:
+    """How many floors the plot reaches: the tallest house standing on it (D-247).
+
+    The **tallest**, not the sum: two houses on one plot are two roofs over each
+    floor they both reach, exactly as they have always been two roofs over one
+    ground floor.
+    """
+    return max((house.floors for house in await buildings_of(session, node)), default=0)
+
+
+async def storey_area(session: AsyncSession, node: Node) -> float:
+    """The floor one stands on here, in metres (D-125, D-247).
+
+    A house of ten metres in four storeys gives forty metres of floor, and they
+    are **four floors, not one of forty**: three of them are nodes of their own,
+    and the ground floor is the plot. So the indoor surface of any one node is a
+    single storey.
+
+    One rule covers both, and it is the rule the ground floor always had: the
+    area of a floor is the footprint of everything that reaches it. On the plot
+    every house reaches the ground, so that is the sum of the footprints; on the
+    third floor only the houses of three storeys and more do. A floor nothing
+    reaches any more has no metres at all -- the walls that held it are gone,
+    and the room waits empty until something is built up to it again.
+
+    `built_area` stays the whole house: the bill, the meter and the plot screen
+    all ask about the building, and the building is all of it.
+    """
+    floor = storey_of(node)
+    if floor is None:
+        return await built_area(session, node, ground=True)
+    if node.parent_id is None:  # pragma: no cover -- a storey without a plot is a defect
+        return 0.0
+    place = await session.get(Node, node.parent_id)
+    if place is None:  # pragma: no cover
+        return 0.0
+    return sum(
+        float(house.footprint_m2)
+        for house in await buildings_of(session, place)
+        if house.floors >= floor
+    )
+
+
+async def storeys_of(session: AsyncSession, node: Node) -> list[Node]:
+    """The floors standing over this plot, lowest first (D-247).
+
+    Open and closed alike: a floor nothing holds up any more keeps its node --
+    nothing in this world is deleted (D-007) -- and is told apart by having no
+    metres and no way in.
+    """
+    rows = (
+        (
+            await session.execute(
+                select(Node).where(Node.parent_id == node.id, Node.properties.has_key(STOREY))
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return sorted(rows, key=lambda room: storey_of(room) or 0)
 
 
 async def under_construction(session: AsyncSession, node: Node) -> list[dict]:
@@ -127,7 +201,10 @@ async def split(session: AsyncSession, node: Node) -> tuple[list[Item], list[Ite
     lie, and pay for their place by slots (D-106, D-181).
     """
     catalog = current_catalog()
-    roofed = await built_area(session, node) > 0
+    #: The storey one stands on, not the whole house (D-247): upstairs the roof
+    #: is this floor's own, and `built_area` there is nought -- the building
+    #: record lives on the plot below.
+    roofed = await storey_area(session, node) > 0
     inside: list = []
     outside: list = []
     for thing in await world.contents(session, await world.node_container(session, node)):
@@ -173,7 +250,7 @@ async def space(session: AsyncSession, constants: Constants, node: Node) -> dict
     one.
     """
     total_slots, taken_slots = await slots(session, constants, node)
-    roofed = await built_area(session, node)
+    roofed = await storey_area(session, node)
     lying = await floor_mass(session, node)
     by_cargo = lying / constants[R.BUILD_FLOOR_PER_M2]
     by_equipment = taken_slots * constants[R.BUILD_SLOTS_PER_AREA]
@@ -202,7 +279,15 @@ async def yard(session: AsyncSession, constants: Constants, node: Node) -> dict[
     two storeys gives twenty metres of floor off ten metres of plot (D-125), and
     it is the ten the yard loses.
     """
-    under = await built_area(session, node, ground=True)
+    #: Upstairs there is no ground at all (D-247): under a storey is a floor,
+    #: and a floor is the other surface. Without this the yard of the third
+    #: floor would be as wide as the footprint, and things would be dropped on
+    #: open ground that is somebody's ceiling.
+    under = (
+        float(node.area_m2)
+        if storey_of(node) is not None
+        else await built_area(session, node, ground=True)
+    )
     capacity = max(0.0, float(node.area_m2) - under)
     lying = await yard_mass(session, node)
     by_cargo = lying / constants[R.BUILD_FLOOR_PER_M2]
@@ -224,7 +309,9 @@ async def slots(session: AsyncSession, constants: Constants, node: Node) -> tupl
     taken by machines and furniture standing in the node.
     """
 
-    area = await built_area(session, node)
+    #: One storey's worth of places, not the whole house's (D-247): the floors
+    #: above the ground are nodes of their own and carry their own.
+    area = await storey_area(session, node)
     in_total = int(area // constants[R.BUILD_SLOTS_PER_AREA])
 
     book = current_catalog().recipes
@@ -328,10 +415,255 @@ async def planned_footprint(session: AsyncSession, node: Node) -> float:
     return sum(float(work["area"]) for work in await under_construction(session, node))
 
 
-async def free_ground(session: AsyncSession, node: Node) -> float:
-    """The plot's unbuilt remainder: the yard, minus what is already on the way."""
-    taken = await built_area(session, node, ground=True) + await planned_footprint(session, node)
+async def hold_ground(session: AsyncSession, node: Node) -> None:
+    """Take the plot's row for the transaction before spending its metres.
+
+    The plot's area is a remainder like money and grain (CLAUDE.md), and three
+    commands spend it against the same sum (D-246): a house takes its footprint,
+    a strip takes its metres, and what is left is the empty land the foraging
+    walks. Every one of them reads `free_ground` and then writes, so without the
+    lock two of them read the same hundred metres and both take sixty -- and the
+    plot goes into a minus that nothing afterwards can notice, because nothing
+    afterwards ever re-adds the parts.
+
+    The **plot**, always: a storey is spent by nothing, and a house on it is
+    spoken for by the ground it stands on.
+
+    The whole row rather than its id, and `populate_existing` with it: whoever
+    held the lock before us may have written the very fields we are about to
+    read -- the holder, above all -- and a locked read that left a stale copy in
+    the session would be a lock taken for nothing. The command's memory goes the
+    same way and for the same reason: `remember` keeps its answers until a write
+    throws them away (`db.base`), and a wait is not a write -- so a footprint
+    counted before the lock would be handed back after it, from before the very
+    change we waited out.
+    """
+    await session.execute(
+        select(Node)
+        .where(Node.id == node.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    forget(session)
+
+
+async def marked_ground(session: AsyncSession, node: Node) -> float:
+    """Ground already cut into strips here (D-118).
+
+    A bed stands in the yard and takes it: the plot's metres are spent by three
+    things and only three -- the footprint of the houses, the strips marked out
+    of the land, and whatever is left empty. Counting the strips out of that sum
+    let a hundred-metre plot carry a fifty-metre house and a hundred metres of
+    beds at once, and then the empty land the foraging is measured against came
+    out negative and was clamped to nought (D-210, D-246).
+
+    Everybody's strips, not the asker's: the ground is one, whoever ploughed it.
+    """
+
+    async def measure() -> float:
+        total = await session.scalar(
+            select(func.coalesce(func.sum(Plot.area_m2), 0)).where(Plot.node_id == node.id)
+        )
+        return float(total or 0)
+
+    #: The plot's own screen asks for this from both ends -- the yard's spare
+    #: metres and the foraging's empty land (`db.base.remember`).
+    return await remember(session, ("marked_ground", node.id), measure)
+
+
+async def spare_ground(session: AsyncSession, node: Node) -> float:
+    """The plot's empty land: neither built on nor cut into strips (D-210, D-246).
+
+    The footprint, not the usable area: a two-storey house of ten metres takes
+    ten from the yard, not twenty (D-125). Sites under way are **not** counted
+    here -- this is the ground as it lies today, and what the foraging walks.
+    """
+    #: A storey is not land (D-247): nothing is built on it, nothing is marked
+    #: out of it and nothing is gathered from it. Its metres are floor.
+    if storey_of(node) is not None:
+        return 0.0
+    taken = await built_area(session, node, ground=True) + await marked_ground(session, node)
     return float(node.area_m2) - taken
+
+
+async def free_ground(session: AsyncSession, node: Node) -> float:
+    """What is left to spend: the empty land, minus what is already on the way.
+
+    This is the number a new house and a new strip are both measured against:
+    ground promised to a started site is ground gone, even though nothing
+    stands on it yet.
+    """
+    return await spare_ground(session, node) - await planned_footprint(session, node)
+
+
+async def open_storeys(session: AsyncSession, constants: Constants, node: Node) -> list[Node]:
+    """Open the plot's floors up to its tallest house and cut the stairs (D-247).
+
+    The ground floor is the plot itself -- the door, the yard and the way in are
+    all there -- so only the floors above it become nodes. They stand in a row,
+    not in a star: one climbs to the fifth through the four below it, and that
+    is what makes height a decision rather than a free widening of the ground.
+
+    **Floors belong to the plot, not to a particular house.** Two houses on one
+    plot are two roofs over each floor they both reach, exactly as they have
+    always been two roofs over one ground floor -- and a floor keyed by the plot
+    is a floor that can be **reopened**: a house taken down and put up again
+    walks back into the same rooms, with whatever names their owner gave them.
+
+    Idempotent, and that is what makes it the one entry point: called after a
+    build, after a demolition, after a collapse, it brings the plot's floors to
+    what stands on it now. A one-storey plot opens nothing, which is why the
+    world as it was needs no rewriting.
+    """
+    #: The same lock the ground is spent under (`hold_ground`), and for the
+    #: neighbouring reason: a plot changing hands in another session reads the
+    #: floors it must carry with it, and a build finishing here writes them. One
+    #: of the two has to wait, or the buyer gets the yard and the seller keeps
+    #: the workshop upstairs.
+    await hold_ground(session, node)
+    height = await height_of(session, node)
+    standing = {storey_of(room): room for room in await storeys_of(session, node)}
+    rooms: list[Node] = []
+    below = node
+    for floor in range(GROUND_FLOOR + 1, height + 1):
+        room = standing.get(floor)
+        if room is None:
+            room = await world.create_node(
+                session,
+                f"{node.key}.floor.{floor}",
+                f"{floor}-й этаж",
+                planet=node.planet,
+                #: One floor is the footprint, however many stand on it (D-125).
+                #: Kept in step below, on every opening: `storey_area` is the
+                #: answer, and the node's own metres must not become a second one.
+                area_m2=await storey_area_for(session, node, floor),
+                layer=Layer.LOCATION,
+                parent=node,
+                #: On the plot's own map a floor stands next to the one below it.
+                anchor=below,
+                properties={STOREY: floor},
+            )
+        #: The floor is held by whoever holds the plot: a storey is not bought,
+        #: not sold and not fenced on its own (D-247). Land outside a city has
+        #: no holder, and neither has a floor of a house standing on it.
+        room.owner_identity_id = node.owner_identity_id
+        #: And it is as wide as what reaches it **now**: a room reopened under a
+        #: narrower house than the one that first cut it would otherwise carry
+        #: the old number for ever -- a second opinion about a figure the engine
+        #: computes anyway, and one that has already drifted.
+        room.area_m2 = Decimal(str(await storey_area_for(session, node, floor)))
+        await session.flush()
+        #: Idempotent (`travel.connect`): a reopened floor keeps the stair it had.
+        await travel.connect(
+            session,
+            below,
+            room,
+            base_seconds=constants[R.BUILD_STAIR_SECONDS],
+            surface=Surface.PAVED,
+        )
+        rooms.append(room)
+        below = room
+    return rooms
+
+
+async def storey_area_for(session: AsyncSession, node: Node, floor: int) -> float:
+    """Metres of this plot's `floor`-th storey: the footprint of what reaches it."""
+    return sum(
+        float(house.footprint_m2)
+        for house in await buildings_of(session, node)
+        if house.floors >= floor
+    )
+
+
+async def spare_storeys(session: AsyncSession, node: Node) -> list[Node]:
+    """Floors standing higher than anything on the plot now reaches (D-247).
+
+    What is left after a house comes down: the rooms are still there, and
+    nothing holds them up any more. The caller decides what happens to what was
+    on them -- a demolition brings it into the yard, a collapse buries it -- and
+    then hands them to `close_storeys`.
+    """
+    height = await height_of(session, node)
+    return [room for room in await storeys_of(session, node) if (storey_of(room) or 0) > height]
+
+
+async def close_storeys(session: AsyncSession, node: Node, rooms: list[Node]) -> None:
+    """Cut the way to floors nothing holds up any more (D-247).
+
+    **The nodes stay.** Nothing in this world is deleted (D-007), and a node
+    least of all: a floor somebody has walked to is written into the journal of
+    transits, the chat of the place, the orders made in it and a dozen tables
+    besides, and none of them is a thing to throw away because a wall fell. So
+    the stairs go instead -- and a place with no way in is off the map by the
+    same rule a ship in flight is (D-201): the graph simply does not reach it.
+    Build up to that height again and the room comes back, name and all.
+
+    **What was on them is the caller's business** and is dealt with before this
+    runs. What is not the caller's business is where the people go: a floor
+    losing its walls under somebody standing on it must not leave them shut in,
+    so they come down into the yard.
+    """
+    if not rooms:
+        return
+    upstairs = [room.id for room in rooms]
+    #: Whoever is **on the way up** turns back before the stairs are cut (D-194,
+    #: pillar P6). `travel.disconnect` refuses to take an edge out from under a
+    #: walker, and here refusing is not on the table -- the walls are falling --
+    #: so the walk is ended instead. Left alone, the leg would fire on schedule
+    #: and put the body down on a floor with no metres and no way out: a node
+    #: with no edges is a node nothing leads out of, and this world does not
+    #: have places one can be stuck in.
+    walking = (
+        (
+            await session.execute(
+                select(Body)
+                .join(Travel, Travel.body_id == Body.id)
+                .where(Travel.state == TravelState.GOING, Travel.to_node_id.in_(upstairs))
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for walker in walking:
+        #: Forced: the door's rule holds against a decision, and a collapse is
+        #: not one -- there is no end of the passage left to walk to.
+        await travel.turn_back(session, walker, forced=True)
+    for room in rooms:
+        for body in (
+            (await session.execute(select(Body).where(Body.node_id == room.id))).scalars().all()
+        ):
+            body.node_id = node.id
+        await session.flush()
+        #: The stairs go with the floor. Removed by hand rather than through
+        #: `travel.disconnect`: that one guards a gangway somebody is walking,
+        #: and here the walls are already down -- there is nothing left to wait
+        #: for and nowhere to arrive.
+        await session.execute(
+            delete(Edge).where((Edge.node_a_id == room.id) | (Edge.node_b_id == room.id))
+        )
+    await session.flush()
+
+
+async def _city_ordered_build(
+    session: AsyncSession, node: Node, kind: str, area: float, floors: int
+) -> bool:
+    """Whether an open city order licenses this exact build here (D-248).
+
+    The order is the permission, and only for the house it names: kind and
+    floors to the letter, the footprint at least the ordered one -- otherwise
+    the licence to build the granary would cover a shed on the city square.
+    """
+    if node.owner_city_id is None:
+        return False
+    from src.engine import works_city  # noqa: PLC0415 -- lazy: works_city imports estate
+
+    order = await works_city.open_city_order(session, WorkOrderKind.BUILDING_BUILD, node)
+    return (
+        order is not None
+        and order.payload.get("building_kind") == kind
+        and int(order.payload.get("floors", 0)) == floors
+        and area >= float(order.payload.get("footprint", 0))
+    )
 
 
 async def construct(
@@ -368,8 +700,17 @@ async def construct(
     await travel.require_here(session, body)
     if body.node_id != node.id:
         raise EstateError("строят ногами: дойдите до участка")
+    #: A storey is a floor of a house, not ground under one (D-247). Left to
+    #: the room check below it would refuse with "nothing free on the plot",
+    #: which is true of a third floor and explains nothing.
+    if storey_of(node) is not None:
+        raise EstateError("это этаж, а не участок: дом строят на земле — спуститесь во двор")
     nobodys = node.owner_identity_id is None and node.owner_city_id is None
-    if not nobodys and node.owner_identity_id != body.identity_id:
+    if (
+        not nobodys
+        and node.owner_identity_id != body.identity_id
+        and not await _city_ordered_build(session, node, kind or kinds(constants)[0], area, floors)
+    ):
         raise EstateError("участок не ваш: строят у себя")
     if floors < 1:
         raise EstateError("дом без этажей — это яма")
@@ -393,6 +734,8 @@ async def construct(
             f"пятно меньше {smallest:.0f} м² — это навес, а не здание: просят {area:.0f}"
         )
 
+    #: The plot's metres are a remainder, and this is where they are spent.
+    await hold_ground(session, node)
     free = await free_ground(session, node)
     if area > free:
         going = await planned_footprint(session, node)

@@ -8,21 +8,34 @@ Copyright (C) 2026 Nurlan Urazkulov
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<!-- Google Analytics (gtag.js) -->
-<script async src="https://www.googletagmanager.com/gtag/js?id=G-TZ5XDN557L"></script>
+<!-- Google Analytics (gtag.js). The counter is loaded on the live host and
+     nowhere else: a page opened from a dev server, a preview or a file would
+     otherwise mix development into the site's own statistics, and there is no
+     way to tell the two apart afterwards. Off the live host `window.gtag`
+     simply never appears, and site.js already guards every call with it. -->
 <script>
-  window.dataLayer = window.dataLayer || [];
-  function gtag(){dataLayer.push(arguments);}
-  gtag('js', new Date());
-  gtag('config', 'G-TZ5XDN557L');
+  if (location.hostname === "everse.life") {
+    window.dataLayer = window.dataLayer || [];
+    window.gtag = function () { dataLayer.push(arguments); };
+    gtag('js', new Date());
+    gtag('config', 'G-TZ5XDN557L');
+    var counter = document.createElement('script');
+    counter.async = true;
+    counter.src = 'https://www.googletagmanager.com/gtag/js?id=G-TZ5XDN557L';
+    document.head.appendChild(counter);
+  }
 </script>
 <!-- End Google Analytics -->
 <title>everse.life — Иммерсивная MMO-песочница с бесконечной прогрессией</title>
 <meta name="description" content="Иммерсивная MMO-песочница с бесконечной прогрессией: экономику, законы и города создают сами игроки. Ни одного NPC, вайпов нет. Альфа уже идёт.">
 <link rel="canonical" href="https://everse.life/">
+<link rel="alternate" hreflang="ru" href="https://everse.life/">
+<link rel="alternate" hreflang="en" href="https://everse.life/en/">
+<link rel="alternate" hreflang="x-default" href="https://everse.life/en/">
 <meta name="robots" content="index, follow, max-image-preview:large">
 <meta property="og:site_name" content="everse.life">
 <meta property="og:locale" content="ru_RU">
+<meta property="og:locale:alternate" content="en_US">
 <meta property="og:title" content="everse.life — Иммерсивная MMO-песочница с бесконечной прогрессией">
 <meta property="og:description" content="MMO-песочница с бесконечной прогрессией. Ни одного NPC, ни квестов, ни уровней. Мир один и вечный. Альфа уже идёт — вход через Discord.">
 <meta property="og:type" content="website">
@@ -190,6 +203,9 @@ Copyright (C) 2026 Nurlan Urazkulov
       <a href="/gameplay">Геймплей</a>
       <a href="/world">Сеттинг</a>
       <a href="/alpha">Альфа релиз</a>
+    </nav>
+    <nav class="lang" aria-label="Язык сайта">
+      <span aria-current="true">RU</span><i aria-hidden="true">/</i><a href="/en/" hreflang="en" lang="en">EN</a>
     </nav>
     <a class="btn sm" href="#signup">Получить приглашение</a>
   </div>
@@ -414,7 +430,7 @@ Copyright (C) 2026 Nurlan Urazkulov
           </details>
           <details>
             <summary>Меня могут убить и забрать вещи?</summary>
-            <p class="a">Да, и вещи потеряются. Знания — нет: они в облаке Биопринтеров - их не удалить.</p>
+            <p class="a">Да, и вещи потеряются. Знания — нет: они в облаке Биопринтеров — их не удалить.</p>
           </details>
           <details>
             <summary>Что будет, если я уйду на месяц?</summary>

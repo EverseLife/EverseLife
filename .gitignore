@@ -18,3 +18,7 @@ build/
 
 # Agentic player system: agents, journal and the provider key live here (D-224).
 agentic_player_system/*.sqlite3*
+
+# The woff2 faces unpacked to ttf while `landing/og_en.py` draws the card:
+# scratch, rebuilt from `landing/fonts/` on the next run.
+landing/.og-fonts/

@@ -70,6 +70,7 @@ from src.models.rig import Rig
 from src.models.ship import Ship
 from src.models.travel import Harness, Travel, TravelState
 from src.models.vote import Ballot, Vote, VoteKind, VoteState
+from src.models.works import WorkOrder, WorkOrderKind, WorkOrderState
 from src.models.world import Edge, Node, Planet, Surface, Vein
 
 #: The rules the database itself holds are attached right after the tables are declared.
@@ -163,5 +164,8 @@ __all__ = [
     "Utterance",
     "Variety",
     "Vein",
+    "WorkOrder",
+    "WorkOrderKind",
+    "WorkOrderState",
     "Wound",
 ]

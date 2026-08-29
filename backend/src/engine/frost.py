@@ -120,7 +120,7 @@ async def climate_of(session: AsyncSession, node: Node) -> str | None:
     """«мерзлота», «пекло» -- or nothing, where the ground is livable.
 
     The property belongs to the **planet**, and a planet is an ordinary node of
-    the space layer whose key is the planet's own name (`seed._system`). Asked
+    the space layer whose key is the planet's own name (`seed_parts.system`). Asked
     of the planet rather than of a constant on purpose: a climate is a fact of
     the world, and the world is in the database.
     """

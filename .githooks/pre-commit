@@ -78,5 +78,15 @@ if ! "$py" tools/spdx.py; then
     exit 1
 fi
 
+# The sitemap dates its pages by content, not by mtime, so the stamps have to
+# be restamped when a page changes -- see landing/lastmod.py. Only with a
+# python that has FastAPI: the script reads the page list from the landing app,
+# and a bare system python would fail on the import instead of on the stamps.
+if "$py" -c "import fastapi" > /dev/null 2>&1; then
+    if ! "$py" landing/lastmod.py --check; then
+        exit 1
+    fi
+fi
+
 # The vault snapshot is not in the repository any more: CI builds it from the
 # vault, and `vault/` here is scratch. Nothing left to compare.

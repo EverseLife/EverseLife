@@ -478,6 +478,13 @@ export type Look = {
      * there is a strip for it to happen on.
      */
     plots?: number;
+    /**
+     * Which floor of a house one is standing on (D-247). Absent on the ground:
+     * the ground floor **is** the plot, and there the land windows have their
+     * answers. Upstairs there is no land at all -- no yard, no purchase, no
+     * strips, no city founded -- and one window instead, «Этаж».
+     */
+    storey?: number;
     /** Disconnected for non-payment: machines do not work (D-149). */
     cut_off: boolean;
     /**
@@ -509,23 +516,28 @@ export type Look = {
     /** Building and capacity: a machine takes area (D-106). Absent on an
      * empty plot with nothing under way.
      *
-     * `area` is the usable area -- the sum of the floors; `ground` is what the
-     * house takes from the plot. Storeys made these two different (D-125).
+     * On a plot `area` is the usable area -- the sum of the floors -- and
+     * `ground` is what the house takes from the plot: storeys made these two
+     * different (D-125). On a **storey** (D-247) the block is about the floor
+     * one stands on -- its metres, its places and how high the plot reaches --
+     * and the keys about the house are absent: the type, the wear, the repair
+     * and the sites all belong to the plot below, and a key carrying nothing is
+     * not sent (D-225). Read it through `houseOf`, which fills the gaps.
      */
     building?: {
       area: number;
-      ground: number;
+      ground?: number;
       floors: number;
       /** What it is built of (D-218): the type sets the bill and the decay. */
       kind?: string;
       /** How sound it is, 0..100. At nothing the house falls (D-218). */
       condition?: number;
       /** Condition lost per day -- the type's own rate. */
-      decay: number;
+      decay?: number;
       slots: number;
       used: number;
       /** Work in progress: ordered, paid for, not yet standing. */
-      sites: {
+      sites?: {
         area: number;
         floors: number;
         kind?: string;
@@ -881,6 +893,35 @@ export type CityPanel = {
     collected: Record<string, number>;
     spent: Record<string, number>;
   };
+};
+
+/** One order on the state works board (D-248): what the fund pays for now. */
+export type WorksOrder = {
+  id: string;
+  kind: "road_mend" | "building_repair" | "building_build" | "fuel_delivery";
+  tariff: number;
+  posted_at: string;
+  /** Kind-specific details; keys the kind does not need are absent (D-225). */
+  about: {
+    surface?: string;
+    building_kind?: string;
+    footprint?: number;
+    floors?: number;
+    type_key?: string;
+    left?: number;
+  };
+  edge?: string;
+  /** Road orders: the names of the edge's two ends. */
+  between?: [string | null, string | null];
+  node?: string | null;
+};
+
+export type WorksBoard = { orders: WorksOrder[]; fund: number };
+
+/** The treasury's own loans and the city line with the capital (D-175, D-248). */
+export type CityLoans = {
+  line: { permitted: number; occupied: number; free: number };
+  loans: { id: string; principal: number; outstanding: number; rate: number; taken_at: string }[];
 };
 
 /** Broad rights. Narrow ones -- `law:<id>` -- are assembled from the law catalog. */
@@ -1514,13 +1555,19 @@ export { MONEY_SCALE, minor, tk } from "./money";
 /**
  * The plot's building block, or an empty yard where the server sent none:
  * the windows that build and place machines count from zero on bare land.
+ *
+ * The gaps are filled rather than guarded at every call site: a storey sends
+ * the four keys about the floor and none of the ones about the house (D-247),
+ * and a window reading `ground` or `sites` there wants nought, not `undefined`.
  */
-export function houseOf(node: Look["node"]): NonNullable<NonNullable<Look["node"]>["building"]> {
-  return (
-    node?.building ?? {
-      area: 0, ground: 0, floors: 0, decay: 0, slots: 0, used: 0, sites: [],
-    }
-  );
+export function houseOf(node: Look["node"]): Required<
+  Pick<NonNullable<NonNullable<Look["node"]>["building"]>,
+    "area" | "ground" | "floors" | "decay" | "slots" | "used" | "sites">
+> & { kind?: string; condition?: number } {
+  return {
+    area: 0, ground: 0, floors: 0, decay: 0, slots: 0, used: 0, sites: [],
+    ...(node?.building ?? {}),
+  };
 }
 
 /**

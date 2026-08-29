@@ -38,7 +38,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import access, estate, events, gear, station, travel, world
+from src.engine import access, energy, estate, events, gear, station, travel, world
 from src.engine.errors import Refusal
 from src.models.event import EventKind
 from src.models.identity import Body, BodyState
@@ -287,10 +287,16 @@ async def surface_of(session: AsyncSession, node: Node, indoors: bool | None) ->
     a person would give without thinking -- indoors when there is a roof to step
     under, on the ground when there is not.
     """
-    roofed = await estate.built_area(session, node) > 0
+    #: The storey underfoot, not the whole house (D-247): a floor above the
+    #: ground carries no building record of its own, and asking `built_area`
+    #: there answered "no roof" in a room with four walls.
+    roofed = await estate.storey_area(session, node) > 0
     inside = roofed if indoors is None else bool(indoors)
     if inside and not roofed:
         raise NoRoom("здесь нет здания: класть можно только на землю")
+    #: Upstairs there is no ground: under a storey is somebody's ceiling (D-247).
+    if not inside and estate.storey_of(node) is not None:
+        raise NoRoom("это этаж, а не двор: под ним пол, а не земля")
     return inside
 
 
@@ -396,6 +402,19 @@ async def pick(
     #: leave a wagon as the loophole.
     if catalog.recipes.is_relic(item.type_key):
         raise StorageError(f"«{item.type_key}» — наследие Предтеч: его не поднимают и не уносят")
+
+    #: Fuel lying where a fuel plant stands is loaded, not stored (D-189):
+    #: the station burns from this very container, so the pile IS its tank,
+    #: and pouring in is a handover with no way back. Without this the
+    #: promise was a docstring -- and once the works fund began paying for
+    #: hauls (D-248), pour-collect-pick-up turned theft into a money pump.
+    if (
+        item.type_key in constants[R.ENERGY_FUEL_ENERGY]
+        and await energy.plant_view(session, constants, node) is not None
+    ):
+        raise StorageError(
+            f"«{item.type_key}» у станции — это её топливо: залитое обратно не поднимают"
+        )
 
     qty = amount_float(item.amount) if quantity is None else quantity
     if qty <= 0:

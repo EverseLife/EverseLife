@@ -45,6 +45,7 @@ from src.engine import (
     rig,
     road,
     wear,
+    works,
 )
 from src.engine.jobs import enqueue, handler
 from src.models.event import EventKind
@@ -185,9 +186,10 @@ async def _debt(session: AsyncSession, now: datetime) -> dict[str, Any]:
     return {"debt_withheld": await bank.collect(session, current(), now=now)}
 
 
-async def _sterilize(session: AsyncSession, now: datetime) -> dict[str, Any]:
-    #: The reserve surplus above the ceiling is burned: the bank's second lever (D-169).
-    return {"reserve_burned": await bank.sterilize(session, current())}
+async def _works(session: AsyncSession, now: datetime) -> dict[str, Any]:
+    #: The reserve surplus above the ceiling burns or feeds the works fund by
+    #: the inflation sensor, and the fund posts road orders (D-169, D-248).
+    return await works.daily(session, current(), now=now)
 
 
 async def _metrics(session: AsyncSession, now: datetime) -> dict[str, Any]:
@@ -224,12 +226,16 @@ DAILY_STEPS: dict[str, tuple[Step, str]] = {
     "houses": (_houses, "first"),
     "land_tax": (_land_tax, "first"),
     "debt": (_debt, "later"),
-    "sterilize": (_sterilize, "later"),
+    "works": (_works, "later"),
     "metrics": (_metrics, "last"),
     "cities": (_cities, "last"),
     "partitions": (_partitions, "first"),
 }
 STEPS = {**WORLD_STEPS, **DAILY_STEPS}
+#: The old name of the works step, for step jobs queued before the rename: a
+#: pending `sterilize` from yesterday's deploy must run, not KeyError. Lookup
+#: only -- not in `DAILY_STEPS`, or the fan-out would queue the step twice.
+STEPS["sterilize"] = (_works, "later")
 
 
 async def _fan_out(

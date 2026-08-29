@@ -500,15 +500,21 @@ async def fuel(
         raise EnergyError("грузить нечего")
 
     yard = await world.node_container(session, node)
+    fuel_key = item.type_key
     poured = await world.move_stack(session, item, yard, qty)
     await events.record(
         session,
         EventKind.ENERGY_FUELLED,
         actor_identity_id=body.identity_id,
         node_id=node.id,
-        type_key=item.type_key,
+        type_key=fuel_key,
         amount=poured,
     )
+    #: Fuel the city ordered hauled pays per unit as it lands (D-248): the
+    #: pour is the handover, the engine just watched it happen.
+    from src.engine import works_city  # noqa: PLC0415 -- lazy: works_city imports energy
+
+    await works_city.pay_fuel_delivery(session, constants, node, fuel_key, poured, body.identity_id)
     return poured
 
 

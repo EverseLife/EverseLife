@@ -1,0 +1,293 @@
+<!doctype html>
+<!--
+SPDX-License-Identifier: AGPL-3.0-only
+Copyright (C) 2026 Nurlan Urazkulov
+-->
+
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Google Analytics (gtag.js). The counter is loaded on the live host and
+     nowhere else: a page opened from a dev server, a preview or a file would
+     otherwise mix development into the site's own statistics, and there is no
+     way to tell the two apart afterwards. Off the live host `window.gtag`
+     simply never appears, and site.js already guards every call with it. -->
+<script>
+  if (location.hostname === "everse.life") {
+    window.dataLayer = window.dataLayer || [];
+    window.gtag = function () { dataLayer.push(arguments); };
+    gtag('js', new Date());
+    gtag('config', 'G-TZ5XDN557L');
+    var counter = document.createElement('script');
+    counter.async = true;
+    counter.src = 'https://www.googletagmanager.com/gtag/js?id=G-TZ5XDN557L';
+    document.head.appendChild(counter);
+  }
+</script>
+<!-- End Google Analytics -->
+<title>Closed alpha: what works and how to get in — everse.life</title>
+<meta name="description" content="Mining, crafting, the order book, towns, courts and the bank already run. Access is handed out on Discord. A subscription, and nothing sold for advantage.">
+<link rel="canonical" href="https://everse.life/en/alpha">
+<link rel="alternate" hreflang="ru" href="https://everse.life/alpha">
+<link rel="alternate" hreflang="en" href="https://everse.life/en/alpha">
+<link rel="alternate" hreflang="x-default" href="https://everse.life/en/alpha">
+<meta name="robots" content="index, follow, max-image-preview:large">
+<meta property="og:site_name" content="everse.life">
+<meta property="og:locale" content="en_US">
+<meta property="og:locale:alternate" content="ru_RU">
+<meta property="og:title" content="The everse.life alpha — what works and how to get in">
+<meta property="og:description" content="What already runs in the engine, what is ahead without dates, and how to get into the alpha through Discord. A subscription, and nothing sold for advantage.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://everse.life/en/alpha">
+<meta property="og:image" content="https://everse.life/og-en.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:alt" content="The headline “Not a game. An immersive universe.” and a planetary system on a dark field — the everse.life card.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="The everse.life alpha — what works and how to get in">
+<meta name="twitter:description" content="What already runs in the engine, what is ahead without dates, and how to get into the alpha through Discord. A subscription, and nothing sold for advantage.">
+<meta name="twitter:image" content="https://everse.life/og-en.png">
+<meta name="theme-color" content="#070B14">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="preload" href="/fonts/onest.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/fonts/plexmono.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/site.css">
+<noscript><style>
+  /* Without scripts nothing waits for a reveal: everything is simply visible. */
+  h1 .line > span, .hero .lead, .hero .actions, .system, .cue, .rv, .rv-stag > *, table.no tr { opacity: 1 !important; transform: none !important; filter: none !important; }
+  .sec-head h1, .sec-head h2 { font-weight: 700 !important; }
+  h1 .accent svg path { clip-path: none; }
+  .in .day .bar i, .day .bar i { width: var(--w); }
+  .acc-p { grid-template-rows: 1fr !important; }
+  table.no td:first-child span { background-size: 100% 2px; }
+</style></noscript>
+<script type="application/ld+json">
+{
+ "@context": "https://schema.org",
+ "@type": "BreadcrumbList",
+ "itemListElement": [
+  {
+   "@type": "ListItem",
+   "position": 1,
+   "name": "Home",
+   "item": "https://everse.life/en/"
+  },
+  {
+   "@type": "ListItem",
+   "position": 2,
+   "name": "The alpha and where the project stands",
+   "item": "https://everse.life/en/alpha"
+  }
+ ]
+}
+</script>
+</head>
+<body>
+<canvas id="space" aria-hidden="true"></canvas>
+<div class="grain" aria-hidden="true"></div>
+
+<header class="top" id="top">
+  <div class="wrap bar">
+    <a class="brand" href="/en/" aria-label="everse.life">
+      <svg viewBox="0 0 409 267" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <path d="M122.748 158.23C128.329 158.23 132.981 156.37 136.702 152.649L143.053 160.059C140.808 162.818 137.921 164.903 134.392 166.314C130.864 167.726 126.886 168.431 122.459 168.431C116.813 168.431 111.841 167.309 107.543 165.063C103.244 162.818 99.9082 159.706 97.5344 155.728C95.2248 151.686 94.07 147.131 94.07 142.063C94.07 137.059 95.1927 132.568 97.4382 128.59C99.7478 124.548 102.891 121.405 106.869 119.159C110.911 116.914 115.466 115.791 120.534 115.791C125.346 115.791 129.709 116.849 133.622 118.967C137.6 121.02 140.744 124.003 143.053 127.916C145.363 131.766 146.518 136.289 146.518 141.486L107.158 149.184C108.377 152.136 110.334 154.381 113.028 155.921C115.723 157.461 118.963 158.23 122.748 158.23ZM120.534 125.414C116.108 125.414 112.515 126.858 109.756 129.745C107.062 132.632 105.714 136.513 105.714 141.389V141.486L134.777 135.904C133.943 132.76 132.243 130.226 129.677 128.301C127.175 126.377 124.127 125.414 120.534 125.414Z" fill="currentColor"/>
+        <path d="M205.252 116.368L183.214 167.758H170.8L148.763 116.368H161.273L177.248 154.477L193.704 116.368H205.252Z" fill="currentColor"/>
+        <path d="M235.804 158.23C241.386 158.23 246.037 156.37 249.758 152.649L256.11 160.059C253.864 162.818 250.977 164.903 247.448 166.314C243.92 167.726 239.942 168.431 235.515 168.431C229.87 168.431 224.898 167.309 220.599 165.063C216.301 162.818 212.965 159.706 210.591 155.728C208.281 151.686 207.126 147.131 207.126 142.063C207.126 137.059 208.249 132.568 210.495 128.59C212.804 124.548 215.948 121.405 219.925 119.159C223.967 116.914 228.522 115.791 233.591 115.791C238.402 115.791 242.765 116.849 246.679 118.967C250.656 121.02 253.8 124.003 256.11 127.916C258.419 131.766 259.574 136.289 259.574 141.486L220.214 149.184C221.433 152.136 223.39 154.381 226.084 155.921C228.779 157.461 232.019 158.23 235.804 158.23ZM233.591 125.414C229.164 125.414 225.571 126.858 222.812 129.745C220.118 132.632 218.771 136.513 218.771 141.389V141.486L247.833 135.904C246.999 132.76 245.299 130.226 242.733 128.301C240.231 126.377 237.183 125.414 233.591 125.414Z" fill="currentColor"/>
+        <path d="M282.583 123.875C286.047 118.485 292.142 115.791 300.867 115.791V127.243C299.841 127.05 298.911 126.954 298.077 126.954C293.393 126.954 289.736 128.333 287.106 131.092C284.476 133.787 283.16 137.7 283.16 142.833V167.758H271.131V116.368H282.583V123.875Z" fill="currentColor"/>
+        <path d="M327.139 168.431C322.968 168.431 318.895 167.886 314.917 166.795C310.939 165.705 307.763 164.325 305.39 162.657L310.009 153.515C312.319 155.055 315.077 156.306 318.285 157.268C321.557 158.166 324.765 158.615 327.908 158.615C335.094 158.615 338.687 156.723 338.687 152.937C338.687 151.141 337.756 149.89 335.896 149.184C334.1 148.479 331.18 147.805 327.139 147.163C322.904 146.522 319.44 145.784 316.745 144.95C314.115 144.116 311.805 142.672 309.816 140.619C307.892 138.502 306.929 135.583 306.929 131.862C306.929 126.986 308.95 123.105 312.992 120.218C317.098 117.266 322.616 115.791 329.544 115.791C333.073 115.791 336.602 116.208 340.13 117.042C343.659 117.812 346.546 118.87 348.791 120.218L344.172 129.36C339.809 126.794 334.901 125.511 329.448 125.511C325.92 125.511 323.225 126.056 321.365 127.147C319.568 128.173 318.67 129.552 318.67 131.285C318.67 133.209 319.632 134.589 321.557 135.423C323.546 136.193 326.593 136.93 330.699 137.636C334.805 138.278 338.173 139.015 340.804 139.85C343.434 140.684 345.68 142.095 347.54 144.084C349.465 146.073 350.427 148.896 350.427 152.553C350.427 157.364 348.342 161.214 344.172 164.101C340.002 166.988 334.324 168.431 327.139 168.431Z" fill="currentColor"/>
+        <path d="M385.23 158.23C390.812 158.23 395.463 156.37 399.184 152.649L405.536 160.059C403.29 162.818 400.403 164.903 396.875 166.314C393.346 167.726 389.368 168.431 384.941 168.431C379.296 168.431 374.324 167.309 370.025 165.063C365.727 162.818 362.391 159.706 360.017 155.728C357.707 151.686 356.552 147.131 356.552 142.063C356.552 137.059 357.675 132.568 359.921 128.59C362.23 124.548 365.374 121.405 369.352 119.159C373.393 116.914 377.948 115.791 383.017 115.791C387.828 115.791 392.191 116.849 396.105 118.967C400.082 121.02 403.226 124.003 405.536 127.916C407.845 131.766 409 136.289 409 141.486L369.64 149.184C370.859 152.136 372.816 154.381 375.51 155.921C378.205 157.461 381.445 158.23 385.23 158.23ZM383.017 125.414C378.59 125.414 374.997 126.858 372.239 129.745C369.544 132.632 368.197 136.513 368.197 141.389V141.486L397.259 135.904C396.425 132.76 394.725 130.226 392.159 128.301C389.657 126.377 386.61 125.414 383.017 125.414Z" fill="currentColor"/>
+        <path d="M245.428 267C240.103 267 235.933 265.556 232.918 262.669C229.967 259.718 228.491 255.58 228.491 250.255V194.92H240.52V249.389C240.52 254.522 242.926 257.088 247.738 257.088C249.342 257.088 250.785 256.767 252.068 256.125L252.646 265.749C250.4 266.583 247.995 267 245.428 267Z" fill="currentColor"/>
+        <path d="M260.82 214.937H272.849V266.326H260.82V214.937ZM266.882 206.468C264.701 206.468 262.873 205.795 261.397 204.447C259.922 203.036 259.184 201.304 259.184 199.251C259.184 197.198 259.922 195.497 261.397 194.15C262.873 192.739 264.701 192.033 266.882 192.033C269.064 192.033 270.892 192.707 272.368 194.054C273.843 195.337 274.581 196.973 274.581 198.962C274.581 201.079 273.843 202.875 272.368 204.351C270.956 205.763 269.128 206.468 266.882 206.468Z" fill="currentColor"/>
+        <path d="M307.98 203.966C302.912 203.966 300.378 206.725 300.378 212.242V215.322H314.524V224.945H300.667V266.326H288.637V212.05C288.637 206.597 290.241 202.266 293.449 199.058C296.657 195.85 301.212 194.246 307.114 194.246C311.669 194.246 315.262 195.177 317.893 197.037L314.524 206.083C312.6 204.672 310.418 203.966 307.98 203.966Z" fill="currentColor"/>
+        <path d="M346.255 256.799C351.837 256.799 356.488 254.939 360.209 251.217L366.561 258.628C364.315 261.386 361.428 263.471 357.9 264.883C354.371 266.294 350.393 267 345.967 267C340.321 267 335.349 265.877 331.05 263.632C326.752 261.386 323.416 258.275 321.042 254.297C318.732 250.255 317.578 245.7 317.578 240.632C317.578 235.627 318.7 231.136 320.946 227.159C323.255 223.117 326.399 219.973 330.377 217.728C334.419 215.482 338.974 214.359 344.042 214.359C348.854 214.359 353.216 215.418 357.13 217.535C361.107 219.588 364.251 222.572 366.561 226.485C368.87 230.334 370.025 234.858 370.025 240.054L330.665 247.753C331.884 250.704 333.841 252.95 336.536 254.489C339.23 256.029 342.47 256.799 346.255 256.799ZM344.042 223.983C339.615 223.983 336.022 225.426 333.264 228.314C330.569 231.201 329.222 235.082 329.222 239.958V240.054L358.285 234.473C357.451 231.329 355.75 228.795 353.184 226.87C350.682 224.945 347.635 223.983 344.042 223.983Z" fill="currentColor"/>
+        <path fill-rule="evenodd" clip-rule="evenodd" d="M175.56 0C211.399 4.53493e-05 243.945 14.0671 267.96 36.9708C312.012 15.4023 343.742 6.7049 350.446 16.5491C357.178 26.4354 337.204 52.8623 300.607 86.005C302.093 89.8998 303.402 93.8823 304.523 97.9419C303.096 94.1412 301.489 90.4276 299.714 86.8125C293.038 92.8336 285.82 99.0724 278.12 105.47H271.132C270.926 105.47 270.721 105.478 270.518 105.489C280.386 97.135 289.276 89.1204 297.007 81.615C289.066 67.2036 278.361 54.5227 265.608 44.2809C264.017 43.0038 262.395 41.7639 260.741 40.564C240.055 25.5465 214.592 16.6876 187.055 16.6875C117.798 16.6875 61.6548 72.7224 61.6548 141.844C61.6549 152.092 62.8884 162.052 65.2163 171.584C65.6737 173.457 66.1745 175.314 66.7154 177.154C71.7498 194.272 80.3509 209.869 91.6615 223.085C114.649 212.066 141.665 196.891 170.277 178.642C170.451 178.65 170.625 178.656 170.8 178.656H178.031C148.516 197.866 120.279 214.347 95.3361 227.194C117.029 250.404 147.461 265.371 181.4 266.875C179.464 266.957 177.517 267 175.56 267C140.855 267 109.236 253.809 85.4639 232.175C40.5382 254.347 8.0838 263.393 1.29404 253.424C-5.46386 243.502 14.683 216.916 51.5377 183.601C45.2578 168.13 41.7999 151.218 41.7999 133.5C41.7999 59.77 101.686 0 175.56 0ZM53.9342 189.137C29.4098 213.08 16.8355 231.715 22.0356 239.352C27.2649 247.03 49.4678 242.123 81.0743 227.995C69.8627 216.828 60.6265 203.686 53.9342 189.137ZM329.704 30.6199C324.563 23.0726 303.019 27.6878 272.265 41.2678C283.1 52.5814 291.963 65.7938 298.301 80.3538C322.5 56.6421 334.87 38.2044 329.704 30.6199Z" fill="currentColor"/>
+        <path d="M207.607 266.875C205.431 266.875 203.576 266.139 202.04 264.667C200.504 263.131 199.736 261.211 199.736 258.907C199.736 256.539 200.471 254.619 201.943 253.147C203.479 251.675 205.367 250.939 207.607 250.939C209.847 250.939 211.704 251.675 213.176 253.147C214.712 254.619 215.48 256.539 215.48 258.907C215.48 261.211 214.712 263.131 213.176 264.667C211.64 266.139 209.783 266.875 207.607 266.875Z" fill="currentColor"/>
+      </svg>
+    </a>
+    <nav class="jump" aria-label="Sections">
+      <a href="/en/gameplay">Gameplay</a>
+      <a href="/en/world">Setting</a>
+      <a href="/en/alpha" aria-current="page">Alpha release</a>
+    </nav>
+    <nav class="lang" aria-label="Site language">
+      <a href="/alpha" hreflang="ru" lang="ru">RU</a><i aria-hidden="true">/</i><span aria-current="true">EN</span>
+    </nav>
+    <a class="btn sm" href="/en/#signup">Get an invite</a>
+  </div>
+</header>
+
+<main>
+  <div class="wrap">
+    <!-- ── 08 · Where we are ───────────────────────────────────────────── -->
+    <section class="sec" id="status">
+      <div class="sec-head rv">
+        <span class="sec-num">01 / Where we are now</span>
+        <div>
+          <h1>What works already, and what is ahead</h1>
+          <p class="sec-lead">Without this section there would be no reason to believe anything
+            above it. Below is what already runs in the engine on our server, and what does not
+            exist yet.</p>
+        </div>
+      </div>
+      <div class="status rv">
+        <div>
+          <h3>Working already</h3>
+          <ul>
+            <li><span><b>The alpha — playable right now</b>, access handed out on <a class="ext" href="https://discord.gg/eKhM3H9tKk" target="_blank" rel="noopener noreferrer">Discord</a>. Everything below is already running there.</span></li>
+            <li><span><b>Mining</b> — a working face with hidden roof strength, timbering, collapse; a rig that digs on fuel while you sleep and loses to a hand on quality.</span></li>
+            <li><span><b>Prospecting</b> — expeditions for a vein, a plot and a site for a town. The world map grows by what the players find.</span></li>
+            <li><span><b>Crafting</b> — a quality forecast before the batch, wear, repair and remelting, automatic stations, town power. What the Library does not have gets <b>invented</b>: a recipe is written to a medium, and that can be sold, copied or wiped.</span></li>
+            <li><span><b>The market</b> — an order book in every trade hub, escrow, a hold against a deposit, customs and duties.</span></li>
+            <li><span><b>Land and food</b> — plots, buildings and storeys, deeds and resale of property, fields with crop rotation, breeding varieties, cooking, spoilage.</span></li>
+            <li><span><b>Towns</b> — a charter, offices and rights, laws, votes, elections, a council, a treasury, a court with bail and sentences.</span></li>
+            <li><span><b>The bank and the coin</b> — reserves, a key rate from a formula, credit against work without collateral, insolvency and hard labour; minting and melting coin.</span></li>
+            <li><span><b>Town power</b> — a shared pool, coal stations, a tariff, meters, bills, and cutting off whoever does not pay.</span></li>
+            <li><span><b>Space and three planets</b> — a ship is laid down, grown module by module, fitted out and flown by the players themselves; flight time depends on where the planets stand. <b>Aurora</b> — the frozen Precursor cities, opened room by room. <b>Pyroxis</b> — plateaus with no spaceport, where eruptions redraw the map and move the veins.</span></li>
+            <li><span><b>Frost and furnace</b> — the body holds a store of warmth, and running out of it kills you offline too; a cold hub shuts the stations down.</span></li>
+            <li><span><b>Network and daily life</b> — personal mail and channels delayed by distance, local chat, roads and caravans, death and the reprinting of a body, sleep and offline recovery.</span></li>
+          </ul>
+        </div>
+        <div class="ahead">
+          <h3>Ahead, without dates</h3>
+          <ul>
+            <li><span><b>Combat</b> — death is already in the world: frost, an eruption, exhaustion, a collapse. But killing and robbing another player is not something the engine can do yet — violence and the economy around it are ahead.</span></li>
+            <li><span><b>Risk in space</b> — waypoints on a route and places to intercept it, piracy, cargo insurance. For now a flight is safe: it costs only fuel and time.</span></li>
+            <li><span><b>A self-sufficient ship</b> — oxygen, a heat-proof suit, hydroponics. For now a ship does not live on its own.</span></li>
+            <li><span><b>Higher processing</b> — complex production on top of the present ladder of recipes.</span></li>
+            <li><span><b>Contracts and a reputation for dealing</b> — there is no trust counter in the engine: a word is held by escrow, a deposit and a court.</span></li>
+            <li><span><b>Taxes and diplomacy</b> — the treasury and duties exist; taxation and treaties between towns are ahead.</span></li>
+            <li><span><b>Greenhouses on Aurora</b> — open ground under the permafrost is not allowed yet.</span></li>
+            <li><span><b>Aquatica and the nymphs</b> — deferred entirely.</span></li>
+          </ul>
+        </div>
+      </div>
+      <p class="status-line rv">We name no dates. We will, when there is something to show.</p>
+      <p class="status-sub rv">The numbers in this game come out of a decision log rather than off the top of somebody's head — every formula leads back to a note saying why it is what it is. And some of those decisions are taken together with the people already playing the alpha.</p>
+    </section>
+
+    <!-- ── 09 · Money ──────────────────────────────────────────────────── -->
+    <section class="sec" id="money">
+      <div class="sec-head rv">
+        <span class="sec-num">02 / Monetisation</span>
+        <div>
+          <h2>How the project pays for itself</h2>
+        </div>
+      </div>
+      <div class="money rv">
+        <div>
+          <p class="big">A subscription. The first three months are free.<span>
+              That is long enough to work out whether you like the game,
+              to find people and to build up property — and what you pay for by then is the place in the community you have taken.
+          </span></p>
+        </div>
+        <div>
+          <p><b>There is no paid content in the game and no microtransactions. Everything has to be earned inside it:</b></p>
+          <ul class="none">
+            <li>resources</li><li>items</li><li>money</li><li>stamina</li>
+            <li>recipes</li><li>offices</li><li>reputation</li>
+          </ul>
+          <p>All subscribers are equal. Nobody will ever be able to buy an advantage inside the game with real money.</p>
+          <p>We do not rule out paid character customisation at some point in the future.
+              The question is still open. If you are against it, <a href="https://discord.gg/eKhM3H9tKk" target="_blank" rel="noopener noreferrer">join our Discord</a> server and take part in that vote.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── 11 · Discord: the alpha, and who decides what the game becomes ─ -->
+    <section class="sec" id="discord">
+      <div class="sec-head rv">
+        <span class="sec-num">03 / Discord</span>
+        <div>
+          <h2>The alpha is running — and it is being built together with the players</h2>
+          <p class="sec-lead">While we name no dates, the game does not stand still. There is one
+            way in — <b>Discord</b>: that is where alpha access is handed out, and where what the
+            game becomes next is decided.</p>
+        </div>
+      </div>
+      <div class="grid-3 rv-stag">
+        <div class="cell">
+          <span class="n">01</span>
+          <h3>Play the alpha</h3>
+          <p>Access is handed out on Discord. This is <b>not a demo and not a trailer</b> but the
+            engine itself, and in it people are already mining ore, trading on the order book,
+            building towns, holding trials and voting. <b>Everything earned there burns when the big world
+            starts</b> — the alpha tests mechanics, it does not hand out a head start.</p>
+        </div>
+        <div class="cell">
+          <span class="n">02</span>
+          <h3>Shape what the game becomes</h3>
+          <p>Updates, new mechanics and balance changes are argued about <b>before they reach the
+            world</b>. An argument stronger than ours changes the decision — that is what the alpha
+            exists for.</p>
+        </div>
+        <div class="cell">
+          <span class="n">03</span>
+          <h3>Join the team</h3>
+          <p>Bring strong analysis and ideas, and <b>we invite you to make the game</b>. No CV
+            needed — what we need is an argument that changes our decision.
+              We say it up front: at first the work is <b>unpaid</b>.
+              In return, a voice in the decisions and a name in the project's history.
+          </p>
+        </div>
+      </div>
+      <div class="band rv">
+        <a class="btn" href="https://discord.gg/eKhM3H9tKk" target="_blank" rel="noopener noreferrer">Join the Discord <span class="arr" aria-hidden="true">→</span></a>
+        <span class="note">An open channel. The alpha is a working world: mechanics get tested
+          there, things break, and when the big world starts it burns down completely.</span>
+      </div>
+    </section>
+
+    <!-- ── 04 · The beta signup ──────────────────────────────────────── -->
+    <section class="sec" id="signup">
+      <div class="sec-head rv">
+        <span class="sec-num">04 / Beta</span>
+        <div>
+          <h2>The universe starts only once</h2>
+          <p class="sec-lead">Leave your email — we send one letter when the world opens, and
+            nothing else. Questions and answers are <a href="/en/#signup">on the front page</a>.</p>
+        </div>
+      </div>
+      <div class="cta-form rv">
+        <form class="signup" autocomplete="off">
+          <label class="sr" for="email">Email for the beta invite</label>
+          <input type="email" id="email" name="email" placeholder="your@email" required>
+          <input class="trap" type="text" name="website" tabindex="-1" aria-hidden="true">
+          <button class="btn" type="submit">Get an invite</button>
+          <p class="form-msg" role="status"></p>
+          <p class="form-note">No newsletter. No dates promised.</p>
+        </form>
+      </div>
+    </section>
+  </div>
+</main>
+
+<footer>
+  <div class="wrap bar">
+    <a href="#top" aria-label="Back to top">
+      <svg class="mark" viewBox="0 0 409 267" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <path d="M122.748 158.23C128.329 158.23 132.981 156.37 136.702 152.649L143.053 160.059C140.808 162.818 137.921 164.903 134.392 166.314C130.864 167.726 126.886 168.431 122.459 168.431C116.813 168.431 111.841 167.309 107.543 165.063C103.244 162.818 99.9082 159.706 97.5344 155.728C95.2248 151.686 94.07 147.131 94.07 142.063C94.07 137.059 95.1927 132.568 97.4382 128.59C99.7478 124.548 102.891 121.405 106.869 119.159C110.911 116.914 115.466 115.791 120.534 115.791C125.346 115.791 129.709 116.849 133.622 118.967C137.6 121.02 140.744 124.003 143.053 127.916C145.363 131.766 146.518 136.289 146.518 141.486L107.158 149.184C108.377 152.136 110.334 154.381 113.028 155.921C115.723 157.461 118.963 158.23 122.748 158.23ZM120.534 125.414C116.108 125.414 112.515 126.858 109.756 129.745C107.062 132.632 105.714 136.513 105.714 141.389V141.486L134.777 135.904C133.943 132.76 132.243 130.226 129.677 128.301C127.175 126.377 124.127 125.414 120.534 125.414Z" fill="currentColor"/>
+        <path d="M205.252 116.368L183.214 167.758H170.8L148.763 116.368H161.273L177.248 154.477L193.704 116.368H205.252Z" fill="currentColor"/>
+        <path d="M235.804 158.23C241.386 158.23 246.037 156.37 249.758 152.649L256.11 160.059C253.864 162.818 250.977 164.903 247.448 166.314C243.92 167.726 239.942 168.431 235.515 168.431C229.87 168.431 224.898 167.309 220.599 165.063C216.301 162.818 212.965 159.706 210.591 155.728C208.281 151.686 207.126 147.131 207.126 142.063C207.126 137.059 208.249 132.568 210.495 128.59C212.804 124.548 215.948 121.405 219.925 119.159C223.967 116.914 228.522 115.791 233.591 115.791C238.402 115.791 242.765 116.849 246.679 118.967C250.656 121.02 253.8 124.003 256.11 127.916C258.419 131.766 259.574 136.289 259.574 141.486L220.214 149.184C221.433 152.136 223.39 154.381 226.084 155.921C228.779 157.461 232.019 158.23 235.804 158.23ZM233.591 125.414C229.164 125.414 225.571 126.858 222.812 129.745C220.118 132.632 218.771 136.513 218.771 141.389V141.486L247.833 135.904C246.999 132.76 245.299 130.226 242.733 128.301C240.231 126.377 237.183 125.414 233.591 125.414Z" fill="currentColor"/>
+        <path d="M282.583 123.875C286.047 118.485 292.142 115.791 300.867 115.791V127.243C299.841 127.05 298.911 126.954 298.077 126.954C293.393 126.954 289.736 128.333 287.106 131.092C284.476 133.787 283.16 137.7 283.16 142.833V167.758H271.131V116.368H282.583V123.875Z" fill="currentColor"/>
+        <path d="M327.139 168.431C322.968 168.431 318.895 167.886 314.917 166.795C310.939 165.705 307.763 164.325 305.39 162.657L310.009 153.515C312.319 155.055 315.077 156.306 318.285 157.268C321.557 158.166 324.765 158.615 327.908 158.615C335.094 158.615 338.687 156.723 338.687 152.937C338.687 151.141 337.756 149.89 335.896 149.184C334.1 148.479 331.18 147.805 327.139 147.163C322.904 146.522 319.44 145.784 316.745 144.95C314.115 144.116 311.805 142.672 309.816 140.619C307.892 138.502 306.929 135.583 306.929 131.862C306.929 126.986 308.95 123.105 312.992 120.218C317.098 117.266 322.616 115.791 329.544 115.791C333.073 115.791 336.602 116.208 340.13 117.042C343.659 117.812 346.546 118.87 348.791 120.218L344.172 129.36C339.809 126.794 334.901 125.511 329.448 125.511C325.92 125.511 323.225 126.056 321.365 127.147C319.568 128.173 318.67 129.552 318.67 131.285C318.67 133.209 319.632 134.589 321.557 135.423C323.546 136.193 326.593 136.93 330.699 137.636C334.805 138.278 338.173 139.015 340.804 139.85C343.434 140.684 345.68 142.095 347.54 144.084C349.465 146.073 350.427 148.896 350.427 152.553C350.427 157.364 348.342 161.214 344.172 164.101C340.002 166.988 334.324 168.431 327.139 168.431Z" fill="currentColor"/>
+        <path d="M385.23 158.23C390.812 158.23 395.463 156.37 399.184 152.649L405.536 160.059C403.29 162.818 400.403 164.903 396.875 166.314C393.346 167.726 389.368 168.431 384.941 168.431C379.296 168.431 374.324 167.309 370.025 165.063C365.727 162.818 362.391 159.706 360.017 155.728C357.707 151.686 356.552 147.131 356.552 142.063C356.552 137.059 357.675 132.568 359.921 128.59C362.23 124.548 365.374 121.405 369.352 119.159C373.393 116.914 377.948 115.791 383.017 115.791C387.828 115.791 392.191 116.849 396.105 118.967C400.082 121.02 403.226 124.003 405.536 127.916C407.845 131.766 409 136.289 409 141.486L369.64 149.184C370.859 152.136 372.816 154.381 375.51 155.921C378.205 157.461 381.445 158.23 385.23 158.23ZM383.017 125.414C378.59 125.414 374.997 126.858 372.239 129.745C369.544 132.632 368.197 136.513 368.197 141.389V141.486L397.259 135.904C396.425 132.76 394.725 130.226 392.159 128.301C389.657 126.377 386.61 125.414 383.017 125.414Z" fill="currentColor"/>
+        <path d="M245.428 267C240.103 267 235.933 265.556 232.918 262.669C229.967 259.718 228.491 255.58 228.491 250.255V194.92H240.52V249.389C240.52 254.522 242.926 257.088 247.738 257.088C249.342 257.088 250.785 256.767 252.068 256.125L252.646 265.749C250.4 266.583 247.995 267 245.428 267Z" fill="currentColor"/>
+        <path d="M260.82 214.937H272.849V266.326H260.82V214.937ZM266.882 206.468C264.701 206.468 262.873 205.795 261.397 204.447C259.922 203.036 259.184 201.304 259.184 199.251C259.184 197.198 259.922 195.497 261.397 194.15C262.873 192.739 264.701 192.033 266.882 192.033C269.064 192.033 270.892 192.707 272.368 194.054C273.843 195.337 274.581 196.973 274.581 198.962C274.581 201.079 273.843 202.875 272.368 204.351C270.956 205.763 269.128 206.468 266.882 206.468Z" fill="currentColor"/>
+        <path d="M307.98 203.966C302.912 203.966 300.378 206.725 300.378 212.242V215.322H314.524V224.945H300.667V266.326H288.637V212.05C288.637 206.597 290.241 202.266 293.449 199.058C296.657 195.85 301.212 194.246 307.114 194.246C311.669 194.246 315.262 195.177 317.893 197.037L314.524 206.083C312.6 204.672 310.418 203.966 307.98 203.966Z" fill="currentColor"/>
+        <path d="M346.255 256.799C351.837 256.799 356.488 254.939 360.209 251.217L366.561 258.628C364.315 261.386 361.428 263.471 357.9 264.883C354.371 266.294 350.393 267 345.967 267C340.321 267 335.349 265.877 331.05 263.632C326.752 261.386 323.416 258.275 321.042 254.297C318.732 250.255 317.578 245.7 317.578 240.632C317.578 235.627 318.7 231.136 320.946 227.159C323.255 223.117 326.399 219.973 330.377 217.728C334.419 215.482 338.974 214.359 344.042 214.359C348.854 214.359 353.216 215.418 357.13 217.535C361.107 219.588 364.251 222.572 366.561 226.485C368.87 230.334 370.025 234.858 370.025 240.054L330.665 247.753C331.884 250.704 333.841 252.95 336.536 254.489C339.23 256.029 342.47 256.799 346.255 256.799ZM344.042 223.983C339.615 223.983 336.022 225.426 333.264 228.314C330.569 231.201 329.222 235.082 329.222 239.958V240.054L358.285 234.473C357.451 231.329 355.75 228.795 353.184 226.87C350.682 224.945 347.635 223.983 344.042 223.983Z" fill="currentColor"/>
+        <path fill-rule="evenodd" clip-rule="evenodd" d="M175.56 0C211.399 4.53493e-05 243.945 14.0671 267.96 36.9708C312.012 15.4023 343.742 6.7049 350.446 16.5491C357.178 26.4354 337.204 52.8623 300.607 86.005C302.093 89.8998 303.402 93.8823 304.523 97.9419C303.096 94.1412 301.489 90.4276 299.714 86.8125C293.038 92.8336 285.82 99.0724 278.12 105.47H271.132C270.926 105.47 270.721 105.478 270.518 105.489C280.386 97.135 289.276 89.1204 297.007 81.615C289.066 67.2036 278.361 54.5227 265.608 44.2809C264.017 43.0038 262.395 41.7639 260.741 40.564C240.055 25.5465 214.592 16.6876 187.055 16.6875C117.798 16.6875 61.6548 72.7224 61.6548 141.844C61.6549 152.092 62.8884 162.052 65.2163 171.584C65.6737 173.457 66.1745 175.314 66.7154 177.154C71.7498 194.272 80.3509 209.869 91.6615 223.085C114.649 212.066 141.665 196.891 170.277 178.642C170.451 178.65 170.625 178.656 170.8 178.656H178.031C148.516 197.866 120.279 214.347 95.3361 227.194C117.029 250.404 147.461 265.371 181.4 266.875C179.464 266.957 177.517 267 175.56 267C140.855 267 109.236 253.809 85.4639 232.175C40.5382 254.347 8.0838 263.393 1.29404 253.424C-5.46386 243.502 14.683 216.916 51.5377 183.601C45.2578 168.13 41.7999 151.218 41.7999 133.5C41.7999 59.77 101.686 0 175.56 0ZM53.9342 189.137C29.4098 213.08 16.8355 231.715 22.0356 239.352C27.2649 247.03 49.4678 242.123 81.0743 227.995C69.8627 216.828 60.6265 203.686 53.9342 189.137ZM329.704 30.6199C324.563 23.0726 303.019 27.6878 272.265 41.2678C283.1 52.5814 291.963 65.7938 298.301 80.3538C322.5 56.6421 334.87 38.2044 329.704 30.6199Z" fill="currentColor"/>
+        <path d="M207.607 266.875C205.431 266.875 203.576 266.139 202.04 264.667C200.504 263.131 199.736 261.211 199.736 258.907C199.736 256.539 200.471 254.619 201.943 253.147C203.479 251.675 205.367 250.939 207.607 250.939C209.847 250.939 211.704 251.675 213.176 253.147C214.712 254.619 215.48 256.539 215.48 258.907C215.48 261.211 214.712 263.131 213.176 264.667C211.64 266.139 209.783 266.875 207.607 266.875Z" fill="currentColor"/>
+      </svg>
+    </a>
+    <span>© 2026 everse.life · An immersive MMO sandbox with endless progression</span>
+    <a class="ext" href="https://discord.gg/eKhM3H9tKk" target="_blank" rel="noopener noreferrer">Discord</a>
+    <span class="r">everse.life</span>
+  </div>
+</footer>
+
+<script src="/space.js"></script>
+<script src="/site.js"></script>
+</body>
+</html>

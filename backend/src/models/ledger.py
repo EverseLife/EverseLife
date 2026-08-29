@@ -23,7 +23,7 @@ import uuid
 from datetime import datetime
 from enum import StrEnum
 
-from sqlalchemy import BigInteger, ForeignKey, Index, UniqueConstraint, Uuid
+from sqlalchemy import BigInteger, ForeignKey, Index, UniqueConstraint, Uuid, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.db.base import Base, created_column, enum_column, uuid_pk
@@ -48,6 +48,9 @@ class AccountKind(StrEnum):
     #: The banking system's reserve (D-087, D-167): money that left circulation.
     #: Credit is issued from here, repayment returns here -- not into circulation.
     BANK_RESERVE = "bank_reserve"
+    #: The public-works fund (D-248): interest income on its way back into the
+    #: world. Impersonal like the reserve; leaves only as pay for verified work.
+    WORKS_FUND = "works_fund"
     #: The only lawful source and sink of the money supply. Every posting here
     #: is the subject of separate examination and telemetry.
     GENESIS = "genesis"
@@ -78,6 +81,13 @@ class PostingReason(StrEnum):
     BANK_MARGIN = "bank_margin"
     #: A person-to-person transfer: pay for work, chip in, return a debt (D-190).
     TRANSFER = "transfer"
+    #: Reserve surplus recycled into the works fund instead of being burned (D-248).
+    WORKS_RECYCLE = "works_recycle"
+    #: The CB printed into the works fund under `works.print_cap` (D-248).
+    #: A separate ground: the emission-share sensor must see it.
+    WORKS_PRINT = "works_print"
+    #: A work order's escrow paid out to whoever completed it (D-248).
+    WORKS_PAYOUT = "works_payout"
 
 
 class LedgerAccount(Base):
@@ -98,6 +108,17 @@ class LedgerTransaction(Base):
     """A whole operation. The postings inside it must sum to zero."""
 
     __tablename__ = "ledger_transaction"
+    __table_args__ = (
+        #: The emission-share sensor sums works-fund prints over a window on
+        #: every rate review and from the `bank.council` command (D-248); the
+        #: journal only grows, and without this the query is a full scan. The
+        #: index is partial: print rows are a droplet in the table.
+        Index(
+            "ix_ledger_transaction_works_print",
+            "at",
+            postgresql_where=text("reason = 'works_print'"),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = uuid_pk()
     at: Mapped[datetime] = created_column()

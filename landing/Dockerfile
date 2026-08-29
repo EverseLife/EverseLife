@@ -6,8 +6,14 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY app.py export.py index.html gameplay.html world.html alpha.html ./
-COPY site.css site.js space.js favicon.svg og.png ./
+COPY app.py export.py indexnow.py lastmod.py lastmod.json ./
+# Every page, not a list of them: a page added to `SITE_PAGES` and forgotten
+# here passes the tests -- they read the source tree -- and is missing only in
+# the image, where it takes the sitemap down with it. The folders under /en/
+# mirror the URLs.
+COPY *.html ./
+COPY en/ ./en/
+COPY site.css site.js space.js favicon.svg og.png og-en.png ./
 COPY fonts/ ./fonts/
 
 # Signups live in SQLite on a volume: the container is disposable, the database is not.

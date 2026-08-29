@@ -30,6 +30,7 @@ from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import forage, gear, world
 from src.models.estate import Building
+from src.models.farm import Plot
 from src.models.forage import Forage
 from src.models.identity import Identity
 from src.models.inventory import Item
@@ -59,6 +60,25 @@ async def test_empty_land_is_plot_minus_footprint(session: AsyncSession) -> None
     session.add(Building(node_id=node.id, area_m2=200, footprint_m2=100, floors=2))
     await session.flush()
     assert await forage.empty_area(session, node) == pytest.approx(300)
+
+
+async def test_empty_land_loses_the_marked_strips(session: AsyncSession) -> None:
+    """A bed is worked land: the foraging walks what neither wall nor strip took (D-246)."""
+    node, body = await _yard(session, area=400)
+    session.add(Building(node_id=node.id, area_m2=200, footprint_m2=100, floors=2))
+    await session.flush()
+
+    session.add(
+        Plot(
+            node_id=node.id,
+            owner_identity_id=body.identity_id,
+            name="Грядка",
+            area_m2=Decimal("120"),
+            fertility=Decimal("50"),
+        )
+    )
+    await session.flush()
+    assert await forage.empty_area(session, node) == pytest.approx(180)
 
 
 async def test_no_window_below_min_area(

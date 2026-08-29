@@ -22,10 +22,15 @@ from src.engine.estate.building import (
     build_minutes,
     buildings_of,
     built_area,
+    close_storeys,
     estimate,
     floor_mass,
+    hold_ground,
     kinds,
+    open_storeys,
     slots,
+    spare_storeys,
+    storeys_of,
     under_construction,
     yard_mass,
 )
@@ -109,7 +114,14 @@ async def demolish_blockers(session: AsyncSession, constants: Constants, node: N
     (D-197), not to a button.
     """
     reasons: list[str] = []
+    #: Every floor of the house, not the ground one alone (D-247): the storeys
+    #: are nodes of their own and hold their own machines and their own cargo,
+    #: and all of it comes down into this one yard.
+    upstairs = await storeys_of(session, node)
     _, occupied = await slots(session, constants, node)
+    for room in upstairs:
+        _, above = await slots(session, constants, room)
+        occupied += above
     if occupied > 0:
         reasons.append(
             f"в здании стоит оборудование ({occupied}): рабочие станции и мебель "
@@ -120,6 +132,8 @@ async def demolish_blockers(session: AsyncSession, constants: Constants, node: N
     #: only about the floor let a demolition through that left the ground
     #: overloaded, and the message quoted a capacity nobody was measured against.
     lying = await floor_mass(session, node)
+    for room in upstairs:
+        lying += await floor_mass(session, room)
     outside = await yard_mass(session, node)
     yard = float(node.area_m2) * constants[R.BUILD_FLOOR_PER_M2]
     if lying + outside > yard:
@@ -222,9 +236,29 @@ async def finish_demolish(session: AsyncSession, job: Job) -> None:
         #: Nothing left to take apart -- the work has already been done, and the
         #: salvage with it. A repeated job must not hand out the materials twice.
         return
+    #: The plot's row first, and for the same reason building takes it
+    #: (`estate.hold_ground`, D-246): the floors that stay are read off what
+    #: stands here, and a build finishing in this same second would leave its
+    #: storeys standing with no stair to any of them.
+    await hold_ground(session, node)
+
     for house in houses:
         await session.delete(house)
     await session.flush()
+
+    #: The floors come down with the walls (D-247): what stood and lay on them
+    #: goes into the yard, which was checked for room before the work began, and
+    #: the way up is cut. The rooms themselves stay -- nothing here is deleted
+    #: (D-007) -- and a house built up to that height again walks back into them.
+    yard = await world.node_container(session, node)
+    rooms = await spare_storeys(session, node)
+    for room in rooms:
+        for thing in await world.contents(session, await world.node_container(session, room)):
+            thing.container_id = yard.id
+            #: Out under the sky: the roof it stood under has been taken apart.
+            thing.outdoors = True
+        await session.flush()
+    await close_storeys(session, node, rooms)
 
     body = (
         None if job.body_id is None else await session.get(Body, job.body_id, with_for_update=True)
@@ -279,6 +313,12 @@ async def finish_build(session: AsyncSession, job: Job) -> None:
     session.add(building)
     await session.flush()
 
+    #: The floors above the ground open with the house (D-247): each is a node
+    #: of its own, and a stair leads from the one below. The ground floor is the
+    #: plot itself, so a one-storey house opens nothing. Floors are the plot's,
+    #: so a second house that reaches higher simply carries them further up.
+    await open_storeys(session, current(), node)
+
     await events.record(
         session,
         EventKind.BUILDING_BUILT,
@@ -288,4 +328,16 @@ async def finish_build(session: AsyncSession, job: Job) -> None:
         area=float(building.area_m2),
         floors=floors,
         built_of=kind,
+    )
+    #: A house the city ordered collects its pay (D-248): the engine just put
+    #: the building on the plot itself -- there is nothing left to verify.
+    from src.engine import works_city  # noqa: PLC0415 -- lazy: works_city imports estate
+
+    await works_city.pay_build_order(
+        session,
+        current(),
+        node,
+        building,
+        uuid.UUID(job.payload["identity"]),
+        now=job.run_at,
     )

@@ -285,8 +285,10 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
     if shaking_at is not None:
         seen["node"]["shaking_at"] = shaking_at.isoformat()
     #: Both lists, and only to the holder: whom they let into a shut location
-    #: and whom they let in nowhere (D-204).
-    if node.owner_identity_id == identity.id:
+    #: and whom they let in nowhere (D-204). The door belongs to the plot and
+    #: not to a floor of the house on it (D-247): one shuts the way in, and the
+    #: way in is downstairs.
+    if node.owner_identity_id == identity.id and estate.storey_of(node) is None:
         seen["node"]["door"] = {
             "allowed": await access.roster(db, node, allowed=True),
             "barred": await access.roster(db, node, allowed=False),
@@ -294,13 +296,35 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
     #: Whether the viewer may name the plot (D-178): sent only when they may.
     if await estate.may_name(db, body, node):
         seen["node"]["may_name"] = True
+    #: Which floor of a house one is standing on (D-247). Sent only where it is
+    #: a floor at all: the ground floor is the plot itself, and there the key is
+    #: absent like every other key that would carry nothing (D-225). The client
+    #: cannot work it out -- a storey has no building record of its own, and its
+    #: area alone says nothing about height.
+    storey = estate.storey_of(node)
+    if storey is not None:
+        seen["node"]["storey"] = storey
     #: Building and capacity: a machine takes area (D-106), and the player must
     #: see how many places are left before carrying a machine across town.
     #: An empty plot with nothing under way sends no block at all.
     total_seats, taken_seats = await estate.slots(db, constants, node)
     houses = await estate.buildings_of(db, node)
     sites = await estate.under_construction(db, node)
-    if houses or sites:
+    if storey is not None:
+        #: A storey carries no building of its own: the house stands on the plot
+        #: below and answers there for the bill, the wear, the repair and the tax
+        #: (D-247). What the floor has is a floor -- its metres, its places and
+        #: how high the plot reaches -- and nothing else is sent: the four keys
+        #: the window upstairs draws, and no fifth carrying nothing (D-225).
+        under = None if node.parent_id is None else await db.get(Node, node.parent_id)
+        seen["node"]["building"] = {
+            "area": await estate.storey_area(db, node),
+            #: How high the plot reaches, so the floor can say which of how many.
+            "floors": 0 if under is None else await estate.height_of(db, under),
+            "slots": total_seats,
+            "used": taken_seats,
+        }
+    elif houses or sites:
         seen["node"]["building"] = {
             "area": await estate.built_area(db, node),
             #: Storeys made these two different numbers (D-125): the plot is spent

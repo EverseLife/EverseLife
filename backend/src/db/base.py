@@ -116,6 +116,17 @@ async def remember[T](
     return value
 
 
+def forget(session: Any) -> None:
+    """Throw the command's memory away: the next question is asked of the database.
+
+    Written for the one case a write does not cover: **waiting**. A lock is a
+    read that blocks, and whoever held the row before us may have written the
+    very thing we remembered before asking for it -- `remember` would then
+    answer from before the wait, which is precisely what waiting was for.
+    """
+    session.info.pop(_MEMO, None)
+
+
 @event.listens_for(Session, "after_flush")
 def _forget_on_write(session: Session, context: Any) -> None:
     """A write invalidates everything remembered: what stands in the yard, how

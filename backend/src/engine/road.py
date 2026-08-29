@@ -53,9 +53,9 @@ from decimal import Decimal
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.constants import Catalog, Constants
+from src.constants import Catalog, Constants, current
 from src.constants import registry as R
-from src.engine import events, stock, travel, world
+from src.engine import events, stock, travel, works, world
 from src.engine.errors import Refusal
 from src.engine.jobs import enqueue, handler
 from src.models.event import EventKind
@@ -226,6 +226,18 @@ async def finished(session: AsyncSession, job: Job) -> None:
         surface=edge.surface.value,
         mend=bool(job.payload.get("mend")),
     )
+    #: A mend with an open state order on this edge collects its pay (D-248):
+    #: the engine just verified the work in its own data -- the condition is
+    #: back at full. Laying a new tier is a different project, no order pays for it.
+    if bool(job.payload.get("mend")):
+        worker = None if job.body_id is None else await session.get(Body, job.body_id)
+        await works.pay_road_order(
+            session,
+            current(),
+            edge,
+            None if worker is None else worker.identity_id,
+            now=job.run_at,
+        )
 
 
 async def decay(session: AsyncSession, constants: Constants) -> int:

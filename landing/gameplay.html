@@ -8,21 +8,34 @@ Copyright (C) 2026 Nurlan Urazkulov
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<!-- Google Analytics (gtag.js) -->
-<script async src="https://www.googletagmanager.com/gtag/js?id=G-TZ5XDN557L"></script>
+<!-- Google Analytics (gtag.js). The counter is loaded on the live host and
+     nowhere else: a page opened from a dev server, a preview or a file would
+     otherwise mix development into the site's own statistics, and there is no
+     way to tell the two apart afterwards. Off the live host `window.gtag`
+     simply never appears, and site.js already guards every call with it. -->
 <script>
-  window.dataLayer = window.dataLayer || [];
-  function gtag(){dataLayer.push(arguments);}
-  gtag('js', new Date());
-  gtag('config', 'G-TZ5XDN557L');
+  if (location.hostname === "everse.life") {
+    window.dataLayer = window.dataLayer || [];
+    window.gtag = function () { dataLayer.push(arguments); };
+    gtag('js', new Date());
+    gtag('config', 'G-TZ5XDN557L');
+    var counter = document.createElement('script');
+    counter.async = true;
+    counter.src = 'https://www.googletagmanager.com/gtag/js?id=G-TZ5XDN557L';
+    document.head.appendChild(counter);
+  }
 </script>
 <!-- End Google Analytics -->
 <title>Геймплей everse.life — роли, экономика и интерфейс</title>
 <meta name="description" content="Чем заняться в MMO-песочнице everse.life: ремесло, торговля, политика, исследование. Что работает не так, как вы привыкли, чего в игре нет — и как выглядит интерфейс.">
 <link rel="canonical" href="https://everse.life/gameplay">
+<link rel="alternate" hreflang="ru" href="https://everse.life/gameplay">
+<link rel="alternate" hreflang="en" href="https://everse.life/en/gameplay">
+<link rel="alternate" hreflang="x-default" href="https://everse.life/en/gameplay">
 <meta name="robots" content="index, follow, max-image-preview:large">
 <meta property="og:site_name" content="everse.life">
 <meta property="og:locale" content="ru_RU">
+<meta property="og:locale:alternate" content="en_US">
 <meta property="og:title" content="Геймплей everse.life — роли, экономика и интерфейс">
 <meta property="og:description" content="Роли здесь не выбирают в меню — их создают. Ремесло, торговля, власть и исследование в MMO-песочнице без NPC и квестов.">
 <meta property="og:type" content="website">
@@ -97,6 +110,9 @@ Copyright (C) 2026 Nurlan Urazkulov
       <a href="/gameplay" aria-current="page">Геймплей</a>
       <a href="/world">Сеттинг</a>
       <a href="/alpha">Альфа релиз</a>
+    </nav>
+    <nav class="lang" aria-label="Язык сайта">
+      <span aria-current="true">RU</span><i aria-hidden="true">/</i><a href="/en/gameplay" hreflang="en" lang="en">EN</a>
     </nav>
     <a class="btn sm" href="/#signup">Получить приглашение</a>
   </div>

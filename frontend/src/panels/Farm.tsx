@@ -184,7 +184,7 @@ export function Farm({ look }: Omit<Props, "busy" | "act">) {
           sowing, the round and the harvest was swallowed: the button clicked
           and the field simply did not change. */}
       <Refusal of={acting} />
-      <h2>Делянки</h2>
+      <h2>Огород</h2>
 
       {rows.length === 0 && (
         <p className="note">Земля не размечена. Сто метров — это столько делянок,

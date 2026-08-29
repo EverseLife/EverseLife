@@ -13,7 +13,7 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.engine import events, ledger
+from src.engine import events, ledger, world
 from src.engine.estate._base import EstateError, NotEnoughMoney, NotForSale
 from src.models.estate import Deed
 from src.models.event import EventKind
@@ -126,7 +126,8 @@ async def buy_deed(session: AsyncSession, buyer: Identity, deed: Deed) -> Deed:
     #: The title is the ownership: the node passes together with the deed.
     node = await session.get(Node, deed.node_id)
     if node is not None:
-        node.owner_identity_id = buyer.id
+        #: The floors of a house go with the plot (D-247).
+        await world.hand_over(session, node, buyer.id)
     await session.flush()
 
     await events.record(

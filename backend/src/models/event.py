@@ -262,6 +262,13 @@ class EventKind(StrEnum):
     DEBT_RESTRAINED = "bank.debt_restrained"
     #: Reserve surplus burned: there is less money in the world (D-169).
     RESERVE_BURNED = "bank.reserve_burned"
+    #: The works fund topped up: recycled surplus and, separately, printed TC (D-248).
+    WORKS_FUNDED = "works.funded"
+    #: The state order board (D-248): posted with escrow, cancelled with the
+    #: escrow returned, paid on verified completion.
+    WORKS_ORDER_POSTED = "works.order_posted"
+    WORKS_ORDER_CANCELLED = "works.order_cancelled"
+    WORKS_PAID = "works.paid"
     #: Interest income returned to city treasuries by turnover (D-171).
     #: Cancelled by D-175: the value remains for old events.
     SEIGNIORAGE_PAID = "bank.seigniorage_paid"

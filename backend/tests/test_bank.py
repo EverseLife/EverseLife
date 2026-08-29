@@ -484,32 +484,44 @@ async def test_index_weighted_by_turnover(
     assert index == pytest.approx(money(505), rel=0.01)
 
 
-async def test_reserve_surplus_burned(
+async def test_reserve_surplus_burned_under_high_inflation(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """The second lever: money that returned to the reserve and is not needed there disappears."""
+    """The second lever: above-target inflation burns the unneeded surplus (D-169, D-248)."""
+    from src.engine import works
+    from src.models.metrics import DailyMetric
+
     who = await _borrower(session, funds=100)
     loan = await bank.borrow(session, constants, catalog, who, 200)
     await bank.repay(session, constants, who, loan, 200)
+
+    #: The price index ran up: inflation well above target, everything burns.
+    today = datetime.now(UTC).date()
+    session.add(DailyMetric(day=today - timedelta(days=1), key=bank.PRICE_INDEX, value=100))
+    session.add(DailyMetric(day=today, key=bank.PRICE_INDEX, value=120))
+    await session.flush()
 
     in_circulation = await bank.circulating(session)
     ceiling = int(in_circulation * constants[R.BANK_RESERVE_CAP] / PERCENT)
     before = await bank.reserve(session)
     assert before > ceiling, "резерв заведомо выше потолка"
 
-    burned = await bank.sterilize(session, constants)
+    burned, recycled = await works.recycle(session, constants)
     assert burned == before - ceiling
+    assert recycled == 0, "при перегреве фонд не кормят"
     assert await bank.reserve(session) == ceiling
     assert await bank.circulating(session) == in_circulation, "оборот не тронут"
 
 
-async def test_reserve_within_ceiling_not_burned(
+async def test_reserve_within_ceiling_not_touched(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
+    from src.engine import works
+
     who = await _borrower(session, funds=10_000)
     loan = await bank.borrow(session, constants, catalog, who, 100)
     await bank.repay(session, constants, who, loan, 100)
-    assert await bank.sterilize(session, constants) == 0
+    assert await works.recycle(session, constants) == (0, 0)
 
 
 # --- collateral ratio as a lever (D-170) -------------------------------------

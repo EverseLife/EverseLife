@@ -217,7 +217,7 @@ async def establish(
     #: cancelled: civic land is not traded by deed, otherwise there would be a
     #: shadow way to change the city's owner past the charter (D-159).
     node.owner_city_id = city.id
-    node.owner_identity_id = None
+    await world.hand_over(session, node, None)
     await _retire_deed(session, node, city)
     await session.flush()
 

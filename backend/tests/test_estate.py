@@ -933,7 +933,8 @@ async def test_demolition_waits_for_the_yard_to_empty(
 
     #: Cargo that fits under a roof but not in the bare yard blocks it the same
     #: way. Two storeys on a small plot are exactly that gap: forty metres of
-    #: floor over twenty metres of ground (D-125).
+    #: floor over twenty metres of ground (D-125) -- and since D-247 those forty
+    #: are two rooms of twenty, so the load is counted across the whole house.
     from src.engine import gear
 
     tight, _, owner = await _house(session, constants, own_plot, area=20, floors=2, plot_area=20)
@@ -943,11 +944,20 @@ async def test_demolition_waits_for_the_yard_to_empty(
     kilos = (float(tight.area_m2) + roofed) / 2 * per_m2
     quantity = kilos / gear.mass_of(catalog, "Труба", 1)
 
+    upstairs = await estate.storeys_of(session, tight)
+    assert len(upstairs) == 1, "второй этаж — отдельный узел (D-247)"
     pocket = await world.body_container(session, owner)
-    goods = await world.grant_item(
-        session, pocket, "Труба", amount=quantity, quality=55, origin="тест"
-    )
-    await storage.drop(session, constants, catalog, owner, goods, quantity)
+    #: Half on each floor: neither room alone is over its own capacity, and the
+    #: plot below still cannot hold the two heaps together.
+    for where in (tight, upstairs[0]):
+        owner.node_id = where.id
+        await session.flush()
+        goods = await world.grant_item(
+            session, pocket, "Труба", amount=quantity / 2, quality=55, origin="тест"
+        )
+        await storage.drop(session, constants, catalog, owner, goods, quantity / 2)
+    owner.node_id = tight.id
+    await session.flush()
     assert any(
         "на полу" in reason for reason in await estate.demolish_blockers(session, constants, tight)
     )

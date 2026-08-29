@@ -303,6 +303,18 @@ DEBT_PRISON_THRESHOLD = Num("debt.prison_threshold")
 DEBT_WORKOFF_RATE = Num("debt.workoff_rate")
 #: Reserve ceiling as a share of circulating supply: above it the surplus is burned (D-169).
 BANK_RESERVE_CAP = Num("bank.reserve_cap")
+#: The works fund (D-248): interest income returns to the world as pay for
+#: verified labour. The recycle share is a public function of inflation; the
+#: print tap starts closed (cap 0) and opens by constant, not by release.
+WORKS_RECYCLE_RAMP = Num("works.recycle_ramp")
+WORKS_PRINT_CAP = Num("works.print_cap")
+WORKS_HOUR_RATE = Num("works.hour_rate")
+WORKS_ROAD_THRESHOLD = Num("works.road_threshold")
+WORKS_CITY_COFINANCE = Num("works.city_cofinance")
+WORKS_OBJECT_COOLDOWN = Num("works.object_cooldown")
+WORKS_PLAYER_DAILY_CAP = Num("works.player_daily_cap")
+WORKS_ORDER_DEADLINE = Num("works.order_deadline")
+WORKS_HAUL_KG_PER_HOUR = Num("works.haul_kg_per_hour")
 #: Inflation at which the collateral lever has done its full stroke (D-170).
 BANK_INFLATION_ALARM = Num("bank.inflation_alarm")
 #: Handing the rate to the Council of cities (D-172): threshold, corridor and emergency return.
@@ -345,6 +357,11 @@ BUILD_REPAIR_LABOR_K = Num("build.repair_labor_k")
 #: house apart is quicker than raising it and never free of breakage.
 BUILD_DEMOLISH_LABOR_K = Num("build.demolish_labor_k")
 BUILD_DEMOLISH_SALVAGE = Num("build.demolish_salvage")
+#: A flight of stairs, in seconds (D-247): every floor above the ground is a
+#: node of its own, and one climbs to it. Short, because a house is a room one
+#: walks through and not ground one crosses -- but not free: a workshop on the
+#: eighth floor must be a decision, not a free upgrade of the ground one.
+BUILD_STAIR_SECONDS = Num("build.stair_seconds")
 
 # --- City economic panel (D-124, D-140) -------------------------------------
 #: Summary step. Deliberately slower than the market: instant data would give

@@ -53,9 +53,10 @@ them with its line: seigniorage (D-171) is cancelled as unnecessary.
 ## What is not here
 
 Deposit interest -- that is income without labour, i.e. emission around pillar
-P1 (D-087). And processing for reports: a "defective print" report lowers trust
+P1 (D-087). Processing for reports: a "defective print" report lowers trust
 and cuts the limit but does not kill -- only out-of-game support does the
-irreversible.
+irreversible. And the reserve surplus: what happens to it -- burning or the
+works fund -- is decided in `engine/works.py` (D-248), the bank only collects.
 """
 
 from __future__ import annotations
@@ -79,7 +80,13 @@ from src.models.event import Event, EventKind
 from src.models.identity import Identity
 from src.models.inventory import Item
 from src.models.job import Job, JobKind, JobState
-from src.models.ledger import AccountKind, LedgerAccount, PostingReason
+from src.models.ledger import (
+    AccountKind,
+    LedgerAccount,
+    LedgerEntry,
+    LedgerTransaction,
+    PostingReason,
+)
 from src.models.market import Order, Trade
 from src.models.metrics import DailyMetric
 from src.models.world import Node
@@ -171,12 +178,12 @@ async def review_rate(
     """Review the rate by sensors. The decision and its reason are stored."""
     moment = now or datetime.now(UTC)
     before = await key_rate(session, constants)
-    inflation = await _inflation(session, constants)
+    inflation_ = await inflation(session, constants)
     issue_share = await _emission_share(session, constants, now=moment)
     rate_value, reason = compute_rate(
         constants,
         previous=before,
-        inflation=inflation,
+        inflation=inflation_,
         emission_share=issue_share,
     )
     #: Inflation past the alarm line returns the rate to the algorithm for
@@ -184,13 +191,13 @@ async def review_rate(
     #: the price of a mistake is everybody's money (D-172).
     lock = (
         moment + timedelta(days=constants[R.BANK_COUNCIL_LOCKOUT])
-        if inflation is not None and inflation > constants[R.BANK_INFLATION_ALARM]
+        if inflation_ is not None and inflation_ > constants[R.BANK_INFLATION_ALARM]
         else None
     )
     decision = RateDecision(
         rate=rate_value,
         locked_until=lock,
-        inflation=inflation or 0,
+        inflation=inflation_ or 0,
         emission_share=issue_share or 0,
         why=reason,
         decided_at=moment,
@@ -515,8 +522,12 @@ async def schedule_review(
         )
 
 
-async def _inflation(session: AsyncSession, constants: Constants) -> float | None:
-    """Inflation from daily metrics. No data -- we stay silent rather than invent."""
+async def inflation(session: AsyncSession, constants: Constants) -> float | None:
+    """Inflation from daily metrics. No data -- we stay silent rather than invent.
+
+    Public: the works fund reads the same sensor (D-248) -- there must be no
+    second copy of the formula.
+    """
 
     window = int(constants[R.BANK_PRICE_INDEX_WINDOW])
     lines = (
@@ -552,12 +563,28 @@ async def _emission_share(
         )
     ).one()
     issued_, printed = line[0] or 0, line[1] or 0
-    if issued_ <= 0:
+    #: What was printed into the works fund (D-248) is emission like any
+    #: other: it enters both the printed and the issued side, so the tap
+    #: cannot hide from the rate formula.
+    works_printed = int(
+        await session.scalar(
+            select(func.coalesce(func.sum(LedgerEntry.amount), 0))
+            .join(LedgerTransaction, LedgerTransaction.id == LedgerEntry.transaction_id)
+            .where(
+                LedgerEntry.amount > 0,
+                LedgerTransaction.reason == PostingReason.WORKS_PRINT,
+                LedgerTransaction.at >= window,
+            )
+        )
+        or 0
+    )
+    issued_all = float(issued_) + works_printed
+    if issued_all <= 0:
         return None
     #: Money comes out of the database as `Decimal` and the scale is a float:
     #: multiplying the two raises, and the raise lands in a scheduled job that
     #: retries for ever. The share is a number, not a sum, so it leaves as one.
-    return float(printed) / float(issued_) * PERCENT
+    return (float(printed) + works_printed) / issued_all * PERCENT
 
 
 # --- insolvency (D-063, D-168) -----------------------------------------------
@@ -629,6 +656,10 @@ async def collect(
         (await session.execute(select(Loan).where(Loan.state == LoanState.OPEN))).scalars().all()
     )
     for loan in loans:
+        #: A treasury loan (D-248) has no identity to withhold from: the
+        #: city's discipline is its line -- occupied until repaid.
+        if loan.identity_id is None:
+            continue
         if not overdue(constants, loan, moment):
             continue
         await accrue(session, constants, loan, now=moment)
@@ -695,38 +726,6 @@ async def price_index(
     for goods, prices in by_goods.items():
         index += median(prices) * turnover[goods] / total_turnover
     return index
-
-
-async def sterilize(session: AsyncSession, constants: Constants) -> int:
-    """Burn the reserve surplus above `bank.reserve_cap` of circulation (D-169).
-
-    The ceiling is a share of the circulating supply, not an absolute sum: the
-    world grows, and what is a huge reserve today is pocket change in a hundred days.
-    """
-    in_reserve = await reserve(session)
-    in_circulation = await circulating(session)
-    ceiling = int(in_circulation * constants[R.BANK_RESERVE_CAP] / PERCENT)
-    surplus = in_reserve - ceiling
-    if surplus <= 0:
-        return 0
-
-    genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
-    await ledger.transfer(
-        session,
-        PostingReason.GENESIS,
-        debit=(await reserve_account(session)).id,
-        credit=genesis.id,
-        amount=surplus,
-        memo={"сжигание излишка резерва": money_str(surplus)},
-    )
-    await events.record(
-        session,
-        EventKind.RESERVE_BURNED,
-        amount=surplus,
-        reserve=in_reserve - surplus,
-        circulating=in_circulation,
-    )
-    return surplus
 
 
 # --- city credit line (D-175) ------------------------------------------------
@@ -891,7 +890,7 @@ async def council_set_rate(
     recommendation, reason = compute_rate(
         constants,
         previous=await key_rate(session, constants),
-        inflation=await _inflation(session, constants),
+        inflation=await inflation(session, constants),
         emission_share=await _emission_share(session, constants, now=moment),
     )
     corridor = constants[R.BANK_COUNCIL_RATE_DEVIATION]

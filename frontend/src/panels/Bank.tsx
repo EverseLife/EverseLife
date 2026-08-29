@@ -114,7 +114,15 @@ export function Bank({ busy, act }: Props) {
           <span className="fact-name">в резерве</span>
           <span className="fact-val">{api.tk(bank.reserve)} ₭</span>
         </div>
+        {/* Фонд работ (D-248): куда возвращается процентный доход и откуда
+            платится госзаказ. Публичен, как резерв. */}
+        <div className="fact">
+          <span className="fact-name">в фонде работ</span>
+          <span className="fact-val">{api.tk(bank.fund)} ₭</span>
+        </div>
       </div>
+
+      <Board />
 
       {loans.length > 0 && (
         <>
@@ -177,6 +185,64 @@ export function Bank({ busy, act }: Props) {
       </div>
 
       <Council busy={busy} act={act} />
+    </>
+  );
+}
+
+/** The state order board (D-248): what the fund pays for right now.
+ *
+ * Reference, not a form: the orders are taken by doing the work -- mending
+ * the edge, raising the house, pouring the fuel -- and the engine pays
+ * whoever it verified first. The board only says what is bought and for how
+ * much.
+ */
+const ORDER_KINDS: Record<string, string> = {
+  road_mend: "обслуживание дороги",
+  building_repair: "ремонт постройки",
+  building_build: "стройка",
+  fuel_delivery: "подвоз топлива",
+};
+
+function Board() {
+  const session = useSession();
+  const [orders, setOrders] = useState<api.WorksOrder[] | null>(null);
+
+  useEffect(() => {
+    void session
+      .send("works.board", {})
+      .then((board) => setOrders((board as api.WorksBoard).orders ?? []))
+      .catch(() => setOrders(null));
+  }, [session]);
+
+  if (!orders || orders.length === 0) return null;
+  return (
+    <>
+      <p className="sub">Госзаказ</p>
+      <table>
+        <tbody>
+          {orders.map((order) => {
+            const about = order.about ?? {};
+            const place = order.between
+              ? `${order.between[0]} — ${order.between[1]}`
+              : (order.node ?? "");
+            const detail =
+              order.kind === "fuel_delivery"
+                ? `${about.type_key}: осталось ${Number(about.left ?? 0).toFixed(0)}`
+                : order.kind === "building_build"
+                  ? `${about.building_kind}, ${about.footprint} м², этажей ${about.floors}`
+                  : "";
+            return (
+              <tr key={order.id}>
+                <td className="note">
+                  {ORDER_KINDS[order.kind] ?? order.kind} · {place}
+                  {detail ? ` · ${detail}` : ""}
+                </td>
+                <td>{api.tk(order.tariff)} ₭</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </>
   );
 }

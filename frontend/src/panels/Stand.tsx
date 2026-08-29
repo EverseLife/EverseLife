@@ -56,6 +56,7 @@ import { House } from "./place/House";
 import { Plot } from "./place/Plot";
 import { Reactor, reactorState } from "./place/Reactor";
 import { disposes, gatherSigns, PLACES } from "./place/shared";
+import { Storey } from "./place/Storey";
 import { Plant } from "./Plant";
 import { Rig } from "./Rig";
 import { Ship } from "./Ship";
@@ -355,6 +356,10 @@ function assemble({ look, values, pow }: Props, book: RecipeBook | null): Thing[
   //: aboard. Aboard the row is the ship itself -- the map is already showing
   //: its rooms, and this panel adds what the map cannot: thrust against mass.
   const aboard = (look.node?.features ?? []).includes("борт");
+  //: Which floor of a house one stands on (D-247). Upstairs there is no land,
+  //: so the two windows about land have nothing to answer and one window
+  //: answers instead -- the same shape a compartment aboard has.
+  const storey = look.node?.storey ?? null;
   const yard = firstOfClass(book, stations, SPACEPORT);
   //: The console (D-230): the window of the bridge -- the space map, the
   //: ship's card, casting off and the passage. It answers only aboard; on the
@@ -410,7 +415,7 @@ function assemble({ look, values, pow }: Props, book: RecipeBook | null): Thing[
     );
   }
 
-  //: Farming appears **with the first strip**, not with fertile ground: a
+  //: The garden appears **with the first strip**, not with fertile ground: a
   //: strip is marked out in the land window ("Земля"), and the cycle that
   //: follows -- ploughing, sowing, the daily round, the harvest -- is a place
   //: of its own that has nowhere to happen until there is a strip. Empty, this
@@ -423,12 +428,12 @@ function assemble({ look, values, pow }: Props, book: RecipeBook | null): Thing[
   if (strips > 0 && disposes(look)) {
     single(
       "farm",
-      "Земледелие",
+      "Огород",
       "full",
       () => <Farm look={look} />,
       3,
       strips === 1 ? "одна делянка" : `делянок: ${strips}`,
-      "Окно земледелия: вспашка, посев, ежедневный уход и уборка делянок.",
+      "Окно огорода: вспашка, посев, ежедневный уход и уборка делянок.",
     );
   }
   //: Foraging, where the land has room to walk and is ours or nobody's
@@ -557,7 +562,18 @@ function assemble({ look, values, pow }: Props, book: RecipeBook | null): Thing[
       "Окно отсека: станки и мебель на борту, пол отсека с вещами и имя отсека.",
     );
   }
-  if (!aboard && ((own && node) || (roofed && stores))) {
+  if (storey !== null) {
+    single(
+      "storey",
+      "Этаж",
+      "full",
+      () => <Storey look={look} />,
+      3,
+      room ? `пол ${room.used.toFixed(0)} / ${room.area.toFixed(0)} м²` : undefined,
+      "Окно этажа: станки и мебель на этом этаже, его пол с вещами и имя этажа.",
+    );
+  }
+  if (storey === null && !aboard && ((own && node) || (roofed && stores))) {
     single(
       "house",
       "Здание",
@@ -608,7 +624,7 @@ function assemble({ look, values, pow }: Props, book: RecipeBook | null): Thing[
   //: the purchase -- and now also for the ground itself, which a built-up plot
   //: has as much as an empty one.
   const bare = openGround;
-  if (!aboard && (forSale || owned || bare)) {
+  if (storey === null && !aboard && (forSale || owned || bare)) {
     single(
       "plot",
       "Земля",

@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import farm, jobs, world
+from src.models.estate import Building
 from src.models.farm import Plot, PlotState
 from src.models.inventory import Item
 from src.units import amount_float
@@ -83,6 +84,26 @@ async def test_node_land_is_finite(session: AsyncSession, constants: Constants) 
     await farm.mark(session, constants, body, name="первая", area=15)
     with pytest.raises(farm.NoLand):
         await farm.mark(session, constants, body, name="вторая", area=10)
+
+
+async def test_the_house_takes_its_ground_from_the_strips(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """A bed is cut out of the yard, not out of the house (D-246).
+
+    The check used to ask about the strips alone, so a plot with a house on
+    half of it could still be cut into strips edge to edge -- and the empty
+    land the foraging walks came out negative.
+    """
+    node, _, body = await _farmstead(session, area=100)
+    session.add(Building(node_id=node.id, area_m2=160, footprint_m2=40, floors=4))
+    await session.flush()
+
+    await farm.mark(session, constants, body, name="первая", area=50)
+    with pytest.raises(farm.NoLand):
+        await farm.mark(session, constants, body, name="вторая", area=20)
+    #: The storeys take nothing more: the ground is spent by the footprint (D-125).
+    await farm.mark(session, constants, body, name="вторая", area=10)
 
 
 async def test_no_survey_below_minimum(session: AsyncSession, constants: Constants) -> None:

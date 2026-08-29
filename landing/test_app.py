@@ -7,17 +7,32 @@ Run from `landing/` with a throwaway database:
 `LANDING_DB=./test-signups.db python -m pytest test_app.py -q`.
 The signup intake itself is not covered here -- it needs a database fixture;
 these tests pin what a deploy must not silently lose: every page in `PAGES`
-is served (GET and HEAD, as uptime monitors probe), the shared assets both
-pages link to exist, and the sitemap lists exactly the pages.
+is served (GET and HEAD, as uptime monitors probe), the shared assets the
+pages link to exist, the sitemap lists exactly the pages, and the two
+languages of every page point at each other -- in the sitemap, in the page's
+own `<head>` and in the switch in its header. A translation that stops
+naming its twin is invisible as a translation: the two versions then read as
+rivals for one query.
 """
 
+import importlib
+import json
 import re
+from collections import Counter
+from html import unescape
+from pathlib import Path
 
+import app as landing
+import pytest
+from app import ALTERNATES, DEFAULT_LANG, PAGES, SITE, SITE_PAGES, X_DEFAULT_LANG, app
 from fastapi.testclient import TestClient
 
-from app import PAGES, SITE, app
-
 client = TestClient(app)
+
+
+def language_of(path: str) -> str:
+    """Which language a page's own address belongs to."""
+    return next(lang for lang, other in ALTERNATES[path].items() if other == path)
 
 
 def test_pages_serve_get_and_head() -> None:
@@ -59,3 +74,303 @@ def test_sitemap_lists_every_page() -> None:
 def test_robots_points_at_the_sitemap() -> None:
     text = client.get("/robots.txt").text
     assert f"Sitemap: {SITE}/sitemap.xml" in text
+
+
+@pytest.fixture
+def with_key(monkeypatch: pytest.MonkeyPatch):
+    """The module reread with an IndexNow key set.
+
+    The key becomes a route, so it can only be picked up at import: the
+    fixture reloads the module, hands over a client of its own, and reloads it
+    back afterwards so the rest of the suite keeps the app it started with.
+    """
+
+    def reload(value: str):
+        monkeypatch.setenv("LANDING_INDEXNOW_KEY", value)
+        return importlib.reload(landing)
+
+    yield reload
+    monkeypatch.delenv("LANDING_INDEXNOW_KEY", raising=False)
+    importlib.reload(landing)
+
+
+def test_without_a_key_the_landing_has_no_extra_route() -> None:
+    #: Nothing but robots.txt answers on a `.txt` path while no key is set.
+    paths = [getattr(route, "path", "") for route in app.routes]
+    assert [one for one in paths if one.endswith(".txt")] == ["/robots.txt"]
+
+
+def test_the_indexnow_key_is_served_back_at_its_own_name(with_key) -> None:
+    key = "abc123def4567890"
+    fresh = with_key(key)
+    keyed = TestClient(fresh.app)
+    for method in ("GET", "HEAD"):
+        assert keyed.request(method, f"/{key}.txt").status_code == 200, method
+    answer = keyed.get(f"/{key}.txt")
+    #: The file holds the key and nothing else -- that is the whole proof.
+    assert answer.text == key
+    assert "text/plain" in answer.headers["content-type"]
+
+
+def test_a_malformed_key_opens_no_route(with_key) -> None:
+    #: Too short, and with a character the protocol does not allow: a typo
+    #: must not turn into a path on the domain.
+    fresh = with_key("oops!")
+    paths = [getattr(route, "path", "") for route in fresh.app.routes]
+    assert [one for one in paths if one.endswith(".txt")] == ["/robots.txt"]
+
+
+def test_analytics_only_runs_on_the_live_host() -> None:
+    """The counter is gated by hostname on every page.
+
+    Without the gate a dev server, a preview or a local file reports into the
+    site's own property, and development traffic cannot be told from real
+    visitors after the fact.
+    """
+    for path in PAGES:
+        html = client.get(path).text
+        assert 'location.hostname === "everse.life"' in html, path
+        #: and never as a plain always-on loader
+        assert '<script async src="https://www.googletagmanager.com' not in html, path
+
+
+def test_sitemap_dates_pages_by_content_not_by_deploy() -> None:
+    """`lastmod` comes from the stamps, not from mtime.
+
+    mtime is the deploy's own timestamp -- a checkout rewrites every file --
+    so a sitemap built on it calls every page fresh after any deploy, and a
+    search engine that notices stops trusting the field at all.
+    """
+    stamps = json.loads((Path(__file__).parent / "lastmod.json").read_text(encoding="utf-8"))
+    xml = client.get("/sitemap.xml").text
+    for path in PAGES:
+        entry = f"<loc>{SITE}{path}</loc>\n    <lastmod>{stamps[path]['date']}</lastmod>"
+        assert entry in xml, path
+
+
+def test_every_page_carries_a_stamp() -> None:
+    #: A page added to PAGES without restamping would silently fall back to
+    #: mtime; pre-commit runs `lastmod.py --check` for the same reason.
+    stamps = json.loads((Path(__file__).parent / "lastmod.json").read_text(encoding="utf-8"))
+    assert set(stamps) == set(PAGES)
+
+
+def test_every_page_exists_in_every_language() -> None:
+    #: A row with a language missing would serve a 404 the sitemap advertises.
+    for row in SITE_PAGES:
+        assert set(row) == set(landing.LANGS), row
+
+
+def test_a_page_declares_the_language_it_is_written_in() -> None:
+    """`<html lang>` is what the script reads to pick its own words.
+
+    A page mislabelled here answers a signup in the wrong language and prints
+    the clock and the deadlines in it too, all while looking correct.
+    """
+    for path in ALTERNATES:
+        html = client.get(path).text
+        said = re.search(r"<html lang=\"([a-z-]+)\">", html)
+        assert said, path
+        assert said.group(1) == language_of(path), path
+
+
+def test_a_page_says_its_language_in_the_headers() -> None:
+    """`Content-Language` on the response, matching `<html lang>`.
+
+    Google reads the text and the `hreflang` and does not need this; Bing and
+    Yandex do read the header, and a page whose header and markup disagree
+    about its own language is worse than one that says nothing.
+    """
+    for path in ALTERNATES:
+        answer = client.get(path)
+        assert answer.headers["content-language"] == language_of(path), path
+
+
+def test_pages_name_their_translations_in_the_head() -> None:
+    """Each page carries the whole set of alternates, its own included.
+
+    The annotation only counts when it is reciprocal: a page that names its
+    twin while the twin stays silent is read as a separate page, not as a
+    translation. x-default is the version for a reader whose language the
+    site does not have at all, and it is the same on both pages of a pair --
+    an x-default that disagrees between two versions is the one mistake in
+    this markup a search engine cannot resolve for us.
+    """
+    for path, languages in ALTERNATES.items():
+        html = client.get(path).text
+        for lang, other in languages.items():
+            link = f'<link rel="alternate" hreflang="{lang}" href="{SITE}{other}">'
+            assert link in html, f"{path}: {link}"
+        catch_all = languages[X_DEFAULT_LANG]
+        fallback = f'<link rel="alternate" hreflang="x-default" href="{SITE}{catch_all}">'
+        assert fallback in html, path
+
+
+def test_the_sitemap_names_the_translations_too() -> None:
+    xml = client.get("/sitemap.xml").text
+    assert 'xmlns:xhtml="http://www.w3.org/1999/xhtml"' in xml
+    for path, languages in ALTERNATES.items():
+        for lang, other in languages.items():
+            assert f'<xhtml:link rel="alternate" hreflang="{lang}" href="{SITE}{other}"/>' in xml
+        fallback = f'href="{SITE}{languages[X_DEFAULT_LANG]}"/>'
+        assert f'hreflang="x-default" {fallback}' in xml, path
+
+
+def test_the_header_switch_leads_to_the_same_page() -> None:
+    """The switch goes to this page's twin, not to the other front page.
+
+    Landing on the front page after asking for the same page in English is
+    the classic way a language switch loses the reader, and nothing but a
+    test notices it: the link works, it is simply pointing at the wrong page.
+    """
+    for path, languages in ALTERNATES.items():
+        html = client.get(path).text
+        switch = re.search(r'<nav class="lang".*?</nav>', html, re.DOTALL)
+        assert switch, path
+        for lang, other in languages.items():
+            if other == path:
+                continue
+            assert f'href="{other}" hreflang="{lang}"' in switch.group(0), f"{path} -> {other}"
+
+
+def test_the_ru_mirror_redirects_to_the_page_at_the_root() -> None:
+    """`/ru/...` answers, but only by pointing at the address that is real.
+
+    Russian lives at the root; `/ru/` is the address a person guesses once
+    `/en/` exists. It must never serve the page itself -- a second address
+    for the same words is the duplicate that hreflang exists to prevent.
+    """
+    for row in SITE_PAGES:
+        root = row[DEFAULT_LANG]
+        mirror = f"/{DEFAULT_LANG}{root}".rstrip("/")
+        answer = client.get(mirror, follow_redirects=False)
+        assert answer.status_code == 301, mirror
+        assert answer.headers["location"] == root, mirror
+
+
+def test_translations_keep_the_same_markup() -> None:
+    """A page and its translation are the same page in two languages.
+
+    They are two hand-written files, because here the words are the layout --
+    the line breaks in the `h1`, the `<b>` inside a sentence, the length of a
+    label under a planet. What that costs is drift: a section added to one and
+    forgotten in the other, a class renamed on one side, a `rv` lost so half a
+    page never fades in. Nothing else notices, and nobody reads both files at
+    once. So the shape is pinned here: the same tags in the same order, and
+    the same classes, in every language of a page. The words are free.
+    """
+    for row in SITE_PAGES:
+        pages = {lang: client.get(path).text for lang, path in row.items()}
+        original = row[DEFAULT_LANG]
+        tags = {lang: re.findall(r"<([a-zA-Z][\w-]*)", html) for lang, html in pages.items()}
+        classes = {
+            lang: Counter(re.findall(r'class="([^"]*)"', html)) for lang, html in pages.items()
+        }
+        for lang, path in row.items():
+            if lang == DEFAULT_LANG:
+                continue
+            #: The switch is the one place the two differ on purpose: the
+            #: current language is a `span` and the other one a link, so the
+            #: pair swaps places between the two files.
+            assert Counter(tags[lang]) == Counter(tags[DEFAULT_LANG]), f"{path} vs {original}"
+            assert classes[lang] == classes[DEFAULT_LANG], f"{path} vs {original}"
+
+
+def test_the_faq_markup_repeats_the_faq_on_the_page() -> None:
+    """Structured data has to say what the page says, in both languages.
+
+    A rich result quoting an answer the page no longer gives is the kind of
+    mismatch a search engine drops the whole markup over, and nobody sees it
+    while reading either file: the questions sit two hundred lines from their
+    copies in the `<head>`. The README asks for the two to be edited
+    together; this is what makes that true.
+    """
+
+    def flat(fragment: str) -> str:
+        without_tags = re.sub(r"<[^>]+>", "", fragment)
+        return unescape(re.sub(r"\s+", " ", without_tags)).strip().rstrip(".")
+
+    for path in ALTERNATES:
+        html = client.get(path).text
+        if 'class="faq' not in html:
+            continue
+        shown = {
+            flat(question): flat(answer)
+            for question, answer in re.findall(
+                r"<summary>(.*?)</summary>\s*<p class=\"a\">(.*?)</p>",
+                html[html.index('class="faq') :],
+                re.DOTALL,
+            )
+        }
+        assert shown, path
+        graph = json.loads(
+            re.search(r'<script type="application/ld\+json">(.*?)</script>', html, re.DOTALL).group(
+                1
+            )
+        )
+        faq = [node for node in graph["@graph"] if node["@type"] == "FAQPage"]
+        assert faq, path
+        for node in faq[0]["mainEntity"]:
+            question = node["name"].rstrip(".")
+            assert question in shown, f"{path}: {question} is not on the page"
+            assert shown[question] == node["acceptedAnswer"]["text"].rstrip("."), (
+                f"{path}: {question}"
+            )
+
+
+def test_a_refusal_exists_in_every_language() -> None:
+    #: Pages are checked for this above; refusals were not, and a language
+    #: missing here answers in the original while everything else translates.
+    for which, said in landing.REFUSALS.items():
+        assert set(said) == set(landing.LANGS), which
+
+
+def test_a_front_page_answers_its_own_address_without_the_slash() -> None:
+    """`/en` is what gets typed and linked; `/en/` is where the page lives.
+
+    Starlette would answer that by itself with a 307, which tells a crawler
+    the address may move back tomorrow. It will not, and `/ru` next door
+    answers 301.
+    """
+    for path in PAGES:
+        if path == "/" or not path.endswith("/"):
+            continue
+        answer = client.get(path.rstrip("/"), follow_redirects=False)
+        assert answer.status_code == 301, path
+        assert answer.headers["location"] == path, path
+
+
+def test_every_page_shows_a_card_in_its_own_language() -> None:
+    """The headline is drawn into the card, so each language needs its own.
+
+    An English page pointing at `/og.png` shows a Russian headline in every
+    Discord and Twitter preview -- the one place the page is seen before it is
+    opened. The card it names has to be served, too: a 404 there is a preview
+    with no picture at all.
+    """
+    for path in ALTERNATES:
+        html = client.get(path).text
+        named = re.search(r'<meta property="og:image" content="([^"]+)"', html)
+        assert named, path
+        card = named.group(1).removeprefix(SITE)
+        assert card in landing.OG_IMAGES, f"{path}: {card}"
+        assert client.get(card).status_code == 200, card
+        mine = language_of(path)
+        wanted = "/og.png" if mine == DEFAULT_LANG else f"/og-{mine}.png"
+        assert card == wanted, path
+
+
+def test_a_refusal_speaks_the_language_of_the_page() -> None:
+    """The page says which language it is in; the browser's locale is not asked.
+
+    A Russian-locale browser reading the English page must be refused in
+    English -- otherwise the one moment the form talks back is the one moment
+    the site forgets which language it was speaking.
+    """
+    said = client.post("/api/signup", json={"email": "not-an-email", "lang": "en"})
+    assert said.status_code == 422
+    assert said.json()["error"] == landing.REFUSALS["not_an_email"]["en"]
+
+    #: An unknown language falls back to the original, never to a key name.
+    said = client.post("/api/signup", json={"email": "not-an-email", "lang": "fr"})
+    assert said.json()["error"] == landing.REFUSALS["not_an_email"][DEFAULT_LANG]

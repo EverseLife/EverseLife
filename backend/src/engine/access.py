@@ -38,7 +38,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.engine.errors import Refusal
 from src.models.identity import Body, Identity
-from src.models.world import Node, NodePass
+from src.models.world import Node, NodePass, storey_of
 
 
 class AccessError(Refusal):
@@ -59,6 +59,14 @@ def _held(node: Node) -> bool:
 
 
 async def require_holder(session: AsyncSession, node: Node, identity: Identity) -> None:
+    #: The door belongs to the place, and a floor of a house is not one (D-247):
+    #: the way in is the plot below, and shutting it shuts the stairs with it.
+    #: A second door upstairs would be one the guest feels and the holder never
+    #: sees -- no window shows it, and nothing would open it again. A storey
+    #: only: a compartment aboard is a room of a hull that belongs to one person
+    #: whole, and its door was never the plot's (D-202).
+    if storey_of(node) is not None:
+        raise NotYours("дверь у места, а не у этажа в нём: вход закрывают внизу, на участке")
     if not _held(node):
         #: Two different "no holder" cases, and they are worth telling apart:
         #: civic land is regulated by citizenship and duties, land outside a

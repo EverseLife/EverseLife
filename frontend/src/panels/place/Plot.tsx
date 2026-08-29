@@ -33,7 +33,7 @@ import { ownOrWild } from "./shared";
 /**
  * Marking a strip out of the land one holds.
  *
- * It lives here rather than in "Земледелие" because it is a thing done to
+ * It lives here rather than in "Огород" because it is a thing done to
  * **land**: the window of farming is about the cycle -- ploughing, sowing, the
  * daily round, the harvest -- and that cycle has nowhere to happen until a
  * strip exists. So the land gives birth to the plot, and the plot brings its
@@ -85,8 +85,8 @@ function Marking({ look, busy, act }: Props) {
           </div>
           <p className="note">
             {marked > 0
-              ? `Размечено делянок: ${marked}. Работа с ними — в окне «Земледелие».`
-              : "Размеченная делянка откроет окно «Земледелие»: вспашка, посев, уход и уборка."}
+              ? `Размечено делянок: ${marked}. Работа с ними — в окне «Огород».`
+              : "Размеченная делянка откроет окно «Огород»: вспашка, посев, уход и уборка."}
           </p>
         </>
       )}

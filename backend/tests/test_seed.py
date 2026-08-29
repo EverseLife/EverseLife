@@ -409,6 +409,60 @@ async def test_the_plateau_of_an_old_world_gets_its_mark(
         assert again.id not in {node.id for node in shaken}
 
 
+async def test_a_plot_of_an_old_world_gets_its_soil(capital: Node, session: AsyncSession) -> None:
+    """A city plot laid before D-246 carries the mark alone, and grows nothing.
+
+    An absent property reads as nought, so every plot inside every city was
+    barren rock: the strips window never appeared on one, and the vault's own
+    "on civic land the holder runs the estate" had nowhere to happen.
+    """
+    lot = await session.scalar(select(Node).where(Node.key == "terra.capital.lot1"))
+    assert lot is not None
+    #: Back to how a world of before D-246 holds it.
+    lot.properties = {explore.PLOT: True}
+    await session.flush()
+
+    await seed(session)
+
+    again = await session.scalar(select(Node).where(Node.key == "terra.capital.lot1"))
+    assert float((again.properties or {}).get("плодородие", 0)) > 0, "участку не дали почвы"
+    assert "вода" in (again.properties or {})
+
+    #: And a second run rolls nothing again: the soil is the world's now.
+    before = dict(again.properties)
+    await seed(session)
+    await session.refresh(again)
+    assert again.properties == before
+
+
+async def test_a_tall_house_of_an_old_world_gets_its_floors(
+    capital: Node, session: AsyncSession
+) -> None:
+    """A house raised before D-247 holds all its storeys in one node.
+
+    The catch-up opens the floors above the ground and cuts the stairs; what
+    stood and lay in the house stays on the ground floor, because the engine
+    may add rooms and may not decide for the owner what belongs upstairs.
+    """
+    from src.models.estate import Building
+
+    lot = await session.scalar(select(Node).where(Node.key == "terra.capital.lot2"))
+    assert lot is not None
+    session.add(Building(node_id=lot.id, area_m2=90, footprint_m2=30, floors=3, kind="деревянный"))
+    await session.flush()
+    assert await estate.storeys_of(session, lot) == [], "фикстура не воспроизвела старый мир"
+
+    await seed(session)
+
+    rooms = await estate.storeys_of(session, lot)
+    assert [estate.storey_of(room) for room in rooms] == [2, 3]
+    assert all(float(room.area_m2) == 30 for room in rooms)
+
+    #: A second run cuts no second staircase.
+    await seed(session)
+    assert len(await estate.storeys_of(session, lot)) == 2
+
+
 async def test_a_vein_can_move_on_the_world_the_seed_lays(
     capital: Node, session: AsyncSession, constants: Constants
 ) -> None:

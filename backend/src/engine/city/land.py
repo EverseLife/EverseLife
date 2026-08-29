@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import energy, estate, events, travel, utility
+from src.engine import energy, estate, events, travel, utility, world
 from src.engine.city._base import CityError, NoCity, NotYours
 from src.engine.city.lookup import by_id, territory
 from src.engine.city.polity import (
@@ -61,8 +61,8 @@ async def allot(
     if node.owner_identity_id is not None:
         raise CityError("участок уже за кем-то")
 
-    node.owner_identity_id = to.id
-    await session.flush()
+    #: The floors of a house go with the plot (D-247).
+    await world.hand_over(session, node, to.id)
 
     #: An allotted plot is documented by a deed, like a bought one (D-116).
 
@@ -107,7 +107,11 @@ async def cede(session: AsyncSession, body, node: Node) -> City:
         raise CityError("участок передают ногами: дойдите до него")
     if node.owner_identity_id != body.identity_id:
         raise NotYours("участок не ваш: городу отдают своё")
-    if node.owner_city_id is None:  # pragma: no cover -- own land is always civic
+    #: Reached from a floor of one's own house (D-247): it is held land and it
+    #: is not the city's, so the refusal is the right one -- a storey is not
+    #: ceded apart from the ground it stands on. Wild land never gets here:
+    #: nobody holds it, and the check above turns it away first.
+    if node.owner_city_id is None:
         raise NoCity("это не городская земля: здесь некому её передать")
     city = await by_id(session, node.owner_city_id)
     if city is None:  # pragma: no cover -- civic land without a city is a bug
@@ -127,7 +131,7 @@ async def cede(session: AsyncSession, body, node: Node) -> City:
             "город чужих долгов не принимает"
         )
 
-    node.owner_identity_id = None
+    await world.hand_over(session, node, None)
     #: Civic land has no door: a shut gate and its lists left on the node would
     #: show a lock that nobody can open any more.
     node.gated = False

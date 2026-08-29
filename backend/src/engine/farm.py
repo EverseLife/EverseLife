@@ -57,13 +57,13 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants, current_catalog
 from src.constants import registry as R
 from src.constants.catalog import Plant
-from src.engine import breed, events, food, liquid, occupation, stock, travel, world
+from src.engine import breed, estate, events, food, liquid, occupation, stock, travel, world
 from src.engine.errors import Refusal
 from src.engine.jobs import enqueue, handler
 from src.models.event import EventKind
@@ -142,6 +142,11 @@ async def mark(
     if node is None:  # pragma: no cover
         raise FarmError("тело вне узла")
     await _open_ground(session, node)
+    #: A floor of a house is not ground (D-247). Left to the room check below it
+    #: would refuse with "nothing free here" -- true of a third floor, and no
+    #: explanation of why it will never be otherwise.
+    if estate.storey_of(node) is not None:
+        raise NotYours("это этаж, а не земля: делянку режут во дворе — спуститесь вниз")
     #: The plot's holder runs the estate: buy the land first (06-farming).
     #: Hiring is access plus a share by contract (D-116), not shared land.
     #:
@@ -152,16 +157,19 @@ async def mark(
     if not nobody and node.owner_identity_id != body.identity_id:
         raise NotYours("участок не ваш: городскую землю выкупают, а чужую — арендуют по договору")
 
-    taken = float(
-        await session.scalar(
-            select(func.coalesce(func.sum(Plot.area_m2), 0)).where(Plot.node_id == node.id)
-        )
-        or 0
-    )
-    if taken + area > float(node.area_m2):
-        raise NoLand(
-            f"в узле {node.key} свободно {float(node.area_m2) - taken:g} м², просят {area:g}"
-        )
+    #: The land is spent by three things and the check must know all three
+    #: (D-246): the footprint of what stands here, the strips already marked,
+    #: and the ground promised to a site under way. Asking about the strips
+    #: alone let a hundred metres of beds be cut out from under a house, and
+    #: the foraging then walked land that was not there.
+    #:
+    #: Under the plot's lock, and it is the same lock the building takes
+    #: (`estate.hold_ground`): two commands now spend one remainder, and without
+    #: it "mark out sixty" and "build sixty" both pass on a plot of a hundred.
+    await estate.hold_ground(session, node)
+    free = await estate.free_ground(session, node)
+    if area > free:
+        raise NoLand(f"в узле {node.key} свободно {max(free, 0):g} м², просят {area:g}")
 
     plot = Plot(
         node_id=node.id,

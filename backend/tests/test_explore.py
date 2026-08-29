@@ -393,7 +393,7 @@ async def test_woods_grow_by_themselves(session: AsyncSession, constants: Consta
     from src.units import PERCENT
 
     places = [
-        await explore._properties(session, constants, random.Random(seed), vein=False)
+        await explore.properties(session, constants, random.Random(seed), vein=False)
         for seed in range(300)
     ]
     wooded = sum(1 for place in places if place[explore.WOODS])
@@ -406,9 +406,9 @@ async def test_aiming_for_woods_narrows_the_chance(constants: Constants, catalog
     """What is asked for narrows the chance by exactly the world's forest cover."""
     from src.units import PERCENT
 
-    aim = explore._aim(constants, catalog, explore.FOREST, None)
+    aim = explore.aim_at(constants, catalog, explore.FOREST, None)
     assert aim == pytest.approx(constants[R.EXPLORE_FOREST_SHARE] / PERCENT)
-    assert aim < explore._aim(constants, catalog, explore.SITE, None)
+    assert aim < explore.aim_at(constants, catalog, explore.SITE, None)
 
 
 async def test_species_taken_from_vault(
@@ -599,6 +599,15 @@ async def test_plot_sought_in_city_and_is_civic(
         assert plot.layer is Layer.CITY, "участок стоит в городе, а не в поле"
         assert plot.owner_city_id == city.id, "земля в кольцах — городская"
         assert plot.owner_identity_id is None, "раздаёт её власть, а не находка"
+        #: The plot is land, and land has soil (D-126, D-246): the mark alone
+        #: used to arrive, and a missing property reads as nought -- every
+        #: plot inside every city was barren rock and grew nothing.
+        assert "плодородие" in plot.properties, "у городского участка нет почвы"
+        assert "вода" in plot.properties, "у городского участка не разыграна вода"
+        assert "дикий" not in plot.properties, "земля в кольцах не дикая"
+    assert any(float(plot.properties["плодородие"]) > 0 for plot in plots), (
+        "двенадцать участков подряд без плодородия — это не разыгранное свойство"
+    )
 
 
 async def test_find_beyond_the_walls_hangs_on_the_gate(
@@ -672,9 +681,9 @@ async def test_named_species_is_exactly_what_is_found(
 async def test_rare_found_worse_than_common(constants: Constants, catalog: Catalog) -> None:
     """Otherwise everyone would seek only the most expensive, and exploration would become a
     faucet."""
-    iron_ = explore._aim(constants, catalog, explore.VEIN, "Железная руда")
-    tin = explore._aim(constants, catalog, explore.VEIN, "Оловянная руда")
-    blindly = explore._aim(constants, catalog, explore.VEIN, None)
+    iron_ = explore.aim_at(constants, catalog, explore.VEIN, "Железная руда")
+    tin = explore.aim_at(constants, catalog, explore.VEIN, "Оловянная руда")
+    blindly = explore.aim_at(constants, catalog, explore.VEIN, None)
     assert blindly == 1.0
     assert iron_ > tin, "редкая порода обязана искаться хуже частой"
     assert 0 < tin <= 1

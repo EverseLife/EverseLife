@@ -82,7 +82,7 @@ services:
     restart: "no"
 
   # The starting world, and then keeping it up to date. Content is not schema,
-  # so it does not belong in a migration (`catch_up` in `src/seed.py` says why):
+  # so it does not belong in a migration (`catch_up` in `src/seed_catchup.py` says why):
   # a migration runs once in the history of a database, while the world layout
   # changes with the vault. Running it again creates nothing twice -- every step
   # checks first -- so it runs on every deploy and nobody has to remember it.
@@ -152,6 +152,10 @@ services:
       #: The service channel: "one more signup came, so many in total". The
       #: applicant's email does not go there and must not.
       LANDING_DISCORD_WEBHOOK: ${LANDING_DISCORD_WEBHOOK:-}
+      #: IndexNow: proves the site to Bing and Yandex, and lets
+      #: `python indexnow.py` tell them a page changed. Empty -- the key route
+      #: is not registered and the landing is exactly as it was.
+      LANDING_INDEXNOW_KEY: ${LANDING_INDEXNOW_KEY:-}
     volumes:
       - landing_data:/data
     restart: unless-stopped

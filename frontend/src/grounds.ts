@@ -37,6 +37,10 @@ const GROUND: Record<string, string> = {
   seigniorage: "сеньораж",
   bank_margin: "маржа города",
   transfer: "перевод",
+  //: The works fund (D-248): recycled surplus, the print tap, order payouts.
+  works_recycle: "возврат в фонд работ",
+  works_print: "печать в фонд работ",
+  works_payout: "оплата госзаказа",
 };
 
 /** The ground as a person reads it; an unknown one stays as it came. */

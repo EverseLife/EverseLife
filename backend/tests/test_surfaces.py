@@ -62,8 +62,10 @@ async def _holder(session: AsyncSession, node: Node) -> Body:
     return body
 
 
-async def _house(session: AsyncSession, node: Node, *, area: float, ground: float) -> Building:
-    house = Building(node_id=node.id, area_m2=area, footprint_m2=ground, floors=1)
+async def _house(
+    session: AsyncSession, node: Node, *, area: float, ground: float, floors: int = 1
+) -> Building:
+    house = Building(node_id=node.id, area_m2=area, footprint_m2=ground, floors=floors)
     session.add(house)
     await session.flush()
     return house
@@ -113,14 +115,25 @@ async def test_a_house_takes_its_footprint_out_of_the_yard(
     session: AsyncSession, constants: Constants
 ) -> None:
     """Two storeys give twenty metres of floor off ten of plot (D-125): the yard
-    loses the ten."""
+    loses the ten -- and the floor of the plot is the **ground** floor (D-247).
+
+    The other storey is a node of its own with its own twenty metres, so the sum
+    is unchanged and the place one stands in is honest about how much of it is
+    underfoot.
+    """
     node = await _plot(session, area=400)
-    await _house(session, node, area=200, ground=100)
+    await _house(session, node, area=200, ground=100, floors=2)
 
     floor = await estate.space(session, constants, node)
     ground = await estate.yard(session, constants, node)
-    assert floor["area"] == 200, "пол — это сумма этажей"
+    assert floor["area"] == 100, "пол участка — первый этаж, а не сумма этажей"
     assert ground["area"] == 300, "двор — участок минус пятно дома"
+
+    upstairs = await estate.open_storeys(session, constants, node)
+    assert [estate.storey_of(room) for room in upstairs] == [2]
+    above = await estate.space(session, constants, upstairs[0])
+    assert above["area"] == 100, "этаж — это пятно застройки"
+    assert (await estate.yard(session, constants, upstairs[0]))["area"] == 0, "наверху земли нет"
 
 
 async def test_a_house_over_the_whole_plot_leaves_no_ground(
@@ -348,9 +361,11 @@ async def test_demolition_weighs_both_surfaces_against_the_plot(
     never hold more than the plot would (D-125).
     """
     #: Forty metres of plot, twenty of footprint, ten storeys of floor: room
-    #: indoors for far more than the bare plot could ever take.
+    #: indoors for far more than the bare plot could ever take. Since D-247 that
+    #: floor is ten rooms of twenty metres, and the load is read across them all.
     node = await _plot(session, area=40)
-    await _house(session, node, area=200, ground=20)
+    await _house(session, node, area=200, ground=20, floors=10)
+    rooms = await estate.open_storeys(session, constants, node)
     body = await _holder(session, node)
     holds = 40 * constants[R.BUILD_FLOOR_PER_M2]
 
@@ -358,8 +373,14 @@ async def test_demolition_weighs_both_surfaces_against_the_plot(
     await _put(session, constants, catalog, body, holds * 0.4, indoors=False)
     assert await estate.demolish_blockers(session, constants, node) == []
 
-    #: And the floor alone is too -- but the two together are not.
-    await _put(session, constants, catalog, body, holds * 0.8, indoors=True)
+    #: And no single floor is over its own capacity -- but everything the house
+    #: holds, brought down at once, is more than the plot can take.
+    for room in rooms[:2]:
+        body.node_id = room.id
+        await session.flush()
+        await _put(session, constants, catalog, body, holds * 0.4, indoors=True)
+    body.node_id = node.id
+    await session.flush()
     blockers = await estate.demolish_blockers(session, constants, node)
     assert any("участок держит" in line for line in blockers), blockers
 

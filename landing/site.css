@@ -81,7 +81,22 @@ nav.jump a[aria-current="page"]::after { right: 0; }
 nav.jump a:hover::after { right: 0; }
 /* An outward link says so: the mark is the only difference from an anchor. */
 .ext::before { content: "↗"; display: inline-block; margin-right: 5px; font-size: .9em; }
+/* The language switch speaks in the nav's voice, so it reads as part of the
+   bar and not as a control. It is a plain link to the same page in the other
+   language -- nothing is remembered, nothing redirects, the address alone
+   decides what you get. `margin-left: auto` carries the pair to the right
+   edge; the button beside it then needs none of its own. */
+nav.lang { display: flex; align-items: center; gap: 7px; margin-left: auto; }
+nav.lang a, nav.lang span {
+  font-family: var(--f-mono); font-size: 12.5px; letter-spacing: .06em; text-transform: uppercase;
+  text-decoration: none; padding: 6px 0;
+}
+nav.lang a { color: var(--muted); transition: color .2s; }
+nav.lang a:hover { color: var(--ink); }
+nav.lang [aria-current="true"] { color: var(--ink); }
+nav.lang i { color: var(--hair); font-style: normal; }
 header.top .btn { margin-left: auto; }
+header.top nav.lang ~ .btn { margin-left: 0; }
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 10px;
   min-height: 44px; padding: 0 20px; border: 1px solid var(--ink); border-radius: 2px;
@@ -590,6 +605,14 @@ footer .bar .r { margin-left: auto; }
   h1 { font-size: clamp(30px, 9.6vw, 54px); }
   h1 .accent { font-size: min(1.3em, 50px); margin-bottom: 0.26em }
   header.top .bar { height: 58px; gap: 12px; }
+  /* On a phone the bar carries the mark, the switch and the one call to
+     action, and at 320px all three do not fit -- the button is what gets
+     pushed out of a `overflow-x: hidden` body, silently. So the switch drops
+     to the link out of this language: the label for the language you are
+     already reading is what a small screen can spare, and `<html lang>` still
+     says which one that is. Measured: at 320px the bar then ends exactly on
+     the edge, and the Russian button is the wider of the two. */
+  nav.lang [aria-current="true"], nav.lang i { display: none; }
   .brand svg { height: 34px; }
   form.signup { grid-template-columns: 1fr; }
   table.no { table-layout: fixed; }

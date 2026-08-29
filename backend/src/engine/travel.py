@@ -687,7 +687,9 @@ class NotGoing(TravelError):
     """The body is not on the road: there is nothing to turn back from."""
 
 
-async def turn_back(session: AsyncSession, body: Body, *, now: datetime | None = None) -> Travel:
+async def turn_back(
+    session: AsyncSession, body: Body, *, forced: bool = False, now: datetime | None = None
+) -> Travel:
     """Turn back from the road: the body stays where it left from (D-194).
 
     There is no half of an edge in this world -- a node is the unit of place,
@@ -702,6 +704,11 @@ async def turn_back(session: AsyncSession, body: Body, *, now: datetime | None =
     standing where the holder does not let it stop -- and standing means the
     floor, the chest and everything else the door was shut for. Passage is
     walked to its end.
+
+    `forced` is the world doing the turning rather than the walker: a floor
+    losing its walls under somebody on the stairs (D-247) cannot be answered
+    with "walk it to the end", because there is no end left to walk to. The
+    door's rule holds against a **decision**, and a collapse is not one.
     """
     moment = now or datetime.now(UTC)
     going = await current(session, body)
@@ -709,7 +716,11 @@ async def turn_back(session: AsyncSession, body: Body, *, now: datetime | None =
         raise NotGoing("тело не в пути: возвращаться неоткуда")
 
     here = await session.get(Node, going.from_node_id)
-    if here is not None and not await access.may_enter(session, here, body.identity_id):
+    if (
+        not forced
+        and here is not None
+        and not await access.may_enter(session, here, body.identity_id)
+    ):
         raise access.Barred(
             f"«{here.name}» — чужая закрытая локация, и вы идёте через неё "
             "проходом: с полпути тут не поворачивают, проход идётся до конца"
