@@ -514,7 +514,11 @@ async def _city_allot(state: dict, db: AsyncSession, message: dict) -> dict:
 
 @command("city.works_repair")
 async def _city_works_repair(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Order the mending of the city's plot: the offer covers the worker's materials."""
+    """Order the mending of the city plot.
+
+    The offer covers the materials the worker walls in; the open order
+    licenses anyone to repair here (D-248).
+    """
     order = await works_city.post_repair_order(
         db,
         current(),
@@ -529,7 +533,11 @@ async def _city_works_repair(state: dict, db: AsyncSession, message: dict) -> di
 
 @command("city.works_build")
 async def _city_works_build(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Order a building on the city's plot: kind, footprint and floors to the letter."""
+    """Order a building on the city plot.
+
+    The licence covers kind, footprint and floors to the letter; the offer
+    compensates the worker's materials (D-248).
+    """
     order = await works_city.post_build_order(
         db,
         current(),
@@ -547,7 +555,11 @@ async def _city_works_build(state: dict, db: AsyncSession, message: dict) -> dic
 
 @command("city.works_fuel")
 async def _city_works_fuel(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Order fuel hauled to a station in the city: the price per unit is the city's offer."""
+    """Order fuel hauled to a city station.
+
+    The price per unit is the city's own offer; the fund subsidises the haul
+    labour by the cargo's mass (D-248).
+    """
     order = await works_city.post_fuel_order(
         db,
         current(),
@@ -565,7 +577,11 @@ async def _city_works_fuel(state: dict, db: AsyncSession, message: dict) -> dict
 
 @command("city.works_cancel")
 async def _city_works_cancel(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Withdraw the city's order: the unpaid remainder comes home, the licence closes."""
+    """Withdraw the city's order.
+
+    The unpaid remainder returns to its pockets and the licence closes with
+    the order (D-248).
+    """
     try:
         order_id = uuid.UUID(str(message.get("order") or ""))
     except ValueError as bad:
