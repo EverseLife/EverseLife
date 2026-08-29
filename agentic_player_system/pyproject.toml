@@ -1,7 +1,7 @@
 [project]
 name = "agentic-player-system"
 version = "0.0.1"
-description = "Everse.Life AI citizens: LLM agents that play through the ordinary client protocol (D-224)"
+description = "everse.life AI citizens: LLM agents that play through the ordinary client protocol (D-224)"
 license = "AGPL-3.0-only"
 requires-python = ">=3.12"
 dependencies = [

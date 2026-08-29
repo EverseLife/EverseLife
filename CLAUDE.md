@@ -1,4 +1,4 @@
-# Everse.Life — правила для Claude
+# everse.life — правила для Claude
 
 ## Язык кода: только ASCII
 

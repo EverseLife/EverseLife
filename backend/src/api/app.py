@@ -69,7 +69,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 def create_app() -> FastAPI:
     app = FastAPI(
-        title="Everse.Life",
+        title="everse.life",
         version="0.0.1",
         lifespan=lifespan,
         description=(

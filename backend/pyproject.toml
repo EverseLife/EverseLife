@@ -1,7 +1,7 @@
 [project]
 name = "everselife-server"
 version = "0.0.1"
-description = "Everse.Life game server"
+description = "everse.life game server"
 license = "AGPL-3.0-only"
 requires-python = ">=3.12"
 dependencies = [

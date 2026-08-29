@@ -49,7 +49,7 @@ async def lifespan(_: FastAPI):
         task.cancel()
 
 
-app = FastAPI(title="Everse.Life agentic player system", lifespan=lifespan)
+app = FastAPI(title="everse.life agentic player system", lifespan=lifespan)
 
 
 @app.get("/health")

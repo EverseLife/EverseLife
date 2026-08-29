@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Nurlan Urazkulov
 
 /**
- * The Everse.Life alpha client.
+ * The everse.life alpha client.
  *
  * The layout is four permanent zones (D-050):
  *

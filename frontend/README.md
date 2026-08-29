@@ -1,4 +1,4 @@
-# Everse.Life — клиент (альфа)
+# everse.life — клиент (альфа)
 
 React + TypeScript (D-139). Цель — весь функционал альфы (D-103): экономика,
 общество и кредит целиком, потому что проверять их частями бессмысленно.
@@ -98,7 +98,7 @@ Windows по умолчанию не пускает входящие соеди�
 Один раз, от администратора:
 
 ```powershell
-New-NetFirewallRule -DisplayName "Everse.Life dev" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 5173,8000 -Profile Any -RemoteAddress LocalSubnet
+New-NetFirewallRule -DisplayName "everse.life dev" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 5173,8000 -Profile Any -RemoteAddress LocalSubnet
 ```
 
 ## Что клиент показывает честно

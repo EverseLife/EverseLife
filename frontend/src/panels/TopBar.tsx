@@ -68,7 +68,7 @@ export function TopBar({ look, waiting, narrow, onSummary, onIntro, onRefresh, v
 
   return (
     <header>
-      <span className="brand" title="Everse.Life">
+      <span className="brand" title="everse.life">
         <Logo height={26} />
       </span>
 
