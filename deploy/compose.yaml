@@ -263,7 +263,11 @@ services:
   postgres-exporter:
     image: quay.io/prometheuscommunity/postgres-exporter:v0.15.0
     environment:
-      DATA_SOURCE_NAME: postgresql://everselife:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/everselife?sslmode=disable
+      # The password goes in its own variable, not inside a URL: a generated
+      # password with `/` or `=` breaks the exporter's strict URL parser.
+      DATA_SOURCE_URI: postgres:5432/everselife?sslmode=disable
+      DATA_SOURCE_USER: everselife
+      DATA_SOURCE_PASS: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
     depends_on:
       postgres:
         condition: service_healthy
