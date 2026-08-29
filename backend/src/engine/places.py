@@ -63,7 +63,7 @@ from src.runtime import (
 )
 
 #: The node property the place lives in. A data key of the world, like
-#: "кольцо" and "орбита" beside it -- and a `properties` key rather than a
+#: "орбита" and "даль" beside it -- and a `properties` key rather than a
 #: column, because a place is a fact about one node and needs no index.
 PLACE = "карта"
 PLACE_X = "x"

@@ -23,6 +23,7 @@ from src.engine.jobs import enqueue
 from src.models.estate import Building
 from src.models.event import EventKind
 from src.models.identity import Body, BodyState
+from src.models.inventory import Item
 from src.models.job import Job, JobKind, JobState
 from src.models.world import Node, Planet
 from src.units import (
@@ -102,12 +103,46 @@ async def floor_mass(session: AsyncSession, node: Node) -> float:
     """
 
     catalog = current_catalog()
-    things = await world.contents(session, await world.node_container(session, node))
+    inside, _ = await split(session, node)
     return sum(
-        gear.mass_of(catalog, thing.type_key, amount_float(thing.amount))
-        for thing in things
-        if not _equipment(catalog, thing.type_key)
-        and not storage.is_storage(catalog, thing.type_key)
+        gear.mass_of(catalog, thing.type_key, amount_float(thing.amount)) for thing in inside
+    )
+
+
+async def split(session: AsyncSession, node: Node) -> tuple[list[Item], list[Item]]:
+    """What lies loose here, in two heaps: indoors and out (D-244).
+
+    Two ways to be outdoors, and the second is what keeps the rest of the
+    engine free of the question:
+
+    * the thing was put on the ground on purpose (`item.outdoors`);
+    * or there is no building on the node at all, and then there is no floor to
+      be on -- everything lying here is outside whatever the mark says.
+
+    The second is why loot from a death, cargo spilt by a broken cart and
+    materials back from a demolition need to know nothing about surfaces: they
+    put things in the node, and on a bare plot the node **is** the open sky.
+
+    Machines, furniture and chests are in neither heap: they stand rather than
+    lie, and pay for their place by slots (D-106, D-181).
+    """
+    catalog = current_catalog()
+    roofed = await built_area(session, node) > 0
+    inside: list = []
+    outside: list = []
+    for thing in await world.contents(session, await world.node_container(session, node)):
+        if _equipment(catalog, thing.type_key) or storage.is_storage(catalog, thing.type_key):
+            continue
+        (inside if roofed and not thing.outdoors else outside).append(thing)
+    return inside, outside
+
+
+async def yard_mass(session: AsyncSession, node: Node) -> float:
+    """The weight of what lies on the open ground. Chests carry their own."""
+    catalog = current_catalog()
+    _, outside = await split(session, node)
+    return sum(
+        gear.mass_of(catalog, thing.type_key, amount_float(thing.amount)) for thing in outside
     )
 
 
@@ -124,27 +159,61 @@ def _equipment(catalog, type_key: str) -> bool:
 
 
 async def space(session: AsyncSession, constants: Constants, node: Node) -> dict[str, float]:
-    """The node's area budget: what it holds and what is already taken (D-192).
+    """The **indoor** surface: the floor of the house and what stands on it (D-192).
 
-    A building is the roof over the goods; without one they lie in the yard,
-    and the yard is finite too. Equipment pays `build.slots_per_area` per
-    piece, loose cargo pays by weight through `build.floor_per_m2`.
+    A building is the roof over the goods, and since D-244 it is a place of its
+    own rather than a mood the yard is in: the plot outside its footprint is a
+    second surface with its own metres (`yard`). Equipment pays
+    `build.slots_per_area` per piece, loose cargo pays by weight through
+    `build.floor_per_m2`.
+
+    No building -- no indoors: the area is nought, and everything the node
+    holds is out under the sky. The keys stay as they were so that a client
+    reading a roofless node sees an honest empty floor rather than a missing
+    one.
     """
     total_slots, taken_slots = await slots(session, constants, node)
     roofed = await built_area(session, node)
-    #: No building -- the yard is the floor: the whole plot minus nothing.
-    capacity = roofed if roofed > 0 else float(node.area_m2)
     lying = await floor_mass(session, node)
     by_cargo = lying / constants[R.BUILD_FLOOR_PER_M2]
     by_equipment = taken_slots * constants[R.BUILD_SLOTS_PER_AREA]
+    #: `roofed` is gone: it was the same number as `area` from the day this
+    #: became the indoor surface, and the client tells "is there a house" by
+    #: whether the area is nought (D-225).
     return {
-        "area": capacity,
-        "roofed": roofed,
+        "area": roofed,
         "used": by_equipment + by_cargo,
         "cargo_mass": lying,
-        "free": max(0.0, capacity - by_equipment - by_cargo),
+        "free": max(0.0, roofed - by_equipment - by_cargo),
         "slots": float(total_slots),
         "slots_used": float(taken_slots),
+    }
+
+
+async def yard(session: AsyncSession, constants: Constants, node: Node) -> dict[str, float]:
+    """The **open ground**: the plot outside the building's footprint (D-244).
+
+    Only what lies is counted here -- a machine is placed into a building and
+    never reaches the open ground (D-106). A house that covers the whole plot
+    leaves no yard at all, and then the area is nought: there is nowhere to put
+    anything down, and the client shows no such list.
+
+    Measured against the **footprint**, not against the usable area: a house of
+    two storeys gives twenty metres of floor off ten metres of plot (D-125), and
+    it is the ten the yard loses.
+    """
+    under = await built_area(session, node, ground=True)
+    capacity = max(0.0, float(node.area_m2) - under)
+    lying = await yard_mass(session, node)
+    by_cargo = lying / constants[R.BUILD_FLOOR_PER_M2]
+    #: The plot and the footprint are **not** repeated here: the client already
+    #: has both -- the node's area and the building's ground -- and a third
+    #: copy of a subtraction is a third thing to keep in step (D-225).
+    return {
+        "area": capacity,
+        "used": by_cargo,
+        "cargo_mass": lying,
+        "free": max(0.0, capacity - by_cargo),
     }
 
 

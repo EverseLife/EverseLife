@@ -5,7 +5,7 @@
 /** One window of the location; what they share is in `shared.ts`. */
 
 import { Refusal, useActions } from "../../actions";
-import type { Props } from "./shared";
+import type { Props, Surface } from "./shared";
 import { Floor } from "./Floor";
 import { Storages } from "./Storages";
 
@@ -22,17 +22,27 @@ import { Storages } from "./Storages";
  * up. What keeps a stranger's hands away is the shut door (D-204) and the
  * chest's own lock (D-181) -- not a rule against touching.
  */
-export function Ground({ look }: Omit<Props, "busy" | "act">) {
+export function Ground({
+  look,
+  where = "floor",
+}: Omit<Props, "busy" | "act"> & { where?: Surface }) {
   //: Own waiting and own refusal: a full yard must refuse this window, not the map.
   const acting = useActions();
   const { busy, act } = acting;
-  if (!look.floor && (look.storages ?? []).length === 0) return null;
+  //: Where there is a house, its floor owns the chests; where there is none,
+  //: the ground does.
+  const roofed = (look.floor?.space.area ?? 0) > 0;
 
   return (
     <>
       <Refusal of={acting} />
-      <Floor look={look} busy={busy} act={act} />
-      <Storages look={look} busy={busy} act={act} />
+      <Floor look={look} busy={busy} act={act} where={where} />
+      {/* The chests, shown by whichever window owns the surface they stand on.
+          A chest is furniture and goes into a building (D-106) -- but a plot
+          with no building has no floor at all, and then the chests standing on
+          it belong to the ground. Shown by exactly one of the two windows, or
+          a canister put down on a wild node would be on no screen anywhere. */}
+      {(where === "floor") === roofed && <Storages look={look} busy={busy} act={act} />}
     </>
   );
 }

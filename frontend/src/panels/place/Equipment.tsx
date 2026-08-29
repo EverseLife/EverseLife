@@ -58,6 +58,12 @@ export function Equipment({
 
   const home = api.houseOf(look.node);
   const noRoom = home.used >= home.slots;
+  //: What one machine costs the building, in square metres (D-106). A place is
+  //: `build.slots_per_area` of the house, and it is the same for every machine:
+  //: the vault charges by the place, not by the thing. The summary above counts
+  //: the places; this says what a place **is**, so "мест 3 из 4" turns into a
+  //: number one can compare with the plan of the next storey.
+  const perThing = Number(book?.constants?.["build.slots_per_area"] ?? 0);
 
   return (
     <section>
@@ -69,7 +75,8 @@ export function Equipment({
               <tr key={thing.id}>
                 <td>{thing.goods}</td>
                 <td className="note">
-                  {thing.quality == null ? "" : `качество ${thing.quality.toFixed(0)}`}
+                  {perThing > 0 && `${perThing.toFixed(0)} м²`}
+                  {thing.quality == null ? "" : ` · качество ${thing.quality.toFixed(0)}`}
                   {thing.condition < 100 && ` · сост. ${thing.condition.toFixed(0)}`}
                 </td>
                 <td className="note">
@@ -148,7 +155,11 @@ export function Equipment({
           {noRoom && <p className="note">в здании нет свободных мест</p>}
         </DropZone>
       )}
-      <p className="note">{note}</p>
+      <p className="note">
+        {note}
+        {perThing > 0 &&
+          ` Каждая занимает ${perThing.toFixed(0)} м² здания: мест ${home.used} из ${home.slots}.`}
+      </p>
     </section>
   );
 }

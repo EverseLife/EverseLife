@@ -15,11 +15,17 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.constants import Constants
+from src.constants import Constants, current_catalog
 from src.constants import registry as R
-from src.engine import craft, events, goods, occupation, travel, world
+from src.engine import craft, events, goods, occupation, storage, travel, world
 from src.engine.estate._base import EstateError, Ruined
-from src.engine.estate.building import build_minutes, buildings_of, composition, estimate
+from src.engine.estate.building import (
+    _equipment,
+    build_minutes,
+    buildings_of,
+    composition,
+    estimate,
+)
 from src.engine.jobs import enqueue, handler
 from src.engine.ship import ABOARD
 from src.models.estate import Building
@@ -301,11 +307,17 @@ async def collapse(session: AsyncSession, node: Node, house: Building) -> None:
     A collapse is not a demolition: nothing is salvaged, and no warning comes at
     the last moment -- the warning was every day of the condition dropping.
 
-    **What perishes is what stood under the roof.** The engine keeps one yard
-    per node, so it can tell which things were roofed only by whether a roof is
-    left at all: while another house still stands on the plot, the goods move
-    under it and survive. When the last one falls, the yard's contents go with
-    it -- machines, furniture and the chests along with what was inside them.
+    **What perishes is what stood under the roof, and only that** (D-244). The
+    node keeps two surfaces: the floor of the house and the open ground beside
+    it. What lay in the yard was rained on all along and is rained on still --
+    a house falling on the far side of the plot does not crush it. What was
+    indoors goes down with the roof: machines, furniture and the chests along
+    with what was inside them.
+
+    While another house still stands on the plot the goods move under it and
+    survive: the indoor surface is one for the node, not one per building, and
+    that is deliberate -- two houses on a plot are two roofs over one floor,
+    not two floors.
     """
 
     await session.delete(house)
@@ -314,12 +326,32 @@ async def collapse(session: AsyncSession, node: Node, house: Building) -> None:
     last = not await buildings_of(session, node)
     lost: dict[str, float] = {}
     if last:
+        #: What was **under the roof**, and only that (D-244). The mark is read
+        #: raw here, not through `estate.split`: the house has just been deleted
+        #: above, so asking "is there a building" would answer no and spare
+        #: everything. What the mark says is what the thing was standing under a
+        #: minute ago, and that is the question.
+        #:
+        #: For **cargo**, that is. Equipment and chests are indoors by what they
+        #: are -- placed into a building, counted against its slots, worked at
+        #: (D-106, D-181) -- and their mark is not to be trusted: carrying a
+        #: bench out and putting it down in the yard leaves it marked, and it
+        #: keeps that mark when carried back in. Two ordinary commands would
+        #: otherwise make every machine and every chest in a house proof against
+        #: its collapse, losing neither its slot nor its use.
+        catalog = current_catalog()
         yard = await world.node_container(session, node)
-        things = (
-            (await session.execute(select(Item).where(Item.container_id == yard.id)))
-            .scalars()
-            .all()
-        )
+        things = [
+            thing
+            for thing in (
+                (await session.execute(select(Item).where(Item.container_id == yard.id)))
+                .scalars()
+                .all()
+            )
+            if not thing.outdoors
+            or _equipment(catalog, thing.type_key)
+            or storage.is_storage(catalog, thing.type_key)
+        ]
         for thing in things:
             lost[thing.type_key] = lost.get(thing.type_key, 0.0) + amount_float(thing.amount)
             #: A chest goes down with its contents: the inside is a container of

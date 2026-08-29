@@ -244,10 +244,11 @@ async def open_room(
             #: and its printer. A room belongs to its city by `parent`, and
             #: that is the only thing that decides what it is (D-097).
             ROOM_MARK: room_type,
+            #: How deep in from the pier the room lies (D-061, D-232). What it
+            #: is worth in distance the engine measures by walking the edges
+            #: (`estate.price.nodes_from_center`) -- depth is what the scouting
+            #: goes by, not a second copy of that measurement.
             DEPTH: depth,
-            #: The city ring the rest of the engine reads (D-089, D-220): a
-            #: room deeper in is a room further out from the pier.
-            "кольцо": depth,
             travel.REACH: travel.reach_of(origin),
         },
     )
@@ -366,7 +367,7 @@ async def lost_city(
         area_m2=seed.uniform(area.min, area.max),
         layer=Layer.CITY,
         parent=city,
-        properties={PRECURSOR: True, DEPTH: 0, "кольцо": 0, travel.REACH: travel.reach_of(city)},
+        properties={PRECURSOR: True, DEPTH: 0, travel.REACH: travel.reach_of(city)},
     )
     hall = await world.create_node(
         session,
@@ -380,7 +381,6 @@ async def lost_city(
         properties={
             PRECURSOR: True,
             DEPTH: 1,
-            "кольцо": 1,
             travel.REACH: travel.reach_of(city),
             #: Long dead: the anchor is pushed back past the reactor's whole
             #: life, so its output is nought from the first minute anybody sees

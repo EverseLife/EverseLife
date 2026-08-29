@@ -149,6 +149,10 @@ async def place(session: AsyncSession, catalog: Catalog, body: Body, item: Item)
 
     yard = await world.node_container(session, node)
     item.container_id = yard.id
+    #: Into the **building**, so under the roof (D-244). A machine carried in
+    #: from the yard still bears the mark it was put down with, and left on it
+    #: the thing would stand in the house and be spared by its collapse.
+    item.outdoors = False
     await session.flush()
 
     await events.record(
@@ -196,6 +200,9 @@ async def take(session: AsyncSession, catalog: Catalog, body: Body, item: Item) 
 
     pocket = await world.body_container(session, body)
     item.container_id = pocket.id
+    #: In the hands there is no sky to be under: the mark means nothing here,
+    #: and a stale one would travel back out with the thing (D-244).
+    item.outdoors = False
     await session.flush()
 
     await events.record(

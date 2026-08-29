@@ -441,10 +441,20 @@ SHIP_BERTH_SECONDS = Num("ship.berth_seconds")
 SHIP_STEP_SECONDS = Num("ship.step_seconds")
 SHIP_FUEL_PER_TON_DAY = Num("ship.fuel_per_ton_day")
 SHIP_LIFE_SUPPORT_CREW = Num("ship.life_support_crew")
-#: Passage times: hours between two ports of one planet, days between planets.
-#: The interplanetary key is the pair of planets in alphabetical order -- the
-#: route is undirected, like an edge of the map.
-SHIP_HOP_HOURS = Num("ship.hop_hours")
+#: The orbital step (D-245): what it costs to leave a planet and to come back
+#: down to it. Multiplied by the planet's own gravity and stretched by
+#: thrust-to-mass, like every other passage. Descent is the shorter of the two:
+#: down, the gravity one climbed against helps.
+SHIP_ASCENT_HOURS = Num("ship.ascent_hours")
+SHIP_DESCENT_HOURS = Num("ship.descent_hours")
+#: How heavy a planet is, as a share of Terra's (D-245). The first number by
+#: which planets differ from one another at all, before any geology: a heavy
+#: world is dear to leave and dear to land on.
+PLANET_GRAVITY = Table("planet.gravity")
+#: Passage times between two planets' orbits: the two ends of a corridor.
+#: The key is the pair of planets in alphabetical order -- the route is
+#: undirected, like an edge of the map.
+#:
 #: The two ends of an interplanetary passage: the planets on one side of the
 #: star and on opposite sides of it. Where between them today's sky stands is
 #: what the passage actually costs (D-037).

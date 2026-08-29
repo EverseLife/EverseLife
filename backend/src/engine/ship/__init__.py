@@ -74,6 +74,30 @@ Neither engines nor routes. Thrust and class come by the item's name from
 planets -- exactly as a vehicle's capacity comes by its name (D-090). A
 second-class engine appears in the vault and flies without a release.
 
+## Three legs, not one (D-245)
+
+Between a pad and another world there is an **orbit**: a node of the same
+graph, one per planet, hanging under the planet itself. So a journey is three
+moves and never fewer --
+
+    космодром на Терре -> орбита Терры -> орбита Авроры -> космодром на Авроре
+
+-- and each of them is a leg with its own price. The climb and the descent are
+priced by `planet.gravity`, the crossing by the sky; the descent is the cheaper
+of the two vertical ones, because coming down the weight one climbed against is
+on the ship's side.
+
+The reason it is three and not one is that it used to be **less** than one: the
+gangway came off instantly and for nothing, and coming back down onto the very
+pad just left cost a whole passage. Leaving a planet was cheaper than returning
+to it, which is the wrong way round for every world there is. And with one
+number for a whole planet there was nowhere to say that Pyroxis is heavy.
+
+A leg that ends where there is no bunker is refused without the fuel to leave
+again: the climb wants the descent behind it, the crossing wants the descent at
+the far end. An orbit has nothing to walk fuel to, and a hull that reached one
+dry would be the trap the whole fuel rule exists against (pillar P6).
+
 ## A passage costs what the sky costs today
 
 The two vault numbers are the **ends** of a route, not its price: planets go
@@ -97,11 +121,15 @@ from src.engine.ship._base import (  # noqa: F401
     _EPS,
     ABOARD,
     BRIDGE,
+    CLIMB,
+    DESCENT,
     FOUNDATION,
     FUEL,
     GROUND_BRIDGE,
     LIFE_SUPPORT,
     OPEN_LANDING,
+    ORBIT_NODE,
+    PASSAGE,
     SPACEPORT,
     TANK,
     Deaf,
@@ -119,6 +147,9 @@ from src.engine.ship._base import (  # noqa: F401
     TooFar,
     _free_berth,
     _gangway_seconds,
+    is_orbit,
+    orbit_key,
+    orbit_node_of,
 )
 from src.engine.ship.belonging import (  # noqa: F401
     aboard_of,
@@ -140,24 +171,33 @@ from src.engine.ship.building import (  # noqa: F401
     found,
     keel_laid,
 )
-from src.engine.ship.flight import (  # noqa: F401
+from src.engine.ship.command import (  # noqa: F401
     _commanded_by,
+    _has_bridge,
+    _landable,
+    _will_take,
+)
+from src.engine.ship.flight import (  # noqa: F401
     _moor_to,
     arrived,
+    ascend,
     fly,
+    land,
     recall,
-    undock,
 )
 from src.engine.ship.physics import (  # noqa: F401
     _sphere,
     _things,
     base_hours,
+    climb_hours,
     corridors,
     engine_class,
     engines,
+    fall_hours,
     fuel_aboard,
     fuel_for,
     fuel_stacks,
+    gravity,
     life_support,
     mass,
     mass_parts,

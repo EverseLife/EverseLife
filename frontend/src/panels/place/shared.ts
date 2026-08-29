@@ -117,3 +117,12 @@ export function placeable(look: Look, book: RecipeBook | null, kind: "station" |
   );
 }
 
+
+/**
+ * Which of a node's two surfaces a window is about (D-244).
+ *
+ * `floor` is the floor of the house -- what the house was built for and what
+ * falls with it. `ground` is the plot left around its footprint: rained on,
+ * and it outlives every house that ever stood beside it.
+ */
+export type Surface = "floor" | "ground";

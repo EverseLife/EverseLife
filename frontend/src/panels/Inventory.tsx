@@ -96,6 +96,11 @@ export function Inventory({ look }: Props) {
   //: thing stays for its owner. The interface does not offer a door that only
   //: opens outward: where it cannot be taken back, it is not offered.
   const mayDropHere = Boolean(look.floor?.mine);
+  //: Which of the two surfaces this place actually has (D-244). A plot with no
+  //: house has no floor; a house grown over the whole plot leaves no ground.
+  //: Offering the half that is not there collects a refusal after the click.
+  const roofed = (look.floor?.space.area ?? 0) > 0;
+  const openGround = (look.ground?.space.area ?? 0) > 0;
   //: Whether a counter stands here at all: without one there is nothing to
   //: lay goods out on, and the market panel is not open either.
   const atTerminal = firstOfClass(book, stationsOf(look), TERMINAL) !== undefined;
@@ -192,11 +197,14 @@ export function Inventory({ look }: Props) {
           same one its buttons send. */}
       <DropZone
         zone="hands"
-        accepts={["floor", CHEST_ANY, "hold", "terminal"]}
+        accepts={["floor", "ground", CHEST_ANY, "hold", "terminal"]}
         disabled={busy}
         hint="перетащите сюда предмет, чтобы взять в руки"
         onMove={(stack, amount) => {
-          if (stack.zone === "floor") {
+          //: Both surfaces of a node are picked up by one command: what a hand
+          //: reaches for is what it can see, and `ground.pick` does not ask
+          //: which of the two it was lying on (D-244).
+          if (stack.zone === "floor" || stack.zone === "ground") {
             void send("ground.pick", { item: stack.item, amount });
           } else if (stack.zone.startsWith("chest:")) {
             void send("storage.take", {
@@ -399,19 +407,45 @@ export function Inventory({ look }: Props) {
                           <p className="menu-ask">
                             Куда положить · {tally(thing.goods, part(thing))}
                           </p>
+                          {/* Two surfaces since D-244, and the menu names both:
+                              the floor of the house and the ground beside it.
+                              One button saying «На землю» while the engine put
+                              the thing under the roof was a lie the menu told
+                              on every built-up plot -- and the yard had no
+                              keyboard path to it at all. */}
                           {mayDropHere ? (
-                            <button
-                              role="menuitem"
-                              onClick={() =>
-                                send("ground.drop", {
-                                  item: thing.id,
-                                  amount: part(thing),
-                                })
-                              }
-                              disabled={busy}
-                            >
-                              На землю
-                            </button>
+                            <>
+                              {roofed && (
+                                <button
+                                  role="menuitem"
+                                  onClick={() =>
+                                    send("ground.drop", {
+                                      item: thing.id,
+                                      amount: part(thing),
+                                      indoors: true,
+                                    })
+                                  }
+                                  disabled={busy}
+                                >
+                                  На пол
+                                </button>
+                              )}
+                              {openGround && (
+                                <button
+                                  role="menuitem"
+                                  onClick={() =>
+                                    send("ground.drop", {
+                                      item: thing.id,
+                                      amount: part(thing),
+                                      indoors: false,
+                                    })
+                                  }
+                                  disabled={busy}
+                                >
+                                  На землю
+                                </button>
+                              )}
+                            </>
                           ) : (
                             <p className="note">
                               Земля чужая: положенное здесь достанется хозяину,

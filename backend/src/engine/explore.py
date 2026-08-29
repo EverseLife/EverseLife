@@ -835,7 +835,7 @@ async def _place(
             #: On the built-up map the plot lies where it was found: beside the
             #: very node the scout set out from (D-237).
             anchor=origin,
-            properties={"участок": True, "кольцо": origin.properties.get("кольцо", 0)},
+            properties={"участок": True},
         )
         plot.owner_city_id = city.id
         await session.flush()

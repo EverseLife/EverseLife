@@ -36,7 +36,7 @@ from collections.abc import Sequence
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.constants import Catalog, Constants, current_catalog
+from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import access, estate, events, gear, station, travel, world
 from src.engine.errors import Refusal
@@ -253,21 +253,16 @@ class NoRoom(StorageError):
     """No space left here. Area is finite: build more, use chests or haul away."""
 
 
-async def lying(session: AsyncSession, node: Node) -> list[Item]:
-    """What lies loose in the node -- goods, not equipment.
+async def lying(session: AsyncSession, node: Node, *, indoors: bool = True) -> list[Item]:
+    """What lies loose on one of the node's two surfaces -- goods, not equipment.
 
-    Machines and furniture stand here too, but they are shown by their own
-    windows and pay for their place by slots (D-106).
+    Machines and furniture stand indoors too, but they are shown by their own
+    windows and pay for their place by slots (D-106). `indoors` picks the
+    surface: the floor of the house, or the open ground beside it (D-244).
     """
 
-    catalog = current_catalog()
-    things = await world.contents(session, await world.node_container(session, node))
-    return [
-        thing
-        for thing in things
-        if not estate._equipment(catalog, thing.type_key)
-        and not is_storage(catalog, thing.type_key)
-    ]
+    inside, outside = await estate.split(session, node)
+    return inside if indoors else outside
 
 
 async def _require_inside(session: AsyncSession, node: Node, body: Body) -> None:
@@ -285,6 +280,20 @@ async def _require_inside(session: AsyncSession, node: Node, body: Body) -> None
     )
 
 
+async def surface_of(session: AsyncSession, node: Node, indoors: bool | None) -> bool:
+    """Which of the node's two surfaces a hand means (D-244). True is indoors.
+
+    `indoors` is what the window asked for; left unsaid, the answer is the one
+    a person would give without thinking -- indoors when there is a roof to step
+    under, on the ground when there is not.
+    """
+    roofed = await estate.built_area(session, node) > 0
+    inside = roofed if indoors is None else bool(indoors)
+    if inside and not roofed:
+        raise NoRoom("здесь нет здания: класть можно только на землю")
+    return inside
+
+
 async def drop(
     session: AsyncSession,
     constants: Constants,
@@ -292,12 +301,17 @@ async def drop(
     body: Body,
     item: Item,
     quantity: float | None = None,
+    *,
+    indoors: bool | None = None,
 ) -> float:
-    """Put a thing down here: under the roof if there is one, in the yard if not.
+    """Put a thing down: on the floor of the house, or on the open ground (D-244).
 
     Cargo takes area (D-192), and area is finite -- that is what makes a
-    warehouse a decision rather than a formality. Whoever got in may put things
-    down (D-204): the door decides who is inside, not this check.
+    warehouse a decision rather than a formality. Two surfaces means two
+    budgets: the house's floor is what the house was built for, the yard is
+    what is left of the plot around it, and a thing lies in one of them.
+    Whoever got in may put things down (D-204): the door decides who is inside,
+    not this check.
     """
 
     if body.state is not BodyState.ALIVE:
@@ -316,16 +330,22 @@ async def drop(
     if qty <= 0:
         raise StorageError("класть нечего")
 
-    area = await estate.space(session, constants, node)
+    inside = await surface_of(session, node, indoors)
+    area = (
+        await estate.space(session, constants, node)
+        if inside
+        else await estate.yard(session, constants, node)
+    )
     needed = gear.mass_of(catalog, item.type_key, qty) / constants[R.BUILD_FLOOR_PER_M2]
     if needed > area["free"]:
         raise NoRoom(
-            f"здесь свободно {area['free']:.1f} м², а под это нужно {needed:.1f} м². "
+            f"{'в здании' if inside else 'на земле'} свободно {area['free']:.1f} м², "
+            f"а под это нужно {needed:.1f} м². "
             "Стройте больше, ставьте сундуки либо увозите"
         )
 
     yard = await world.node_container(session, node)
-    put_down = await world.move_stack(session, item, yard, qty)
+    put_down = await world.move_stack(session, item, yard, qty, outdoors=not inside)
     await events.record(
         session,
         EventKind.ITEM_DROPPED,
@@ -333,7 +353,7 @@ async def drop(
         node_id=node.id,
         type_key=item.type_key,
         amount=put_down,
-        roofed=area["roofed"] > 0,
+        roofed=inside,
     )
     return put_down
 
@@ -362,6 +382,8 @@ async def pick(
     node = await session.get(Node, body.node_id)
     if node is None:  # pragma: no cover
         raise StorageError("тело вне узла")
+    #: Either surface: what the hand reaches for is what it can see, and both
+    #: lists are on one screen (D-244).
     yard = await world.node_container(session, node)
     if item.container_id != yard.id:
         raise StorageError("этой вещи здесь не лежит")

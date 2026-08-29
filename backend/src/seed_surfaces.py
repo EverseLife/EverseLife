@@ -78,19 +78,12 @@ PYROXIS_VEIN_STOCK = 4000
 #: each other, and the ground between them is no road.
 PYROXIS_STEP_SECONDS = 900
 
-#: The area of a port node, the capital's own (D-206).
-PORT_AREA_M2 = 240
 #: A black field is open ground, and the whole of it is a working face.
 FIELD_AREA_M2 = 5000
 #: The plateau's mark: the one place on Pyroxis an eruption leaves alone
 #: (D-197). The engine's name for it, so the seed and the planet's own weather
 #: cannot drift apart over a spelling.
 ANVIL = plates.ANVIL
-#: The area of a Forerunner hall: they built for tens of thousands.
-HALL_AREA_M2 = 600
-#: From the hall to the pier: a walk across one square, no more. The port must
-#: stand inside the plant's heat -- its own node and its neighbours (D-231).
-PIER_SECONDS = 30
 
 #: The mark of the Forerunners on everything they left. The engine's, because
 #: exploring reads it too: a planet with this mark holds their cities, and a
@@ -98,66 +91,14 @@ PIER_SECONDS = 30
 PRECURSOR = ruins.PRECURSOR
 
 
-@dataclass(frozen=True, slots=True)
-class City:
-    """One of the three cities of Aurora (D-232).
-
-    Different by design, and the difference is content rather than decoration:
-    what a city was decides what its rooms hold when the scouts open them.
-    """
-
-    key: str
-    name: str
-    #: The central hall: where the plant and the reactor of the Forerunners stand.
-    hall: str
-    port: str
-    #: What the place was, in one word for the client and the scouting to come.
-    kind: str
-
-
-AURORA_CITIES = (
-    City(
-        key="merid",
-        name="Мерид",
-        hall="Купольный зал",
-        port="Космодром Мерида",
-        kind="столица",
-    ),
-    City(
-        key="caldar",
-        name="Кальдар",
-        hall="Литейный двор",
-        port="Космодром Кальдара",
-        kind="цех",
-    ),
-    City(
-        key="veyr",
-        name="Вейр",
-        hall="Нулевой ярус",
-        port="Космодром Вейра",
-        kind="улей",
-    ),
+#: The keys the vault's layout gives the three cities of Aurora (D-232, D-243).
+#: Named here rather than derived, because the engine has exactly one thing left
+#: to do to them -- anchor the reactor's countdown -- and it must know where.
+AURORA_HALLS = (
+    "aurora.merid.hall",
+    "aurora.caldar.hall",
+    "aurora.veyr.hall",
 )
-
-#: The relics of the Forerunners, by thing class (D-215, D-232). The engine's
-#: names: the seed and the scouting place the same things, and a second reactor
-#: is a line in the vault rather than two lines here.
-RELIC_YARD = ruins.RELIC_YARD
-RELIC_PLANT = ruins.RELIC_PLANT
-RELIC_REACTOR = energy.REACTOR
-
-
-def aurora_city_key(city: City) -> str:
-    return f"aurora.{city.key}"
-
-
-def aurora_port_key(city: City) -> str:
-    """The key of the one spaceport of the city."""
-    return f"{aurora_city_key(city)}.port"
-
-
-def aurora_hall_key(city: City) -> str:
-    return f"{aurora_city_key(city)}.hall"
 
 
 async def surfaces(session: AsyncSession) -> None:
@@ -287,76 +228,35 @@ def pyroxis_field_key(number: int) -> str:
 
 
 async def _aurora(session: AsyncSession) -> None:
-    """Three cities, each with a hall and a pier, and nothing else yet.
+    """What is left of Aurora once its layout became data (D-243).
 
-    The rest of every city is for the scouting to reveal (D-232): a city has a
-    stock of rooms, and it is worked out like a vein.
+    The three cities, their halls and piers, their relics and the walk between
+    them are the vault's now (`data/world.yaml`) -- they are a layout like the
+    capital's, and they are edited in the editor's «Мир» tab like one.
+
+    Two things could not go with them, and both are rules rather than places:
+
+    * **the planet's own mark.** From here on a search for city ground on
+      Aurora finds a city that already stands, not an empty place. It belongs
+      to the planet, and the planet is laid by the engine (orbits are a rule);
+    * **the anchor of the reactor's fading.** It is written at the moment the
+      surface appears, not at a moment somebody typed into a file: the
+      Forerunners did not wait for guests, and a world that had been running
+      for a year before Aurora existed would otherwise receive the planet
+      already dead. A timestamp in the vault would be a lie the day after it
+      was written.
     """
     sphere = await _sphere(session, "aurora")
-    #: The planet itself is marked: from here on, a search for city ground on
-    #: Aurora finds a city that already stands, not an empty place (D-232).
     sphere.properties = {**(sphere.properties or {}), PRECURSOR: True}
-    now = datetime.now(UTC)
-    for city in AURORA_CITIES:
-        place = (
-            await _ensure(
-                session,
-                aurora_city_key(city),
-                city.name,
-                planet=Planet.AURORA,
-                layer=Layer.PLANET,
-                parent=sphere,
-                area=1,
-                properties={PRECURSOR: True, ruins.KIND: city.kind},
-            )
-        ).node
-        hall = (
-            await _ensure(
-                session,
-                aurora_hall_key(city),
-                city.hall,
-                planet=Planet.AURORA,
-                layer=Layer.CITY,
-                parent=place,
-                area=HALL_AREA_M2,
-                properties={
-                    "кольцо": 0,
-                    #: One step in from the pier: depth is counted from the
-                    #: spaceport, and the rooms go deeper from here (D-061, D-232).
-                    ruins.DEPTH: 1,
-                    PRECURSOR: True,
-                    #: The anchor of the reactor's fading, written where it
-                    #: stands and at the moment the surface appears (D-232).
-                    energy.REACTOR_SINCE: now.isoformat(),
-                },
-            )
-        ).node
-        pier = await _ensure(
-            session,
-            aurora_port_key(city),
-            city.port,
-            planet=Planet.AURORA,
-            layer=Layer.CITY,
-            parent=place,
-            area=PORT_AREA_M2,
-            properties={"кольцо": 1, ruins.DEPTH: 0, PRECURSOR: True},
-            anchor=hall,
-        )
-        port = pier.node
-        if pier.created:
-            #: One step from the hall: the port lives inside the plant's heat,
-            #: and that is the whole reason the city has a beacon (D-231). Laid
-            #: with the pier and never again -- the way between them is the
-            #: world's to change afterwards, not the seed's to restore.
-            await travel.connect(
-                session, hall, port, base_seconds=PIER_SECONDS, surface=Surface.PAVED
-            )
-        #: The same hand that lays the cities found by scouting lays these
-        #: (`engine.ruins`): one rule for what the Forerunners left.
-        for node, thing_class in ((hall, RELIC_PLANT), (hall, RELIC_REACTOR), (port, RELIC_YARD)):
-            await ruins.grant_relic(
-                session, node, thing_class, origin=f"наследие Предтеч: {city.name}"
-            )
+    now = datetime.now(UTC).isoformat()
+    for key in AURORA_HALLS:
+        hall = (await session.execute(select(Node).where(Node.key == key))).scalar_one_or_none()
+        #: The layout lays the hall; this only marks it. A world whose vault
+        #: has not got the city yet simply has nothing to mark.
+        if hall is None or (hall.properties or {}).get(energy.REACTOR_SINCE):
+            continue
+        hall.properties = {**(hall.properties or {}), energy.REACTOR_SINCE: now}
+    await session.flush()
 
 
 async def _sphere(session: AsyncSession, key: str) -> Node:

@@ -254,28 +254,49 @@ async def _ship_arrange(state: dict, db: AsyncSession, message: dict) -> dict:
     return {"arranged": str(vessel.id), "moved": moved}
 
 
-@command("ship.undock")
-async def _ship_undock(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Cast off: the edge to the port is removed, and that is the flight (D-201)."""
-    body = await _alive(state, db)
-    vessel = await _ship_of(db, body, message.get("ship"))
-    await ship.undock(db, current(), current_catalog(), body, vessel)
-    return {"undocked": vessel.name}
-
-
-@command("ship.fly")
-async def _ship_fly(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Set out for a spaceport. Fuel now, docking by a journal job."""
-    body = await _alive(state, db)
-    vessel = await _ship_of(db, body, message.get("ship"))
-    port = (
+async def _target(db: AsyncSession, message: dict) -> Node:
+    """The node an order names, by key. One reading for every leg that takes one."""
+    node = (
         (await db.execute(select(Node).where(Node.key == str(message.get("port") or ""))))
         .scalars()
         .first()
     )
-    if port is None:
+    if node is None:
         raise Refused("нет такого узла")
-    job = await ship.fly(db, current(), current_catalog(), body, vessel, port)
+    return node
+
+
+@command("ship.ascend")
+async def _ship_ascend(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Climb to the orbit of the planet under the pad (D-245).
+
+    What used to be `ship.undock`, and what used to be instant and free. It is
+    a leg now: it takes hours by the planet's gravity, it burns fuel, and it
+    can be turned back with `ship.recall`.
+    """
+    body = await _alive(state, db)
+    vessel = await _ship_of(db, body, message.get("ship"))
+    job = await ship.ascend(db, current(), current_catalog(), body, vessel)
+    return {"flight": str(job.id), "arrives_at": job.run_at.isoformat()}
+
+
+@command("ship.fly")
+async def _ship_fly(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Cross to another planet's orbit. Fuel now, arrival by a journal job."""
+    body = await _alive(state, db)
+    vessel = await _ship_of(db, body, message.get("ship"))
+    job = await ship.fly(db, current(), current_catalog(), body, vessel, await _target(db, message))
+    return {"flight": str(job.id), "arrives_at": job.run_at.isoformat()}
+
+
+@command("ship.land")
+async def _ship_land(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Come down from orbit onto a spaceport of the planet below (D-245)."""
+    body = await _alive(state, db)
+    vessel = await _ship_of(db, body, message.get("ship"))
+    job = await ship.land(
+        db, current(), current_catalog(), body, vessel, await _target(db, message)
+    )
     return {"flight": str(job.id), "arrives_at": job.run_at.isoformat()}
 
 

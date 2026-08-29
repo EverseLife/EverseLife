@@ -115,7 +115,7 @@ class Node(Base):
     #:   another city, a city founded, a printer carried away -- the centre no
     #:   longer matches and the number is measured again;
     #: * `center_steps` is emptied wherever the graph itself changes, which is
-    #:   where an edge appears or goes (`travel.connect`, `ship.undock`).
+    #:   where an edge appears or goes (`travel.connect`, `ship.ascend`).
     center_node_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
     center_steps: Mapped[int | None] = mapped_column(nullable=True)
 

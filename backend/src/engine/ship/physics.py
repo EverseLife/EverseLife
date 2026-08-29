@@ -378,7 +378,10 @@ async def base_hours(
     refusal, not a zero: the engine invents no ways between planets.
     """
     if here is there:
-        return constants[R.SHIP_HOP_HOURS]
+        #: There is no corridor from a planet to itself (D-245). Two ports of
+        #: one world are reached by climbing to its orbit and coming down
+        #: again, and that is two legs with their own prices -- not a passage.
+        return None
     key = route_key(here, there)
     window = constants[R.SHIP_ROUTE_WINDOW_HOURS]
     apart = constants[R.SHIP_ROUTE_APART_HOURS]
@@ -426,6 +429,38 @@ def corridors(constants: Constants) -> list[dict[str, object]]:
             }
         )
     return lines
+
+
+def gravity(constants: Constants, planet: Planet) -> float:
+    """How heavy this world is, as a share of Terra's (D-245).
+
+    The first number by which planets differ from one another at all, before
+    any geology: a heavy world is dear to leave and dear to come down onto. A
+    planet the vault says nothing about weighs what Terra weighs -- a missing
+    line must not make a world free to leave.
+    """
+    table = constants[R.PLANET_GRAVITY]
+    return float(table.get(planet.value, 1.0))
+
+
+def climb_hours(constants: Constants, planet: Planet, thrust_ratio: float) -> float:
+    """The climb from a spaceport of this planet to its orbit (D-245).
+
+    The planet's gravity times the vault's base, stretched by thrust-to-mass
+    exactly as a passage between worlds is: a heavy hull crawls off a heavy
+    planet, and that is the same sentence said of the same numbers.
+    """
+    return passage_hours(
+        constants, constants[R.SHIP_ASCENT_HOURS] * gravity(constants, planet), thrust_ratio
+    )
+
+
+def fall_hours(constants: Constants, planet: Planet, thrust_ratio: float) -> float:
+    """The descent from orbit onto a spaceport. Shorter than the climb: coming
+    down, the gravity one climbed against is on the ship's side."""
+    return passage_hours(
+        constants, constants[R.SHIP_DESCENT_HOURS] * gravity(constants, planet), thrust_ratio
+    )
 
 
 def passage_hours(constants: Constants, table_hours: float, thrust_ratio: float) -> float:

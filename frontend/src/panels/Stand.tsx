@@ -368,7 +368,7 @@ function assemble({ look, values, pow }: Props, book: RecipeBook | null): Thing[
       () => <Ship look={look} console />,
       aboard ? 0 : 2,
       aboard ? undefined : "работает только на борту корабля",
-      "Окно рубки: карта рейса этого корабля, отстыковка и курс на планету.",
+      "Окно рубки: карта рейса этого корабля, подъём на орбиту, курс и посадка.",
     );
   }
   //: The ground console (D-242): every hull of one's own, and the same orders
@@ -385,7 +385,7 @@ function assemble({ look, values, pow }: Props, book: RecipeBook | null): Thing[
       1,
       undefined,
       "Окно наземной консоли: свои корабли где бы они ни были — карта рейса,"
-        + " отстыковка, курс, посадка и разворот.",
+        + " подъём, курс, посадка и разворот.",
     );
   }
 
@@ -507,8 +507,17 @@ function assemble({ look, values, pow }: Props, book: RecipeBook | null): Thing[
   //: `stores` is the guard for a node that arrives without either, and it is
   //: what keeps an empty tile from appearing then.
   const room = look.floor?.space;
-  const roofed = (room?.roofed ?? 0) > 0;
+  //: The floor exists only where a house does, so its area is the answer to
+  //: "is there one" -- there is no second field saying the same (D-225).
+  const roofed = (room?.area ?? 0) > 0;
   const stores = Boolean(look.floor) || (look.storages ?? []).length > 0;
+  //: The open ground beside the house (D-244). A node has two surfaces now, and
+  //: the land window owns this one: it is there whether a house stands or not,
+  //: and it is gone only when the house covers the whole plot -- then there is
+  //: no ground left to put anything on.
+  const outside = look.ground;
+  const openGround =
+    (outside?.space.area ?? 0) > 0 || (outside?.things.length ?? 0) > 0;
 
   //: The wagon is an object of the node like any machine, only one harnesses
   //: to it instead of working at it (D-157).
@@ -556,7 +565,7 @@ function assemble({ look, values, pow }: Props, book: RecipeBook | null): Thing[
       () => (
         <>
           {own && node && <House look={look} />}
-          {roofed && stores && <Ground look={look} />}
+          {roofed && stores && <Ground look={look} where="floor" />}
         </>
       ),
       3,
@@ -595,7 +604,10 @@ function assemble({ look, values, pow }: Props, book: RecipeBook | null): Thing[
   //: the main thing of its node, hence the rank.
   const forSale = Boolean(node && !node.owner && (api.isWild(node) || node.price !== undefined));
   const owned = Boolean(node?.owner || node?.owner_city);
-  const bare = !roofed && stores;
+  //: The land window is shown for what it always was -- ownership, the door,
+  //: the purchase -- and now also for the ground itself, which a built-up plot
+  //: has as much as an empty one.
+  const bare = openGround;
   if (!aboard && (forSale || owned || bare)) {
     single(
       "plot",
@@ -604,7 +616,7 @@ function assemble({ look, values, pow }: Props, book: RecipeBook | null): Thing[
       () => (
         <>
           <Plot look={look} />
-          {bare && <Ground look={look} />}
+          {openGround && <Ground look={look} where="ground" />}
         </>
       ),
       forSale ? 1 : 3,
@@ -616,8 +628,8 @@ function assemble({ look, values, pow }: Props, book: RecipeBook | null): Thing[
             ? node?.price !== undefined
               ? `продаётся за ${api.tk(node.price)} ₭`
               : "ничья земля"
-            : bare && room
-              ? `лежит ${room.used.toFixed(0)} / ${room.area.toFixed(0)} м²`
+            : openGround && outside
+              ? `лежит ${outside.space.used.toFixed(0)} / ${outside.space.area.toFixed(0)} м²`
               : api.isMine(look)
                 ? undefined
                 : node?.owner

@@ -9,20 +9,35 @@
  * three shapes of it.
  */
 
-/** A destination the console offers: a place, and what it costs **this** hull. */
-export type Route = {
+/** What one move costs this hull. The class it was computed with is the
+ *  ship's own (`Vessel.class`) and is not repeated here (D-225). */
+export type Price = {
+  hours: number | null;
+  /** What this move burns out of the tanks. */
+  fuel: number | null;
+  /**
+   * What must be **in** the tanks before the order is taken at all. Larger
+   * than `fuel` wherever the move ends somewhere with no bunker: an orbit is
+   * not a place to be stranded in, so the climb keeps the descent behind it
+   * and a crossing keeps the descent at the far end (D-245).
+   */
+  needs: number | null;
+  /** Enough thrust to leave the ground at all. Class closes no route. */
+  reachable: boolean;
+};
+
+/** A destination the console offers: a place, and what going there costs. */
+export type Route = Price & {
   node: string;
   name: string;
   planet: string;
-  /**
-   * What the ship is: the weakest engine aboard. Not a demand of the route --
-   * no route makes one (D-235) -- but the number the fuel was computed with.
-   */
-  class: number | null;
-  hours: number | null;
-  fuel: number | null;
-  /** Enough thrust to leave the ground at all. Class closes no route. */
-  reachable: boolean;
+};
+
+/** A pad under the hull. Nothing but a name: what the descent costs is a fact
+ *  about the planet, and it is sent once beside the list (D-225, D-245). */
+export type Pad = {
+  node: string;
+  name: string;
   /**
    * The whole planet stands behind this row: it takes a landing anywhere on
    * its surface (D-233), and the node the hull comes down in is rolled at the
@@ -47,6 +62,16 @@ export type Air = {
   at: string;
 };
 
+/**
+ * Where the hull is in its journey (D-245): on a pad, in orbit, or under way.
+ *
+ * The console is built round it -- each stage offers a different move, and no
+ * other key says which. From the ground one only climbs; from orbit one
+ * crosses to another world or comes down onto this one; under way one may only
+ * turn back.
+ */
+export type Stage = "port" | "orbit" | "flight";
+
 /** A passage under way: where it ends and between which two moments. */
 export type Flight = {
   to: string | null;
@@ -54,6 +79,9 @@ export type Flight = {
   planet: string | null;
   started_at: string;
   arrives_at: string;
+  /** Whether this is the way back (D-242): a turn-back is not turned back, and
+   *  the button must be dark rather than collect a refusal per click. */
+  back: boolean;
 };
 
 export type Vessel = {
@@ -74,6 +102,19 @@ export type Vessel = {
   air: Air;
   /** Which planet's sky the hull stands in -- where the chart draws it. */
   planet: string;
+  stage: Stage;
+  /**
+   * The climb to the orbit above the pad, priced by the planet's gravity.
+   * Empty anywhere but on the ground: there is no such move from there.
+   */
+  climb: Route | null;
+  /** What coming down costs from here: one price for the whole planet (D-245). */
+  descent: Price | null;
+  /**
+   * The pads under the hull, offered from orbit only. This is the moment the
+   * pier is actually chosen -- with the planet already below (D-245).
+   */
+  landings: Pad[];
   docked: string | null;
   port: string | null;
   /** Which berth of that port: the gangway is as long as its number (D-201). */
@@ -100,16 +141,15 @@ export type Vessel = {
 };
 
 /**
- * The cheapest passage the ship could make from here.
+ * What must be in the tanks for the move the hull is offered here.
  *
- * The engine refuses to undock without fuel for the way back, and that way
- * back is the cheapest passage there is -- so the cheapest route on the board
- * is the number to compare against. No routes to compare with (a single port
- * in the world): let the engine speak, and it names the figure in its refusal.
+ * The engine refuses a leg that ends where there is no bunker without the fuel
+ * to leave again (D-245, pillar P6), and `needs` is that number: for the climb
+ * it is the climb plus the descent home. Nothing offered -- nothing to
+ * compare, and the engine names the figure in its own refusal.
  */
-export function cheapest(v: Vessel): number {
-  const fuels = v.routes.map((route) => route.fuel).filter((fuel): fuel is number => fuel != null);
-  return fuels.length ? Math.min(...fuels) : 0;
+export function wanted(move: Price | null): number {
+  return move?.needs ?? 0;
 }
 
 /**

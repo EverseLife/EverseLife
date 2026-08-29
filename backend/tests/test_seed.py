@@ -24,23 +24,50 @@ import pytest
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src import seed_world
 from src.constants import Catalog, ConstantError, Constants, current_catalog
 from src.constants import registry as R
 from src.constants.catalog import ItemKind
-from src.engine import death, estate, explore, frost, justice, market, ship, travel, world
+from src.engine import (
+    death,
+    estate,
+    explore,
+    frost,
+    justice,
+    market,
+    oxygen,
+    ship,
+    travel,
+    world,
+)
 from src.models.event import Event, EventKind
 from src.models.inventory import Container, ContainerKind, Item
 from src.models.world import Layer, Node, Planet, Vein
 from src.seed import CORE, seed
-from src.seed_surfaces import (
-    AURORA_CITIES,
-    PYROXIS_FIELDS,
-    PYROXIS_PLATEAU,
-    aurora_city_key,
-    aurora_hall_key,
-    aurora_port_key,
-    pyroxis_field_key,
-)
+from src.seed_surfaces import PYROXIS_FIELDS, PYROXIS_PLATEAU, pyroxis_field_key
+
+
+def aurora_cities() -> list[str]:
+    """The cities of Aurora **as the vault declares them** (D-232, D-243).
+
+    Asked of the scenario rather than of a list frozen in the test: the three
+    cities are a layout now, and a fourth one added in the editor's «Мир» tab
+    must not break the test that says a ship can reach every one of them.
+    """
+    scenario = seed_world.load_scenario()
+    return [
+        spec.key
+        for spec in scenario.nodes
+        if spec.planet is Planet.AURORA and spec.layer is Layer.PLANET
+    ]
+
+
+def aurora_hall(city: str) -> str:
+    return f"{city}.hall"
+
+
+def aurora_port(city: str) -> str:
+    return f"{city}.port"
 
 
 @pytest.fixture
@@ -185,12 +212,38 @@ async def test_the_planets_carry_their_climate(
         assert sphere is not None
         assert await frost.climate_of(session, sphere) == weather
 
-    port = await session.scalar(select(Node).where(Node.key == aurora_port_key(AURORA_CITIES[0])))
+    port = await session.scalar(select(Node).where(Node.key == aurora_port(aurora_cities()[0])))
     assert port is not None
     #: And the city is warm from the first minute, because its reactor is alive:
     #: the plant of the Forerunners heats the hall and the pier one step away
     #: (D-231, D-232). That is what a ship lands by.
     assert await frost.is_warm(session, constants, port)
+
+
+async def test_every_open_planet_has_an_orbit_to_hang_over(
+    capital: Node, session: AsyncSession
+) -> None:
+    """One orbital node per playable planet, under the planet itself (D-245).
+
+    The road between worlds goes through it, so a missing one is a planet
+    nothing can leave and nothing can reach. A deferred planet gets none: an
+    orbit is a destination, and a destination for a world that is not open yet
+    would be a way into it.
+    """
+    for key in ("terra", "aurora", "pyroxis"):
+        sphere = await session.scalar(select(Node).where(Node.key == key))
+        assert sphere is not None
+        orbit = await session.scalar(select(Node).where(Node.key == f"{key}.orbit"))
+        assert orbit is not None, f"у планеты {key} нет орбитального узла"
+        assert orbit.parent_id == sphere.id, "орбита висит под своей планетой"
+        assert orbit.layer is Layer.SPACE and orbit.planet is sphere.planet
+        assert ship.is_orbit(orbit), "узел помечен орбитой, и по метке его узнают"
+        #: And it is the void: the planet under it changes nothing about that.
+        assert not await oxygen.free_air(session, orbit)
+
+    #: Aquatica is drawn and not playable (D-104): no orbit, no way in.
+    assert await session.scalar(select(Node).where(Node.key == "aquatica.orbit")) is None
+    assert await session.scalar(select(Node).where(Node.key == "aquatica")) is not None
 
 
 async def test_the_capital_prints_on_the_original(
@@ -228,8 +281,8 @@ async def test_the_ice_of_aurora_is_reached_from_a_pier(
     pier offered nothing but its own rooms the planet would end at three cities
     (D-232). From the hall one goes deeper in; from the pier, out onto the ice.
     """
-    port = await session.scalar(select(Node).where(Node.key == aurora_port_key(AURORA_CITIES[0])))
-    hall = await session.scalar(select(Node).where(Node.key == aurora_hall_key(AURORA_CITIES[0])))
+    port = await session.scalar(select(Node).where(Node.key == aurora_port(aurora_cities()[0])))
+    hall = await session.scalar(select(Node).where(Node.key == aurora_hall(aurora_cities()[0])))
     assert port is not None and hall is not None
 
     assert await explore.possible(session, hall) == (explore.ROOM,)
@@ -252,7 +305,7 @@ async def test_other_planets_have_somewhere_to_land(
     by_planet: dict[str, int] = {}
     for port in await ship.landings(session):
         by_planet[port.planet.value] = by_planet.get(port.planet.value, 0) + 1
-    assert by_planet["aurora"] == len(AURORA_CITIES)
+    assert by_planet["aurora"] == len(aurora_cities())
     #: The plateau and its black fields, and not a spaceport among them: on
     #: Pyroxis a ship sets down on the ground itself (D-233).
     assert by_planet["pyroxis"] == 1 + PYROXIS_FIELDS
@@ -264,17 +317,17 @@ async def test_other_planets_have_somewhere_to_land(
     #: And all three are **lit**: their reactors are alive, and a lit port is
     #: the only kind a ship may aim at (D-232).
     lit = [port.key for port in await ship.lit_ports(session, constants)]
-    for one in AURORA_CITIES:
-        assert aurora_port_key(one) in lit
+    for one in aurora_cities():
+        assert aurora_port(one) in lit
 
     #: Every port is the one door of its own city: a planet-layer node under
     #: Aurora, with the hall of the Forerunners one step away.
-    first = await session.scalar(select(Node).where(Node.key == aurora_port_key(AURORA_CITIES[0])))
+    first = await session.scalar(select(Node).where(Node.key == aurora_port(aurora_cities()[0])))
     assert first is not None
     city = await session.get(Node, first.parent_id)
     assert city is not None and city.layer is Layer.PLANET and city.planet is Planet.AURORA
-    assert city.key == aurora_city_key(AURORA_CITIES[0])
-    hall = await session.scalar(select(Node).where(Node.key == aurora_hall_key(AURORA_CITIES[0])))
+    assert city.key == aurora_cities()[0]
+    hall = await session.scalar(select(Node).where(Node.key == aurora_hall(aurora_cities()[0])))
     assert hall is not None
     #: One edge between them: the plant heats its own node and its neighbours,
     #: and the pier is the neighbour (D-231).
@@ -290,7 +343,7 @@ async def test_other_planets_have_somewhere_to_land(
     #: Running the seed again lays nothing twice.
     await seed(session)
     again = sum(1 for port in await ship.ports(session) if port.planet.value == "aurora")
-    assert again == len(AURORA_CITIES)
+    assert again == len(aurora_cities())
     twice = sum(1 for place in await ship.landings(session) if place.planet.value == "pyroxis")
     assert twice == 1 + PYROXIS_FIELDS
 

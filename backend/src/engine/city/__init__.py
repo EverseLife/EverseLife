@@ -98,7 +98,6 @@ from src.engine.city.land import (  # noqa: F401
     upkeep_of,
 )
 from src.engine.city.lookup import (  # noqa: F401
-    RING,
     by_id,
     by_node,
     core,

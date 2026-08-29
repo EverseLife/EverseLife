@@ -161,7 +161,13 @@ async def free_air(session: AsyncSession, node: Node) -> bool:
     at a port of a planet that has some, because then the hatch may as well be
     open. Undocked -- in flight -- there is nothing outside to open onto, and
     the hull is on its own however Terran the port it left was.
+
+    An orbital node carries the planet it belongs to (D-245) and has none of
+    its air: it is the void with a name on it, and stepping out onto one is a
+    spacewalk whatever hangs below.
     """
+    if vessels.is_orbit(node):
+        return False
     airless = await airless_planets(session)
     if not vessels.is_aboard(node):
         return node.planet not in airless
@@ -172,11 +178,17 @@ async def free_air(session: AsyncSession, node: Node) -> bool:
 
 
 async def sealed(session: AsyncSession, ship: Ship) -> bool:
-    """Whether this hull has to make its own air: in flight, or down on an airless world."""
+    """Whether this hull has to make its own air.
+
+    Under way, moored in orbit, or down on an airless world: the hatch opens
+    onto something breathable in exactly one case, and this is the other three.
+    """
     if ship.docked_node_id is None:
         return True
     port = await session.get(Node, ship.docked_node_id)
-    return port is None or port.planet in await airless_planets(session)
+    if port is None or vessels.is_orbit(port):
+        return True
+    return port.planet in await airless_planets(session)
 
 
 # --- what a hull holds ---------------------------------------------------------

@@ -30,9 +30,15 @@ class ContainerKind(StrEnum):
 
     #: A body's inventory. Perishes with the body.
     BODY = "body"
-    #: What stands in the node under the open sky: machines, products at the
-    #: machine. A temporary home for machines: with buildings (E3) they move to
-    #: `BUILDING`, because the machine sets what a building is (D-106).
+    #: Everything that stands and lies in the node: machines, furniture, chests,
+    #: cargo. **One** store, and the node's two surfaces (D-244) are a mark on
+    #: the thing rather than a second one of these -- see `Item.outdoors`.
+    #:
+    #: That was tried the other way and taken back. Some sixty places ask this
+    #: container "what is in this node" and mean everything: the fire of an
+    #: eruption looking for what to burn, a rig looking for its coal, a brazier
+    #: for its fuel, a chest for its lid. A second store answered half of each
+    #: question, and the half it left out fell quietly out of the world.
     NODE = "node"
     #: A building: warehouse, workshop, yard.
     BUILDING = "building"
@@ -86,6 +92,17 @@ class Item(Base):
 
     id: Mapped[uuid.UUID] = uuid_pk()
     container_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("container.id"), nullable=False)
+    #: Which of a node's two surfaces this lies on: the floor of the house, or
+    #: the open ground beside it (D-244). Read **only** for a thing lying loose
+    #: in a node's own container -- in a pocket, a chest or a tank the question
+    #: does not arise and the answer is meaningless.
+    #:
+    #: And read through `estate.outdoors`, never raw: on a node with no building
+    #: there is no floor to be on, so everything there is outdoors whatever the
+    #: column says. That is what lets the rest of the engine go on putting things
+    #: into a node without knowing this column exists -- loot from a death, cargo
+    #: spilt by a broken cart, materials back from a demolition.
+    outdoors: Mapped[bool] = mapped_column(nullable=False, default=False, server_default="false")
 
     #: Name from `build/recipes.json` -- a recipe or raw material.
     type_key: Mapped[str] = mapped_column(nullable=False)

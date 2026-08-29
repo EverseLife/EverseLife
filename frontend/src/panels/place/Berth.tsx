@@ -114,9 +114,11 @@ export function Berth({ look }: Omit<Props, "busy" | "act">) {
         note="Мебель обустраивает быт: кровать — сон быстрее, сундук — хранение. На ней не работают."
       />
 
-      {/* And what lies on its floor and in its chests -- the same window the
-          ground has, because that question is the same question everywhere. */}
-      <Ground look={look} />
+      {/* And what lies on its floor and in its chests -- the same window a
+          house has, because that question is the same question everywhere.
+          A hull has no open ground beside it: the compartment **is** the
+          building, and it covers the whole node (D-244). */}
+      <Ground look={look} where="floor" />
     </>
   );
 }

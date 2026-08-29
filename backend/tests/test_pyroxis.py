@@ -136,17 +136,35 @@ async def test_the_console_shows_the_planet_and_not_every_field_of_it(
     same class -- and their number grows with every field a scout opens: six
     identical rows today, sixty later, in a socket answer sent every time the
     console is opened (D-225).
+
+    Asked of a hull **in orbit** over Pyroxis, because that is where the pad is
+    chosen at all now (D-245): from the ground there is one move and it is the
+    climb, and between worlds one goes orbit to orbit.
     """
     from src.engine.ship.view import profile
     from src.models.ship import Ship
 
     plateau, fields = await _surface(session, count=6)
+    #: `_surface` has already laid the planet: the orbit hangs under that one.
+    sphere = await session.get(Node, plateau.parent_id)
+    assert sphere is not None
+    orbit = await world.create_node(
+        session,
+        ship.orbit_key(Planet.PYROXIS),
+        "Околопланетная орбита Пироксиса",
+        planet=Planet.PYROXIS,
+        area_m2=1,
+        layer=Layer.SPACE,
+        parent=sphere,
+        properties={ship.ORBIT_NODE: True},
+    )
     owner = await world.create_identity(session, f"Капитан-{uuid.uuid4().hex[:6]}")
     hull = await world.create_node(
         session,
         f"ship.{uuid.uuid4().hex[:6]}",
         "Корабль",
         area_m2=1,
+        planet=Planet.PYROXIS,
         layer=Layer.SPACE,
     )
     connector = await world.create_node(
@@ -154,26 +172,39 @@ async def test_the_console_shows_the_planet_and_not_every_field_of_it(
         f"{hull.key}.connector",
         "Коннектор",
         area_m2=20,
+        planet=Planet.PYROXIS,
         layer=Layer.LOCATION,
         parent=hull,
         properties={ship.ABOARD: True},
     )
     hulk = Ship(
-        name="Вахта", owner_identity_id=owner.id, node_id=hull.id, connector_node_id=connector.id
+        name="Вахта",
+        owner_identity_id=owner.id,
+        node_id=hull.id,
+        connector_node_id=connector.id,
+        docked_node_id=orbit.id,
     )
     session.add(hulk)
     await session.flush()
 
     console = await profile(session, constants, current_catalog(), hulk)
-    to_pyroxis = [row for row in console["routes"] if row["planet"] == Planet.PYROXIS.value]
-    assert len(to_pyroxis) == 1, "консоль перечисляет планету, а не каждое её поле"
+    assert console["stage"] == "orbit"
+    assert len(console["landings"]) == 1, "консоль перечисляет планету, а не каждое её поле"
+    row = console["landings"][0]
     #: And it says so, so the client knows a node picker belongs here.
-    assert to_pyroxis[0]["anywhere"] is True
-    assert to_pyroxis[0]["node"] in {plateau.key, *(field.key for field in fields)}
-
-    #: A port with a yard is still a port: the rule is about planets one lands
-    #: anywhere on, not about hiding destinations.
-    assert all("anywhere" not in row for row in console["routes"] if row not in to_pyroxis)
+    assert row["anywhere"] is True
+    assert row["node"] in {plateau.key, *(field.key for field in fields)}
+    #: A name and nothing else: what a descent costs is a fact about the planet,
+    #: and it is sent once beside the list rather than copied into every field
+    #: of it (D-225, D-245).
+    assert set(row) == {"node", "name", "anywhere"}
+    #: This hull has no engines at all, so the price is offered and unreachable
+    #: rather than hidden: "не отрывается" is an answer, and a missing row is not.
+    assert set(console["descent"]) == {"hours", "fuel", "needs", "reachable"}
+    assert console["descent"]["reachable"] is False
+    #: The name is the planet's own, not the field the row happens to carry:
+    #: the hull comes down where the roll puts it (D-235).
+    assert row["name"] == sphere.name
 
 
 async def test_a_landing_without_a_port_falls_where_the_rock_allows(

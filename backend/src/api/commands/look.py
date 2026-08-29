@@ -462,15 +462,18 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
     #: got in (D-204): the shut door and the chest are the protection, not a rule
     #: against touching. A passer-by through a shut location is not inside.
     loose = {str(thing.id) for thing in await storage.lying(db, node)}
+    #: Serialised **once** for both surfaces: one store holds them, and `_things`
+    #: is a walk over makers and cultivars that has no business happening twice.
+    shown = await _things(db, constants, await world.node_container(db, node))
+    #: Two surfaces since D-244, and the pair is the whole point: the floor of
+    #: the house is what the house was built for, the yard is the plot left
+    #: around it. A roofless node has no floor at all -- `area` is nought and the
+    #: window with it -- and a house covering the whole plot leaves no yard.
     seen["floor"] = {
         "space": await estate.space(db, constants, node),
         #: Only what lies loose: machines, furniture and chests have their own
         #: windows and pay for their place differently (D-106, D-181).
-        "things": [
-            thing
-            for thing in await _things(db, constants, await world.node_container(db, node))
-            if thing["id"] in loose
-        ],
+        "things": [thing for thing in shown if thing["id"] in loose],
         #: Whether this one may reach the floor at all: everybody inside may.
         "open": await access.may_enter(db, node, identity.id),
         #: Whose the place is -- the window says it in words, and the words differ
@@ -478,6 +481,19 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
         "mine": await station.may_build(db, body, node)
         or (node.owner_identity_id is None and node.owner_city_id is None),
     }
+    outside = {str(thing.id) for thing in await storage.lying(db, node, indoors=False)}
+    #: The open ground: the same store, the other surface (D-244). The door and
+    #: the right are the floor's -- one place, one door -- so they are not
+    #: repeated here: the client reads them off `floor` (D-225).
+    open_air = await estate.yard(db, constants, node)
+    #: Left out where a house has grown over the whole plot: there is no ground
+    #: to put anything on, and a key carrying an empty surface is the sort of
+    #: nothing this answer does not send (D-225).
+    if open_air["area"] > 0 or outside:
+        seen["ground"] = {
+            "space": open_air,
+            "things": [thing for thing in shown if thing["id"] in outside],
+        }
     seen["inventory"] = await _things(db, constants, await world.body_container(db, body))
     cell = await market.stall(db, node, identity.id, create=False)
     seen["stall"] = [] if cell is None else await _things(db, constants, cell)

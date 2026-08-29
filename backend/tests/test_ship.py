@@ -40,9 +40,51 @@ TANK = "Топливный бак"
 CONSOLE = "Консоль управления кораблём"
 
 
+async def _orbit(session: AsyncSession, planet: Planet = Planet.TERRA) -> Node:
+    """The planet's orbital node, and the planet's own node under it (D-245).
+
+    Fetch-or-create, because every port of a planet wants the same one: the
+    orbit is where a hull hangs between the ground and the sky, and there is
+    exactly one of them per world.
+    """
+    sphere = (await select_node(session, planet.value)) or await world.create_node(
+        session, planet.value, planet.value.title(), area_m2=1, planet=planet, layer=Layer.SPACE
+    )
+    key = ship.orbit_key(planet)
+    return (await select_node(session, key)) or await world.create_node(
+        session,
+        key,
+        f"Околопланетная орбита {planet.value}",
+        area_m2=1,
+        planet=planet,
+        layer=Layer.SPACE,
+        parent=sphere,
+        properties={ship.ORBIT_NODE: True},
+    )
+
+
+async def select_node(session: AsyncSession, key: str) -> Node | None:
+    return (await session.execute(select(Node).where(Node.key == key))).scalars().first()
+
+
+async def _in_orbit(
+    session: AsyncSession, constants: Constants, catalog: Catalog, body: Body, vessel: Ship
+) -> Ship:
+    """Climb and arrive: the hull hanging over the planet it set out from."""
+    job = await ship.ascend(session, constants, catalog, body, vessel)
+    await ship.arrived(session, job)
+    #: The climb is run by hand here, so close it by hand too: left pending it
+    #: is a passage still under way, and the next order would be refused.
+    job.state = JobState.DONE
+    job.finished_at = job.run_at
+    await session.flush()
+    return vessel
+
+
 async def _port(session: AsyncSession, *, name: str = "Космодром", planet=Planet.TERRA):
     """A node with a spaceport: everything a ship starts from."""
     stamp = uuid.uuid4().hex[:8]
+    await _orbit(session, planet)
     node = await world.create_node(session, f"terra.port.{stamp}", name, area_m2=400, planet=planet)
     session.add(Building(node_id=node.id, area_m2=400))
     await session.flush()
@@ -427,15 +469,15 @@ async def test_docking_leaves_land_measurements_alone(
     connector = await session.get(Node, vessel.connector_node_id)
     body.node_id = connector.id
     await session.flush()
-    await ship.undock(session, constants, catalog, body, vessel)
+    await ship.ascend(session, constants, catalog, body, vessel)
 
     assert port.center_steps == measured, "отход корабля не трогает землю"
 
 
-# --- undocking is the removal of one edge ------------------------------------
+# --- casting off is the removal of one edge ----------------------------------
 
 
-async def test_undocking_removes_the_edge_and_the_ship_becomes_unreachable(
+async def test_the_climb_removes_the_edge_and_the_ship_becomes_unreachable(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
     """The flight is the absence of an edge, not a state of the body (D-201)."""
@@ -448,7 +490,7 @@ async def test_undocking_removes_the_edge_and_the_ship_becomes_unreachable(
     body.node_id = connector.id
     await session.flush()
 
-    await ship.undock(session, constants, catalog, body, vessel)
+    await ship.ascend(session, constants, catalog, body, vessel)
     assert vessel.docked_node_id is None
     assert await travel.exits(session, constants, port) == ()
     assert await travel.exits(session, constants, connector) == (), (
@@ -465,7 +507,7 @@ async def test_undocking_removes_the_edge_and_the_ship_becomes_unreachable(
 async def test_overloaded_ship_does_not_tear_off(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Below `ship.min_thrust_ratio` it does not undock at all -- and says so."""
+    """Below `ship.min_thrust_ratio` it does not lift at all -- and says so."""
     port = await _port(session)
     _, body = await _shipwright(session, port)
     vessel = await _laid(session, constants, body, port)
@@ -480,7 +522,7 @@ async def test_overloaded_ship_does_not_tear_off(
         await ship.ratio(session, constants, catalog, vessel) < constants[R.SHIP_MIN_THRUST_RATIO]
     )
     with pytest.raises(ship.NotEnoughThrust):
-        await ship.undock(session, constants, catalog, body, vessel)
+        await ship.ascend(session, constants, catalog, body, vessel)
     assert vessel.docked_node_id == port.id, "перегруженный корабль остался в порту"
 
 
@@ -499,20 +541,21 @@ async def test_crew_beyond_life_support_does_not_fly(
 
     await _fuel(session, connector, 200)
     with pytest.raises(ship.NoLifeSupport):
-        await ship.undock(session, constants, catalog, body, vessel)
+        await ship.ascend(session, constants, catalog, body, vessel)
 
     await _equip(session, connector, LIFE)
-    assert await ship.undock(session, constants, catalog, body, vessel) is vessel
+    assert await ship.ascend(session, constants, catalog, body, vessel) is not None
 
 
-async def test_undocking_without_fuel_to_come_back_refused(
+async def test_the_climb_without_fuel_to_come_back_refused(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """An undocked ship is unreachable, so casting off dry would be a trap.
+    """A hull in orbit is unreachable, so climbing dry would be a trap.
 
     Nobody can bring fuel to a ship with no edges, and nobody aboard can walk
-    off. So the fuel for the cheapest passage -- the hop back to this very port
-    -- is checked before the gangway comes off.
+    off. So the fuel for the descent back onto this very planet is checked
+    before the gangway comes off (D-245): the climb is charged now, the way
+    down is only guaranteed.
     """
     port = await _port(session)
     _, owner = await _shipwright(session, port)
@@ -525,17 +568,17 @@ async def test_undocking_without_fuel_to_come_back_refused(
     await session.flush()
 
     with pytest.raises(ship.NoFuel):
-        await ship.undock(session, constants, catalog, owner, vessel)
+        await ship.ascend(session, constants, catalog, owner, vessel)
     assert vessel.docked_node_id == port.id, "сухой корабль остался у причала"
 
     await _fuel(session, connector, 200)
-    assert await ship.undock(session, constants, catalog, owner, vessel) is vessel
+    assert await ship.ascend(session, constants, catalog, owner, vessel) is not None
 
 
 async def test_gangway_is_not_pulled_from_under_a_walker(
     factory: async_sessionmaker[AsyncSession], constants: Constants, catalog: Catalog
 ) -> None:
-    """Somebody is walking the gangway: undocking waits (D-201)."""
+    """Somebody is walking the gangway: the climb waits (D-201)."""
     async with factory() as session, session.begin():
         port = await _port(session)
         _, owner = await _shipwright(session, port)
@@ -550,10 +593,10 @@ async def test_gangway_is_not_pulled_from_under_a_walker(
         await travel.depart(session, constants, guest, connector)
 
         with pytest.raises(travel.EdgeInUse):
-            await ship.undock(session, constants, catalog, owner, vessel)
+            await ship.ascend(session, constants, catalog, owner, vessel)
 
 
-async def test_a_stranger_does_not_undock_your_ship(
+async def test_a_stranger_does_not_lift_your_ship(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
     port = await _port(session)
@@ -565,16 +608,20 @@ async def test_a_stranger_does_not_undock_your_ship(
     guest.node_id = vessel.connector_node_id
     await session.flush()
     with pytest.raises(ship.NotYours):
-        await ship.undock(session, constants, catalog, guest, vessel)
+        await ship.ascend(session, constants, catalog, guest, vessel)
 
 
 # --- the passage -------------------------------------------------------------
 
 
-async def test_flight_docks_at_the_other_port_and_carries_the_passenger(
+async def test_a_landing_moors_at_the_chosen_pad_and_carries_the_passenger(
     factory: async_sessionmaker[AsyncSession], constants: Constants, catalog: Catalog
 ) -> None:
-    """The passage: fuel now, the edge to the new port by a journal job.
+    """Two ports of one planet are reached by climbing and coming down (D-245).
+
+    There is no corridor from a planet to itself any more: the hull goes up to
+    the orbit and picks its pad from there, which is the moment a crew actually
+    knows what it is choosing between.
 
     The passenger goes nowhere themselves -- they stand in their node all the
     way, and it is the node's neighbour that changes (D-201).
@@ -590,8 +637,9 @@ async def test_flight_docks_at_the_other_port_and_carries_the_passenger(
         await session.flush()
 
         fuel_before = await ship.fuel_aboard(session, vessel)
-        await ship.undock(session, constants, catalog, owner, vessel)
-        flight = await ship.fly(session, constants, catalog, owner, vessel, there)
+        await _in_orbit(session, constants, catalog, owner, vessel)
+        assert vessel.docked_node_id == (await _orbit(session)).id, "борт на орбите"
+        flight = await ship.land(session, constants, catalog, owner, vessel, there)
         assert await ship.fuel_aboard(session, vessel) < fuel_before, "рейс сжёг топливо"
         term, ship_id, owner_id = flight.run_at, vessel.id, owner.id
         connector_id, there_id = connector.id, there.id
@@ -612,15 +660,14 @@ async def test_flight_docks_at_the_other_port_and_carries_the_passenger(
 async def test_a_ship_under_way_takes_no_second_order(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """One hull, one passage.
+    """One hull, one leg.
 
-    Undocking leaves the ship with no edge at all, and "not docked" was the
+    Casting off leaves the ship with no edge at all, and "not docked" was the
     only thing the order asked -- so a second order given while the first was
     still under way was taken: the fuel was burnt twice and two arrivals stood
     in the journal, each ready to set the same hull down in its own port.
     """
     here = await _port(session, name="Космодром столицы")
-    there = await _port(session, name="Дальний космодром")
     elsewhere = await _port(session, name="Третий космодром")
     _, owner = await _shipwright(session, here)
     vessel = await _laid(session, constants, owner, here)
@@ -629,12 +676,13 @@ async def test_a_ship_under_way_takes_no_second_order(
     owner.node_id = connector.id
     await session.flush()
 
-    await ship.undock(session, constants, catalog, owner, vessel)
-    await ship.fly(session, constants, catalog, owner, vessel, there)
+    await ship.ascend(session, constants, catalog, owner, vessel)
     burnt = await ship.fuel_aboard(session, vessel)
 
     with pytest.raises(ship.InFlight):
-        await ship.fly(session, constants, catalog, owner, vessel, elsewhere)
+        await ship.land(session, constants, catalog, owner, vessel, elsewhere)
+    with pytest.raises(ship.InFlight):
+        await ship.ascend(session, constants, catalog, owner, vessel)
     assert await ship.fuel_aboard(session, vessel) == burnt, "отказ всё равно сжёг топливо"
 
 
@@ -643,24 +691,20 @@ async def test_two_orders_in_one_second_send_the_ship_once(
 ) -> None:
     """Two sockets of one player, or an AI citizen (D-224), pressing together.
 
-    A check-then-act without a lock lets both pass and both queue a passage:
-    the fuel goes twice and the hull is set down twice. The row is held while
-    the decision is made, so the second order waits for the first and is
-    refused by what it finds.
+    A check-then-act without a lock lets both pass and both queue a leg: the
+    fuel goes twice and the hull is set down twice. The row is held while the
+    decision is made, so the second order waits for the first and is refused by
+    what it finds.
     """
     async with factory() as session, session.begin():
         here = await _port(session, name="Космодром столицы")
-        there = await _port(session, name="Дальний космодром")
-        elsewhere = await _port(session, name="Третий космодром")
         _, owner = await _shipwright(session, here)
         vessel = await _laid(session, constants, owner, here)
         await _flightworthy(session, constants, catalog, vessel)
         connector = await session.get(Node, vessel.connector_node_id)
         owner.node_id = connector.id
         await session.flush()
-        await ship.undock(session, constants, catalog, owner, vessel)
         ship_id, owner_id = vessel.id, owner.id
-        there_id, elsewhere_id = there.id, elsewhere.id
         fuel_before = await ship.fuel_aboard(session, vessel)
 
     #: Both transactions must be open and looking at the same hull before
@@ -669,19 +713,18 @@ async def test_two_orders_in_one_second_send_the_ship_once(
     #: starts, and the test would pass with no lock at all.
     ready = asyncio.Barrier(2)
 
-    async def order(port_id: uuid.UUID) -> str:
+    async def order() -> str:
         async with factory() as db, db.begin():
             mine = await db.get(Ship, ship_id)
             me = await db.get(Body, owner_id)
-            aim = await db.get(Node, port_id)
             await ready.wait()
             try:
-                await ship.fly(db, constants, catalog, me, mine, aim)
+                await ship.ascend(db, constants, catalog, me, mine)
             except ship.InFlight:
                 return "refused"
             return "flew"
 
-    answers = await asyncio.gather(order(there_id), order(elsewhere_id))
+    answers = await asyncio.gather(order(), order())
     assert sorted(answers) == ["flew", "refused"], f"оба приказа прошли: {answers}"
 
     async with factory() as session:
@@ -717,14 +760,17 @@ async def test_no_route_is_closed_by_the_class_of_the_engine(
     is another matter, and the console says so before the attempt.
     """
     here = await _port(session)
-    far = await _port(session, name="Порт Авроры", planet=Planet.AURORA)
+    await _port(session, name="Порт Авроры", planet=Planet.AURORA)
+    far = await _orbit(session, Planet.AURORA)
     _, owner = await _shipwright(session, here)
     vessel = await _laid(session, constants, owner, here)
     await _flightworthy(session, constants, catalog, vessel)
-    owner.node_id = vessel.connector_node_id
+    connector = await session.get(Node, vessel.connector_node_id)
+    await _fuel(session, connector, 5000)
+    owner.node_id = connector.id
     await session.flush()
 
-    await ship.undock(session, constants, catalog, owner, vessel)
+    await _in_orbit(session, constants, catalog, owner, vessel)
     summary = await ship.profile(session, constants, catalog, vessel)
     aurora = next(route for route in summary["routes"] if route["node"] == far.key)
     assert aurora["reachable"], "класс больше не запирает маршрут"
@@ -765,7 +811,8 @@ async def test_ship_takes_the_planet_of_the_port_it_stands_at(
     """
     async with factory() as session, session.begin():
         home = await _port(session)
-        far = await _port(session, name="Порт Авроры", planet=Planet.AURORA)
+        await _port(session, name="Порт Авроры", planet=Planet.AURORA)
+        far = await _orbit(session, Planet.AURORA)
         _, owner = await _shipwright(session, home)
         vessel = await _laid(session, constants, owner, home)
         connector = await session.get(Node, vessel.connector_node_id)
@@ -776,11 +823,12 @@ async def test_ship_takes_the_planet_of_the_port_it_stands_at(
         owner.node_id = connector.id
         await session.flush()
 
-        await ship.undock(session, constants, catalog, owner, vessel)
+        await _in_orbit(session, constants, catalog, owner, vessel)
         flight = await ship.fly(session, constants, catalog, owner, vessel, far)
-        #: The interplanetary passage is days, not the six hours of a local hop.
+        #: The interplanetary passage is days, not the hours of a climb.
         assert flight.run_at > flight.created_at
-        term, ship_id, home_key = flight.run_at, vessel.id, home.key
+        term, ship_id = flight.run_at, vessel.id
+        home_key = ship.orbit_key(Planet.TERRA)
 
     assert await jobs.run_one(factory, now=term) is not None
 
@@ -898,7 +946,7 @@ async def test_berths_are_numbered_and_the_lowest_free_one_is_taken(
     holder = await _body_of(session, middle)
     holder.node_id = aboard.id
     await session.flush()
-    await ship.undock(session, constants, catalog, holder, middle)
+    await ship.ascend(session, constants, catalog, holder, middle)
     assert middle.berth is None, "в полёте места у причала нет"
 
     _, latecomer = await _shipwright(session, port)
@@ -921,40 +969,68 @@ async def _body_of(session: AsyncSession, vessel: Ship) -> Body:
     )
 
 
-async def test_long_passage_needs_more_fuel_than_a_hop(
+async def test_a_crossing_needs_more_fuel_than_the_climb(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Fuel goes by mass and by days: enough for a hop is not enough for a world away.
+    """Fuel goes by mass and by days: enough to reach orbit is not enough for a world away.
 
-    A local hop is affordable by construction -- undocking already checked the
-    fuel for the way back, and that is the same hop. What a short tank does not
-    buy is the days of an interplanetary passage.
+    The climb is affordable by construction -- it already checked the fuel for
+    the way back down, and that is the whole of a local journey (D-245). What a
+    short tank does not buy is the days of an interplanetary passage.
     """
     port = await _port(session)
-    far = await _port(session, name="Порт Авроры", planet=Planet.AURORA)
+    await _port(session, name="Порт Авроры", planet=Planet.AURORA)
+    far = await _orbit(session, Planet.AURORA)
     _, owner = await _shipwright(session, port)
     vessel = await _laid(session, constants, owner, port)
     connector = await session.get(Node, vessel.connector_node_id)
     await _equip(session, connector, "Двигатель II класса")
     await _equip(session, connector, LIFE)
     await _equip(session, connector, CONSOLE)
-    #: Enough for a hop several times over and nowhere near enough for a world
-    #: away. The interplanetary passage is hours to days rather than a fixed
-    #: number of days (D-037): its price now depends on where the planets
-    #: stand, and this tank is short of even the shortest window.
+    #: Enough for the climb and the descent behind it several times over, and
+    #: nowhere near enough for a world away. The interplanetary passage is hours
+    #: to days rather than a fixed number of days (D-037): its price depends on
+    #: where the planets stand, and this tank is short of even the shortest
+    #: window.
     await _fuel(session, connector, 4)
     owner.node_id = connector.id
     await session.flush()
 
-    await ship.undock(session, constants, catalog, owner, vessel)
+    await _in_orbit(session, constants, catalog, owner, vessel)
     with pytest.raises(ship.NoFuel):
         await ship.fly(session, constants, catalog, owner, vessel, far)
 
 
-async def test_docked_ship_does_not_fly_and_undocked_does_not_undock_twice(
+async def test_the_ground_does_not_cross_and_a_climb_does_not_climb_twice(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Two states, and each refuses the other's action in words."""
+    """Three stages, and each refuses the others' action in words (D-245)."""
+    port = await _port(session)
+    _, owner = await _shipwright(session, port)
+    vessel = await _laid(session, constants, owner, port)
+    await _flightworthy(session, constants, catalog, vessel)
+    owner.node_id = vessel.connector_node_id
+    await session.flush()
+
+    #: From the pad one only climbs: between worlds a hull goes orbit to orbit.
+    with pytest.raises(ship.Docked):
+        await ship.fly(session, constants, catalog, owner, vessel, await _orbit(session))
+    #: And there is nothing to come down from.
+    with pytest.raises(ship.Docked):
+        await ship.land(session, constants, catalog, owner, vessel, port)
+    await ship.ascend(session, constants, catalog, owner, vessel)
+    with pytest.raises(ship.InFlight):
+        await ship.ascend(session, constants, catalog, owner, vessel)
+
+
+async def test_summary_names_the_price_before_the_attempt(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """A refusal by mass must not be a surprise sprung after the hold is loaded (D-202).
+
+    And what the console offers depends on where the hull is (D-245): from the
+    pad there is one move, and it is the climb.
+    """
     port = await _port(session)
     there = await _port(session, name="Второй космодром")
     _, owner = await _shipwright(session, port)
@@ -963,30 +1039,34 @@ async def test_docked_ship_does_not_fly_and_undocked_does_not_undock_twice(
     owner.node_id = vessel.connector_node_id
     await session.flush()
 
-    with pytest.raises(ship.Docked):
-        await ship.fly(session, constants, catalog, owner, vessel, there)
-    await ship.undock(session, constants, catalog, owner, vessel)
-    with pytest.raises(ship.InFlight):
-        await ship.undock(session, constants, catalog, owner, vessel)
-
-
-async def test_summary_names_the_price_before_the_attempt(
-    session: AsyncSession, constants: Constants, catalog: Catalog
-) -> None:
-    """A refusal by mass must not be a surprise sprung after the hold is loaded (D-202)."""
-    port = await _port(session)
-    await _port(session, name="Второй космодром")
-    _, owner = await _shipwright(session, port)
-    vessel = await _laid(session, constants, owner, port)
-    await _flightworthy(session, constants, catalog, vessel)
-
     summary = await ship.profile(session, constants, catalog, vessel)
     assert summary["nodes"] == 1
     assert summary["thrust"] > 0 and summary["mass"] > 0
     assert summary["ratio"] == pytest.approx(summary["thrust"] / summary["mass"], rel=1e-2)
     assert summary["docked"] == port.key
-    hop = next(route for route in summary["routes"] if route["planet"] == "terra")
-    assert hop["reachable"] and hop["hours"] > 0 and hop["fuel"] > 0
+    assert summary["stage"] == "port", "борт стоит в космодроме"
+    climb = summary["climb"]
+    assert climb["node"] == ship.orbit_key(Planet.TERRA)
+    assert climb["reachable"] and climb["hours"] > 0 and climb["fuel"] > 0
+    #: The descent home is guaranteed but not charged: `needs` is the larger.
+    assert climb["needs"] > climb["fuel"]
+    assert summary["routes"] == [] and summary["landings"] == [], "с земли выбирать нечего"
+
+    #: And from orbit the pads appear, this planet's own.
+    await _in_orbit(session, constants, catalog, owner, vessel)
+    aloft = await ship.profile(session, constants, catalog, vessel)
+    assert aloft["stage"] == "orbit" and aloft["climb"] is None
+    pads = {pad["node"] for pad in aloft["landings"]}
+    assert pads == {port.key, there.key}, "с орбиты видно оба космодрома планеты"
+    #: One price for the whole planet, beside the list rather than copied into
+    #: every row of it (D-225, D-245): a pad differs from a pad in its name and
+    #: in nothing the console could charge for.
+    assert all(set(pad) <= {"node", "name", "anywhere"} for pad in aloft["landings"])
+    down = aloft["descent"]
+    assert down["hours"] > 0 and down["reachable"]
+    #: The ground is the one place a hull may stand with dry tanks: nothing is
+    #: kept back from a descent.
+    assert down["needs"] == down["fuel"]
 
 
 # --- the console, the tanks and the ship's card (D-230) -----------------------
@@ -995,7 +1075,7 @@ async def test_summary_names_the_price_before_the_attempt(
 async def test_ship_is_commanded_from_the_console(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Casting off is ordered at the bridge: aboard is not enough, and the
+    """The climb is ordered at the bridge: aboard is not enough, and the
     console must stand in the very room the owner stands in."""
     port = await _port(session)
     _, owner = await _shipwright(session, port, foundations=2)
@@ -1008,7 +1088,7 @@ async def test_ship_is_commanded_from_the_console(
     await session.flush()
 
     with pytest.raises(ship.NoConsole):
-        await ship.undock(session, constants, catalog, owner, vessel)
+        await ship.ascend(session, constants, catalog, owner, vessel)
 
     #: The console in the next room: still not this one.
     job = await ship.extend(session, constants, owner)
@@ -1016,11 +1096,11 @@ async def test_ship_is_commanded_from_the_console(
     hold = next(n for n in await ship.nodes_of(session, vessel) if n.id != connector.id)
     await _equip(session, hold, CONSOLE)
     with pytest.raises(ship.NoConsole):
-        await ship.undock(session, constants, catalog, owner, vessel)
+        await ship.ascend(session, constants, catalog, owner, vessel)
 
     owner.node_id = hold.id
     await session.flush()
-    assert await ship.undock(session, constants, catalog, owner, vessel) is vessel
+    assert await ship.ascend(session, constants, catalog, owner, vessel) is not None
 
 
 async def test_fuel_in_a_canister_is_cargo_not_reserve(
@@ -1092,7 +1172,6 @@ async def test_a_hull_whose_crew_died_is_brought_home_from_the_ground(
     trap a ship could still make, and this world does not build those (P6).
     """
     home = await _port(session, name="Космодром столицы")
-    away = await _port(session, name="Дальний космодром")
     _, owner = await _shipwright(session, home)
     vessel = await _laid(session, constants, owner, home)
     await _flightworthy(session, constants, catalog, vessel)
@@ -1100,17 +1179,17 @@ async def test_a_hull_whose_crew_died_is_brought_home_from_the_ground(
 
     owner.node_id = connector.id
     await session.flush()
-    await ship.undock(session, constants, catalog, owner, vessel)
+    await ship.ascend(session, constants, catalog, owner, vessel)
     #: The crew is gone: the owner is back on the ground, printed anew.
     owner.node_id = home.id
     await session.flush()
 
     #: From bare ground the hull is deaf, exactly as before.
     with pytest.raises(ship.NotAboard):
-        await ship.fly(session, constants, catalog, owner, vessel, away)
+        await ship.recall(session, constants, catalog, owner, vessel)
 
     await _ground_console(session, home)
-    job = await ship.fly(session, constants, catalog, owner, vessel, away)
+    job = await ship.recall(session, constants, catalog, owner, vessel)
     assert job is not None, "с наземной консоли приказ проходит"
 
 
@@ -1122,7 +1201,6 @@ async def test_a_hull_without_a_bridge_hears_nothing_from_the_ground(
     That is what keeps the bridge worth building after the ground one exists.
     """
     home = await _port(session, name="Космодром столицы")
-    away = await _port(session, name="Дальний космодром")
     _, owner = await _shipwright(session, home)
     vessel = await _laid(session, constants, owner, home)
     connector = await session.get(Node, vessel.connector_node_id)
@@ -1135,10 +1213,10 @@ async def test_a_hull_without_a_bridge_hears_nothing_from_the_ground(
 
     #: Aboard, the missing console is refused as it always was.
     with pytest.raises(ship.NoConsole):
-        await ship.undock(session, constants, catalog, owner, vessel)
+        await ship.ascend(session, constants, catalog, owner, vessel)
 
     await _equip(session, connector, CONSOLE)
-    await ship.undock(session, constants, catalog, owner, vessel)
+    await ship.ascend(session, constants, catalog, owner, vessel)
     #: Now take the console away and try from the ground.
     yard = await world.node_container(session, connector)
     for thing in await world.contents(session, yard):
@@ -1150,31 +1228,35 @@ async def test_a_hull_without_a_bridge_hears_nothing_from_the_ground(
     await _ground_console(session, home)
     await session.flush()
     with pytest.raises(ship.Deaf):
-        await ship.fly(session, constants, catalog, owner, vessel, away)
+        await ship.recall(session, constants, catalog, owner, vessel)
 
 
 async def test_turning_back_costs_the_way_already_flown(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """The way home is as long as the way out has been, and burns its own fuel."""
+    """The way home is as long as the way out has been, and burns its own fuel.
+
+    Shown on a climb, because that is the leg a player takes back most often
+    (D-245): "подняться на орбиту" is an order, and an order may be countermanded.
+    """
     home = await _port(session, name="Космодром столицы")
-    away = await _port(session, name="Дальний космодром")
     _, owner = await _shipwright(session, home)
     vessel = await _laid(session, constants, owner, home)
     await _flightworthy(session, constants, catalog, vessel)
     connector = await session.get(Node, vessel.connector_node_id)
+    await _fuel(session, connector, 3000)
     owner.node_id = connector.id
     await session.flush()
 
-    await ship.undock(session, constants, catalog, owner, vessel)
+    flight = await ship.ascend(session, constants, catalog, owner, vessel)
     assert vessel.left_node_id == home.id, "причал, с которого ушли, запомнен"
-    flight = await ship.fly(session, constants, catalog, owner, vessel, away)
     #: `created_at` is the database's own stamp: read it back rather than off
     #: an object that has not seen the row since the insert.
     await session.refresh(flight)
 
-    #: An hour out. The way back is an hour, to the pier it left.
-    gone = timedelta(hours=1)
+    #: Half a day out. The way back is half a day, to the pier it left. Well
+    #: past the landing floor, so what is pinned here is the rule itself.
+    gone = timedelta(hours=12)
     moment = flight.created_at + gone
     before = await ship.fuel_aboard(session, vessel)
     back = await ship.recall(session, constants, catalog, owner, vessel, now=moment)
@@ -1198,18 +1280,17 @@ async def test_a_turn_back_is_not_turned_back(
     second one is refused outright -- the ship is already going there.
     """
     home = await _port(session, name="Космодром столицы")
-    away = await _port(session, name="Дальний космодром")
     _, owner = await _shipwright(session, home)
     vessel = await _laid(session, constants, owner, home)
     await _flightworthy(session, constants, catalog, vessel)
     connector = await session.get(Node, vessel.connector_node_id)
+    await _fuel(session, connector, 3000)
     owner.node_id = connector.id
     await session.flush()
 
-    await ship.undock(session, constants, catalog, owner, vessel)
-    flight = await ship.fly(session, constants, catalog, owner, vessel, away)
+    flight = await ship.ascend(session, constants, catalog, owner, vessel)
     await session.refresh(flight)
-    moment = flight.created_at + timedelta(hours=1)
+    moment = flight.created_at + timedelta(hours=12)
     back = await ship.recall(session, constants, catalog, owner, vessel, now=moment)
 
     burnt = await ship.fuel_aboard(session, vessel)
@@ -1218,9 +1299,134 @@ async def test_a_turn_back_is_not_turned_back(
             session, constants, catalog, owner, vessel, now=moment + timedelta(seconds=1)
         )
     assert await ship.fuel_aboard(session, vessel) == burnt, "отказ не сжёг топлива"
-    #: And the way home is still the hour it was, not nought.
+    #: And the way home is still the half day it was, not nought.
     await session.refresh(back)
-    assert back.run_at - moment == timedelta(hours=1)
+    assert back.run_at - moment == timedelta(hours=12)
+
+
+async def test_a_turn_back_to_a_pier_without_a_yard_is_refused(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """A hull is not sent back to a node with nothing to moor to.
+
+    A landing asks two questions of a destination -- is there a yard, and is the
+    beacon lit -- and a turn-back must ask both. It used to ask only the second,
+    so a pier whose yard was carried off while the hull flew still took the
+    turn-back, and the arrival laid a gangway onto a node with no spaceport at
+    all. Written first, dismissed as wrong, and right after all (review of
+    D-242).
+    """
+    home = await _port(session, name="Космодром столицы")
+    _, owner = await _shipwright(session, home)
+    vessel = await _laid(session, constants, owner, home)
+    await _flightworthy(session, constants, catalog, vessel)
+    connector = await session.get(Node, vessel.connector_node_id)
+    owner.node_id = connector.id
+    await session.flush()
+
+    flight = await ship.ascend(session, constants, catalog, owner, vessel)
+    await session.refresh(flight)
+
+    #: The yard is carried off while the hull is under way.
+    yard = await world.node_container(session, home)
+    for thing in await world.contents(session, yard):
+        if thing.type_key == "Космическая верфь":
+            await session.delete(thing)
+    await session.flush()
+
+    with pytest.raises(ship.NoPort):
+        await ship.recall(
+            session, constants, catalog, owner, vessel, now=flight.created_at + timedelta(hours=1)
+        )
+
+
+async def test_a_turn_back_never_costs_less_than_a_landing(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Turned round in the first minute, a hull has gone nowhere -- and still
+    has to come down.
+
+    Without a floor the arithmetic put it back on the pier at once and for
+    nothing, which is a way to skip the hours every descent costs (D-245): lift,
+    turn back, and be down again before the gauge has moved.
+    """
+    home = await _port(session, name="Космодром столицы")
+    _, owner = await _shipwright(session, home)
+    vessel = await _laid(session, constants, owner, home)
+    await _flightworthy(session, constants, catalog, vessel)
+    connector = await session.get(Node, vessel.connector_node_id)
+    owner.node_id = connector.id
+    await session.flush()
+
+    flight = await ship.ascend(session, constants, catalog, owner, vessel)
+    await session.refresh(flight)
+
+    before = await ship.fuel_aboard(session, vessel)
+    #: Turned round the same second it set out.
+    back = await ship.recall(session, constants, catalog, owner, vessel, now=flight.created_at)
+
+    thrust_ratio = await ship.ratio(session, constants, catalog, vessel)
+    landing = ship.fall_hours(constants, Planet.TERRA, thrust_ratio)
+    assert back.run_at - flight.created_at == pytest.approx(
+        timedelta(hours=landing), abs=timedelta(seconds=1)
+    ), "разворот в ту же секунду всё равно длится посадку"
+    assert await ship.fuel_aboard(session, vessel) < before, "и стоит топлива"
+
+
+async def test_somebody_elses_ground_console_is_refused(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Orders are given from one's own console, on land one disposes of (D-242)."""
+    home = await _port(session, name="Космодром столицы")
+    _, owner = await _shipwright(session, home)
+    vessel = await _laid(session, constants, owner, home)
+    await _flightworthy(session, constants, catalog, vessel)
+    connector = await session.get(Node, vessel.connector_node_id)
+    owner.node_id = connector.id
+    await session.flush()
+    await ship.ascend(session, constants, catalog, owner, vessel)
+
+    #: A console standing on somebody else's plot.
+    stranger = await world.create_identity(session, f"Сосед-{uuid.uuid4().hex[:6]}")
+    yard_node = await world.create_node(
+        session, f"terra.yard.{uuid.uuid4().hex[:8]}", "Чужой двор", area_m2=200
+    )
+    yard_node.owner_identity_id = stranger.id
+    await session.flush()
+    await _ground_console(session, yard_node)
+    owner.node_id = yard_node.id
+    await session.flush()
+
+    with pytest.raises(ship.NotYours):
+        await ship.recall(session, constants, catalog, owner, vessel)
+
+
+async def test_an_arrival_that_fires_twice_moors_once(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """A hull is docked by exactly one arrival.
+
+    A retry after a failure, or a job that outlived a turn-back, would otherwise
+    lay a second gangway and moor a ship that is already moored.
+    """
+    home = await _port(session, name="Космодром столицы")
+    away = await _orbit(session)
+    _, owner = await _shipwright(session, home)
+    vessel = await _laid(session, constants, owner, home)
+    await _flightworthy(session, constants, catalog, vessel)
+    connector = await session.get(Node, vessel.connector_node_id)
+    owner.node_id = connector.id
+    await session.flush()
+    job = await ship.ascend(session, constants, catalog, owner, vessel)
+
+    await ship.arrived(session, job)
+    berth, docked = vessel.berth, vessel.docked_node_id
+    assert docked == away.id
+
+    await ship.arrived(session, job)
+    assert vessel.docked_node_id == docked and vessel.berth == berth
+    ways = await travel.exits(session, constants, away)
+    assert [way.node_id for way in ways].count(connector.id) == 1, "трап один"
 
 
 async def test_a_turn_back_to_a_dark_pier_is_refused(
@@ -1247,7 +1453,6 @@ async def test_a_turn_back_to_a_dark_pier_is_refused(
         properties={frost.FROST: True},
     )
     home = await _port(session, name="Космодром Мерида", planet=Planet.AURORA)
-    away = await _port(session, name="Космодром столицы")
     _, owner = await _shipwright(session, home)
     vessel = await _laid(session, constants, owner, home)
     await _flightworthy(session, constants, catalog, vessel)
@@ -1255,8 +1460,7 @@ async def test_a_turn_back_to_a_dark_pier_is_refused(
     owner.node_id = connector.id
     await session.flush()
 
-    await ship.undock(session, constants, catalog, owner, vessel)
-    flight = await ship.fly(session, constants, catalog, owner, vessel, away)
+    flight = await ship.ascend(session, constants, catalog, owner, vessel)
     await session.refresh(flight)
     #: No city, no pool, no heat: the pier it left is dark.
     assert not await ship.beacon_lit(session, constants, home)
@@ -1278,19 +1482,27 @@ async def test_two_turn_backs_in_one_second_burn_one_return(
     """
     async with factory() as session, session.begin():
         home = await _port(session, name="Космодром столицы")
-        away = await _port(session, name="Дальний космодром")
         _, owner = await _shipwright(session, home)
         vessel = await _laid(session, constants, owner, home)
         await _flightworthy(session, constants, catalog, vessel)
         connector = await session.get(Node, vessel.connector_node_id)
+        await _fuel(session, connector, 3000)
         owner.node_id = connector.id
         await session.flush()
-        await ship.undock(session, constants, catalog, owner, vessel)
-        flight = await ship.fly(session, constants, catalog, owner, vessel, away)
+        flight = await ship.ascend(session, constants, catalog, owner, vessel)
         await session.refresh(flight)
         ship_id, owner_id = vessel.id, owner.id
-        moment = flight.created_at + timedelta(hours=1)
+        flown = 12.0
+        moment = flight.created_at + timedelta(hours=flown)
         before = await ship.fuel_aboard(session, vessel)
+        #: What one turn-back costs, by the engine's own formula: the hours it
+        #: has flown, priced by mass and by the class that pushes it.
+        one_turn = ship.fuel_for(
+            constants,
+            await ship.mass(session, constants, catalog, vessel),
+            flown,
+            klass=await ship.engine_class(session, constants, vessel),
+        )
 
     ready = asyncio.Barrier(2)
 
@@ -1306,7 +1518,7 @@ async def test_two_turn_backs_in_one_second_burn_one_return(
             #: passage it meant to cancel is gone (`Docked`), or it has already
             #: read the turn-back that replaced it (`InFlight`). What matters is
             #: that the second order changes nothing, and that is asserted below.
-            except ship.ShipError:
+            except (ship.Docked, ship.InFlight):
                 return "refused"
             return "turned"
 
@@ -1330,7 +1542,11 @@ async def test_two_turn_backs_in_one_second_burn_one_return(
             .all()
         )
     assert len(going) == 1, "на корпусе один рейс, а не два"
-    assert left < before, "топливо списано, и один раз"
+    #: Exactly one turn-back's worth, not "at least some": two burns would pass
+    #: a `left < before` and hide the very doubling this test is here for.
+    assert before - left == pytest.approx(one_turn, abs=0.01), (
+        f"списано {before - left:.2f} вместо {one_turn:.2f}"
+    )
 
 
 async def test_a_hull_that_is_not_flying_has_nothing_to_turn_back(
@@ -1346,3 +1562,266 @@ async def test_a_hull_that_is_not_flying_has_nothing_to_turn_back(
 
     with pytest.raises(ship.Docked):
         await ship.recall(session, constants, catalog, owner, vessel)
+
+
+# --- the orbital step (D-245) -------------------------------------------------
+
+
+async def test_the_way_between_worlds_goes_orbit_to_orbit(
+    factory: async_sessionmaker[AsyncSession], constants: Constants, catalog: Catalog
+) -> None:
+    """Космодром на Терре -> орбита Терры -> орбита Авроры -> космодром на Авроре.
+
+    The whole of D-245 in one journey. What it pins is that each leg exists and
+    that none of them may be skipped: the ground does not cross to another
+    world, an orbit does not take a landing on somebody else's planet, and the
+    hull carries the planet it is actually over at every step.
+    """
+    async with factory() as session, session.begin():
+        home = await _port(session, name="Космодром столицы")
+        pad = await _port(session, name="Космодром Мерида", planet=Planet.AURORA)
+        _, owner = await _shipwright(session, home)
+        vessel = await _laid(session, constants, owner, home)
+        await _flightworthy(session, constants, catalog, vessel)
+        connector = await session.get(Node, vessel.connector_node_id)
+        await _fuel(session, connector, 5000)
+        owner.node_id = connector.id
+        await session.flush()
+
+        aurora = await _orbit(session, Planet.AURORA)
+        #: From the pad one may not cross, and one may not land on Aurora.
+        with pytest.raises(ship.Docked):
+            await ship.fly(session, constants, catalog, owner, vessel, aurora)
+
+        await _in_orbit(session, constants, catalog, owner, vessel)
+        #: And from Terra's orbit one may not come down on Aurora either: the
+        #: pad is chosen over the planet one is actually above.
+        with pytest.raises(ship.TooFar):
+            await ship.land(session, constants, catalog, owner, vessel, pad)
+        #: Nor is there a crossing to the orbit one is already at.
+        with pytest.raises(ship.TooFar):
+            await ship.fly(session, constants, catalog, owner, vessel, await _orbit(session))
+
+        crossing = await ship.fly(session, constants, catalog, owner, vessel, aurora)
+        term, ship_id, aurora_id, pad_id = crossing.run_at, vessel.id, aurora.id, pad.id
+
+    assert await jobs.run_one(factory, now=term) is not None
+
+    async with factory() as session, session.begin():
+        vessel = await session.get(Ship, ship_id)
+        assert vessel.docked_node_id == aurora_id, "борт на орбите Авроры"
+        connector = await session.get(Node, vessel.connector_node_id)
+        assert connector.planet is Planet.AURORA, "и несёт планету, над которой висит"
+
+        owner = await _body_of(session, vessel)
+        owner.node_id = connector.id
+        await session.flush()
+        descent = await ship.land(
+            session, constants, catalog, owner, vessel, await session.get(Node, pad_id)
+        )
+        term = descent.run_at
+
+    assert await jobs.run_one(factory, now=term) is not None
+
+    async with factory() as session:
+        vessel = await session.get(Ship, ship_id)
+        assert vessel.docked_node_id == pad_id, "борт сел на выбранный космодром"
+        assert vessel.berth == 1, "и занял место у причала"
+
+
+def test_a_heavy_world_costs_more_to_leave(constants: Constants) -> None:
+    """Gravity is the first number by which planets differ (D-245).
+
+    Pyroxis is dense and heavy: leaving it is dearest, and that is a reason of
+    its own why a watch there goes at the limit. Aurora is light. And coming
+    down is always shorter than going up -- the weight one climbed against is
+    on the ship's side.
+    """
+    heavy = ship.climb_hours(constants, Planet.PYROXIS, 1.0)
+    home = ship.climb_hours(constants, Planet.TERRA, 1.0)
+    light = ship.climb_hours(constants, Planet.AURORA, 1.0)
+    assert light < home < heavy, "тяжесть планеты решает, сколько стоит уйти"
+    assert ship.fall_hours(constants, Planet.TERRA, 1.0) < home, "спуск дешевле подъёма"
+    #: A planet the vault says nothing about weighs what Terra weighs: a missing
+    #: line must not make a world free to leave.
+    assert ship.gravity(constants, Planet.TERRA) == 1.0
+
+
+async def test_a_planet_with_no_lit_beacon_is_not_crossed_to(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """A world one may reach and never leave the orbit of is a trap (D-232, D-245).
+
+    The crossing is refused at **this** end, while there is still a choice: the
+    hull would otherwise hang over Aurora with fuel for a descent and nowhere
+    to spend it.
+    """
+    await world.create_node(
+        session,
+        Planet.AURORA.value,
+        "Аврора",
+        area_m2=1,
+        planet=Planet.AURORA,
+        layer=Layer.SPACE,
+        properties={frost.FROST: True},
+    )
+    home = await _port(session, name="Космодром столицы")
+    await _port(session, name="Космодром Мерида", planet=Planet.AURORA)
+    dark = await _orbit(session, Planet.AURORA)
+    _, owner = await _shipwright(session, home)
+    vessel = await _laid(session, constants, owner, home)
+    await _flightworthy(session, constants, catalog, vessel)
+    connector = await session.get(Node, vessel.connector_node_id)
+    await _fuel(session, connector, 5000)
+    owner.node_id = connector.id
+    await session.flush()
+
+    await _in_orbit(session, constants, catalog, owner, vessel)
+    #: No city, no power, permafrost: the only pier on the planet is dark.
+    assert not await ship.beacon_lit(session, constants, await _port(session, planet=Planet.AURORA))
+    with pytest.raises(ship.NoPort):
+        await ship.fly(session, constants, catalog, owner, vessel, dark)
+    #: And the console does not offer what the engine refuses.
+    summary = await ship.profile(session, constants, catalog, vessel)
+    assert all(route["planet"] != Planet.AURORA.value for route in summary["routes"])
+
+
+async def test_an_orbit_is_the_void_whatever_hangs_below_it(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """A hull in orbit makes its own air, and stepping out is a spacewalk (D-233, D-245).
+
+    The orbital node carries the planet it belongs to, so the naive reading --
+    "Terra has air, therefore this node has air" -- would have opened the hatch
+    onto vacuum.
+    """
+    from src.engine import oxygen
+
+    home = await _port(session, name="Космодром столицы")
+    orbit = await _orbit(session)
+    _, owner = await _shipwright(session, home)
+    vessel = await _laid(session, constants, owner, home)
+    await _flightworthy(session, constants, catalog, vessel)
+    connector = await session.get(Node, vessel.connector_node_id)
+    owner.node_id = connector.id
+    await session.flush()
+
+    assert await oxygen.free_air(session, home), "на земле Терры дышат даром"
+    assert not await oxygen.sealed(session, vessel), "у причала люк можно и открыть"
+
+    await _in_orbit(session, constants, catalog, owner, vessel)
+    assert not await oxygen.free_air(session, orbit), "орбита — пустота"
+    assert await oxygen.sealed(session, vessel), "на орбите корпус живёт своим воздухом"
+    assert not await oxygen.free_air(session, connector), "и отсек тоже"
+
+
+async def test_a_turn_back_into_orbit_keeps_the_descent(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The turn-back is a leg, and it keeps what every leg keeps (D-245).
+
+    The way in was short. A crossing keeps back the descent onto the planet it
+    is aimed at, and a turn-back counts the hours it has flown -- nought, in
+    the first minute. Without a reserve of its own the hull came home to an
+    orbit it could not afford to leave: `fall_hours` is the planet's, and the
+    reserve it carried was measured against the other one.
+    """
+    #: Off the heaviest world in the system onto the lightest: Pyroxis costs
+    #: `planet.gravity` 1.3 to come down onto and Aurora 0.8, so the reserve the
+    #: crossing keeps is worth barely half the descent waiting at the other end
+    #: of a turn-back.
+    home = await _port(session, name="Плато Наковальни", planet=Planet.PYROXIS)
+    await _port(session, name="Космодром Мерида", planet=Planet.AURORA)
+    aurora = await _orbit(session, Planet.AURORA)
+    _, owner = await _shipwright(session, home)
+    vessel = await _laid(session, constants, owner, home)
+    await _flightworthy(session, constants, catalog, vessel)
+    connector = await session.get(Node, vessel.connector_node_id)
+    #: Ballast, and it is the point of the test as much as the planets are: a
+    #: hull whose mass is mostly fuel lightens as it burns, and the reserve it
+    #: measured at the casting off buys more descent than it was sold. A loaded
+    #: freighter does not -- its mass is its cargo -- and it is the loaded
+    #: freighter the reserve has to be right for.
+    await _equip(session, connector, "Слиток железа", amount=1200)
+    await _equip(session, connector, ENGINE, amount=40)
+    await _fuel(session, connector, 200)
+    owner.node_id = connector.id
+    await session.flush()
+
+    await _in_orbit(session, constants, catalog, owner, vessel)
+    crossing = await ship.fly(session, constants, catalog, owner, vessel, aurora)
+    await session.refresh(crossing)
+
+    #: Drained to exactly the descent the crossing kept back, and not a gram
+    #: more: that is the state the hole was reachable from.
+    thrust_ratio = await ship.ratio(session, constants, catalog, vessel)
+    kept = ship.fuel_for(
+        constants,
+        await ship.mass(session, constants, catalog, vessel),
+        ship.fall_hours(constants, Planet.AURORA, thrust_ratio),
+        klass=await ship.engine_class(session, constants, vessel),
+    )
+    await ship._spend(
+        session,
+        await ship.fuel_stacks(session, vessel),
+        await ship.fuel_aboard(session, vessel) - kept,
+    )
+    await session.flush()
+
+    with pytest.raises(ship.NoFuel):
+        await ship.recall(session, constants, catalog, owner, vessel, now=crossing.created_at)
+    #: And the hull goes on to Aurora, where the fuel it holds is exactly the
+    #: descent it was promised.
+    await session.refresh(crossing)
+    assert crossing.state is JobState.PENDING, "отказ не снял рейс"
+
+
+async def test_a_descent_is_not_aimed_at_the_orbit_itself(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """An orbit is not a pad (D-245).
+
+    `_will_take` says yes to every orbital node -- space needs no yard and has
+    no beacon -- so a descent aimed at the very orbit the hull is moored to
+    passed every check: the trap came off, a descent was charged, and the hull
+    moored again where it already was, one leg's fuel poorer and below the
+    reserve that keeps an orbit leavable.
+    """
+    home = await _port(session, name="Космодром столицы")
+    orbit = await _orbit(session)
+    _, owner = await _shipwright(session, home)
+    vessel = await _laid(session, constants, owner, home)
+    await _flightworthy(session, constants, catalog, vessel)
+    connector = await session.get(Node, vessel.connector_node_id)
+    owner.node_id = connector.id
+    await session.flush()
+
+    await _in_orbit(session, constants, catalog, owner, vessel)
+    before = await ship.fuel_aboard(session, vessel)
+    with pytest.raises(ship.NoPort):
+        await ship.land(session, constants, catalog, owner, vessel, orbit)
+    assert vessel.docked_node_id == orbit.id, "корабль остался там, где стоял"
+    assert await ship.fuel_aboard(session, vessel) == before, "отказ не сжёг топлива"
+
+
+async def test_an_orbit_has_no_pier_to_queue_at(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Hulls hang beside one another over a planet, and the walk out is the same
+    short spacewalk however many are parked (D-245).
+
+    Numbered berths would have made the twentieth hull over Terra climb a
+    gangway twenty times the first one's, for a pier that does not exist.
+    """
+    home = await _port(session, name="Космодром столицы")
+    parked = []
+    for number in range(3):
+        _, owner = await _shipwright(session, home)
+        vessel = await _laid(session, constants, owner, home, name=f"Борт-{number}")
+        await _flightworthy(session, constants, catalog, vessel)
+        connector = await session.get(Node, vessel.connector_node_id)
+        owner.node_id = connector.id
+        await session.flush()
+        parked.append(await _in_orbit(session, constants, catalog, owner, vessel))
+
+    assert [vessel.berth for vessel in parked] == [1, 1, 1], "на орбите причала нет"

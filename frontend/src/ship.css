@@ -96,6 +96,17 @@
   stroke-dasharray: 2 3;
 }
 
+/* The hull's parking orbit round its planet (D-245): the visual difference
+   between standing on a pad and hanging over one. Dashed, because it is a hint
+   rather than a place on the map. */
+.chart-parking {
+  fill: none;
+  stroke: var(--base-50);
+  stroke-width: 1;
+  stroke-dasharray: 3 4;
+  opacity: 0.55;
+}
+
 .chart-hull circle {
   fill: var(--base-50);
 }

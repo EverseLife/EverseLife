@@ -15,8 +15,10 @@ The road is the fastest path on foot between the writer's body and the
 reader's -- the same edges, the same seconds as walking them (`travel.route`).
 Between planets the road is the passage: `ship.base_hours` for this hour's sky,
 so a letter to Pyroxis takes longer when Pyroxis stands across the star. No
-road at all on one planet -- islands, a hull in flight -- counts as the sea,
-`ship.hop_hours`. A body is where the distance is measured from, so an identity
+road at all on one planet -- islands, a hull in flight -- counts as the sea:
+a climb to orbit and a descent back, `ship.ascent_hours` plus
+`ship.descent_hours`, because that is what carrying anything across such a gap
+actually takes (D-245). A body is where the distance is measured from, so an identity
 without one **reads but does not write**; a letter *to* somebody without a
 body arrives at once -- the Net holds them everywhere, and there is nowhere to
 measure to.
@@ -173,7 +175,9 @@ async def road_seconds(
     if here == there:
         return 0.0
     graph = await _load(session, constants, now)
-    sea = float(constants[R.SHIP_HOP_HOURS]) * SECONDS_PER_HOUR
+    sea = (
+        float(constants[R.SHIP_ASCENT_HOURS]) + float(constants[R.SHIP_DESCENT_HOURS])
+    ) * SECONDS_PER_HOUR
     planet_a = graph.planets.get(here)
     planet_b = graph.planets.get(there)
     if planet_a is None or planet_b is None:

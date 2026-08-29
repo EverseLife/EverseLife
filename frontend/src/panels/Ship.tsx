@@ -38,7 +38,7 @@ import { Refusal, useActions, useBook, useEdition, useSession } from "../actions
 import { planetName } from "../planets";
 import { Chart } from "./ship/Chart";
 import { Plan } from "./ship/Plan";
-import { autonomy, cheapest, type Route, type Vessel } from "./ship/model";
+import { autonomy, wanted, type Pad, type Route, type Vessel } from "./ship/model";
 import { term } from "./map/orbits";
 
 /**
@@ -141,28 +141,98 @@ function AirBar({ v }: { v: Vessel }) {
 }
 
 /**
- * Coming back down, on the planet the hull is already over.
+ * The climb: the one move a hull on the ground has (D-245).
  *
- * Undocking lifts the ship off the pier and there it hangs, taking no orders
- * but a course -- and the course the player wants first is almost always
- * "put it back". It **is** an ordinary passage: a hop of `ship.hop_hours`
- * between two points of one sky, priced like any other. But on the chart it is
- * a corridor from a planet to itself -- a line of no length, drawn under its
- * own dot -- so the one destination that is always available was the one with
- * nothing to click. Hence a row of its own, beside the chart rather than on it.
+ * It used to be a button called "Отстыковаться" that cost nothing and took no
+ * time, while coming back down to the very pad one had left was priced as a
+ * whole passage between worlds. Now it is a leg like the others -- hours by the
+ * planet's gravity, fuel out of the tanks -- and it may be countermanded while
+ * it lasts.
+ *
+ * Two numbers, not one: what the climb burns, and what the tanks must hold for
+ * it to be allowed at all. The difference is the descent home, which is kept
+ * back rather than spent -- an orbit has no bunker.
+ */
+function Ascent({
+  vessel,
+  busy,
+  ascend,
+}: {
+  vessel: Vessel;
+  busy: boolean;
+  ascend: () => void;
+}) {
+  const climb = vessel.climb;
+  if (!climb) {
+    return <p className="note">Отсюда не подняться: у этой планеты нет орбитального узла.</p>;
+  }
+  const dry = vessel.fuel < wanted(climb);
+  return (
+    <>
+      <p>
+        <b>{climb.name}</b> ·{" "}
+        {climb.hours == null
+          ? "тяги нет вовсе: поставьте двигатель"
+          : `${climb.hours.toFixed(1)} ч · ${climb.fuel?.toFixed(0)} топлива`}{" "}
+        <button
+          onClick={ascend}
+          disabled={
+            busy ||
+            !climb.reachable ||
+            vessel.crew > vessel.life_support ||
+            dry
+          }
+          title={
+            climb.reachable
+              ? "подъём занимает время по тяжести планеты и тяге корпуса; его можно развернуть"
+              : "тяги не хватает, чтобы оторваться: снимите массу или добавьте двигатель"
+          }
+        >
+          Подняться на околопланетную орбиту
+        </button>
+      </p>
+      {!climb.reachable && climb.hours != null && (
+        <p className="note">Тяговооружённости не хватает: корабль не отрывается.</p>
+      )}
+      {dry ? (
+        <p className="note">
+          В баках {vessel.fuel.toFixed(0)}, а нужно {climb.needs?.toFixed(0)}: подъём и
+          спуск обратно. На орбите не заправляют — рёбер к кораблю нет, и с борта не сойти.
+        </p>
+      ) : (
+        <p className="note">
+          Сверх расхода на подъём держится {((climb.needs ?? 0) - (climb.fuel ?? 0)).toFixed(0)} на
+          спуск обратно: подниматься без топлива на спуск некуда.
+        </p>
+      )}
+      <p className="note">
+        Курс на другую планету задаётся уже с орбиты: сперва подъём, потом переход, потом
+        выбор космодрома над планетой.
+      </p>
+    </>
+  );
+}
+
+/**
+ * Coming down, onto the planet the hull is already over.
+ *
+ * The pier is chosen here and not before the passage: with the planet already
+ * below, which is the moment a crew actually knows what it is choosing between
+ * and the moment a dark beacon actually matters (D-245).
  */
 function Landing({
   vessel,
   busy,
-  fly,
+  land,
 }: {
   vessel: Vessel;
   busy: boolean;
-  fly: (port: string) => void;
+  land: (port: string) => void;
 }) {
-  const home: Route[] = vessel.routes.filter((route) => route.planet === vessel.planet);
+  const home: Pad[] = vessel.landings;
+  const cost = vessel.descent;
   const [chosen, setChosen] = useState("");
-  if (home.length === 0) {
+  if (home.length === 0 || !cost) {
     return (
       <p className="note">
         Садиться здесь некуда: ни одного космодрома с горящим маяком на этой планете.
@@ -174,8 +244,8 @@ function Landing({
   const port = chosen || first.node;
   return (
     <p>
-      <b>Сесть обратно</b> · {planetName(vessel.planet)} · {first.hours?.toFixed(1)} ч ·{" "}
-      {first.fuel?.toFixed(0)} топлива{" "}
+      <b>Сесть на планету</b> · {planetName(vessel.planet)} · {cost.hours?.toFixed(1)} ч ·{" "}
+      {cost.fuel?.toFixed(0)} топлива{" "}
       {home.length > 1 ? (
         <select
           value={port}
@@ -199,11 +269,11 @@ function Landing({
         <span className="note">{first.name}</span>
       )}{" "}
       <button
-        onClick={() => fly(port)}
-        disabled={busy || !first.reachable}
+        onClick={() => land(port)}
+        disabled={busy || !cost.reachable}
         title={
-          first.reachable
-            ? "посадка — такой же переход, как любой другой: время и топливо по этому корпусу"
+          cost.reachable
+            ? "спуск идёт по тяжести планеты и тяге корпуса — чуть дешевле подъёма"
             : "тяги не хватает даже на посадку: снимите массу"
         }
       >
@@ -236,22 +306,25 @@ function Passage({
   return (
     <div className="doing">
       <span className="doing-what">
-        рейс в «{v.flight.name}»
+        {v.flight.back ? "разворот" : "рейс"} в «{v.flight.name}»
         {v.flight.planet && ` · ${planetName(v.flight.planet)}`}
       </span>
       <Deadline until={v.flight.arrives_at} since={v.flight.started_at} label="рейс" />
       <span className="doing-aside note">
         Время сосчитано на отходе и не пересчитывается: небо, повернувшееся под
         летящим кораблём, сделало бы рейс длиннее оплаченного. Курс менять
-        нельзя — но можно развернуться.
+        нельзя.{!v.flight.back && " Но можно развернуться."}
       </span>
       {/* The helm may still go over (D-242): the way back is as long as the way
           out has been, and costs its own fuel. Named with the pier it aims at,
           because "cancel" alone would not say where the hull ends up. */}
-      <button className="quiet" onClick={recall} disabled={busy || deaf || !v.left}>
-        Развернуться{v.left ? ` в «${v.left}»` : ""}
-      </button>
-      {!v.left && (
+      {/* Already going back: there is nothing left to turn (D-242). */}
+      {!v.flight.back && (
+        <button className="quiet" onClick={recall} disabled={busy || deaf || !v.left}>
+          Развернуться{v.left ? ` в «${v.left}»` : ""}
+        </button>
+      )}
+      {!v.flight.back && !v.left && (
         <span className="note">
           Неизвестно, откуда корабль ушёл: развернуться не к чему, он дойдёт до конца.
         </span>
@@ -261,12 +334,11 @@ function Passage({
 }
 
 /**
- * The course: what the chart's chosen planet costs, and the order to fly it.
+ * The course: what the chart's chosen planet costs, and the order to cross to it.
  *
- * One planet is one price -- the sky has one distance to it -- and may have
- * several piers (Aurora): the pier is picked here, in a line, because the
- * chart's business is the sky and not the pier. A planet with no piers at all
- * (Pyroxis) has nothing to pick: the node is rolled at the landing (D-235).
+ * One planet is one row, because a crossing goes orbit to orbit (D-245): the
+ * sky has one distance to a world, and which pad the hull ends on is not
+ * decided here at all -- it is chosen over the planet, once the hull is there.
  */
 function Course({
   vessel,
@@ -277,18 +349,22 @@ function Course({
   vessel: Vessel;
   planet: string | null;
   busy: boolean;
-  fly: (port: string) => void;
+  fly: (orbit: string) => void;
 }) {
-  const [chosen, setChosen] = useState<Record<string, string>>({});
   if (planet === null) {
     return <p className="note">Курс задаётся на карте: выберите планету.</p>;
   }
   const routes: Route[] = vessel.routes.filter((route) => route.planet === planet);
   if (routes.length === 0) {
-    return <p className="note">Отсюда туда хода нет: маршрута в мире не заведено.</p>;
+    return (
+      <p className="note">
+        Отсюда туда хода нет: либо маршрута в мире не заведено, либо на той планете не
+        светит ни один маяк — корабль ушёл бы туда и остался на орбите.
+      </p>
+    );
   }
   const first = routes[0];
-  const port = chosen[planet] ?? first.node;
+  const port = first.node;
   return (
     <p>
       <span
@@ -298,39 +374,25 @@ function Course({
       />
       <b>{planetName(planet)}</b> · {first.hours?.toFixed(1)} ч · {first.fuel?.toFixed(0)} топлива
       {!first.reachable && " · тяги не хватает: снимите массу"}{" "}
-      {routes.length > 1 ? (
-        <select
-          value={port}
-          onChange={(e) => setChosen((was) => ({ ...was, [planet]: e.target.value }))}
-          aria-label={`космодром на планете ${planetName(planet)}`}
-        >
-          {routes.map((route) => (
-            <option key={route.node} value={route.node}>
-              {route.name}
-            </option>
-          ))}
-        </select>
-      ) : first.anywhere ? (
-        <span
-          className="note"
-          title="здесь нет космодромов: узел посадки разыгрывается при заходе, и садятся туда, куда пустила скала"
-        >
-          посадка вслепую
-        </span>
-      ) : (
-        <span className="note">{first.name}</span>
-      )}{" "}
+      <span className="note">{first.name}</span>{" "}
       <button
         onClick={() => fly(port)}
-        disabled={busy || !first.reachable}
+        disabled={busy || !first.reachable || vessel.fuel < wanted(first)}
         title={
           first.reachable
-            ? undefined
+            ? "переход идёт с орбиты на орбиту; космодром выбирается уже над планетой"
             : "тяги не хватает, чтобы оторваться: снимите массу или добавьте двигатель"
         }
       >
         Лететь
       </button>
+      {vessel.fuel < wanted(first) && (
+        <span className="note">
+          {" "}
+          · в баках {vessel.fuel.toFixed(0)}, а нужно {first.needs?.toFixed(0)}: переход и
+          посадка в конце
+        </span>
+      )}
     </p>
   );
 }
@@ -485,12 +547,13 @@ export function Ship({
               ? "Корабль"
               : "Космическая верфь"}
         <Rule>
-          Корабль — не вещь, а группа узлов карты с одним выходом наружу. Стыковка и
-          отстыковка — появление и исчезновение одного ребра, а полёт это его
-          отсутствие: с борта просто некуда сойти. Скорость выводится из тяги против
-          массы, поэтому грузоподъёмности числом нет — перегруженный корабль остаётся в
-          порту. Курс задаётся на карте рубки: она показывает часы и топливо
-          именно этого корпуса.
+          Корабль — не вещь, а группа узлов карты с одним выходом наружу. Швартовка и
+          отход — появление и исчезновение одного ребра, а полёт это его отсутствие: с
+          борта просто некуда сойти. Скорость выводится из тяги против массы, поэтому
+          грузоподъёмности числом нет — перегруженный корабль остаётся в порту. Дорога
+          идёт тремя ногами: подъём на околопланетную орбиту, переход с орбиты на
+          орбиту, спуск на выбранный космодром. Курс задаётся на карте рубки: она
+          показывает часы и топливо именно этого корпуса.
         </Rule>
       </h2>
 
@@ -509,11 +572,13 @@ export function Ship({
             тяговооружённость {v.ratio.toFixed(2)} при нужных {v.min_ratio.toFixed(2)}
             {v.ratio < v.min_ratio && <b> · не отрывается</b>} · экипаж {v.crew} из{" "}
             {v.life_support} · топлива в баках {v.fuel.toFixed(0)}
-            {v.docked
-              ? ` · у верфи «${v.port}», место ${v.berth ?? "—"}`
-              : v.flight
-                ? ` · в рейсе в «${v.flight.name}»`
-                : " · отстыкован"}
+            {v.stage === "orbit"
+              ? ` · на околопланетной орбите ${planetName(v.planet)}`
+              : v.docked
+                ? ` · у верфи «${v.port}», место ${v.berth ?? "—"}`
+                : v.flight
+                  ? ` · в рейсе в «${v.flight.name}»`
+                  : " · вне причала"}
           </p>
           {/* A passage is a term like any other, and every term in this world
               is drawn the same way. At the console the whole card stands
@@ -530,8 +595,7 @@ export function Ship({
                   before the buttons rather than as a refusal after them. */}
               {deaf && (
                 <p className="reason">
-                  На борту нет рубки: приказ с земли принимать нечем. Поставьте в
-                  отсек «Консоль управления кораблём».
+                  Невозможно управлять. На борту нет «Консоли управления кораблём».
                 </p>
               )}
               <Chart
@@ -541,32 +605,16 @@ export function Ship({
                 chosen={course}
                 onChoose={setCourse}
               />
-              {v.docked ? (
-                <>
-                  <button
-                    onClick={() => go(() => session.send("ship.undock", { ship: v.ship }))}
-                    disabled={
-                      busy ||
-                      deaf ||
-                      v.ratio < v.min_ratio ||
-                      v.crew > v.life_support ||
-                      v.fuel < cheapest(v)
-                    }
-                  >
-                    Отстыковаться
-                  </button>
-                  {v.fuel < cheapest(v) && (
-                    <p className="note">
-                      Топлива меньше, чем нужно на один рейс. Отстыкованному кораблю
-                      его не привезут: рёбер к нему нет, и с борта не сойти.
-                    </p>
-                  )}
-                  <p className="note">
-                    Курс задаётся на карте, но сперва — отстыковка: пока трап на
-                    месте, корабль никуда не идёт.
-                  </p>
-                </>
-              ) : v.flight ? (
+              {/* One stage, one set of orders (D-245). From the pad the
+                  only move is up; under way the only move is back; from orbit
+                  there are two, and the one wanted most often is down. */}
+              {v.stage === "port" ? (
+                <Ascent
+                  vessel={v}
+                  busy={busy || deaf}
+                  ascend={() => go(() => session.send("ship.ascend", { ship: v.ship }))}
+                />
+              ) : v.stage === "flight" ? (
                 <Passage
                   v={v}
                   busy={busy}
@@ -575,13 +623,10 @@ export function Ship({
                 />
               ) : (
                 <>
-                  {/* Down first: it is the order most often wanted and the one
-                      the chart cannot draw -- a corridor from a planet to
-                      itself has no length. */}
                   <Landing
                     vessel={v}
                     busy={busy || deaf}
-                    fly={(port) => go(() => session.send("ship.fly", { ship: v.ship, port }))}
+                    land={(port) => go(() => session.send("ship.land", { ship: v.ship, port }))}
                   />
                   <Course
                     vessel={v}

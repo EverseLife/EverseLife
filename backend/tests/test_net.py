@@ -129,7 +129,7 @@ async def test_reader_sees_the_letter_only_when_it_arrives(
 async def test_no_road_counts_as_the_sea(session: AsyncSession, constants: Constants) -> None:
     a = await _place(session, "island")
     b = await _place(session, "shore")
-    sea = constants[R.SHIP_HOP_HOURS] * 3600
+    sea = (constants[R.SHIP_ASCENT_HOURS] + constants[R.SHIP_DESCENT_HOURS]) * 3600
     assert await net.road_seconds(session, constants, a.id, b.id, now=NOW) == pytest.approx(sea)
 
 

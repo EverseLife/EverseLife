@@ -359,10 +359,18 @@ async def spawn_point(session: AsyncSession) -> Node | None:
     if open_:
         return open_[0]
 
-    nodes = (await session.execute(select(Node).where(Node.layer == Layer.CITY))).scalars().all()
-    core = [node for node in nodes if node.properties.get("кольцо") == 0]
-    if core:
-        return core[0]
+    #: Nothing prints anywhere: the world is either brand new or in a state
+    #: nobody designed. The oldest built-up node is the least arbitrary answer
+    #: -- the world grew from it -- and it is only ever a last resort.
+    nodes = (
+        (
+            await session.execute(
+                select(Node).where(Node.layer == Layer.CITY).order_by(Node.created_at)
+            )
+        )
+        .scalars()
+        .all()
+    )
     return nodes[0] if nodes else None
 
 
@@ -547,8 +555,11 @@ async def body_container(session: AsyncSession, body: Body) -> Container:
 async def node_container(session: AsyncSession, node: Node) -> Container:
     """What stands and lies in the node: machines, products at the machine.
 
-    Before buildings (E3) this is the only place a machine can stand. With
-    buildings it will move into them -- the machine sets what a building is (D-106).
+    **One** store for the node, and the two surfaces a node has (D-244) -- the
+    floor of the house and the open ground beside it -- are a mark on the thing
+    (`Item.outdoors`), not a second container. Everything that asks this
+    question wants the whole answer: the fire of an eruption looking for what to
+    burn, a rig looking for its coal, a brazier for its fuel.
     """
 
     async def find() -> Container:
@@ -623,7 +634,12 @@ async def is_library(session: AsyncSession, node: Node) -> bool:
 
 
 async def move_stack(
-    session: AsyncSession, item: Item, target: Container, quantity: float
+    session: AsyncSession,
+    item: Item,
+    target: Container,
+    quantity: float,
+    *,
+    outdoors: bool = False,
 ) -> float:
     """Move a stack or part of it into another container.
 
@@ -635,6 +651,11 @@ async def move_stack(
     One function for all moving in the world -- hold, chest, terminal: each
     own copy sooner or later falls behind on the field list, and a thing
     quietly loses part of itself on one of the paths.
+
+    `outdoors` is which of a node's two surfaces it comes to rest on (D-244).
+    False everywhere but a drop on the open ground -- in a pocket, a chest or a
+    hold there is no sky to be under, and on a node with no building the floor
+    does not exist and everything reads as outdoors anyway.
     """
 
     #: A counted thing moves in whole pieces (D-212). A fraction is floored,
@@ -647,6 +668,7 @@ async def move_stack(
     qty = min(to_units(goods.at_least_one(item.type_key, quantity)), item.amount)
     if qty >= item.amount:
         item.container_id = target.id
+        item.outdoors = outdoors
         landed = item
     else:
         item.amount -= qty
@@ -669,6 +691,7 @@ async def move_stack(
             charge=item.charge,
             charged_at=item.charged_at,
             recipe_key=item.recipe_key,
+            outdoors=outdoors,
         )
         session.add(landed)
     await session.flush()
@@ -695,6 +718,11 @@ SAMENESS = (
     "maker_identity_id",
     "made_at",
     "made_node_id",
+    #: Which surface of a node it lies on (D-244). Two heaps of the same ore,
+    #: one on the floor of the house and one in the yard, are **not** the same
+    #: thing: folding them would move half a heap indoors, out of the rain and
+    #: out of the reach of a collapse.
+    "outdoors",
     "spoils_at",
     "flavor",
     "roles_filled",
@@ -781,6 +809,11 @@ def _alike(one: Any, other: Any) -> bool:
     The same quality arrives as `12.5` on one path and as `Decimal("12.50")`
     off the database on another, and in Python those two are not equal.
     """
+    #: A bool **is** an int in Python, and `Decimal("False")` is not a number
+    #: at all: without this line the first boolean field in `SAMENESS` takes
+    #: every fold in the world down with it.
+    if isinstance(one, bool) or isinstance(other, bool):
+        return one is other
     numbers = (int, float, Decimal)
     if isinstance(one, numbers) and isinstance(other, numbers):
         return Decimal(str(one)) == Decimal(str(other))

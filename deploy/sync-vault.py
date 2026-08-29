@@ -28,7 +28,10 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 
 # What the engine reads. Nothing else from `build/` travels.
-SNAPSHOT = ("constants.json", "laws.json", "plants.json", "recipes.json")
+# `world.json` is the starting world's layout (D-243): without it the seed has
+# no world to lay, and a deploy that carries the numbers but not the layout
+# dies on its first `python -m src.seed`.
+SNAPSHOT = ("constants.json", "laws.json", "plants.json", "recipes.json", "world.json")
 
 
 def default_vault() -> Path:

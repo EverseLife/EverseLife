@@ -18,13 +18,25 @@ from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.db.base import remember
 from src.engine import places, travel, world
-from src.engine.ship._base import BRIDGE, OPEN_LANDING, SPACEPORT
+from src.engine.ship._base import (
+    AT_PORT,
+    BRIDGE,
+    IN_ORBIT,
+    OPEN_LANDING,
+    SPACEPORT,
+    UNDER_WAY,
+    is_orbit,
+    orbit_key,
+    orbit_node_of,
+)
 from src.engine.ship.belonging import crew_of, is_aboard, nodes_of, of_node
 from src.engine.ship.physics import (
     _things,
     base_hours,
+    climb_hours,
     engine_class,
     engines,
+    fall_hours,
     fuel_aboard,
     fuel_for,
     life_support,
@@ -112,7 +124,6 @@ async def _from_pier(
                 "name": ship.name,
                 "layer": port.layer.value,
                 "parent": None if city is None else city.key,
-                "ring": (port.properties or {}).get("кольцо"),
                 "exit": False,
                 "port": False,
                 "planet": connector.planet.value,
@@ -427,6 +438,11 @@ async def _flight(session: AsyncSession, ship: Ship) -> dict[str, object] | None
         "planet": None if goal is None else goal.planet.value,
         "started_at": job.created_at.isoformat(),
         "arrives_at": job.run_at.isoformat(),
+        #: Whether this is the way back (D-242). A turn-back is not turned back
+        #: again, and without this the console kept the button lit and collected
+        #: a refusal per click. Not derivable: the destination alone does not
+        #: say which way the helm went.
+        "back": bool(job.payload.get("back")),
     }
 
 
@@ -454,88 +470,177 @@ async def profile(
     home = None if ship.left_node_id is None else await session.get(Node, ship.left_node_id)
 
     #: The prices are for **this** moment: the sky turns, and a route quoted an
-    #: hour ago is not the route one gets. The player sees what casting off now
-    #: would cost, and the window they may prefer to wait for is on the map.
-    #: The sky is asked **once per planet**, not once per port: a planet with
-    #: hundreds of spaceports (Aurora, D-230) has one distance, not hundreds.
+    #: hour ago is not the route one gets. The player sees what setting out now
+    #: would cost, and the window they may prefer to wait for is on the chart.
     moment = datetime.now(UTC)
     planet = Planet.TERRA if connector is None else connector.planet
-    tables: dict[Planet, float | None] = {}
-    routes: list[dict] = []
-    #: Only the landings whose beacon shines: a dark one is not on the console,
-    #: and a route to it does not exist (D-232).
+    #: Where the hull is in its journey (D-245). Three stages, and each offers a
+    #: different move: from the ground one only climbs, from orbit one crosses
+    #: or comes down, and under way one only turns back. Not derivable by the
+    #: client -- `docked` is a key, and whether that key names an orbit is a
+    #: fact about the world (D-225).
+    stage = UNDER_WAY if docked is None else (IN_ORBIT if is_orbit(docked) else AT_PORT)
+
+    def priced(hours: float | None, *, reserve: float = 0.0) -> dict[str, object]:
+        """One offered move, priced: what it takes, what it burns, what it needs.
+
+        `fuel` is spent now; `needs` is what must be in the tanks before the
+        order is taken at all, because a leg that ends where there is no bunker
+        is refused without the fuel to leave again (pillar P6, `flight._burn`).
+        The two are equal wherever the leg ends on the ground.
+        """
+        return {
+            "hours": None if hours is None else round(hours, ROUND_HOURS),
+            "fuel": (
+                None
+                if hours is None
+                else round(fuel_for(constants, weight, hours, klass=have_class), ROUND_MASS)
+            ),
+            "needs": (
+                None
+                if hours is None
+                else round(
+                    fuel_for(constants, weight, hours + reserve, klass=have_class), ROUND_MASS
+                )
+            ),
+            #: Reachable or not is about **thrust**, and nothing else: a ship
+            #: that cannot leave the ground cannot leave it for any destination.
+            #: Class closes no route (D-235); fuel is the player's arithmetic,
+            #: and `needs` is there for them to do it with.
+            "reachable": (
+                hours is not None
+                and have_class is not None
+                and thrust_ratio >= constants[R.SHIP_MIN_THRUST_RATIO]
+            ),
+        }
+
+    #: The climb, offered while the hull stands on the ground and priced by the
+    #: planet's own gravity (D-245). One destination, always the same one: the
+    #: orbit above the pad. It keeps back the descent that would bring the hull
+    #: home, which is why `needs` is the larger of the two numbers here.
     #:
-    #: And a planet one lands **anywhere** on is one line, not one per node
-    #: (D-233): its fields differ in nothing the console can show -- same
-    #: hours, same fuel, same class -- and their number grows with every field
-    #: a scout opens. Six identical rows today, sixty later, in a socket answer
-    #: sent every time the console is opened. Which node the hull comes down in
-    #: is chosen on the map; until the client grows that gesture the row names
-    #: one, and `ship.fly` goes on taking any surface node of the planet.
-    anywhere = await _open_planets(session)
-    #: And such a planet is named by its own name in the row, not by the node
-    #: the row happens to carry: the hull comes down where the roll puts it
-    #: (D-235), and a row promising "Плато Наковальни" would be a promise the
-    #: landing does not keep.
-    spheres = {
-        node.planet: node.name
-        for node in (
-            await session.execute(
-                select(Node).where(Node.key.in_([planet.value for planet in anywhere]))
-            )
-        )
-        .scalars()
-        .all()
-    }
-    named: set[Planet] = set()
-    for port in sorted(await lit_ports(session, constants), key=lambda one: one.key):
-        if docked is not None and port.id == docked.id:
-            continue
-        if port.planet in anywhere:
-            if port.planet in named:
-                continue
-            named.add(port.planet)
-        if port.planet not in tables:
-            tables[port.planet] = await base_hours(
-                session, constants, planet, port.planet, at=moment
-            )
-        table = tables[port.planet]
-        if table is None:
-            continue
-        hours = passage_hours(constants, table, thrust_ratio) if thrust_ratio > 0 else None
-        routes.append(
-            {
-                "node": port.key,
-                "name": spheres.get(port.planet, port.name)
-                if port.planet in anywhere
-                else port.name,
-                "planet": port.planet.value,
-                #: What the ship is: the weakest engine aboard. Not a demand of
-                #: the route -- no route makes one (D-235) -- but the number
-                #: the fuel below was computed with.
-                "class": have_class,
-                #: The whole planet stands behind this row (D-233, D-235).
-                #: There is no port to choose and no picker to draw: the node
-                #: the hull comes down in is **rolled at the landing** -- one
-                #: sets down where the rock allows, not where it would be
-                #: convenient. The key here only names the destination planet.
-                **({"anywhere": True} if port.planet in anywhere else {}),
-                "hours": None if hours is None else round(hours, ROUND_HOURS),
-                "fuel": (
-                    None
-                    if hours is None
-                    else round(fuel_for(constants, weight, hours, klass=have_class), ROUND_MASS)
-                ),
-                #: Reachable or not is about **thrust**, and nothing else: a
-                #: ship that cannot leave the ground cannot leave it for any
-                #: destination. Class closes no route (D-235).
-                "reachable": (
-                    hours is not None
-                    and have_class is not None
-                    and thrust_ratio >= constants[R.SHIP_MIN_THRUST_RATIO]
+    #: Offered with no engine aboard as well, priced at nothing and marked
+    #: unreachable: "не отрывается" and "у планеты нет орбиты" are two different
+    #: sentences, and a `climb` dropped to nothing said the second where the
+    #: first was true.
+    up = None
+    if stage is AT_PORT and docked is not None:
+        orbit = await orbit_node_of(session, docked.planet)
+        if orbit is not None:
+            up = {
+                "node": orbit.key,
+                "name": orbit.name,
+                "planet": orbit.planet.value,
+                **priced(
+                    climb_hours(constants, docked.planet, thrust_ratio)
+                    if thrust_ratio > 0
+                    else None,
+                    reserve=(
+                        fall_hours(constants, docked.planet, thrust_ratio)
+                        if thrust_ratio > 0
+                        else 0.0
+                    ),
                 ),
             }
+
+    #: The crossings, offered from orbit and from nowhere else. One row per
+    #: **planet**, not per port: between worlds one goes orbit to orbit, and
+    #: which pad the hull ends on is chosen later, over the planet it picked.
+    #: The sky is asked once per planet for the same reason -- a planet with
+    #: hundreds of spaceports (Aurora, D-230) has one distance, not hundreds.
+    #:
+    #: Only the planets one may actually come down on: a world whose beacons
+    #: have all gone out is one a hull reaches and never leaves the orbit of
+    #: (D-232), and `flight.fly` refuses it. The console does not offer what the
+    #: engine will refuse.
+    routes: list[dict] = []
+    landings: list[dict] = []
+    down = None
+    if stage is IN_ORBIT and docked is not None:
+        open_planets = await _open_planets(session)
+        #: **Once.** `lit_ports` walks every landing in the world and asks the
+        #: frozen ones about warmth node by node; the ground console answers for
+        #: a whole fleet at once (D-242), so a second call here was that walk
+        #: again, per hull.
+        lit = await lit_ports(session, constants)
+        #: A planet one lands anywhere on is named in the list by **its own**
+        #: name, not by the node the row happens to carry: the hull comes down
+        #: where the roll puts it (D-235), and a row promising "Плато
+        #: Наковальни" would be a promise the landing does not keep.
+        spheres = {
+            node.planet: node.name
+            for node in (
+                await session.execute(
+                    select(Node).where(Node.key.in_(sorted(one.value for one in open_planets)))
+                )
+            )
+            .scalars()
+            .all()
+        }
+        reachable = {port.planet for port in lit}
+        orbits = {
+            node.planet: node
+            for node in (
+                await session.execute(
+                    select(Node).where(Node.key.in_(sorted(orbit_key(one) for one in reachable)))
+                )
+            )
+            .scalars()
+            .all()
+        }
+        for target in sorted(reachable, key=lambda one: one.value):
+            orbit = orbits.get(target)
+            if orbit is None or target is docked.planet:
+                continue
+            table = await base_hours(session, constants, planet, target, at=moment)
+            if table is None:
+                continue
+            routes.append(
+                {
+                    "node": orbit.key,
+                    "name": orbit.name,
+                    "planet": target.value,
+                    **priced(
+                        passage_hours(constants, table, thrust_ratio) if thrust_ratio > 0 else None,
+                        reserve=fall_hours(constants, target, thrust_ratio),
+                    ),
+                }
+            )
+
+        #: The pads under the hull. Every lit one of them, because this is the
+        #: moment the choice is actually made (D-245) -- and a planet one lands
+        #: **anywhere** on is one row rather than one per field (D-233): its
+        #: fields differ in nothing the console could show, and their number
+        #: grows with every scout. The node the hull comes down in is rolled at
+        #: the landing, so the row is named after the planet and not after
+        #: whichever field it happens to carry.
+        #: The price of coming down is a fact about the **planet**, not about
+        #: the pad: hours, fuel and reach are the same for every field of it.
+        #: Sent once, beside the list, because Aurora has hundreds of piers
+        #: (D-230) and a copy of the same five numbers in each of them is
+        #: exactly the redundancy D-225 exists against.
+        down = priced(
+            fall_hours(constants, docked.planet, thrust_ratio) if thrust_ratio > 0 else None
         )
+        named = False
+        for port in sorted(lit, key=lambda one: one.key):
+            if port.planet is not docked.planet:
+                continue
+            if port.planet in open_planets:
+                if named:
+                    continue
+                named = True
+            landings.append(
+                {
+                    "node": port.key,
+                    "name": (
+                        spheres.get(port.planet, port.name)
+                        if port.planet in open_planets
+                        else port.name
+                    ),
+                    **({"anywhere": True} if port.planet in open_planets else {}),
+                }
+            )
 
     return {
         "ship": str(ship.id),
@@ -572,6 +677,21 @@ async def profile(
         #: it cannot be derived from `docked`: a ship that has cast off has no
         #: port at all and still stands in somebody's sky (D-225).
         "planet": planet.value,
+        #: Which of the three stages of a journey the hull is at (D-245): on the
+        #: ground, in orbit, or under way. The whole console hangs on it -- the
+        #: buttons offered, the chart's own drawing of the hull, the wording of
+        #: every refusal -- and no other key says it.
+        "stage": stage,
+        #: The climb to the orbit above, while there is one to make. `None` in
+        #: orbit and under way: there is no such move from there.
+        "climb": up,
+        #: What coming down costs from here -- one price for the whole planet
+        #: (D-245). `None` anywhere but in orbit.
+        "descent": down,
+        #: Which pads it may come down on: names only, because the price above
+        #: is the same for all of them. Chosen with the planet already below,
+        #: which is when a crew knows what it is choosing between.
+        "landings": landings,
         "docked": None if docked is None else docked.key,
         "port": None if docked is None else docked.name,
         #: Whether the hull has a console of its own. It is the **receiver**: a
@@ -595,5 +715,7 @@ async def profile(
         #: busy yard boards you further from the door (D-201).
         "berth": ship.berth,
         "connector": None if connector is None else connector.key,
+        #: The crossings between worlds, offered from orbit only: one row per
+        #: planet, each aimed at that planet's orbital node.
         "routes": sorted(routes, key=lambda route: (not route["reachable"], route["name"])),
     }

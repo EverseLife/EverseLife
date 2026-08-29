@@ -49,7 +49,6 @@ const node = (over: Partial<MapNode>): MapNode =>
     name: "Узел",
     layer: "city",
     parent: null,
-    ring: null,
     exit: false,
     port: false,
     planet: "terra",

@@ -10,10 +10,11 @@ import { chosen, tally } from "../../amounts";
 import { useSession } from "../../actions";
 import { DropZone } from "../../DragMove";
 import { grip, noDrag } from "../../drag";
-import type { Props } from "./shared";
+import type { Props, Surface } from "./shared";
 
 
-/** The floor itself: what lies here, and putting things on it (D-192, D-204).
+/** One of the node's two surfaces: what lies on it, and putting things there
+ * (D-192, D-204, D-244).
  *
  * Putting a thing down is the first thing a person back from the mine does.
  * Cargo takes area, area is finite, and a chest saves it -- hence three honest
@@ -22,25 +23,38 @@ import type { Props } from "./shared";
  * A passer-by through a shut location is not inside, and for them the floor is
  * closed.
  */
-export function Floor({ look, busy, act }: Props) {
+export function Floor({ look, busy, act, where = "floor" }: Props & { where?: Surface }) {
   const session = useSession();
   const [parts, setParts] = useState<Record<string, number | null>>({});
-  const floor = look.floor;
-  if (!floor) return null;
+  const indoors = where === "floor";
+  const floor = indoors ? look.floor : look.ground;
+  //: The door and the right belong to the **place**, not to a surface of it:
+  //: whoever was let in reaches both, and the answer is sent once (D-225).
+  const rights = look.floor;
+  if (!floor || !rights) return null;
+  //: A surface with no metres is not a place: a node with no building has no
+  //: floor, and a house covering the whole plot leaves no ground beside it.
+  //: Things already lying there keep it on screen -- a list one cannot see is
+  //: worse than an empty one (D-244).
+  if (floor.space.area <= 0 && floor.things.length === 0) return null;
 
   const setPart = (id: string, value: number | null) =>
     setParts((before) => ({ ...before, [id]: value }));
   const room = floor.space;
-  const roofed = room.roofed > 0;
-  const open = floor.open !== false;
+  //: Machines stand on a floor and never on bare ground (D-244), so the count
+  //: is read off the floor itself rather than off whichever surface this window
+  //: happens to be: the two answers have different shapes, and only one of them
+  //: has slots at all.
+  const gear = indoors ? (look.floor?.space.slots_used ?? 0) : 0;
+  const open = rights.open !== false;
 
   return (
     <section>
-      <h2>{roofed ? "В здании" : "На земле"}</h2>
+      <h2>{indoors ? "На полу" : "На земле"}</h2>
       <p className="note">
         занято {room.used.toFixed(1)} из {room.area.toFixed(0)} м²
         {room.cargo_mass > 0 && ` · груза ${room.cargo_mass.toFixed(1)} кг`}
-        {room.slots_used > 0 && ` · оборудования ${room.slots_used}`}
+        {gear > 0 && ` · оборудования ${gear}`}
       </p>
 
       {/* One inventory, not two (D-238). This window used to carry a copy of
@@ -56,12 +70,21 @@ export function Floor({ look, busy, act }: Props) {
           not offer a door that only opens outward. The row menu has always
           said so; the drop zone now says the same. */}
       <DropZone
-        zone="floor"
+        zone={where}
         accepts={["hands"]}
-        disabled={!open || !floor.mine || busy}
-        hint="перетащите сюда предмет, чтобы положить на пол"
+        disabled={!open || !rights.mine || busy}
+        hint={
+          indoors
+            ? "перетащите сюда предмет, чтобы положить на пол"
+            : "перетащите сюда предмет, чтобы положить на землю"
+        }
         onMove={(stack, amount) =>
-          act(() => session.send("ground.drop", { item: stack.item, amount }))
+          act(() =>
+            //: Which surface, said out loud: without it the engine would guess,
+            //: and its guess is "indoors wherever there is a roof" -- which is
+            //: exactly the two windows collapsing back into one (D-244).
+            session.send("ground.drop", { item: stack.item, amount, indoors }),
+          )
         }
       >
         {floor.things.length > 0 ? (
@@ -76,7 +99,7 @@ export function Floor({ look, busy, act }: Props) {
                         goods: thing.goods,
                         label: thing.flavor ?? thing.goods,
                         amount: thing.amount,
-                        zone: "floor",
+                        zone: where,
                       })
                     : {})}
                 >
@@ -127,9 +150,13 @@ export function Floor({ look, busy, act }: Props) {
       <p className="note">
         {!open
           ? "Вы здесь проходом: чужая закрытая локация пола вам не отдаёт."
-          : floor.mine
-            ? "Лежащее занимает площадь; в сундуке — не занимает."
-            : "Чужое место, но лежащее на земле берёт всякий, кого сюда пустили."}
+          : rights.mine
+            ? indoors
+              ? "Лежащее занимает площадь; в сундуке — не занимает. Обрушение дома" +
+                " хоронит то, что лежит под крышей."
+              : "Лежащее занимает площадь двора — того, что осталось от участка" +
+                " вокруг дома. Дом упадёт — это уцелеет."
+            : "Чужое место, но лежащее берёт всякий, кого сюда пустили."}
       </p>
     </section>
   );

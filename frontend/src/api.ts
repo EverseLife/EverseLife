@@ -156,7 +156,6 @@ export type MapNode = {
   layer: "space" | "planet" | "city" | "location";
   /** The group the node belongs to: location -> city -> planet. */
   parent: string | null;
-  ring: number | null;
   /** The city gate: every road beyond the walls starts here (D-206). */
   exit: boolean;
   /** The spaceport: the city's second door, the one ships couple to (D-206). */
@@ -609,12 +608,26 @@ export type Look = {
   furniture?: Bench[];
   /** The node's storages and what lies in them (D-181). */
   storages?: Storage[];
-  /** The floor of the place: what lies here and how much room is left (D-192). */
+  /** The open ground of the place: the plot outside the building's footprint
+   *  (D-244). Area nought where a house covers the whole node -- then there is
+   *  no ground to put anything on, and the window says nothing. */
+  ground?: {
+    space: {
+      area: number;
+      used: number;
+      cargo_mass: number;
+      free: number;
+    };
+    things: Thing[];
+  };
+  /** The floor of the house: what lies indoors and how much room is left
+   *  (D-192, D-244). Area nought where no building stands: then everything is
+   *  out under the sky, and the open ground below is the only surface. */
   floor?: {
     space: {
-      /** Capacity: the building's area, or the whole plot without one, m². */
+      /** Capacity: the building's usable area, m². Nought without a building --
+       *  and that nought is how one tells there is no house (D-225). */
       area: number;
-      roofed: number;
       used: number;
       cargo_mass: number;
       free: number;

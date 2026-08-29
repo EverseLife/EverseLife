@@ -42,6 +42,9 @@ const TURN = Math.PI * 2;
 const MS_PER_DAY = 86_400_000;
 /** How far off its planet the hull is drawn: clear of the dot, still at it. */
 const BERTH = 16;
+/** And how far when it is actually in orbit: outside the ring drawn round the
+ *  planet, so "на земле" and "на орбите" are told apart at a glance (D-245). */
+const ORBIT = 26;
 /**
  * How often the sky is redrawn. An orbit moves half a degree an hour, so a
  * minute is already generous -- this is a clock hand over numbers the server
@@ -99,14 +102,19 @@ export function Chart({
   }));
   const by = new Map(spheres.map((one) => [one.planet, one]));
 
-  //: Where the hull is. Docked or merely undocked -- at its own planet; under
-  //: way -- along the corridor, at the share of it the clock has covered. The
-  //: same share the world map draws a passage by, off the same two moments.
+  //: Where the hull is. On a pad -- beside its planet's dot; in orbit -- out
+  //: on a ring of its own, which is the whole visual point of the orbital step
+  //: (D-245); under way -- along the corridor, at the share of it the clock has
+  //: covered. The same share the world map draws a passage by, off the same two
+  //: moments.
   const home = by.get(vessel.planet);
   const goal = vessel.flight?.planet ? by.get(vessel.flight.planet) : undefined;
   const hull = (() => {
     if (!home) return null;
-    if (!vessel.flight || !goal) return { x: home.x + BERTH, y: home.y - BERTH };
+    if (!vessel.flight || !goal) {
+      const off = vessel.stage === "orbit" ? ORBIT : BERTH;
+      return { x: home.x + off, y: home.y - off };
+    }
     const t0 = new Date(vessel.flight.started_at).getTime();
     const t1 = new Date(vessel.flight.arrives_at).getTime();
     const share = Math.min(1, Math.max(0, (Date.now() - t0) / Math.max(1, t1 - t0)));
@@ -182,6 +190,13 @@ export function Chart({
           </g>
         );
       })}
+
+      {/* The hull's own little orbit, drawn round the planet it hangs over.
+          Only for the ship being commanded: other hulls are not on this chart
+          at all, and this is a hint about **this** one (D-245). */}
+      {home && vessel.stage === "orbit" && (
+        <circle className="chart-parking" cx={home.x} cy={home.y} r={ORBIT} />
+      )}
 
       {hull && (
         <g className="chart-hull">

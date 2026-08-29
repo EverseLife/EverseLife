@@ -91,6 +91,9 @@ class EventKind(StrEnum):
     #: The keel is laid, the node arrives on schedule -- work like any other.
     SHIP_KEEL_LAID = "ship.keel_laid"
     #: Undocked: the edge to the spaceport is gone, and that is the flight.
+    #: Nothing writes this any more: casting off is a leg of its own now and
+    #: is recorded as `SHIP_LAUNCHED` with `leg="подъём"` (D-245). Kept
+    #: because the journal is history and old rows still read back through it.
     SHIP_UNDOCKED = "ship.undocked"
     #: Set out for a port: fuel written off, arrival by a journal job.
     SHIP_LAUNCHED = "ship.launched"

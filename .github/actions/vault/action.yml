@@ -44,7 +44,8 @@ runs:
         python .vault-source/tools/build.py
         mkdir -p vault
         cp .vault-source/build/constants.json .vault-source/build/laws.json \
-           .vault-source/build/plants.json .vault-source/build/recipes.json vault/
+           .vault-source/build/plants.json .vault-source/build/recipes.json \
+           .vault-source/build/world.json vault/
         revision=$(git -C .vault-source rev-parse --short HEAD)
         echo "revision=$revision" >> "$GITHUB_OUTPUT"
         echo "numbers built from the vault at $revision"

@@ -27,6 +27,7 @@ from src.engine.estate.building import (
     kinds,
     slots,
     under_construction,
+    yard_mass,
 )
 from src.engine.jobs import enqueue, handler
 from src.models.estate import Building
@@ -114,12 +115,17 @@ async def demolish_blockers(session: AsyncSession, constants: Constants, node: N
             f"в здании стоит оборудование ({occupied}): рабочие станции и мебель "
             "забирают до сноса — после него им негде стоять"
         )
+    #: Both surfaces against the whole plot (D-244): the roof goes, and what
+    #: was under it comes to lie beside what was already out in the yard. Asking
+    #: only about the floor let a demolition through that left the ground
+    #: overloaded, and the message quoted a capacity nobody was measured against.
     lying = await floor_mass(session, node)
+    outside = await yard_mass(session, node)
     yard = float(node.area_m2) * constants[R.BUILD_FLOOR_PER_M2]
-    if lying > yard:
+    if lying + outside > yard:
         reasons.append(
-            f"на полу {lying:.1f} кг, а двор держит {yard:.1f} кг: "
-            "лишнее увезите или уложите в сундук"
+            f"на полу {lying:.1f} кг и во дворе {outside:.1f} кг, а участок держит "
+            f"{yard:.1f} кг: лишнее увезите или уложите в сундук"
         )
     if await under_construction(session, node):
         reasons.append("здесь идёт стройка: сначала дождитесь её конца")

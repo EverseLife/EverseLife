@@ -99,7 +99,7 @@ from src.constants import Constants
 from src.constants import registry as R
 from src.engine.errors import Refusal
 from src.models.ship import Ship
-from src.models.world import Node
+from src.models.world import Node, Planet
 from src.units import (
     AMOUNT_SCALE,
 )
@@ -234,6 +234,65 @@ BRIDGE = "Рубка"
 #: hanging with its cargo for ever. This world does not build traps with no way
 #: out (pillar P6), and this was the only one a ship could still make.
 GROUND_BRIDGE = "Наземная рубка"
+
+
+#: The node property marking a planet's orbital node (D-245). One per planet,
+#: on the space layer, hanging under the planet itself.
+#:
+#: A **node**, not a state of the ship, because the vault has always described
+#: it as one: "у каждой планеты есть орбитальный узел с доками и станциями"
+#: (10-world/06). Docks, stations and the interception points that piracy,
+#: convoys and insurance rest on all want somewhere to stand, and that
+#: somewhere is this node. Until they are built it is a bare node one may only
+#: moor to -- and stepping out onto it is a spacewalk, which the air rule
+#: refuses without a suit (D-233).
+#:
+#: `ORBIT_NODE`, not `ORBIT`: `world.ORBIT` is the planet's orbital elements --
+#: radius, period, phase -- and two constants of one name a module apart is how
+#: one gets read for the other.
+ORBIT_NODE = "орбита узел"
+
+
+def orbit_key(planet: Planet) -> str:
+    """The key of a planet's orbital node. One per planet, and it never moves."""
+    return f"{planet.value}.orbit"
+
+
+def is_orbit(node: Node) -> bool:
+    """Whether this node is a planet's orbit: the void above it, not ground."""
+    return bool((node.properties or {}).get(ORBIT_NODE))
+
+
+async def orbit_node_of(session: AsyncSession, planet: Planet) -> Node | None:
+    """This planet's orbital node, laid by the seed. One per planet (D-245).
+
+    `orbit_node_of`, not `orbit_of`: `world.orbit_of` reads a planet's orbital
+    **elements** off its node, and the two would be read for each other exactly
+    as `ORBIT` and `ORBIT_NODE` would.
+    """
+    return (
+        await session.execute(select(Node).where(Node.key == orbit_key(planet)))
+    ).scalar_one_or_none()
+
+
+#: The three places a hull can be (D-245), as the console is told them. Not a
+#: column: every one of them is already written in the world -- moored to a
+#: spaceport, moored to an orbital node, or moored to nothing -- and a second
+#: place to keep it would be a second opinion about where the ship is.
+AT_PORT = "port"
+IN_ORBIT = "orbit"
+UNDER_WAY = "flight"
+
+
+#: The three legs a journey is made of (D-245). A ship is on the ground, in
+#: orbit, or on one of these; nothing else is a place a hull can be.
+#:
+#: They live here rather than in the flight module because both the journal and
+#: the console read them: the payload of a passage carries the leg, and the
+#: interface has a different sentence for each.
+CLIMB = "подъём"
+PASSAGE = "переход"
+DESCENT = "спуск"
 
 
 #: The node property marking a node as being aboard. A property rather than a

@@ -90,10 +90,16 @@ async def _item_hand(state: dict, db: AsyncSession, message: dict) -> dict:
 
 @command("ground.drop")
 async def _ground_drop(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Put a thing down here: under the roof if there is one, in the yard if not."""
+    """Put a thing down: on the floor of the house, or on the open ground (D-244).
+
+    `indoors` names the surface. Left out, the answer is the one a person would
+    give without thinking: indoors where there is a roof to step under, on the
+    ground where there is not.
+    """
     body = await _alive(state, db)
     item = await _own_item(db, body, message["item"])
     qty = message.get("amount")
+    asked = message.get("indoors")
     put_down = await storage.drop(
         db,
         current(),
@@ -101,6 +107,7 @@ async def _ground_drop(state: dict, db: AsyncSession, message: dict) -> dict:
         body,
         item,
         None if qty is None else float(qty),
+        indoors=None if asked is None else bool(asked),
     )
     return {"dropped": put_down, "goods": item.type_key}
 
