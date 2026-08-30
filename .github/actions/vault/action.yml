@@ -46,6 +46,12 @@ runs:
         cp .vault-source/build/constants.json .vault-source/build/laws.json \
            .vault-source/build/plants.json .vault-source/build/recipes.json \
            .vault-source/build/world.json vault/
+        # D-251 key table (renames.json): appears with the vault's wave I.
+        # Guarded so this repo's CI does not break in the window before the
+        # vault change lands on its main.
+        if [ -f .vault-source/build/renames.json ]; then
+          cp .vault-source/build/renames.json vault/
+        fi
         revision=$(git -C .vault-source rev-parse --short HEAD)
         echo "revision=$revision" >> "$GITHUB_OUTPUT"
         echo "numbers built from the vault at $revision"

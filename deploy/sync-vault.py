@@ -31,7 +31,17 @@ REPO = Path(__file__).resolve().parent.parent
 # `world.json` is the starting world's layout (D-243): without it the seed has
 # no world to lay, and a deploy that carries the numbers but not the layout
 # dies on its first `python -m src.seed`.
-SNAPSHOT = ("constants.json", "laws.json", "plants.json", "recipes.json", "world.json")
+# `renames.json` is the D-251 key table (Russian name -> stable id): wave II's
+# data migration and the transitional synonyms read it, so it travels with the
+# snapshot it describes.
+SNAPSHOT = (
+    "constants.json",
+    "laws.json",
+    "plants.json",
+    "recipes.json",
+    "renames.json",
+    "world.json",
+)
 
 
 def default_vault() -> Path:
@@ -60,7 +70,7 @@ def build(vault: Path) -> int:
 
 
 def copy_snapshot(vault: Path, repo: Path = REPO) -> list[str]:
-    """Carry the four files over. Half a snapshot is worse than none.
+    """Carry the snapshot files over. Half a snapshot is worse than none.
 
     A partial copy would leave the engine reading today's recipes against
     yesterday's constants -- so a missing file stops the whole step.

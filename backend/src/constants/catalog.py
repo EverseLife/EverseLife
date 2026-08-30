@@ -44,6 +44,9 @@ class Material(Strict):
     (D-215). One registry row is all a new material needs to exist."""
 
     name: str
+    #: Stable key (D-251): the thing's future identity in code, DB and wire.
+    #: Optional until wave II so that pre-D-251 vault snapshots still load.
+    id: str | None = None
     #: Thing class ("Ископаемое", ...). Engine behaviour binds to classes,
     #: never to names.
     thing_class: str | None = Field(default=None, alias="class")
@@ -65,6 +68,8 @@ class Material(Strict):
 
 class Recipe(Strict):
     name: str
+    #: Stable key (D-251); optional until wave II, see Material.id.
+    id: str | None = None
     level: int
     section: str | None = None
     kind: ItemKind
@@ -105,6 +110,8 @@ class Operation(Strict):
     """An operation without a recipe: what everyone can do (20-systems/03-crafting)."""
 
     name: str
+    #: Stable key (D-251); optional until wave II, see Material.id.
+    id: str | None = None
     requires: tuple[str, ...] = ()
     gives: tuple[str, ...] = ()
     #: The class the gives list was declared with, if any (D-215). The list
@@ -125,6 +132,9 @@ class RecipeBook(Strict):
     #: Thing classes (D-215): class -> members. The one way behaviour groups
     #: things; `tool_classes` below is the tools-only view kept for the client.
     classes: dict[str, tuple[str, ...]] = Field(default_factory=dict)
+    #: Stable class keys (D-251): class name -> id. Members in `classes` stay
+    #: names until wave II.
+    class_ids: dict[str, str] = Field(default_factory=dict)
     tool_classes: dict[str, tuple[str, ...]] = Field(default_factory=dict)
     #: Everything not made by a recipe, one row per thing (D-215).
     materials: tuple[Material, ...] = ()
