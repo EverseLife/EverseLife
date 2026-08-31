@@ -761,7 +761,7 @@ async def _wear_tool_for_session(
         constants,
         tool,
         constants[R.WEAR_TOOL_PER_SESSION] + extra,
-        cause="сессия добычи",
+        cause="mining_session",
     )
 
 
@@ -837,7 +837,9 @@ async def _collapse(
         session.add(
             Wound(
                 body_id=body.id,
-                cause="обрушение свода",
+                #: The same key the death of this collapse writes (D-251):
+                #: stored for the journal and the court, read by neither yet.
+                cause="cave_in",
                 heals_at=moment + timedelta(hours=noise.uniform(recovery.min, recovery.max)),
             )
         )
@@ -865,7 +867,7 @@ async def _collapse(
         #: the session ended, not an empty screen. The body is dead after that.
         sight = await _sight(session, constants, mining, body)
 
-        await death.die(session, constants, body, cause="обрушение свода", now=moment)
+        await death.die(session, constants, body, cause="cave_in", now=moment)
         return sight
     return await _sight(session, constants, mining, body)
 

@@ -180,5 +180,9 @@ async def revoke(
         city_id=str(city.id),
         office_id=str(office.id),
         whom_identity_id=str(office.identity_id),
+        #: The fourth writer of this kind, and the only one that used to stay
+        #: silent about the reason: the other three say `election`,
+        #: `term_expired`, `recalled` (D-251 payload keys).
+        why="dismissed",
     )
     return office

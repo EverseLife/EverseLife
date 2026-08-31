@@ -312,7 +312,7 @@ async def test_death_and_leaving_one_face_do_not_both_carry_the_haul(
         async with factory() as db, db.begin():
             mine = await db.get(Body, body_id)
             assert mine is not None
-            await death.die(db, current(), mine, cause="разлом под ногами")
+            await death.die(db, current(), mine, cause="rift")
 
     async def ground_moves() -> None:
         await asyncio.sleep(0.05)

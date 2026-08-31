@@ -760,7 +760,9 @@ async def _burn(
         session,
         constants,
         locked,
-        cause="жара" if await climate_of(session, node) == HEAT else "холод",
+        #: The climate key itself: the journal's `cause` is a payload key
+        #: (D-251), and the two climates already have their names.
+        cause="heat" if await climate_of(session, node) == HEAT else "cold",
         now=now,
     )
     return True

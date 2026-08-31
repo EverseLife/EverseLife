@@ -213,7 +213,7 @@ async def advance(
             constants,
             machine,
             constants[R.RIG_WEAR_PER_DAY] * hours / day,
-            cause="работа буровой",
+            cause="rig_work",
         )
 
     rig.counted_at = moment

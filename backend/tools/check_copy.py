@@ -6,8 +6,8 @@
 The twin of `frontend/scripts/check-copy.mjs`, and it works the other way
 round because the two halves are at different stages. The client is **clean**:
 every sentence it shows lives in `src/locales/*.ftl`, and the lint there fails
-on any Cyrillic outside them. The engine is not clean yet -- 288 string
-literals in 64 modules -- and a lint that fails on all of them could only be
+on any Cyrillic outside them. The engine is not clean yet -- 260 string
+literals in 51 modules -- and a lint that fails on all of them could only be
 turned off.
 
 So this one is a **ratchet**: every module that still writes Russian is listed
@@ -28,8 +28,10 @@ What is still in the list, by kind, so the number can be read:
 * **names the world generates for itself** (`seed_*`, `explore/site`, `ruins`,
   `ship/building`, `farm`): data rather than copy, and a design decision is
   written down for them in the vault plan;
-* **keys of the ledger's `memo`** and of a few event payloads: an audit record
-  nothing renders, and the ledger is append-only, so they cannot be migrated;
+* **keys of the ledger's `memo`**: an audit record nothing renders, and the
+  ledger is append-only, so they cannot be migrated. The event payloads that
+  used to sit beside them here write keys since 2026-08-31 (`cause="asphyxia"`,
+  `why="expelled"`); old rows keep their Russian, per the wave II precedent;
 * **telemetry metric names** (`деньги.двойная-запись`): admin-facing
   identifiers, and identifiers are supposed to be ASCII.
 
@@ -69,13 +71,7 @@ KNOWN: dict[str, int] = {
     "src/engine/chat.py": 2,
     "src/engine/city/_base.py": 1,
     "src/engine/city/grant.py": 2,
-    "src/engine/city/land.py": 2,
-    "src/engine/city/citizen.py": 4,
     "src/engine/city/law.py": 4,
-    "src/engine/city/succession.py": 3,
-    "src/engine/coin.py": 1,
-    "src/engine/craft/_internal.py": 1,
-    "src/engine/craft/batch.py": 1,
     "src/engine/craft/queue.py": 2,
     "src/engine/customs.py": 5,
     "src/engine/death.py": 4,
@@ -87,26 +83,18 @@ KNOWN: dict[str, int] = {
     "src/engine/explore/site.py": 4,
     "src/engine/farm.py": 3,
     "src/engine/finance.py": 1,
-    "src/engine/food.py": 1,
     "src/engine/forage.py": 2,
-    "src/engine/frost.py": 2,
     "src/engine/jobs.py": 4,
     "src/engine/justice.py": 3,
     "src/engine/luck.py": 1,
     "src/engine/market/deal.py": 5,
     "src/engine/market/match.py": 1,
-    "src/engine/mining.py": 3,
-    "src/engine/oxygen.py": 2,
-    "src/engine/plates.py": 1,
-    "src/engine/rig.py": 1,
     "src/engine/ruins.py": 8,
     "src/engine/ship/_base.py": 1,
     "src/engine/ship/building.py": 3,
-    "src/engine/storage.py": 1,
-    "src/engine/transport.py": 2,
     "src/engine/utility.py": 3,
     "src/engine/vote.py": 18,
-    "src/engine/wear.py": 3,
+    "src/engine/wear.py": 1,
     "src/engine/works.py": 9,
     "src/engine/works_city.py": 8,
     "src/engine/world/things.py": 2,

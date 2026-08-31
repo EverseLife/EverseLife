@@ -602,7 +602,7 @@ async def _finish_recycle(
         EventKind.ITEM_CONSUMED,
         item_id=str(item.id),
         type_key=item.type_key,
-        cause="переработка",
+        cause="recycled",
     )
     await session.delete(item)
     await session.flush()

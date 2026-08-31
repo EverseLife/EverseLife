@@ -192,7 +192,7 @@ async def sweep_spoiled(session: AsyncSession, *, now: datetime | None = None) -
             EventKind.ITEM_CONSUMED,
             item_id=str(item.id),
             type_key=item.type_key,
-            cause="испортилось",
+            cause="spoiled",
         )
         await session.delete(item)
     await session.flush()

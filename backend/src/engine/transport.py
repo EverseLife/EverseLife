@@ -407,7 +407,7 @@ async def wear_leg(
             constants,
             vehicle,
             price,
-            cause="переход с обозом",
+            cause="convoy_move",
             actor_identity_id=body.identity_id,
         )
 
@@ -418,7 +418,7 @@ async def wear_leg(
         constants,
         vehicle,
         price,
-        cause="переход с обозом",
+        cause="convoy_move",
         actor_identity_id=body.identity_id,
     )
     await events.record(

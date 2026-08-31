@@ -482,7 +482,7 @@ async def hand(
         type_key=item.type_key,
         amount=given,
         to_identity_id=str(taker.identity_id),
-        reason="передача из рук в руки",
+        reason="handover",
     )
     return given
 

@@ -153,7 +153,7 @@ async def test_death_takes_things_but_not_knowledge_and_account(
     await world.grant_item(session, pocket, "coal", amount=100, quality=50, origin="тест")
     await world.learn(session, identity, "nails")
 
-    await death.die(session, constants, body, cause="обрушение свода")
+    await death.die(session, constants, body, cause="cave_in")
 
     assert body.state is BodyState.DEAD and body.died_at is not None
     left = (
@@ -190,7 +190,7 @@ async def test_death_en_route_cuts_transit(
     await travel.connect(session, await session.get(Node, body.node_id), there, base_seconds=600)
     transit = await travel.depart(session, constants, body, there)
 
-    await death.die(session, constants, body, cause="обрушение свода")
+    await death.die(session, constants, body, cause="cave_in")
 
     transit = await session.get(Travel, transit.id)
     assert transit.state is TravelState.CANCELLED, "переход оборван, а не дошёл"

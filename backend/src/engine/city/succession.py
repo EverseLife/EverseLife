@@ -74,7 +74,7 @@ async def hand_over(session: AsyncSession, city: City, who: Identity) -> Office:
             node_id=city.node_id,
             city_id=str(city.id),
             title=previous.title,
-            why="выборы",
+            why="election",
         )
 
     office = await _office(session, city, who.id, title=title, powers=rights, by=None)
@@ -138,7 +138,7 @@ async def term_ended(session: AsyncSession, job: Job) -> None:
         city_id=str(city.id),
         title=office.title,
         whom_identity_id=str(office.identity_id),
-        why="срок полномочий вышел",
+        why="term_expired",
     )
     if ballots.elects_ruler(city):
         await ballots.open_election(session, current(), city, None)
@@ -158,6 +158,6 @@ async def dismiss(session: AsyncSession, city: City) -> Office | None:
         city_id=str(city.id),
         title=previous.title,
         whom_identity_id=str(previous.identity_id),
-        why="отзыв",
+        why="recalled",
     )
     return previous

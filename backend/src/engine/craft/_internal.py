@@ -540,7 +540,7 @@ async def _wear_station(session: AsyncSession, constants: Constants, batch: Craf
         constants,
         station,
         constants[R.WEAR_STATION_PER_BATCH],
-        cause="партия крафта",
+        cause="craft_batch",
     )
 
 

@@ -267,7 +267,7 @@ async def exile(session: AsyncSession, by: Identity, city: City, who: Identity) 
         actor_identity_id=by.id,
         city_id=str(city.id),
         who=who.name,
-        why="изгнание",
+        why="expelled",
     )
 
 
@@ -315,7 +315,7 @@ async def exited(session: AsyncSession, job: Job) -> None:
         EventKind.CITIZENSHIP_ENDED,
         actor_identity_id=entry.identity_id,
         city_id=str(entry.city_id),
-        why="выход по заявлению",
+        why="resigned",
         city=None if city is None else city.name,
     )
 
@@ -334,7 +334,9 @@ async def _enrol_founder(session: AsyncSession, city: City, who: Identity) -> No
             EventKind.CITIZENSHIP_ENDED,
             actor_identity_id=who.id,
             city_id=str(entry.city_id),
-            reason="основал свой город",
+            #: `why`, like every other end of a citizenship: this was the one
+            #: writer calling the same field `reason`.
+            why="founded_own_city",
         )
 
     session.add(Citizen(identity_id=who.id, city_id=city.id))
@@ -379,7 +381,7 @@ async def bind(
         session,
         city,
         who.id,
-        why="печать",
+        why="printed",
         bound_until=None if days <= 0 else moment + timedelta(days=days),
     )
 

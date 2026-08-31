@@ -120,7 +120,12 @@ async def spend(
     cause: str,
     actor_identity_id=None,
 ) -> bool:
-    """Write off wear. Returns True if the thing is finished by it."""
+    """Write off wear. Returns True if the thing is finished by it.
+
+    `cause` is a payload key naming the doing that wore the thing
+    (`mining_session`, `convoy_move`), never a sentence: the journal stores
+    it for good, and stored words cannot be translated (D-251).
+    """
     if item is None:
         return False
     #: A relic of the Forerunners does not wear (D-232): it is not taken down,
@@ -154,7 +159,10 @@ async def spend(
         actor_identity_id=actor_identity_id,
         item_id=str(item.id),
         type_key=item.type_key,
-        cause=f"износ: {cause}",
+        #: Two keys, not one composed string: what ended the thing, and at
+        #: which doing. `«износ: сессия добычи»` was unreadable to any locale.
+        cause="worn_out",
+        doing=cause,
     )
     await session.delete(item)
     await session.flush()
@@ -194,7 +202,7 @@ async def daily_gear_wear(session: AsyncSession, constants: Constants, catalog: 
             item,
             per_day,
             environment=environment,
-            cause="ношение",
+            cause="wearing",
             actor_identity_id=identity_id,
         ):
             gone += 1

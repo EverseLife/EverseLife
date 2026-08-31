@@ -685,7 +685,7 @@ async def _kill_on(
             .all()
         )
         await _consume(session, [thing for thing in held if thing.container_id == pocket.id])
-        await death.die(session, constants, body, cause="разлом под ногами", now=now)
+        await death.die(session, constants, body, cause="rift", now=now)
         died += 1
     return died
 

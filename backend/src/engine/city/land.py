@@ -125,7 +125,7 @@ async def cede(session: AsyncSession, body, node: Node) -> City:
     #: show a lock that nobody can open any more.
     node.gated = False
     await session.execute(delete(NodePass).where(NodePass.node_id == node.id))
-    await _retire_deed(session, node, city, why="участок передан городу")
+    await _retire_deed(session, node, city, why="ceded")
     await session.flush()
 
     await events.record(
@@ -269,7 +269,7 @@ async def _retire_deed(
     node: Node,
     city: City,
     *,
-    why: str = "земля ушла городу при основании",
+    why: str = "founding",
 ) -> None:
     """Cancel the deed for a node that went to the city.
 

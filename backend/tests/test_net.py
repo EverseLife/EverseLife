@@ -230,7 +230,7 @@ async def test_city_channel_is_official_and_its_power_writes(
 
     #: A citizen reads it without subscribing, and cannot drop it.
     citizen, _ = await _person(session, core, "Гражданин")
-    await town._enroll(session, city, citizen.id, why="тест")
+    await town._enroll(session, city, citizen.id, why="test")
     mine = await net.channels(session, constants, citizen.id, now=NOW)
     assert [(v.name, v.unread, v.writable) for v in mine] == [("Столица", 1, False)]
     with pytest.raises(net.NetError):

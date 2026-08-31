@@ -336,7 +336,7 @@ async def finish_melt(
         session,
         EventKind.ITEM_CONSUMED,
         type_key=batch.output,
-        cause="переплавка монеты",
+        cause="coin_melt",
         units=amount_float(batch.units),
         returned=returned,
     )

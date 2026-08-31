@@ -93,6 +93,10 @@ from src.units import (
 #: seed (D-234) -- beside «мерзлота» and «пекло», and read the same way.
 AIRLESS = "airless"
 
+#: What the journal names as the cause of this death (`BODY_DIED.cause`) --
+#: a payload key, never a sentence (D-251).
+ASPHYXIA = "asphyxia"
+
 #: What is breathed. A single name rather than a class, because it is a single
 #: substance: D-215 binds behaviour to classes so that a second stove or a
 #: second engine is data, and there is no second air.
@@ -567,7 +571,7 @@ async def _choked(
 
     from src.engine import death  # noqa: PLC0415 -- lazy: breaks the cycle with death
 
-    await death.die(session, constants, body, cause="удушье", now=now)
+    await death.die(session, constants, body, cause=ASPHYXIA, now=now)
     return True
 
 
@@ -691,7 +695,7 @@ async def _breathe(
             continue
         from src.engine import death  # noqa: PLC0415 -- lazy: breaks the cycle with death
 
-        await death.die(session, constants, member, cause="удушье", now=now)
+        await death.die(session, constants, member, cause=ASPHYXIA, now=now)
         dead += 1
     await session.flush()
     if dead == 0:
