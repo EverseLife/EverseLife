@@ -638,12 +638,12 @@ function Customs({
       )}
       <div className="row">
         <input
-          list={`товары-${law}`}
+          list={`goods-${law}`}
           placeholder="товар"
           value={item}
           onChange={(e) => setItem(e.target.value)}
         />
-        <datalist id={`товары-${law}`}>
+        <datalist id={`goods-${law}`}>
           {goods.map((name) => (
             <option key={name} value={name} />
           ))}
