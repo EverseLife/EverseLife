@@ -10,11 +10,12 @@ read here (`contents`, `thing_kinds`) and written here (`move_stack`,
 `stack_up`, `grant_item`). Splitting the lookups from the moving would give
 two modules that could never be used apart.
 
-One of those lookups is not one: `node_container` still creates the yard when
-it finds none, so a `look` at an old node without one writes. The node has
-been born with its yard since the review of 2026-08-23 (`land.create_node`),
-and this branch is the leftover for the nodes born before that -- a debt
-against "a read does not write", not a design.
+One of those lookups is split in two on purpose: `node_yard`/`node_things`
+answer a glance and never write, while `node_container` still creates the
+yard it finds missing -- so it is for whoever **puts** something down. The
+node has been born with its yard since the review of 2026-08-23
+(`land.create_node`); the creating branch is the leftover for nodes born
+before that, and only writers pay that debt now.
 
 `station_names` and `has_station` live here rather than with the machines they
 answer about: a machine is a thing standing in a node's yard (D-176), and

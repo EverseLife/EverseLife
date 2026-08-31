@@ -251,7 +251,9 @@ def tier_span(constants: Constants, tier: str) -> tuple[int, int]:
     """The quality a tier covers, both ends included. The floor rules live off it (D-239)."""
     for step in constants[R.QUALITY_TIERS]:
         if step.name == tier:
-            return step.frm, step.to
+            #: The bounds are floats in the constants; the floor rules speak
+            #: whole qualities, and the annotation must not promise otherwise.
+            return int(step.frm), int(step.to)
     raise BadOrder(key="market-no-such-tier", tier=tier)
 
 
