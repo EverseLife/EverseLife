@@ -67,9 +67,7 @@ def check(path: Path) -> list[str]:
             if out and "BROKEN" in out:
                 findings.append(f"lint-imports:\n{out}")
     elif parts[0] == "frontend" and path.suffix in (".ts", ".tsx") and "node_modules" not in parts:
-        out = _run(
-            ["cmd", "/c", "npx", "tsc", "--noEmit", "-p", "tsconfig.app.json"], FRONTEND
-        )
+        out = _run(["cmd", "/c", "npx", "tsc", "--noEmit", "-p", "tsconfig.app.json"], FRONTEND)
         if out:
             findings.append(f"tsc:\n{out}")
     return findings
