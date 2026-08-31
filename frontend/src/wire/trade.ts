@@ -15,6 +15,12 @@ export type Order = {
   side: "buy" | "sell";
   goods: string;
   tier: string;
+  /**
+   * A buy's own quality floor (D-239) -- only when named by hand inside the
+   * band: the band's start is derivable from the tier (D-225), and a sell has
+   * no floor at all. In both of those cases the key is absent.
+   */
+  min_quality?: number;
   price: number;
   left: number;
 };
