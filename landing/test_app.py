@@ -24,7 +24,18 @@ from pathlib import Path
 
 import app as landing
 import pytest
-from app import ALTERNATES, DEFAULT_LANG, PAGES, SITE, SITE_PAGES, X_DEFAULT_LANG, app
+from app import (
+    ALTERNATES,
+    ASSET_CACHE,
+    DEFAULT_LANG,
+    FONT_CACHE,
+    PAGE_CACHE,
+    PAGES,
+    SITE,
+    SITE_PAGES,
+    X_DEFAULT_LANG,
+    app,
+)
 from fastapi.testclient import TestClient
 
 client = TestClient(app)
@@ -62,7 +73,29 @@ def test_shared_assets_serve_get_and_head() -> None:
             assert answer.status_code == 200, f"{method} {path}"
         got = client.get(path)
         assert kind in got.headers["content-type"]
-        assert got.headers["cache-control"] == "no-cache"
+        #: Never `immutable` while the names carry no version: a stale
+        #: `/site.css` pinned for a year could not be called back.
+        assert got.headers["cache-control"] == ASSET_CACHE
+        assert "immutable" not in ASSET_CACHE
+
+
+def test_every_typeface_the_css_asks_for_is_served() -> None:
+    """And never the material it was cut from.
+
+    `subset_fonts.py` keeps `fonts/src/` as the source and `fonts/` as what
+    the browser gets -- the subsets are a third lighter, and the front page is
+    mostly typeface by weight. Serving a source file instead would give the
+    saving back with nothing on screen to show that it had.
+    """
+    css = (Path(__file__).parent / "site.css").read_text(encoding="utf-8")
+    asked = set(re.findall(r'url\("(/fonts/[^"]+)"\)', css))
+    assert asked, "site.css declares no @font-face"
+    for path in sorted(asked):
+        answer = client.get(path)
+        assert answer.status_code == 200, path
+        assert answer.headers["cache-control"] == FONT_CACHE, path
+        assert "/src/" not in path, path
+    assert client.get("/fonts/src/onest.woff2").status_code == 404
 
 
 def test_sitemap_lists_every_page() -> None:
@@ -120,18 +153,29 @@ def test_a_malformed_key_opens_no_route(with_key) -> None:
     assert [one for one in paths if one.endswith(".txt")] == ["/robots.txt"]
 
 
-def test_analytics_only_runs_on_the_live_host() -> None:
-    """The counter is gated by hostname on every page.
+def test_a_page_loads_nothing_from_another_host() -> None:
+    """Every byte a page fetches comes from this domain.
 
-    Without the gate a dev server, a preview or a local file reports into the
-    site's own property, and development traffic cannot be told from real
-    visitors after the fact.
+    The Google counter used to cost 855 ms of the load measured from a fast
+    line, and far more from the networks most of the audience is on, where
+    Google's infrastructure is throttled -- a page that is otherwise 171 KB
+    of our own bytes. Nothing was worth a cross-border request, so the rule
+    is absolute rather than a budget, and a third host creeping back into a
+    `src` is what this test is here to name.
+
+    Links are another matter and not checked: an anchor to Discord costs
+    nothing until somebody clicks it.
     """
     for path in PAGES:
-        html = client.get(path).text
-        assert 'location.hostname === "everse.life"' in html, path
-        #: and never as a plain always-on loader
-        assert '<script async src="https://www.googletagmanager.com' not in html, path
+        answer = client.get(path)
+        html = answer.text
+        assert answer.headers["cache-control"] == PAGE_CACHE, path
+        for banned in ("googletagmanager", "google-analytics", "gtag", "dataLayer"):
+            assert banned not in html, f"{path}: {banned}"
+        loaded = re.findall(r'<(?:script|img)[^>]+src="([^"]+)"', html)
+        loaded += re.findall(r'<link[^>]+rel="(?:stylesheet|preload)"[^>]+href="([^"]+)"', html)
+        for one in loaded:
+            assert one.startswith("/"), f"{path} fetches from elsewhere: {one}"
 
 
 def test_sitemap_dates_pages_by_content_not_by_deploy() -> None:

@@ -102,10 +102,18 @@ ALTERNATES = {path: row for row in SITE_PAGES for path in row.values()}
 #: URL path -> the language it is written in, for `Content-Language`.
 PAGE_LANG = {path: lang for row in SITE_PAGES for lang, path in row.items()}
 
-#: Shared assets extracted from the pages. Unversioned names, so no immutable
-#: cache: `no-cache` makes the browser revalidate, and FileResponse's ETag
-#: turns that into a cheap 304 until the next deploy.
-ASSET_CACHE = "no-cache"
+#: The pages themselves revalidate every time: without it a browser's
+#: heuristic cache may keep showing the previous deploy's page.
+PAGE_CACHE = "no-cache"
+
+#: Shared assets, and never `immutable`: the names carry no version, so a
+#: year-long pin on `/site.css` would outlive many deploys with no way to call
+#: it back. Ten minutes of freshness, then a day of serving the old copy while
+#: the new one is fetched behind it. The cost is a deploy taking ten minutes
+#: to reach an open tab; what it buys is a round trip saved on every page
+#: after the first, which is what hurts when the round trip is to Russia and
+#: back. Give the files versioned names and this becomes `immutable`.
+ASSET_CACHE = "public, max-age=600, stale-while-revalidate=86400"
 
 #: Self-hosted typefaces (Onest, IBM Plex Mono, Literata -- all OFL), subset to
 #: Latin + Cyrillic. Served from our own domain: no CDN, no third-party
@@ -263,12 +271,10 @@ def _page_handler(file: Path, lang: str):
     #: `Vary: Accept-Language`: nothing here varies by that header, and saying
     #: otherwise would only tell every cache to keep a copy per browser.
     def handler() -> FileResponse:
-        #: no-cache like the assets: without it the browser's heuristic cache
-        #: may keep showing the previous deploy's page
         return FileResponse(
             file,
             media_type="text/html",
-            headers={"Cache-Control": ASSET_CACHE, "Content-Language": lang},
+            headers={"Cache-Control": PAGE_CACHE, "Content-Language": lang},
         )
 
     return handler
@@ -432,9 +438,7 @@ def sitemap() -> Response:
     xml = (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
         '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"'
-        ' xmlns:xhtml="http://www.w3.org/1999/xhtml">\n'
-        + "".join(entries)
-        + "</urlset>\n"
+        ' xmlns:xhtml="http://www.w3.org/1999/xhtml">\n' + "".join(entries) + "</urlset>\n"
     )
     return Response(xml, media_type="application/xml")
 

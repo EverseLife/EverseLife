@@ -88,5 +88,15 @@ if "$py" -c "import fastapi" > /dev/null 2>&1; then
     fi
 fi
 
+# The served typefaces are cut down to the characters the pages can show, so
+# new text outgrows them -- and it does so silently, one letter falling back to
+# another face on somebody else's screen. Only with fontTools: a clone without
+# it skips the check rather than failing on a tool it was never asked to have.
+if "$py" -c "import fontTools" > /dev/null 2>&1; then
+    if ! "$py" landing/subset_fonts.py --check; then
+        exit 1
+    fi
+fi
+
 # The vault snapshot is not in the repository any more: CI builds it from the
 # vault, and `vault/` here is scratch. Nothing left to compare.

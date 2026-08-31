@@ -408,14 +408,6 @@
     }, 7300);
   })();
 
-  // ── Analytics events: the two actions the page is measured by ─────────
-  //    Guarded by `window.gtag`: a blocked script must not break a click.
-  document.querySelectorAll('a[href*="discord.gg"]').forEach((a) => {
-    a.addEventListener("click", () => {
-      if (window.gtag) gtag("event", "discord_click");
-    });
-  });
-
   // ── The signup form: honest answers ───────────────────────────────────
   document.querySelectorAll("form.signup").forEach((form) => {
     const msg = form.querySelector(".form-msg");
@@ -440,8 +432,6 @@
           msg.innerHTML = WORDS.signedUp +
             '<a class="ext" href="https://discord.gg/eKhM3H9tKk" target="_blank" rel="noopener noreferrer">Discord</a>.';
           msg.className = "form-msg ok"; form.email.value = "";
-          // the conversion this page exists for
-          if (window.gtag) gtag("event", "signup_success");
         } else {
           msg.textContent = data.error || WORDS.failed;
           msg.className = "form-msg err";

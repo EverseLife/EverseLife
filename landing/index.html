@@ -8,24 +8,6 @@ Copyright (C) 2026 Nurlan Urazkulov
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<!-- Google Analytics (gtag.js). The counter is loaded on the live host and
-     nowhere else: a page opened from a dev server, a preview or a file would
-     otherwise mix development into the site's own statistics, and there is no
-     way to tell the two apart afterwards. Off the live host `window.gtag`
-     simply never appears, and site.js already guards every call with it. -->
-<script>
-  if (location.hostname === "everse.life") {
-    window.dataLayer = window.dataLayer || [];
-    window.gtag = function () { dataLayer.push(arguments); };
-    gtag('js', new Date());
-    gtag('config', 'G-TZ5XDN557L');
-    var counter = document.createElement('script');
-    counter.async = true;
-    counter.src = 'https://www.googletagmanager.com/gtag/js?id=G-TZ5XDN557L';
-    document.head.appendChild(counter);
-  }
-</script>
-<!-- End Google Analytics -->
 <title>everse.life — Иммерсивная MMO-песочница с бесконечной прогрессией</title>
 <meta name="description" content="Иммерсивная MMO-песочница с бесконечной прогрессией: экономику, законы и города создают сами игроки. Ни одного NPC, вайпов нет. Альфа уже идёт.">
 <link rel="canonical" href="https://everse.life/">

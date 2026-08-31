@@ -14,7 +14,9 @@ COPY app.py export.py indexnow.py lastmod.py lastmod.json ./
 COPY *.html ./
 COPY en/ ./en/
 COPY site.css site.js space.js favicon.svg og.png og-en.png ./
-COPY fonts/ ./fonts/
+# Only the faces the browser gets, and their licences. `fonts/src/` is the
+# material `subset_fonts.py` cuts them from -- 210 KB the image never serves.
+COPY fonts/*.woff2 fonts/*.txt ./fonts/
 
 # Signups live in SQLite on a volume: the container is disposable, the database is not.
 ENV LANDING_DB=/data/signups.db

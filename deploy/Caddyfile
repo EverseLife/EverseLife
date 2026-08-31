@@ -5,6 +5,18 @@
 # `DOMAIN` points to this server with an A record, and ports 80 and 443 are open.
 {
 	email {$ACME_EMAIL}
+
+	# No HTTP/3. Caddy would otherwise listen on UDP/443 and advertise it with
+	# `Alt-Svc` for a month ahead, and Russian providers filter UDP/443 widely:
+	# a browser that remembered the offer spends the wait on QUIC before
+	# falling back to TCP, on every visit, and differently on every network --
+	# which is what "opens fine on mobile, crawls over home wifi" looks like.
+	# The udp port stays published in `compose.yaml`, so putting h3 back is
+	# this line and nothing else. Worth doing the day that filtering stops:
+	# where QUIC is allowed to work it is the faster protocol.
+	servers {
+		protocols h1 h2
+	}
 }
 
 {$DOMAIN} {
