@@ -133,6 +133,22 @@ jobs:
       - name: Licence header in every source file
         run: python3 tools/spdx.py
 
+  tools:
+    name: Tools
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+
+      # The root `tools/` has no environment of its own -- the scripts are
+      # standard library on purpose, so they run on any machine that has
+      # python. Lint borrows the server's ruleset instead of inventing a
+      # second one; without this the folder was covered by nothing, and the
+      # monitor shipped with a defect ruff would have named.
+      - run: uvx ruff check --config backend/pyproject.toml tools
+      - run: uvx ruff format --check --config backend/pyproject.toml tools
+      - run: uvx pytest -q tools
+
   agents:
     name: Agents
     runs-on: ubuntu-latest

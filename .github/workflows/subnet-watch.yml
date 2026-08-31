@@ -1,0 +1,93 @@
+# Can Russia still reach us?
+#
+# Asked two ways, and the two see different things. The filtering lists catch
+# what took the site down in August 2026: a neighbour in our /24 was listed,
+# providers who filter by block dropped us with him, and we were listed
+# nowhere. The probe opens TCP 443 from Moscow and Petersburg, which catches
+# the server being gone or the route to Russia broken -- but not that outage,
+# since check-host's nodes sit in data centres and reached the blocked address
+# the whole time. The alert says which of the two spoke, because that decides
+# what to do next.
+#
+# Hourly because it costs nothing and the alternative is days of blindness:
+# the source republishes several times a day, and the run reads one 250 KB
+# list unless something is wrong.
+#
+# The Monday line exists because this job's own silence is ambiguous. GitHub
+# switches a schedule off after sixty days without a commit, a webhook can be
+# revoked, a workflow can be deleted -- and every one of those looks exactly
+# like good news. Once a week the channel hears that the check is alive, so
+# the quiet in between means something.
+name: subnet watch
+
+on:
+  schedule:
+    # Past the hour on purpose: everything cron-shaped in the world fires at
+    # :00, and GitHub delays a queue it cannot serve.
+    - cron: "17 * * * *"
+    # Monday morning, on its own minute so it never collides with the hourly.
+    - cron: "23 9 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    # The script bounds itself, but a hung job outliving the next hour's run
+    # is not worth the risk of finding out.
+    timeout-minutes: 10
+    env:
+      # Alarms belong in `#инциденты`, where Grafana already shouts and where
+      # somebody is on duty. The deploy channel is the fallback and not the
+      # home: it is read-only for the whole community, and an hourly "we are
+      # blocked in Russia" would bury the deploys nobody would then see.
+      # Declared at job level because a step's `if` sees `env` and not `secrets`.
+      DISCORD_HOOK: ${{ secrets.DISCORD_INCIDENTS_WEBHOOK || secrets.DISCORD_DEPLOY_WEBHOOK }}
+      WEEKLY_CRON: "23 9 * * 1"
+    steps:
+      - uses: actions/checkout@v4
+
+      # The script is standard library only, so the runner's own Python does.
+      # The exit code carries the verdict and the steps below read it, so the
+      # failure must not stop the job here.
+      - name: Check
+        id: check
+        run: |
+          python3 tools/subnet_watch.py > report.txt 2>&1 && code=0 || code=$?
+          cat report.txt
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+
+      # Without the secret the step is silent: somebody's copy of the repo must
+      # not knock on somebody's Discord. Bad news goes out every hour while it
+      # lasts -- it means part of Russia cannot open the site, and a single
+      # message scrolls out of the channel by morning.
+      - name: Tell Discord
+        if: >-
+          env.DISCORD_HOOK != '' &&
+          (steps.check.outputs.code != '0' || github.event.schedule == '23 9 * * 1')
+        env:
+          CODE: ${{ steps.check.outputs.code }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          # Codes are the script's own; anything unlisted means it fell over,
+          # and a crash must never borrow the wording of a verdict.
+          case "$CODE" in
+            0) HEAD="✅ Проверка блокировок: чисто, и сама проверка жива" ;;
+            4) HEAD="🚫 Адрес everse.life попал в списки блокировок РФ — нужен новый адрес" ;;
+            5) HEAD="🔌 Сайт не отвечает из России — узлы в Москве и Петербурге не подключились" ;;
+            6) HEAD="🕳 Имя сайта не отдаёт адрес — смотрите DNS" ;;
+            7) HEAD="⚠️ Списки блокировок не прочитались, проверка ничего не утверждает" ;;
+            *) HEAD="💥 Проверка упала с кодом $CODE — вердикта нет" ;;
+          esac
+          BODY="$(head -c 1500 report.txt)"
+          jq -n --arg content "$HEAD"$'\n```\n'"$BODY"$'\n```\n'"$RUN_URL" \
+            '{content: $content, allowed_mentions: {parse: []}}' \
+            | curl -fsS -H 'Content-Type: application/json' -d @- "$DISCORD_HOOK" > /dev/null
+
+      # Red in Actions as well, so a misconfigured webhook does not turn the
+      # whole thing into silence that reads like good news.
+      - name: Fail if caught
+        if: steps.check.outputs.code != '0'
+        run: exit 1
