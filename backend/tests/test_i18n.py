@@ -102,13 +102,13 @@ def _derived_keys() -> set[str]:
     """
     from src.api.commands.world import TOLD, TOLD_OF_THE_PLACE
     from src.engine import explore, occupation
-    from src.engine.city import polity
+    from src.engine.city import founding
     from src.herald import chronicle
     from src.models.ledger import AccountKind, PostingReason
 
     return (
         {f"doing-{kind}" for kind in occupation.KINDS}
-        | {f"city-role-{role}" for role in polity.FOUNDATION_ROLES}
+        | {f"city-role-{role}" for role in founding.FOUNDATION_ROLES}
         #: Every event the digest is allowed to tell about owes a line. The
         #: list is the server's own allowlist, so the two cannot drift: an
         #: event added to the digest without a line fails here rather than

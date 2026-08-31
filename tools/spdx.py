@@ -109,7 +109,12 @@ def covered_files(root: Path) -> list[str]:
         ["git", "ls-files", "--", *COVERED], capture_output=True, text=True, check=True, cwd=root
     )
     files = [line for line in out.stdout.splitlines() if line]
-    return sorted({f for f in files if not f.startswith(EXCLUDED)})
+    #: A file git still tracks but the working tree no longer has: a deletion
+    #: not staged yet. Reading it raised `FileNotFoundError` and the check died
+    #: with a traceback in the middle of a rename, which reads like the script
+    #: is broken rather than like the tree is mid-edit. CI never sees this --
+    #: it checks out fresh -- so it went unnoticed until a local run hit it.
+    return sorted({f for f in files if not f.startswith(EXCLUDED) and (root / f).exists()})
 
 
 def split_keepends(text: str) -> list[str]:

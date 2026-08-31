@@ -4,8 +4,15 @@
 """City administration: office, right, treasury (D-127, D-130, D-154, D-155).
 
 The charter and code-laws had lain as data since D-130, but nobody could change
-them: "city authority" did not exist as an entity. Exactly three things appear
-here and not one more.
+them: "city authority" did not exist as an entity. Three things were added for
+that, and they are described below.
+
+The package has grown past those three since -- land, treasury, grants,
+succession, and the four modules `polity.py` was cut into (`founding`, `law`,
+`office`, `citizen`, with `hall` beside them). This file is the whole of what
+the city offers the rest of the engine: everything importable as `town.<name>`
+is re-exported here, and the modules underneath are free to move without any
+caller noticing.
 
 **Office** -- a record "identity holds a post in the city". What the post is
 called is the city's decision: the engine does not care whether it is a
@@ -86,9 +93,44 @@ from src.engine.city._base import (  # noqa: F401
     NotReady,
     NotYours,
 )
+from src.engine.city.citizen import (  # noqa: F401
+    ADMISSION,
+    APPLICATION,
+    INVITE,
+    OPEN,
+    AlreadyCitizen,
+    Bound,
+    NotCitizen,
+    _enrol_founder,
+    _enroll,
+    admission,
+    admit,
+    bind,
+    citizens_of,
+    citizenship,
+    describe,
+    exile,
+    exited,
+    invite,
+    is_citizen,
+    join,
+    leave,
+    request_of,
+    requests_of,
+)
+from src.engine.city.founding import (  # noqa: F401
+    _mark_gate,
+    _retire_deed,
+    establish,
+    found,
+    foundation_needs,
+    install_founder,
+    missing_for_foundation,
+)
 from src.engine.city.grant import (  # noqa: F401
     welcome,
 )
+from src.engine.city.hall import require_at_hall  # noqa: F401
 from src.engine.city.land import (  # noqa: F401
     _plain,
     _shown,
@@ -96,6 +138,18 @@ from src.engine.city.land import (  # noqa: F401
     cede,
     survey,
     upkeep_of,
+)
+from src.engine.city.law import (  # noqa: F401
+    SPAWN_CITIZENSHIP,
+    SPAWN_TERM,
+    TRADE_TAX,
+    _apply_tariff,
+    law,
+    law_number,
+    may_take_city_land,
+    set_charter,
+    set_law,
+    spawn_terms,
 )
 from src.engine.city.lookup import (  # noqa: F401
     by_id,
@@ -105,56 +159,15 @@ from src.engine.city.lookup import (  # noqa: F401
     of_node,
     territory,
 )
-from src.engine.city.polity import (  # noqa: F401
-    ADMISSION,
-    APPLICATION,
-    INVITE,
-    OPEN,
-    SPAWN_CITIZENSHIP,
-    SPAWN_TERM,
-    TRADE_TAX,
-    AlreadyCitizen,
-    Bound,
-    NotCitizen,
-    _apply_tariff,
-    _enrol_founder,
-    _enroll,
-    _mark_gate,
+from src.engine.city.office import (  # noqa: F401
     _office,
-    _retire_deed,
-    admission,
-    admit,
     appoint,
-    bind,
-    citizens_of,
-    citizenship,
     covers,
-    describe,
-    establish,
-    exile,
-    exited,
-    found,
-    foundation_needs,
-    install_founder,
-    invite,
-    is_citizen,
-    join,
-    law,
-    law_number,
-    leave,
     may,
-    may_take_city_land,
-    missing_for_foundation,
     offices,
     powers_of,
-    request_of,
-    requests_of,
     require,
-    require_at_hall,
     revoke,
-    set_charter,
-    set_law,
-    spawn_terms,
 )
 from src.engine.city.succession import (  # noqa: F401
     dismiss,

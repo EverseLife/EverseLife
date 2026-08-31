@@ -85,3 +85,60 @@ root_package = "src"
 name = "Layers: api -> engine -> models -> constants -> i18n"
 type = "layers"
 layers = ["src.api", "src.engine", "src.models", "src.constants", "src.i18n"]
+
+# The city, cut out of a 1084-line `polity.py` that held founding, offices,
+# code-laws and citizenship at once and let all four reach into each other.
+# The cut only means something if it cannot silently grow back: without this
+# the stack lives in four module docstrings, and a docstring does not fail a
+# build.
+#
+# `forbidden` and not `layers`, and `allow_indirect_imports` on purpose. The
+# package still sits inside two cycles it did not create -- `city -> travel ->
+# city` and `city -> vote -> city`, both wave-3 leftovers -- so every pair of
+# city modules is reachable from every other the long way round, and a layers
+# contract would fail on chains that have nothing to do with this cut. What is
+# checked here is the thing the cut actually established: which module may name
+# which **directly**. Turn these into a layers contract on the day the engine's
+# own cycles are gone.
+[[tool.importlinter.contracts]]
+name = "The city is a stack, and its floor asks nobody"
+type = "forbidden"
+source_modules = ["src.engine.city.hall"]
+forbidden_modules = [
+    "src.engine.city.office",
+    "src.engine.city.law",
+    "src.engine.city.citizen",
+    "src.engine.city.land",
+    "src.engine.city.founding",
+]
+allow_indirect_imports = "true"
+
+[[tool.importlinter.contracts]]
+name = "Offices know nothing of laws, citizens or founding"
+type = "forbidden"
+source_modules = ["src.engine.city.office"]
+forbidden_modules = [
+    "src.engine.city.law",
+    "src.engine.city.citizen",
+    "src.engine.city.land",
+    "src.engine.city.founding",
+]
+allow_indirect_imports = "true"
+
+[[tool.importlinter.contracts]]
+name = "A law does not ask who is a citizen"
+type = "forbidden"
+source_modules = ["src.engine.city.law"]
+forbidden_modules = [
+    "src.engine.city.citizen",
+    "src.engine.city.land",
+    "src.engine.city.founding",
+]
+allow_indirect_imports = "true"
+
+[[tool.importlinter.contracts]]
+name = "Citizenship and land come before founding, not after"
+type = "forbidden"
+source_modules = ["src.engine.city.citizen", "src.engine.city.land"]
+forbidden_modules = ["src.engine.city.founding"]
+allow_indirect_imports = "true"

@@ -12,7 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.engine import events, ledger
 from src.engine.city._base import CityError, NotEnoughTreasury
-from src.engine.city.polity import require, require_at_hall
+from src.engine.city.hall import require_at_hall
+from src.engine.city.office import require
 from src.models.city import (
     City,
     Power,

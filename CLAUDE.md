@@ -80,15 +80,19 @@ python tools/spdx.py --apply
 Правила, которые нельзя нарушать молча:
 
 - **Файл длиннее 800 строк** — перед правкой сказать об этом и предложить
-  разрез. Добавлять в такой файл без упоминания нельзя. Список на 2026-08-29,
-  от худшего: `api.ts` (1569), `panels/Admin.tsx` (1246),
-  `engine/market.py` (1237), `engine/bank.py` (1229),
-  `engine/city/polity.py` (1084), `engine/travel.py` (1046),
-  `engine/vote.py` (959), `engine/mining.py` (938), `engine/world.py` (935),
-  `engine/oxygen.py` (869), `engine/net.py` (861), `engine/frost.py` (826).
-  Список **устаревает** — считать заново (`wc -l`), а не верить ему на слово.
+  разрез. Добавлять в такой файл без упоминания нельзя. Список на 2026-08-31,
+  от худшего: `api.ts` (1675), `panels/Admin.tsx` (1300),
+  `engine/bank.py` (1298), `engine/market.py` (1245),
+  `engine/travel.py` (1028), `engine/vote.py` (957), `engine/mining.py` (931),
+  `engine/oxygen.py` (863), `engine/net.py` (863), `engine/frost.py` (828).
+  Список **устаревает** — считать заново (`wc -l`), а не верить ему на слово:
+  прошлый пересчитывали 2026-08-29, и за два дня два файла из него не
+  уменьшились, а выросли.
   Разрезанное: `engine/explore.py` → пакет `engine/explore/` (`_base`, `odds`,
-  `site`, `run`), `seed.py` → `seed.py` + `seed_parts.py` + `seed_catchup.py`.
+  `site`, `run`); `seed.py` → `seed.py` + `seed_parts.py` + `seed_catchup.py`;
+  `engine/city/polity.py` (1084) → `founding`, `law`, `office`, `citizen` и
+  `hall` в том же пакете, стек закреплён контрактами `import-linter`;
+  `engine/world.py` (932) → пакет `engine/world/` (`land`, `people`, `things`).
 - **Деньги, количества, остатки, выносливость** меняются только под
   блокировкой строки (`with_for_update`) или SQL-выражением
   (`col = col - :x`), и к каждой такой правке — тест-гонка на две сессии.

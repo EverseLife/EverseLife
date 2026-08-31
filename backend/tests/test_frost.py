@@ -359,10 +359,10 @@ async def test_a_frozen_node_silences_the_terminal_and_the_office(
     would still have passed.
     """
     from src.engine import market
-    from src.engine.city import polity
+    from src.engine.city import founding, hall, office
 
     delegate, yard = await _town(session)
-    settlement = await polity.found(session, catalog, delegate, f"Мерид-{uuid.uuid4().hex[:4]}")
+    settlement = await founding.found(session, catalog, delegate, f"Мерид-{uuid.uuid4().hex[:4]}")
     session.add(Building(node_id=yard.id, area_m2=200))
     await _place(session, yard, TERMINAL)
     await _place(session, yard, HALL)
@@ -373,15 +373,15 @@ async def test_a_frozen_node_silences_the_terminal_and_the_office(
     with pytest.raises(frost.Frozen):
         await market.terminal(session, yard)
     #: By the key, not by the sentence: the wording is the locale's (D-251 III).
-    with pytest.raises(polity.NotAllowed) as shut:
-        await polity.require_at_hall(session, body, settlement)
+    with pytest.raises(office.NotAllowed) as shut:
+        await hall.require_at_hall(session, body, settlement)
     assert shut.value.key == "city-hall-frozen"
 
     #: Heat it, and both open. Nothing else about the node changed.
     await _place(session, yard, HEATER)
     await _charge(session, constants, yard, constants[R.FROST_HEATER_DRAW])
     assert await market.terminal(session, yard) is not None
-    await polity.require_at_hall(session, body, settlement)
+    await hall.require_at_hall(session, body, settlement)
 
 
 async def test_nothing_is_sown_in_the_open_ground_of_a_climate(

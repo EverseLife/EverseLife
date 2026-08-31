@@ -17,15 +17,10 @@ from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import energy, estate, events, travel, utility, world
 from src.engine.city._base import CityError, NoCity, NotYours
+from src.engine.city.hall import require_at_hall
+from src.engine.city.law import law, law_number
 from src.engine.city.lookup import by_id, territory
-from src.engine.city.polity import (
-    _retire_deed,
-    law,
-    law_number,
-    offices,
-    require,
-    require_at_hall,
-)
+from src.engine.city.office import offices, require
 from src.engine.city.treasury import treasury_balance
 from src.models.city import (
     City,
@@ -267,3 +262,30 @@ def _plain(value: float) -> str:
     """A number without trailing zeros: tariff "5", not "5.0"."""
     whole = int(value)
     return str(whole) if value == whole else str(value)
+
+
+async def _retire_deed(
+    session: AsyncSession,
+    node: Node,
+    city: City,
+    *,
+    why: str = "земля ушла городу при основании",
+) -> None:
+    """Cancel the deed for a node that went to the city.
+
+    Two ways lead here, and the event must tell them apart: the founding of a
+    city over the land, and the holder handing the plot back (`cede`).
+    """
+
+    deed = (await session.execute(select(Deed).where(Deed.node_id == node.id))).scalar_one_or_none()
+    if deed is None:
+        return
+    await session.delete(deed)
+    await session.flush()
+    await events.record(
+        session,
+        EventKind.DEED_RETIRED,
+        node_id=node.id,
+        city_id=str(city.id),
+        why=why,
+    )

@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants
 from src.engine import events, ledger
-from src.engine.city.polity import law_number
+from src.engine.city.law import law_number
 from src.engine.city.treasury import treasury
 from src.models.city import (
     City,

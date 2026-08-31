@@ -19,7 +19,7 @@ from src.engine import events
 from src.engine import vote as ballots
 from src.engine.city._base import FOUNDER_POWERS, FOUNDER_TITLE
 from src.engine.city.lookup import by_id
-from src.engine.city.polity import _office
+from src.engine.city.office import _office
 from src.engine.jobs import enqueue, handler
 from src.models.city import (
     City,
