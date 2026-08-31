@@ -15,6 +15,14 @@ there is no git inside the container to ask.
 
     python lastmod.py            # restamp what changed
     python lastmod.py --check    # say whether a restamp is due (CI, pre-commit)
+    python lastmod.py --accept   # take the new content under the old date
+
+`--accept` is for the edit a human judged insignificant: a reworded label, a
+typo. Search engines only trust `lastmod` while it marks the last *meaningful*
+change -- a date that jumps on every touch teaches them to ignore the field --
+so "the content moved, the date did not" must be expressible, or the check
+below fights the very accuracy it exists to keep. A page with no stamp at all
+is still dated today: there is no old date to keep.
 
 Exit code is 1 when `--check` finds a page whose content no longer matches its
 stamp, so a hook can stop the commit and say what to run.
@@ -52,10 +60,11 @@ def load() -> dict[str, dict[str, str]]:
         return {}
 
 
-def main(check: bool) -> int:
+def main(check: bool, accept: bool = False) -> int:
     stamps = load()
     today = datetime.now(UTC).date().isoformat()
     stale: list[str] = []
+    kept: list[str] = []
     fresh: dict[str, dict[str, str]] = {}
 
     for path, file in PAGES.items():
@@ -64,15 +73,25 @@ def main(check: bool) -> int:
         if was and was.get("hash") == now:
             fresh[path] = was
             continue
+        if accept and was and was.get("date"):
+            #: The human called this edit insignificant: the hash follows the
+            #: bytes, the date stays where the last meaningful change put it.
+            kept.append(path)
+            fresh[path] = {"hash": now, "date": was["date"]}
+            continue
         stale.append(path)
         fresh[path] = {"hash": now, "date": today}
 
-    if not stale:
+    if not stale and not kept:
         print(f"lastmod: {len(fresh)} pages, all stamps current")
         return 0
     if check:
         print("lastmod: stamps are behind the pages: " + ", ".join(stale), file=sys.stderr)
-        print("lastmod: fix with `python landing/lastmod.py`", file=sys.stderr)
+        print(
+            "lastmod: fix with `python landing/lastmod.py`, or, for an edit too"
+            " small to re-date, `python landing/lastmod.py --accept`",
+            file=sys.stderr,
+        )
         return 1
 
     STAMPS.write_text(
@@ -80,9 +99,14 @@ def main(check: bool) -> int:
         encoding="utf-8",
         newline="\n",
     )
-    print(f"lastmod: stamped {today} on " + ", ".join(stale))
+    if stale:
+        print(f"lastmod: stamped {today} on " + ", ".join(stale))
+    if kept:
+        print("lastmod: accepted new content under the old date on " + ", ".join(kept))
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main(check="--check" in sys.argv[1:]))
+    sys.exit(
+        main(check="--check" in sys.argv[1:], accept="--accept" in sys.argv[1:])
+    )
