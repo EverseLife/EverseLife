@@ -44,4 +44,6 @@ export type Book = {
   asks: Level[];
   last: number | null;
   spread: number | null;
+  /** The price step the rows are glued at, minor units. One -- every price its own row. */
+  step: number;
 };

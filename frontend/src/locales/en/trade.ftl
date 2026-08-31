@@ -292,3 +292,12 @@ ui-secret-hide = hide
 ui-secret-hide-label = hide the password
 ui-secret-show = show
 ui-secret-show-label = show the password
+
+# The quality floor and the price step (D-239, D-241). A buy takes anything no
+# worse than the floor named, a sale goes as a lot of its own tier -- one
+# sentence for both rules, because the player makes one decision.
+ui-market-floor = no worse than
+ui-market-floor-rule = A buy takes “{ $floor }” and anything better; a sale goes as a lot of tier “{ $tier }”.
+ui-market-step = price step
+ui-market-step-auto = auto
+ui-market-step-auto-title = the server picks the step: the finest one the book fits into

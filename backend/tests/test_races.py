@@ -584,6 +584,87 @@ async def _book(session: AsyncSession) -> tuple[Order, list[uuid.UUID]]:
     return order, buyers
 
 
+async def test_two_floors_cannot_both_take_the_same_fine_stack(
+    session: AsyncSession,
+    factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Only four of the ten are good enough for a floor of 75 (D-239).
+
+    Both buyers count the deliverable part of one sell order and both would
+    take four; without the lock on the stacks the seller hands out eight
+    stacks that never existed. The one who arrives second must find the fine
+    ore gone and take nothing at all -- their order simply waits.
+    """
+    stamp = uuid.uuid4().hex[:8]
+    node = await world.create_node(session, f"terra.floor.{stamp}", "Рынок", area_m2=200)
+    yard = await world.node_container(session, node)
+    await world.grant_item(session, yard, "market_terminal", quality=70, origin="тест")
+    constants, catalog = current(), current_catalog()
+
+    seller = await world.create_identity(session, f"Рудник-{stamp}")
+    seller_body = await world.print_body(session, seller, node)
+    pocket = await world.body_container(session, seller_body)
+    for quality, amount in ((62, 6), (78, 4)):
+        await world.grant_item(session, pocket, ORE, amount=amount, quality=quality, origin="тест")
+    await market.load(session, constants, seller_body, ORE, 10)
+    order = (
+        await market.sell(
+            session,
+            constants,
+            catalog,
+            seller,
+            node,
+            type_key=ORE,
+            tier=market.tier_of(constants, 62),
+            price=money(3),
+            quantity=10,
+        )
+    ).order
+
+    genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
+    bodies = []
+    for i in range(2):
+        buyer = await world.create_identity(session, f"Придира-{i}-{stamp}")
+        body = await world.print_body(session, buyer, node)
+        account = await ledger.account_for(session, AccountKind.IDENTITY, buyer.id)
+        await ledger.transfer(
+            session,
+            PostingReason.GENESIS,
+            debit=genesis.id,
+            credit=account.id,
+            amount=money(500),
+        )
+        bodies.append(body.id)
+    #: The settlement sits between counting the deliverable part and moving it.
+    _slow(monkeypatch, ledger, "transfer")
+    await session.commit()
+
+    async def demand(body_id: uuid.UUID) -> float:
+        async with factory() as db, db.begin():
+            body = await db.get(Body, body_id)
+            fill = await market.buy(
+                db,
+                current(),
+                current_catalog(),
+                body,
+                type_key=ORE,
+                tier=market.tier_of(constants, 62),
+                price=money(3),
+                quantity=4,
+                min_quality=75,
+            )
+            return fill.traded
+
+    traded = await asyncio.gather(*(demand(b) for b in bodies), return_exceptions=True)
+    assert not [o for o in traded if isinstance(o, Exception)], traded
+    assert sum(traded) == pytest.approx(4), (
+        f"хорошей руды было четыре единицы, роздано {sum(traded)}"
+    )
+    left = await session.scalar(select(Order.amount_left).where(Order.id == order.id))
+    assert left == 6000, "непроданным остался только тот товар, что порога не проходит"
+
+
 async def test_two_reservations_of_the_last_ten_leave_one_without_goods(
     session: AsyncSession,
     factory: async_sessionmaker[AsyncSession],

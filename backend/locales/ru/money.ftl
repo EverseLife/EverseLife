@@ -29,6 +29,13 @@ market-volume-not-positive = объём должен быть положител
 market-body-off-node = тело вне узла
 market-order-off-node = ордер вне узла
 market-node-city-missing = узел { $node } принадлежит несуществующему городу
+market-no-such-tier = нет такой ступени качества: «{ TIER($tier) }»
+market-floor-not-in-tier = качество { $floor } — это ступень «{ TIER($floor_tier) }», а заявка выписана на «{ TIER($tier) }»
+market-floor-off-scale = качество называют числом от { $frm } до { $to }, а не { $floor }
+market-no-such-goods = в мире нет такого товара: «{ NAME($goods) }»
+market-goods-relic = «{ NAME($goods) }» — наследие Предтеч: такое не делают и не переносят
+market-goods-liquid = «{ NAME($goods) }» — жидкость: она бывает только в таре, на прилавок её не выложить
+market-no-such-recipe = в мире нет такого рецепта: «{ NAME($recipe) }»
 
 market-reserve-not-a-sale = бронируют товар, а не заявку на покупку
 market-order-not-active = заявка уже { $state ->

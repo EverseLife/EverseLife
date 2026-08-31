@@ -29,6 +29,14 @@ in the terminal -- to be taken on foot.
 come from `quality.tiers` (D-058). A continuous scale would make the book
 unreadable and kill liquidity.
 
+**What may stand in the book** (D-241). A thing the world knows how to hand
+over, at one of those tiers, under the world's own name for it. Not a name
+nobody has heard of, not a relic of the Forerunners -- nobody makes or carries
+those (D-232) -- and not a liquid, which exists inside a vessel and nowhere
+else (D-230). The rule lives here and not in the client's picker: a buy order
+freezes money until it fills or expires, and whoever sends the order need not
+be the game's own screen (D-224).
+
 **Priority.** Best price; at equal price, whoever came first. A deal goes at
 the price of **the one resting in the book**: they named the terms first, the
 newcomer accepted. There are no market orders at all -- only limit ones,
@@ -74,10 +82,10 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import func, select
+from sqlalchemy import ColumnElement, and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.constants import Catalog, Constants, current, current_catalog
+from src.constants import Catalog, ConstantError, Constants, current, current_catalog
 from src.constants import current_catalog as _catalog
 from src.constants import registry as R
 from src.engine import city as town
@@ -99,6 +107,7 @@ from src.models.market import (
     Trade,
 )
 from src.models.world import Node
+from src.runtime import MARKET_BOOK_STEPS
 from src.units import AMOUNT_SCALE, PERCENT, amount, amount_float, money_str
 
 
@@ -124,6 +133,18 @@ class NoGoods(MarketError):
 
 class BadOrder(MarketError):
     """The order is meaningless: zero volume, zero price, foreign tier."""
+
+
+class Untradable(MarketError):
+    """The goods cannot lie on a counter, so an order for them can never fill.
+
+    Three ways that happens: the world knows no such thing at all, the thing is
+    a relic of the Forerunners -- found, never made, never carried away
+    (D-232) -- or it is a liquid, which exists inside a vessel and nowhere else
+    (D-230, D-241). A buy order freezes money until it fills or expires, so an order
+    that cannot fill is not a harmless typo but a stretch of somebody's purse
+    locked for nothing.
+    """
 
 
 class NoMoney(MarketError):
@@ -152,6 +173,9 @@ class Book:
     bids: tuple[Level, ...] = ()
     asks: tuple[Level, ...] = ()
     last: int | None = None
+    #: The price step the rows are glued at, minor units. One means every
+    #: price stands on its own row -- the book as the orders were written.
+    step: int = 1
 
     @property
     def spread(self) -> int | None:
@@ -189,11 +213,18 @@ def goods_key(item: Item) -> str:
     return item.type_key
 
 
-def split_key(goods: str) -> tuple[str, str | None]:
-    """A counter name back into item type and, for a carrier, the recipe on it."""
+def split_key(goods: str, catalog: Catalog | None = None) -> tuple[str, str | None]:
+    """A counter name back into item type and, for a carrier, the recipe on it.
+
+    The catalog is worth passing wherever the caller already holds one --
+    whether a name is a carrier decides what the name **means**. The inner
+    paths (`_stacks`, `_carrier`) deliberately ask the holder instead: they run
+    where no catalog is threaded, and threading one to them is a change of its
+    own rather than a line in this one.
+    """
 
     head, sep, tail = goods.partition(CARRIER_SEP)
-    if sep and head in craft.carrier_names() and tail:
+    if sep and head in craft.carrier_names(catalog) and tail:
         return head, tail
     return goods, None
 
@@ -214,6 +245,40 @@ def tier_of(constants: Constants, quality: float | None) -> str:
         return tiers[0].name
     fitting = [tier for tier in sorted(tiers, key=lambda t: t.frm) if tier.frm <= quality]
     return fitting[-1].name if fitting else tiers[0].name
+
+
+def tier_span(constants: Constants, tier: str) -> tuple[int, int]:
+    """The quality a tier covers, both ends included. The floor rules live off it (D-239)."""
+    for step in constants[R.QUALITY_TIERS]:
+        if step.name == tier:
+            return step.frm, step.to
+    raise BadOrder(key="market-no-such-tier", tier=tier)
+
+
+def _floor_of(constants: Constants, order: Order) -> int:
+    """What the order will not go below.
+
+    A buy written before the floor existed says nothing, and its tier's own
+    start is read as the floor -- exactly what its tier button meant (D-239).
+    A sell has no floor at all: it offers a lot, not a demand.
+    """
+    if order.min_quality is not None:
+        return order.min_quality
+    #: Down, never up: a band that starts at 39.5 must not have a floor that
+    #: refuses the very stacks standing in it.
+    return int(tier_span(constants, order.tier)[0])
+
+
+def _floor_sql(constants: Constants) -> ColumnElement[int]:
+    """The same floor, asked of the database: rows are picked by it, not read one by one."""
+    return func.coalesce(
+        Order.min_quality,
+        case(
+            {step.name: int(step.frm) for step in constants[R.QUALITY_TIERS]},
+            value=Order.tier,
+            else_=0,
+        ),
+    )
 
 
 # --- terminal ----------------------------------------------------------------
@@ -373,6 +438,10 @@ async def sell(
 ) -> Fill:
     """List a sell order. Remote: the goods are already delivered (D-047)."""
     await terminal(session, node)
+    #: From here on the goods are known by the name the world gave them: what
+    #: came in may have been a synonym, and a book of two names for one thing
+    #: is two books.
+    type_key = _tradable(constants, catalog, type_key, tier)
     want = _volume(catalog, type_key, quantity)
     _sane(price, want)
 
@@ -402,18 +471,43 @@ async def buy(
     tier: str,
     price: int,
     quantity: float,
+    min_quality: int | None = None,
     now: datetime | None = None,
 ) -> Fill:
-    """Buy: a limit order from a present body.
+    """Buy: a limit order from a present body, at a quality floor (D-239).
 
     Presence is required precisely here. Allow remote buying -- and the books
     of all cities get bought out without leaving one's seat (D-047).
+
+    The floor is what the buyer will not go below, and the tier button is a
+    floor too -- the start of its band: "хорошее" means "no worse than 60" and
+    takes "отличное" along with it. Better goods at the price one named are no
+    loss, and demand gathers on thresholds instead of scattering over five
+    books.
+
+    The order stands in the window where its floor begins, and the tier it is
+    written on must be that window: a floor of 75 belongs to "хорошее", and an
+    order that names "отличное" beside it is refused rather than moved.
     """
     if body.state is not BodyState.ALIVE:
         raise NotHere(key="market-dead-trades")
     node = await _node_of(session, body)
     await terminal(session, node)
 
+    type_key = _tradable(constants, catalog, type_key, tier)
+    floor = int(tier_span(constants, tier)[0]) if min_quality is None else int(min_quality)
+    _floor_sane(constants, floor)
+    #: The window an order stands in is the one its floor begins: named
+    #: together, the two must agree. Quietly moving the order to another
+    #: window would answer a request nobody made -- and whoever sends it need
+    #: not be this game's own screen (D-224).
+    if tier_of(constants, float(floor)) != tier:
+        raise BadOrder(
+            key="market-floor-not-in-tier",
+            floor=floor,
+            floor_tier=tier_of(constants, float(floor)),
+            tier=tier,
+        )
     want = _volume(catalog, type_key, quantity)
     _sane(price, want)
 
@@ -422,7 +516,17 @@ async def buy(
         raise MarketError(key="market-body-without-identity")
 
     order = await _place(
-        session, constants, identity, node, OrderSide.BUY, type_key, tier, price, want, now=now
+        session,
+        constants,
+        identity,
+        node,
+        OrderSide.BUY,
+        type_key,
+        tier,
+        price,
+        want,
+        min_quality=floor,
+        now=now,
     )
     try:
         await _hold(session, order, _cost(price, want))
@@ -745,17 +849,45 @@ async def expire(session: AsyncSession, job: Job) -> None:
 # --- reading -----------------------------------------------------------------
 
 
-async def book(session: AsyncSession, node: Node, type_key: str, tier: str, *, depth: int) -> Book:
-    """The book by position. Public: everyone knows the prices (D-047)."""
-    bids = await _levels(session, node, type_key, tier, OrderSide.BUY, depth=depth)
-    asks = await _levels(session, node, type_key, tier, OrderSide.SELL, depth=depth)
+async def book(
+    session: AsyncSession,
+    constants: Constants,
+    node: Node,
+    type_key: str,
+    tier: str,
+    *,
+    depth: int,
+    step: int | None = None,
+) -> Book:
+    """The book by position. Public: everyone knows the prices (D-047).
+
+    Prices are written to the minor unit, and a hundred orders a minor unit
+    apart make a hundred rows nobody can read. So rows are **glued into a
+    step**: a bid rounds down to its step, an ask rounds up, and neither ever
+    reads better than the order behind it -- click a row, and what you name
+    still crosses. `step=None` picks the finest step the depth can hold.
+    """
+    if step is None:
+        step = await _step_for(session, constants, node, type_key, tier, depth=depth)
+    bids = await _levels(
+        session, constants, node, type_key, tier, OrderSide.BUY, depth=depth, step=step
+    )
+    asks = await _levels(
+        session, constants, node, type_key, tier, OrderSide.SELL, depth=depth, step=step
+    )
+    #: `at` is the transaction's clock, so one sweeping order stamps all its
+    #: deals alike; the id breaks the tie so that two rereads of one book do
+    #: not name two different prices, and so that the name in the picker and
+    #: the line under the book agree on which deal was last.
     last = await session.scalar(
         select(Trade.price)
         .where(Trade.node_id == node.id, Trade.type_key == type_key, Trade.tier == tier)
-        .order_by(Trade.at.desc())
+        .order_by(Trade.at.desc(), Trade.id.desc())
         .limit(1)
     )
-    return Book(node=node.id, type_key=type_key, tier=tier, bids=bids, asks=asks, last=last)
+    return Book(
+        node=node.id, type_key=type_key, tier=tier, bids=bids, asks=asks, last=last, step=step
+    )
 
 
 async def positions(session: AsyncSession, node: Node) -> tuple[tuple[str, str], ...]:
@@ -769,6 +901,28 @@ async def positions(session: AsyncSession, node: Node) -> tuple[tuple[str, str],
     return tuple((row[0], row[1]) for row in rows)
 
 
+async def last_prices(session: AsyncSession, node: Node) -> dict[str, int]:
+    """The last deal price for every goods the node has ever traded, any tier.
+
+    The picker shows a **name**, and a name gathers all five tiers, so the
+    price beside it is the freshest deal under that name whatever its quality.
+    Only deals: a price with nobody's deal behind it would be the engine
+    valuing goods, and the engine does not value goods (D-002). Never traded --
+    no number, and the row says nothing rather than something invented.
+
+    One row per name, off `ix_market_trade_last`: the panel rereads this on
+    every trade in the node, deals are never deleted, and without that index
+    the question sorts the node's whole trading history each time.
+    """
+    rows = await session.execute(
+        select(Trade.type_key, Trade.price)
+        .where(Trade.node_id == node.id)
+        .distinct(Trade.type_key)
+        .order_by(Trade.type_key, Trade.at.desc(), Trade.id.desc())
+    )
+    return {row[0]: row[1] for row in rows}
+
+
 # --- internal ----------------------------------------------------------------
 
 
@@ -777,6 +931,55 @@ def _sane(price: int, want: int) -> None:
         raise BadOrder(key="market-price-not-positive")
     if want <= 0:
         raise BadOrder(key="market-volume-not-positive")
+
+
+def _floor_sane(constants: Constants, floor: int) -> None:
+    """The floor is a quality, and quality is the world's scale -- not any number."""
+    tiers = sorted(constants[R.QUALITY_TIERS], key=lambda step: step.frm)
+    if not tiers[0].frm <= floor <= tiers[-1].to:
+        raise BadOrder(key="market-floor-off-scale", frm=tiers[0].frm, to=tiers[-1].to, floor=floor)
+
+
+def _tradable(constants: Constants, catalog: Catalog, type_key: str, tier: str) -> str:
+    """What may stand in the book at all, and under which name it stands.
+
+    Called by the entrances rather than by `_place`, and before the volume is
+    counted: a name nobody knows must be answered as a name, not as a fraction
+    of a piece by `_volume`.
+
+    A written knowledge carrier is one position per recipe -- "Рецепт: Стекло"
+    (D-209) -- so the name splits first and both halves are asked about: a
+    carrier of a recipe this world does not have is as undeliverable as a
+    thing this world does not have.
+
+    The canonical name is **returned**, not merely checked. "Железо" is a name
+    of the iron ingot like any other, but stacks are stored under the ingot's
+    own name and orders are matched by string: an order left as it came would
+    rest in the book against nothing and hold the money until its term ran
+    out. One name per position, and it is the world's name.
+
+    Only the two entrances that **invent** a position ask this. `load` and
+    `take` move a thing that already exists, and a thing that exists is by
+    that fact deliverable: hanging the check on them would refuse a lot the
+    world itself put in somebody's hands.
+    """
+    book = catalog.recipes
+    kind, recipe = split_key(type_key, catalog)
+    if not book.exists(kind):
+        raise Untradable(key="market-no-such-goods", goods=kind)
+    if book.is_relic(kind):
+        raise Untradable(key="market-goods-relic", goods=kind)
+    if book.is_liquid(kind):
+        raise Untradable(key="market-goods-liquid", goods=kind)
+    if tier not in {step.name for step in constants[R.QUALITY_TIERS]}:
+        raise BadOrder(key="market-no-such-tier", tier=tier)
+    if recipe is None:
+        return book.resolve(kind)
+    try:
+        written = book.recipe(recipe)
+    except ConstantError as unknown:
+        raise Untradable(key="market-no-such-recipe", recipe=recipe) from unknown
+    return f"{book.resolve(kind)}{CARRIER_SEP}{written.type_key}"
 
 
 def _volume(catalog: Catalog, type_key: str, quantity: float) -> int:
@@ -814,6 +1017,7 @@ async def _place(
     price: int,
     quantity: int,
     *,
+    min_quality: int | None = None,
     now: datetime | None,
 ) -> Order:
     moment = now or datetime.now(UTC)
@@ -824,6 +1028,7 @@ async def _place(
         side=side,
         type_key=type_key,
         tier=tier,
+        min_quality=min_quality,
         price=price,
         amount_total=quantity,
         amount_left=quantity,
@@ -863,27 +1068,91 @@ async def _match(
     *,
     now: datetime | None,
 ) -> Fill:
-    """Match the order with opposing ones: best price; at equal price, whoever came first."""
+    """Match the order with opposing ones: best price; at equal price, whoever came first.
+
+    A counterpart acceptable by price may still be unreachable by quality: the
+    buyer's floor is met by some of the seller's stacks and not by others
+    (D-239). What is deliverable is counted per pair, and a pair with nothing
+    deliverable is passed over -- the order goes on down the ladder instead of
+    stopping at the first seller who cannot satisfy it.
+    """
     moment = now or datetime.now(UTC)
+    node = await session.get(Node, order.node_id)
+    if node is None:  # pragma: no cover
+        raise MarketError(key="market-order-off-node")
     trades: list[Trade] = []
 
-    for counter in await _counterparts(session, order):
+    for counter in await _counterparts(session, constants, order):
         if order.amount_left <= 0:
             break
-        trades.append(await _execute(session, constants, catalog, order, counter, moment))
+        buying = order if order.side is OrderSide.BUY else counter
+        selling = counter if order.side is OrderSide.BUY else order
+        floor = _floor_of(constants, buying)
+        quantity = min(
+            order.amount_left,
+            counter.amount_left,
+            await _sellable(session, constants, node, selling, floor),
+        )
+        if quantity <= 0:
+            continue
+        trades.append(
+            await _execute(
+                session, constants, catalog, order, counter, moment, quantity=quantity, floor=floor
+            )
+        )
 
     if order.amount_left <= 0:
         await _close(session, order, OrderState.FILLED, moment)
     return Fill(order=order, trades=tuple(trades))
 
 
-async def _counterparts(session: AsyncSession, order: Order) -> Sequence[Order]:
-    """Opposing orders acceptable by price, in fill order."""
+async def _sellable(
+    session: AsyncSession, constants: Constants, node: Node, sell_order: Order, floor: int
+) -> int:
+    """How much of a sell order's lot clears the buyer's floor (D-239).
+
+    The order says how much is committed, the stacks say how good it is: a
+    seller holding six poor ingots and four fine ones under one order hands a
+    buyer who wants no worse than 75 exactly four, and the rest of the order
+    waits for somebody less particular.
+
+    A floor at or below the tier's own start needs no counting at all -- every
+    stack in the tier clears it by definition -- and that is the ordinary case,
+    the one a tier button makes.
+    """
+    if floor <= tier_span(constants, sell_order.tier)[0]:
+        return sell_order.amount_left
+    #: A resting sell order always has a cell behind it: this is a read, and a
+    #: read does not create rows.
+    stock = await stall(session, node, sell_order.identity_id, create=False)
+    if stock is None:  # pragma: no cover -- a sell order without its cell is a bug
+        return 0
+    items = await _stacks(
+        session, stock, sell_order.type_key, sell_order.tier, constants, floor=floor
+    )
+    return min(sell_order.amount_left, sum(item.amount for item in items))
+
+
+async def _counterparts(
+    session: AsyncSession, constants: Constants, order: Order
+) -> Sequence[Order]:
+    """Opposing orders acceptable by price and reachable by quality, in fill order.
+
+    A buy reaches its own tier and every tier above it; a sell is reached by
+    every buy whose floor its tier can still satisfy (D-239). The stacks decide
+    the rest -- this only refuses to fetch what cannot possibly fit.
+    """
     other = OrderSide.SELL if order.side is OrderSide.BUY else OrderSide.BUY
+    if order.side is OrderSide.BUY:
+        floor = _floor_of(constants, order)
+        reachable = [step.name for step in constants[R.QUALITY_TIERS] if step.to >= floor]
+        quality_fits: ColumnElement[bool] = Order.tier.in_(reachable)
+    else:
+        quality_fits = _floor_sql(constants) <= tier_span(constants, order.tier)[1]
     stmt = select(Order).where(
         Order.node_id == order.node_id,
         Order.type_key == order.type_key,
-        Order.tier == order.tier,
+        quality_fits,
         Order.side == other,
         Order.state == OrderState.ACTIVE,
         Order.id != order.id,
@@ -908,9 +1177,16 @@ async def _execute(
     taker: Order,
     maker: Order,
     moment: datetime,
+    *,
+    quantity: int,
+    floor: int,
 ) -> Trade:
-    """One deal: goods to the buyer, money to the seller, tax to the city."""
-    quantity = min(taker.amount_left, maker.amount_left)
+    """One deal: goods to the buyer, money to the seller, tax to the city.
+
+    The tier of the deal is the **seller's**: a buy reaches above its own
+    window (D-239), and what changes hands is the lot that exists, not the
+    window the demand was written in.
+    """
     #: The price of the one resting in the book: they named the terms first.
     price = maker.price
     cost = _cost(price, quantity)
@@ -930,10 +1206,11 @@ async def _execute(
         session,
         seller_stall,
         buyer_stall,
-        taker.type_key,
+        sell_order.type_key,
         quantity,
-        tier=taker.tier,
+        tier=sell_order.tier,
         constants=constants,
+        floor=floor,
     )
     if moved < quantity:  # pragma: no cover -- the goods are held by the order
         raise NoGoods(key="market-goods-vanished-trade")
@@ -946,8 +1223,8 @@ async def _execute(
         node_id=node.id,
         buy_order_id=buy_order.id,
         sell_order_id=sell_order.id,
-        type_key=taker.type_key,
-        tier=taker.tier,
+        type_key=sell_order.type_key,
+        tier=sell_order.tier,
         price=price,
         amount=quantity,
         tax=tax,
@@ -957,8 +1234,6 @@ async def _execute(
 
     taker.amount_left -= quantity
     maker.amount_left -= quantity
-    if maker.amount_left <= 0:
-        await _close(session, maker, OrderState.FILLED, moment)
     await session.flush()
 
     event = await events.record(
@@ -967,8 +1242,8 @@ async def _execute(
         actor_identity_id=buy_order.identity_id,
         node_id=node.id,
         trade_id=str(trade.id),
-        type_key=taker.type_key,
-        tier=taker.tier,
+        type_key=sell_order.type_key,
+        tier=sell_order.tier,
         price=price,
         amount=amount_float(quantity),
         seller=str(sell_order.identity_id),
@@ -981,6 +1256,12 @@ async def _execute(
     await _release(
         session, buy_order, buy_order.escrowed - _cost(buy_order.price, buy_order.amount_left)
     )
+    #: The filled maker is closed **after** the money has moved, not before.
+    #: Closing a buy returns everything still frozen under it -- and the seller
+    #: is paid out of exactly that: closed first, the settlement finds an empty
+    #: escrow and a sell into a resting buy fails outright.
+    if maker.amount_left <= 0:
+        await _close(session, maker, OrderState.FILLED, moment)
     return trade
 
 
@@ -1134,8 +1415,15 @@ async def _stacks(
     type_key: str,
     tier: str | None,
     constants: Constants,
+    *,
+    floor: int = 0,
 ) -> list[Item]:
-    """Stacks of the needed goods, worst first: the good ones are saved."""
+    """Stacks of the needed goods, worst first: the good ones are saved.
+
+    `floor` drops what is worse than a buyer agreed to take (D-239). A thing
+    without quality at all -- energy, money -- has no way to clear a floor
+    above zero, and is dropped by the same rule rather than by a name in code.
+    """
     kind, recipe = split_key(type_key)
     stmt = select(Item).where(Item.container_id == container.id, Item.type_key == kind)
     if recipe is not None:
@@ -1157,9 +1445,17 @@ async def _stacks(
         .scalars()
         .all()
     )
-    if tier is None:
-        return list(rows)
-    return [item for item in rows if tier_of(constants, _quality(item)) == tier]
+    fitting = list(rows)
+    if tier is not None:
+        fitting = [item for item in fitting if tier_of(constants, _quality(item)) == tier]
+    if floor > 0:
+        good_enough = []
+        for item in fitting:
+            quality = _quality(item)
+            if quality is not None and quality >= floor:
+                good_enough.append(item)
+        fitting = good_enough
+    return fitting
 
 
 def _quality(item: Item) -> float | None:
@@ -1175,10 +1471,15 @@ async def _move(
     *,
     tier: str | None,
     constants: Constants,
+    floor: int = 0,
 ) -> int:
-    """Move goods from container to container, splitting stacks as needed."""
+    """Move goods from container to container, splitting stacks as needed.
+
+    `floor` is the buyer's quality floor (D-239): below it nothing is taken,
+    and above it the worst still goes first -- the seller keeps the better.
+    """
     left = quantity
-    for item in await _stacks(session, source, type_key, tier, constants):
+    for item in await _stacks(session, source, type_key, tier, constants, floor=floor):
         if left <= 0:
             break
         take = min(left, item.amount)
@@ -1219,27 +1520,115 @@ def _carrier() -> tuple[str, ...]:
     return craft.carrier_names()
 
 
+def _rung(side: OrderSide, step: int) -> ColumnElement[int]:
+    """The price a row stands at once glued to the step.
+
+    A bid rounds **down**, an ask rounds **up**: a row must never promise
+    better terms than the orders inside it. Name the row's price back to the
+    engine and it still crosses -- the buyer offers no less than the sellers
+    ask, the seller asks no more than the buyers offer. Rounding the other way
+    would draw a book that cannot be traded against.
+    """
+    if step <= 1:
+        return Order.price
+    #: Floor division, not `/`: on integer columns SQLAlchemy 2.0 renders `/`
+    #: as true division through NUMERIC, and every price then lands in a
+    #: bucket of its own -- the rows are not glued at all, silently.
+    if side is OrderSide.BUY:
+        return Order.price // step * step
+    return (Order.price + step - 1) // step * step
+
+
+def _in_window(constants: Constants, tier: str, side: OrderSide) -> ColumnElement[bool]:
+    """Whose orders the window of one tier shows.
+
+    Sellers stand in the tier of their lot. A buyer stands in every window
+    **any** lot of which would satisfy them (D-239): a buy that takes nothing
+    worse than 60 is real demand for "хорошее" and for everything above it,
+    and a seller of "отличное" must see it -- otherwise the window says
+    "empty" a moment before the deal happens. One order shown in several
+    windows is still one order and fills once.
+
+    A floor standing inside a band -- 75 within 60..79 -- is shown from the
+    next window up, not from its own. Its own window holds lots it would
+    refuse, and a bid drawn against asks it cannot take would cross them on
+    the screen and never trade: a spread stuck at zero, saying a deal is there
+    for the taking when there is none. Better to show that demand one window
+    later than to draw a book that cannot be read.
+    """
+    if side is OrderSide.SELL:
+        return Order.tier == tier
+    return _floor_sql(constants) <= tier_span(constants, tier)[0]
+
+
+async def _step_for(
+    session: AsyncSession, constants: Constants, node: Node, type_key: str, tier: str, *, depth: int
+) -> int:
+    """The finest step at which the whole book fits the depth.
+
+    Counted for every rung of the ladder at once, and for the two sides apart:
+    a step that fits the bids but not the asks fits neither. Asked before the
+    rows themselves, because the alternative -- read finely, glue afterwards --
+    glues what the depth already cut off and draws a book with a hole in it.
+    """
+    #: Counted by the very expression the rows are drawn with: bids round down
+    #: and asks round up, and the two do not always fall into the same number
+    #: of rows. Counting both by the bid's rule would pick a step that then
+    #: draws more ask rows than the depth shows -- a book with a hole in it,
+    #: cut by the very `limit` this is meant to keep clear of.
+    asked = [(step, side) for step in MARKET_BOOK_STEPS for side in (OrderSide.BUY, OrderSide.SELL)]
+    tallies = [
+        func.count(func.distinct(_rung(side, step))).filter(
+            Order.side == side, _in_window(constants, tier, side)
+        )
+        for step, side in asked
+    ]
+    counted = (
+        await session.execute(
+            select(*tallies).where(
+                Order.node_id == node.id,
+                Order.type_key == type_key,
+                Order.state == OrderState.ACTIVE,
+                or_(
+                    and_(Order.side == OrderSide.SELL, _in_window(constants, tier, OrderSide.SELL)),
+                    and_(Order.side == OrderSide.BUY, _in_window(constants, tier, OrderSide.BUY)),
+                ),
+            )
+        )
+    ).one()
+    fits: dict[int, bool] = {}
+    for (step, _side), rows in zip(asked, counted, strict=True):
+        fits[step] = fits.get(step, True) and int(rows or 0) <= depth
+    for step in MARKET_BOOK_STEPS:
+        if fits.get(step):
+            return step
+    return MARKET_BOOK_STEPS[-1]
+
+
 async def _levels(
     session: AsyncSession,
+    constants: Constants,
     node: Node,
     type_key: str,
     tier: str,
     side: OrderSide,
     *,
     depth: int,
+    step: int = 1,
 ) -> tuple[Level, ...]:
+    rung = _rung(side, step)
     stmt = (
-        select(Order.price, func.sum(Order.amount_left))
+        select(rung, func.sum(Order.amount_left))
         .where(
             Order.node_id == node.id,
             Order.type_key == type_key,
-            Order.tier == tier,
+            _in_window(constants, tier, side),
             Order.side == side,
             Order.state == OrderState.ACTIVE,
         )
-        .group_by(Order.price)
+        .group_by(rung)
         .limit(depth)
     )
-    stmt = stmt.order_by(Order.price.desc() if side is OrderSide.BUY else Order.price)
+    stmt = stmt.order_by(rung.desc() if side is OrderSide.BUY else rung)
     rows = await session.execute(stmt)
-    return tuple(Level(price=row[0], amount=amount_float(int(row[1]))) for row in rows)
+    return tuple(Level(price=int(row[0]), amount=amount_float(int(row[1]))) for row in rows)

@@ -61,3 +61,23 @@ export function catalogue(
   //: Ids out, Russian order: the list is picked from by its display words.
   return [...ids].sort((a, b) => order(goodsName(names, a), goodsName(names, b)));
 }
+
+/** One rung of the world's quality window, as `/public/quality/tiers` serves it. */
+export type QualityTier = { from: number; to: number; name: string };
+
+/**
+ * The floor a tier button means: the start of its band (D-239).
+ *
+ * A buy takes nothing worse than its floor, and pressing a tier says
+ * "no worse than its start" -- which is why the same button now also
+ * reaches the lots above it.
+ */
+export function floorOf(tiers: QualityTier[], name: string): number {
+  return Math.round(tiers.find((tier) => tier.name === name)?.from ?? 0);
+}
+
+/** Which tier a quality falls into: the last band that has started (D-058). */
+export function tierOf(tiers: QualityTier[], quality: number): string | null {
+  const started = [...tiers].sort((a, b) => a.from - b.from).filter((tier) => tier.from <= quality);
+  return started.length > 0 ? started[started.length - 1].name : (tiers[0]?.name ?? null);
+}

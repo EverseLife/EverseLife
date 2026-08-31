@@ -36,7 +36,8 @@ import { Refusal, useActions, useBook, useCompare, useNames, useSession } from "
 import { DropZone } from "../DragMove";
 import { grip, noDrag } from "../drag";
 import { GoodsMark } from "../Glyph";
-import { catalogue, coins, exactly } from "../market";
+import { catalogue, coins, exactly, floorOf, tierOf } from "../market";
+import type { QualityTier } from "../market";
 import { flavorText, goodsKeyName, goodsName, tierName, type Names } from "../names";
 import { t } from "../locale";
 
@@ -70,10 +71,28 @@ export function Market({ look }: Props) {
   const { busy, act } = acting;
 
   const [positions, setPositions] = useState<Position[]>([]);
+  //: Last deal per goods name in this node, minor units. Only deals get in --
+  //: a name nobody has traded shows no price at all (D-002).
+  const [prices, setPrices] = useState<Record<string, number>>({});
   const [choice, setChoice] = useState<Position | null>(null);
   const [orderBook, setOrderBook] = useState<Book | null>(null);
-  const [tiers, setTiers] = useState<string[]>([]);
+  const [tiers, setTiers] = useState<QualityTier[]>([]);
+  //: What the buyer will not go below (D-239). The tier button sets it to the
+  //: band's start -- that is what pressing "хорошее" has always meant -- and
+  //: the field lets the hand name any quality between the bands.
+  const [floor, setFloor] = useState(0);
+  //: Whether the floor in the field is the player's own. Until it is, it
+  //: follows the tier, the way the price follows the book.
+  const floorIsMine = useRef(false);
   const [query, setQuery] = useState("");
+  //: The price step the book is read at, minor units; null -- let the server
+  //: pick the finest that fits the depth. A choice made by hand is kept when
+  //: the position changes: whoever went looking for the fine structure of one
+  //: book is usually looking for it in the next.
+  const [step, setStep] = useState<number | null>(null);
+  //: The rungs the server accepts. A constant, read once with the tiers, not
+  //: carried back with every book (D-225).
+  const [steps, setSteps] = useState<number[]>([]);
   const [price, setPrice] = useState(3);
   const [volume, setVolume] = useState(1);
   //: Whether the price in the field is the player's own. Until it is, the
@@ -94,13 +113,17 @@ export function Market({ look }: Props) {
   useEffect(() => session.on("market.", () => setEdition((n) => n + 1)), [session]);
 
   useEffect(() => {
-    void api.tiers().then(({ tiers }) => setTiers(tiers.map((one) => one.name)));
+    void api.tiers().then((window) => {
+      setTiers(window.tiers);
+      setSteps(window.steps ?? []);
+    });
   }, []);
 
   useEffect(() => {
     if (!node) return;
-    void api.positions(node).then(({ positions }) => {
+    void api.positions(node).then(({ positions, prices }) => {
       setPositions(positions);
+      setPrices(prices ?? {});
       setChoice((previous) => previous ?? positions[0] ?? null);
     });
   }, [node, edition]);
@@ -115,7 +138,7 @@ export function Market({ look }: Props) {
     if (!node || !choice) return;
     let current = true;
     setOrderBook(null);
-    void api.book(node, choice.goods, choice.tier).then((answer) => {
+    void api.book(node, choice.goods, choice.tier, step).then((answer) => {
       if (!current) return;
       if (answer.type_key !== choice.goods || answer.tier !== choice.tier) return;
       setOrderBook(answer);
@@ -123,7 +146,16 @@ export function Market({ look }: Props) {
     return () => {
       current = false;
     };
-  }, [node, choice, edition]);
+  }, [node, choice, edition, step]);
+
+  //: The floor follows the tier until the hand names one of its own. Written
+  //: as an effect rather than inside the tier button, because the first
+  //: position is chosen by the panel itself -- and a floor left at zero there
+  //: would buy the worst tier under a button that names a better one.
+  useEffect(() => {
+    if (!choice || tiers.length === 0 || floorIsMine.current) return;
+    setFloor(floorOf(tiers, choice.tier));
+  }, [choice, tiers]);
 
   useEffect(() => {
     void session
@@ -212,6 +244,10 @@ export function Market({ look }: Props) {
     if (choice?.goods !== position.goods || choice?.tier !== position.tier) {
       priceIsMine.current = false;
     }
+    //: New goods are a new trade entirely, and a floor named by hand was
+    //: named for the goods it was named on. A tier switch within the same
+    //: goods leaves it alone.
+    if (position.goods !== choice?.goods) floorIsMine.current = false;
     setChoice(position);
   };
 
@@ -226,7 +262,7 @@ export function Market({ look }: Props) {
   const tierFor = (goods: string): string => {
     const here = near.filter((p) => p.goods === goods).map((p) => p.tier);
     if (choice && here.includes(choice.tier)) return choice.tier;
-    return here[0] ?? choice?.tier ?? tiers[2] ?? "common";
+    return here[0] ?? choice?.tier ?? tiers[2]?.name ?? "common";
   };
 
   /** A rung of the book becomes the price in the field: reading a number off
@@ -256,7 +292,12 @@ export function Market({ look }: Props) {
       session.send(side, {
         ...(side === "market.sell" ? { node: node } : {}),
         goods: choice!.goods,
-        tier: choice!.tier,
+        //: A seller offers the lot they have, and stands in its tier. A buyer
+        //: names a floor, and stands in the window that floor begins -- the
+        //: server refuses the two if they disagree, so they are derived here
+        //: from the one thing the hand set (D-239).
+        tier: side === "market.buy" ? (tierOf(tiers, floor) ?? choice!.tier) : choice!.tier,
+        ...(side === "market.buy" ? { min_quality: floor } : {}),
         price,
         amount: volume,
       }),
@@ -310,6 +351,11 @@ export function Market({ look }: Props) {
                     >
                       <GoodsMark book={book} goods={goods} />
                       {goodsKeyName(names, goods)}
+                      {/* What it last went for here. No deal -- no number:
+                          an invented price is the engine valuing goods. */}
+                      {prices[goods] != null && (
+                        <span className="note"> {api.tk(prices[goods])} ₭</span>
+                      )}
                     </button>
                   </li>
                 ))}
@@ -320,14 +366,14 @@ export function Market({ look }: Props) {
           {choice && tiers.length > 0 && (
             <div className="row tiers">
               <span className="note">{t("ui-market-quality")}</span>
-              {tiers.map((tier) => (
+              {tiers.map(({ name }) => (
                 <button
-                  key={tier}
-                  className={choice.tier === tier ? "" : "quiet"}
-                  aria-pressed={choice.tier === tier}
-                  onClick={() => pick({ goods: choice.goods, tier })}
+                  key={name}
+                  className={choice.tier === name ? "" : "quiet"}
+                  aria-pressed={choice.tier === name}
+                  onClick={() => pick({ goods: choice.goods, tier: name })}
                 >
-                  {tierName(names, tier)}
+                  {tierName(names, name)}
                 </button>
               ))}
             </div>
@@ -341,6 +387,34 @@ export function Market({ look }: Props) {
                 {t("ui-market-stock", { shelf: exactly(onShelf), hand: exactly(atHand) })}
               </span>
             </p>
+          )}
+
+          {/* Prices are written to the minor unit, and a book of rows a minor
+              unit apart is a wall. Rows are glued into a step: the server
+              picks the finest one that fits, and the hand can go finer. */}
+          {liveBook && steps.length > 0 && (
+            <div className="row tiers">
+              <span className="note">{t("ui-market-step")}</span>
+              <button
+                className={step === null ? "" : "quiet"}
+                aria-pressed={step === null}
+                onClick={() => setStep(null)}
+                title={t("ui-market-step-auto-title")}
+              >
+                {t("ui-market-step-auto")}
+                {step === null ? ` · ${coins(liveBook.step)}` : ""}
+              </button>
+              {steps.map((rung) => (
+                <button
+                  key={rung}
+                  className={step === rung ? "" : "quiet"}
+                  aria-pressed={step === rung}
+                  onClick={() => setStep(rung)}
+                >
+                  {coins(rung)}
+                </button>
+              ))}
+            </div>
           )}
 
           {liveBook && (liveBook.asks.length > 0 || liveBook.bids.length > 0) ? (
@@ -420,6 +494,22 @@ export function Market({ look }: Props) {
                 }}
               />
             </label>
+            {/* What the buyer will not go below (D-239). A lot better than
+                asked is no loss, so the floor reaches the tiers above it. */}
+            <label>
+              <span>{t("ui-market-floor")}</span>
+              <input
+                type="number"
+                step="1"
+                min={tiers[0]?.from ?? 0}
+                max={tiers[tiers.length - 1]?.to ?? 100}
+                value={floor}
+                onChange={(e) => {
+                  setFloor(Number(e.target.value));
+                  floorIsMine.current = true;
+                }}
+              />
+            </label>
             <label>
               <span>{t("ui-market-price-each")}</span>
               {/* Money steps by the coin's own hundredth; the field still takes
@@ -440,6 +530,14 @@ export function Market({ look }: Props) {
               {t("ui-market-total")} <b className="num">{coins(api.minor(price) * volume)} ₭</b>
               <span className="note"> · {t("ui-market-tax")}</span>
             </p>
+            {tiers.length > 0 && (
+              <p className="note">
+                {t("ui-market-floor-rule", {
+                  floor: tierName(names, tierOf(tiers, floor) ?? ""),
+                  tier: tierName(names, choice?.tier ?? ""),
+                })}
+              </p>
+            )}
             <div className="row">
               <button
                 onClick={() => deal("market.buy", api.minor(price))}

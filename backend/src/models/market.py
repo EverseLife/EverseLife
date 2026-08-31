@@ -15,6 +15,12 @@ lives on the server and is managed from anywhere, even another planet.
 Goods trade **by quality tiers** (D-058): "iron ore, good" is a separate
 position in the book. A continuous scale would make the book unreadable and
 kill liquidity: nobody buys a lot of quality 63 if 64 lies next to it.
+
+The buyer, though, names a **floor** rather than a band (D-239): "iron, no
+worse than 70" takes its own tier and every tier above it, and inside a tier
+only the stacks that clear the floor. The seller still lists a tier -- what
+they have is a lot, not a wish -- so the window stays five columns wide while
+demand gathers on thresholds instead of scattering across five books.
 """
 
 from __future__ import annotations
@@ -23,7 +29,7 @@ import uuid
 from datetime import datetime
 from enum import StrEnum
 
-from sqlalchemy import BigInteger, CheckConstraint, DateTime, ForeignKey, Index
+from sqlalchemy import BigInteger, CheckConstraint, DateTime, ForeignKey, Index, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.db.base import Base, created_column, enum_column, uuid_pk
@@ -102,9 +108,13 @@ class Order(Base):
     __table_args__ = (
         #: The book's working selection: node, goods, tier, side.
         Index("ix_market_order_book", "node_id", "type_key", "tier", "side", "state"),
+        #: Demand is not read by tier: a buy with a floor is a bid in every
+        #: tier that can satisfy it (D-239), so the tier drops out of the key.
+        Index("ix_market_order_demand", "node_id", "type_key", "side", "state"),
         Index("ix_market_order_owner", "identity_id", "state"),
         CheckConstraint("price > 0", name="price_positive"),
         CheckConstraint("amount_left >= 0", name="amount_left_non_negative"),
+        CheckConstraint("min_quality IS NULL OR min_quality >= 0", name="min_quality_non_negative"),
     )
 
     id: Mapped[uuid.UUID] = uuid_pk()
@@ -115,7 +125,14 @@ class Order(Base):
     side: Mapped[OrderSide] = enum_column(OrderSide, "order_side", nullable=False)
     type_key: Mapped[str] = mapped_column(nullable=False)
     #: Quality tier from `quality.tiers` -- a separate book position (D-058).
+    #: For a sell it is the tier of the lot; for a buy it is where the order
+    #: stands in the window, and what it will actually take is `min_quality`.
     tier: Mapped[str] = mapped_column(nullable=False)
+    #: The buyer's floor: nothing worse than this quality is taken (D-239).
+    #: Empty for a sell -- a seller offers a lot, not a demand. Empty, too, on
+    #: a buy written before the floor existed: its tier's own start is read as
+    #: the floor, which is exactly what its tier button meant.
+    min_quality: Mapped[int | None] = mapped_column(nullable=True)
 
     #: Price per unit of goods, minor units of money (`units.MONEY_SCALE`).
     price: Mapped[int] = mapped_column(BigInteger, nullable=False)
@@ -145,7 +162,21 @@ class Trade(Base):
     """
 
     __tablename__ = "market_trade"
-    __table_args__ = (Index("ix_market_trade_book", "node_id", "type_key", "tier", "at"),)
+    __table_args__ = (
+        Index("ix_market_trade_book", "node_id", "type_key", "tier", "at"),
+        #: The last deal per goods name, whatever its tier: the picker asks for
+        #: it on every market event in the node, and deals are never deleted --
+        #: without this the question sorts the node's whole trading history.
+        #: The id sorts alongside the clock because `at` is the transaction's
+        #: and one sweeping order stamps all its deals alike.
+        Index(
+            "ix_market_trade_last",
+            "node_id",
+            "type_key",
+            text("at DESC"),
+            text("id DESC"),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = uuid_pk()
     node_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("node.id"), nullable=False)

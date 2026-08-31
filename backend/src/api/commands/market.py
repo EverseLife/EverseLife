@@ -162,11 +162,16 @@ async def _market_sell(state: dict, db: AsyncSession, message: dict) -> dict:
 
 @command("market.buy")
 async def _market_buy(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Buy: a limit order from a present body.
+    """Buy: a limit order from a present body, at a quality floor.
 
     The node is deliberately not named -- you buy where you stand.
+
+    `min_quality` is what the buyer will not go below (D-239). Left out, the
+    tier is the floor -- its own start -- which is what the tier buttons have
+    always meant and what a client that knows nothing of floors still sends.
     """
     body = await _alive(state, db)
+    floor = message.get("min_quality")
     fill = await market.buy(
         db,
         current(),
@@ -176,6 +181,7 @@ async def _market_buy(state: dict, db: AsyncSession, message: dict) -> dict:
         tier=tier_key(message["tier"]),
         price=int(message["price"]),
         quantity=float(message["amount"]),
+        min_quality=None if floor is None else int(floor),
     )
     return _fill(fill)
 

@@ -29,6 +29,13 @@ market-volume-not-positive = the volume must be positive
 market-body-off-node = the body is outside the node
 market-order-off-node = the order is outside the node
 market-node-city-missing = node { $node } belongs to a city that does not exist
+market-no-such-tier = no such quality tier: “{ TIER($tier) }”
+market-floor-not-in-tier = quality { $floor } is the “{ TIER($floor_tier) }” tier, but the order names “{ TIER($tier) }”
+market-floor-off-scale = quality is a number from { $frm } to { $to }, not { $floor }
+market-no-such-goods = the world knows no such goods: “{ NAME($goods) }”
+market-goods-relic = “{ NAME($goods) }” is a Forerunner relic: nobody makes or carries those
+market-goods-liquid = “{ NAME($goods) }” is a liquid: it exists in a vessel and cannot lie on a counter
+market-no-such-recipe = the world knows no such recipe: “{ NAME($recipe) }”
 
 market-reserve-not-a-sale = goods are reserved, not a buy order
 market-order-not-active = this order is already { $state ->

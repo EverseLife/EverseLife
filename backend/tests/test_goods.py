@@ -166,7 +166,9 @@ async def test_the_book_takes_no_half_ingots(
             identity,
             node,
             type_key=INGOT,
-            tier="обычная",
+            #: Asked of the world rather than written by hand: the book takes
+            #: only its own tiers, and "обычная" was never one of them.
+            tier=market.tier_of(constants, 50),
             price=100,
             quantity=0.5,
         )
