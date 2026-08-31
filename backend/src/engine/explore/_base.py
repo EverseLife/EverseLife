@@ -35,15 +35,10 @@ FOREST = "forest"
 ROOM = ruins.ROOM
 GOALS = (LOT, SITE, VEIN, FOREST, ROOM)
 
-#: The goals in the player's own words, for a refusal that names what **is**
-#: possible here rather than only what is not.
-WORDS = {
-    LOT: "участок",
-    SITE: "новое место",
-    VEIN: "жилу",
-    FOREST: "лес",
-    ROOM: "помещения Предтеч",
-}
+#: A goal's own word is `explore-goal-<goal>` in the locale, not a map here.
+#: It used to be one: five Russian nouns in the accusative, welded to the one
+#: sentence that joined them, so no other language could say them and no other
+#: sentence could reuse them (D-251 wave V).
 
 #: The place property both the search and the felling operation look at.
 WOODS = "woods"

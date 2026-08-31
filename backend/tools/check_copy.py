@@ -6,8 +6,8 @@
 The twin of `frontend/scripts/check-copy.mjs`, and it works the other way
 round because the two halves are at different stages. The client is **clean**:
 every sentence it shows lives in `src/locales/*.ftl`, and the lint there fails
-on any Cyrillic outside them. The engine is not clean yet -- 294 string
-literals in 65 modules -- and a lint that fails on all of them could only be
+on any Cyrillic outside them. The engine is not clean yet -- 288 string
+literals in 64 modules -- and a lint that fails on all of them could only be
 turned off.
 
 So this one is a **ratchet**: every module that still writes Russian is listed
@@ -75,7 +75,7 @@ KNOWN: dict[str, int] = {
     "src/engine/city/succession.py": 3,
     "src/engine/coin.py": 1,
     "src/engine/craft/_internal.py": 1,
-    "src/engine/craft/batch.py": 2,
+    "src/engine/craft/batch.py": 1,
     "src/engine/craft/queue.py": 2,
     "src/engine/customs.py": 5,
     "src/engine/death.py": 4,
@@ -83,7 +83,6 @@ KNOWN: dict[str, int] = {
     "src/engine/estate/building.py": 1,
     "src/engine/estate/deed.py": 1,
     "src/engine/estate/price.py": 3,
-    "src/engine/explore/_base.py": 5,
     "src/engine/explore/run.py": 1,
     "src/engine/explore/site.py": 4,
     "src/engine/farm.py": 3,

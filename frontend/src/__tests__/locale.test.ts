@@ -32,7 +32,7 @@ import {
   type WordsBundle,
 } from "../locale";
 import { catalogue } from "../market";
-import type { NamesRu } from "../names";
+import type { Names } from "../names";
 
 /** A rename table with just enough in it for `NAME()` to have work to do. */
 const NAMES = {
@@ -48,7 +48,7 @@ const NAMES = {
   planets: { terra: "Терра", pyroxis: "Пироксис" },
   plants: { beans: "Бобы", spelt: "Полба" },
   virtual_stations: { hands: "Руки" },
-} as NamesRu;
+} as Names;
 
 /** The shapes the server's own FTL uses: plain, `$arg`, `NAME()`, a selector. */
 const FTL = `
@@ -71,7 +71,7 @@ time-left = ещё { $minutes } мин
 city-needs = для города не хватает: { $lacks }
 `;
 
-const words = (locale: string, ftl: string, names: NamesRu | null = NAMES) =>
+const words = (locale: string, ftl: string, names: Names | null = NAMES) =>
   new Words({ locale, locales: [locale], ftl }, names);
 
 const RU = words(DEFAULT_LOCALE, FTL);
@@ -323,10 +323,20 @@ describe("a language the client has no files for yet", () => {
   //: glob returns nothing and the **whole shell** renders as bare keys --
   //: neither English nor Russian, just `ui-summary-label` on the screen.
   it("falls back to the default language instead of going silent", () => {
-    learn(new Words({ locale: "en", locales: ["ru", "en"], ftl: "" }, NAMES));
-    expect(spoken().locale).toBe("en");
+    //: A language nobody has started -- not `en`, which now has its own files
+    //: and would pass this by translating rather than by falling back.
+    learn(new Words({ locale: "sv", locales: ["ru", "en", "sv"], ftl: "" }, NAMES));
+    expect(spoken().locale).toBe("sv");
     expect(spoken().has("ui-summary-label")).toBe(true);
     expect(t("ui-summary-label")).toBe("Что произошло");
+  });
+
+  it("prefers the language's own word where it has one", () => {
+    //: The other half of the same rule, and the reason the new language is
+    //: loaded first: `addResource` keeps the first definition it sees, so a
+    //: translated message must win over the untranslated one beneath it.
+    learn(new Words({ locale: "en", locales: ["ru", "en"], ftl: "" }, NAMES));
+    expect(t("ui-summary-label")).toBe("What happened");
   });
 
   it("does not load the fallback twice for the default language itself", () => {

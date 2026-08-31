@@ -37,7 +37,7 @@ import { DropZone } from "../DragMove";
 import { grip, noDrag } from "../drag";
 import { GoodsMark } from "../Glyph";
 import { catalogue, coins, exactly } from "../market";
-import { flavorText, goodsKeyName, goodsName, tierName, type NamesRu } from "../names";
+import { flavorText, goodsKeyName, goodsName, tierName, type Names } from "../names";
 import { t } from "../locale";
 
 //: The panel keeps its own waiting and its own refusal, so it takes neither.
@@ -612,7 +612,7 @@ function Shelf({
 }: {
   things: Thing[];
   book: RecipeBook | null;
-  names: NamesRu | null;
+  names: Names | null;
   choice: Position | null;
   mark: (p: Position) => void;
   take: (stack: Thing, amount: number) => void;

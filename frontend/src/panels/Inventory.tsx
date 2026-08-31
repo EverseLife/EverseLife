@@ -23,7 +23,7 @@ import { useEffect, useState } from "react";
 import type { RecipeBook } from "../api";
 import { stationsOf, type Look, type Thing } from "../api";
 import { Refusal, useActions, useBook, useNames, useSession } from "../actions";
-import { flavorText, goodsName, slotName, tierName, type NamesRu } from "../names";
+import { flavorText, goodsName, slotName, tierName, type Names } from "../names";
 import { t } from "../locale";
 import { Rule } from "../Rule";
 import { Amount } from "../Amount";
@@ -643,7 +643,7 @@ function sections(
   sort: Sorting,
   desc: boolean,
   book: RecipeBook | null,
-  names: NamesRu | null,
+  names: Names | null,
 ): { title: string | null; rows: Thing[]; summary: Summary }[] {
   const ordered = arrange(things, sort, desc, names);
   if (group === "none") return [{ title: null, rows: ordered, summary: summarize([]) }];
@@ -692,7 +692,7 @@ function positions(count: number): string {
 }
 
 /** The one line that says what kind of thing this is. */
-function tells(thing: Thing, names: NamesRu | null): string {
+function tells(thing: Thing, names: Names | null): string {
   const parts: string[] = [];
   if (thing.fineness != null) {
     parts.push(t("ui-inventory-fineness", { fineness: String(thing.fineness) }));

@@ -39,7 +39,7 @@ import {
   type FluentVariable,
 } from "@fluent/bundle";
 
-import type { NamesRu } from "./names";
+import type { Names } from "./names";
 
 /**
  * The language spoken until the server says otherwise, and the one every
@@ -67,7 +67,7 @@ export type WordsBundle = {
  * them wrong and never say so. That is also why there is a function per
  * namespace instead of a single `NAME`.
  */
-const NAME_DOMAINS: Record<string, readonly (keyof NamesRu)[]> = {
+const NAME_DOMAINS: Record<string, readonly (keyof Names)[]> = {
   NAME: ["goods", "virtual_stations", "classes", "operations", "node_properties"],
   KIND: ["building_kinds"],
   PLANET: ["planets"],
@@ -113,7 +113,7 @@ function idOf(value: FluentValue | undefined): string {
 }
 
 /** The whole family of id-to-word functions, bound to one language's names. */
-function messageFunctions(names: NamesRu | null): Record<string, FluentFunction> {
+function messageFunctions(names: Names | null): Record<string, FluentFunction> {
   /** One id to one word, through the domains that function looks in. */
   const wordFor = (fn: string) => (id: string) => {
     for (const domain of NAME_DOMAINS[fn] ?? NAME_DOMAINS.NAME) {
@@ -203,7 +203,7 @@ export class Words {
   readonly named: boolean;
   private readonly bundle: FluentBundle;
 
-  constructor(answer: WordsBundle, names: NamesRu | null) {
+  constructor(answer: WordsBundle, names: Names | null) {
     this.locale = answer.locale || DEFAULT_LOCALE;
     //: A server that answered with nothing still leaves the player one
     //: language to be in: their own.
@@ -419,7 +419,7 @@ function quoted(args?: Record<string, unknown> | null): Record<string, unknown> 
  * language, every `t` falls back to its key, and the rest of the client, which
  * is still full of Russian written in place until wave IV, reads as before.
  */
-export async function loadWords(locale: string, names: NamesRu | null): Promise<Words> {
+export async function loadWords(locale: string, names: Names | null): Promise<Words> {
   const asked = locale || DEFAULT_LOCALE;
   try {
     //: Deferred on purpose, and the only such import here. Two reasons, and

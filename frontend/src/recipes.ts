@@ -3,7 +3,7 @@
 
 import type { RecipeBook } from "./api";
 import { compare } from "./locale";
-import { goodsName, type NamesRu } from "./names";
+import { goodsName, type Names } from "./names";
 
 /**
  * Reading the vault catalog on the client side.
@@ -41,7 +41,7 @@ export function craftableAt(
   book: RecipeBook | null,
   machine: string | null,
   knows: string[],
-  names: NamesRu | null = null,
+  names: Names | null = null,
 ): string[] {
   if (!book) return [];
 

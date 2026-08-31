@@ -151,7 +151,11 @@ async def start(
             constants,
             body,
             forecast.energy,
-            what=f"партия «{forecast.output}»",
+            #: The id, not a sentence about it. This used to hand over
+            #: `f"партия «{output}»"` -- a Russian literal built in Python and
+            #: interpolated into every language, with a raw D-251 key inside
+            #: it, so an English player read «партия «iron_ingot»» (D-251).
+            goods=forecast.output,
             now=moment,
         )
 

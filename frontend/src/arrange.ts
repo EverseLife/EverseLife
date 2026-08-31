@@ -13,7 +13,7 @@
 import type { Thing } from "./api";
 import type { RecipeBook } from "./api";
 import { compare, t } from "./locale";
-import { goodsName, tierName, type NamesRu } from "./names";
+import { goodsName, tierName, type Names } from "./names";
 
 export type Grouping = "none" | "goods" | "tier" | "kind" | "maker";
 export type Sorting = "name" | "quality" | "amount" | "mass" | "condition" | "spoils";
@@ -73,7 +73,7 @@ export function kindOf(book: RecipeBook | null, thing: Thing): string {
  *  group's title, so it is spelled in the player's words, not in ids. */
 export function groupKey(
   book: RecipeBook | null,
-  names: NamesRu | null,
+  names: Names | null,
   thing: Thing,
   by: Grouping,
 ): string {
@@ -104,7 +104,7 @@ export function arrange(
   things: Thing[],
   by: Sorting,
   desc: boolean,
-  names: NamesRu | null = null,
+  names: Names | null = null,
 ): Thing[] {
   const sign = desc ? -1 : 1;
   //: `thing`, not `t`: the name `t` belongs to the message lookup now.
@@ -182,7 +182,7 @@ export function orderGroups(
   keys: string[],
   by: Grouping,
   things: Thing[],
-  names: NamesRu | null = null,
+  names: Names | null = null,
 ): string[] {
   if (by === "tier") {
     const best = new Map<string, number>();

@@ -26,7 +26,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { Session } from "../api";
 import { useNames } from "../actions";
 import { Deadline } from "../Deadline";
-import { goodsName, type NamesRu } from "../names";
+import { goodsName, type Names } from "../names";
 import { Rule } from "../Rule";
 import { when } from "../clock";
 import { eventKey, t } from "../locale";
@@ -125,7 +125,7 @@ const CALLED: Record<Needs["kind"], string> = {
 
 /** Journal kinds in words. The player reads what happened, not an enum. */
 /** The one detail worth showing beside the line, if the payload has one. */
-function detail(row: Happened, names: NamesRu | null): string | null {
+function detail(row: Happened, names: Names | null): string | null {
   const p = row.payload ?? {};
   //: The first four keys carry goods ids (D-251) and go through the names;
   //: a node, a law or a person is already a word.

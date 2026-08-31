@@ -133,8 +133,8 @@ energy-no-station = здесь нет станции, которой нужно 
 energy-wrong-fuel = «{ NAME($goods) }» не горит в «{ NAME($station) }»: годится { NAMES($fuel) }
 energy-fuel-from-hands = топливо грузят из рук
 energy-nothing-to-load = грузить нечего
-energy-no-grid = { $what } требует энергии, а городской сети здесь нет: вне города работают от аккумулятора
-energy-pool-short = { $what } требует { NUMBER($need, minimumFractionDigits: 0, maximumFractionDigits: 0) } энергии, а в пуле { NUMBER($have, minimumFractionDigits: 0, maximumFractionDigits: 0) }: город без топлива стоит
+energy-no-grid = партия «{ NAME($goods) }» требует энергии, а городской сети здесь нет: вне города работают от аккумулятора
+energy-pool-short = партия «{ NAME($goods) }» требует { NUMBER($need, minimumFractionDigits: 0, maximumFractionDigits: 0) } энергии, а в пуле { NUMBER($have, minimumFractionDigits: 0, maximumFractionDigits: 0) }: город без топлива стоит
 
 # --- аккумуляторы (engine/battery.py) ----------------------------------------
 
@@ -155,7 +155,11 @@ mining-no-strength = на удар нужно { NUMBER($need, minimumFractionDig
 mining-session-open = у тела уже открыта сессия: в двух забоях сразу не бьют
 mining-no-timber = нет шахтной крепи
 mining-session-without-body = сессия без тела
-mining-session-closed = сессия { $session } закрыта: { $state }
+mining-session-closed = сессия { $session } закрыта: { $state ->
+        [left] из забоя вышли
+        [collapsed] свод обрушился
+       *[active] забой ещё в работе
+    }
 mining-session-dangling = сессия ссылается в никуда
 # $names — список ключей: разбирает NAMES().
 mining-no-tool = для добычи нужен инструмент класса «{ NAME($tool_class) }» ({ NAMES($names) }), а в руках его нет
@@ -204,6 +208,14 @@ explore-no-such-ore = такой породы в этом мире не добы
 explore-body-off-node = разведка идёт из узла, а тело стоит в никуда
 explore-not-from-aboard = с борта не разведывают: под кораблём земли нет. Сойдите в порту и идите от него
 explore-lot-only-in-city = участок ищут в городе: за стенами городской застройки нет
+# Что здесь можно искать: каждая цель называет своё слово, а склеивает их
+# язык (`inner`). Раньше это была карта из пяти русских существительных в
+# винительном падеже, приваренных к одной этой фразе.
+explore-goal-lot = участок
+explore-goal-site = новое место
+explore-goal-vein = жилу
+explore-goal-forest = лес
+explore-goal-room = помещения Предтеч
 explore-wrong-goal-here = отсюда так не ищут: здесь ищут { $offers ->
         [none] ничего
        *[some] { $words }

@@ -20,7 +20,7 @@ import {
   goodsKeyName,
   goodsName,
   tierName,
-  type NamesRu,
+  type Names,
 } from "../names";
 import { stockOf, tierLabel, tiersOf } from "../tiers";
 
@@ -328,7 +328,7 @@ describe("names", () => {
     goods: { iron_ore: "Железная руда", soup: "Суп", beans: "Бобы", recorded_recipe: "Рецепт" },
     tiers: { fine: "отличное" },
     virtual_stations: { by_hand: "Руками" },
-  } as unknown as NamesRu;
+  } as unknown as Names;
 
   it("says an id in the player's words and passes the unknown through", () => {
     expect(goodsName(table, "iron_ore")).toBe("Железная руда");

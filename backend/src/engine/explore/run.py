@@ -24,6 +24,7 @@ from src.constants import registry as R
 from src.engine import city as town
 from src.engine import craft, events, food, frost, luck, occupation, ruins, transport, travel, world
 from src.engine import ship as vessels
+from src.engine.errors import Says
 from src.engine.explore import odds as forecast
 from src.engine.explore import site
 from src.engine.explore._base import (
@@ -33,7 +34,6 @@ from src.engine.explore._base import (
     ROOM,
     SITE,
     VEIN,
-    WORDS,
     AlreadyOut,
     ExploreError,
     NotOut,
@@ -127,7 +127,10 @@ async def survey(
         raise ExploreError(
             key="explore-wrong-goal-here",
             offers="some" if offers else "none",
-            words=", ".join(WORDS.get(one, one) for one in offers),
+            #: Each goal names its own message and the edge says them, joined
+            #: by the separator of whoever is reading. Joining words here is
+            #: what made this refusal untranslatable.
+            inner={"words": [Says(f"explore-goal-{one}") for one in sorted(offers)]},
         )
     ruined = await ruins.city_of(session, origin)
     if goal == ROOM and ruined is not None and ruins.exhausted(constants, ruined):

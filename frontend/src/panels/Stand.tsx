@@ -35,7 +35,7 @@
 import { useState, type ReactNode } from "react";
 import { useBook, useNames } from "../actions";
 import { t } from "../locale";
-import { className, goodsName, propertyName, type NamesRu } from "../names";
+import { className, goodsName, propertyName, type Names } from "../names";
 import * as api from "../api";
 import type { Look, RecipeBook } from "../api";
 import { Deadline } from "../Deadline";
@@ -216,7 +216,7 @@ export function Stand({ look, values, pow }: Props) {
 function assemble(
   { look, values, pow }: Props,
   book: RecipeBook | null,
-  names: NamesRu | null,
+  names: Names | null,
 ): Thing[] {
   const things: Thing[] = [];
   //: With the names: the tiles are laid out for the player, and within one

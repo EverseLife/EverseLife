@@ -544,7 +544,7 @@ async def draw_for_work(
     body: Body,
     energy_needed: float,
     *,
-    what: str,
+    goods: str,
     now: datetime | None = None,
 ) -> int:
     """Release energy from the pool for work and issue a bill at the tariff.
@@ -566,12 +566,12 @@ async def draw_for_work(
         raise EnergyError(key="energy-body-off-node")
     pool = await pool_of(session, constants, node, lock=True)
     if pool is None:
-        raise NoGrid(key="energy-no-grid", what=what)
+        raise NoGrid(key="energy-no-grid", goods=goods)
     await produce(session, constants, pool, now=moment)
 
     if float(pool.stored) < energy_needed:
         raise NotEnough(
-            key="energy-pool-short", what=what, need=energy_needed, have=float(pool.stored)
+            key="energy-pool-short", goods=goods, need=energy_needed, have=float(pool.stored)
         )
 
     price = money(energy_needed / ENERGY_PER_TARIFF_UNIT * float(pool.tariff))
@@ -584,7 +584,7 @@ async def draw_for_work(
             debit=account.id,
             credit=treasury.id,
             amount=price,
-            memo={"энергии": energy_needed, "за": what, "тариф": float(pool.tariff)},
+            memo={"энергии": energy_needed, "за": goods, "тариф": float(pool.tariff)},
         )
 
     pool.stored = Decimal(str(float(pool.stored) - energy_needed))
@@ -596,7 +596,7 @@ async def draw_for_work(
         node_id=body.node_id,
         energy=energy_needed,
         paid=price,
-        work=what,
+        work=goods,
     )
     return price
 

@@ -101,7 +101,7 @@ def _derived_keys() -> set[str]:
     rather than showing a player `doing-whatever`.
     """
     from src.api.commands.world import TOLD, TOLD_OF_THE_PLACE
-    from src.engine import occupation
+    from src.engine import explore, occupation
     from src.engine.city import polity
     from src.herald import chronicle
     from src.models.ledger import AccountKind, PostingReason
@@ -125,6 +125,10 @@ def _derived_keys() -> set[str]:
         #: the call site, so the scan cannot see them -- read from the module's
         #: own constants, which is what makes a rename follow.
         | {chronicle.UNKNOWN, chronicle.NOWHERE}
+        #: What a search may look for. The word used to be a Russian noun in a
+        #: map beside the goal; now the goal names a message, and a goal added
+        #: without one would leave the refusal naming a key.
+        | {f"explore-goal-{goal}" for goal in explore.GOALS}
     )
 
 
@@ -450,12 +454,21 @@ def test_every_member_of_an_enum_gets_its_own_variant(words: i18n.Words) -> None
     from fluent.syntax import ast as ftl
 
     from src.models.farm import PlotState
+    from src.models.market import OrderState, ReservationState
+    from src.models.mining import SessionState
     from src.models.vote import VoteKind
 
     bound = (
         ("attention-vote-kind", "kind", VoteKind),
         ("chronicle-vote-closed", "kind", VoteKind),
         ("farm-not-fallow", "state", PlotState),
+        #: Four more that used to print the enum's own value at the player --
+        #: «заявка уже cancelled», «сессия закрыта: collapsed». English read
+        #: acceptably by accident, which is exactly what would have hidden it.
+        ("market-order-not-active", "state", OrderState),
+        ("market-order-already", "state", OrderState),
+        ("market-reservation-not-held", "state", ReservationState),
+        ("mining-session-closed", "state", SessionState),
     )
     resource = FluentParser().parse(words.source(i18n.DEFAULT_LOCALE))
     messages = {

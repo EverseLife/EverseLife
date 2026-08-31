@@ -40,7 +40,7 @@ log = logging.getLogger(__name__)
 DEFAULT_LOCALE = "ru"
 
 #: What a session may ask for. A language appears here when its files do.
-LOCALES: tuple[str, ...] = ("ru",)
+LOCALES: tuple[str, ...] = ("ru", "en")
 
 
 class MissingMessage(Exception):

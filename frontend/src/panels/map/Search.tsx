@@ -7,7 +7,7 @@ import { Deadline } from "../../Deadline";
 import { Hint } from "../../Hint";
 import { useNames, useSession } from "../../actions";
 import { t } from "../../locale";
-import { goodsName, type NamesRu } from "../../names";
+import { goodsName, type Names } from "../../names";
 import { LAYERS, type LayerId } from "./model";
 import { long, price, spread } from "./words";
 
@@ -262,7 +262,7 @@ export function Search({
 }
 
 /** What a run from here will cost (D-156). */
-function Forecast({ forecast, names }: { forecast: Outlook; names: NamesRu | null }) {
+function Forecast({ forecast, names }: { forecast: Outlook; names: Names | null }) {
   const { min, max } = forecast.minutes;
   const term = min === max ? long(min) : spread(min, max);
   //: The chance may be a fraction of a percent -- rounding to an integer would

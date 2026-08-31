@@ -13,7 +13,7 @@
 
 import type { RecipeBook, Thing } from "./api";
 import { t } from "./locale";
-import { goodsName, type NamesRu } from "./names";
+import { goodsName, type Names } from "./names";
 
 /** The value of `holds` that makes a storage a vessel (the property id, D-251). */
 const LIQUID = "liquid";
@@ -36,7 +36,7 @@ export function capacityOf(book: RecipeBook | null, goods: string): number {
 }
 
 /** What is poured into a vessel, in words: "Вода 12.0 · 2.4 из 20 кг". */
-export function fill(book: RecipeBook | null, names: NamesRu | null, thing: Thing): string {
+export function fill(book: RecipeBook | null, names: Names | null, thing: Thing): string {
   const inside = thing.content ?? [];
   //: `poured`, not `t`: the name `t` is the message lookup.
   const mass = inside.reduce((sum, poured) => sum + poured.mass * poured.amount, 0);

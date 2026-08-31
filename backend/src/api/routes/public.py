@@ -70,15 +70,18 @@ async def words(locale: str) -> dict[str, Any]:
 
 @router.get("/renames")
 async def renames() -> dict[str, Any]:
-    """The D-251 key tables and their Russian names.
+    """The D-251 key tables and the name of every thing, in every language.
 
-    The wire and the catalog speak ids; until the locale layer of wave III
-    the client (and the agents) read the Russian spellings from `names_ru`
-    here -- catalog constants belong in /public, not in `look` (D-225).
+    The wire and the catalog speak ids; the words live here, because catalog
+    constants belong in /public rather than in `look` (D-225). Every language
+    is served at once and the client picks: the table is small, it changes
+    only when the vault does, and a language switch that had to go back to the
+    server for words would be a visible stutter for no reason.
     """
     table = current_renames()
     return {
         "names_ru": table.names_ru,
+        "names_en": table.names_en,
     }
 
 

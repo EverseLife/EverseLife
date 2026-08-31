@@ -17,7 +17,7 @@
  */
 
 /** The `names_ru` half of `/public/renames`: id -> Russian, per domain. */
-export type NamesRu = {
+export type Names = {
   goods: Record<string, string>;
   classes: Record<string, string>;
   operations: Record<string, string>;
@@ -32,41 +32,60 @@ export type NamesRu = {
   virtual_stations: Record<string, string>;
 };
 
-/** What `/public/renames` answers with. */
-export type Renames = { names_ru: NamesRu };
+/**
+ * What `/public/renames` answers with: one table per language.
+ *
+ * Every language at once, because the table is small, changes only when the
+ * vault does, and a switch that had to go back to the server for words would
+ * be a visible stutter for nothing.
+ */
+export type Renames = Record<`names_${string}`, Names | undefined>;
+
+/**
+ * The names of one language, or the default one where it has none.
+ *
+ * The vault refuses to build an incomplete overlay, so a half-translated
+ * language cannot reach here -- but a language nobody has started can, and it
+ * reads in Russian. That is the honest degradation: «Железная руда» to an
+ * English reader is an untranslated name, while `iron_ore` in the middle of an
+ * English sentence is a broken sentence.
+ */
+export function namesOf(renames: Renames | null, locale: string): Names | null {
+  return renames?.[`names_${locale}`] ?? renames?.names_ru ?? null;
+}
 
 /** A goods (or recipe output, or virtual station) id in the player's words. */
-export function goodsName(names: NamesRu | null, id: string): string {
+export function goodsName(names: Names | null, id: string): string {
   return names?.goods?.[id] ?? names?.virtual_stations?.[id] ?? id;
 }
 
 /** A thing-class id ("pickaxe", "terminal") in the player's words. */
-export function className(names: NamesRu | null, id: string): string {
+export function className(names: Names | null, id: string): string {
   return names?.classes?.[id] ?? id;
 }
 
 /** A quality tier id ("fine") in the player's words ("отличное"). */
-export function tierName(names: NamesRu | null, id: string): string {
+export function tierName(names: Names | null, id: string): string {
   return names?.tiers?.[id] ?? id;
 }
 
 /** A gear slot id ("back") in the player's words ("спина"). */
-export function slotName(names: NamesRu | null, id: string): string {
+export function slotName(names: Names | null, id: string): string {
   return names?.slots?.[id] ?? id;
 }
 
 /** A node property id ("woods", "aboard") in the player's words. */
-export function propertyName(names: NamesRu | null, id: string): string {
+export function propertyName(names: Names | null, id: string): string {
   return names?.node_properties?.[id] ?? id;
 }
 
 /** A building kind id ("wooden") in the player's words ("деревянный"). */
-export function buildingKindName(names: NamesRu | null, id: string): string {
+export function buildingKindName(names: Names | null, id: string): string {
   return names?.building_kinds?.[id] ?? id;
 }
 
 /** An operation id ("logging") in the player's words ("Рубка дерева"). */
-export function operationName(names: NamesRu | null, id: string): string {
+export function operationName(names: Names | null, id: string): string {
   return names?.operations?.[id] ?? id;
 }
 
@@ -74,7 +93,7 @@ export function operationName(names: NamesRu | null, id: string): string {
  * An operation requirement is either a thing class or a concrete goods
  * (the vault closes it with whichever fits), so the name is looked up in both.
  */
-export function requirementName(names: NamesRu | null, id: string): string {
+export function requirementName(names: Names | null, id: string): string {
   return names?.classes?.[id] ?? goodsName(names, id);
 }
 
@@ -86,7 +105,7 @@ const KEY_SEP = ": ";
  * "recorded_recipe: glass" -- both halves are ids and both are translated;
  * everything else is a plain goods id.
  */
-export function goodsKeyName(names: NamesRu | null, key: string): string {
+export function goodsKeyName(names: Names | null, key: string): string {
   const at = key.indexOf(KEY_SEP);
   if (at > 0) {
     const head = key.slice(0, at);
@@ -107,7 +126,7 @@ const FLAVOR_SEP = " · ";
  * A dish flavor for the player: each id token via the names, unknown tokens --
  * old stored Russian flavors included -- verbatim.
  */
-export function flavorText(names: NamesRu | null, flavor: string): string {
+export function flavorText(names: Names | null, flavor: string): string {
   return flavor
     .split(FLAVOR_SEP)
     .map((token) => goodsName(names, token))

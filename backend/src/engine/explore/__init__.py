@@ -121,7 +121,6 @@ from src.engine.explore._base import (  # noqa: F401
     VEIN,
     WILD,
     WOODS,
-    WORDS,
     AlreadyOut,
     ExploreError,
     NotOut,

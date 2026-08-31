@@ -25,7 +25,7 @@
 //: not know the production domain and suits anyone, and the socket gets
 //: `wss://` without separate configuration.
 import { compare, refusalText, t, type WordsBundle } from "./locale";
-import type { NamesRu, Renames } from "./names";
+import type { Names, Renames } from "./names";
 
 const HTTP =
   import.meta.env.VITE_API ??
@@ -1651,7 +1651,7 @@ export function houseOf(node: Look["node"]): Required<
  */
 export function stationsOf(
   look: Pick<Look, "bench" | "furniture">,
-  names?: NamesRu | null,
+  names?: Names | null,
 ): string[] {
   const kinds = new Set<string>();
   for (const thing of [...(look.bench ?? []), ...(look.furniture ?? [])]) kinds.add(thing.goods);

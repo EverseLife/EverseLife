@@ -17,7 +17,7 @@ import type { Look, Thing } from "../api";
 import { tally } from "../amounts";
 import { Rule } from "../Rule";
 import { Refusal, useActions, useBook, useNames, useSession } from "../actions";
-import { goodsName, type NamesRu } from "../names";
+import { goodsName, type Names } from "../names";
 import { t } from "../locale";
 import { TierPick } from "../Tier";
 
@@ -209,7 +209,7 @@ function Row({
   thing: Thing;
   busy: boolean;
   melt: (qty: number) => void;
-  names: NamesRu | null;
+  names: Names | null;
 }) {
   return (
     <tr>

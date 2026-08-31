@@ -6,7 +6,7 @@
 
 import type { Thing } from "./api";
 import { t } from "./locale";
-import { tierName, type NamesRu } from "./names";
+import { tierName, type Names } from "./names";
 
 /** One tier of a thing in the hands: the name and how much of it there is. */
 export type TierStock = { tier: string; amount: number; low: number; high: number };
@@ -68,7 +68,7 @@ export function tiersOf(things: Thing[], goods: string): TierStock[] {
 
 /** How the label reads: the tier in the player's words, the amount and the
  *  quality span behind it. `stock.tier` itself stays the wire's id (D-251). */
-export function tierLabel(stock: TierStock, names: NamesRu | null = null): string {
+export function tierLabel(stock: TierStock, names: Names | null = null): string {
   const span =
     stock.low === stock.high ? `${stock.low.toFixed(0)}` : `${stock.low.toFixed(0)}–${stock.high.toFixed(0)}`;
   //: The numbers go in as strings: Fluent formats a real number through Intl

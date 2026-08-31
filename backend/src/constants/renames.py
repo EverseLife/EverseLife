@@ -40,7 +40,23 @@ class RenameTable(BaseModel):
     #: and its produce are different things with different names.
     plants: dict[str, str] = Field(default_factory=dict)
     virtual_stations: dict[str, str] = Field(default_factory=dict)
+    #: Имя каждой вещи по языкам: домен -> id -> слово. Русский выведен
+    #: обращением карт выше (вольт пишется по-русски и id выведен из имени);
+    #: остальные приходят оверлеем по id (`data/locales/<язык>.yaml`).
     names_ru: dict[str, dict[str, str]] = Field(default_factory=dict)
+    names_en: dict[str, dict[str, str]] = Field(default_factory=dict)
+
+    def named(self, locale: str) -> dict[str, dict[str, str]]:
+        """The names of this language, falling back to the vault's own.
+
+        A language the vault has no overlay for reads in Russian. That is the
+        honest degradation and not a hole to be filled later: «Железная руда»
+        to an English reader is an untranslated name, while `iron_ore` in the
+        middle of an English sentence is a broken sentence. The vault's build
+        refuses an incomplete overlay outright (`check_locales`), so the
+        fallback is reached only by a language nobody has started.
+        """
+        return getattr(self, f"names_{locale}", None) or self.names_ru
 
     def goods_id(self, name: str) -> str:
         """Id of a thing by any of its spellings: id, Russian name, virtual
@@ -120,7 +136,7 @@ def display_name(key: str, locale: str = "ru", domain: str = "NAME") -> str:
     An id with no word is returned as it is -- a missing name must not swallow
     the refusal it was carrying.
     """
-    table = RENAMES_HOLDER.current().names_ru
+    table = RENAMES_HOLDER.current().named(locale)
     for area in NAME_DOMAINS.get(domain, NAME_DOMAINS["NAME"]):
         found = table.get(area, {}).get(key)
         if found:

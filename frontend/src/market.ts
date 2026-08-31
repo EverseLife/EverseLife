@@ -13,7 +13,7 @@
 import type { RecipeBook } from "./api";
 import { compare, type Compare } from "./locale";
 import { MONEY_SCALE } from "./money";
-import { goodsName, type NamesRu } from "./names";
+import { goodsName, type Names } from "./names";
 
 /**
  * A sum of money, to the last minor unit.
@@ -44,7 +44,7 @@ export function exactly(qty: number): string {
  */
 export function catalogue(
   book: RecipeBook | null,
-  names: NamesRu | null = null,
+  names: Names | null = null,
   order: Compare = compare,
 ): string[] {
   if (!book) return [];

@@ -27,3 +27,7 @@ landing/.og-fonts/
 # (`.claude/worktrees/<name>/`). Whole trees, and `git add -A` would try to
 # take one in. The tracked `.claude/` beside them -- agents, skills -- stays.
 **/.claude/worktrees/
+
+# Node's own cache, wherever a tool was run from. `frontend/.gitignore` covers
+# the real one; a `npx` from the repository root leaves an empty husk here.
+node_modules/

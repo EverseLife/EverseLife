@@ -185,7 +185,7 @@ async def test_the_reactor_pays_for_its_own_heat_and_gives_nothing_away(
             constants,
             await _dweller(session, hall),
             constants[R.FROST_PLANT_DRAW],
-            what="проверка",
+            goods="iron_ore",
         )
 
 

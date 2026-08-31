@@ -35,7 +35,7 @@ import {
 
 import type { RecipeBook, Session } from "./api";
 import { collatorFor, DEFAULT_LOCALE, t, type Compare } from "./locale";
-import type { NamesRu } from "./names";
+import type { Names } from "./names";
 
 /**
  * The language the world is read in, and the way to change it (D-251 wave III).
@@ -69,7 +69,7 @@ const Refresh = createContext<() => Promise<void>>(async () => {});
 //: (review 2026-08-23).
 const SessionContext = createContext<Session | null>(null);
 const BookContext = createContext<RecipeBook | null>(null);
-const NamesContext = createContext<NamesRu | null>(null);
+const NamesContext = createContext<Names | null>(null);
 
 export function ActionsProvider({
   refresh,
@@ -82,7 +82,7 @@ export function ActionsProvider({
   refresh: () => Promise<void>;
   session: Session;
   book: RecipeBook | null;
-  names: NamesRu | null;
+  names: Names | null;
   locale: LocaleState;
   children: ReactNode;
 }) {
@@ -112,7 +112,7 @@ export function useBook(): RecipeBook | null {
 }
 
 /** Display names for the wire's ids (D-251), loaded once at login. */
-export function useNames(): NamesRu | null {
+export function useNames(): Names | null {
   return useContext(NamesContext);
 }
 

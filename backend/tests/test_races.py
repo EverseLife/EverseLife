@@ -498,7 +498,7 @@ async def test_two_draws_of_the_same_energy_leave_one_refused(
         async with factory() as db, db.begin():
             body = await db.get(Body, body_id)
             assert body is not None
-            await energy.draw_for_work(db, constants, body, stored, what="проверка")
+            await energy.draw_for_work(db, constants, body, stored, goods="iron_ore")
 
     outcomes = await asyncio.gather(*(draw(one) for one in bodies), return_exceptions=True)
     refused = [one for one in outcomes if isinstance(one, energy.NotEnough)]

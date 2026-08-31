@@ -52,7 +52,7 @@ import { wearPlanet } from "./theme";
 import { useNarrow } from "./narrow";
 import { ActionsProvider, type LocaleState } from "./actions";
 import { DEFAULT_LOCALE, forget, learn, loadWords, t, type Words } from "./locale";
-import type { NamesRu } from "./names";
+import { namesOf, type Names, type Renames } from "./names";
 import { onSidebarTab } from "./hud";
 import { onProfile, onThread } from "./people";
 
@@ -107,10 +107,13 @@ export default function App() {
   //: The vault catalog is needed by several machine panels at once: we load it once.
   const [book, setBook] = useState<RecipeBook | null>(null);
   //: Display names for the wire's ids (D-251): loaded with the catalogs.
-  const [names, setNames] = useState<NamesRu | null>(null);
+  const [names, setNames] = useState<Names | null>(null);
   //: Kept in a ref as well: the words of a language are built from the names,
   //: and the login sequence needs them before React has flushed the state.
-  const namesRef = useRef<NamesRu | null>(null);
+  const namesRef = useRef<Names | null>(null);
+  //: Every language's names, as `/public/renames` sent them. A ref rather
+  //: than state: nothing draws from it directly, `show` picks out of it.
+  const renamesRef = useRef<Renames | null>(null);
   //: The words of the account's language (D-251 wave III). One object holds
   //: both the code and the list of languages the server has, so the switcher
   //: never guesses; `learn` puts the same words where the pure modules --
@@ -203,6 +206,19 @@ export default function App() {
     [settle],
   );
 
+  /**
+   * Show the names of this language, out of the bundle already fetched.
+   *
+   * Every language arrives in one read (`/public/renames`), so this is a
+   * lookup rather than a request: a switch must not wait on the network for
+   * the word «Железная руда» to become "Iron ore".
+   */
+  const show = useCallback((locale: string) => {
+    const table = namesOf(renamesRef.current, locale);
+    namesRef.current = table;
+    setNames(table);
+  }, []);
+
   /** The vault catalogs: both machine panels and the quality forecast wait for them. */
   const catalogs = useCallback(async () => {
     const { values } = await api.constants();
@@ -224,10 +240,12 @@ export default function App() {
     //: draws a quantity asks `amounts`, not a prop of its own.
     amounts.learn(book);
     setBook({ ...book, constants: values });
-    const table = renames?.names_ru ?? null;
-    namesRef.current = table;
-    setNames(table);
-  }, []);
+    //: The whole bundle is kept, not one language's half of it: a switch then
+    //: costs nothing over the wire, and the words for the new language are
+    //: already in hand when `speak` builds the messages over them.
+    renamesRef.current = renames;
+    show(session.current.locale || DEFAULT_LOCALE);
+  }, [show]);
 
   /**
    * Start speaking a language: its words, built over the names, become the
@@ -257,17 +275,13 @@ export default function App() {
       //: copy of the session must not go on saying the old one until the next
       //: revive happens to reread it from `hello`.
       session.current.locale = next;
-      //: `/public/renames` has no language of its own yet: until the vault
-      //: ships locale overlays (wave V) every language reads the Russian
-      //: names. It is read again anyway, because that is where the answer
-      //: will come from when it does, and the cost is one GET on a click.
-      const renames = await api.renames().catch(() => null);
-      const table = renames?.names_ru ?? namesRef.current;
-      namesRef.current = table;
-      setNames(table);
+      //: Both halves of a language change: the names of things and the
+      //: sentences about them. The names are already here -- every language
+      //: came in one bundle (D-251 wave V) -- so only the messages are read.
+      show(next);
       await speak(next);
     },
-    [speak],
+    [show, speak],
   );
 
   const enter = (email: string, password: string) =>
@@ -326,6 +340,7 @@ export default function App() {
       setWords(null);
       setNames(null);
       namesRef.current = null;
+      renamesRef.current = null;
       setScreen("login");
     });
 

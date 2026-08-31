@@ -31,19 +31,33 @@ market-order-off-node = ордер вне узла
 market-node-city-missing = узел { $node } принадлежит несуществующему городу
 
 market-reserve-not-a-sale = бронируют товар, а не заявку на покупку
-market-order-not-active = заявка уже { $state }
+market-order-not-active = заявка уже { $state ->
+        [filled] исполнен
+        [cancelled] снят
+        [expired] просрочен
+       *[active] в работе
+    }
 market-reserve-own = свой товар бронировать незачем: он и так ваш
 market-reserve-zero = бронь из нуля
 market-reserve-too-much = в заявке свободно { NUMBER($free, minimumFractionDigits: 1, maximumFractionDigits: 1) }, а брони просят { NUMBER($quantity, minimumFractionDigits: 1, maximumFractionDigits: 1) }
 market-reservation-not-yours = чужая бронь
-market-reservation-not-held = бронь уже { $state }
+market-reservation-not-held = бронь уже { $state ->
+        [redeemed] выкуплена
+        [lapsed] просрочена
+       *[held] держится
+    }
 market-reservation-elsewhere = бронь не здесь: за товаром приезжают
 market-reservation-expired = срок брони вышел: задаток остался продавцу
 market-goods-vanished-reservation = товар исчез из терминала между бронью и выкупом
 market-goods-vanished-trade = товар исчез из терминала между проверкой и сделкой
 
 market-order-not-yours = чужой ордер
-market-order-already = ордер уже { $state }
+market-order-already = ордер уже { $state ->
+        [filled] исполнен
+        [cancelled] снят
+        [expired] просрочен
+       *[active] в работе
+    }
 market-job-no-reservation = задание { $job }: брони нет
 market-job-no-order = задание { $job }: ордера нет
 
