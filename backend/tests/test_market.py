@@ -1258,3 +1258,73 @@ async def test_own_orders_say_which_node_they_stand_in(
     assert rows[0]["node_key"] != elsewhere.key
     #: The reading changes nothing: `orders` is declared readonly.
     assert COMMANDS["orders"].readonly
+
+
+async def test_own_buy_order_carries_the_hand_named_floor(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The buyer's own terms must be recoverable from the answer (D-239, D-225).
+
+    A floor typed by hand inside the band cannot be read off the tier button,
+    so `orders` carries it. The band's own start is derivable from the tier
+    and the `/public` tiers constant, and a sell has no floor at all -- in
+    neither case does the key get into the row.
+    """
+    import src.api.session  # noqa: F401, PLC0415 -- registers the commands
+    from src.api.registry import COMMANDS
+
+    node = await _city(session)
+    buyer, body = await _trader(session, node, "Разборчивый", funds=100)
+    tier = market.tier_of(constants, 75)
+    frm, to = market.tier_span(constants, tier)
+    floor = frm + 1
+    assert floor <= to, "the band must be wide enough for a hand-named floor"
+
+    #: Prices stay under the ask below, so both buys stand instead of filling.
+    await market.buy(
+        session,
+        constants,
+        catalog,
+        body,
+        type_key=ORE,
+        tier=tier,
+        price=money(5),
+        quantity=1,
+        min_quality=floor,
+    )
+    await market.buy(
+        session, constants, catalog, body, type_key=ORE, tier=tier, price=money(4), quantity=1
+    )
+    #: A hand that types exactly the band's start names the default: `buy`
+    #: already stores the two identically, and the tier says everything.
+    await market.buy(
+        session,
+        constants,
+        catalog,
+        body,
+        type_key=ORE,
+        tier=tier,
+        price=money(3),
+        quantity=1,
+        min_quality=frm,
+    )
+    seller, _ = await _with_goods(session, constants, node, "Продавец", qty=2, quality=75)
+    await market.sell(
+        session,
+        constants,
+        catalog,
+        seller,
+        node,
+        type_key=ORE,
+        tier=tier,
+        price=money(9),
+        quantity=2,
+    )
+
+    answer = await COMMANDS["orders"].run({"identity_id": buyer.id}, session, {})
+    floors = {row["price"]: row.get("min_quality") for row in answer["orders"]["orders"]}
+    assert floors == {money(5): floor, money(4): None, money(3): None}
+
+    sold = await COMMANDS["orders"].run({"identity_id": seller.id}, session, {})
+    (sell_row,) = sold["orders"]["orders"]
+    assert sell_row["side"] == "sell" and "min_quality" not in sell_row

@@ -298,6 +298,9 @@ ui-secret-show-label = show the password
 # sentence for both rules, because the player makes one decision.
 ui-market-floor = no worse than
 ui-market-floor-rule = A buy takes “{ $floor }” and anything better; a sale goes as a lot of tier “{ $tier }”.
+# The tier of one's own buy order with a floor named by hand inside the band:
+# without it the buyer cannot recover their own terms (D-239, D-225).
+ui-market-order-floor = { $tier } (no worse than { $floor })
 ui-market-step = price step
 ui-market-step-auto = auto
 ui-market-step-auto-title = the server picks the step: the finest one the book fits into

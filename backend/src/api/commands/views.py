@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.commands.common import _body, _node, _stamp, goods_key, tier_key
 from src.api.registry import Refused
-from src.constants import current, current_catalog
+from src.constants import Constants, current, current_catalog
 from src.constants import registry as R
 from src.constants.catalog import ItemKind
 from src.engine import city as town
@@ -40,6 +40,7 @@ from src.models.identity import Body, Identity, Knowledge, KnowledgeKind
 from src.models.ledger import AccountKind
 from src.models.market import (
     Order,
+    OrderSide,
     OrderState,
     Reservation,
     ReservationState,
@@ -415,6 +416,27 @@ async def _discovered(db: AsyncSession, identity_id: uuid.UUID) -> list[str]:
     return sorted(row[0] for row in rows)
 
 
+def _buy_floor(constants: Constants, order: Order) -> int | None:
+    """The buy's quality floor (D-239), but only the part the tier does not say.
+
+    A floor named by hand inside the band cannot be recovered from the tier,
+    so it rides along (D-225). The band's own start is derivable from the tier
+    and the `/public` tiers constant, and a sell has no floor at all -- both
+    come back as None.
+    """
+    if order.side is not OrderSide.BUY or order.min_quality is None:
+        return None
+    try:
+        band_start = int(market.tier_span(constants, order.tier)[0])
+    except market.BadOrder:
+        #: A tier redrawn out of the constants must not silence the whole
+        #: readonly `orders`: the stored floor goes out as it is.
+        return order.min_quality
+    if order.min_quality == band_start:
+        return None
+    return order.min_quality
+
+
 async def _orders(db: AsyncSession, identity_id: uuid.UUID) -> list[dict[str, Any]]:
     """Own active orders, with the node each one stands in.
 
@@ -425,6 +447,7 @@ async def _orders(db: AsyncSession, identity_id: uuid.UUID) -> list[dict[str, An
     node must not be subtracted from it (D-225: the key is here because the
     client cannot derive it).
     """
+    constants = current()
     rows = (
         await db.execute(
             select(Order, Node.name, Node.key)
@@ -438,6 +461,13 @@ async def _orders(db: AsyncSession, identity_id: uuid.UUID) -> list[dict[str, An
             "side": order.side.value,
             "goods": order.type_key,
             "tier": order.tier,
+            #: Present only when there is something the tier does not say:
+            #: a null on every sell and default buy would be dead weight.
+            **(
+                {"min_quality": floor}
+                if (floor := _buy_floor(constants, order)) is not None
+                else {}
+            ),
             "price": order.price,
             "left": amount_float(order.amount_left),
             "node": name,

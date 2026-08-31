@@ -516,7 +516,16 @@ function Trade({ look, busy, act }: Props) {
               {t("ui-side-order", {
                 side: order.side,
                 goods: goodsKeyName(names, order.goods),
-                tier: tierName(names, order.tier),
+                //: A buy's floor named by hand stands beside the tier: the
+                //: wire carries it only when the tier alone cannot say it
+                //: (D-239, D-225), so a bare tier needs no suffix.
+                tier:
+                  order.min_quality != null
+                    ? t("ui-market-order-floor", {
+                        tier: tierName(names, order.tier),
+                        floor: String(order.min_quality),
+                      })
+                    : tierName(names, order.tier),
                 left: String(order.left),
                 price: api.tk(order.price),
               })}
