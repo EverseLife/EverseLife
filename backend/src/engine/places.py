@@ -50,6 +50,7 @@ import math
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.engine import props
 from src.engine.errors import Refusal
 from src.models.world import Edge, Layer, Node
 from src.runtime import (
@@ -252,8 +253,7 @@ async def assign(
     #: anchor and a lone node look exactly alike.
     spot = centre if _free(centre, taken) else _seat(centre, taken, _direction(node.key))
     taken.append(spot)
-    node.properties = {**(node.properties or {}), PLACE: {PLACE_X: spot[0], PLACE_Y: spot[1]}}
-    await session.flush()
+    await props.stamp(session, node, {PLACE: {PLACE_X: spot[0], PLACE_Y: spot[1]}})
 
 
 async def move(session: AsyncSession, node: Node, spot: tuple[float, float]) -> None:
@@ -277,8 +277,7 @@ async def move(session: AsyncSession, node: Node, spot: tuple[float, float]) -> 
     if not is_aboard(node):
         raise PlaceIsFixed(key="place-is-fixed", node=node.name)
     await _hold(session, node)
-    node.properties = {**(node.properties or {}), PLACE: {PLACE_X: spot[0], PLACE_Y: spot[1]}}
-    await session.flush()
+    await props.stamp(session, node, {PLACE: {PLACE_X: spot[0], PLACE_Y: spot[1]}})
 
 
 def _group(node: Node) -> tuple[object, ...]:

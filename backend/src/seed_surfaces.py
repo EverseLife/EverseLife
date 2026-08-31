@@ -56,7 +56,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import current, current_catalog, display_name
-from src.engine import energy, explore, oxygen, plates, ruins, ship, travel, world
+from src.engine import energy, explore, oxygen, plates, props, ruins, ship, travel, world
 from src.models.world import Layer, Node, Planet, Surface
 
 #: The Anvil Plateau: the one stable ground of Pyroxis (10-world/04, D-197).
@@ -125,12 +125,11 @@ async def _pyroxis(session: AsyncSession) -> None:
     #: ground here rather than at a pier, and there is nothing to breathe when
     #: it gets there (D-233, D-234). Both are facts of the world, so both are
     #: written on the world -- on the planet's own node, where `ship` and
-    #: `oxygen` read them.
-    sphere.properties = {
-        **(sphere.properties or {}),
-        ship.OPEN_LANDING: True,
-        oxygen.AIRLESS: True,
-    }
+    #: `oxygen` read them. Written only when missing, so a deploy does not
+    #: lock the planet's row for nothing.
+    marks = {ship.OPEN_LANDING: True, oxygen.AIRLESS: True}
+    if any(not (sphere.properties or {}).get(key) for key in marks):
+        await props.stamp(session, sphere, marks)
     plateau = (
         await _ensure(
             session,
@@ -155,8 +154,7 @@ async def _pyroxis(session: AsyncSession) -> None:
     #: structure, and the seed owns it. Written only when it is missing, so a
     #: deploy does not touch the row for nothing.
     if not (plateau.properties or {}).get(ANVIL):
-        plateau.properties = {**(plateau.properties or {}), ANVIL: True}
-        await session.flush()
+        await props.stamp(session, plateau, {ANVIL: True})
     dice = random.Random(PYROXIS_PLATEAU)
     for number in range(1, PYROXIS_FIELDS + 1):
         #: Laid **once**, and the whole field with it: the way to it, its vein,
@@ -252,7 +250,10 @@ async def _aurora(session: AsyncSession) -> None:
       was written.
     """
     sphere = await _sphere(session, "aurora")
-    sphere.properties = {**(sphere.properties or {}), PRECURSOR: True}
+    #: The planet itself is marked: from here on, a search for city ground on
+    #: Aurora finds a city that already stands, not an empty place (D-232).
+    if not (sphere.properties or {}).get(PRECURSOR):
+        await props.stamp(session, sphere, {PRECURSOR: True})
     now = datetime.now(UTC).isoformat()
     for key in AURORA_HALLS:
         hall = (await session.execute(select(Node).where(Node.key == key))).scalar_one_or_none()
@@ -260,8 +261,7 @@ async def _aurora(session: AsyncSession) -> None:
         #: has not got the city yet simply has nothing to mark.
         if hall is None or (hall.properties or {}).get(energy.REACTOR_SINCE):
             continue
-        hall.properties = {**(hall.properties or {}), energy.REACTOR_SINCE: now}
-    await session.flush()
+        await props.stamp(session, hall, {energy.REACTOR_SINCE: now})
 
 
 async def _sphere(session: AsyncSession, key: str) -> Node:

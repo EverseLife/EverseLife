@@ -28,7 +28,7 @@ from src.constants import current, current_catalog
 from src.constants import registry as R
 from src.constants.catalog import ItemKind
 from src.engine import city as town
-from src.engine import death, estate, frost, ledger, library, ruins, ship, world
+from src.engine import death, estate, frost, ledger, library, props, ruins, ship, world
 from src.models.estate import Building
 from src.models.inventory import Container, ContainerKind, Item
 from src.models.ledger import AccountKind, PostingReason
@@ -172,9 +172,9 @@ async def system(session: AsyncSession) -> Node:
                 properties=marks,
             )
         else:
-            #: A whole new dict rather than a key set in place: SQLAlchemy sees
-            #: an assignment and misses a mutation inside a JSON column.
-            node.properties = {**(node.properties or {}), **marks}
+            #: Through the one door to the column (`props`): the merge under the
+            #: row's lock is what keeps a parallel writer's key alive.
+            await props.stamp(session, node, marks)
     await session.flush()
     await _orbits(session)
     return (await session.execute(select(Node).where(Node.key == "terra"))).scalar_one()

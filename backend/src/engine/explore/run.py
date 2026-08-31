@@ -22,7 +22,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import Constants, current, current_catalog, display_name
 from src.constants import registry as R
 from src.engine import city as town
-from src.engine import craft, events, food, frost, luck, occupation, ruins, transport, travel, world
+from src.engine import (
+    craft,
+    events,
+    food,
+    frost,
+    luck,
+    occupation,
+    props,
+    ruins,
+    transport,
+    travel,
+    world,
+)
 from src.engine import ship as vessels
 from src.engine.errors import Says
 from src.engine.explore import odds as forecast
@@ -336,8 +348,7 @@ async def returned(session: AsyncSession, job: Job) -> None:
     #: The surroundings became one find poorer -- for everyone who leaves from
     #: here next (D-156). Only luck counts: an empty run depletes nothing,
     #: otherwise bad luck would punish twice.
-    origin.properties = {**(origin.properties or {}), FOUND_HERE: forecast.found_here(origin) + 1}
-    await session.flush()
+    await props.bump(session, origin, FOUND_HERE)
 
     #: Found means you stand there (D-185): the scout reached the place on foot,
     #: and returning them to the exit node would cancel the path walked. The way

@@ -28,7 +28,7 @@ from src.constants import current, current_catalog
 from src.constants import registry as R
 from src.engine import account as accounts
 from src.engine import city as town
-from src.engine import death, energy, estate, explore, places, ship, tick, travel, utility
+from src.engine import death, energy, estate, explore, places, props, ship, tick, travel, utility
 from src.models.city import City
 from src.models.estate import Building, Deed
 from src.models.identity import Account, Identity
@@ -173,10 +173,8 @@ async def catch_up(session: AsyncSession, core: Node) -> None:
 
     #: The Forerunners' Printer and the city printer: without them death would
     #: be a one-way ticket, and the world exists longer than the print mechanic (D-028).
-    props = dict(core.properties or {})
-    if not props.get(death.PRECURSOR):
-        props[death.PRECURSOR] = True
-        core.properties = props
+    if not (core.properties or {}).get(death.PRECURSOR):
+        await props.stamp(session, core, {death.PRECURSOR: True})
     #: The **original** (D-028): eternal, free, unlimited, and there will never
     #: be a second. A relic, therefore: found, not made, and not to be taken
     #: down (D-232). What prints for free is the machine, not the ground it
@@ -199,7 +197,7 @@ async def catch_up(session: AsyncSession, core: Node) -> None:
         if node is None or gate is None:
             continue
         if travel.reach_of(node) == 0:
-            node.properties = {**(node.properties or {}), travel.REACH: 1}
+            await props.stamp(session, node, {travel.REACH: 1})
         edge = (
             (
                 await session.execute(
@@ -356,7 +354,7 @@ async def _soil(session: AsyncSession, constants, scenario: seed_world.Scenario)
         ground = laid.get(node.key) or await explore.civic_properties(
             session, constants, random.Random(node.key)
         )
-        node.properties = {**(node.properties or {}), **ground}
+        await props.stamp(session, node, ground)
         given += 1
     if given:
         await session.flush()
@@ -407,7 +405,7 @@ async def _gates_catch_up(session: AsyncSession) -> None:
         delegate = await session.get(Node, city.node_id)
         if delegate is None:  # pragma: no cover -- a city without a node is a bug
             continue
-        delegate.properties = {**(delegate.properties or {}), travel.EXIT: True}
+        await props.stamp(session, delegate, {travel.EXIT: True})
         log.info("city %s got a gate by catch-up: %s", city.name, delegate.key)
     await session.flush()
 

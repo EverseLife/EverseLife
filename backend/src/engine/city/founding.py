@@ -26,7 +26,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants
-from src.engine import death, energy, events, market, travel, world
+from src.engine import death, energy, events, market, props, travel, world
 from src.engine.city._base import (
     FOUNDER_POWERS,
     FOUNDER_TITLE,
@@ -116,8 +116,7 @@ async def _mark_gate(session: AsyncSession, city: City, node: Node) -> None:
     ground = await territory(session, city)
     if any((place.properties or {}).get(travel.EXIT) for place in ground):
         return
-    node.properties = {**(node.properties or {}), travel.EXIT: True}
-    await session.flush()
+    await props.stamp(session, node, {travel.EXIT: True})
 
 
 #: What a city cannot be without (D-023, D-159). The list is four roles, not
