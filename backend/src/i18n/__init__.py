@@ -25,12 +25,13 @@ first refusal of the evening.
 from __future__ import annotations
 
 import logging
+from collections import Counter
 from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
 from fluent.runtime import FluentBundle, FluentResource
-from fluent.syntax.ast import Junk
+from fluent.syntax.ast import Junk, Message, Term
 
 log = logging.getLogger(__name__)
 
@@ -199,6 +200,20 @@ def load_words(locales_dir: Path, names: Callable[..., str] | None = None) -> Wo
         if broken:
             spoiled = "; ".join(entry.content.strip().splitlines()[0] for entry in broken)
             raise MissingMessage(f"{locale}: не разобрано в {folder}: {spoiled}")
+        #: `add_resource` keeps the first definition of an id and drops the
+        #: rest without a word (fluent.runtime's own TODO): a message redeclared
+        #: in a second file would shadow the first, unseen by the completeness
+        #: tests, which read ids and not definitions. Fail the boot instead.
+        #: Terms count too, spelled with their dash: they live in a namespace
+        #: of their own, so a term and a message may share a name legally.
+        counted = Counter(
+            ("-" if isinstance(entry, Term) else "") + entry.id.name
+            for entry in resource.body
+            if isinstance(entry, (Message, Term))
+        )
+        doubled = sorted(name for name, times in counted.items() if times > 1)
+        if doubled:
+            raise MissingMessage(f"{locale}: message defined twice: {', '.join(doubled)}")
         bundle.add_resource(resource)
         bundles[locale] = bundle
         sources[locale] = text

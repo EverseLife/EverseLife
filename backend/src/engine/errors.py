@@ -86,6 +86,23 @@ class Refusal(Exception):
         self.inner = inner or {}
         super().__init__(text)
 
+    def __str__(self) -> str:
+        """The legacy sentence, or -- for a converted site -- the key itself.
+
+        A converted refusal carries no text, and `str()` of it used to be an
+        empty string: `jobs.py` wrote `"CraftError: "` into `job.last_error`
+        and the operator read nothing where a reason had been. The player never
+        sees this -- the edge renders the key through `i18n` -- so it stays
+        ASCII: a diagnostic line, not a sentence.
+        """
+        told = super().__str__()
+        if told or self.key is None:
+            return told
+        if not self.params:
+            return self.key
+        shown = ", ".join(f"{name}={value!r}" for name, value in self.params.items())
+        return f"{self.key} ({shown})"
+
 
 def left_to_say(until: datetime, now: datetime | None = None) -> Says:
     """How long is left, as a message: hours and minutes, not a phrase.

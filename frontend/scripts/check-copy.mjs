@@ -52,6 +52,11 @@ const SKIP = new Set([]);
  * a wire value here and a heading there. Add to this list rather than arguing
  * with the check -- and if a reason cannot be written in one clause, the line
  * is probably copy after all.
+ *
+ * An excuse is a debt, not a verdict: each of these needs a server- or
+ * vault-side rename with a migration, and the work is recorded in the vault
+ * plan (90-production/10, wave IV, the open-questions list) -- an entry here
+ * without an entry there rots in silence.
  */
 const ALLOWED = new Map(
   Object.entries({

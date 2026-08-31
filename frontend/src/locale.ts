@@ -180,14 +180,17 @@ function filesOf(locale: string): string[] {
  * the language that is complete, beside the half that is already translated,
  * which is the honest state to be in halfway through a translation.
  *
- * Both are loaded and the new language goes first: `addResource` keeps the
- * first definition it sees, so a message the new language does have wins over
- * the same message in the old one.
+ * The two halves stay separate so the fallback can be trimmed before it is
+ * added: only the messages the language is missing go in. Pouring the whole
+ * default file over a complete language would make every message a duplicate
+ * -- an override warning per message, 1445 of them for English -- and the
+ * warn channel is this module's only diagnostics: a real Junk line would
+ * drown in that wall.
  */
-function ownWords(locale: string): string {
-  const own = filesOf(locale);
-  const fallback = locale === DEFAULT_LOCALE ? [] : filesOf(DEFAULT_LOCALE);
-  return [...own, ...fallback].join("\n");
+function ownWords(locale: string): { own: string; fallback: string } {
+  const own = filesOf(locale).join("\n");
+  const fallback = locale === DEFAULT_LOCALE ? "" : filesOf(DEFAULT_LOCALE).join("\n");
+  return { own, fallback };
 }
 
 export class Words {
@@ -217,10 +220,27 @@ export class Words {
       functions: messageFunctions(names),
     });
     //: Our own words first: they are always here, whatever the wire did.
-    const own = ownWords(this.locale);
+    const { own, fallback } = ownWords(this.locale);
+    let ownIds: ReadonlySet<string> = new Set();
     if (own) {
-      for (const error of this.bundle.addResource(new FluentResource(own))) {
+      const resource = new FluentResource(own);
+      //: Entry ids as parsed -- a term keeps its dash, so terms and messages
+      //: are one set here without colliding across their two namespaces.
+      ownIds = new Set(resource.body.map((entry) => entry.id));
+      for (const error of this.bundle.addResource(resource)) {
         console.warn(`${this.locale}: ${error.message}`);
+      }
+    }
+    if (fallback) {
+      //: Trimmed to what the language does not say itself, so a complete
+      //: language adds nothing and an incomplete one gains only its holes --
+      //: no override warnings either way, and any that do surface are real.
+      //: Against the parsed ids rather than `hasMessage`, which cannot see
+      //: terms and would let a shared one warn again.
+      const rest = new FluentResource(fallback);
+      rest.body = rest.body.filter((entry) => !ownIds.has(entry.id));
+      for (const error of this.bundle.addResource(rest)) {
+        console.warn(`${DEFAULT_LOCALE}: ${error.message}`);
       }
     }
     if (answer.ftl) {

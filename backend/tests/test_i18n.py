@@ -433,6 +433,21 @@ def test_a_broken_locale_stops_the_boot(tmp_path: Path) -> None:
         i18n.load_words(tmp_path)
 
 
+def test_a_message_defined_twice_stops_the_boot(tmp_path: Path) -> None:
+    """`add_resource` keeps the first definition and drops the second silently.
+
+    The completeness tests read ids, not definitions, so a message redeclared
+    in a second file would shadow the first without a single signal anywhere --
+    not at load, not in the parity check, not at render.
+    """
+    folder = tmp_path / i18n.DEFAULT_LOCALE
+    folder.mkdir(parents=True)
+    (folder / "a.ftl").write_text("greeting = привет\n", encoding="utf-8")
+    (folder / "b.ftl").write_text("greeting = здравствуйте\n", encoding="utf-8")
+    with pytest.raises(i18n.MissingMessage, match="defined twice: greeting"):
+        i18n.load_words(tmp_path)
+
+
 def test_every_member_of_an_enum_gets_its_own_variant(words: i18n.Words) -> None:
     """A message that selects on an enum owes every member a branch of its own.
 
@@ -506,6 +521,22 @@ def test_an_unconverted_refusal_still_speaks() -> None:
     refusal = Refusal("это старая строка")
     assert refusal.key is None
     assert str(refusal) == "это старая строка"
+
+
+def test_a_converted_refusal_still_has_a_str_for_the_operator() -> None:
+    """`jobs.py` writes `str(exc)` into `job.last_error` and into the log.
+
+    A converted site carries no text, and `str()` of it used to be empty:
+    the operator read `"CraftError: "` where a reason had been. The key and
+    the numbers are the diagnostic; the player-facing sentence is the edge's
+    business, not this one's.
+    """
+    assert str(Refusal(key="craft-job-without-batch", job="42")) == (
+        "craft-job-without-batch (job='42')"
+    )
+    assert str(Refusal(key="death-job-dangling")) == "death-job-dangling"
+    #: A legacy sentence, when there is one, still wins: it is the reason.
+    assert str(Refusal("своя строка", key="some-key")) == "своя строка"
 
 
 @pytest.fixture

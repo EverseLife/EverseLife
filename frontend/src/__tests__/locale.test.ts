@@ -340,6 +340,19 @@ describe("a language the client has no files for yet", () => {
     expect(t("ui-summary-label")).toBe("What happened");
   });
 
+  it("loads a complete language without a wall of override warnings", () => {
+    //: The fallback is trimmed to the messages the language does not say
+    //: itself. Before that, a full English -- which parity *requires* to be
+    //: full -- made every one of its messages a duplicate of the Russian
+    //: beneath it: 1445 override warnings per login, and the warn channel is
+    //: this module's only diagnostics.
+    const warned = vi.spyOn(console, "warn").mockImplementation(() => {});
+    learn(new Words({ locale: "en", locales: ["ru", "en"], ftl: "" }, NAMES));
+    expect(t("ui-summary-label")).toBe("What happened");
+    expect(warned).not.toHaveBeenCalled();
+    warned.mockRestore();
+  });
+
   it("does not load the fallback twice for the default language itself", () => {
     //: `addResource` keeps the first definition and reports the rest as
     //: errors. Loading Russian under Russian would make every one of its own

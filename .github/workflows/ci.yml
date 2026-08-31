@@ -84,6 +84,13 @@ jobs:
       - name: Copy
         run: uv run python tools/check_copy.py
 
+      #: Every language says what the default one says: same messages, same
+      #: arguments, same functions and enum branches (D-251 wave V). The pytest
+      #: suite only compares key sets; a `NAME($goods)` degraded to `{ $goods }`
+      #: in the English file passes it -- this is the check that sees it.
+      - name: Locales
+        run: uv run python tools/check_locales.py
+
       - name: Migrations apply
         run: uv run alembic upgrade head
 
