@@ -24,7 +24,7 @@
  */
 import { WS } from "./host";
 import { refusalText, t } from "./locale";
-import { PART_ANSWERS, PART_COMMANDS, type LiveLook, type Parts } from "./wire/look";
+import { PART_COMMANDS, type LiveLook, type Parts } from "./wire/look";
 import type { Enrollment } from "./wire/person";
 
 /**
@@ -143,7 +143,7 @@ export class Session {
       if (token) localStorage.setItem(TOKEN_KEY, token);
       else localStorage.removeItem(TOKEN_KEY);
     } catch {
-      /* приватный режим: жетон живёт только в памяти */
+      /* private mode: the token lives in memory and nowhere else */
     }
   }
 
@@ -272,7 +272,7 @@ export class Session {
     try {
       if (this.socket?.readyState === WebSocket.OPEN) await this.send("account.logout");
     } catch {
-      /* отзыв — вежливость: забыть жетон важнее, чем дождаться ответа */
+      /* revoking is a courtesy: forgetting the token matters more than hearing back */
     }
     this.remember("");
     this.name = "";
@@ -358,7 +358,9 @@ export class Session {
   /** One of the slow parts, by name; the client keeps it until an event touches it. */
   async part<K extends keyof Parts>(name: K): Promise<Parts[K]> {
     const answer = await this.send(PART_COMMANDS[name]);
-    return answer[PART_ANSWERS[name]] as Parts[K];
+    //: The answer names the part the same way the caller does; the map
+    //: that used to sit between them was five pairs of one word twice.
+    return answer[name] as Parts[K];
   }
 
   /** Every slow part at once: the first read, and the reread after `session.reread`. */
@@ -380,6 +382,14 @@ export class Session {
     }
     const socket = this.socket;
     this.socket = null;
+    //: What was in flight is answered here, not by `onclose`. Its first line
+    //: is `if (this.socket !== socket) return` -- a guard against an old
+    //: socket's death disturbing a newer one -- and clearing the field above
+    //: trips that guard, so a deliberate close used to leave every pending
+    //: command waiting out the full `ANSWER_TIMEOUT_MS`. After a logout that
+    //: is half a minute of a window that has already gone.
+    this.pending.forEach((w) => w.reject(new Error(t("ui-wire-session-closed"))));
+    this.pending.clear();
     socket?.close();
   }
 }

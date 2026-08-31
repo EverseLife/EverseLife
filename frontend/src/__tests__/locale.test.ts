@@ -6,7 +6,8 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-//: `api` reads `window.location` while it is being evaluated, so the real
+//: `api` pulls in `host`, which reads `window.location` while it is being
+//: evaluated, so the real
 //: module cannot be loaded in node at all. `loadWords` reaches it through a
 //: deferred import, and this stands in for it -- which is also the only way to
 //: drive the branch that decides whether an older server can still be logged

@@ -7,11 +7,16 @@
  * Four lines with a module to themselves, and the reason is the import graph
  * rather than their weight. This is the one place in the client that reads
  * `window.location` while it is being evaluated, so it is the one place that
- * cannot be loaded without a DOM -- `locale.ts` says as much where it defers
- * its own import. Both halves of the wire need the address: `api.ts` for the
- * public reads, `session.ts` for the socket. Were it to live in either of
- * them the other would have to import it back, and the two would close a
- * cycle over a string.
+ * cannot be loaded without a DOM -- which is what `locale.ts` is deferring
+ * around where it imports `api` dynamically, and the whole point of pulling
+ * the address out here.
+ *
+ * Both halves of the wire need it: `api.ts` for `read()`, `session.ts` for the
+ * socket. Neither is its home. In `api.ts` it would close a real cycle --
+ * `api` re-exports `Session`, so `session -> api -> session`. In `session.ts`
+ * it would not; the edge would be one-way. But then the public reads would
+ * hang off the socket module for the sake of a string, and a page that only
+ * reads `/public/*` would pull the whole socket in behind it.
  */
 
 //: The default server address is the same host the page was opened from.

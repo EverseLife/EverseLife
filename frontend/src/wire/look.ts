@@ -58,15 +58,6 @@ export const PART_COMMANDS: Record<keyof Parts, string> = {
   shelf: "shelf",
 };
 
-/** Which key of the answer holds it. */
-export const PART_ANSWERS: Record<keyof Parts, string> = {
-  knowledge: "knowledge",
-  profile: "profile",
-  orders: "orders",
-  deeds: "deeds",
-  shelf: "shelf",
-};
-
 /** Which part an event's `touches` entry names, when it names one. */
 export const PART_OF_TOUCH: Record<string, keyof Parts> = {
   knowledge: "knowledge",
