@@ -31,12 +31,7 @@ What is still in the list, by kind, so the number can be read:
 * **keys of the ledger's `memo`** and of a few event payloads: an audit record
   nothing renders, and the ledger is append-only, so they cannot be migrated;
 * **telemetry metric names** (`деньги.двойная-запись`): admin-facing
-  identifiers, and identifiers are supposed to be ASCII;
-* **`HTTPException` details** on the `/public/*` routes: what an HTTP client
-  is told when it sends a bad parameter. Not a sentence the game shows
-  anybody, and the same kind as the `нет узла` beside it -- though by
-  CLAUDE.md's own rule about developer-facing messages these two want to be
-  English rather than excused.
+  identifiers, and identifiers are supposed to be ASCII.
 
 Add a module here only with its reason in the list above. A number that went
 down is also a failure: lower it, and the ratchet has turned.
@@ -62,10 +57,6 @@ KNOWN: dict[str, int] = {
     "src/api/commands/city.py": 1,
     "src/api/commands/transport.py": 1,
     "src/api/commands/views.py": 1,
-    #: Two HTTP refusal details ("нет узла", "шаг цены не из списка") -- the
-    #: player's language until the i18n waves reach the public routes; the
-    #: second arrived with D-239 after the 2026-08-31 pin.
-    "src/api/routes/public.py": 2,
     "src/constants/catalog.py": 14,
     "src/constants/formula.py": 8,
     "src/constants/loader.py": 10,
