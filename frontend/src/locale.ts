@@ -423,11 +423,12 @@ export async function loadWords(locale: string, names: Names | null): Promise<Wo
   const asked = locale || DEFAULT_LOCALE;
   try {
     //: Deferred on purpose, and the only such import here. Two reasons, and
-    //: the first is the binding one: `api` reads `window.location` while it is
-    //: being evaluated, and this module has to stay importable without a DOM,
-    //: because `arrange`, `market` and `recipes` reach it for their sort order
-    //: and those are tested in node. The second: `api` imports `compare` from
-    //: here, so a static edge back would close a cycle.
+    //: the first is the binding one: `api` pulls in `host`, which reads
+    //: `window.location` while it is being evaluated, and this module has to
+    //: stay importable without a DOM, because `arrange`, `market` and
+    //: `recipes` reach it for their sort order and those are tested in node.
+    //: The second: `api` re-exports `wire/look` and `wire/travel`, which take
+    //: `compare` and `t` from here, so a static edge back would close a cycle.
     //:
     //: The build says the import "will not move module into another chunk",
     //: which is true and wanted: `api` belongs in the main chunk, and nothing
