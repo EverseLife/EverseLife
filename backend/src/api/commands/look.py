@@ -28,6 +28,7 @@ from src.api.commands.views import (
     _orders,
     _reservations,
     _shelf,
+    _shown,
     _sight,
     _storages,
     _things,
@@ -451,7 +452,7 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
         #: windows and pay for their place differently (D-106, D-181).
         "things": [
             thing
-            for thing in await _things(db, constants, await world.node_container(db, node))
+            for thing in await _shown(db, constants, await world.node_things(db, node))
             if thing["id"] in loose
         ],
         #: Whether this one may reach the floor at all: everybody inside may.

@@ -79,7 +79,12 @@ async def blind(session: AsyncSession, city: City) -> bool:
     """Whether the city went blind: no administration, or it is disconnected (D-140)."""
 
     for node in await city_nodes(session, city):
-        yard = await world.node_container(session, node)
+        #: Read, not made: this runs over the whole territory, so the creating
+        #: `node_container` would write a yard per node of an old city for a
+        #: glance at the panel.
+        yard = await world.node_yard(session, node)
+        if yard is None:
+            continue
         costs = await session.scalar(
             select(Item.id).where(Item.container_id == yard.id, Item.type_key == town.HALL).limit(1)
         )
@@ -279,7 +284,9 @@ async def _goods(session: AsyncSession, nodes: list[uuid.UUID], *, since: dateti
         node = await session.get(Node, node_id)
         if node is None:  # pragma: no cover
             continue
-        yard = await world.node_container(session, node)
+        yard = await world.node_yard(session, node)
+        if yard is None:
+            continue
         rows = (
             await session.execute(
                 select(Item.type_key, func.sum(Item.amount))

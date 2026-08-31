@@ -261,10 +261,9 @@ async def lying(session: AsyncSession, node: Node) -> list[Item]:
     """
 
     catalog = current_catalog()
-    things = await world.contents(session, await world.node_container(session, node))
     return [
         thing
-        for thing in things
+        for thing in await world.node_things(session, node)
         if not estate._equipment(catalog, thing.type_key)
         and not is_storage(catalog, thing.type_key)
     ]

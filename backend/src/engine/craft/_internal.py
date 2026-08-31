@@ -44,7 +44,7 @@ from src.engine.craft.quality import (
     spread_of,
     waste_share,
 )
-from src.engine.world import body_container, node_container
+from src.engine.world import body_container, node_yard
 from src.models.craft import CraftBatch
 from src.models.identity import Body, BodyState, Knowledge, KnowledgeKind
 from src.models.inventory import Container, Item
@@ -333,7 +333,10 @@ async def _pick_station(
         station_names,
     )
 
-    where = await node_container(session, node)
+    #: The yard is read, not made: choosing a machine is the forecast's step
+    #: too (`craft.plan`), and a place with nothing in it has no yard at all --
+    #: which is already the answer "no such machine here".
+    where = await node_yard(session, node)
     moment = datetime.now(UTC)
     standing = (
         (
@@ -348,6 +351,8 @@ async def _pick_station(
         )
         .scalars()
         .all()
+        if where is not None
+        else []
     )
     if not standing:
         raise NoStation(f"в узле нет рабочей станции «{name}»")

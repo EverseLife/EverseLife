@@ -102,7 +102,7 @@ async def floor_mass(session: AsyncSession, node: Node) -> float:
     """
 
     catalog = current_catalog()
-    things = await world.contents(session, await world.node_container(session, node))
+    things = await world.node_things(session, node)
     return sum(
         gear.mass_of(catalog, thing.type_key, amount_float(thing.amount))
         for thing in things
@@ -159,7 +159,7 @@ async def slots(session: AsyncSession, constants: Constants, node: Node) -> tupl
     in_total = int(area // constants[R.BUILD_SLOTS_PER_AREA])
 
     book = current_catalog().recipes
-    things = await world.contents(session, await world.node_container(session, node))
+    things = await world.node_things(session, node)
     occupied = 0
     for thing in things:
         try:

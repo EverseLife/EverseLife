@@ -317,12 +317,17 @@ async def status(session: AsyncSession, constants: Constants, node_id: uuid.UUID
     and the emptying for the same row (review 2026-08-23).
     """
     rigs = (await session.execute(select(RigRow).where(RigRow.node_id == node_id))).scalars().all()
+    if not rigs:
+        return []
+    #: One node for the whole list -- the rigs were selected by it. A read of
+    #: the scene, so the yard is looked into and never made for the look.
+    place = await session.get(Node, node_id)
+    yard = None if place is None else await world.node_yard(session, place)
+    coal_ = 0.0 if yard is None else await _coal_available(session, yard.id)
     out: list[dict] = []
     for rig in rigs:
         machine = await session.get(Item, rig.item_id)
         vein = await session.get(Vein, rig.vein_id)
-        yard = await world.node_container(session, await session.get(Node, rig.node_id))
-        coal_ = await _coal_available(session, yard.id)
         out.append(
             {
                 "id": str(rig.id),

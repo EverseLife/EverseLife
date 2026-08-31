@@ -443,10 +443,8 @@ async def plant_view(session: AsyncSession, constants: Constants, node: Node) ->
     sides must see the same number -- hence the stock and the hours it lasts.
     """
 
-    yard = await world.node_container(session, node)
-    machines = (
-        (await session.execute(select(Item).where(Item.container_id == yard.id))).scalars().all()
-    )
+    #: A look at the station, so the yard is read and not made for the look.
+    machines = await world.node_things(session, node)
     plant_names = set(world.station_names(FUEL_PLANT))
     plants = [thing for thing in machines if thing.type_key in plant_names]
     if not plants:

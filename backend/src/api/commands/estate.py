@@ -13,7 +13,7 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.api.commands.common import _alive, _identity
+from src.api.commands.common import _alive, _alive_read, _identity
 from src.api.commands.views import _deed_view, _identity_by_name, _money, _things, _tiers
 from src.api.registry import Refused, command
 from src.constants import current, current_catalog
@@ -99,7 +99,7 @@ async def _build_construct(state: dict, db: AsyncSession, message: dict) -> dict
     return {"building": True, "ready_at": job.run_at.isoformat()}
 
 
-@command("build.estimate")
+@command("build.estimate", readonly=True)
 async def _build_estimate(state: dict, db: AsyncSession, message: dict) -> dict:
     """The bill before the work: what a house of this size and height costs.
 
@@ -107,7 +107,7 @@ async def _build_estimate(state: dict, db: AsyncSession, message: dict) -> dict:
     of 30" rather than find out at the click that the timber is short.
     """
 
-    body = await _alive(state, db)
+    body = await _alive_read(state, db)
     constants = current()
     footprint = float(message.get("area", 0) or 0)
     floors = int(message.get("floors", 1))
@@ -161,14 +161,14 @@ async def _build_estimate(state: dict, db: AsyncSession, message: dict) -> dict:
     }
 
 
-@command("build.demolish_estimate")
+@command("build.demolish_estimate", readonly=True)
 async def _demolish_estimate(state: dict, db: AsyncSession, message: dict) -> dict:
     """What taking the house apart costs, before the work starts (D-205).
 
     The refusals are shown as reasons, not as one "cannot": the yard empties
     before the demolition, and the player must see exactly what is in the way.
     """
-    body = await _alive(state, db)
+    body = await _alive_read(state, db)
     constants = current()
     node = await db.get(Node, body.node_id)
     if node is None:  # pragma: no cover
@@ -191,7 +191,7 @@ async def _demolish_estimate(state: dict, db: AsyncSession, message: dict) -> di
     }
 
 
-@command("build.repair_estimate")
+@command("build.repair_estimate", readonly=True)
 async def _repair_estimate(state: dict, db: AsyncSession, message: dict) -> dict:
     """What mending the plot's houses costs, before the work starts (D-218).
 
@@ -200,7 +200,7 @@ async def _repair_estimate(state: dict, db: AsyncSession, message: dict) -> dict
     discovered at the click.
     """
 
-    body = await _alive(state, db)
+    body = await _alive_read(state, db)
     constants = current()
     node = await db.get(Node, body.node_id)
     if node is None:  # pragma: no cover
