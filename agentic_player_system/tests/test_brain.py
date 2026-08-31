@@ -51,6 +51,20 @@ class FakeGame:
         return self.script.get(f"public:{path}", {"path": path})
 
 
+def _arguments(hint: str, cmd: str) -> set[str]:
+    """Which arguments a refusal's hint names for this command.
+
+    Read out of the line rather than compared to it whole: the list comes from
+    the server's own command registry, so a new argument on any command would
+    otherwise fail a test about the hint's shape rather than about its content.
+    """
+    for line in hint.splitlines():
+        if line.startswith(f"Аргументы {cmd}: "):
+            said = line.removeprefix(f"Аргументы {cmd}: ").split(" — ")[0]
+            return {one.strip() for one in said.split(",") if one.strip()}
+    return set()
+
+
 def _call(name: str, **arguments: Any) -> dict[str, Any]:
     return {
         "id": f"call-{name}",
@@ -728,7 +742,11 @@ async def test_a_refusal_of_an_argumentless_call_carries_the_argument_list(
     )
     hint = "".join(seen)
     assert "ОТКАЗ: команде не хватает поля «goods»" in hint
-    assert "Аргументы market.buy: goods" in hint
+    #: Проверяется, что подсказка **называет аргументы**, а не что список
+    #: начинается с определённого. Порядок и состав приходят из реестра команд
+    #: сервера: D-241 добавил `min_quality`, и равенство сломалось на фиче,
+    #: которая ничего в поведении подсказки не изменила.
+    assert "goods" in _arguments(hint, "market.buy")
 
 
 async def test_a_call_packed_one_level_deeper_is_unwrapped(
@@ -1128,7 +1146,8 @@ async def test_a_missing_field_refusal_carries_the_arguments_even_with_args(
         provider=llm.Provider("u", "k", "m"),
         reference=commands.load(SESSION_SOURCE),
     )
-    assert "Аргументы market.buy: goods, tier, price, amount" in "".join(seen)
+    named = _arguments("".join(seen), "market.buy")
+    assert {"goods", "tier", "price", "amount"} <= named, named
 
 
 def test_the_terminal_shelf_says_what_is_free_to_sell() -> None:
