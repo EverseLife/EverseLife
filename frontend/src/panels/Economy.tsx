@@ -15,7 +15,7 @@ import * as api from "../api";
 import { useNames } from "../actions";
 import { t } from "../locale";
 import { goodsName } from "../names";
-import { Panel } from "./Admin";
+import { Panel } from "./admin/Panel";
 import { Rule } from "../Rule";
 import type { StateView } from "./State";
 

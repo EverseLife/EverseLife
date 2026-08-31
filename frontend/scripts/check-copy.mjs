@@ -59,6 +59,8 @@ const ALLOWED = new Map(
       'memo: "выплата",':
         "the ground written into the ledger memo, sent to the server and kept" +
         " as the payer's own words; the statement shows it back verbatim",
+    },
+    "src/panels/admin/Court.tsx": {
       'job.verdict && job.verdict !== "отказано"':
         "a verdict value from the wire. It is Russian in the engine too, and" +
         " making it an id is a server change with a migration, not a string move",
