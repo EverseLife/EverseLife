@@ -55,7 +55,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Constants, current, current_catalog
 from src.constants import registry as R
-from src.engine import energy, luck, travel, world
+from src.engine import energy, luck, props, travel, world
 from src.engine.errors import Refusal
 from src.models.world import Layer, Node, Planet, Surface
 from src.units import HOURS_PER_DAY
@@ -254,8 +254,7 @@ async def open_room(
     await _fill(session, constants, dice, room, room_type, depth, who=who)
 
     #: The city is one room poorer -- for everybody who searches it next.
-    city.properties = {**(city.properties or {}), OPENED: opened(city) + 1}
-    await session.flush()
+    await props.bump(session, city, OPENED)
     return room
 
 

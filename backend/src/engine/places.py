@@ -50,6 +50,7 @@ import math
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.engine import props
 from src.models.world import Edge, Layer, Node
 from src.runtime import (
     MAP_HASH_SPAN,
@@ -246,8 +247,7 @@ async def assign(
     #: anchor and a lone node look exactly alike.
     spot = centre if _free(centre, taken) else _seat(centre, taken, _direction(node.key))
     taken.append(spot)
-    node.properties = {**(node.properties or {}), PLACE: {PLACE_X: spot[0], PLACE_Y: spot[1]}}
-    await session.flush()
+    await props.stamp(session, node, {PLACE: {PLACE_X: spot[0], PLACE_Y: spot[1]}})
 
 
 def _group(node: Node) -> tuple[object, ...]:

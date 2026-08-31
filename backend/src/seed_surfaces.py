@@ -56,7 +56,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import current, current_catalog
-from src.engine import energy, explore, plates, ruins, ship, travel, world
+from src.engine import energy, explore, plates, props, ruins, ship, travel, world
 from src.models.world import Layer, Node, Planet, Surface
 
 #: The Anvil Plateau: the one stable ground of Pyroxis (10-world/04, D-197).
@@ -181,8 +181,10 @@ async def _pyroxis(session: AsyncSession) -> None:
     """
     sphere = await _sphere(session, "pyroxis")
     #: The planet's own property, like its climate (D-231): a ship aims at
-    #: ground here, not at a pier.
-    sphere.properties = {**(sphere.properties or {}), ship.OPEN_LANDING: True}
+    #: ground here, not at a pier. Written only when missing, so a deploy
+    #: does not lock the planet's row for nothing.
+    if not (sphere.properties or {}).get(ship.OPEN_LANDING):
+        await props.stamp(session, sphere, {ship.OPEN_LANDING: True})
     plateau = (
         await _ensure(
             session,
@@ -207,8 +209,7 @@ async def _pyroxis(session: AsyncSession) -> None:
     #: structure, and the seed owns it. Written only when it is missing, so a
     #: deploy does not touch the row for nothing.
     if not (plateau.properties or {}).get(ANVIL):
-        plateau.properties = {**(plateau.properties or {}), ANVIL: True}
-        await session.flush()
+        await props.stamp(session, plateau, {ANVIL: True})
     dice = random.Random(PYROXIS_PLATEAU)
     for number in range(1, PYROXIS_FIELDS + 1):
         #: Laid **once**, and the whole field with it: the way to it, its vein,
@@ -288,7 +289,8 @@ async def _aurora(session: AsyncSession) -> None:
     sphere = await _sphere(session, "aurora")
     #: The planet itself is marked: from here on, a search for city ground on
     #: Aurora finds a city that already stands, not an empty place (D-232).
-    sphere.properties = {**(sphere.properties or {}), PRECURSOR: True}
+    if not (sphere.properties or {}).get(PRECURSOR):
+        await props.stamp(session, sphere, {PRECURSOR: True})
     now = datetime.now(UTC)
     for city in AURORA_CITIES:
         place = (

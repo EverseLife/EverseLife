@@ -809,3 +809,80 @@ async def test_locked_stacks_reread_what_the_session_already_holds(
             await other.execute(update(Item).where(Item.id == coal.id).values(amount=7_000))
         locked = await stock.locked_stacks(db, yard.id, ("Уголь",))
         assert locked[0] is held and held.amount == 7_000, "замок обязан перечитать строку"
+
+
+async def test_two_marks_on_one_node_do_not_erase_each_other(
+    session: AsyncSession,
+    factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """`Node.properties` is one JSONB dict rewritten whole (review of D-238).
+
+    A founder stamps the gate while a scout's return bumps the counter. Each
+    builds its new dict from what it read at the start; without the reread
+    under the row lock (`props._held`) the slower writer's snapshot is stale
+    and its rewrite silently erases the faster one's key.
+    """
+    from src.engine import props
+    from src.engine.explore import FOUND_HERE
+
+    node = await world.create_node(
+        session, f"terra.marks.{uuid.uuid4().hex[:6]}", "Перекрёсток", area_m2=100
+    )
+    node_id = node.id
+    await session.commit()
+
+    async def flag() -> None:
+        async with factory() as db, db.begin():
+            own = await db.get(Node, node_id)
+            assert own is not None
+            #: The stale snapshot is loaded by the `get` above; the pause lets
+            #: the counter commit inside the window a plain rewrite loses.
+            await asyncio.sleep(0.2)
+            await props.stamp(db, own, {travel.EXIT: True})
+
+    async def count() -> None:
+        async with factory() as db, db.begin():
+            own = await db.get(Node, node_id)
+            assert own is not None
+            await props.bump(db, own, FOUND_HERE)
+
+    await asyncio.gather(flag(), count())
+
+    async with factory() as db:
+        again = await db.get(Node, node_id)
+        assert again is not None
+        held = again.properties or {}
+        assert held.get(travel.EXIT) is True, "печать ворот стёрта счётчиком разведки"
+        assert int(held.get(FOUND_HERE, 0)) == 1, "счётчик разведки стёрт печатью ворот"
+
+
+async def test_two_bumps_of_one_counter_lose_neither(
+    session: AsyncSession,
+    factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """A counter in the properties map is a remainder like ore in a vein:
+    two increments from the same snapshot would both write the same number."""
+    from src.engine import props
+    from src.engine.explore import FOUND_HERE
+
+    node = await world.create_node(
+        session, f"terra.count.{uuid.uuid4().hex[:6]}", "Развилка", area_m2=100
+    )
+    node_id = node.id
+    await session.commit()
+
+    async def one(delay: float) -> None:
+        async with factory() as db, db.begin():
+            own = await db.get(Node, node_id)
+            assert own is not None
+            await asyncio.sleep(delay)
+            await props.bump(db, own, FOUND_HERE)
+
+    await asyncio.gather(one(0.0), one(0.1))
+
+    async with factory() as db:
+        again = await db.get(Node, node_id)
+        assert again is not None
+        assert int((again.properties or {}).get(FOUND_HERE, 0)) == 2, (
+            "две разведки — два, а не одно"
+        )
