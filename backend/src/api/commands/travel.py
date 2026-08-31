@@ -13,7 +13,7 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.api.commands.common import _alive, _body, _identity, _node, _own_item
+from src.api.commands.common import _alive, _alive_read, _body, _identity, _node, _own_item
 from src.api.commands.views import _identity_by_name
 from src.api.registry import Refused, command
 from src.constants import current, current_catalog
@@ -152,10 +152,10 @@ async def _road_lay(state: dict, db: AsyncSession, message: dict) -> dict:
     return {"road": str(job.id), "ready_at": job.run_at.isoformat()}
 
 
-@command("road.here")
+@command("road.here", readonly=True)
 async def _road_here(state: dict, db: AsyncSession, message: dict) -> dict:
     """Roads from this node: what is laid, what sagged and what it costs."""
-    body = await _alive(state, db)
+    body = await _alive_read(state, db)
     return {"roads": await road.view(db, current(), body)}
 
 
@@ -193,7 +193,7 @@ async def _explore_cancel(state: dict, db: AsyncSession, message: dict) -> dict:
     return {"cancelled": str(job.id)}
 
 
-@command("explore.goals")
+@command("explore.goals", readonly=True)
 async def _explore_goals(state: dict, db: AsyncSession, message: dict) -> dict:
     """What can be sought and what a run from here will cost.
 

@@ -155,7 +155,7 @@ async def _rig_place(state: dict, db: AsyncSession, message: dict) -> dict:
     return {"rig": str(installation.id), "vein": vein.resource}
 
 
-@command("rig.status")
+@command("rig.status", readonly=True)
 async def _rig_status(state: dict, db: AsyncSession, message: dict) -> dict:
     """What stands in the node: hopper, fuel, condition. In-person scene."""
     body = await _body(db, state["identity_id"])

@@ -138,7 +138,7 @@ async def _bench(
 
     expected_value = ItemKind.FURNITURE if furniture else ItemKind.STATION
     book = current_catalog().recipes
-    items = await world.contents(db, await world.node_container(db, node))
+    items = await world.node_things(db, node)
 
     out: list[dict[str, Any]] = []
     for item in items:
@@ -201,7 +201,7 @@ async def _storages(db: AsyncSession, constants, node: Node, body: Body) -> list
     way around the rule "do not touch what is not yours".
     """
     catalog = current_catalog()
-    things = await world.contents(db, await world.node_container(db, node))
+    things = await world.node_things(db, node)
     allowed = await station.may_build(db, body, node)
 
     out: list[dict[str, Any]] = []
@@ -235,7 +235,7 @@ async def _vehicles(db: AsyncSession, constants, node: Node) -> list[dict[str, A
     """
 
     cat = current_catalog()
-    things = await world.contents(db, await world.node_container(db, node))
+    things = await world.node_things(db, node)
     harnessed_ = (
         set(
             (
@@ -287,7 +287,12 @@ async def _things(db: AsyncSession, constants, container) -> list[dict[str, Any]
     water in it, and the client cannot see inside otherwise -- a liquid
     never lies in the pocket by itself.
     """
-    items = await world.contents(db, container)
+    return await _shown(db, constants, await world.contents(db, container))
+
+
+async def _shown(db: AsyncSession, constants, items) -> list[dict[str, Any]]:
+    """The same rows for things already read -- for a yard that may not exist:
+    `world.node_things` answers about a place without writing to it."""
     catalog = current_catalog()
     #: One reading for every vessel at once, not one per canister.
     vessels = [item for item in items if storage.is_vessel(catalog, item.type_key)]

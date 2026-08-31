@@ -207,7 +207,9 @@ async def split(session: AsyncSession, node: Node) -> tuple[list[Item], list[Ite
     roofed = await storey_area(session, node) > 0
     inside: list = []
     outside: list = []
-    for thing in await world.contents(session, await world.node_container(session, node)):
+    #: Through `node_things`, not `node_container`: the estimates and the looks
+    #: come this way, and a read must not make a yard row (CLAUDE.md).
+    for thing in await world.node_things(session, node):
         if _equipment(catalog, thing.type_key) or storage.is_storage(catalog, thing.type_key):
             continue
         (inside if roofed and not thing.outdoors else outside).append(thing)
@@ -315,7 +317,7 @@ async def slots(session: AsyncSession, constants: Constants, node: Node) -> tupl
     in_total = int(area // constants[R.BUILD_SLOTS_PER_AREA])
 
     book = current_catalog().recipes
-    things = await world.contents(session, await world.node_container(session, node))
+    things = await world.node_things(session, node)
     occupied = 0
     for thing in things:
         try:

@@ -14,7 +14,7 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.api.commands.common import _alive, _body, _own_item
+from src.api.commands.common import _alive, _alive_read, _body, _own_item
 from src.api.commands.views import _money
 from src.api.registry import Refused, command
 from src.constants import current, current_catalog
@@ -197,14 +197,14 @@ async def _ship_of(db: AsyncSession, body: Body, asked: str | None) -> Ship:
     return aboard
 
 
-@command("ship.view")
+@command("ship.view", readonly=True)
 async def _ship_view(state: dict, db: AsyncSession, message: dict) -> dict:
     """The ship's summary: thrust, mass, thrust-to-mass and the price of every route.
 
     Remote, and shown **before** undocking: a refusal by mass must not be a
     surprise sprung after the hold is loaded (D-202).
     """
-    body = await _alive(state, db)
+    body = await _alive_read(state, db)
     asked = message.get("ship")
     #: `fleet` asks for every hull of one's own whatever the body is standing
     #: in. The ground console wants exactly that (D-242), and it may perfectly
@@ -313,7 +313,7 @@ async def _ship_recall(state: dict, db: AsyncSession, message: dict) -> dict:
     return {"recalled": str(job.id), "arrives_at": job.run_at.isoformat()}
 
 
-@command("ship.ports")
+@command("ship.ports", readonly=True)
 async def _ship_ports(state: dict, db: AsyncSession, message: dict) -> dict:
     """Where a ship may actually land. Public: ports are not a secret.
 
@@ -321,7 +321,7 @@ async def _ship_ports(state: dict, db: AsyncSession, message: dict) -> dict:
     not a destination, and a console that offered it would be offering a
     flight that ends in a refusal.
     """
-    await _alive(state, db)
+    await _alive_read(state, db)
     return {
         "ports": [
             {"node": port.key, "name": port.name, "planet": port.planet.value}

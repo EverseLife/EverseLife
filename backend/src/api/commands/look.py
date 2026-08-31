@@ -29,6 +29,7 @@ from src.api.commands.views import (
     _orders,
     _reservations,
     _shelf,
+    _shown,
     _sight,
     _storages,
     _things,
@@ -497,9 +498,10 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
     #: got in (D-204): the shut door and the chest are the protection, not a rule
     #: against touching. A passer-by through a shut location is not inside.
     loose = {str(thing.id) for thing in await storage.lying(db, node)}
-    #: Serialised **once** for both surfaces: one store holds them, and `_things`
+    #: Serialised **once** for both surfaces: one store holds them, and `_shown`
     #: is a walk over makers and cultivars that has no business happening twice.
-    shown = await _things(db, constants, await world.node_container(db, node))
+    #: Through `node_things`, not `node_container`: a look must not make a yard.
+    shown = await _shown(db, constants, await world.node_things(db, node))
     #: Two surfaces since D-244, and the pair is the whole point: the floor of
     #: the house is what the house was built for, the yard is the plot left
     #: around it. A roofless node has no floor at all -- `area` is nought and the

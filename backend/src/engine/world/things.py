@@ -77,8 +77,37 @@ async def body_container(session: AsyncSession, body: Body) -> Container:
     return await remember(session, ("body_container", body.id), find)
 
 
+async def node_yard(session: AsyncSession, node: Node) -> Container | None:
+    """The node's yard as it stands -- **without** making one.
+
+    "Чтение не пишет" (CLAUDE.md): the scene, the forecasts and every "what is
+    here" ask this, and a node nobody has yet put anything into simply has no
+    yard row. Creating one for a glance writes to a place for looking at it,
+    and puts an INSERT under `craft.plan`, which the client counts while the
+    player is still typing. Nothing there is empty, so nothing is lost: no
+    yard and an empty yard answer every read the same.
+    """
+
+    async def find() -> Container | None:
+        stmt = select(Container).where(
+            Container.kind == ContainerKind.NODE, Container.owner_id == node.id
+        )
+        return (await session.execute(stmt)).scalar_one_or_none()
+
+    return await remember(session, ("node_container", node.id), find)
+
+
+async def node_things(session: AsyncSession, node: Node) -> tuple[Item, ...]:
+    """What lies and stands in the node's yard. A read: no yard, nothing here."""
+    yard = await node_yard(session, node)
+    return () if yard is None else await contents(session, yard)
+
+
 async def node_container(session: AsyncSession, node: Node) -> Container:
     """What stands and lies in the node: machines, products at the machine.
+
+    Made on first need -- so this is for whoever **puts** something down.
+    Whoever only looks asks `node_yard` or `node_things`.
 
     **One** store for the node, and the two surfaces a node has (D-244) -- the
     floor of the house and the open ground beside it -- are a mark on the thing
@@ -86,19 +115,15 @@ async def node_container(session: AsyncSession, node: Node) -> Container:
     question wants the whole answer: the fire of an eruption looking for what to
     burn, a rig looking for its coal, a brazier for its fuel.
     """
-
-    async def find() -> Container:
-        stmt = select(Container).where(
-            Container.kind == ContainerKind.NODE, Container.owner_id == node.id
-        )
-        container = (await session.execute(stmt)).scalar_one_or_none()
-        if container is None:
-            container = Container(kind=ContainerKind.NODE, owner_id=node.id)
-            session.add(container)
-            await session.flush()
-        return container
-
-    return await remember(session, ("node_container", node.id), find)
+    found = await node_yard(session, node)
+    if found is not None:
+        return found
+    container = Container(kind=ContainerKind.NODE, owner_id=node.id)
+    session.add(container)
+    #: The flush gives the row its id -- and throws the memo away with it, so
+    #: the next `node_yard` reads the yard that now exists.
+    await session.flush()
+    return container
 
 
 #: The "Библиотека" thing class (D-176, D-215): the library window is shown
@@ -132,7 +157,9 @@ async def thing_kinds(session: AsyncSession, node: Node) -> frozenset[str]:
     """
 
     async def find() -> frozenset[str]:
-        yard = await node_container(session, node)
+        yard = await node_yard(session, node)
+        if yard is None:
+            return frozenset()
         rows = await session.execute(
             select(Item.type_key).where(Item.container_id == yard.id).distinct()
         )

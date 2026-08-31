@@ -15,7 +15,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src import i18n
-from src.api.commands.common import _alive, _own_item, _stamp, goods_key, speaks
+from src.api.commands.common import _alive, _alive_read, _own_item, _stamp, goods_key, speaks
 from src.api.commands.views import _optional_uuid, _tiers
 from src.api.registry import Refused, command
 from src.constants import current, current_catalog
@@ -26,10 +26,10 @@ from src.engine import (
 )
 
 
-@command("craft.plan")
+@command("craft.plan", readonly=True)
 async def _craft_plan(state: dict, db: AsyncSession, message: dict) -> dict:
     """Forecast before a batch. Spends nothing and reserves nothing (D-092)."""
-    body = await _alive(state, db)
+    body = await _alive_read(state, db)
     output, units, extra = _craft_request(message)
     plan = await craft.plan(db, current(), current_catalog(), body, output, units, **extra)
     return {"plan": asdict(plan)}

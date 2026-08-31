@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src import i18n
 from src.api import push
-from src.api.commands.common import _alive, _identity
+from src.api.commands.common import _alive_read, _identity
 from src.api.commands.views import _identity_by_name
 from src.api.registry import Refused, command
 from src.engine import (
@@ -124,7 +124,7 @@ async def _account_logout(state: dict, db: AsyncSession, message: dict) -> dict:
     return {"bye": True}
 
 
-@command("people.here")
+@command("people.here", readonly=True)
 async def _people_here(state: dict, db: AsyncSession, message: dict) -> dict:
     """Who is standing in this location.
 
@@ -133,7 +133,7 @@ async def _people_here(state: dict, db: AsyncSession, message: dict) -> dict:
     people are in the same room. Those passing through are not in it -- the query
     asks for bodies in the node, and a body in transit is nowhere.
     """
-    body = await _alive(state, db)
+    body = await _alive_read(state, db)
     rows = (
         await db.execute(
             select(Body, Identity)
