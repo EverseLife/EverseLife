@@ -10,6 +10,7 @@
 
 
 import { type FormEvent, useState } from "react";
+import { t } from "../locale";
 import { Logo } from "../Logo";
 import { Secret } from "./Secret";
 
@@ -34,13 +35,13 @@ export function Login({ busy, onLogin, onRegister, trouble }: Props) {
     <main className="entry auth">
       <div className="brand">
         <Logo height={88} />
-        <p className="note">альфа</p>
+        <p className="note">{t("ui-login-alpha")}</p>
       </div>
 
       <form className="card" onSubmit={submit}>
-        <h1>Войти</h1>
+        <h1>{t("ui-login-title")}</h1>
         <label>
-          <span>почта</span>
+          <span>{t("ui-login-email")}</span>
           <input
             type="email"
             autoComplete="username"
@@ -52,21 +53,21 @@ export function Login({ busy, onLogin, onRegister, trouble }: Props) {
           />
         </label>
         <label>
-          <span>пароль</span>
+          <span>{t("ui-login-password")}</span>
           <Secret value={password} onChange={setPassword} disabled={busy} />
         </label>
         {trouble && <p className="trouble">{trouble}</p>}
         <div className="row">
           <button type="submit" disabled={busy || !email.trim() || !password}>
-            Войти
+            {t("ui-login-submit")}
           </button>
         </div>
       </form>
 
       <p className="note center">
-        Ещё нет аккаунта?{" "}
+        {t("ui-login-no-account")}{" "}
         <button type="button" className="link" onClick={onRegister} disabled={busy}>
-          Регистрация
+          {t("ui-login-register")}
         </button>
       </p>
     </main>

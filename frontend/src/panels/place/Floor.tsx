@@ -7,9 +7,11 @@
 import { useState } from "react";
 import { Amount } from "../../Amount";
 import { chosen, tally } from "../../amounts";
-import { useSession } from "../../actions";
+import { useNames, useSession } from "../../actions";
 import { DropZone } from "../../DragMove";
 import { grip, noDrag } from "../../drag";
+import { t } from "../../locale";
+import { flavorText, goodsName } from "../../names";
 import type { Props, Surface } from "./shared";
 
 
@@ -25,6 +27,7 @@ import type { Props, Surface } from "./shared";
  */
 export function Floor({ look, busy, act, where = "floor" }: Props & { where?: Surface }) {
   const session = useSession();
+  const names = useNames();
   const [parts, setParts] = useState<Record<string, number | null>>({});
   const indoors = where === "floor";
   const floor = indoors ? look.floor : look.ground;
@@ -50,11 +53,15 @@ export function Floor({ look, busy, act, where = "floor" }: Props & { where?: Su
 
   return (
     <section>
-      <h2>{indoors ? "На полу" : "На земле"}</h2>
+      <h2>{indoors ? t("ui-place-floor-title") : t("ui-place-ground-title")}</h2>
       <p className="note">
-        занято {room.used.toFixed(1)} из {room.area.toFixed(0)} м²
-        {room.cargo_mass > 0 && ` · груза ${room.cargo_mass.toFixed(1)} кг`}
-        {gear > 0 && ` · оборудования ${gear}`}
+        {t("ui-place-floor-taken", {
+          used: room.used.toFixed(1),
+          area: room.area.toFixed(0),
+        })}
+        {room.cargo_mass > 0 &&
+          t("ui-place-floor-cargo", { mass: room.cargo_mass.toFixed(1) })}
+        {gear > 0 && t("ui-place-floor-gear", { count: gear })}
       </p>
 
       {/* One inventory, not two (D-238). This window used to carry a copy of
@@ -73,11 +80,7 @@ export function Floor({ look, busy, act, where = "floor" }: Props & { where?: Su
         zone={where}
         accepts={["hands"]}
         disabled={!open || !rights.mine || busy}
-        hint={
-          indoors
-            ? "перетащите сюда предмет, чтобы положить на пол"
-            : "перетащите сюда предмет, чтобы положить на землю"
-        }
+        hint={indoors ? t("ui-place-floor-drop") : t("ui-place-ground-drop")}
         onMove={(stack, amount) =>
           act(() =>
             //: Which surface, said out loud: without it the engine would guess,
@@ -97,16 +100,24 @@ export function Floor({ look, busy, act, where = "floor" }: Props & { where?: Su
                     ? grip({
                         item: thing.id,
                         goods: thing.goods,
-                        label: thing.flavor ?? thing.goods,
+                        label: thing.flavor
+                          ? flavorText(names, thing.flavor)
+                          : goodsName(names, thing.goods),
                         amount: thing.amount,
                         zone: where,
                       })
                     : {})}
                 >
-                  <td>{thing.flavor ?? thing.goods}</td>
+                  <td>
+                    {thing.flavor
+                      ? flavorText(names, thing.flavor)
+                      : goodsName(names, thing.goods)}
+                  </td>
                   <td className="note">
-                    {tally(thing.goods, thing.amount)} ·{" "}
-                    {(thing.mass * thing.amount).toFixed(1)} кг
+                    {tally(thing.goods, thing.amount)}{" "}
+                    {t("ui-place-floor-mass", {
+                      mass: (thing.mass * thing.amount).toFixed(1),
+                    })}
                   </td>
                   <td {...noDrag}>
                     {open && (
@@ -131,9 +142,9 @@ export function Floor({ look, busy, act, where = "floor" }: Props & { where?: Su
                           )
                         }
                         disabled={busy}
-                        title="взять в руки — сколько унесёте; строку можно и перетащить вниз"
+                        title={t("ui-place-floor-pick-hint")}
                       >
-                        Взять
+                        {t("ui-place-floor-pick")}
                       </button>
                     )}
                   </td>
@@ -142,21 +153,19 @@ export function Floor({ look, busy, act, where = "floor" }: Props & { where?: Su
             </tbody>
           </table>
         ) : (
-          <p className="note">пусто</p>
+          <p className="note">{t("ui-place-empty")}</p>
         )}
       </DropZone>
 
 
       <p className="note">
         {!open
-          ? "Вы здесь проходом: чужая закрытая локация пола вам не отдаёт."
+          ? t("ui-place-floor-passing")
           : rights.mine
             ? indoors
-              ? "Лежащее занимает площадь; в сундуке — не занимает. Обрушение дома" +
-                " хоронит то, что лежит под крышей."
-              : "Лежащее занимает площадь двора — того, что осталось от участка" +
-                " вокруг дома. Дом упадёт — это уцелеет."
-            : "Чужое место, но лежащее берёт всякий, кого сюда пустили."}
+              ? t("ui-place-floor-rule")
+              : t("ui-place-ground-rule")
+            : t("ui-place-floor-guest")}
       </p>
     </section>
   );

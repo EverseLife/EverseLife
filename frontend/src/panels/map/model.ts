@@ -29,13 +29,18 @@ export const H = 540;
  * The city's mark is the colonnade the map already draws on a settlement, so
  * the tab and the node it opens say the same thing -- a switcher whose icons
  * were invented apart from the map would be a second vocabulary to learn.
+ *
+ * `word` is a message name, not a word: the layer is named in the language the
+ * player is reading, and the city's name is not even in the locale -- it
+ * follows the planet whose surface is shown (`cityWord`). So the switcher is
+ * handed resolved labels and this table keeps only the key.
  */
 export const LAYERS = [
-  { id: "space", label: "космос", mark: "orbit" },
-  { id: "planet", label: "планета", mark: "globe" },
-  { id: "city", label: "город", mark: "state" },
-  { id: "location", label: "локация", mark: "rooms" },
-] as const satisfies readonly { id: string; label: string; mark: GlyphName }[];
+  { id: "space", word: "ui-map-layer-space", mark: "orbit" },
+  { id: "planet", word: "ui-map-layer-planet", mark: "globe" },
+  { id: "city", word: "ui-map-layer-city", mark: "state" },
+  { id: "location", word: "ui-map-layer-location", mark: "rooms" },
+] as const satisfies readonly { id: string; word: string; mark: GlyphName }[];
 export type LayerId = (typeof LAYERS)[number]["id"];
 
 /**
@@ -88,10 +93,10 @@ export function sceneKey(
 
 /** The layer in words: the player reads a place, not an enum. */
 export const LAYER_NAME: Record<string, string> = {
-  space: "в космосе",
-  planet: "на планете",
+  space: "ui-map-where-space",
+  planet: "ui-map-where-planet",
   //: `city` is not here: its word is the planet's (`cityWord`).
-  location: "внутри места",
+  location: "ui-map-where-location",
 };
 
 /**

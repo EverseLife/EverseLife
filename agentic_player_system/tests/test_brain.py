@@ -12,7 +12,7 @@ from typing import Any
 
 import pytest
 
-from aps import brain, commands, llm, observe
+from aps import brain, commands, llm, names, observe
 from aps.game import Game, GameError, Refused
 from aps.runner import Runner
 from aps.store import Store
@@ -47,7 +47,8 @@ class FakeGame:
         return answer
 
     async def public(self, path: str) -> Any:
-        return {"path": path}
+        #: `public:renames` in the script feeds the names table (D-251).
+        return self.script.get(f"public:{path}", {"path": path})
 
 
 def _call(name: str, **arguments: Any) -> dict[str, Any]:
@@ -56,6 +57,14 @@ def _call(name: str, **arguments: Any) -> dict[str, Any]:
         "type": "function",
         "function": {"name": name, "arguments": json.dumps(arguments)},
     }
+
+
+@pytest.fixture(autouse=True)
+def raw_ids():
+    """The names table is process-global: every test starts without one."""
+    names.reset()
+    yield
+    names.reset()
 
 
 @pytest.fixture
@@ -258,6 +267,9 @@ async def test_a_dropped_socket_is_reconnected_and_the_turn_goes_on(
 def test_observation_is_a_digest_with_changes_and_the_whole_look_every_few_turns() -> None:
     from aps import observe
 
+    #: The wire speaks ids (D-251); the digest gives them back their Russian
+    #: names as «Имя [id]», the id staying quotable in commands.
+    names.install({"goods": {"bioprinter": "Биопринтер", "bread": "Хлеб", "pickaxe": "Кирка"}})
     first = {
         "look": {
             "identity": "Марта",
@@ -265,7 +277,7 @@ def test_observation_is_a_digest_with_changes_and_the_whole_look_every_few_turns
             "body": {"stamina": 90.0, "sleeping_since": None},
             "node": {"name": "Ядро", "key": "terra.capital.core", "owner_city": "Столица"},
             "carry": {"load": 3.0, "capacity": 30.0},
-            "bench": [{"goods": "Биопринтер", "busy": False}],
+            "bench": [{"goods": "bioprinter", "busy": False}],
             "exits": [{"key": "terra.capital.market", "name": "Рынок", "seconds": 5}],
             "city": {
                 "name": "Столица",
@@ -273,7 +285,7 @@ def test_observation_is_a_digest_with_changes_and_the_whole_look_every_few_turns
                 "citizen": False,
                 "admission": "open",
             },
-            "inventory": [{"goods": "Хлеб", "amount": 2}],
+            "inventory": [{"goods": "bread", "amount": 2}],
             "doings": [],
             "travel": None,
             "clock": {"now": "1"},
@@ -281,7 +293,7 @@ def test_observation_is_a_digest_with_changes_and_the_whole_look_every_few_turns
     }
     second = json.loads(json.dumps(first))
     second["look"]["money"] = "95"
-    second["look"]["inventory"].append({"goods": "Кирка", "amount": 1})
+    second["look"]["inventory"].append({"goods": "pickaxe", "amount": 1})
     second["look"]["clock"]["now"] = "2"
 
     text, mode = observe.observation(None, first, full=False, packed="{}")
@@ -291,10 +303,10 @@ def test_observation_is_a_digest_with_changes_and_the_whole_look_every_few_turns
     assert "деньги 95" in text and "Сумка (2)" in text
     #: The shape of `look` after D-226: stations are the things standing here,
     #: citizenship lives in `city`, and the ways out are named in the digest.
-    assert "Станции здесь: Биопринтер" in text
+    assert "Станции здесь: Биопринтер [bioprinter]" in text
     assert "Выходы: Рынок [terra.capital.market] 5с" in text
     assert "ты не гражданин" in text and "несёшь 3/30 кг" in text
-    assert "money: 120 → 95" in text and "появилось Кирка×1" in text
+    assert "money: 120 → 95" in text and "появилось Кирка [pickaxe]×1" in text
     assert "clock" not in text
     text, mode = observe.observation(first, second, full=True, packed="{}")
     assert mode == "full"
@@ -464,9 +476,12 @@ def test_shrink_caps_lists_and_strings() -> None:
 def test_events_heard_between_turns_open_the_observation() -> None:
     from aps import observe
 
+    #: Things named by wire id in an event get the same «Имя [id]» as the
+    #: digest; a key the table does not know (a node key) stays raw.
+    names.install({"goods": {"pickaxe": "Кирка"}})
     told = observe.happened(
         [
-            {"event": "knowledge.learned", "seq": 5, "touches": ["knowledge"], "key": "Кирка"},
+            {"event": "knowledge.learned", "seq": 5, "touches": ["knowledge"], "key": "pickaxe"},
             {
                 "event": "travel.arrived",
                 "seq": 6,
@@ -477,7 +492,7 @@ def test_events_heard_between_turns_open_the_observation() -> None:
         ]
     )
     assert told.splitlines() == [
-        "- knowledge.learned · key: Кирка",
+        "- knowledge.learned · key: Кирка [pickaxe]",
         '- travel.arrived · кто: Тэрн · node: {"key": "terra.mine", "name": "Забой"}',
     ]
     assert observe.happened([]) == ""
@@ -963,29 +978,36 @@ def test_the_purse_is_shown_in_both_units() -> None:
 def test_standing_affairs_are_named_or_declared_empty() -> None:
     """An agent that does not see its own orders posts them again and waits for
     a delivery it never ordered -- both in the journal."""
+    names.install(
+        {
+            "goods": {
+                "iron_ore": "Железная руда",
+                "mine_support": "Шахтная крепь",
+                "iron_part": "Железная деталь",
+            }
+        }
+    )
     own = {
         "orders": {
             "orders": [
-                {"id": "o-1", "side": "buy", "goods": "Железная руда", "price": 30000, "left": 5.0}
+                {"id": "o-1", "side": "buy", "goods": "iron_ore", "price": 30000, "left": 5.0}
             ],
             "reservations": [
                 {
                     "id": "r-1",
-                    "goods": "Шахтная крепь",
+                    "goods": "mine_support",
                     "amount": 5.0,
                     "node": "Рынок",
                     "expires_at": "2026-09-02T03:52:32+00:00",
                 }
             ],
-            "batches": [
-                {"output": "Железная деталь", "units": 1, "ready_at": "2026-08-28T12:00:00"}
-            ],
+            "batches": [{"output": "iron_part", "units": 1, "ready_at": "2026-08-28T12:00:00"}],
         }
     }
     said = observe.standing(own)
-    assert "покупка «Железная руда» ×5 по 30000 [o-1]" in said
-    assert "Шахтная крепь" in said and "[r-1]" in said
-    assert "Железная деталь" in said
+    assert "покупка «Железная руда [iron_ore]» ×5 по 30000 [o-1]" in said
+    assert "Шахтная крепь [mine_support]" in said and "[r-1]" in said
+    assert "Железная деталь [iron_part]" in said
     assert observe.standing({"orders": {"orders": [], "reservations": [], "batches": []}}) == (
         "Ни заявок, ни броней, ни партий, ни товара в терминале — ждать нечего."
     )
@@ -1006,10 +1028,13 @@ async def test_the_turn_reads_its_own_orders_into_the_observation(
     game = FakeGame(
         {
             "look": {"money": 0},
+            #: The wire speaks ids; the Russian names come from /public/renames
+            #: fetched at the start of the turn (D-251, wave II).
+            "public:renames": {"names_ru": {"goods": {"salt": "Соль"}}},
             "orders": {
                 "orders": {
                     "orders": [
-                        {"id": "o-9", "side": "buy", "goods": "Соль", "price": 100, "left": 2.0}
+                        {"id": "o-9", "side": "buy", "goods": "salt", "price": 100, "left": 2.0}
                     ],
                     "reservations": [],
                     "batches": [],
@@ -1025,7 +1050,7 @@ async def test_the_turn_reads_its_own_orders_into_the_observation(
         reference=commands.load(SESSION_SOURCE),
     )
     prompt = next(e for e in store.events(agent["id"]) if e["kind"] == "prompt")
-    assert "покупка «Соль» ×2 по 100 [o-9]" in json.loads(prompt["reply"])["user"]
+    assert "покупка «Соль [salt]» ×2 по 100 [o-9]" in json.loads(prompt["reply"])["user"]
 
 
 async def test_the_turn_survives_a_server_that_refuses_orders(
@@ -1109,12 +1134,18 @@ async def test_a_missing_field_refusal_carries_the_arguments_even_with_args(
 def test_the_terminal_shelf_says_what_is_free_to_sell() -> None:
     """`market.sell` refuses on the free amount; the shelf minus own sell orders
     in this node is the only way to know it before being refused."""
+    names.install(
+        {
+            "goods": {"iron_ore": "Железная руда", "salt": "Соль"},
+            "tiers": {"good": "хорошее", "common": "обычное"},
+        }
+    )
     look = {
         "look": {
             "node": {"key": "terra.capital.market", "name": "Рынок"},
             "stall": [
-                {"goods": "Железная руда", "tier": "хорошее", "amount": 5.0},
-                {"goods": "Соль", "tier": "обычное", "amount": 2.0},
+                {"goods": "iron_ore", "tier": "good", "amount": 5.0},
+                {"goods": "salt", "tier": "common", "amount": 2.0},
             ],
         }
     }
@@ -1124,8 +1155,8 @@ def test_the_terminal_shelf_says_what_is_free_to_sell() -> None:
                 {
                     "id": "o1",
                     "side": "sell",
-                    "goods": "Железная руда",
-                    "tier": "хорошее",
+                    "goods": "iron_ore",
+                    "tier": "good",
                     "price": 30000,
                     "left": 3.0,
                     "node_key": "terra.capital.market",
@@ -1135,8 +1166,8 @@ def test_the_terminal_shelf_says_what_is_free_to_sell() -> None:
                 {
                     "id": "o2",
                     "side": "sell",
-                    "goods": "Соль",
-                    "tier": "обычное",
+                    "goods": "salt",
+                    "tier": "common",
                     "price": 100,
                     "left": 2.0,
                     "node_key": "terra.other",
@@ -1147,27 +1178,29 @@ def test_the_terminal_shelf_says_what_is_free_to_sell() -> None:
         }
     }
     said = observe.standing(own, look)
-    assert "«Железная руда» (хорошее) ×5, свободно 2" in said
-    assert "«Соль» (обычное) ×2;" in said or "«Соль» (обычное) ×2." in said
-    assert "свободно 2; «Соль»" not in said.replace("×5, свободно 2", "")
+    assert "«Железная руда [iron_ore]» (хорошее [good]) ×5, свободно 2" in said
+    assert "(обычное [common]) ×2;" in said or "(обычное [common]) ×2." in said
+    assert "свободно 2; «Соль" not in said.replace("×5, свободно 2", "")
 
 
 def test_a_batch_says_why_it_is_not_moving() -> None:
     """«away» means walk back to the machine, not wait -- the difference is the turn."""
+    names.install({"goods": {"nails": "Гвозди"}})
     frozen = {
         "orders": {
             "orders": [],
             "reservations": [],
-            "batches": [{"output": "Гвозди", "units": 200, "waiting": "away", "node": "Кузница"}],
+            "batches": [{"output": "nails", "units": 200, "waiting": "away", "node": "Кузница"}],
         }
     }
-    assert "тебя нет у станка в Кузница" in observe.standing(frozen)
+    said = observe.standing(frozen)
+    assert "Гвозди [nails] ×200" in said and "тебя нет у станка в Кузница" in said
 
 
 def test_long_lists_say_how_many_were_left_out() -> None:
     """Silently cut orders are orders the agent posts a second time."""
     many = [
-        {"id": f"o{i}", "side": "sell", "goods": "Соль", "price": 10, "left": 1}
+        {"id": f"o{i}", "side": "sell", "goods": "salt", "price": 10, "left": 1}
         for i in range(observe.STANDING_ROWS + 3)
     ]
     said = observe.standing({"orders": {"orders": many, "reservations": [], "batches": []}})
@@ -1255,7 +1288,7 @@ def test_a_server_that_does_not_place_orders_makes_the_shelf_cautious() -> None:
     look = {
         "look": {
             "node": {"key": "terra.capital.market"},
-            "stall": [{"goods": "Железная руда", "tier": "хорошее", "amount": 5.0}],
+            "stall": [{"goods": "iron_ore", "tier": "good", "amount": 5.0}],
         }
     }
     old = {
@@ -1264,8 +1297,8 @@ def test_a_server_that_does_not_place_orders_makes_the_shelf_cautious() -> None:
                 {
                     "id": "o1",
                     "side": "sell",
-                    "goods": "Железная руда",
-                    "tier": "хорошее",
+                    "goods": "iron_ore",
+                    "tier": "good",
                     "price": 30000,
                     "left": 5.0,
                 }
@@ -1331,15 +1364,80 @@ def test_a_refusal_about_the_way_says_the_way_is_optional() -> None:
     old = brain._advice(
         reference,
         "craft.start",
-        {"output": "Слиток", "way": "forge"},
-        "'Слиток железа' не делается способом 'forge'",
+        {"output": "iron_ingot", "way": "forge"},
+        "'iron_ingot' не делается способом 'forge'",
     )
     assert "без way игра берёт основной" in old
-    #: The server that names them needs no help, and the advice retires.
+    #: The server that names them needs no help, and the advice retires. Since
+    #: D-251 the list carries operation ids («способы: iron_smelting»), which
+    #: changes nothing here: only the «способы:» mark is looked at.
     new = brain._advice(
         reference,
         "craft.start",
-        {"output": "Слиток", "way": "forge"},
-        "'Слиток железа' не делается способом 'forge'; способы: Плавка",
+        {"output": "iron_ingot", "way": "forge"},
+        "'iron_ingot' не делается способом 'forge'; способы: iron_smelting",
     )
     assert new == ""
+
+
+def test_an_id_gets_its_russian_name_and_an_unknown_one_stays_raw() -> None:
+    """D-251, wave II: the wire speaks ids, the model reads «Имя [id]» and
+    quotes the id -- the same convention the digest uses for node keys."""
+    assert names.label("goods", "iron_ore") == "iron_ore"
+    names.install(
+        {
+            "goods": {"iron_ore": "Железная руда"},
+            "virtual_stations": {"coin_station": "Монетная станция"},
+        }
+    )
+    assert names.label("goods", "iron_ore") == "Железная руда [iron_ore]"
+    #: A station standing in a place is a thing: the goods domain covers both.
+    assert names.label("goods", "coin_station") == "Монетная станция [coin_station]"
+    assert names.label("goods", "mystery_thing") == "mystery_thing"
+    assert names.label("tiers", "good") == "good"
+    #: And the system prompt teaches the convention.
+    assert "из квадратных скобок" in brain.SYSTEM
+
+
+async def test_renames_are_fetched_once_and_a_failure_is_retried() -> None:
+    class Flaky:
+        calls = 0
+        broken = True
+
+        async def public(self, path: str) -> Any:
+            assert path == "renames"
+            self.calls += 1
+            if self.broken:
+                raise RuntimeError("404")
+            return {"names_ru": {"goods": {"salt": "Соль"}}}
+
+    game = Flaky()
+    #: A server without the endpoint leaves ids raw and does not cache the
+    #: failure: the next turn asks again.
+    await names.ensure(game)
+    assert names.label("goods", "salt") == "salt"
+    game.broken = False
+    await names.ensure(game)
+    assert game.calls == 2
+    assert names.label("goods", "salt") == "Соль [salt]"
+    #: Loaded is loaded: the table is per process, not per turn.
+    await names.ensure(game)
+    assert game.calls == 2
+
+
+def test_the_digest_translates_node_features_and_the_climate() -> None:
+    """Node features and `frost.climate` come as ids since D-251; the digest
+    keeps talking to the model in Russian."""
+    names.install({"node_properties": {"stones": "камни", "meadow": "луг"}})
+    seen = {
+        "look": {
+            "identity": "Марта",
+            "money": "10",
+            "body": {"stamina": 90.0},
+            "node": {"name": "Поляна", "key": "terra.wild.1", "features": ["stones", "meadow"]},
+            "frost": {"climate": "frost", "hours": 0, "max": 12, "per_hour": 0, "at": "x"},
+        }
+    }
+    text = observe.digest(seen)
+    assert "есть: камни [stones], луг [meadow]" in text
+    assert "ЗАМЁРЗ (здесь мороз)" in text

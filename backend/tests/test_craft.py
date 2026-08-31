@@ -33,12 +33,12 @@ from src.units import amount_float
 
 #: The first real processing step of the ladder: an iron ingot is smelted by
 #: an operation, without a recipe (20-systems/03-crafting), while nails already require knowledge.
-INGOT = "Слиток железа"
-NAILS = "Гвозди"
-STEEL = "Сталь"
-BENCH = "Верстак"
-FORGE = "Кузница"
-FURNACE = "Плавильная печь"
+INGOT = "iron_ingot"
+NAILS = "nails"
+STEEL = "steel"
+BENCH = "workbench"
+FORGE = "forge"
+FURNACE = "smelting_furnace"
 
 
 async def _workshop(
@@ -53,7 +53,7 @@ async def _workshop(
     node = await world.create_node(
         session,
         f"terra.workshop.{stamp}",
-        "Мастерская",
+        "workshop",
         area_m2=100,
         properties={"library": library},
     )
@@ -71,7 +71,7 @@ async def _workshop(
         from src.engine import library as shelf
 
         await shelf.stock(
-            session, node, (recipe.name for recipe in current_catalog().recipes.recipes)
+            session, node, (recipe.type_key for recipe in current_catalog().recipes.recipes)
         )
     return node, identity, body
 
@@ -114,7 +114,7 @@ def test_operation_without_recipe_needs_no_knowledge(catalog: Catalog) -> None:
     method = craft.procedure(catalog, INGOT)
     assert not method.needs_recipe
     assert method.station == FURNACE
-    assert set(method.per_unit) == {"Железная руда", "Уголь"}
+    assert set(method.per_unit) == {"iron_ore", "coal"}
 
 
 def test_every_recipe_is_made_by_hand_or_at_a_real_machine(catalog: Catalog) -> None:
@@ -154,15 +154,15 @@ def test_mining_does_not_pretend_to_be_craft(catalog: Catalog) -> None:
     Ore goes by its own mechanic (vein and pickaxe), and cannot be taken by batch.
     """
     with pytest.raises(craft.Unmakeable):
-        craft.procedure(catalog, "Железная руда")
+        craft.procedure(catalog, "iron_ore")
 
 
 def test_place_extraction_goes_as_batch(catalog: Catalog) -> None:
     """Felling is place extraction (D-177): without inputs, but tied to a node."""
-    method = craft.procedure(catalog, "Дерево")
-    assert method.place == "лес"
+    method = craft.procedure(catalog, "wood")
+    assert method.place == "woods"
     assert method.inputs == ()
-    assert "Топор" in method.tools
+    assert "axe" in method.tools
     assert not method.needs_recipe
 
 
@@ -172,11 +172,11 @@ def test_wood_is_felled_by_a_named_way(catalog: Catalog) -> None:
     Deadwood by hand is no longer an operation: what lies on the ground is
     found by foraging (D-210), and the forest window keeps only the axe.
     """
-    felling = craft.procedure(catalog, "Дерево", way="Рубка дерева")
-    assert "Топор" in felling.tools
-    assert felling.place == "лес"
+    felling = craft.procedure(catalog, "wood", way="logging")
+    assert "axe" in felling.tools
+    assert felling.place == "woods"
     with pytest.raises(craft.Unmakeable):
-        craft.procedure(catalog, "Дерево", way="Сбор валежника")
+        craft.procedure(catalog, "wood", way="Сбор валежника")
 
 
 def test_unknown_way_is_refused_and_the_real_ones_are_named(catalog: Catalog) -> None:
@@ -187,11 +187,15 @@ def test_unknown_way_is_refused_and_the_real_ones_are_named(catalog: Catalog) ->
     way" leaves the asker guessing: an AI citizen (D-224) spent ten minutes
     trying `forge` and `smelt` at a catalog that says «Рубка дерева».
     """
+    #: Asserted by key and by what the refusal carries, not by the sentence:
+    #: the wording belongs to the locale now, and a translation must not fail a
+    #: test about the rules (D-251 wave III).
     with pytest.raises(craft.Unmakeable) as refusal:
-        craft.procedure(catalog, "Дерево", way="Телекинез")
-    said = str(refusal.value)
-    assert "Телекинез" in said and "способы: " in said
-    assert "Рубка дерева" in said
+        craft.procedure(catalog, "wood", way="Телекинез")
+    assert refusal.value.key == "craft-unknown-way"
+    assert refusal.value.params["way"] == "Телекинез"
+    assert refusal.value.params["known"] == "true"
+    assert "logging" in refusal.value.params["ways"]
 
 
 def test_stone_axe_ladder_needs_no_tools(catalog: Catalog, constants: Constants) -> None:
@@ -204,15 +208,15 @@ def test_stone_axe_ladder_needs_no_tools(catalog: Catalog, constants: Constants)
     from src.engine import forage
 
     found = forage.finds(constants)
-    for output in ("Дерево", "Камень", "Лён"):
+    for output in ("wood", "stone", "flax"):
         assert output in found, f"{output} должен находиться собирательством"
 
-    for output in ("Волокно", "Верёвка", "Каменный топор"):
+    for output in ("fiber", "rope", "stone_axe"):
         step = craft.procedure(catalog, output)
         assert step.station is None, f"{output} должен собираться руками"
 
-    axe = craft.procedure(catalog, "Каменный топор")
-    assert set(axe.inputs) == {"Камень", "Дерево", "Верёвка"}
+    axe = craft.procedure(catalog, "stone_axe")
+    assert set(axe.inputs) == {"stone", "wood", "rope"}
 
 
 async def test_felling_asks_for_the_right_place(
@@ -227,7 +231,7 @@ async def test_felling_asks_for_the_right_place(
     body = await world.print_body(session, identity, bare)
 
     with pytest.raises(craft.CraftError):
-        await craft.start(session, constants, catalog, body, "Дерево", 1, way="Рубка дерева")
+        await craft.start(session, constants, catalog, body, "wood", 1, way="logging")
 
 
 async def test_a_tool_from_the_node_is_refused_by_name_of_what_tool_means(
@@ -239,14 +243,14 @@ async def test_a_tool_from_the_node_is_refused_by_name_of_what_tool_means(
     """
     stamp = uuid.uuid4().hex[:8]
     forest = await world.create_node(
-        session, f"terra.forest.{stamp}", "Лес", area_m2=10_000, properties={"лес": True}
+        session, f"terra.forest.{stamp}", "Лес", area_m2=10_000, properties={"woods": True}
     )
     identity = await world.create_identity(session, f"Дровосек-{stamp}")
     body = await world.print_body(session, identity, forest)
     pocket = await world.body_container(session, body)
-    await world.grant_item(session, pocket, "Топор", quality=60, origin="сценарий теста")
+    await world.grant_item(session, pocket, "axe", quality=60, origin="сценарий теста")
     yard = await world.node_container(session, forest)
-    standing = await world.grant_item(session, yard, "Плавильная печь", quality=70, origin="тест")
+    standing = await world.grant_item(session, yard, "smelting_furnace", quality=70, origin="тест")
 
     with pytest.raises(craft.NoTool) as refusal:
         await craft.start(
@@ -254,33 +258,34 @@ async def test_a_tool_from_the_node_is_refused_by_name_of_what_tool_means(
             constants,
             catalog,
             body,
-            "Дерево",
+            "wood",
             1,
-            way="Рубка дерева",
+            way="logging",
             tool_item_id=standing.id,
         )
-    assert "вещь из твоей сумки" in str(refusal.value)
+    #: By key, not by wording: the sentence lives in the locale (D-251 wave III).
+    assert refusal.value.key == "craft-tool-not-in-hands"
 
 
 def test_dishes_wait_for_cooking(catalog: Catalog) -> None:
     """Roles arrive together with cooking on E2 (D-119), and pretending is not allowed."""
     with pytest.raises(craft.Unmakeable):
-        craft.procedure(catalog, "Похлёбка")
+        craft.procedure(catalog, "soup")
 
 
 def test_time_grows_with_processing_depth(catalog: Catalog, constants: Constants) -> None:
     """The main value knob of the ladder: the deeper the processing, the longer (D-133)."""
     nails = craft.step_hours(catalog, catalog.recipes.recipe(NAILS))
-    pickaxe = craft.step_hours(catalog, catalog.recipes.recipe("Стальная кирка"))
+    pickaxe = craft.step_hours(catalog, catalog.recipes.recipe("steel_pickaxe"))
     assert pickaxe > nails > 0
 
     #: The own step of the first processing level is exactly `craft.time_per_unit`.
     #: Fiber, not rope: since D-196 the flax goes raw -> fiber -> rope, and rope
     #: became the second level -- which is exactly what the ladder should charge for.
-    fiber = craft.step_hours(catalog, catalog.recipes.recipe("Волокно"))
+    fiber = craft.step_hours(catalog, catalog.recipes.recipe("fiber"))
     assert fiber * 60 == pytest.approx(constants[R.CRAFT_TIME_PER_UNIT], rel=0.05)
 
-    rope = craft.step_hours(catalog, catalog.recipes.recipe("Верёвка"))
+    rope = craft.step_hours(catalog, catalog.recipes.recipe("rope"))
     assert rope > fiber, "верёвка теперь глубже волокна"
 
 
@@ -498,10 +503,10 @@ async def test_recipe_machine_found_via_synonyms(
     Without synonym resolution all chemistry and refining were unmakeable: the
     engine looked for a machine with a name that never exists in the world.
     """
-    GLAZE = "Стекло"
+    GLAZE = "glass"
     _, identity, body = await _workshop(session, machine=FURNACE, machine_quality=70)
     await world.learn(session, identity, GLAZE)
-    for raw in ("Кварцевый песок", "Уголь"):
+    for raw in ("quartz_sand", "coal"):
         await _give(session, body, raw, 100, quality=60)
 
     plan = await craft.plan(session, constants, catalog, body, GLAZE, 1)
@@ -519,8 +524,8 @@ async def test_smelting_batch_reaches_end(
     """
     async with factory() as session, session.begin():
         _, _, body = await _workshop(session, machine=FURNACE)
-        await _give(session, body, "Железная руда", 20, quality=60)
-        await _give(session, body, "Уголь", 20, quality=60)
+        await _give(session, body, "iron_ore", 20, quality=60)
+        await _give(session, body, "coal", 20, quality=60)
         batch = await craft.start(session, constants, catalog, body, INGOT, 1)
         ready, body_id = batch.ready_at, body.id
 
@@ -580,10 +585,10 @@ async def test_wares_do_not_stack_each_with_own_quality(
     """Raw material stacks, products do not (04-items)."""
     async with factory() as session, session.begin():
         _, identity, body = await _workshop(session, machine=FORGE, machine_quality=80)
-        await world.learn(session, identity, "Железная кирка")
+        await world.learn(session, identity, "iron_pickaxe")
         await _give(session, body, INGOT, 20, quality=70)
-        await _give(session, body, "Рукоять", 20, quality=70)
-        batch = await craft.start(session, constants, catalog, body, "Железная кирка", 3)
+        await _give(session, body, "handle", 20, quality=70)
+        batch = await craft.start(session, constants, catalog, body, "iron_pickaxe", 3)
         ready, body_id = batch.ready_at, body.id
 
     await jobs.run_one(factory, now=ready)
@@ -596,7 +601,7 @@ async def test_wares_do_not_stack_each_with_own_quality(
             (
                 await session.execute(
                     select(Item).where(
-                        Item.container_id == pocket.id, Item.type_key == "Железная кирка"
+                        Item.container_id == pocket.id, Item.type_key == "iron_pickaxe"
                     )
                 )
             )
@@ -697,7 +702,7 @@ async def test_copying_recipe_costs_stamina(
     body.stamina = Decimal("1")
     await session.flush()
     with pytest.raises(craft.NoStrength):
-        await craft.copy_recipe(session, catalog, body, "Верёвка")
+        await craft.copy_recipe(session, catalog, body, "rope")
 
 
 async def _node(session: AsyncSession, node_id: uuid.UUID):

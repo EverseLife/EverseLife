@@ -65,7 +65,7 @@ from src.units import (
 )
 
 #: The rig thing class (D-215). A ladder milestone: reachable by the end of E2.75.
-RIG = "Буровая"
+RIG = "rig"
 
 
 def _fuel_names() -> tuple[str, ...]:
@@ -74,7 +74,7 @@ def _fuel_names() -> tuple[str, ...]:
     People haul the fuel -- that is the whole enterprise. The rig is a motor,
     not a generator: it eats `rig.fuel_per_hour` units whatever the material.
     """
-    return tuple(current_catalog().recipes.fuels()) or ("Уголь",)
+    return tuple(current_catalog().recipes.fuels()) or ("coal",)
 
 
 class RigError(Refusal):
@@ -105,13 +105,13 @@ async def place(
     """Place a rig on a vein. In person: a machine is placed by hand."""
     moment = now or datetime.now(UTC)
     if body.state is not BodyState.ALIVE:
-        raise RigError("мёртвое тело не работает")
+        raise RigError(key="rig-dead-works")
     await travel.require_here(session, body)
 
     if item.type_key not in world.station_names(RIG):
-        raise NoRig(f"{item.type_key!r} — не буровая установка")
+        raise NoRig(key="rig-not-a-rig", goods=item.type_key)
     if vein.node_id != body.node_id:
-        raise RigError("жила не здесь: установку ставят на месте")
+        raise RigError(key="rig-vein-not-here")
 
     exists = (
         await session.execute(select(RigRow).where(RigRow.item_id == item.id))
@@ -236,12 +236,12 @@ async def empty_hopper(
     """
     moment = now or datetime.now(UTC)
     if body.state is not BodyState.ALIVE:
-        raise RigError("мёртвое тело не работает")
+        raise RigError(key="rig-dead-works")
     await travel.require_here(session, body)
     if rig.node_id != body.node_id:
-        raise RigError("установка не здесь: бункер вывозят ногами")
+        raise RigError(key="rig-not-here")
     if rig.owner_identity_id not in (None, body.identity_id):
-        raise NotYours("чужая установка: вывоз — по договору с хозяином")
+        raise NotYours(key="rig-not-yours")
 
     #: Emptying is a write and races the world tick for the same row.
     await session.refresh(rig, with_for_update=True)
@@ -271,7 +271,7 @@ async def empty_hopper(
     emptied = Item(
         container_id=pocket.id,
         #: A rig without a vein should not happen; coal is the least-wrong stub.
-        type_key=vein.resource if vein else "Уголь",
+        type_key=vein.resource if vein else "coal",
         amount=amount(taken),
         quality=Decimal(str(quality)),
     )

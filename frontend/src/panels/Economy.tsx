@@ -12,38 +12,42 @@
 
 
 import * as api from "../api";
+import { useNames } from "../actions";
+import { t } from "../locale";
+import { goodsName } from "../names";
 import { Panel } from "./Admin";
 import { Rule } from "../Rule";
 import type { StateView } from "./State";
 
 export function Economy({ view }: { view: StateView }) {
+  const names = useNames();
   const { city, panel, world } = view;
   const prices = Object.entries(world).filter(([k]) => k.startsWith("price."));
 
   return (
     <div>
       <p className="sign">
-        {city.name} · казна {api.tk(city.treasury)} ₭
+        {t("ui-city-treasury-sign", { city: city.name, treasury: api.tk(city.treasury) })}
       </p>
       <Panel panel={panel} />
 
-      <h3>Деньги мира</h3>
+      <h3>{t("ui-city-money")}</h3>
       <table>
         <tbody>
           <tr>
-            <td>масса ₭</td>
+            <td>{t("ui-city-money-total")}</td>
             <td className="num">{(world["money.total"] ?? 0).toFixed(2)}</td>
           </tr>
           <tr>
-            <td>медиана счёта</td>
+            <td>{t("ui-city-money-median")}</td>
             <td className="num">{(world["money.median"] ?? 0).toFixed(2)}</td>
           </tr>
           <tr>
-            <td>неравенство (Джини)</td>
+            <td>{t("ui-city-money-gini")}</td>
             <td className="num">{(world["money.gini"] ?? 0).toFixed(2)}</td>
           </tr>
           <tr>
-            <td>сделок за сутки</td>
+            <td>{t("ui-city-trades")}</td>
             <td className="num">{world["trades.count"] ?? 0}</td>
           </tr>
         </tbody>
@@ -51,12 +55,12 @@ export function Economy({ view }: { view: StateView }) {
 
       {prices.length > 0 && (
         <>
-          <h3>Цены за сутки</h3>
+          <h3>{t("ui-city-prices")}</h3>
           <table>
             <tbody>
               {prices.map(([key, price]) => (
                 <tr key={key}>
-                  <td>{key.slice("price.".length)}</td>
+                  <td>{goodsName(names, key.slice("price.".length))}</td>
                   <td className="num">{price.toFixed(2)} ₭</td>
                 </tr>
               ))}
@@ -66,11 +70,8 @@ export function Economy({ view }: { view: StateView }) {
       )}
 
       <h3>
-        По каким правилам живём
-        <Rule>
-          Менять законы — в администрации: власть присутственна. Вкладка видна только
-          должностям: это цифры, которыми правят.
-        </Rule>
+        {t("ui-city-laws")}
+        <Rule>{t("ui-city-laws-rule")}</Rule>
       </h3>
       <table>
         <tbody>
@@ -83,7 +84,9 @@ export function Economy({ view }: { view: StateView }) {
                   <b>{law.value}</b>
                   {law.unit && <span className="note"> {law.unit}</span>}
                 </td>
-                <td className="note">{law.own ? "решение города" : "умолчание"}</td>
+                <td className="note">
+                  {law.own ? t("ui-city-law-own") : t("ui-city-law-default")}
+                </td>
               </tr>
             ))}
         </tbody>

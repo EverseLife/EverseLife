@@ -31,9 +31,9 @@ from src.models.event import EventKind
 from src.models.inventory import Item
 from src.models.job import Job, JobState
 
-BENCH = "Верстак"
-MAKE = "Рукоять"
-WOOD = "Дерево"
+BENCH = "workbench"
+MAKE = "handle"
+WOOD = "wood"
 
 
 async def _shop(session: AsyncSession):

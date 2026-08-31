@@ -16,7 +16,8 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.api.commands.common import _body, _identity, _node
+from src import i18n
+from src.api.commands.common import _body, _identity, _node, speaks
 from src.api.commands.views import (
     _batches,
     _bench,
@@ -137,6 +138,8 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
     identity = await _identity(state, db)
     body = await _body(db, identity.id)
     constants = current()
+    #: The language this answer is said in, read once (D-251 wave III).
+    said = speaks(state)
 
     seen: dict[str, Any] = {
         "identity": identity.name,
@@ -222,7 +225,7 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
         #: preselects it in the picker. Belted like the public map's copy.
         "emblem": estate.public_emblem(node),
         #: Fertility is a place property (D-126): the plots scene is shown by it.
-        "fertility": float(node.properties.get("плодородие", 0) or 0),
+        "fertility": float(node.properties.get("fertility", 0) or 0),
         #: Whose plot: the holder runs the estate, others by contract (D-116).
         #: Ownership is a public fact: whoever enters sees the owner, whoever it
         #: is, a person or a city (D-178).
@@ -396,10 +399,15 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
     #: the person must understand which ones exactly they lack, not hit a refusal.
     seen["foundation"] = None
     if city is None and node.layer is Layer.PLANET and node.owner_identity_id == identity.id:
+        #: The roles are keys (D-251 wave IV); the words are said here, at the
+        #: edge, in the reader's language -- as `doings` and refusals are.
         seen["foundation"] = {
-            "missing": list(await town.missing_for_foundation(db, node)),
+            "missing": [
+                i18n.render(f"city-role-{role}", locale=said)
+                for role in await town.missing_for_foundation(db, node)
+            ],
             "needs": [
-                {"role": role, "any_of": list(with_what)}
+                {"role": i18n.render(f"city-role-{role}", locale=said), "any_of": list(with_what)}
                 for role, with_what in town.foundation_needs()
             ],
         }
@@ -439,8 +447,11 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
     seen["doings"] = [
         {
             "kind": doing.kind,
-            "title": doing.title,
-            "what": doing.what,
+            #: Said in the reader's language here, at the edge, the way a
+            #: refusal is: the engine named the occupation, and naming is as
+            #: far as it goes (D-251).
+            "title": i18n.render(doing.title, locale=said),
+            "what": i18n.render(doing.says.key, doing.says.params, locale=said),
             "until": None if doing.until is None else doing.until.isoformat(),
         }
         for doing in await occupation.all_of(db, body)

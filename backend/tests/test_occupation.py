@@ -25,14 +25,15 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src import i18n
 from src.constants import Catalog, Constants
 from src.engine import craft, farm, forage, occupation, rest, world
 from src.models.craft import BatchState
 from src.models.farm import PlotState
 
-INGOT = "Слиток железа"
-NAILS = "Гвозди"
-FORGE = "Кузница"
+INGOT = "iron_ingot"
+NAILS = "nails"
+FORGE = "forge"
 
 
 async def _yard(session: AsyncSession, *, area: float = 400, fertility: float = 55):
@@ -43,7 +44,7 @@ async def _yard(session: AsyncSession, *, area: float = 400, fertility: float = 
         f"terra.busy.{stamp}",
         "Хутор",
         area_m2=area,
-        properties={"дикий": True, "вода": "река", "плодородие": fertility},
+        properties={"wild": True, "water": "river", "fertility": fertility},
     )
     identity = await world.create_identity(session, f"Работник-{stamp}")
     body = await world.print_body(session, identity, node)
@@ -75,9 +76,15 @@ async def test_sleep_is_refused_while_the_search_goes(
     body.stamina = body.stamina.__class__("50")
     await forage.start(session, constants, body)
 
+    #: By the key and what it names, not by the sentence: the wording belongs
+    #: to the locale now (D-251 wave III).
     with pytest.raises(occupation.Busy) as refusal:
         await rest.sleep(session, constants, body)
-    assert "поиск" in str(refusal.value)
+    assert refusal.value.key == "occupation-busy"
+    #: The quoted half is a message of its own now (wave IV): the refusal
+    #: names it, and the words appear only where the language is known.
+    quoted = refusal.value.inner["what"][0]
+    assert quoted.key == "doing-forage-searching"
 
     #: Ended the search -- the bed is free again.
     await forage.stop(session, body)
@@ -146,13 +153,32 @@ async def test_the_list_names_the_work_and_how_long_is_left(
     doings = await occupation.all_of(session, body)
     assert [doing.kind for doing in doings] == [occupation.PLOT]
     line = doings[0]
-    assert line.title == "вспашка"
-    assert "Северная" in line.what, "делянок бывает четыре: строка обязана назвать свою"
+    #: A key, not a word: the title is derived from the kind, and the sentence
+    #: carries the plot's name as an argument (D-251 wave IV).
+    assert line.title == "doing-plot"
+    assert line.says.key == "doing-plot-what"
+    #: Four strips are four lines: each must name its own.
+    assert line.says.params["plot"] == "Северная"
+    said = i18n.render(line.says.key, line.says.params, locale=i18n.DEFAULT_LOCALE)
+    assert "Северная" in said, said
     assert line.until is not None
 
     #: The deadline is told as a distance, not as a stamp: an ISO string in a
     #: refusal was unreadable, and the world counts a day of its own length.
-    said = line.refusal()
+    #: Quoted as a message with numbers, not as a phrase (wave IV): how many
+    #: words "2 ч 5 мин" is, and in which forms, is the language's business.
+    with pytest.raises(occupation.Busy) as refusal:
+        await occupation.require_free(session, body)
+    assert refusal.value.key == "occupation-busy"
+    assert refusal.value.params["term"] == "true", "у вспашки есть срок"
+
+    left = refusal.value.inner["left"][0]
+    assert left == occupation.left_to_say(line.until)
+    assert left.key == "time-left"
+    assert set(left.params) == {"hours", "minutes"}, "часы и минуты числами"
+
+    #: And what the reader actually gets out of it.
+    said = i18n.render(left.key, left.params, locale=i18n.DEFAULT_LOCALE)
     assert "T" not in said and "+00:00" not in said, said
     assert "ещё" in said or "меньше минуты" in said, said
 
@@ -165,9 +191,9 @@ async def test_a_sleeping_body_has_one_line_and_no_clock(
     await rest.sleep(session, constants, body)
 
     doings = await occupation.all_of(session, body)
-    assert [(d.kind, d.title, d.until) for d in doings] == [(occupation.SLEEP, "сон", None)], (
-        "сон кончается решением, а не сроком"
-    )
+    assert [(d.kind, d.title, d.until) for d in doings] == [
+        (occupation.SLEEP, "doing-sleep", None)
+    ], "сон кончается решением, а не сроком"
 
 
 # --- sleep and the bench -----------------------------------------------------

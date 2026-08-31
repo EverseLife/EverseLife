@@ -40,7 +40,7 @@ from src.models.world import Node
 from src.units import SECONDS_PER_HOUR
 
 #: The bed thing class (D-215): any furniture of this class grants hibernation.
-BED = "Кровать"
+BED = "bed"
 
 
 class RestError(Refusal):
@@ -65,7 +65,7 @@ async def sleep(
     """Lie down. In person: one sleeps with the body, not by order."""
     moment = now or datetime.now(UTC)
     if body.state is not BodyState.ALIVE:
-        raise RestError("мёртвое тело не спит — оно мертво")
+        raise RestError(key="rest-dead-sleeps")
     #: `require_here` will refuse a sleeper itself: sleep stands at the same door as the road.
     await travel.require_here(session, body)
     #: Sleep is an occupation like any other (D-211): one does not lie down in
@@ -74,7 +74,7 @@ async def sleep(
 
     await occupation.require_free(session, body, besides=frozenset({occupation.CRAFT}))
     if float(body.stamina) >= constants[R.BODY_STAMINA_MAX]:
-        raise NotTired("выносливость полная: ложиться незачем")
+        raise NotTired(key="rest-not-tired")
 
     body.sleeping_since = moment
     body.sleeping_home = await _bed_here(session, constants, body)
@@ -111,7 +111,7 @@ async def wake(
     """
     moment = now or datetime.now(UTC)
     if body.sleeping_since is None:
-        raise NotSleeping("тело не спит")
+        raise NotSleeping(key="rest-not-sleeping")
 
     hours = max(0.0, (moment - body.sleeping_since).total_seconds() / SECONDS_PER_HOUR)
     rate = constants[R.BODY_HIBERNATION_RATE]

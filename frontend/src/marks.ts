@@ -14,27 +14,28 @@
 import type { RecipeBook } from "./api";
 import { classOf } from "./classes";
 import type { GlyphName } from "./glyphs";
+import { t } from "./locale";
 
-/** Tool classes with a face of their own; the rest wear the plain hammer. */
+/** Tool classes (by class id, D-251) with a face of their own; the rest wear the plain hammer. */
 const TOOL_MARKS: Record<string, GlyphName> = {
-  "Кирка": "pick",
-  "Топор": "axe",
-  "Ёмкость": "vessel",
-  "Утварь": "pot",
+  pickaxe: "pick",
+  axe: "axe",
+  vessel: "vessel",
+  cookware: "pot",
 };
 
-/** Material classes, as the vault names them. */
+/** Material classes, by class id. */
 const MATERIAL_MARKS: Record<string, GlyphName> = {
-  "Ископаемое": "ore",
-  "Минерал": "ore",
-  "Металл": "ingot",
-  "Растительное": "plant",
-  "Жидкость": "water",
+  minable: "ore",
+  mineral: "ore",
+  metal: "ingot",
+  flora: "plant",
+  liquid: "water",
 };
 
 //: The Forerunners' machinery is classed by what it is (a reactor, a yard),
 //: but on a shelf it is a station like any other.
-const RELIC_STATIONS = new Set(["ТЭЦ", "Реактор Предтеч", "Верфь", "Биопринтер"]);
+const RELIC_STATIONS = new Set(["heat_plant", "precursor_reactor", "shipyard", "bioprinter"]);
 
 const KIND_MARKS: Record<string, GlyphName> = {
   station: "station",
@@ -53,13 +54,13 @@ export function goodsGlyph(book: RecipeBook | null, goods: string): GlyphName {
   for (const [toolClass, members] of Object.entries(book.tool_classes ?? {})) {
     if (members.includes(name)) return TOOL_MARKS[toolClass] ?? "tool";
   }
-  const recipe = book.recipes.find((r) => r.name === name);
+  const recipe = book.recipes.find((r) => (r.id ?? r.name) === name);
   if (recipe) {
     if (recipe.kind === "consumable") return recipe.food ? "food" : "goods";
     const byKind = KIND_MARKS[recipe.kind];
     if (byKind) return byKind;
   }
-  const material = book.materials?.find((m) => m.name === name);
+  const material = book.materials?.find((m) => (m.id ?? m.name) === name);
   const thingClass = material?.class ?? classOf(book, name);
   if (thingClass) {
     const byClass = MATERIAL_MARKS[thingClass];
@@ -76,17 +77,41 @@ export function goodsGlyph(book: RecipeBook | null, goods: string): GlyphName {
  * not be forgeable.
  */
 export const EMBLEM_MARKS: Record<string, GlyphName> = {
-  "дом": "estate",
-  "поле": "plant",
-  "лес": "forest",
-  "луг": "glade",
-  "камни": "ore",
-  "мастерская": "station",
-  "рынок": "market",
-  "склад": "goods",
-  "еда": "food",
-  "вода": "water",
-  "разметка": "plot",
+  house: "estate",
+  field: "plant",
+  woods: "forest",
+  meadow: "glade",
+  stones: "ore",
+  workshop: "station",
+  market: "market",
+  warehouse: "goods",
+  food: "food",
+  water: "water",
+  markup: "plot",
+};
+
+/**
+ * The emblem ids in the player's words. The renames bundle does not carry
+ * this domain -- half the marks ("house", "market") are neither goods nor node
+ * properties -- so the picker's labels live beside the glyph list they label.
+ *
+ * Each word is a getter: the map is built once, when the module is first
+ * imported, and the language is switched long after that. Read as a plain
+ * table by whoever draws it -- `EMBLEM_WORDS[mark] ?? mark` still falls back
+ * to the id for a mark a newer server invented.
+ */
+export const EMBLEM_WORDS: Record<string, string> = {
+  get house() { return t("ui-emblem-house"); },
+  get field() { return t("ui-emblem-field"); },
+  get woods() { return t("ui-emblem-woods"); },
+  get meadow() { return t("ui-emblem-meadow"); },
+  get stones() { return t("ui-emblem-stones"); },
+  get workshop() { return t("ui-emblem-workshop"); },
+  get market() { return t("ui-emblem-market"); },
+  get warehouse() { return t("ui-emblem-warehouse"); },
+  get food() { return t("ui-emblem-food"); },
+  get water() { return t("ui-emblem-water"); },
+  get markup() { return t("ui-emblem-markup"); },
 };
 
 /**
@@ -136,11 +161,11 @@ type NodeFace = {
 export function nodeGlyph({ emblem, features, settlement, port }: NodeFace): GlyphName | null {
   if (emblem && EMBLEM_MARKS[emblem]) return EMBLEM_MARKS[emblem];
   const signs = new Set(features ?? []);
-  if (signs.has("предтечи")) return "ruins";
-  if (signs.has("камни")) return "ore";
-  if (signs.has("лес")) return "forest";
-  if (signs.has("луг")) return "glade";
-  if (signs.has("участок")) return "plot";
+  if (signs.has("precursors")) return "ruins";
+  if (signs.has("stones")) return "ore";
+  if (signs.has("woods")) return "forest";
+  if (signs.has("meadow")) return "glade";
+  if (signs.has("plot")) return "plot";
   if (settlement) return "state";
   if (port) return "port";
   return null;

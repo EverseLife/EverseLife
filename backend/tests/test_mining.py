@@ -30,7 +30,7 @@ from src.models.identity import BodyState, Wound
 from src.models.inventory import Item
 from src.models.world import Vein
 
-ORE = "Железная руда"
+ORE = "iron_ore"
 
 
 async def _face(
@@ -50,7 +50,7 @@ async def _face(
         #: and since D-215 the engine checks it at the face.
         pocket = await world.body_container(session, body)
         await world.grant_item(
-            session, pocket, "Каменная кирка", quality=50, origin="сценарий теста"
+            session, pocket, "stone_pickaxe", quality=50, origin="сценарий теста"
         )
     return node, vein, body
 
@@ -58,7 +58,7 @@ async def _face(
 async def _tool(session: AsyncSession, body):
     container = await world.body_container(session, body)
     return await world.grant_item(
-        session, container, "Железная кирка", quality=50, origin="сценарий теста"
+        session, container, "iron_pickaxe", quality=50, origin="сценарий теста"
     )
 
 
@@ -66,8 +66,12 @@ async def test_mining_requires_a_pickaxe(session: AsyncSession, constants: Const
     """`Добыча requires: [Кирка, Жила]` was in the vault from the start; the
     engine finally checks it (D-215): no tool of the class -- no session."""
     _, vein, body = await _face(session, tooled=False)
-    with pytest.raises(mining.NoTool, match="Кирка"):
+    #: Asserted by the key and the tool class it names, not by the sentence:
+    #: the wording belongs to the locale now (D-251 wave III).
+    with pytest.raises(mining.NoTool) as refused:
         await mining.start(session, constants, body, vein)
+    assert refused.value.key == "mining-no-tool"
+    assert refused.value.params["tool_class"] == "pickaxe"
 
 
 # --- hidden state ------------------------------------------------------------
@@ -214,9 +218,7 @@ async def test_collapse_sometimes_kills(session: AsyncSession, constants: Consta
     """
     node, vein, body = await _face(session)
     pocket = await world.body_container(session, body)
-    await world.grant_item(
-        session, pocket, "Уголь", amount=100, quality=50, origin="сценарий теста"
-    )
+    await world.grant_item(session, pocket, "coal", amount=100, quality=50, origin="сценарий теста")
     sess = await mining.start(session, constants, body, vein)
 
     unfortunate = random.Random()
@@ -240,7 +242,7 @@ async def test_collapse_sometimes_kills(session: AsyncSession, constants: Consta
     left = (
         (
             await session.execute(
-                select(Item).where(Item.container_id == yard.id, Item.type_key == "Уголь")
+                select(Item).where(Item.container_id == yard.id, Item.type_key == "coal")
             )
         )
         .scalars()
@@ -255,7 +257,7 @@ async def test_support_holds_roof_but_not_forever(
     """The `mine.roof_timber_cap` ceiling is the main knob: the session is finite."""
     _, vein, body = await _face(session, richness=10)
     container = await world.body_container(session, body)
-    await world.grant_item(session, container, "Шахтная крепь", amount=50, origin="сценарий теста")
+    await world.grant_item(session, container, "shaft_support", amount=50, origin="сценарий теста")
 
     sess = await mining.start(session, constants, body, vein)
     for _ in range(10):
@@ -287,7 +289,7 @@ async def test_support_stays_after_the_shift(session: AsyncSession, constants: C
     """A support is an investment in the working, not a consumable of one visit."""
     _, vein, body = await _face(session, richness=60)
     container = await world.body_container(session, body)
-    await world.grant_item(session, container, "Шахтная крепь", amount=5, origin="сценарий теста")
+    await world.grant_item(session, container, "shaft_support", amount=5, origin="сценарий теста")
     await _tool(session, body)
 
     first = await mining.start(session, constants, body, vein)

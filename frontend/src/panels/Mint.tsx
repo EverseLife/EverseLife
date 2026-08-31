@@ -16,7 +16,9 @@ import type { RecipeBook } from "../api";
 import type { Look, Thing } from "../api";
 import { tally } from "../amounts";
 import { Rule } from "../Rule";
-import { Refusal, useActions, useBook, useSession } from "../actions";
+import { Refusal, useActions, useBook, useNames, useSession } from "../actions";
+import { goodsName, type NamesRu } from "../names";
+import { t } from "../locale";
 import { TierPick } from "../Tier";
 
 type Props = {
@@ -50,13 +52,15 @@ function coinsOf(book: RecipeBook | null): Coin[] {
       parts.sort((a, b) => b[1] - a[1]);
       const [metal, metalPerCoin] = parts[0] ?? ["", 0];
       const [alloy, alloyPerCoin] = parts[1] ?? ["", 0];
-      return { coin: r.name, metal, alloy, metalPerCoin, alloyPerCoin };
+      //: Ids throughout (D-251): the coin is what `knows` and `coin.mint` name.
+      return { coin: r.id ?? r.name, metal, alloy, metalPerCoin, alloyPerCoin };
     });
 }
 
 export function Mint({ look, values }: Omit<Props, "busy" | "act">) {
   const session = useSession();
   const book = useBook();
+  const names = useNames();
   //: This panel's own waiting and its own refusal: one action here
   //: must not grey out the chat, the map and somebody else's orders.
   const acting = useActions();
@@ -78,8 +82,8 @@ export function Mint({ look, values }: Omit<Props, "busy" | "act">) {
   const inHands = useMemo(() => {
     const amount = (name: string) =>
       look.inventory
-        .filter((t) => t.goods === name)
-        .reduce((result, t) => result + t.amount, 0);
+        .filter((one) => one.goods === name)
+        .reduce((result, one) => result + one.amount, 0);
     return { metal: amount(chosen.metal), iron: amount(IRON) };
   }, [look.inventory, chosen.metal, IRON]);
 
@@ -90,29 +94,28 @@ export function Mint({ look, values }: Omit<Props, "busy" | "act">) {
   const enough =
     metalNeeded <= inHands.metal && ironNeeded <= inHands.iron;
 
-  const purse = look.inventory.filter((t) => t.fineness != null);
+  const purse = look.inventory.filter((one) => one.fineness != null);
 
   if (canDo.length === 0) {
     return (
       <section>
         <Refusal of={acting} />
-        <h2>Монетная станция</h2>
-        <p className="note">
-          Чеканить нечего: рецепт монеты берут в Библиотеке. Монета —
-          предмет, и делается она как всякий предмет, только своей дверью.
-        </p>
+        <h2>{t("ui-mint-title")}</h2>
+        <p className="note">{t("ui-mint-nothing")}</p>
       </section>
     );
   }
 
   return (
     <section>
-      <h2>Монетная станция</h2>
+      <h2>{t("ui-mint-title")}</h2>
 
       <div className="row">
         <select value={coin} onChange={(e) => setCoin(e.target.value)}>
           {canDo.map((k) => (
-            <option key={k.coin}>{k.coin}</option>
+            <option key={k.coin} value={k.coin}>
+              {goodsName(names, k.coin)}
+            </option>
           ))}
         </select>
         <input
@@ -121,9 +124,12 @@ export function Mint({ look, values }: Omit<Props, "busy" | "act">) {
           step="1"
           value={qty}
           onChange={(e) => setQty(Number(e.target.value))}
-          title="сколько монет"
+          title={t("ui-mint-count")}
         />
-        <span className="note">проба {fineness} ‰ — одна на весь мир</span>
+        {/* Numbers travel as the digits already chosen here: handed over raw,
+            Fluent would group them by the locale's own rules and «900 ‰» could
+            come back spelled a way the rest of the panel never spells it. */}
+        <span className="note">{t("ui-mint-fineness", { fineness: String(fineness) })}</span>
       </div>
       {[chosen.metal, IRON].map((goods) => (
         <div className="row" key={goods}>
@@ -137,10 +143,14 @@ export function Mint({ look, values }: Omit<Props, "busy" | "act">) {
       ))}
 
       <p className="note">
-        Уйдёт {metalNeeded.toFixed(1)} «{chosen.metal}» (в руках{" "}
-        {inHands.metal.toFixed(1)}) и {ironNeeded.toFixed(1)} «{IRON}» (в руках{" "}
-        {inHands.iron.toFixed(1)}). Лигатура — десятая часть железа: монета
-        всегда 900-й пробы.
+        {t("ui-mint-cost", {
+          metal: metalNeeded.toFixed(1),
+          metalName: goodsName(names, chosen.metal),
+          metalHave: inHands.metal.toFixed(1),
+          iron: ironNeeded.toFixed(1),
+          ironName: goodsName(names, IRON),
+          ironHave: inHands.iron.toFixed(1),
+        })}
       </p>
 
       <button
@@ -157,20 +167,15 @@ export function Mint({ look, values }: Omit<Props, "busy" | "act">) {
         }
         disabled={busy || !enough || qty <= 0}
       >
-        Чеканить
+        {t("ui-mint-strike")}
       </button>
-      {!enough && (
-        <p className="note">металла или железа не хватает: партия не начнётся</p>
-      )}
+      {!enough && <p className="note">{t("ui-mint-not-enough")}</p>}
 
       {purse.length > 0 && (
         <>
           <h3>
-            Кошелёк
-            <Rule>
-              Переплавка вернёт аффинированный металл за вычетом угара; лигатура
-              теряется — выковыривать её дороже самого железа.
-            </Rule>
+            {t("ui-mint-purse")}
+            <Rule>{t("ui-mint-purse-rule")}</Rule>
           </h3>
           <table>
             <tbody>
@@ -178,6 +183,7 @@ export function Mint({ look, values }: Omit<Props, "busy" | "act">) {
                 <Row
                   key={coin.id}
                   thing={coin}
+                  names={names}
                   busy={busy}
                   melt={(qty) =>
                     act(() =>
@@ -198,22 +204,24 @@ function Row({
   thing,
   busy,
   melt,
+  names,
 }: {
   thing: Thing;
   busy: boolean;
   melt: (qty: number) => void;
+  names: NamesRu | null;
 }) {
   return (
     <tr>
-      <td>{thing.goods}</td>
+      <td>{goodsName(names, thing.goods)}</td>
       <td className="num">{tally(thing.goods, thing.amount)}</td>
       <td className="note">
-        проба {thing.fineness}
-        {thing.maker ? ` · клеймо ${thing.maker}` : ""}
+        {t("ui-mint-row-fineness", { fineness: String(thing.fineness) })}
+        {thing.maker ? ` · ${t("ui-mint-row-maker", { maker: thing.maker })}` : ""}
       </td>
       <td>
         <button className="quiet" onClick={() => melt(thing.amount)} disabled={busy}>
-          Переплавить
+          {t("ui-mint-melt")}
         </button>
       </td>
     </tr>

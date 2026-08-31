@@ -51,7 +51,7 @@ async def _gate_set(state: dict, db: AsyncSession, message: dict) -> dict:
     identity = await _identity(state, db)
     node = await db.get(Node, body.node_id)
     if node is None:  # pragma: no cover
-        raise Refused("тело вне узла")
+        raise Refused(key="cmd-body-off-node")
     await access.set_gate(db, node, identity, closed=bool(message["closed"]))
     return await _lists(db, node)
 
@@ -68,7 +68,7 @@ async def _gate_list(state: dict, db: AsyncSession, message: dict) -> dict:
     identity = await _identity(state, db)
     node = await db.get(Node, body.node_id)
     if node is None:  # pragma: no cover
-        raise Refused("тело вне узла")
+        raise Refused(key="cmd-body-off-node")
     who = await _identity_by_name(db, str(message["who"]))
     if message.get("strike"):
         await access.remove(db, node, identity, who)
@@ -140,7 +140,7 @@ async def _road_lay(state: dict, db: AsyncSession, message: dict) -> dict:
     body = await _alive(state, db)
     edge = await db.get(Edge, uuid.UUID(message["edge"]))
     if edge is None:
-        raise Refused("нет такого ребра")
+        raise Refused(key="cmd-no-such-edge")
     job = await road.lay(
         db,
         current(),
@@ -188,7 +188,7 @@ async def _explore_cancel(state: dict, db: AsyncSession, message: dict) -> dict:
     """
     body = await _body(db, state["identity_id"])
     if body is None:
-        raise Refused("нет живого тела")
+        raise Refused(key="cmd-no-live-body")
     job = await explore.cancel(db, body)
     return {"cancelled": str(job.id)}
 

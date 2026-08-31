@@ -50,16 +50,22 @@ import { type View } from "./views";
 import { powSettings, type PowSettings } from "./pow";
 import { wearPlanet } from "./theme";
 import { useNarrow } from "./narrow";
-import { ActionsProvider } from "./actions";
+import { ActionsProvider, type LocaleState } from "./actions";
+import { DEFAULT_LOCALE, forget, learn, loadWords, t, type Words } from "./locale";
+import type { NamesRu } from "./names";
 import { onSidebarTab } from "./hud";
 import { onProfile, onThread } from "./people";
 
-/** The phone's four sections: the same zones, one at a time (brief section 9). */
+/** The phone's four sections: the same zones, one at a time (brief section 9).
+ *
+ *  `label` is a getter: the list is built once at import, and the language is
+ *  learnt at the greeting -- long afterwards. A plain string would freeze the
+ *  word of whichever language was spoken then. */
 const ZONES = [
-  { id: "me", label: "я" },
-  { id: "here", label: "здесь" },
-  { id: "map", label: "карта" },
-  { id: "talk", label: "чат" },
+  { id: "me", get label() { return t("ui-app-zone-me"); } },
+  { id: "here", get label() { return t("ui-app-zone-here"); } },
+  { id: "map", get label() { return t("ui-app-zone-map"); } },
+  { id: "talk", get label() { return t("ui-app-zone-talk"); } },
 ] as const;
 type Zone = (typeof ZONES)[number]["id"];
 
@@ -100,6 +106,16 @@ export default function App() {
   const [values, setValues] = useState<Record<string, any> | null>(null);
   //: The vault catalog is needed by several machine panels at once: we load it once.
   const [book, setBook] = useState<RecipeBook | null>(null);
+  //: Display names for the wire's ids (D-251): loaded with the catalogs.
+  const [names, setNames] = useState<NamesRu | null>(null);
+  //: Kept in a ref as well: the words of a language are built from the names,
+  //: and the login sequence needs them before React has flushed the state.
+  const namesRef = useRef<NamesRu | null>(null);
+  //: The words of the account's language (D-251 wave III). One object holds
+  //: both the code and the list of languages the server has, so the switcher
+  //: never guesses; `learn` puts the same words where the pure modules --
+  //: sorting, `t` -- read them without a hook.
+  const [words, setWords] = useState<Words | null>(null);
   const [pow, setPow] = useState<PowSettings | null>(null);
   //: The screen before login: login or registration (D-187). The last login's
   //: token is tried silently: while it is checked, the login screen does not flicker.
@@ -195,17 +211,70 @@ export default function App() {
     //: The constants ride along with the catalog: a machine panel that needs
     //: one number (how many kinds go into an attempt, D-209) reads it from the
     //: same book it reads recipes from, without a second prop through every layer.
-    const book = await api.recipes();
+    //: The renames bundle travels with it (D-251): the wire speaks ids, the
+    //: player reads Russian, and every panel asks `useNames` for the bridge.
+    //: A failed bundle must not refuse the login: every helper falls back to
+    //: the raw id, and that fallback is unreachable if this read can sink the
+    //: whole catalog load (an older server has no `/public/renames` at all).
+    const [book, renames] = await Promise.all([
+      api.recipes(),
+      api.renames().catch(() => null),
+    ]);
     //: Piece or weight is read off the same book (D-212), and every panel that
     //: draws a quantity asks `amounts`, not a prop of its own.
     amounts.learn(book);
     setBook({ ...book, constants: values });
+    const table = renames?.names_ru ?? null;
+    namesRef.current = table;
+    setNames(table);
   }, []);
+
+  /**
+   * Start speaking a language: its words, built over the names, become the
+   * ones every `t` and every sort read (D-251 wave III).
+   *
+   * Only after a greeting: which language this account reads is the account's
+   * business, and the server says it in `hello`.
+   */
+  const speak = useCallback(async (want: string) => {
+    const next = await loadWords(want || DEFAULT_LOCALE, namesRef.current);
+    learn(next);
+    setWords(next);
+  }, []);
+
+  /**
+   * Change the language of the account (D-249, D-251 wave III).
+   *
+   * The wire first: the server keeps the choice and starts answering in the
+   * new language from the next command, so a refusal it renders and a sentence
+   * this client renders never disagree. Then both bundles are read again --
+   * the messages and the display names -- because a language is both.
+   */
+  const setLocale = useCallback(
+    async (next: string) => {
+      await session.current.send("account.locale", { locale: next });
+      //: The server changed both the account and this session; the client's
+      //: copy of the session must not go on saying the old one until the next
+      //: revive happens to reread it from `hello`.
+      session.current.locale = next;
+      //: `/public/renames` has no language of its own yet: until the vault
+      //: ships locale overlays (wave V) every language reads the Russian
+      //: names. It is read again anyway, because that is where the answer
+      //: will come from when it does, and the cost is one GET on a click.
+      const renames = await api.renames().catch(() => null);
+      const table = renames?.names_ru ?? namesRef.current;
+      namesRef.current = table;
+      setNames(table);
+      await speak(next);
+    },
+    [speak],
+  );
 
   const enter = (email: string, password: string) =>
     act(async () => {
       await catalogs();
       await session.current.open(email, password);
+      await speak(session.current.locale);
     });
 
   //: Auto-login by token (D-187): F5 does not ask for the password. Refusal --
@@ -220,6 +289,7 @@ export default function App() {
       try {
         await catalogs();
         await session.current.resume(token);
+        await speak(session.current.locale);
         await refresh();
       } catch {
         /* жетон истёк или отозван — обычный вход */
@@ -227,7 +297,7 @@ export default function App() {
         setResuming(false);
       }
     })();
-  }, [catalogs, refresh]);
+  }, [catalogs, refresh, speak]);
 
   /** Registration: four client steps -- one server command (D-187). Printing
    *  at the chosen door: zero on the account, the grant is the city's business
@@ -236,6 +306,7 @@ export default function App() {
     act(async () => {
       await catalogs();
       await session.current.create(application);
+      await speak(session.current.locale);
       setIntro(true);
     });
 
@@ -245,8 +316,34 @@ export default function App() {
       await session.current.logout();
       setLive(null);
       setParts(null);
+      //: The language goes with the account: the login screen must not be left
+      //: speaking the last player's, and the next login loads its own words.
+      //: The name table goes with it. Today it is one table for every
+      //: language and dropping it costs a refetch; from wave V it is not, and
+      //: a table kept across a logout would show the next player the previous
+      //: one's words for everything the message functions name.
+      forget();
+      setWords(null);
+      setNames(null);
+      namesRef.current = null;
       setScreen("login");
     });
+
+  const locale = useMemo<LocaleState>(
+    () => ({
+      locale: words?.locale ?? DEFAULT_LOCALE,
+      locales: words?.locales ?? [DEFAULT_LOCALE],
+      setLocale,
+    }),
+    [words, setLocale],
+  );
+
+  //: The page's language is the account's, so the browser hyphenates, spells
+  //: and reads it aloud correctly. `index.html` only carries the default: the
+  //: attribute belongs to the session from the greeting onwards.
+  useEffect(() => {
+    document.documentElement.lang = locale.locale;
+  }, [locale.locale]);
 
   const { digest, reread } = useDigest(session.current, Boolean(look));
   const waiting = digest?.attention.length ?? 0;
@@ -262,9 +359,9 @@ export default function App() {
   //: void. Before login nobody stands anywhere -- the theme stays the default.
   useEffect(() => {
     if (!look) return;
-    //: "борт" is a node property, like "лес" or "камни": the vault sets it in
-    //: data, and the client only reads it.
-    wearPlanet(look.clock?.planet ?? null, (look.node?.features ?? []).includes("борт"));
+    //: "aboard" is a node property id, like "woods" or "stones": the vault
+    //: sets it in data, and the client only reads it.
+    wearPlanet(look.clock?.planet ?? null, (look.node?.features ?? []).includes("aboard"));
   }, [look]);
 
   //: The server speaks first (D-226): whatever happens to the player arrives
@@ -386,7 +483,13 @@ export default function App() {
   //: stays: account, orders and knowledge belong to the identity, not the body.
   if (look.body == null) {
     return (
-      <ActionsProvider refresh={settle} session={session.current} book={book}>
+      <ActionsProvider
+        refresh={settle}
+        session={session.current}
+        book={book}
+        names={names}
+        locale={locale}
+      >
       <main>
         <TopBar
           look={look}
@@ -419,7 +522,13 @@ export default function App() {
   }
 
   return (
-    <ActionsProvider refresh={settle} session={session.current} book={book}>
+    <ActionsProvider
+      refresh={settle}
+      session={session.current}
+      book={book}
+      names={names}
+      locale={locale}
+    >
     <main>
       <TopBar
         look={look}
@@ -472,12 +581,8 @@ export default function App() {
 
             {narrow && away && where_ !== "map" && (
               <section>
-                <h2>{ongoing ? "В пути" : "В разведке"}</h2>
-                <p className="note">
-                  {ongoing
-                    ? "Пока идёшь, тебя нет нигде: присутственное закрыто."
-                    : "Разведчик в поле: тело недоступно, как во сне."}
-                </p>
+                <h2>{t("ui-app-away-title", { ongoing: String(ongoing) })}</h2>
+                <p className="note">{t("ui-app-away-note", { ongoing: String(ongoing) })}</p>
               </section>
             )}
           </div>
@@ -487,7 +592,7 @@ export default function App() {
       {/* The four zones of the phone: the same zones as the desktop's, one at a
           time, and the bar is where a thumb reaches (brief section 9). */}
       {narrow && (
-        <nav className="bottom" aria-label="разделы">
+        <nav className="bottom" aria-label={t("ui-app-zones")}>
           {ZONES.map((zone) => (
             <button
               key={zone.id}

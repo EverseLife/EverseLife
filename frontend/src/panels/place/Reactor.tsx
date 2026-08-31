@@ -6,6 +6,7 @@
 
 import { useEffect, useState } from "react";
 import type { Look } from "../../api";
+import { t } from "../../locale";
 import { Rule } from "../../Rule";
 
 /** A day, in milliseconds: the reactor's term is given in days of real time. */
@@ -20,7 +21,7 @@ export const daysLeft = (until: string) =>
 /** The short state line of the tile: what the player sees without opening it. */
 export const reactorState = (until: string) => {
   const days = daysLeft(until);
-  return days <= 0 ? "погас" : `${days} сут`;
+  return days <= 0 ? t("ui-place-reactor-out") : t("ui-place-reactor-days", { days });
 };
 
 /**
@@ -47,27 +48,21 @@ export function Reactor({ look }: { look: Look }) {
   return (
     <div>
       <p className="sign">
-        Наследие Предтеч
-        <Rule>
-          Реактор греет город и кормит маяк космодрома без топлива и без людей —
-          но выход падает и в свой срок доходит до нуля. Дальше город держат те,
-          кто в нём живёт: своя генерация, своя ТЭЦ. Погаснет последний
-          работающий космодром планеты — сесть будет некуда, и планета потеряна.
-        </Rule>
+        {t("ui-place-reactor-title")}
+        <Rule>{t("ui-place-reactor-rule")}</Rule>
       </p>
       <table>
         <tbody>
           <tr>
-            <td>гаснет</td>
-            <td className="num">{days <= 0 ? "уже погас" : `через ${days} сут`}</td>
+            <td>{t("ui-place-reactor-when")}</td>
+            <td className="num">
+              {days <= 0 ? t("ui-place-reactor-already") : t("ui-place-reactor-in", { days })}
+            </td>
           </tr>
         </tbody>
       </table>
       {days > 0 && days < 30 && (
-        <p className="trouble">
-          Реактор на исходе: без своей генерации город остынет, а космодром
-          погаснет вместе с ним.
-        </p>
+        <p className="trouble">{t("ui-place-reactor-warning")}</p>
       )}
     </div>
   );

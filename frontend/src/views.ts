@@ -9,9 +9,15 @@
  * the saying.
  */
 
+import { t } from "./locale";
+
+//: `label` is a getter: this list is built once, when the module is first
+//: imported, and the language can be switched long afterwards. A plain string
+//: would be the word of whichever language happened to be spoken then, frozen
+//: for the rest of the session (the same reason `arrange` uses getters).
 export const VIEWS = [
-  { id: "map", label: "карта" },
-  { id: "place", label: "локация" },
+  { id: "map", get label() { return t("ui-view-map"); } },
+  { id: "place", get label() { return t("ui-view-place"); } },
 ] as const;
 
 export type View = (typeof VIEWS)[number]["id"];

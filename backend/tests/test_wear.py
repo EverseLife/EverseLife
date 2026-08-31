@@ -31,15 +31,15 @@ from src.models.identity import Body
 from src.models.inventory import Item
 from src.units import amount_float
 
-PICK = "Железная кирка"
+PICK = "iron_pickaxe"
 #: Steel goes into a hammer three pieces at a time: the one tool whose recycling
 #: share is more than a whole piece (D-212).
-HAMMER = "Молот"
-STEEL = "Сталь"
-BENCH = "Верстак"
-INGOT = "Слиток железа"
-HANDLE = "Рукоять"
-BASKET = "Корзина"
+HAMMER = "hammer"
+STEEL = "steel"
+BENCH = "workbench"
+INGOT = "iron_ingot"
+HANDLE = "handle"
+BASKET = "basket"
 
 
 async def _master(session: AsyncSession, *, machine: str | None = BENCH):
@@ -145,7 +145,7 @@ async def test_mining_wears_tool(session: AsyncSession, constants: Constants) ->
     """The tool wears per session, not per swing (D-129)."""
     stamp = uuid.uuid4().hex[:8]
     node = await world.create_node(session, f"terra.pit.{stamp}", "Забой", area_m2=100)
-    vein = await world.create_vein(session, node, "Железная руда", richness=60, remaining=10_000)
+    vein = await world.create_vein(session, node, "iron_ore", richness=60, remaining=10_000)
     identity = await world.create_identity(session, f"Шахтёр-{stamp}")
     body = await world.print_body(session, identity, node)
     pickaxe = await _thing(session, body, PICK, quality=50)
@@ -178,7 +178,7 @@ async def test_gear_wears_from_wearing(
 async def test_environment_speeds_wear(constants: Constants) -> None:
     """Pyroxis is expensive by itself, without a single special mechanic (D-129)."""
     multipliers = constants[R.WEAR_ENVIRONMENT_K]
-    assert multipliers[wear.PLANET_NAMES["pyroxis"]] > multipliers[wear.PLANET_NAMES["terra"]]
+    assert multipliers["pyroxis"] > multipliers["terra"]
 
 
 # --- repair and recycling ----------------------------------------------------
@@ -189,7 +189,7 @@ async def test_repair_restores_condition_and_lowers_ceiling(
 ) -> None:
     """Each next repair is cheaper than a new thing and worse than the previous."""
     async with factory() as session, session.begin():
-        _, _, body = await _master(session, machine="Кузница")
+        _, _, body = await _master(session, machine="forge")
         pickaxe = await _thing(session, body, PICK, quality=60, state=30)
         await _thing(session, body, INGOT, quality=60)
         await _thing(session, body, HANDLE, quality=60)
@@ -212,7 +212,7 @@ async def test_repair_costs_materials(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
     """A share of a new thing -- `craft.repair_cost_share` (D-129)."""
-    _, _, body = await _master(session, machine="Кузница")
+    _, _, body = await _master(session, machine="forge")
     pickaxe = await _thing(session, body, PICK, quality=60, state=30)
     await _thing(session, body, INGOT, quality=60)
     await _thing(session, body, HANDLE, quality=60)
@@ -236,7 +236,7 @@ async def test_repair_costs_materials(
 async def test_cannot_repair_without_materials(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    _, _, body = await _master(session, machine="Кузница")
+    _, _, body = await _master(session, machine="forge")
     pickaxe = await _thing(session, body, PICK, quality=60, state=30)
     with pytest.raises(craft.NotEnough):
         await craft.repair(session, constants, catalog, body, pickaxe)
@@ -252,7 +252,7 @@ async def test_recycling_returns_less_than_invested(
     comes back in whole pieces only (D-212).
     """
     async with factory() as session, session.begin():
-        _, _, body = await _master(session, machine="Кузница")
+        _, _, body = await _master(session, machine="forge")
         hammer = await _thing(session, body, HAMMER, quality=80)
         work = await craft.recycle(session, constants, catalog, body, hammer)
         term, item_id, body_id = work.ready_at, hammer.id, body.id
@@ -298,7 +298,7 @@ async def test_recycling_a_thing_of_single_pieces_returns_nothing(
     back. The thing is still gone -- taking apart is not free either way.
     """
     async with factory() as session, session.begin():
-        _, _, body = await _master(session, machine="Кузница")
+        _, _, body = await _master(session, machine="forge")
         pickaxe = await _thing(session, body, PICK, quality=80)
         work = await craft.recycle(session, constants, catalog, body, pickaxe)
         term, item_id, body_id = work.ready_at, pickaxe.id, body.id
@@ -321,8 +321,8 @@ async def test_foreign_not_repaired(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
     """The thing must be in the hands: one repairs one's own."""
-    _, _, body = await _master(session, machine="Кузница")
-    node2, _, foreign = await _master(session, machine="Кузница")
+    _, _, body = await _master(session, machine="forge")
+    node2, _, foreign = await _master(session, machine="forge")
     foreign_ = await _thing(session, foreign, PICK, quality=60, state=30)
 
     with pytest.raises(craft.CraftError):
@@ -355,7 +355,7 @@ async def test_repeated_repair_hits_ceiling(
 ) -> None:
     """So the thing stays finite however much it is repaired (pillar P2)."""
     async with factory() as session, session.begin():
-        _, _, body = await _master(session, machine="Кузница")
+        _, _, body = await _master(session, machine="forge")
         pickaxe = await _thing(session, body, PICK, quality=60, state=10)
         #: Materials for two repairs at once.
         for _ in range(2):

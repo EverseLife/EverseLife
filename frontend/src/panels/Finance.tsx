@@ -22,6 +22,7 @@ import { groundName } from "../grounds";
 import { groundGlyph } from "../marks";
 import { Bank } from "./Bank";
 import { Rule } from "../Rule";
+import { t } from "../locale";
 
 type Props = {
   look: Look;
@@ -37,8 +38,35 @@ type Entry = {
   money: string;
   incoming: boolean;
   memo: Record<string, string>;
+  /** The other side's own name, when it has one: a person, or a city. */
   with: string | null;
+  /**
+   * What kind of side it is, when it is not a person -- `genesis`,
+   * `bank_reserve`, `works_fund`. The server sends the enum and the word for
+   * it comes out of the locale (D-251): it used to send «резерв банка» ready
+   * made, and the two members nobody had written a word for arrived as their
+   * own code in the middle of the statement.
+   */
+  side: string | null;
 };
+
+/**
+ * Who stood on the other side of the posting, as a person reads it.
+ *
+ * A person is named and there is nothing to translate. An institution is not:
+ * the server sends what kind of side it was and the word comes from the
+ * locale, so the same row reads «резерв банка» to one player and "the reserve"
+ * to another. A city treasury is both at once -- a kind, with a name in it.
+ */
+function counterparty(entry: Entry): string {
+  if (!entry.side) return entry.with ?? "—";
+  return t(`ledger-side-${entry.side}`, {
+    //: A variant key is an identifier, never a boolean: the flag says whether
+    //: there is a name to put in, and the name travels beside it.
+    named: entry.with ? "true" : "false",
+    name: entry.with ?? "",
+  });
+}
 
 export function Finance({ look, busy, act }: Props) {
   const session = useSession();
@@ -69,35 +97,29 @@ export function Finance({ look, busy, act }: Props) {
   return (
     <div>
       <h3>
-        Счёт
-        <Rule>
-          Счёт переживает смерть тела: деньги в Сети, а не в кармане.
-        </Rule>
+        {t("ui-finance-account")}
+        <Rule>{t("ui-finance-account-rule")}</Rule>
       </h3>
       <p className="sign money">{look.money} ₭</p>
 
       <h3>
-        Перевести
-        <Rule>
-          Перевод идёт без комиссии и налога — и отменить его нельзя. Основание видят
-          получатель и суд: это единственное, что останется от сделки, если о ней
-          придётся спорить.
-        </Rule>
+        {t("ui-finance-transfer-title")}
+        <Rule>{t("ui-finance-transfer-rule")}</Rule>
       </h3>
       {/* Поля во всю ширину и подписаны сверху: имя личности длиннее, чем
           остаток строки после поля суммы, а подсказка внутри поля исчезает
           ровно в тот момент, когда по ней сверяют написанное. */}
       <div className="form">
         <label>
-          <span>кому</span>
+          <span>{t("ui-finance-to")}</span>
           <input
             value={to}
             onChange={(e) => setTo(e.target.value)}
-            placeholder="имя личности"
+            placeholder={t("ui-finance-to-hint")}
           />
         </label>
         <label>
-          <span>сколько, ₭</span>
+          <span>{t("ui-finance-amount")}</span>
           <input
             type="number"
             min={0}
@@ -107,11 +129,11 @@ export function Finance({ look, busy, act }: Props) {
           />
         </label>
         <label>
-          <span>за что</span>
+          <span>{t("ui-finance-memo")}</span>
           <input
             value={memo}
             onChange={(e) => setMemo(e.target.value)}
-            placeholder="видно получателю и суду"
+            placeholder={t("ui-finance-memo-hint")}
             maxLength={140}
           />
         </label>
@@ -124,13 +146,13 @@ export function Finance({ look, busy, act }: Props) {
           }
           disabled={busy || !to.trim() || amount <= 0}
         >
-          Перевести
+          {t("ui-finance-transfer")}
         </button>
       </div>
 
-      <h3>Выписка</h3>
+      <h3>{t("ui-finance-statement")}</h3>
       {entries.length === 0 ? (
-        <p className="note">операций пока нет</p>
+        <p className="note">{t("ui-finance-none")}</p>
       ) : (
         <div className="facts">
           {entries.map((entry, index) => (
@@ -146,8 +168,8 @@ export function Finance({ look, busy, act }: Props) {
                 {entry.money} ₭
               </span>
               <p className="note">
-                {entry.with ?? "—"}
-                {entry.memo?.["основание"] ? ` · ${entry.memo["основание"]}` : ""}
+                {counterparty(entry)}
+                {entry.memo?.ground ? ` · ${entry.memo.ground}` : ""}
                 {` · ${when(entry.at)}`}
               </p>
             </div>

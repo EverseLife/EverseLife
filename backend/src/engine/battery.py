@@ -48,7 +48,7 @@ from src.units import (
 
 #: The class of the cell (D-215). Behaviour binds to the class, so a second
 #: kind of battery is a line in the vault.
-BATTERY = "Аккумулятор"
+BATTERY = "battery"
 
 
 class BatteryError(Refusal):
@@ -123,24 +123,22 @@ async def charge_battery(
     """
     moment = now or datetime.now(UTC)
     if body.state is not BodyState.ALIVE:
-        raise BatteryError("мёртвое тело не заряжает")
+        raise BatteryError(key="battery-dead-charges")
     await travel.require_here(session, body)
 
     if item.type_key not in world.station_names(BATTERY):
-        raise NotBattery(f"{item.type_key!r} — не аккумулятор: энергия в мешке не лежит")
+        raise NotBattery(key="battery-not-a-battery", goods=item.type_key)
 
     node = await session.get(Node, body.node_id)
     if node is None:  # pragma: no cover
-        raise BatteryError("тело вне узла")
+        raise BatteryError(key="battery-body-off-node")
     pocket = await world.body_container(session, body)
     yard = await world.node_container(session, node)
     if item.container_id not in (pocket.id, yard.id):
-        raise BatteryError("аккумулятор не в руках и не стоит здесь")
+        raise BatteryError(key="battery-not-here")
     pool = await _grid().pool_of(session, constants, node, lock=True)
     if pool is None:
-        raise _grid().NoGrid(
-            "здесь нет городской сети: вне города работают от аккумулятора, и заряжают его в городе"
-        )
+        raise _grid().NoGrid(key="battery-no-grid")
     await _grid().produce(session, constants, pool, now=moment)
 
     have = await settle_charge(session, constants, item, now=moment)
@@ -148,9 +146,7 @@ async def charge_battery(
     wants = place if amount_wanted is None else min(float(amount_wanted), place)
     will_give = min(wants, float(pool.stored))
     if will_give <= 0:
-        raise _grid().NotEnough(
-            f"в пуле {float(pool.stored):.0f} энергии, а в аккумуляторе места на {place:.0f}"
-        )
+        raise _grid().NotEnough(key="battery-nothing-to-give", have=float(pool.stored), place=place)
 
     #: The tariff is given per hundred energy -- the bill is issued by it too.
     price = money(will_give / ENERGY_PER_TARIFF_UNIT * float(pool.tariff))

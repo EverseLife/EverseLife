@@ -28,7 +28,7 @@ def procedure(catalog: Catalog, output: str, *, way: str | None = None) -> Proce
     """
     book = catalog.recipes
     name = book.resolve(output)
-    found = next((recipe for recipe in book.recipes if recipe.name == name), None)
+    found = next((recipe for recipe in book.recipes if recipe.type_key == name), None)
     if found is not None:
         return _from_recipe(catalog, found)
 
@@ -38,35 +38,35 @@ def procedure(catalog: Catalog, output: str, *, way: str | None = None) -> Proce
         if name in {book.resolve(gives) for gives in operation.gives}
     ]
     if way is not None:
-        chosen = [operation for operation in ways if operation.name == way]
+        chosen = [operation for operation in ways if (operation.id or operation.name) == way]
         if not chosen:
             #: The ways that do make it are named in the refusal: they have just
             #: been computed, and a refusal that only says "not this way" leaves
             #: the asker guessing the next word. An AI citizen (D-224) guessed
             #: `forge`, `smelt` and `forge` again, twenty-eight refusals in ten
             #: minutes, while the catalog calls the operation «Плавка».
-            known = ", ".join(sorted(operation.name for operation in ways))
+            known = ", ".join(sorted((operation.id or operation.name) for operation in ways))
             raise Unmakeable(
-                f"{output!r} не делается способом {way!r}"
-                + (f"; способы: {known}" if known else "")
+                key="craft-unknown-way",
+                goods=name,
+                way=way,
+                known="true" if known else "false",
+                ways=known,
             )
         ways = chosen
     if ways:
         return _from_operation(catalog, ways[0], name)
-    raise Unmakeable(f"{output!r} не делается ни по рецепту, ни операцией")
+    raise Unmakeable(key="craft-unmakeable", goods=name)
 
 
 def _from_recipe(catalog: Catalog, recipe: Recipe) -> Procedure:
     if recipe.roles:
-        raise Unmakeable(f"{recipe.name!r} — блюдо: его варят котлом, командой `cook`")
+        raise Unmakeable(key="craft-is-a-dish", goods=recipe.type_key)
     if recipe.kind is ItemKind.MONEY:
-        raise Unmakeable(
-            f"{recipe.name!r} — монета: её чеканят, и металл считается по пробе "
-            "(команда `coin.mint`)"
-        )
+        raise Unmakeable(key="craft-is-a-coin", goods=recipe.type_key)
     book = catalog.recipes
     return Procedure(
-        output=recipe.name,
+        output=recipe.type_key,
         #: The machine also goes through synonyms: recipes call it "Furnace",
         #: while in the node stands a "Smelting furnace". Without name resolution
         #: all chemistry and refining were unmakeable -- no machine has that name.
@@ -89,7 +89,7 @@ def _from_operation(catalog: Catalog, operation: Operation, output: str) -> Proc
     #: place extraction (D-177): felling runs as a batch without inputs.
     #: Without the field it is somebody else's mechanic (a vein).
     if not per_unit and operation.place is None:
-        raise Unmakeable(f"операция «{operation.name}» ничего не расходует: это добыча, а не крафт")
+        raise Unmakeable(key="craft-operation-extracts", operation=operation.id or operation.name)
 
     station: str | None = None
     tools: list[str] = []
@@ -131,11 +131,11 @@ def step_hours(catalog: Catalog, recipe: Recipe) -> float:
     vault's formula either way.
     """
     book = catalog.recipes
-    ready = book.step_hours.get(recipe.name)
+    ready = book.step_hours.get(recipe.type_key)
     if ready is not None:
         return ready
     spent = sum(value * book.labor_of(name) for name, value in recipe.amounts.items())
-    return max(0.0, book.labor_of(recipe.name) - spent)
+    return max(0.0, book.labor_of(recipe.type_key) - spent)
 
 
 def batch_minutes(

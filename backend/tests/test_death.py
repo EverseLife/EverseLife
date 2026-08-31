@@ -53,15 +53,15 @@ async def _world(session: AsyncSession, catalog: Catalog, *, treasury: float = 0
         "Ядро",
         area_m2=120,
         parent=delegate,
-        properties={"кольцо": 0, death.PRECURSOR: True, travel.EXIT: True},
+        properties={"ring": 0, death.PRECURSOR: True, travel.EXIT: True},
     )
     forge = await world.create_node(
         session,
         f"terra.city.{stamp}.forge",
-        "Кузница",
+        "forge",
         area_m2=200,
         parent=delegate,
-        properties={"кольцо": 2},
+        properties={"ring": 2},
     )
     city = await town.found(session, catalog, delegate, "Столица")
     for node in (core, forge):
@@ -149,9 +149,9 @@ async def test_death_takes_things_but_not_knowledge_and_account(
     _, core, _ = await _world(session, catalog)
     identity, body = await _resident(session, core, "Шахтёр", funds=40)
     pocket = await world.body_container(session, body)
-    await world.grant_item(session, pocket, "Железная кирка", quality=60, origin="тест")
-    await world.grant_item(session, pocket, "Уголь", amount=100, quality=50, origin="тест")
-    await world.learn(session, identity, "Гвозди")
+    await world.grant_item(session, pocket, "iron_pickaxe", quality=60, origin="тест")
+    await world.grant_item(session, pocket, "coal", amount=100, quality=50, origin="тест")
+    await world.learn(session, identity, "nails")
 
     await death.die(session, constants, body, cause="обрушение свода")
 
@@ -205,7 +205,7 @@ async def test_part_of_worn_stays_in_place_and_damaged(
     _, core, _ = await _world(session, catalog)
     _, body = await _resident(session, core, "Шахтёр")
     pocket = await world.body_container(session, body)
-    await world.grant_item(session, pocket, "Уголь", amount=100, quality=50, origin="тест")
+    await world.grant_item(session, pocket, "coal", amount=100, quality=50, origin="тест")
 
     survived = await death.die(session, constants, body, cause="обвал")
     share = constants[R.DEATH_SALVAGE_RATIO] / 100
@@ -214,7 +214,7 @@ async def test_part_of_worn_stays_in_place_and_damaged(
     in_place = (
         (
             await session.execute(
-                select(Item).where(Item.container_id == yard.id, Item.type_key == "Уголь")
+                select(Item).where(Item.container_id == yard.id, Item.type_key == "coal")
             )
         )
         .scalars()
@@ -496,11 +496,11 @@ async def test_penal_colony_is_not_door_for_newcomer(
 
     _, core, _ = await _world(session, catalog)
     prison = await world.create_node(
-        session, f"terra.jail.{uuid.uuid4().hex[:6]}", "Каторга", area_m2=100
+        session, f"terra.jail.{uuid.uuid4().hex[:6]}", "prison", area_m2=100
     )
     yard = await world.node_container(session, prison)
     await world.grant_item(session, yard, death.PRINTER, quality=40, origin="тест")
-    await world.grant_item(session, yard, justice.KATORGA, quality=40, origin="тест")
+    await world.grant_item(session, yard, justice.PRISON_CLASS, quality=40, origin="тест")
     await session.flush()
 
     keys = {door["node"] for door in await world.doors(session, constants, catalog)}

@@ -14,7 +14,8 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.api.commands.common import _alive, _own_item, _stamp
+from src import i18n
+from src.api.commands.common import _alive, _own_item, _stamp, goods_key, speaks
 from src.api.commands.views import _optional_uuid, _tiers
 from src.api.registry import Refused, command
 from src.constants import current, current_catalog
@@ -70,7 +71,7 @@ async def _craft_recycle(state: dict, db: AsyncSession, message: dict) -> dict:
 async def _library_copy(state: dict, db: AsyncSession, message: dict) -> dict:
     """Take a recipe in the Library: free, unconditional, but only in person (D-053)."""
     body = await _alive(state, db)
-    key = message["recipe"]
+    key = goods_key(message["recipe"])
     await craft.copy_recipe(db, current_catalog(), body, key)
     return {"learned": key}
 
@@ -94,8 +95,8 @@ async def _craft_invent(state: dict, db: AsyncSession, message: dict) -> dict:
     body = await _alive(state, db)
     raw = message.get("composition") or {}
     if not isinstance(raw, dict):
-        raise Refused("состав задаётся парами «вещь: сколько»")
-    composition = {str(name): float(value) for name, value in raw.items()}
+        raise Refused(key="cmd-composition-shape")
+    composition = {goods_key(name): float(value) for name, value in raw.items()}
     result = await craft.invent(
         db,
         current(),
@@ -103,14 +104,18 @@ async def _craft_invent(state: dict, db: AsyncSession, message: dict) -> dict:
         body,
         composition,
         float(message.get("units", 1)),
-        station=message.get("station"),
+        station=goods_key(message["station"]) if message.get("station") else None,
         tiers=_tiers(message),
     )
     return {
         "success": result.success,
         "learned": list(result.learned),
         "burned": result.burned,
-        "note": result.note,
+        #: The engine named the reason, the language is the reader's (D-251
+        #: wave III): the note is assembled here, like a refusal.
+        "note": None
+        if result.note_key is None
+        else i18n.render(result.note_key, result.note_args, locale=speaks(state)),
         "batch": None
         if result.batch is None
         else {
@@ -128,10 +133,7 @@ async def _craft_resume(state: dict, db: AsyncSession, message: dict) -> dict:
     body = await _alive(state, db)
     batch = await craft.wake(db, body)
     if batch is None:
-        raise Refused(
-            "продолжать нечего: либо ничего не ждёт здесь, либо станция занята, "
-            "либо работа уже идёт"
-        )
+        raise Refused(key="cmd-nothing-to-resume")
     return {"batch": str(batch.id), "output": batch.output, "ready_at": _stamp(batch.ready_at)}
 
 
@@ -171,8 +173,8 @@ async def _cook_pot(state: dict, db: AsyncSession, message: dict) -> dict:
         current(),
         current_catalog(),
         body,
-        str(message["output"]),
-        dict(message.get("filling") or {}),
+        goods_key(message["output"]),
+        {goods_key(name): value for name, value in (message.get("filling") or {}).items()},
         tiers=_tiers(message),
     )
     return {
@@ -190,7 +192,7 @@ def _craft_request(message: dict) -> tuple[str, float, dict[str, Any]]:
     would run on another.
     """
     return (
-        message["output"],
+        goods_key(message["output"]),
         float(message.get("units", 1)),
         {
             "tool_item_id": _optional_uuid(message.get("tool")),
@@ -201,7 +203,7 @@ def _craft_request(message: dict) -> tuple[str, float, dict[str, Any]]:
             #: Which operation, when several give the same thing (D-196).
             "way": message.get("way"),
             #: For a knowledge carrier: which recipe goes onto it (D-209).
-            "recipe_key": message.get("recipe"),
+            "recipe_key": goods_key(message["recipe"]) if message.get("recipe") else None,
             #: Which quality tier feeds each input -- the master's choice (D-058).
             "tiers": _tiers(message),
         },

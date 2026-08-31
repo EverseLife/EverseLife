@@ -21,53 +21,32 @@
  */
 
 
+import { t } from "../locale";
+
 type Props = {
   onClose: () => void;
 };
 
 export function Intro({ onClose }: Props) {
   return (
-    <div className="veil" role="dialog" aria-modal="true" aria-label="Вы открыли глаза">
+    <div className="veil" role="dialog" aria-modal="true" aria-label={t("ui-intro-title")}>
       <section className="intro">
-        <h2>Вы открыли глаза</h2>
+        <h2>{t("ui-intro-title")}</h2>
 
-        <p>
-          Настоящие люди — Предтечи — построили машину, которая печатает людей,
-          и исчезли. Их города лежат подо льдом, их руины — под столицей; живых
-          свидетелей не осталось ни одного.
-        </p>
-        <p>
-          Машина работает до сих пор. Тело, в котором вы стоите, собрано ею
-          минуту назад: мышление держит процессор, а имя, знания и счёт хранит
-          Сеть. Поэтому смерть здесь отнимает вещи, но не вас.
-        </p>
-        <p>
-          Наследство досталось целым и пустым: чертежи есть, руда в земле, дорог
-          нет. Продолжать дело Предтечей больше некому — кроме вас и таких же
-          напечатанных. Всё, что появится в этом мире, сделают люди.
-        </p>
+        <p>{t("ui-intro-forerunners")}</p>
+        <p>{t("ui-intro-machine")}</p>
+        <p>{t("ui-intro-legacy")}</p>
 
-        <h3>С чего начать</h3>
+        <h3>{t("ui-intro-start")}</h3>
         <ol>
-          <li>
-            Осмотреться в узле и собрать простое: камень, хворост, волокно.
-            Действие — предмет, и это первое, что стоит проверить руками.
-          </li>
-          <li>
-            Взять первый рецепт в Библиотеке столицы. Знаний вам не выдали
-            никаких: ремесло — это знание, и за ним надо прийти.
-          </li>
-          <li>
-            Продать сделанное на терминале. Цену здесь назначают люди, а не мир:
-            первый заработок и есть первая встреча с ними.
-          </li>
+          <li>{t("ui-intro-step-look")}</li>
+          <li>{t("ui-intro-step-recipe")}</li>
+          <li>{t("ui-intro-step-sell")}</li>
         </ol>
 
         <div className="row">
-          <button onClick={onClose}>Начать</button>
-          <span className="note">
-            Открыть снова — знак «?» в шапке.
-          </span>
+          <button onClick={onClose}>{t("ui-intro-go")}</button>
+          <span className="note">{t("ui-intro-again")}</span>
         </div>
       </section>
     </div>

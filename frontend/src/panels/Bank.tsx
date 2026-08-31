@@ -22,32 +22,42 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import { useSession } from "../actions";
+import { useNames, useSession } from "../actions";
 import * as api from "../api";
-import { when } from "../clock";
+import { buildingKindName, goodsName } from "../names";
+import { span, when } from "../clock";
 import { Rule } from "../Rule";
+import { t } from "../locale";
 
 type Props = {
   busy: boolean;
   act: (what: () => Promise<unknown>) => Promise<void>;
 };
 
-/** The grounds for a figure, as the clauses the engine joined them from (D-030).
+/** The grounds for a figure, clause by clause (D-030).
  *
  * Every number the bank shows arrives with its reason, and the reason is
- * composed: `"база 900 ₭; оборот 1 200 ₭ за 7 суток; возвращено ранее 0 ₭"`.
- * Laid beside the number as one line it read as prose about a number rather
- * than the arithmetic of it. Split back apart, each clause is one fact.
+ * several facts rather than one: «база 900 ₭», «оборот 1 200 ₭ за 7 суток»,
+ * «возвращено ранее 0 ₭». Laid beside the number as a paragraph it read as
+ * prose about a number rather than the arithmetic of it; one fact per line,
+ * it reads as the sum it is.
+ *
+ * They arrive as a list and are drawn as one (D-251 wave IV). This used to
+ * split a rendered sentence back apart on the semicolon the server put in,
+ * which only ever worked by luck: the clauses carry the decimal commas and
+ * punctuation of their own language, and which mark separates a list is the
+ * language's business rather than Python's.
  *
  * The vault's reference the engine signs some of its clauses with is dropped
  * on the way: a decision code is how we argue about the rule, not how a player
  * reads it -- and standing alone at the end of a short clause it is the loudest
  * thing in the list.
  */
-function Why({ text }: { text?: string | null }) {
-  const clauses = String(text ?? "")
-    .split(";")
-    .map((clause) => clause.replace(/\s*\(D-\d+\)/g, "").trim())
+function Why({ said }: { said?: string[] | null }) {
+  //: A list or nothing: the field is read off the socket, and a server that
+  //: still sends the old sentence must leave the panel standing.
+  const clauses = (Array.isArray(said) ? said : [])
+    .map((clause) => String(clause).replace(/\s*\(D-\d+\)/g, "").trim())
     .filter(Boolean);
   if (clauses.length === 0) return null;
   return (
@@ -93,31 +103,27 @@ export function Bank({ busy, act }: Props) {
           пять абзацев вперемешку, и число в каждом терялось в своём же
           объяснении. */}
       <h3>
-        Банк
-        <Rule>
-          Залога нет: лимит выдаёт труд — оборот и уже погашенные кредиты. Занимает вам
-          ваш город со своей маржой, и пока его линия не исчерпана, ставка ниже: дальше
-          деньги идут напрямую у столицы, с надбавкой за риск.
-        </Rule>
+        {t("ui-bank-title")}
+        <Rule>{t("ui-bank-rule")}</Rule>
       </h3>
       <div className="facts">
         <div className="fact">
-          <span className="fact-name">ключевая ставка</span>
+          <span className="fact-name">{t("ui-bank-rate")}</span>
           <span className="fact-val lead">{Number(bank.rate).toFixed(2)}%</span>
-          <Why text={bank.why} />
+          <Why said={bank.why} />
         </div>
         <div className="fact">
-          <span className="fact-name">в обороте</span>
+          <span className="fact-name">{t("ui-bank-circulating")}</span>
           <span className="fact-val">{api.tk(bank.circulating)} ₭</span>
         </div>
         <div className="fact">
-          <span className="fact-name">в резерве</span>
+          <span className="fact-name">{t("ui-bank-reserve")}</span>
           <span className="fact-val">{api.tk(bank.reserve)} ₭</span>
         </div>
         {/* Фонд работ (D-248): куда возвращается процентный доход и откуда
             платится госзаказ. Публичен, как резерв. */}
         <div className="fact">
-          <span className="fact-name">в фонде работ</span>
+          <span className="fact-name">{t("ui-bank-fund")}</span>
           <span className="fact-val">{api.tk(bank.fund)} ₭</span>
         </div>
       </div>
@@ -126,22 +132,25 @@ export function Bank({ busy, act }: Props) {
 
       {loans.length > 0 && (
         <>
-          <p className="sub">Ваши долги</p>
+          <p className="sub">{t("ui-bank-debts")}</p>
           <div className="facts">
             {loans.map((loan) => (
               <div className="fact" key={loan.id}>
-                <span className="fact-name">осталось вернуть</span>
+                <span className="fact-name">{t("ui-bank-outstanding")}</span>
                 <span className="fact-val lead">{api.tk(loan.outstanding)} ₭</span>
                 <p className="note">
-                  из {api.tk(loan.principal)} ₭ под {Number(loan.rate).toFixed(1)}% ·
-                  взят {when(loan.taken_at)}
+                  {t("ui-bank-loan", {
+                    principal: api.tk(loan.principal),
+                    rate: Number(loan.rate).toFixed(1),
+                    taken: when(loan.taken_at),
+                  })}
                 </p>
                 <button
                   className="quiet"
                   onClick={() => go(() => session.send("bank.repay", { loan: loan.id }))}
                   disabled={busy}
                 >
-                  Погасить
+                  {t("ui-bank-repay")}
                 </button>
               </div>
             ))}
@@ -149,26 +158,26 @@ export function Bank({ busy, act }: Props) {
         </>
       )}
 
-      <p className="sub">Занять</p>
+      <p className="sub">{t("ui-bank-borrow-title")}</p>
       <div className="facts">
         <div className="fact">
-          <span className="fact-name">ваш лимит</span>
+          <span className="fact-name">{t("ui-bank-limit")}</span>
           <span className="fact-val lead">{api.tk(bank.limit)} ₭</span>
-          <Why text={bank.limit_why} />
+          <Why said={bank.limit_why} />
         </div>
         {/* Своя ставка называется до кнопки, а не после (D-193): она зависит
             от запрошенной суммы, поэтому стоит вплотную к полю. */}
         {bank.your_rate !== undefined && (
           <div className="fact">
-            <span className="fact-name">вам дадут под</span>
+            <span className="fact-name">{t("ui-bank-your-rate")}</span>
             <span className="fact-val lead">{Number(bank.your_rate).toFixed(2)}%</span>
-            <Why text={bank.your_rate_why} />
+            <Why said={bank.your_rate_why} />
           </div>
         )}
       </div>
       <div className="form">
         <label>
-          <span>сколько занять, ₭</span>
+          <span>{t("ui-bank-amount")}</span>
           <input
             type="number"
             min={1}
@@ -180,7 +189,7 @@ export function Bank({ busy, act }: Props) {
           onClick={() => go(() => session.send("bank.borrow", { amount: qty }))}
           disabled={busy || qty <= 0}
         >
-          Взять кредит
+          {t("ui-bank-borrow")}
         </button>
       </div>
 
@@ -197,14 +206,15 @@ export function Bank({ busy, act }: Props) {
  * much.
  */
 const ORDER_KINDS: Record<string, string> = {
-  road_mend: "обслуживание дороги",
-  building_repair: "ремонт постройки",
-  building_build: "стройка",
-  fuel_delivery: "подвоз топлива",
+  road_mend: "ui-bank-order-road-mend",
+  building_repair: "ui-bank-order-building-repair",
+  building_build: "ui-bank-order-building-build",
+  fuel_delivery: "ui-bank-order-fuel-delivery",
 };
 
 function Board() {
   const session = useSession();
+  const names = useNames();
   const [orders, setOrders] = useState<api.WorksOrder[] | null>(null);
 
   useEffect(() => {
@@ -217,7 +227,7 @@ function Board() {
   if (!orders || orders.length === 0) return null;
   return (
     <>
-      <p className="sub">Госзаказ</p>
+      <p className="sub">{t("ui-bank-works")}</p>
       <table>
         <tbody>
           {orders.map((order) => {
@@ -227,14 +237,23 @@ function Board() {
               : (order.node ?? "");
             const detail =
               order.kind === "fuel_delivery"
-                ? `${about.type_key}: осталось ${Number(about.left ?? 0).toFixed(0)}`
+                ? t("ui-bank-fuel-left", {
+                    goods: goodsName(names, about.type_key ?? ""),
+                    left: Number(about.left ?? 0).toFixed(0),
+                  })
                 : order.kind === "building_build"
-                  ? `${about.building_kind}, ${about.footprint} м², этажей ${about.floors}`
+                  ? t("ui-bank-building", {
+                      kind: buildingKindName(names, about.building_kind ?? ""),
+                      footprint: String(about.footprint),
+                      floors: String(about.floors),
+                    })
                   : "";
             return (
               <tr key={order.id}>
                 <td className="note">
-                  {ORDER_KINDS[order.kind] ?? order.kind} · {place}
+                  {/* An unknown kind still reads as itself: `t` falls back to
+                      the key it was given, which here is the wire word. */}
+                  {t(ORDER_KINDS[order.kind] ?? order.kind)} · {place}
                   {detail ? ` · ${detail}` : ""}
                 </td>
                 <td>{api.tk(order.tariff)} ₭</td>
@@ -267,11 +286,18 @@ function Council({ busy, act }: Props) {
   if (!council.council_decides) {
     return (
       <>
-        <p className="sub">Совет городов</p>
+        <p className="sub">{t("ui-bank-council")}</p>
         <p className="note">
           {council.locked_until
-            ? `ставка возвращена алгоритму ещё на ${when(council.locked_until).replace("через ", "")}: инфляция за тревожной чертой`
-            : `ставку считает алгоритм: городов с администрацией ${council.cities_with_hall} из ${council.handover_at}, дальше решает Совет городов`}
+            ? t("ui-bank-council-locked", {
+                //: `when` says «через столько-то»; here the words around it
+                //: already say «ещё на», so only the span itself is wanted.
+                left: span(council.locked_until),
+              })
+            : t("ui-bank-council-waiting", {
+                cities: String(council.cities_with_hall),
+                needed: String(council.handover_at),
+              })}
         </p>
       </>
     );
@@ -280,12 +306,14 @@ function Council({ busy, act }: Props) {
   const desired = rate ?? Number(council.advised);
   return (
     <>
-      <p className="sub">Совет городов</p>
+      <p className="sub">{t("ui-bank-council")}</p>
       <div className="form">
         <label>
           <span>
-            ставка города, % — коридор ±{council.corridor} вокруг{" "}
-            {Number(council.advised).toFixed(2)}%
+            {t("ui-bank-council-rate", {
+              corridor: String(council.corridor),
+              advised: Number(council.advised).toFixed(2),
+            })}
           </span>
           <input
             type="number"
@@ -300,13 +328,13 @@ function Council({ busy, act }: Props) {
           onClick={() => act(() => session.send("bank.council_rate", { rate: desired }))}
           disabled={busy}
         >
-          Голос города за ставку
+          {t("ui-bank-council-vote")}
         </button>
       </div>
       <ul className="why">
-        <li>алгоритм советует {Number(council.advised).toFixed(2)}%</li>
-        <li>коридор ±{council.corridor}: Совет спорит с алгоритмом, а не заменяет его</li>
-        <li>голос подаёт держатель права «законы»</li>
+        <li>{t("ui-bank-council-advises", { advised: Number(council.advised).toFixed(2) })}</li>
+        <li>{t("ui-bank-council-corridor", { corridor: String(council.corridor) })}</li>
+        <li>{t("ui-bank-council-voter")}</li>
       </ul>
     </>
   );

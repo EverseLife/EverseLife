@@ -18,10 +18,12 @@ import { useCallback, useEffect, useState } from "react";
 import { firstOfClass } from "../classes";
 import type { Look } from "../api";
 import { Rule } from "../Rule";
-import { Refusal, useActions, useBook, useEdition, useSession } from "../actions";
+import { Refusal, useActions, useBook, useEdition, useNames, useSession } from "../actions";
+import { t } from "../locale";
+import { goodsName } from "../names";
 
 /** The thing class of a drilling machine, the word the engine binds to (`rig.RIG`). */
-const RIG = "Буровая";
+const RIG = "rig";
 
 type Props = {
   look: Look;
@@ -45,6 +47,7 @@ type RigRow = {
 export function Rig({ look }: Omit<Props, "busy" | "act">) {
   const session = useSession();
   const book = useBook();
+  const names = useNames();
   //: This panel's own waiting and its own refusal: one action here
   //: must not grey out the chat, the map and somebody else's orders.
   const acting = useActions();
@@ -78,41 +81,41 @@ export function Rig({ look }: Omit<Props, "busy" | "act">) {
     <section>
       <Refusal of={acting} />
       <h2>
-        Буровая
-        <Rule>
-          Машина не спит, но проигрывает человеку во всём остальном: выход ниже,
-          качество ограничено настройкой, жилу выедает вдвое быстрее. Уголь возят люди,
-          бункер вывозят люди, износ чинят люди — капитал нанимает общество, а не
-          освобождает от него.
-        </Rule>
+        {t("ui-rig-title")}
+        <Rule>{t("ui-rig-rule")}</Rule>
       </h2>
 
       {rigs.map((u) => (
         <div key={u.id}>
           <p className="sign">
-            {u.resource} · в бункере {u.hopper.toFixed(0)} из {u.capacity.toFixed(0)}
-            {u.full && <b> · бункер полон, машина стоит</b>}
+            {t("ui-rig-hopper", {
+              resource: u.resource == null ? "—" : goodsName(names, u.resource),
+              hopper: u.hopper.toFixed(0),
+              capacity: u.capacity.toFixed(0),
+            })}
+            {u.full && <b> · {t("ui-rig-full")}</b>}
           </p>
           <p className="note">
-            угля на {u.hours_of_fuel.toFixed(1)} ч ({u.fuel.toFixed(0)}) ·
-            состояние {u.condition.toFixed(0)} · в жиле {u.vein_left.toFixed(0)}
-            {u.fuel <= 0 && <b> · топливо кончилось, машина стоит</b>}
+            {t("ui-rig-state", {
+              hours: u.hours_of_fuel.toFixed(1),
+              fuel: u.fuel.toFixed(0),
+              condition: u.condition.toFixed(0),
+              left: u.vein_left.toFixed(0),
+            })}
+            {u.fuel <= 0 && <b> · {t("ui-rig-no-fuel")}</b>}
           </p>
           <button
             onClick={() => go(() => session.send("rig.empty", { rig: u.id }))}
             disabled={busy || u.hopper <= 0}
           >
-            Вывезти бункер
+            {t("ui-rig-empty")}
           </button>
         </div>
       ))}
 
       {machine && rigs.length === 0 && (
         <>
-          <p className="note">
-            Установка в руках. Поставьте её на жилу — дальше она работает без
-            вас, пока есть уголь и место в бункере.
-          </p>
+          <p className="note">{t("ui-rig-in-hands")}</p>
           <button
             onClick={() =>
               go(() =>
@@ -121,7 +124,7 @@ export function Rig({ look }: Omit<Props, "busy" | "act">) {
             }
             disabled={busy || !vein}
           >
-            Поставить на жилу
+            {t("ui-rig-place")}
           </button>
         </>
       )}

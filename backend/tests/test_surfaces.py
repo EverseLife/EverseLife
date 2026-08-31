@@ -43,9 +43,9 @@ from src.models.inventory import Item
 from src.models.world import Node
 from src.units import amount_float
 
-CARGO = "Железная руда"
-BENCH = "Верстак"
-CHEST = "Сундук"
+CARGO = "iron_ore"
+BENCH = "workbench"
+CHEST = "chest"
 
 
 async def _plot(session: AsyncSession, *, area: float = 400) -> Node:
@@ -158,7 +158,7 @@ async def test_a_thing_goes_where_the_hand_says(
     await _house(session, node, area=200, ground=100)
     body = await _holder(session, node)
     indoors = await _in_hand(session, body, CARGO, 10)
-    outdoors = await _in_hand(session, body, "Уголь", 10)
+    outdoors = await _in_hand(session, body, "coal", 10)
 
     await storage.drop(session, constants, catalog, body, indoors, indoors=True)
     await storage.drop(session, constants, catalog, body, outdoors, indoors=False)
@@ -166,7 +166,7 @@ async def test_a_thing_goes_where_the_hand_says(
     on_floor = {thing.type_key for thing in await storage.lying(session, node)}
     on_ground = {thing.type_key for thing in await storage.lying(session, node, indoors=False)}
     assert on_floor == {CARGO}
-    assert on_ground == {"Уголь"}
+    assert on_ground == {"coal"}
 
 
 async def test_without_a_house_there_is_nowhere_indoors_to_put_it(
@@ -246,7 +246,7 @@ async def test_what_lies_in_the_open_outlives_the_house(
         constants,
         catalog,
         body,
-        await _in_hand(session, body, "Уголь", 10),
+        await _in_hand(session, body, "coal", 10),
         indoors=False,
     )
 
@@ -254,7 +254,7 @@ async def test_what_lies_in_the_open_outlives_the_house(
 
     assert await storage.lying(session, node) == [], "под крышей всё погибло"
     survived = await storage.lying(session, node, indoors=False)
-    assert [thing.type_key for thing in survived] == ["Уголь"], "во дворе всё уцелело"
+    assert [thing.type_key for thing in survived] == ["coal"], "во дворе всё уцелело"
 
 
 # --- reading writes nothing ---------------------------------------------------
@@ -382,7 +382,7 @@ async def test_demolition_weighs_both_surfaces_against_the_plot(
     body.node_id = node.id
     await session.flush()
     blockers = await estate.demolish_blockers(session, constants, node)
-    assert any("участок держит" in line for line in blockers), blockers
+    assert "estate-blocker-overloaded" in [one.key for one in blockers], blockers
 
 
 async def test_two_hands_on_one_heap_take_it_once(

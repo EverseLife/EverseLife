@@ -8,7 +8,8 @@ import { useState } from "react";
 import * as api from "../../api";
 import { Refusal, useActions, useSession } from "../../actions";
 import { Glyph } from "../../Glyph";
-import { EMBLEM_MARKS } from "../../marks";
+import { t } from "../../locale";
+import { EMBLEM_MARKS, EMBLEM_WORDS } from "../../marks";
 import type { Props } from "./shared";
 import { Door } from "./Door";
 import { Foundation } from "./Foundation";
@@ -51,25 +52,22 @@ function Marking({ look, busy, act }: Props) {
   if ((look.node?.fertility ?? 0) <= 0) return null;
   return (
     <div className="pocket">
-      <h3>Делянки</h3>
+      <h3>{t("ui-place-marking-title")}</h3>
       {climate ? (
-        <p className="note">
-          Здесь {climate}: в открытом грунте ничего не растёт, и обогрев узла
-          этого не меняет. Еда сюда приходит кораблём.
-        </p>
+        <p className="note">{t("ui-place-marking-climate", { climate })}</p>
       ) : (
         <>
           <div className="row">
             <input
               value={name}
-              placeholder="имя делянки"
+              placeholder={t("ui-place-marking-name")}
               onChange={(e) => setName(e.target.value)}
             />
             <input
               type="number"
               value={metres}
               onChange={(e) => setMetres(Number(e.target.value))}
-              title="площадь, м²"
+              title={t("ui-place-marking-area")}
             />
             <button
               onClick={() =>
@@ -80,13 +78,13 @@ function Marking({ look, busy, act }: Props) {
               }
               disabled={busy}
             >
-              Разметить
+              {t("ui-place-marking-mark")}
             </button>
           </div>
           <p className="note">
             {marked > 0
-              ? `Размечено делянок: ${marked}. Работа с ними — в окне «Огород».`
-              : "Размеченная делянка откроет окно «Огород»: вспашка, посев, уход и уборка."}
+              ? t("ui-place-marking-marked", { count: marked })
+              : t("ui-place-marking-none")}
           </p>
         </>
       )}
@@ -122,42 +120,44 @@ export function Plot({ look }: Omit<Props, "busy" | "act">) {
   //: itself: a bought plot stays civic land, yet its bill is a person's.
   const upkeep =
     node.upkeep === "owner"
-      ? "За электричество здесь платите вы: счёт идёт с площади раз в период."
+      ? t("ui-place-plot-upkeep-owner")
       : node.upkeep === "city"
-        ? `Узел содержит город${node.owner_city ? ` ${node.owner_city}` : ""}: энергия уходит из городского пула, деньгами счёт не выставляется.`
+        ? t("ui-place-plot-upkeep-city", {
+            //: A flag rather than a ternary of two Russian halves: the sentence
+            //: names the city where it has one, and the message decides where.
+            named: node.owner_city ? "true" : "false",
+            city: node.owner_city ?? "",
+          })
         : node.upkeep === "nobody"
-          ? "Счётчика здесь нет: у узла нет хозяина, и выставлять счёт некому."
+          ? t("ui-place-plot-upkeep-nobody")
           : node.owner || node.owner_city
-            ? "Городской сети здесь нет: счёта за электричество не бывает, работают от аккумулятора."
+            ? t("ui-place-plot-upkeep-none")
             : null;
 
   //: Во что обходится держать участок сутки (D-127, D-220). Стоит рядом с
   //: ценой выкупа не для симметрии: ставка убывает с каждым узлом от
   //: биопринтера, поэтому центр дорог дважды — и купить, и держать, — и вторую
   //: половину счёта покупатель обязан видеть до того, как заплатит первую.
-  const tax = node.tax > 0
-    ? `Земельный налог: ${api.tk(node.tax)} ₭ в сутки со всей площади участка — застроен он или нет.`
-      + ` Чем дальше от биопринтера, тем ставка ниже.`
-    : null;
+  const tax = node.tax > 0 ? t("ui-place-plot-tax", { tax: api.tk(node.tax) }) : null;
 
   const mine = api.isMine(look);
   const whose = mine
-    ? "ваш участок"
+    ? t("ui-place-plot-mine")
     : node.owner
-      ? `хозяин ${node.owner}`
+      ? t("ui-place-plot-owner", { owner: node.owner })
       : node.owner_city
-        ? `земля города ${node.owner_city}`
-        : "ничей";
+        ? t("ui-place-plot-city", { city: node.owner_city })
+        : t("ui-place-plot-nobody");
 
   return (
     <>
     <section>
       <Refusal of={acting} />
-      <h2>Участок</h2>
+      <h2>{t("ui-place-plot-title")}</h2>
       <p className="note">
-        {node.name} · {node.area.toFixed(0)} м² · {whose}
-        {node.gated && " · закрыта для входа"}
-        {node.cut_off && " · отключена за неуплату"}
+        {node.name} · {t("ui-place-area", { area: node.area.toFixed(0) })} · {whose}
+        {node.gated && t("ui-place-plot-gated")}
+        {node.cut_off && t("ui-place-plot-cut-off")}
       </p>
       {/* The place's own words: the world voice, to whoever enters (D-075). */}
       {node.about && <p className="place-about">{node.about}</p>}
@@ -172,45 +172,31 @@ export function Plot({ look }: Omit<Props, "busy" | "act">) {
               await session.send("land.cede");
               setGiving(false);
             })} disabled={busy}>
-              Да, передать городу
+              {t("ui-place-plot-cede-yes")}
             </button>
             <button onClick={() => setGiving(false)} disabled={busy}>
-              Отмена
+              {t("ui-place-cancel")}
             </button>
-            <span className="note">
-              Бумага на землю погашается, участок станет городским. Вернуть его
-              можно только выкупом по прейскуранту — как любой другой.
-            </span>
+            <span className="note">{t("ui-place-plot-cede-rule")}</span>
           </div>
         ) : (
           <div className="row">
             <button onClick={() => setGiving(true)} disabled={busy}>
-              Передать городу
+              {t("ui-place-plot-cede")}
             </button>
-            <span className="note">
-              Счётчик перейдёт на казну: городской узел жжёт энергию из пула, и
-              деньгами за него никто не платит. Оборудование останется на месте,
-              но распоряжаться им будет власть, а не вы.
-            </span>
+            <span className="note">{t("ui-place-plot-cede-note")}</span>
           </div>
         )
       )}
       {forSale &&
         (api.isWild(node) ? (
-          <p className="note">
-            Земля за городом ничья и таковой остаётся: бумагу на владение
-            выдаёт город, а здесь его нет. Работать и строить тут
-            может всякий — поставленное принадлежит поставившему.
-          </p>
+          <p className="note">{t("ui-place-plot-wild")}</p>
         ) : node.price !== undefined ? (
           <div className="row">
             <button onClick={() => act(() => session.send("land.buy"))} disabled={busy}>
-              Выкупить за {api.tk(node.price)} ₭
+              {t("ui-place-plot-buy", { price: api.tk(node.price) })}
             </button>
-            <span className="note">
-              Цена от удалённости до биопринтера: деньги в казну,
-              вам — бумага на землю.
-            </span>
+            <span className="note">{t("ui-place-plot-buy-note")}</span>
           </div>
         ) : null)}
       {node.may_name && (
@@ -222,7 +208,7 @@ export function Plot({ look }: Omit<Props, "busy" | "act">) {
             //: Repeats `runtime.LAND_NAME_LIMIT`: better to show the limit by
             //: the input field than to report it as a refusal after a click.
             maxLength={40}
-            title="как называть это место"
+            title={t("ui-place-plot-name-hint")}
           />
           <button
             onClick={() =>
@@ -233,11 +219,9 @@ export function Plot({ look }: Omit<Props, "busy" | "act">) {
             }
             disabled={busy || !name.trim() || name.trim() === node.name}
           >
-            Переименовать
+            {t("ui-place-plot-rename")}
           </button>
-          <span className="note">
-            Имя увидят все на карте; ключ локации не меняется.
-          </span>
+          <span className="note">{t("ui-place-plot-rename-note")}</span>
         </div>
       )}
       {node.may_name && (
@@ -252,18 +236,22 @@ export function Plot({ look }: Omit<Props, "busy" | "act">) {
             const shown = mark ?? node.emblem ?? "";
             return (
               <>
-                <div className="emblem-grid" role="group" aria-label="значок узла на карте">
-                  {Object.entries(EMBLEM_MARKS).map(([word, glyph]) => (
+                <div
+                  className="emblem-grid"
+                  role="group"
+                  aria-label={t("ui-place-plot-emblem-label")}
+                >
+                  {Object.entries(EMBLEM_MARKS).map(([mark_, glyph]) => (
                     <button
-                      key={word}
+                      key={mark_}
                       type="button"
                       className="bare emblem-pick"
-                      aria-pressed={shown === word}
-                      onClick={() => setMark(shown === word ? "" : word)}
-                      title={word}
+                      aria-pressed={shown === mark_}
+                      onClick={() => setMark(shown === mark_ ? "" : mark_)}
+                      title={EMBLEM_WORDS[mark_] ?? mark_}
                     >
                       <Glyph name={glyph} />
-                      <span>{word}</span>
+                      <span>{EMBLEM_WORDS[mark_] ?? mark_}</span>
                     </button>
                   ))}
                 </div>
@@ -272,7 +260,7 @@ export function Plot({ look }: Omit<Props, "busy" | "act">) {
                     onClick={() => act(() => session.send("land.emblem", { emblem: shown }))}
                     disabled={busy || !shown || shown === (node.emblem ?? "")}
                   >
-                    Прибить значок
+                    {t("ui-place-plot-emblem-nail")}
                   </button>
                   <button
                     className="quiet"
@@ -283,9 +271,9 @@ export function Plot({ look }: Omit<Props, "busy" | "act">) {
                       })
                     }
                     disabled={busy || !node.emblem}
-                    title="узел вернётся к значку своей земли"
+                    title={t("ui-place-plot-emblem-clear-hint")}
                   >
-                    Снять
+                    {t("ui-place-plot-emblem-clear")}
                   </button>
                 </div>
               </>
@@ -295,13 +283,13 @@ export function Plot({ look }: Omit<Props, "busy" | "act">) {
               empty and saved means wiped. */}
           <div className="form">
             <label>
-              <span>описание места</span>
+              <span>{t("ui-place-plot-about-label")}</span>
               <textarea
                 value={about ?? node.about ?? ""}
                 onChange={(e) => setAbout(e.target.value)}
                 rows={3}
                 maxLength={300}
-                placeholder="что это за место — увидит всякий вошедший"
+                placeholder={t("ui-place-plot-about-hint")}
               />
             </label>
             <button
@@ -313,7 +301,7 @@ export function Plot({ look }: Omit<Props, "busy" | "act">) {
               }
               disabled={busy || about === null || about.trim() === (node.about ?? "")}
             >
-              Сохранить описание
+              {t("ui-place-plot-about-save")}
             </button>
           </div>
         </>

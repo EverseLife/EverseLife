@@ -50,21 +50,21 @@ from src.units import money as to_money
 #: says how often a launch window comes round rather than anything about a
 #: planet's astronomy. The phase is where the planet stood at the world's
 #: epoch, so every client draws one and the same sky.
-ORBIT = "орбита"
-ORBIT_RADIUS = "радиус"
-ORBIT_PERIOD = "период"
-ORBIT_PHASE = "фаза"
+ORBIT = "orbit"
+ORBIT_RADIUS = "radius"
+ORBIT_PERIOD = "period"
+ORBIT_PHASE = "phase"
 #: Drawn but not yet playable (D-104). Aquatica is on the map from the first
 #: day so that a player sees where they cannot go -- the vault asks for exactly
 #: that: unreachable routes are shown, marked as unreachable.
-DEFERRED = "отложена"
+DEFERRED = "deferred"
 
 #: The place signs the public map may show (D-238): an allowlist, never
 #: "everything true". A boolean property added tomorrow must not leak to the
 #: unauthenticated internet silently, and what only `look` should say to
 #: whoever stands in the node stays with `look`. Deliberately narrow: the
 #: node-type glyphs the client draws, and nothing else.
-PUBLIC_SIGNS = ("предтечи", "камни", "лес", "луг", "участок")
+PUBLIC_SIGNS = ("precursors", "stones", "woods", "meadow", "plot")
 
 
 def public_signs(node: Node) -> list[str]:
@@ -207,12 +207,9 @@ async def grant_node(session: AsyncSession, node: Node, owner: Identity) -> Node
     from src.engine import estate  # noqa: PLC0415 -- lazy: breaks the import cycle with estate
 
     if node.owner_city_id is None:
-        raise LandError(
-            "землю за городом не присваивают: бумагу на владение выдаёт город, "
-            "а здесь его нет. Строить и работать тут может всякий"
-        )
+        raise LandError(key="land-outside-city")
     if node.owner_identity_id is not None:
-        raise LandError("участок уже за кем-то")
+        raise LandError(key="land-already-owned")
 
     await hand_over(session, node, owner.id)
     await estate.issue_deed(session, node, owner.id)
@@ -306,7 +303,7 @@ async def print_body(session: AsyncSession, identity: Identity, node: Node) -> B
 
 #: The class of machines bodies are printed at (D-033, D-215). While no
 #: bioprinter stands anywhere, printing happens at the city core (D-089).
-BIOPRINTER = "Биопринтер"
+BIOPRINTER = "bioprinter"
 
 
 def station_names(thing_class: str) -> tuple[str, ...]:
@@ -549,7 +546,7 @@ async def spawn(
         await session.execute(select(Identity).where(Identity.name == name))
     ).scalar_one_or_none()
     if exists is not None:
-        raise LandError(f"имя {name!r} уже занято: имя сменить нельзя")
+        raise LandError(key="land-name-taken", name=name)
 
     identity = await create_identity(
         session, name, email=email, password=password, line=line, profile=profile
@@ -614,7 +611,7 @@ async def node_container(session: AsyncSession, node: Node) -> Container:
 
 #: The "Библиотека" thing class (D-176, D-215): the library window is shown
 #: where any of its machines stands.
-LIBRARY = "Библиотека"
+LIBRARY = "library"
 
 
 async def contents(session: AsyncSession, container: Container) -> tuple[Item, ...]:

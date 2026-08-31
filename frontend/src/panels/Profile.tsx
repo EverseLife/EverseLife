@@ -13,7 +13,8 @@
 import { useEffect, useState } from "react";
 import type { Card } from "../api";
 import { askThread } from "../people";
-import { Refusal, useActions, useSession } from "../actions";
+import { t } from "../locale";
+import { Refusal, useActions, useLocale, useSession } from "../actions";
 
 type Props = {
   name: string;
@@ -22,6 +23,7 @@ type Props = {
 
 export function Profile({ name, onClose }: Props) {
   const session = useSession();
+  const { locale } = useLocale();
   const acting = useActions();
   const [card, setCard] = useState<Card | null>(null);
   const [missing, setMissing] = useState<string | null>(null);
@@ -49,14 +51,25 @@ export function Profile({ name, onClose }: Props) {
   const self = card !== null && card.name === session.name;
 
   return (
-    <div className="veil" role="dialog" aria-modal="true" aria-label="Профиль" onClick={onClose}>
+    <div
+      className="veil"
+      role="dialog"
+      aria-modal="true"
+      aria-label={t("ui-profile-label")}
+      onClick={onClose}
+    >
       <section className="intro profile" onClick={(e) => e.stopPropagation()}>
         <header className="row">
           <h2>
             {name}
             {card?.surname ? ` ${card.surname}` : ""}
           </h2>
-          <button className="quiet" onClick={onClose} title="закрыть" aria-label="закрыть">
+          <button
+            className="quiet"
+            onClick={onClose}
+            title={t("ui-profile-close")}
+            aria-label={t("ui-profile-close")}
+          >
             ×
           </button>
         </header>
@@ -64,11 +77,18 @@ export function Profile({ name, onClose }: Props) {
         {card && (
           <>
             <p className="note">
-              {card.line === "human" ? "человек-киборг" : "нимфа"}
-              {card.age != null ? ` · ${card.age}` : ""}
-              {card.city ? ` · гражданство: ${card.city}` : " · без гражданства"}
-              {" · в мире с "}
-              {new Date(card.since).toLocaleDateString("ru-RU")}
+              {t("ui-profile-who", {
+                //: The same pair of words stands on the account tab, and the
+                //: engine keeps its own display names for the lines.
+                line: t(card.line === "human" ? "ui-line-human" : "ui-line-nymph"),
+                aged: String(card.age != null),
+                //: Printed as it stood: a real number would come back through
+                //: `Intl` with a thousands separator.
+                age: card.age == null ? "" : String(card.age),
+                citizen: String(Boolean(card.city)),
+                city: card.city ?? "",
+                since: new Date(card.since).toLocaleDateString(locale),
+              })}
             </p>
             {card.about && <p className="about">{card.about}</p>}
             {!self && (
@@ -85,7 +105,7 @@ export function Profile({ name, onClose }: Props) {
                     })
                   }
                 >
-                  Написать сообщение
+                  {t("ui-profile-write")}
                 </button>
               </div>
             )}

@@ -202,16 +202,16 @@ async def pour(
     the reason is named: no such liquid, or no room.
     """
     if body.state is not BodyState.ALIVE:
-        raise LiquidError("мёртвое тело ничего не переливает")
+        raise LiquidError(key="liquid-dead-pours")
     await travel.require_here(session, body)
     if source.id == target.id:
-        raise LiquidError("переливать в ту же тару незачем")
+        raise LiquidError(key="liquid-same-vessel")
     for vessel in (source, target):
         if not is_vessel(catalog, vessel.type_key):
-            raise NotVessel(f"«{vessel.type_key}» — не тара для жидкостей")
+            raise NotVessel(key="liquid-not-a-vessel", vessel=vessel.type_key)
     node = await session.get(Node, body.node_id)
     if node is None:  # pragma: no cover -- a body always stands in a node
-        raise LiquidError("тело вне узла")
+        raise LiquidError(key="liquid-body-off-node")
     pocket = await world.body_container(session, body)
     await _within_reach(session, catalog, body, node, pocket, source)
     await _within_reach(session, catalog, body, node, pocket, target)
@@ -226,21 +226,24 @@ async def pour(
     names = (type_key,) if type_key else tuple(catalog.recipes.liquid)
     inside = await storage.inside(session, source, create=False)
     if inside is None:
-        raise LiquidError(f"«{source.type_key}» пуста")
+        raise LiquidError(key="liquid-source-empty", vessel=source.type_key, named="false")
     stacks = await stock.locked_stacks(session, inside.id, names)
     if not stacks:
         raise LiquidError(
-            f"в «{source.type_key}» нет «{type_key}»" if type_key else f"«{source.type_key}» пуста"
+            key="liquid-source-empty",
+            vessel=source.type_key,
+            goods=type_key or "",
+            named="true" if type_key else "false",
         )
     liquid_name = stacks[0].type_key
     unit = catalog.recipes.mass_of(liquid_name)
     have = sum(amount_float(stack.amount) for stack in stacks if stack.type_key == liquid_name)
     want = have if quantity is None else min(quantity, have)
     if want <= 0:
-        raise LiquidError("переливать нечего")
+        raise LiquidError(key="liquid-nothing-to-pour")
     fits = want if unit <= 0 else min(want, room / unit)
     if fits * AMOUNT_SCALE < 1:
-        raise NoRoom(f"в «{target.type_key}» свободно {max(room, 0):.1f} кг: не входит")
+        raise NoRoom(key="liquid-no-room", vessel=target.type_key, free=max(room, 0))
     #: Into the hands -- under the carry limit, with the vessel already counted.
     if target.container_id == pocket.id:
         await gear.check_carry(session, constants, catalog, body, liquid_name, fits)
@@ -280,9 +283,7 @@ async def _within_reach(
         return
     yard = await world.node_container(session, node)
     if vessel.container_id != yard.id:
-        raise LiquidError(f"«{vessel.type_key}» не в руках и не здесь")
+        raise LiquidError(key="liquid-vessel-not-here", vessel=vessel.type_key)
     #: The same door as a chest: the holder of the node, and the authority on civic land.
     if not await station.may_build(session, body, node):
-        raise storage.NotYours(
-            f"«{vessel.type_key}» не ваша: тарой в узле распоряжается его хозяин"
-        )
+        raise storage.NotYours(key="liquid-vessel-not-yours", vessel=vessel.type_key)

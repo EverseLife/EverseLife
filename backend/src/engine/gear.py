@@ -135,10 +135,7 @@ async def check_carry(
     carries = await load_of(session, catalog, body)
     limit = await capacity(session, constants, catalog, body)
     if carries + bonus > limit:
-        raise Overloaded(
-            f"не унести: в руках {carries:.1f} кг из {limit:.0f}, "
-            f"а это ещё {bonus:.1f} кг. Всё сверх — только транспортом"
-        )
+        raise Overloaded(key="gear-overloaded", carries=carries, limit=limit, extra=bonus)
 
 
 async def equip(
@@ -156,18 +153,20 @@ async def equip(
     backpack lying in another city cannot be put on.
     """
     if body.state is not BodyState.ALIVE:
-        raise GearError("мёртвое тело не одевается")
+        raise GearError(key="gear-dead-dresses")
     await travel.require_here(session, body)
 
     slot = catalog.recipes.slot_of(item.type_key)
     if slot is None:
-        raise NotGear(f"{item.type_key!r} не надевается: у него нет слота")
+        raise NotGear(key="gear-no-slot", goods=item.type_key)
     if slot not in catalog.recipes.gear_slots:  # pragma: no cover -- vault data
-        raise NotGear(f"слота {slot!r} в мире нет")
+        #: The slot id travels raw: slots have no `NAME()` entry, and this
+        #: refusal is about the vault's data, not about a thing in the world.
+        raise NotGear(key="gear-unknown-slot", slot=slot)
 
     pocket = await world.body_container(session, body)
     if item.container_id != pocket.id:
-        raise GearError("вещь не в руках: надевают своё")
+        raise GearError(key="gear-not-in-hands")
 
     previous_ = (
         await session.execute(

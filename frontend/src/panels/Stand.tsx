@@ -33,7 +33,9 @@
  */
 
 import { useState, type ReactNode } from "react";
-import { useBook } from "../actions";
+import { useBook, useNames } from "../actions";
+import { t } from "../locale";
+import { className, goodsName, propertyName, type NamesRu } from "../names";
 import * as api from "../api";
 import type { Look, RecipeBook } from "../api";
 import { Deadline } from "../Deadline";
@@ -70,16 +72,16 @@ import { TERMINAL, anyOfClass, classOf, firstOfClass } from "../classes";
  * come from the catalog; the client knows only the class words, the same ones
  * the engine binds its behaviour to.
  */
-const SPACEPORT = "Верфь";
+const SPACEPORT = "shipyard";
 /** The ship's console: the bridge the ship is commanded from (D-230). */
-const BRIDGE = "Рубка";
+const BRIDGE = "bridge";
 /** The same console on the ground (D-242): one's own hulls, wherever they are. */
-const GROUND_BRIDGE = "Наземная рубка";
-const RIG = "Буровая";
-const KITCHEN = "Кухня";
-const NURSERY = "Питомник";
-const FUEL_PLANT = "Топливная станция";
-const MINT = "Монетный двор";
+const GROUND_BRIDGE = "ground_bridge";
+const RIG = "rig";
+const KITCHEN = "kitchen";
+const NURSERY = "nursery";
+const FUEL_PLANT = "fuel_plant";
+const MINT = "mint";
 
 type Kind =
   /** A workbench: opens in place, the rest of the node stays in view. */
@@ -132,10 +134,11 @@ type Props = {
 
 export function Stand({ look, values, pow }: Props) {
   const book = useBook();
+  const names = useNames();
   const here = look.node?.key ?? "";
   const [chosen, setChosen] = useState<string | null>(() => OPENED.get(here) ?? null);
 
-  const things = assemble({ look, values, pow }, book);
+  const things = assemble({ look, values, pow }, book, names);
   const bench = things.find((t) => t.kind === "bench");
   //: A remembered choice can vanish -- the machine was carried off while we
   //: were away. Then the first thing worth attention takes over.
@@ -155,7 +158,7 @@ export function Stand({ look, values, pow }: Props) {
     return (
       <section>
         <h2>{look.node?.name}</h2>
-        <p className="note">Здесь ничего не стоит — только дороги.</p>
+        <p className="note">{t("ui-stand-nothing")}</p>
       </section>
     );
   }
@@ -210,9 +213,15 @@ export function Stand({ look, values, pow }: Props) {
  * screen built too, only now it is one list instead of a dozen independent
  * `{has.x && <Panel/>}` lines, and each entry carries what it is doing.
  */
-function assemble({ look, values, pow }: Props, book: RecipeBook | null): Thing[] {
+function assemble(
+  { look, values, pow }: Props,
+  book: RecipeBook | null,
+  names: NamesRu | null,
+): Thing[] {
   const things: Thing[] = [];
-  const stations = api.stationsOf(look);
+  //: With the names: the tiles are laid out for the player, and within one
+  //: rank they should read in Russian order, not in the ASCII of the ids.
+  const stations = api.stationsOf(look, names);
   const bench = look.bench ?? [];
   const batches = look.batches ?? [];
 
@@ -226,10 +235,14 @@ function assemble({ look, values, pow }: Props, book: RecipeBook | null): Thing[
     const it = standing(machine);
     if (!it) return undefined;
     const parts: string[] = [];
-    if (it.busy) parts.push(it.mine ? "занята вами" : "занята");
-    else parts.push("свободна");
-    if (it.quality != null) parts.push(`кач. ${it.quality.toFixed(0)}`);
-    if (it.condition < 100) parts.push(`сост. ${it.condition.toFixed(0)}`);
+    if (it.busy) parts.push(it.mine ? t("ui-stand-busy-mine") : t("ui-stand-busy"));
+    else parts.push(t("ui-stand-free"));
+    if (it.quality != null) {
+      parts.push(t("ui-stand-quality", { quality: it.quality.toFixed(0) }));
+    }
+    if (it.condition < 100) {
+      parts.push(t("ui-stand-condition", { condition: it.condition.toFixed(0) }));
+    }
     return parts.join(" · ");
   };
 
@@ -238,11 +251,13 @@ function assemble({ look, values, pow }: Props, book: RecipeBook | null): Thing[
     const open = look.mining;
     things.push({
       id: "mine",
-      name: "Забой",
+      name: t("ui-stand-mine"),
       kind: "full",
       rank: open ? 0 : 1,
-      state: open ? "сессия идёт" : `жила: ${look.veins[0].resource}`,
-      about: "Окно забоя: спуститься в жилу и рубить, порода за породой.",
+      state: open
+        ? t("ui-stand-mine-going")
+        : t("ui-stand-mine-vein", { goods: goodsName(names, look.veins[0].resource) }),
+      about: t("ui-stand-mine-about"),
       view: () => <Mine look={look} pow={pow} />,
     });
   }
@@ -283,23 +298,25 @@ function assemble({ look, values, pow }: Props, book: RecipeBook | null): Thing[
     //: The tile's hint: what the window is for, in one line. The special
     //: classes add their trade -- the hearth cooks, the mint strikes coin.
     const TRADES: Record<string, string> = {
-      [KITCHEN]: " Здесь готовят еду.",
-      [NURSERY]: " Здесь разводят животных.",
-      [FUEL_PLANT]: " Здесь гонят корабельное топливо.",
-      [MINT]: " Здесь чеканят монету города.",
+      [KITCHEN]: "ui-stand-trade-kitchen",
+      [NURSERY]: "ui-stand-trade-nursery",
+      [FUEL_PLANT]: "ui-stand-trade-fuel-plant",
+      [MINT]: "ui-stand-trade-mint",
     };
     const batch = batchAt(machine);
     things.push({
       id: `bench:${machine}`,
-      name: machine,
+      name: goodsName(names, machine),
       kind: "bench",
       rank: batch ? 0 : 1,
-      state: batch ? `партия · ${batch.output}` : machineState(machine),
+      state: batch
+        ? t("ui-stand-batch", { goods: goodsName(names, batch.output) })
+        : machineState(machine),
       running:
         batch && batch.ready_at ? { until: batch.ready_at, since: batch.started_at } : undefined,
       about:
-        `Окно рабочей станции «${machine}»: партии по рецептам, ремонт и попытки без рецепта.` +
-        ((thingClass && TRADES[thingClass]) ?? ""),
+        t("ui-stand-bench-about", { machine: goodsName(names, machine) }) +
+        (thingClass && TRADES[thingClass] ? t(TRADES[thingClass]) : ""),
       view: () => (
         <>
           {special?.()}
@@ -326,12 +343,12 @@ function assemble({ look, values, pow }: Props, book: RecipeBook | null): Thing[
   for (const sign of gatherSigns(look, book)) {
     single(
       `gather:${sign}`,
-      PLACES[sign] ?? sign,
+      PLACES[sign] ? t(PLACES[sign]) : propertyName(names, sign),
       "bench",
       () => <Gather look={look} sign={sign} />,
       1,
       undefined,
-      "Добыча по знаку земли: работа руками прямо на месте.",
+      t("ui-stand-gather-about"),
     );
   }
 
@@ -343,19 +360,19 @@ function assemble({ look, values, pow }: Props, book: RecipeBook | null): Thing[
   if (look.rig_here || rigInHand) {
     single(
       "rig",
-      "Буровая",
+      t("ui-stand-rig"),
       "bench",
       () => <Rig look={look} />,
       1,
-      look.rig_here ? undefined : "в руках: поставить на жилу",
-      "Окно буровой: поставить на жилу и бурить вглубь.",
+      look.rig_here ? undefined : t("ui-stand-rig-in-hands"),
+      t("ui-stand-rig-about"),
     );
   }
 
   //: The ship, where there is one to command: standing at a spaceport or
   //: aboard. Aboard the row is the ship itself -- the map is already showing
   //: its rooms, and this panel adds what the map cannot: thrust against mass.
-  const aboard = (look.node?.features ?? []).includes("борт");
+  const aboard = (look.node?.features ?? []).includes("aboard");
   //: Which floor of a house one stands on (D-247). Upstairs there is no land,
   //: so the two windows about land have nothing to answer and one window
   //: answers instead -- the same shape a compartment aboard has.
@@ -368,12 +385,12 @@ function assemble({ look, values, pow }: Props, book: RecipeBook | null): Thing[
   if (bridge !== undefined) {
     single(
       "console",
-      bridge,
+      goodsName(names, bridge),
       "full",
       () => <Ship look={look} console />,
       aboard ? 0 : 2,
-      aboard ? undefined : "работает только на борту корабля",
-      "Окно рубки: карта рейса этого корабля, подъём на орбиту, курс и посадка.",
+      aboard ? undefined : t("ui-stand-console-aground"),
+      t("ui-stand-console-about"),
     );
   }
   //: The ground console (D-242): every hull of one's own, and the same orders
@@ -384,13 +401,12 @@ function assemble({ look, values, pow }: Props, book: RecipeBook | null): Thing[
   if (groundBridge !== undefined) {
     single(
       "ground",
-      groundBridge,
+      goodsName(names, groundBridge),
       "full",
       () => <Ship look={look} ground />,
       1,
       undefined,
-      "Окно наземной консоли: свои корабли где бы они ни были — карта рейса,"
-        + " подъём, курс, посадка и разворот.",
+      t("ui-stand-ground-console-about"),
     );
   }
 
@@ -404,14 +420,16 @@ function assemble({ look, values, pow }: Props, book: RecipeBook | null): Thing[
     //: the player is looking at.
     single(
       "ship",
-      aboard ? "Корабль" : yard ?? SPACEPORT,
+      aboard
+        ? t("ui-stand-ship")
+        : yard !== undefined
+          ? goodsName(names, yard)
+          : className(names, SPACEPORT),
       "full",
       () => <Ship look={look} />,
       1,
       undefined,
-      aboard
-        ? "Окно корабля: тяга против массы, кислород, имя и чертёж — расстановка отсеков."
-        : "Окно верфи: заложить корпус и смотреть швартовку.",
+      aboard ? t("ui-stand-ship-about") : t("ui-stand-yard-about"),
     );
   }
 
@@ -428,12 +446,12 @@ function assemble({ look, values, pow }: Props, book: RecipeBook | null): Thing[
   if (strips > 0 && disposes(look)) {
     single(
       "farm",
-      "Огород",
+      t("ui-stand-farm"),
       "full",
       () => <Farm look={look} />,
       3,
-      strips === 1 ? "одна делянка" : `делянок: ${strips}`,
-      "Окно огорода: вспашка, посев, ежедневный уход и уборка делянок.",
+      t("ui-stand-farm-strips", { count: strips }),
+      t("ui-stand-farm-about"),
     );
   }
   //: Foraging, where the land has room to walk and is ours or nobody's
@@ -444,52 +462,55 @@ function assemble({ look, values, pow }: Props, book: RecipeBook | null): Thing[
     const searching = foraging.state === "searching" && foraging.ready_at;
     things.push({
       id: "forage",
-      name: "Собирательство",
+      name: t("ui-stand-forage"),
       kind: "full",
       rank: foraging.state === "idle" ? 2 : 0,
       state:
         foraging.state === "found" && foraging.found
-          ? `нашлось: ${foraging.found.goods} ×${foraging.found.units}`
+          ? t("ui-stand-forage-found", {
+              goods: goodsName(names, foraging.found.goods),
+              units: foraging.found.units,
+            })
           : searching
-            ? "идёт поиск"
-            : `${foraging.area.toFixed(0)} м² пустой земли`,
+            ? t("ui-stand-forage-searching")
+            : t("ui-stand-forage-area", { area: foraging.area.toFixed(0) }),
       running: searching
         ? { until: foraging.ready_at as string, since: foraging.started_at }
         : undefined,
-      about: "Окно собирательства: поиск полезного на пустой земле.",
+      about: t("ui-stand-forage-about"),
       view: () => <Forage look={look} />,
     });
   }
   //: A library and a hall are machines (D-176, D-215): both are read off the bench.
-  if (anyOfClass(book, stations, "Библиотека")) {
+  if (anyOfClass(book, stations, "library")) {
     single(
       "library",
-      "Библиотека",
+      t("ui-stand-library"),
       "full",
       () => <Library look={look} />,
       1,
       undefined,
-      "Окно библиотеки: взять рецепты и отдать свои.",
+      t("ui-stand-library-about"),
     );
   }
-  if (look.city && anyOfClass(book, stations, "Администрация")) {
+  if (look.city && anyOfClass(book, stations, "administration")) {
     single(
       "hall",
-      "Администрация",
+      t("ui-stand-hall"),
       "full",
       () => <Admin look={look} />,
       1,
       undefined,
-      "Окно администрации: гражданство, власть, суд и законы города.",
+      t("ui-stand-hall-about"),
     );
   }
   const terminal = firstOfClass(book, stations, TERMINAL);
   if (terminal !== undefined) {
     const mine = (look.stall ?? []).length;
-    single("market", terminal, "full",
+    single("market", goodsName(names, terminal), "full",
       () => <Market look={look} />, 1,
-      mine > 0 ? `вашего товара: ${mine}` : undefined,
-      "Окно рынка: стакан заявок, покупка, продажа и свой товар в терминале.");
+      mine > 0 ? t("ui-stand-market-mine", { count: mine }) : undefined,
+      t("ui-stand-market-about"));
   }
 
   //: The location's own windows, last and in one group: they are about the place
@@ -531,14 +552,17 @@ function assemble({ look, values, pow }: Props, book: RecipeBook | null): Thing[
   if (convoy || carts.length > 0) {
     single(
       "convoy",
-      "Обоз",
+      t("ui-stand-convoy"),
       "full",
       () => <Convoy look={look} />,
       3,
       convoy
-        ? `трюм ${convoy.mass.toFixed(0)} из ${convoy.capacity.toFixed(0)} кг`
-        : `стоит: ${carts[0].goods}`,
-      "Окно обоза: впрячься и возить в трюме больше, чем унесут руки.",
+        ? t("ui-stand-convoy-hold", {
+            mass: convoy.mass.toFixed(0),
+            capacity: convoy.capacity.toFixed(0),
+          })
+        : t("ui-stand-convoy-standing", { goods: goodsName(names, carts[0].goods) }),
+      t("ui-stand-convoy-about"),
     );
   }
 
@@ -554,29 +578,39 @@ function assemble({ look, values, pow }: Props, book: RecipeBook | null): Thing[
   if (aboard) {
     single(
       "berth",
-      "Отсек",
+      t("ui-stand-berth"),
       "full",
       () => <Berth look={look} />,
       3,
-      room ? `пол ${room.used.toFixed(0)} / ${room.area.toFixed(0)} м²` : undefined,
-      "Окно отсека: станки и мебель на борту, пол отсека с вещами и имя отсека.",
+      room
+        ? t("ui-stand-floor", {
+            used: room.used.toFixed(0),
+            area: room.area.toFixed(0),
+          })
+        : undefined,
+      t("ui-stand-berth-about"),
     );
   }
   if (storey !== null) {
     single(
       "storey",
-      "Этаж",
+      t("ui-stand-storey"),
       "full",
       () => <Storey look={look} />,
       3,
-      room ? `пол ${room.used.toFixed(0)} / ${room.area.toFixed(0)} м²` : undefined,
-      "Окно этажа: станки и мебель на этом этаже, его пол с вещами и имя этажа.",
+      room
+        ? t("ui-stand-floor", {
+            used: room.used.toFixed(0),
+            area: room.area.toFixed(0),
+          })
+        : undefined,
+      t("ui-stand-storey-about"),
     );
   }
   if (storey === null && !aboard && ((own && node) || (roofed && stores))) {
     single(
       "house",
-      "Здание",
+      t("ui-stand-house"),
       "full",
       () => (
         <>
@@ -586,14 +620,20 @@ function assemble({ look, values, pow }: Props, book: RecipeBook | null): Thing[
       ),
       3,
       home.area > 0
-        ? `${home.area.toFixed(0)} м² в ${home.floors} эт.`
-          + (roofed && room ? ` · пол ${room.used.toFixed(0)} / ${room.area.toFixed(0)} м²` : "")
-          + (home.condition == null ? "" : ` · состояние ${home.condition.toFixed(0)}%`)
+        ? t("ui-stand-house-size", { area: home.area.toFixed(0), floors: home.floors })
+          + (roofed && room
+            ? t("ui-stand-house-floor", {
+                used: room.used.toFixed(0),
+                area: room.area.toFixed(0),
+              })
+            : "")
+          + (home.condition == null
+            ? ""
+            : t("ui-stand-house-condition", { condition: home.condition.toFixed(0) }))
         : home.sites.length > 0
-          ? "строится"
-          : "не построен",
-      "Окно здания: стройка, ремонт, снос и расстановка станков и мебели — и то,"
-        + " что лежит на полу здания и в его хранилищах.",
+          ? t("ui-stand-house-building")
+          : t("ui-stand-house-absent"),
+      t("ui-stand-house-about"),
     );
   }
 
@@ -604,12 +644,12 @@ function assemble({ look, values, pow }: Props, book: RecipeBook | null): Thing[
   if (node?.reactor_until) {
     single(
       "reactor",
-      "Реактор Предтеч",
+      t("ui-stand-reactor"),
       "bench",
       () => <Reactor look={look} />,
       2,
       reactorState(node.reactor_until),
-      "Окно реактора Предтеч: сколько энергии осталось городу.",
+      t("ui-stand-reactor-about"),
     );
   }
 
@@ -627,7 +667,7 @@ function assemble({ look, values, pow }: Props, book: RecipeBook | null): Thing[
   if (storey === null && !aboard && (forSale || owned || bare)) {
     single(
       "plot",
-      "Земля",
+      t("ui-stand-plot"),
       "full",
       () => (
         <>
@@ -637,26 +677,26 @@ function assemble({ look, values, pow }: Props, book: RecipeBook | null): Thing[
       ),
       forSale ? 1 : 3,
       node?.cut_off
-        ? "отключена за неуплату"
+        ? t("ui-stand-plot-cut-off")
         : node?.gated
-          ? "вход закрыт"
+          ? t("ui-stand-plot-gated")
           : forSale
             ? node?.price !== undefined
-              ? `продаётся за ${api.tk(node.price)} ₭`
-              : "ничья земля"
+              ? t("ui-stand-plot-price", { price: api.tk(node.price) })
+              : t("ui-stand-plot-wild")
             : openGround && outside
-              ? `лежит ${outside.space.used.toFixed(0)} / ${outside.space.area.toFixed(0)} м²`
+              ? t("ui-stand-plot-ground", {
+                  used: outside.space.used.toFixed(0),
+                  area: outside.space.area.toFixed(0),
+                })
               : api.isMine(look)
                 ? undefined
                 : node?.owner
-                  ? `хозяин ${node.owner}`
-                  : `город ${node?.owner_city}`,
+                  ? t("ui-stand-plot-owner", { owner: node.owner })
+                  : t("ui-stand-plot-city", { city: node?.owner_city ?? "" }),
       //: On land nobody holds and nobody sells, the window has no plot half
       //: to show: the hint must promise only what the player will find.
-      forSale || owned
-        ? "Окно земли: управление локацией — имя, значок и описание узла, доступ,"
-          + " выкуп и основание города — и то, что лежит на земле."
-        : "Окно земли: то, что лежит здесь на земле — положить и взять.",
+      forSale || owned ? t("ui-stand-plot-about") : t("ui-stand-plot-bare-about"),
     );
   }
 

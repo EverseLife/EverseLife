@@ -219,16 +219,19 @@ async def _where(session: AsyncSession, identity_id: uuid.UUID) -> uuid.UUID | N
 async def _stand(session: AsyncSession, identity_id: uuid.UUID) -> uuid.UUID:
     node_id = await _where(session, identity_id)
     if node_id is None:
-        raise NoBody("без тела в Сети только читают: писать нечем")
+        raise NoBody(key="net-no-body")
     return node_id
 
 
 def _clean(text: str, limit: int, *, what: str) -> str:
+    """Trim and bound a piece of writing. `what` names the piece for the refusal
+    -- a message variant (`letter`, `name`, `post`), not a word: the word is the
+    locale's business (D-251)."""
     cleaned = text.strip()
     if not cleaned:
-        raise NetError(f"{what} пуст")
+        raise NetError(key="net-empty", what=what)
     if len(cleaned) > limit:
-        raise NetError(f"{what} длиннее {limit} знаков")
+        raise NetError(key="net-too-long", what=what, limit=limit)
     return cleaned
 
 
@@ -265,7 +268,7 @@ async def open_thread(session: AsyncSession, me: Identity, other: Identity) -> N
     """The correspondence with somebody: found, or started empty. Deciding to
     write is already a thread (D-222)."""
     if me.id == other.id:
-        raise NetError("письмо себе — это дневник, а не Сеть")
+        raise NetError(key="net-letter-to-self")
     key = _pair_key(me.id, other.id)
     thread = (
         await session.execute(select(NetThread).where(NetThread.pair_key == key))
@@ -293,7 +296,7 @@ async def _party(session: AsyncSession, thread_id: uuid.UUID, identity_id: uuid.
         )
     ).scalar_one_or_none()
     if party is None:
-        raise NetError("это не ваша переписка")
+        raise NetError(key="net-not-your-thread")
     return party
 
 
@@ -308,7 +311,7 @@ async def write(
 ) -> NetMessage:
     """Send a letter. It leaves at once and arrives by the road (D-222)."""
     moment = now or datetime.now(UTC)
-    cleaned = _clean(text, NET_TEXT_LIMIT, what="письмо")
+    cleaned = _clean(text, NET_TEXT_LIMIT, what="letter")
     await _party(session, thread_id, me.id)
     here = await _stand(session, me.id)
 
@@ -562,15 +565,15 @@ async def city_channel(session: AsyncSession, city: City) -> NetChannel:
 async def create_channel(
     session: AsyncSession, me: Identity, name: str, about: str = ""
 ) -> NetChannel:
-    cleaned = _clean(name, NET_NAME_LIMIT, what="название")
+    cleaned = _clean(name, NET_NAME_LIMIT, what="name")
     note = about.strip()
     if len(note) > NET_ABOUT_LIMIT:
-        raise NetError(f"описание длиннее {NET_ABOUT_LIMIT} знаков")
+        raise NetError(key="net-about-too-long", limit=NET_ABOUT_LIMIT)
     taken = await session.scalar(
         select(NetChannel.id).where(func.lower(NetChannel.name) == cleaned.lower())
     )
     if taken is not None:
-        raise NetError(f"канал «{cleaned}» уже есть")
+        raise NetError(key="net-channel-exists", channel=cleaned)
     channel = NetChannel(name=cleaned, about=note, owner_identity_id=me.id)
     session.add(channel)
     await session.flush()
@@ -580,7 +583,7 @@ async def create_channel(
 async def _channel(session: AsyncSession, channel_id: uuid.UUID) -> NetChannel:
     channel = await session.get(NetChannel, channel_id)
     if channel is None:
-        raise NetError("нет такого канала")
+        raise NetError(key="net-no-such-channel")
     return channel
 
 
@@ -618,10 +621,10 @@ async def subscribe(session: AsyncSession, me: Identity, channel_id: uuid.UUID) 
 async def unsubscribe(session: AsyncSession, me: Identity, channel_id: uuid.UUID) -> None:
     channel = await _channel(session, channel_id)
     if channel.owner_identity_id == me.id:
-        raise NetError("от своего канала не отписываются")
+        raise NetError(key="net-own-channel-kept")
     native = await _native_city(session, me.id)
     if native is not None and channel.city_id == native.id:
-        raise NetError("канал своего города читают всегда: это гражданство, а не подписка")
+        raise NetError(key="net-city-channel-kept")
     row = await _subscription(session, channel_id, me.id)
     if row is not None:
         await session.delete(row)
@@ -654,12 +657,11 @@ async def post(
     now; one who walks meanwhile reads it when `channel.read` says so."""
     moment = now or datetime.now(UTC)
     channel = await _channel(session, channel_id)
-    cleaned = _clean(text, NET_TEXT_LIMIT, what="пост")
+    cleaned = _clean(text, NET_TEXT_LIMIT, what="post")
     if not await may_post(session, me.id, channel):
         raise NotAllowed(
-            "в этот канал пишет его автор"
-            if channel.city_id is None
-            else "в канал города пишут с правом «channel»"
+            key="net-cannot-post",
+            channel="own" if channel.city_id is None else "city",
         )
     here = await _stand(session, me.id)
     entry = NetPost(channel_id=channel.id, identity_id=me.id, node_id=here, text=cleaned, at=moment)

@@ -2,6 +2,8 @@
 // Copyright (C) 2026 Nurlan Urazkulov
 
 import type { RecipeBook } from "./api";
+import { compare } from "./locale";
+import { goodsName, type NamesRu } from "./names";
 
 /**
  * Reading the vault catalog on the client side.
@@ -29,34 +31,38 @@ function canon(book: RecipeBook | null, name: string | null): string | null {
  * from the data; the list stays a list of one so that the next such word has
  * to be added in both places at once.
  */
-const BENCHLESS = ["Руками"];
+const BENCHLESS = ["by_hand"];
 
 const emptyName = (name?: string | null) => name == null || BENCHLESS.includes(name);
 
-/** What the player can make at this machine (`null` -- by hand). */
+/** What the player can make at this machine (`null` -- by hand). Ids out,
+ *  ordered by their Russian display words -- the list feeds a picker. */
 export function craftableAt(
   book: RecipeBook | null,
   machine: string | null,
   knows: string[],
+  names: NamesRu | null = null,
 ): string[] {
   if (!book) return [];
 
   //: A dish and a coin have their own door: the pot counts roles, the mint the
   //: fineness. The sign comes from vault data (`roles`, `kind`), not a name list.
+  //: Everything is keyed by the stable id (D-251): `knows`, the wire and the
+  //: commands all speak ids now, and `r.name` stays a display word.
   const special = new Set<string>(
     (book.recipes ?? [])
       .filter((r) => r.roles || r.kind === "money")
-      .map((r) => r.name),
+      .map((r) => r.id ?? r.name),
   );
 
   const recipes = (book.recipes ?? [])
     .filter(
       (r) =>
         canon(book, r.station ?? null) === machine &&
-        !special.has(r.name) &&
-        knows.includes(r.name),
+        !special.has(r.id ?? r.name) &&
+        knows.includes(r.id ?? r.name),
     )
-    .map((r) => r.name);
+    .map((r) => r.id ?? r.name);
 
   //: Operations without a recipe everyone can do: smelting is the boundary
   //: between "mined" and "made", and locking it behind knowledge would stop the economy.
@@ -70,12 +76,12 @@ export function craftableAt(
 
   return [...new Set([...recipes, ...operations])]
     .filter((name) => !special.has(name))
-    .sort();
+    .sort((a, b) => compare(goodsName(names, a), goodsName(names, b)));
 }
 
 /** At which machine this thing is made. Needed to repair at one's own machine. */
 export function stationOf(book: RecipeBook | null, name: string): string | null {
-  const recipe = (book?.recipes ?? []).find((r) => r.name === name);
+  const recipe = (book?.recipes ?? []).find((r) => (r.id ?? r.name) === name);
   return recipe?.station ? canon(book, recipe.station) : null;
 }
 
@@ -87,10 +93,11 @@ export function stationOf(book: RecipeBook | null, name: string): string | null 
 export function inputsOf(book: RecipeBook | null, name: string, way?: string | null): string[] {
   if (!book) return [];
   const resolve = (n: string) => (book.synonyms?.[n] ?? n) as string;
-  const recipe = (book.recipes ?? []).find((r) => r.name === name);
+  const recipe = (book.recipes ?? []).find((r) => (r.id ?? r.name) === name);
   if (recipe) return (recipe.inputs as string[]).map(resolve);
+  //: `way` is the operation id (D-251); the name matches too for old callers.
   const operations = (book.operations ?? []).filter(
-    (o) => (o.gives ?? []).includes(name) && (!way || o.name === way),
+    (o) => (o.gives ?? []).includes(name) && (!way || (o.id ?? o.name) === way || o.name === way),
   );
   const consumes = operations[0]?.consumes ?? [];
   return (consumes as string[]).map(resolve);

@@ -31,6 +31,7 @@ import { hands, stamp, worldTime } from "../clock";
 import { Deadline } from "../Deadline";
 import { Glyph } from "../Glyph";
 import { askSidebarTab } from "../hud";
+import { t } from "../locale";
 import { Logo } from "../Logo";
 import { VIEWS, type View } from "../views";
 import { leftNow, reserveNow } from "../warmth";
@@ -65,6 +66,13 @@ export function TopBar({ look, waiting, narrow, onSummary, onIntro, onRefresh, v
   const fed =
     look.body?.satiated_until != null &&
     new Date(look.body.satiated_until).getTime() > Date.now();
+  //: Where the body is, when that overrides everything else. Empty exactly
+  //: when `away` is false, which is what lets sleep be joined onto it.
+  const where = ongoing
+    ? t("ui-top-travel", { to: look.travel!.final ?? look.travel!.to })
+    : exploring
+      ? t("ui-top-surveying")
+      : "";
 
   return (
     <header>
@@ -76,15 +84,10 @@ export function TopBar({ look, waiting, narrow, onSummary, onIntro, onRefresh, v
 
       {look.clock && <WorldClock clock={look.clock} />}
 
-      {!embodied && <span className="note">в облаке</span>}
+      {!embodied && <span className="note">{t("ui-top-cloud")}</span>}
       {(away || asleep) && (
         <span className="note">
-          {ongoing
-            ? `в пути: ${look.travel!.final ?? look.travel!.to}`
-            : exploring
-              ? "в разведке"
-              : ""}
-          {asleep ? (away ? " · спит" : "спит") : ""}
+          {asleep ? (away ? t("ui-top-away-asleep", { where }) : t("ui-top-asleep")) : where}
         </span>
       )}
 
@@ -92,8 +95,9 @@ export function TopBar({ look, waiting, narrow, onSummary, onIntro, onRefresh, v
           than a place tab: the window exists to be escaped in time, and the
           clock to the tremor must be in sight from any tab. */}
       {look.node?.shaking_at && (
-        <span className="trouble-inline" title="извержение: лежащее на земле сгорит, дороги перечертит, а дорога, порвавшаяся под идущим, убивает вместе с сумкой. Постройки целы: мир не стирает построенное">
-          земля тронется через <Deadline until={look.node.shaking_at} label="извержение" size="row" />
+        <span className="trouble-inline" title={t("ui-top-shaking-title")}>
+          {t("ui-top-shaking")}{" "}
+          <Deadline until={look.node.shaking_at} label={t("ui-top-eruption")} size="row" />
         </span>
       )}
 
@@ -101,16 +105,16 @@ export function TopBar({ look, waiting, narrow, onSummary, onIntro, onRefresh, v
           two clicks from the player whose body was freezing. */}
       {embodied && (
         <span className="vitals">
-          <span className="vital" title="выносливость: тратится трудом, возвращается сном">
+          <span className="vital" title={t("ui-top-stamina")}>
             <Glyph name="stamina" />
             <b className="num">{look.body!.stamina.toFixed(1)}</b>
           </span>
           <span
             className={`vital${fed ? "" : " dim"}`}
-            title={fed ? "сыт: расход выносливости ниже" : "не ел: обычный расход"}
+            title={t("ui-top-satiety-title", { fed: String(fed) })}
           >
             <Glyph name="satiety" />
-            <b className="num">{fed ? "сыт" : "—"}</b>
+            <b className="num">{t("ui-top-satiety", { fed: String(fed) })}</b>
           </span>
           {/* Warmth is shown only where cold exists (D-231): on Terra there is
               no reading at all rather than an empty one. */}
@@ -145,18 +149,18 @@ export function TopBar({ look, waiting, narrow, onSummary, onIntro, onRefresh, v
       <button
         className="quiet"
         onClick={onSummary}
-        title="что произошло, пока вас не было"
+        title={t("ui-top-summary-title")}
       >
-        сводка
+        {t("ui-top-summary")}
         {waiting > 0 && <span className="tally alarm">{waiting}</span>}
       </button>
       {/* The intro stays within reach: once read it must not become
           unreachable, and unread it must not become mandatory (D-182). */}
-      <button className="quiet" onClick={onIntro} title="кто вы и с чего начать">
+      <button className="quiet" onClick={onIntro} title={t("ui-top-intro-title")}>
         ?
       </button>
       <button className="quiet" onClick={onRefresh}>
-        обновить
+        {t("ui-top-refresh")}
       </button>
       {/* The sources of this version. AGPL §13: whoever plays over the
           network must be offered them, not sent to a README. The
@@ -166,9 +170,9 @@ export function TopBar({ look, waiting, narrow, onSummary, onIntro, onRefresh, v
         href={SOURCE_URL}
         target="_blank"
         rel="noopener noreferrer"
-        title="исходный код этой версии"
+        title={t("ui-top-source-title")}
       >
-        исходники
+        {t("ui-top-source")}
       </a>
     </header>
   );
@@ -229,26 +233,28 @@ function MoneyQuick({ money }: { money: Look["money"] }) {
         className="bare hud"
         onClick={() => setOpen((was) => !was)}
         aria-expanded={open}
-        title="счёт — быстрый перевод"
+        title={t("ui-top-money-title")}
       >
         <Glyph name="money" />
-        <b className="num">{money} ₭</b>
+        {/* The balance arrives from the wire already spelled (`tk`), so it goes
+            in as the string it is rather than through the locale's numbers. */}
+        <b className="num">{t("ui-top-money", { money: String(money) })}</b>
       </button>
       {open && (
-        <div className="hud-pop" role="dialog" aria-label="Быстрый перевод">
+        <div className="hud-pop" role="dialog" aria-label={t("ui-top-transfer")}>
           <Refusal of={acting} />
           <div className="form">
             <label>
-              <span>кому</span>
+              <span>{t("ui-top-transfer-to")}</span>
               <input
                 ref={first}
                 value={to}
                 onChange={(e) => setTo(e.target.value)}
-                placeholder="имя личности"
+                placeholder={t("ui-top-transfer-to-hint")}
               />
             </label>
             <label>
-              <span>сколько, ₭</span>
+              <span>{t("ui-top-transfer-amount")}</span>
               <input
                 type="number"
                 min={0}
@@ -258,11 +264,11 @@ function MoneyQuick({ money }: { money: Look["money"] }) {
               />
             </label>
             <label>
-              <span>за что</span>
+              <span>{t("ui-top-transfer-memo")}</span>
               <input
                 value={memo}
                 onChange={(e) => setMemo(e.target.value)}
-                placeholder="видно получателю и суду"
+                placeholder={t("ui-top-transfer-memo-hint")}
                 maxLength={140}
               />
             </label>
@@ -270,7 +276,7 @@ function MoneyQuick({ money }: { money: Look["money"] }) {
               onClick={() => void transfer()}
               disabled={acting.busy || !to.trim() || amount <= 0}
             >
-              Перевести
+              {t("ui-top-transfer-send")}
             </button>
             <button
               className="link"
@@ -279,7 +285,7 @@ function MoneyQuick({ money }: { money: Look["money"] }) {
                 askSidebarTab("money");
               }}
             >
-              выписка и кредит — в «финансах»
+              {t("ui-top-transfer-more")}
             </button>
           </div>
         </div>
@@ -303,10 +309,14 @@ function WorldClock({ clock }: { clock: NonNullable<Look["clock"]> }) {
     return () => clearInterval(timer);
   }, []);
   return (
-    <span className="clock" title={`местное время: ${stamp(clock, now)}`}>
+    <span className="clock" title={t("ui-top-clock-title", { stamp: stamp(clock, now) })}>
       {/* One size for the whole reading: the day is part of the time, not a
-          footnote to it. */}
-      {hands(clock, now)} · сутки {worldTime(clock, now).day}
+          footnote to it. The day goes in as a string: it is a counter, and the
+          thousandth day must not read as "1 000". */}
+      {t("ui-top-clock", {
+        hands: hands(clock, now),
+        day: String(worldTime(clock, now).day),
+      })}
     </span>
   );
 }
@@ -329,22 +339,19 @@ function Breath({ air }: { air: Air }) {
   //: A bagful of cylinders and no suit is the one case where the number is not
   //: the answer: nothing connects the body to them, and it is suffocating with
   //: a full bag (D-234).
-  if (air.where === "скафандр" && !air.suit) {
+  if (air.where === "suit" && !air.suit) {
     return (
-      <span
-        className="vital low"
-        title="дышать нечем: баллон соединяет с телом скафандр, и без него воздуха нет, сколько бы баллонов ни лежало в мешке"
-      >
+      <span className="vital low" title={t("ui-top-air-no-suit-title")}>
         <Glyph name="warmth" />
-        <b className="num">без скафандра</b>
+        <b className="num">{t("ui-top-air-no-suit")}</b>
       </span>
     );
   }
   if (units <= 0) {
     return (
-      <span className="vital low" title="кислород кончился: следующий счёт — смерть">
+      <span className="vital low" title={t("ui-top-air-out-title")}>
         <Glyph name="warmth" />
-        <b className="num">нечем дышать</b>
+        <b className="num">{t("ui-top-air-out")}</b>
       </span>
     );
   }
@@ -352,15 +359,15 @@ function Breath({ air }: { air: Air }) {
   return (
     <span
       className="vital"
-      title={
-        air.where === "борт"
-          ? "воздух борта: жизнеобеспечение гонит его из воды и энергии, экипаж дышит"
-          : "кислород из баллона через скафандр: снаружи он тратится впятеро быстрее"
-      }
+      //: `where` is the wire's own word for where the air comes from; the
+      //: variant is keyed by it rather than by a sentence chosen here.
+      title={t("ui-top-air-title", { aboard: String(air.where === "aboard") })}
     >
       <Glyph name="warmth" />
       <b className="num">
-        {hours == null ? `${units.toFixed(0)} ед.` : `${hours.toFixed(1)} ч ↓`}
+        {hours == null
+          ? t("ui-top-air-units", { n: units.toFixed(0) })
+          : t("ui-top-air-hours", { n: hours.toFixed(1) })}
       </b>
     </span>
   );
@@ -383,15 +390,14 @@ function Warmth({ frost }: { frost: FrostState }) {
     return () => clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [frost.at, frost.hours, frost.per_hour, frost.max, frost.warm]);
-  const word = frost.climate === "пекло" ? "прохлада" : "тепло";
+  //: The scale is one; the word for it is not. On a hot planet the reserve is
+  //: coolness, and the same three sentences say so.
+  const word = t("ui-top-warmth-word", { heat: String(frost.climate === "heat") });
   if (hours <= 0) {
     return (
-      <span
-        className="vital low"
-        title={`${word}: замёрзшее тело жжёт выносливость просто на времени и тратит на работу больше обычного; кончится — смерть`}
-      >
+      <span className="vital low" title={t("ui-top-warmth-frozen-title", { word })}>
         <Glyph name="warmth" />
-        <b className="num">замёрз</b>
+        <b className="num">{t("ui-top-warmth-frozen")}</b>
       </span>
     );
   }
@@ -400,13 +406,13 @@ function Warmth({ frost }: { frost: FrostState }) {
       className="vital"
       title={
         frost.warm
-          ? `${word}: узел обогрет, запас восполняется`
-          : `${word}: узел холодный, запас тает`
+          ? t("ui-top-warmth-warm-title", { word })
+          : t("ui-top-warmth-cold-title", { word })
       }
     >
       <Glyph name="warmth" />
       <b className="num">
-        {hours.toFixed(1)} ч {frost.warm ? "↑" : "↓"}
+        {t("ui-top-warmth-hours", { warm: String(frost.warm), n: hours.toFixed(1) })}
       </b>
     </span>
   );

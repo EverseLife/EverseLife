@@ -32,8 +32,10 @@ import type {
 } from "../api";
 import { when } from "../clock";
 import { groundName } from "../grounds";
+import { t } from "../locale";
+import { goodsName } from "../names";
 import { Rule } from "../Rule";
-import { Refusal, useActions, useSession } from "../actions";
+import { Refusal, useActions, useBook, useNames, useSession } from "../actions";
 import { CityWorks } from "./CityWorks";
 
 type Props = {
@@ -41,6 +43,12 @@ type Props = {
   busy: boolean;
   act: (what: () => Promise<unknown>) => Promise<void>;
 };
+
+/** The two halves of this window, each by the message that names its tab. */
+const TABS = [
+  { id: "power", label: "ui-admin-tab-power" },
+  { id: "panel", label: "ui-admin-tab-panel" },
+] as const;
 
 export function Admin({ look }: Omit<Props, "busy" | "act">) {
   const session = useSession();
@@ -57,11 +65,11 @@ export function Admin({ look }: Omit<Props, "busy" | "act">) {
   const [penalColonies, setPenalColonies] = useState<{ key: string; name: string }[]>([]);
   const [edit, setEdit] = useState<Record<string, string>>({});
   const [toWhom, setToWhom] = useState("");
-  const [post, setPost] = useState("Министр экономики");
+  const [post, setPost] = useState(t("ui-admin-post-default"));
   const [rights, setRights] = useState<string[]>(["dashboard"]);
   const [amount, setAmount] = useState(0);
   const [plot, setPlot] = useState("");
-  const [kind, setKind] = useState<"власть" | "панель">("власть");
+  const [kind, setKind] = useState<(typeof TABS)[number]["id"]>("power");
 
   const reload = useCallback(async () => {
     try {
@@ -99,8 +107,8 @@ export function Admin({ look }: Omit<Props, "busy" | "act">) {
         <Citizenship look={look} />
         <section>
           <Refusal of={acting} />
-          <h2>Администрация</h2>
-          <p className="note">Здесь нет города: за стенами законов нет.</p>
+          <h2>{t("ui-admin-title")}</h2>
+          <p className="note">{t("ui-admin-no-city")}</p>
         </section>
       </>
     );
@@ -119,21 +127,21 @@ export function Admin({ look }: Omit<Props, "busy" | "act">) {
         the visitor comes before the machinery of the power. */}
     <Citizenship look={look} />
     <section>
-      <h2>Администрация · {city.name}</h2>
+      <h2>{t("ui-admin-title-city", { city: city.name })}</h2>
       <nav className="row tabs">
-        {(["власть", "панель"] as const).map((name) => (
+        {TABS.map((tab) => (
           <button
-            key={name}
-            className={kind === name ? "" : "quiet"}
-            aria-current={kind === name || undefined}
-            onClick={() => setKind(name)}
+            key={tab.id}
+            className={kind === tab.id ? "" : "quiet"}
+            aria-current={kind === tab.id || undefined}
+            onClick={() => setKind(tab.id)}
           >
-            {name}
+            {t(tab.label)}
           </button>
         ))}
       </nav>
 
-      {kind === "панель" ? (
+      {kind === "panel" ? (
         <Panel panel={panel} />
       ) : (
         <>
@@ -145,22 +153,25 @@ export function Admin({ look }: Omit<Props, "busy" | "act">) {
           busy={busy}
         />
         <>
-          <p className="sign">казна {api.tk(city.treasury)} ₭</p>
+          <p className="sign">{t("ui-admin-treasury-sign", { treasury: api.tk(city.treasury) })}</p>
           {city.upkeep && city.upkeep.nodes > 0 && (
             <p className="note">
-              Городских узлов на содержании: {city.upkeep.nodes}. Они жгут{" "}
-              {city.upkeep.energy.toFixed(0)} энергии за {city.upkeep.hours} ч —
-              деньгами за них никто не платит, но по тарифу {city.upkeep.tariff} ₭
-              за 100 это {api.tk(city.upkeep.worth)} ₭ непроданной энергии.
+              {t("ui-admin-upkeep", {
+                nodes: String(city.upkeep.nodes),
+                energy: city.upkeep.energy.toFixed(0),
+                hours: String(city.upkeep.hours),
+                tariff: String(city.upkeep.tariff),
+                worth: api.tk(city.upkeep.worth),
+              })}
             </p>
           )}
           <p className="note">
             {city.powers.length === 0
-              ? "Вы здесь житель: законы видны, правят их должностные лица."
-              : `Ваши права: ${city.powers.map(rightName(city)).join(", ")}.`}
-            {!decides && city.powers.length > 0 && (
-              <b> Решения принимаются в администрации — придите в неё.</b>
-            )}
+              ? t("ui-admin-resident")
+              : t("ui-admin-your-rights", {
+                  rights: city.powers.map(rightName(city)).join(", "),
+                })}
+            {!decides && city.powers.length > 0 && <b> {t("ui-admin-come-in")}</b>}
           </p>
 
           <Word
@@ -170,9 +181,9 @@ export function Admin({ look }: Omit<Props, "busy" | "act">) {
             busy={busy}
           />
 
-          <h3>Должности</h3>
+          <h3>{t("ui-admin-offices")}</h3>
           {city.offices.length === 0 ? (
-            <p className="note">должностей нет</p>
+            <p className="note">{t("ui-admin-offices-none")}</p>
           ) : (
             city.offices.map((office) => (
               <div className="row" key={office.id}>
@@ -189,7 +200,7 @@ export function Admin({ look }: Omit<Props, "busy" | "act">) {
                     onClick={() => go(() => session.send("city.revoke", { office: office.id }))}
                     disabled={busy}
                   >
-                    Снять
+                    {t("ui-admin-revoke")}
                   </button>
                 )}
               </div>
@@ -198,10 +209,10 @@ export function Admin({ look }: Omit<Props, "busy" | "act">) {
 
           {can("offices") && decides && residents.length > 0 && (
             <>
-              <h3>Создать должность</h3>
+              <h3>{t("ui-admin-create-office")}</h3>
               <div className="row">
                 <select value={toWhom} onChange={(e) => setToWhom(e.target.value)}>
-                  <option value="">кого назначить</option>
+                  <option value="">{t("ui-admin-whom")}</option>
                   {residents.map((name) => (
                     <option key={name}>{name}</option>
                   ))}
@@ -209,7 +220,7 @@ export function Admin({ look }: Omit<Props, "busy" | "act">) {
                 <input
                   value={post}
                   onChange={(e) => setPost(e.target.value)}
-                  title="название придумывает город, движок смотрит в права"
+                  title={t("ui-admin-post-title")}
                 />
                 <button
                   onClick={() =>
@@ -223,7 +234,7 @@ export function Admin({ look }: Omit<Props, "busy" | "act">) {
                   }
                   disabled={busy || !toWhom || rights.length === 0}
                 >
-                  Назначить
+                  {t("ui-admin-appoint")}
                 </button>
               </div>
               <Scopes
@@ -235,7 +246,7 @@ export function Admin({ look }: Omit<Props, "busy" | "act">) {
             </>
           )}
 
-          <h3>Код-законы</h3>
+          <h3>{t("ui-admin-laws")}</h3>
           <table>
             <tbody>
               {Object.entries(city.laws).map(([key, law]) => {
@@ -259,7 +270,9 @@ export function Admin({ look }: Omit<Props, "busy" | "act">) {
                         <b>{law.value ?? "—"}</b>
                       )}
                     </td>
-                    <td className="note">{law.own ? "решение города" : "умолчание"}</td>
+                    <td className="note">
+                      {law.own ? t("ui-admin-law-own") : t("ui-admin-law-default")}
+                    </td>
                     <td>
                       {editing && (edit[key] ?? "") !== "" && (
                         <button
@@ -270,7 +283,7 @@ export function Admin({ look }: Omit<Props, "busy" | "act">) {
                           }
                           disabled={busy}
                         >
-                          Принять
+                          {t("ui-admin-law-accept")}
                         </button>
                       )}
                     </td>
@@ -279,10 +292,7 @@ export function Admin({ look }: Omit<Props, "busy" | "act">) {
               })}
             </tbody>
           </table>
-          <p className="note">
-            Право на закон точечное: «министр экономики» правит пошлины и не
-            трогает налог. Отдать можно только то, что есть у себя.
-          </p>
+          <p className="note">{t("ui-admin-laws-note")}</p>
 
           {(["import_duty", "export_duty"] as const)
             .filter((key) => can(api.LAW_SCOPE + key) && decides)
@@ -302,18 +312,18 @@ export function Admin({ look }: Omit<Props, "busy" | "act">) {
 
           {can("land") && decides && vacant.length > 0 && residents.length > 0 && (
             <>
-              <h3>Свободные участки</h3>
+              <h3>{t("ui-admin-lots")}</h3>
               <div className="row">
                 <select value={plot} onChange={(e) => setPlot(e.target.value)}>
-                  <option value="">какой участок</option>
+                  <option value="">{t("ui-admin-which-lot")}</option>
                   {vacant.map((lot) => (
                     <option key={lot.key} value={lot.key}>
-                      {lot.name} · {lot.area.toFixed(0)} м²
+                      {lot.name} · {t("ui-admin-lot-area", { area: lot.area.toFixed(0) })}
                     </option>
                   ))}
                 </select>
                 <select value={toWhom} onChange={(e) => setToWhom(e.target.value)}>
-                  <option value="">кому</option>
+                  <option value="">{t("ui-admin-to-whom")}</option>
                   {residents.map((name) => (
                     <option key={name}>{name}</option>
                   ))}
@@ -324,7 +334,7 @@ export function Admin({ look }: Omit<Props, "busy" | "act">) {
                   }
                   disabled={busy || !plot || !toWhom}
                 >
-                  Выделить
+                  {t("ui-admin-allot")}
                 </button>
               </div>
             </>
@@ -332,10 +342,10 @@ export function Admin({ look }: Omit<Props, "busy" | "act">) {
 
           {can("treasury") && decides && residents.length > 0 && (
             <>
-              <h3>Казна</h3>
+              <h3>{t("ui-admin-treasury")}</h3>
               <div className="row">
                 <select value={toWhom} onChange={(e) => setToWhom(e.target.value)}>
-                  <option value="">кому</option>
+                  <option value="">{t("ui-admin-to-whom")}</option>
                   {residents.map((name) => (
                     <option key={name}>{name}</option>
                   ))}
@@ -352,13 +362,17 @@ export function Admin({ look }: Omit<Props, "busy" | "act">) {
                       session.send("city.spend", {
                         whom: toWhom,
                         amount: api.minor(amount),
+                        //: A wire value, not a line to read: the treasury
+                        //: writes this into the ledger row as its reason, and
+                        //: the engine matches on it. Translating it would
+                        //: change what the server is told, not what is shown.
                         memo: "выплата",
                       }),
                     )
                   }
                   disabled={busy || !toWhom || amount <= 0}
                 >
-                  Заплатить ₭
+                  {t("ui-admin-pay")}
                 </button>
               </div>
             </>
@@ -369,12 +383,8 @@ export function Admin({ look }: Omit<Props, "busy" | "act">) {
           {can("treasury") && decides && <CityWorks busy={busy} act={act} />}
 
           <h3>
-            Устав
-            <Rule>
-              Устав решает, кто утверждает закон: «правитель единолично» меняет его
-              сразу, «голосованием граждан» — созывает голосование. Выборы правителя и
-              совет приедут своей механикой.
-            </Rule>
+            {t("ui-admin-charter")}
+            <Rule>{t("ui-admin-charter-rule")}</Rule>
           </h3>
           <table>
             <tbody>
@@ -442,11 +452,13 @@ function Citizenship({ look }: Omit<Props, "busy" | "act">) {
   //: The window itself is opened by the hall on the bench; here only the city is needed.
   if (!city) return null;
 
+  //: The admission order, each by the message that says what to expect.
   const order_: Record<string, string> = {
-    open: "принимают свободно",
-    application: "по заявке с одобрением",
-    invite: "только по приглашению",
+    open: "ui-admin-admission-open",
+    application: "ui-admin-admission-application",
+    invite: "ui-admin-admission-invite",
   };
+  const admission = t(order_[city.admission] ?? city.admission);
   //: Citizenship taken as a print condition cannot be given up before the term (D-184).
   const linked = Boolean(
     own?.bound_until && new Date(own.bound_until) > new Date(),
@@ -455,45 +467,45 @@ function Citizenship({ look }: Omit<Props, "busy" | "act">) {
   return (
     <section>
       <Refusal of={acting} />
-      <h2>Гражданство</h2>
+      <h2>{t("ui-admin-citizenship")}</h2>
       {own ? (
         <p>
-          состоите в <b>{own.city}</b>
-          {own.leaving_at && <> · выходите: гражданство спадёт {when(own.leaving_at)}</>}
+          {t("ui-admin-citizenship-in")} <b>{own.city}</b>
+          {own.leaving_at && (
+            <> · {t("ui-admin-citizenship-leaving", { when: when(own.leaving_at) })}</>
+          )}
           {/* Обязательство, принятое при печати (D-184): срок виден заранее,
               а не открывается отказом при попытке выйти. */}
-          {linked && <> · обязательство кончится {when(own.bound_until)}</>}
+          {linked && (
+            <> · {t("ui-admin-citizenship-bound", { when: when(own.bound_until) })}</>
+          )}
         </p>
       ) : (
-        <p className="note">Вы нигде не состоите: гость платит пошлины, но не налоги.</p>
+        <p className="note">{t("ui-admin-citizenship-none")}</p>
       )}
 
       <div className="row">
         {city.citizen ? (
-          <span className="note">Это ваш город.</span>
+          <span className="note">{t("ui-admin-your-city")}</span>
         ) : city.requested ? (
           <span className="note">
-            {city.admission === "invite"
-              ? "Вас позвали: примите приглашение."
-              : "Заявка подана — ждёт решения власти."}
+            {city.admission === "invite" ? t("ui-admin-invited") : t("ui-admin-applied")}
           </span>
         ) : null}
         {!city.citizen && (
           <button
             onClick={() => act(() => session.send("city.join", {}))}
             disabled={busy || Boolean(own)}
-            title={
-              own
-                ? "гражданство одно на человека: сначала выйти из прежнего города"
-                : order_[city.admission]
-            }
+            title={own ? t("ui-admin-join-blocked") : admission}
           >
             {city.requested && city.admission === "invite"
-              ? "Принять приглашение"
-              : "Вступить в граждане"}
+              ? t("ui-admin-accept-invite")
+              : t("ui-admin-join")}
           </button>
         )}
-        <span className="note">{city.name}: {order_[city.admission]}</span>
+        <span className="note">
+          {t("ui-admin-admission-line", { city: city.name, order: admission })}
+        </span>
       </div>
 
       {own && !own.leaving_at && (
@@ -501,18 +513,12 @@ function Citizenship({ look }: Omit<Props, "busy" | "act">) {
           <button
             onClick={() => act(() => session.send("city.leave", {}))}
             disabled={busy || linked}
-            title={
-              linked
-                ? "срок обязательства вы приняли, выбрав дверь этого города"
-                : "заявление уходит по Сети"
-            }
+            title={linked ? t("ui-admin-leave-bound-title") : t("ui-admin-leave-title")}
           >
-            Выйти из гражданства
+            {t("ui-admin-leave")}
           </button>
           <span className="note">
-            {linked
-              ? "Обязательство печати держит до своего срока."
-              : "Выход не мгновенен: гражданство спадёт по сроку."}
+            {linked ? t("ui-admin-leave-bound-note") : t("ui-admin-leave-note")}
           </span>
         </div>
       )}
@@ -541,11 +547,11 @@ function Word({
 
   return (
     <div>
-      <h3>Слово городу</h3>
+      <h3>{t("ui-admin-word")}</h3>
       {city.about ? (
         <p className="say">«{city.about}»</p>
       ) : (
-        <p className="note">город молчит: новичок видит одни числа</p>
+        <p className="note">{t("ui-admin-word-none")}</p>
       )}
       {can && (
         <>
@@ -554,7 +560,7 @@ function Word({
               className="word"
               value={tally}
               maxLength={api.CITY_ABOUT_LIMIT}
-              placeholder="чем город зовёт новичка"
+              placeholder={t("ui-admin-word-hint")}
               onChange={(e) => setText(e.target.value)}
             />
           </div>
@@ -568,11 +574,13 @@ function Word({
               }
               disabled={busy || tally === city.about}
             >
-              Объявить
+              {t("ui-admin-word-publish")}
             </button>
             <span className="note">
-              {tally.length} из {api.CITY_ABOUT_LIMIT} знаков · видно всем,
-              кто выбирает, где напечататься
+              {t("ui-admin-word-count", {
+                used: String(tally.length),
+                limit: String(api.CITY_ABOUT_LIMIT),
+              })}
             </span>
           </div>
         </>
@@ -600,13 +608,20 @@ function Customs({
   busy: boolean;
   apply: (value: unknown) => void;
 }) {
+  const names = useNames();
+  const book = useBook();
   const parsed = parse(value);
   const [item, setItem] = useState("");
   const [rate, setRate] = useState(10);
   const [norm, setNorm] = useState(30);
 
+  //: The player types the Russian word; the law is keyed by the id (D-251).
+  //: The synonyms map carries every Russian spelling, and an id passes as is.
   const add = () =>
-    apply({ ...parsed, [item]: { rate: rate, free: norm } });
+    apply({
+      ...parsed,
+      [book?.synonyms?.[item.trim()] ?? item.trim()]: { rate: rate, free: norm },
+    });
   const remove = (which: string) => {
     const without = { ...parsed };
     delete without[which];
@@ -617,18 +632,20 @@ function Customs({
     <div>
       <h3>{name}</h3>
       {Object.keys(parsed).length === 0 ? (
-        <p className="note">граница открыта: ставок нет</p>
+        <p className="note">{t("ui-admin-customs-open")}</p>
       ) : (
         <table>
           <tbody>
             {Object.entries(parsed).map(([which, condition]) => (
               <tr key={which}>
-                <td>{which}</td>
+                <td>{goodsName(names, which)}</td>
                 <td className="num">{condition.rate}%</td>
-                <td className="note">беспошлинно {condition.free} кг в сутки</td>
+                <td className="note">
+                  {t("ui-admin-customs-free", { free: String(condition.free) })}
+                </td>
                 <td>
                   <button className="quiet" onClick={() => remove(which)} disabled={busy}>
-                    Снять
+                    {t("ui-admin-customs-drop")}
                   </button>
                 </td>
               </tr>
@@ -638,30 +655,31 @@ function Customs({
       )}
       <div className="row">
         <input
-          list={`товары-${law}`}
-          placeholder="товар"
+          list={`goods-${law}`}
+          placeholder={t("ui-admin-customs-goods")}
           value={item}
           onChange={(e) => setItem(e.target.value)}
         />
-        <datalist id={`товары-${law}`}>
+        <datalist id={`goods-${law}`}>
           {goods.map((name) => (
-            <option key={name} value={name} />
+            //: Offered in the player's words; `add` resolves back to the id.
+            <option key={name} value={goodsName(names, name)} />
           ))}
         </datalist>
         <input
           type="number"
           value={rate}
           onChange={(e) => setRate(Number(e.target.value))}
-          title="ставка, % от справочной цены"
+          title={t("ui-admin-customs-rate-title")}
         />
         <input
           type="number"
           value={norm}
           onChange={(e) => setNorm(Number(e.target.value))}
-          title="беспошлинная норма, кг в сутки на человека"
+          title={t("ui-admin-customs-free-title")}
         />
         <button onClick={add} disabled={busy || !item.trim() || rate <= 0}>
-          Ввести
+          {t("ui-admin-customs-add")}
         </button>
       </div>
     </div>
@@ -702,17 +720,18 @@ function Scopes({
 
   return (
     <div>
-      <p className="note">Права должности — отдать можно только своё:</p>
+      <p className="note">{t("ui-admin-scopes-note")}</p>
       <div className="row">
-        {Object.entries(api.POWERS).map(([key, name]) => (
-          <label className="note" key={key} title={can(key) ? "" : "нет у вас"}>
+        {/* `POWERS` holds message keys, not words: it is built once at import. */}
+        {Object.entries(api.POWERS).map(([key, word]) => (
+          <label className="note" key={key} title={can(key) ? "" : t("ui-admin-scopes-lacking")}>
             <input
               type="checkbox"
               checked={selected.includes(key)}
               disabled={!can(key)}
               onChange={() => toggle(key)}
             />{" "}
-            {name}
+            {t(word)}
           </label>
         ))}
       </div>
@@ -738,14 +757,11 @@ function Scopes({
 
 /** The economic panel: the public snapshot plus the treasury for those with the right. */
 export function Panel({ panel }: { panel: CityPanel | null }) {
-  if (!panel) return <p className="note">панель недоступна</p>;
+  //: Called before the early returns: a hook must run on every render.
+  const names = useNames();
+  if (!panel) return <p className="note">{t("ui-admin-panel-none")}</p>;
   if (panel.blind) {
-    return (
-      <p className="trouble">
-        Город слеп: администрация не стоит либо отключена за неуплату. Данные не
-        обновляются, и решения принимаются вслепую.
-      </p>
-    );
+    return <p className="trouble">{t("ui-admin-panel-blind")}</p>;
   }
   //: A section may not arrive: the server may be older than the client, and
   //: the panel may not crash the whole screen over one missing summary line.
@@ -773,60 +789,68 @@ export function Panel({ panel }: { panel: CityPanel | null }) {
   return (
     <div>
       <p className="sign">
-        за последние {panel.window_hours} ч · сделок {market.trades} · оборот{" "}
-        {market.volume.toFixed(2)} ₭
-        <Rule>
-          Шаг сводки медленнее рынка нарочно: мгновенные данные дали бы власти
-          торговое преимущество перед собственными купцами. Персонального здесь нет ни
-          у кого — ни доходов, ни маршрутов.
-        </Rule>
+        {t("ui-admin-panel-sign", {
+          hours: String(panel.window_hours),
+          trades: String(market.trades),
+          volume: market.volume.toFixed(2),
+        })}
+        <Rule>{t("ui-admin-panel-rule")}</Rule>
       </p>
 
-      <h3>Люди</h3>
+      <h3>{t("ui-admin-panel-people")}</h3>
       <p>
-        в городе {people.here} · напечаталось за период {people.printed}
+        {t("ui-admin-panel-people-line", {
+          here: String(people.here),
+          printed: String(people.printed),
+        })}
       </p>
 
-      <h3>Энергия</h3>
+      <h3>{t("ui-admin-panel-energy")}</h3>
       <p>
-        в пуле {energy.stored.toFixed(0)} · тариф {energy.tariff} ₭ за 100 · на работу{" "}
-        {energy.spent_work.toFixed(0)} · на быт {energy.spent_home.toFixed(0)}
+        {t("ui-admin-panel-energy-line", {
+          stored: energy.stored.toFixed(0),
+          tariff: String(energy.tariff),
+          work: energy.spent_work.toFixed(0),
+          home: energy.spent_home.toFixed(0),
+        })}
       </p>
 
-      <h3>Граница</h3>
+      <h3>{t("ui-admin-panel-border")}</h3>
       <p>
-        ввезено{" "}
-        {Object.entries(border.imported)
-          .map(([name, kg]) => `${name} ${kg.toFixed(1)} кг`)
-          .join(", ") || "—"}{" "}
-        · вывезено{" "}
-        {Object.entries(border.exported)
-          .map(([name, kg]) => `${name} ${kg.toFixed(1)} кг`)
-          .join(", ") || "—"}
+        {t("ui-admin-panel-border-line", {
+          imported: weighed(border.imported, names),
+          exported: weighed(border.exported, names),
+        })}
       </p>
       <p className="note">
-        ходок: {border.trips_in} внутрь, {border.trips_out} наружу · пошлин собрано{" "}
-        {border.duty_collected.toFixed(2)} ₭
+        {t("ui-admin-panel-trips", {
+          in: String(border.trips_in),
+          out: String(border.trips_out),
+          duty: border.duty_collected.toFixed(2),
+        })}
       </p>
 
-      <h3>Производство</h3>
+      <h3>{t("ui-admin-panel-production")}</h3>
       <p>
-        добыто {(work.mined?.["всего"] ?? 0).toFixed(1)} · убрано{" "}
-        {(work.harvested ?? 0).toFixed(1)} · выпущено{" "}
-        {Object.entries(work.crafted ?? {})
-          .map(([name, qty]) => `${name} ${qty.toFixed(0)}`)
-          .join(", ") || "—"}
+        {t("ui-admin-panel-production-line", {
+          mined: (work.mined?.["total"] ?? 0).toFixed(1),
+          harvested: (work.harvested ?? 0).toFixed(1),
+          crafted:
+            Object.entries(work.crafted ?? {})
+              .map(([name, qty]) => `${goodsName(names, name)} ${qty.toFixed(0)}`)
+              .join(", ") || "—",
+        })}
       </p>
 
-      <h3>Цены</h3>
+      <h3>{t("ui-admin-panel-prices")}</h3>
       {prices.length === 0 ? (
-        <p className="note">сделок за период не было</p>
+        <p className="note">{t("ui-admin-panel-no-trades")}</p>
       ) : (
         <table>
           <tbody>
             {prices.map(([name, price]) => (
               <tr key={name}>
-                <td>{name}</td>
+                <td>{goodsName(names, name)}</td>
                 <td className="num">{price.toFixed(2)} ₭</td>
               </tr>
             ))}
@@ -834,12 +858,12 @@ export function Panel({ panel }: { panel: CityPanel | null }) {
         </table>
       )}
 
-      <h3>Товар в городе</h3>
+      <h3>{t("ui-admin-panel-goods")}</h3>
       <table>
         <tbody>
           {goods.map(([name, qty]) => (
             <tr key={name}>
-              <td>{name}</td>
+              <td>{goodsName(names, name)}</td>
               <td className="num">{qty.toFixed(1)}</td>
             </tr>
           ))}
@@ -848,28 +872,44 @@ export function Panel({ panel }: { panel: CityPanel | null }) {
 
       {panel.treasury ? (
         <>
-          <h3>Казна</h3>
-          <p>остаток {panel.treasury.balance.toFixed(2)} ₭</p>
+          <h3>{t("ui-admin-panel-treasury")}</h3>
+          <p>{t("ui-admin-panel-balance", { balance: panel.treasury.balance.toFixed(2) })}</p>
           <p className="note">
-            собрано:{" "}
-            {Object.entries(panel.treasury.collected)
-              .map(([ground, qty]) => `${groundName(ground)} ${qty.toFixed(2)} ₭`)
-              .join(", ") || "—"}
+            {t("ui-admin-panel-collected", { lines: ledger(panel.treasury.collected) })}
           </p>
           <p className="note">
-            потрачено:{" "}
-            {Object.entries(panel.treasury.spent)
-              .map(([ground, qty]) => `${groundName(ground)} ${qty.toFixed(2)} ₭`)
-              .join(", ") || "—"}
+            {t("ui-admin-panel-spent", { lines: ledger(panel.treasury.spent) })}
           </p>
         </>
       ) : (
-        <p className="note">
-          Казна по статьям — тем, у кого есть право «панель города». Балансы,
-          обороты и цены открыты всем: без этого спорить с властью нечем.
-        </p>
+        <p className="note">{t("ui-admin-panel-treasury-closed")}</p>
       )}
     </div>
+  );
+}
+
+/** Goods and their weight, in the player's words: what crossed the border. */
+function weighed(rows: Record<string, number>, names: ReturnType<typeof useNames>): string {
+  return (
+    Object.entries(rows)
+      .map(([id, kg]) =>
+        t("ui-admin-panel-kg", { goods: goodsName(names, id), kg: kg.toFixed(1) }),
+      )
+      .join(", ") || "—"
+  );
+}
+
+/** Treasury lines by their ground: what was collected, what was spent. */
+function ledger(rows: Record<string, number>): string {
+  return (
+    Object.entries(rows)
+      .map(([ground, qty]) =>
+        t("ui-admin-panel-ledger-line", {
+          ground: groundName(ground),
+          amount: qty.toFixed(2),
+        }),
+      )
+      .join(", ") || "—"
   );
 }
 
@@ -879,7 +919,9 @@ const rightName = (city: CityView) => (right: string) => {
     const key = right.slice(api.LAW_SCOPE.length);
     return city.laws[key]?.name ?? key;
   }
-  return api.POWERS[right] ?? right;
+  //: A right the map does not know shows itself: the scope key is honest.
+  const word = api.POWERS[right];
+  return word ? t(word) : right;
 };
 
 /** Ongoing polls: subject, deadline, tally and own vote (D-161).
@@ -911,20 +953,18 @@ function Votes({
     city.charter?.ruler_recall === "by_council";
   const running = (kind: CityVote["kind"]) => polls.some((g) => g.kind === kind);
   if (polls.length === 0 && !elective && !recallable && !byCouncil) return null;
+  //: The bar a poll passes at, each by the message that names it.
   const threshold: Record<string, string> = {
-    simple: "простое большинство",
-    two_thirds: "две трети",
-    unanimous: "единогласно",
+    simple: "ui-admin-threshold-simple",
+    two_thirds: "ui-admin-threshold-two-thirds",
+    unanimous: "ui-admin-threshold-unanimous",
   };
 
   return (
     <>
       <h3>
-        Голосования
-        <Rule>
-          Голос подаётся по Сети — присутствие нужно, чтобы править, а не чтобы
-          участвовать. Итог применится сам, когда выйдет срок.
-        </Rule>
+        {t("ui-admin-votes")}
+        <Rule>{t("ui-admin-votes-rule")}</Rule>
       </h3>
       {(elective || recallable || byCouncil) && (
         <div className="row">
@@ -933,7 +973,7 @@ function Votes({
               onClick={() => go(() => session.send("city.election"))}
               disabled={busy}
             >
-              Созвать выборы
+              {t("ui-admin-call-election")}
             </button>
           )}
           {city.charter?.council_exists === "elected" && !running("council") && (
@@ -942,7 +982,7 @@ function Votes({
               onClick={() => go(() => session.send("city.council_election"))}
               disabled={busy}
             >
-              Выборы в совет
+              {t("ui-admin-call-council")}
             </button>
           )}
           {recallable && !running("recall") && (
@@ -951,13 +991,10 @@ function Votes({
               onClick={() => go(() => session.send("city.recall"))}
               disabled={busy}
             >
-              Отозвать правителя
+              {t("ui-admin-call-recall")}
             </button>
           )}
-          <span className="note">
-            Итог применяется сам: избранный получает набор прежнего правителя,
-            отзыв снимает должность и тут же созывает выборы.
-          </span>
+          <span className="note">{t("ui-admin-votes-note")}</span>
         </div>
       )}
       {polls.length > 0 && (
@@ -968,27 +1005,29 @@ function Votes({
               <td>
                 {convening.kind === "election" || convening.kind === "council" ? (
                   <>
-                    {convening.kind === "council" ? "выборы в совет" : "выборы правителя"}
+                    {convening.kind === "council"
+                      ? t("ui-admin-vote-council")
+                      : t("ui-admin-vote-ruler")}
                     <span className="note">
                       {" "}
                       {convening.candidates.length === 0
-                        ? "· кандидатов нет"
+                        ? t("ui-admin-vote-no-candidates")
                         : `· ${convening.candidates
                             .map((k) => `${k.name} (${k.votes})`)
                             .join(", ")}`}
                     </span>
                   </>
                 ) : convening.kind === "recall" ? (
-                  "отзыв правителя"
+                  t("ui-admin-vote-recall")
                 ) : convening.kind === "charter" ? (
                   <>
-                    устав
+                    {t("ui-admin-vote-charter")}
                     {/* The player is not shown the name of the charter question
                         the threshold comes from: that is a key out of the vault,
                         and the sentence around it was written for whoever wrote
                         the code. What matters here is that the charter sets its
                         own bar for changing itself. */}
-                    <span className="note"> · порог задан самим уставом</span>
+                    <span className="note"> {t("ui-admin-vote-charter-note")}</span>
                   </>
                 ) : (
                   <>
@@ -998,19 +1037,31 @@ function Votes({
                 )}
               </td>
               <td className="note">
-                {convening.voters === "council" && "решает совет · "}
+                {convening.voters === "council" && `${t("ui-admin-vote-by-council")} · `}
                 {/* An election is not a for-or-against poll: every ballot in it
                     names a candidate, so `no` is always zero there and "против
                     0" read as "nobody objects" rather than as a word that does
                     not apply. The candidates carry their own counts above. */}
                 {convening.kind === "election" || convening.kind === "council"
-                  ? `проголосовало ${convening.yes} из ${convening.electorate}`
-                  : `за ${convening.yes} · против ${convening.no} · из ${convening.electorate}`}
+                  ? t("ui-admin-vote-turnout", {
+                      yes: String(convening.yes),
+                      of: String(convening.electorate),
+                    })
+                  : t("ui-admin-vote-tally", {
+                      yes: String(convening.yes),
+                      no: String(convening.no),
+                      of: String(convening.electorate),
+                    })}
                 {" · "}
-                {threshold[convening.threshold] ?? convening.threshold}
-                {convening.quorum > 0 && ` · кворум ${convening.quorum}%`}
+                {convening.threshold in threshold
+                  ? t(threshold[convening.threshold])
+                  : convening.threshold}
+                {convening.quorum > 0 &&
+                  ` ${t("ui-admin-vote-quorum", { quorum: String(convening.quorum) })}`}
               </td>
-              <td className="note">закроется {when(convening.closes_at)}</td>
+              <td className="note">
+                {t("ui-admin-vote-closes", { when: when(convening.closes_at) })}
+              </td>
               <td>
                 {convening.kind === "election" || convening.kind === "council" ? (
                   <>
@@ -1022,9 +1073,9 @@ function Votes({
                           go(() => session.send("city.nominate", { vote: convening.id }))
                         }
                         disabled={busy}
-                        title="выдвинуться в правители"
+                        title={t("ui-admin-nominate-title")}
                       >
-                        Выдвинуться
+                        {t("ui-admin-nominate")}
                       </button>
                     )}
                     {convening.candidates.map((candidate) => (
@@ -1041,7 +1092,7 @@ function Votes({
                         }
                         disabled={busy || !convening.may_vote}
                       >
-                        За {candidate.name}
+                        {t("ui-admin-vote-for", { name: candidate.name })}
                       </button>
                     ))}
                   </>
@@ -1054,7 +1105,7 @@ function Votes({
                       }
                       disabled={busy}
                     >
-                      За
+                      {t("ui-admin-vote-yes")}
                     </button>
                     <button
                       className={convening.mine === false ? "" : "quiet"}
@@ -1063,11 +1114,11 @@ function Votes({
                       }
                       disabled={busy}
                     >
-                      Против
+                      {t("ui-admin-vote-no")}
                     </button>
                   </>
                 ) : (
-                  <span className="note">голоса нет</span>
+                  <span className="note">{t("ui-admin-vote-none")}</span>
                 )}
               </td>
             </tr>
@@ -1123,7 +1174,7 @@ function Court({
 
   return (
     <>
-      <h3>Суд</h3>
+      <h3>{t("ui-admin-court")}</h3>
       {jobs.length > 0 && (
         <table>
           <tbody>
@@ -1135,16 +1186,18 @@ function Court({
                 </td>
                 <td className="note">
                   {job.state === "open"
-                    ? "ждёт суда"
+                    ? t("ui-admin-case-open")
                     : job.state === "judged"
-                      ? `приговор: ${named(sanctions, job.verdict)}`
+                      ? t("ui-admin-case-judged", { sanction: named(sanctions, job.verdict) })
                       : /* A dismissal carries the judge's own words when there
                            are any, and the engine's own "отказано" when there
                            are none -- and repeating that after the colon read
-                           "отказано: отказано". */
+                           "отказано: отказано". The comparison is against what
+                           the engine writes into the row, so it stays a literal:
+                           it is a wire value, not a line to read. */
                         job.verdict && job.verdict !== "отказано"
-                        ? `отказано: ${job.verdict}`
-                        : "отказано"}
+                        ? t("ui-admin-case-dismissed-why", { why: job.verdict })
+                        : t("ui-admin-case-dismissed")}
                 </td>
                 <td>
                   {can && job.state === "open" && (
@@ -1156,7 +1209,7 @@ function Court({
                         {sanctions.map((kind) => (
                           <option key={kind.id} value={kind.id} disabled={!kind.enforced}>
                             {kind.name}
-                            {kind.enforced ? "" : " (не исполняется)"}
+                            {kind.enforced ? "" : ` ${t("ui-admin-sanction-unenforced")}`}
                           </option>
                         ))}
                       </select>
@@ -1165,7 +1218,7 @@ function Court({
                         min={0}
                         value={qty}
                         onChange={(e) => setQty(Number(e.target.value))}
-                        title="сумма штрафа либо срок заключения в сутках"
+                        title={t("ui-admin-fine-title")}
                       />
                       {/* Куда сажать — решает суд (D-176): каторга одна —
                           очевидно, несколько — судья называет которую. */}
@@ -1173,9 +1226,9 @@ function Court({
                         <select
                           value={penalColony}
                           onChange={(e) => setPenalColony(e.target.value)}
-                          title="в какую каторгу отправить"
+                          title={t("ui-admin-prison-title")}
                         >
-                          <option value="">— каторга —</option>
+                          <option value="">{t("ui-admin-prison-pick")}</option>
                           {penalColonies.map((node) => (
                             <option key={node.key} value={node.key}>
                               {node.name}
@@ -1199,7 +1252,7 @@ function Court({
                         }
                         disabled={busy || (sanction === "prison" && penalColonies.length > 1 && !penalColony)}
                       >
-                        Приговор
+                        {t("ui-admin-verdict")}
                       </button>
                       <button
                         className="quiet"
@@ -1208,7 +1261,7 @@ function Court({
                         }
                         disabled={busy}
                       >
-                        Отказать
+                        {t("ui-admin-dismiss")}
                       </button>
                     </>
                   )}
@@ -1222,12 +1275,12 @@ function Court({
         <input
           value={toWhom}
           onChange={(e) => setToWhom(e.target.value)}
-          placeholder="на кого"
+          placeholder={t("ui-admin-sue-whom")}
         />
         <input
           value={essence}
           onChange={(e) => setEssence(e.target.value)}
-          placeholder="суть жалобы"
+          placeholder={t("ui-admin-sue-claim")}
         />
         <button
           onClick={() =>
@@ -1235,16 +1288,12 @@ function Court({
           }
           disabled={busy || !toWhom.trim() || !essence.trim()}
         >
-          Подать жалобу
+          {t("ui-admin-sue")}
         </button>
-        <span className="note">
-          Жалоба стоит пошлины в казну города.
-        </span>
+        <span className="note">{t("ui-admin-sue-note")}</span>
       </div>
       {open.length > 0 && !can && (
-        <p className="note">
-          Дел в очереди: {open.length}. Судит тот, кому город дал право суда.
-        </p>
+        <p className="note">{t("ui-admin-court-queue", { count: String(open.length) })}</p>
       )}
     </>
   );

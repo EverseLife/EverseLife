@@ -9,6 +9,8 @@
  * number with three decimals does not.
  */
 
+import { t } from "../../locale";
+
 const MINUTES_PER_HOUR = 60;
 
 export function long(minutes: number): string {
@@ -21,8 +23,11 @@ export function spread(from: number, until: number): string {
     : `${long(from)} – ${long(until)}`;
 }
 
+//: The unit alone, because `spread` names it once for both ends and has to be
+//: able to ask whether the two ends share one. Compared as the rendered word:
+//: two keys that came out the same are the same unit in this language.
 function unit(minutes: number): string {
-  return minutes < MINUTES_PER_HOUR ? "мин" : "ч";
+  return t(minutes < MINUTES_PER_HOUR ? "ui-map-unit-minutes" : "ui-map-unit-hours");
 }
 
 function account(minutes: number): string {

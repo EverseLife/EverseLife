@@ -43,7 +43,7 @@ async def _energy_grid(state: dict, db: AsyncSession, message: dict) -> dict:
     """
     body = await _body(db, state["identity_id"])
     if body is None:
-        raise Refused("нет живого тела")
+        raise Refused(key="cmd-no-live-body")
     node = await db.get(Node, body.node_id)
     pool = await energy.pool_of(db, current(), node, create=False)
     if pool is None:
@@ -69,7 +69,7 @@ async def _energy_charge(state: dict, db: AsyncSession, message: dict) -> dict:
     body = await _alive(state, db)
     item = await db.get(Item, uuid.UUID(message["item"]))
     if item is None:
-        raise Refused("нет такого предмета")
+        raise Refused(key="cmd-no-such-item")
     qty = message.get("amount")
     given = await energy.charge_battery(
         db, current(), body, item, None if qty is None else float(qty)
@@ -87,7 +87,7 @@ async def _energy_plant(state: dict, db: AsyncSession, message: dict) -> dict:
     body = await _alive(state, db)
     node = await db.get(Node, body.node_id)
     if node is None:  # pragma: no cover
-        raise Refused("тело вне узла")
+        raise Refused(key="cmd-body-off-node")
     return {"plant": await energy.plant_view(db, current(), node)}
 
 
@@ -113,7 +113,7 @@ async def _transport_harness(state: dict, db: AsyncSession, message: dict) -> di
     body = await _alive(state, db)
     item = await db.get(Item, uuid.UUID(message["item"]))
     if item is None:
-        raise Refused("нет такого предмета")
+        raise Refused(key="cmd-no-such-item")
     await transport.harness(db, current(), current_catalog(), body, item)
     return {"harnessed": item.type_key}
 
@@ -132,7 +132,7 @@ async def _transport_load(state: dict, db: AsyncSession, message: dict) -> dict:
     body = await _alive(state, db)
     item = await db.get(Item, uuid.UUID(message["item"]))
     if item is None:
-        raise Refused("нет такого предмета")
+        raise Refused(key="cmd-no-such-item")
     qty = message.get("amount")
     carried = await transport.load(
         db,
@@ -151,7 +151,7 @@ async def _transport_unload(state: dict, db: AsyncSession, message: dict) -> dic
     body = await _alive(state, db)
     item = await db.get(Item, uuid.UUID(message["item"]))
     if item is None:
-        raise Refused("нет такого предмета")
+        raise Refused(key="cmd-no-such-item")
     qty = message.get("amount")
     carried = await transport.unload(
         db,
@@ -189,11 +189,11 @@ async def _ship_of(db: AsyncSession, body: Body, asked: str | None) -> Ship:
     if asked:
         found = await db.get(Ship, uuid.UUID(asked))
         if found is None:
-            raise Refused("нет такого корабля")
+            raise Refused(key="cmd-no-such-ship")
         return found
     aboard = await ship.aboard_of(db, body)
     if aboard is None:
-        raise Refused("вы не на борту: назовите корабль или поднимитесь на него")
+        raise Refused(key="cmd-not-aboard")
     return aboard
 
 
@@ -249,7 +249,7 @@ async def _ship_arrange(state: dict, db: AsyncSession, message: dict) -> dict:
     vessel = await _ship_of(db, body, message.get("ship"))
     asked = message.get("spots")
     if not isinstance(asked, dict):
-        raise Refused("нужна раскладка: ключ узла — клетка")
+        raise Refused(key="cmd-need-layout")
     moved = await ship.arrange(db, body, vessel, asked)
     return {"arranged": str(vessel.id), "moved": moved}
 
@@ -262,7 +262,7 @@ async def _target(db: AsyncSession, message: dict) -> Node:
         .first()
     )
     if node is None:
-        raise Refused("нет такого узла")
+        raise Refused(key="cmd-no-such-node-plain")
     return node
 
 

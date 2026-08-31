@@ -36,12 +36,12 @@ from src.models.job import Job, JobKind, JobState
 from src.models.world import Edge, Layer, Node, Planet, Surface
 from src.units import HOURS_PER_DAY, PERCENT, amount_float
 
-PLANT = "ТЭЦ Предтеч"
-REACTOR = "Изотопный реактор Предтеч"
-YARD = "Верфь Предтеч"
-BRAZIER = "Жаровня"
-COAL = "Уголь"
-COAL_PLANT = "Угольная станция"
+PLANT = "precursor_heat_plant"
+REACTOR = "precursor_isotope_reactor"
+YARD = "precursor_shipyard"
+BRAZIER = "brazier"
+COAL = "coal"
+COAL_PLANT = "coal_plant"
 
 
 async def _aurora(session: AsyncSession) -> Node:
@@ -239,7 +239,7 @@ async def test_the_reactor_does_not_heat_what_people_carried_in(
     await world.grant_item(
         session,
         await world.node_container(session, yard),
-        "Обогреватель",
+        "heater",
         quality=60,
         origin="тест",
     )
@@ -270,7 +270,7 @@ async def test_the_city_pays_for_its_own_stoves_even_under_a_reactor(
     await world.grant_item(
         session,
         await world.node_container(session, yard),
-        "Обогреватель",
+        "heater",
         quality=60,
         origin="тест",
     )
@@ -420,8 +420,10 @@ async def test_rooms_are_opened_only_inside_a_city_of_the_forerunners(
         layer=Layer.PLANET,
     )
     body = await _dweller(session, wild)
-    with pytest.raises(Exception, match="отсюда так не ищут"):
+    #: By the key, not by the sentence: the wording is the locale's (D-251 III).
+    with pytest.raises(explore.ExploreError) as refused:
         await explore.survey(session, constants, body, goal=explore.ROOM)
+    assert refused.value.key == "explore-wrong-goal-here"
 
     _, hall, _ = await _city(session)
     assert await explore.possible(session, hall) == (explore.ROOM,)
@@ -675,7 +677,7 @@ async def test_a_relic_is_not_taken_down_or_picked_up(
     with pytest.raises(storage.StorageError):
         await storage.pick(session, constants, catalog, body, relic)
     assert catalog.recipes.is_relic(PLANT)
-    assert not catalog.recipes.is_relic("ТЭЦ"), "своя ТЭЦ — не реликвия"
+    assert not catalog.recipes.is_relic("heat_plant"), "своя ТЭЦ — не реликвия"
 
 
 async def test_a_relic_is_never_what_the_seed_builds(
@@ -683,7 +685,7 @@ async def test_a_relic_is_never_what_the_seed_builds(
 ) -> None:
     """The capital stands on what it assembled (D-216): asking the catalog for a
     thing of a class must never hand back the Forerunners' one."""
-    for thing_class in ("Верфь", "ТЭЦ"):
+    for thing_class in ("shipyard", "heat_plant"):
         made = catalog.recipes.made_of_class(thing_class)
         assert made, f"класс «{thing_class}» нечем застроить"
         assert not any(catalog.recipes.is_relic(name) for name in made)
@@ -697,7 +699,7 @@ async def test_the_veins_of_a_planet_follow_the_planet(
     weights = constants[R.HARVEST_PLANET_WEIGHTS]
     aurora = weights.get(Planet.AURORA.value, {})
     assert aurora.get(COAL, 1) > 1
-    assert aurora.get("Железная руда", 1) < 1
+    assert aurora.get("iron_ore", 1) < 1
     assert Planet.TERRA.value not in weights, "у Терры весов нет: она и есть мерило"
 
 

@@ -100,20 +100,20 @@ async def contribute(
     """
 
     if body.state is not BodyState.ALIVE:
-        raise LibraryError("мёртвое тело ничего не приносит")
+        raise LibraryError(key="library-dead-brings")
     await travel.require_here(session, body)
     node = await session.get(Node, body.node_id)
     if node is None or not await world_engine.is_library(session, node):
-        raise NotHere("Библиотеки здесь нет: рецепт приносят в неё ногами")
+        raise NotHere(key="library-not-here")
 
     inventory = await body_container(session, body)
     if item.container_id != inventory.id:
-        raise NotHere("этой вещи нет в руках")
+        raise NotHere(key="library-not-in-hands")
     if item.type_key not in craft.carrier_names(catalog) or not item.recipe_key:
-        raise NotACarrier("в библиотеку кладут записанный носитель — предмет «Рецепт»")
-    recipe = catalog.recipes.recipe(item.recipe_key).name
+        raise NotACarrier(key="library-not-a-carrier")
+    recipe = catalog.recipes.recipe(item.recipe_key).type_key
     if await has(session, node, recipe):
-        raise AlreadyThere(f"«{recipe}» в этой библиотеке уже есть: носитель остаётся у вас")
+        raise AlreadyThere(key="library-already-there", recipe=recipe)
 
     entry = LibraryEntry(node_id=node.id, recipe=recipe, contributor_identity_id=body.identity_id)
     session.add(entry)

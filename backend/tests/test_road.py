@@ -41,7 +41,7 @@ async def _edge(
         await world.grant_item(
             session,
             pocket,
-            "Дорожное полотно",
+            "road_paving",
             amount=surface_amount,
             origin="сценарий теста",
         )
@@ -140,7 +140,7 @@ async def test_laid_road_opens_way_for_convoy(
     norm = constants[R.ROAD_SURFACE_PER_EDGE]
     here, there, body, edge = await _edge(session, surface_amount=norm)
     yard = await world.node_container(session, here)
-    cart = await world.grant_item(session, yard, "Повозка", amount=1, origin="сценарий теста")
+    cart = await world.grant_item(session, yard, "cart", amount=1, origin="сценарий теста")
     await transport.harness(session, constants, catalog, body, cart)
 
     with pytest.raises(transport.Impassable):
@@ -249,9 +249,9 @@ async def test_surface_is_craftable_at_all(
 
     from src.engine import craft
 
-    recipe = catalog.recipes.recipe("Дорожное полотно")
+    recipe = catalog.recipes.recipe("road_paving")
     assert recipe.station not in (None, *craft.BENCHLESS), (
         "полотно делают на рабочей станции, а не «на месте»"
     )
-    method = craft.procedure(catalog, "Дорожное полотно")
+    method = craft.procedure(catalog, "road_paving")
     assert method.station == catalog.recipes.resolve(recipe.station)

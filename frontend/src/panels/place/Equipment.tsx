@@ -6,8 +6,10 @@
 
 import * as api from "../../api";
 import type { Bench } from "../../api";
-import { useBook, useSession } from "../../actions";
+import { useBook, useNames, useSession } from "../../actions";
 import { DropZone } from "../../DragMove";
+import { t } from "../../locale";
+import { goodsName } from "../../names";
 import type { Props } from "./shared";
 import { placeable } from "./shared";
 
@@ -43,6 +45,7 @@ export function Equipment({
 }) {
   const session = useSession();
   const book = useBook();
+  const names = useNames();
   const mine = api.isMine(look);
   //: The owner places and removes, and on civic land the authority (`station.may_build`).
   //: In somebody else's house neither is entitled.
@@ -73,23 +76,30 @@ export function Equipment({
           <tbody>
             {things.map((thing) => (
               <tr key={thing.id}>
-                <td>{thing.goods}</td>
+                <td>{goodsName(names, thing.goods)}</td>
                 <td className="note">
-                  {perThing > 0 && `${perThing.toFixed(0)} м²`}
-                  {thing.quality == null ? "" : ` · качество ${thing.quality.toFixed(0)}`}
-                  {thing.condition < 100 && ` · сост. ${thing.condition.toFixed(0)}`}
+                  {perThing > 0 && t("ui-place-area", { area: perThing.toFixed(0) })}
+                  {thing.quality == null
+                    ? ""
+                    : t("ui-place-equipment-quality", {
+                        quality: thing.quality.toFixed(0),
+                      })}
+                  {thing.condition < 100 &&
+                    t("ui-place-equipment-condition", {
+                      condition: thing.condition.toFixed(0),
+                    })}
                 </td>
                 <td className="note">
                   {/* A battery's state is its charge, not "busy": one does not
                       work at it, it holds energy (D-179). */}
                   {thing.charge != null
-                    ? `заряд ${thing.charge.toFixed(0)} · заряжают в «хозяйстве»`
+                    ? t("ui-place-equipment-charge", { charge: thing.charge.toFixed(0) })
                     : kind === "station"
                       ? thing.busy
                         ? thing.mine
-                          ? "занята вами"
-                          : "занята"
-                        : "свободна"
+                          ? t("ui-place-equipment-busy-mine")
+                          : t("ui-place-equipment-busy")
+                        : t("ui-place-equipment-free")
                       : ""}
                 </td>
                 <td>
@@ -100,9 +110,9 @@ export function Equipment({
                         act(() => session.send("station.take", { item: thing.id }))
                       }
                       disabled={busy || thing.busy}
-                      title="забрать в руки"
+                      title={t("ui-place-equipment-take-hint")}
                     >
-                      Забрать
+                      {t("ui-place-equipment-take")}
                     </button>
                   )}
                 </td>
@@ -127,8 +137,8 @@ export function Equipment({
             noRoom
               ? undefined
               : kind === "station"
-                ? "перетащите сюда станок, чтобы поставить его в здание"
-                : "перетащите сюда мебель, чтобы обставить здание"
+                ? t("ui-place-equipment-drop-station")
+                : t("ui-place-equipment-drop-furniture")
           }
           onMove={(stack) =>
             act(() => session.send("station.place", { item: stack.item }))
@@ -143,22 +153,26 @@ export function Equipment({
                   disabled={busy || noRoom}
                   title={
                     noRoom
-                      ? "в здании нет места: стройте больше либо уносите лишнее"
-                      : "поставить в здание"
+                      ? t("ui-place-equipment-no-room-hint")
+                      : t("ui-place-equipment-place-hint")
                   }
                 >
-                  Поставить: {thing.goods}
+                  {t("ui-place-equipment-place")} {goodsName(names, thing.goods)}
                 </button>
               ))}
             </div>
           )}
-          {noRoom && <p className="note">в здании нет свободных мест</p>}
+          {noRoom && <p className="note">{t("ui-place-equipment-no-room")}</p>}
         </DropZone>
       )}
       <p className="note">
         {note}
         {perThing > 0 &&
-          ` Каждая занимает ${perThing.toFixed(0)} м² здания: мест ${home.used} из ${home.slots}.`}
+          t("ui-place-equipment-slots", {
+            area: perThing.toFixed(0),
+            used: home.used,
+            slots: home.slots,
+          })}
       </p>
     </section>
   );

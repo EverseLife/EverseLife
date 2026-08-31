@@ -71,7 +71,7 @@ from src.units import HOURS_PER_DAY, amount_float
 
 #: The node property that keeps a place out of every draw (D-197): the Anvil
 #: Plateau, and whatever else a planet's seed marks the same way.
-ANVIL = "наковальня"
+ANVIL = "anvil"
 
 
 async def schedule(session: AsyncSession, constants: Constants, *, after: datetime) -> None:

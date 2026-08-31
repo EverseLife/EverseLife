@@ -224,10 +224,14 @@ async def test_empty_fund_refuses_the_posting(
     """The board never promises what is not set aside -- refusal at posting, not at payout."""
     city, core, ruler, ruler_body = await _city_with_ruler(session, catalog, funds=1000)
     plot = await _civic_plot(session, constants, city, core, condition=50)
-    with pytest.raises(works_city.WorksCityError):
+    #: Pinned by key, not by class: `WorksCityError` covers nineteen different
+    #: refusals, and this test must fail if the posting stops for another one
+    #: (D-251 wave III).
+    with pytest.raises(works_city.WorksCityError) as refused:
         await works_city.post_repair_order(
             session, constants, city, ruler, ruler_body, plot, offer=10
         )
+    assert refused.value.key == "works-city-fund-empty"
 
 
 # --- construction orders -----------------------------------------------------
@@ -521,13 +525,16 @@ async def test_cancel_refused_while_work_is_under_way(
 
     worker, worker_body = await _worker_at(session, plot, materials=repair_bill(constants, houses))
     job = await repair(session, constants, worker_body, plot)
-    with pytest.raises(works_city.WorksCityError):
+    with pytest.raises(works_city.WorksCityError) as under_way:
         await works_city.cancel_city_order(session, city, ruler, ruler_body, order.id)
+    assert under_way.value.key == "works-city-work-under-way"
 
     await finish_repair(session, job)
-    with pytest.raises(works_city.WorksCityError):
-        #: Done is not withdrawable either -- but with the other refusal.
+    #: Done is not withdrawable either -- but with the other refusal, and now
+    #: the test can tell the two apart rather than trusting the comment.
+    with pytest.raises(works_city.WorksCityError) as closed:
         await works_city.cancel_city_order(session, city, ruler, ruler_body, order.id)
+    assert closed.value.key == "works-city-order-closed"
 
 
 async def test_database_holds_one_open_order_per_plot(
@@ -566,8 +573,8 @@ async def _turnover_on(session: AsyncSession, city, core, turnover_tc: float) ->
         node_id=core.id,
         identity_id=seller.id,
         side=OrderSide.SELL,
-        type_key="Хлеб",
-        tier="обычное",
+        type_key="bread",
+        tier="common",
         price=money(turnover_tc),
         amount_total=_amount(1),
         amount_left=0,
@@ -579,8 +586,8 @@ async def _turnover_on(session: AsyncSession, city, core, turnover_tc: float) ->
         Trade(
             node_id=core.id,
             sell_order_id=order_.id,
-            type_key="Хлеб",
-            tier="обычное",
+            type_key="bread",
+            tier="common",
             price=money(turnover_tc),
             amount=_amount(1),
         )
@@ -614,8 +621,9 @@ async def test_line_refuses_beyond_the_cap(
     city, core, ruler, ruler_body = await _city_with_ruler(session, catalog)
     await _turnover_on(session, city, core, 10)
     cap_tc = 10 * constants[R.BANK_DEBT_TO_TURNOVER_CAP] / PERCENT
-    with pytest.raises(works_city.WorksCityError):
+    with pytest.raises(works_city.WorksCityError) as refused:
         await works_city.borrow_for_works(session, constants, city, ruler, ruler_body, cap_tc + 1)
+    assert refused.value.key == "works-city-line-exhausted"
 
 
 async def test_two_rulers_cannot_break_the_line_together(

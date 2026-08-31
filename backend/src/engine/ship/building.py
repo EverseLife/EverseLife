@@ -87,27 +87,24 @@ async def found(
     """
     moment = now or datetime.now(UTC)
     if body.state is not BodyState.ALIVE:
-        raise ShipError("мёртвое тело кораблей не закладывает")
+        raise ShipError(key="ship-keel-dead")
     await travel.require_here(session, body)
 
     title = name.strip()
     if not title:
-        raise ShipError("у корабля должно быть имя")
+        raise ShipError(key="ship-no-name")
 
     port = await session.get(Node, body.node_id)
     if port is None:  # pragma: no cover -- a body always stands in a node
-        raise ShipError("тело вне узла")
+        raise ShipError(key="ship-body-off-node")
     if not await world.has_station(session, port, SPACEPORT):
-        raise NoPort("основание корабля закладывают на космодроме: причалить больше некуда")
+        raise NoPort(key="ship-keel-at-spaceport")
     #: Not onto another ship, even one carrying a spaceport aboard: that would
     #: be a second ship welded to the first for good, and ship-to-ship docking
     #: is a question of design, not a side effect (D-201). A ship is grown from
     #: the inside -- `extend`.
     if is_aboard(port):
-        raise NoPort(
-            "к борту новый корабль не закладывают: основание кладут на "
-            "космодроме планеты, а борт расширяют изнутри"
-        )
+        raise NoPort(key="ship-keel-not-aboard")
     return await _lay(session, constants, body, port, ship=None, name=title, now=moment)
 
 
@@ -125,20 +122,17 @@ async def extend(
     """
     moment = now or datetime.now(UTC)
     if body.state is not BodyState.ALIVE:
-        raise ShipError("мёртвое тело кораблей не строит")
+        raise ShipError(key="ship-extend-dead")
     await travel.require_here(session, body)
 
     here = await session.get(Node, body.node_id)
     if here is None:  # pragma: no cover
-        raise ShipError("тело вне узла")
+        raise ShipError(key="ship-body-off-node")
     ship = await of_node(session, here)
     if ship is None:
-        raise NotAboard(
-            "корабль расширяют с борта: встаньте в узел корабля. "
-            "Первый узел закладывают на космодроме"
-        )
+        raise NotAboard(key="ship-extend-from-aboard")
     if ship.owner_identity_id != body.identity_id:
-        raise NotYours("это чужой корабль: строят у себя")
+        raise NotYours(key="ship-extend-not-yours")
     return await _lay(session, constants, body, here, ship=ship, name=None, now=moment)
 
 
@@ -163,11 +157,11 @@ async def _lay(
         #: `FOUNDATION` is a class (D-215), and a class is not a recipe: asked
         #: for it by that name, the workshop answers that nothing makes it.
         #: So the refusal names what to actually make.
-        makes = ", ".join(f"«{name}»" for name in world.station_names(FOUNDATION))
-        raise NoFoundation(
-            f"нужна «{FOUNDATION}», а её в руках нет: корабль — это материалы, "
-            f"а не намерение. Делается по рецепту: {makes}"
-        )
+        #:
+        #: Ids joined, not words: the message says them with `NAMES()`, and how
+        #: a list is punctuated is the language's business, not ours (D-251).
+        makes = ", ".join(world.station_names(FOUNDATION))
+        raise NoFoundation(key="ship-no-foundation", goods=FOUNDATION, makes=makes)
     await _spend(session, stacks, 1)
 
     ready_ = now + timedelta(hours=constants[R.SHIP_FOUNDATION_HOURS])
@@ -195,7 +189,7 @@ async def _lay(
         body_id=body.id,
     )
     if job is None:  # pragma: no cover -- the key is unique per event
-        raise ShipError("закладка уже поставлена")
+        raise ShipError(key="ship-keel-already-queued")
     return job
 
 
@@ -211,13 +205,13 @@ async def keel_laid(session: AsyncSession, job: Job) -> None:
     constants = current()
     at = await session.get(Node, uuid.UUID(job.payload["at"]))
     if at is None:  # pragma: no cover -- nodes do not vanish
-        raise ShipError(f"закладка {job.id}: узла нет")
+        raise ShipError(key="ship-keel-job-no-node", job=str(job.id))
     owner = uuid.UUID(job.payload["owner"])
 
     raw_ship = job.payload.get("ship")
     ship = None if raw_ship is None else await session.get(Ship, uuid.UUID(raw_ship))
     if raw_ship is not None and ship is None:  # pragma: no cover
-        raise ShipError(f"закладка {job.id}: корабля нет")
+        raise ShipError(key="ship-keel-job-no-ship", job=str(job.id))
 
     if ship is None:
         ship, node = await _found_ship(
@@ -293,7 +287,7 @@ async def _add_node(
     """One more node aboard, joined to the one it was laid from."""
     delegate = await session.get(Node, ship.node_id)
     if delegate is None:  # pragma: no cover
-        raise ShipError("у корабля нет группы")
+        raise ShipError(key="ship-no-group")
     node = await _node_aboard(
         session, constants, delegate, "Отсек", owner=owner, planet=at.planet, beside=at
     )

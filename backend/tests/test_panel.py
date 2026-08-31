@@ -46,7 +46,7 @@ async def _capital(session: AsyncSession, catalog: Catalog, *, townhall: bool = 
         "Ядро",
         area_m2=100,
         parent=delegate,
-        properties={"кольцо": 0},
+        properties={"ring": 0},
     )
     city = await town.found(session, catalog, delegate, "Столица")
     core.owner_city_id = city.id

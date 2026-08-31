@@ -35,7 +35,9 @@ import { busyWith, CRAFT } from "../busy";
 import { craftableAt, inputsOf, stationOf } from "../recipes";
 import { Gauge } from "../Gauge";
 import { Rule } from "../Rule";
-import { Refusal, useActions, useBook, useSession } from "../actions";
+import { Refusal, useActions, useBook, useCompare, useNames, useSession } from "../actions";
+import { goodsName } from "../names";
+import { t } from "../locale";
 import { TierPick } from "../Tier";
 import { stockOf } from "../tiers";
 
@@ -53,18 +55,19 @@ type Props = {
  * (D-209). A thing class (D-215) -- `craft.CARRIER` in the engine -- and the
  * automatic bench likewise (`craft.AUTO_BENCH`).
  */
-const CARRIER = "Носитель";
-const AUTO_BENCH = "Автомат";
+const CARRIER = "carrier";
+const AUTO_BENCH = "automaton";
 
 export function Workshop({ look, machine }: Omit<Props, "busy" | "act">) {
   const session = useSession();
   const book = useBook();
+  const names = useNames();
   //: This panel's own waiting and its own refusal: one action here
   //: must not grey out the chat, the map and somebody else's orders.
   const acting = useActions();
   const { busy, act } = acting;
 
-  const known = craftableAt(book, machine, look.knows);
+  const known = craftableAt(book, machine, look.knows, names);
   const [what, setWhat] = useState<string | null>(null);
   const [qty, setQty] = useState(1);
   const [forecast, setForecast] = useState<Plan | null>(null);
@@ -180,27 +183,27 @@ export function Workshop({ look, machine }: Omit<Props, "busy" | "act">) {
     <section>
       <Refusal of={acting} />
       <h2>
-        {machine ?? "Руками"}
-        <Rule>
-          Партия идёт, только пока вы стоите здесь: ушли — замерла, вернулись —
-          продолжилась. У одного человека идёт одна работа, остальные ждут очереди в
-          «делах». За рабочей станцией работает один.
-        </Rule>
+        {machine === null ? t("ui-workshop-by-hand") : goodsName(names, machine)}
+        <Rule>{t("ui-workshop-rule")}</Rule>
       </h2>
 
       {look.node?.cut_off && machine !== null && (
-        <p className="trouble">
-          Узел отключён за неуплату: рабочие станции не работают, пока долг не закрыт.
-          Счёт — в сайдбаре, во вкладке «хозяйство».
-        </p>
+        <p className="trouble">{t("ui-workshop-cut-off")}</p>
       )}
 
       {myMachine.map((station) => (
         <p className="note" key={station.id}>
-          {station.quality == null ? "" : `качество ${station.quality.toFixed(0)}`}
-          {station.condition < 100 && ` · состояние ${station.condition.toFixed(0)}`}
+          {station.quality == null
+            ? ""
+            : t("ui-workshop-station-quality", { quality: station.quality.toFixed(0) })}
+          {station.condition < 100 &&
+            ` · ${t("ui-workshop-station-condition", { condition: station.condition.toFixed(0) })}`}
           {" · "}
-          {station.busy ? (station.mine ? "занята вами" : "занята другим") : "свободна"}
+          {station.busy
+            ? station.mine
+              ? t("ui-workshop-station-busy-mine")
+              : t("ui-workshop-station-busy-other")
+            : t("ui-workshop-station-free")}
           {/* A relic of the Forerunners is never taken down (D-232): offering
               "take it" would be promising a refusal. */}
           {(api.isMine(look) || look.city?.powers.includes("laws")) &&
@@ -211,9 +214,9 @@ export function Workshop({ look, machine }: Omit<Props, "busy" | "act">) {
                 className="quiet"
                 onClick={() => act(() => session.send("station.take", { item: station.id }))}
                 disabled={busy || station.busy}
-                title="забрать станцию в руки"
+                title={t("ui-workshop-station-take-hint")}
               >
-                Забрать
+                {t("ui-workshop-station-take")}
               </button>
             </>
           )}
@@ -225,7 +228,9 @@ export function Workshop({ look, machine }: Omit<Props, "busy" | "act">) {
           <div className="row">
             <select value={selected} onChange={(e) => setWhat(e.target.value)}>
               {known.map((name) => (
-                <option key={name}>{name}</option>
+                <option key={name} value={name}>
+                  {goodsName(names, name)}
+                </option>
               ))}
             </select>
             <input
@@ -241,7 +246,7 @@ export function Workshop({ look, machine }: Omit<Props, "busy" | "act">) {
                   checked={automaton}
                   onChange={(e) => setAutomaton(e.target.checked)}
                 />{" "}
-                на автомате
+                {t("ui-workshop-auto")}
               </label>
             )}
           </div>
@@ -256,8 +261,10 @@ export function Workshop({ look, machine }: Omit<Props, "busy" | "act">) {
                 return (
                   <div className="row" key={name}>
                     <span className="note">
-                      {name}
-                      {" "}· в руках {tally(name, have)}
+                      {t("ui-workshop-input", {
+                        goods: goodsName(names, name),
+                        amount: tally(name, have),
+                      })}
                     </span>
                     <TierPick
                       things={look.inventory}
@@ -273,13 +280,15 @@ export function Workshop({ look, machine }: Omit<Props, "busy" | "act">) {
 
           {writing && (
             <div className="row">
-              <span className="note">записать рецепт:</span>
+              <span className="note">{t("ui-workshop-write")}</span>
               {writable.length === 0 ? (
-                <span className="note">вы пока ничего не знаете, кроме самого носителя</span>
+                <span className="note">{t("ui-workshop-write-nothing")}</span>
               ) : (
                 <select value={recipe ?? ""} onChange={(e) => setOnto(e.target.value)}>
                   {writable.map((name) => (
-                    <option key={name}>{name}</option>
+                    <option key={name} value={name}>
+                      {goodsName(names, name)}
+                    </option>
                   ))}
                 </select>
               )}
@@ -293,35 +302,45 @@ export function Workshop({ look, machine }: Omit<Props, "busy" | "act">) {
                     track with its spread band and the machine's ceiling as a
                     notch; the figures keep standing beside it. */}
                 <Gauge
-                  label="качество"
+                  label={t("ui-workshop-quality")}
                   value={forecast.quality}
                   spread={forecast.spread}
                   mark={forecast.ceiling}
-                  markTitle={`потолок станка: ${forecast.ceiling.toFixed(0)}`}
+                  markTitle={t("ui-workshop-ceiling-hint", {
+                    ceiling: forecast.ceiling.toFixed(0),
+                  })}
                   reading={`${forecast.quality.toFixed(1)} ± ${forecast.spread.toFixed(1)}`}
                 />
                 <p>
                   {forecast.minutes < 1 ? (
                     <>
-                      <span className="num">{(forecast.minutes * 60).toFixed(1)}</span> с
+                      <span className="num">{(forecast.minutes * 60).toFixed(1)}</span>{" "}
+                      {t("ui-workshop-seconds")}
                     </>
                   ) : (
                     <>
-                      <span className="num">{forecast.minutes.toFixed(1)}</span> мин
+                      <span className="num">{forecast.minutes.toFixed(1)}</span>{" "}
+                      {t("ui-workshop-minutes")}
                     </>
                   )}
-                  {" · "}потери <span className="num">{forecast.waste.toFixed(1)}</span>%
-                  {" · "}потолок <span className="num">{forecast.ceiling.toFixed(0)}</span>
+                  {" · "}
+                  {t("ui-workshop-waste")} <span className="num">{forecast.waste.toFixed(1)}</span>%
+                  {" · "}
+                  {t("ui-workshop-ceiling")}{" "}
+                  <span className="num">{forecast.ceiling.toFixed(0)}</span>
                 </p>
                 <p className="note">
-                  уйдёт:{" "}
+                  {t("ui-workshop-consumes")}{" "}
                   {Object.entries(forecast.consumes)
-                    .map(([name, qty]) => `${name} ${tally(name, qty)}`)
+                    .map(([name, qty]) => `${goodsName(names, name)} ${tally(name, qty)}`)
                     .join(", ")}
                   {forecast.auto && forecast.energy > 0 && (
                     <>
-                      {" "}· энергии {forecast.energy.toFixed(0)} на{" "}
-                      {api.tk(forecast.energy_cost)} ₭ по тарифу города
+                      {" "}·{" "}
+                      {t("ui-workshop-energy", {
+                        energy: forecast.energy.toFixed(0),
+                        cost: api.tk(forecast.energy_cost),
+                      })}
                     </>
                   )}
                 </p>
@@ -329,18 +348,19 @@ export function Workshop({ look, machine }: Omit<Props, "busy" | "act">) {
             ) : refusal ? (
               <p className="reason">{refusal}</p>
             ) : (
-              <p className="note">Прогноз считается сам, пока вы выбираете.</p>
+              <p className="note">{t("ui-workshop-forecast")}</p>
             )}
             <button
               onClick={launch}
               disabled={busy || !forecast || occupied !== null}
               title={occupied ?? ""}
             >
-              {running ? "В очередь" : "Запустить партию"}
+              {running ? t("ui-workshop-queue") : t("ui-workshop-start")}
             </button>
             {running && (
               <span className="note">
-                {" "}сейчас идёт «{running.output}»: новая партия встанет за ней
+                {" "}
+                {t("ui-workshop-running", { goods: goodsName(names, running.output) })}
               </span>
             )}
           </div>
@@ -351,18 +371,21 @@ export function Workshop({ look, machine }: Omit<Props, "busy" | "act">) {
 
       {repair.length > 0 && (
         <>
-          <h3>Починить или разобрать</h3>
+          <h3>{t("ui-workshop-repair-title")}</h3>
           {repair.map((thing) => (
             <div className="row" key={thing.id}>
               <span>
-                {thing.goods} · состояние {thing.condition.toFixed(0)}
+                {t("ui-workshop-thing-condition", {
+                  goods: goodsName(names, thing.goods),
+                  condition: thing.condition.toFixed(0),
+                })}
               </span>
               <button
                 onClick={() => act(() => session.send("craft.repair", { item: thing.id }))}
                 disabled={busy || occupied !== null}
                 title={occupied ?? ""}
               >
-                Починить
+                {t("ui-workshop-repair")}
               </button>
               <button
                 className="quiet"
@@ -370,7 +393,7 @@ export function Workshop({ look, machine }: Omit<Props, "busy" | "act">) {
                 disabled={busy || occupied !== null}
                 title={occupied ?? ""}
               >
-                Разобрать
+                {t("ui-workshop-recycle")}
               </button>
             </div>
           ))}
@@ -405,15 +428,21 @@ function Invent({
 }) {
   const session = useSession();
   const book = useBook();
+  const names = useNames();
   const acting = useActions();
+  const order = useCompare();
   const { busy, act } = acting;
   const [laid, setLaid] = useState<Laid[]>([]);
   const [units, setUnits] = useState(1);
   const [answer, setAnswer] = useState<Invention | null>(null);
 
   //: Kinds of things in the hands, one line each: the same wood twice is one
-  //: input with a bigger amount, not two.
-  const kinds = [...new Set((look.inventory ?? []).map((t: Thing) => t.goods))].sort();
+  //: input with a bigger amount, not two. Ordered by the display word of the
+  //: player's language (D-251): the options show it, and an ASCII order of ids
+  //: reads as random.
+  const kinds = [...new Set((look.inventory ?? []).map((one: Thing) => one.goods))].sort((a, b) =>
+    order(goodsName(names, a), goodsName(names, b)),
+  );
   const cap: number = Number(book?.constants?.["invent.max_ingredients"] ?? 5);
   const free = kinds.filter((name) => !laid.some((row) => row.goods === name));
 
@@ -448,18 +477,11 @@ function Invent({
   return (
     <>
       <h3>
-        Без рецепта
-        <Rule>
-          Выложите состав на единицу изделия — до {cap} видов вещей из рук — и сколько
-          единиц делаете. Совпало с тем, что здесь делают, — рецепт ваш и партия пошла.
-          Не совпало — сгорает случайная часть выложенного: цена попытки. Подсказок
-          «теплее — холоднее» нет.
-        </Rule>
+        {t("ui-workshop-invent-title")}
+        <Rule>{t("ui-workshop-invent-rule", { cap: String(cap) })}</Rule>
       </h3>
       <Refusal of={acting} />
-      {kinds.length === 0 && (
-        <p className="note">В руках пусто: выкладывать нечего.</p>
-      )}
+      {kinds.length === 0 && <p className="note">{t("ui-workshop-invent-empty")}</p>}
       {laid.map((row, i) => (
         <div className="row" key={i}>
           <select
@@ -467,7 +489,9 @@ function Invent({
             onChange={(e) => change(i, { goods: e.target.value, tier: null })}
           >
             {[row.goods, ...free].map((name) => (
-              <option key={name}>{name}</option>
+              <option key={name} value={name}>
+                {goodsName(names, name)}
+              </option>
             ))}
           </select>
           <input
@@ -476,7 +500,7 @@ function Invent({
             step="any"
             value={row.amount}
             onChange={(e) => change(i, { amount: Number(e.target.value) })}
-            title="сколько на единицу изделия"
+            title={t("ui-workshop-invent-per-unit")}
           />
           <TierPick
             things={look.inventory}
@@ -484,7 +508,12 @@ function Invent({
             value={row.tier}
             onChange={(tier) => change(i, { tier })}
           />
-          <button className="quiet" onClick={() => drop(i)} disabled={busy} title="убрать">
+          <button
+            className="quiet"
+            onClick={() => drop(i)}
+            disabled={busy}
+            title={t("ui-workshop-invent-drop")}
+          >
             ×
           </button>
         </div>
@@ -495,10 +524,10 @@ function Invent({
           onClick={add}
           disabled={busy || free.length === 0 || laid.length >= cap}
         >
-          + вещь
+          {t("ui-workshop-invent-add")}
         </button>
         <label className="note">
-          единиц{" "}
+          {t("ui-workshop-invent-units")}{" "}
           <input
             type="number"
             min={1}
@@ -510,15 +539,20 @@ function Invent({
           onClick={attempt}
           disabled={busy || laid.length === 0 || laid.every((row) => row.amount <= 0)}
         >
-          Попробовать
+          {t("ui-workshop-invent-try")}
         </button>
       </div>
       {answer && (
         <p className={answer.success ? "note" : "reason"}>
           {answer.success ? (
             <>
-              Сложилось: «{answer.learned.join("», «")}» теперь в ваших знаниях
-              {answer.batch ? " — и первая партия пошла." : "."}
+              {/* Two whole sentences rather than one with a tail: a fragment
+                  glued on after the fact is the shape a language other than
+                  this one cannot re-order. */}
+              {t(
+                answer.batch ? "ui-workshop-invent-done-batch" : "ui-workshop-invent-done",
+                { learned: answer.learned.map((one) => goodsName(names, one)).join("», «") },
+              )}
               {answer.note && ` ${answer.note}`}
             </>
           ) : (
@@ -526,11 +560,12 @@ function Invent({
               {answer.note}
               {Object.keys(answer.burned).length > 0 && (
                 <>
-                  {" "}Сгорело:{" "}
-                  {Object.entries(answer.burned)
-                    .map(([name, qty]) => `${name} ${qty}`)
-                    .join(", ")}
-                  .
+                  {" "}
+                  {t("ui-workshop-invent-burned", {
+                    burned: Object.entries(answer.burned)
+                      .map(([name, qty]) => `${goodsName(names, name)} ${qty}`)
+                      .join(", "),
+                  })}
                 </>
               )}
             </>

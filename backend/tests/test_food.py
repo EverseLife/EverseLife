@@ -32,9 +32,9 @@ from src.models.craft import CraftBatch
 from src.models.inventory import Item
 from src.units import amount_float
 
-STEW = "Похлёбка"
-POT = "Глиняный горшок"
-HEARTH = "Очаг"
+STEW = "soup"
+POT = "clay_pot"
+HEARTH = "hearth"
 
 
 async def _kitchen(session: AsyncSession, *, hearth: float = 80, utensil: float = 80):
@@ -92,8 +92,8 @@ async def test_pot_quality_by_formula_D128(
 ) -> None:
     """Ceiling x weighted base - penalty for empty roles, verbatim."""
     _, _, body = await _kitchen(session, hearth=80, utensil=80)
-    await _product(session, body, "Бобы", 60)
-    await _product(session, body, "Овощи", 40)
+    await _product(session, body, "beans", 60)
+    await _product(session, body, "vegetables", 40)
 
     batch = await craft.cook(
         session,
@@ -101,7 +101,7 @@ async def test_pot_quality_by_formula_D128(
         catalog,
         body,
         STEW,
-        {"основа": "Бобы", "наполнитель": "Овощи"},
+        {"основа": "beans", "наполнитель": "vegetables"},
     )
 
     weights = constants[R.COOK_ROLE_WEIGHTS]
@@ -124,17 +124,17 @@ async def test_empty_role_hurts_more_than_bad_product(
     #: Comparing two stews requires a second stove, as in life.
     yard = await world.node_container(session, node)
     await world.grant_item(session, yard, HEARTH, quality=80, origin="тест")
-    await _product(session, body, "Бобы", 60, qty=10)
-    await _product(session, body, "Масло", 5, qty=10)
+    await _product(session, body, "beans", 60, qty=10)
+    await _product(session, body, "oil", 5, qty=10)
 
-    without_fat = await craft.cook(session, constants, catalog, body, STEW, {"основа": "Бобы"})
+    without_fat = await craft.cook(session, constants, catalog, body, STEW, {"основа": "beans"})
     with_cheap_fat = await craft.cook(
         session,
         constants,
         catalog,
         body,
         STEW,
-        {"основа": "Бобы", "жир": "Масло"},
+        {"основа": "beans", "жир": "oil"},
     )
     assert float(with_cheap_fat.quality) > float(without_fat.quality)
 
@@ -145,12 +145,12 @@ async def test_pot_cooks_in_portions_and_kind_decides_composition(
     """The combination decides the kind, not the quality (D-128): the composition shows in the
     name."""
     _, _, body = await _kitchen(session)
-    await _product(session, body, "Бобы", 60)
+    await _product(session, body, "beans", 60)
 
-    stack = await _cooked(session, constants, catalog, body, {"основа": "Бобы"})
+    stack = await _cooked(session, constants, catalog, body, {"основа": "beans"})
     assert stack is not None
     assert amount_float(stack.amount) == constants[R.COOK_POT_PORTIONS]
-    assert stack.flavor == f"{STEW} · Бобы"
+    assert stack.flavor == f"{STEW} · beans"
     assert stack.spoils_at is not None
 
 
@@ -159,11 +159,11 @@ async def test_pickaxe_does_not_go_into_pot(
 ) -> None:
     """What counts as a product is decided by data (`edible`), not by the thing having quality."""
     _, _, body = await _kitchen(session)
-    await _product(session, body, "Каменная кирка", 50, qty=1)
-    await _product(session, body, "Шахтная крепь", 50, qty=2)
-    await _product(session, body, "Бобы", 60)
+    await _product(session, body, "stone_pickaxe", 50, qty=1)
+    await _product(session, body, "shaft_support", 50, qty=2)
+    await _product(session, body, "beans", 60)
 
-    for inedible in ("Каменная кирка", "Шахтная крепь"):
+    for inedible in ("stone_pickaxe", "shaft_support"):
         with pytest.raises(craft.NotIngredient):
             await craft.cook(
                 session,
@@ -171,7 +171,7 @@ async def test_pickaxe_does_not_go_into_pot(
                 catalog,
                 body,
                 STEW,
-                {"основа": "Бобы", "наполнитель": inedible},
+                {"основа": "beans", "наполнитель": inedible},
             )
 
 
@@ -186,10 +186,10 @@ async def test_utensil_required_and_sets_ceiling(
     yard = await world.node_container(session, node)
     await world.grant_item(session, yard, HEARTH, quality=80, origin="тест")
     await world.learn(session, identity, STEW)
-    await _product(session, body, "Бобы", 60)
+    await _product(session, body, "beans", 60)
 
     with pytest.raises(craft.NoTool):
-        await craft.cook(session, constants, catalog, body, STEW, {"основа": "Бобы"})
+        await craft.cook(session, constants, catalog, body, STEW, {"основа": "beans"})
 
 
 # --- food --------------------------------------------------------------------
@@ -203,12 +203,12 @@ async def test_dry_food_feeds_by_quality(
     body.stamina = Decimal("10")
     span = constants[R.FOOD_RESTORE_BY_QUALITY]
 
-    bread = await _product(session, body, "Хлеб", 0, qty=1)
+    bread = await _product(session, body, "bread", 0, qty=1)
     returned = await food.eat(session, constants, catalog, body, bread)
     assert returned == pytest.approx(constants[R.BODY_FOOD_RESTORE] * span.min)
 
     body.stamina = Decimal("10")
-    excellent_ = await _product(session, body, "Хлеб", 100, qty=1)
+    excellent_ = await _product(session, body, "bread", 100, qty=1)
     returned = await food.eat(session, constants, catalog, body, excellent_)
     assert returned == pytest.approx(constants[R.BODY_FOOD_RESTORE] * span.max)
 
@@ -218,7 +218,7 @@ async def test_inedible_not_eaten(
 ) -> None:
     """What is edible is decided by data, not the engine's guess."""
     _, _, body = await _kitchen(session)
-    support = await _product(session, body, "Шахтная крепь", 50, qty=1)
+    support = await _product(session, body, "shaft_support", 50, qty=1)
     with pytest.raises(food.NotFood):
         await food.eat(session, constants, catalog, body, support)
 
@@ -256,11 +256,11 @@ async def test_fed_works_steadier(
     """Hot adds no reserve -- it slows the spend (D-119)."""
     stamp = uuid.uuid4().hex[:6]
     node = await world.create_node(session, f"terra.pit.{stamp}", "Забой", area_m2=100)
-    vein = await world.create_vein(session, node, "Железная руда", richness=60, remaining=10_000)
+    vein = await world.create_vein(session, node, "iron_ore", richness=60, remaining=10_000)
     identity = await world.create_identity(session, f"Сытый-{stamp}")
     body = await world.print_body(session, identity, node)
     pocket = await world.body_container(session, body)
-    await world.grant_item(session, pocket, "Каменная кирка", quality=50, origin="сценарий теста")
+    await world.grant_item(session, pocket, "stone_pickaxe", quality=50, origin="сценарий теста")
 
     sess = await mining.start(session, constants, body, vein)
     before = float(body.stamina)
@@ -288,13 +288,13 @@ async def test_variety_counted_by_eaten(
 
     #: One and the same kind: no bonus.
     for _ in range(int(constants[R.FOOD_VARIETY_MIN_KINDS])):
-        bread = await _product(session, body, "Хлеб", 50, qty=1)
+        bread = await _product(session, body, "bread", 50, qty=1)
         body.stamina = Decimal("1")
         returned = await food.eat(session, constants, catalog, body, bread)
     assert returned == pytest.approx(steady)
 
     #: Different kinds: the bonus arrived.
-    for name in ("Солонина", "Сушёные овощи"):
+    for name in ("salted_meat", "dried_vegetables"):
         portion = await _product(session, body, name, 50, qty=1)
         body.stamina = Decimal("1")
         returned = await food.eat(session, constants, catalog, body, portion)
@@ -319,7 +319,7 @@ async def test_rotten_is_not_food(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
     _, _, body = await _kitchen(session)
-    bread = await _product(session, body, "Хлеб", 50, qty=1)
+    bread = await _product(session, body, "bread", 50, qty=1)
     bread.spoils_at = datetime.now(UTC) - timedelta(hours=1)
     await session.flush()
 
@@ -334,7 +334,7 @@ async def test_daily_tick_sweeps_rotten(factory, constants: Constants, catalog: 
 
     async with factory() as session, session.begin():
         _, _, body = await _kitchen(session)
-        bread = await _product(session, body, "Хлеб", 50, qty=1)
+        bread = await _product(session, body, "bread", 50, qty=1)
         bread.spoils_at = datetime.now(UTC) - timedelta(hours=1)
         item_id = bread.id
         await tick.ensure_scheduled(session)

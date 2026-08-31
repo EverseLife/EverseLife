@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Nurlan Urazkulov
 
 import type { RecipeBook } from "./api";
+import { t } from "./locale";
 
 /** Helpers for the quantity field (`Amount.tsx`) and for reading a quantity.
  *  Kept apart from the component so hot reload keeps working: a module of
@@ -56,9 +57,13 @@ export function tally(goods: string, amount: number): string {
   //: The vault may name the unit itself -- wire is measured in metres, and
   //: "3 шт." of it would read as three coils. Unnamed, a piece stays "шт." and
   //: what is measured stays a bare number, as it always was.
+  //: The vault's own unit word, not ours: it arrives with the catalog and is
+  //: data, so it is joined to the number rather than looked up in a message.
   const named = unit(goods);
   if (named) return `${trim(amount)} ${named}`;
-  return counted(goods) ? `${trim(amount)} шт.` : trim(amount);
+  //: `trim` already spells the number the way a column of them reads; handing
+  //: it to Fluent as a number would reformat it by locale.
+  return counted(goods) ? t("ui-amount-pieces", { amount: trim(amount) }) : trim(amount);
 }
 
 /** The number itself, without trailing zeros: 3, 3.5, 0.25. */

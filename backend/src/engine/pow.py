@@ -43,7 +43,7 @@ from src.runtime import (
     POW_STARTS_PER_WINDOW,
     POW_WINDOW,
 )
-from src.units import KIB_PER_MIB
+from src.units import KIB_PER_MIB, SECONDS_PER_MINUTE
 
 
 class PowError(Refusal):
@@ -94,8 +94,13 @@ async def issue(
         )
     )
     if recent is not None and recent >= POW_STARTS_PER_WINDOW:
+        #: The account id is deliberately gone from the words: the player knows
+        #: whose account it is, and a uuid in a refusal is the server thinking
+        #: aloud. The window is said in minutes rather than as a `timedelta`.
         raise TooManyStarts(
-            f"аккаунт {account_id}: {recent} стартов за {POW_WINDOW}, это слишком часто"
+            key="pow-too-many-starts",
+            starts=recent,
+            minutes=int(POW_WINDOW.total_seconds() // SECONDS_PER_MINUTE),
         )
 
     #: The time is set explicitly rather than by the database default: the
@@ -125,12 +130,12 @@ async def verify(
     and trading.
     """
     if challenge.spent_on_session_id is not None or challenge.solved_at is not None:
-        raise WrongAnswer("задача уже предъявлена: платить надо за каждую сессию")
+        raise WrongAnswer(key="pow-already-spent")
 
     expected = await asyncio.to_thread(solve, constants, challenge.account_id, challenge.nonce)
     #: Constant-time comparison: the answer comes from an untrusted party.
     if not hmac.compare_digest(expected, answer):
-        raise WrongAnswer("оценка не сходится")
+        raise WrongAnswer(key="pow-wrong-answer")
 
     challenge.solved_at = now or datetime.now(UTC)
     await session.flush()

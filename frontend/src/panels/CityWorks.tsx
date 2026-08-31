@@ -13,9 +13,10 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import { useSession } from "../actions";
+import { useBook, useNames, useSession } from "../actions";
 import * as api from "../api";
 import { when } from "../clock";
+import { t } from "../locale";
 import { Rule } from "../Rule";
 
 type Props = {
@@ -23,14 +24,17 @@ type Props = {
   act: (what: () => Promise<unknown>) => Promise<void>;
 };
 
+/** The kinds of order this board posts, each by the message that names it. */
 const CITY_KINDS: Record<string, string> = {
-  building_repair: "ремонт постройки",
-  building_build: "стройка",
-  fuel_delivery: "подвоз топлива",
+  building_repair: "ui-city-works-repair",
+  building_build: "ui-city-works-build",
+  fuel_delivery: "ui-city-works-fuel",
 };
 
 export function CityWorks({ busy, act }: Props) {
   const session = useSession();
+  const book = useBook();
+  const names = useNames();
   const [orders, setOrders] = useState<api.WorksOrder[]>([]);
   const [loans, setLoans] = useState<api.CityLoans | null>(null);
   const [node, setNode] = useState("");
@@ -63,16 +67,24 @@ export function CityWorks({ busy, act }: Props) {
       await refresh();
     });
 
+  //: The player types the Russian word; the command carries the id (D-251).
+  //: Goods resolve through the book's synonyms, a building kind through the
+  //: reverse of the renames table; an unknown word travels as typed and the
+  //: engine's own resolve() has the last word.
+  const goodsId = (word: string) => book?.synonyms?.[word.trim()] ?? word.trim();
+  const kindId = (word: string) => {
+    const typed = word.trim();
+    const hit = Object.entries(names?.building_kinds ?? {}).find(
+      ([, ru]) => ru.toLowerCase() === typed.toLowerCase(),
+    );
+    return hit?.[0] ?? typed;
+  };
+
   return (
     <>
       <h3>
-        Госзаказ
-        <Rule>
-          Город называет работу и свою цену за нетрудовое — материалы, топливо; фонд
-          работ доплачивает долю трудового тарифа. Деньги откладываются при вывеске:
-          пустая казна или пустой фонд откажут сразу. Заказ — это и лицензия: пока он
-          висит, чинить и строить на участке города может любой.
-        </Rule>
+        {t("ui-city-works-title")}
+        <Rule>{t("ui-city-works-rule")}</Rule>
       </h3>
 
       {orders.length > 0 && (
@@ -81,8 +93,8 @@ export function CityWorks({ busy, act }: Props) {
             {orders.map((order) => (
               <tr key={order.id}>
                 <td className="note">
-                  {CITY_KINDS[order.kind] ?? order.kind} · {order.node ?? "—"} ·{" "}
-                  {api.tk(order.tariff)} ₭ · {when(order.posted_at)}
+                  {order.kind in CITY_KINDS ? t(CITY_KINDS[order.kind]) : order.kind} ·{" "}
+                  {order.node ?? "—"} · {api.tk(order.tariff)} ₭ · {when(order.posted_at)}
                 </td>
                 <td>
                   <button
@@ -90,7 +102,7 @@ export function CityWorks({ busy, act }: Props) {
                     onClick={() => go(() => session.send("city.works_cancel", { order: order.id }))}
                     disabled={busy}
                   >
-                    Отозвать
+                    {t("ui-city-works-cancel")}
                   </button>
                 </td>
               </tr>
@@ -101,11 +113,11 @@ export function CityWorks({ busy, act }: Props) {
 
       <div className="form">
         <label>
-          <span>участок (ключ узла)</span>
+          <span>{t("ui-city-works-node")}</span>
           <input value={node} onChange={(e) => setNode(e.target.value)} />
         </label>
         <label>
-          <span>предложение города, ₭ — за материалы или топливо</span>
+          <span>{t("ui-city-works-offer")}</span>
           <input
             type="number"
             min={0}
@@ -117,17 +129,17 @@ export function CityWorks({ busy, act }: Props) {
           onClick={() => go(() => session.send("city.works_repair", { node, offer }))}
           disabled={busy || !node}
         >
-          Заказать ремонт
+          {t("ui-city-works-order-repair")}
         </button>
       </div>
 
       <div className="form">
         <label>
-          <span>тип дома</span>
+          <span>{t("ui-city-works-kind")}</span>
           <input value={buildKind} onChange={(e) => setBuildKind(e.target.value)} />
         </label>
         <label>
-          <span>пятно, м²</span>
+          <span>{t("ui-city-works-footprint")}</span>
           <input
             type="number"
             min={1}
@@ -136,7 +148,7 @@ export function CityWorks({ busy, act }: Props) {
           />
         </label>
         <label>
-          <span>этажей</span>
+          <span>{t("ui-city-works-floors")}</span>
           <input
             type="number"
             min={1}
@@ -149,7 +161,7 @@ export function CityWorks({ busy, act }: Props) {
             go(() =>
               session.send("city.works_build", {
                 node,
-                kind: buildKind,
+                kind: kindId(buildKind),
                 footprint,
                 floors,
                 offer,
@@ -158,17 +170,17 @@ export function CityWorks({ busy, act }: Props) {
           }
           disabled={busy || !node || !buildKind}
         >
-          Заказать стройку
+          {t("ui-city-works-order-build")}
         </button>
       </div>
 
       <div className="form">
         <label>
-          <span>топливо</span>
+          <span>{t("ui-city-works-fuel-label")}</span>
           <input value={fuel} onChange={(e) => setFuel(e.target.value)} />
         </label>
         <label>
-          <span>сколько единиц</span>
+          <span>{t("ui-city-works-amount")}</span>
           <input
             type="number"
             min={1}
@@ -177,7 +189,7 @@ export function CityWorks({ busy, act }: Props) {
           />
         </label>
         <label>
-          <span>цена за единицу, ₭</span>
+          <span>{t("ui-city-works-price")}</span>
           <input
             type="number"
             min={0}
@@ -191,7 +203,7 @@ export function CityWorks({ busy, act }: Props) {
             go(() =>
               session.send("city.works_fuel", {
                 node,
-                fuel,
+                fuel: goodsId(fuel),
                 amount: fuelAmount,
                 price: fuelPrice,
               }),
@@ -199,35 +211,39 @@ export function CityWorks({ busy, act }: Props) {
           }
           disabled={busy || !node || !fuel}
         >
-          Заказать подвоз
+          {t("ui-city-works-order-fuel")}
         </button>
       </div>
 
       <h3>
-        Кредит казне
-        <Rule>
-          Казна занимает у ЦБ на общественные работы: по ключевой, без маржи и без
-          надбавок, на общей кредитной линии города — той же, что несёт займы граждан.
-        </Rule>
+        {t("ui-city-loan-title")}
+        <Rule>{t("ui-city-loan-rule")}</Rule>
       </h3>
       {loans && (
         <p className="note">
-          линия: занято {api.tk(loans.line.occupied)} ₭ из {api.tk(loans.line.permitted)} ₭
+          {t("ui-city-loan-line", {
+            occupied: api.tk(loans.line.occupied),
+            permitted: api.tk(loans.line.permitted),
+          })}
         </p>
       )}
       {loans &&
         (loans.loans ?? []).map((loan) => (
           <div className="row" key={loan.id}>
             <span className="note">
-              осталось {api.tk(loan.outstanding)} ₭ из {api.tk(loan.principal)} ₭ под{" "}
-              {Number(loan.rate).toFixed(2)}% · взят {when(loan.taken_at)}
+              {t("ui-city-loan-row", {
+                outstanding: api.tk(loan.outstanding),
+                principal: api.tk(loan.principal),
+                rate: Number(loan.rate).toFixed(2),
+                taken: when(loan.taken_at),
+              })}
             </span>
             <button
               className="quiet"
               onClick={() => go(() => session.send("city.loan_repay", { loan: loan.id }))}
               disabled={busy}
             >
-              Погасить из казны
+              {t("ui-city-loan-repay")}
             </button>
           </div>
         ))}
@@ -242,7 +258,7 @@ export function CityWorks({ busy, act }: Props) {
           onClick={() => go(() => session.send("city.borrow", { amount: borrow }))}
           disabled={busy || borrow <= 0}
         >
-          Занять у ЦБ ₭
+          {t("ui-city-borrow")}
         </button>
       </div>
     </>

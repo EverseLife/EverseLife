@@ -28,7 +28,7 @@ from src.models.ledger import AccountKind, PostingReason
 from src.models.market import Order, ReservationState
 from src.units import PERCENT, amount_float, money
 
-ORE = "Железная руда"
+ORE = "iron_ore"
 
 
 async def _market(session: AsyncSession, *, price=3, qty=20, quality=64):
@@ -36,7 +36,7 @@ async def _market(session: AsyncSession, *, price=3, qty=20, quality=64):
     stamp = uuid.uuid4().hex[:8]
     node = await world.create_node(session, f"terra.mkt.{stamp}", "Рынок", area_m2=200)
     yard = await world.node_container(session, node)
-    await world.grant_item(session, yard, "Терминал маркетплейса", quality=70, origin="тест")
+    await world.grant_item(session, yard, "market_terminal", quality=70, origin="тест")
 
     seller = await world.create_identity(session, f"Продавец-{stamp}")
     seller_body = await world.print_body(session, seller, node)
@@ -102,16 +102,19 @@ async def test_own_goods_not_reservable(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
     _, order, seller, _, _ = await _market(session)
-    with pytest.raises(market.NotYours):
+    #: `NotYours` is raised by three different checks: the key says which.
+    with pytest.raises(market.NotYours) as refused:
         await market.reserve(session, constants, seller, order, 1)
+    assert refused.value.key == "market-reserve-own"
 
 
 async def test_cannot_reserve_more_than_available(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
     _, order, _, buyer, _ = await _market(session, qty=5)
-    with pytest.raises(market.NoGoods):
+    with pytest.raises(market.NoGoods) as refused:
         await market.reserve(session, constants, buyer, order, 50)
+    assert refused.value.key == "market-reserve-too-much"
 
 
 # --- redemption --------------------------------------------------------------
@@ -184,8 +187,9 @@ async def test_foreign_reservation_not_redeemable(
 
     foreign = await world.create_identity(session, f"Чужой-{uuid.uuid4().hex[:6]}")
     foreign_body = await world.print_body(session, foreign, node)
-    with pytest.raises(market.NotYours):
+    with pytest.raises(market.NotYours) as refused:
         await market.redeem(session, constants, catalog, foreign_body, reservation)
+    assert refused.value.key == "market-reservation-not-yours"
 
 
 # --- term --------------------------------------------------------------------
@@ -233,7 +237,7 @@ async def test_cannot_redeem_after_term(
     _, order, _, buyer, body = await _market(session)
     moment = datetime.now(UTC)
     reservation = await market.reserve(session, constants, buyer, order, 5, now=moment)
-    with pytest.raises(market.BadOrder):
+    with pytest.raises(market.BadOrder) as refused:
         await market.redeem(
             session,
             constants,
@@ -242,3 +246,4 @@ async def test_cannot_redeem_after_term(
             reservation,
             now=reservation.expires_at + timedelta(minutes=1),
         )
+    assert refused.value.key == "market-reservation-expired"

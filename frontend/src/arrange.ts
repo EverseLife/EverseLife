@@ -12,95 +12,129 @@
 
 import type { Thing } from "./api";
 import type { RecipeBook } from "./api";
+import { compare, t } from "./locale";
+import { goodsName, tierName, type NamesRu } from "./names";
 
 export type Grouping = "none" | "goods" | "tier" | "kind" | "maker";
 export type Sorting = "name" | "quality" | "amount" | "mass" | "condition" | "spoils";
 
+/**
+ * The axes, and their words.
+ *
+ * `label` is a getter on purpose: these two lists are built once, when the
+ * module is first imported, and the language can be switched long afterwards.
+ * A plain string would be the word of whichever language happened to be
+ * spoken at that first import, frozen for the rest of the session.
+ */
 export const GROUPINGS: { id: Grouping; label: string }[] = [
-  { id: "none", label: "без групп" },
-  { id: "goods", label: "по предмету" },
-  { id: "tier", label: "по качеству" },
-  { id: "kind", label: "по типу" },
-  { id: "maker", label: "по клейму" },
+  { id: "none", get label() { return t("ui-arrange-group-none"); } },
+  { id: "goods", get label() { return t("ui-arrange-group-goods"); } },
+  { id: "tier", get label() { return t("ui-arrange-group-tier"); } },
+  { id: "kind", get label() { return t("ui-arrange-group-kind"); } },
+  { id: "maker", get label() { return t("ui-arrange-group-maker"); } },
 ];
 
 export const SORTINGS: { id: Sorting; label: string }[] = [
-  { id: "name", label: "по названию" },
-  { id: "quality", label: "по качеству" },
-  { id: "amount", label: "по количеству" },
-  { id: "mass", label: "по массе" },
-  { id: "condition", label: "по состоянию" },
-  { id: "spoils", label: "по годности" },
+  { id: "name", get label() { return t("ui-arrange-sort-name"); } },
+  { id: "quality", get label() { return t("ui-arrange-sort-quality"); } },
+  { id: "amount", get label() { return t("ui-arrange-sort-amount"); } },
+  { id: "mass", get label() { return t("ui-arrange-sort-mass"); } },
+  { id: "condition", get label() { return t("ui-arrange-sort-condition"); } },
+  { id: "spoils", get label() { return t("ui-arrange-sort-spoils"); } },
 ];
+
+/**
+ * The message that names each recipe kind (D-090). Keyed by the wire's own
+ * `kind`, so the map is a lookup and never a sentence; `money` and a coin's
+ * `fineness` share one word, and so share one message.
+ */
+const KIND_WORDS: Record<string, string> = {
+  station: "ui-arrange-kind-station",
+  furniture: "ui-arrange-kind-furniture",
+  tool: "ui-arrange-kind-tool",
+  gear: "ui-arrange-kind-gear",
+  vehicle: "ui-arrange-kind-vehicle",
+  material: "ui-arrange-kind-material",
+  consumable: "ui-arrange-kind-consumable",
+  money: "ui-arrange-kind-coins",
+};
 
 /** What kind of thing this is, in the player's words -- from vault data, not from the name. */
 export function kindOf(book: RecipeBook | null, thing: Thing): string {
-  if (thing.recipe) return "носители";
-  if (thing.fineness != null) return "монеты";
-  const recipe = (book?.recipes ?? []).find((r) => r.name === thing.goods);
-  if (!recipe) return "сырьё";
-  if (recipe.food) return "еда";
-  const KIND: Record<string, string> = {
-    station: "рабочие станции",
-    furniture: "мебель",
-    tool: "инструменты",
-    gear: "снаряжение",
-    vehicle: "транспорт",
-    material: "материалы",
-    consumable: "расходники",
-    money: "монеты",
-  };
-  return KIND[recipe.kind] ?? "прочее";
+  if (thing.recipe) return t("ui-arrange-kind-carriers");
+  if (thing.fineness != null) return t("ui-arrange-kind-coins");
+  const recipe = (book?.recipes ?? []).find((r) => (r.id ?? r.name) === thing.goods);
+  if (!recipe) return t("ui-arrange-kind-raw");
+  if (recipe.food) return t("ui-arrange-kind-food");
+  return t(KIND_WORDS[recipe.kind] ?? "ui-arrange-kind-other");
 }
 
-/** The group a stack falls into under this axis. */
-export function groupKey(book: RecipeBook | null, thing: Thing, by: Grouping): string {
+/** The group a stack falls into under this axis. The key doubles as the
+ *  group's title, so it is spelled in the player's words, not in ids. */
+export function groupKey(
+  book: RecipeBook | null,
+  names: NamesRu | null,
+  thing: Thing,
+  by: Grouping,
+): string {
   switch (by) {
     case "goods":
-      return thing.recipe ? `${thing.goods}: ${thing.recipe}` : thing.goods;
+      return thing.recipe
+        ? `${goodsName(names, thing.goods)}: ${goodsName(names, thing.recipe)}`
+        : goodsName(names, thing.goods);
     case "tier":
-      return thing.quality == null ? "без качества" : thing.tier;
+      return thing.quality == null ? t("ui-arrange-no-tier") : tierName(names, thing.tier);
     case "kind":
       return kindOf(book, thing);
     case "maker":
-      return thing.maker ?? "без клейма";
+      return thing.maker ?? t("ui-arrange-no-maker");
     default:
       return "";
   }
 }
 
-const compare = (a: number | undefined, b: number | undefined) =>
+/** Two numbers, "nothing" last. Named apart from `compare`, which orders words. */
+const order = (a: number | undefined, b: number | undefined) =>
   a == null && b == null ? 0 : a == null ? 1 : b == null ? -1 : a - b;
 
-/** Sorted copy: `desc` flips the order but keeps "nothing" last either way. */
-export function arrange(things: Thing[], by: Sorting, desc: boolean): Thing[] {
+/** Sorted copy: `desc` flips the order but keeps "nothing" last either way.
+ *  Names sort by the display word in the player's language, not the wire id
+ *  (D-251). */
+export function arrange(
+  things: Thing[],
+  by: Sorting,
+  desc: boolean,
+  names: NamesRu | null = null,
+): Thing[] {
   const sign = desc ? -1 : 1;
-  const key = (t: Thing): number | undefined => {
+  //: `thing`, not `t`: the name `t` belongs to the message lookup now.
+  const word = (thing: Thing) => goodsName(names, thing.goods);
+  const key = (thing: Thing): number | undefined => {
     switch (by) {
       case "quality":
-        return t.quality;
+        return thing.quality;
       case "amount":
-        return t.amount;
+        return thing.amount;
       case "mass":
-        return t.mass * t.amount;
+        return thing.mass * thing.amount;
       case "condition":
-        return t.condition;
+        return thing.condition;
       case "spoils":
-        return t.spoils_at ? new Date(t.spoils_at).getTime() : undefined;
+        return thing.spoils_at ? new Date(thing.spoils_at).getTime() : undefined;
       default:
         return undefined;
     }
   };
   return [...things].sort((a, b) => {
     if (by === "name") {
-      return sign * a.goods.localeCompare(b.goods, "ru") || (b.quality ?? -1) - (a.quality ?? -1);
+      return sign * compare(word(a), word(b)) || (b.quality ?? -1) - (a.quality ?? -1);
     }
     const ka = key(a);
     const kb = key(b);
-    if (ka == null && kb == null) return a.goods.localeCompare(b.goods, "ru");
+    if (ka == null && kb == null) return compare(word(a), word(b));
     if (ka == null) return 1;
     if (kb == null) return -1;
-    return sign * compare(ka, kb) || a.goods.localeCompare(b.goods, "ru");
+    return sign * order(ka, kb) || compare(word(a), word(b));
   });
 }
 
@@ -144,16 +178,23 @@ export function summarize(rows: Thing[]): Summary {
 }
 
 /** Group headers in a sensible order: tiers best first, everything else by name. */
-export function orderGroups(keys: string[], by: Grouping, things: Thing[]): string[] {
+export function orderGroups(
+  keys: string[],
+  by: Grouping,
+  things: Thing[],
+  names: NamesRu | null = null,
+): string[] {
   if (by === "tier") {
     const best = new Map<string, number>();
-    for (const t of things) {
-      const k = t.quality == null ? "без качества" : t.tier;
-      best.set(k, Math.max(best.get(k) ?? -1, t.quality ?? -1));
+    //: Named `thing`, not `t`: `t` is the message the header is drawn from.
+    for (const thing of things) {
+      //: The same spelling `groupKey` gave the header, or the orders miss.
+      const k = thing.quality == null ? t("ui-arrange-no-tier") : tierName(names, thing.tier);
+      best.set(k, Math.max(best.get(k) ?? -1, thing.quality ?? -1));
     }
     return [...keys].sort((a, b) => (best.get(b) ?? -1) - (best.get(a) ?? -1));
   }
-  return [...keys].sort((a, b) => a.localeCompare(b, "ru"));
+  return [...keys].sort(compare);
 }
 
 const STORE = "everselife.inventory.arrange";

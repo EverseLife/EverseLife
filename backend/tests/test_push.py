@@ -67,13 +67,13 @@ def test_event_arrives_unasked_after_hello_with_since(client, miner) -> None:
         ws.send_json({"id": 1, **_input(miner), "since": 0})
         assert ws.receive_json()["id"] == 1
 
-        seq = asyncio.run(_learn(miner["name"], "Каменная кирка"))
+        seq = asyncio.run(_learn(miner["name"], "stone_pickaxe"))
 
         told = ws.receive_json()
         assert told["event"] == "knowledge.learned", told
         assert told["seq"] == seq
         assert told["touches"] == ["knowledge"]
-        assert told["key"] == "Каменная кирка"
+        assert told["key"] == "stone_pickaxe"
         assert "id" not in told
 
 
@@ -81,21 +81,21 @@ def test_without_since_the_socket_stays_silent(client, miner) -> None:
     with client.websocket_connect("/session/ws") as ws:
         ws.send_json(_input(miner))
         ws.receive_json()
-        asyncio.run(_learn(miner["name"], "Каменная кирка"))
+        asyncio.run(_learn(miner["name"], "stone_pickaxe"))
         #: The next thing read is the answer to the next command, not an event.
         ws.send_json({"cmd": "look"})
         assert "look" in ws.receive_json()
 
 
 def test_hello_with_since_replays_what_was_missed(client, miner) -> None:
-    first = asyncio.run(_learn(miner["name"], "Каменная кирка"))
-    second = asyncio.run(_learn(miner["name"], "Верёвка"))
+    first = asyncio.run(_learn(miner["name"], "stone_pickaxe"))
+    second = asyncio.run(_learn(miner["name"], "rope"))
     with client.websocket_connect("/session/ws") as ws:
         ws.send_json({"id": 1, **_input(miner), "since": first})
         assert ws.receive_json()["id"] == 1
         told = ws.receive_json()
         assert told["event"] == "knowledge.learned" and told["seq"] == second
-        assert told["key"] == "Верёвка"
+        assert told["key"] == "rope"
 
 
 def test_room_hears_that_something_was_said(client, miner) -> None:
@@ -135,7 +135,7 @@ def test_unknown_identity_gets_nothing(client, miner) -> None:
                     email=f"other-{uuid.uuid4().hex[:6]}@example.com",
                     password="x" * 8,
                 )
-                await world.learn(db, other, "Верёвка")
+                await world.learn(db, other, "rope")
             await engine.dispose()
 
         asyncio.run(stranger())
@@ -190,14 +190,14 @@ def test_learning_reaches_the_knowledge_command_after_its_event(client, miner) -
         ws.receive_json()
         ws.send_json({"id": 2, "cmd": "knowledge"})
         before = ws.receive_json()["knowledge"]["knows"]
-        assert "Верёвка" not in before
+        assert "rope" not in before
 
-        asyncio.run(_learn(miner["name"], "Верёвка"))
+        asyncio.run(_learn(miner["name"], "rope"))
         told = ws.receive_json()
         assert told["event"] == "knowledge.learned" and "knowledge" in told["touches"]
 
         ws.send_json({"id": 3, "cmd": "knowledge"})
-        assert "Верёвка" in ws.receive_json()["knowledge"]["knows"]
+        assert "rope" in ws.receive_json()["knowledge"]["knows"]
 
 
 def test_the_room_sees_what_changes_the_place_with_a_name_but_not_the_pocket(client, miner) -> None:
@@ -242,7 +242,7 @@ def test_the_room_sees_what_changes_the_place_with_a_name_but_not_the_pocket(cli
 
         me.send_json({"id": 2, "cmd": "look"})
         rope = next(
-            t for t in me.receive_json()["look"]["inventory"] if t["goods"] == "Шахтная крепь"
+            t for t in me.receive_json()["look"]["inventory"] if t["goods"] == "shaft_support"
         )
         me.send_json({"id": 3, "cmd": "ground.drop", "item": rope["id"], "amount": 1})
 

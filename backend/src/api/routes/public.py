@@ -17,7 +17,8 @@ from fastapi import APIRouter, Header, HTTPException, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.constants import HOLDER, current
+from src import i18n
+from src.constants import HOLDER, current, current_renames
 from src.constants import current_catalog as catalog
 from src.constants import registry as R
 from src.db.base import session_factory
@@ -48,6 +49,37 @@ async def constants() -> dict[str, Any]:
     """
     snapshot = HOLDER.current()
     return {"digest": snapshot.digest, "values": snapshot.raw()}
+
+
+@router.get("/i18n/{locale}")
+async def words(locale: str) -> dict[str, Any]:
+    """The words of one language, as the FTL the server itself renders (D-251).
+
+    One file feeds both ends: the client parses this with `@fluent/bundle`, so
+    a refusal it chooses to redraw from `code` and `args` comes out saying
+    exactly what the server said. Which languages exist is here too -- the
+    switcher must not guess.
+    """
+    asked = i18n.normalize(locale)
+    return {
+        "locale": asked,
+        "locales": list(i18n.LOCALES),
+        "ftl": i18n.current().source(asked),
+    }
+
+
+@router.get("/renames")
+async def renames() -> dict[str, Any]:
+    """The D-251 key tables and their Russian names.
+
+    The wire and the catalog speak ids; until the locale layer of wave III
+    the client (and the agents) read the Russian spellings from `names_ru`
+    here -- catalog constants belong in /public, not in `look` (D-225).
+    """
+    table = current_renames()
+    return {
+        "names_ru": table.names_ru,
+    }
 
 
 @router.get("/recipes")
@@ -292,6 +324,8 @@ async def market_book(node_key: str, goods: str, tier: str) -> dict[str, Any]:
     """The book for one position: buy and sell orders with depth."""
     async with session_factory()() as db:
         node = await _node(db, node_key)
+        goods = catalog().recipes.resolve(goods)
+        tier = current_renames().tiers.get(tier, tier)
         book = await market.book(db, node, goods, tier, depth=MARKET_BOOK_DEPTH)
         payload = asdict(book)
         payload["node"] = node.key

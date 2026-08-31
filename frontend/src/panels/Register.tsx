@@ -15,11 +15,17 @@
 import { type FormEvent, useEffect, useState } from "react";
 import * as api from "../api";
 import type { Door, Enrollment, Line } from "../api";
+import { t } from "../locale";
 import { Logo } from "../Logo";
 import { Doors } from "./Doors";
 import { Secret } from "./Secret";
 
-const STEPS = ["аккаунт", "линия", "персонаж", "город"] as const;
+const STEPS = [
+  "ui-register-step-account",
+  "ui-register-step-line",
+  "ui-register-step-character",
+  "ui-register-step-city",
+] as const;
 type Step = 0 | 1 | 2 | 3;
 
 //: The limits are the same as the server's (`runtime.py`): the client hints
@@ -72,27 +78,33 @@ export function Register({ busy, trouble, onSubmit, onBack }: Props) {
   const credentials = (e: FormEvent) => {
     e.preventDefault();
     const address = email.trim();
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(address)) return setLocal("почта выглядит неправильно");
-    if (password.length < PASSWORD_MIN) return setLocal(`пароль короче ${PASSWORD_MIN} знаков`);
-    if (password !== again) return setLocal("пароли не совпадают");
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(address)) return setLocal(t("ui-register-bad-email"));
+    if (password.length < PASSWORD_MIN) {
+      return setLocal(t("ui-register-short-password", { min: PASSWORD_MIN }));
+    }
+    if (password !== again) return setLocal(t("ui-register-password-mismatch"));
     go(1);
   };
 
   const character = (e: FormEvent) => {
     e.preventDefault();
     const trimmedName = name.trim().replace(/\s+/g, " ");
-    if (!trimmedName) return setLocal("имя не названо");
-    if (trimmedName.length > NAME_LIMIT) return setLocal(`имя длиннее ${NAME_LIMIT} знаков`);
+    if (!trimmedName) return setLocal(t("ui-register-no-name"));
+    if (trimmedName.length > NAME_LIMIT) {
+      return setLocal(t("ui-register-long-name", { limit: NAME_LIMIT }));
+    }
     if (surname.trim().length > SURNAME_LIMIT) {
-      return setLocal(`фамилия длиннее ${SURNAME_LIMIT} знаков`);
+      return setLocal(t("ui-register-long-surname", { limit: SURNAME_LIMIT }));
     }
     if (age !== "") {
       const n = Number(age);
       if (!Number.isInteger(n) || n < AGE.min || n > AGE.max) {
-        return setLocal(`возраст от ${AGE.min} до ${AGE.max}`);
+        return setLocal(t("ui-register-age-range", { min: AGE.min, max: AGE.max }));
       }
     }
-    if (about.length > ABOUT_LIMIT) return setLocal(`описание длиннее ${ABOUT_LIMIT} знаков`);
+    if (about.length > ABOUT_LIMIT) {
+      return setLocal(t("ui-register-long-about", { limit: ABOUT_LIMIT }));
+    }
     setName(trimmedName);
     go(3);
   };
@@ -120,23 +132,23 @@ export function Register({ busy, trouble, onSubmit, onBack }: Props) {
         <Logo height={72} />
       </div>
 
-      <ol className="steps" aria-label="шаги регистрации">
+      <ol className="steps" aria-label={t("ui-register-steps-label")}>
         {STEPS.map((label, i) => (
           <li
             key={label}
             className={i === step ? "now" : i < step ? "done" : ""}
             aria-current={i === step ? "step" : undefined}
           >
-            <span className="n">{i + 1}</span> {label}
+            <span className="n">{i + 1}</span> {t(label)}
           </li>
         ))}
       </ol>
 
       {step === 0 && (
         <form className="card" onSubmit={credentials}>
-          <h1>Аккаунт</h1>
+          <h1>{t("ui-register-account")}</h1>
           <label>
-            <span>почта</span>
+            <span>{t("ui-register-email")}</span>
             <input
               type="email"
               autoComplete="username"
@@ -148,22 +160,22 @@ export function Register({ busy, trouble, onSubmit, onBack }: Props) {
             />
           </label>
           <label>
-            <span>пароль</span>
+            <span>{t("ui-register-password")}</span>
             <Secret
               value={password}
               onChange={setPassword}
               autoComplete="new-password"
-              placeholder={`не короче ${PASSWORD_MIN} знаков`}
+              placeholder={t("ui-register-password-hint", { min: PASSWORD_MIN })}
               disabled={busy}
             />
           </label>
           <label>
-            <span>ещё раз</span>
+            <span>{t("ui-register-again")}</span>
             <Secret
               value={again}
               onChange={setAgain}
               autoComplete="new-password"
-              placeholder="повторите пароль"
+              placeholder={t("ui-register-again-hint")}
               disabled={busy}
               invalid={again.length > 0 && again !== password}
             />
@@ -171,10 +183,10 @@ export function Register({ busy, trouble, onSubmit, onBack }: Props) {
           {error && <p className="trouble">{error}</p>}
           <div className="row">
             <button type="button" className="quiet" onClick={onBack} disabled={busy}>
-              ← ко входу
+              {t("ui-register-to-login")}
             </button>
             <button type="submit" disabled={busy}>
-              Дальше →
+              {t("ui-register-next")}
             </button>
           </div>
         </form>
@@ -182,11 +194,8 @@ export function Register({ busy, trouble, onSubmit, onBack }: Props) {
 
       {step === 1 && (
         <section className="wide">
-          <h1>Линия</h1>
-          <p className="note center">
-            Кем вы напечатаны. В альфе играбельна одна линия; вторая видна как
-            обещание, а не заглушка.
-          </p>
+          <h1>{t("ui-register-line")}</h1>
+          <p className="note center">{t("ui-register-line-note")}</p>
           {lines === null ? (
             <p className="note center">…</p>
           ) : (
@@ -207,11 +216,11 @@ export function Register({ busy, trouble, onSubmit, onBack }: Props) {
                   <table>
                     <tbody>
                       <tr>
-                        <td>играют</td>
+                        <td>{t("ui-register-line-players")}</td>
                         <td className="num">{l.playable ? l.players : "—"}</td>
                       </tr>
                       <tr>
-                        <td>мир</td>
+                        <td>{t("ui-register-line-world")}</td>
                         <td className="num">{l.world}</td>
                       </tr>
                     </tbody>
@@ -226,10 +235,10 @@ export function Register({ busy, trouble, onSubmit, onBack }: Props) {
                         }}
                         disabled={busy}
                       >
-                        Выбрать
+                        {t("ui-register-pick")}
                       </button>
                     ) : (
-                      <span className="soon-tag">Ещё в разработке</span>
+                      <span className="soon-tag">{t("ui-register-soon")}</span>
                     )}
                   </div>
                 </section>
@@ -239,7 +248,7 @@ export function Register({ busy, trouble, onSubmit, onBack }: Props) {
           {error && <p className="trouble">{error}</p>}
           <div className="row">
             <button type="button" className="quiet" onClick={() => go(0)} disabled={busy}>
-              ← назад
+              {t("ui-register-back")}
             </button>
           </div>
         </section>
@@ -247,24 +256,21 @@ export function Register({ busy, trouble, onSubmit, onBack }: Props) {
 
       {step === 2 && (
         <form className="card" onSubmit={character}>
-          <h1>Персонаж</h1>
+          <h1>{t("ui-register-character")}</h1>
           <label>
-            <span>имя</span>
+            <span>{t("ui-register-name")}</span>
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="как вас будут звать"
+              placeholder={t("ui-register-name-hint")}
               maxLength={NAME_LIMIT}
               disabled={busy}
               autoFocus
             />
           </label>
-          <p className="note">
-            Имя уникально и не меняется никогда: на нём держится репутация
-. Всё остальное можно поправить потом в кабинете.
-          </p>
+          <p className="note">{t("ui-register-name-note")}</p>
           <label>
-            <span>фамилия</span>
+            <span>{t("ui-register-surname")}</span>
             <input
               value={surname}
               onChange={(e) => setSurname(e.target.value)}
@@ -273,7 +279,7 @@ export function Register({ busy, trouble, onSubmit, onBack }: Props) {
             />
           </label>
           <label>
-            <span>возраст</span>
+            <span>{t("ui-register-age")}</span>
             <input
               type="number"
               min={AGE.min}
@@ -285,23 +291,23 @@ export function Register({ busy, trouble, onSubmit, onBack }: Props) {
             />
           </label>
           <label>
-            <span>описание</span>
+            <span>{t("ui-register-about")}</span>
             <textarea
               value={about}
               onChange={(e) => setAbout(e.target.value)}
               rows={4}
               maxLength={ABOUT_LIMIT}
-              placeholder="внешность, характер, откуда родом — как хотите"
+              placeholder={t("ui-register-about-hint")}
               disabled={busy}
             />
           </label>
           {error && <p className="trouble">{error}</p>}
           <div className="row">
             <button type="button" className="quiet" onClick={() => go(1)} disabled={busy}>
-              ← назад
+              {t("ui-register-back")}
             </button>
             <button type="submit" disabled={busy || !name.trim()}>
-              Дальше →
+              {t("ui-register-next")}
             </button>
           </div>
         </form>

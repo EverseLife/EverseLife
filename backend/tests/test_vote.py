@@ -52,7 +52,7 @@ async def _city(session: AsyncSession, catalog: Catalog, **charter):
         "Ядро",
         area_m2=100,
         parent=delegate,
-        properties={"кольцо": 0},
+        properties={"ring": 0},
     )
     city = await town.found(session, catalog, delegate, "Вече")
     core.owner_city_id = city.id

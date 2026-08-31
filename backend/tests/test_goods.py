@@ -24,16 +24,16 @@ from src.constants import Catalog, Constants
 from src.engine import craft, estate, goods, market, world
 from src.units import amount_float
 
-INGOT = "Слиток железа"
-NAILS = "Гвозди"
-ORE = "Железная руда"
-FORGE = "Кузница"
-TERMINAL = "Терминал маркетплейса"
+INGOT = "iron_ingot"
+NAILS = "nails"
+ORE = "iron_ore"
+FORGE = "forge"
+TERMINAL = "market_terminal"
 
 
 async def _workshop(session: AsyncSession, *, machine: str | None = FORGE):
     stamp = uuid.uuid4().hex[:8]
-    node = await world.create_node(session, f"terra.pieces.{stamp}", "Мастерская", area_m2=100)
+    node = await world.create_node(session, f"terra.pieces.{stamp}", "workshop", area_m2=100)
     identity = await world.create_identity(session, f"Мастер-{stamp}")
     body = await world.print_body(session, identity, node)
     yard = await world.node_container(session, node)
@@ -55,9 +55,9 @@ async def _give(session: AsyncSession, body, type_key: str, quantity: float):
 def test_the_vault_says_which_is_which(catalog: Catalog) -> None:
     assert goods.counted(INGOT, catalog), "слиток — штука"
     assert goods.counted("Доски", catalog)
-    assert goods.counted("Золотая монета", catalog), "монету считают"
+    assert goods.counted("gold_coin", catalog), "монету считают"
     assert not goods.counted(ORE, catalog), "руду мерят весом"
-    assert not goods.counted("Вода", catalog)
+    assert not goods.counted("water", catalog)
     #: A synonym is the same thing: "Железо" is the ingot (`synonyms`).
     assert goods.counted("Железо", catalog)
 

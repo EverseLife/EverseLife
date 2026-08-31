@@ -185,4 +185,4 @@ FOUNDER_TITLE = "Президент"
 
 #: The thing class of machines that make a node an administration: what a
 #: building is, is set by the machine in it (D-106, D-215).
-HALL = "Администрация"
+HALL = "administration"

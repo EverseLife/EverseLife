@@ -80,8 +80,10 @@ async def test_challenge_is_single_use(session: AsyncSession, cheap: Constants) 
     answer = device.solve(cheap, account.id, task.nonce)
 
     await device.verify(session, cheap, task, answer, now=NOW)
-    with pytest.raises(device.WrongAnswer, match="уже предъявлена"):
+    #: By the key, not the sentence: the wording is the locale's (D-251 III).
+    with pytest.raises(device.WrongAnswer) as refused:
         await device.verify(session, cheap, task, answer, now=NOW)
+    assert refused.value.key == "pow-already-spent"
 
 
 async def test_challenges_differ_each_time(session: AsyncSession, cheap: Constants) -> None:

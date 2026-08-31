@@ -29,6 +29,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { MapNode } from "../../api";
+import { t } from "../../locale";
 import { planetName } from "../../planets";
 import { term } from "../map/orbits";
 import type { Route, Vessel } from "./model";
@@ -134,7 +135,7 @@ export function Chart({
   }, [vessel.routes]);
 
   return (
-    <svg className="chart" viewBox={`0 0 ${W} ${H}`} role="img" aria-label="карта рейса">
+    <svg className="chart" viewBox={`0 0 ${W} ${H}`} role="img" aria-label={t("ui-ship-chart")}>
       {/* The rings: what the planets run along, and what makes a window a
           window. Drawn under everything, in the faintest ink there is. */}
       {spheres.map((one) => (
@@ -161,7 +162,7 @@ export function Chart({
                 {route.hours == null ? "—" : term(route.hours)}
               </text>
               <text x={mid.x} y={mid.y + 10} textAnchor="middle" className="chart-fuel">
-                {route.fuel == null ? "" : `${route.fuel.toFixed(0)} топлива`}
+                {route.fuel == null ? "" : t("ui-ship-fuel", { fuel: route.fuel.toFixed(0) })}
               </text>
             </g>
           );

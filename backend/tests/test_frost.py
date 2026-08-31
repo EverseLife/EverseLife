@@ -37,17 +37,17 @@ from src.models.identity import Body, BodyState, Identity
 from src.models.world import Layer, Node, Planet
 from src.units import SECONDS_PER_HOUR
 
-BENCH = "Верстак"
-TERMINAL = "Терминал маркетплейса"
-HALL = "Администрация"
+BENCH = "workbench"
+TERMINAL = "market_terminal"
+HALL = "administration"
 #: Made at the workbench out of wood alone -- the simplest honest batch.
-MAKE = "Рукоять"
-COAL = "Уголь"
-PLANT = "ТЭЦ"
-HEATER = "Обогреватель"
-BRAZIER = "Жаровня"
-SUIT = "Утеплённый костюм"
-WARMER = "Грелка"
+MAKE = "handle"
+COAL = "coal"
+PLANT = "heat_plant"
+HEATER = "heater"
+BRAZIER = "brazier"
+SUIT = "insulated_suit"
+WARMER = "warmer"
 
 
 async def _sphere(session: AsyncSession, planet: Planet, climate: str | None) -> Node:
@@ -155,7 +155,7 @@ async def test_the_board_is_always_warm(session: AsyncSession, constants: Consta
         area_m2=20,
         layer=Layer.LOCATION,
         parent=sphere,
-        properties={"борт": True},
+        properties={"aboard": True},
     )
     assert await frost.is_warm(session, constants, cabin)
 
@@ -276,7 +276,7 @@ async def test_a_frozen_node_stops_the_bench(
     assert master is not None
     await world.learn(session, master, MAKE)
     pocket = await world.body_container(session, body)
-    await world.grant_item(session, pocket, "Дерево", amount=50, quality=60, origin="тест")
+    await world.grant_item(session, pocket, "wood", amount=50, quality=60, origin="тест")
 
     with pytest.raises(frost.Frozen):
         await craft.start(session, constants, catalog, body, MAKE, 1)
@@ -307,7 +307,7 @@ async def test_a_batch_waiting_in_a_frozen_node_does_not_break_waking(
     assert master is not None
     await world.learn(session, master, MAKE)
     pocket = await world.body_container(session, body)
-    await world.grant_item(session, pocket, "Дерево", amount=50, quality=60, origin="тест")
+    await world.grant_item(session, pocket, "wood", amount=50, quality=60, origin="тест")
 
     #: The work starts in the warm and freezes when the body lies down.
     await craft.start(session, constants, catalog, body, MAKE, 1)
@@ -332,7 +332,7 @@ async def test_a_frozen_node_does_not_print_a_body(
     let its heat go out, and whoever wants through it learns that -- refused,
     not hidden."""
     _, yard = await _town(session)
-    await _place(session, yard, "Биопринтер")
+    await _place(session, yard, "bioprinter")
     identity = await world.create_identity(session, f"Облако-{uuid.uuid4().hex[:6]}")
 
     with pytest.raises(frost.Frozen):
@@ -345,7 +345,7 @@ async def test_what_burns_works_in_any_frost(session: AsyncSession, constants: C
     _, yard = await _town(session)
     assert not await frost.is_warm(session, constants, yard)
     assert await frost.works_here(session, constants, yard, BRAZIER)
-    assert await frost.works_here(session, constants, yard, "Угольная станция")
+    assert await frost.works_here(session, constants, yard, "coal_plant")
     assert not await frost.works_here(session, constants, yard, BENCH)
 
 
@@ -372,8 +372,10 @@ async def test_a_frozen_node_silences_the_terminal_and_the_office(
 
     with pytest.raises(frost.Frozen):
         await market.terminal(session, yard)
-    with pytest.raises(polity.NotAllowed, match="промёрз"):
+    #: By the key, not by the sentence: the wording is the locale's (D-251 III).
+    with pytest.raises(polity.NotAllowed) as shut:
         await polity.require_at_hall(session, body, settlement)
+    assert shut.value.key == "city-hall-frozen"
 
     #: Heat it, and both open. Nothing else about the node changed.
     await _place(session, yard, HEATER)
@@ -403,8 +405,12 @@ async def test_nothing_is_sown_in_the_open_ground_of_a_climate(
         body = await _dweller(session, yard)
         yard.owner_identity_id = body.identity_id
         await session.flush()
-        with pytest.raises(farm.FarmError, match=weather):
+        #: Asserted by the key and the climate it carries, not by the sentence:
+        #: the wording belongs to the locale now (D-251 wave III).
+        with pytest.raises(farm.FarmError) as refused:
             await farm.mark(session, constants, body, name="Поле", area=100)
+        assert refused.value.key == "farm-no-open-ground"
+        assert refused.value.params["weather"] == weather
 
         #: And heating the node changes nothing: the field is still outdoors.
         #: Only where a stove means anything -- on the scorching planet there
@@ -413,8 +419,10 @@ async def test_nothing_is_sown_in_the_open_ground_of_a_climate(
             await _place(session, yard, HEATER)
             await _charge(session, constants, yard, constants[R.FROST_HEATER_DRAW])
             assert await frost.is_warm(session, constants, yard)
-            with pytest.raises(farm.FarmError, match=weather):
+            with pytest.raises(farm.FarmError) as warmed:
                 await farm.mark(session, constants, body, name="Поле", area=100)
+            assert warmed.value.key == "farm-no-open-ground"
+            assert warmed.value.params["weather"] == weather
 
     #: On Terra the same call marks the plot out: the rule is the climate's.
     _, home = await _town(session, planet=Planet.TERRA, climate=None)
@@ -428,7 +436,7 @@ async def test_a_bed_in_the_cold_is_not_a_home(session: AsyncSession, constants:
     """Furniture does not work in a frozen node either: sleep there is the
     mistake the planet kills for, not a night at home."""
     _, yard = await _town(session)
-    await _place(session, yard, "Кровать")
+    await _place(session, yard, "bed")
     body = await _dweller(session, yard)
     body.stamina = Decimal("1")
     await session.flush()

@@ -116,14 +116,14 @@ async def say(
 ) -> ChatMessage:
     """Say. In person: talking in a room requires being in the room."""
     if body.state is not BodyState.ALIVE:
-        raise ChatError("мёртвые не разговаривают")
+        raise ChatError(key="chat-dead-are-silent")
     await travel.require_here(session, body)
 
     cleaned = text.strip()
     if not cleaned:
-        raise ChatError("сказать нечего")
+        raise ChatError(key="chat-nothing-to-say")
     if len(cleaned) > CHAT_TEXT_LIMIT:
-        raise ChatError(f"реплика длиннее {CHAT_TEXT_LIMIT} знаков")
+        raise ChatError(key="chat-too-long", limit=CHAT_TEXT_LIMIT)
 
     membership = await _membership(session, body.identity_id)
     group_id: uuid.UUID | None = None
@@ -330,7 +330,7 @@ async def join(session: AsyncSession, body: Body, group_id: uuid.UUID) -> None:
     await travel.require_here(session, body)
     group = await session.get(ChatGroup, group_id)
     if group is None or group.node_id != body.node_id:
-        raise NotInRoom("этот кружок не здесь")
+        raise NotInRoom(key="chat-group-not-here")
     await leave_groups(session, body.identity_id)
     session.add(ChatMember(group_id=group_id, identity_id=body.identity_id))
     await session.flush()
@@ -388,8 +388,8 @@ async def _place_modifier(constants: Constants, session: AsyncSession, node: Nod
     """
 
     table = constants[R.CHAT_LEAK_LOCATION_MODIFIER]
-    if node.properties.get("library") and "библиотека" in table:
-        return table["библиотека"]
+    if node.properties.get("library") and "library" in table:
+        return table["library"]
 
     where = (
         await session.execute(

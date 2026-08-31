@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import Constants, current
 from src.constants import registry as R
 from src.engine import events, goods, travel, world
+from src.engine.errors import Says
 from src.engine.estate._base import EstateError, NoBuilding, NoRoom, NotOwner
 from src.engine.estate.building import (
     build_minutes,
@@ -105,15 +106,19 @@ async def demolishing(session: AsyncSession, node: Node) -> bool:
     return any(job.payload.get("node") == str(node.id) for job in rows)
 
 
-async def demolish_blockers(session: AsyncSession, constants: Constants, node: Node) -> list[str]:
-    """What stands in the way of demolition, in words -- before the work, not after.
+async def demolish_blockers(session: AsyncSession, constants: Constants, node: Node) -> list[Says]:
+    """What stands in the way of demolition -- named, not worded (D-251 IV).
+
+    Messages rather than sentences: the same list is read by the refusal and
+    by the window that greys the button out, and both must say it in the
+    language of whoever is looking.
 
     The yard empties **first**: after the demolition the machines have nowhere
     to stand and the cargo has no room on the ground. Refusing up front is the
     only honest order -- possessions in this world are lost to an eruption
     (D-197), not to a button.
     """
-    reasons: list[str] = []
+    reasons: list[Says] = []
     #: Every floor of the house, not the ground one alone (D-247): the storeys
     #: are nodes of their own and hold their own machines and their own cargo,
     #: and all of it comes down into this one yard.
@@ -123,10 +128,7 @@ async def demolish_blockers(session: AsyncSession, constants: Constants, node: N
         _, above = await slots(session, constants, room)
         occupied += above
     if occupied > 0:
-        reasons.append(
-            f"в здании стоит оборудование ({occupied}): рабочие станции и мебель "
-            "забирают до сноса — после него им негде стоять"
-        )
+        reasons.append(Says("estate-blocker-equipment", {"count": occupied}))
     #: Both surfaces against the whole plot (D-244): the roof goes, and what
     #: was under it comes to lie beside what was already out in the yard. Asking
     #: only about the floor let a demolition through that left the ground
@@ -138,13 +140,15 @@ async def demolish_blockers(session: AsyncSession, constants: Constants, node: N
     yard = float(node.area_m2) * constants[R.BUILD_FLOOR_PER_M2]
     if lying + outside > yard:
         reasons.append(
-            f"на полу {lying:.1f} кг и во дворе {outside:.1f} кг, а участок держит "
-            f"{yard:.1f} кг: лишнее увезите или уложите в сундук"
+            Says(
+                "estate-blocker-overloaded",
+                {"floor": lying, "yard": outside, "holds": yard},
+            )
         )
     if await under_construction(session, node):
-        reasons.append("здесь идёт стройка: сначала дождитесь её конца")
+        reasons.append(Says("estate-blocker-building"))
     if await demolishing(session, node):
-        reasons.append("снос уже идёт: второй раз его не заказывают")
+        reasons.append(Says("estate-blocker-demolishing"))
     return reasons
 
 
@@ -169,23 +173,20 @@ async def demolish(
     """
     moment = now or datetime.now(UTC)
     if body.state is not BodyState.ALIVE:
-        raise EstateError("мёртвое тело не сносит")
+        raise EstateError(key="estate-demolish-dead")
     await travel.require_here(session, body)
     if body.node_id != node.id:
-        raise EstateError("сносят ногами: дойдите до участка")
+        raise EstateError(key="estate-demolish-on-foot")
     nobodys = node.owner_identity_id is None and node.owner_city_id is None
     if not nobodys and node.owner_identity_id != body.identity_id:
-        raise NotOwner(
-            "участок не ваш: сносят своё, а чужую городскую застройку "
-            "разбирают по решению суда, а не кнопкой"
-        )
+        raise NotOwner(key="estate-demolish-not-yours")
 
     houses = await buildings_of(session, node)
     if not houses:
-        raise NoBuilding("сносить нечего: здания на участке нет")
+        raise NoBuilding(key="estate-demolish-nothing")
     blocking = await demolish_blockers(session, constants, node)
     if blocking:
-        raise NoRoom("; ".join(blocking))
+        raise NoRoom(key="estate-demolish-blocked", inner={"why": blocking})
 
     back = salvage(constants, houses)
     minutes = demolish_minutes(constants, houses)
@@ -214,7 +215,7 @@ async def demolish(
         body_id=body.id,
     )
     if job is None:  # pragma: no cover -- the key is unique per event
-        raise EstateError("снос уже поставлен")
+        raise EstateError(key="estate-demolish-already-queued")
     return job
 
 
@@ -229,7 +230,7 @@ async def finish_demolish(session: AsyncSession, job: Job) -> None:
 
     node = await session.get(Node, uuid.UUID(job.payload["node"]))
     if node is None:  # pragma: no cover
-        raise EstateError(f"снос {job.id} ссылается в никуда")
+        raise EstateError(key="estate-demolish-job-nowhere", job=str(job.id))
 
     houses = await buildings_of(session, node)
     if not houses:
@@ -293,7 +294,7 @@ async def finish_build(session: AsyncSession, job: Job) -> None:
     """Construction is over: the building stands on the plot."""
     node = await session.get(Node, uuid.UUID(job.payload["node"]))
     if node is None:  # pragma: no cover
-        raise EstateError(f"стройка {job.id} ссылается в никуда")
+        raise EstateError(key="estate-build-job-nowhere", job=str(job.id))
 
     #: Old jobs from before storeys carry no `floors`, and those from before
     #: types (D-218) name a tier instead of a type. Either way such a site

@@ -175,10 +175,10 @@ async def test_node_disconnected_when_unable_to_pay(
     #: A disconnected node does not run machines: the meter is as much a
     #: condition of work as the machine itself (D-149).
     yard = await world.node_container(session, home)
-    await world.grant_item(session, yard, "Верстак", quality=60, origin="сценарий теста")
-    await world.learn(session, owner, "Шахтная крепь")
+    await world.grant_item(session, yard, "workbench", quality=60, origin="сценарий теста")
+    await world.learn(session, owner, "shaft_support")
     with pytest.raises(craft.CutOff):
-        await craft.plan(session, constants, catalog, body, "Шахтная крепь", 1)
+        await craft.plan(session, constants, catalog, body, "shaft_support", 1)
 
 
 async def test_payment_reconnects_node(
@@ -229,8 +229,9 @@ async def test_cannot_pay_foreign_bill(
     await session.flush()
     await utility.bill(session, constants, home)
 
-    with pytest.raises(utility.UtilityError):
+    with pytest.raises(utility.UtilityError) as refused:
         await utility.pay(session, constants, foreign, home)
+    assert refused.value.key == "utility-node-not-yours"
 
 
 async def test_meter_opens_itself_on_occupied_nodes(
@@ -343,8 +344,10 @@ async def test_cede_refuses_a_node_in_debt(
     await utility.bill(session, constants, home)
     assert meter.debt > 0 and meter.cut_off
 
-    with pytest.raises(town.CityError, match="долг"):
+    #: By the key, not by the sentence: the wording is the locale's (D-251 III).
+    with pytest.raises(town.CityError) as refused:
         await town.cede(session, body, home)
+    assert refused.value.key == "city-land-debt"
     assert home.owner_identity_id == owner.id
 
 
@@ -375,8 +378,10 @@ async def test_cede_refuses_a_deed_on_the_market(
     deed.sale_price = money(10)
     await session.flush()
 
-    with pytest.raises(town.CityError, match="продаж"):
+    #: By the key, not by the sentence: the wording is the locale's (D-251 III).
+    with pytest.raises(town.CityError) as refused:
         await town.cede(session, body, home)
+    assert refused.value.key == "city-land-deed-on-sale"
     assert home.owner_identity_id == owner.id
 
 

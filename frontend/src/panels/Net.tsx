@@ -25,6 +25,7 @@ import type {
   Thread,
 } from "../api";
 import { when } from "../clock";
+import { t } from "../locale";
 import { PersonName } from "../Name";
 import { askProfile } from "../people";
 import { Refusal, useActions, useSession } from "../actions";
@@ -108,14 +109,14 @@ export function Net({ unread, wanted, onWanted }: Props) {
   return (
     <div className="net">
       <div className="row">
-        <button onClick={() => setView({ kind: "compose" })}>Написать</button>
+        <button onClick={() => setView({ kind: "compose" })}>{t("ui-net-write")}</button>
         <button className="quiet" onClick={() => setView({ kind: "channels" })}>
-          Каналы
+          {t("ui-net-channels")}
         </button>
       </div>
 
-      <h3>Переписка</h3>
-      {threads.length === 0 && <p className="note">Переписок ещё нет.</p>}
+      <h3>{t("ui-net-threads")}</h3>
+      {threads.length === 0 && <p className="note">{t("ui-net-threads-none")}</p>}
       <ul className="net-list">
         {threads.map((thread) => (
           <li key={thread.id}>
@@ -131,7 +132,7 @@ export function Net({ unread, wanted, onWanted }: Props) {
                 {thread.unread > 0 && <span className="tally alarm">{thread.unread}</span>}
                 <span className="net-when">{thread.last_at ? when(thread.last_at) : ""}</span>
               </span>
-              <span className="net-preview">{thread.preview ?? "пока ни слова"}</span>
+              <span className="net-preview">{thread.preview ?? t("ui-net-thread-empty")}</span>
             </button>
           </li>
         ))}
@@ -139,7 +140,7 @@ export function Net({ unread, wanted, onWanted }: Props) {
 
       {channels.length > 0 && (
         <>
-          <h3>Каналы</h3>
+          <h3>{t("ui-net-channels")}</h3>
           <ul className="net-list">
             {channels.map((channel) => (
               <li key={channel.id}>
@@ -153,7 +154,9 @@ export function Net({ unread, wanted, onWanted }: Props) {
                     {channel.unread > 0 && <span className="tally alarm">{channel.unread}</span>}
                     <span className="net-when">{channel.last_at ? when(channel.last_at) : ""}</span>
                   </span>
-                  <span className="net-preview">{channel.official ? "город" : channel.by}</span>
+                  <span className="net-preview">
+                    {channel.official ? t("ui-net-city") : channel.by}
+                  </span>
                 </button>
               </li>
             ))}
@@ -166,15 +169,20 @@ export function Net({ unread, wanted, onWanted }: Props) {
 
 function Official() {
   return (
-    <span className="official" title="официальный канал города">
-      официальный
+    <span className="official" title={t("ui-net-official-title")}>
+      {t("ui-net-official")}
     </span>
   );
 }
 
 function Back({ onBack }: { onBack: () => void }) {
   return (
-    <button className="quiet" onClick={onBack} aria-label="назад" title="к списку">
+    <button
+      className="quiet"
+      onClick={onBack}
+      aria-label={t("ui-net-back")}
+      title={t("ui-net-back-title")}
+    >
       ←
     </button>
   );
@@ -226,7 +234,7 @@ function Compose({
           onKeyDown={(e) => {
             if (e.key === "Enter" && query.trim() && !acting.busy) void open(query.trim());
           }}
-          placeholder="кому — имя"
+          placeholder={t("ui-net-to-whom")}
         />
       </div>
       <ul className="net-list">
@@ -299,18 +307,18 @@ function Talk({
     <div className="net">
       <div className="row">
         <Back onBack={onBack} />
-        <button className="link net-who" onClick={() => askProfile(who)} title="профиль">
+        <button className="link net-who" onClick={() => askProfile(who)} title={t("ui-net-profile")}>
           {who}
         </button>
       </div>
       <div className="chat-lines net-letters" ref={scroll}>
-        {letters.length === 0 && <p className="note">Пока ни слова.</p>}
+        {letters.length === 0 && <p className="note">{t("ui-net-letters-none")}</p>}
         {letters.map((letter) => {
           const onWay = letter.mine && new Date(letter.delivered_at).getTime() > now;
           return (
             <p key={letter.id} className={`line${letter.mine ? " mine" : ""}`}>
               {letter.mine ? (
-                <b>вы:</b>
+                <b>{t("ui-net-you")}</b>
               ) : (
                 <PersonName name={letter.who}>
                   <b>{letter.who}:</b>
@@ -318,7 +326,9 @@ function Talk({
               )}{" "}
               {letter.text}
               <span className="net-when">
-                {onWay ? `в пути · дойдёт ${when(letter.delivered_at)}` : when(letter.delivered_at)}
+                {onWay
+                  ? t("ui-net-on-way", { when: when(letter.delivered_at) })
+                  : when(letter.delivered_at)}
               </span>
             </p>
           );
@@ -332,10 +342,10 @@ function Talk({
           onKeyDown={(e) => {
             if (e.key === "Enter" && !acting.busy && text.trim()) void send();
           }}
-          placeholder="написать…"
+          placeholder={t("ui-net-letter-hint")}
         />
         <button onClick={send} disabled={acting.busy || !text.trim()}>
-          Отправить
+          {t("ui-net-send")}
         </button>
       </div>
       <Refusal of={acting} />
@@ -409,13 +419,13 @@ function Feed({
         {channel?.official && <Official />}
         {mayLeave && (
           <button className="quiet" onClick={toggle} disabled={acting.busy}>
-            {mine ? "Отписаться" : "Подписаться"}
+            {mine ? t("ui-net-unsubscribe") : t("ui-net-subscribe")}
           </button>
         )}
       </div>
       {channel?.about && <p className="note">{channel.about}</p>}
       <div className="chat-lines net-letters">
-        {posts.length === 0 && <p className="note">Пока ничего не опубликовано.</p>}
+        {posts.length === 0 && <p className="note">{t("ui-net-posts-none")}</p>}
         {posts.map((post) => (
           <p key={post.id} className="line post">
             <PersonName name={post.who}>
@@ -434,10 +444,10 @@ function Feed({
             rows={2}
             value={text}
             onChange={(e) => setText(e.target.value)}
-            placeholder="что сказать читателям…"
+            placeholder={t("ui-net-post-hint")}
           />
           <button onClick={publish} disabled={acting.busy || !text.trim()}>
-            Опубликовать
+            {t("ui-net-publish")}
           </button>
         </div>
       )}
@@ -507,21 +517,21 @@ function Channels({
           autoFocus
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="найти канал"
+          placeholder={t("ui-net-find-channel")}
         />
         <button className="quiet" onClick={() => setMaking((v) => !v)}>
-          Новый канал
+          {t("ui-net-new-channel")}
         </button>
       </div>
 
       {making && (
         <div className="card flat">
           <label>
-            <span>название</span>
+            <span>{t("ui-net-channel-name")}</span>
             <input value={name} onChange={(e) => setName(e.target.value)} maxLength={40} />
           </label>
           <label>
-            <span>о чём</span>
+            <span>{t("ui-net-channel-about")}</span>
             <textarea
               value={about}
               onChange={(e) => setAbout(e.target.value)}
@@ -531,7 +541,7 @@ function Channels({
           </label>
           <div className="row">
             <button onClick={create} disabled={acting.busy || !name.trim()}>
-              Создать
+              {t("ui-net-channel-create")}
             </button>
           </div>
         </div>
@@ -546,19 +556,19 @@ function Channels({
                 {channel.official && <Official />}
               </span>
               <span className="net-preview">
-                {channel.official ? "город" : channel.by}
+                {channel.official ? t("ui-net-city") : channel.by}
                 {channel.about ? ` · ${channel.about}` : ""}
               </span>
             </button>
             {!mine.find((c) => c.id === channel.id && (c.implied || (c.writable && !c.official))) && (
               <button className="quiet" onClick={() => void subscribe(channel)} disabled={acting.busy}>
-                {channel.subscribed ? "отписаться" : "подписаться"}
+                {channel.subscribed ? t("ui-net-unsubscribe-quiet") : t("ui-net-subscribe-quiet")}
               </button>
             )}
           </li>
         ))}
       </ul>
-      {found.length === 0 && <p className="note">Ничего не найдено.</p>}
+      {found.length === 0 && <p className="note">{t("ui-net-nothing-found")}</p>}
       <Refusal of={acting} />
     </div>
   );

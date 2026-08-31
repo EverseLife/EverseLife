@@ -65,7 +65,7 @@ async def offer_deed(
     A zero price takes the deed off sale.
     """
     if deed.owner_identity_id != identity.id:
-        raise EstateError("бумага не ваша: продают своё")
+        raise EstateError(key="estate-deed-not-yours")
     if price <= 0:
         deed.sale_price = None
         deed.sale_to_identity_id = None
@@ -94,18 +94,20 @@ async def buy_deed(session: AsyncSession, buyer: Identity, deed: Deed) -> Deed:
     the Net.
     """
     if deed.sale_price is None:
-        raise NotForSale("бумага не выставлена на продажу")
+        raise NotForSale(key="estate-deed-not-on-sale")
     if deed.owner_identity_id == buyer.id:
-        raise EstateError("своя бумага не покупается")
+        raise EstateError(key="estate-deed-own")
     if deed.sale_to_identity_id is not None and deed.sale_to_identity_id != buyer.id:
-        raise NotForSale("договор адресный: бумага обещана другому")
+        raise NotForSale(key="estate-deed-addressed")
 
     price = int(deed.sale_price)
     account = await ledger.account_for(session, AccountKind.IDENTITY, buyer.id)
     remainder = await ledger.balance(session, account.id)
     if remainder < price:
         raise NotEnoughMoney(
-            f"бумага стоит {money_str(price)} ₭, а на счету {money_str(remainder)} ₭"
+            key="estate-deed-too-dear",
+            price=money_str(price),
+            have=money_str(remainder),
         )
 
     seller = await ledger.account_for(session, AccountKind.IDENTITY, deed.owner_identity_id)

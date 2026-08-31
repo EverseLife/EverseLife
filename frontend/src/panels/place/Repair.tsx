@@ -5,7 +5,9 @@
 /** One window of the location; what they share is in `shared.ts`. */
 
 import { useState } from "react";
-import { useSession } from "../../actions";
+import { useNames, useSession } from "../../actions";
+import { t } from "../../locale";
+import { goodsName } from "../../names";
 import type { Props } from "./shared";
 
 
@@ -18,6 +20,7 @@ import type { Props } from "./shared";
  */
 export function Repair({ look, busy, act }: Props) {
   const session = useSession();
+  const names = useNames();
   const [plan, setPlan] = useState<any>(null);
   const home = look.node?.building;
   const worn = home?.condition ?? 100;
@@ -31,12 +34,12 @@ export function Repair({ look, busy, act }: Props) {
     <>
       <div className="row">
         <button className="quiet" onClick={() => act(count)} disabled={busy || worn >= 100}>
-          Посчитать ремонт
+          {t("ui-place-repair-estimate")}
         </button>
         <span className="note">
           {worn >= 100
-            ? "Дом целёхонек: чинить в нём нечего."
-            : `Состояние ${worn.toFixed(0)}%. На нуле дом обрушится вместе с тем, что стоит во дворе.`}
+            ? t("ui-place-repair-whole")
+            : t("ui-place-repair-condition", { condition: worn.toFixed(0) })}
         </span>
       </div>
 
@@ -46,9 +49,12 @@ export function Repair({ look, busy, act }: Props) {
             <tbody>
               {plan.materials.map((m: any) => (
                 <tr key={m.goods}>
-                  <td>{m.goods}</td>
+                  <td>{goodsName(names, m.goods)}</td>
                   <td className={m.have < m.need ? "note" : undefined}>
-                    {m.have.toFixed(1)} из {m.need.toFixed(1)}
+                    {t("ui-place-materials-have", {
+                      have: m.have.toFixed(1),
+                      need: m.need.toFixed(1),
+                    })}
                   </td>
                 </tr>
               ))}
@@ -64,14 +70,18 @@ export function Repair({ look, busy, act }: Props) {
               }
               disabled={busy || short.length > 0 || !plan.mine || plan.going}
             >
-              Чинить
+              {t("ui-place-repair-do")}
             </button>
             <span className="note">
               {plan.going
-                ? "Ремонт уже идёт."
+                ? t("ui-place-repair-going")
                 : short.length > 0
-                  ? `Не хватает: ${short.map((m: any) => m.goods).join(", ")}`
-                  : `Работы на ${(plan.minutes / 60).toFixed(1)} ч; чинят тем же, чем построено.`}
+                  ? t("ui-place-short", {
+                      what: short.map((m: any) => goodsName(names, m.goods)).join(", "),
+                    })
+                  : t("ui-place-repair-term", {
+                      hours: (plan.minutes / 60).toFixed(1),
+                    })}
             </span>
           </div>
         </>

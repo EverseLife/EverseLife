@@ -16,9 +16,10 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from src import herald
+from src import herald, i18n
 from src.constants import Catalog
 from src.engine import events, jobs, world
+from src.engine.errors import Says
 from src.herald import chronicle, webhook
 from src.herald.job import run_once
 from src.models.event import EventKind
@@ -172,6 +173,100 @@ async def test_a_rate_that_did_not_move_is_not_told(
         session, EventKind.RATE_DECIDED, rate=14, was=14, by_council=True, city="Рудный"
     )
     assert await chronicle.compose(session, [council])
+
+
+async def test_the_rate_is_announced_with_its_reasons(
+    session: AsyncSession, catalog: Catalog
+) -> None:
+    """The rate goes out together with the explanation -- that is D-030.
+
+    The reasons are stored as keys and numbers now (D-251 wave IV), and this
+    line is what broke silently when they were: the bank started writing
+    `why_said` and the chronicle went on reading `why`, so the announcement
+    kept coming out with the explanation cut off. Nothing failed -- the line
+    was simply shorter.
+    """
+    moved = await events.record(
+        session,
+        EventKind.RATE_DECIDED,
+        rate=14,
+        was=12,
+        why_said=i18n.written([Says("bank-why-rate-base", {"rate": 12.0})]),
+    )
+    told = await chronicle.compose(session, [moved])
+    assert told, "ставка сдвинулась и не объявлена"
+    said = i18n.render("bank-why-rate-base", {"rate": 12.0}, locale=i18n.DEFAULT_LOCALE)
+    assert said in told[0], f"объяснение потерялось: {told[0]}"
+
+
+async def test_an_old_decision_still_says_why(session: AsyncSession, catalog: Catalog) -> None:
+    """A row written before the keys existed keeps its one Russian line.
+
+    An announcement with no reason in it would be worse than an old one in the
+    wrong language, so the text field is read when there are no keys to say.
+    """
+    old = await events.record(session, EventKind.RATE_DECIDED, rate=14, was=12, why="инфляция")
+    told = await chronicle.compose(session, [old])
+    assert told and "инфляция" in told[0]
+
+
+async def test_every_line_the_chronicle_may_write_says_something(
+    session: AsyncSession, catalog: Catalog
+) -> None:
+    """No builder may name a message the locale does not have.
+
+    The words moved out of f-strings into the locale (D-251), and a key with
+    no message renders as the key itself -- which in this file means the key
+    goes to Discord. Nothing else covers the law, the charter, the vote, the
+    council seat or the court: they are checked here as a family, so a line
+    added without its message fails rather than posting `chronicle-whatever`.
+    """
+    told = []
+    for kind, payload in (
+        (EventKind.CITY_LAW_SET, {"law": "налог", "was": "5", "now": "7"}),
+        (EventKind.CITY_CHARTER_SET, {"question": "кто правит", "option": "совет"}),
+        (EventKind.VOTE_CLOSED, {"passed": True, "yes": 3, "no": 1, "electorate": 5}),
+        #: And a vote nobody was for. A zero is a count like any other, and
+        #: `plain()` used to turn it into an empty string -- «(за , против 9…)».
+        (EventKind.VOTE_CLOSED, {"passed": False, "yes": 0, "no": 9, "electorate": 9}),
+        (EventKind.COUNCIL_SEATED, {"who": "Тэрн"}),
+        (EventKind.CASE_JUDGED, {"verdict": "виновен", "sanction": "штраф"}),
+        #: And the same court with neither half: the two clauses are optional
+        #: and a missing one must leave a sentence, not a hole.
+        (EventKind.CASE_JUDGED, {}),
+    ):
+        event = await events.record(session, kind, **payload)
+        told.extend(await chronicle.compose(session, [event]))
+
+    assert len(told) == 7, "какая-то строка не написалась"
+    for line in told:
+        assert "chronicle-" not in line, f"ключ вместо строки: {line}"
+        assert "{" not in line and "}" not in line, f"невыведенный аргумент: {line}"
+        assert "None" not in line, f"пустое значение просочилось в строку: {line}"
+    assert "за 0" in told[3], f"ноль голосов пропал из счёта: {told[3]}"
+
+
+async def test_a_name_with_discord_markup_in_it_stays_text(
+    session: AsyncSession, catalog: Catalog
+) -> None:
+    """A city is named by a player, and its name reaches the channel.
+
+    The rate line quotes its reasons, and one of them names the city whose
+    council decided. Those reasons are rendered from the locale now, so the
+    escaping had to move with them -- it is the stored **arguments** that go
+    through `plain()`, not the finished phrase, because a clause carries the
+    punctuation of its own language.
+    """
+    loud = await events.record(
+        session,
+        EventKind.RATE_DECIDED,
+        rate=14,
+        was=12,
+        why_said=i18n.written([Says("bank-why-council", {"city": "**@everyone**", "advised": 12})]),
+    )
+    line = (await chronicle.compose(session, [loud]))[0]
+    assert "**@everyone**" not in line, f"разметка Discord ушла в канал: {line}"
+    assert "@everyone" in line, "имя города потерялось вместе с разметкой"
 
 
 # --- feed pass ---------------------------------------------------------------

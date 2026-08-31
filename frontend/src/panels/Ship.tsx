@@ -34,7 +34,9 @@ import { Deadline } from "../Deadline";
 import { Rule } from "../Rule";
 import { busyWith } from "../busy";
 import { firstOfClass } from "../classes";
-import { Refusal, useActions, useBook, useEdition, useSession } from "../actions";
+import { Refusal, useActions, useBook, useEdition, useNames, useSession } from "../actions";
+import { t } from "../locale";
+import { goodsName } from "../names";
 import { planetName } from "../planets";
 import { Chart } from "./ship/Chart";
 import { Plan } from "./ship/Plan";
@@ -46,12 +48,12 @@ import { term } from "./map/orbits";
  * from, and the yard it is laid at. The engine asks by the same words
  * (`ship.FOUNDATION`, `ship.SPACEPORT`); the names come from the catalog.
  */
-const FOUNDATION = "Основа корабля";
-const SPACEPORT = "Верфь";
+const FOUNDATION = "ship_foundation";
+const SPACEPORT = "shipyard";
 /** The node property that marks a node as being aboard: it arrives in `features`. */
-const ABOARD = "борт";
+const ABOARD = "aboard";
 /** The console's class: the ship is commanded from it (D-230). */
-const BRIDGE = "Рубка";
+const BRIDGE = "bridge";
 /**
  * The occupation a keel being laid is (D-211, `engine.occupation`).
  *
@@ -73,6 +75,7 @@ const AIR_LOW = 0.25;
  * cargo by unloading -- where one total would say nothing.
  */
 function Card({ v }: { v: Vessel }) {
+  const names = useNames();
   const parts = v.mass_parts;
   const hours = autonomy(v.air);
   return (
@@ -80,44 +83,57 @@ function Card({ v }: { v: Vessel }) {
       <tbody>
         {v.engines.length === 0 && (
           <tr>
-            <td>двигатели</td>
-            <td className="note">нет ни одного: корабль не летит</td>
+            <td>{t("ui-ship-engines")}</td>
+            <td className="note">{t("ui-ship-engines-none")}</td>
           </tr>
         )}
         {v.engines.map((engine) => (
           <tr key={engine.name}>
-            <td>{engine.name}</td>
+            <td>{goodsName(names, engine.name)}</td>
             <td className="note">
-              ×{engine.count} · тяга {engine.thrust.toFixed(0)} каждый · класс {engine.class}
+              {t("ui-ship-engine-row", {
+                count: String(engine.count),
+                thrust: engine.thrust.toFixed(0),
+                class: String(engine.class),
+              })}
             </td>
           </tr>
         ))}
         <tr>
-          <td>масса</td>
+          <td>{t("ui-ship-mass")}</td>
           <td className="note">
-            корпус {parts.hull.toFixed(0)} кг · станции {parts.machines.toFixed(0)} кг · груз{" "}
-            {parts.cargo.toFixed(0)} кг
+            {t("ui-ship-mass-parts", {
+              hull: parts.hull.toFixed(0),
+              machines: parts.machines.toFixed(0),
+              cargo: parts.cargo.toFixed(0),
+            })}
           </td>
         </tr>
         <tr>
-          <td>скорость</td>
+          <td>{t("ui-ship-speed")}</td>
           <td className="note">
-            {v.ratio.toFixed(2)} тяги на кг массы
-            {v.class != null && ` · класс ${v.class}`}
-            {v.ratio < v.min_ratio && " · ниже порога отрыва"}
+            {t("ui-ship-ratio", { ratio: v.ratio.toFixed(2) })}
+            {v.class != null && ` · ${t("ui-ship-class", { class: String(v.class) })}`}
+            {v.ratio < v.min_ratio && ` · ${t("ui-ship-below-threshold")}`}
           </td>
         </tr>
         {/* The air (D-233, D-234). Shown always, because "nothing is being
             spent" is itself the answer to "how long can we stay out there". */}
         <tr>
-          <td>кислород</td>
+          <td>{t("ui-ship-air")}</td>
           <td className="note">
-            {v.air.units.toFixed(0)} в баках · вода {v.air.water.toFixed(0)}
+            {t("ui-ship-air-tanks", {
+              units: v.air.units.toFixed(0),
+              water: v.air.water.toFixed(0),
+            })}
             {v.air.sealed
               ? hours != null
-                ? ` · расход ${(-v.air.per_hour).toFixed(2)} в час · хватит на ${term(hours)}`
-                : " · жизнеобеспечение покрывает экипаж"
-              : " · за бортом воздух, генерация спит"}
+                ? ` · ${t("ui-ship-air-burn", {
+                    spend: (-v.air.per_hour).toFixed(2),
+                    term: term(hours),
+                  })}`
+                : ` · ${t("ui-ship-air-covered")}`
+              : ` · ${t("ui-ship-air-outside")}`}
           </td>
         </tr>
       </tbody>
@@ -164,7 +180,7 @@ function Ascent({
 }) {
   const climb = vessel.climb;
   if (!climb) {
-    return <p className="note">Отсюда не подняться: у этой планеты нет орбитального узла.</p>;
+    return <p className="note">{t("ui-ship-no-orbit")}</p>;
   }
   const dry = vessel.fuel < wanted(climb);
   return (
@@ -172,8 +188,11 @@ function Ascent({
       <p>
         <b>{climb.name}</b> ·{" "}
         {climb.hours == null
-          ? "тяги нет вовсе: поставьте двигатель"
-          : `${climb.hours.toFixed(1)} ч · ${climb.fuel?.toFixed(0)} топлива`}{" "}
+          ? t("ui-ship-no-thrust")
+          : t("ui-ship-leg-cost", {
+              hours: climb.hours.toFixed(1),
+              fuel: climb.fuel?.toFixed(0) ?? "",
+            })}{" "}
         <button
           onClick={ascend}
           disabled={
@@ -182,33 +201,29 @@ function Ascent({
             vessel.crew > vessel.life_support ||
             dry
           }
-          title={
-            climb.reachable
-              ? "подъём занимает время по тяжести планеты и тяге корпуса; его можно развернуть"
-              : "тяги не хватает, чтобы оторваться: снимите массу или добавьте двигатель"
-          }
+          title={t(climb.reachable ? "ui-ship-ascend-hint" : "ui-ship-thrust-short")}
         >
-          Подняться на околопланетную орбиту
+          {t("ui-ship-ascend")}
         </button>
       </p>
       {!climb.reachable && climb.hours != null && (
-        <p className="note">Тяговооружённости не хватает: корабль не отрывается.</p>
+        <p className="note">{t("ui-ship-ratio-short")}</p>
       )}
       {dry ? (
         <p className="note">
-          В баках {vessel.fuel.toFixed(0)}, а нужно {climb.needs?.toFixed(0)}: подъём и
-          спуск обратно. На орбите не заправляют — рёбер к кораблю нет, и с борта не сойти.
+          {t("ui-ship-dry-ascent", {
+            fuel: vessel.fuel.toFixed(0),
+            needs: climb.needs?.toFixed(0) ?? "",
+          })}
         </p>
       ) : (
         <p className="note">
-          Сверх расхода на подъём держится {((climb.needs ?? 0) - (climb.fuel ?? 0)).toFixed(0)} на
-          спуск обратно: подниматься без топлива на спуск некуда.
+          {t("ui-ship-reserve", {
+            kept: ((climb.needs ?? 0) - (climb.fuel ?? 0)).toFixed(0),
+          })}
         </p>
       )}
-      <p className="note">
-        Курс на другую планету задаётся уже с орбиты: сперва подъём, потом переход, потом
-        выбор космодрома над планетой.
-      </p>
+      <p className="note">{t("ui-ship-course-later")}</p>
     </>
   );
 }
@@ -233,24 +248,25 @@ function Landing({
   const cost = vessel.descent;
   const [chosen, setChosen] = useState("");
   if (home.length === 0 || !cost) {
-    return (
-      <p className="note">
-        Садиться здесь некуда: ни одного космодрома с горящим маяком на этой планете.
-        Курс на другую планету задаётся на карте.
-      </p>
-    );
+    return <p className="note">{t("ui-ship-nowhere-to-land")}</p>;
   }
   const first = home[0];
   const port = chosen || first.node;
   return (
     <p>
-      <b>Сесть на планету</b> · {planetName(vessel.planet)} · {cost.hours?.toFixed(1)} ч ·{" "}
-      {cost.fuel?.toFixed(0)} топлива{" "}
+      <b>{t("ui-ship-land-title")}</b> · {planetName(vessel.planet)} ·{" "}
+      {/* A hull with no thrust at all is priced at nothing, and the number is
+          left out the way the interpolation left it out -- `String(undefined)`
+          would show the player the word "undefined". */}
+      {t("ui-ship-leg-cost", {
+        hours: cost.hours?.toFixed(1) ?? "",
+        fuel: cost.fuel?.toFixed(0) ?? "",
+      })}{" "}
       {home.length > 1 ? (
         <select
           value={port}
           onChange={(e) => setChosen(e.target.value)}
-          aria-label="космодром для посадки"
+          aria-label={t("ui-ship-pad-choice")}
         >
           {home.map((route) => (
             <option key={route.node} value={route.node}>
@@ -259,11 +275,8 @@ function Landing({
           ))}
         </select>
       ) : first.anywhere ? (
-        <span
-          className="note"
-          title="здесь нет космодромов: узел посадки разыгрывается при заходе, и садятся туда, куда пустила скала"
-        >
-          посадка вслепую
+        <span className="note" title={t("ui-ship-blind-hint")}>
+          {t("ui-ship-blind")}
         </span>
       ) : (
         <span className="note">{first.name}</span>
@@ -271,13 +284,9 @@ function Landing({
       <button
         onClick={() => land(port)}
         disabled={busy || !cost.reachable}
-        title={
-          cost.reachable
-            ? "спуск идёт по тяжести планеты и тяге корпуса — чуть дешевле подъёма"
-            : "тяги не хватает даже на посадку: снимите массу"
-        }
+        title={t(cost.reachable ? "ui-ship-land-hint" : "ui-ship-land-short")}
       >
-        Сесть
+        {t("ui-ship-land")}
       </button>
     </p>
   );
@@ -306,14 +315,17 @@ function Passage({
   return (
     <div className="doing">
       <span className="doing-what">
-        {v.flight.back ? "разворот" : "рейс"} в «{v.flight.name}»
+        {t("ui-ship-flight", { back: String(Boolean(v.flight.back)), name: v.flight.name })}
         {v.flight.planet && ` · ${planetName(v.flight.planet)}`}
       </span>
-      <Deadline until={v.flight.arrives_at} since={v.flight.started_at} label="рейс" />
+      <Deadline
+        until={v.flight.arrives_at}
+        since={v.flight.started_at}
+        label={t("ui-ship-flight-label")}
+      />
       <span className="doing-aside note">
-        Время сосчитано на отходе и не пересчитывается: небо, повернувшееся под
-        летящим кораблём, сделало бы рейс длиннее оплаченного. Курс менять
-        нельзя.{!v.flight.back && " Но можно развернуться."}
+        {t("ui-ship-flight-fixed")}
+        {!v.flight.back && ` ${t("ui-ship-may-turn")}`}
       </span>
       {/* The helm may still go over (D-242): the way back is as long as the way
           out has been, and costs its own fuel. Named with the pier it aims at,
@@ -321,13 +333,11 @@ function Passage({
       {/* Already going back: there is nothing left to turn (D-242). */}
       {!v.flight.back && (
         <button className="quiet" onClick={recall} disabled={busy || deaf || !v.left}>
-          Развернуться{v.left ? ` в «${v.left}»` : ""}
+          {t("ui-ship-recall", { known: String(Boolean(v.left)), port: v.left ?? "" })}
         </button>
       )}
       {!v.flight.back && !v.left && (
-        <span className="note">
-          Неизвестно, откуда корабль ушёл: развернуться не к чему, он дойдёт до конца.
-        </span>
+        <span className="note">{t("ui-ship-no-origin")}</span>
       )}
     </div>
   );
@@ -352,16 +362,11 @@ function Course({
   fly: (orbit: string) => void;
 }) {
   if (planet === null) {
-    return <p className="note">Курс задаётся на карте: выберите планету.</p>;
+    return <p className="note">{t("ui-ship-pick-planet")}</p>;
   }
   const routes: Route[] = vessel.routes.filter((route) => route.planet === planet);
   if (routes.length === 0) {
-    return (
-      <p className="note">
-        Отсюда туда хода нет: либо маршрута в мире не заведено, либо на той планете не
-        светит ни один маяк — корабль ушёл бы туда и остался на орбите.
-      </p>
-    );
+    return <p className="note">{t("ui-ship-no-route")}</p>;
   }
   const first = routes[0];
   const port = first.node;
@@ -372,25 +377,28 @@ function Course({
         style={{ background: `var(--planet-${planet})` }}
         aria-hidden="true"
       />
-      <b>{planetName(planet)}</b> · {first.hours?.toFixed(1)} ч · {first.fuel?.toFixed(0)} топлива
-      {!first.reachable && " · тяги не хватает: снимите массу"}{" "}
+      <b>{planetName(planet)}</b> ·{" "}
+      {t("ui-ship-leg-cost", {
+        hours: first.hours?.toFixed(1) ?? "",
+        fuel: first.fuel?.toFixed(0) ?? "",
+      })}
+      {!first.reachable && ` · ${t("ui-ship-thrust-cut")}`}{" "}
       <span className="note">{first.name}</span>{" "}
       <button
         onClick={() => fly(port)}
         disabled={busy || !first.reachable || vessel.fuel < wanted(first)}
-        title={
-          first.reachable
-            ? "переход идёт с орбиты на орбиту; космодром выбирается уже над планетой"
-            : "тяги не хватает, чтобы оторваться: снимите массу или добавьте двигатель"
-        }
+        title={t(first.reachable ? "ui-ship-fly-hint" : "ui-ship-thrust-short")}
       >
-        Лететь
+        {t("ui-ship-fly")}
       </button>
       {vessel.fuel < wanted(first) && (
         <span className="note">
           {" "}
-          · в баках {vessel.fuel.toFixed(0)}, а нужно {first.needs?.toFixed(0)}: переход и
-          посадка в конце
+          ·{" "}
+          {t("ui-ship-dry-fly", {
+            fuel: vessel.fuel.toFixed(0),
+            needs: first.needs?.toFixed(0) ?? "",
+          })}
         </span>
       )}
     </p>
@@ -412,13 +420,17 @@ function Nameplate({
   if (!editing) {
     return (
       <button className="quiet" onClick={() => (setName(vessel.name), setEditing(true))}>
-        Переименовать
+        {t("ui-ship-rename")}
       </button>
     );
   }
   return (
     <>
-      <input value={name} onChange={(e) => setName(e.target.value)} aria-label="имя корабля" />
+      <input
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        aria-label={t("ui-ship-name-label")}
+      />
       <button
         onClick={() => {
           rename(name);
@@ -426,10 +438,10 @@ function Nameplate({
         }}
         disabled={busy || !name.trim()}
       >
-        Назвать
+        {t("ui-ship-name-set")}
       </button>
       <button className="quiet" onClick={() => setEditing(false)}>
-        Отмена
+        {t("ui-ship-cancel")}
       </button>
     </>
   );
@@ -448,6 +460,7 @@ export function Ship({
 }) {
   const session = useSession();
   const book = useBook();
+  const names = useNames();
   //: This panel's own waiting and its own refusal: laying a keel must not grey
   //: out the chat and the map for eight hours of somebody else's work.
   const acting = useActions();
@@ -467,8 +480,12 @@ export function Ship({
   //: and the room aboard (D-230). The engine refuses otherwise; the panel
   //: does not offer what would be refused.
   const bridge = aboard && firstOfClass(book, stationsOf(look), BRIDGE) !== undefined;
-  const foundationName = firstOfClass(book, look.inventory.map((t) => t.goods), FOUNDATION);
-  const foundation = look.inventory.find((t) => t.goods === foundationName);
+  const foundationName = firstOfClass(
+    book,
+    look.inventory.map((thing) => thing.goods),
+    FOUNDATION,
+  );
+  const foundation = look.inventory.find((thing) => thing.goods === foundationName);
   //: A keel of this body's already under way. It is what the yard is doing, so
   //: it is drawn even when nothing else about the ship exists yet -- the node
   //: is not there until the deadline.
@@ -511,12 +528,8 @@ export function Ship({
   if (atConsole && !aboard) {
     return (
       <section>
-        <h2>Консоль управления кораблём</h2>
-        <p className="note">
-          Консоль стоит на земле и молчит: она работает только в узле корабля —
-          на основании, заложенном на космодроме из «узла космического корабля».
-          Для приказов с земли есть другая вещь — «Наземная консоль управления».
-        </p>
+        <h2>{t("ui-ship-console")}</h2>
+        <p className="note">{t("ui-ship-console-aground")}</p>
       </section>
     );
   }
@@ -539,22 +552,16 @@ export function Ship({
     <section>
       <Refusal of={acting} />
       <h2>
-        {ground
-          ? "Наземная консоль управления"
-          : atConsole
-            ? "Консоль управления кораблём"
-            : aboard
-              ? "Корабль"
-              : "Космическая верфь"}
-        <Rule>
-          Корабль — не вещь, а группа узлов карты с одним выходом наружу. Швартовка и
-          отход — появление и исчезновение одного ребра, а полёт это его отсутствие: с
-          борта просто некуда сойти. Скорость выводится из тяги против массы, поэтому
-          грузоподъёмности числом нет — перегруженный корабль остаётся в порту. Дорога
-          идёт тремя ногами: подъём на околопланетную орбиту, переход с орбиты на
-          орбиту, спуск на выбранный космодром. Курс задаётся на карте рубки: она
-          показывает часы и топливо именно этого корпуса.
-        </Rule>
+        {t(
+          ground
+            ? "ui-ship-ground-console"
+            : atConsole
+              ? "ui-ship-console"
+              : aboard
+                ? "ui-ship-title"
+                : "ui-ship-yard",
+        )}
+        <Rule>{t("ui-ship-rule")}</Rule>
       </h2>
 
       {commanded.map((v) => {
@@ -565,27 +572,46 @@ export function Ship({
         return (
         <div key={v.ship}>
           <p className="sign">
-            {v.name} · {v.nodes} узл. · тяга {v.thrust.toFixed(0)} на массу {v.mass.toFixed(0)} кг
+            {t("ui-ship-sign", {
+              name: v.name,
+              nodes: String(v.nodes),
+              thrust: v.thrust.toFixed(0),
+              mass: v.mass.toFixed(0),
+            })}
           </p>
           <AirBar v={v} />
           <p className="note">
-            тяговооружённость {v.ratio.toFixed(2)} при нужных {v.min_ratio.toFixed(2)}
-            {v.ratio < v.min_ratio && <b> · не отрывается</b>} · экипаж {v.crew} из{" "}
-            {v.life_support} · топлива в баках {v.fuel.toFixed(0)}
+            {t("ui-ship-ratio-line", {
+              ratio: v.ratio.toFixed(2),
+              min: v.min_ratio.toFixed(2),
+            })}
+            {v.ratio < v.min_ratio && <b> · {t("ui-ship-stuck")}</b>} ·{" "}
+            {t("ui-ship-crew", {
+              crew: String(v.crew),
+              support: String(v.life_support),
+              fuel: v.fuel.toFixed(0),
+            })}
             {v.stage === "orbit"
-              ? ` · на околопланетной орбите ${planetName(v.planet)}`
+              ? ` · ${t("ui-ship-in-orbit", { planet: planetName(v.planet) })}`
               : v.docked
-                ? ` · у верфи «${v.port}», место ${v.berth ?? "—"}`
+                ? ` · ${t("ui-ship-berthed", {
+                    port: String(v.port),
+                    berth: String(v.berth ?? "—"),
+                  })}`
                 : v.flight
-                  ? ` · в рейсе в «${v.flight.name}»`
-                  : " · вне причала"}
+                  ? ` · ${t("ui-ship-on-voyage", { name: v.flight.name })}`
+                  : ` · ${t("ui-ship-adrift")}`}
           </p>
           {/* A passage is a term like any other, and every term in this world
               is drawn the same way. At the console the whole card stands
               instead (`Passage`); in the ship's own window the bar alone is
               what there is room for. */}
           {v.flight && !orders && (
-            <Deadline until={v.flight.arrives_at} since={v.flight.started_at} label="рейс" />
+            <Deadline
+              until={v.flight.arrives_at}
+              since={v.flight.started_at}
+              label={t("ui-ship-flight-label")}
+            />
           )}
 
           {orders ? (
@@ -594,9 +620,7 @@ export function Ship({
                   ground station talks to the bridge, and there is none. Said
                   before the buttons rather than as a refusal after them. */}
               {deaf && (
-                <p className="reason">
-                  Невозможно управлять. На борту нет «Консоли управления кораблём».
-                </p>
+                <p className="reason">{t("ui-ship-deaf")}</p>
               )}
               <Chart
                 vessel={v}
@@ -665,10 +689,7 @@ export function Ship({
                   />
                 )}
                 {!bridge && (
-                  <p className="note">
-                    Отстыковка и рейс отдаются от консоли управления: встаньте в отсек,
-                    где она стоит. Без консоли на борту корабль никуда не летит.
-                  </p>
+                  <p className="note">{t("ui-ship-no-bridge")}</p>
                 )}
               </>
             )
@@ -685,12 +706,8 @@ export function Ship({
           <span className="doing-what">
             {keel.title}: {keel.what}
           </span>
-          {keel.until && <Deadline until={keel.until} label="закладка" />}
-          <span className="doing-aside note">
-            основа списана, узел появится сам — стоять у верфи не нужно. Но руки
-            заняты закладкой: до срока не выйдет ни спать, ни разведывать, ни
-            встать к станции. Ходить можно.
-          </span>
+          {keel.until && <Deadline until={keel.until} label={t("ui-ship-keel-label")} />}
+          <span className="doing-aside note">{t("ui-ship-keel-note")}</span>
         </div>
       )}
 
@@ -700,7 +717,7 @@ export function Ship({
           disabled={busy || !foundation || occupied !== null}
           title={occupied ?? undefined}
         >
-          Заложить основание для космического корабля
+          {t("ui-ship-lay-keel")}
         </button>
       )}
 
@@ -709,16 +726,18 @@ export function Ship({
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="Имя корабля"
+            placeholder={t("ui-ship-name-placeholder")}
           />
           <button
-            onClick={() =>
-              go(() => session.send("ship.found", { name: name || "Корабль" }))
-            }
+            //: An unnamed hull is named by the engine, which has the word for
+            //: it already (`ship.found`). Sending a default from here was the
+            //: same word written twice, and one of the two in a language the
+            //: window is not allowed to know (D-251).
+            onClick={() => go(() => session.send("ship.found", { name }))}
             disabled={busy || !foundation || occupied !== null}
             title={occupied ?? undefined}
           >
-            Заложить основание для космического корабля
+            {t("ui-ship-lay-keel")}
           </button>
         </>
       )}
@@ -727,9 +746,12 @@ export function Ship({
 
       {!orders && !keel && !foundation && (
         <p className="note">
-          Нужна «{foundationName ?? "основа узла корабля"}» в руках — её делают в космической
-          мастерской. Корабль растёт по узлу за раз: каждый следующий узел это и место, и
-          лишняя масса.
+          {t("ui-ship-need-foundation", {
+            goods:
+              foundationName !== undefined
+                ? goodsName(names, foundationName)
+                : t("ui-ship-foundation-word"),
+          })}
         </p>
       )}
     </section>

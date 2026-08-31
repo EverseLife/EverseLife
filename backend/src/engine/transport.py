@@ -109,15 +109,17 @@ def is_vehicle(catalog: Catalog, type_key: str) -> bool:
 def word(constants: Constants, type_key: str) -> str | None:
     """The word the vault calls this vehicle by.
 
-    The keys of `transport.speed_k` are words ("тачка", "повозка", "судно"),
-    and the vehicle's thing class names exactly that word (D-215): a wagon is
-    of class "Повозка". The engine keeps no type list: add an airship class in
-    the vault and it flies without a code change. Substring matching over item
-    names is gone -- it classified anything whose name merely contained the word.
+    The keys of `transport.speed_k` are thing-class ids (`wheelbarrow`, `cart`,
+    `vessel`) -- the vault writes them in Russian and `normalize_constants`
+    turns them into ids at load -- and the vehicle's thing class is exactly one
+    of them (D-215): a wagon is of class `cart`. The engine keeps no type list:
+    add an airship class in the vault and it flies without a code change.
+    Substring matching over item names is gone -- it classified anything whose
+    name merely contained the word.
     """
 
     thing_class = current_catalog().recipes.class_of(type_key)
-    #: No class -- the thing's own name may be the table word itself ("Судно"):
+    #: No class -- the thing's own id may be the table key itself (`vessel`):
     #: that keeps the tables usable before a recipe for such a vehicle exists.
     label = (thing_class or type_key).lower()
     return label if label in constants[R.TRANSPORT_SPEED_K] else None
@@ -128,10 +130,7 @@ def capacity(constants: Constants, type_key: str) -> float:
     label = word(constants, type_key)
     holds = constants[R.TRANSPORT_CAPACITY]
     if label is None or label not in holds:
-        raise NotVehicle(
-            f"вольт не знает грузоподъёмности «{type_key}»: заведите его в "
-            "transport.capacity и transport.speed_k"
-        )
+        raise NotVehicle(key="transport-unknown-capacity", vehicle=type_key)
     return holds[label]
 
 
@@ -171,28 +170,28 @@ async def harness(
     """Harness to a vehicle standing here. In person: a convoy is not teleported."""
 
     if body.state is not BodyState.ALIVE:
-        raise TransportError("мёртвое тело никуда не впрягается")
+        raise TransportError(key="transport-harness-dead")
     await travel.require_here(session, body)
 
     if not is_vehicle(catalog, item.type_key):
-        raise NotVehicle(f"«{item.type_key}» — не транспорт: впрягаются в повозку")
+        raise NotVehicle(key="transport-not-a-vehicle", vehicle=item.type_key)
     #: The refusal must come before harnessing, not on the first transit.
     capacity(constants, item.type_key)
 
     node = await session.get(Node, body.node_id)
     if node is None:  # pragma: no cover -- a body always stands in a node
-        raise TransportError("тело вне узла")
+        raise TransportError(key="transport-body-off-node")
     yard = await world.node_container(session, node)
     if item.container_id != yard.id:
-        raise NotHere("транспорта нет в этом узле: впрягаются в то, что рядом")
+        raise NotHere(key="transport-not-here")
 
     if await harnessed(session, body) is not None:
-        raise AlreadyHarnessed("уже впряжён: сначала распрячься")
+        raise AlreadyHarnessed(key="transport-already-harnessed")
     foreign_ = (
         await session.execute(select(Harness).where(Harness.item_id == item.id))
     ).scalar_one_or_none()
     if foreign_ is not None:
-        raise AlreadyHarnessed("в этот транспорт уже впряжены")
+        raise AlreadyHarnessed(key="transport-vehicle-taken")
 
     session.add(Harness(body_id=body.id, item_id=item.id))
     await session.flush()
@@ -288,26 +287,23 @@ async def load(
     """Load from the hands into the hold. In person: nothing is moved while on the go."""
 
     if body.state is not BodyState.ALIVE:
-        raise TransportError("мёртвое тело ничего не грузит")
+        raise TransportError(key="transport-load-dead")
     await travel.require_here(session, body)
 
     wagon = await harnessed(session, body)
     if wagon is None:
-        raise NotHarnessed("грузить некуда: сначала впрячься")
+        raise NotHarnessed(key="transport-load-not-harnessed")
     pocket = await world.body_container(session, body)
     if item.container_id != pocket.id:
-        raise TransportError("этой вещи нет в руках: грузят своё и из рук")
+        raise TransportError(key="transport-not-in-hands")
 
     qty = amount_float(item.amount) if quantity is None else quantity
     if qty <= 0:
-        raise TransportError("грузить нечего")
+        raise TransportError(key="transport-nothing-to-load")
     bonus = gear.mass_of(catalog, item.type_key, qty)
     free = capacity(constants, wagon.type_key) - await cargo_mass(session, catalog, wagon)
     if bonus > free:
-        raise Overloaded(
-            f"в трюме свободно {free:.1f} кг, а это {bonus:.1f} кг: "
-            "больше грузоподъёмности не увезёт никто"
-        )
+        raise Overloaded(key="transport-overloaded", free=free, mass=bonus)
 
     hold = await cargo(session, wagon)
     carried = await _move(session, item, hold, qty)
@@ -335,19 +331,19 @@ async def unload(
     """Unload from the hold into the hands. The hands limit does not go anywhere."""
 
     if body.state is not BodyState.ALIVE:
-        raise TransportError("мёртвое тело ничего не выгружает")
+        raise TransportError(key="transport-unload-dead")
     await travel.require_here(session, body)
 
     wagon = await harnessed(session, body)
     if wagon is None:
-        raise NotHarnessed("выгружать нечего: сначала впрячься")
+        raise NotHarnessed(key="transport-unload-not-harnessed")
     hold = await cargo(session, wagon)
     if item.container_id != hold.id:
-        raise TransportError("этой вещи нет в трюме")
+        raise TransportError(key="transport-not-in-hold")
 
     qty = amount_float(item.amount) if quantity is None else quantity
     if qty <= 0:
-        raise TransportError("выгружать нечего")
+        raise TransportError(key="transport-nothing-to-unload")
     await gear.check_carry(session, constants, catalog, body, item.type_key, qty)
 
     pocket = await world.body_container(session, body)

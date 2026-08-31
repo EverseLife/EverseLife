@@ -5,7 +5,9 @@ import { useEffect, useState } from "react";
 import type { Look, Outlook } from "../../api";
 import { Deadline } from "../../Deadline";
 import { Hint } from "../../Hint";
-import { useSession } from "../../actions";
+import { useNames, useSession } from "../../actions";
+import { t } from "../../locale";
+import { goodsName, type NamesRu } from "../../names";
 import { LAYERS, type LayerId } from "./model";
 import { long, price, spread } from "./words";
 
@@ -45,11 +47,11 @@ const layerOf = (goal: string, here: LayerId): LayerId => GOAL_LAYER[goal] ?? he
 
 /** The goal in the player's own words, for the note that sends them to the right map. */
 const GOAL_WORD: Record<string, string> = {
-  lot: "участок",
-  room: "помещения Предтеч",
-  site: "новое место",
-  vein: "жилу",
-  forest: "лес",
+  lot: "ui-map-goal-lot",
+  room: "ui-map-goal-room",
+  site: "ui-map-goal-site",
+  vein: "ui-map-goal-vein",
+  forest: "ui-map-goal-forest",
 };
 
 /** Exploration from the map: **the server says what may be sought here** (D-152, D-232).
@@ -72,6 +74,7 @@ export function Search({
   layer: LayerId;
 }) {
   const session = useSession();
+  const names = useNames();
   const [speciesList, setSpeciesList] = useState<string[]>([]);
   const [species, setSpecies] = useState("");
   const [forecast, setForecast] = useState<Outlook | null>(null);
@@ -140,25 +143,26 @@ export function Search({
     act(() => session.send("explore.survey", { goal, resource }));
 
   /** The layer in the player's words, for the note that names another map. */
-  const mapWord = (one: LayerId) => LAYERS.find((option) => option.id === one)?.label ?? one;
+  const mapWord = (one: LayerId) => {
+    const key = LAYERS.find((option) => option.id === one)?.word;
+    return key ? t(key) : one;
+  };
 
   return (
     <div className="row search">
       {run ? (
         <>
           <span className="note">
-            вы в разведке · вернётесь <Deadline until={run.returns_at} label="разведка" />
+            {t("ui-map-search-away")}{" "}
+            <Deadline until={run.returns_at} label={t("ui-map-survey-label")} />
           </span>
           <button
             onClick={() => act(() => session.send("explore.cancel"))}
             disabled={busy}
           >
-            Вернуться сейчас
+            {t("ui-map-search-return")}
           </button>
-          <Hint>
-            Повернуть назад можно в любой момент: находки не будет, потраченные
-            силы не вернутся.
-          </Hint>
+          <Hint>{t("ui-map-search-return-rule")}</Hint>
         </>
       ) : (
         <>
@@ -173,43 +177,35 @@ export function Search({
           {goals.includes("room") && (
             <>
               <button onClick={() => seek("room")} disabled={busy}>
-                Вскрыть следующее помещение
+                {t("ui-map-search-room")}
               </button>
-              <Hint>
-                Город Предтеч стоял здесь до вас: разведка не создаёт места, а
-                открывает следующую дверь. Помещение приходит сразу с
-                содержимым, и чем глубже от космодрома, тем оно богаче. Город
-                конечен: чем больше вскрыто, тем чаще заход возвращается ни с
-                чем, а потом и вовсе не с чем.
-              </Hint>
+              <Hint>{t("ui-map-search-room-rule")}</Hint>
             </>
           )}
           {goals.includes("lot") && (
             <>
               <button onClick={() => seek("lot")} disabled={busy}>
-                Уйти искать участок
+                {t("ui-map-search-lot")}
               </button>
-              <Hint>
-                Найденный участок встанет городской землёй: её выкупают у города
-. Разведчик уходит сам, до возвращения недоступен, как во
-                сне, и остаётся на находке.
-              </Hint>
+              <Hint>{t("ui-map-search-lot-rule")}</Hint>
             </>
           )}
           {goals.includes("site") && (
             <button onClick={() => seek("site")} disabled={busy}>
-              Уйти искать новое место
+              {t("ui-map-search-site")}
             </button>
           )}
           {goals.includes("vein") && (
             <>
               <button onClick={() => seek("vein", species || undefined)} disabled={busy}>
-                Уйти искать жилу
+                {t("ui-map-search-vein")}
               </button>
               <select value={species} onChange={(e) => setSpecies(e.target.value)}>
-                <option value="">любую породу</option>
+                <option value="">{t("ui-map-search-any-ore")}</option>
                 {speciesList.map((name) => (
-                  <option key={name}>{name}</option>
+                  <option key={name} value={name}>
+                    {goodsName(names, name)}
+                  </option>
                 ))}
               </select>
             </>
@@ -222,11 +218,15 @@ export function Search({
               disabled={busy}
               title={
                 woods
-                  ? `шанс ${woods.chance >= 1 ? Math.round(woods.chance) : woods.chance.toFixed(1)}%: лес ищется дольше прочего`
-                  : "рубить древесину можно там, где лес"
+                  ? t("ui-map-search-forest-odds", {
+                      chance: String(
+                        woods.chance >= 1 ? Math.round(woods.chance) : woods.chance.toFixed(1),
+                      ),
+                    })
+                  : t("ui-map-search-forest-hint")
               }
             >
-              Уйти искать лес
+              {t("ui-map-search-forest")}
             </button>
           )}
           {/* What this place offers but another map does. The button is not
@@ -235,41 +235,34 @@ export function Search({
               mechanic that was taken away. */}
           {elsewhere.length > 0 && (
             <span className="note">
-              отсюда ищут и{" "}
+              {t("ui-map-search-elsewhere")}{" "}
               {/* Goals grouped by the map each belongs to: from space both the
                   built-up map and the surface are "another layer", and naming
                   only the first one's layer would send the reader to a map
                   where half the buttons are not. */}
               {[...new Set(elsewhere.map((goal) => layerOf(goal, layer)))]
-                .map(
-                  (one) =>
-                    `${elsewhere
+                .map((one) =>
+                  t("ui-map-search-elsewhere-layer", {
+                    goals: elsewhere
                       .filter((goal) => layerOf(goal, layer) === one)
-                      .map((goal) => GOAL_WORD[goal] ?? goal)
-                      .join(", ")} — на слое «${mapWord(one)}»`,
+                      .map((goal) => (GOAL_WORD[goal] ? t(GOAL_WORD[goal]) : goal))
+                      .join(", "),
+                    layer: mapWord(one),
+                  }),
                 )
                 .join(" · ")}
             </span>
           )}
-          {goals.length > 0 && (
-            <Hint>
-              Разведчик уходит сам и до возвращения недоступен, как во сне.
-              Кончатся силы — доспит в поле и продолжит. Нашёл — там и остаётся
-; чем дальше от города находка, тем длиннее к ней дорога
-. Лес попадается и сам собой, но заказанный ищется дольше. Кнопка
-              стоит на том слое, куда ляжет находка: участок и помещение — в
-              застройке, место, жила и лес — на поверхности планеты.
-            </Hint>
-          )}
+          {goals.length > 0 && <Hint>{t("ui-map-search-rule")}</Hint>}
         </>
       )}
-      {!run && goals.length > 0 && forecast && <Forecast forecast={forecast} />}
+      {!run && goals.length > 0 && forecast && <Forecast forecast={forecast} names={names} />}
     </div>
   );
 }
 
 /** What a run from here will cost (D-156). */
-function Forecast({ forecast }: { forecast: Outlook }) {
+function Forecast({ forecast, names }: { forecast: Outlook; names: NamesRu | null }) {
   const { min, max } = forecast.minutes;
   const term = min === max ? long(min) : spread(min, max);
   //: The chance may be a fraction of a percent -- rounding to an integer would
@@ -279,17 +272,23 @@ function Forecast({ forecast }: { forecast: Outlook }) {
     : forecast.chance.toFixed(1);
   return (
     <span className="note">
-      заход отсюда: {term} · шанс {chance}% · до {price(forecast.stamina)}{" "}
-      выносливости
+      {t("ui-map-forecast", { term, chance: String(chance), price: price(forecast.stamina) })}
       {forecast.resource && (forecast.aim ?? 1) < 1 &&
-        ` · ${forecast.resource.toLowerCase()} редка: шанс уже в ${(1 / (forecast.aim ?? 1)).toFixed(0)} раз`}
+        ` · ${t("ui-map-forecast-rare", {
+          goods: goodsName(names, forecast.resource).toLowerCase(),
+          times: (1 / (forecast.aim ?? 1)).toFixed(0),
+        })}`}
       {forecast.explored > 0 &&
-        ` · окрестность исхожена: находок отсюда ${forecast.explored}`}
+        ` · ${t("ui-map-forecast-explored", { count: String(forecast.explored) })}`}
       {/* Теснота — свойство места, на которое игрок может ответить: отойти от
           скопления и идти от границы. Потому она названа отдельным числом, а не
           спрятана в общем шансе (D-207). */}
       {(forecast.crowding ?? 1) < 1 &&
-        ` · тесно${forecast.anchor ? ` у ${forecast.anchor.toLowerCase()}` : ""}: шанс уже в ${(1 / (forecast.crowding ?? 1)).toFixed(1)} раз`}
+        ` · ${t("ui-map-forecast-crowding", {
+          near: String(Boolean(forecast.anchor)),
+          anchor: forecast.anchor?.toLowerCase() ?? "",
+          times: (1 / (forecast.crowding ?? 1)).toFixed(1),
+        })}`}
     </span>
   );
 }

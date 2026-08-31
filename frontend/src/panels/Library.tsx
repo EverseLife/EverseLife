@@ -24,7 +24,9 @@ import type { Recipe } from "../api";
 import * as api from "../api";
 import type { Look } from "../api";
 import { Rule } from "../Rule";
-import { Refusal, useActions, useBook, useSession } from "../actions";
+import { Refusal, useActions, useBook, useNames, useSession } from "../actions";
+import { goodsName } from "../names";
+import { t } from "../locale";
 
 /** How many catalog rows to show at a time. A display quantity, not a game one. */
 const PAGE = 8;
@@ -44,6 +46,7 @@ export function Library({ look }: Omit<Props, "busy" | "act">) {
 
   //: The book is the one loaded at login (`useBook`), not a second fetch.
   const book = useBook();
+  const names = useNames();
   const [crops, setCrops] = useState<{ id: string; name: string }[]>([]);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
@@ -54,23 +57,28 @@ export function Library({ look }: Omit<Props, "busy" | "act">) {
 
   //: The shelf, not the vault: only what this library holds is on the table.
   //: The vault catalog supplies the details -- station, inputs, level -- and
-  //: the shelf supplies the list and the contributors' names.
+  //: the shelf supplies the list and the contributors' names. Everything is
+  //: keyed by the recipe id (D-251); the words come from the names bundle.
   const shelf = look.node?.shelf ?? [];
-  const byName: Record<string, Recipe> = Object.fromEntries(
-    (book?.recipes ?? []).map((r) => [r.name, r]),
+  const byId: Record<string, Recipe> = Object.fromEntries(
+    (book?.recipes ?? []).map((r) => [r.id ?? r.name, r]),
   );
   const all = shelf.map((entry) => ({
-    ...(byName[entry.recipe] ?? { name: entry.recipe, inputs: [], level: "?", station: null }),
+    ...(byId[entry.recipe] ?? { name: entry.recipe, inputs: [], level: "?", station: null }),
+    id: entry.recipe,
     contributor: entry.contributor,
   }));
   const query = search.trim().toLowerCase();
+  //: The player types Russian, so the match runs over the display words.
   const found = all.filter(
     (recipe) =>
       !query ||
-      recipe.name.toLowerCase().includes(query) ||
-      (recipe.station ?? "").toLowerCase().includes(query) ||
+      goodsName(names, recipe.id).toLowerCase().includes(query) ||
+      (recipe.station ? goodsName(names, recipe.station) : "").toLowerCase().includes(query) ||
       (recipe.contributor ?? "").toLowerCase().includes(query) ||
-      recipe.inputs.some((entry: string) => entry.toLowerCase().includes(query)),
+      recipe.inputs.some((entry: string) =>
+        goodsName(names, entry).toLowerCase().includes(query),
+      ),
   );
 
   const pages = Math.max(1, Math.ceil(found.length / PAGE));
@@ -82,67 +90,61 @@ export function Library({ look }: Omit<Props, "busy" | "act">) {
     <section>
       <Refusal of={acting} />
       <h2>
-        Библиотека
-        <Rule>
-          Бесплатно и без условий, но только придя; переписывание стоит выносливости.
-          Здесь лежит то, что сюда положили: столичная полна с основания, городскую
-          наполняют носителями — из инвентаря, «Положить… → В библиотеку». Положенное
-          остаётся навсегда, имя вкладчика — при рецепте.
-        </Rule>
+        {t("ui-library-title")}
+        <Rule>{t("ui-library-rule")}</Rule>
       </h2>
       <div className="row">
         <input
           type="search"
           value={search}
-          placeholder="рецепт, станция, вход или вкладчик"
+          placeholder={t("ui-library-search")}
           onChange={(e) => {
             setSearch(e.target.value);
             setPage(0);
           }}
         />
+        {/* The counts travel as the digits chosen here: handed over raw, Fluent
+            would group them by the locale's own rules. */}
         <span className="note">
-          {found.length} из {all.length}
+          {t("ui-library-found", { found: String(found.length), all: String(all.length) })}
         </span>
       </div>
 
-      {all.length === 0 && (
-        <p className="note">
-          Полки пусты: эта библиотека ещё ничего не получила. Принесите носитель
-          «Рецепт» и положите его сюда из инвентаря.
-        </p>
-      )}
+      {all.length === 0 && <p className="note">{t("ui-library-shelf-empty")}</p>}
 
       <table className="catalog">
         <thead>
           <tr>
-            <th>рецепт</th>
-            <th>ур.</th>
-            <th>станция</th>
-            <th>из чего</th>
-            <th>вклад</th>
+            <th>{t("ui-library-recipe")}</th>
+            <th>{t("ui-library-level")}</th>
+            <th>{t("ui-library-station")}</th>
+            <th>{t("ui-library-inputs")}</th>
+            <th>{t("ui-library-contribution")}</th>
             <th />
           </tr>
         </thead>
         <tbody>
           {shown.map((recipe) => (
-            <tr key={recipe.name}>
-              <td>{recipe.name}</td>
+            <tr key={recipe.id}>
+              <td>{goodsName(names, recipe.id)}</td>
               <td className="num">{recipe.level}</td>
-              <td className="note">{recipe.station ?? "—"}</td>
-              <td className="note">{recipe.inputs.join(", ") || "—"}</td>
-              <td className="note">{recipe.contributor ?? "основание"}</td>
+              <td className="note">{recipe.station ? goodsName(names, recipe.station) : "—"}</td>
+              <td className="note">
+                {recipe.inputs.map((one: string) => goodsName(names, one)).join(", ") || "—"}
+              </td>
+              <td className="note">{recipe.contributor ?? t("ui-library-founding")}</td>
               <td>
-                {look.knows.includes(recipe.name) ? (
-                  <span className="note">знаю</span>
+                {look.knows.includes(recipe.id) ? (
+                  <span className="note">{t("ui-library-known")}</span>
                 ) : (
                   <button
                     className="quiet"
                     onClick={() =>
-                      act(() => session.send("library.copy", { recipe: recipe.name }))
+                      act(() => session.send("library.copy", { recipe: recipe.id }))
                     }
                     disabled={busy}
                   >
-                    Взять
+                    {t("ui-library-take")}
                   </button>
                 )}
               </td>
@@ -151,7 +153,7 @@ export function Library({ look }: Omit<Props, "busy" | "act">) {
           {shown.length === 0 && all.length > 0 && (
             <tr>
               <td colSpan={6} className="note">
-                ничего не нашлось
+                {t("ui-library-none-found")}
               </td>
             </tr>
           )}
@@ -167,7 +169,7 @@ export function Library({ look }: Omit<Props, "busy" | "act">) {
           ←
         </button>
         <span className="note">
-          страница {current + 1} из {pages}
+          {t("ui-library-page", { page: String(current + 1), pages: String(pages) })}
         </span>
         <button
           className="quiet"
@@ -180,16 +182,16 @@ export function Library({ look }: Omit<Props, "busy" | "act">) {
 
       {carriers.length > 0 && (
         <>
-          <h3>Носители в руках</h3>
+          <h3>{t("ui-library-carriers")}</h3>
           {carriers.map((thing) => {
             const there = shelf.some((entry) => entry.recipe === thing.recipe);
             return (
               <div className="row" key={thing.id}>
                 <span>
-                  {thing.goods}: {thing.recipe}
+                  {goodsName(names, thing.goods)}: {goodsName(names, thing.recipe ?? "")}
                 </span>
                 {there ? (
-                  <span className="note">здесь уже лежит</span>
+                  <span className="note">{t("ui-library-already")}</span>
                 ) : (
                   <button
                     className="quiet"
@@ -197,9 +199,9 @@ export function Library({ look }: Omit<Props, "busy" | "act">) {
                       act(() => session.send("library.contribute", { item: thing.id }))
                     }
                     disabled={busy}
-                    title="отдать навсегда: ваше имя останется при рецепте"
+                    title={t("ui-library-give-hint")}
                   >
-                    Положить в библиотеку
+                    {t("ui-library-give")}
                   </button>
                 )}
               </div>
@@ -208,7 +210,7 @@ export function Library({ look }: Omit<Props, "busy" | "act">) {
         </>
       )}
 
-      <h3>Агротехника</h3>
+      <h3>{t("ui-library-agrotech")}</h3>
       <div className="row">
         {crops.map((crop) => {
           const learned = (look.agrotech ?? []).includes(crop.id);
@@ -221,9 +223,7 @@ export function Library({ look }: Omit<Props, "busy" | "act">) {
               }
               disabled={busy || learned}
               title={
-                learned
-                  ? "агротехника уже в личности"
-                  : "взять норму культуры: бесплатно, навсегда"
+                learned ? t("ui-library-agrotech-known") : t("ui-library-agrotech-hint")
               }
             >
               {crop.name}
@@ -232,10 +232,7 @@ export function Library({ look }: Omit<Props, "busy" | "act">) {
           );
         })}
       </div>
-      <p className="note">
-        Агротехника базовых культур — для всех: с ней грядка показывает норму,
-        а не симптом. Взятое помечено ✓.
-      </p>
+      <p className="note">{t("ui-library-agrotech-note")}</p>
     </section>
   );
 }

@@ -84,15 +84,15 @@ from src.units import MINUTES_PER_HOUR as MINUTES_IN_HOUR
 from src.units import PERCENT, amount, amount_float, money_str
 
 #: The thing class of machines that print bodies (D-090, D-215).
-PRINTER = "Биопринтер"
+PRINTER = "bioprinter"
 #: The processor metal. The vault names the price "10 iron" (D-033) -- a
 #: concrete payment material, not a behaviour class: deliberately a name.
-IRON = "Слиток железа"
+IRON = "iron_ingot"
 #: Node property: the core of the capital, where the Forerunners' Printer
 #: stands (D-028). It says where the centre is; what prints for free is decided
 #: by the **machine** (`_original`), because a mark on the ground would make a
 #: free printer out of every place the Forerunners ever built (D-232).
-PRECURSOR = "предтечи"
+PRECURSOR = "precursors"
 
 
 class DeathError(Refusal):
@@ -364,9 +364,9 @@ async def order(
     moment = now or datetime.now(UTC)
     alive = await alive_body(session, identity.id)
     if alive is not None:
-        raise Alive("тело живо: второго одной личности не бывает")
+        raise Alive(key="death-body-alive")
     if await pending(session, identity.id) is not None:
-        raise AlreadyPrinting("печать уже идёт")
+        raise AlreadyPrinting(key="death-print-running")
 
     yard = await world.node_container(session, node)
     has_printer = await session.scalar(
@@ -378,7 +378,7 @@ async def order(
         .limit(1)
     )
     if has_printer is None:
-        raise NoPrinter(f"в узле «{node.name}» нет биопринтера")
+        raise NoPrinter(key="death-no-printer", node=node.name)
     #: A machine in a frozen node does not work, the printer no less than the
     #: workbench (D-231). Refused rather than hidden: the door is there, and the
     #: one who wants through it must learn that the city let its heat go out.
@@ -413,7 +413,7 @@ async def order(
         cause_event_id=event.id,
     )
     if job is None:  # pragma: no cover -- the key is unique per event
-        raise AlreadyPrinting("печать уже поставлена")
+        raise AlreadyPrinting(key="death-print-queued")
     return job
 
 
@@ -435,29 +435,24 @@ async def _charge(
 
     pool = await energy.pool_of(session, constants, node)
     if pool is None:
-        raise CannotPay("городской сети здесь нет: печать требует энергии, а её негде взять")
+        raise CannotPay(key="death-no-grid")
     await energy.produce(session, constants, pool, now=moment)
 
     energy_needed = constants[R.ENERGY_BODY_PRINT]
     if float(pool.stored) < energy_needed:
-        raise CannotPay(
-            f"в пуле {float(pool.stored):.0f} энергии, а печать требует "
-            f"{energy_needed:.0f}: город без топлива не печатает"
-        )
+        raise CannotPay(key="death-pool-short", have=float(pool.stored), need=energy_needed)
 
     iron_needed = constants[R.DEATH_IRON_COST]
     yard = await world.node_container(session, node)
     ingots = await stock.locked_stacks(session, yard.id, (IRON,))
     have = sum(amount_float(ingot.amount) for ingot in ingots)
     if have < iron_needed:
-        raise CannotPay(
-            f"в принтере {have:.0f} железа из {iron_needed:.0f}: процессор не из чего собрать"
-        )
+        raise CannotPay(key="death-no-iron", have=have, need=iron_needed)
 
     if await justice.is_prison(session, node) and not await justice.held(
         session, constants, identity.id
     ):
-        raise DeathError("тюремный принтер печатает только заключённых: это не дверь в мир")
+        raise DeathError(key="death-prison-printer")
 
     price = await energy.price_of(session, constants, node, energy_needed)
     at_city_expense = await _city_pays(session, constants, node, identity.id)
@@ -466,8 +461,9 @@ async def _charge(
         remainder = await ledger.balance(session, account.id)
         if remainder < price:
             raise CannotPay(
-                f"печать стоит {money_str(price)} ₭, а на счету {money_str(remainder)} ₭. "
-                "Принтер Предтеч в столице печатает бесплатно — но двенадцать часов"
+                key="death-cannot-afford",
+                price=money_str(price),
+                balance=money_str(remainder),
             )
         treasury = await ledger.account_for(session, AccountKind.CITY_TREASURY, pool.node_id)
         await ledger.transfer(
@@ -533,7 +529,7 @@ async def printed(session: AsyncSession, job: Job) -> None:
     identity = await session.get(Identity, uuid.UUID(job.payload["identity"]))
     node = await session.get(Node, uuid.UUID(job.payload["node"]))
     if identity is None or node is None:  # pragma: no cover
-        raise DeathError(f"печать {job.id} ссылается в никуда")
+        raise DeathError(key="death-job-dangling", job=str(job.id))
     if await alive_body(session, identity.id) is not None:
         #: A job retry after a failure does not become a second body (D-011).
         return

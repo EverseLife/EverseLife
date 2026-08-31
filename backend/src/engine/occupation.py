@@ -40,17 +40,16 @@ from __future__ import annotations
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.engine import craft, explore, forage, mining, travel
-from src.engine.errors import Refusal
+from src.engine.errors import Refusal, Says, left_to_say
 from src.models.farm import Plot
 from src.models.identity import Body
 from src.models.job import Job, JobKind, JobState
-from src.units import MINUTES_PER_HOUR, SECONDS_PER_MINUTE
 
 
 class Busy(Refusal):
@@ -70,41 +69,33 @@ CRAFT = "craft"
 MEND = "mend"
 KEEL = "keel"
 
-
-def left_in_words(until: datetime, now: datetime | None = None) -> str:
-    """How long is left, for a person: "меньше минуты", "ещё 12 мин", "ещё 2 ч 5 мин".
-
-    A deadline is told as a duration rather than an hour. The player decides
-    between waiting and going elsewhere, and that is a question of "how long",
-    not of "at which moment" -- the more so as the world's own clock counts a
-    day of its own length (D-029), and a stamp in it needs a conversion nobody
-    does in their head.
-    """
-    seconds = (until - (now or datetime.now(UTC))).total_seconds()
-    if seconds < SECONDS_PER_MINUTE:
-        return "меньше минуты"
-    minutes = int(seconds // SECONDS_PER_MINUTE)
-    if minutes < MINUTES_PER_HOUR:
-        return f"ещё {minutes} мин"
-    hours, rest = divmod(minutes, int(MINUTES_PER_HOUR))
-    return f"ещё {hours} ч" if rest == 0 else f"ещё {hours} ч {rest} мин"
+#: Every kind there is. Written down rather than inferred because each one
+#: owes the locale a one-word title under `doing-<kind>` (see `Doing.title`),
+#: and a kind added without its word would show the player the key instead.
+KINDS: tuple[str, ...] = (ROAD, FIELD, SLEEP, FORAGE, PLOT, MINE, CRAFT, MEND, KEEL)
 
 
 @dataclass(frozen=True)
 class Doing:
-    """What the body is at, as the player is told about it."""
+    """What the body is at -- named, not worded.
+
+    The engine does not know which language this will be read in (D-251), so
+    it names the occupation and hands over the numbers. The one-word title is
+    the kind's own message; what is going on is a message of its own because
+    one occupation may be at two different things -- a search is running, or
+    its find is lying on the ground waiting for a decision.
+    """
 
     kind: str
-    #: The occupation's name in one word: the line's title in the client.
-    title: str
-    #: What is going on, and where it can be ended -- the refusal's own words.
-    what: str
+    #: The message that says what is going on, with its own arguments.
+    says: Says
     #: When it is over by itself. Empty -- it ends by a decision, not a clock.
     until: datetime | None = None
 
-    def refusal(self) -> str:
-        term = "" if self.until is None else f" ({left_in_words(self.until)})"
-        return f"тело занято: {self.what}{term}"
+    @property
+    def title(self) -> str:
+        """The key of the occupation's one-word name: `doing-road`, `doing-mine`."""
+        return f"doing-{self.kind}"
 
 
 class Journal:
@@ -131,7 +122,7 @@ class Journal:
 async def _sleeping(session: AsyncSession, body: Body, jobs: Journal) -> Doing | None:
     if body.sleeping_since is None:
         return None
-    return Doing(SLEEP, "сон", "тело спит — сначала проснуться")
+    return Doing(SLEEP, Says("doing-sleep-what"))
 
 
 async def _travelling(session: AsyncSession, body: Body, jobs: Journal) -> Doing | None:
@@ -139,7 +130,7 @@ async def _travelling(session: AsyncSession, body: Body, jobs: Journal) -> Doing
     going = await travel.current(session, body)
     if going is None:
         return None
-    return Doing(ROAD, "путь", "тело в пути", going.arrives_at)
+    return Doing(ROAD, Says("doing-road-what"), going.arrives_at)
 
 
 async def _exploring(session: AsyncSession, body: Body, jobs: Journal) -> Doing | None:
@@ -147,7 +138,7 @@ async def _exploring(session: AsyncSession, body: Body, jobs: Journal) -> Doing 
     run = await explore.pending(session, body)
     if run is None:
         return None
-    return Doing(FIELD, "разведка", "тело в разведке — вернуть его можно на карте", run.run_at)
+    return Doing(FIELD, Says("doing-field-what"), run.run_at)
 
 
 async def _foraging(session: AsyncSession, body: Body, jobs: Journal) -> Doing | None:
@@ -156,12 +147,8 @@ async def _foraging(session: AsyncSession, body: Body, jobs: Journal) -> Doing |
     if row is None:
         return None
     if forage.revealed(row):
-        return Doing(
-            FORAGE,
-            "собирательство",
-            f"на земле лежит находка ({row.found}) — решите с ней или закончите поиск",
-        )
-    return Doing(FORAGE, "собирательство", "идёт поиск", row.ready_at)
+        return Doing(FORAGE, Says("doing-forage-found", {"goods": row.found}))
+    return Doing(FORAGE, Says("doing-forage-searching"), row.ready_at)
 
 
 #: The occupations the journal knows about: a job of this body's, still
@@ -193,8 +180,19 @@ async def _ploughing(session: AsyncSession, body: Body, jobs: Journal) -> Doing 
     #: -- a farmer with four of them has nothing to go by otherwise.
 
     plot = await session.get(Plot, uuid.UUID(job.payload["plot"]))
-    named = "" if plot is None else f" «{plot.name}»"
-    return Doing(PLOT, "вспашка", f"идёт вспашка{named}", job.run_at)
+    return Doing(
+        PLOT,
+        #: A variant key in Fluent is an identifier, never a string -- so
+        #: "has a name" is said as a flag and the name travels beside it.
+        Says(
+            "doing-plot-what",
+            {
+                "named": "false" if plot is None else "true",
+                "plot": "" if plot is None else plot.name,
+            },
+        ),
+        job.run_at,
+    )
 
 
 async def _mending(session: AsyncSession, body: Body, jobs: Journal) -> Doing | None:
@@ -207,7 +205,7 @@ async def _mending(session: AsyncSession, body: Body, jobs: Journal) -> Doing | 
     job = await jobs.of(JobKind.BUILD_REPAIR)
     if job is None:
         return None
-    return Doing(MEND, "ремонт", "идёт ремонт дома", job.run_at)
+    return Doing(MEND, Says("doing-mend-what"), job.run_at)
 
 
 async def _keeling(session: AsyncSession, body: Body, jobs: Journal) -> Doing | None:
@@ -225,9 +223,17 @@ async def _keeling(session: AsyncSession, body: Body, jobs: Journal) -> Doing | 
     #: The first node is laid under a name, every later one is an
     #: extension of a ship that already has one -- and the line says which,
     #: because a yard may be laying a keel for somebody's second hull.
-    named = job.payload.get("name")
-    what = f"идёт закладка корабля «{named}»" if named else "идёт закладка узла корабля"
-    return Doing(KEEL, "закладка", what, job.run_at)
+    return Doing(
+        KEEL,
+        Says(
+            "doing-keel-what",
+            {
+                "named": "true" if job.payload.get("name") else "false",
+                "ship": job.payload.get("name") or "",
+            },
+        ),
+        job.run_at,
+    )
 
 
 async def _crafting(session: AsyncSession, body: Body, jobs: Journal) -> Doing | None:
@@ -240,7 +246,9 @@ async def _crafting(session: AsyncSession, body: Body, jobs: Journal) -> Doing |
     batch = await craft.running(session, body)
     if batch is None:
         return None
-    return Doing(CRAFT, "партия", f"идёт работа «{batch.output}»", batch.ready_at)
+    #: `output` is a D-251 id and travels as one: the message turns it into a
+    #: word with `NAME()`, in whichever language is reading.
+    return Doing(CRAFT, Says("doing-craft-what", {"goods": batch.output}), batch.ready_at)
 
 
 async def _mining(session: AsyncSession, body: Body, jobs: Journal) -> Doing | None:
@@ -248,7 +256,7 @@ async def _mining(session: AsyncSession, body: Body, jobs: Journal) -> Doing | N
     face = await mining.active(session, body)
     if face is None:
         return None
-    return Doing(MINE, "забой", "вы в забое — сначала выйти из него")
+    return Doing(MINE, Says("doing-mine-what"))
 
 
 #: Order matters: the refusal names the first match, and the road comes before
@@ -311,4 +319,12 @@ async def require_free(
     """Refuse the start of a new occupation while another one runs (D-211)."""
     doing = await current(session, body, besides=besides)
     if doing is not None:
-        raise Busy(doing.refusal())
+        #: Two messages quoted inside a third: what the body is at, and how
+        #: long it has left. Both are keys -- the engine still says nothing in
+        #: any language of its own (D-251).
+        raise Busy(
+            key="occupation-busy",
+            term="true" if doing.until is not None else "false",
+            inner={"what": [doing.says]}
+            | ({} if doing.until is None else {"left": [left_to_say(doing.until)]}),
+        )

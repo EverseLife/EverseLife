@@ -95,14 +95,14 @@ def normalize_email(raw: Any) -> str:
     """Email is lower-cased: one address -- one account."""
     email = str(raw or "").strip().lower()
     if not email or not _EMAIL.match(email):
-        raise AccountError("почта выглядит неправильно")
+        raise AccountError(key="account-bad-email")
     return email
 
 
 def check_password(raw: Any) -> str:
     password = str(raw or "")
     if len(password) < PASSWORD_MIN_LENGTH:
-        raise AccountError(f"пароль короче {PASSWORD_MIN_LENGTH} знаков")
+        raise AccountError(key="account-short-password", limit=PASSWORD_MIN_LENGTH)
     return password
 
 
@@ -132,7 +132,7 @@ async def set_credentials(
     email = normalize_email(email)
     other = await by_email(session, email)
     if other is not None and other.id != account.id:
-        raise AccountError("эта почта уже занята")
+        raise AccountError(key="account-email-taken")
     account.email = email
     account.password_hash = hash_password(check_password(password))
     await session.flush()
@@ -144,12 +144,12 @@ async def login(session: AsyncSession, email: Any, password: Any) -> Account:
     try:
         address = normalize_email(email)
     except AccountError:
-        raise AccountError("почта или пароль не подходят") from None
+        raise AccountError(key="account-bad-credentials") from None
     account = await by_email(session, address)
     if account is None or account.disabled_at is not None:
-        raise AccountError("почта или пароль не подходят")
+        raise AccountError(key="account-bad-credentials")
     if not verify_password(account, str(password or "")):
-        raise AccountError("почта или пароль не подходят")
+        raise AccountError(key="account-bad-credentials")
     return account
 
 
@@ -178,15 +178,15 @@ async def by_token(session: AsyncSession, token: Any) -> Account:
     """The account by token. Expired and revoked -- the same refusal."""
     raw = str(token or "")
     if not raw:
-        raise AccountError("жетон пуст")
+        raise AccountError(key="account-empty-token")
     found = (
         await session.execute(select(LoginToken).where(LoginToken.token_hash == _digest(raw)))
     ).scalar_one_or_none()
     if found is None or found.revoked_at is not None or found.expires_at <= datetime.now(UTC):
-        raise AccountError("сессия истекла: войдите заново")
+        raise AccountError(key="account-session-expired")
     account = await session.get(Account, found.account_id)
     if account is None or account.disabled_at is not None:
-        raise AccountError("сессия истекла: войдите заново")
+        raise AccountError(key="account-session-expired")
     return account
 
 
@@ -224,9 +224,9 @@ def check_name(raw: Any) -> str:
     unchangeable. Length and non-emptiness are checked here, uniqueness in `world.spawn`."""
     name = " ".join(str(raw or "").split())
     if not name:
-        raise AccountError("имя не названо")
+        raise AccountError(key="account-no-name")
     if len(name) > CHARACTER_NAME_LIMIT:
-        raise AccountError(f"имя длиннее {CHARACTER_NAME_LIMIT} знаков")
+        raise AccountError(key="account-long-name", limit=CHARACTER_NAME_LIMIT)
     return name
 
 
@@ -234,19 +234,23 @@ def check_profile(message: dict[str, Any]) -> dict[str, Any]:
     """Surname, age, description -- self-description, but within limits."""
     surname = " ".join(str(message.get("surname") or "").split())
     if len(surname) > CHARACTER_SURNAME_LIMIT:
-        raise AccountError(f"фамилия длиннее {CHARACTER_SURNAME_LIMIT} знаков")
+        raise AccountError(key="account-long-surname", limit=CHARACTER_SURNAME_LIMIT)
     about = str(message.get("about") or "").strip()
     if len(about) > CHARACTER_ABOUT_LIMIT:
-        raise AccountError(f"описание длиннее {CHARACTER_ABOUT_LIMIT} знаков")
+        raise AccountError(key="account-long-about", limit=CHARACTER_ABOUT_LIMIT)
     age_raw = message.get("age")
     age: int | None = None
     if age_raw not in (None, ""):
         try:
             age = int(age_raw)
         except (TypeError, ValueError):
-            raise AccountError("возраст — число") from None
+            raise AccountError(key="account-age-not-a-number") from None
         if not CHARACTER_AGE_MIN <= age <= CHARACTER_AGE_MAX:
-            raise AccountError(f"возраст от {CHARACTER_AGE_MIN} до {CHARACTER_AGE_MAX}")
+            raise AccountError(
+                key="account-age-out-of-range",
+                min=CHARACTER_AGE_MIN,
+                max=CHARACTER_AGE_MAX,
+            )
     return {"surname": surname, "age": age, "about": about}
 
 
@@ -255,10 +259,10 @@ def check_line(raw: Any) -> Line:
     try:
         line = Line(str(raw or Line.HUMAN.value))
     except ValueError:
-        raise AccountError("такой линии нет") from None
+        raise AccountError(key="account-no-such-line") from None
     playable = {entry["id"] for entry in LINES if entry["playable"]}
     if line.value not in playable:
-        raise AccountError("эта линия ещё в разработке")
+        raise AccountError(key="account-line-not-ready")
     return line
 
 

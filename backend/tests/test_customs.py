@@ -28,7 +28,7 @@ from src.models.ledger import AccountKind, PostingReason
 from src.models.world import Layer, Surface
 from src.units import money
 
-ORE = "Железная руда"
+ORE = "iron_ore"
 
 
 def _kilograms(catalog: Catalog, units: float) -> float:
@@ -89,7 +89,7 @@ async def _world(session: AsyncSession, catalog: Catalog):
     await travel.connect(session, marketplace, gate, base_seconds=10, surface=Surface.PAVED)
     await travel.connect(session, gate, field, base_seconds=60, surface=Surface.ROAD)
     yard = await world.node_container(session, marketplace)
-    await world.grant_item(session, yard, "Терминал маркетплейса", quality=70, origin="тест")
+    await world.grant_item(session, yard, "market_terminal", quality=70, origin="тест")
     return city, marketplace, gate, field
 
 
@@ -359,7 +359,7 @@ async def test_a_duty_entered_by_the_authority_reaches_the_border(
     #: Governing is done in the administration and by the one who has the right
     #: (D-155): both are the way in, so the test walks it rather than around it.
     yard = await world.node_container(session, marketplace)
-    await world.grant_item(session, yard, "Администрация", quality=70, origin="тест")
+    await world.grant_item(session, yard, "administration", quality=70, origin="тест")
     ruler, _body = await _merchant(session, marketplace, "Глава")
     await town.install_founder(session, city, ruler)
 

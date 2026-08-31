@@ -80,44 +80,44 @@ async def _prepare(
     "the player sees the exact number before the batch" stops being true (D-092).
     """
     if body.state is not BodyState.ALIVE:
-        raise CraftError("мёртвое тело не работает")
+        raise CraftError(key="craft-dead-works")
     await travel.require_here(session, body)
     if units <= 0:
-        raise CraftError("партия из нуля единиц")
+        raise CraftError(key="craft-zero-batch")
     if units > constants[R.CRAFT_BATCH_MAX]:
-        raise TooBig(f"партия больше craft.batch_max: {units}")
+        raise TooBig(key="craft-batch-too-big", units=units)
 
     proc = procedure(catalog, output, way=way)
     #: A counted thing is made in whole pieces (D-212): there is no batch of
     #: two and a half ingots, and a product was never divisible to begin with.
     if goods.counted(proc.output, catalog) and units != int(units):
-        raise CraftError(f"{proc.output!r} считается штуками: партия из целых единиц")
+        raise CraftError(key="craft-counted-whole", goods=proc.output)
     if proc.needs_recipe and not await _knows(session, body, proc.output):
-        raise NotLearned(f"рецепт {proc.output!r} не скопирован в личность")
+        raise NotLearned(key="craft-not-learned", recipe=proc.output)
 
     #: A knowledge carrier is written by whoever knows the recipe (D-209): the
     #: name of what goes onto it is part of the request, and it must be in the
     #: master's own head -- a carrier is a copy, not a source.
     if proc.output in carrier_names(catalog):
         if not recipe_key:
-            raise CraftError("на носитель записывают конкретный рецепт: назовите какой")
-        recipe_key = catalog.recipes.recipe(recipe_key).name
+            raise CraftError(key="craft-write-needs-recipe")
+        recipe_key = catalog.recipes.recipe(recipe_key).type_key
         if not await _knows(session, body, recipe_key):
-            raise NotLearned(f"рецепт {recipe_key!r} не в личности: записать можно только своё")
+            raise NotLearned(key="craft-write-not-learned", recipe=recipe_key)
     elif recipe_key:
-        raise CraftError(f"{proc.output!r} — не носитель: рецепт на него не записывают")
+        raise CraftError(key="craft-not-a-carrier", goods=proc.output)
 
     #: Place extraction (D-177): runs where the node has the named property,
     #: and only on own or unowned land -- somebody else's forest belongs to its owner.
     if proc.place is not None:
         node = await session.get(Node, body.node_id)
         if node is None or not (node.properties or {}).get(proc.place):
-            raise CraftError(f"здесь нет: {proc.place}")
+            raise CraftError(key="craft-no-place", place=proc.place)
         foreign = (
             node.owner_identity_id is not None and node.owner_identity_id != body.identity_id
         ) or (node.owner_identity_id is None and node.owner_city_id is not None)
         if foreign:
-            raise CraftError(f"{proc.place} на чужой земле: рубить может хозяин")
+            raise CraftError(key="craft-place-not-yours", place=proc.place)
 
     if auto:
         #: Industrial mode: the machine sets the ceiling, no tool is needed at
@@ -241,8 +241,7 @@ async def _prepare_write(
         dead = sum(len(rows) for rows in stock.values()) - sum(len(rows) for rows in live.values())
         if dead:
             raise Unmakeable(
-                "болванка стёрта в ноль: на неё уже ничего не записать"
-                + (" (живых не хватает)" if any(live.values()) else "")
+                key="craft-blank-dead", live="true" if any(live.values()) else "false"
             ) from None
         raise
 
@@ -316,11 +315,9 @@ async def _pick_station(
 
     node = await session.get(Node, body.node_id)
     if node is None:  # pragma: no cover
-        raise CraftError("тело вне узла")
+        raise CraftError(key="craft-body-off-node")
     if await utility.cut_off(session, node):
-        raise CutOff(
-            f"«{node.name}» отключён за неуплату: рабочие станции не работают, пока долг не закрыт"
-        )
+        raise CutOff(key="craft-cut-off", node=node.name)
 
     #: A frozen node stops machines the same way non-payment does (D-231): what
     #: does not burn its own fuel does not work in the cold. Asked by class, so
@@ -350,7 +347,7 @@ async def _pick_station(
         .all()
     )
     if not standing:
-        raise NoStation(f"в узле нет рабочей станции «{name}»")
+        raise NoStation(key="craft-no-station", station=name)
 
     own: Item | None = None
     for machine in standing:
@@ -367,14 +364,7 @@ async def _pick_station(
         return machine
     if own is not None and allow_own:
         return own
-    raise Busy(
-        f"«{name}» занята"
-        + (
-            " вашей же работой: дождитесь конца партии"
-            if own is not None
-            else ": за рабочей станцией работает один. Свою ставят у себя"
-        )
-    )
+    raise Busy(key="craft-station-busy", station=name, whose="own" if own is not None else "other")
 
 
 async def _occupy(session: AsyncSession, station: Item | None, body: Body, until) -> None:
@@ -420,7 +410,7 @@ async def _tool_items(
             )
         ).scalar_one_or_none()
         if item is None:
-            raise NoTool(f"нужен инструмент: {requirement}")
+            raise NoTool(key="craft-no-tool", tool=requirement)
         found.append(item)
 
     if tool_item_id is not None and all(item.id != tool_item_id for item in found):
@@ -431,10 +421,7 @@ async def _tool_items(
             #: the node is taken by the engine itself. An AI citizen (D-224)
             #: read the id of the smelter off the place and sent it here
             #: twenty-four times in seven minutes.
-            raise NoTool(
-                "этого инструмента нет в руках: tool — вещь из твоей сумки, "
-                "а станок в узле берётся сам"
-            )
+            raise NoTool(key="craft-tool-not-in-hands")
         found.append(chosen)
     return found
 
@@ -519,7 +506,7 @@ def _pick(stock: dict[str, list[Item]], required: dict[str, float]) -> list[_Pic
             picks.append(_Pick(item=item, take=take))
             left -= take
         if left > 0:
-            raise NotEnough(f"не хватает «{name}»: нужно ещё {amount_float(left)}")
+            raise NotEnough(key="craft-not-enough", goods=name, short=amount_float(left))
     return picks
 
 

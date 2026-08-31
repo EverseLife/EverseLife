@@ -102,7 +102,7 @@ async def _breed_gather(state: dict, db: AsyncSession, message: dict) -> dict:
     body = await _alive(state, db)
     nursery = await db.get(Nursery, uuid.UUID(message["nursery"]))
     if nursery is None:
-        raise Refused("нет такого питомника")
+        raise Refused(key="cmd-no-such-nursery")
     cultivar = await breed.gather_cross(db, current(), current_catalog(), body, nursery)
     if cultivar is None:
         return {"sprouted": False}
@@ -115,7 +115,7 @@ async def _breed_name(state: dict, db: AsyncSession, message: dict) -> dict:
     body = await _alive(state, db)
     cultivar = await db.get(Variety, uuid.UUID(message["variety"]))
     if cultivar is None:
-        raise Refused("нет такого сорта")
+        raise Refused(key="cmd-no-such-variety")
     cultivar = await breed.name_variety(db, body, cultivar, str(message["name"]))
     return {"variety": str(cultivar.id), "name": cultivar.name}
 
@@ -197,7 +197,7 @@ async def _plot(db: AsyncSession, message: dict):
 
     plot = await db.get(Plot, uuid.UUID(message["plot"]))
     if plot is None:
-        raise Refused("нет такой делянки")
+        raise Refused(key="cmd-no-such-plot")
     return plot
 
 

@@ -16,6 +16,7 @@
  * one steps and clamps to whole pieces, a measured one takes any part (D-212).
  */
 import { counted } from "./amounts";
+import { t } from "./locale";
 
 export function Amount({
   value,
@@ -50,7 +51,9 @@ export function Amount({
         const held = Math.min(Math.max(0, typed), max);
         onChange(whole ? Math.floor(held) : held);
       }}
-      title={title ?? (whole ? `не больше ${max}, целыми штуками` : `не больше ${max}`)}
+      //: The ceiling goes in as a string: the field beside it shows the same
+      //: figure raw, and Fluent would space out a four-digit one.
+      title={title ?? t("ui-amount-max", { whole: String(whole), max: String(max) })}
     />
   );
 }

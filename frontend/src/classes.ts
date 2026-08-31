@@ -20,7 +20,7 @@ import type { RecipeBook } from "./api";
  * itself, and the inventory, which offers "В терминал" only where there is one.
  * A vault word written twice is a vault word that will be renamed once.
  */
-export const TERMINAL = "Терминал";
+export const TERMINAL = "terminal";
 
 /**
  * Concrete item names of a class. A word the catalog does not know as a
@@ -38,7 +38,7 @@ export function membersOf(book: RecipeBook | null, thingClass: string): string[]
  * what a thing **is** does not change from node to node (D-225).
  */
 export function isRelic(book: RecipeBook | null, name: string): boolean {
-  return Boolean(book?.materials?.some((one) => one.name === name && one.relic));
+  return Boolean(book?.materials?.some((one) => (one.id ?? one.name) === name && one.relic));
 }
 
 /** The class of a thing, or `null` when it has none. */

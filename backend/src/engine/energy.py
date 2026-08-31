@@ -77,19 +77,19 @@ from src.units import (
 #: Thing classes from `build/recipes.json` (D-215). Behaviour binds to the
 #: class, never to the item name: a second windmill or a peat-fired plant is
 #: a data change. What each class generates is below, by vault rates.
-WHEEL = "Водяное колесо"
-WINDMILL = "Ветряк"
-FUEL_PLANT = "Топливная станция"
+WHEEL = "water_wheel"
+WINDMILL = "windmill"
+FUEL_PLANT = "fuel_plant"
 #: The Forerunners' reactor (D-232): decay heat, no fuel and no people. It is
 #: a relic -- found, never made -- and its energy never reaches a battery: it
 #: pays for the relics of its own city and for nothing else. Free energy for
 #: export does not exist.
-REACTOR = "Реактор Предтеч"
+REACTOR = "precursor_reactor"
 #: When this reactor's countdown started, written into its node by the seed at
 #: the moment Aurora's surface is laid (D-232). The Forerunners did not wait
 #: for guests: a world that ran for a year before Aurora existed would
 #: otherwise get the planet already dead.
-REACTOR_SINCE = "реактор"
+REACTOR_SINCE = "reactor"
 #: Every generator class, for "the node has an energy source" checks.
 GENERATOR_CLASSES = (WHEEL, WINDMILL, FUEL_PLANT)
 
@@ -218,7 +218,7 @@ async def produce(
             .scalars()
             .all()
         )
-        river = node.properties.get("вода") == "река"
+        river = node.properties.get("water") == "river"
 
         wheels = set(world.station_names(WHEEL))
         windmills = set(world.station_names(WINDMILL))
@@ -478,26 +478,29 @@ async def fuel(
     """
 
     if body.state is not BodyState.ALIVE:
-        raise EnergyError("мёртвое тело ничего не грузит")
+        raise EnergyError(key="energy-dead-loads")
     await travel.require_here(session, body)
 
     node = await session.get(Node, body.node_id)
     if node is None:  # pragma: no cover -- a body without a node is a bug
-        raise EnergyError("тело вне узла")
+        raise EnergyError(key="energy-body-off-node")
     view = await plant_view(session, constants, node)
     if view is None:
-        raise EnergyError("здесь нет станции, которой нужно топливо")
+        raise EnergyError(key="energy-no-station")
     if item.type_key not in view["fuels"]:
         raise EnergyError(
-            f"«{item.type_key}» не горит в «{view['station']}»: годится {view['fuel'].lower()}"
+            key="energy-wrong-fuel",
+            goods=item.type_key,
+            station=view["station"],
+            fuel=view["fuel"].lower(),
         )
 
     pocket = await world.body_container(session, body)
     if item.container_id != pocket.id:
-        raise EnergyError("топливо грузят из рук")
+        raise EnergyError(key="energy-fuel-from-hands")
     qty = amount_float(item.amount) if quantity is None else quantity
     if qty <= 0:
-        raise EnergyError("грузить нечего")
+        raise EnergyError(key="energy-nothing-to-load")
 
     yard = await world.node_container(session, node)
     fuel_key = item.type_key
@@ -560,19 +563,15 @@ async def draw_for_work(
 
     node = await session.get(Node, body.node_id)
     if node is None:  # pragma: no cover
-        raise EnergyError("тело вне узла")
+        raise EnergyError(key="energy-body-off-node")
     pool = await pool_of(session, constants, node, lock=True)
     if pool is None:
-        raise NoGrid(
-            f"{what} требует энергии, а городской сети здесь нет: вне города "
-            "работают от аккумулятора"
-        )
+        raise NoGrid(key="energy-no-grid", what=what)
     await produce(session, constants, pool, now=moment)
 
     if float(pool.stored) < energy_needed:
         raise NotEnough(
-            f"{what} требует {energy_needed:.0f} энергии, а в пуле "
-            f"{float(pool.stored):.0f}: город без топлива стоит"
+            key="energy-pool-short", what=what, need=energy_needed, have=float(pool.stored)
         )
 
     price = money(energy_needed / ENERGY_PER_TARIFF_UNIT * float(pool.tariff))

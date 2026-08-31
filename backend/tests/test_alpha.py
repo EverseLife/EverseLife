@@ -55,13 +55,13 @@ from src.models.travel import Travel
 from src.models.world import Layer, Surface
 from src.units import amount_float
 
-ORE = "Железная руда"
-BENCH = "Верстак"
-MAKE = "Рукоять"
-WOOD = "Дерево"
+ORE = "iron_ore"
+BENCH = "workbench"
+MAKE = "handle"
+WOOD = "wood"
 #: A liquid and something to keep it in: liquids live only in vessels (D-230).
-FUEL = "Ракетное топливо"
-CANISTER = "Канистра"
+FUEL = "rocket_fuel"
+CANISTER = "canister"
 
 
 async def _body(session: AsyncSession) -> Body:
@@ -373,12 +373,12 @@ async def test_keel_term_comes_up_to_now(session: AsyncSession, constants: Const
     session.add(Building(node_id=port.id, area_m2=400))
     await session.flush()
     await world.grant_item(
-        session, await world.node_container(session, port), "Космическая верфь", origin="тест"
+        session, await world.node_container(session, port), "space_shipyard", origin="тест"
     )
     identity = await world.create_identity(session, f"Корабел-{stamp}")
     body = await world.print_body(session, identity, port)
     await world.grant_item(
-        session, await world.body_container(session, body), "Основа узла корабля", origin="тест"
+        session, await world.body_container(session, body), "ship_node_foundation", origin="тест"
     )
     job = await ship.found(session, constants, body, "Странник")
     assert job.run_at > datetime.now(UTC)
@@ -453,7 +453,7 @@ async def _ploughing(session: AsyncSession, constants: Constants, name: str) -> 
         "Пойма",
         area_m2=400,
         layer=Layer.PLANET,
-        properties={"вода": "река", "плодородие": 55},
+        properties={"water": "river", "fertility": 55},
     )
     identity = await world.create_identity(session, f"{name}-{stamp}")
     body = await world.print_body(session, identity, field)

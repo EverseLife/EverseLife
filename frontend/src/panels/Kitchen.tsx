@@ -16,7 +16,9 @@
 import { useMemo, useState } from "react";
 import type { Look } from "../api";
 import { Rule } from "../Rule";
-import { Refusal, useActions, useBook, useSession } from "../actions";
+import { Refusal, useActions, useBook, useNames, useSession } from "../actions";
+import { goodsName } from "../names";
+import { t } from "../locale";
 import { TierPick } from "../Tier";
 
 type Props = {
@@ -32,6 +34,7 @@ const ROLES = ["основа", "наполнитель", "жир", "припра
 export function Kitchen({ look }: Omit<Props, "busy" | "act">) {
   const session = useSession();
   const book = useBook();
+  const names = useNames();
   //: This panel's own waiting and its own refusal: one action here
   //: must not grey out the chat, the map and somebody else's orders.
   const acting = useActions();
@@ -41,7 +44,7 @@ export function Kitchen({ look }: Omit<Props, "busy" | "act">) {
   //: sign comes from the catalog, and a fourth dish in the vault is on the
   //: list without a client change.
   const withRoles = new Set<string>(
-    (book?.recipes ?? []).filter((r) => r.roles).map((r) => r.name),
+    (book?.recipes ?? []).filter((r) => r.roles).map((r) => r.id ?? r.name),
   );
   const dishes = look.knows.filter((name) => withRoles.has(name));
   const [dish, setDish] = useState(dishes[0] ?? "");
@@ -52,7 +55,7 @@ export function Kitchen({ look }: Omit<Props, "busy" | "act">) {
 
   //: Products go into a role: what is edible is decided by data, not the client.
   const products = useMemo(
-    () => [...new Set(look.inventory.filter((t) => t.ingredient).map((t) => t.goods))],
+    () => [...new Set(look.inventory.filter((one) => one.ingredient).map((one) => one.goods))],
     [look.inventory],
   );
 
@@ -62,26 +65,22 @@ export function Kitchen({ look }: Omit<Props, "busy" | "act">) {
     <section>
       <Refusal of={acting} />
       <h2>
-        Очаг
-        <Rule>
-          Пустая роль режет качество сильнее плохого продукта. Сочетание решает вид
-          блюда — по видам считается разнообразие рациона. Нужна утварь в кармане:
-          горшок или котёл.
-        </Rule>
+        {t("ui-kitchen-title")}
+        <Rule>{t("ui-kitchen-rule")}</Rule>
       </h2>
       {dishes.length === 0 ? (
-        <p className="note">
-          Ни одного блюда в личности: рецепты берут в Библиотеке.
-        </p>
+        <p className="note">{t("ui-kitchen-none")}</p>
       ) : (
         <>
           <div className="row">
             <select value={dish} onChange={(e) => setDish(e.target.value)}>
               {dishes.map((name) => (
-                <option key={name}>{name}</option>
+                <option key={name} value={name}>
+                  {goodsName(names, name)}
+                </option>
               ))}
             </select>
-            <span className="note">котёл варится целиком</span>
+            <span className="note">{t("ui-kitchen-whole")}</span>
           </div>
 
           {ROLES.map((role) => (
@@ -94,9 +93,11 @@ export function Kitchen({ look }: Omit<Props, "busy" | "act">) {
                   setTiers((was) => ({ ...was, [role]: null }));
                 }}
               >
-                <option value="">— пусто —</option>
+                <option value="">{t("ui-kitchen-empty")}</option>
                 {products.map((name) => (
-                  <option key={name}>{name}</option>
+                  <option key={name} value={name}>
+                    {goodsName(names, name)}
+                  </option>
                 ))}
               </select>
               {filling[role] && (
@@ -123,7 +124,7 @@ export function Kitchen({ look }: Omit<Props, "busy" | "act">) {
             }
             disabled={busy || closed === 0}
           >
-            Сварить котёл
+            {t("ui-kitchen-cook")}
           </button>
         </>
       )}

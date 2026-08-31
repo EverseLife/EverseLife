@@ -18,7 +18,7 @@ const AT = Date.parse("2026-08-25T12:00:00Z");
 const HOUR = 3_600_000;
 
 const cold: Frost = {
-  climate: "мерзлота",
+  climate: "frost",
   warm: false,
   hours: 6,
   at: "2026-08-25T12:00:00Z",

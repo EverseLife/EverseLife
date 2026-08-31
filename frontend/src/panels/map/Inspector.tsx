@@ -5,6 +5,7 @@ import { spell, type Look, type MapNode } from "../../api";
 import { Deadline } from "../../Deadline";
 import { Rule } from "../../Rule";
 import { Refusal, useActions, useSession } from "../../actions";
+import { t } from "../../locale";
 import { cityWord } from "../../planets";
 import { Roads } from "./Roads";
 import { Search } from "./Search";
@@ -55,26 +56,29 @@ export function Inspector({
     return (
       <aside className="inspect">
         <h3>
-          В пути
-          <Rule>
-            Пока идёшь, тебя нет нигде: добыча, крафт, погрузка и покупка закрыты, а
-            счёт и ордера работают. Повернуть назад можно в любой момент — вернёшься
-            туда, откуда вышел, а потраченное не вернётся.
-          </Rule>
+          {t("ui-map-ongoing")}
+          <Rule>{t("ui-map-ongoing-rule")}</Rule>
         </h3>
         <p className="sign">{ongoing.final ?? ongoing.to}</p>
         <p className="note">
-          {ongoing.final ? `сейчас — отрезок до «${ongoing.to}»` : "прямой переход"}
-          {(ongoing.legs_left ?? 0) > 1 && ` · впереди ещё ${ongoing.legs_left! - 1} узл.`}
+          {ongoing.final
+            ? t("ui-map-ongoing-leg", { to: ongoing.to })
+            : t("ui-map-ongoing-direct")}
+          {(ongoing.legs_left ?? 0) > 1 &&
+            ` · ${t("ui-map-ongoing-left", { count: String(ongoing.legs_left! - 1) })}`}
         </p>
-        <Deadline until={ongoing.arrives_at} since={ongoing.started_at} label="переход" />
+        <Deadline
+          until={ongoing.arrives_at}
+          since={ongoing.started_at}
+          label={t("ui-map-transit-label")}
+        />
         <div className="row">
           <button
             className="quiet"
             onClick={() => act(() => session.send("travel.cancel"))}
             disabled={busy}
           >
-            Повернуть назад
+            {t("ui-map-turn-back")}
           </button>
         </div>
         <Refusal of={acting} />
@@ -89,12 +93,12 @@ export function Inspector({
   if (!node || mine) {
     return (
       <aside className="inspect">
-        <h3>Вы здесь</h3>
+        <h3>{t("ui-map-here")}</h3>
         <p className="sign">{look.node?.name}</p>
         {!look.survey && (
           <div className="row">
             <button onClick={onEnter} disabled={busy}>
-              Войти
+              {t("ui-map-enter")}
             </button>
           </div>
         )}
@@ -119,23 +123,20 @@ export function Inspector({
     <aside className="inspect">
       <h3>
         {node.name}
-        <Rule>
-          Идти можно в любой узел на карте: маршрут строится сам по времени с учётом
-          покрытия, каждый отрезок — отдельное задание, и приход сам выводит в
-          следующий. По прямой не ходят: нет ребра — нет пути. Карта показывает два
-          шага вокруг вас — дальний узел откроется, когда вы к нему приблизитесь.
-        </Rule>
+        <Rule>{t("ui-map-node-rule")}</Rule>
       </h3>
       <p className="note">
         {node.aboard
           ? node.flight
-            ? "корабль · в рейсе"
-            : "корабль · у космодрома"
+            ? t("ui-map-node-ship-flight")
+            : t("ui-map-node-ship-port")
           : node.layer === "city"
             ? cityWord(node.planet).within
-            : (LAYER_NAME[node.layer] ?? node.layer)}
-        {group && !node.aboard && !off ? " · есть что раскрыть" : ""}
-        {off && !sphere ? " · другая планета: смотреть отсюда нечего" : ""}
+            : LAYER_NAME[node.layer]
+              ? t(LAYER_NAME[node.layer])
+              : node.layer}
+        {group && !node.aboard && !off ? ` · ${t("ui-map-node-expandable")}` : ""}
+        {off && !sphere ? ` · ${t("ui-map-node-far")}` : ""}
       </p>
       {/* A passage is a term like any other, and it is shown the way every
           term in this world is shown. */}
@@ -143,7 +144,7 @@ export function Inspector({
         <Deadline
           until={node.flight.arrives_at}
           since={node.flight.started_at}
-          label="рейс"
+          label={t("ui-map-flight-label")}
         />
       )}
 
@@ -151,11 +152,11 @@ export function Inspector({
         <table>
           <tbody>
             <tr>
-              <td>дорога</td>
+              <td>{t("ui-map-road")}</td>
               <td className="num">{spell(exit.seconds)}</td>
             </tr>
             <tr>
-              <td>стоит тела</td>
+              <td>{t("ui-map-road-price")}</td>
               <td className="num">{price(exit.stamina)}</td>
             </tr>
           </tbody>
@@ -163,32 +164,26 @@ export function Inspector({
       ) : sphere ? (
         <p className="note">
           {node.deferred
-            ? "Планета вне альфы: её ещё нет в мире, и попасть на неё нельзя."
+            ? t("ui-map-planet-deferred")
             : node.planet !== byKey[here]?.planet
-              ? "Другая планета. Пешком туда пути нет: только кораблём с космодрома."
-              : (look.node?.features ?? []).includes("борт")
+              ? t("ui-map-planet-other")
+              : (look.node?.features ?? []).includes("aboard")
                 ? //: Aboard a ship the cabin carries the planet's key too, and
                   //: "you stand on its surface" would be said to somebody in
                   //: the void above it.
-                  "Планета вашего корабля."
-                : "Ваша планета: вы стоите на её поверхности."}
+                  t("ui-map-planet-ship")
+                : t("ui-map-planet-own")}
         </p>
       ) : node.aboard ? (
         <p className="note">
-          {node.flight
-            ? "Корабль в рейсе: трапа нет, пока он не причалит."
-            : "На борт заходят ногами, по трапу с космодрома."}
+          {node.flight ? t("ui-map-ship-flying") : t("ui-map-ship-gangway")}
         </p>
       ) : off ? (
         //: A place on another planet: no road crosses the void, and promising
         //: an auto-built route here would promise the server's refusal (D-201).
-        <p className="note">
-          Это другая планета: пешком туда пути нет, только кораблём с космодрома.
-        </p>
+        <p className="note">{t("ui-map-node-offworld")}</p>
       ) : (
-        <p className="note">
-          Соседним не является: маршрут построится сам, по проходимым рёбрам.
-        </p>
+        <p className="note">{t("ui-map-node-far-walk")}</p>
       )}
 
       <div className="row">
@@ -201,7 +196,7 @@ export function Inspector({
             }
             disabled={busy}
           >
-            Идти
+            {t("ui-map-go")}
           </button>
         )}
         {/* A ship is not opened from space: its rooms are walked into by the
@@ -211,13 +206,11 @@ export function Inspector({
             look nobody has -- one gets there by flying. */}
         {group && !node.aboard && !off && (
           <button className="quiet" onClick={() => onExpand(node)} disabled={busy}>
-            Раскрыть
+            {t("ui-map-expand")}
           </button>
         )}
       </div>
-      {look.survey && (
-        <p className="reason">Разведчик в поле: тело недоступно, как во сне.</p>
-      )}
+      {look.survey && <p className="reason">{t("ui-map-surveying")}</p>}
 
       <Roads look={look} busy={busy} act={act} only={node.name} />
       <Refusal of={acting} />

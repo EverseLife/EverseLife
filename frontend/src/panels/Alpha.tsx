@@ -23,24 +23,28 @@
  */
 
 import { useMemo, useState } from "react";
-import { Refusal, useActions, useBook, useSession } from "../actions";
+import { Refusal, useActions, useBook, useCompare, useSession } from "../actions";
+import { t } from "../locale";
 
-/** Job kinds the server may report as hurried, in the player's words. */
-//: Every kind the server will hurry, in words. The list on the server has grown
-//: since -- a keel, a passage between planets, the works on a building, the
-//: ploughing, the printing of a body -- and each one missing here came back to
-//: the widget as its own enum key: "срок подтянут: ship.keel".
+/** Job kinds the server may report as hurried, by message key. */
+//: Every kind the server will hurry. The list on the server has grown since --
+//: a keel, a passage between planets, the works on a building, the ploughing,
+//: the printing of a body -- and each one missing here came back to the widget
+//: as its own enum key: "срок подтянут: ship.keel".
+//:
+//: Keys rather than words: the map is built once at import, and a `t()` there
+//: would nail the session to whatever language was being spoken then.
 const MOVED: Record<string, string> = {
-  "explore.survey": "разведка",
-  "travel.leg": "переход",
-  "craft.batch": "работа",
-  "ship.keel": "закладка корабля",
-  "ship.flight": "перелёт",
-  "build.finish": "стройка",
-  "build.demolish": "снос",
-  "build.repair": "ремонт",
-  "farm.plow": "вспашка",
-  "body.print": "печать тела",
+  "explore.survey": "ui-alpha-job-explore-survey",
+  "travel.leg": "ui-alpha-job-travel-leg",
+  "craft.batch": "ui-alpha-job-craft-batch",
+  "ship.keel": "ui-alpha-job-ship-keel",
+  "ship.flight": "ui-alpha-job-ship-flight",
+  "build.finish": "ui-alpha-job-build-finish",
+  "build.demolish": "ui-alpha-job-build-demolish",
+  "build.repair": "ui-alpha-job-build-repair",
+  "farm.plow": "ui-alpha-job-farm-plow",
+  "body.print": "ui-alpha-job-body-print",
 };
 
 type Props = {
@@ -61,6 +65,9 @@ export function Alpha({ values, embodied = true }: Props) {
   //: This panel's own waiting and its own refusal: printing a thing must not
   //: grey out the map, the chat and somebody else's orders.
   const acting = useActions();
+  //: The order of the list is the reading order of the player's language, so
+  //: the comparator is what the memo below hangs on.
+  const order = useCompare();
   const { busy, act } = acting;
 
   const [open, setOpen] = useState(false);
@@ -81,8 +88,8 @@ export function Alpha({ values, embodied = true }: Props) {
     const all = new Set<string>();
     for (const material of book.materials ?? []) all.add(material.name);
     for (const recipe of book.recipes) all.add(recipe.name);
-    return [...all].sort((a, b) => a.localeCompare(b, "ru"));
-  }, [book]);
+    return [...all].sort(order);
+  }, [book, order]);
 
   const spawn = () =>
     act(async () => {
@@ -93,7 +100,14 @@ export function Alpha({ values, embodied = true }: Props) {
         //: raw material out of a vein has none.
         ...(quality.trim() === "" ? {} : { quality: Number(quality) }),
       });
-      setSaid(`напечатано: ${answer.spawned} · ${answer.amount}`);
+      //: Both go in as strings: they are read off a line, not summed, and
+      //: `NUMBER` would put a thousands separator inside an amount.
+      setSaid(
+        t("ui-alpha-printed", {
+          goods: String(answer.spawned),
+          amount: String(answer.amount),
+        }),
+      );
     });
 
   const hurry = () =>
@@ -102,8 +116,12 @@ export function Alpha({ values, embodied = true }: Props) {
       const kinds = (answer.hurried as string[]) ?? [];
       setSaid(
         kinds.length === 0
-          ? "нечего ускорять: ничего не идёт"
-          : `срок подтянут: ${kinds.map((kind) => MOVED[kind] ?? kind).join(", ")}`,
+          ? t("ui-alpha-hurry-nothing")
+          : t("ui-alpha-hurried", {
+              //: A kind the map does not know still shows itself, as before:
+              //: the enum key is an ugly but honest answer.
+              kinds: kinds.map((kind) => (MOVED[kind] ? t(MOVED[kind]) : kind)).join(", "),
+            }),
       );
     });
 
@@ -118,9 +136,9 @@ export function Alpha({ values, embodied = true }: Props) {
         className="quiet alpha-handle"
         onClick={() => setOpen(true)}
         aria-expanded={false}
-        title="служебное окно альфы: печать вещей и досрочное завершение сроков"
+        title={t("ui-alpha-open-title")}
       >
-        Альфа
+        {t("ui-alpha-name")}
       </button>
     );
   }
@@ -128,9 +146,9 @@ export function Alpha({ values, embodied = true }: Props) {
   return (
     <section className="card alpha">
       <div className="row">
-        <strong>Альфа</strong>
+        <strong>{t("ui-alpha-name")}</strong>
         <button className="quiet" onClick={() => setOpen(false)} aria-expanded>
-          свернуть
+          {t("ui-alpha-fold")}
         </button>
       </div>
 
@@ -139,12 +157,12 @@ export function Alpha({ values, embodied = true }: Props) {
           {embodied && (
             <>
               <label>
-                <span>что напечатать</span>
+                <span>{t("ui-alpha-what")}</span>
                 <input
                   list="alpha-goods"
                   value={goods}
                   onChange={(e) => setGoods(e.target.value)}
-                  placeholder="Железная руда"
+                  placeholder={t("ui-alpha-what-hint")}
                 />
               </label>
               <datalist id="alpha-goods">
@@ -155,7 +173,7 @@ export function Alpha({ values, embodied = true }: Props) {
 
               <div className="row">
                 <label>
-                  <span>сколько</span>
+                  <span>{t("ui-alpha-amount")}</span>
                   <input
                     type="number"
                     min="0"
@@ -165,14 +183,14 @@ export function Alpha({ values, embodied = true }: Props) {
                   />
                 </label>
                 <label>
-                  <span>качество</span>
+                  <span>{t("ui-alpha-quality")}</span>
                   <input
                     type="number"
                     {...(scale ? { min: scale.min, max: scale.max } : {})}
                     step="any"
                     value={quality}
                     onChange={(e) => setQuality(e.target.value)}
-                    placeholder="без качества"
+                    placeholder={t("ui-alpha-no-quality")}
                   />
                 </label>
               </div>
@@ -182,23 +200,21 @@ export function Alpha({ values, embodied = true }: Props) {
           <div className="row">
             {embodied && (
               <button onClick={spawn} disabled={busy || goods.trim() === ""}>
-                Напечатать
+                {t("ui-alpha-print")}
               </button>
             )}
             <button onClick={hurry} disabled={busy}>
-              Завершить сейчас
+              {t("ui-alpha-finish")}
             </button>
           </div>
 
           {said && <p className="note">{said}</p>}
           <p className="note">
-            {embodied &&
-              "Печатается в руки и в журнал: у вещи записано основание «alpha», и " +
-                "найти всё, что мир не заработал, можно по нему. "}
-            «Завершить сейчас» двигает срок того, что вы уже начали, — разведки,
-            перехода, работы, стройки, вспашки, перелёта и печати тела:
-            доделывает их обычный обработчик, тот же, что и при честном
-            ожидании.
+            {/* Two sentences and not one with a variant: the first belongs to
+                the printing half, which is absent in the cloud, and the space
+                that joins them belongs to the pair rather than to either. */}
+            {embodied && `${t("ui-alpha-note-print")} `}
+            {t("ui-alpha-note-hurry")}
           </p>
         </>
       )}

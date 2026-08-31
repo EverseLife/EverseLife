@@ -35,7 +35,7 @@ BEANS = "beans"
 
 
 async def _farmstead(
-    session: AsyncSession, *, water: str = "река", fertility: float = 55, area: float = 200
+    session: AsyncSession, *, water: str = "river", fertility: float = 55, area: float = 200
 ):
     stamp = uuid.uuid4().hex[:8]
     node = await world.create_node(
@@ -43,7 +43,7 @@ async def _farmstead(
         f"terra.farm.{stamp}",
         "Хутор",
         area_m2=area,
-        properties={"вода": water, "плодородие": fertility},
+        properties={"water": water, "fertility": fertility},
     )
     identity = await world.create_identity(session, f"Фермер-{stamp}")
     body = await world.print_body(session, identity, node)
@@ -438,7 +438,7 @@ async def test_land_outside_a_city_is_never_privatized(
         f"terra.wild.{stamp}",
         "Дикий угол",
         area_m2=100,
-        properties={"плодородие": 40},
+        properties={"fertility": 40},
     )
     first = await world.create_identity(session, f"Первый-{stamp}")
     body = await world.print_body(session, first, wild)
@@ -465,7 +465,7 @@ async def test_civic_plot_is_handed_over_once(
         f"terra.town.{stamp}",
         "Городская земля",
         area_m2=100,
-        properties={"плодородие": 40},
+        properties={"fertility": 40},
     )
     civic.owner_city_id = uuid.uuid4()
     holder = await world.create_identity(session, f"Держатель-{stamp}")

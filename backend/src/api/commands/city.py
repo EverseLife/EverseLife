@@ -15,7 +15,7 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.api.commands.common import _alive, _body, _identity, _node
+from src.api.commands.common import _alive, _body, _identity, _node, goods_key
 from src.api.commands.views import _city, _identity_by_name
 from src.api.registry import Refused, command
 from src.constants import current, current_catalog
@@ -148,7 +148,7 @@ async def _city_vote(state: dict, db: AsyncSession, message: dict) -> dict:
     city = await _city(state, db, message)
     poll = await db.get(Vote, uuid.UUID(message["vote"]))
     if poll is None or poll.city_id != city.id:
-        raise Refused("нет такого голосования в этом городе")
+        raise Refused(key="cmd-no-such-vote")
     await vote.cast(db, city, identity, poll, bool(message.get("yes")))
     pro, contra = await vote.standing(db, poll)
     return {"yes": pro, "no": contra}
@@ -179,7 +179,7 @@ async def _city_nominate(state: dict, db: AsyncSession, message: dict) -> dict:
     city = await _city(state, db, message)
     poll = await db.get(Vote, uuid.UUID(message["vote"]))
     if poll is None or poll.city_id != city.id:
-        raise Refused("нет такого голосования в этом городе")
+        raise Refused(key="cmd-no-such-vote")
     await vote.nominate(db, city, identity, poll)
     return {"nominated": identity.name}
 
@@ -191,10 +191,10 @@ async def _city_choose(state: dict, db: AsyncSession, message: dict) -> dict:
     city = await _city(state, db, message)
     poll = await db.get(Vote, uuid.UUID(message["vote"]))
     if poll is None or poll.city_id != city.id:
-        raise Refused("нет такого голосования в этом городе")
+        raise Refused(key="cmd-no-such-vote")
     candidate = await db.get(Identity, uuid.UUID(message["candidate"]))
     if candidate is None:
-        raise Refused("нет такой личности")
+        raise Refused(key="cmd-no-such-identity")
     await vote.choose(db, city, identity, poll, candidate)
     return {"chosen": candidate.name}
 
@@ -255,7 +255,7 @@ async def _city_judge(state: dict, db: AsyncSession, message: dict) -> dict:
     identity = await _identity(state, db)
     case = await db.get(Case, uuid.UUID(message["case"]))
     if case is None:
-        raise Refused("нет такого дела")
+        raise Refused(key="cmd-no-such-case")
     sanction = message.get("sanction") or None
     penalty = await justice.judge(
         db,
@@ -309,7 +309,7 @@ async def _city_bail(state: dict, db: AsyncSession, message: dict) -> dict:
     await town.require(db, identity.id, city, Power.TREASURY)
     loan = await db.get(Loan, uuid.UUID(message["loan"]))
     if loan is None:
-        raise Refused("нет такого займа")
+        raise Refused(key="cmd-no-such-loan")
     treasury = await town.treasury(db, city)
     paid = await bank.repay(
         db,
@@ -352,10 +352,10 @@ async def _city_survey(state: dict, db: AsyncSession, message: dict) -> dict:
             "name": node.name,
             "area": float(node.area_m2),
             "owner": None if node.owner_identity_id is None else str(node.owner_identity_id),
-            "free": node.owner_identity_id is None and bool(node.properties.get("участок")),
+            "free": node.owner_identity_id is None and bool(node.properties.get("plot")),
         }
         for node in plots
-        if node.properties.get("участок")
+        if node.properties.get("plot")
     ]
     summary["citizens"] = await _citizens(db)
     return {"city": summary}
@@ -474,7 +474,7 @@ async def _city_revoke(state: dict, db: AsyncSession, message: dict) -> dict:
     city = await _city(state, db, message)
     office = await db.get(Office, uuid.UUID(message["office"]))
     if office is None:
-        raise Refused("нет такой должности")
+        raise Refused(key="cmd-no-such-office")
     await town.revoke(db, identity, city, office, body=await _body(db, identity.id))
     return {"revoked": str(office.id)}
 
@@ -568,7 +568,7 @@ async def _city_works_fuel(state: dict, db: AsyncSession, message: dict) -> dict
         await _identity(state, db),
         await _alive(state, db),
         await _node(db, str(message.get("node") or "")),
-        type_key=str(message.get("fuel") or ""),
+        type_key=goods_key(message["fuel"]) if message.get("fuel") else "",
         amount=float(message.get("amount") or 0),
         price_per_unit=float(message.get("price") or 0),
     )
@@ -585,7 +585,7 @@ async def _city_works_cancel(state: dict, db: AsyncSession, message: dict) -> di
     try:
         order_id = uuid.UUID(str(message.get("order") or ""))
     except ValueError as bad:
-        raise Refused("нет такого заказа") from bad
+        raise Refused(key="cmd-no-such-work-order") from bad
     to_treasury, to_fund = await works_city.cancel_city_order(
         db,
         await _city(state, db, message),
@@ -638,10 +638,10 @@ async def _city_loan_repay(state: dict, db: AsyncSession, message: dict) -> dict
     try:
         loan_id = uuid.UUID(str(message.get("loan") or ""))
     except ValueError as bad:
-        raise Refused("нет такого займа") from bad
+        raise Refused(key="cmd-no-such-loan") from bad
     loan = await db.get(Loan, loan_id)
     if loan is None:
-        raise Refused("нет такого займа")
+        raise Refused(key="cmd-no-such-loan")
     paid = await works_city.repay_for_works(
         db,
         current(),

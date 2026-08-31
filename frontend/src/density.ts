@@ -26,6 +26,8 @@
 
 import { useSyncExternalStore } from "react";
 
+import { t } from "./locale";
+
 export const DENSITIES = ["plain", "normal", "dense"] as const;
 export type Density = (typeof DENSITIES)[number];
 
@@ -76,9 +78,22 @@ export function useDensity(): Density {
   return useSyncExternalStore(subscribeDensity, getDensity, () => DEFAULT);
 }
 
-/** Names for the setting. The mode is described by whom it suits, not by a number. */
+/** Names for the setting. The mode is described by whom it suits, not by a number.
+ *
+ *  Getters, not strings: the map is built once when the module is first
+ *  imported, and the language can be switched long afterwards -- a plain string
+ *  would freeze whichever language was spoken at that first import. */
 export const DENSITY_NAMES: Record<Density, { label: string; about: string }> = {
-  plain: { label: "простой", about: "просторные строки и отступы" },
-  normal: { label: "обычный", about: "середина: так игра выглядит по умолчанию" },
-  dense: { label: "плотный", about: "максимум данных на экране" },
+  plain: {
+    get label() { return t("ui-density-plain"); },
+    get about() { return t("ui-density-plain-about"); },
+  },
+  normal: {
+    get label() { return t("ui-density-normal"); },
+    get about() { return t("ui-density-normal-about"); },
+  },
+  dense: {
+    get label() { return t("ui-density-dense"); },
+    get about() { return t("ui-density-dense-about"); },
+  },
 };

@@ -33,14 +33,15 @@ from __future__ import annotations
 import json
 import logging
 import random
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.constants import ConstantError, Constants, current_catalog
+from src.constants import ConstantError, Constants, current_catalog, load_renames
 from src.constants import registry as R
+from src.constants.renames import RenameTable
 from src.engine import goods, places, ruins, travel, world
 from src.models.inventory import Item
 from src.models.world import Layer, Node, Planet, Surface
@@ -151,9 +152,41 @@ class Applied:
         return found
 
 
+#: Water is the one property whose VALUE is a word of the vault ("нет"/"река");
+#: everything else is numbers and booleans.
+_WATER_VALUES = {"нет": "none", "река": "river"}
+
+
+def _renamed_properties(properties: dict, renames: RenameTable) -> dict:
+    keys = renames.node_properties
+    out = {}
+    for key, value in properties.items():
+        key = keys.get(key, key)
+        if key == "water" and isinstance(value, str):
+            value = _WATER_VALUES.get(value, value)
+        out[key] = value
+    return out
+
+
 def load_scenario(build_dir: Path | None = None) -> Scenario:
-    """The layout snapshot the vault built (`build/world.json`)."""
-    path = (build_dir or settings().vault_build_path) / "world.json"
+    """The layout snapshot the vault built (`build/world.json`).
+
+    The vault writes the layout in its own language -- Russian names for
+    machines, veins, stocks and property words. This is the world's side of
+    the D-251 load-time seam: everything is translated to ids right here, and
+    the seed below never sees a Russian identifier.
+    """
+    source = build_dir or settings().vault_build_path
+    path = source / "world.json"
+    renames = load_renames(source)
+    #: Not `goods`: that name is the engine module imported above.
+    thing = renames.goods_id
+
+    def klass(name: str | None) -> str | None:
+        if name is None:
+            return None
+        return renames.classes.get(name, name)
+
     doc = json.loads(path.read_text(encoding="utf-8"))
     return Scenario(
         nodes=tuple(
@@ -171,25 +204,25 @@ def load_scenario(build_dir: Path | None = None) -> Scenario:
                     else None
                 ),
                 city=bool(node.get("city")),
-                properties=dict(node.get("properties") or {}),
+                properties=_renamed_properties(dict(node.get("properties") or {}), renames),
                 machines=tuple(
                     Machine(
-                        name=machine.get("name"),
-                        thing_class=machine.get("class"),
+                        name=thing(machine["name"]) if machine.get("name") else None,
+                        thing_class=klass(machine.get("class")),
                         quality=float(machine["quality"]),
                     )
                     for machine in node.get("machines") or []
                 ),
-                relics=tuple(node.get("relics") or []),
+                relics=tuple(klass(relic) for relic in node.get("relics") or []),
                 veins=tuple(
                     VeinSpec(
-                        resource=vein["resource"],
+                        resource=thing(vein["resource"]),
                         richness=float(vein["richness"]),
                         remaining=float(vein["remaining"]),
                     )
                     for vein in node.get("veins") or []
                 ),
-                items=_stocks(node.get("items") or []),
+                items=_renamed_stocks(_stocks(node.get("items") or []), thing),
             )
             for node in doc["nodes"]
         ),
@@ -202,7 +235,10 @@ def load_scenario(build_dir: Path | None = None) -> Scenario:
             )
             for edge in doc["edges"]
         ),
-        pockets={owner: _stocks(grants) for owner, grants in (doc.get("pockets") or {}).items()},
+        pockets={
+            owner: _renamed_stocks(_stocks(grants), thing)
+            for owner, grants in (doc.get("pockets") or {}).items()
+        },
     )
 
 
@@ -217,6 +253,11 @@ def _stocks(items: list[dict]) -> tuple[Stock, ...]:
         )
         for item in items
     )
+
+
+def _renamed_stocks(stocks: tuple[Stock, ...], goods) -> tuple[Stock, ...]:
+    """Stock names to D-251 ids; the rest of the row travels as written."""
+    return tuple(replace(stock, name=goods(stock.name)) for stock in stocks)
 
 
 def one_of(thing_class: str) -> str:
@@ -373,7 +414,7 @@ async def present_in(session: AsyncSession, container, name: str) -> bool:
 #: Energy is not a thing (D-071): it lives in a pool or in a battery, and it
 #: cannot be put into a container. Compositions do call for it -- silicon is
 #: smelted with current -- so the assembly skips it: the Forerunners had power.
-INTANGIBLE = "Энергия"
+INTANGIBLE = "energy"
 
 
 def _composition(book, name: str) -> dict[str, float] | None:

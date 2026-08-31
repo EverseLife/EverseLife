@@ -13,7 +13,7 @@ import json
 
 import pytest
 
-from src.constants import Constants, load_constants
+from src.constants import Constants, RenameTable, load_constants
 from src.constants import registry as R
 from src.constants.spec import ConstantError, Num, Span
 
@@ -77,10 +77,10 @@ def test_fingerprint_independent_of_key_order(tmp_path) -> None:
 
 def test_clear_error_if_vault_not_built(tmp_path) -> None:
     with pytest.raises(ConstantError, match="build.py"):
-        load_constants(tmp_path)
+        load_constants(tmp_path, RenameTable())
 
 
 def test_loader_reads_file_whole(tmp_path) -> None:
     path = tmp_path / "constants.json"
     path.write_text(json.dumps({"time.tick": 1}), encoding="utf-8")
-    assert load_constants(tmp_path)[Num("time.tick")] == 1
+    assert load_constants(tmp_path, RenameTable())[Num("time.tick")] == 1

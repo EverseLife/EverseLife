@@ -22,7 +22,7 @@ import uuid
 from datetime import datetime
 from enum import StrEnum
 
-from sqlalchemy import ForeignKey, Index, Numeric, UniqueConstraint, Uuid
+from sqlalchemy import ForeignKey, Index, Numeric, String, UniqueConstraint, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.db.base import Base, created_column, enum_column, uuid_pk
@@ -44,6 +44,12 @@ class Account(Base):
     #: uniqueness must see that.
     email: Mapped[str | None] = mapped_column(unique=True, nullable=True)
     password_hash: Mapped[str | None] = mapped_column(nullable=True)
+    #: The language this account reads the world in (D-249, D-251 wave III).
+    #: On the account rather than the identity: a person chooses a language,
+    #: not a body -- printing a new one must not silently switch it back.
+    #: Deliberately not from `Accept-Language`: the same line the landing
+    #: holds (D-078) -- a browser's locale is not a decision anybody made.
+    locale: Mapped[str] = mapped_column(String(8), nullable=False, server_default="ru")
     created_at: Mapped[datetime] = created_column()
     disabled_at: Mapped[datetime | None] = mapped_column(nullable=True)
 

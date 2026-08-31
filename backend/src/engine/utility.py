@@ -258,20 +258,24 @@ async def pay(
     The owner may pay: other people's bills are paid by contract, not by the engine.
     """
     if node.owner_identity_id != identity.id:
-        raise UtilityError("узел не ваш: чужие счета оплачивает договор, а не движок")
+        raise UtilityError(key="utility-node-not-yours")
     meter = await meter_of(session, node, create=False)
     if meter is None or meter.debt <= 0:
-        raise NothingDue("долга нет")
+        raise NothingDue(key="utility-nothing-due")
 
     pool = await energy.pool_of(session, constants, node, create=False)
     if pool is None:  # pragma: no cover -- a meter is created only in the grid
-        raise UtilityError("здесь нет городской сети")
+        raise UtilityError(key="utility-no-grid")
 
     account = await ledger.account_for(session, AccountKind.IDENTITY, identity.id)
     treasury = await ledger.account_for(session, AccountKind.CITY_TREASURY, pool.node_id)
     remainder = await ledger.balance(session, account.id)
     if remainder < meter.debt:
-        raise NotEnoughMoney(f"долг {money_str(meter.debt)} ₭, а на счету {money_str(remainder)} ₭")
+        raise NotEnoughMoney(
+            key="utility-not-enough-money",
+            debt=money_str(meter.debt),
+            have=money_str(remainder),
+        )
 
     debt = meter.debt
     await ledger.transfer(

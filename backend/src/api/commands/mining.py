@@ -36,7 +36,7 @@ async def _challenge(state: dict, db: AsyncSession, message: dict) -> dict:
     """Issue a device-fee challenge. The client computes it in a Web Worker."""
     identity = await db.get(Identity, state["identity_id"])
     if identity is None:  # pragma: no cover
-        raise Refused("личность исчезла")
+        raise Refused(key="cmd-identity-gone")
     task = await device.issue(db, current(), identity.account_id)
     return {"challenge": str(task.id), "nonce": task.nonce.hex()}
 
@@ -47,16 +47,16 @@ async def _mine_start(state: dict, db: AsyncSession, message: dict) -> dict:
     constants = current()
     body = await _body(db, state["identity_id"])
     if body is None:
-        raise Refused("нет живого тела")
+        raise Refused(key="cmd-no-live-body")
 
     task = await db.get(PowChallenge, uuid.UUID(message["challenge"]))
     if task is None or task.account_id != (await db.get(Identity, body.identity_id)).account_id:
-        raise Refused("задача не ваша")
+        raise Refused(key="cmd-not-your-job")
     await device.verify(db, constants, task, bytes.fromhex(message["answer"]))
 
     vein = await db.get(Vein, uuid.UUID(message["vein"]))
     if vein is None:
-        raise Refused("нет такой жилы")
+        raise Refused(key="cmd-no-such-vein")
 
     session = await mining.start(
         db,
@@ -150,7 +150,7 @@ async def _rig_place(state: dict, db: AsyncSession, message: dict) -> dict:
     item = await _own_item(db, body, message["item"])
     vein = await db.get(Vein, uuid.UUID(message["vein"]))
     if vein is None:
-        raise Refused("нет такой жилы")
+        raise Refused(key="cmd-no-such-vein")
     installation = await rig.place(db, body, item, vein)
     return {"rig": str(installation.id), "vein": vein.resource}
 
@@ -160,7 +160,7 @@ async def _rig_status(state: dict, db: AsyncSession, message: dict) -> dict:
     """What stands in the node: hopper, fuel, condition. In-person scene."""
     body = await _body(db, state["identity_id"])
     if body is None:
-        raise Refused("нет живого тела")
+        raise Refused(key="cmd-no-live-body")
     return {"rigs": await rig.status(db, current(), body.node_id)}
 
 
@@ -170,7 +170,7 @@ async def _rig_empty(state: dict, db: AsyncSession, message: dict) -> dict:
     body = await _alive(state, db)
     installation = await db.get(RigRow, uuid.UUID(message["rig"]))
     if installation is None:
-        raise Refused("нет такой установки")
+        raise Refused(key="cmd-no-such-rig")
     taken = await rig.empty_hopper(db, current(), body, installation)
     return {"taken": taken}
 
@@ -181,7 +181,7 @@ async def _active(state: dict, db: AsyncSession) -> MiningSession:
         #: The client may have reconnected -- look for the body's open session.
         body = await _body(db, state["identity_id"])
         if body is None:
-            raise Refused("нет живого тела")
+            raise Refused(key="cmd-no-live-body")
         found = (
             (
                 await db.execute(
@@ -195,11 +195,11 @@ async def _active(state: dict, db: AsyncSession) -> MiningSession:
             .first()
         )
         if found is None:
-            raise Refused("сессия не открыта")
+            raise Refused(key="cmd-session-not-open")
         state["session_id"] = found.id
         return found
 
     session = await db.get(MiningSession, session_id)
     if session is None:  # pragma: no cover
-        raise Refused("сессия исчезла")
+        raise Refused(key="cmd-session-gone")
     return session

@@ -49,7 +49,7 @@ async def _pyroxis(session: AsyncSession) -> Node:
         planet=Planet.PYROXIS,
         area_m2=1,
         layer=Layer.SPACE,
-        properties={ship.OPEN_LANDING: True, "пекло": True},
+        properties={ship.OPEN_LANDING: True, "heat": True},
     )
 
 
@@ -274,7 +274,7 @@ async def test_an_eruption_redraws_ways_and_moves_veins(
     and the map it was on stops being worth anything."""
     plateau, fields = await _surface(session, count=4)
     for field in fields:
-        await world.create_vein(session, field, "Вольфрам", richness=70, remaining=1000)
+        await world.create_vein(session, field, "tungsten", richness=70, remaining=1000)
     before = {
         field.id: await session.scalar(select(Vein.id).where(Vein.node_id == field.id).limit(1))
         for field in fields
@@ -356,7 +356,7 @@ async def test_what_lies_in_the_open_burns(session: AsyncSession, constants: Con
     await world.grant_item(
         session,
         await world.node_container(session, field),
-        "Уголь",
+        "coal",
         amount=40,
         quality=60,
         origin="тест",
@@ -381,14 +381,14 @@ async def test_the_fire_empties_a_chest_inside_a_chest(
 
     _, fields = await _surface(session, count=1)
     yard = await world.node_container(session, fields[0])
-    outer = await world.grant_item(session, yard, "Сундук", quality=60, origin="тест")
+    outer = await world.grant_item(session, yard, "chest", quality=60, origin="тест")
     inner = await world.grant_item(
-        session, await storage.inside(session, outer), "Сундук", quality=60, origin="тест"
+        session, await storage.inside(session, outer), "chest", quality=60, origin="тест"
     )
     deep = await world.grant_item(
         session,
         await storage.inside(session, inner),
-        "Уголь",
+        "coal",
         amount=5,
         quality=60,
         origin="тест",
@@ -458,7 +458,7 @@ async def test_a_way_breaking_under_a_walker_kills_them_with_the_pocket(
     plateau, fields = await _surface(session, count=2)
     body = await _dweller(session, fields[0])
     pocket = await world.body_container(session, body)
-    await world.grant_item(session, pocket, "Уголь", amount=10, quality=60, origin="тест")
+    await world.grant_item(session, pocket, "coal", amount=10, quality=60, origin="тест")
 
     edge = await session.scalar(
         select(Edge).where(
@@ -498,11 +498,11 @@ async def test_the_whole_eruption_runs(session: AsyncSession, constants: Constan
     """
     plateau, fields = await _surface(session, count=4)
     for field in fields:
-        await world.create_vein(session, field, "Вольфрам", richness=70, remaining=1000)
+        await world.create_vein(session, field, "tungsten", richness=70, remaining=1000)
         await world.grant_item(
             session,
             await world.node_container(session, field),
-            "Уголь",
+            "coal",
             amount=10,
             quality=60,
             origin="тест",
@@ -574,7 +574,7 @@ async def test_a_moved_vein_ends_the_work_at_its_face(
     from src.models.mining import MiningSession, Pace, SessionState
 
     _, fields = await _surface(session, count=2)
-    vein = await world.create_vein(session, fields[0], "Вольфрам", richness=70, remaining=1000)
+    vein = await world.create_vein(session, fields[0], "tungsten", richness=70, remaining=1000)
     body = await _dweller(session, fields[0])
     face = MiningSession(body_id=body.id, vein_id=vein.id, pace=Pace.STEADY, roof=100)
     session.add(face)
@@ -582,7 +582,7 @@ async def test_a_moved_vein_ends_the_work_at_its_face(
     await world.grant_item(
         session,
         await session_container(session, face),
-        "Вольфрам",
+        "tungsten",
         amount=7,
         quality=70,
         origin="тест",
@@ -600,7 +600,7 @@ async def test_a_moved_vein_ends_the_work_at_its_face(
     assert face is not None and face.state is SessionState.LEFT
     assert face.ended_at is not None
     pocket = await world.contents(session, await world.body_container(session, body))
-    assert [thing.type_key for thing in pocket] == ["Вольфрам"], "добытое осталось в забое"
+    assert [thing.type_key for thing in pocket] == ["tungsten"], "добытое осталось в забое"
 
 
 async def test_a_vein_never_moves_onto_the_plateau(
@@ -615,7 +615,7 @@ async def test_a_vein_never_moves_onto_the_plateau(
     """
     plateau, fields = await _surface(session, count=3)
     for field in fields:
-        await world.create_vein(session, field, "Вольфрам", richness=70, remaining=1000)
+        await world.create_vein(session, field, "tungsten", richness=70, remaining=1000)
 
     for attempt in range(30):
         await plates._move_veins(
@@ -644,7 +644,7 @@ async def test_a_face_at_a_worked_out_vein_still_lets_the_miner_out(
     from src.models.mining import MiningSession, Pace, SessionState
 
     _, fields = await _surface(session, count=2)
-    vein = await world.create_vein(session, fields[0], "Вольфрам", richness=70, remaining=1000)
+    vein = await world.create_vein(session, fields[0], "tungsten", richness=70, remaining=1000)
     body = await _dweller(session, fields[0])
     face = MiningSession(body_id=body.id, vein_id=vein.id, pace=Pace.STEADY, roof=100)
     session.add(face)
@@ -652,7 +652,7 @@ async def test_a_face_at_a_worked_out_vein_still_lets_the_miner_out(
     await world.grant_item(
         session,
         await mining.session_container(session, face),
-        "Вольфрам",
+        "tungsten",
         amount=4,
         quality=70,
         origin="тест",
@@ -664,14 +664,14 @@ async def test_a_face_at_a_worked_out_vein_still_lets_the_miner_out(
     await mining.leave(session, constants, face, now=datetime.now(UTC))
     assert face.state is SessionState.LEFT
     pocket = await world.contents(session, await world.body_container(session, body))
-    assert [thing.type_key for thing in pocket] == ["Вольфрам"]
+    assert [thing.type_key for thing in pocket] == ["tungsten"]
 
     #: And under an eruption. The **only** vein left in the node is the
     #: worked-out one with somebody still sitting at it, so the move cannot
     #: quietly pick an easier neighbour and leave the case untested.
     vein.node_id = fields[1].id
     await session.flush()
-    other = await world.create_vein(session, fields[0], "Медная руда", richness=70, remaining=1000)
+    other = await world.create_vein(session, fields[0], "copper_ore", richness=70, remaining=1000)
     second = await _dweller(session, fields[0])
     stuck = MiningSession(body_id=second.id, vein_id=other.id, pace=Pace.STEADY, roof=100)
     session.add(stuck)
@@ -702,7 +702,7 @@ async def test_a_dead_miner_leaves_the_haul_at_the_face(
     from src.models.mining import MiningSession, Pace, SessionState
 
     _, fields = await _surface(session, count=2)
-    vein = await world.create_vein(session, fields[0], "Вольфрам", richness=70, remaining=1000)
+    vein = await world.create_vein(session, fields[0], "tungsten", richness=70, remaining=1000)
     body = await _dweller(session, fields[0])
     face = MiningSession(body_id=body.id, vein_id=vein.id, pace=Pace.STEADY, roof=100)
     session.add(face)
@@ -710,7 +710,7 @@ async def test_a_dead_miner_leaves_the_haul_at_the_face(
     await world.grant_item(
         session,
         await mining.session_container(session, face),
-        "Вольфрам",
+        "tungsten",
         amount=6,
         quality=70,
         origin="тест",
@@ -720,7 +720,7 @@ async def test_a_dead_miner_leaves_the_haul_at_the_face(
 
     assert face.state is SessionState.LEFT and face.ended_at is not None
     lying = await world.contents(session, await world.node_container(session, fields[0]))
-    assert [thing.type_key for thing in lying] == ["Вольфрам"], "добытое пропало вместе с телом"
+    assert [thing.type_key for thing in lying] == ["tungsten"], "добытое пропало вместе с телом"
 
 
 async def test_the_planets_clock_queues_itself(session: AsyncSession, constants: Constants) -> None:

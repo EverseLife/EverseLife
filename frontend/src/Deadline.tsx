@@ -23,6 +23,7 @@
 
 import { useEffect, useState } from "react";
 import { spell } from "./api";
+import { t } from "./locale";
 
 type Props = {
   /** When the term ends, ISO from the server. */
@@ -68,7 +69,7 @@ export function Deadline({ until, since, label, size = "block" }: Props) {
       : null;
 
   const tone = left <= 0 ? "over" : share !== null && share < WARN_BELOW ? "near" : "";
-  const remains = left <= 0 ? "вот-вот" : spell(left);
+  const remains = left <= 0 ? t("ui-deadline-soon") : spell(left);
 
   //: The size class is prefixed. A bare `card` collided with the login screen's
   //: form card -- a bordered column with padding -- and the bar came out sixty
@@ -83,7 +84,13 @@ export function Deadline({ until, since, label, size = "block" }: Props) {
           aria-valuemin={0}
           aria-valuemax={100}
           aria-valuenow={Math.round(share * 100)}
-          aria-label={label ? `${label}: осталось ${remains}` : `осталось ${remains}`}
+          //: Whether the term has a name is a flag rather than a string: a
+          //: variant key is an identifier, and the message picks the sentence.
+          aria-label={t("ui-deadline-left", {
+            named: String(Boolean(label)),
+            label: label ?? "",
+            remains,
+          })}
         >
           <i style={{ width: `${(share * 100).toFixed(2)}%` }} />
         </span>

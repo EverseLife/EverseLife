@@ -13,6 +13,7 @@
  */
 
 import type { MapRoute } from "../../api";
+import { t } from "../../locale";
 import { H, W } from "./model";
 
 export const STAR = { x: W / 2, y: H / 2 };
@@ -66,6 +67,9 @@ export function passage(route: MapRoute, gap: number, near: number, far: number)
  */
 export function term(hours: number): string {
   const shown = hours < 10 ? Number(hours.toFixed(1)) : Math.round(hours);
-  if (shown < HOURS_PER_DAY) return `${shown} ч`;
-  return `${(shown / HOURS_PER_DAY).toFixed(1)} сут`;
+  //: The number is handed over already written out: Fluent would otherwise
+  //: format it by the language -- "1,5" for "1.5" -- and the term would stop
+  //: matching the numbers set beside it in the code.
+  if (shown < HOURS_PER_DAY) return t("ui-map-term-hours", { term: String(shown) });
+  return t("ui-map-term-days", { term: (shown / HOURS_PER_DAY).toFixed(1) });
 }

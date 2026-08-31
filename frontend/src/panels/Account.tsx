@@ -14,9 +14,10 @@
  */
 
 import { type FormEvent, useState } from "react";
-import { Refusal, useActions, useSession } from "../actions";
+import { Refusal, useActions, useLocale, useSession } from "../actions";
 import type { Profile } from "../api";
 import { DENSITIES, DENSITY_NAMES, setDensity, useDensity } from "../density";
+import { t } from "../locale";
 import { Rule } from "../Rule";
 import { Secret } from "./Secret";
 
@@ -25,18 +26,23 @@ type Props = {
   onLogout: () => void;
 };
 
+/** How short the new password may be. The same floor as registration's. */
+const PASSWORD_MIN = 8;
+
+/** The tabs of this window, each by the message that names it. */
 const TABS = [
-  { id: "who", label: "персонаж" },
-  { id: "password", label: "пароль" },
-  { id: "email", label: "почта" },
+  { id: "who", label: "ui-account-tab-who" },
+  { id: "password", label: "ui-account-tab-password" },
+  { id: "email", label: "ui-account-tab-email" },
   //: Display density lives with the account rather than in the game: it is how
   //: this person reads a screen, not anything the world knows about them.
-  { id: "view", label: "вид" },
+  { id: "view", label: "ui-account-tab-view" },
 ] as const;
 type Tab = (typeof TABS)[number]["id"];
 
 export function Account({ profile, onLogout }: Props) {
   const session = useSession();
+  const { locale } = useLocale();
   //: The tab's own waiting and refusal: saving a surname must not grey out
   //: the map or the chat (same rule as every sidebar panel).
   const acting = useActions();
@@ -61,7 +67,7 @@ export function Account({ profile, onLogout }: Props) {
         age: age === "" ? null : Number(age),
         about: about.trim(),
       });
-      setDone("сохранено");
+      setDone(t("ui-account-saved"));
     });
   };
 
@@ -73,7 +79,7 @@ export function Account({ profile, onLogout }: Props) {
       setOld("");
       setFresh("");
       setAgain("");
-      setDone("пароль сменён; другие сессии разлогинены");
+      setDone(t("ui-account-password-saved"));
     });
   };
 
@@ -83,11 +89,14 @@ export function Account({ profile, onLogout }: Props) {
     void act(async () => {
       await session.send("account.email", { email: email.trim(), password: confirm });
       setConfirm("");
-      setDone("почта сменена");
+      setDone(t("ui-account-email-saved"));
     });
   };
 
-  const line = profile.line === "human" ? "человек-киборг" : "нимфа";
+  //: The class line as a word. The same pair stands on somebody's card, and
+  //: the engine has its own display names for the lines: three sources, one
+  //: word (see the report of this wave).
+  const line = t(profile.line === "human" ? "ui-line-human" : "ui-line-nymph");
   const s = new Date(profile.since);
 
   return (
@@ -96,29 +105,31 @@ export function Account({ profile, onLogout }: Props) {
       <p className="sign">
         {profile.name}
         {profile.surname ? ` ${profile.surname}` : ""}
-        <Rule>
-          Аккаунт — это оплата и устройство, личность — это игра. Имя несменяемо:
-          на нём держится репутация.
-        </Rule>
+        <Rule>{t("ui-account-rule")}</Rule>
       </p>
       <p className="note">
-        {line}
-        {profile.age != null ? ` · ${profile.age}` : ""} · в мире с{" "}
-        {s.toLocaleDateString("ru-RU")}
+        {t("ui-account-who", {
+          line,
+          aged: String(profile.age != null),
+          //: The screen printed the age as it stood; a real number would come
+          //: back through `Intl` with a thousands separator.
+          age: profile.age == null ? "" : String(profile.age),
+          since: s.toLocaleDateString(locale),
+        })}
       </p>
 
       <nav className="row tabs">
-          {TABS.map((t) => (
+          {TABS.map((each) => (
             <button
-              key={t.id}
-              className={tab === t.id ? "" : "quiet"}
-              aria-current={tab === t.id || undefined}
+              key={each.id}
+              className={tab === each.id ? "" : "quiet"}
+              aria-current={tab === each.id || undefined}
               onClick={() => {
-                setTab(t.id);
+                setTab(each.id);
                 setDone(null);
               }}
             >
-              {t.label}
+              {t(each.label)}
             </button>
           ))}
         </nav>
@@ -126,12 +137,12 @@ export function Account({ profile, onLogout }: Props) {
         {tab === "who" && (
           <form onSubmit={saveWho} className="card flat">
             <label>
-              <span>имя</span>
-              <input value={profile.name} disabled title="имя не меняется" />
+              <span>{t("ui-account-name")}</span>
+              <input value={profile.name} disabled title={t("ui-account-name-fixed")} />
             </label>
-            <p className="note">Имя несменяемо: на нём держится репутация.</p>
+            <p className="note">{t("ui-account-name-rule")}</p>
             <label>
-              <span>фамилия</span>
+              <span>{t("ui-account-surname")}</span>
               <input
                 value={surname}
                 onChange={(e) => setSurname(e.target.value)}
@@ -140,7 +151,7 @@ export function Account({ profile, onLogout }: Props) {
               />
             </label>
             <label>
-              <span>возраст</span>
+              <span>{t("ui-account-age")}</span>
               <input
                 type="number"
                 min={16}
@@ -151,7 +162,7 @@ export function Account({ profile, onLogout }: Props) {
               />
             </label>
             <label>
-              <span>описание</span>
+              <span>{t("ui-account-about")}</span>
               <textarea
                 value={about}
                 onChange={(e) => setAbout(e.target.value)}
@@ -162,7 +173,7 @@ export function Account({ profile, onLogout }: Props) {
             </label>
             <div className="row">
               <button type="submit" disabled={busy}>
-                Сохранить
+                {t("ui-account-save")}
               </button>
               {done && <span className="note">{done}</span>}
             </div>
@@ -172,33 +183,36 @@ export function Account({ profile, onLogout }: Props) {
         {tab === "password" && (
           <form onSubmit={savePassword} className="card flat">
             <label>
-              <span>старый пароль</span>
+              <span>{t("ui-account-password-old")}</span>
               <Secret value={old} onChange={setOld} disabled={busy} />
             </label>
             <label>
-              <span>новый пароль</span>
+              <span>{t("ui-account-password-new")}</span>
               <Secret
                 value={fresh}
                 onChange={setFresh}
                 autoComplete="new-password"
-                placeholder="не короче 8 знаков"
+                placeholder={t("ui-account-password-hint", { min: PASSWORD_MIN })}
                 disabled={busy}
               />
             </label>
             <label>
-              <span>ещё раз</span>
+              <span>{t("ui-account-password-again")}</span>
               <Secret
                 value={again}
                 onChange={setAgain}
                 autoComplete="new-password"
-                placeholder="повторите"
+                placeholder={t("ui-account-password-repeat")}
                 disabled={busy}
                 invalid={again.length > 0 && again !== fresh}
               />
             </label>
             <div className="row">
-              <button type="submit" disabled={busy || !old || fresh.length < 8 || fresh !== again}>
-                Сменить пароль
+              <button
+                type="submit"
+                disabled={busy || !old || fresh.length < PASSWORD_MIN || fresh !== again}
+              >
+                {t("ui-account-password-submit")}
               </button>
               {done && <span className="note">{done}</span>}
             </div>
@@ -208,7 +222,7 @@ export function Account({ profile, onLogout }: Props) {
         {tab === "email" && (
           <form onSubmit={saveEmail} className="card flat">
             <label>
-              <span>почта</span>
+              <span>{t("ui-account-email")}</span>
               <input
                 type="email"
                 value={email}
@@ -218,13 +232,13 @@ export function Account({ profile, onLogout }: Props) {
               />
             </label>
             <label>
-              <span>пароль</span>
+              <span>{t("ui-account-password")}</span>
               <Secret value={confirm} onChange={setConfirm} disabled={busy} />
             </label>
-            <p className="note">Смена почты подтверждается паролем.</p>
+            <p className="note">{t("ui-account-email-rule")}</p>
             <div className="row">
               <button type="submit" disabled={busy || !email.trim() || !confirm}>
-                Сменить почту
+                {t("ui-account-email-submit")}
               </button>
               {done && <span className="note">{done}</span>}
             </div>
@@ -235,9 +249,9 @@ export function Account({ profile, onLogout }: Props) {
 
         <footer className="row">
           <button className="quiet" onClick={onLogout} disabled={busy}>
-            Выйти из аккаунта
+            {t("ui-account-logout")}
           </button>
-          <span className="note">Жетон этой сессии будет отозван.</span>
+          <span className="note">{t("ui-account-logout-note")}</span>
         </footer>
     </div>
   );
@@ -248,16 +262,13 @@ function View() {
   const density = useDensity();
   return (
     <div className="card flat">
+      <Language />
       <label>
         <span>
-          плотность
-          <Rule>
-            Плотность меняет высоту строк и отступы. Размер шрифта и расположение
-            элементов не меняются: плотный режим — это больше данных на экране, а не
-            более мелкий текст. Переключается свободно и в любую сторону.
-          </Rule>
+          {t("ui-account-density")}
+          <Rule>{t("ui-account-density-rule")}</Rule>
         </span>
-        <div className="row" role="group" aria-label="плотность экрана">
+        <div className="row" role="group" aria-label={t("ui-account-density-label")}>
           {DENSITIES.map((mode) => (
             <button
               key={mode}
@@ -274,4 +285,65 @@ function View() {
       <p className="note">{DENSITY_NAMES[density].about}</p>
     </div>
   );
+}
+
+/**
+ * The language the world is read in (D-249, D-251 wave III).
+ *
+ * It stands with the density rather than in the game: which words a person
+ * reads is how they read a screen, not anything the world knows about them.
+ * The choice reaches the account, so the next login on another device opens in
+ * the same language.
+ *
+ * The list comes from the server -- it is the one that knows which languages
+ * exist. While there is only one there is nothing to choose, and a row with a
+ * single pressed button in it is a control that lies about being a control:
+ * the block hides itself until a second language appears, and needs no code
+ * change when it does.
+ */
+function Language() {
+  const { locale, locales, setLocale } = useLocale();
+  const acting = useActions();
+  if (locales.length < 2) return null;
+  return (
+    <>
+      <Refusal of={acting} />
+      <label>
+        <span>
+          {t("ui-account-language")}
+          <Rule>{t("ui-account-language-rule")}</Rule>
+        </span>
+        <div className="row" role="group" aria-label={t("ui-account-language")}>
+          {locales.map((code) => (
+            <button
+              key={code}
+              type="button"
+              className={locale === code ? "" : "quiet"}
+              aria-pressed={locale === code}
+              disabled={acting.busy}
+              onClick={() => void acting.act(() => setLocale(code))}
+            >
+              {languageName(code, locale)}
+            </button>
+          ))}
+        </div>
+      </label>
+    </>
+  );
+}
+
+/**
+ * A language code as a word, written in the language of whoever is reading it.
+ *
+ * `Intl` already knows every name in every language, so a table of ours would
+ * only be a second source of truth going stale one language at a time. A
+ * browser that cannot answer gets the bare code, which is still a choice a
+ * person can make.
+ */
+function languageName(code: string, reader: string): string {
+  try {
+    return new Intl.DisplayNames([reader], { type: "language" }).of(code) ?? code;
+  } catch {
+    return code;
+  }
 }

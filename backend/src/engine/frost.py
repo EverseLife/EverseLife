@@ -86,19 +86,19 @@ from src.units import SECONDS_PER_HOUR, amount, amount_float
 
 #: The planet's own property, written into its node on the space layer by the
 #: seed (D-231). A planet without either is livable ground and asks nothing.
-FROST = "мерзлота"
-HEAT = "пекло"
+FROST = "frost"
+HEAT = "heat"
 
 #: Thing classes with heat behaviour (D-215). The engine keeps no list of
 #: stoves: a second heater is a line in the vault.
 #: The plant heats **its node and every neighbour**, the heater only its own,
 #: and both eat the city pool. The brazier is carried, burns fuel and needs no
 #: grid -- the warmth of a camp and the first spark of a dead city.
-PLANT = "ТЭЦ"
-HEATER = "Обогреватель"
-BRAZIER = "Жаровня"
+PLANT = "heat_plant"
+HEATER = "heater"
+BRAZIER = "brazier"
 #: A one-off handful of hours, the thing one walks into the cold with.
-WARMER = "Грелка"
+WARMER = "warmer"
 
 
 class FrostError(Refusal):
@@ -344,8 +344,12 @@ async def require_working(
     if await works_here(session, constants, node, type_key):
         return
     raise Frozen(
-        f"«{node.name}» промёрз: «{type_key}» здесь не работает. "
-        f"Тепло даёт «{PLANT}», «{HEATER}» или «{BRAZIER}» с топливом"
+        key="frost-node-frozen",
+        node=node.name,
+        station=type_key,
+        plant=PLANT,
+        heater=HEATER,
+        brazier=BRAZIER,
     )
 
 
@@ -597,27 +601,25 @@ async def use_warmer(
     """
     moment = now or datetime.now(UTC)
     if body.state is not BodyState.ALIVE:
-        raise FrostError("мёртвое тело не греется")
+        raise FrostError(key="frost-dead-warms")
     #: A sleeper does nothing by hand, a meal included (`food.eat`): the reserve
     #: melts in the sleep, and that is exactly the mistake the planet kills for.
     if body.sleeping_since is not None:
-        raise FrostError("тело спит: сначала проснуться")
+        raise FrostError(key="frost-asleep")
     if catalog.recipes.resolve(item.type_key) != WARMER:
-        raise NotWarmer(f"«{item.type_key}» не греет: для этого есть «{WARMER}»")
+        raise NotWarmer(key="frost-not-a-warmer", goods=item.type_key, warmer=WARMER)
     pocket = await world.body_container(session, body)
     if item.container_id != pocket.id:
-        raise FrostError("грелку достают из рук")
+        raise FrostError(key="frost-warmer-from-hands")
     node = await session.get(Node, body.node_id)
     if node is None or await climate_of(session, node) is None:
-        raise FrostError("здесь не мёрзнут: греться незачем, а грелка одноразовая")
+        raise FrostError(key="frost-no-cold-here")
 
     before = await settle(session, constants, catalog, body, now=moment)
     ceiling = await limit_of(session, constants, catalog, body)
     left = min(ceiling, before + constants[R.FROST_WARMER_HOURS])
     if left <= before:
-        raise FrostError(
-            f"теплозапас и так полон ({before:.1f} ч из {ceiling:.1f}): грелку берегут на холод"
-        )
+        raise FrostError(key="frost-reserve-full", have=before, ceiling=ceiling)
     #: The stack is locked before it is spent, like every other write-off in the
     #: world: the body's own lock is not a substitute for the thing's.
     await stock.lock_items(session, [item])

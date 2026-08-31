@@ -43,7 +43,7 @@ CORE = "terra.capital.core"
 #: makes the node a port (D-176).
 PORT = "terra.capital.port"
 #: A species, not "ore in general" (D-151): what Hyom loads onto the terminal.
-IRON = "Железная руда"
+IRON = "iron_ore"
 
 #: Money goes **into the capital's treasury**, not the player's pocket (D-153).
 #: The player prints with zero and gets the settlement grant by the city's
@@ -315,7 +315,7 @@ async def shelves(
         ):
             continue
         added = await library.stock(
-            session, applied.nodes[spec.key], (recipe.name for recipe in book.recipes)
+            session, applied.nodes[spec.key], (recipe.type_key for recipe in book.recipes)
         )
         if added:
             log.info("library shelf at %s: %d recipes laid down", spec.key, added)
@@ -339,5 +339,5 @@ async def treasury(session: AsyncSession, city) -> None:
         debit=genesis.id,
         credit=treasury.id,
         amount=money(CITY_TREASURY_START),
-        memo={"основание": "стартовый мир: казна столицы"},
+        memo={"ground": "стартовый мир: казна столицы"},
     )

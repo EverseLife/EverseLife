@@ -39,20 +39,20 @@ async def _prepare_world() -> dict:
 
     async with async_sessionmaker(engine, expire_on_commit=False)() as db:
         node = await world.create_node(db, "terra.mine", "Забой", area_m2=100)
-        vein = await world.create_vein(db, node, "Железная руда", richness=60, remaining=100_000)
+        vein = await world.create_vein(db, node, "iron_ore", richness=60, remaining=100_000)
         stamp = uuid.uuid4().hex[:6]
         identity = await world.create_identity(
             db, f"Тэрн-{stamp}", email=f"tern-{stamp}@example.com", password="kirka-i-krep"
         )
         body = await world.print_body(db, identity, node)
         bag = await world.body_container(db, body)
-        await world.grant_item(db, bag, "Шахтная крепь", amount=5, origin="сценарий теста")
+        await world.grant_item(db, bag, "shaft_support", amount=5, origin="сценарий теста")
         #: Goods on the ground and a bed: `stations` must name the bed alone.
         yard = await world.node_container(db, node)
-        await world.grant_item(db, yard, "Верёвка", amount=3, origin="сценарий теста")
-        await world.grant_item(db, yard, "Кровать", quality=50, origin="сценарий теста")
+        await world.grant_item(db, yard, "rope", amount=3, origin="сценарий теста")
+        await world.grant_item(db, yard, "bed", quality=50, origin="сценарий теста")
         #: Mining requires a pickaxe since D-215 -- the vault said so all along.
-        await world.grant_item(db, bag, "Каменная кирка", quality=50, origin="сценарий теста")
+        await world.grant_item(db, bag, "stone_pickaxe", quality=50, origin="сценарий теста")
         account = await db.get(Account, identity.account_id)
         ready_ = {
             "name": identity.name,
@@ -184,6 +184,9 @@ def test_full_mining_session(client, miner, cheap_pow, constants: Constants) -> 
         #: The client knows its own account: without it it cannot compute the
         #: device fee, and it is the one computing it (D-112). Unrelated to the hidden number.
         "account",
+        #: Which language this session is answered in (D-251 wave III): the
+        #: client asks `/public/i18n` for the matching words with it.
+        "locale",
     }
     for answer in answers:
         assert set(answer) <= allowed_, f"лишние поля в ответе: {set(answer) - allowed_}"
@@ -498,5 +501,5 @@ def test_look_node_carries_only_underived_facts(client, miner) -> None:
     assert "hall" not in (answer["look"].get("city") or {})
     #: What stands here is `bench` and `furniture`, not a list on the node.
     assert "stations" not in node
-    assert [f["goods"] for f in answer["look"]["furniture"]] == ["Кровать"]
+    assert [f["goods"] for f in answer["look"]["furniture"]] == ["bed"]
     assert "owner" not in node and "owner_city" not in node, "ничей: ключей нет"

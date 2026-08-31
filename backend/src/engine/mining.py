@@ -105,7 +105,7 @@ class VeinDepleted(MiningError):
 
 
 #: The thing class of mine supports (D-215).
-TIMBER = "Крепь"
+TIMBER = "mine_support"
 
 
 class NoTool(MiningError):
@@ -262,12 +262,12 @@ async def start(
 ) -> MiningSession:
     """Open a session. The device fee is checked before the call (`engine.pow`)."""
     if body.node_id != vein.node_id:
-        raise NotHere("до жилы надо дойти ногами")
+        raise NotHere(key="mining-vein-not-here")
     if body.state is not BodyState.ALIVE:
-        raise SessionClosed("мёртвое тело не работает")
+        raise SessionClosed(key="mining-dead-works")
     await travel.require_here(session, body)
     if vein.remaining <= 0:
-        raise VeinDepleted(f"жила {vein.id} выработана")
+        raise VeinDepleted(key="mining-vein-depleted", vein=str(vein.id))
     #: The penal face is only for those the prison holds (D-174, D-176): its
     #: vein is neither visible nor given to an outsider.
 
@@ -277,18 +277,15 @@ async def start(
         and await justice.is_prison(session, node)
         and not await justice.held(session, constants, body.identity_id)
     ):
-        raise SessionClosed("каторжный забой работает только на заключённых")
+        raise SessionClosed(key="mining-penal-face")
     #: A session is not opened by a body that cannot swing even once.
     chill = await frost.drain_multiplier(session, constants, body)
     first_hit = swing_cost(constants, body, pace, datetime.now(UTC), chill=chill)
     if float(body.stamina) < first_hit:
-        raise NoStrength(
-            f"на удар нужно {first_hit:.2f} выносливости, а есть "
-            f"{float(body.stamina):.2f}: сначала сон или обед"
-        )
+        raise NoStrength(key="mining-no-strength", need=first_hit, have=float(body.stamina))
 
     if await active(session, body) is not None:
-        raise SessionClosed("у тела уже открыта сессия: в двух забоях сразу не бьют")
+        raise SessionClosed(key="mining-session-open")
     #: A face is an occupation like any other: it is not opened by a body that
     #: is already searching the land or ploughing a plot (D-211).
 
@@ -361,10 +358,7 @@ async def swing(
     chill = await frost.drain_multiplier(session, constants, body)
     hit_price = swing_cost(constants, body, mining.pace, moment, chill=chill)
     if float(body.stamina) < hit_price:
-        raise NoStrength(
-            f"на удар нужно {hit_price:.2f} выносливости, а есть "
-            f"{float(body.stamina):.2f}: сначала сон или обед"
-        )
+        raise NoStrength(key="mining-no-strength", need=hit_price, have=float(body.stamina))
 
     factor = pace_factor(constants, mining.pace)
     crowd = await crowd_factor(constants, session, vein)
@@ -454,7 +448,7 @@ async def timber(session: AsyncSession, constants: Constants, mining: MiningSess
         )
     ).scalar_one_or_none()
     if stock is None:
-        raise NoTimber("нет шахтной крепи")
+        raise NoTimber(key="mining-no-timber")
 
     one = amount(1)
     if stock.amount > one:
@@ -616,7 +610,7 @@ async def sight(session: AsyncSession, constants: Constants, mining: MiningSessi
     """Look at the face. Asking again is pointless: the sign does not change."""
     body = await session.get(Body, mining.body_id)
     if body is None:  # pragma: no cover
-        raise MiningError("сессия без тела")
+        raise MiningError(key="mining-session-without-body")
     return await _sight(session, constants, mining, body)
 
 
@@ -636,13 +630,15 @@ async def _require_active(
     would stay in a container nobody can ever open again.
     """
     if mining.state is not SessionState.ACTIVE:
-        raise SessionClosed(f"сессия {mining.id} закрыта: {mining.state.value}")
+        raise SessionClosed(
+            key="mining-session-closed", session=str(mining.id), state=mining.state.value
+        )
     body = await session.get(Body, mining.body_id)
     vein = await session.get(Vein, mining.vein_id)
     if body is None or vein is None:  # pragma: no cover
-        raise MiningError("сессия ссылается в никуда")
+        raise MiningError(key="mining-session-dangling")
     if working and vein.remaining <= 0:
-        raise VeinDepleted(f"жила {vein.id} выработана")
+        raise VeinDepleted(key="mining-vein-depleted", vein=str(vein.id))
     return body, vein
 
 
@@ -741,10 +737,7 @@ async def _required_tool(
         )
     ).scalar_one_or_none()
     if found is None:
-        raise NoTool(
-            f"для добычи нужен инструмент класса «{requirement}» "
-            f"({', '.join(names)}), а в руках его нет"
-        )
+        raise NoTool(key="mining-no-tool", tool_class=requirement, names=", ".join(names))
     return found
 
 

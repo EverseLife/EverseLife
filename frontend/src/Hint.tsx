@@ -30,6 +30,7 @@
 
 
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { t } from "./locale";
 
 /** How far the layer stands from the icon, and how close it may come to the screen's edge. */
 const GAP = 6;
@@ -37,7 +38,7 @@ const EDGE = 8;
 
 export function Hint({
   children,
-  label = "подсказка",
+  label,
 }: {
   children: ReactNode;
   /** What the icon is called for whoever does not see it. */
@@ -103,7 +104,10 @@ export function Hint({
         ref={mark}
         type="button"
         className="hint bare"
-        aria-label={label}
+        //: The default is a `t` call rather than a default parameter value: a
+        //: default is evaluated at every render, which is when the language is
+        //: known, and a module-level string would freeze the first one.
+        aria-label={label ?? t("ui-hint")}
         aria-expanded={open}
         aria-controls={open ? id : undefined}
         onClick={() => setOpen((was) => !was)}

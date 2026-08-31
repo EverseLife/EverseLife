@@ -49,7 +49,7 @@ async def _capital(session: AsyncSession, catalog: Catalog, *, funds: float = 0)
         "Ядро",
         area_m2=100,
         parent=delegate,
-        properties={"кольцо": 0},
+        properties={"ring": 0},
     )
     city = await town.found(session, catalog, delegate, "Столица")
     core.owner_city_id = city.id
@@ -371,7 +371,7 @@ async def test_city_hands_out_plots(session: AsyncSession, catalog: Catalog) -> 
         "Участок",
         area_m2=100,
         parent=await session.get(type(core), core.parent_id),
-        properties={"участок": True},
+        properties={"plot": True},
     )
     plot.owner_city_id = city.id
     await session.flush()
@@ -537,7 +537,7 @@ async def _wasteland(session: AsyncSession, name: str = "Основатель"):
         area_m2=400,
         layer=Layer.PLANET,
         parent=planet,
-        properties={"дикий": True},
+        properties={"wild": True},
     )
     identity, body = await _resident(session, place, name)
     return place, identity, body
@@ -550,10 +550,10 @@ async def _build_up(session: AsyncSession, node, *, missing: str | None = None):
 
     yard = await world.node_container(session, node)
     for_ = {
-        "биопринтер": death.PRINTER,
-        "администрация": town.HALL,
-        "рынок": "Терминал маркетплейса",
-        "источник энергии": power.WHEEL,
+        "bioprinter": death.PRINTER,
+        "administration": town.HALL,
+        "market": "market_terminal",
+        "power": power.WHEEL,
     }
     for role, machine in for_.items():
         if role == missing:
@@ -618,12 +618,18 @@ async def test_no_city_without_buildings(
 ) -> None:
     """The entry threshold is buildings, not a coin (D-023)."""
     place, _, body = await _wasteland(session)
-    await _build_up(session, place, missing="биопринтер")
+    await _build_up(session, place, missing="bioprinter")
 
+    #: By the key and what it quotes, not by the sentence: the wording is the
+    #: locale's, and what is missing is a message of its own (D-251 wave IV).
     with pytest.raises(town.NotReady) as refusal:
         await town.establish(session, constants, catalog, body, "Недоград")
-    assert "биопринтер" in str(refusal.value), "отказ называет, чего не хватает"
-    assert await town.missing_for_foundation(session, place) == ("биопринтер",)
+    assert refusal.value.key == "city-found-not-ready"
+    quoted = refusal.value.inner["missing"]
+    assert [one.key for one in quoted] == ["city-role-bioprinter"], (
+        "отказ называет, чего не хватает"
+    )
+    assert await town.missing_for_foundation(session, place) == ("bioprinter",)
 
 
 async def test_no_city_founded_on_foreign_land(

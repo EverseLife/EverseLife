@@ -22,3 +22,8 @@ agentic_player_system/*.sqlite3*
 # The woff2 faces unpacked to ttf while `landing/og_en.py` draws the card:
 # scratch, rebuilt from `landing/fonts/` on the next run.
 landing/.og-fonts/
+
+# Scratch copies of the repository that a parallel session works in
+# (`.claude/worktrees/<name>/`). Whole trees, and `git add -A` would try to
+# take one in. The tracked `.claude/` beside them -- agents, skills -- stays.
+**/.claude/worktrees/

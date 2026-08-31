@@ -55,7 +55,7 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.constants import current, current_catalog
+from src.constants import current, current_catalog, display_name
 from src.engine import energy, explore, oxygen, plates, ruins, ship, travel, world
 from src.models.world import Layer, Node, Planet, Surface
 
@@ -193,7 +193,12 @@ async def _pyroxis(session: AsyncSession) -> None:
                 richness=PYROXIS_VEIN_RICHNESS,
                 remaining=PYROXIS_VEIN_STOCK,
             )
-            laid.node.name = f"{laid.node.name}: {species.lower()}"
+            #: The species is a D-251 id, and the field's name is what a
+            #: player reads off the map: the word goes in, not the key.
+            #: The same seam as the vein an explorer finds
+            #: (`explore/run.py`), and the same wave-IV debt -- a Russian
+            #: name frozen into a row that no language can undo.
+            laid.node.name = f"{laid.node.name}: {display_name(species).lower()}"
             await session.flush()
             #: And a way to the field before it. A star -- every field hanging
             #: on the plateau alone -- would switch the planet's main mechanic

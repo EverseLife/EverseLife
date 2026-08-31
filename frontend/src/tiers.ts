@@ -5,6 +5,8 @@
  *  so hot reload keeps working: a module of components exports components. */
 
 import type { Thing } from "./api";
+import { t } from "./locale";
+import { tierName, type NamesRu } from "./names";
 
 /** One tier of a thing in the hands: the name and how much of it there is. */
 export type TierStock = { tier: string; amount: number; low: number; high: number };
@@ -64,10 +66,17 @@ export function tiersOf(things: Thing[], goods: string): TierStock[] {
   return [...found.values()].sort((a, b) => b.high - a.high);
 }
 
-/** How the label reads: the tier, the amount and the quality span behind it. */
-export function tierLabel(stock: TierStock): string {
+/** How the label reads: the tier in the player's words, the amount and the
+ *  quality span behind it. `stock.tier` itself stays the wire's id (D-251). */
+export function tierLabel(stock: TierStock, names: NamesRu | null = null): string {
   const span =
     stock.low === stock.high ? `${stock.low.toFixed(0)}` : `${stock.low.toFixed(0)}–${stock.high.toFixed(0)}`;
-  return `${stock.tier} · ${stock.amount} · кач. ${span}`;
+  //: The numbers go in as strings: Fluent formats a real number through Intl
+  //: for the locale, and a quality of 1200 would come back spaced.
+  return t("ui-tier-stock", {
+    tier: tierName(names, stock.tier),
+    amount: String(stock.amount),
+    span,
+  });
 }
 

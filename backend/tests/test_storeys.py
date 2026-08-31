@@ -50,7 +50,7 @@ async def _plot(session: AsyncSession, *, area: float = 200) -> Node:
         "Участок",
         area_m2=area,
         layer=Layer.PLANET,
-        properties={"плодородие": 50},
+        properties={"fertility": 50},
     )
 
 
@@ -450,7 +450,7 @@ async def test_demolition_brings_the_floors_down_into_the_yard(
     body.node_id = upstairs.id
     await session.flush()
     pocket = await world.body_container(session, body)
-    goods = await world.grant_item(session, pocket, "Труба", amount=2, origin="тест")
+    goods = await world.grant_item(session, pocket, "pipe", amount=2, origin="тест")
     await storage.drop(session, constants, catalog, body, goods)
 
     #: Demolition is ordered on foot from the plot: one takes a house apart from
@@ -467,7 +467,7 @@ async def test_demolition_brings_the_floors_down_into_the_yard(
     assert await estate.storey_area(session, left[0]) == 0
     assert await _stairs(session, node, left[0]) is None
     _, outside = await estate.split(session, node)
-    assert any(thing.type_key == "Труба" for thing in outside), "трубу вынесли во двор"
+    assert any(thing.type_key == "pipe" for thing in outside), "трубу вынесли во двор"
     assert house.floors == 2  # the record itself is gone with the rest
 
 
@@ -557,7 +557,7 @@ async def test_a_house_built_again_walks_back_into_the_same_rooms(
     node = await _plot(session, area=400)
     await _holder(session, node)
     house, rooms = await _house(session, constants, node, footprint=40, floors=3)
-    rooms[0].name = "Мастерская"
+    rooms[0].name = "workshop"
     await session.flush()
     keys = [room.key for room in rooms]
 
@@ -577,7 +577,7 @@ async def test_a_house_built_again_walks_back_into_the_same_rooms(
     again = await estate.open_storeys(session, constants, node)
 
     assert [room.key for room in again] == keys, "этажи завели заново вместо того, чтобы открыть"
-    assert again[0].name == "Мастерская", "имя, данное хозяином, пережило обрушение"
+    assert again[0].name == "workshop", "имя, данное хозяином, пережило обрушение"
     assert await estate.storey_area(session, again[0]) == 40
     assert await _stairs(session, node, again[0]) is not None, "лестницу прорезали снова"
 
@@ -592,7 +592,7 @@ async def test_a_collapse_buries_the_upper_floors(
     upstairs = rooms[0]
 
     store = await world.node_container(session, upstairs)
-    await world.grant_item(session, store, "Труба", amount=3, origin="тест")
+    await world.grant_item(session, store, "pipe", amount=3, origin="тест")
     body.node_id = upstairs.id
     await session.flush()
 
@@ -603,4 +603,4 @@ async def test_a_collapse_buries_the_upper_floors(
     await session.refresh(body)
     assert body.node_id == node.id, "тело спустилось, а не осталось в исчезнувшем узле"
     left = await world.contents(session, await world.node_container(session, node))
-    assert not [thing for thing in left if thing.type_key == "Труба"]
+    assert not [thing for thing in left if thing.type_key == "pipe"]

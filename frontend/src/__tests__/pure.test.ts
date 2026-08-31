@@ -4,7 +4,7 @@
 /** The pure modules: no React, no socket -- the first tests the frontend ever
  *  had (review 2026-08-23, wave 3). */
 
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import * as amounts from "../amounts";
 import type { RecipeBook, Thing } from "../api";
@@ -13,7 +13,15 @@ import { answered, askless, CHEST_ANY, chestOf, chestZone, fits, halved } from "
 import { goodsGlyph, nodeGlyph } from "../marks";
 import { duration, hands, stamp, when, worldTime } from "../clock";
 import { groundName } from "../grounds";
+import { forget, learn, Words } from "../locale";
 import { catalogue, coins, exactly } from "../market";
+import {
+  flavorText,
+  goodsKeyName,
+  goodsName,
+  tierName,
+  type NamesRu,
+} from "../names";
 import { stockOf, tierLabel, tiersOf } from "../tiers";
 
 const thing = (over: Partial<Thing>): Thing =>
@@ -145,63 +153,66 @@ describe("drag", () => {
 });
 
 describe("marks", () => {
-  const recipe = (name: string, kind: string, food = false) =>
-    ({ name, level: 1, kind, roles: false, food, inputs: [], amounts: {} });
+  //: The wire speaks ids since D-251: recipes carry an `id` beside the Russian
+  //: `name`, and everything is looked up by the id.
+  const recipe = (name: string, id: string, kind: string, food = false) =>
+    ({ name, id, level: 1, kind, roles: false, food, inputs: [], amounts: {} });
   const BOOK = {
     bulk: [],
-    liquid: ["Вода"],
+    liquid: ["water"],
     materials: [
-      { name: "Железная руда", class: "Ископаемое" },
-      { name: "Брёвна", class: "Растительное" },
+      { name: "Железная руда", id: "iron_ore", class: "minable" },
+      { name: "Брёвна", id: "logs", class: "flora" },
     ],
     units: {},
     operations: [],
     recipes: [
-      recipe("Хлеб", "consumable", true),
-      recipe("Верстак", "station"),
-      recipe("Куртка", "gear"),
-      recipe("Зубило", "tool"),
+      recipe("Хлеб", "bread", "consumable", true),
+      recipe("Верстак", "workbench", "station"),
+      recipe("Куртка", "jacket", "gear"),
+      recipe("Зубило", "chisel", "tool"),
     ],
     classes: {},
-    tool_classes: { "Кирка": ["Железная кирка"], "Топор": ["Топор"] },
-    synonyms: { "Вода родниковая": "Вода" },
+    tool_classes: { pickaxe: ["iron_pickaxe"], axe: ["axe"] },
+    synonyms: { "Вода родниковая": "water", "Железная кирка": "iron_pickaxe" },
   } as never;
 
   it("marks goods by class, never by name", () => {
-    expect(goodsGlyph(BOOK, "Железная кирка")).toBe("pick");
-    expect(goodsGlyph(BOOK, "Топор")).toBe("axe");
+    expect(goodsGlyph(BOOK, "iron_pickaxe")).toBe("pick");
+    expect(goodsGlyph(BOOK, "axe")).toBe("axe");
     //: A tool of no named class wears the plain hammer.
-    expect(goodsGlyph(BOOK, "Зубило")).toBe("tool");
-    expect(goodsGlyph(BOOK, "Хлеб")).toBe("food");
-    expect(goodsGlyph(BOOK, "Верстак")).toBe("station");
-    expect(goodsGlyph(BOOK, "Куртка")).toBe("gear");
-    expect(goodsGlyph(BOOK, "Железная руда")).toBe("ore");
-    expect(goodsGlyph(BOOK, "Брёвна")).toBe("plant");
-    //: A liquid is found through its synonym, like everything else.
+    expect(goodsGlyph(BOOK, "chisel")).toBe("tool");
+    expect(goodsGlyph(BOOK, "bread")).toBe("food");
+    expect(goodsGlyph(BOOK, "workbench")).toBe("station");
+    expect(goodsGlyph(BOOK, "jacket")).toBe("gear");
+    expect(goodsGlyph(BOOK, "iron_ore")).toBe("ore");
+    expect(goodsGlyph(BOOK, "logs")).toBe("plant");
+    //: An old Russian spelling still resolves through the synonyms.
     expect(goodsGlyph(BOOK, "Вода родниковая")).toBe("water");
+    expect(goodsGlyph(BOOK, "Железная кирка")).toBe("pick");
   });
 
   it("falls back to the honest crate", () => {
-    expect(goodsGlyph(BOOK, "Нечто безвестное")).toBe("goods");
-    expect(goodsGlyph(null, "Хлеб")).toBe("goods");
+    expect(goodsGlyph(BOOK, "нечто безвестное")).toBe("goods");
+    expect(goodsGlyph(null, "bread")).toBe("goods");
   });
 
   it("marks nodes by their place signs", () => {
-    expect(nodeGlyph({ features: ["лес"] })).toBe("forest");
+    expect(nodeGlyph({ features: ["woods"] })).toBe("forest");
     //: The Forerunners' sign outranks the woods that grew over it.
-    expect(nodeGlyph({ features: ["лес", "предтечи"] })).toBe("ruins");
+    expect(nodeGlyph({ features: ["woods", "precursors"] })).toBe("ruins");
     //: The rarer resource outranks the woods too: a stony forest is mined.
-    expect(nodeGlyph({ features: ["лес", "камни"] })).toBe("ore");
-    expect(nodeGlyph({ features: ["луг"] })).toBe("glade");
+    expect(nodeGlyph({ features: ["woods", "stones"] })).toBe("ore");
+    expect(nodeGlyph({ features: ["meadow"] })).toBe("glade");
     expect(nodeGlyph({ settlement: true })).toBe("state");
     expect(nodeGlyph({ port: true })).toBe("port");
     expect(nodeGlyph({})).toBeNull();
   });
 
   it("lets the owner's emblem beat the land's signs", () => {
-    expect(nodeGlyph({ emblem: "мастерская", features: ["лес"] })).toBe("station");
+    expect(nodeGlyph({ emblem: "workshop", features: ["woods"] })).toBe("station");
     //: An unknown word from a newer server falls back to the signs.
-    expect(nodeGlyph({ emblem: "неведомое", features: ["лес"] })).toBe("forest");
+    expect(nodeGlyph({ emblem: "unheard_of", features: ["woods"] })).toBe("forest");
   });
 });
 
@@ -220,6 +231,16 @@ describe("arrange", () => {
   it("sorts by name in Russian order and by amount", () => {
     expect(arrange(things, "name", false).map((t) => t.goods)).toEqual(["Верёвка", "Руда", "Руда"]);
     expect(arrange(things, "amount", true).map((t) => t.id)).toEqual(["a", "b", "c"]);
+  });
+
+  it("sorts ids by their Russian display words, not by the id", () => {
+    //: "rope" < "ore" in ASCII, but Верёвка < Руда is what the player reads.
+    const stacks = [
+      thing({ id: "a", goods: "ore" }),
+      thing({ id: "b", goods: "rope" }),
+    ];
+    const names = { goods: { ore: "Руда", rope: "Верёвка" } } as never;
+    expect(arrange(stacks, "name", false, names).map((t) => t.goods)).toEqual(["rope", "ore"]);
   });
 });
 
@@ -302,8 +323,57 @@ describe("tiers", () => {
   });
 });
 
+describe("names", () => {
+  const table = {
+    goods: { iron_ore: "Железная руда", soup: "Суп", beans: "Бобы", recorded_recipe: "Рецепт" },
+    tiers: { fine: "отличное" },
+    virtual_stations: { by_hand: "Руками" },
+  } as unknown as NamesRu;
+
+  it("says an id in the player's words and passes the unknown through", () => {
+    expect(goodsName(table, "iron_ore")).toBe("Железная руда");
+    expect(goodsName(table, "by_hand")).toBe("Руками");
+    //: Old data must never crash a render: an unknown id is shown as it came.
+    expect(goodsName(table, "mystery_thing")).toBe("mystery_thing");
+    expect(goodsName(null, "iron_ore")).toBe("iron_ore");
+    expect(tierName(table, "fine")).toBe("отличное");
+    expect(tierName(table, "скверное")).toBe("скверное");
+  });
+
+  it("renders an id-composed flavor token by token, old flavors verbatim", () => {
+    expect(flavorText(table, "soup · beans")).toBe("Суп · Бобы");
+    expect(flavorText(table, "суп — бобы")).toBe("суп — бобы");
+  });
+
+  it("splits a carrier's counter key and keeps old keys whole", () => {
+    expect(goodsKeyName(table, "recorded_recipe: soup")).toBe("Рецепт: Суп");
+    expect(goodsKeyName(table, "iron_ore")).toBe("Железная руда");
+    //: A stored Russian key from before the rename passes through verbatim.
+    expect(goodsKeyName(table, "Рецепт: Стекло")).toBe("Рецепт: Стекло");
+  });
+});
+
 describe("grounds", () => {
-  it("says the ground in words", () => {
+  //: The words of a ground are the **server's**: they name members of
+  //: `PostingReason`, and the backend's own suite checks that none is left
+  //: without one. So they arrive over the wire like every other sentence the
+  //: engine says, and the test speaks them the same way a session does.
+  const SERVED = import.meta.glob("../../../backend/locales/ru/money.ftl", {
+    query: "?raw",
+    import: "default",
+    eager: true,
+  }) as Record<string, string>;
+
+  //: Checked out on its own, the client has no backend beside it and the glob
+  //: comes back empty. Say so and skip, the way the backend twin of this test
+  //: does (`test_ledger.py`) -- an empty bundle would fail these two with a
+  //: diff that says «tax_land is not земельный налог» and nothing about why.
+  const served = Object.values(SERVED).join("\n");
+
+  beforeEach(() => learn(new Words({ locale: "ru", locales: ["ru"], ftl: served }, null)));
+  afterEach(() => forget());
+
+  it.skipIf(!served)("says the ground in words", () => {
     expect(groundName("tax_land")).toBe("земельный налог");
     expect(groundName("court_fee")).toBe("пошлина суда");
   });
@@ -318,15 +388,18 @@ describe("grounds", () => {
 describe("market", () => {
   const book = {
     bulk: [],
-    liquid: ["Вода", "Спирт"],
+    liquid: ["water", "spirit"],
     materials: [
-      { name: "Железная руда" },
-      { name: "Вода" },
-      { name: "Биопринтер Предтеч", relic: true },
+      { name: "Железная руда", id: "iron_ore" },
+      { name: "Вода", id: "water" },
+      { name: "Биопринтер Предтеч", id: "precursor_bioprinter", relic: true },
     ],
     units: {},
     operations: [],
-    recipes: [{ name: "Хлеб" }, { name: "Спирт" }],
+    recipes: [
+      { name: "Хлеб", id: "bread" },
+      { name: "Спирт", id: "spirit" },
+    ],
     classes: {},
     tool_classes: {},
     synonyms: {},
@@ -343,15 +416,24 @@ describe("market", () => {
   });
 
   it("keeps out of the catalogue what an order could never be filled with", () => {
-    const names = catalogue(book);
-    expect(names).toContain("Железная руда");
-    expect(names).toContain("Хлеб");
+    const ids = catalogue(book);
+    expect(ids).toContain("iron_ore");
+    expect(ids).toContain("bread");
     //: A relic is found, never made or carried (D-232); a liquid lives only in
     //: a vessel (D-230), so no stack of one can ever lie on the counter --
     //: an order for either would hold money until it expires.
-    expect(names).not.toContain("Биопринтер Предтеч");
-    expect(names).not.toContain("Вода");
-    expect(names).not.toContain("Спирт");
+    expect(ids).not.toContain("precursor_bioprinter");
+    expect(ids).not.toContain("water");
+    expect(ids).not.toContain("spirit");
+  });
+
+  it("orders the ids by their Russian display words", () => {
+    //: Хлеб < Железная руда is wrong; Железная руда < Хлеб is the Russian
+    //: order the picker reads in, whatever the ids spell.
+    const names = {
+      goods: { iron_ore: "Железная руда", bread: "Хлеб" },
+    } as never;
+    expect(catalogue(book, names)).toEqual(["iron_ore", "bread"]);
   });
 
   it("answers with an empty catalogue before the book arrives", () => {

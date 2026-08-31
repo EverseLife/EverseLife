@@ -14,6 +14,7 @@
  */
 
 import { useId, useState } from "react";
+import { t } from "../locale";
 
 type Props = {
   value: string;
@@ -28,7 +29,10 @@ type Props = {
 export function Secret({
   value,
   onChange,
-  placeholder = "пароль",
+  //: A default read at render time rather than at module load: the words are
+  //: learnt after the first paint, and a constant here would freeze the
+  //: language the client booted with.
+  placeholder = t("ui-secret-password"),
   autoComplete = "current-password",
   disabled,
   invalid,
@@ -67,8 +71,8 @@ export function Secret({
         disabled={disabled}
         aria-pressed={open}
         aria-controls={id}
-        aria-label={open ? "скрыть пароль" : "показать пароль"}
-        title={open ? "скрыть" : "показать"}
+        aria-label={open ? t("ui-secret-hide-label") : t("ui-secret-show-label")}
+        title={open ? t("ui-secret-hide") : t("ui-secret-show")}
       >
         <svg viewBox="0 0 32 22" width="30" height="20" aria-hidden="true">
           {/* Открытый глаз: миндалина, радужка, зрачок. Зрачок смотрит туда,

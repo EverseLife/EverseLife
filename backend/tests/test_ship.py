@@ -33,11 +33,11 @@ from src.models.job import Job, JobKind, JobState
 from src.models.ship import Ship
 from src.models.world import Layer, Node, Planet, Surface
 
-ENGINE = "Двигатель I класса"
-LIFE = "Система жизнеобеспечения"
-FUEL = "Ракетное топливо"
-TANK = "Топливный бак"
-CONSOLE = "Консоль управления кораблём"
+ENGINE = "engine_class_1"
+LIFE = "life_support_system"
+FUEL = "rocket_fuel"
+TANK = "fuel_tank"
+CONSOLE = "ship_console"
 
 
 async def _orbit(session: AsyncSession, planet: Planet = Planet.TERRA) -> Node:
@@ -89,7 +89,7 @@ async def _port(session: AsyncSession, *, name: str = "Космодром", plan
     session.add(Building(node_id=node.id, area_m2=400))
     await session.flush()
     yard = await world.node_container(session, node)
-    await world.grant_item(session, yard, "Космическая верфь", quality=60, origin="тест")
+    await world.grant_item(session, yard, "space_shipyard", quality=60, origin="тест")
     return node
 
 
@@ -99,7 +99,7 @@ async def _shipwright(session: AsyncSession, node: Node, *, foundations: int = 1
     if foundations:
         pocket = await world.body_container(session, body)
         await world.grant_item(
-            session, pocket, "Основа узла корабля", amount=foundations, origin="тест"
+            session, pocket, "ship_node_foundation", amount=foundations, origin="тест"
         )
     return identity, body
 
@@ -182,8 +182,10 @@ async def test_foundation_is_written_off_and_a_bare_intention_refused(
         await ship.found(session, constants, body, "Пустышка")
     #: The refusal names a recipe, not the class: asked for the class by name,
     #: the workshop answers that nothing makes it, and the player is stuck
-    #: (agents' finding, D-224).
-    assert "Основа узла корабля" in str(refusal.value)
+    #: (agents' finding, D-224). By the key and its arguments, not by the
+    #: sentence: the wording is the locale's (D-251 wave III).
+    assert refusal.value.key == "ship-no-foundation"
+    assert "ship_node_foundation" in refusal.value.params["makes"]
 
     _, builder = await _shipwright(session, port, foundations=1)
     await ship.found(session, constants, builder, "Заря")
@@ -261,7 +263,10 @@ async def test_the_keel_is_the_bodys_own_work_and_visible_while_it_goes(
     assert occupation.KEEL in doings, "закладка видна в делах"
     laying = doings[occupation.KEEL]
     assert laying.until == job.run_at, "срок тот же, что у задания"
-    assert "Заря" in laying.what, "строка называет корабль"
+    #: The line names the ship as an argument now, not inside a sentence
+    #: assembled in Python (D-251 wave IV).
+    assert laying.says.key == "doing-keel-what"
+    assert laying.says.params["ship"] == "Заря", "строка называет корабль"
 
     #: One pair of hands lays one keel, and the second foundation stays in the
     #: pocket: a refusal must not cost material.
@@ -334,7 +339,7 @@ async def test_the_connector_stays_the_only_way_in(
 
     #: A spaceport aboard changes nothing: a ship is grown from the inside.
     connector = await session.get(Node, vessel.connector_node_id)
-    await _equip(session, connector, "Космическая верфь")
+    await _equip(session, connector, "space_shipyard")
     with pytest.raises(ship.NoPort):
         await ship.found(session, constants, body, "Второй")
 
@@ -378,7 +383,7 @@ async def test_every_node_is_both_a_place_and_mass(
     ), "второй узел добавил ровно свою массу"
 
     #: Cargo weighs as well, and a chest does not hide it.
-    await _equip(session, connector, "Слиток железа", amount=100)
+    await _equip(session, connector, "iron_ingot", amount=100)
     assert await ship.mass(session, constants, catalog, vessel) > 2 * constants[R.SHIP_NODE_MASS]
 
 
@@ -444,7 +449,7 @@ async def test_docking_leaves_land_measurements_alone(
         "Ядро",
         area_m2=100,
         parent=delegate,
-        properties={"кольцо": 0, "предтечи": True},
+        properties={"ring": 0, "precursors": True},
     )
     yard = await world.node_container(session, core)
     await world.grant_item(session, yard, world.BIOPRINTER, quality=60, origin="тест")
@@ -517,7 +522,7 @@ async def test_overloaded_ship_does_not_tear_off(
     await session.flush()
 
     #: Enough cargo for the thrust-to-mass to drop below the floor.
-    await _equip(session, connector, "Слиток железа", amount=100_000)
+    await _equip(session, connector, "iron_ingot", amount=100_000)
     assert (
         await ship.ratio(session, constants, catalog, vessel) < constants[R.SHIP_MIN_THRUST_RATIO]
     )
@@ -1114,7 +1119,7 @@ async def test_fuel_in_a_canister_is_cargo_not_reserve(
     connector = await session.get(Node, vessel.connector_node_id)
     bare = await ship.mass(session, constants, catalog, vessel)
 
-    canister = await _equip(session, connector, "Канистра")
+    canister = await _equip(session, connector, "canister")
     inside = await storage.inside(session, canister)
     await world.grant_item(session, inside, FUEL, amount=5, quality=60, origin="тест")
     assert await ship.fuel_aboard(session, vessel) == 0
@@ -1134,7 +1139,7 @@ async def test_card_lists_engines_and_where_the_mass_comes_from(
     vessel = await _laid(session, constants, owner, port)
     await _flightworthy(session, constants, catalog, vessel)
     connector = await session.get(Node, vessel.connector_node_id)
-    await _equip(session, connector, "Труба", amount=10)
+    await _equip(session, connector, "pipe", amount=10)
 
     card = await ship.profile(session, constants, catalog, vessel)
     assert card["engines"] == [
@@ -1154,7 +1159,7 @@ async def test_card_lists_engines_and_where_the_mass_comes_from(
 # --- the ground console, and turning back (D-242) -----------------------------
 
 
-GROUND = "Наземная консоль управления"
+GROUND = "ground_console"
 
 
 async def _ground_console(session: AsyncSession, node: Node) -> None:
@@ -1330,7 +1335,7 @@ async def test_a_turn_back_to_a_pier_without_a_yard_is_refused(
     #: The yard is carried off while the hull is under way.
     yard = await world.node_container(session, home)
     for thing in await world.contents(session, yard):
-        if thing.type_key == "Космическая верфь":
+        if thing.type_key == "space_shipyard":
             await session.delete(thing)
     await session.flush()
 
@@ -1742,7 +1747,7 @@ async def test_a_turn_back_into_orbit_keeps_the_descent(
     #: measured at the casting off buys more descent than it was sold. A loaded
     #: freighter does not -- its mass is its cargo -- and it is the loaded
     #: freighter the reserve has to be right for.
-    await _equip(session, connector, "Слиток железа", amount=1200)
+    await _equip(session, connector, "iron_ingot", amount=1200)
     await _equip(session, connector, ENGINE, amount=40)
     await _fuel(session, connector, 200)
     owner.node_id = connector.id

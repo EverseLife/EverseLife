@@ -80,7 +80,7 @@ def is_storage(catalog: Catalog, type_key: str) -> bool:
 
 
 #: The value of `Recipe.holds` that makes a storage a vessel (D-230).
-LIQUID = "жидкость"
+LIQUID = "liquid"
 
 
 def is_vessel(catalog: Catalog, type_key: str) -> bool:
@@ -174,27 +174,27 @@ async def put(
 
     pocket = await world.body_container(session, body)
     if item.container_id != pocket.id:
-        raise StorageError("этой вещи нет в руках: кладут своё и из рук")
+        raise StorageError(key="storage-not-in-hands")
 
     qty = amount_float(item.amount) if quantity is None else quantity
     if qty <= 0:
-        raise StorageError("класть нечего")
+        raise StorageError(key="storage-nothing-to-put")
     #: A vessel takes liquids only, a chest everything but (D-230). A liquid
     #: never lies in the hands, so this door mostly refuses the other way: a
     #: canister into a tank, a chest into a canister.
     if not admits(catalog, chest.type_key, item.type_key):
-        why = (
-            "тара берёт только жидкость"
-            if is_vessel(catalog, chest.type_key)
-            else "жидкость держат в таре"
+        raise StorageError(
+            key="storage-mismatch",
+            goods=item.type_key,
+            chest=chest.type_key,
+            why="vessel" if is_vessel(catalog, chest.type_key) else "chest",
         )
-        raise StorageError(f"«{item.type_key}» в «{chest.type_key}» не кладут: {why}")
 
     bonus = gear.mass_of(catalog, item.type_key, qty)
     limit = capacity(catalog, chest.type_key) or 0.0
     free = limit - await stored_mass(session, catalog, chest)
     if bonus > free:
-        raise Full(f"в «{chest.type_key}» свободно {free:.1f} кг, а это {bonus:.1f} кг")
+        raise Full(key="storage-chest-full", chest=chest.type_key, free=free, mass=bonus)
 
     contents = await inside(session, chest)
     carried = await world.move_stack(session, item, contents, qty)
@@ -224,11 +224,11 @@ async def take(
 
     contents = await inside(session, chest)
     if item.container_id != contents.id:
-        raise StorageError("этой вещи нет в хранилище")
+        raise StorageError(key="storage-not-in-storage")
 
     qty = amount_float(item.amount) if quantity is None else quantity
     if qty <= 0:
-        raise StorageError("забирать нечего")
+        raise StorageError(key="storage-nothing-to-take")
 
     await gear.check_carry(session, constants, catalog, body, item.type_key, qty)
 
@@ -275,9 +275,7 @@ async def _require_inside(session: AsyncSession, node: Node, body: Body) -> None
 
     if await access.may_enter(session, node, body.identity_id):
         return
-    raise NotYours(
-        f"«{node.name}» — чужая закрытая локация, вы здесь проходом: проходом не берут и не кладут"
-    )
+    raise NotYours(key="storage-passing-through", node=node.name)
 
 
 async def surface_of(session: AsyncSession, node: Node, indoors: bool | None) -> bool:
@@ -293,10 +291,10 @@ async def surface_of(session: AsyncSession, node: Node, indoors: bool | None) ->
     roofed = await estate.storey_area(session, node) > 0
     inside = roofed if indoors is None else bool(indoors)
     if inside and not roofed:
-        raise NoRoom("здесь нет здания: класть можно только на землю")
+        raise NoRoom(key="storage-no-building")
     #: Upstairs there is no ground: under a storey is somebody's ceiling (D-247).
     if not inside and estate.storey_of(node) is not None:
-        raise NoRoom("это этаж, а не двор: под ним пол, а не земля")
+        raise NoRoom(key="storage-storey-not-yard")
     return inside
 
 
@@ -321,20 +319,20 @@ async def drop(
     """
 
     if body.state is not BodyState.ALIVE:
-        raise StorageError("мёртвое тело ничего не кладёт")
+        raise StorageError(key="storage-dead-puts")
     await travel.require_here(session, body)
 
     node = await session.get(Node, body.node_id)
     if node is None:  # pragma: no cover -- a body without a node is a bug
-        raise StorageError("тело вне узла")
+        raise StorageError(key="storage-body-off-node")
     await _require_inside(session, node, body)
     pocket = await world.body_container(session, body)
     if item.container_id != pocket.id:
-        raise StorageError("кладут из рук")
+        raise StorageError(key="storage-hands-only")
 
     qty = amount_float(item.amount) if quantity is None else quantity
     if qty <= 0:
-        raise StorageError("класть нечего")
+        raise StorageError(key="storage-nothing-to-put")
 
     inside = await surface_of(session, node, indoors)
     area = (
@@ -345,9 +343,10 @@ async def drop(
     needed = gear.mass_of(catalog, item.type_key, qty) / constants[R.BUILD_FLOOR_PER_M2]
     if needed > area["free"]:
         raise NoRoom(
-            f"{'в здании' if inside else 'на земле'} свободно {area['free']:.1f} м², "
-            f"а под это нужно {needed:.1f} м². "
-            "Стройте больше, ставьте сундуки либо увозите"
+            key="storage-no-room",
+            inside="true" if inside else "false",
+            free=area["free"],
+            needed=needed,
         )
 
     yard = await world.node_container(session, node)
@@ -382,17 +381,17 @@ async def pick(
     """
 
     if body.state is not BodyState.ALIVE:
-        raise StorageError("мёртвое тело ничего не поднимает")
+        raise StorageError(key="storage-dead-picks")
     await travel.require_here(session, body)
 
     node = await session.get(Node, body.node_id)
     if node is None:  # pragma: no cover
-        raise StorageError("тело вне узла")
+        raise StorageError(key="storage-body-off-node")
     #: Either surface: what the hand reaches for is what it can see, and both
     #: lists are on one screen (D-244).
     yard = await world.node_container(session, node)
     if item.container_id != yard.id:
-        raise StorageError("этой вещи здесь не лежит")
+        raise StorageError(key="storage-not-on-ground")
 
     await _require_inside(session, node, body)
 
@@ -401,7 +400,7 @@ async def pick(
     #: rather than in the carry limit, which would only say "too heavy" and
     #: leave a wagon as the loophole.
     if catalog.recipes.is_relic(item.type_key):
-        raise StorageError(f"«{item.type_key}» — наследие Предтеч: его не поднимают и не уносят")
+        raise StorageError(key="storage-relic", goods=item.type_key)
 
     #: Fuel lying where a fuel plant stands is loaded, not stored (D-189):
     #: the station burns from this very container, so the pile IS its tank,
@@ -412,13 +411,11 @@ async def pick(
         item.type_key in constants[R.ENERGY_FUEL_ENERGY]
         and await energy.plant_view(session, constants, node) is not None
     ):
-        raise StorageError(
-            f"«{item.type_key}» у станции — это её топливо: залитое обратно не поднимают"
-        )
+        raise StorageError(key="storage-station-fuel", goods=item.type_key)
 
     qty = amount_float(item.amount) if quantity is None else quantity
     if qty <= 0:
-        raise StorageError("поднимать нечего")
+        raise StorageError(key="storage-nothing-to-pick")
     await gear.check_carry(session, constants, catalog, body, item.type_key, qty)
 
     pocket = await world.body_container(session, body)
@@ -456,23 +453,23 @@ async def hand(
     """
 
     if giver.state is not BodyState.ALIVE:
-        raise StorageError("мёртвое тело ничего не передаёт")
+        raise StorageError(key="storage-dead-hands")
     if taker.state is not BodyState.ALIVE:
-        raise StorageError("мёртвому не передают")
+        raise StorageError(key="storage-dead-receives")
     if giver.id == taker.id:
-        raise StorageError("себе передавать нечего")
+        raise StorageError(key="storage-self-hand")
     await travel.require_here(session, giver)
     #: Both in the same room: shouting across the map is not handing over.
     if taker.node_id != giver.node_id:
-        raise StorageError("этого человека здесь нет")
+        raise StorageError(key="storage-person-not-here")
 
     pocket = await world.body_container(session, giver)
     if item.container_id != pocket.id:
-        raise StorageError("этой вещи у вас в руках нет")
+        raise StorageError(key="storage-not-in-hands-to-hand")
 
     qty = amount_float(item.amount) if quantity is None else quantity
     if qty <= 0:
-        raise StorageError("передавать нечего")
+        raise StorageError(key="storage-nothing-to-hand")
     await gear.check_carry(session, constants, catalog, taker, item.type_key, qty)
 
     hands = await world.body_container(session, taker)
@@ -494,20 +491,17 @@ async def _allowed(session: AsyncSession, catalog: Catalog, body: Body, chest: I
     """The common door of both actions: alive, here, entitled, and this is a storage."""
 
     if body.state is not BodyState.ALIVE:
-        raise StorageError("мёртвое тело ничего не перекладывает")
+        raise StorageError(key="storage-dead-moves")
     await travel.require_here(session, body)
     if not is_storage(catalog, chest.type_key):
-        raise NotStorage(f"«{chest.type_key}» — не хранилище: в него не кладут")
+        raise NotStorage(key="storage-not-a-storage", chest=chest.type_key)
 
     node = await session.get(Node, body.node_id)
     if node is None:  # pragma: no cover -- a body without a node is a bug
-        raise StorageError("тело вне узла")
+        raise StorageError(key="storage-body-off-node")
     yard = await world.node_container(session, node)
     if chest.container_id != yard.id:
-        raise StorageError("этого хранилища здесь нет")
+        raise StorageError(key="storage-storage-not-here")
     if not await station.may_build(session, body, node):
-        raise NotYours(
-            "хранилище не ваше: в чужой сундук не лезут. Открыть его вправе "
-            "хозяин узла, а на городской земле — власть"
-        )
+        raise NotYours(key="storage-not-yours")
     return node

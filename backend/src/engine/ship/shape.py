@@ -60,13 +60,13 @@ async def _mine(session: AsyncSession, body: Body, ship: Ship) -> None:
     require it (D-044) -- and ownership.
     """
     if body.state is not BodyState.ALIVE:
-        raise ShipError("мёртвое тело кораблей не переустраивает")
+        raise ShipError(key="ship-arrange-dead")
     await travel.require_here(session, body)
     if ship.owner_identity_id != body.identity_id:
-        raise NotYours("это чужой корабль")
+        raise NotYours(key="ship-not-yours")
     standing = await aboard_of(session, body)
     if standing is None or standing.id != ship.id:
-        raise NotAboard("корабль переустраивают с борта: поднимитесь на него")
+        raise NotAboard(key="ship-arrange-from-aboard")
 
 
 async def rename(session: AsyncSession, body: Body, ship: Ship, name: str) -> Ship:
@@ -78,9 +78,9 @@ async def rename(session: AsyncSession, body: Body, ship: Ship, name: str) -> Sh
     await _mine(session, body, ship)
     title = name.strip()
     if not title:
-        raise BadName("у корабля должно быть имя")
+        raise BadName(key="ship-no-name")
     if len(title) > SHIP_NAME_LIMIT:
-        raise BadName(f"имя длиннее {SHIP_NAME_LIMIT} знаков")
+        raise BadName(key="ship-name-too-long", limit=SHIP_NAME_LIMIT)
 
     was, ship.name = ship.name, title
     #: The group's delegate node carries the ship's name on the space layer:
@@ -111,14 +111,12 @@ def _cell(value: object) -> int:
     did not put it.
     """
     if isinstance(value, bool) or not isinstance(value, int | float):
-        raise OffTheGrid("клетка задаётся целым числом")
+        raise OffTheGrid(key="ship-cell-whole-number")
     cell = int(value)
     if cell != value:
-        raise OffTheGrid("отсек встаёт в клетку целиком: дробных клеток нет")
+        raise OffTheGrid(key="ship-cell-not-fractional")
     if abs(cell) > SHIP_GRID_REACH:
-        raise OffTheGrid(
-            f"клетка {cell} за пределами чертежа: не дальше {SHIP_GRID_REACH} от начала"
-        )
+        raise OffTheGrid(key="ship-cell-off-the-grid", cell=cell, reach=SHIP_GRID_REACH)
     return cell
 
 
@@ -135,18 +133,18 @@ async def arrange(
     await _mine(session, body, ship)
     rooms = {room.key: room for room in await nodes_of(session, ship)}
     if not spots:
-        raise OffTheGrid("нечего переставлять")
+        raise OffTheGrid(key="ship-nothing-to-arrange")
 
     wanted: dict[str, tuple[int, int]] = {}
     for key, cell in spots.items():
         if key not in rooms:
-            raise NotAboard(f"узла «{key}» на этом корабле нет")
+            raise NotAboard(key="ship-no-such-node", node=key)
         if not isinstance(cell, list | tuple):
-            raise OffTheGrid("клетка это пара чисел")
+            raise OffTheGrid(key="ship-cell-is-a-pair")
         try:
             across, along = cell
         except ValueError:
-            raise OffTheGrid("клетка это пара чисел: по горизонтали и по вертикали") from None
+            raise OffTheGrid(key="ship-cell-is-a-pair-of-two") from None
         wanted[key] = (_cell(across), _cell(along))
 
     #: Two rooms on one cell would be two rooms drawn on top of each other, and
@@ -160,7 +158,7 @@ async def arrange(
     seen: dict[tuple[int, int], str] = {}
     for key, cell in standing.items():
         if cell in seen:
-            raise OffTheGrid(f"в одной клетке два отсека: «{seen[cell]}» и «{key}»")
+            raise OffTheGrid(key="ship-cell-taken", first=seen[cell], second=key)
         seen[cell] = key
 
     moved = 0

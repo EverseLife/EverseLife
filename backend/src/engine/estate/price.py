@@ -220,7 +220,7 @@ async def price_of(
 
     rate = town.law_number(constants, catalog, city, "land_price")
     if rate <= 0:
-        raise NotForSale("город не назначил цену земли: код-закон `land_price` пуст")
+        raise NotForSale(key="estate-land-no-price")
     decline = 1 - constants[R.LAND_DECAY_PER_NODE] / PERCENT
     steps = await nodes_from_center(session, node, city)
     per_metre = rate * (decline**steps)
@@ -370,7 +370,7 @@ async def is_vacant(session: AsyncSession, constants: Constants, node: Node) -> 
     if await built_area(session, node) > 0:
         return False
     #: The city's transit gate is a common road, not a plot (D-176).
-    if (node.properties or {}).get("выход"):
+    if (node.properties or {}).get("exit"):
         return False
     _, occupied = await slots(session, constants, node)
     if occupied > 0:
@@ -396,23 +396,20 @@ async def buy(
     """
 
     if body.state is not BodyState.ALIVE:
-        raise EstateError("мёртвое тело не покупает")
+        raise EstateError(key="estate-land-buy-dead")
     await travel.require_here(session, body)
     if body.node_id != node.id:
-        raise EstateError("участок покупают ногами: дойдите до него")
+        raise EstateError(key="estate-land-buy-on-foot")
     if node.owner_identity_id is not None:
-        raise NotForSale("участок уже за кем-то")
+        raise NotForSale(key="estate-land-taken")
     if node.owner_city_id is None:
-        raise NotForSale(
-            "это не городская земля: за городом её не продают и не присваивают, "
-            "но работать и строить там может всякий"
-        )
+        raise NotForSale(key="estate-land-not-civic")
     if not await is_vacant(session, constants, node):
-        raise NotForSale("узел не пустой: застройку и жилы города прейскурант не продаёт")
+        raise NotForSale(key="estate-land-not-vacant")
 
     city = await town.by_id(session, node.owner_city_id)
     if city is None:  # pragma: no cover -- civic land without a city is a bug
-        raise NotForSale("узел приписан к несуществующему городу")
+        raise NotForSale(key="estate-land-city-missing")
 
     #: Who may take plots in the rings is answered by the code-law `build_permit`
     #: (D-089). By default -- citizens, and before D-160 that read as "everyone".
@@ -420,8 +417,9 @@ async def buy(
         catalog, city, await town.is_citizen(session, body.identity_id, city)
     ):
         raise NotForSale(
-            f"«{city.name}» продаёт землю не всякому: код-закон build_permit — "
-            f"«{town.law(catalog, city, 'build_permit')}». Вступите в граждане"
+            key="estate-land-permit",
+            city=city.name,
+            permit=town.law(catalog, city, "build_permit"),
         )
 
     price = await price_of(session, constants, catalog, city, node)
@@ -429,7 +427,9 @@ async def buy(
     remainder = await ledger.balance(session, account.id)
     if remainder < price:
         raise NotEnoughMoney(
-            f"участок стоит {money_str(price)} ₭, а на счету {money_str(remainder)} ₭"
+            key="estate-land-too-dear",
+            price=money_str(price),
+            have=money_str(remainder),
         )
 
     treasury = await town.treasury(session, city)
@@ -476,31 +476,31 @@ async def may_name(session: AsyncSession, body: Body, node: Node) -> bool:
 
 #: What an owner may nail on the node as its map mark (D-238). A closed list
 #: on purpose: the world's own signs -- the Forerunners, a settlement -- must
-#: not be forgeable, so neither "руины" nor "город" is offered.
+#: not be forgeable, so neither `ruins` nor `city` is offered.
 EMBLEMS = frozenset(
     {
-        "дом",
-        "поле",
-        "лес",
-        "луг",
-        "камни",
-        "мастерская",
-        "рынок",
-        "склад",
-        "еда",
-        "вода",
-        "разметка",
+        "house",
+        "field",
+        "woods",
+        "meadow",
+        "stones",
+        "workshop",
+        "market",
+        "warehouse",
+        "food",
+        "water",
+        "markup",
     }
 )
 
 #: The property the mark lives under. A string value, so `look`'s boolean
 #: feature derivation never picks it up.
-EMBLEM_PROPERTY = "значок"
+EMBLEM_PROPERTY = "emblem"
 
 
 #: The property the place's own words live under (D-238). A string value,
 #: like the emblem: `look`'s boolean feature derivation never picks it up.
-ABOUT_PROPERTY = "описание"
+ABOUT_PROPERTY = "description"
 
 
 async def describe(session: AsyncSession, body: Body, node: Node, text: str | None) -> Node:
@@ -512,18 +512,16 @@ async def describe(session: AsyncSession, body: Body, node: Node, text: str | No
     """
 
     if body.state is not BodyState.ALIVE:
-        raise EstateError("мёртвое тело ничего не описывает")
+        raise EstateError(key="estate-about-dead")
     await travel.require_here(session, body)
     if body.node_id != node.id:
-        raise EstateError("до участка надо дойти: описание пишут на месте")
+        raise EstateError(key="estate-about-on-foot")
     if not await may_name(session, body, node):
-        raise NotOwner(
-            "участок не ваш: описание даёт хозяин, а городской земле — власть с правом на участки"
-        )
+        raise NotOwner(key="estate-about-not-yours")
 
     words = (text or "").strip()
     if len(words) > LAND_ABOUT_LIMIT:
-        raise BadName(f"описание длиннее {LAND_ABOUT_LIMIT} знаков")
+        raise BadName(key="estate-about-too-long", limit=LAND_ABOUT_LIMIT)
 
     was = node.properties.get(ABOUT_PROPERTY)
     #: Reassigned whole rather than mutated, like the emblem: the JSON column
@@ -577,16 +575,14 @@ async def emblem(session: AsyncSession, body: Body, node: Node, mark: str | None
     """
 
     if body.state is not BodyState.ALIVE:
-        raise EstateError("мёртвое тело значков не прибивает")
+        raise EstateError(key="estate-emblem-dead")
     await travel.require_here(session, body)
     if body.node_id != node.id:
-        raise EstateError("до участка надо дойти: значок прибивают на месте")
+        raise EstateError(key="estate-emblem-on-foot")
     if not await may_name(session, body, node):
-        raise NotOwner(
-            "участок не ваш: значок ставит хозяин, а городской земле — власть с правом на участки"
-        )
+        raise NotOwner(key="estate-emblem-not-yours")
     if mark is not None and mark not in EMBLEMS:
-        raise BadName("такого значка нет: выбирают из предложенных")
+        raise BadName(key="estate-emblem-unknown")
 
     was = node.properties.get(EMBLEM_PROPERTY)
     #: Reassigned whole rather than mutated: the JSON column does not watch
@@ -615,20 +611,18 @@ async def rename(session: AsyncSession, body: Body, node: Node, name: str) -> No
     """
 
     if body.state is not BodyState.ALIVE:
-        raise EstateError("мёртвое тело ничего не переименовывает")
+        raise EstateError(key="estate-rename-dead")
     await travel.require_here(session, body)
     if body.node_id != node.id:
-        raise EstateError("до участка надо дойти: табличку прибивают на месте")
+        raise EstateError(key="estate-rename-on-foot")
     if not await may_name(session, body, node):
-        raise NotOwner(
-            "участок не ваш: имя даёт хозяин, а городской земле — власть с правом на участки"
-        )
+        raise NotOwner(key="estate-rename-not-yours")
 
     title = name.strip()
     if not title:
-        raise BadName("у участка должно быть имя")
+        raise BadName(key="estate-rename-no-name")
     if len(title) > LAND_NAME_LIMIT:
-        raise BadName(f"имя длиннее {LAND_NAME_LIMIT} знаков")
+        raise BadName(key="estate-rename-too-long", limit=LAND_NAME_LIMIT)
 
     before, node.name = node.name, title
     await session.flush()

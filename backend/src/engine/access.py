@@ -66,18 +66,17 @@ async def require_holder(session: AsyncSession, node: Node, identity: Identity) 
     #: only: a compartment aboard is a room of a hull that belongs to one person
     #: whole, and its door was never the plot's (D-202).
     if storey_of(node) is not None:
-        raise NotYours("дверь у места, а не у этажа в нём: вход закрывают внизу, на участке")
+        raise NotYours(key="access-door-downstairs")
     if not _held(node):
         #: Two different "no holder" cases, and they are worth telling apart:
         #: civic land is regulated by citizenship and duties, land outside a
         #: city is not privatized at all (D-198).
         raise NotYours(
-            "это городская земля: вход на неё решают гражданством и пошлиной, а не дверью локации"
-            if node.owner_city_id is not None
-            else "у этой земли нет хозяина: за городом дверей не ставят"
+            key="access-no-holder",
+            land="city" if node.owner_city_id is not None else "wild",
         )
     if node.owner_identity_id != identity.id:
-        raise NotYours("локация не ваша: дверью распоряжается хозяин")
+        raise NotYours(key="access-not-yours")
 
 
 async def set_gate(session: AsyncSession, node: Node, identity: Identity, *, closed: bool) -> Node:
@@ -128,7 +127,7 @@ async def add(
     """
     await require_holder(session, node, identity)
     if who.id == identity.id:
-        raise AccessError("себя в списках не держат: хозяин входит всегда")
+        raise AccessError(key="access-self-in-list")
     row = (
         await session.execute(
             select(NodePass).where(NodePass.node_id == node.id, NodePass.identity_id == who.id)
@@ -187,7 +186,4 @@ async def require_entry(session: AsyncSession, node: Node, body: Body) -> None:
     """
     if await may_enter(session, node, body.identity_id):
         return
-    raise Barred(
-        f"«{node.name}» — чужая локация, и хозяин вас туда не пускает. "
-        "Пройти через неё можно, остановиться — нет; спор о входе решается иском"
-    )
+    raise Barred(key="access-barred", node=node.name)

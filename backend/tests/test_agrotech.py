@@ -38,11 +38,11 @@ async def _field(session: AsyncSession, *, library: bool = False, nursery: bool 
         f"terra.agro.{stamp}",
         "Поле",
         area_m2=400,
-        properties={"вода": "река", "плодородие": 30, "library": library},
+        properties={"water": "river", "fertility": 30, "library": library},
     )
     if nursery:
         yard = await world.node_container(session, node)
-        await world.grant_item(session, yard, "Селекционный питомник", quality=60, origin="тест")
+        await world.grant_item(session, yard, "breeding_nursery", quality=60, origin="тест")
     identity = await world.create_identity(session, f"Новичок-{stamp}")
     body = await world.print_body(session, identity, node)
     node.owner_identity_id = identity.id

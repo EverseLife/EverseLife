@@ -41,7 +41,7 @@ async def _yard(session: AsyncSession, *, area: float = 400):
     """A wild plot and a body standing on it."""
     stamp = uuid.uuid4().hex[:8]
     node = await world.create_node(
-        session, f"terra.yard.{stamp}", "Пустырь", area_m2=area, properties={"дикий": True}
+        session, f"terra.yard.{stamp}", "Пустырь", area_m2=area, properties={"wild": True}
     )
     identity = await world.create_identity(session, f"Собиратель-{stamp}")
     body = await world.print_body(session, identity, node)
@@ -319,9 +319,9 @@ async def test_full_hands_keep_the_find_waiting(
     pocket = await world.body_container(session, body)
     limit = await gear.capacity(session, constants, catalog, body)
     #: Stones weigh something; fill the hands with them to the limit.
-    per_stone = gear.mass_of(catalog, "Камень", 1)
+    per_stone = gear.mass_of(catalog, "stone", 1)
     await world.grant_item(
-        session, pocket, "Камень", amount=int(limit / per_stone) + 1, origin="тест"
+        session, pocket, "stone", amount=int(limit / per_stone) + 1, origin="тест"
     )
     row = await forage.start(session, constants, body)
     with pytest.raises(gear.Overloaded):

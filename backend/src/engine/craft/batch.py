@@ -193,7 +193,7 @@ async def start(
 
 #: Utensil class from `build/recipes.json`: pot and cauldron set the ceiling
 #: alongside the hearth (D-119). A utensil is a tool, not a container.
-UTENSILS = "Утварь"
+UTENSILS = "cookware"
 
 
 async def cook(
@@ -227,25 +227,25 @@ async def cook(
     """
     moment = now or datetime.now(UTC)
     if body.state is not BodyState.ALIVE:
-        raise CraftError("мёртвое тело не готовит")
+        raise CraftError(key="craft-dead-cooks")
     await travel.require_here(session, body)
     #: One body does one thing (D-211), and a queued batch is not a second.
     await occupation.require_free(session, body, besides=frozenset({occupation.CRAFT}))
 
     recipe = catalog.recipes.recipe(output)
     if not recipe.roles:
-        raise Unmakeable(f"{recipe.name!r} — не блюдо: это делают партией, не котлом")
-    if not await _knows(session, body, recipe.name):
-        raise NotLearned(f"рецепт {recipe.name!r} не скопирован в личность")
+        raise Unmakeable(key="craft-not-a-dish", goods=recipe.type_key)
+    if not await _knows(session, body, recipe.type_key):
+        raise NotLearned(key="craft-not-learned", recipe=recipe.type_key)
 
     #: Roles come from vault constants, with weights. An extra role in the request is an error.
     weights = constants[R.COOK_ROLE_WEIGHTS]
     unknown = set(filling) - set(weights)
     if unknown:
-        raise CraftError(f"нет таких ролей: {', '.join(sorted(unknown))}")
+        raise CraftError(key="craft-unknown-roles", roles=", ".join(sorted(unknown)))
 
     proc = Procedure(
-        output=recipe.name,
+        output=recipe.type_key,
         station=None if recipe.station in (None, *BENCHLESS) else recipe.station,
         tools=(UTENSILS,),
         inputs=(),
@@ -272,7 +272,7 @@ async def cook(
             continue
         name = catalog.recipes.resolve(product)
         if not catalog.recipes.is_ingredient(name):
-            raise NotIngredient(f"«{name}» — не продукт: в котёл кладут съедобное")
+            raise NotIngredient(key="craft-not-ingredient", goods=name)
         #: The tier is chosen per role: the good meat into the stew, the rest
         #: into the salting (D-058).
         chosen = (tiers or {}).get(role)
@@ -291,7 +291,7 @@ async def cook(
     await session.flush()
 
     if closed_weight <= 0:
-        raise NotEnough("в котле пусто: закройте хотя бы одну роль")
+        raise NotEnough(key="craft-empty-pot")
 
     empty = len(weights) - len(products)
     base = weighted / closed_weight
@@ -304,7 +304,7 @@ async def cook(
     batch = CraftBatch(
         body_id=body.id,
         node_id=body.node_id,
-        output=recipe.name,
+        output=recipe.type_key,
         units=amount(portions),
         station=None if station is None else station.type_key,
         quality=_num(quality),
@@ -313,7 +313,9 @@ async def cook(
         #: The combination decides the kind: "stew - beans, vegetables" and
         #: "stew - turnip" are different dishes for the diet, though the recipe
         #: is one (D-060 not violated).
-        flavor=f"{recipe.name} · {', '.join(sorted(products))}",
+        #: Flavor is an identity string, so it is built of D-251 ids: diet
+        #: variety compares flavors, and an id survives every display rename.
+        flavor=f"{recipe.id or recipe.name} · {', '.join(sorted(products))}",
         roles_filled=_num(len(products) / len(weights)),
         remaining_seconds=_seconds(minutes),
     )
@@ -324,7 +326,7 @@ async def cook(
         now=moment,
         event={
             "work": "cook",
-            "output": recipe.name,
+            "output": recipe.type_key,
             "flavor": batch.flavor,
             "quality": quality,
             "spent": consumed,
@@ -377,10 +379,7 @@ async def recycle(
     from src.engine import coin  # noqa: PLC0415 -- lazy: breaks the import cycle with coin
 
     if coin.is_coin(catalog, item.type_key):
-        raise Unmakeable(
-            "монету переплавляют командой `coin.melt`: металл возвращается "
-            "по её пробе, а не по норме рецепта"
-        )
+        raise Unmakeable(key="craft-coin-melts-elsewhere")
     share = constants[R.CRAFT_RECYCLE_RETURN] / PERCENT
     return await _work_on(
         session, constants, catalog, body, item, BatchKind.RECYCLE, share, now=now
@@ -392,7 +391,7 @@ async def finish(session: AsyncSession, job: Job) -> None:
     """Work is done: products, a repaired thing, or a handful of materials."""
     batch = await session.get(CraftBatch, uuid.UUID(job.payload["batch"]))
     if batch is None:  # pragma: no cover -- a job without a batch is a bug
-        raise CraftError(f"задание {job.id}: партии нет")
+        raise CraftError(key="craft-job-without-batch", job=str(job.id))
     if batch.state is not BatchState.RUNNING:
         #: The job may have repeated after a failure -- no second batch comes of
         #: it. Or the batch froze while the master was away (D-209): the job of
@@ -407,7 +406,7 @@ async def finish(session: AsyncSession, job: Job) -> None:
     body = await session.get(Body, batch.body_id, with_for_update=True)
     node = await session.get(Node, batch.node_id)
     if body is None or node is None:  # pragma: no cover
-        raise CraftError(f"партия {batch.id} ссылается в никуда")
+        raise CraftError(key="craft-batch-dangling", batch=str(batch.id))
 
     #: The master stands at the machine -- takes it themselves; left or died --
     #: the output stays at the machine. Matter does not vanish with whoever ordered it.
@@ -609,7 +608,7 @@ async def _finish_recycle(
 async def _target(session: AsyncSession, batch: CraftBatch) -> Item:
     item = await session.get(Item, batch.target_item_id)
     if item is None:
-        raise CraftError(f"работа {batch.id}: вещи больше нет")
+        raise CraftError(key="craft-target-gone", batch=str(batch.id))
     return item
 
 
@@ -632,14 +631,14 @@ async def _work_on(
     """
     moment = now or datetime.now(UTC)
     if body.state is not BodyState.ALIVE:
-        raise CraftError("мёртвое тело не работает")
+        raise CraftError(key="craft-dead-works")
     await travel.require_here(session, body)
 
     inventory = await body_container(session, body)
     #: One body does one thing (D-211), and a queued batch is not a second.
     await occupation.require_free(session, body, besides=frozenset({occupation.CRAFT}))
     if item.container_id != inventory.id:
-        raise CraftError("вещь не в руках: чинят и разбирают своё, а не чужое")
+        raise CraftError(key="craft-item-not-in-hands")
 
     proc = procedure(catalog, item.type_key)
     station = await _station_item(session, body, proc)
@@ -701,7 +700,7 @@ async def copy_recipe(
     node = await session.get(Node, body.node_id)
     #: The library is a machine (D-176): recipes are taken where it stands.
     if node is None or not await world_engine.is_library(session, node):
-        raise NoLibrary("Библиотека не работает удалённо: за знанием надо прийти")
+        raise NoLibrary(key="craft-no-library")
 
     recipe = catalog.recipes.recipe(key)
     #: A library holds what was put into it (D-068, D-209): the capital's has
@@ -709,26 +708,23 @@ async def copy_recipe(
     #: is not here to copy -- go where it is, or bring it.
     from src.engine import library  # noqa: PLC0415 -- lazy: breaks the import cycle with library
 
-    if not await library.has(session, node, recipe.name):
-        raise NoLibrary(f"в этой библиотеке нет «{recipe.name}»: его сюда ещё не принесли")
+    if not await library.has(session, node, recipe.type_key):
+        raise NoLibrary(key="craft-library-lacks", recipe=recipe.type_key)
     identity = await session.get(Identity, body.identity_id)
     if identity is None:  # pragma: no cover
-        raise CraftError("тело без личности")
+        raise CraftError(key="craft-body-without-identity")
 
     #: What is already known is not rewritten: the same body does not pay twice.
-    if await _knows(session, body, recipe.name):
+    if await _knows(session, body, recipe.type_key):
         return None
 
     await _pay_copy(constants, body)
-    return await learn(session, identity, recipe.name)
+    return await learn(session, identity, recipe.type_key)
 
 
 async def _pay_copy(constants: Constants, body: Body) -> None:
     """Copying costs stamina, at a library shelf and off a carrier alike (D-148)."""
     spend = constants[R.CRAFT_COPY_STAMINA]
     if spend > float(body.stamina):
-        raise NoStrength(
-            f"на переписывание нужно {spend:.0f} выносливости, а есть "
-            f"{float(body.stamina):.1f}: знание бесплатно, но работа — нет"
-        )
+        raise NoStrength(key="craft-no-strength", need=spend, have=float(body.stamina))
     body.stamina = Decimal(str(float(body.stamina) - spend))

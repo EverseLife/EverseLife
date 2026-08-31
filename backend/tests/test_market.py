@@ -30,8 +30,8 @@ from src.models.ledger import AccountKind, PostingReason
 from src.models.market import Order, OrderSide, OrderState, Trade
 from src.units import amount_float, money
 
-ORE = "Железная руда"
-TERMINAL = "Терминал маркетплейса"
+ORE = "iron_ore"
+TERMINAL = "market_terminal"
 
 
 async def _city(session: AsyncSession, *, city=None):
@@ -499,8 +499,9 @@ async def test_foreign_order_cannot_be_cancelled(
     deal = await market.buy(
         session, constants, catalog, body, type_key=ORE, tier=tier, price=money(5), quantity=1
     )
-    with pytest.raises(market.NotYours):
+    with pytest.raises(market.NotYours) as refused:
         await market.cancel(session, deal.order, by=foreign.id)
+    assert refused.value.key == "market-order-not-yours"
 
 
 # --- term --------------------------------------------------------------------

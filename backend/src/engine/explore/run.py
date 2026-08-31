@@ -19,7 +19,7 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.constants import Constants, current, current_catalog
+from src.constants import Constants, current, current_catalog, display_name
 from src.constants import registry as R
 from src.engine import city as town
 from src.engine import craft, events, food, frost, luck, occupation, ruins, transport, travel, world
@@ -89,11 +89,11 @@ async def survey(
     """
     moment = now or datetime.now(UTC)
     if goal not in GOALS:
-        raise ExploreError(f"неизвестная цель поиска: {goal}")
+        raise ExploreError(key="explore-unknown-goal", goal=goal)
     if body.state is not BodyState.ALIVE:
-        raise ExploreError("мёртвое тело не разведывает")
+        raise ExploreError(key="explore-dead-scouts")
     if resource is not None and resource not in mineable(current_catalog()):
-        raise ExploreError(f"такой породы в этом мире не добывают: {resource}")
+        raise ExploreError(key="explore-no-such-ore", resource=resource)
     await travel.require_here(session, body)
     #: A run is an occupation (D-211): the scout leaves in person, and a body
     #: with a plot under the plough or a batch at the bench has no hands to
@@ -103,7 +103,7 @@ async def survey(
 
     origin = await session.get(Node, body.node_id)
     if origin is None:  # pragma: no cover -- a body always stands in a node
-        raise ExploreError("разведка идёт из узла, а тело стоит в никуда")
+        raise ExploreError(key="explore-body-off-node")
 
     #: Not from aboard a ship (D-201). A find comes with an edge from the node
     #: one left from, and an edge out of a ship node would be a second way in
@@ -111,14 +111,12 @@ async def survey(
     #: gangway is walked around. There is no land under a hull to explore anyway.
 
     if vessels.is_aboard(origin):
-        raise ExploreError(
-            "с борта не разведывают: под кораблём земли нет. Сойдите в порту и идите от него"
-        )
+        raise ExploreError(key="explore-not-from-aboard")
 
     #: The refusal must come at once, not on return: an impossible goal is
     #: visible before leaving, and the player must not spend stamina on it.
     if goal == LOT and await town.of_node(session, origin) is None:
-        raise ExploreError("участок ищут в городе: за стенами городской застройки нет")
+        raise ExploreError(key="explore-lot-only-in-city")
     #: The goal must be one this very node offers (D-232). `possible` is what
     #: the client draws its buttons from, and the door must agree with the
     #: advice: a socket takes a goal from anybody, agents included, and
@@ -127,14 +125,15 @@ async def survey(
     offers = await forecast.possible(session, origin)
     if goal not in offers:
         raise ExploreError(
-            f"отсюда так не ищут: здесь ищут "
-            f"{', '.join(WORDS.get(one, one) for one in offers) if offers else 'ничего'}"
+            key="explore-wrong-goal-here",
+            offers="some" if offers else "none",
+            words=", ".join(WORDS.get(one, one) for one in offers),
         )
     ruined = await ruins.city_of(session, origin)
     if goal == ROOM and ruined is not None and ruins.exhausted(constants, ruined):
-        raise ExploreError(f"«{ruined.name}» выработан: всё, что можно было вскрыть, уже вскрыто")
+        raise ExploreError(key="explore-city-exhausted", city=ruined.name)
     if await pending(session, body) is not None:
-        raise AlreadyOut("заход уже идёт: дождитесь возвращения")
+        raise AlreadyOut(key="explore-already-out")
 
     minutes = forecast.minutes_of(constants, origin, random.Random())
     spend = (
@@ -202,7 +201,7 @@ async def survey(
         body_id=body.id,
     )
     if job is None:  # pragma: no cover -- the key is unique per event
-        raise AlreadyOut("заход уже поставлен")
+        raise AlreadyOut(key="explore-run-queued")
     return job
 
 
@@ -212,7 +211,7 @@ async def returned(session: AsyncSession, job: Job) -> None:
     body = await session.get(Body, uuid.UUID(job.payload["body"]), with_for_update=True)
     origin = await session.get(Node, uuid.UUID(job.payload["from"]))
     if body is None or origin is None:  # pragma: no cover
-        raise ExploreError(f"заход {job.id} ссылается в никуда")
+        raise ExploreError(key="explore-run-dangling", job=str(job.id))
 
     constants, catalog = current(), current_catalog()
     dice = random.Random(str(job.id))
@@ -292,7 +291,15 @@ async def returned(session: AsyncSession, job: Job) -> None:
             richness=dice.uniform(richness.min, richness.max),
             remaining=dice.uniform(stock.min, stock.max),
         )
-        found.name = f"Жила: {species.lower()}"
+        #: The species is a D-251 id; the node's name is what a player reads
+        #: off the map, so the word goes in, not the key -- since wave II every
+        #: explored vein was being written down as «Жила: iron_ore», and the
+        #: name is persisted, so each one stayed that way.
+        #:
+        #: Still a Russian name frozen into a row, which no language can undo:
+        #: naming a found node in the reader's own language means storing the
+        #: species and composing the name on the way out (wave IV).
+        found.name = f"Жила: {display_name(species).lower()}"
         await session.flush()
 
     #: A plot in the city is a step across the quarter; a find beyond the wall
@@ -400,7 +407,7 @@ async def cancel(session: AsyncSession, body: Body) -> Job:
     """
     run = await pending(session, body)
     if run is None:
-        raise NotOut("тело не в разведке: возвращаться неоткуда")
+        raise NotOut(key="explore-not-out")
     run.state = JobState.CANCELLED
     run.finished_at = datetime.now(UTC)
     await session.flush()

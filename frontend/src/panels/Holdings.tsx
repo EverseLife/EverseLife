@@ -16,7 +16,9 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useEdition, useSession } from "../actions";
+import { useEdition, useNames, useSession } from "../actions";
+import { t } from "../locale";
+import { goodsName } from "../names";
 import * as api from "../api";
 import type { DeedView, Holding, Look, Thing } from "../api";
 import { Rule } from "../Rule";
@@ -31,6 +33,7 @@ type Grid = { city: string; stored: number; tariff: number };
 
 export function Holdings({ look, busy, act }: Props) {
   const session = useSession();
+  const names = useNames();
   //: Three states, not two: `undefined` is "not asked yet". Starting at `null`
   //: made the panel open with "there is no grid here" -- a statement about the
   //: world, printed before the world had been asked, and wrong wherever a grid
@@ -50,15 +53,20 @@ export function Holdings({ look, busy, act }: Props) {
   //: here. Both are charged the same, and there is no reason to keep two windows for that.
   const batteries: { id: string; goods: string; charge: number; where: string }[] = [
     ...look.inventory
-      .filter((t: Thing) => t.charge != null)
-      .map((t) => ({ id: t.id, goods: t.goods, charge: t.charge!, where: "в руках" })),
+      .filter((held: Thing) => held.charge != null)
+      .map((thing) => ({
+        id: thing.id,
+        goods: thing.goods,
+        charge: thing.charge!,
+        where: t("ui-holdings-in-hands"),
+      })),
     ...(look.bench ?? [])
       .filter((machine) => machine.charge != null)
       .map((machine) => ({
         id: machine.id,
         goods: machine.goods,
         charge: machine.charge!,
-        where: "стоит здесь",
+        where: t("ui-holdings-here"),
       })),
   ];
 
@@ -116,42 +124,36 @@ export function Holdings({ look, busy, act }: Props) {
   return (
     <div>
       {trouble && (
-        <p className="trouble">
-          Сервер не ответил: то, что ниже, — прошлое чтение. Нажмите «обновить».
-        </p>
+        <p className="trouble">{t("ui-holdings-stale")}</p>
       )}
       <h3>
-        Городская сеть
-        <Rule>
-          Городские постройки содержит казна: энергия, которую они жгут, — расход
-          города, а не посетителя.
-        </Rule>
+        {t("ui-holdings-grid")}
+        <Rule>{t("ui-holdings-grid-rule")}</Rule>
       </h3>
       {grid === undefined ? (
-        <p className="note">Сеть опрашивается…</p>
+        <p className="note">{t("ui-holdings-grid-asking")}</p>
       ) : grid ? (
         <p className="sign">
-          {grid.city}: в пуле {grid.stored.toFixed(0)} · тариф {grid.tariff} ₭ за 100
+          {t("ui-holdings-grid-pool", {
+            city: grid.city,
+            stored: grid.stored.toFixed(0),
+            tariff: grid.tariff,
+          })}
         </p>
       ) : (
-        <p className="note">
-          Здесь городской сети нет: вне города работают от аккумулятора, и
-          заряжают его в городе.
-        </p>
+        <p className="note">{t("ui-holdings-grid-none")}</p>
       )}
 
-      <h3>Аккумуляторы</h3>
+      <h3>{t("ui-holdings-batteries")}</h3>
       {batteries.length === 0 ? (
-        <p className="note">
-          Аккумулятора нет: энергия либо в пуле города, либо в аккумуляторе.
-        </p>
+        <p className="note">{t("ui-holdings-batteries-none")}</p>
       ) : (
         <table>
           <tbody>
             {batteries.map((battery) => (
               <tr key={battery.id}>
                 <td>
-                  {battery.goods}
+                  {goodsName(names, battery.goods)}
                   <span className="note"> · {battery.where}</span>
                 </td>
                 <td className="num">{battery.charge.toFixed(0)}</td>
@@ -161,13 +163,13 @@ export function Holdings({ look, busy, act }: Props) {
                     disabled={busy || !grid || Boolean(look.travel)}
                     title={
                       grid
-                        ? "залить доверху по тарифу"
+                        ? t("ui-holdings-charge-hint")
                         : grid === undefined
-                          ? "сеть ещё опрашивается"
-                          : "здесь нет сети"
+                          ? t("ui-holdings-charge-asking")
+                          : t("ui-holdings-charge-no-grid")
                     }
                   >
-                    Зарядить
+                    {t("ui-holdings-charge")}
                   </button>
                 </td>
               </tr>
@@ -178,23 +180,30 @@ export function Holdings({ look, busy, act }: Props) {
 
       {holdings.length > 0 && (
         <>
-          <h3>Владения и счета</h3>
+          <h3>{t("ui-holdings-title")}</h3>
           <table>
             <tbody>
               {holdings.map((node) => (
                 <tr key={node.node}>
                   <td>
                     {node.name}
-                    <span className="note"> · {node.area.toFixed(0)} м²</span>
-                    {node.cut_off && <b> · отключён</b>}
+                    <span className="note">
+                      {" "}
+                      {t("ui-holdings-area", { area: node.area.toFixed(0) })}
+                    </span>
+                    {node.cut_off && <b> {t("ui-holdings-cut-off")}</b>}
                   </td>
                   <td className="num">
                     {node.grid
-                      ? `${api.tk(node.cost_per_period)} ₭ / период`
-                      : "нет сети"}
+                      ? t("ui-holdings-per-period", {
+                          cost: api.tk(node.cost_per_period),
+                        })
+                      : t("ui-holdings-no-grid")}
                   </td>
                   <td className="num">
-                    {node.debt > 0 ? `долг ${api.tk(node.debt)} ₭` : "—"}
+                    {node.debt > 0
+                      ? t("ui-holdings-debt", { amount: api.tk(node.debt) })
+                      : "—"}
                   </td>
                   <td>
                     {node.debt > 0 && (
@@ -204,7 +213,7 @@ export function Holdings({ look, busy, act }: Props) {
                         }
                         disabled={busy}
                       >
-                        Оплатить
+                        {t("ui-holdings-pay")}
                       </button>
                     )}
                   </td>
@@ -213,10 +222,8 @@ export function Holdings({ look, busy, act }: Props) {
             </tbody>
           </table>
           <p className="note">
-            Счёт считается с площади — свет, тепло, вентиляция. Не заплатил —
-            узел отключён, и рабочие станции в нём стоят, пока долг не закрыт. Отобрать
-            узел за долг движок не вправе: это решение суда.
-            {debt > 0 && <> Сейчас долгов на {api.tk(debt)} ₭.</>}
+            {t("ui-holdings-bill-rule")}
+            {debt > 0 && t("ui-holdings-debt-total", { amount: api.tk(debt) })}
           </p>
         </>
       )}
@@ -256,17 +263,11 @@ function Deeds({
   return (
     <>
       <h3>
-        Ценные бумаги
-        <Rule>
-          Бумага — электронный документ: живёт в Сети, переживает тело и продаётся
-          отсюда, хоть с дороги. Титул на участок переходит вместе с ней.
-        </Rule>
+        {t("ui-holdings-deeds")}
+        <Rule>{t("ui-holdings-deeds-rule")}</Rule>
       </h3>
       {my.length === 0 ? (
-        <p className="note">
-          Своих бумаг нет. Бумага появляется с участком: выкупили или заняли
-          землю — владение оформлено документом.
-        </p>
+        <p className="note">{t("ui-holdings-deeds-none")}</p>
       ) : (
         <table>
           <tbody>
@@ -276,14 +277,16 @@ function Deeds({
                   {deed.name ?? deed.node}
                   <span className="note">
                     {" "}
-                    · {deed.area?.toFixed(0) ?? "?"} м²
+                    {t("ui-holdings-deed-area", { area: deed.area?.toFixed(0) ?? "?" })}
                   </span>
                 </td>
                 <td className="note">
                   {deed.sale_price != null
-                    ? `продаётся за ${api.tk(deed.sale_price)} ₭` +
-                      (deed.sale_to ? ` · для ${deed.sale_to}` : "")
-                    : "не продаётся"}
+                    ? t("ui-holdings-deed-sale", { price: api.tk(deed.sale_price) }) +
+                      (deed.sale_to
+                        ? t("ui-holdings-deed-sale-to", { who: deed.sale_to })
+                        : "")
+                    : t("ui-holdings-deed-not-sold")}
                 </td>
                 <td>
                   {deed.sale_price == null ? (
@@ -291,15 +294,15 @@ function Deeds({
                       <input
                         type="number"
                         min={0}
-                        placeholder="цена, ₭"
+                        placeholder={t("ui-holdings-price")}
                         value={prices[deed.id] ?? ""}
                         onChange={(e) =>
                           setPrices({ ...prices, [deed.id]: Number(e.target.value) })
                         }
-                        title="цена договора, ₭"
+                        title={t("ui-holdings-price-hint")}
                       />
                       <input
-                        placeholder="кому (пусто — всем)"
+                        placeholder={t("ui-holdings-to-whom")}
                         value={toWhom[deed.id] ?? ""}
                         onChange={(e) =>
                           setToWhom({ ...toWhom, [deed.id]: e.target.value })
@@ -318,7 +321,7 @@ function Deeds({
                         }
                         disabled={busy || !(prices[deed.id] > 0)}
                       >
-                        Продать
+                        {t("ui-holdings-sell")}
                       </button>
                     </span>
                   ) : (
@@ -331,7 +334,7 @@ function Deeds({
                       }
                       disabled={busy}
                     >
-                      Снять с продажи
+                      {t("ui-holdings-unsell")}
                     </button>
                   )}
                 </td>
@@ -343,7 +346,7 @@ function Deeds({
 
       {market.length > 0 && (
         <>
-          <h3>Бумаги на продажу</h3>
+          <h3>{t("ui-holdings-market")}</h3>
           <table>
             <tbody>
               {market.map((deed) => (
@@ -352,7 +355,10 @@ function Deeds({
                     {deed.name ?? deed.node}
                     <span className="note">
                       {" "}
-                      · {deed.area?.toFixed(0) ?? "?"} м² · у {deed.owner}
+                      {t("ui-holdings-deed-market-area", {
+                        area: deed.area?.toFixed(0) ?? "?",
+                        owner: deed.owner,
+                      })}
                     </span>
                   </td>
                   <td className="num">{api.tk(deed.sale_price ?? 0)} ₭</td>
@@ -363,7 +369,7 @@ function Deeds({
                       }
                       disabled={busy}
                     >
-                      Купить
+                      {t("ui-holdings-buy")}
                     </button>
                   </td>
                 </tr>

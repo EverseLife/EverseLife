@@ -8,9 +8,11 @@ import { useState } from "react";
 import type { Vehicle } from "../../api";
 import { Amount } from "../../Amount";
 import { chosen, tally } from "../../amounts";
-import { Refusal, useActions, useSession } from "../../actions";
+import { Refusal, useActions, useNames, useSession } from "../../actions";
 import { DropZone } from "../../DragMove";
 import { grip, noDrag } from "../../drag";
+import { t } from "../../locale";
+import { goodsName } from "../../names";
 import type { Props } from "./shared";
 
 
@@ -26,6 +28,7 @@ import type { Props } from "./shared";
  */
 export function Convoy({ look }: Omit<Props, "busy" | "act">) {
   const session = useSession();
+  const names = useNames();
   //: Own waiting and own refusal: a window of its own in the row.
   const acting = useActions();
   const { busy, act } = acting;
@@ -41,15 +44,22 @@ export function Convoy({ look }: Omit<Props, "busy" | "act">) {
   return (
     <section>
       <Refusal of={acting} />
-      <h2>Обоз</h2>
+      <h2>{t("ui-place-convoy-title")}</h2>
       {convoy ? (
         <>
           <p>
-            впряжён: <b>{convoy.type_key}</b> · трюм{" "}
+            {t("ui-place-convoy-harnessed")} <b>{goodsName(names, convoy.type_key)}</b> ·{" "}
+            {t("ui-place-convoy-hold")}{" "}
             <b>
-              {convoy.mass.toFixed(1)} из {convoy.capacity.toFixed(0)} кг
+              {t("ui-place-convoy-hold-amount", {
+                mass: convoy.mass.toFixed(1),
+                capacity: convoy.capacity.toFixed(0),
+              })}
             </b>{" "}
-            · скорость ×{convoy.speed_k} · сост. {convoy.condition.toFixed(0)}
+            {t("ui-place-convoy-speed", {
+              speed: convoy.speed_k,
+              condition: convoy.condition.toFixed(0),
+            })}
           </p>
           {/* One inventory, not two (D-238): the sidebar's is the hands. A
               stack drags from there into the hold and a cargo row drags back
@@ -61,7 +71,7 @@ export function Convoy({ look }: Omit<Props, "busy" | "act">) {
             zone="hold"
             accepts={["hands"]}
             disabled={busy}
-            hint="перетащите сюда предмет, чтобы погрузить в трюм"
+            hint={t("ui-place-convoy-drop")}
             onMove={(stack, amount) =>
               act(() => session.send("transport.load", { item: stack.item, amount }))
             }
@@ -75,12 +85,12 @@ export function Convoy({ look }: Omit<Props, "busy" | "act">) {
                       {...grip({
                         item: thing.id,
                         goods: thing.type_key,
-                        label: thing.type_key,
+                        label: goodsName(names, thing.type_key),
                         amount: thing.amount,
                         zone: "hold",
                       })}
                     >
-                      <td>{thing.type_key}</td>
+                      <td>{goodsName(names, thing.type_key)}</td>
                       <td className="note">{tally(thing.type_key, thing.amount)}</td>
                       <td {...noDrag}>
                         <Amount
@@ -102,9 +112,9 @@ export function Convoy({ look }: Omit<Props, "busy" | "act">) {
                             )
                           }
                           disabled={busy}
-                          title="выгрузить в руки — сколько поместится; строку можно и перетащить вниз"
+                          title={t("ui-place-convoy-unload-hint")}
                         >
-                          Выгрузить
+                          {t("ui-place-convoy-unload")}
                         </button>
                       </td>
                     </tr>
@@ -112,7 +122,7 @@ export function Convoy({ look }: Omit<Props, "busy" | "act">) {
                 </tbody>
               </table>
             ) : (
-              <p className="note">трюм пуст</p>
+              <p className="note">{t("ui-place-convoy-empty")}</p>
             )}
           </DropZone>
           <div className="row">
@@ -120,11 +130,9 @@ export function Convoy({ look }: Omit<Props, "busy" | "act">) {
               onClick={() => act(() => session.send("transport.unharness"))}
               disabled={busy}
             >
-              Распрячься
+              {t("ui-place-convoy-unharness")}
             </button>
-            <span className="note">
-              Обоз останется здесь с грузом; по бездорожью он не идёт.
-            </span>
+            <span className="note">{t("ui-place-convoy-unharness-rule")}</span>
           </div>
         </>
       ) : (
@@ -138,16 +146,17 @@ export function Convoy({ look }: Omit<Props, "busy" | "act">) {
               disabled={busy}
               title={
                 cart.capacity == null
-                  ? "вольт не назвал грузоподъёмности"
-                  : `${cart.capacity.toFixed(0)} кг · скорость ×${cart.speed_k}`
+                  ? t("ui-place-convoy-no-capacity")
+                  : t("ui-place-convoy-cart", {
+                      capacity: cart.capacity.toFixed(0),
+                      speed: cart.speed_k,
+                    })
               }
             >
-              Впрячься: {cart.goods}
+              {t("ui-place-convoy-harness")} {goodsName(names, cart.goods)}
             </button>
           ))}
-          <span className="note">
-            Груз едет в трюме, а не в руках.
-          </span>
+          <span className="note">{t("ui-place-convoy-rule")}</span>
         </div>
       )}
     </section>

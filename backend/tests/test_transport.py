@@ -31,9 +31,9 @@ from src.models.world import Node, Surface
 
 #: What we haul: bulk ore. A unit of it is not a kilogram (D-228), so the
 #: numbers below are kilograms and `_units` turns them into cargo.
-CARGO = "Железная руда"
-CART = "Повозка"
-BARROW = "Тачка"
+CARGO = "iron_ore"
+CART = "cart"
+BARROW = "wheelbarrow"
 
 
 async def _convoy(

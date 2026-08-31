@@ -29,7 +29,9 @@ import { spell } from "../api";
 import { busyWith, FORAGE } from "../busy";
 import { Deadline } from "../Deadline";
 import { Hint } from "../Hint";
-import { Refusal, useActions, useRefresh, useSession } from "../actions";
+import { Refusal, useActions, useNames, useRefresh, useSession } from "../actions";
+import { t } from "../locale";
+import { goodsName } from "../names";
 
 type Props = {
   look: Look;
@@ -37,6 +39,7 @@ type Props = {
 
 export function Forage({ look }: Props) {
   const session = useSession();
+  const names = useNames();
   //: Own waiting and own refusal: full hands refuse this window, not the map.
   const acting = useActions();
   const { busy, act } = acting;
@@ -70,40 +73,34 @@ export function Forage({ look }: Props) {
     <section>
       <Refusal of={acting} />
       <h2>
-        Собирательство{" "}
-        <Hint>
-          Пустая земля — участок без пятна застройки — отдаёт то, что на ней
-          лежит. Что найдётся, не выбирают: поиск идёт временем, по сроку земля
-          показывает одну находку. Нужна — подобрать в руки, и на этом поиск
-          закончен: идти по участку снова или уйти, решаете вы. Не нужна —
-          «искать дальше», и поиск продолжится сам. Каждый поиск стоит сил —
-          найден он или пропущен. Чем больше пустой
-          земли, тем быстрее находка. Уйдёте с места — поиск прервётся вместе
-          с ненайденным.
-        </Hint>
+        {t("ui-forage-title")} <Hint>{t("ui-forage-rule")}</Hint>
       </h2>
       <p className="note">
-        пустой земли {foraging.area.toFixed(0)} м²
-        {foraging.seconds != null && ` · находка примерно за ${spell(foraging.seconds)}`}
-        {` · сил ${foraging.stamina} за поиск`}
+        {t("ui-forage-area", { area: foraging.area.toFixed(0) })}
+        {foraging.seconds != null &&
+          ` · ${t("ui-forage-about", { term: spell(foraging.seconds) })}`}
+        {` · ${t("ui-forage-cost", { stamina: String(foraging.stamina) })}`}
       </p>
 
       {state === "idle" && took && (
         <div className="find" role="status">
           <span>
-            подобрано: <b>{took.goods}</b> ×{took.units}
+            {t("ui-forage-took")} <b>{goodsName(names, took.goods)}</b> ×{took.units}
           </span>
-          <span className="note">поиск закончен: искать дальше или уйти</span>
+          <span className="note">{t("ui-forage-done")}</span>
         </div>
       )}
 
       {state === "found" && found && (
         <div className="find" role="status">
           <span>
-            нашлось: <b>{found.goods}</b> ×{found.units}
+            {t("ui-forage-found")} <b>{goodsName(names, found.goods)}</b> ×{found.units}
           </span>
           <span className="note">
-            {found.mass.toFixed(1)} кг · кач. {found.quality.toFixed(0)}
+            {t("ui-forage-find", {
+              mass: found.mass.toFixed(1),
+              quality: found.quality.toFixed(0),
+            })}
           </span>
         </div>
       )}
@@ -122,21 +119,19 @@ export function Forage({ look }: Props) {
               title={
                 elsewhere
                   ? elsewhere
-                  : foraging.allowed
-                    ? "пойти по участку: находка покажется по сроку"
-                    : "здесь больше не ищут: земля чужая или застроена"
+                  : t(foraging.allowed ? "ui-forage-start-hint" : "ui-forage-barred")
               }
             >
-              {took ? "Искать дальше" : "Начать собирательство"}
+              {t(took ? "ui-forage-again" : "ui-forage-start")}
             </button>
             {took && (
               <button
                 className="quiet"
                 onClick={() => setTook(null)}
                 disabled={busy}
-                title="закончить: находка уже в руках"
+                title={t("ui-forage-stop-hint-took")}
               >
-                Закончить
+                {t("ui-forage-stop")}
               </button>
             )}
           </>
@@ -144,16 +139,20 @@ export function Forage({ look }: Props) {
         {state === "searching" && readyAt && (
           <>
             <span className="note">
-              ищете · находка покажется через{" "}
-              <Deadline until={readyAt} since={foraging.started_at} label="поиск" />
+              {t("ui-forage-searching")}{" "}
+              <Deadline
+                until={readyAt}
+                since={foraging.started_at}
+                label={t("ui-forage-label")}
+              />
             </span>
             <button
               className="quiet"
               onClick={() => act(() => session.send("forage.stop"))}
               disabled={busy}
-              title="закончить: потраченные силы не вернутся"
+              title={t("ui-forage-stop-hint")}
             >
-              Закончить
+              {t("ui-forage-stop")}
             </button>
           </>
         )}
@@ -167,25 +166,25 @@ export function Forage({ look }: Props) {
                 })
               }
               disabled={busy}
-              title="в руки; поиск на этом заканчивается — искать дальше решать вам"
+              title={t("ui-forage-take-hint")}
             >
-              Подобрать
+              {t("ui-forage-take")}
             </button>
             <button
               className="quiet"
               onClick={() => act(() => session.send("forage.pass"))}
               disabled={busy}
-              title="оставить лежать — и искать дальше"
+              title={t("ui-forage-pass-hint")}
             >
-              Искать дальше
+              {t("ui-forage-again")}
             </button>
             <button
               className="quiet"
               onClick={() => act(() => session.send("forage.stop"))}
               disabled={busy}
-              title="закончить собирательство; находка останется лежать"
+              title={t("ui-forage-stop-hint-found")}
             >
-              Закончить
+              {t("ui-forage-stop")}
             </button>
           </>
         )}
@@ -194,9 +193,12 @@ export function Forage({ look }: Props) {
       {/* What the land gives at all, most likely first: the player must know
           what to expect before spending an hour walking here. */}
       <p className="note">
-        здесь находят:{" "}
+        {t("ui-forage-finds")}{" "}
         {foraging.finds
-          .map((entry) => `${entry.goods} ×${entry.units} (${Math.round(entry.share * 100)}%)`)
+          .map(
+            (entry) =>
+              `${goodsName(names, entry.goods)} ×${entry.units} (${Math.round(entry.share * 100)}%)`,
+          )
           .join(", ")}
       </p>
     </section>

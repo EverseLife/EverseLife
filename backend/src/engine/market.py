@@ -131,7 +131,7 @@ class NoMoney(MarketError):
 
 
 #: The thing class of marketplace terminals (D-100, D-215).
-TERMINAL = "Терминал"
+TERMINAL = "terminal"
 
 
 @dataclass(frozen=True, slots=True)
@@ -234,7 +234,7 @@ async def terminal(session: AsyncSession, node: Node) -> Item:
         )
     ).scalar_one_or_none()
     if found is None:
-        raise NoTerminal(f"в узле {node.key} нет терминала маркетплейса")
+        raise NoTerminal(key="market-no-terminal", node=node.key)
     #: A terminal in a frozen node is silent (D-231): the machine is here, the
     #: heat is not, and the rule is the same one that stops the workbench.
     from src.engine import frost  # noqa: PLC0415 -- lazy: breaks the import cycle with frost
@@ -330,7 +330,7 @@ async def take(
     free = await _free(session, constants, node, body.identity_id, type_key, tier)
     want = min(_volume(_catalog(), type_key, quantity), free)
     if want <= 0:
-        raise NoGoods(f"свободного «{type_key}» в терминале нет: всё под ордерами")
+        raise NoGoods(key="market-nothing-free", goods=type_key)
 
     #: No more than the limit is taken in hand: for the rest come with a wagon (D-146).
 
@@ -379,8 +379,11 @@ async def sell(
     free = await _free(session, constants, node, identity.id, type_key, tier)
     if free < want:
         raise NoGoods(
-            f"в терминале свободно {amount_float(free)} «{type_key}» ступени «{tier}», "
-            f"нужно {quantity}"
+            key="market-not-enough-free",
+            free=amount_float(free),
+            goods=type_key,
+            tier=tier,
+            quantity=quantity,
         )
 
     order = await _place(
@@ -407,7 +410,7 @@ async def buy(
     of all cities get bought out without leaving one's seat (D-047).
     """
     if body.state is not BodyState.ALIVE:
-        raise NotHere("мёртвое тело не торгует")
+        raise NotHere(key="market-dead-trades")
     node = await _node_of(session, body)
     await terminal(session, node)
 
@@ -416,7 +419,7 @@ async def buy(
 
     identity = await session.get(Identity, body.identity_id)
     if identity is None:  # pragma: no cover
-        raise MarketError("тело без личности")
+        raise MarketError(key="market-body-without-identity")
 
     order = await _place(
         session, constants, identity, node, OrderSide.BUY, type_key, tier, price, want, now=now
@@ -424,7 +427,10 @@ async def buy(
     try:
         await _hold(session, order, _cost(price, want))
     except ledger.InsufficientFunds as empty:
-        raise NoMoney(str(empty)) from empty
+        #: The ledger's own sentence names an account id and minor units --
+        #: not words for a player. The refusal is restated here, in the money
+        #: the order asked for.
+        raise NoMoney(key="market-not-enough-money", money=money_str(_cost(price, want))) from empty
     return await _match(session, constants, catalog, order, now=now)
 
 
@@ -463,18 +469,20 @@ async def reserve(
     #: (review 2026-08-23).
     await session.refresh(order, with_for_update=True)
     if order.side is not OrderSide.SELL:
-        raise BadOrder("бронируют товар, а не заявку на покупку")
+        raise BadOrder(key="market-reserve-not-a-sale")
     if order.state is not OrderState.ACTIVE:
-        raise BadOrder(f"заявка уже {order.state.value}")
+        raise BadOrder(key="market-order-not-active", state=order.state.value)
     if order.identity_id == identity.id:
-        raise NotYours("свой товар бронировать незачем: он и так ваш")
+        raise NotYours(key="market-reserve-own")
 
     want = _volume(current_catalog(), order.type_key, quantity)
     if want <= 0:
-        raise BadOrder("бронь из нуля")
+        raise BadOrder(key="market-reserve-zero")
     if want > order.amount_left:
         raise NoGoods(
-            f"в заявке свободно {amount_float(order.amount_left)}, а брони просят {quantity}"
+            key="market-reserve-too-much",
+            free=amount_float(order.amount_left),
+            quantity=quantity,
         )
 
     cost = _cost(order.price, want)
@@ -550,13 +558,13 @@ async def redeem(
     #: Redeem and lapse race for the same row: whoever locks it first wins.
     await session.refresh(reservation, with_for_update=True)
     if reservation.buyer_identity_id != body.identity_id:
-        raise NotYours("чужая бронь")
+        raise NotYours(key="market-reservation-not-yours")
     if reservation.state is not ReservationState.HELD:
-        raise BadOrder(f"бронь уже {reservation.state.value}")
+        raise BadOrder(key="market-reservation-not-held", state=reservation.state.value)
     if reservation.node_id != body.node_id:
-        raise MarketError("бронь не здесь: за товаром приезжают")
+        raise MarketError(key="market-reservation-elsewhere")
     if moment > reservation.expires_at:
-        raise BadOrder("срок брони вышел: задаток остался продавцу")
+        raise BadOrder(key="market-reservation-expired")
 
     node = await session.get(Node, reservation.node_id)
     await terminal(session, node)
@@ -589,7 +597,7 @@ async def redeem(
         constants=constants,
     )
     if moved < reservation.amount:  # pragma: no cover -- the goods are held by the reservation
-        raise NoGoods("товар исчез из терминала между бронью и выкупом")
+        raise NoGoods(key="market-goods-vanished-reservation")
 
     tax_rate, fee_rate = await _charges(session, constants, catalog, node)
     tax = int(cost * tax_rate / PERCENT)
@@ -656,7 +664,7 @@ async def lapse(session: AsyncSession, job: Job) -> None:
         Reservation, uuid.UUID(job.payload["reservation"]), with_for_update=True
     )
     if reservation is None:  # pragma: no cover
-        raise MarketError(f"задание {job.id}: брони нет")
+        raise MarketError(key="market-job-no-reservation", job=str(job.id))
     if reservation.state is not ReservationState.HELD:
         return
 
@@ -701,9 +709,9 @@ async def cancel(
     """Cancel an order. A remote action: disposing requires no presence."""
     await session.refresh(order, with_for_update=True)
     if order.identity_id != by:
-        raise NotYours("чужой ордер")
+        raise NotYours(key="market-order-not-yours")
     if order.state is not OrderState.ACTIVE:
-        raise BadOrder(f"ордер уже {order.state.value}")
+        raise BadOrder(key="market-order-already", state=order.state.value)
     await _close(session, order, OrderState.CANCELLED, now or datetime.now(UTC))
     await events.record(
         session,
@@ -720,7 +728,7 @@ async def expire(session: AsyncSession, job: Job) -> None:
     """The order term is up. Expiry is a world event, not a consequence of reading."""
     order = await session.get(Order, uuid.UUID(job.payload["order"]), with_for_update=True)
     if order is None:  # pragma: no cover
-        raise MarketError(f"задание {job.id}: ордера нет")
+        raise MarketError(key="market-job-no-order", job=str(job.id))
     if order.state is not OrderState.ACTIVE:
         return
 
@@ -766,9 +774,9 @@ async def positions(session: AsyncSession, node: Node) -> tuple[tuple[str, str],
 
 def _sane(price: int, want: int) -> None:
     if price <= 0:
-        raise BadOrder("цена должна быть положительной")
+        raise BadOrder(key="market-price-not-positive")
     if want <= 0:
-        raise BadOrder("объём должен быть положительным")
+        raise BadOrder(key="market-volume-not-positive")
 
 
 def _volume(catalog: Catalog, type_key: str, quantity: float) -> int:
@@ -791,7 +799,7 @@ async def _node_of(session: AsyncSession, body: Body) -> Node:
     await travel.require_here(session, body)
     node = await session.get(Node, body.node_id)
     if node is None:  # pragma: no cover
-        raise MarketError("тело вне узла")
+        raise MarketError(key="market-body-off-node")
     return node
 
 
@@ -912,7 +920,7 @@ async def _execute(
 
     node = await session.get(Node, taker.node_id)
     if node is None:  # pragma: no cover
-        raise MarketError("ордер вне узла")
+        raise MarketError(key="market-order-off-node")
 
     #: The goods travel from the seller's cell to the buyer's, staying in the
     #: terminal: they are still taken on foot (D-047).
@@ -928,7 +936,7 @@ async def _execute(
         constants=constants,
     )
     if moved < quantity:  # pragma: no cover -- the goods are held by the order
-        raise NoGoods("товар исчез из терминала между проверкой и сделкой")
+        raise NoGoods(key="market-goods-vanished-trade")
 
     tax_rate, fee_rate = await _charges(session, constants, catalog, node)
     tax = int(cost * tax_rate / PERCENT)
@@ -1063,7 +1071,7 @@ async def _treasury(session: AsyncSession, node: Node):
 
     city = await town.by_id(session, node.owner_city_id)
     if city is None:  # pragma: no cover -- an owner without a city is a bug
-        raise MarketError(f"узел {node.key} принадлежит несуществующему городу")
+        raise MarketError(key="market-node-city-missing", node=node.key)
     return await town.treasury(session, city)
 
 

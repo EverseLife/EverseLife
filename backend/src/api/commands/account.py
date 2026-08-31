@@ -12,6 +12,7 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src import i18n
 from src.api import push
 from src.api.commands.common import _alive, _identity
 from src.api.commands.views import _identity_by_name
@@ -56,10 +57,10 @@ async def _account_password(state: dict, db: AsyncSession, message: dict) -> dic
     identity = await _identity(state, db)
     account = await accounts.account_of(db, identity)
     if not accounts.verify_password(account, str(message.get("old") or "")):
-        raise Refused("старый пароль не подходит")
+        raise Refused(key="cmd-old-password-wrong")
     new = accounts.check_password(message.get("new"))
     if message.get("new_again") is not None and message["new_again"] != new:
-        raise Refused("пароли не совпадают")
+        raise Refused(key="cmd-passwords-differ")
     account.password_hash = accounts.hash_password(new)
     await accounts.revoke_all(db, account)
     issued = await accounts.issue_token(db, account)
@@ -74,13 +75,38 @@ async def _account_email(state: dict, db: AsyncSession, message: dict) -> dict:
     account = await accounts.account_of(db, identity)
     password = str(message.get("password") or "")
     if not accounts.verify_password(account, password):
-        raise Refused("пароль не подходит")
+        raise Refused(key="cmd-password-wrong")
     await accounts.set_credentials(db, account, str(message.get("email") or ""), password)
     #: The profile is cached by the client (D-226); no journal event says it moved.
     await events.announce(
         db, touches=("profile",), identity_id=identity.id, event="account.updated"
     )
     return {"profile": accounts.profile(account, identity)}
+
+
+@command("account.locale")
+async def _account_locale(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Choose the language the world is read in (D-249, D-251 wave III).
+
+    Takes effect at once and for good: the session starts answering in it, and
+    the next login reads it back off the account. No password: a language is
+    not a credential, and asking for one would make changing it a chore.
+    """
+    identity = await _identity(state, db)
+    account = await accounts.account_of(db, identity)
+    said = str(message.get("locale") or "")
+    #: Chosen, not read: an unknown language is refused rather than quietly
+    #: replaced by the default. `ru-RU` is accepted and stored as `ru` -- the
+    #: same spelling `hello` would have made of it.
+    asked = i18n.spoken(said)
+    if asked is None:
+        raise Refused(key="session-locale-unknown", locale=said)
+    account.locale = asked
+    state["locale"] = asked
+    await events.announce(
+        db, touches=("profile",), identity_id=identity.id, event="account.updated"
+    )
+    return {"locale": asked}
 
 
 @command("account.logout")

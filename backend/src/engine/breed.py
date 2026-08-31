@@ -72,7 +72,7 @@ from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.constants.catalog import Plant
 from src.engine import events, luck, travel, world
-from src.engine.errors import Refusal
+from src.engine.errors import Refusal, left_to_say
 from src.models.event import EventKind
 from src.models.identity import Body, BodyState, Identity, Knowledge, KnowledgeKind
 from src.models.inventory import Item
@@ -82,7 +82,7 @@ from src.units import PERCENT, amount, amount_float
 
 #: Thing class from `build/recipes.json` (D-215): crossing happens only where
 #: a machine of the nursery class stands.
-NURSERY = "Питомник"
+NURSERY = "nursery"
 
 #: Full strength of a seed batch. Not a balance number but "one hundred percent
 #: of what the cultivar can": the losses themselves are set by `breed.*`.
@@ -243,7 +243,7 @@ def _drift_share(constants: Constants) -> float:
             return float(token)
         except ValueError:
             continue
-    raise BreedError(f"из формулы {text!r} не вычитать коэффициент отклонения")
+    raise BreedError(key="breed-no-drift-in-formula", formula=text)
 
 
 async def cross(
@@ -265,7 +265,7 @@ async def cross(
     """
     moment = now or datetime.now(UTC)
     if body.state is not BodyState.ALIVE:
-        raise BreedError("мёртвое тело не сеет")
+        raise BreedError(key="breed-dead-sows")
     await travel.require_here(session, body)
 
     node = await world.node_container(session, await _node(session, body))
@@ -279,23 +279,29 @@ async def cross(
         .all()
     )
     if not set(machines) & set(world.station_names(NURSERY)):
-        raise NoNursery(f"в узле нет постройки класса «{NURSERY}»")
+        raise NoNursery(key="breed-no-nursery", station=NURSERY)
 
     cultivar_a = await _variety_of(session, seeds_a)
     cultivar_b = await _variety_of(session, seeds_b)
     if cultivar_a.culture_id != cultivar_b.culture_id:
+        #: A culture id, not a goods id: `NAME()` must not be asked for it. Its
+        #: domains are goods, stations and classes, and `beans` lives in the
+        #: first of them as the bean **grain** -- so NAME would answer with a
+        #: word from the wrong domain for some cultures and the bare id for the
+        #: rest. Until the vault names cultures, the id travels as it did.
         raise WrongCulture(
-            f"{cultivar_a.culture_id} и {cultivar_b.culture_id} — разные культуры: "
-            "скрещивают сорта одной"
+            key="breed-different-cultures",
+            one=cultivar_a.culture_id,
+            other=cultivar_b.culture_id,
         )
     if seeds_a.id == seeds_b.id:
-        raise BreedError("нужны две партии семян: сорт сам с собой не скрещивают")
+        raise BreedError(key="breed-one-batch")
 
     #: The nursery's sowing norm is the same as the field's: it is a patch, after all.
     norm = amount(constants[R.FARM_SEED_RATE] * constants[R.FARM_PLOT_MIN_AREA])
     for batch in (seeds_a, seeds_b):
         if batch.amount < norm:
-            raise NotSeeds(f"на питомник нужно {amount_float(norm):g} семян каждого сорта")
+            raise NotSeeds(key="breed-not-enough-seeds", need=amount_float(norm))
     for batch in (seeds_a, seeds_b):
         batch.amount -= norm
         if batch.amount <= 0:
@@ -346,15 +352,18 @@ async def gather_cross(
     moment = now or datetime.now(UTC)
     await travel.require_here(session, body)
     if nursery.done:
-        raise BreedError("этот питомник уже разобран")
+        raise BreedError(key="breed-nursery-done")
     if moment < nursery.ready_at:
-        raise BreedError(f"питомник созреет к {nursery.ready_at.isoformat()}")
+        raise BreedError(
+            key="breed-nursery-not-ready",
+            inner={"left": [left_to_say(nursery.ready_at)]},
+        )
 
     dice = rng or random.Random(str(nursery.id))
     father = await session.get(Variety, nursery.parent_a_id)
     mother = await session.get(Variety, nursery.parent_b_id)
     if father is None or mother is None:  # pragma: no cover
-        raise BreedError("родительский сорт исчез")
+        raise BreedError(key="breed-parent-gone")
 
     signs = await inherit(
         constants,
@@ -476,14 +485,12 @@ async def select_generation(
 async def name_variety(session: AsyncSession, body: Body, variety: Variety, name: str) -> Variety:
     """Name a bred cultivar. The author's name is attached to it forever."""
     if not variety.stable:
-        raise NotStable(
-            "сорт ещё не постоянен: имя даётся тому, что даёт тот же результат из раза в раз"
-        )
+        raise NotStable(key="breed-not-stable")
     if variety.author_identity_id != body.identity_id:
-        raise BreedError("называет сорт тот, кто его вывел")
+        raise BreedError(key="breed-not-the-author")
     pure = name.strip()
     if not pure:
-        raise BreedError("имя пустое")
+        raise BreedError(key="breed-empty-name")
     variety.name = pure
     await session.flush()
     await events.record(
@@ -564,26 +571,26 @@ async def copy_agrotech(
     node = await session.get(Node, body.node_id)
     #: The library is a machine (D-176): agrotech is taken where it stands.
     if node is None or not await world.is_library(session, node):
-        raise BreedError("Библиотека не работает удалённо: за знанием надо прийти")
+        raise BreedError(key="breed-library-in-person")
 
     plant = catalog.plants.by_id(culture_id)
     identity = await session.get(Identity, body.identity_id)
     if identity is None:  # pragma: no cover
-        raise BreedError("тело без личности")
+        raise BreedError(key="breed-body-without-identity")
     return await world.learn(session, identity, plant.id, kind=KnowledgeKind.AGROTECH)
 
 
 async def _variety_of(session: AsyncSession, item: Item) -> Variety:
     if item.variety_id is None:
-        raise NotSeeds(f"{item.type_key!r} — не семена сорта")
+        raise NotSeeds(key="breed-not-variety-seeds", goods=item.type_key)
     variety = await session.get(Variety, item.variety_id)
     if variety is None:  # pragma: no cover -- a cultivar is never deleted
-        raise BreedError("сорт этих семян исчез")
+        raise BreedError(key="breed-variety-gone")
     return variety
 
 
 async def _node(session: AsyncSession, body: Body):
     node = await session.get(Node, body.node_id)
     if node is None:  # pragma: no cover
-        raise BreedError("тело вне узла")
+        raise BreedError(key="breed-body-off-node")
     return node

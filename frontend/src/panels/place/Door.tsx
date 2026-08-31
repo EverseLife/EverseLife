@@ -7,6 +7,7 @@
 import { useState } from "react";
 import { Rule } from "../../Rule";
 import { useSession } from "../../actions";
+import { t } from "../../locale";
 import type { Props } from "./shared";
 
 
@@ -36,7 +37,7 @@ export function Door({ look, busy, act }: Props) {
       key={name}
       onClick={() => act(() => session.send("gate.list", { who: name, strike: true }))}
       disabled={busy}
-      title="убрать из списка"
+      title={t("ui-place-door-strike")}
     >
       {name} ✕
     </button>
@@ -51,24 +52,19 @@ export function Door({ look, busy, act }: Props) {
   return (
     <>
       <h3>
-        Вход
-        <Rule>
-          Вошедший распоряжается тем, что лежит на земле: дверь и сундук — защита, а не
-          правило «не бери».
-        </Rule>
+        {t("ui-place-door-title")}
+        <Rule>{t("ui-place-door-rule")}</Rule>
       </h3>
       <div className="row">
         <button
           onClick={() => act(() => session.send("gate.set", { closed: !shut }))}
           disabled={busy}
         >
-          {shut ? "Открыть вход" : "Закрыть вход"}
+          {shut ? t("ui-place-door-open") : t("ui-place-door-shut")}
         </button>
         <span className="note">
-          {shut
-            ? "Закрыта: входят хозяин и белый список."
-            : "Открыта: входят все, кроме чёрного списка."}
-          {" Пройти насквозь можно всегда — и выйти тоже: закрыть вход при госте нельзя."}
+          {shut ? t("ui-place-door-is-shut") : t("ui-place-door-is-open")}
+          {t("ui-place-door-through")}
         </span>
       </div>
 
@@ -76,20 +72,22 @@ export function Door({ look, busy, act }: Props) {
         <input
           value={friend}
           onChange={(e) => setFriend(e.target.value)}
-          placeholder="имя"
-          title="кого пускать в закрытую локацию"
+          placeholder={t("ui-place-door-who")}
+          title={t("ui-place-door-allow-hint")}
         />
         <button
           onClick={() => name(friend.trim(), true, () => setFriend(""))}
           disabled={busy || !friend.trim()}
         >
-          В белый список
+          {t("ui-place-door-allow")}
         </button>
         {allowed.length > 0 ? (
-          <span className="note">Пускаем: {allowed.map(strike)}</span>
+          <span className="note">
+            {t("ui-place-door-allowed")} {allowed.map(strike)}
+          </span>
         ) : (
           <span className="note">
-            {shut ? "Пока никого: входите только вы." : "Пригодится, когда закроете вход."}
+            {shut ? t("ui-place-door-allowed-shut") : t("ui-place-door-allowed-open")}
           </span>
         )}
       </div>
@@ -98,19 +96,21 @@ export function Door({ look, busy, act }: Props) {
         <input
           value={foe}
           onChange={(e) => setFoe(e.target.value)}
-          placeholder="имя"
-          title="кого не пускать вовсе"
+          placeholder={t("ui-place-door-who")}
+          title={t("ui-place-door-bar-hint")}
         />
         <button
           onClick={() => name(foe.trim(), false, () => setFoe(""))}
           disabled={busy || !foe.trim()}
         >
-          В чёрный список
+          {t("ui-place-door-bar")}
         </button>
         {barred.length > 0 ? (
-          <span className="note">Не пускаем: {barred.map(strike)}</span>
+          <span className="note">
+            {t("ui-place-door-barred")} {barred.map(strike)}
+          </span>
         ) : (
-          <span className="note">Чёрный список сильнее белого: названный тут не войдёт.</span>
+          <span className="note">{t("ui-place-door-barred-none")}</span>
         )}
       </div>
     </>

@@ -12,6 +12,7 @@
 
 import { useState } from "react";
 import { useSession } from "../actions";
+import { t } from "../locale";
 import { Rule } from "../Rule";
 import type { StateView } from "./State";
 
@@ -26,17 +27,17 @@ export function Population({ view, busy }: { view: StateView; busy: boolean }) {
       <table>
         <tbody>
           <tr>
-            <td>личностей в мире</td>
+            <td>{t("ui-city-people-world")}</td>
             <td className="num">{world["people"] ?? 0}</td>
           </tr>
           {panel && (
             <>
               <tr>
-                <td>тел в городе</td>
+                <td>{t("ui-city-people-here")}</td>
                 <td className="num">{panel.people.here}</td>
               </tr>
               <tr>
-                <td>напечатано за окно</td>
+                <td>{t("ui-city-people-printed")}</td>
                 <td className="num">{panel.people.printed}</td>
               </tr>
             </>
@@ -45,13 +46,11 @@ export function Population({ view, busy }: { view: StateView; busy: boolean }) {
       </table>
 
       <h3>
-        Должности
-        <Rule>
-          Назначать и снимать — в администрации: власть присутственна.
-        </Rule>
+        {t("ui-city-offices")}
+        <Rule>{t("ui-city-offices-rule")}</Rule>
       </h3>
       {city.offices.length === 0 ? (
-        <p className="note">должностей нет</p>
+        <p className="note">{t("ui-city-offices-none")}</p>
       ) : (
         city.offices.map((office) => (
           <p key={office.id}>
@@ -61,8 +60,8 @@ export function Population({ view, busy }: { view: StateView; busy: boolean }) {
         ))
       )}
 
-      <h3>Жители</h3>
-      <p className="note">{city.citizens.join(" · ") || "пока никого"}</p>
+      <h3>{t("ui-city-residents")}</h3>
+      <p className="note">{city.citizens.join(" · ") || t("ui-city-residents-none")}</p>
 
       {/* Дефектная печать (D-173): по лору принтер иногда печатает людей без
           интеллекта. Репорт снижает доверие и кредит, а не убивает: необратимую
@@ -71,27 +70,24 @@ export function Population({ view, busy }: { view: StateView; busy: boolean }) {
         <input
           value={target}
           onChange={(e) => setTarget(e.target.value)}
-          placeholder="имя дефектной печати"
+          placeholder={t("ui-city-report-who")}
         />
         <button
           className="quiet"
           onClick={() => void session.send("person.report", { who: target })}
           disabled={busy || !target.trim()}
         >
-          Сообщить
+          {t("ui-city-report")}
         </button>
         <button
           className="quiet"
           onClick={() => void session.send("person.unreport", { who: target })}
           disabled={busy || !target.trim()}
-          title="отозвать свой репорт"
+          title={t("ui-city-unreport-title")}
         >
-          Отозвать
+          {t("ui-city-unreport")}
         </button>
-        <span className="note">
-          Репорт снижает доверие и кредитный лимит цели — не больше того. Ошиблись —
-          отзовите.
-        </span>
+        <span className="note">{t("ui-city-report-note")}</span>
       </div>
     </div>
   );

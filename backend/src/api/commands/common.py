@@ -15,11 +15,41 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src import i18n
 from src.api.registry import Refused
+from src.constants import current_catalog, current_renames
 from src.engine.world import body_container
 from src.models.identity import Body, BodyState, Identity
 from src.models.inventory import Item
 from src.models.world import Node
+
+
+def speaks(state: dict) -> str:
+    """The language this session is answered in (D-251 wave III).
+
+    Read through here rather than off the dict: a socket session always has
+    one, but a handler called from a test or a job may be handed a state that
+    was built by hand, and a missing language must give the default rather
+    than an exception in the middle of an answer.
+    """
+    return i18n.normalize(state.get("locale"))
+
+
+def goods_key(value: object) -> str:
+    """Inbound goods spelling to its D-251 id.
+
+    The wire speaks ids, but a tab opened before the release still sends
+    Russian names -- `resolve()` carries both onto the id, and the engine
+    below never queries the database by a spelling.
+    """
+    return current_catalog().recipes.resolve(str(value))
+
+
+def tier_key(value: object) -> str | None:
+    """Inbound quality-tier spelling to its id, same transition as goods_key."""
+    if value is None:
+        return None
+    return current_renames().tiers.get(str(value), str(value))
 
 
 def _stamp(moment: datetime | None) -> str | None:
@@ -50,7 +80,7 @@ async def _alive(state: dict, db: AsyncSession) -> Body:
     )
     body = (await db.execute(stmt)).scalars().first()
     if body is None:
-        raise Refused("нет живого тела")
+        raise Refused(key="cmd-no-live-body")
     return body
 
 
@@ -60,7 +90,7 @@ async def _own_item(db: AsyncSession, body: Body, item_id: str) -> Item:
     item = await db.get(Item, uuid.UUID(item_id))
     inventory = await body_container(db, body)
     if item is None or item.container_id != inventory.id:
-        raise Refused("этой вещи у вас нет")
+        raise Refused(key="cmd-item-not-yours")
     return item
 
 
@@ -68,7 +98,7 @@ async def _identity(state: dict, db: AsyncSession) -> Identity:
     """The identity. It is controlled remotely -- also when the body is dead."""
     identity = await db.get(Identity, state["identity_id"])
     if identity is None:  # pragma: no cover
-        raise Refused("личность исчезла")
+        raise Refused(key="cmd-identity-gone")
     return identity
 
 
@@ -76,5 +106,5 @@ async def _node(db: AsyncSession, key: str) -> Node:
     """A node by stable key: orders are managed from anywhere."""
     node = (await db.execute(select(Node).where(Node.key == key))).scalar_one_or_none()
     if node is None:
-        raise Refused(f"нет узла {key!r}")
+        raise Refused(key="cmd-no-such-node", node=key)
     return node

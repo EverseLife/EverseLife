@@ -33,7 +33,7 @@ from src.models.market import Order
 from src.models.world import Node, Surface, Vein
 from src.units import money
 
-ORE = "Железная руда"
+ORE = "iron_ore"
 
 
 async def _wallet(session: AsyncSession, amount: int) -> uuid.UUID:
@@ -183,7 +183,7 @@ async def test_the_eruption_does_not_burn_what_was_taken_out_of_a_chest(
     chest = await world.grant_item(
         session,
         await world.node_container(session, field),
-        "Сундук",
+        "chest",
         quality=60,
         origin="тест",
     )
@@ -545,7 +545,7 @@ async def _book(session: AsyncSession) -> tuple[Order, list[uuid.UUID]]:
     stamp = uuid.uuid4().hex[:8]
     node = await world.create_node(session, f"terra.race.{stamp}", "Рынок", area_m2=200)
     yard = await world.node_container(session, node)
-    await world.grant_item(session, yard, "Терминал маркетплейса", quality=70, origin="тест")
+    await world.grant_item(session, yard, "market_terminal", quality=70, origin="тест")
     seller = await world.create_identity(session, f"Продавец-{stamp}")
     seller_body = await world.print_body(session, seller, node)
     pocket = await world.body_container(session, seller_body)
@@ -630,7 +630,7 @@ async def test_reads_do_not_write(session: AsyncSession) -> None:
     assert await market.stall(session, node, identity.id, create=False) is None
     body = await world.print_body(session, identity, node)
     pocket = await world.body_container(session, body)
-    chest = await world.grant_item(session, pocket, "Сундук", quality=50, origin="тест")
+    chest = await world.grant_item(session, pocket, "chest", quality=50, origin="тест")
     assert await storage.content(session, chest) == []
     assert await storage.inside(session, chest, create=False) is None
     assert await storage.is_empty(session, chest)
@@ -649,7 +649,11 @@ async def test_alive_locks_the_body_for_the_whole_command(
     from src.engine import forage, occupation
 
     node = await world.create_node(
-        session, f"terra.lock.{uuid.uuid4().hex[:6]}", "Лес", area_m2=100, properties={"лес": True}
+        session,
+        f"terra.lock.{uuid.uuid4().hex[:6]}",
+        "Лес",
+        area_m2=100,
+        properties={"woods": True},
     )
     identity = await world.create_identity(session, f"Тело-{uuid.uuid4().hex[:6]}")
     await world.print_body(session, identity, node)
@@ -716,7 +720,7 @@ async def test_two_swings_on_one_vein_do_not_mine_the_same_ore_twice(
         identity = await world.create_identity(session, f"Шахтёр-{i}-{stamp}")
         body = await world.print_body(session, identity, node)
         pocket = await world.body_container(session, body)
-        await world.grant_item(session, pocket, "Каменная кирка", quality=50, origin="тест")
+        await world.grant_item(session, pocket, "stone_pickaxe", quality=50, origin="тест")
         sessions.append((await mining.start(session, current(), body, vein)).id)
     await session.commit()
     start = await session.scalar(select(Vein.remaining).where(Vein.id == vein.id))
@@ -750,7 +754,7 @@ async def test_burning_coal_and_carrying_it_away_at_once_keep_the_count(
     stamp = uuid.uuid4().hex[:6]
     node = await world.create_node(session, f"terra.yard.{stamp}", "Двор", area_m2=100)
     yard = await world.node_container(session, node)
-    coal = await world.grant_item(session, yard, "Уголь", amount=10, origin="тест")
+    coal = await world.grant_item(session, yard, "coal", amount=10, origin="тест")
     identity = await world.create_identity(session, f"Носильщик-{stamp}")
     body = await world.print_body(session, identity, node)
     pocket = await world.body_container(session, body)
@@ -775,9 +779,7 @@ async def test_burning_coal_and_carrying_it_away_at_once_keep_the_count(
 
     await asyncio.gather(burn(), carry())
     rows = (
-        await session.execute(
-            select(Item.container_id, Item.amount).where(Item.type_key == "Уголь")
-        )
+        await session.execute(select(Item.container_id, Item.amount).where(Item.type_key == "coal"))
     ).all()
     from src.units import amount as to_units
 
@@ -799,7 +801,7 @@ async def test_locked_stacks_reread_what_the_session_already_holds(
         session, f"terra.stale.{uuid.uuid4().hex[:6]}", "Двор", area_m2=1
     )
     yard = await world.node_container(session, node)
-    coal = await world.grant_item(session, yard, "Уголь", amount=10, origin="тест")
+    coal = await world.grant_item(session, yard, "coal", amount=10, origin="тест")
     await session.commit()
 
     async with factory() as db, db.begin():
@@ -807,5 +809,5 @@ async def test_locked_stacks_reread_what_the_session_already_holds(
         assert held.amount == 10_000
         async with factory() as other, other.begin():
             await other.execute(update(Item).where(Item.id == coal.id).values(amount=7_000))
-        locked = await stock.locked_stacks(db, yard.id, ("Уголь",))
+        locked = await stock.locked_stacks(db, yard.id, ("coal",))
         assert locked[0] is held and held.amount == 7_000, "замок обязан перечитать строку"

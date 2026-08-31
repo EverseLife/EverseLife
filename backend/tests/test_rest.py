@@ -87,9 +87,9 @@ async def test_sleeper_unavailable_for_in_person(
 ) -> None:
     """Overslept -- the lot got bought: that is how hibernation pays (D-091)."""
     node, body = await _tired(session)
-    vein = await world.create_vein(session, node, "Железная руда", richness=60, remaining=1000)
+    vein = await world.create_vein(session, node, "iron_ore", richness=60, remaining=1000)
     pocket = await world.body_container(session, body)
-    await world.grant_item(session, pocket, "Каменная кирка", quality=50, origin="сценарий теста")
+    await world.grant_item(session, pocket, "stone_pickaxe", quality=50, origin="сценарий теста")
     adjacent = await world.create_node(
         session, f"terra.next.{uuid.uuid4().hex[:6]}", "Рядом", area_m2=50
     )

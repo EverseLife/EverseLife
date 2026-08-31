@@ -91,20 +91,20 @@ from src.units import (
 
 #: The planet's own property, written into its node on the space layer by the
 #: seed (D-234) -- beside «мерзлота» and «пекло», and read the same way.
-AIRLESS = "без воздуха"
+AIRLESS = "airless"
 
 #: What is breathed. A single name rather than a class, because it is a single
 #: substance: D-215 binds behaviour to classes so that a second stove or a
 #: second engine is data, and there is no second air.
-AIR = "Кислород"
+AIR = "oxygen"
 #: What the life support turns into air, together with charge. Both come from
 #: the vault's recipe for «Кислород», never from a number here.
-WATER = "Вода"
-ENERGY = "Энергия"
+WATER = "water"
+ENERGY = "energy"
 
 #: The class that connects a body to a cylinder. Without one worn, a cylinder
 #: is luggage (D-234).
-SUIT = "Скафандр"
+SUIT = "spacesuit"
 
 #: Amounts split into thousandths, so "was there enough" must tolerate the last
 #: digit -- otherwise exactly enough oxygen turns out to be short.
@@ -413,19 +413,13 @@ async def require_air(
     if ship is not None and await reserve(session, ship) > _EPS:
         return
     if not await suited(session, catalog, body):
-        raise NoAir(
-            f"в «{target.name}» нечем дышать: без «{SUIT}» из баллона не подышать, "
-            "сколько бы их ни лежало в мешке"
-        )
+        raise NoAir(key="oxygen-no-suit", node=target.name, suit=SUIT)
     have = await carried(session, body)
     need = seconds / SECONDS_PER_HOUR * constants[R.OXYGEN_BODY_DRAW]
     if have <= _EPS:
-        raise NoAir(f"в «{target.name}» нечем дышать: в баллонах пусто, заправьтесь на борту")
+        raise NoAir(key="oxygen-tanks-empty", node=target.name)
     if have + _EPS < need:
-        raise NoAir(
-            f"на дорогу в «{target.name}» нужно {need:.1f} кислорода, а в баллонах {have:.1f}: "
-            "переход кончится удушьем"
-        )
+        raise NoAir(key="oxygen-not-enough", node=target.name, need=need, have=have)
 
 
 # --- the body's own breathing --------------------------------------------------
@@ -851,7 +845,7 @@ async def view(
         crew = len(await vessels.crew_of(session, aboard))
         hull = await gauge(session, constants, catalog, aboard, crew=crew)
         return {
-            "where": "борт",
+            "where": "aboard",
             "units": hull["units"],
             "per_hour": hull["per_hour"],
             "at": hull["at"],
@@ -859,7 +853,7 @@ async def view(
         }
     wearing = await suited(session, catalog, body)
     return {
-        "where": "скафандр",
+        "where": "suit",
         "units": round(await carried(session, body), ROUND_MASS),
         "per_hour": -constants[R.OXYGEN_BODY_DRAW] if wearing else 0.0,
         "at": body.air_at.isoformat(),

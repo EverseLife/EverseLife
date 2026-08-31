@@ -42,11 +42,11 @@ async def _farm(session: AsyncSession, *, area: float = 100, nursery: bool = Fal
         f"terra.field.{stamp}",
         "Поле",
         area_m2=area * 4,
-        properties={"вода": "река", "плодородие": 60},
+        properties={"water": "river", "fertility": 60},
     )
     if nursery:
         yard = await world.node_container(session, node)
-        await world.grant_item(session, yard, "Селекционный питомник", quality=60, origin="тест")
+        await world.grant_item(session, yard, "breeding_nursery", quality=60, origin="тест")
     identity = await world.create_identity(session, f"Фермер-{stamp}")
     body = await world.print_body(session, identity, node)
     node.owner_identity_id = identity.id
@@ -112,7 +112,7 @@ async def test_cannot_sow_harvest(
     """Grain is food, not sowing material: it has no cultivar."""
     _, _, body = await _farm(session)
     pocket = await world.body_container(session, body)
-    grain = await world.grant_item(session, pocket, "Зерно", amount=500, quality=50, origin="тест")
+    grain = await world.grant_item(session, pocket, "grain", amount=500, quality=50, origin="тест")
     plot = await farm.mark(session, constants, body, name="Делянка", area=50)
     plot.state = PlotState.PLOWED
     await session.flush()

@@ -290,8 +290,10 @@ async def assess(
         carried_through[thing.type_key] = carried_through.get(thing.type_key, 0.0) + kilograms
         if thing.type_key in ban:
             raise Banned(
-                f"«{thing.type_key}» не проходит границу города «{city.name}»: "
-                f"{'ввоз' if direction == IMPORT else 'вывоз'} запрещён"
+                key="customs-banned",
+                goods=thing.type_key,
+                city=city.name,
+                direction=direction,
             )
 
         condition = rate_table.get(thing.type_key) or rate_table.get("*")
@@ -376,8 +378,9 @@ async def cross(
                 short=in_total - remainder,
             )
             raise CannotPay(
-                f"пошлина {money_str(in_total)} ₭, а на счету {money_str(remainder)} ₭: "
-                "товар не проходит. Долга при этом не возникает"
+                key="customs-cannot-pay",
+                duty=money_str(in_total),
+                have=money_str(remainder),
             )
 
     for charge in charges:

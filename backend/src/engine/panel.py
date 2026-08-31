@@ -212,10 +212,10 @@ async def _production(session: AsyncSession, nodes: list[uuid.UUID], *, since: d
         if event.kind == EventKind.MINING_LEFT.value:
             #: Extracted from the world: what was carried out of the face.
             #: Units, not sorts -- the panel cares about volume (the market has sort).
-            mined["всего"] = mined.get("всего", 0.0) + float(cargo.get("haul", 0) or 0)
+            mined["total"] = mined.get("total", 0.0) + float(cargo.get("haul", 0) or 0)
         elif event.kind == EventKind.MINING_COLLAPSED.value:
             #: Mined and buried: out of the vein all the same.
-            mined["всего"] = mined.get("всего", 0.0) + float(cargo.get("lost", 0) or 0)
+            mined["total"] = mined.get("total", 0.0) + float(cargo.get("lost", 0) or 0)
         elif event.kind == EventKind.PLOT_HARVESTED.value:
             harvested += float(cargo.get("harvested", 0) or 0)
         else:

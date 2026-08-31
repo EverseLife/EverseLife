@@ -25,7 +25,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src import seed_world
-from src.constants import Catalog, ConstantError, Constants, current_catalog
+from src.constants import Catalog, ConstantError, Constants, current_catalog, display_name
 from src.constants import registry as R
 from src.constants.catalog import ItemKind
 from src.engine import (
@@ -96,7 +96,7 @@ def _known(catalog: Catalog, name: str) -> bool:
         book.recipe(name)
         return True
     except ConstantError:
-        return any(material.name == name for material in book.materials)
+        return any(material.type_key == name for material in book.materials)
 
 
 async def test_capital_holds_only_things_the_vault_knows(
@@ -161,7 +161,7 @@ async def test_the_capital_is_assembled_from_recipes(
     #: The assembly spends exactly what it laid out: leftovers would mean the
     #: bill and the spend disagree, and matter would quietly accumulate.
     book = catalog.recipes
-    deliberate = {"Уголь", "Железная руда"}
+    deliberate = {"coal", "iron_ore"}
     left = [
         (key, thing)
         for key, thing, _ in await _things(session)
@@ -337,8 +337,10 @@ async def test_other_planets_have_somewhere_to_land(
     assert plateau is not None
     identity = await world.create_identity(session, "Пришелец")
     body = await world.print_body(session, identity, plateau)
-    with pytest.raises(estate.EstateError, match="Пироксисе не строят"):
+    #: By the key, not by the sentence: the wording is the locale's (D-251 III).
+    with pytest.raises(estate.EstateError) as refused:
         await estate.construct(session, constants, body, plateau, 20)
+    assert refused.value.key == "estate-build-not-on-pyroxis"
 
     #: Running the seed again lays nothing twice.
     await seed(session)
@@ -368,6 +370,12 @@ async def test_the_black_fields_carry_the_planets_own_veins(
         vein = await session.scalar(select(Vein).where(Vein.node_id == field.id))
         assert vein is not None, f"{field.key} без жилы"
         species.add(vein.resource)
+        #: And the field is named by the word, not by the key it is laid with:
+        #: the same seam as the vein an explorer finds (`explore/run.py`), and
+        #: a field name is persisted once and never laid again (pillar P2), so
+        #: «Чёрное поле №1: pyroxite» would be permanent on a world seeded now.
+        assert field.name.endswith(f": {display_name(vein.resource).lower()}"), field.name
+        assert vein.resource not in field.name
     #: Nothing here says which species must come up -- only that they come from
     #: the planet's own table, and that the planet is not Terra.
     assert species <= set(constants[R.HARVEST_RATES])
@@ -425,8 +433,8 @@ async def test_a_plot_of_an_old_world_gets_its_soil(capital: Node, session: Asyn
     await seed(session)
 
     again = await session.scalar(select(Node).where(Node.key == "terra.capital.lot1"))
-    assert float((again.properties or {}).get("плодородие", 0)) > 0, "участку не дали почвы"
-    assert "вода" in (again.properties or {})
+    assert float((again.properties or {}).get("fertility", 0)) > 0, "участку не дали почвы"
+    assert "water" in (again.properties or {})
 
     #: And a second run rolls nothing again: the soil is the world's now.
     before = dict(again.properties)
@@ -448,7 +456,7 @@ async def test_a_tall_house_of_an_old_world_gets_its_floors(
 
     lot = await session.scalar(select(Node).where(Node.key == "terra.capital.lot2"))
     assert lot is not None
-    session.add(Building(node_id=lot.id, area_m2=90, footprint_m2=30, floors=3, kind="деревянный"))
+    session.add(Building(node_id=lot.id, area_m2=90, footprint_m2=30, floors=3, kind="wooden"))
     await session.flush()
     assert await estate.storeys_of(session, lot) == [], "фикстура не воспроизвела старый мир"
 

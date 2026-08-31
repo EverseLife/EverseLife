@@ -24,6 +24,9 @@
 //: the same origin as the client, at the `/api` path: so the built image does
 //: not know the production domain and suits anyone, and the socket gets
 //: `wss://` without separate configuration.
+import { compare, refusalText, t, type WordsBundle } from "./locale";
+import type { NamesRu, Renames } from "./names";
+
 const HTTP =
   import.meta.env.VITE_API ??
   (import.meta.env.PROD
@@ -180,8 +183,8 @@ export type MapNode = {
    *  the map is a share of the way between the port it left and the one it is
    *  due at -- nothing in the graph could say it. */
   flight: { to: string; started_at: string; arrives_at: string } | null;
-  /** Place-sign properties ("лес", "камни"): the map draws the node's type
-   *  glyph by them (D-238). Optional: older servers do not send it. */
+  /** Place-sign property ids ("woods", "stones"): the map draws the node's
+   *  type glyph by them (D-238, D-251). Optional: older servers do not send it. */
   features?: string[];
   /** The owner's nailed mark, if any (D-238): beats the place signs. */
   emblem?: string | null;
@@ -439,7 +442,7 @@ export type Look = {
   node?: {
     key: string;
     name: string;
-    /** Place-sign properties ("forest", "outcrop"): place extraction is shown by them (D-177). */
+    /** Place-sign property ids ("woods", "stones"): place extraction is shown by them (D-177). */
     features: string[];
     /** The owner's map mark, if one is nailed on (D-238). */
     emblem?: string | null;
@@ -924,17 +927,21 @@ export type CityLoans = {
   loans: { id: string; principal: number; outstanding: number; rate: number; taken_at: string }[];
 };
 
-/** Broad rights. Narrow ones -- `law:<id>` -- are assembled from the law catalog. */
+/** Broad rights. Narrow ones -- `law:<id>` -- are assembled from the law catalog.
+ *
+ * Message **keys**, not words: this map is built once when the module is first
+ * evaluated, and a `t()` here would freeze whatever language was being spoken
+ * at that moment for the rest of the session. The caller says the word. */
 export const POWERS: Record<string, string> = {
-  laws: "все законы",
-  charter: "устав",
-  treasury: "казна",
-  offices: "должности",
-  land: "участки",
-  dashboard: "панель города",
-  justice: "суд",
-  citizens: "граждане",
-  channel: "канал города",
+  laws: "ui-power-laws",
+  charter: "ui-power-charter",
+  treasury: "ui-power-treasury",
+  offices: "ui-power-offices",
+  land: "ui-power-land",
+  dashboard: "ui-power-dashboard",
+  justice: "ui-power-justice",
+  citizens: "ui-power-citizens",
+  channel: "ui-power-channel",
 };
 
 /** The right to one law: `law:import_duty` (D-155). */
@@ -944,19 +951,29 @@ export const LAW_SCOPE = "law:";
  *  it is here so that the field does not let one type what is refused in advance. */
 export const CITY_ABOUT_LIMIT = 300;
 
+/** Surface in words, by message key: a module-scope map holds keys, not text. */
 export const SURFACE: Record<Exit["surface"], string> = {
-  trail: "бездорожье",
-  road: "дорога",
-  paved: "тракт",
+  trail: "ui-map-surface-trail",
+  road: "ui-map-surface-road",
+  paved: "ui-map-surface-paved",
 };
 
 /** Travel time in words: seconds for a step across the city, minutes for a road. */
 export function spell(seconds: number): string {
   //: Rounded before the unit is chosen, so 59.7 seconds reads as a minute
   //: rather than as "60 с" -- the same carry `clock.duration` takes.
-  if (Math.round(seconds) < 60) return `${Math.round(seconds)} с`;
-  if (Math.round(seconds / 60) < 60) return `${Math.round(seconds / 60)} мин`;
-  return `${(seconds / 3600).toFixed(1)} ч`;
+  //:
+  //: The units are `clock`'s own messages rather than a second set: the two
+  //: print the same "3 мин", and one of them would have gone stale. Every
+  //: count goes in as a string -- a term is read, not summed, and `NUMBER`
+  //: would put a separator inside "1 200 ч".
+  if (Math.round(seconds) < 60) {
+    return t("ui-clock-seconds", { n: String(Math.round(seconds)) });
+  }
+  if (Math.round(seconds / 60) < 60) {
+    return t("ui-clock-minutes", { n: String(Math.round(seconds / 60)) });
+  }
+  return t("ui-clock-hours", { n: (seconds / 3600).toFixed(1) });
 }
 
 /**
@@ -968,7 +985,7 @@ export function spell(seconds: number): string {
  * have to speak once a second (D-226).
  */
 export type Frost = {
-  /** «мерзлота» or «пекло»: what the planet does to a body left in it. */
+  /** `frost` or `heat` (D-251): what the planet does to a body left in it. */
   climate: string;
   /** Whether **this** node is warm: a stove works here, or it is the board. */
   warm: boolean;
@@ -992,7 +1009,7 @@ export type Frost = {
  */
 export type Air = {
   /** Where the breath comes from: the hull's tanks, or a cylinder through a suit. */
-  where: "борт" | "скафандр";
+  where: "aboard" | "suit";
   units: number;
   /** Units spent per hour; negative is the countdown, zero is nothing to spend
    *  it through -- a bagful of cylinders and no suit to connect them. */
@@ -1122,7 +1139,26 @@ export type Book = {
   spread: number | null;
 };
 
-export class Refused extends Error {}
+/**
+ * The engine said no, in words the player can read.
+ *
+ * Since D-251 wave III a converted refusal site also names the **key** it was
+ * rendered from and the arguments it was rendered with, so the client can draw
+ * the same sentence out of the same FTL. Both are optional: the conversion runs
+ * module by module, and a site that has not been converted sends only the
+ * words. Kept on the error as well as rendered, because a panel that wants to
+ * react to a particular refusal should match on the key, never on the text.
+ */
+export class Refused extends Error {
+  readonly code?: string;
+  readonly args?: Record<string, unknown>;
+
+  constructor(said: string, code?: string, args?: Record<string, unknown>) {
+    super(said);
+    this.code = code;
+    this.args = args;
+  }
+}
 
 type Waiting = {
   resolve: (answer: Record<string, unknown>) => void;
@@ -1187,6 +1223,13 @@ export class Session {
   account = "";
   name = "";
   token = "";
+  /**
+   * The language of this account (D-251 wave III): said at the greeting, like
+   * `admin`, because it cannot be derived from anything else the server sends
+   * (D-225) and it decides which words the client loads. Empty until a
+   * greeting has happened -- the caller falls back to `DEFAULT_LOCALE`.
+   */
+  locale = "";
   /**
    * The alpha's debug widget, if this copy opens it for this name (D-229).
    * Said once at the greeting rather than in every `look`: it cannot be
@@ -1257,7 +1300,7 @@ export class Session {
 
     await new Promise<void>((resolve, reject) => {
       socket.onopen = () => resolve();
-      socket.onerror = () => reject(new Error("сервер не отвечает"));
+      socket.onerror = () => reject(new Error(t("ui-wire-no-answer")));
     });
     this.reviveDelay = REVIVE_DELAY_MS;
 
@@ -1275,7 +1318,13 @@ export class Session {
       this.pending.delete(parsed.id);
       const { id: _id, ...answer } = parsed;
       if (typeof answer.refused === "string") {
-        waiting.reject(new Refused(answer.refused));
+        //: The one place the locale layer is actually used in anger (D-251
+        //: wave III): where our bundle knows the key, the sentence is drawn
+        //: here, from the same file the server drew its own from. Everywhere
+        //: else the server's words stand.
+        const code = typeof answer.code === "string" ? answer.code : undefined;
+        const args = (answer.args ?? undefined) as Record<string, unknown> | undefined;
+        waiting.reject(new Refused(refusalText(answer.refused, code, args), code, args));
       } else {
         waiting.resolve(answer);
       }
@@ -1283,7 +1332,7 @@ export class Session {
     socket.onclose = () => {
       if (this.socket !== socket) return;
       this.socket = null;
-      this.pending.forEach((w) => w.reject(new Error("сессия закрыта")));
+      this.pending.forEach((w) => w.reject(new Error(t("ui-wire-session-closed"))));
       this.pending.clear();
       //: The server speaks first now (D-226): a closed socket is a deaf one,
       //: so it rises on its own and not at the next command.
@@ -1339,6 +1388,7 @@ export class Session {
     this.name = "";
     this.account = "";
     this.admin = false;
+    this.locale = "";
     this.seq = 0;
     await this.close();
   }
@@ -1352,6 +1402,7 @@ export class Session {
     this.account = String(hello.account ?? "");
     this.name = String(hello.hello ?? "");
     this.admin = hello.admin === true;
+    if (typeof hello.locale === "string") this.locale = hello.locale;
     if (typeof hello.token === "string") this.remember(hello.token);
     return hello;
   }
@@ -1359,7 +1410,7 @@ export class Session {
   async send(cmd: string, args: Record<string, unknown> = {}): Promise<Record<string, unknown>> {
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
       //: Nothing to identify with yet: there was no session, nothing to repair.
-      if (!this.token) throw new Error("нет сессии");
+      if (!this.token) throw new Error(t("ui-wire-no-session"));
       await this.revive();
     }
     const socket = this.socket!;
@@ -1367,7 +1418,7 @@ export class Session {
     return new Promise((resolve, reject) => {
       //: An answer that never comes must not hang a button forever.
       const timer = setTimeout(() => {
-        if (this.pending.delete(id)) reject(new Error("сервер не ответил"));
+        if (this.pending.delete(id)) reject(new Error(t("ui-wire-timed-out")));
       }, ANSWER_TIMEOUT_MS);
       this.pending.set(id, {
         resolve: (answer) => {
@@ -1459,6 +1510,14 @@ export const constants = () => read<{ digest: string; values: Record<string, any
   "/public/constants",
 );
 export const recipes = () => read<RecipeBook>("/public/recipes");
+/** Names for the wire's ids (D-251): what `NAME()` in a message resolves
+ *  through, and what every list is sorted by. Same load pattern as the
+ *  other catalogs. */
+export const renames = () => read<Renames>("/public/renames");
+/** The words of one language, as the FTL the server itself renders (D-251).
+ *  One file feeds both ends, so a message cannot drift between them. */
+export const words = (locale: string) =>
+  read<WordsBundle>(`/public/i18n/${encodeURIComponent(locale)}`);
 /** Doors into the world: read before identification -- a newcomer has no identity yet. */
 export const doors = () => read<{ doors: Door[] }>("/public/doors");
 /** Character lines and the number of players -- also before identification (D-187). */
@@ -1501,6 +1560,9 @@ export const book = (node: string, goods: string, tier: string) =>
  */
 export type Recipe = {
   name: string;
+  /** The stable id (D-251): what the wire, `knows` and commands name. The
+   *  Russian `name` stays for display. Optional so hand-built test books work. */
+  id?: string;
   level: number;
   kind: string;
   roles: boolean;
@@ -1515,6 +1577,8 @@ export type Recipe = {
 
 export type Operation = {
   name: string;
+  /** The stable id (D-251): `craft.start`'s `way` names it. */
+  id?: string;
   requires: string[];
   gives: string[];
   consumes: string[];
@@ -1536,13 +1600,18 @@ export type RecipeBook = {
    * Forerunners left (D-232): it is machinery, but nobody makes it, takes it
    * down or carries it away -- and the client must not offer to.
    */
-  materials: { name: string; class?: string | null; relic?: boolean }[];
+  materials: { name: string; id?: string; class?: string | null; relic?: boolean }[];
   units: Record<string, string>;
   operations: Operation[];
   recipes: Recipe[];
+  /** Thing classes (D-215, D-251): class id -> member goods ids. */
   classes: Record<string, string[]>;
   tool_classes: Record<string, string[]>;
+  /** Every Russian name and colloquial synonym -> stable id (D-251). Ids are
+   *  not keys here: an id resolves to itself by falling through. */
   synonyms: Record<string, string>;
+  /** Russian class name -> class id (D-251). */
+  class_ids?: Record<string, string>;
   /** The world's constants ride along (D-209): one book through every panel. */
   constants?: Record<string, number>;
 };
@@ -1575,11 +1644,19 @@ export function houseOf(node: Look["node"]): Required<
  * furniture together. The node scene is built from them (D-176), and the
  * windows ask them by class. Assembled here, not sent: `bench` and
  * `furniture` already name every instance.
+ *
+ * The entries are ids (D-251). Most callers treat the list as a set; whoever
+ * lays it out for the player passes `names`, and the order follows the
+ * Russian display words rather than the ASCII of the ids.
  */
-export function stationsOf(look: Pick<Look, "bench" | "furniture">): string[] {
-  const names = new Set<string>();
-  for (const thing of [...(look.bench ?? []), ...(look.furniture ?? [])]) names.add(thing.goods);
-  return [...names].sort();
+export function stationsOf(
+  look: Pick<Look, "bench" | "furniture">,
+  names?: NamesRu | null,
+): string[] {
+  const kinds = new Set<string>();
+  for (const thing of [...(look.bench ?? []), ...(look.furniture ?? [])]) kinds.add(thing.goods);
+  const word = (id: string) => names?.goods?.[id] ?? id;
+  return [...kinds].sort((a, b) => compare(word(a), word(b)));
 }
 
 /** The node's plot is the viewer's own: the holder is named, and it is us (D-178). */

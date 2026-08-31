@@ -24,10 +24,10 @@ from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import gear, world
 
-BACKPACK = "Простой рюкзак"
-EXO = "Экзоскелет"
-BASKET = "Корзина"
-SACK = "Мешок"
+BACKPACK = "simple_backpack"
+EXO = "exoskeleton"
+BASKET = "basket"
+SACK = "sack"
 
 
 async def _body(session: AsyncSession):
@@ -76,7 +76,7 @@ async def test_no_more_than_limit_taken_in_hands(
     """Not an error message but the reason wagons exist."""
     _, _, body = await _body(session)
     limit = constants[R.INVENTORY_CARRY_MASS]
-    stone = "Камень"
+    stone = "stone"
     qty = limit / catalog.recipes.mass_of(stone) + 1
 
     with pytest.raises(gear.Overloaded):
@@ -150,8 +150,8 @@ async def test_one_slot_per_thing(
     await gear.equip(session, constants, catalog, body, second)
 
     worn = await gear.equipped(session, body)
-    assert list(worn) == ["спина"], "в слоте одна вещь"
-    assert worn["спина"].id == second.id, "новая вытеснила прежнюю"
+    assert list(worn) == ["back"], "в слоте одна вещь"
+    assert worn["back"].id == second.id, "новая вытеснила прежнюю"
     bonuses = constants[R.INVENTORY_CARRY_BONUS]
     assert await gear.capacity(session, constants, catalog, body) == pytest.approx(
         constants[R.INVENTORY_CARRY_MASS] + bonuses[BACKPACK]
@@ -169,7 +169,7 @@ async def test_sack_and_basket_share_one_slot(
     await gear.equip(session, constants, catalog, body, basket)
     await gear.equip(session, constants, catalog, body, sack)
     worn = await gear.equipped(session, body)
-    assert worn["спина"].type_key == SACK
+    assert worn["back"].type_key == SACK
 
 
 async def test_non_gear_not_wearable(
@@ -177,7 +177,7 @@ async def test_non_gear_not_wearable(
 ) -> None:
     """The slot comes from data: a pickaxe has none, and it cannot be worn."""
     _, _, body = await _body(session)
-    pickaxe = await _give(session, body, "Железная кирка")
+    pickaxe = await _give(session, body, "iron_pickaxe")
     with pytest.raises(gear.NotGear):
         await gear.equip(session, constants, catalog, body, pickaxe)
 
@@ -188,7 +188,7 @@ async def test_removed_stops_raising_limit(
     _, _, body = await _body(session)
     backpack = await _give(session, body, BACKPACK)
     await gear.equip(session, constants, catalog, body, backpack)
-    removed = await gear.unequip(session, body, "спина")
+    removed = await gear.unequip(session, body, "back")
 
     assert removed is not None and removed.id == backpack.id
     assert await gear.capacity(session, constants, catalog, body) == pytest.approx(

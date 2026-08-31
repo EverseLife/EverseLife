@@ -67,10 +67,12 @@ FINE, PRISON, EXILE = "fine", "prison", "exile"
 
 #: The node property "prison" is a legacy of old worlds (D-174). The new order
 #: is the "Penal colony" machine (D-176): the authority builds a prison like any building.
-PRISON_NODE = "тюрьма"
+PRISON_NODE = "prison"
 #: Thing class from `build/recipes.json` (D-215): a civic-land node with any
-#: machine of this class is a penal colony.
-KATORGA = "Каторга"
+#: machine of this class is a penal colony. Same spelling as `PRISON_NODE` and
+#: a different namespace -- one is a node property, this one a thing class --
+#: so the two names stay apart even where their values agree.
+PRISON_CLASS = "prison"
 ENFORCED = (FINE, PRISON, EXILE)
 
 
@@ -79,7 +81,7 @@ async def is_prison(session: AsyncSession, node) -> bool:
 
     if (node.properties or {}).get(PRISON_NODE):
         return True
-    return await world.has_station(session, node, KATORGA)
+    return await world.has_station(session, node, PRISON_CLASS)
 
 
 async def held(session: AsyncSession, constants: Constants, identity_id: uuid.UUID) -> bool:
@@ -142,21 +144,18 @@ async def sue(
     moment = now or datetime.now(UTC)
     essence = claim.strip()
     if not essence:
-        raise JusticeError("жалоба без сути — не жалоба")
+        raise JusticeError(key="justice-empty-claim")
     if plaintiff.id == defendant.id:
-        raise JusticeError("на себя не жалуются")
+        raise JusticeError(key="justice-self-claim")
     if happened_at is not None:
         window = timedelta(days=constants[R.JUSTICE_CLAIM_WINDOW])
         if happened_at + window < moment:
-            raise TooLate(
-                f"с события прошло больше {constants[R.JUSTICE_CLAIM_WINDOW]:g} суток: "
-                "срок давности вышел"
-            )
+            raise TooLate(key="justice-too-late", days=constants[R.JUSTICE_CLAIM_WINDOW])
 
     duty = money(constants[R.JUSTICE_COURT_FEE])
     account = await ledger.account_for(session, AccountKind.IDENTITY, plaintiff.id)
     if await ledger.balance(session, account.id) < duty:
-        raise CannotPayFee(f"пошлина суда {money_str(duty)} ₭, а на счету меньше")
+        raise CannotPayFee(key="justice-cannot-pay-fee", fee=money_str(duty))
     treasury = await town.treasury(session, city)
     await ledger.transfer(
         session,
@@ -209,12 +208,12 @@ async def judge(
 
     moment = now or datetime.now(UTC)
     if case.state is not CaseState.OPEN:
-        raise JusticeError("дело уже рассмотрено")
+        raise JusticeError(key="justice-case-judged")
     city = await town.by_id(session, case.city_id)
     if city is None:  # pragma: no cover -- a case without a city is a bug
-        raise JusticeError("дело ссылается в никуда")
+        raise JusticeError(key="justice-case-nowhere")
     if not await town.may(session, by.id, city, Power.JUSTICE):
-        raise NotJudge("судит тот, кому город дал право justice")
+        raise NotJudge(key="justice-not-a-judge")
 
     case.judge_identity_id = by.id
     case.judged_at = moment
@@ -239,16 +238,13 @@ async def judge(
 
     known = {primitive.id for primitive in catalog.laws.sanctions}
     if sanction not in known:
-        raise JusticeError(f"нет такой санкции: {sanction}")
+        raise JusticeError(key="justice-no-such-sanction", sanction=sanction)
     if sanction not in ENFORCED:
-        raise Unenforceable(
-            f"«{sanction}» движок пока не исполняет: приговор без исполнения — "
-            "хуже, чем отказ от приговора"
-        )
+        raise Unenforceable(key="justice-unenforceable", sanction=sanction)
 
     defendant = await session.get(Identity, case.defendant_identity_id)
     if defendant is None:  # pragma: no cover -- the identity is eternal
-        raise JusticeError("ответчик исчез")
+        raise JusticeError(key="justice-defendant-gone")
 
     penalty = await _enforce(
         session,
@@ -442,10 +438,10 @@ async def _prison_choice(session: AsyncSession, city: City, prison_node: str | N
     if prison_node is not None:
         chosen = next((node for node in penal_face if node.key == prison_node), None)
         if chosen is None:
-            raise JusticeError(f"«{prison_node}» — не каторга этого города")
+            raise JusticeError(key="justice-not-a-prison", node=prison_node)
         return chosen
     if len(penal_face) > 1:
-        raise JusticeError("в городе несколько каторг: суд называет, в какую отправить")
+        raise JusticeError(key="justice-many-prisons")
     return penal_face[0] if penal_face else None
 
 

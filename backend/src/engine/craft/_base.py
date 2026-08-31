@@ -209,7 +209,7 @@ class NotIngredient(CraftError):
 #: offered none of the eighteen recipes written with the other. A word that
 #: behaves identically to another is not a concept but a synonym, and a synonym
 #: half the system knows about is a hole.
-HANDS = "Руками"
+HANDS = "by_hand"
 
 
 #: What reads as "no machine needed".
@@ -220,10 +220,10 @@ BENCHLESS = (HANDS,)
 #: items come from the vault by class membership. A written carrier keeps the
 #: recipe's name in `Item.recipe_key`; wiping it turns it back into its blank.
 #: Both are ordinary things beyond that: made, carried, sold, lost with the body.
-CARRIER = "Носитель"
+CARRIER = "carrier"
 
 
-BLANK = "Болванка"
+BLANK = "blank"
 
 
 def carrier_names(catalog: Catalog | None = None) -> tuple[str, ...]:
@@ -250,7 +250,7 @@ def blank_of(catalog: Catalog, carrier_type: str) -> str:
                 return book.resolve(name)
     if blanks:
         return sorted(blanks)[0]
-    raise Unmakeable(f"у «{carrier_type}» нет болванки: класс «{BLANK}» пуст")
+    raise Unmakeable(key="craft-no-blank", carrier=carrier_type, cls=BLANK)
 
 
 #: The automatic workstation class (D-035, D-058, D-215). The industrial mode:
@@ -260,7 +260,7 @@ def blank_of(catalog: Catalog, carrier_type: str) -> str:
 #: The vault does not list which processes are automated, so the automaton is
 #: substituted for any recipe station -- by the master's own decision, not
 #: silently: "put on automatic" is a choice between quality and volume.
-AUTO_BENCH = "Автомат"
+AUTO_BENCH = "automaton"
 
 
 @dataclass(frozen=True, slots=True)

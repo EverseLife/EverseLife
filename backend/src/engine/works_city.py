@@ -117,19 +117,16 @@ async def _post(
     await town.require_at_hall(session, body, city)
     await town.require(session, by.id, city, Power.TREASURY)
     if offer < 0:
-        raise WorksCityError("предложение города не бывает отрицательным")
+        raise WorksCityError(key="works-city-offer-negative")
     if labor <= 0:
-        raise WorksCityError("заказ без труда — это не заказ")
+        raise WorksCityError(key="works-city-no-labor")
     if await open_city_order(session, kind, node) is not None:
-        raise WorksCityError("на этом объекте уже висит такой заказ")
+        raise WorksCityError(key="works-city-order-exists")
 
     city_labor, fund_labor = split_labor(constants, labor)
     city_part = offer + city_labor
     if await works.fund_balance(session) < fund_labor:
-        raise WorksCityError(
-            f"фонд работ пуст: не хватает {money_str(fund_labor)} ₭ на долю фонда. "
-            "Фонд наполняется процентным доходом — подождите"
-        )
+        raise WorksCityError(key="works-city-fund-empty", money=money_str(fund_labor))
 
     order = WorkOrder(
         kind=kind,
@@ -161,7 +158,7 @@ async def _post(
             )
         except ledger.InsufficientFunds as poor:
             raise WorksCityError(
-                f"в казне не хватает {money_str(city_part)} ₭ на долю города"
+                key="works-city-treasury-poor", money=money_str(city_part)
             ) from poor
     if fund_labor > 0:
         await ledger.transfer(
@@ -198,10 +195,10 @@ async def post_repair_order(
     """Order the mending of the city's own plot. The offer covers the materials
     the worker walls in -- the fund pays labour only (D-002)."""
     if node.owner_city_id != city.id:
-        raise WorksCityError("город заказывает ремонт своего: этот участок не его")
+        raise WorksCityError(key="works-city-repair-not-own")
     houses = await buildings_of(session, node)
     if not houses or missing_share(houses) <= 0:
-        raise WorksCityError("чинить нечего: дома целы либо их нет")
+        raise WorksCityError(key="works-city-nothing-to-repair")
     labor = labor_tariff(constants, repair_minutes(constants, houses))
     return await _post(
         session,
@@ -234,11 +231,11 @@ async def post_build_order(
     offer compensates them; the engine verifies the finished house by kind,
     floors and footprint."""
     if node.owner_city_id != city.id:
-        raise WorksCityError("город заказывает стройку у себя: этот участок не его")
+        raise WorksCityError(key="works-city-build-not-own")
     if building_kind not in kinds(constants):
-        raise WorksCityError(f"тип «{building_kind}» этому миру неизвестен")
+        raise WorksCityError(key="works-city-unknown-building", building=building_kind)
     if footprint <= 0 or floors < 1:
-        raise WorksCityError("дом без пятна или без этажей — это не заказ")
+        raise WorksCityError(key="works-city-no-footprint")
     labor = labor_tariff(
         constants, build_minutes(constants, footprint=footprint, floors=floors, kind=building_kind)
     )
@@ -283,14 +280,14 @@ async def post_fuel_order(
     """
     place = await town.of_node(session, node)
     if place is None or place.id != city.id:
-        raise WorksCityError("станция не на территории города: возить туда город не заказывает")
+        raise WorksCityError(key="works-city-station-not-in-city")
     view = await energy.plant_view(session, constants, node)
     if view is None:
-        raise WorksCityError("здесь нет станции, которой нужно топливо")
+        raise WorksCityError(key="works-city-no-station")
     if type_key not in view["fuels"]:
-        raise WorksCityError(f"«{type_key}» не горит в «{view['station']}»")
+        raise WorksCityError(key="works-city-not-a-fuel", goods=type_key, station=view["station"])
     if amount <= 0 or price_per_unit < 0:
-        raise WorksCityError("подвоз нуля — это не заказ")
+        raise WorksCityError(key="works-city-zero-haul")
 
     hours = catalog.recipes.mass_of(type_key) * amount / constants[R.WORKS_HAUL_KG_PER_HOUR]
     labor = labor_tariff(constants, hours * MINUTES_PER_HOUR)
@@ -506,18 +503,16 @@ async def cancel_city_order(
         .one_or_none()
     )
     if order is None or order.city_id != city.id:
-        raise WorksCityError("такого заказа у города нет")
+        raise WorksCityError(key="works-city-no-such-order")
     if order.state is not WorkOrderState.OPEN:
-        raise WorksCityError("заказ уже закрыт: отзывать нечего")
+        raise WorksCityError(key="works-city-order-closed")
     #: Work already under way is somebody's materials already in the walls:
     #: repair and construction write them off at the order (D-145). Letting
     #: the city withdraw now would hand it the house and the escrow both --
     #: "post, wait for a stranger's timber, revoke" must not be a strategy.
     node = None if order.node_id is None else await session.get(Node, order.node_id)
     if node is not None and await _work_under_way(session, order.kind, node):
-        raise WorksCityError(
-            "работа по заказу уже идёт: работник вложил материалы — дождитесь конца"
-        )
+        raise WorksCityError(key="works-city-work-under-way")
 
     city_left = int(order.payload["city_part"]) - int(order.payload["city_paid"])
     fund_left = int(order.payload["fund_part"]) - int(order.payload["fund_used"])
@@ -613,7 +608,7 @@ async def borrow_for_works(
     await town.require(session, by.id, city, Power.TREASURY)
     total = money(amount)
     if total <= 0:
-        raise WorksCityError("заём должен быть положительным")
+        raise WorksCityError(key="works-city-loan-not-positive")
     #: The line check is read-then-insert, and the line is the treasury
     #: loan's only brake: two rulers borrowing at once must not both see it
     #: free. The city row serialises them; the loser rereads a line that
@@ -622,8 +617,9 @@ async def borrow_for_works(
     _, _, free = await bank.city_line(session, constants, city, now=moment)
     if total > free:
         raise WorksCityError(
-            f"линия города исчерпана: свободно {money_str(free)} ₭ "
-            f"из {constants[R.BANK_DEBT_TO_TURNOVER_CAP]:g}% оборота"
+            key="works-city-line-exhausted",
+            money=money_str(free),
+            cap=constants[R.BANK_DEBT_TO_TURNOVER_CAP],
         )
 
     rate_value = await bank.key_rate(session, constants)
@@ -692,7 +688,7 @@ async def repay_for_works(
     await town.require_at_hall(session, body, city)
     await town.require(session, by.id, city, Power.TREASURY)
     if loan.identity_id is not None or loan.city_id != city.id:
-        raise WorksCityError("это не заём казны этого города")
+        raise WorksCityError(key="works-city-not-treasury-loan")
     return await bank.repay(
         session,
         constants,

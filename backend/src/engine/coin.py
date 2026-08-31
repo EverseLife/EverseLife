@@ -89,9 +89,9 @@ def per_coin(catalog: Catalog, coin: str) -> dict[str, float]:
     """
     recipe = catalog.recipes.recipe(coin)
     if recipe.kind is not ItemKind.MONEY:
-        raise NotCoin(f"{recipe.name!r} — не монета")
+        raise NotCoin(key="coin-not-a-coin", goods=recipe.type_key)
     if not recipe.amounts:
-        raise NotCoin(f"у {recipe.name!r} не задан состав: чеканить не из чего")
+        raise NotCoin(key="coin-no-composition", goods=recipe.type_key)
     return {catalog.recipes.resolve(name): value for name, value in recipe.amounts.items()}
 
 
@@ -100,9 +100,9 @@ def metal_of(catalog: Catalog, coin: str) -> str:
     returns; the alloy (iron) is lost."""
     recipe = catalog.recipes.recipe(coin)
     if recipe.kind is not ItemKind.MONEY:
-        raise NotCoin(f"{recipe.name!r} — не монета")
+        raise NotCoin(key="coin-not-a-coin", goods=recipe.type_key)
     if not recipe.inputs:
-        raise NotCoin(f"у {recipe.name!r} нет входа: чеканить не из чего")
+        raise NotCoin(key="coin-no-input", goods=recipe.type_key)
     return catalog.recipes.resolve(recipe.inputs[0])
 
 
@@ -139,7 +139,7 @@ async def mint(
     """
     moment = now or datetime.now(UTC)
     if body.state is not BodyState.ALIVE:
-        raise CoinError("мёртвое тело не чеканит")
+        raise CoinError(key="coin-dead-mints")
     await travel.require_here(session, body)
 
     #: Import inside: `craft` knows about coins only through this module, not
@@ -147,18 +147,18 @@ async def mint(
 
     recipe = catalog.recipes.recipe(coin)
     if recipe.kind is not ItemKind.MONEY:
-        raise NotCoin(f"{recipe.name!r} — не монета: её делают партией, не чеканкой")
-    if not await craft._knows(session, body, recipe.name):  # noqa: SLF001
-        raise craft.NotLearned(f"рецепт {recipe.name!r} не скопирован в личность")
+        raise NotCoin(key="coin-not-minted", goods=recipe.type_key)
+    if not await craft._knows(session, body, recipe.type_key):  # noqa: SLF001
+        raise craft.NotLearned(key="craft-not-learned", recipe=recipe.type_key)
 
     if count <= 0 or count != int(count):
-        raise CoinError("монеты считаются целыми штуками")
+        raise CoinError(key="coin-whole-only")
     if count > constants[R.CRAFT_BATCH_MAX]:
-        raise craft.TooBig(f"партия больше craft.batch_max: {count}")
+        raise craft.TooBig(key="craft-batch-too-big", units=count)
 
     composition = per_coin(catalog, coin)
     proc = craft.Procedure(
-        output=recipe.name,
+        output=recipe.type_key,
         station=catalog.recipes.resolve(recipe.station) if recipe.station else None,
         tools=(),
         inputs=tuple(composition),
@@ -197,7 +197,7 @@ async def mint(
     batch = CraftBatch(
         body_id=body.id,
         node_id=body.node_id,
-        output=recipe.name,
+        output=recipe.type_key,
         units=amount(count),
         station=None if station is None else station.type_key,
         quality=Decimal(str(metal_quality)),
@@ -216,7 +216,7 @@ async def mint(
         now=moment,
         event={
             "work": "mint",
-            "output": recipe.name,
+            "output": recipe.type_key,
             "units": count,
             "fineness": fineness,
             "spent": needed,
@@ -241,18 +241,18 @@ async def melt(
     """
     moment = now or datetime.now(UTC)
     if body.state is not BodyState.ALIVE:
-        raise CoinError("мёртвое тело не работает")
+        raise CoinError(key="coin-dead-works")
     await travel.require_here(session, body)
 
     if not is_coin(catalog, item.type_key):
-        raise NotCoin(f"{item.type_key!r} — не монета: это переработка, а не переплавка")
+        raise NotCoin(key="coin-not-melted", goods=item.type_key)
 
     pocket = await body_container(session, body)
     if item.container_id != pocket.id:
-        raise CoinError("монета не в руках: плавят своё")
+        raise CoinError(key="coin-not-in-hands")
     qty = amount(count)
     if qty <= 0 or qty > item.amount:
-        raise CoinError(f"столько монет нет: в стопке {amount_float(item.amount)}")
+        raise CoinError(key="coin-not-enough", have=amount_float(item.amount))
 
     machine = catalog.recipes.recipe(item.type_key).station
     proc = craft.Procedure(

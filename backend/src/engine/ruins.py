@@ -61,27 +61,27 @@ from src.models.world import Layer, Node, Planet, Surface
 from src.units import HOURS_PER_DAY
 
 #: The mark of the Forerunners on everything they left: the node was theirs.
-PRECURSOR = "предтечи"
+PRECURSOR = "precursors"
 #: What the city was -- «столица», «цех», «улей». The word is the key of the
 #: room table in the vault: what a place was decides what its rooms hold.
-KIND = "город"
+KIND = "city"
 #: Steps from the spaceport. The pier is nought, and the way deeper goes
 #: through what is already open (D-061).
-DEPTH = "глубина"
+DEPTH = "depth"
 #: How many rooms of this city are already open. Lives on the city's node, like
 #: the count of finds on an ordinary one: a city is worked out for everybody at
 #: once, not for whoever opened it.
-OPENED = "раскрыто"
+OPENED = "revealed"
 #: What kind of room this is. Sent to the client as a place property.
-ROOM_MARK = "помещение"
+ROOM_MARK = "indoors"
 
 #: The search goal. A string, like the others (`explore.GOALS`).
 ROOM = "room"
 
 #: Thing classes of the Forerunners, by class (D-215): the seed and the ruins
 #: place the same relics, and neither of them names a thing.
-RELIC_YARD = "Верфь"
-RELIC_PLANT = "ТЭЦ"
+RELIC_YARD = "shipyard"
+RELIC_PLANT = "heat_plant"
 
 
 class RuinsError(Refusal):
@@ -183,7 +183,7 @@ async def grant_relic(session: AsyncSession, node: Node, thing_class: str, *, or
     book = current_catalog().recipes
     relics = [name for name in book.of_class(thing_class) if book.is_relic(name)]
     if not relics:  # pragma: no cover -- the vault always names the relic
-        raise RuinsError(f"в реестре нет реликвии класса «{thing_class}»")
+        raise RuinsError(key="ruins-no-relic-of-class", thing_class=thing_class)
     await world.grant_item(
         session,
         await world.node_container(session, node),
@@ -214,9 +214,9 @@ async def open_room(
     """
     city = await city_of(session, origin, lock=True)
     if city is None:  # pragma: no cover -- the caller refuses before the run
-        raise NotRuins("здесь нечего вскрывать: это не город Предтеч")
+        raise NotRuins(key="ruins-not-ruins")
     if exhausted(constants, city):
-        raise NotRuins(f"«{city.name}» выработан: вскрывать больше нечего")
+        raise NotRuins(key="ruins-exhausted", city=city.name)
 
     kind = str((city.properties or {}).get(KIND) or "")
     types: dict[str, float] = constants[R.RUINS_ROOM_TYPES].get(kind) or _any_room(constants)
@@ -431,5 +431,5 @@ async def _planet_root(session: AsyncSession, node: Node, *, lock: bool = False)
         stmt = stmt.with_for_update()
     root = (await session.execute(stmt)).scalar_one_or_none()
     if root is None:  # pragma: no cover -- the seed lays every planet
-        raise RuinsError(f"у планеты «{node.planet.value}» нет узла: миру нечего расширять")
+        raise RuinsError(key="ruins-planet-without-node", planet=node.planet.value)
     return root

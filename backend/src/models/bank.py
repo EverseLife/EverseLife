@@ -13,6 +13,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from enum import StrEnum
+from typing import Any
 
 from sqlalchemy import (
     BigInteger,
@@ -22,6 +23,7 @@ from sqlalchemy import (
     Numeric,
     UniqueConstraint,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.db.base import Base, created_column, enum_column, uuid_pk
@@ -84,7 +86,17 @@ class RateDecision(Base):
     #: What the sensors saw: inflation and the emission share of issue, percent.
     inflation: Mapped[float] = mapped_column(Numeric(8, 3), nullable=False, default=0)
     emission_share: Mapped[float] = mapped_column(Numeric(8, 3), nullable=False, default=0)
-    #: In words: why it came out exactly so.
+    #: Why it came out exactly so, as keys rather than as words (D-251 wave
+    #: IV): `[{"say": "bank-why-rate-base", "args": {"rate": 12.0}}, ...]`.
+    #: A decision is an archive row -- written once, read back by whoever
+    #: audits the rate afterwards -- and the reader's language is not known at
+    #: the moment of writing. Kept as the reasons rather than as a sentence,
+    #: one row can be said to a Russian and to an Englishman alike.
+    why_said: Mapped[list[Any] | None] = mapped_column(JSONB, nullable=True)
+    #: The same explanation as one Russian line, for the rows written before
+    #: the column above existed. Nothing writes it any more; the edge falls
+    #: back to it when `why_said` is empty, because an old decision with no
+    #: explanation at all would be worse than one in the wrong language.
     why: Mapped[str] = mapped_column(nullable=False, default="")
     #: Until when the rate is returned to the algorithm in emergency (D-172).
     #: Not a punishment for the Council but a fuse: the price of a mistake is everybody's money.

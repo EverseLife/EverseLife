@@ -81,7 +81,7 @@ class Building(Base):
     #: The building type (D-218) -- the vault's own word, not a number: with
     #: the tier ladder gone the class of a house is a name, and the bill,
     #: the price of a floor and the rate of decay are all read by it.
-    kind: Mapped[str] = mapped_column(String(64), nullable=False, server_default="деревянный")
+    kind: Mapped[str] = mapped_column(String(64), nullable=False, server_default="wooden")
 
     #: How worn the house is now, on the same 0-100 scale as a tool's condition.
     #: Until it reaches zero the house stands at full strength -- it loses

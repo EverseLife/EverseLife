@@ -59,7 +59,7 @@ async def test_a_node_stands_next_to_what_it_was_laid_from(session: AsyncSession
     """One step away, and the step is the same for everybody (D-237)."""
     city = await _node(session, "Город", layer=Layer.PLANET)
     core = await _node(session, "Ядро", parent=city)
-    library = await _node(session, "Библиотека", parent=city, anchor=core)
+    library = await _node(session, "library", parent=city, anchor=core)
 
     assert places.place_of(core) == places.ORIGIN, "первый узел группы — её начало"
     assert _gap(core, library) == pytest.approx(MAP_STEP), "второй стоит в шаге от первого"
@@ -69,7 +69,7 @@ async def test_nobody_moves_when_the_map_grows(session: AsyncSession) -> None:
     """A place given once is never recomputed: the world has no wipes (D-007)."""
     city = await _node(session, "Город", layer=Layer.PLANET)
     core = await _node(session, "Ядро", parent=city)
-    library = await _node(session, "Библиотека", parent=city, anchor=core)
+    library = await _node(session, "library", parent=city, anchor=core)
     was = places.place_of(library)
 
     for number in range(5):

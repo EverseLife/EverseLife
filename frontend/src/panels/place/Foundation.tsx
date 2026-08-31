@@ -5,7 +5,9 @@
 /** One window of the location; what they share is in `shared.ts`. */
 
 import { useState } from "react";
-import { useSession } from "../../actions";
+import { useNames, useSession } from "../../actions";
+import { t } from "../../locale";
+import { goodsName } from "../../names";
 import type { Props } from "./shared";
 
 
@@ -21,6 +23,7 @@ import type { Props } from "./shared";
  */
 export function Foundation({ look, busy, act }: Props) {
   const session = useSession();
+  const names = useNames();
   const ground = look.foundation ?? null;
   const [name, setName] = useState("");
   if (!ground) return null;
@@ -29,14 +32,16 @@ export function Foundation({ look, busy, act }: Props) {
 
   return (
     <section>
-      <h2>Основание города</h2>
+      <h2>{t("ui-place-foundation-title")}</h2>
       <table>
         <tbody>
           {ground.needs.map((need) => (
             <tr key={need.role}>
               <td>{ground.missing.includes(need.role) ? "—" : "✓"}</td>
               <td>{need.role}</td>
-              <td className="note">{need.any_of.join(" · ")}</td>
+              <td className="note">
+                {need.any_of.map((one) => goodsName(names, one)).join(" · ")}
+              </td>
             </tr>
           ))}
         </tbody>
@@ -45,20 +50,20 @@ export function Foundation({ look, busy, act }: Props) {
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="название города"
+          placeholder={t("ui-place-foundation-name")}
           disabled={!ready}
         />
         <button
           onClick={() => act(() => session.send("city.found", { name: name }))}
           disabled={busy || !ready || !name.trim()}
         >
-          Основать город
+          {t("ui-place-foundation-found")}
         </button>
       </div>
       <p className="note">
         {ready
-          ? "Земля отойдёт городу, основатель получит все полномочия."
-          : "Порог входа — постройки, а не монета."}
+          ? t("ui-place-foundation-ready")
+          : t("ui-place-foundation-threshold")}
       </p>
     </section>
   );

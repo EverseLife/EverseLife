@@ -149,10 +149,10 @@ async def repair(
     """
     moment = now or datetime.now(UTC)
     if body.state is not BodyState.ALIVE:
-        raise EstateError("мёртвое тело не чинит")
+        raise EstateError(key="estate-repair-dead")
     await travel.require_here(session, body)
     if body.node_id != node.id:
-        raise EstateError("чинят руками: дойдите до участка")
+        raise EstateError(key="estate-repair-on-foot")
     nobodys = node.owner_identity_id is None and node.owner_city_id is None
     if not nobodys and node.owner_identity_id != body.identity_id:
         #: An open city repair order is a licence (D-248): the city posted it
@@ -163,18 +163,18 @@ async def repair(
             session, WorkOrderKind.BUILDING_REPAIR, node
         )
         if not allowed:
-            raise EstateError("участок не ваш: чинят у себя")
+            raise EstateError(key="estate-repair-not-yours")
     if await repairing(session, node):
-        raise EstateError("ремонт уже идёт: второй раз его не заказывают")
+        raise EstateError(key="estate-repair-under-way")
     #: Mending is an occupation like any other (D-211): one pair of hands does
     #: one thing, and a body ploughing a strip is not also mending a wall.
     await occupation.require_free(session, body)
 
     houses = await buildings_of(session, node)
     if not houses:
-        raise Ruined("чинить нечего: на участке нет здания")
+        raise Ruined(key="estate-repair-nothing")
     if missing_share(houses) <= 0:
-        raise Ruined("дом целёхонек: чинить в нём нечего")
+        raise Ruined(key="estate-repair-intact")
 
     #: A repair this body walked away from is **resumed**, not started again:
     #: the materials went into the walls at the first order, and charging them
@@ -212,7 +212,7 @@ async def repair(
         body_id=body.id,
     )
     if job is None:  # pragma: no cover -- the key is unique per event
-        raise EstateError("ремонт уже поставлен")
+        raise EstateError(key="estate-repair-already-queued")
     return job
 
 
@@ -297,7 +297,7 @@ async def finish_repair(session: AsyncSession, job: Job) -> None:
     """
     node = await session.get(Node, uuid.UUID(job.payload["node"]))
     if node is None:  # pragma: no cover
-        raise EstateError(f"ремонт {job.id} ссылается в никуда")
+        raise EstateError(key="estate-repair-job-nowhere", job=str(job.id))
     houses = await buildings_of(session, node)
     #: The house may have fallen while the work ran -- then there is nothing to
     #: mend and nothing to complain about: the journal keeps both records.

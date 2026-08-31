@@ -57,9 +57,9 @@ async def allot(
     await require_at_hall(session, body, city)
     await require(session, by.id, city, Power.LAND)
     if node.owner_city_id != city.id:
-        raise CityError("это не городской участок")
+        raise CityError(key="city-land-not-civic")
     if node.owner_identity_id is not None:
-        raise CityError("участок уже за кем-то")
+        raise CityError(key="city-land-taken")
 
     #: The floors of a house go with the plot (D-247).
     await world.hand_over(session, node, to.id)
@@ -101,35 +101,29 @@ async def cede(session: AsyncSession, body, node: Node) -> City:
     """
 
     if body is None or body.state is not BodyState.ALIVE:
-        raise CityError("мёртвое тело участками не распоряжается")
+        raise CityError(key="city-land-dead")
     await travel.require_here(session, body)
     if body.node_id != node.id:
-        raise CityError("участок передают ногами: дойдите до него")
+        raise CityError(key="city-land-cede-on-foot")
     if node.owner_identity_id != body.identity_id:
-        raise NotYours("участок не ваш: городу отдают своё")
+        raise NotYours(key="city-land-not-yours")
     #: Reached from a floor of one's own house (D-247): it is held land and it
     #: is not the city's, so the refusal is the right one -- a storey is not
     #: ceded apart from the ground it stands on. Wild land never gets here:
     #: nobody holds it, and the check above turns it away first.
     if node.owner_city_id is None:
-        raise NoCity("это не городская земля: здесь некому её передать")
+        raise NoCity(key="city-land-not-city-land")
     city = await by_id(session, node.owner_city_id)
     if city is None:  # pragma: no cover -- civic land without a city is a bug
-        raise NoCity("участок приписан к несуществующему городу")
+        raise NoCity(key="city-land-city-missing")
 
     deed = (await session.execute(select(Deed).where(Deed.node_id == node.id))).scalar_one_or_none()
     if deed is not None and deed.sale_price is not None:
-        raise CityError(
-            "бумага на участок выставлена на продажу: снимите её с торгов, "
-            "иначе покупатель заплатит за чужое"
-        )
+        raise CityError(key="city-land-deed-on-sale")
 
     meter = await utility.meter_of(session, node, create=False)
     if meter is not None and meter.debt > 0:
-        raise CityError(
-            f"на узле долг {money_str(meter.debt)} ₭: сначала закройте счёт, "
-            "город чужих долгов не принимает"
-        )
+        raise CityError(key="city-land-debt", debt=money_str(meter.debt))
 
     await world.hand_over(session, node, None)
     #: Civic land has no door: a shut gate and its lists left on the node would

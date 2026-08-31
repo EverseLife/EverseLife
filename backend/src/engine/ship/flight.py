@@ -111,31 +111,29 @@ async def _leaving(
     is read under that lock.
     """
     if ship.docked_node_id is None:
-        raise InFlight(f"«{ship.name}» уже в пути: до конца перехода он приказов не берёт")
+        raise InFlight(key="ship-in-flight", ship=ship.name)
     running = await _passage_of(session, ship)
     if running is not None:  # pragma: no cover -- a moored hull carries no passage
         goal = await session.get(Node, uuid.UUID(str(running.payload["to"])))
-        where = f" в «{goal.name}»" if goal is not None else ""
-        raise InFlight(f"корабль уже в рейсе{where}: до конца перехода он приказов не берёт")
+        raise InFlight(
+            key="ship-in-passage",
+            known="true" if goal is not None else "false",
+            goal="" if goal is None else goal.name,
+        )
 
     here = await session.get(Node, ship.docked_node_id)
     connector = await session.get(Node, ship.connector_node_id)
     if here is None or connector is None:  # pragma: no cover
-        raise ShipError("у корабля нет коннектора или порта")
+        raise ShipError(key="ship-no-connector-or-port")
 
     thrust_ratio = await ratio(session, constants, catalog, ship)
     floor = constants[R.SHIP_MIN_THRUST_RATIO]
     if thrust_ratio < floor:
-        raise NotEnoughThrust(
-            f"тяги {thrust_ratio:.2f} на килограмм при нужных {floor:.2f}: "
-            "с такой массой корабль никуда не идёт. Ставьте двигатели или снимайте груз"
-        )
+        raise NotEnoughThrust(key="ship-not-enough-thrust", have=thrust_ratio, need=floor)
     crew = len(await crew_of(session, ship))
     holds = await life_support(session, constants, ship)
     if crew > holds:
-        raise NoLifeSupport(
-            f"на борту {crew} человек, а жизнеобеспечение держит {holds}: ставьте ещё систему"
-        )
+        raise NoLifeSupport(key="ship-no-life-support", crew=crew, holds=holds)
     return here, connector, thrust_ratio
 
 
@@ -162,13 +160,17 @@ async def _burn(
     not this rule failing but D-232 working: Aurora's blackout is irreversible,
     and the planet is lost together with what is over it.
 
+    `refusal` names which leg is asking (`climb`, `cross`, `land`, `turn-back`)
+    -- a message variant rather than a sentence: the words are the locale's
+    (D-251).
+
     Returns the mass burnt and the mass of the hull it was computed against --
     the caller writes both into the journal.
     """
     weight = await mass(session, constants, catalog, ship)
     klass = await engine_class(session, constants, ship)
     if klass is None:
-        raise NotEnoughThrust("на корабле нет ни одного двигателя")
+        raise NotEnoughThrust(key="ship-no-engines")
     #: By class, exactly as the console quoted it (`view.profile`) and as the
     #: turn-back charges it. Class is power and **efficiency** (D-235), and a
     #: leg that ignored it charged one price on the screen and another at the
@@ -177,7 +179,7 @@ async def _burn(
     whole = fuel_for(constants, weight, hours + reserve, klass=klass)
     have = await fuel_aboard(session, ship)
     if have + _EPS < whole:
-        raise NoFuel(f"{refusal}: нужно {whole:.1f} «{FUEL}», а в баках {have:.1f}")
+        raise NoFuel(key="ship-no-fuel", why=refusal, need=whole, goods=FUEL, have=have)
     #: Burnt out of the tanks (D-230): the engines reach nothing else.
     return await _spend(session, await fuel_stacks(session, ship), need), weight
 
@@ -247,7 +249,7 @@ async def _launch(
         body_id=body.id,
     )
     if job is None:  # pragma: no cover -- the key is unique per event
-        raise ShipError("рейс уже поставлен")
+        raise ShipError(key="ship-passage-already-queued")
     return job
 
 
@@ -284,10 +286,10 @@ async def ascend(
     await session.refresh(ship, with_for_update=True)
     here, connector, thrust_ratio = await _leaving(session, constants, catalog, ship)
     if is_orbit(here):
-        raise InFlight(f"«{ship.name}» уже на околопланетной орбите: выше подниматься некуда")
+        raise InFlight(key="ship-already-in-orbit", ship=ship.name)
     orbit = await orbit_node_of(session, here.planet)
     if orbit is None:  # pragma: no cover -- the seed lays one per planet
-        raise NoPort(f"у планеты {here.planet.value} нет орбитального узла")
+        raise NoPort(key="ship-planet-has-no-orbit", planet=here.planet.value)
 
     climb = climb_hours(constants, here.planet, thrust_ratio)
     burnt, weight = await _burn(
@@ -298,7 +300,7 @@ async def ascend(
         hours=climb,
         #: The way back down onto this same planet. Not burnt -- kept.
         reserve=fall_hours(constants, here.planet, thrust_ratio),
-        refusal="на подъём и спуск обратно топлива не хватает, а на орбите не заправляют",
+        refusal="climb",
     )
     await _cast_off(session, ship, here, connector)
     return await _launch(
@@ -346,34 +348,29 @@ async def fly(
     await session.refresh(ship, with_for_update=True)
     here, connector, thrust_ratio = await _leaving(session, constants, catalog, ship)
     if not is_orbit(here):
-        raise Docked(
-            f"«{ship.name}» стоит в космодроме: между планетами ходят с орбиты. "
-            "Сначала поднимитесь на околопланетную орбиту"
-        )
+        raise Docked(key="ship-cross-from-orbit", ship=ship.name)
     if not is_orbit(target):
-        raise NoPort(
-            f"«{target.name}» — не орбита: переход идёт с околопланетной орбиты на "
-            "околопланетную орбиту, а космодром выбирают уже над планетой"
-        )
+        raise NoPort(key="ship-cross-to-orbit", node=target.name)
     if target.planet is here.planet:
-        raise TooFar(f"«{ship.name}» уже над этой планетой: отсюда садятся, а не идут переходом")
+        raise TooFar(key="ship-already-over-planet", ship=ship.name)
     #: Every question a mooring is asked, and one more the others are not: a
     #: planet whose beacons have all gone out is a planet one may reach and
     #: never leave the orbit of (D-232). The hull would hang there with fuel for
     #: a descent and nowhere to spend it, which is the trap the fuel rule exists
     #: against (pillar P6) -- so the crossing is refused at this end, while
     #: there is still a choice to make.
-    await _will_take(session, constants, target, why="причаливать не к чему")
+    await _will_take(session, constants, target, why="dock")
     if not await _landable(session, constants, target.planet):
-        raise NoPort(
-            f"на {target.name} садиться некуда: не светит ни один маяк. "
-            "Корабль ушёл бы туда и остался на орбите"
-        )
+        raise NoPort(key="ship-nowhere-to-land", node=target.name)
 
     #: The sky, asked once and written into the passage.
     table = await base_hours(session, constants, here.planet, target.planet, at=moment)
     if table is None:
-        raise TooFar(f"маршрута {here.planet.value} — {target.planet.value} в мире нет")
+        raise TooFar(
+            key="ship-no-such-route",
+            planet_from=here.planet.value,
+            planet_to=target.planet.value,
+        )
     #: No route is closed by class (D-235): class is power and efficiency, and
     #: both are already priced -- a weak engine on a heavy hull flies longer
     #: (`passage_hours`) and burns more for every hour of it (`fuel_for`). What
@@ -388,7 +385,7 @@ async def fly(
         hours=hours,
         #: The descent at the far end, kept back the way the climb keeps its own.
         reserve=fall_hours(constants, target.planet, thrust_ratio),
-        refusal="на переход и посадку в конце топлива не хватает",
+        refusal="cross",
     )
     await _cast_off(session, ship, here, connector)
     return await _launch(
@@ -432,20 +429,17 @@ async def land(
     await session.refresh(ship, with_for_update=True)
     here, connector, thrust_ratio = await _leaving(session, constants, catalog, ship)
     if not is_orbit(here):
-        raise Docked(f"«{ship.name}» уже стоит на планете: садиться неоткуда")
+        raise Docked(key="ship-already-landed", ship=ship.name)
     #: An orbit is not a pad. `_will_take` says yes to every orbital node --
     #: space needs no yard and has no beacon -- so without this line a descent
     #: aimed at the very orbit the hull is moored to passed: the trap was
     #: unmoored, charged a descent and moored again, one leg's fuel poorer and
     #: below the reserve that keeps an orbit leavable.
     if is_orbit(port):
-        raise NoPort(f"«{port.name}» — орбита, а не космодром: с орбиты садятся на планету под ней")
+        raise NoPort(key="ship-land-not-into-orbit", node=port.name)
     if port.planet is not here.planet:
-        raise TooFar(
-            f"«{port.name}» на другой планете: с орбиты садятся на то, что под ней, "
-            "а до чужой планеты идут переходом с орбиты на орбиту"
-        )
-    await _will_take(session, constants, port, why="садиться некуда")
+        raise TooFar(key="ship-land-other-planet", node=port.name)
+    await _will_take(session, constants, port, why="land")
 
     fall = fall_hours(constants, here.planet, thrust_ratio)
     burnt, weight = await _burn(
@@ -457,7 +451,7 @@ async def land(
         #: Nothing kept back: the ground is the one place a hull may stand with
         #: dry tanks. Fuel is walked to a pier; it is not walked to an orbit.
         reserve=0.0,
-        refusal="на посадку топлива не хватает",
+        refusal="land",
     )
     await _cast_off(session, ship, here, connector)
     return await _launch(
@@ -510,29 +504,22 @@ async def recall(
     running = await _passage_of(session, ship, lock=True)
     await session.refresh(ship, with_for_update=True)
     if running is None:
-        raise Docked("корабль никуда не идёт: разворачивать нечего")
+        raise Docked(key="ship-not-in-passage")
     #: A turn-back is not turned back. It is already going home, and the hours
     #: it counts are the hours of the leg it replaced -- counted afresh from
     #: itself they would be nought, and two clicks would bring a hull home from
     #: anywhere in the sky, instantly and for free.
     if running.payload.get("back"):
-        raise InFlight(
-            f"«{ship.name}» уже возвращается: разворачивать разворот некуда, дождитесь прихода"
-        )
+        raise InFlight(key="ship-already-turning-back", ship=ship.name)
     home = None if ship.left_node_id is None else await session.get(Node, ship.left_node_id)
     if home is None:
-        raise NoPort(
-            f"неизвестно, откуда «{ship.name}» ушёл: развернуться не к чему, "
-            "и рейс придётся довести до конца"
-        )
+        raise NoPort(key="ship-no-home-to-turn-to", ship=ship.name)
     #: The **same** question every destination is asked, all of it (D-232): a
     #: hull must not be sent where it will not be taken. A rescue that fails
     #: down a chain is not a rescue -- but a pier with its yard carried off is
     #: not a chain, it is the answer, and the hull flies on to the port it aimed
     #: at, which was checked when it was aimed at.
-    await _will_take(
-        session, constants, home, why="возвращаться некуда, корабль дойдёт до цели рейса"
-    )
+    await _will_take(session, constants, home, why="turn-back")
 
     #: How long it has been flying is how long it has to fly back. Counted from
     #: the job that carries the leg: it was created at the casting off, and that
@@ -564,10 +551,7 @@ async def recall(
         #: the first minute, and the reserve the crossing kept is spent on a
         #: planet whose descent costs more than the one it was measured for.
         reserve=down if is_orbit(home) else 0.0,
-        refusal=(
-            "на разворот топлива не хватает: с пустыми баками в пустоте не "
-            "разворачиваются — идите до конца"
-        ),
+        refusal="turn-back",
     )
 
     #: The leg that was is over the moment the helm goes over. Its job is
@@ -602,7 +586,7 @@ async def recall(
         body_id=body.id,
     )
     if job is None:  # pragma: no cover -- the key is unique per event
-        raise ShipError("разворот уже поставлен")
+        raise ShipError(key="ship-turn-back-already-queued")
     return job
 
 
@@ -625,7 +609,7 @@ async def arrived(session: AsyncSession, job: Job) -> None:
     ship = await session.get(Ship, uuid.UUID(job.payload["ship"]), with_for_update=True)
     port = await session.get(Node, uuid.UUID(job.payload["to"]))
     if ship is None or port is None:  # pragma: no cover
-        raise ShipError(f"рейс {job.id} ведёт в никуда")
+        raise ShipError(key="ship-passage-nowhere", job=str(job.id))
     #: Already down. A hull is docked by exactly one arrival, and a second one
     #: -- a retry after a failure, a job that outlived a turn-back -- would lay
     #: a second gangway and moor a ship that is already moored.
@@ -643,7 +627,7 @@ async def arrived(session: AsyncSession, job: Job) -> None:
         port = await _somewhere_on(session, port, dice=random.Random(str(job.id)))
     connector = await session.get(Node, ship.connector_node_id)
     if connector is None:  # pragma: no cover
-        raise ShipError("у корабля нет коннектора")
+        raise ShipError(key="ship-no-connector")
 
     #: The berth is taken on arrival, and it is whichever is free **there**:
     #: a ship does not carry its place from the port it left. On bare ground

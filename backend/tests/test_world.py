@@ -45,8 +45,8 @@ async def test_knowledge_copied_once(session: AsyncSession) -> None:
     """The Library does not refuse, but does not create a second copy in the head either (D-053)."""
     _, identity, _ = await _settled_node(session)
 
-    assert await world.learn(session, identity, "Гвозди") is not None
-    assert await world.learn(session, identity, "Гвозди") is None
+    assert await world.learn(session, identity, "nails") is not None
+    assert await world.learn(session, identity, "nails") is None
     await session.commit()
 
     total = await session.scalar(
@@ -61,12 +61,12 @@ async def test_item_appearance_must_have_ground(session: AsyncSession) -> None:
     container = await world.body_container(session, body)
 
     await world.grant_item(
-        session, container, "Железная руда", amount=12.5, quality=60, origin="сценарий отладки"
+        session, container, "iron_ore", amount=12.5, quality=60, origin="сценарий отладки"
     )
     await session.commit()
 
     item = (await session.execute(select(Item))).scalar_one()
-    assert item.type_key == "Железная руда"
+    assert item.type_key == "iron_ore"
     assert amount_float(item.amount) == 12.5
     assert float(item.condition) == float(item.condition_cap)
 

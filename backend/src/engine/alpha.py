@@ -107,8 +107,8 @@ def known(catalog: Catalog) -> tuple[str, ...]:
     catalog describes the world, not what a debug widget wants to offer.
     """
     book = catalog.recipes
-    names = {material.name for material in book.materials}
-    names.update(recipe.name for recipe in book.recipes)
+    names = {material.id or material.name for material in book.materials}
+    names.update(recipe.id or recipe.name for recipe in book.recipes)
     return tuple(sorted(names))
 
 
@@ -144,18 +144,18 @@ async def spawn(
     """
     name = catalog.recipes.resolve(type_key)
     if name not in known(catalog):
-        raise NoSuchThing(f"такой вещи в этом мире нет: {type_key}")
+        raise NoSuchThing(key="alpha-no-such-thing", goods=type_key)
     if amount <= 0:
-        raise AlphaError("количество должно быть больше нуля")
+        raise AlphaError(key="alpha-amount-not-positive")
     if amount > AMOUNT_MAX:
         #: Not a balance ceiling -- the width of the amount column. Past it the
         #: insert overflows, and the player would get "the server failed"
         #: instead of a refusal in words.
-        raise AlphaError(f"столько не бывает: не больше {AMOUNT_MAX}")
+        raise AlphaError(key="alpha-amount-too-big", limit=AMOUNT_MAX)
     if quality is not None:
         scale = constants[R.QUALITY_SCALE]
         if not scale.min <= quality <= scale.max:
-            raise AlphaError(f"качество — от {scale.min:g} до {scale.max:g}")
+            raise AlphaError(key="alpha-quality-out-of-range", min=scale.min, max=scale.max)
 
     where = await world.body_container(session, body)
     item = await world.grant_item(
@@ -211,10 +211,7 @@ async def _poured(
     if here is not None and await station.may_build(session, body, here):
         within.append(await world.node_container(session, here))
     if await liquid.settle(session, catalog, item, within) > 0:
-        raise AlphaError(
-            f"«{name}» — жидкость, и налить её некуда: возьмите канистру в руки "
-            "или встаньте там, где стоит бак. В ладонях жидкость не живёт"
-        )
+        raise AlphaError(key="alpha-liquid-nowhere", goods=name)
     return item
 
 
@@ -247,7 +244,7 @@ async def hurry(
         #: else's", and it would otherwise rest on every caller passing a
         #: matching pair. One layer up is where the pair is assembled; this is
         #: where the invariant belongs.
-        raise AlphaError("это тело не этой личности")
+        raise AlphaError(key="alpha-not-your-body")
     moment = now or datetime.now(UTC)
     owned = [
         and_(

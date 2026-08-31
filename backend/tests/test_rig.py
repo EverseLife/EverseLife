@@ -30,18 +30,14 @@ from src.units import amount_float
 async def _face(session: AsyncSession, *, coal: float = 100, richness: float = 60):
     stamp = uuid.uuid4().hex[:8]
     node = await world.create_node(session, f"terra.pit.{stamp}", "Забой", area_m2=200)
-    vein = await world.create_vein(
-        session, node, "Железная руда", richness=richness, remaining=100_000
-    )
+    vein = await world.create_vein(session, node, "iron_ore", richness=richness, remaining=100_000)
     yard = await world.node_container(session, node)
     if coal > 0:
-        await world.grant_item(session, yard, "Уголь", amount=coal, quality=55, origin="тест")
+        await world.grant_item(session, yard, "coal", amount=coal, quality=55, origin="тест")
     identity = await world.create_identity(session, f"Промышленник-{stamp}")
     body = await world.print_body(session, identity, node)
     pocket = await world.body_container(session, body)
-    machine = await world.grant_item(
-        session, pocket, "Буровая установка", quality=70, origin="тест"
-    )
+    machine = await world.grant_item(session, pocket, "drilling_rig", quality=70, origin="тест")
     installation = await rig.place(session, body, machine, vein)
     return node, vein, body, installation, machine
 
@@ -184,7 +180,7 @@ async def test_broken_machine_gives_worse_ore(session: AsyncSession, constants: 
     ore_ = (
         (
             await session.execute(
-                select(Item).where(Item.container_id == pocket.id, Item.type_key == "Железная руда")
+                select(Item).where(Item.container_id == pocket.id, Item.type_key == "iron_ore")
             )
         )
         .scalars()

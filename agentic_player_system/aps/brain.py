@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
-from . import commands, llm, observe
+from . import commands, llm, names, observe
 from .game import Game, GameError, Refused
 from .store import Store
 
@@ -308,7 +308,11 @@ SYSTEM = """Ты — житель мира everse.life, обычный игро�
   деньги или отдают вещи (покупка, бронь, перевод, заём, сделка с землёй). Лишние
   система отклонит — это защита от поспешных трат.
 
-Две вещи про аргументы, на которых легко ошибиться:
+Три вещи про аргументы, на которых легко ошибиться:
+- Вещи, станции, качества, слоты и способы в игре называются устойчивыми ключами
+  (iron_ore, good, logging). В наблюдении такой ключ показан как «Имя [ключ]»;
+  в аргументы команд (goods, tier, output, way и подобные) передавай сам ключ
+  из квадратных скобок, а не русское имя.
 - Деньги считают в двух единицах. В наблюдении твои деньги названы обеими: в
   монетах и в мелких долях (1 монета = 10000). Цена на рынке — в книге ордеров,
   в предложении и в аргументе price — всегда в мелких; сравнивай цену именно со
@@ -425,6 +429,9 @@ async def run_turn(
     max_steps = int(agent["max_steps"] or 8)
     history = int(agent.get("history_limit") or DEFAULT_HISTORY)
 
+    #: The Russian names of the wire's ids (D-251): fetched once per process,
+    #: raw ids until a fetch succeeds.
+    await names.ensure(game)
     #: What the server said while the turn was not running (D-226) -- the
     #: socket is read only on a command, so the events wait in it.
     await game.drain()

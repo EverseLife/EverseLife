@@ -27,6 +27,7 @@ import { useSession } from "../actions";
 import { Refused } from "../api";
 import type { CityPanel, CityView, Look } from "../api";
 import { Economy } from "./Economy";
+import { t } from "../locale";
 import { Population } from "./Population";
 
 /** What both sections read, in one answer set. */
@@ -82,17 +83,17 @@ export function State({ look, busy }: { look: Look; busy: boolean }) {
   }, [reload, look.node?.key]);
 
   if (view === undefined) {
-    return <p className="note">Город опрашивается…</p>;
+    return <p className="note">{t("ui-city-asking")}</p>;
   }
   if (view === null) {
-    return <p className="note">Вы вне города: за стенами законов нет.</p>;
+    return <p className="note">{t("ui-city-outside")}</p>;
   }
   if ("failed" in view) {
     return (
       <>
-        <p className="trouble">Город не ответил: о нём сейчас ничего не известно.</p>
+        <p className="trouble">{t("ui-city-silent")}</p>
         <button className="quiet" onClick={() => void reload()} disabled={busy}>
-          Ещё раз
+          {t("ui-city-again")}
         </button>
       </>
     );
@@ -103,7 +104,7 @@ export function State({ look, busy }: { look: Look; busy: boolean }) {
       <Economy view={view} />
       <Population view={view} busy={busy} />
       <button className="quiet" onClick={() => void reload()} disabled={busy}>
-        Пересчитать
+        {t("ui-city-recount")}
       </button>
     </>
   );

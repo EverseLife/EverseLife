@@ -13,7 +13,8 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.api.commands.common import _alive, _identity
+from src import i18n
+from src.api.commands.common import _alive, _identity, speaks
 from src.api.commands.views import _deed_view, _identity_by_name, _money, _things, _tiers
 from src.api.registry import Refused, command
 from src.constants import current, current_catalog
@@ -37,7 +38,7 @@ async def _land_buy(state: dict, db: AsyncSession, message: dict) -> dict:
     body = await _alive(state, db)
     node = await db.get(Node, body.node_id)
     if node is None:  # pragma: no cover
-        raise Refused("тело вне узла")
+        raise Refused(key="cmd-body-off-node")
     deed = await estate.buy(db, current(), current_catalog(), body, node)
     return {
         "bought": node.key,
@@ -58,7 +59,7 @@ async def _land_cede(state: dict, db: AsyncSession, message: dict) -> dict:
     body = await _alive(state, db)
     node = await db.get(Node, body.node_id)
     if node is None:  # pragma: no cover
-        raise Refused("тело вне узла")
+        raise Refused(key="cmd-body-off-node")
     city = await town.cede(db, body, node)
     return {"ceded": node.key, "city": city.name}
 
@@ -69,7 +70,7 @@ async def _land_rename(state: dict, db: AsyncSession, message: dict) -> dict:
     body = await _alive(state, db)
     node = await db.get(Node, body.node_id)
     if node is None:  # pragma: no cover
-        raise Refused("тело вне узла")
+        raise Refused(key="cmd-body-off-node")
     await estate.rename(db, body, node, str(message.get("name", "")))
     return {"renamed": node.key, "name": node.name}
 
@@ -84,7 +85,7 @@ async def _land_emblem(state: dict, db: AsyncSession, message: dict) -> dict:
     body = await _alive(state, db)
     node = await db.get(Node, body.node_id)
     if node is None:  # pragma: no cover
-        raise Refused("тело вне узла")
+        raise Refused(key="cmd-body-off-node")
     asked = str(message.get("emblem") or "").strip()
     await estate.emblem(db, body, node, asked or None)
     return {"marked": node.key, "emblem": asked or None}
@@ -99,7 +100,7 @@ async def _land_describe(state: dict, db: AsyncSession, message: dict) -> dict:
     body = await _alive(state, db)
     node = await db.get(Node, body.node_id)
     if node is None:  # pragma: no cover
-        raise Refused("тело вне узла")
+        raise Refused(key="cmd-body-off-node")
     await estate.describe(db, body, node, str(message.get("about") or ""))
     return {"described": node.key, "about": estate.public_about(node)}
 
@@ -115,7 +116,7 @@ async def _build_construct(state: dict, db: AsyncSession, message: dict) -> dict
     body = await _alive(state, db)
     node = await db.get(Node, body.node_id)
     if node is None:  # pragma: no cover
-        raise Refused("тело вне узла")
+        raise Refused(key="cmd-body-off-node")
     job = await estate.construct(
         db,
         current(),
@@ -143,7 +144,7 @@ async def _build_estimate(state: dict, db: AsyncSession, message: dict) -> dict:
     floors = int(message.get("floors", 1))
     kind = message.get("kind") or estate.kinds(constants)[0]
     if footprint <= 0 or floors < 1:
-        raise Refused("площадь и этажность считаются от единицы")
+        raise Refused(key="cmd-area-and-storeys-from-one")
     estate.composition(constants, str(kind))
 
     needed = estate.bill(constants, footprint=footprint, floors=floors, kind=str(kind))
@@ -202,7 +203,7 @@ async def _demolish_estimate(state: dict, db: AsyncSession, message: dict) -> di
     constants = current()
     node = await db.get(Node, body.node_id)
     if node is None:  # pragma: no cover
-        raise Refused("тело вне узла")
+        raise Refused(key="cmd-body-off-node")
 
     houses = await estate.buildings_of(db, node)
     return {
@@ -217,7 +218,12 @@ async def _demolish_estimate(state: dict, db: AsyncSession, message: dict) -> di
         #: (D-198, D-205); somebody else's civic plot -- by a court order (D-095).
         "mine": node.owner_identity_id == body.identity_id
         or (node.owner_identity_id is None and node.owner_city_id is None),
-        "blocking": await estate.demolish_blockers(db, constants, node),
+        #: Messages, said here in the reader's language (D-251 wave IV):
+        #: the same list the refusal quotes, and it must read alike in both.
+        "blocking": [
+            i18n.render(one.key, one.params, locale=speaks(state))
+            for one in await estate.demolish_blockers(db, constants, node)
+        ],
     }
 
 
@@ -234,7 +240,7 @@ async def _repair_estimate(state: dict, db: AsyncSession, message: dict) -> dict
     constants = current()
     node = await db.get(Node, body.node_id)
     if node is None:  # pragma: no cover
-        raise Refused("тело вне узла")
+        raise Refused(key="cmd-body-off-node")
 
     houses = await estate.buildings_of(db, node)
     needed = estate.repair_bill(constants, houses)
@@ -272,7 +278,7 @@ async def _build_repair(state: dict, db: AsyncSession, message: dict) -> dict:
     body = await _alive(state, db)
     node = await db.get(Node, body.node_id)
     if node is None:  # pragma: no cover
-        raise Refused("тело вне узла")
+        raise Refused(key="cmd-body-off-node")
     job = await estate.repair(db, current(), body, node, tiers=_tiers(message))
     return {"repairing": True, "ready_at": job.run_at.isoformat()}
 
@@ -283,7 +289,7 @@ async def _build_demolish(state: dict, db: AsyncSession, message: dict) -> dict:
     body = await _alive(state, db)
     node = await db.get(Node, body.node_id)
     if node is None:  # pragma: no cover
-        raise Refused("тело вне узла")
+        raise Refused(key="cmd-body-off-node")
     job = await estate.demolish(db, current(), body, node)
     return {"demolishing": True, "ready_at": job.run_at.isoformat()}
 
@@ -324,5 +330,5 @@ async def _deed(db: AsyncSession, message: dict):
 
     deed = await db.get(Deed, uuid.UUID(message["deed"]))
     if deed is None:
-        raise Refused("нет такой бумаги")
+        raise Refused(key="cmd-no-such-deed")
     return deed

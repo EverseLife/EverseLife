@@ -64,7 +64,7 @@ from src.constants import Catalog, Constants, current_catalog
 from src.constants import registry as R
 from src.constants.catalog import Plant
 from src.engine import breed, estate, events, food, liquid, occupation, stock, travel, world
-from src.engine.errors import Refusal
+from src.engine.errors import Refusal, left_to_say
 from src.engine.jobs import enqueue, handler
 from src.models.event import EventKind
 from src.models.farm import Plot, PlotState
@@ -76,7 +76,7 @@ from src.models.world import Node
 from src.units import PERCENT, SCALE_MAX, SCALE_MIN, SECONDS_PER_HOUR, amount, amount_float
 
 #: The name of water in `build/recipes.json` -- carried by hand where there is no river.
-WATER = "Вода"
+WATER = "water"
 
 
 class FarmError(Refusal):
@@ -114,7 +114,7 @@ def day_hours(constants: Constants) -> float:
 
 def ripe_at(constants: Constants, plot: Plot, plant: Plant) -> datetime:
     if plot.sown_at is None:  # pragma: no cover
-        raise WrongState("делянка не засеяна")
+        raise WrongState(key="farm-plot-not-sown")
     return plot.sown_at + timedelta(hours=plant.cycle_days * day_hours(constants))
 
 
@@ -136,17 +136,17 @@ async def mark(
     moment = now or datetime.now(UTC)
     await _here(session, body)
     if area < constants[R.FARM_PLOT_MIN_AREA]:
-        raise TooSmall(f"меньше {constants[R.FARM_PLOT_MIN_AREA]} м² межевать бессмысленно")
+        raise TooSmall(key="farm-too-small", min=constants[R.FARM_PLOT_MIN_AREA])
 
     node = await session.get(Node, body.node_id)
     if node is None:  # pragma: no cover
-        raise FarmError("тело вне узла")
+        raise FarmError(key="farm-body-off-node")
     await _open_ground(session, node)
     #: A floor of a house is not ground (D-247). Left to the room check below it
     #: would refuse with "nothing free here" -- true of a third floor, and no
     #: explanation of why it will never be otherwise.
     if estate.storey_of(node) is not None:
-        raise NotYours("это этаж, а не земля: делянку режут во дворе — спуститесь вниз")
+        raise NotYours(key="farm-storey-not-ground")
     #: The plot's holder runs the estate: buy the land first (06-farming).
     #: Hiring is access plus a share by contract (D-116), not shared land.
     #:
@@ -155,7 +155,7 @@ async def mark(
     #: has an owner -- the crop is somebody's -- but the ground under it is not.
     nobody = node.owner_identity_id is None and node.owner_city_id is None
     if not nobody and node.owner_identity_id != body.identity_id:
-        raise NotYours("участок не ваш: городскую землю выкупают, а чужую — арендуют по договору")
+        raise NotYours(key="farm-node-not-yours")
 
     #: The land is spent by three things and the check must know all three
     #: (D-246): the footprint of what stands here, the strips already marked,
@@ -169,7 +169,7 @@ async def mark(
     await estate.hold_ground(session, node)
     free = await estate.free_ground(session, node)
     if area > free:
-        raise NoLand(f"в узле {node.key} свободно {max(free, 0):g} м², просят {area:g}")
+        raise NoLand(key="farm-no-land", node=node.key, free=max(free, 0), area=area)
 
     plot = Plot(
         node_id=node.id,
@@ -206,7 +206,7 @@ async def plow(
     await _here(session, body)
     _owned(plot, body)
     if plot.state is not PlotState.IDLE:
-        raise WrongState(f"делянка {plot.name!r} не под паром: {plot.state.value}")
+        raise WrongState(key="farm-not-fallow", plot=plot.name, state=plot.state.value)
 
     _accrue_fallow(constants, plot, moment)
     plot.state = PlotState.PLOWING
@@ -237,7 +237,7 @@ async def plow(
 async def plow_done(session: AsyncSession, job: Job) -> None:
     plot = await session.get(Plot, uuid.UUID(job.payload["plot"]))
     if plot is None:  # pragma: no cover
-        raise FarmError(f"задание {job.id}: делянки нет")
+        raise FarmError(key="farm-job-no-plot", job=str(job.id))
     if plot.state is not PlotState.PLOWING:
         #: A job retry after a failure does not double the ploughing.
         return
@@ -265,22 +265,24 @@ async def sow(
     await _here(session, body)
     _owned(plot, body)
     if plot.state is not PlotState.PLOWED:
-        raise WrongState(f"делянка {plot.name!r} не вспахана")
+        raise WrongState(key="farm-not-plowed", plot=plot.name)
 
     variety = await breed._variety_of(session, seeds)  # noqa: SLF001
     plant = catalog.plants.by_id(variety.culture_id)
     if seeds.type_key != plant.seed:  # pragma: no cover -- cultivar and seed come from data
-        raise NoSeeds(f"{seeds.type_key!r} — не семена культуры {plant.name!r}")
+        raise NoSeeds(key="farm-wrong-seeds", goods=seeds.type_key, culture=plant.name)
 
     pocket = await world.body_container(session, body)
     if seeds.container_id != pocket.id:
-        raise NoSeeds("семена не в руках: сеют своим")
+        raise NoSeeds(key="farm-seeds-not-in-hands")
 
     need = amount(constants[R.FARM_SEED_RATE] * float(plot.area_m2))
     if seeds.amount < need:
         raise NoSeeds(
-            f"нужно {amount_float(need):g} «{plant.seed}» на посев, "
-            f"есть {amount_float(seeds.amount):g}"
+            key="farm-not-enough-seeds",
+            seeds=plant.seed,
+            need=amount_float(need),
+            have=amount_float(seeds.amount),
         )
     seeds.amount -= need
     strength = float(seeds.vigor) if seeds.vigor is not None else SCALE_MAX
@@ -327,21 +329,21 @@ async def care(
     await _here(session, body)
     _owned(plot, body)
     if plot.state is not PlotState.SOWN or plot.sown_at is None:
-        raise WrongState(f"на делянке {plot.name!r} ничего не растёт")
+        raise WrongState(key="farm-nothing-grows", plot=plot.name)
 
     day = timedelta(hours=day_hours(constants))
     if plot.cared_at is not None and moment - plot.cared_at < day:
-        raise WrongState("сегодня уже ухожено: уход суточный, а не почасовой")
+        raise WrongState(key="farm-cared-today")
 
     node = await session.get(Node, plot.node_id)
-    if node is None or node.properties.get("вода") != "река":
+    if node is None or node.properties.get("water") != "river":
         need = amount(constants[R.FARM_WATER_PER_M2] * float(plot.area_m2))
         await _consume(
             session,
             body,
             WATER,
             need,
-            why=NoWater(f"нужно {amount_float(need):g} воды: реки здесь нет, воду носят руками"),
+            why=NoWater(key="farm-no-water", need=amount_float(need)),
         )
 
     plot.care_credits += 1
@@ -385,7 +387,7 @@ async def harvest(
     await _here(session, body)
     _owned(plot, body)
     if plot.state is not PlotState.SOWN or plot.culture_id is None:
-        raise WrongState(f"на делянке {plot.name!r} нечего убирать")
+        raise WrongState(key="farm-nothing-to-harvest", plot=plot.name)
 
     plant = catalog.plants.by_id(plot.culture_id)
     #: The cultivar decides the numbers: what was sown from one's own fund no
@@ -399,7 +401,7 @@ async def harvest(
 
     ready = (plot.sown_at or moment) + timedelta(hours=cycle * day_hours(constants))
     if moment < ready:
-        raise WrongState(f"культура дозреет к {ready.isoformat()}: цикл {cycle:g} суток")
+        raise WrongState(key="farm-not-ripe", cycle=cycle, inner={"left": [left_to_say(ready)]})
 
     area = float(plot.area_m2)
     fertility = float(plot.fertility)
@@ -498,7 +500,7 @@ async def split(
 
     rest = float(plot.area_m2) - cut_area
     if cut_area < constants[R.FARM_PLOT_MIN_AREA] or rest < constants[R.FARM_PLOT_MIN_AREA]:
-        raise TooSmall("обе части обязаны быть не меньше farm.plot_min_area")
+        raise TooSmall(key="farm-halves-too-small")
 
     _accrue_fallow(constants, plot, moment)
     plot.area_m2 = Decimal(str(rest))
@@ -541,7 +543,7 @@ async def merge(
     _recuttable(one)
     _recuttable(other)
     if one.node_id != other.node_id:
-        raise FarmError("сливают соседние делянки, а не землю из разных узлов")
+        raise FarmError(key="farm-merge-other-node")
 
     _accrue_fallow(constants, one, moment)
     _accrue_fallow(constants, other, moment)
@@ -668,10 +670,7 @@ async def _open_ground(session: AsyncSession, node: Node) -> None:
     weather = await frost.climate_of(session, node)
     if weather is None or is_aboard(node):
         return
-    raise FarmError(
-        f"«{node.name}»: {weather} — в открытом грунте здесь ничего не растёт. "
-        "Еда сюда приходит кораблём"
-    )
+    raise FarmError(key="farm-no-open-ground", node=node.name, weather=weather)
 
 
 async def _here(session: AsyncSession, body: Body) -> None:
@@ -683,7 +682,7 @@ async def _here(session: AsyncSession, body: Body) -> None:
     two occupations on one pair of hands, which is exactly what D-211 forbids.
     """
     if body.state is not BodyState.ALIVE:
-        raise FarmError("мёртвое тело не работает")
+        raise FarmError(key="farm-dead-works")
     await travel.require_here(session, body)
 
     await occupation.require_free(session, body)
@@ -691,17 +690,17 @@ async def _here(session: AsyncSession, body: Body) -> None:
 
 def _owned(plot: Plot, body: Body) -> None:
     if plot.owner_identity_id != body.identity_id:
-        raise NotYours("чужая делянка: аренда и наём — через договор")
+        raise NotYours(key="farm-plot-not-yours")
 
 
 def _recuttable(plot: Plot) -> None:
     if plot.state not in (PlotState.IDLE, PlotState.PLOWED):
-        raise WrongState("перекроить можно только незасеянное")
+        raise WrongState(key="farm-recut-sown")
 
 
 def _ground_fertility(node: Node) -> float:
     """Starting fertility is a place property (D-126). No property -- it bears nothing."""
-    raw = node.properties.get("плодородие", 0)
+    raw = node.properties.get("fertility", 0)
     try:
         return max(SCALE_MIN, min(SCALE_MAX, float(raw)))
     except (TypeError, ValueError):

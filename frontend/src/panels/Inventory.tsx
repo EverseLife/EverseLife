@@ -22,7 +22,9 @@
 import { useEffect, useState } from "react";
 import type { RecipeBook } from "../api";
 import { stationsOf, type Look, type Thing } from "../api";
-import { Refusal, useActions, useBook, useSession } from "../actions";
+import { Refusal, useActions, useBook, useNames, useSession } from "../actions";
+import { flavorText, goodsName, slotName, tierName, type NamesRu } from "../names";
+import { t } from "../locale";
 import { Rule } from "../Rule";
 import { Amount } from "../Amount";
 import { DropZone } from "../DragMove";
@@ -56,6 +58,7 @@ type Asking = null | { item: string; about: "menu" | "where" | "whom" };
 export function Inventory({ look }: Props) {
   const session = useSession();
   const book = useBook();
+  const names = useNames();
   const acting = useActions();
   const { busy, act } = acting;
   const [asking, setAsking] = useState<Asking>(null);
@@ -108,6 +111,15 @@ export function Inventory({ look }: Props) {
   const part = (thing: Thing) => chosen(parts[thing.id] ?? null, thing.amount);
   const close = () => setAsking(null);
 
+  //: One spelling of a row's name (D-251): the flavor by tokens, a written
+  //: carrier as "носитель: рецепт", everything else by its display word.
+  const label = (thing: Thing): string =>
+    thing.flavor
+      ? flavorText(names, thing.flavor)
+      : thing.recipe
+        ? `${goodsName(names, thing.goods)}: ${goodsName(names, thing.recipe)}`
+        : goodsName(names, thing.goods);
+
   const send = (cmd: string, args: Record<string, unknown>) =>
     act(async () => {
       await session.send(cmd, args);
@@ -118,13 +130,11 @@ export function Inventory({ look }: Props) {
     <div>
       {carried && (
         <p className="sign">
-          в руках {carried.load.toFixed(1)} из {carried.capacity.toFixed(0)} кг
-          <Rule>
-            Смотреть можно откуда угодно, есть — из рук и в дороге тоже, а трогать
-            остальное только ногами. Передают из рук в руки: оба человека стоят в
-            одном месте, и передача видна остальным — в разговоре появляется строка о
-            ней. Полные руки посылку не примут: предел носимого чужой тоже.
-          </Rule>
+          {t("ui-inventory-carry", {
+            load: carried.load.toFixed(1),
+            capacity: carried.capacity.toFixed(0),
+          })}
+          <Rule>{t("ui-inventory-carry-rule")}</Rule>
         </p>
       )}
 
@@ -134,20 +144,20 @@ export function Inventory({ look }: Props) {
             const worn = carried.equipped[slot];
             return (
               <span key={slot} className="note">
-                {slot}:{" "}
+                {slotName(names, slot)}:{" "}
                 {worn ? (
                   <>
-                    {worn.goods}{" "}
+                    {goodsName(names, worn.goods)}{" "}
                     <button
                       className="link"
                       onClick={() => act(() => session.send("gear.unequip", { slot }))}
                       disabled={busy}
                     >
-                      снять
+                      {t("ui-inventory-unequip")}
                     </button>
                   </>
                 ) : (
-                  "пусто"
+                  t("ui-inventory-slot-empty")
                 )}
               </span>
             );
@@ -162,7 +172,7 @@ export function Inventory({ look }: Props) {
           <select
             value={group}
             onChange={(e) => setGroup(e.target.value as Grouping)}
-            title="сгруппировать"
+            title={t("ui-inventory-group")}
           >
             {GROUPINGS.map((g) => (
               <option key={g.id} value={g.id}>
@@ -173,7 +183,7 @@ export function Inventory({ look }: Props) {
           <select
             value={sort}
             onChange={(e) => setSort(e.target.value as Sorting)}
-            title="упорядочить"
+            title={t("ui-inventory-sort")}
           >
             {SORTINGS.map((s) => (
               <option key={s.id} value={s.id}>
@@ -184,7 +194,7 @@ export function Inventory({ look }: Props) {
           <button
             className="quiet"
             onClick={() => setDesc(!desc)}
-            title={desc ? "по убыванию — нажмите для возрастания" : "по возрастанию — нажмите для убывания"}
+            title={desc ? t("ui-inventory-desc") : t("ui-inventory-asc")}
           >
             {desc ? "↓" : "↑"}
           </button>
@@ -199,7 +209,7 @@ export function Inventory({ look }: Props) {
         zone="hands"
         accepts={["floor", "ground", CHEST_ANY, "hold", "terminal"]}
         disabled={busy}
-        hint="перетащите сюда предмет, чтобы взять в руки"
+        hint={t("ui-inventory-drop-hint")}
         onMove={(stack, amount) => {
           //: Both surfaces of a node are picked up by one command: what a hand
           //: reaches for is what it can see, and `ground.pick` does not ask
@@ -224,11 +234,11 @@ export function Inventory({ look }: Props) {
         }}
       >
       {things.length === 0 ? (
-        <p className="note">В руках ничего нет.</p>
+        <p className="note">{t("ui-inventory-empty")}</p>
       ) : (
         <table className="goods">
           <tbody>
-            {sections(things, group, sort, desc, book).flatMap(({ title, rows, summary }) => [
+            {sections(things, group, sort, desc, book, names).flatMap(({ title, rows, summary }) => [
               ...(title === null
                 ? []
                 : [
@@ -264,7 +274,7 @@ export function Inventory({ look }: Props) {
                 {...grip({
                   item: thing.id,
                   goods: thing.goods,
-                  label: thing.flavor ?? thing.goods,
+                  label: label(thing),
                   amount: thing.amount,
                   zone: "hands",
                   //: The market counts by name and quality tier, not by the
@@ -279,19 +289,21 @@ export function Inventory({ look }: Props) {
                   {/* The class mark before the name (D-238): the name stays,
                       the glyph only lets the eye sort the column. */}
                   <GoodsMark book={book} goods={thing.goods} />
-                  {thing.flavor ?? (thing.recipe ? `${thing.goods}: ${thing.recipe}` : thing.goods)}
+                  {label(thing)}
                   {/* A vessel shows its fill (D-230): the water is in the canister,
                       and nowhere else in the hands. */}
                   {thing.content !== undefined && (
-                    <div className="note">{fill(book, thing)}</div>
+                    <div className="note">{fill(book, names, thing)}</div>
                   )}
                 </td>
                 <td className="num">{tally(thing.goods, thing.amount)}</td>
-                <td className="note">{tells(thing)}</td>
+                <td className="note">{tells(thing, names)}</td>
                 <td className="handle">
                   <button
                     className="bare dots"
-                    aria-label={`что можно с «${thing.goods}»`}
+                    aria-label={t("ui-inventory-menu", {
+                      goods: goodsName(names, thing.goods),
+                    })}
                     aria-expanded={asking?.item === thing.id}
                     onClick={() =>
                       setAsking(
@@ -315,7 +327,7 @@ export function Inventory({ look }: Props) {
                               field in every row (D-238, the mockup's menu). */}
                           {thing.amount > 1 && (
                             <div className="menu-amount">
-                              <span className="note">сколько</span>
+                              <span className="note">{t("ui-inventory-amount")}</span>
                               <Amount
                                 goods={thing.goods}
                                 value={parts[thing.id] ?? null}
@@ -332,7 +344,7 @@ export function Inventory({ look }: Props) {
                               onClick={() => send("gear.equip", { item: thing.id })}
                               disabled={busy}
                             >
-                              Надеть
+                              {t("ui-inventory-equip")}
                             </button>
                           )}
                           {thing.food && (
@@ -341,20 +353,20 @@ export function Inventory({ look }: Props) {
                               onClick={() => send("food.eat", { item: thing.id })}
                               disabled={busy}
                             >
-                              Съесть
+                              {t("ui-inventory-eat")}
                             </button>
                           )}
                           {/* The warmer (D-231): a one-off handful of hours.
                               Shown by class rather than by name -- a second
                               warmer is data, like everything else. */}
-                          {classOf(book, thing.goods) === "Грелка" && (
+                          {classOf(book, thing.goods) === "warmer" && (
                             <button
                               role="menuitem"
                               onClick={() => send("frost.warm", { item: thing.id })}
                               disabled={busy}
-                              title="сломать грелку: часы теплозапаса сразу, сверх потолка не копятся"
+                              title={t("ui-inventory-warm-hint")}
                             >
-                              Согреться
+                              {t("ui-inventory-warm")}
                             </button>
                           )}
                           {/* A knowledge carrier (D-209): read it into the identity --
@@ -367,19 +379,19 @@ export function Inventory({ look }: Props) {
                                 disabled={busy || look.knows.includes(thing.recipe)}
                                 title={
                                   look.knows.includes(thing.recipe)
-                                    ? "этот рецепт уже в личности"
-                                    : "скопировать рецепт в знания: стоит выносливости, носитель цел"
+                                    ? t("ui-inventory-copy-known")
+                                    : t("ui-inventory-copy-hint")
                                 }
                               >
-                                Скопировать в знания
+                                {t("ui-inventory-copy")}
                               </button>
                               <button
                                 role="menuitem"
                                 onClick={() => send("carrier.wipe", { item: thing.id })}
                                 disabled={busy}
-                                title="стереть запись: останется болванка"
+                                title={t("ui-inventory-wipe-hint")}
                               >
-                                Стереть
+                                {t("ui-inventory-wipe")}
                               </button>
                             </>
                           )}
@@ -388,14 +400,14 @@ export function Inventory({ look }: Props) {
                             onClick={() => setAsking({ item: thing.id, about: "where" })}
                             disabled={busy}
                           >
-                            Положить…
+                            {t("ui-inventory-put")}
                           </button>
                           <button
                             role="menuitem"
                             onClick={() => setAsking({ item: thing.id, about: "whom" })}
                             disabled={busy}
                           >
-                            Передать…
+                            {t("ui-inventory-hand")}
                           </button>
                         </>
                       )}
@@ -405,7 +417,9 @@ export function Inventory({ look }: Props) {
                           {/* The typed amount stays visible while choosing
                               where: the field is a step behind by now. */}
                           <p className="menu-ask">
-                            Куда положить · {tally(thing.goods, part(thing))}
+                            {t("ui-inventory-where", {
+                              amount: tally(thing.goods, part(thing)),
+                            })}
                           </p>
                           {/* Two surfaces since D-244, and the menu names both:
                               the floor of the house and the ground beside it.
@@ -427,7 +441,7 @@ export function Inventory({ look }: Props) {
                                   }
                                   disabled={busy}
                                 >
-                                  На пол
+                                  {t("ui-inventory-floor")}
                                 </button>
                               )}
                               {openGround && (
@@ -442,22 +456,27 @@ export function Inventory({ look }: Props) {
                                   }
                                   disabled={busy}
                                 >
-                                  На землю
+                                  {t("ui-inventory-ground")}
                                 </button>
                               )}
                             </>
                           ) : (
-                            <p className="note">
-                              Земля чужая: положенное здесь достанется хозяину,
-                              и обратно вы его не возьмёте.
-                            </p>
+                            <p className="note">{t("ui-inventory-not-yours")}</p>
                           )}
                           {isVessel(book, thing.goods) &&
                             [
-                              ...tanks.map((tank) => ({ id: tank.id, goods: tank.goods })),
+                              ...tanks.map((tank) => ({
+                                id: tank.id,
+                                goods: goodsName(names, tank.goods),
+                              })),
                               ...things
                                 .filter((other) => other.id !== thing.id && isVessel(book, other.goods))
-                                .map((other) => ({ id: other.id, goods: `${other.goods} в руках` })),
+                                .map((other) => ({
+                                  id: other.id,
+                                  goods: t("ui-inventory-in-hands", {
+                                    goods: goodsName(names, other.goods),
+                                  }),
+                                })),
                             ].map((target) => (
                               <button
                                 key={`pour:${target.id}`}
@@ -466,9 +485,9 @@ export function Inventory({ look }: Props) {
                                   send("liquid.pour", { from: thing.id, to: target.id })
                                 }
                                 disabled={busy || (thing.content ?? []).length === 0}
-                                title="перелить всё, что внутри, сколько войдёт"
+                                title={t("ui-inventory-pour-hint")}
                               >
-                                Перелить в {target.goods.toLowerCase()}
+                                {t("ui-inventory-pour", { target: target.goods.toLowerCase() })}
                               </button>
                             ))}
                           {boxes.map((chest) => (
@@ -484,7 +503,9 @@ export function Inventory({ look }: Props) {
                               }
                               disabled={busy}
                             >
-                              В {chest.goods.toLowerCase()}
+                              {t("ui-inventory-into", {
+                                chest: goodsName(names, chest.goods).toLowerCase(),
+                              })}
                             </button>
                           ))}
                           {/* Into the library, for good (D-068, D-209): only a written
@@ -499,11 +520,11 @@ export function Inventory({ look }: Props) {
                               }
                               title={
                                 look.node.shelf.some((e) => e.recipe === thing.recipe)
-                                  ? "этот рецепт здесь уже лежит"
-                                  : "отдать в библиотеку навсегда: ваше имя останется при рецепте"
+                                  ? t("ui-inventory-contribute-there")
+                                  : t("ui-inventory-contribute-hint")
                               }
                             >
-                              В библиотеку
+                              {t("ui-inventory-contribute")}
                             </button>
                           )}
                           {look.convoy && (
@@ -517,7 +538,7 @@ export function Inventory({ look }: Props) {
                               }
                               disabled={busy}
                             >
-                              В трюм
+                              {t("ui-inventory-hold")}
                             </button>
                           )}
                           {/* Onto the counter, where a terminal stands (D-047):
@@ -535,13 +556,13 @@ export function Inventory({ look }: Props) {
                                 })
                               }
                               disabled={busy}
-                              title="выложить в терминал: продаётся то, что в нём лежит"
+                              title={t("ui-inventory-terminal-hint")}
                             >
-                              В терминал
+                              {t("ui-inventory-terminal")}
                             </button>
                           )}
                           <button className="quiet" onClick={close}>
-                            Отмена
+                            {t("ui-inventory-cancel")}
                           </button>
                         </>
                       )}
@@ -549,12 +570,12 @@ export function Inventory({ look }: Props) {
                       {asking.about === "whom" && (
                         <>
                           <p className="menu-ask">
-                            Кому передать · {tally(thing.goods, part(thing))}
+                            {t("ui-inventory-whom", {
+                              amount: tally(thing.goods, part(thing)),
+                            })}
                           </p>
                           {people.length === 0 ? (
-                            <p className="note">
-                              Здесь никого больше нет: передают из рук в руки.
-                            </p>
+                            <p className="note">{t("ui-inventory-nobody")}</p>
                           ) : (
                             people.map((who) => (
                               <button
@@ -574,7 +595,7 @@ export function Inventory({ look }: Props) {
                             ))
                           )}
                           <button className="quiet" onClick={close}>
-                            Отмена
+                            {t("ui-inventory-cancel")}
                           </button>
                         </>
                       )}
@@ -591,17 +612,17 @@ export function Inventory({ look }: Props) {
 
       {look.stall && look.stall.length > 0 && (
         <>
-          <h3>В терминале</h3>
+          <h3>{t("ui-inventory-on-terminal")}</h3>
           <table className="goods">
             <tbody>
               {look.stall.map((thing) => (
                 <tr key={thing.id}>
                   <td>
                     <GoodsMark book={book} goods={thing.goods} />
-                    {thing.flavor ?? (thing.recipe ? `${thing.goods}: ${thing.recipe}` : thing.goods)}
+                    {label(thing)}
                   </td>
                   <td className="num">{tally(thing.goods, thing.amount)}</td>
-                  <td className="note">{tells(thing)}</td>
+                  <td className="note">{tells(thing, names)}</td>
                 </tr>
               ))}
             </tbody>
@@ -622,15 +643,16 @@ function sections(
   sort: Sorting,
   desc: boolean,
   book: RecipeBook | null,
+  names: NamesRu | null,
 ): { title: string | null; rows: Thing[]; summary: Summary }[] {
-  const ordered = arrange(things, sort, desc);
+  const ordered = arrange(things, sort, desc, names);
   if (group === "none") return [{ title: null, rows: ordered, summary: summarize([]) }];
   const buckets = new Map<string, Thing[]>();
   for (const thing of ordered) {
-    const key = groupKey(book, thing, group);
+    const key = groupKey(book, names, thing, group);
     buckets.set(key, [...(buckets.get(key) ?? []), thing]);
   }
-  return orderGroups([...buckets.keys()], group, things).map((title) => {
+  return orderGroups([...buckets.keys()], group, things, names).map((title) => {
     const rows = buckets.get(title) ?? [];
     return { title, rows, summary: summarize(rows) };
   });
@@ -647,43 +669,55 @@ function sections(
 function sums(summary: Summary, stacks: number): string {
   const said: string[] = [];
   if (summary.goods != null) said.push(tally(summary.goods, summary.amount));
-  if (summary.quality != null) said.push(`в среднем ${summary.quality.toFixed(0)}`);
+  if (summary.quality != null)
+    said.push(t("ui-inventory-average", { quality: summary.quality.toFixed(0) }));
   said.push(positions(stacks));
-  said.push(`${summary.mass.toFixed(1)} кг`);
+  said.push(t("ui-inventory-mass", { mass: summary.mass.toFixed(1) }));
   return ` · ${said.join(" · ")}`;
 }
 
-/** "1 позиция", "2 позиции", "5 позиций" -- the count decides the word. */
+/** "1 позиция", "2 позиции", "5 позиций" -- the count decides the word.
+ *
+ * The choosing is the message's, not this function's: which counts take which
+ * word is a fact about a language, and a language that has one form for all of
+ * them -- or six -- cannot be served by a rule written in `if`s here.
+ *
+ * The number goes twice: as a number, which is the only thing Fluent's plural
+ * rules can look at, and as the digits to print. Printing `$count` itself would
+ * hand it to the locale's number format, and a thousand stacks would read
+ * "1 000 позиций" where every other figure in the row reads "1000".
+ */
 function positions(count: number): string {
-  const last = count % 10;
-  const pair = count % 100;
-  if (pair >= 11 && pair <= 14) return `${count} позиций`;
-  if (last === 1) return `${count} позиция`;
-  if (last >= 2 && last <= 4) return `${count} позиции`;
-  return `${count} позиций`;
+  return t("ui-inventory-positions", { count, shown: String(count) });
 }
 
 /** The one line that says what kind of thing this is. */
-function tells(thing: Thing): string {
+function tells(thing: Thing, names: NamesRu | null): string {
   const parts: string[] = [];
   if (thing.fineness != null) {
-    parts.push(`проба ${thing.fineness}`);
-    if (thing.maker) parts.push(`клеймо ${thing.maker}`);
+    parts.push(t("ui-inventory-fineness", { fineness: String(thing.fineness) }));
+    if (thing.maker) parts.push(t("ui-inventory-maker", { maker: thing.maker }));
   } else if (thing.vigor != null) {
-    parts.push(`${thing.variety ?? "сорт"} · сила ${thing.vigor.toFixed(0)}`);
+    parts.push(
+      t("ui-inventory-vigor", {
+        variety: thing.variety ?? t("ui-inventory-variety"),
+        vigor: thing.vigor.toFixed(0),
+      }),
+    );
   } else if (thing.charge != null) {
-    parts.push(`заряд ${thing.charge.toFixed(0)}`);
+    parts.push(t("ui-inventory-charge", { charge: thing.charge.toFixed(0) }));
   } else if (thing.quality != null) {
-    parts.push(`${thing.quality.toFixed(0)} · ${thing.tier}`);
+    parts.push(`${thing.quality.toFixed(0)} · ${tierName(names, thing.tier)}`);
   }
-  if (thing.condition < 100) parts.push(`сост. ${thing.condition.toFixed(0)}`);
+  if (thing.condition < 100)
+    parts.push(t("ui-inventory-condition", { condition: thing.condition.toFixed(0) }));
   if (thing.spoils_at) parts.push(spoilAt(thing.spoils_at));
   return parts.join(" · ");
 }
 
 function spoilAt(when: string): string {
   const hours = (new Date(when).getTime() - Date.now()) / 3_600_000;
-  if (hours <= 0) return "испортилось";
-  if (hours < 24) return `испортится через ${Math.round(hours)} ч`;
-  return `годно ${Math.round(hours / 24)} сут.`;
+  if (hours <= 0) return t("ui-inventory-spoiled");
+  if (hours < 24) return t("ui-inventory-spoils", { hours: String(Math.round(hours)) });
+  return t("ui-inventory-keeps", { days: String(Math.round(hours / 24)) });
 }

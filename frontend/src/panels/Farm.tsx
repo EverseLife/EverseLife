@@ -15,7 +15,9 @@ import * as api from "../api";
 import { tally } from "../amounts";
 import { busyWith } from "../busy";
 import type { Look } from "../api";
-import { Refusal, useActions, useEdition, useSession } from "../actions";
+import { Refusal, useActions, useEdition, useNames, useSession } from "../actions";
+import { t } from "../locale";
+import { goodsName } from "../names";
 import { Doing } from "../Deadline";
 import { Gauge } from "../Gauge";
 import { Glyph } from "../Glyph";
@@ -55,17 +57,17 @@ type Row = {
 //: reads a bed at a glance even for an unfamiliar cultivar, while the exact
 //: numbers they still have to know or derive (D-057).
 const SYMPTOM: Record<string, string> = {
-  thirst: "листья вялые",
-  pale: "бледный лист",
-  stunted: "угнетённый рост",
-  ripe: "колос налился",
+  thirst: "ui-farm-symptom-thirst",
+  pale: "ui-farm-symptom-pale",
+  stunted: "ui-farm-symptom-stunted",
+  ripe: "ui-farm-symptom-ripe",
 };
 
 const STATE: Record<Row["state"], string> = {
-  idle: "под паром",
-  plowing: "пашется",
-  plowed: "вспахана",
-  sown: "растёт",
+  idle: "ui-farm-state-idle",
+  plowing: "ui-farm-state-plowing",
+  plowed: "ui-farm-state-plowed",
+  sown: "ui-farm-state-sown",
 };
 
 /** One fact of the bed per chip; nothing to say -- no container either. */
@@ -75,25 +77,27 @@ function PlotChips({ row }: { row: Row }) {
     chips.push(
       <span className="chip warn" key="water">
         <Glyph name="water" />
-        полить сегодня · <b>{row.water_need.toFixed(0)} л</b>
+        {t("ui-farm-water")} ·{" "}
+        <b>{t("ui-farm-litres", { litres: row.water_need.toFixed(0) })}</b>
       </span>,
     );
   }
   if ((row.missed_days ?? 0) > 0) {
     chips.push(
       <span className="chip warn" key="missed">
-        пропущено · <b>{row.missed_days} сут.</b>
+        {t("ui-farm-missed")} ·{" "}
+        <b>{t("ui-farm-missed-days", { count: String(row.missed_days) })}</b>
       </span>,
     );
   }
-  if (row.ripe) chips.push(<span className="chip good" key="ripe">созрело — пора убирать</span>);
+  if (row.ripe) chips.push(<span className="chip good" key="ripe">{t("ui-farm-ripe")}</span>);
   if (!row.agrotech) {
     //: The "ripe" symptom is the good chip's news said twice: the flag comes
     //: to everybody, the symptom only to those without agrotech.
     for (const code of (row.symptoms ?? []).filter((s) => s !== "ripe")) {
       chips.push(
         <span className="chip dim" key={code}>
-          {SYMPTOM[code] ?? code}
+          {SYMPTOM[code] ? t(SYMPTOM[code]) : code}
         </span>,
       );
     }
@@ -104,6 +108,7 @@ function PlotChips({ row }: { row: Row }) {
 
 export function Farm({ look }: Omit<Props, "busy" | "act">) {
   const session = useSession();
+  const names = useNames();
   //: This panel's own waiting and its own refusal: one action here
   //: must not grey out the chat, the map and somebody else's orders.
   const acting = useActions();
@@ -159,17 +164,11 @@ export function Farm({ look }: Omit<Props, "busy" | "act">) {
     return (
       <section>
         <Refusal of={acting} />
-        <h2>Земля</h2>
+        <h2>{t("ui-farm-land")}</h2>
         {owner ? (
-          <p className="note">
-            Участок {owner}. Чужим хозяйством не управляют: наём — это доступ
-            плюс доля через договор.
-          </p>
+          <p className="note">{t("ui-farm-owned", { owner })}</p>
         ) : (
-          <p className="note">
-            Городская земля: чтобы вести здесь хозяйство, участок надо выкупить
-            в окне «Участок».
-          </p>
+          <p className="note">{t("ui-farm-civic")}</p>
         )}
       </section>
     );
@@ -184,12 +183,9 @@ export function Farm({ look }: Omit<Props, "busy" | "act">) {
           sowing, the round and the harvest was swallowed: the button clicked
           and the field simply did not change. */}
       <Refusal of={acting} />
-      <h2>Огород</h2>
+      <h2>{t("ui-farm-title")}</h2>
 
-      {rows.length === 0 && (
-        <p className="note">Земля не размечена. Сто метров — это столько делянок,
-          сколько вы нарежете.</p>
-      )}
+      {rows.length === 0 && <p className="note">{t("ui-farm-unmarked")}</p>}
 
       {/* A bed is a card of instruments (D-238): the fertility on a track with
           the norm's notch, the term on the deadline bar, one fact per chip --
@@ -199,7 +195,7 @@ export function Farm({ look }: Omit<Props, "busy" | "act">) {
           <div className="card-head">
             <b>{row.name}</b>
             <span className="note">
-              {row.area} м² · {STATE[row.state]}
+              {t("ui-farm-area", { area: String(row.area) })} · {t(STATE[row.state])}
               {row.state === "sown" && row.culture_name && (
                 <> · {row.culture_name}{row.variety ? ` (${row.variety})` : ""}</>
               )}
@@ -210,12 +206,12 @@ export function Farm({ look }: Omit<Props, "busy" | "act">) {
               it -- a bare track and symptoms as chips. Knowledge turns
               guesswork into a solved problem (D-057). */}
           <Gauge
-            label="плодородие"
+            label={t("ui-farm-fertility")}
             value={row.fertility}
             mark={row.state === "sown" && row.agrotech ? row.fertility_required : undefined}
             markTitle={
               row.fertility_required != null
-                ? `норма сорта: ${row.fertility_required.toFixed(0)}`
+                ? t("ui-farm-norm", { norm: row.fertility_required.toFixed(0) })
                 : undefined
             }
             warn={
@@ -226,13 +222,16 @@ export function Farm({ look }: Omit<Props, "busy" | "act">) {
             }
             reading={
               row.state === "sown" && row.agrotech && row.fertility_required != null
-                ? `${row.fertility.toFixed(0)} из ${row.fertility_required.toFixed(0)}`
+                ? t("ui-farm-reading", {
+                    value: row.fertility.toFixed(0),
+                    norm: row.fertility_required.toFixed(0),
+                  })
                 : row.fertility.toFixed(0)
             }
           />
 
           {row.state === "sown" && !row.ripe && row.ripe_at && (
-            <Doing what="созреет" until={row.ripe_at} since={row.sown_at} />
+            <Doing what={t("ui-farm-ripens")} until={row.ripe_at} since={row.sown_at} />
           )}
 
           {row.state === "sown" && <PlotChips row={row} />}
@@ -244,7 +243,7 @@ export function Farm({ look }: Omit<Props, "busy" | "act">) {
               disabled={busy || occupied !== null}
               title={occupied ?? ""}
             >
-              Вспахать
+              {t("ui-farm-plow")}
             </button>
           )}
           {row.state === "plowed" && (
@@ -253,11 +252,13 @@ export function Farm({ look }: Omit<Props, "busy" | "act">) {
                 value={batch || seeds[0]?.id || ""}
                 onChange={(e) => setBatch(e.target.value)}
               >
-                {seeds.length === 0 && <option value="">— семян нет —</option>}
-                {seeds.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.goods} · {tally(t.goods, t.amount)}
-                    {t.vigor != null ? ` · сила ${t.vigor.toFixed(0)}` : ""}
+                {seeds.length === 0 && <option value="">{t("ui-farm-no-seeds")}</option>}
+                {seeds.map((seed) => (
+                  <option key={seed.id} value={seed.id}>
+                    {goodsName(names, seed.goods)} · {tally(seed.goods, seed.amount)}
+                    {seed.vigor != null
+                      ? ` · ${t("ui-farm-vigor", { vigor: seed.vigor.toFixed(0) })}`
+                      : ""}
                   </option>
                 ))}
               </select>
@@ -273,7 +274,7 @@ export function Farm({ look }: Omit<Props, "busy" | "act">) {
                 disabled={busy || seeds.length === 0 || occupied !== null}
                 title={occupied ?? ""}
               >
-                Посеять
+                {t("ui-farm-sow")}
               </button>
             </>
           )}
@@ -284,9 +285,11 @@ export function Farm({ look }: Omit<Props, "busy" | "act">) {
               //: player -- the button is live, and an extra round the engine rejects itself.
 
               disabled={busy || (row.agrotech === true && !row.asks_care) || occupied !== null}
-              title={occupied ?? (row.agrotech && !row.asks_care ? "сегодня уже ухожено" : "")}
+              title={
+                occupied ?? (row.agrotech && !row.asks_care ? t("ui-farm-cared") : "")
+              }
             >
-              Обойти
+              {t("ui-farm-care")}
             </button>
           )}
           {row.state === "sown" && row.ripe && (
@@ -298,17 +301,17 @@ export function Farm({ look }: Omit<Props, "busy" | "act">) {
                   )
                 }
                 disabled={busy || occupied !== null}
-                title={occupied ?? "отобрать лучшие растения на семена: фонд держит силу"}
+                title={occupied ?? t("ui-farm-harvest-select-hint")}
               >
-                Убрать с отбором
+                {t("ui-farm-harvest-select")}
               </button>
               <button
                 className="quiet"
                 onClick={() => go(() => session.send("farm.harvest", { plot: row.id }))}
                 disabled={busy || occupied !== null}
-                title={occupied ?? "убрать не глядя: семенной фонд потеряет силу"}
+                title={occupied ?? t("ui-farm-harvest-hint")}
               >
-                Убрать
+                {t("ui-farm-harvest")}
               </button>
             </>
           )}
@@ -316,27 +319,12 @@ export function Farm({ look }: Omit<Props, "busy" | "act">) {
         </div>
       ))}
 
-      <p className="note">
-        Новую делянку размечают в окне «Земля»: межевание — дело земли, а не
-        земледелия.
-      </p>
+      <p className="note">{t("ui-farm-new-plot")}</p>
 
-      <p className="note">
-        Рост идёт офлайн, уход — раз в сутки и только ногами: пропущенные сутки
-        режут урожай, но не обнуляют его. Монокультура истощает землю,
-        чередование и пар лечат — межа помнит, что на ней росло.
-      </p>
-      <p className="note">
-        Сеют семенами: у партии свой сорт и своя сила, и урожай считается по
-        ним. Часть урожая остаётся своим семенем — с отбором фонд держится, без
-        отбора вырождается, а гибрид ещё и расщепляется.
-      </p>
+      <p className="note">{t("ui-farm-rule")}</p>
+      <p className="note">{t("ui-farm-seeds-rule")}</p>
       {rows.some((row) => row.state === "sown" && row.agrotech === false) && (
-        <p className="note">
-          Агротехники этого сорта вы не знаете: видно симптом, а не норма.
-          Базовые восемь лежат в Библиотеке бесплатно; агротехнику выведенного
-          сорта знает только его автор.
-        </p>
+        <p className="note">{t("ui-farm-no-agrotech")}</p>
       )}
     </section>
   );

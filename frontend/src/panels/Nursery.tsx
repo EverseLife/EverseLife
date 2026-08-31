@@ -19,7 +19,9 @@ import { tally } from "../amounts";
 import type { Look, Thing } from "../api";
 import { when } from "../clock";
 import { Rule } from "../Rule";
-import { Refusal, useActions, useEdition, useSession } from "../actions";
+import { Refusal, useActions, useEdition, useNames, useSession } from "../actions";
+import { t } from "../locale";
+import { goodsName } from "../names";
 
 type Props = {
   look: Look;
@@ -40,6 +42,7 @@ type Bed = { id: string; ready_at: string };
 
 export function Nursery({ look }: Omit<Props, "busy" | "act">) {
   const session = useSession();
+  const names = useNames();
   //: This panel's own waiting and its own refusal: one action here
   //: must not grey out the chat, the map and somebody else's orders.
   const acting = useActions();
@@ -75,22 +78,24 @@ export function Nursery({ look }: Omit<Props, "busy" | "act">) {
   return (
     <section>
       <Refusal of={acting} />
-      <h2>Селекционный питомник</h2>
+      <h2>{t("ui-nursery-title")}</h2>
 
       <div className="row">
         <select value={first} onChange={(e) => setFirst(e.target.value)}>
-          <option value="">— первый родитель —</option>
-          {seeds.map((t) => (
-            <option key={t.id} value={t.id}>
-              {t.goods} · {t.variety ?? "сорт"} · {tally(t.goods, t.amount)}
+          <option value="">{t("ui-nursery-first")}</option>
+          {seeds.map((seed) => (
+            <option key={seed.id} value={seed.id}>
+              {goodsName(names, seed.goods)} · {seed.variety ?? t("ui-nursery-variety")} ·{" "}
+              {tally(seed.goods, seed.amount)}
             </option>
           ))}
         </select>
         <select value={second} onChange={(e) => setSecond(e.target.value)}>
-          <option value="">— второй родитель —</option>
-          {seeds.map((t) => (
-            <option key={t.id} value={t.id}>
-              {t.goods} · {t.variety ?? "сорт"} · {tally(t.goods, t.amount)}
+          <option value="">{t("ui-nursery-second")}</option>
+          {seeds.map((seed) => (
+            <option key={seed.id} value={seed.id}>
+              {goodsName(names, seed.goods)} · {seed.variety ?? t("ui-nursery-variety")} ·{" "}
+              {tally(seed.goods, seed.amount)}
             </option>
           ))}
         </select>
@@ -103,20 +108,17 @@ export function Nursery({ look }: Omit<Props, "busy" | "act">) {
           }
           disabled={busy || !first || !second || first === second}
         >
-          Скрестить
+          {t("ui-nursery-cross")}
         </button>
       </div>
-      <p className="note">
-        Скрещивают сорта одной культуры. Одна попытка стоит семян, места и
-        полного цикла роста: селекция — занятие на недели, а не на вечер.
-      </p>
+      <p className="note">{t("ui-nursery-rule")}</p>
 
       {beds.length > 0 && (
         <>
-          <h3>В питомнике</h3>
+          <h3>{t("ui-nursery-beds")}</h3>
           {beds.map((bed) => (
             <div className="row" key={bed.id}>
-              <span>всходы {when(bed.ready_at)}</span>
+              <span>{t("ui-nursery-sprouts", { when: when(bed.ready_at) })}</span>
               <button
                 onClick={() =>
                   go(async () => {
@@ -124,15 +126,13 @@ export function Nursery({ look }: Omit<Props, "busy" | "act">) {
                       nursery: bed.id,
                     });
                     setNotice(
-                      answer.sprouted
-                        ? "взошло: новый гибрид у вас в руках"
-                        : "не взошло: вышедшее слишком похоже на уже растущее",
+                      t(answer.sprouted ? "ui-nursery-sprouted" : "ui-nursery-failed"),
                     );
                   })
                 }
                 disabled={busy}
               >
-                Забрать всходы
+                {t("ui-nursery-gather")}
               </button>
             </div>
           ))}
@@ -143,29 +143,32 @@ export function Nursery({ look }: Omit<Props, "busy" | "act">) {
       {cultivars.length > 0 && (
         <>
           <h3>
-            Свои сорта
-            <Rule>
-              Гибрид даёт отличный урожай один раз — его семена расщепляются. Поколения
-              отбора доводят его до постоянного сорта, и тогда автор даёт ему имя
-              навсегда.
-            </Rule>
+            {t("ui-nursery-own")}
+            <Rule>{t("ui-nursery-own-rule")}</Rule>
           </h3>
           <table>
             <tbody>
               {cultivars.map((cultivar) => (
                 <tr key={cultivar.id}>
-                  <td>{cultivar.name ?? `гибрид, поколение ${cultivar.generation}`}</td>
+                  <td>
+                    {cultivar.name ??
+                      t("ui-nursery-hybrid", { generation: String(cultivar.generation) })}
+                  </td>
                   <td className="note">
-                    {cultivar.stable ? "постоянный" : "расщепляется"} · урожай{" "}
-                    {cultivar.traits.yield_per_m2?.toFixed(2)} · цикл{" "}
-                    {cultivar.traits.cycle_days?.toFixed(1)} сут
+                    {t("ui-nursery-row", {
+                      stable: String(cultivar.stable),
+                      //: A trait the server did not send leaves a hole, as the
+                      //: interpolation did: not the word "undefined".
+                      yield: cultivar.traits.yield_per_m2?.toFixed(2) ?? "",
+                      cycle: cultivar.traits.cycle_days?.toFixed(1) ?? "",
+                    })}
                   </td>
                   <td>
                     {cultivar.stable && !cultivar.name && (
                       <span className="row">
                         <input
                           value={name}
-                          placeholder="имя сорта"
+                          placeholder={t("ui-nursery-name")}
                           onChange={(e) => setName(e.target.value)}
                         />
                         <button
@@ -180,7 +183,7 @@ export function Nursery({ look }: Omit<Props, "busy" | "act">) {
                           }
                           disabled={busy || !name.trim()}
                         >
-                          Назвать
+                          {t("ui-nursery-name-set")}
                         </button>
                       </span>
                     )}

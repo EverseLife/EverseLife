@@ -15,6 +15,9 @@
  */
 
 import type { Thing } from "./api";
+import { useNames } from "./actions";
+import { t } from "./locale";
+import { goodsName } from "./names";
 import { tierLabel, tiersOf } from "./tiers";
 
 /**
@@ -38,12 +41,14 @@ export function TierPick({
   /** Hide when fewer than two tiers lie in the hands. */
   quiet?: boolean;
 }) {
+  const names = useNames();
   const stocks = tiersOf(things, goods);
+  const word = goodsName(names, goods);
   if (quiet && stocks.length < 2) return null;
   if (stocks.length === 0) {
     return (
-      <select disabled title={`«${goods}» в руках нет`}>
-        <option>качество: в руках нет</option>
+      <select disabled title={t("ui-tier-none-title", { goods: word })}>
+        <option>{t("ui-tier-none")}</option>
       </select>
     );
   }
@@ -52,12 +57,12 @@ export function TierPick({
     <select
       value={current}
       onChange={(e) => onChange(e.target.value || null)}
-      title={`какое качество «${goods}» пустить в дело`}
+      title={t("ui-tier-title", { goods: word })}
     >
-      <option value="">качество: любое (худшее первым)</option>
+      <option value="">{t("ui-tier-any")}</option>
       {stocks.map((s) => (
         <option key={s.tier} value={s.tier}>
-          {tierLabel(s)}
+          {tierLabel(s, names)}
         </option>
       ))}
     </select>

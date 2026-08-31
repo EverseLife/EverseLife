@@ -249,13 +249,13 @@ async def cast(
         #: counted among those who voted, choosing none of them -- and only the
         #: interface's own good manners kept them out, which is no rule at all
         #: for anyone sending commands straight down the socket (D-224).
-        raise VoteError("это выборы: здесь голосуют за человека, а не «за» или «против»")
+        raise VoteError(key="vote-is-an-election")
     if vote.state is not VoteState.OPEN or vote.closes_at <= moment:
-        raise Closed("голосование закрыто: опоздавший голос итога не меняет")
+        raise Closed(key="vote-closed")
     if not await may_vote_in(session, city, identity.id, vote, now=moment):
         raise NoVoice(
-            "голоса нет: в этом голосовании решают "
-            + ("члены совета" if vote.voters == COUNCIL_VOTERS else "граждане")
+            key="vote-no-voice-in-poll",
+            voters="council" if vote.voters == COUNCIL_VOTERS else "citizens",
         )
 
     ballot = (
@@ -506,7 +506,7 @@ async def open_election(
 ) -> Vote:
     """Convene a ruler election. Candidates nominate themselves while the poll runs."""
     if not elects_ruler(city):
-        raise NotElective("устав города не отдал власть выборам: правитель определяется иначе")
+        raise NotElective(key="vote-ruler-not-elected")
     return await _open(
         session,
         constants,
@@ -529,10 +529,10 @@ async def open_recall(
     """Convene a ruler recall. If it passes, the office is vacated and an election follows."""
 
     if not recallable(city):
-        raise NotElective("устав города не допускает отзыва правителя")
+        raise NotElective(key="vote-no-recall")
     ruler = await town.ruler(session, city)
     if ruler is None:
-        raise VoteError("отзывать некого: правителя нет")
+        raise VoteError(key="vote-no-ruler-to-recall")
     return await _open(
         session,
         constants,
@@ -550,15 +550,15 @@ async def nominate(
     """Nominate yourself for ruler. Yourself, not on somebody's proposal."""
     moment = now or datetime.now(UTC)
     if vote.kind not in (VoteKind.ELECTION, VoteKind.COUNCIL):
-        raise NotCandidate("это не выборы: выдвигаться некуда")
+        raise NotCandidate(key="vote-not-an-election")
     if vote.state is not VoteState.OPEN:
-        raise NotCandidate("выдвигаются, пока идут выборы")
+        raise NotCandidate(key="vote-nominate-while-open")
     if vote.closes_at <= moment:
-        raise Closed("выборы закрыты")
+        raise Closed(key="vote-election-closed")
     if not await may_vote_in(session, city, who.id, vote, now=moment):
         raise NotCandidate(
-            "выдвигается тот, у кого есть голос в этих выборах: "
-            + ("члены совета" if vote.voters == COUNCIL_VOTERS else "граждане")
+            key="vote-nominee-needs-voice",
+            voters="council" if vote.voters == COUNCIL_VOTERS else "citizens",
         )
 
     candidates = list(vote.subject.get("candidates") or [])
@@ -590,16 +590,16 @@ async def choose(
     """Cast a vote for a candidate. One vote: changing one's mind before the deadline is allowed."""
     moment = now or datetime.now(UTC)
     if vote.kind not in (VoteKind.ELECTION, VoteKind.COUNCIL):
-        raise VoteError("это не выборы: здесь голосуют «за» или «против»")
+        raise VoteError(key="vote-is-a-poll")
     if vote.state is not VoteState.OPEN or vote.closes_at <= moment:
-        raise Closed("голосование закрыто: опоздавший голос итога не меняет")
+        raise Closed(key="vote-closed")
     if not await may_vote_in(session, city, identity.id, vote, now=moment):
         raise NoVoice(
-            "голоса нет: в этих выборах решают "
-            + ("члены совета" if vote.voters == COUNCIL_VOTERS else "граждане")
+            key="vote-no-voice-in-election",
+            voters="council" if vote.voters == COUNCIL_VOTERS else "citizens",
         )
     if str(candidate.id) not in (vote.subject.get("candidates") or []):
-        raise NotCandidate(f"{candidate.name} не выдвигался")
+        raise NotCandidate(key="vote-not-nominated", who=candidate.name)
 
     ballot = (
         await session.execute(
@@ -726,7 +726,7 @@ async def open_charter(
     constitution -- the vault asks about that separately.
     """
     if sealed(city):
-        raise Sealed("устав этого города не меняется: так решил он сам")
+        raise Sealed(key="city-charter-sealed")
     poll = await _open(
         session,
         constants,
@@ -851,14 +851,12 @@ async def may_propose(session: AsyncSession, city: City, identity_id: uuid.UUID)
 async def seat(session: AsyncSession, city: City, who: Identity, *, how: str) -> CouncilSeat:
     """Seat a person on the council. No more seats than the charter set."""
     if not has_council(city):
-        raise NoCouncil("устав этого города не заводит совета")
+        raise NoCouncil(key="vote-no-council")
     occupied_ = await council_of(session, city)
     if any(place.identity_id == who.id for place in occupied_):
         return next(m for m in occupied_ if m.identity_id == who.id)
     if len(occupied_) >= council_seats(city):
-        raise NoCouncil(
-            f"в совете {council_seats(city)} мест, и все заняты: сначала освободить место"
-        )
+        raise NoCouncil(key="vote-council-full", seats=council_seats(city))
 
     place = CouncilSeat(city_id=city.id, identity_id=who.id, how=how)
     session.add(place)
@@ -899,10 +897,10 @@ async def appoint_to_council(
     """Appoint to the council. Only where the charter gave the seats to the ruler."""
 
     if council_mode(city) != APPOINTED_COUNCIL:
-        raise NoCouncil("места этого совета не назначают: устав отдал их выборам")
+        raise NoCouncil(key="vote-council-not-appointed")
     await town.require(session, by.id, city, Power.OFFICES)
     if not await may_vote(session, city, who.id):
-        raise NoVoice("в совет садятся граждане, отвечающие цензу устава")
+        raise NoVoice(key="vote-council-needs-voice")
     return await seat(session, city, who, how=APPOINTED_COUNCIL)
 
 
@@ -916,7 +914,7 @@ async def open_council_election(
 ) -> Vote:
     """Convene a council election: as many win as there are seats."""
     if council_mode(city) != ELECTED_COUNCIL or council_seats(city) <= 0:
-        raise NoCouncil("устав этого города не выбирает совет")
+        raise NoCouncil(key="vote-council-not-elected")
     return await _open(
         session,
         constants,

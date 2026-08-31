@@ -9,8 +9,9 @@ Split out of `engine/craft.py` along its sections (review 2026-08-23, wave 3).
 from __future__ import annotations
 
 import random
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -40,8 +41,11 @@ class Invention:
     learned: tuple[str, ...]
     batch: CraftBatch | None
     burned: dict[str, float]
-    #: In the player's words: why there is no batch, when there is none.
-    note: str | None = None
+    #: Why there is no batch, when there is none -- as a message key and its
+    #: arguments, not as a sentence (D-251 wave III): the engine does not know
+    #: which language is being read, so the words are assembled at the edge.
+    note_key: str | None = None
+    note_args: dict[str, Any] = field(default_factory=dict)
 
     @property
     def success(self) -> bool:
@@ -82,14 +86,14 @@ async def invent(
     """
     moment = now or datetime.now(UTC)
     if body.state is not BodyState.ALIVE:
-        raise CraftError("мёртвое тело не работает")
+        raise CraftError(key="craft-dead-works")
     await travel.require_here(session, body)
     if units <= 0:
-        raise CraftError("партия из нуля единиц")
+        raise CraftError(key="craft-zero-batch")
     #: One body does one thing (D-211), and a queued batch is not a second.
     await occupation.require_free(session, body, besides=frozenset({occupation.CRAFT}))
     if units > constants[R.CRAFT_BATCH_MAX]:
-        raise TooBig(f"партия больше craft.batch_max: {units}")
+        raise TooBig(key="craft-batch-too-big", units=units)
 
     book = catalog.recipes
     laid: dict[str, float] = {}
@@ -98,11 +102,9 @@ async def invent(
             continue
         laid[book.resolve(name)] = laid.get(book.resolve(name), 0.0) + float(value)
     if not laid:
-        raise CraftError("состав пуст: положите хоть что-нибудь")
+        raise CraftError(key="craft-empty-composition")
     if len(laid) > constants[R.INVENT_MAX_INGREDIENTS]:
-        raise CraftError(
-            f"в один состав кладут не больше {constants[R.INVENT_MAX_INGREDIENTS]:.0f} видов вещей"
-        )
+        raise CraftError(key="craft-too-many-ingredients", max=constants[R.INVENT_MAX_INGREDIENTS])
     bench = None if station in (None, *BENCHLESS) else book.resolve(station)
 
     #: The machine must stand here: an attempt is work at it, even a failed one.
@@ -130,11 +132,11 @@ async def invent(
         if set(map(book.resolve, operation.consumes)) == set(laid) and any(
             book.resolve(need) == bench for need in operation.requires
         ):
-            raise Unmakeable(f"это «{operation.name}» — операция без рецепта, она и так в списке")
+            raise Unmakeable(key="craft-known-operation", operation=operation.id or operation.name)
 
     found = _match(catalog, bench, laid)
     if found is not None and await _knows(session, body, found):
-        raise CraftError(f"«{found}» вы уже знаете: выберите его из списка")
+        raise CraftError(key="craft-already-known", recipe=found)
 
     if found is None:
         #: The price of a try, not an execution: of each kind laid out a
@@ -177,18 +179,11 @@ async def invent(
             success=False,
             burned=burned,
         )
-        return Invention(
-            learned=(),
-            batch=None,
-            burned=burned,
-            note=(
-                "Состав не сложился: часть выложенного сгорела. Подсказок нет — думайте и пробуйте"
-            ),
-        )
+        return Invention(learned=(), batch=None, burned=burned, note_key="craft-invent-failed")
 
     identity = await session.get(Identity, body.identity_id)
     if identity is None:  # pragma: no cover
-        raise CraftError("тело без личности")
+        raise CraftError(key="craft-body-without-identity")
     await learn(session, identity, found, discovered=True)
     await events.record(
         session,
@@ -219,7 +214,16 @@ async def invent(
             now=moment,
         )
     except NotEnough as short:
-        return Invention(learned=(found,), batch=None, burned={}, note=str(short))
+        #: The refusal's own key travels on: "the recipe opened, the hands are
+        #: a little short" is the same sentence whether it stops a batch or
+        #: merely postpones the prototype.
+        return Invention(
+            learned=(found,),
+            batch=None,
+            burned={},
+            note_key=short.key,
+            note_args=dict(short.params),
+        )
     return Invention(learned=(found,), batch=batch, burned={})
 
 
@@ -241,5 +245,5 @@ def _match(catalog: Catalog, bench: str | None, laid: dict[str, float]) -> str |
             book.resolve(name): round(value, ROUND_RATIO) for name, value in recipe.amounts.items()
         }
         if norm == want:
-            return recipe.name
+            return recipe.type_key
     return None

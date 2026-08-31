@@ -14,6 +14,8 @@
  * where the exact hour matters, and then in the world's own clock.
  */
 
+import { t } from "./locale";
+
 /** Where the world's count starts and how long its day is (from `look.clock`). */
 export type Clock = { planet: string; epoch?: string; day_hours: number };
 
@@ -39,7 +41,26 @@ export function hands(clock: Clock, at: Date = new Date()): string {
 /** "сутки 12 · 07:40" -- the full local stamp. */
 export function stamp(clock: Clock, at: Date = new Date()): string {
   const { day } = worldTime(clock, at);
-  return `сутки ${day} · ${hands(clock, at)}`;
+  //: The day is a count, not a measure: through `NUMBER` it would grow a
+  //: thousands separator on the day the world turns 1200.
+  return t("ui-clock-stamp", { day: String(day), hands: hands(clock, at) });
+}
+
+/**
+ * How far away a moment is, with nothing said about which side of now it
+ * falls on: "3 мин", "вот-вот", where `when` would say "через 3 мин".
+ *
+ * For a caller whose own sentence already carries the direction -- «ещё на
+ * столько-то». That caller used to cut the word off `when`'s answer with
+ * `.replace("через ", "")`: a rule of one language living in a panel, and in
+ * every other language it left the sentence whole and nonsensical.
+ */
+export function span(iso: string | null | undefined, at: Date = new Date()): string {
+  if (!iso) return t("ui-clock-never");
+  const left = (new Date(iso).getTime() - at.getTime()) / 1000;
+  const size = Math.abs(left);
+  if (size < 45) return t(left >= 0 ? "ui-clock-soon" : "ui-clock-just-now");
+  return duration(size);
 }
 
 /**
@@ -50,12 +71,12 @@ export function stamp(clock: Clock, at: Date = new Date()): string {
  * is needed, through `stamp`.
  */
 export function when(iso: string | null | undefined, at: Date = new Date()): string {
-  if (!iso) return "—";
+  if (!iso) return t("ui-clock-never");
   const left = (new Date(iso).getTime() - at.getTime()) / 1000;
-  const size = Math.abs(left);
-  if (size < 45) return left >= 0 ? "вот-вот" : "только что";
-  const said = duration(size);
-  return left >= 0 ? `через ${said}` : `${said} назад`;
+  const said = span(iso, at);
+  //: "вот-вот" and "только что" already say which way they point.
+  if (Math.abs(left) < 45) return said;
+  return t(left >= 0 ? "ui-clock-ahead" : "ui-clock-ago", { span: said });
 }
 
 /** Duration in words: "3 мин", "2 ч 10 мин", "1.5 сут" by the world's day.
@@ -65,19 +86,23 @@ export function when(iso: string | null | undefined, at: Date = new Date()): str
  * that showed up wherever a term was nearly whole -- the build site, the road,
  * the statement. */
 export function duration(seconds: number, dayHours = 24): string {
+  //: Every count goes in as a string: a term is read, not summed, and
+  //: `NUMBER` would put a separator inside "1 200 ч".
   if (seconds < 60) {
     const said = Math.round(seconds);
-    if (said < 60) return `${said} с`;
+    if (said < 60) return t("ui-clock-seconds", { n: String(said) });
     seconds = said;
   }
   const minutes = Math.round(seconds / 60);
-  if (minutes < 60) return `${minutes} мин`;
+  if (minutes < 60) return t("ui-clock-minutes", { n: String(minutes) });
   const hours = minutes / 60;
   if (hours < dayHours) {
     const rest = minutes % 60;
-    return rest ? `${(minutes - rest) / 60} ч ${rest} мин` : `${minutes / 60} ч`;
+    return rest
+      ? t("ui-clock-hours-minutes", { n: String((minutes - rest) / 60), rest: String(rest) })
+      : t("ui-clock-hours", { n: String(minutes / 60) });
   }
-  return `${(hours / dayHours).toFixed(1)} сут`;
+  return t("ui-clock-days", { n: (hours / dayHours).toFixed(1) });
 }
 
 function two(value: number): string {

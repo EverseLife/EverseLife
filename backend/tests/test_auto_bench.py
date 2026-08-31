@@ -28,10 +28,10 @@ from src.models.ledger import AccountKind, PostingReason
 from src.models.world import Layer
 from src.units import MINUTES_PER_HOUR, money
 
-INGOT = "Слиток железа"
-NAILS = "Гвозди"
+INGOT = "iron_ingot"
+NAILS = "nails"
 #: Nails are forged: the test's manual mode lives at the forge (machine rebalance).
-BENCH = "Кузница"
+BENCH = "forge"
 
 
 async def _workshop_(session: AsyncSession, *, automaton: bool = True, quality: float = 60):
@@ -52,7 +52,7 @@ async def _workshop_(session: AsyncSession, *, automaton: bool = True, quality: 
     await world.grant_item(
         session,
         yard,
-        "Автоматическая станция" if automaton else BENCH,
+        "auto_station" if automaton else BENCH,
         quality=quality,
         origin="тест",
     )
@@ -129,16 +129,16 @@ async def test_craft_can_outdo_machine(
     proportions. An assembly has none at all, and there the modes have nothing to
     argue about (D-092).
     """
-    glass = "Стекло"
+    glass = "glass"
     workshop, identity, body = await _workshop_(session, automaton=True, quality=80)
     yard = await world.node_container(session, workshop)
-    await world.grant_item(session, yard, "Плавильная печь", quality=80, origin="тест")
+    await world.grant_item(session, yard, "smelting_furnace", quality=80, origin="тест")
     await world.learn(session, identity, glass)
     await _pool(session, constants, workshop)
     await _money(session, identity)
 
     pocket = await world.body_container(session, body)
-    for raw in ("Кварцевый песок", "Уголь"):
+    for raw in ("quartz_sand", "coal"):
         await world.grant_item(session, pocket, raw, amount=100, quality=60, origin="тест")
 
     by_hand = await craft.plan(session, constants, catalog, body, glass, 1)
@@ -215,7 +215,7 @@ async def test_automaton_does_not_work_outside_city(
         session, f"terra.lone.{stamp}", "Хутор", area_m2=100, layer=Layer.PLANET
     )
     yard = await world.node_container(session, farmstead)
-    await world.grant_item(session, yard, "Автоматическая станция", quality=60, origin="тест")
+    await world.grant_item(session, yard, "auto_station", quality=60, origin="тест")
     identity = await world.create_identity(session, f"Одиночка-{stamp}")
     body = await world.print_body(session, identity, farmstead)
     await world.learn(session, identity, NAILS)

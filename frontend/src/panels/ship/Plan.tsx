@@ -30,6 +30,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { InSight, MapNode } from "../../api";
+import { t } from "../../locale";
 import { lensFor } from "../map/hand";
 
 /** How much of the field the frame shows at rest, in cells. */
@@ -319,7 +320,7 @@ export function Plan({
         className="hull-plan"
         viewBox={`${frame.x} ${frame.y} ${frame.w} ${frame.h}`}
         role="img"
-        aria-label="план корабля"
+        aria-label={t("ui-ship-plan")}
         onPointerDown={grabField}
         onPointerMove={move}
         onPointerUp={release}
@@ -382,18 +383,16 @@ export function Plan({
         })}
       </svg>
       <p className="note">
-        Перетаскивайте отсеки по сетке: меняется только чертёж. Переходы остаются
-        те, что возникли при закладке, и каждый из них — одна секунда. Пустое
-        поле тянет чертёж, колесо приближает.
-        {askew && " Часть отсеков стоит не по клеткам: их поставили до сетки."}
+        {t("ui-ship-plan-rule")}
+        {askew && ` ${t("ui-ship-plan-askew")}`}
       </p>
       <div className="row">
         <button className="quiet" onClick={home}>
-          К основанию
+          {t("ui-ship-plan-home")}
         </button>
         {mine && askew && (
           <button className="quiet" onClick={straighten} disabled={busy}>
-            Выровнять по сетке
+            {t("ui-ship-plan-align")}
           </button>
         )}
       </div>

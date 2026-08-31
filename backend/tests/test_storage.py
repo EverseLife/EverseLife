@@ -25,8 +25,8 @@ from src.constants import Catalog, Constants
 from src.engine import station, storage, world
 from src.models.estate import Building
 
-CHEST = "Сундук"
-GOODS = "Труба"
+CHEST = "chest"
+GOODS = "pipe"
 
 
 async def _yard(session: AsyncSession):
@@ -62,8 +62,8 @@ def test_vault_makes_storage(catalog: Catalog) -> None:
     assert storage.is_storage(catalog, CHEST)
     assert storage.capacity(catalog, CHEST) > 0
     #: A bed is furniture without capacity: nothing is put into it.
-    assert not storage.is_storage(catalog, "Кровать")
-    assert not storage.is_storage(catalog, "Верстак")
+    assert not storage.is_storage(catalog, "bed")
+    assert not storage.is_storage(catalog, "workbench")
 
 
 async def test_stored_lies_and_is_taken(

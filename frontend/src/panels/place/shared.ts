@@ -63,16 +63,18 @@ export function disposes(look: Look): boolean {
   return Boolean(look.city?.powers.includes("laws"));
 }
 
-/** Human-readable titles of place signs.
+/** Titles of place signs, as message keys.
  *
- * The keys are the node properties themselves, and those come from the vault
- * in Russian -- they are game data, not identifiers. A key translated to
- * English silently stopped matching and the window showed the raw property.
+ * The keys of the map are the node property ids the wire speaks since D-251
+ * ("woods", "stones") and must stay exactly as the engine writes them; the
+ * values are our own message names, and the word itself lives in the locale
+ * (D-251, wave IV) -- so a window titled by a sign reads in whichever language
+ * the player is in.
  */
 export const PLACES: Record<string, string> = {
-  лес: "Лес",
-  камни: "Камни",
-  луг: "Луг",
+  woods: "ui-place-sign-woods",
+  stones: "ui-place-sign-stones",
+  meadow: "ui-place-sign-meadow",
 };
 
 /**
@@ -116,7 +118,7 @@ export function gatherSigns(look: Look, book: RecipeBook | null): string[] {
 export function placeable(look: Look, book: RecipeBook | null, kind: "station" | "furniture") {
   return look.inventory.filter((thing) =>
     (book?.recipes ?? []).some(
-      (r) => r.name === thing.goods && r.kind === kind,
+      (r) => (r.id ?? r.name) === thing.goods && r.kind === kind,
     ),
   );
 }

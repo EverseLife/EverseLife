@@ -22,7 +22,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.constants import Catalog, Constants
+from src.constants import Catalog, Constants, display_name
 from src.constants import registry as R
 from src.engine import explore, world
 from src.models.job import Job, JobKind, JobState
@@ -73,7 +73,7 @@ async def _townsman(session: AsyncSession, catalog):
         "Ядро",
         area_m2=100,
         parent=delegate,
-        properties={"кольцо": 0},
+        properties={"ring": 0},
     )
     #: The city's gate: the one node a road beyond the walls may be tied to (D-206).
     from src.engine import travel
@@ -84,7 +84,7 @@ async def _townsman(session: AsyncSession, catalog):
         "Выход из города",
         area_m2=80,
         parent=delegate,
-        properties={"кольцо": 3, travel.EXIT: True},
+        properties={"ring": 3, travel.EXIT: True},
     )
     city = await town.found(session, catalog, delegate, "Столица")
     core.owner_city_id = city.id
@@ -417,7 +417,7 @@ async def test_species_taken_from_vault(
     """There is no "which ores exist" list in the engine: it reads the "Mining" operation."""
     import random
 
-    yield_ = next(op for op in catalog.recipes.operations if op.name == explore.MINING_OPERATION)
+    yield_ = next(op for op in catalog.recipes.operations if op.id == explore.MINING_OPERATION)
     rolled = {
         await explore.species_of(session, constants, catalog, random.Random(grain))
         for grain in range(200)
@@ -426,7 +426,7 @@ async def test_species_taken_from_vault(
     assert rolled <= set(yield_.gives)
     #: Iron is mined faster than the rest, so it also turns up more often: the
     #: weight is the pace from `harvest.rates`, there is no second rarity table.
-    assert "Железная руда" in rolled
+    assert "iron_ore" in rolled
 
 
 async def test_vein_has_stock_and_richness(session: AsyncSession, constants: Constants) -> None:
@@ -592,7 +592,7 @@ async def test_plot_sought_in_city_and_is_civic(
     plots = [
         node
         for node in (await session.execute(select(Node))).scalars().all()
-        if node.properties.get("участок")
+        if node.properties.get("plot")
     ]
     assert plots, "двенадцать заходов в городе не дали ни одного участка"
     for plot in plots:
@@ -602,10 +602,10 @@ async def test_plot_sought_in_city_and_is_civic(
         #: The plot is land, and land has soil (D-126, D-246): the mark alone
         #: used to arrive, and a missing property reads as nought -- every
         #: plot inside every city was barren rock and grew nothing.
-        assert "плодородие" in plot.properties, "у городского участка нет почвы"
-        assert "вода" in plot.properties, "у городского участка не разыграна вода"
-        assert "дикий" not in plot.properties, "земля в кольцах не дикая"
-    assert any(float(plot.properties["плодородие"]) > 0 for plot in plots), (
+        assert "fertility" in plot.properties, "у городского участка нет почвы"
+        assert "water" in plot.properties, "у городского участка не разыграна вода"
+        assert "wild" not in plot.properties, "земля в кольцах не дикая"
+    assert any(float(plot.properties["fertility"]) > 0 for plot in plots), (
         "двенадцать участков подряд без плодородия — это не разыгранное свойство"
     )
 
@@ -635,7 +635,7 @@ async def test_find_beyond_the_walls_hangs_on_the_gate(
     finds = [
         node
         for node in (await session.execute(select(Node))).scalars().all()
-        if node.properties.get("дикий")
+        if node.properties.get("wild")
     ]
     assert finds, "двенадцать заходов не дали ни одной находки"
     edges = (await session.execute(select(Edge))).scalars().all()
@@ -670,19 +670,59 @@ async def test_named_species_is_exactly_what_is_found(
     for _ in range(20):
         body.stamina = Decimal(str(constants[R.BODY_STAMINA_MAX]))
         await session.flush()
-        await explore.survey(session, constants, body, goal=explore.VEIN, resource="Медная руда")
+        await explore.survey(session, constants, body, goal=explore.VEIN, resource="copper_ore")
         await _return(session, body)
 
     veins = (await session.execute(select(Vein))).scalars().all()
     assert veins, "двадцать заходов за медью не дали ни одной жилы"
-    assert {vein.resource for vein in veins} == {"Медная руда"}
+    assert {vein.resource for vein in veins} == {"copper_ore"}
+
+
+async def test_a_found_vein_is_named_by_the_word_not_the_id(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """A node name is world text a player reads, so the id resolves to its word (D-251).
+
+    Wave II made `gives` a list of stable ids, and the name went on being built
+    out of whatever `species_of` returned: every vein found was written down as
+    «Жила: iron_ore» -- and a node name is **persisted**, so each one stayed
+    that way for good.
+    """
+    _, _, body = await _scout(session)
+    for _ in range(20):
+        body.stamina = Decimal(str(constants[R.BODY_STAMINA_MAX]))
+        await session.flush()
+        await explore.survey(session, constants, body, goal=explore.VEIN, resource="iron_ore")
+        await _return(session, body)
+
+    found = (
+        (
+            await session.execute(
+                select(Node.name)
+                .join(Vein, Vein.node_id == Node.id)
+                .where(Vein.resource == "iron_ore")
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert found, "двадцать заходов за железом не дали ни одной жилы"
+    #: The word itself is the vault's («Железная руда»), so it is asked for
+    #: rather than spelled out here: a rename in the vault is not a broken test.
+    word = display_name("iron_ore").lower()
+    assert word != "iron_ore", "таблица имён не загружена -- проверка ничего не проверяет"
+    for name in found:
+        assert name == f"Жила: {word}"
+        #: Not just this one id: no latin letter belongs in a Russian node name,
+        #: and any key leaking through would carry one.
+        assert not any("a" <= letter.lower() <= "z" for letter in name), name
 
 
 async def test_rare_found_worse_than_common(constants: Constants, catalog: Catalog) -> None:
     """Otherwise everyone would seek only the most expensive, and exploration would become a
     faucet."""
-    iron_ = explore.aim_at(constants, catalog, explore.VEIN, "Железная руда")
-    tin = explore.aim_at(constants, catalog, explore.VEIN, "Оловянная руда")
+    iron_ = explore.aim_at(constants, catalog, explore.VEIN, "iron_ore")
+    tin = explore.aim_at(constants, catalog, explore.VEIN, "tin_ore")
     blindly = explore.aim_at(constants, catalog, explore.VEIN, None)
     assert blindly == 1.0
     assert iron_ > tin, "редкая порода обязана искаться хуже частой"

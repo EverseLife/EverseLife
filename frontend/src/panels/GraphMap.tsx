@@ -53,6 +53,7 @@ import * as api from "../api";
 import { type Look, type MapNode, type WorldMap } from "../api";
 import { useActions, useSession } from "../actions";
 import { createCamera, viewBoxOf, type Camera } from "./map/camera";
+import { t } from "../locale";
 import { cityWord } from "../planets";
 import { Inspector } from "./map/Inspector";
 import { NodeMenu } from "./map/NodeMenu";
@@ -218,9 +219,13 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
     (option) =>
       (option.id !== "location" || hasSubnodes) &&
       (option.id !== "city" || cities.size > 0),
-  ).map((option) =>
-    option.id === "city" ? { ...option, label: cityWord(sphereShown).name } : option,
-  );
+  ).map((option) => ({
+    id: option.id,
+    mark: option.mark,
+    //: The switcher is handed words, not keys: the city's is not in the locale
+    //: at all -- it follows the planet whose surface is shown (D-230).
+    label: option.id === "city" ? cityWord(sphereShown).name : t(option.word),
+  }));
   const desired: LayerId =
     layer ?? ((byKey[here]?.layer as LayerId | undefined) ?? "planet");
   const currentLayer: LayerId = layers.some((s) => s.id === desired)
@@ -529,7 +534,7 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
   if (!map) {
     return (
       <section className="map-pane">
-        <p className="note">карта грузится…</p>
+        <p className="note">{t("ui-map-loading")}</p>
       </section>
     );
   }
@@ -621,13 +626,13 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
       />
 
       {visible.length === 0 ? (
-        <p className="note">На этом слое пока ничего нет.</p>
+        <p className="note">{t("ui-map-layer-empty")}</p>
       ) : (
         <svg
           ref={svgRef}
           viewBox={vb}
           role="img"
-          aria-label="карта мира"
+          aria-label={t("ui-map-world")}
           className={tethered ? "tethered" : undefined}
           onPointerDown={grabField}
           onPointerMove={movePointer}

@@ -65,7 +65,7 @@ from src.runtime import (
 #: The node property the place lives in. A data key of the world, like
 #: "орбита" and "даль" beside it -- and a `properties` key rather than a
 #: column, because a place is a fact about one node and needs no index.
-PLACE = "карта"
+PLACE = "map"
 PLACE_X = "x"
 PLACE_Y = "y"
 
@@ -275,10 +275,7 @@ async def move(session: AsyncSession, node: Node, spot: tuple[float, float]) -> 
     from src.engine.ship import is_aboard  # noqa: PLC0415 -- lazy: breaks the cycle with ship
 
     if not is_aboard(node):
-        raise PlaceIsFixed(
-            f"«{node.name}» стоит на карте мира: место узла задаётся один раз "
-            "и не двигается. Переставлять можно только отсеки корабля"
-        )
+        raise PlaceIsFixed(key="place-is-fixed", node=node.name)
     await _hold(session, node)
     node.properties = {**(node.properties or {}), PLACE: {PLACE_X: spot[0], PLACE_Y: spot[1]}}
     await session.flush()

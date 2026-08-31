@@ -16,7 +16,9 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Look } from "../api";
 import { duration } from "../clock";
-import { Refusal, useActions, useSession } from "../actions";
+import { Refusal, useActions, useNames, useSession } from "../actions";
+import { t } from "../locale";
+import { goodsName } from "../names";
 
 type Props = {
   look: Look;
@@ -39,6 +41,7 @@ const SECONDS_PER_HOUR = 3600;
 
 export function Plant({ look }: Omit<Props, "busy" | "act">) {
   const session = useSession();
+  const names = useNames();
   //: This panel's own waiting and its own refusal: one action here
   //: must not grey out the chat, the map and somebody else's orders.
   const acting = useActions();
@@ -62,6 +65,9 @@ export function Plant({ look }: Omit<Props, "busy" | "act">) {
 
   if (!plant) return null;
 
+  //: The wire names the station and its fuel by id (D-251); the words below
+  //: come from the renames bundle.
+  const fuelWord = goodsName(names, plant.fuel);
   const inHands = look.inventory.filter((thing) => thing.goods === plant.fuel);
   const atHand = inHands.reduce((sum, thing) => sum + thing.amount, 0);
   const go = (what: () => Promise<unknown>) =>
@@ -73,9 +79,9 @@ export function Plant({ look }: Omit<Props, "busy" | "act">) {
   return (
     <section>
       <Refusal of={acting} />
-      <h2>{plant.station}</h2>
+      <h2>{goodsName(names, plant.station)}</h2>
       <p>
-        топлива <b>{plant.stock.toFixed(1)}</b> · хватит на{" "}
+        {t("ui-plant-fuel")} <b>{plant.stock.toFixed(1)}</b> · {t("ui-plant-lasts")}{" "}
         <b>
           {plant.hours_left == null
             ? "—"
@@ -83,9 +89,12 @@ export function Plant({ look }: Omit<Props, "busy" | "act">) {
         </b>
       </p>
       <p className="note">
-        жжёт {plant.draw.toFixed(1)} {plant.fuel.toLowerCase()} в час и даёт{" "}
-        {plant.output.toFixed(0)} энергии
-        {plant.count > 1 ? ` · станций ${plant.count}` : ""}
+        {t("ui-plant-burn", {
+          draw: plant.draw.toFixed(1),
+          fuel: fuelWord.toLowerCase(),
+          output: plant.output.toFixed(0),
+        })}
+        {plant.count > 1 ? ` · ${t("ui-plant-count", { count: String(plant.count) })}` : ""}
       </p>
 
       {inHands.length > 0 ? (
@@ -96,7 +105,7 @@ export function Plant({ look }: Omit<Props, "busy" | "act">) {
             max={atHand}
             value={qty ?? atHand}
             onChange={(e) => setQty(Number(e.target.value))}
-            title={`в руках ${atHand.toFixed(1)}`}
+            title={t("ui-plant-at-hand", { amount: atHand.toFixed(1) })}
           />
           <button
             onClick={() =>
@@ -110,17 +119,12 @@ export function Plant({ look }: Omit<Props, "busy" | "act">) {
             }
             disabled={busy || (qty ?? atHand) <= 0}
           >
-            Засыпать {plant.fuel.toLowerCase()}
+            {t("ui-plant-pour", { fuel: fuelWord.toLowerCase() })}
           </button>
-          <span className="note">
-            Засыпанное — городу: обратно топливо не берут.
-          </span>
+          <span className="note">{t("ui-plant-given")}</span>
         </div>
       ) : (
-        <p className="note">
-          {plant.fuel} в руках нет. Станция стоит на подвозе: без топлива город
-          сидит без энергии.
-        </p>
+        <p className="note">{t("ui-plant-none", { fuel: fuelWord })}</p>
       )}
     </section>
   );

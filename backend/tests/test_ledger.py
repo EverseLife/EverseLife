@@ -17,7 +17,7 @@ import pytest
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.engine import ledger
+from src.engine import finance, ledger
 from src.models.ledger import AccountKind, Currency, LedgerEntry, PostingReason
 from src.units import money
 
@@ -178,30 +178,55 @@ async def test_account_reused_not_multiplied(session: AsyncSession) -> None:
     assert first.id == second.id
 
 
-def test_every_ground_has_a_word_in_the_client() -> None:
+def test_the_client_keeps_no_dictionary_of_grounds_of_its_own() -> None:
     """A ground is an enum here and a sentence on two screens over there.
 
     The statement and the city treasury both print grounds to a person, and
-    both read them out of one dictionary in `frontend/src/grounds.ts`. Nothing
-    but this test holds the two ends together, and the drift has already
-    happened once: `upkeep` gave way to `tax_land` (D-219, D-127), the word
-    stayed behind under the old key, and the treasury panel printed
-    `court_fee 20.00, duty 79.02` in the middle of a page in Russian.
+    the client used to read them out of a dictionary of its own in
+    `frontend/src/grounds.ts`. Two copies of one list drift, and this one had:
+    `upkeep` gave way to `tax_land` (D-219, D-127), the word stayed behind
+    under the old key, and every landholder read `tax_land` once a day in the
+    middle of a page in Russian.
 
-    Adding a `PostingReason` therefore fails here until the word exists.
+    Since D-251 there is one copy. The words are the engine's, they live in
+    `locales/*/money`, and `test_i18n` checks the list against `PostingReason`
+    -- a ground added without a word fails there. What is left to guard is that
+    the second copy does not come back: a `GROUND`-shaped map in the client
+    would pass every test in this repository while showing the player
+    yesterday's words.
     """
     words = Path(__file__).resolve().parents[2] / "frontend" / "src" / "grounds.ts"
     if not words.exists():  # pragma: no cover -- backend checked out on its own
-        pytest.skip("клиент не выложен рядом: словарь оснований проверять не по чему")
+        pytest.skip("клиент не выложен рядом: проверять нечего")
 
-    #: The one dictionary, cut out by name before the keys are read: a pattern
-    #: loose enough to match any two-space key would let a second object in the
-    #: file cover a ground it knows nothing about -- and a contract test that
-    #: passes wrongly is worse than none.
     text = words.read_text(encoding="utf-8")
-    body = re.search(r"const GROUND\b[^{]*\{(.*?)^\};", text, re.DOTALL | re.MULTILINE)
-    assert body is not None, "в grounds.ts нет словаря GROUND: тест смотрит не туда"
+    #: Any of the grounds, spelled as a key of an object literal. One is
+    #: enough: a dictionary of grounds cannot exist without naming them.
+    grounds = "|".join(reason.value for reason in PostingReason)
+    kept = re.search(rf"^\s+({grounds})\s*:", text, re.MULTILINE)
+    assert kept is None, (
+        f"клиент снова держит свой словарь оснований ({kept.group(1) if kept else ''}): "
+        "слова основания живут в locales/*/money, иначе два списка разъедутся"
+    )
 
-    known = set(re.findall(r"^\s{2}(\w+):", body.group(1), re.MULTILINE))
-    missing = {reason.value for reason in PostingReason} - known
-    assert not missing, f"нет слова для оснований: {', '.join(sorted(missing))}"
+
+def test_a_statement_reads_the_ground_however_it_was_keyed() -> None:
+    """A posting written before D-251 keys its ground in Russian.
+
+    It cannot be migrated and must not be: the ledger is append-only, and the
+    trigger in `db.ddl` refuses UPDATE on it outright. So the compatibility is
+    the reader's -- new postings are keyed in ASCII, old ones are not, and the
+    client is handed one field either way. Without this the ground of every
+    transfer made before the rename would simply stop being shown, silently,
+    which is exactly the kind of loss nobody reports.
+    """
+    old = finance._memo({"кому": "Тэрн", "от": "Хём", "основание": "за руду"})
+    assert old["ground"] == "за руду"
+    assert "основание" not in old, "две записи одного поля: клиент прочтёт одну и не ту"
+
+    new = finance._memo({"to": "Тэрн", "from": "Хём", "ground": "за руду"})
+    assert new["ground"] == "за руду"
+
+    #: A memo of the audit kind has no ground at all, and gains none.
+    assert "ground" not in finance._memo({"госзаказ": "42"})
+    assert finance._memo(None) == {}

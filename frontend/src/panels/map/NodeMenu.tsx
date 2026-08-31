@@ -3,6 +3,7 @@
 
 import { spell, type Look, type MapNode } from "../../api";
 import { Refusal, useActions, useSession } from "../../actions";
+import { t } from "../../locale";
 
 /** The right-click menu on a node: go there, or open it up.
  *
@@ -69,17 +70,18 @@ export function NodeMenu({
           }
           disabled={busy}
         >
-          Идти{step ? ` · ${spell(step.seconds)}` : ""}
+          {t("ui-map-go")}
+          {step ? ` · ${spell(step.seconds)}` : ""}
         </button>
       )}
       {/* Another planet is not opened either (D-240): one flies there. */}
       {group && !node.aboard && !offworld && (
         <button role="menuitem" className="quiet" onClick={onExpand} disabled={busy}>
-          Раскрыть
+          {t("ui-map-expand")}
         </button>
       )}
-      {here && <p className="note">Вы здесь.</p>}
-      {look.travel && <p className="note">Пока идёшь, никуда не выйти.</p>}
+      {here && <p className="note">{t("ui-map-menu-here")}</p>}
+      {look.travel && <p className="note">{t("ui-map-menu-walking")}</p>}
       <Refusal of={acting} />
     </div>
   );

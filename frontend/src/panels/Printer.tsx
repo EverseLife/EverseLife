@@ -17,6 +17,7 @@
 import * as api from "../api";
 import type { Look, Printer as Door } from "../api";
 import { Rule } from "../Rule";
+import { t } from "../locale";
 import { Refusal, useActions, useSession } from "../actions";
 
 type Props = {
@@ -36,8 +37,8 @@ type Props = {
  * a surplus of fifty against a cost of ten read as "10 из 50", a shortage.
  */
 function short(what: string, here: number, needed: number): string {
-  if (here >= needed) return `${needed.toFixed(0)} ${what}`;
-  return `${what} ${here.toFixed(0)} из ${needed.toFixed(0)}`;
+  if (here >= needed) return t("ui-printer-enough", { what, needed: needed.toFixed(0) });
+  return t("ui-printer-short", { what, here: here.toFixed(0), needed: needed.toFixed(0) });
 }
 
 export function Printer({ look }: Omit<Props, "busy" | "act">) {
@@ -54,25 +55,15 @@ export function Printer({ look }: Omit<Props, "busy" | "act">) {
     <section>
       <Refusal of={acting} />
       <h2>
-        Тела нет
-        <Rule>
-          Город продаёт не жизнь, а скорость: заплатил — вернулся через минуты, не
-          заплатил — через двенадцать часов у Принтера Предтеч. Поэтому у цены
-          воскрешения есть потолок, и никто не может запереть личность у себя.
-        </Rule>
+        {t("ui-printer-title")}
+        <Rule>{t("ui-printer-rule")}</Rule>
       </h2>
-      <p className="note">
-        Личность цела: имя, знания, счёт и обязательства пережили тело. Погибло
-        то, что тело несло, — и треть этого осталась лежать на месте гибели.
-      </p>
+      <p className="note">{t("ui-printer-note")}</p>
 
       {ongoing ? (
-        <p className="sign">печать идёт · тело будет {left(ongoing.ready_at)}</p>
+        <p className="sign">{t("ui-printer-printing", { when: left(ongoing.ready_at) })}</p>
       ) : doors.length === 0 ? (
-        <p className="trouble">
-          В мире нет ни одного биопринтера. Это ситуация, которой быть не
-          должно: вход в игру не блокируется никогда.
-        </p>
+        <p className="trouble">{t("ui-printer-none")}</p>
       ) : (
         <table>
           <tbody>
@@ -81,21 +72,21 @@ export function Printer({ look }: Omit<Props, "busy" | "act">) {
                 <td>
                   {door.name}
                   {door.city && <span className="note"> · {door.city}</span>}
-                  {door.precursor && <span className="note"> · Предтечи</span>}
+                  {door.precursor && <span className="note"> · {t("ui-printer-precursor")}</span>}
                 </td>
                 <td className="num">{term(door.minutes)}</td>
                 <td className="num">
                   {door.precursor
-                    ? "бесплатно"
+                    ? t("ui-printer-free")
                     : door.at_city_expense
-                      ? "за счёт города"
+                      ? t("ui-printer-at-city-expense")
                       : `${api.tk(door.cost)} ₭`}
                 </td>
                 <td className="note">
                   {door.precursor
-                    ? "энергии и железа не требует"
-                    : `${short("энергии", door.energy_here, door.energy)} · ${short(
-                        "железа",
+                    ? t("ui-printer-no-cost")
+                    : `${short(t("ui-printer-energy"), door.energy_here, door.energy)} · ${short(
+                        t("ui-printer-iron"),
                         door.iron_here,
                         door.iron,
                       )}`}
@@ -107,7 +98,7 @@ export function Printer({ look }: Omit<Props, "busy" | "act">) {
                     }
                     disabled={busy}
                   >
-                    Печатать
+                    {t("ui-printer-print")}
                   </button>
                 </td>
               </tr>
@@ -120,13 +111,16 @@ export function Printer({ look }: Omit<Props, "busy" | "act">) {
 }
 
 function term(minutes: number): string {
-  if (minutes < 60) return `${Math.round(minutes)} мин`;
-  return `${(minutes / 60).toFixed(0)} ч`;
+  //: The digits are chosen here and travel as text: a number handed to Fluent
+  //: is grouped by the locale's own rules, and the panel would then spell the
+  //: same figure two ways depending on which message drew it.
+  if (minutes < 60) return t("ui-printer-term-minutes", { minutes: String(Math.round(minutes)) });
+  return t("ui-printer-term-hours", { hours: (minutes / 60).toFixed(0) });
 }
 
 function left(when: string): string {
   const minutes = (new Date(when).getTime() - Date.now()) / 60_000;
-  if (minutes <= 0) return "вот-вот";
-  if (minutes < 60) return `через ${Math.round(minutes)} мин`;
-  return `через ${(minutes / 60).toFixed(1)} ч`;
+  if (minutes <= 0) return t("ui-printer-soon");
+  if (minutes < 60) return t("ui-printer-in-minutes", { minutes: String(Math.round(minutes)) });
+  return t("ui-printer-in-hours", { hours: (minutes / 60).toFixed(1) });
 }

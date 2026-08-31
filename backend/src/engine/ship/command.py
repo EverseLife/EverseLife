@@ -53,6 +53,9 @@ async def _will_take(session: AsyncSession, constants: Constants, port: Node, *,
     * a **lit beacon** (D-231, D-232): the yard does not couple in a frozen node
       and does not shine without power.
 
+    `why` names which order is asking (`dock`, `land`, `turn-back`) -- a message
+    variant rather than a sentence: the words are the locale's (D-251).
+
     Asked **when the order is given**, never on arrival: a passage takes hours,
     and a port that went dark under a flying ship must not leave a crew in the
     void with no port at all. The gamble belongs to whoever gave the order, and
@@ -73,15 +76,11 @@ async def _will_take(session: AsyncSession, constants: Constants, port: Node, *,
     if not await world.has_station(session, port, SPACEPORT) and not await lands_anywhere(
         session, port
     ):
-        raise NoPort(f"в «{port.name}» нет космодрома: {why}")
+        raise NoPort(key="ship-no-spaceport", port=port.name, why=why)
     if is_aboard(port):  # pragma: no cover -- a port is never a ship node
-        raise NoPort("к борту не причаливают: цель рейса — космодром")
+        raise NoPort(key="ship-no-mooring-to-hull")
     if not await beacon_lit(session, constants, port):
-        raise NoPort(
-            f"маяк «{port.name}» не светит: узел промёрз или верфь без энергии. "
-            "Космодром работает, пока в его узле тепло и есть чем питать верфь — "
-            "принести туда генерацию можно только пешком"
-        )
+        raise NoPort(key="ship-beacon-dark", port=port.name)
 
 
 async def _landable(session: AsyncSession, constants: Constants, planet: Planet) -> bool:
@@ -139,31 +138,25 @@ async def _commanded_by(session: AsyncSession, body: Body, ship: Ship) -> None:
     room aboard is theirs, and they list who may enter it.
     """
     if body.state is not BodyState.ALIVE:
-        raise ShipError("мёртвое тело кораблём не управляет")
+        raise ShipError(key="ship-command-dead")
     await travel.require_here(session, body)
     if ship.owner_identity_id != body.identity_id:
-        raise NotYours("это чужой корабль")
+        raise NotYours(key="ship-not-yours")
 
     here = await session.get(Node, body.node_id)
     if here is None:  # pragma: no cover -- a body always stands in a node
-        raise ShipError("тело вне узла")
+        raise ShipError(key="ship-body-off-node")
 
     aboard = await aboard_of(session, body)
     if aboard is not None and aboard.id == ship.id:
         if not await world.has_station(session, here, BRIDGE):
-            raise NoConsole(
-                "кораблём управляют от консоли: встаньте в отсек, где стоит "
-                "«Консоль управления кораблём»"
-            )
+            raise NoConsole(key="ship-no-console-here")
         return
 
     #: Not aboard this hull. Then it is the ground console or nothing -- and the
     #: hull must have something to hear it with.
     if not await world.has_station(session, here, GROUND_BRIDGE):
-        raise NotAboard(
-            "кораблём управляют с борта или от «Наземной консоли управления»: "
-            "поднимитесь на него либо встаньте к наземной консоли"
-        )
+        raise NotAboard(key="ship-command-from-aboard")
     #: A console one may work at, by the same rule that decides who may put a
     #: machine down at all (`station.may_build`): the owner of the plot, and on
     #: civic land the authority. Not a security measure -- a stranger's ship is
@@ -178,11 +171,6 @@ async def _commanded_by(session: AsyncSession, body: Body, ship: Ship) -> None:
     from src.engine import station  # noqa: PLC0415 -- lazy: breaks the cycle with estate
 
     if not await station.may_build(session, body, here):
-        raise NotYours(
-            "консоль чужая: приказы отдают со своей. Поставьте «Наземную консоль "
-            "управления» в своём здании"
-        )
+        raise NotYours(key="ship-console-not-yours")
     if not await _has_bridge(session, ship):
-        raise Deaf(
-            f"невозможно управлять «{ship.name}»: на борту нет «Консоли управления кораблём»"
-        )
+        raise Deaf(key="ship-deaf", ship=ship.name)

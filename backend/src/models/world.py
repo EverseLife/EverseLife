@@ -72,7 +72,7 @@ class Layer(StrEnum):
 #: it stands in, the right to place a machine in it -- and every one of those
 #: modules is one `estate` imports. A question answerable from a row one already
 #: holds must not need a package to answer it.
-STOREY = "этаж"
+STOREY = "storey"
 
 #: Which floor the ground is. Not a balance number: it is what "the ground floor
 #: is the plot itself" means, written down once so that the arithmetic of

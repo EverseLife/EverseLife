@@ -51,12 +51,16 @@ async def spend(
     await require_at_hall(session, body, city)
     await require(session, by.id, city, Power.TREASURY)
     if amount <= 0:
-        raise CityError("трата на ноль — это не трата")
+        raise CityError(key="city-treasury-zero")
 
     treasury_account = await treasury(session, city)
     remainder = await ledger.balance(session, treasury_account.id)
     if remainder < amount:
-        raise NotEnoughTreasury(f"в казне {money_str(remainder)} ₭, а нужно {money_str(amount)} ₭")
+        raise NotEnoughTreasury(
+            key="city-treasury-short",
+            have=money_str(remainder),
+            need=money_str(amount),
+        )
 
     to_whom = await ledger.account_for(session, AccountKind.IDENTITY, to.id)
     await ledger.transfer(
@@ -65,7 +69,7 @@ async def spend(
         debit=treasury_account.id,
         credit=to_whom.id,
         amount=amount,
-        memo={"город": city.name, "кому": to.name, "основание": memo},
+        memo={"city": city.name, "to": to.name, "ground": memo},
     )
     await events.record(
         session,

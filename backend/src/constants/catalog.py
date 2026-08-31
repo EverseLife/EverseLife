@@ -17,6 +17,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
+from src.constants.renames import RenameTable
 from src.constants.spec import ConstantError
 
 
@@ -65,6 +66,11 @@ class Material(Strict):
     #: vault, like everything else.
     relic: bool = False
 
+    @property
+    def type_key(self) -> str:
+        """The D-251 identity, as on Recipe.type_key."""
+        return self.id or self.name
+
 
 class Recipe(Strict):
     name: str
@@ -98,6 +104,14 @@ class Recipe(Strict):
     #: name at once -- raw material and operation products included -- and
     #: `labor_of()` is the one way to ask. A copy on the recipe was read by nobody.
     station: str | None = None
+
+    @property
+    def type_key(self) -> str:
+        """The D-251 identity of the thing -- what `item.type_key`, the wire
+        and the journal store. `name` stays the Russian display word; identity
+        positions ask for this. Not `key`: that field is the ladder-milestone
+        flag. The fallback keeps hand-built books in unit tests usable."""
+        return self.id or self.name
 
     @property
     def is_assembly(self) -> bool:
@@ -216,8 +230,8 @@ class RecipeBook(Strict):
         return self.resolve(name) in set(self.classes.get(thing_class, ()))
 
     def fuels(self) -> dict[str, float]:
-        """Energy per unit for every burnable material (D-215)."""
-        return {m.name: m.fuel for m in self.materials if m.fuel}
+        """Energy per unit for every burnable material (D-215), keyed by id."""
+        return {(m.id or m.name): m.fuel for m in self.materials if m.fuel}
 
     def is_relic(self, name: str) -> bool:
         """Whether this thing is a relic of the Forerunners (D-232).
@@ -284,10 +298,14 @@ class RecipeBook(Strict):
     _relics: set[str] = PrivateAttr(default_factory=set)
 
     def model_post_init(self, _: Any) -> None:
-        self._by_name.update({recipe.name: recipe for recipe in self.recipes})
+        #: Keyed by the D-251 id: after load-time normalization every internal
+        #: key is an id. `or name` keeps hand-built books in unit tests usable.
+        self._by_name.update({(recipe.id or recipe.name): recipe for recipe in self.recipes})
         self._measured.update(self.bulk)
         self._liquids.update(self.liquid)
-        self._relics.update(material.name for material in self.materials if material.relic)
+        self._relics.update(
+            (material.id or material.name) for material in self.materials if material.relic
+        )
         for thing_class, members in self.classes.items():
             for member in members:
                 self._class_by_name[member] = thing_class
@@ -314,6 +332,9 @@ class Plant(Strict):
     #: What is sown with. Seeds are an item separate from the product: they are
     #: bought, stolen and lost with death, while agrotech is not (D-057).
     seed: str
+    #: Stable key of the seed item (D-251), derived by the vault build from the
+    #: plant id (`spelt` -> `spelt_seeds`). Optional until the vault emits it.
+    seed_id: str | None = None
     byproduct: str | None = None
     cycle_days: float
     yield_per_m2: float
@@ -444,9 +465,133 @@ def _read(build_dir: Path, name: str) -> Any:
         return json.load(fh)
 
 
-def load_catalog(build_dir: Path) -> Catalog:
+def _domain_id(table: dict[str, str], kind: str):
+    """A translator for one rename domain: Russian name -> id, id passes.
+
+    Anything else is a ConstantError: a name that resolves to nothing is a
+    vault/engine mismatch, and letting it through would push the mismatch
+    into the database as a phantom key.
+    """
+    ids = set(table.values())
+
+    def translate(name: str | None) -> str | None:
+        if name is None:
+            return None
+        found = table.get(name)
+        if found:
+            return found
+        if name in ids:
+            return name
+        raise ConstantError(f"нет устойчивого ключа ({kind}) для имени {name!r}")
+
+    return translate
+
+
+def _renamed_recipes(payload: dict, renames: RenameTable) -> dict:
+    """recipes.json with every reference translated to D-251 ids.
+
+    The vault still emits name-keyed structures; this is the single seam where
+    Russian names become ids. Past it the whole engine speaks ids -- which is
+    why the translation is total and strict rather than best-effort.
+    """
+    klass = _domain_id(renames.classes, "класс")
+    prop = _domain_id(renames.node_properties, "свойство узла")
+    slot = _domain_id(renames.slots, "слот")
+    #: The vault refers to things by synonyms too ("Печь" for the smelting
+    #: furnace) -- a goods position resolves the synonym before the id.
+    payload_synonyms: dict[str, str] = payload.get("synonyms") or {}
+
+    def goods(name: str) -> str:
+        return renames.goods_id(payload_synonyms.get(name, name))
+
+    def requirement(name: str) -> str:
+        #: An operation requirement closes with a class or a concrete thing.
+        try:
+            return klass(name)
+        except ConstantError:
+            return goods(name)
+
+    def keyed(mapping: dict | None) -> dict:
+        return {goods(k): v for k, v in (mapping or {}).items()}
+
+    out = dict(payload)
+    #: resolve() keeps working for old spellings: every Russian name -- and
+    #: every colloquial synonym -- now lands on the id.
+    out["synonyms"] = {
+        **{syn: goods(name) for syn, name in (payload.get("synonyms") or {}).items()},
+        **renames.goods,
+        **renames.virtual_stations,
+    }
+    out["classes"] = {
+        klass(k): [goods(m) for m in members]
+        for k, members in (payload.get("classes") or {}).items()
+    }
+    out["tool_classes"] = {
+        klass(k): [goods(m) for m in members]
+        for k, members in (payload.get("tool_classes") or {}).items()
+    }
+    out["materials"] = [{**m, "class": klass(m.get("class"))} for m in payload.get("materials", [])]
+    out["operations"] = [
+        {
+            **op,
+            "requires": [requirement(r) for r in op.get("requires", [])],
+            "gives": [goods(g) for g in op.get("gives", [])],
+            "gives_class": klass(op.get("gives_class")),
+            "consumes": [goods(c) for c in op.get("consumes", [])],
+            "place": prop(op.get("place")),
+            "amounts": {goods(g): keyed(v) for g, v in (op.get("amounts") or {}).items()},
+            "hours_per_unit": keyed(op.get("hours_per_unit")),
+            "yield": keyed(op.get("yield")),
+            "manual_amounts": keyed(op.get("manual_amounts")),
+        }
+        for op in payload.get("operations", [])
+    ]
+    for listed in ("raw", "bulk", "edible", "liquid"):
+        out[listed] = [goods(x) for x in payload.get(listed, [])]
+    out["units"] = keyed(payload.get("units"))
+    out["gear_slots"] = [slot(s) for s in payload.get("gear_slots", [])]
+    for table in ("mass", "labor_hours", "step_hours"):
+        out[table] = keyed(payload.get(table))
+    out["recipes"] = [
+        {
+            **r,
+            "class": klass(r.get("class")),
+            "slot": slot(r.get("slot")),
+            #: `holds: жидкость` marks a vessel (D-230); the word is the same
+            #: vocabulary entry as the node property.
+            "holds": prop(r.get("holds")),
+            "inputs": [goods(i) for i in r.get("inputs", [])],
+            "amounts": keyed(r.get("amounts")),
+            "station": goods(r.get("station")) if r.get("station") else None,
+        }
+        for r in payload.get("recipes", [])
+    ]
+    return out
+
+
+def _renamed_plants(payload: dict, renames: RenameTable) -> dict:
+    """plants.json with item references as ids: gives, seed, byproduct."""
+    goods = renames.goods_id
+    return {
+        "plants": [
+            {
+                **plant,
+                "gives": goods(plant["gives"]),
+                "seed": goods(plant["seed"]),
+                "byproduct": goods(plant["byproduct"]) if plant.get("byproduct") else None,
+            }
+            for plant in payload.get("plants", [])
+        ]
+    }
+
+
+def load_catalog(build_dir: Path, renames: RenameTable) -> Catalog:
     return Catalog(
-        recipes=RecipeBook.model_validate(_read(build_dir, "recipes.json")),
-        plants=PlantCatalog.model_validate(_read(build_dir, "plants.json")),
+        recipes=RecipeBook.model_validate(
+            _renamed_recipes(_read(build_dir, "recipes.json"), renames)
+        ),
+        plants=PlantCatalog.model_validate(
+            _renamed_plants(_read(build_dir, "plants.json"), renames)
+        ),
         laws=LawBook.model_validate(_read(build_dir, "laws.json")),
     )

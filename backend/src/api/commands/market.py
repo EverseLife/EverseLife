@@ -15,7 +15,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.api.commands.common import _alive, _body, _identity, _node
+from src.api.commands.common import _alive, _body, _identity, _node, goods_key, tier_key
 from src.api.commands.views import _money
 from src.api.registry import Refused, command
 from src.constants import current, current_catalog
@@ -45,7 +45,7 @@ async def _market_offers(state: dict, db: AsyncSession, message: dict) -> dict:
     if node is None:
         body = await _body(db, identity_id)
         if body is None:
-            raise Refused("нет живого тела")
+            raise Refused(key="cmd-no-live-body")
         node = await db.get(Node, body.node_id)
 
     rows = (
@@ -85,7 +85,7 @@ async def _market_reserve(state: dict, db: AsyncSession, message: dict) -> dict:
     identity = await _identity(state, db)
     order = await db.get(Order, uuid.UUID(message["order"]))
     if order is None:
-        raise Refused("нет такой заявки")
+        raise Refused(key="cmd-no-such-order")
     reservation = await market.reserve(db, current(), identity, order, float(message["amount"]))
     return {
         "reservation": str(reservation.id),
@@ -101,7 +101,7 @@ async def _market_redeem(state: dict, db: AsyncSession, message: dict) -> dict:
     body = await _alive(state, db)
     reservation = await db.get(Reservation, uuid.UUID(message["reservation"]))
     if reservation is None:
-        raise Refused("нет такой брони")
+        raise Refused(key="cmd-no-such-reservation")
     deal = await market.redeem(db, current(), current_catalog(), body, reservation)
     return {
         "trade": str(deal.id),
@@ -119,11 +119,11 @@ async def _market_load(state: dict, db: AsyncSession, message: dict) -> dict:
         db,
         current(),
         body,
-        message["goods"],
+        goods_key(message["goods"]),
         float(message["amount"]),
-        tier=message.get("tier"),
+        tier=tier_key(message.get("tier")),
     )
-    return {"loaded": moved, "goods": message["goods"]}
+    return {"loaded": moved, "goods": goods_key(message["goods"])}
 
 
 @command("market.take")
@@ -134,11 +134,11 @@ async def _market_take(state: dict, db: AsyncSession, message: dict) -> dict:
         db,
         current(),
         body,
-        message["goods"],
+        goods_key(message["goods"]),
         float(message["amount"]),
-        tier=message.get("tier"),
+        tier=tier_key(message.get("tier")),
     )
-    return {"taken": moved, "goods": message["goods"]}
+    return {"taken": moved, "goods": goods_key(message["goods"])}
 
 
 @command("market.sell")
@@ -152,8 +152,8 @@ async def _market_sell(state: dict, db: AsyncSession, message: dict) -> dict:
         current_catalog(),
         identity,
         node,
-        type_key=message["goods"],
-        tier=message["tier"],
+        type_key=goods_key(message["goods"]),
+        tier=tier_key(message["tier"]),
         price=int(message["price"]),
         quantity=float(message["amount"]),
     )
@@ -172,8 +172,8 @@ async def _market_buy(state: dict, db: AsyncSession, message: dict) -> dict:
         current(),
         current_catalog(),
         body,
-        type_key=message["goods"],
-        tier=message["tier"],
+        type_key=goods_key(message["goods"]),
+        tier=tier_key(message["tier"]),
         price=int(message["price"]),
         quantity=float(message["amount"]),
     )
@@ -186,7 +186,7 @@ async def _market_cancel(state: dict, db: AsyncSession, message: dict) -> dict:
     identity_id = state["identity_id"]
     order = await db.get(Order, uuid.UUID(message["order"]))
     if order is None:
-        raise Refused("нет такого ордера")
+        raise Refused(key="cmd-no-such-book-order")
     await market.cancel(db, order, by=identity_id)
     return {"cancelled": str(order.id)}
 

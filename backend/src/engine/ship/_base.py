@@ -197,31 +197,31 @@ for.
 #: Thing classes from the vault (D-202, D-215): behaviour binds to a class,
 #: never to an item name -- a second kind of foundation or fuel is data.
 #: The class a node aboard is laid from.
-FOUNDATION = "Основа корабля"
+FOUNDATION = "ship_foundation"
 
 
 #: The class of machines a ship couples to and is laid down at.
-SPACEPORT = "Верфь"
+SPACEPORT = "shipyard"
 
 
 #: The class of machines that decide how many people the ship holds.
-LIFE_SUPPORT = "Жизнеобеспечение"
+LIFE_SUPPORT = "life_support"
 
 
 #: The class of what a passage burns.
-FUEL = "Корабельное топливо"
+FUEL = "ship_fuel"
 
 
 #: The class of vessels the engines draw from (D-230). Fuel in a canister
 #: aboard is cargo, not a reserve: a passage burns tanks only.
-TANK = "Топливный бак"
+TANK = "fuel_tank"
 
 
 #: The class of the console a ship is commanded from (D-230). Casting off and
 #: a passage are ordered standing at it, and aboard it is the **receiver** as
 #: well: a hull without one takes no order at all, its own crew's or the
 #: ground's (D-242).
-BRIDGE = "Рубка"
+BRIDGE = "bridge"
 
 
 #: The same console on the ground (D-242). An order is **information**, and
@@ -233,7 +233,7 @@ BRIDGE = "Рубка"
 #: leaves a hull with no edges, unreachable on foot and deaf to every order,
 #: hanging with its cargo for ever. This world does not build traps with no way
 #: out (pillar P6), and this was the only one a ship could still make.
-GROUND_BRIDGE = "Наземная рубка"
+GROUND_BRIDGE = "ground_bridge"
 
 
 #: The node property marking a planet's orbital node (D-245). One per planet,
@@ -250,7 +250,7 @@ GROUND_BRIDGE = "Наземная рубка"
 #: `ORBIT_NODE`, not `ORBIT`: `world.ORBIT` is the planet's orbital elements --
 #: radius, period, phase -- and two constants of one name a module apart is how
 #: one gets read for the other.
-ORBIT_NODE = "орбита узел"
+ORBIT_NODE = "orbit_node"
 
 
 def orbit_key(planet: Planet) -> str:
@@ -290,15 +290,15 @@ UNDER_WAY = "flight"
 #: They live here rather than in the flight module because both the journal and
 #: the console read them: the payload of a passage carries the leg, and the
 #: interface has a different sentence for each.
-CLIMB = "подъём"
-PASSAGE = "переход"
-DESCENT = "спуск"
+CLIMB = "climb"
+PASSAGE = "passage"
+DESCENT = "descent"
 
 
 #: The node property marking a node as being aboard. A property rather than a
 #: fifth planet: the list of planets drags its own day length and environment
 #: wear behind it, a property drags nothing (D-201).
-ABOARD = "борт"
+ABOARD = "aboard"
 
 #: A planet property (D-233): a ship lands in **any** surface node of it, and
 #: there is no spaceport anywhere on it. Written on the planet's node by the
@@ -308,7 +308,7 @@ ABOARD = "борт"
 #: (D-230), so there is nothing to put a yard into. What follows is the whole
 #: character of the place -- the only infrastructure of Pyroxis is a ship's
 #: hull, and a crew whose ship has left is standing on bare rock.
-OPEN_LANDING = "посадка везде"
+OPEN_LANDING = "open_landing"
 
 
 #: Amounts split into thousandths, so "was there enough" must tolerate the last

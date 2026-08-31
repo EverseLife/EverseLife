@@ -16,6 +16,7 @@ Checked is what the bank is built this way for:
 
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -23,9 +24,11 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src import i18n
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import bank, ledger, world
+from src.engine.errors import Says
 from src.models.bank import LoanState
 from src.models.ledger import AccountKind, LedgerAccount, PostingReason
 from src.units import PERCENT, money
@@ -193,7 +196,52 @@ async def test_rate_formula_public_and_deterministic(
         constants, previous=constants[R.BANK_BASE_RATE], inflation=5, emission_share=20
     )
     assert first == second
-    assert "инфляция" in first[1], "решение объясняется словами"
+    #: The keys, not the sentence: the words are the locale's (D-251 wave IV).
+    assert [one.key for one in first[1]] == [
+        "bank-why-rate-base",
+        "bank-why-rate-inflation",
+        "bank-why-rate-emission",
+    ], "решение объясняется по частям"
+
+
+async def test_the_explanation_is_a_list_of_clauses(constants: Constants) -> None:
+    """What the player is shown, said out of the keys (D-251 wave IV).
+
+    Two things the key test upstairs cannot see. The clauses go over as a list
+    and stay one -- the panel draws a line per fact, and nothing anywhere
+    takes a rendered sentence apart to get them back. And the sign is a flag,
+    so a misspelt one would quietly take the `*[false]` branch: the plus would
+    simply disappear from "+0,50" and nobody would fail.
+    """
+    _, reasons = bank.compute_rate(
+        constants, previous=constants[R.BANK_BASE_RATE], inflation=5, emission_share=20
+    )
+    said = i18n.clauses(reasons, locale="ru")
+    assert len(said) == len(reasons), "оговорка на строку, ничего не склеено"
+    assert all(one and "bank-why" not in one for one in said), "сказано словами, а не ключами"
+    grew = next(one for one in reasons if one.key == "bank-why-rate-inflation")
+    assert "+" in i18n.clauses([grew], locale="ru")[0], "знак роста ставит сам язык"
+    fell = Says("bank-why-rate-inflation", {**grew.params, "inflation_up": "false"})
+    assert "+" not in i18n.clauses([fell], locale="ru")[0].split("против")[0]
+
+
+async def test_a_decision_keeps_its_reasons_not_a_sentence(constants: Constants) -> None:
+    """The archive stores keys, so one row can be said in either language.
+
+    The point of the column: a decision is written once and read back by
+    whoever audits the rate afterwards, and their language is not known at the
+    moment of writing. Rendered on the way in, the row would have been Russian
+    forever -- which is what `why` was, and why it stopped being written.
+    """
+    _, reasons = bank.compute_rate(
+        constants, previous=constants[R.BANK_BASE_RATE], inflation=5, emission_share=20
+    )
+    rows = i18n.written(reasons)
+    assert [row["say"] for row in rows] == [one.key for one in reasons]
+    assert i18n.retold(rows, locale="ru") == i18n.clauses(reasons, locale="ru")
+    #: A stored row survives the trip through JSON: what goes into the column
+    #: is what comes back out of it, keys and numbers alike.
+    assert i18n.retold(json.loads(json.dumps(rows)), locale="ru") == i18n.retold(rows, locale="ru")
 
 
 async def test_silent_sensor_does_not_move_lever(constants: Constants) -> None:
@@ -204,7 +252,7 @@ async def test_silent_sensor_does_not_move_lever(constants: Constants) -> None:
         emission_share=None,
     )
     assert rate == pytest.approx(constants[R.BANK_BASE_RATE])
-    assert "не измерена" in reason
+    assert "bank-why-rate-inflation-unknown" in [one.key for one in reason]
 
 
 async def test_rate_step_is_bounded(constants: Constants) -> None:
@@ -235,7 +283,7 @@ async def test_review_stores_decision_and_applies(
     assert before == pytest.approx(constants[R.BANK_BASE_RATE]), "до решений — базовая"
 
     decision = await bank.review_rate(session, constants)
-    assert decision.why, "почему получилось столько, видно всем"
+    assert decision.why_said, "почему получилось столько, видно всем"
     assert await bank.key_rate(session, constants) == pytest.approx(float(decision.rate))
 
 
@@ -253,14 +301,14 @@ async def test_review_survives_a_world_that_has_borrowed(
     the key rate stopped moving.
     """
     who = await _borrower(session)
-    await _deal(session, "Железная руда", 4000, 1, seller=who)
+    await _deal(session, "iron_ore", 4000, 1, seller=who)
     await bank.borrow(session, constants, catalog, who, 1000)
 
     share = await bank._emission_share(session, constants, now=datetime.now(UTC))  # noqa: SLF001
     assert isinstance(share, float), "доля — число, а не сумма"
 
     decision = await bank.review_rate(session, constants)
-    assert decision.why
+    assert decision.why_said
 
 
 async def test_borrower_rate_fixed_at_issue(
@@ -287,7 +335,7 @@ async def test_interest_accrues_over_time(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
     who = await _borrower(session)
-    await _deal(session, "Железная руда", 4000, 1, seller=who)
+    await _deal(session, "iron_ore", 4000, 1, seller=who)
     loan = await bank.borrow(session, constants, catalog, who, 1000)
     before = loan.outstanding
 
@@ -439,7 +487,7 @@ async def _deal(session: AsyncSession, goods: str, price: float, qty: float, sel
         identity_id=seller.id,
         side=OrderSide.SELL,
         type_key=goods,
-        tier="обычное",
+        tier="common",
         price=money(price),
         amount_total=_amount(qty),
         amount_left=0,
@@ -452,7 +500,7 @@ async def _deal(session: AsyncSession, goods: str, price: float, qty: float, sel
             node_id=node.id,
             sell_order_id=order_.id,
             type_key=goods,
-            tier="обычное",
+            tier="common",
             price=money(price),
             amount=_amount(qty),
         )
@@ -467,7 +515,7 @@ async def test_index_is_median_of_deals(
     assert await bank.price_index(session, constants) is None, "сделок нет — молчим"
 
     for price in (10, 10, 1000):
-        await _deal(session, "Железная руда", price, 1)
+        await _deal(session, "iron_ore", price, 1)
     index = await bank.price_index(session, constants)
     assert index == pytest.approx(money(10)), "медиана, а не среднее"
 
@@ -476,7 +524,7 @@ async def test_index_weighted_by_turnover(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
     """Bread matters more than a rare alloy exactly as much as more of it is bought."""
-    await _deal(session, "Хлеб", 10, 100)
+    await _deal(session, "bread", 10, 100)
     await _deal(session, "Сплав", 1000, 1)
 
     index = await bank.price_index(session, constants)
@@ -527,7 +575,9 @@ async def test_reserve_within_ceiling_not_touched(
 # --- collateral ratio as a lever (D-170) -------------------------------------
 
 
-async def _city_with_turnover(session: AsyncSession, catalog, turnover: float, goods: str = "Хлеб"):
+async def _city_with_turnover(
+    session: AsyncSession, catalog, turnover: float, goods: str = "bread"
+):
     """The city on whose territory the deals happened: the share is computed by them."""
     from src.engine import city as town
     from src.models.market import Order, OrderSide, Trade
@@ -561,7 +611,7 @@ async def _city_with_turnover(session: AsyncSession, catalog, turnover: float, g
         identity_id=seller.id,
         side=OrderSide.SELL,
         type_key=goods,
-        tier="обычное",
+        tier="common",
         price=money(turnover),
         amount_total=_amount(1),
         amount_left=0,
@@ -574,7 +624,7 @@ async def _city_with_turnover(session: AsyncSession, catalog, turnover: float, g
             node_id=marketplace.id,
             sell_order_id=order_.id,
             type_key=goods,
-            tier="обычное",
+            tier="common",
             price=money(turnover),
             amount=_amount(1),
         )
@@ -589,7 +639,7 @@ async def test_payment_covers_interest_first(
     """Without this "system income" is unmeasurable, and hence not returned (D-171)."""
     who = await _borrower(session, funds=1000)
     #: A limit above the base is given by labour: sales turnover over the window (D-173).
-    await _deal(session, "Железная руда", 4000, 1, seller=who)
+    await _deal(session, "iron_ore", 4000, 1, seller=who)
     loan = await bank.borrow(session, constants, catalog, who, 1000)
     in_a_year = loan.taken_at + timedelta(days=constants[R.BANK_YEAR_DAYS])
     accrued = await bank.accrue(session, constants, loan, now=in_a_year)
@@ -655,7 +705,11 @@ async def test_council_gets_rate_at_threshold(
     city, ruler = cities[0]
     decision = await bank.council_set_rate(session, constants, city, ruler, 6)
     assert float(decision.rate) == pytest.approx(6)
-    assert "Совета городов" in decision.why
+    #: The Council's own line first, the algorithm's clauses under it: the
+    #: vote is argued with the formula, and both are said to the reader.
+    said = i18n.retold(decision.why_said, locale="ru")
+    assert "Совета городов" in said[0]
+    assert len(said) > 1, "под решением совета стоят оговорки самого алгоритма"
     assert await bank.key_rate(session, constants) == pytest.approx(6)
 
 
@@ -724,11 +778,13 @@ async def test_turnover_raises_limit(
     base, _ = await bank.credit_limit(session, constants, who.id)
     assert base == money(constants[R.BANK_UNSECURED_LIMIT])
 
-    await _deal(session, "Железная руда", 1000, 1, seller=who)
+    await _deal(session, "iron_ore", 1000, 1, seller=who)
     raised, reason = await bank.credit_limit(session, constants, who.id)
     increment = money(1000 * constants[R.CREDIT_TURNOVER_SHARE] / PERCENT)
     assert raised == base + increment
-    assert "оборот" in reason, "формула объясняется словами, как ставка"
+    assert "bank-why-limit-turnover" in [one.key for one in reason], (
+        "формула объясняется по частям, как ставка"
+    )
 
 
 async def test_credit_history_is_asset(
@@ -743,7 +799,7 @@ async def test_credit_history_is_asset(
     base_ = money(constants[R.BANK_UNSECURED_LIMIT])
     core = base_ + money(100 * constants[R.CREDIT_REPAID_SHARE] / PERCENT)
     assert limit_ == int(core * (1 + constants[R.CREDIT_NO_OVERDUE_BONUS] / PERCENT))
-    assert "стаж" in reason
+    assert "bank-why-limit-no-overdue" in [one.key for one in reason]
 
 
 async def test_report_cuts_trust_but_does_not_bury(
@@ -762,7 +818,7 @@ async def test_report_cuts_trust_but_does_not_bury(
     assert faith == pytest.approx(constants[R.CREDIT_TRUST_FLOOR] / PERCENT)
     limit_after, reason = await bank.credit_limit(session, constants, who.id)
     assert limit_after == int(limit_before * faith)
-    assert "доверие" in reason
+    assert "bank-why-limit-trust" in [one.key for one in reason]
 
 
 async def test_report_one_per_pair_and_revocable(
@@ -839,7 +895,7 @@ async def test_exhausted_line_gives_pricier_direct_loan(
     elastic."""
     city, who = await _citizen_with_city(session, catalog, turnover=100)
     #: Line = cap% of turnover 100: the very first big loan overflows it.
-    await _deal(session, "Железная руда", 4000, 1, seller=who)
+    await _deal(session, "iron_ore", 4000, 1, seller=who)
     loan = await bank.borrow(session, constants, catalog, who, 900)
 
     assert loan.city_id is None, "линии не хватило — заём прямой"
@@ -910,20 +966,20 @@ async def test_labour_in_prison_face_repays_debt(
     from src.models.ledger import PostingReason as PR
 
     #: City turnover -- by ore deals: the reference price is taken from them.
-    city = await _city_with_turnover(session, catalog, 4000, goods="Железная руда")
+    city = await _city_with_turnover(session, catalog, 4000, goods="iron_ore")
     delegate = await session.get(
         __import__("src.models.world", fromlist=["Node"]).Node, city.node_id
     )
     prison = await world.create_node(
         session,
         f"terra.jail.{uuid.uuid4().hex[:6]}",
-        "Каторга",
+        "prison",
         area_m2=100,
         parent=delegate,
         properties={justice.PRISON_NODE: True},
     )
     prison.owner_city_id = city.id
-    vein = await world.create_vein(session, prison, "Железная руда", richness=60, remaining=10_000)
+    vein = await world.create_vein(session, prison, "iron_ore", richness=60, remaining=10_000)
     debtor = await world.create_identity(session, f"Должник-{uuid.uuid4().hex[:6]}")
     session.add(Citizen(identity_id=debtor.id, city_id=city.id))
     body = await world.print_body(session, debtor, prison)
@@ -953,7 +1009,7 @@ async def test_labour_in_prison_face_repays_debt(
     await session.flush()
 
     pocket = await world.body_container(session, body)
-    await world.grant_item(session, pocket, "Каменная кирка", quality=50, origin="сценарий теста")
+    await world.grant_item(session, pocket, "stone_pickaxe", quality=50, origin="сценарий теста")
     sess = await mining.start(session, constants, body, vein)
     await mining.swing(session, constants, sess)
     before = loan.outstanding

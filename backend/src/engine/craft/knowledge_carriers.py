@@ -33,18 +33,18 @@ async def read_carrier(
     hands, and the hands are always with you.
     """
     if body.state is not BodyState.ALIVE:
-        raise CraftError("мёртвое тело не читает")
+        raise CraftError(key="craft-dead-reads")
     inventory = await body_container(session, body)
     if item.container_id != inventory.id:
-        raise CraftError("носителя нет в руках")
+        raise CraftError(key="craft-carrier-not-in-hands")
     if item.type_key not in carrier_names(catalog) or not item.recipe_key:
-        raise Unmakeable("это не записанный носитель: читать нечего")
-    recipe = catalog.recipes.recipe(item.recipe_key).name
+        raise Unmakeable(key="craft-carrier-blank")
+    recipe = catalog.recipes.recipe(item.recipe_key).type_key
     if await _knows(session, body, recipe):
         return None
     identity = await session.get(Identity, body.identity_id)
     if identity is None:  # pragma: no cover
-        raise CraftError("тело без личности")
+        raise CraftError(key="craft-body-without-identity")
     await _pay_copy(current(), body)
     await session.flush()
     learned = await learn(session, identity, recipe)
@@ -66,12 +66,12 @@ async def wipe_carrier(session: AsyncSession, catalog: Catalog, body: Body, item
     it is the same piece of memory, empty again.
     """
     if body.state is not BodyState.ALIVE:
-        raise CraftError("мёртвое тело ничего не стирает")
+        raise CraftError(key="craft-dead-wipes")
     inventory = await body_container(session, body)
     if item.container_id != inventory.id:
-        raise CraftError("носителя нет в руках")
+        raise CraftError(key="craft-carrier-not-in-hands")
     if item.type_key not in carrier_names(catalog):
-        raise Unmakeable("стереть можно только носитель знания")
+        raise Unmakeable(key="craft-wipe-not-a-carrier")
     was = item.recipe_key
     item.type_key = blank_of(catalog, item.type_key)
     item.recipe_key = None

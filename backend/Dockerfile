@@ -37,6 +37,10 @@ WORKDIR /app
 COPY --from=builder /app/.venv /app/.venv
 
 COPY backend/src ./src
+#: The languages the world is answered in (D-251 wave III). Beside `src`, the
+#: way `LOCALES_DIR` looks for them: without this the server boots straight
+#: into "нет файлов языка 'ru'" rather than into a game.
+COPY backend/locales ./locales
 COPY backend/migrations ./migrations
 COPY backend/alembic.ini ./alembic.ini
 # The numbers are not in the repository: build them before the image --

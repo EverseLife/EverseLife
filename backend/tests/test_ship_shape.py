@@ -39,7 +39,7 @@ async def _port(session: AsyncSession) -> Node:
     session.add(Building(node_id=node.id, area_m2=400))
     await session.flush()
     yard = await world.node_container(session, node)
-    await world.grant_item(session, yard, "Космическая верфь", quality=60, origin="тест")
+    await world.grant_item(session, yard, "space_shipyard", quality=60, origin="тест")
     return node
 
 
@@ -49,7 +49,7 @@ async def _hull(
     identity = await world.create_identity(session, f"Корабел-{uuid.uuid4().hex[:6]}")
     body = await world.print_body(session, identity, port)
     pocket = await world.body_container(session, body)
-    await world.grant_item(session, pocket, "Основа узла корабля", amount=rooms, origin="тест")
+    await world.grant_item(session, pocket, "ship_node_foundation", amount=rooms, origin="тест")
 
     job = await ship.found(session, constants, body, "Заря")
     await ship.keel_laid(session, job)

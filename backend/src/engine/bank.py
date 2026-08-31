@@ -67,11 +67,12 @@ from datetime import UTC, datetime, time, timedelta
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src import i18n
 from src.constants import Constants, current
 from src.constants import registry as R
 from src.engine import city as town
 from src.engine import events, ledger
-from src.engine.errors import Refusal
+from src.engine.errors import Refusal, Says
 from src.engine.jobs import enqueue, handler
 from src.engine.world import node_container
 from src.models.bank import DefectReport, Loan, LoanState, RateDecision
@@ -134,42 +135,76 @@ async def key_rate(session: AsyncSession, constants: Constants) -> float:
     return float(decision.rate) if decision is not None else constants[R.BANK_BASE_RATE]
 
 
+def _plus(value: float) -> str:
+    """Whether this number is written with a leading `+` (D-251 wave IV).
+
+    A flag rather than a sign: `NUMBER()` cannot be asked to show one --
+    Fluent's `signDisplay` is not implemented here -- and "+0,50" is how the
+    sentence says which way the lever moved. The engine says which way, the
+    language writes the sign.
+    """
+    return "true" if value >= 0 else "false"
+
+
 def compute_rate(
     constants: Constants,
     *,
     previous: float,
     inflation: float | None,
     emission_share: float | None,
-) -> tuple[float, str]:
-    """The public rate formula. Returns the rate and an explanation in words.
+) -> tuple[float, list[Says]]:
+    """The public rate formula. Returns the rate and the reasons behind it.
 
     The explanation is not decoration: the algorithm must be not only
     deterministic but readable, otherwise there is nothing to argue monetary
-    policy with (D-030).
+    policy with (D-030). Named rather than worded (D-251 wave IV): one message
+    per clause, said in the language of whoever is reading. A list stays a
+    list all the way to the panel -- it is drawn as one, fact under fact.
     """
     rate_value = constants[R.BANK_BASE_RATE]
-    reasons = [f"база {rate_value:g}"]
+    reasons = [Says("bank-why-rate-base", {"rate": rate_value})]
 
     if inflation is not None:
         goal = constants[R.BANK_TARGET_INFLATION]
         bonus = constants[R.BANK_RATE_REACTION_K] * (inflation - goal)
         rate_value += bonus
-        reasons.append(f"инфляция {inflation:+.1f} против цели {goal:g} → {bonus:+.2f}")
+        reasons.append(
+            Says(
+                "bank-why-rate-inflation",
+                {
+                    "inflation": inflation,
+                    "inflation_up": _plus(inflation),
+                    "goal": goal,
+                    "bonus": bonus,
+                    "bonus_up": _plus(bonus),
+                },
+            )
+        )
     else:
-        reasons.append("инфляция не измерена: реакции нет")
+        reasons.append(Says("bank-why-rate-inflation-unknown"))
 
     if emission_share is not None:
         goal = constants[R.BANK_EMISSION_SHARE_TARGET]
         bonus = constants[R.BANK_EMISSION_REACTION_K] * (emission_share - goal)
         rate_value += bonus
-        reasons.append(f"эмиссия {emission_share:.0f}% против цели {goal:g} → {bonus:+.2f}")
+        reasons.append(
+            Says(
+                "bank-why-rate-emission",
+                {
+                    "share": emission_share,
+                    "goal": goal,
+                    "bonus": bonus,
+                    "bonus_up": _plus(bonus),
+                },
+            )
+        )
 
     #: The step is bounded: monetary policy does not twitch, otherwise it
     #: cannot be predicted, and prediction is half its point.
     step = constants[R.BANK_RATE_STEP_MAX]
     rate_value = max(previous - step, min(previous + step, rate_value))
     rate_value = max(constants[R.BANK_RATE_FLOOR], min(constants[R.BANK_RATE_CAP], rate_value))
-    return rate_value, "; ".join(reasons)
+    return rate_value, reasons
 
 
 async def review_rate(
@@ -180,12 +215,13 @@ async def review_rate(
     before = await key_rate(session, constants)
     inflation_ = await inflation(session, constants)
     issue_share = await _emission_share(session, constants, now=moment)
-    rate_value, reason = compute_rate(
+    rate_value, reasons = compute_rate(
         constants,
         previous=before,
         inflation=inflation_,
         emission_share=issue_share,
     )
+    why = i18n.written(reasons)
     #: Inflation past the alarm line returns the rate to the algorithm for
     #: `bank.council_lockout` days: a political decision is good exactly until
     #: the price of a mistake is everybody's money (D-172).
@@ -199,7 +235,7 @@ async def review_rate(
         locked_until=lock,
         inflation=inflation_ or 0,
         emission_share=issue_share or 0,
-        why=reason,
+        why_said=why,
         decided_at=moment,
     )
     session.add(decision)
@@ -209,7 +245,9 @@ async def review_rate(
         EventKind.RATE_DECIDED,
         rate=rate_value,
         was=before,
-        why=reason,
+        #: The journal keeps the reasons the same way the decision does: keys
+        #: and numbers, said by whoever reads the event (D-251 wave IV).
+        why_said=why,
     )
     return decision
 
@@ -234,14 +272,19 @@ async def borrow(
     moment = now or datetime.now(UTC)
     total = money(amount)
     if total <= 0:
-        raise BankError("заём должен быть положительным")
+        raise BankError(key="bank-loan-not-positive")
 
     limit_, reason = await credit_limit(session, constants, who.id, now=moment)
     available = limit_ - await debt_of(session, who.id)
     if total > available:
         raise TooMuch(
-            f"столько не дают: доступно {money_str(max(0, available))} ₭ "
-            f"из лимита {money_str(limit_)} ₭ ({reason})"
+            key="bank-over-limit",
+            available=money_str(max(0, available)),
+            limit=money_str(limit_),
+            #: What the limit is made of is a quoted message, not a Russian
+            #: string handed over as an argument (D-251 wave IV): the same
+            #: clauses the bank window shows, said in the reader's language.
+            inner={"reason": reason},
         )
 
     #: The city of citizenship and its line. The line shrinks smoothly: exactly
@@ -371,7 +414,7 @@ async def repay(
     """
     moment = now or datetime.now(UTC)
     if loan.state is not LoanState.OPEN:
-        raise NothingToRepay("этот заём уже закрыт")
+        raise NothingToRepay(key="bank-loan-closed")
     await accrue(session, constants, loan, now=moment)
 
     account = from_account or await ledger.account_for(session, AccountKind.IDENTITY, who.id)
@@ -379,7 +422,7 @@ async def repay(
     wants = loan.outstanding if amount is None else money(amount)
     payment = min(wants, loan.outstanding, have)
     if payment <= 0:
-        raise NothingToRepay("платить нечем")
+        raise NothingToRepay(key="bank-nothing-to-pay-with")
 
     await _settle(session, loan, account, payment)
     loan.serviced_at = moment
@@ -881,13 +924,12 @@ async def council_set_rate(
     moment = now or datetime.now(UTC)
     if not await council_decides(session, constants, now=moment):
         raise NotCouncilTime(
-            "ставку решает алгоритм: городов с администрацией меньше "
-            f"{constants[R.BANK_COUNCIL_HANDOVER_CITIES]:g} либо действует блокировка"
+            key="bank-council-not-yet", cities=constants[R.BANK_COUNCIL_HANDOVER_CITIES]
         )
     #: The rate is a matter of law, not of the treasury.
     await town.require(session, by.id, city, Power.LAWS)
 
-    recommendation, reason = compute_rate(
+    recommendation, reasons = compute_rate(
         constants,
         previous=await key_rate(session, constants),
         inflation=await inflation(session, constants),
@@ -896,19 +938,24 @@ async def council_set_rate(
     corridor = constants[R.BANK_COUNCIL_RATE_DEVIATION]
     if abs(rate - recommendation) > corridor:
         raise OutOfCorridor(
-            f"алгоритм рекомендует {recommendation:.2f}%, отклониться можно на "
-            f"{corridor:g} п.п. — просят {rate:.2f}%"
+            key="bank-out-of-corridor",
+            recommendation=recommendation,
+            corridor=corridor,
+            rate=rate,
         )
     rate_value = max(constants[R.BANK_RATE_FLOOR], min(constants[R.BANK_RATE_CAP], rate))
 
-    decision = RateDecision(
-        rate=rate_value,
-        why=(
-            f"решение Совета городов ({city.name}); "
-            f"алгоритм советовал {recommendation:.2f}: {reason}"
-        ),
-        decided_at=moment,
-    )
+    #: The Council's explanation is its own line followed by the algorithm's:
+    #: the vote is argued with what the formula advised, so the formula's
+    #: clauses stand under it rather than inside it. Flat rather than nested
+    #: because the reader is shown a list, and a clause that quotes a rendered
+    #: sentence would freeze that sentence in one language (D-251 wave IV).
+    said = [
+        Says("bank-why-council", {"city": city.name, "advised": recommendation}),
+        *reasons,
+    ]
+    why = i18n.written(said)
+    decision = RateDecision(rate=rate_value, why_said=why, decided_at=moment)
     session.add(decision)
     await session.flush()
     await events.record(
@@ -918,6 +965,7 @@ async def council_set_rate(
         advised=recommendation,
         by_council=True,
         city=city.name,
+        why_said=why,
     )
     return decision
 
@@ -986,12 +1034,16 @@ async def credit_limit(
     identity_id: uuid.UUID,
     *,
     now: datetime | None = None,
-) -> tuple[int, str]:
-    """Credit limit and an explanation in words -- public, like the rate (D-030).
+) -> tuple[int, list[Says]]:
+    """Credit limit and what it is made of -- public, like the rate (D-030).
 
     Base from the vault, plus a share of sales turnover, plus a share of what
     was repaid, times trust and record. Labour, not the calendar: time in game
     is the cheapest thing to farm (D-173).
+
+    The parts are named rather than worded (D-251 wave IV): the same list is
+    read by the bank window and quoted by the refusal of too large a loan, and
+    both must say it in the language of whoever is looking.
     """
     moment = now or datetime.now(UTC)
     base_ = money(constants[R.BANK_UNSECURED_LIMIT])
@@ -1002,10 +1054,15 @@ async def credit_limit(
         + int(turnover * constants[R.CREDIT_TURNOVER_SHARE] / PERCENT)
         + int(returned_ * constants[R.CREDIT_REPAID_SHARE] / PERCENT)
     )
+    #: Money travels as a formatted string (D-190): the sentence puts it in
+    #: as it was written, it does not write it itself.
     reasons = [
-        f"база {money_str(base_)}",
-        f"оборот {money_str(turnover)} за {constants[R.CREDIT_WINDOW]:g} суток",
-        f"возвращено ранее {money_str(returned_)}",
+        Says("bank-why-limit-base", {"money": money_str(base_)}),
+        Says(
+            "bank-why-limit-turnover",
+            {"money": money_str(turnover), "days": constants[R.CREDIT_WINDOW]},
+        ),
+        Says("bank-why-limit-repaid", {"money": money_str(returned_)}),
     ]
 
     #: The record is a multiplier, not a base: a bonus for a history without overdue.
@@ -1013,13 +1070,13 @@ async def credit_limit(
     no_overdue = not any(overdue(constants, loan, moment) for loan in loans)
     if returned_ > 0 and no_overdue:
         limit_ = int(limit_ * (1 + constants[R.CREDIT_NO_OVERDUE_BONUS] / PERCENT))
-        reasons.append("стаж без просрочек")
+        reasons.append(Says("bank-why-limit-no-overdue"))
 
     faith = await trust(session, constants, identity_id)
     if faith < 1:
         limit_ = int(limit_ * faith)
-        reasons.append(f"доверие {faith * PERCENT:.0f}% по репортам")
-    return limit_, "; ".join(reasons)
+        reasons.append(Says("bank-why-limit-trust", {"trust": faith * PERCENT}))
+    return limit_, reasons
 
 
 async def report_defect(
@@ -1027,7 +1084,7 @@ async def report_defect(
 ) -> DefectReport:
     """Point at a defective print. One report per identity per identity."""
     if reporter.id == target.id:
-        raise BankError("на себя не жалуются даже по лору")
+        raise BankError(key="bank-complain-about-self")
     exists = (
         await session.execute(
             select(DefectReport).where(
@@ -1095,11 +1152,13 @@ async def offered_rate(
     *,
     amount: int = 0,
     now: datetime | None = None,
-) -> tuple[float, str]:
+) -> tuple[float, list[Says]]:
     """The rate this borrower would actually get, and why (D-193).
 
     The same arithmetic as `borrow`, only without taking the money: a rate that
     turns up after the fact reads as a swindle even when it is computed right.
+    The "why" is a message, not a sentence (D-251 wave IV) -- the reader's
+    language decides how it reads.
     """
 
     moment = now or datetime.now(UTC)
@@ -1107,29 +1166,40 @@ async def offered_rate(
     entry = await town.citizenship(session, who.id)
     if entry is None:
         premium = constants[R.BANK_RISK_PREMIUM].max
-        return key + premium, (
-            f"ключевая {key:.2f}% + {premium:.2f}% за риск: без гражданства "
-            "занимают напрямую у столицы (D-175)"
-        )
+        return key + premium, [
+            Says("bank-why-offer-no-citizenship", {"key": key, "premium": premium})
+        ]
 
     city = await town.by_id(session, entry.city_id)
     if city is None:  # pragma: no cover -- citizenship into nowhere is a bug
-        return key, f"ключевая {key:.2f}%"
+        return key, [Says("bank-why-offer-key", {"key": key})]
 
     permitted, _, free = await city_line(session, constants, city, now=moment)
     if amount <= free:
         margin = city_margin(constants, catalog, city)
-        return key + margin, (
-            f"ключевая {key:.2f}% + маржа города {margin:.2f}% "
-            f"({city.name}); линии свободно {money_str(free)} ₭"
-        )
+        return key + margin, [
+            Says(
+                "bank-why-offer-city",
+                #: A city's name is already a word: it is written by whoever
+                #: founded the city, not chosen from a catalogue, so it goes
+                #: in plain and not through `NAME()`.
+                {"key": key, "margin": margin, "city": city.name, "free": money_str(free)},
+            )
+        ]
 
     premium = constants[R.BANK_RISK_PREMIUM].max
-    return key + premium, (
-        f"ключевая {key:.2f}% + {premium:.2f}% за риск: линия города "
-        f"{city.name} исчерпана — разрешено {money_str(permitted)} ₭ от оборота, "
-        f"свободно {money_str(free)} ₭. Линию поднимают сделки на его земле (D-193)"
-    )
+    return key + premium, [
+        Says(
+            "bank-why-offer-line-exhausted",
+            {
+                "key": key,
+                "premium": premium,
+                "city": city.name,
+                "permitted": money_str(permitted),
+                "free": money_str(free),
+            },
+        )
+    ]
 
 
 async def city_outstanding(session: AsyncSession, city) -> int:

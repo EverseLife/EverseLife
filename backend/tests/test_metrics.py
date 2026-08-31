@@ -37,9 +37,7 @@ async def _world(session: AsyncSession, *, funds: float = 100, ore: float = 30):
     body = await world.print_body(session, identity, node)
     pocket = await world.body_container(session, body)
     if ore:
-        await world.grant_item(
-            session, pocket, "Железная руда", amount=ore, quality=60, origin="тест"
-        )
+        await world.grant_item(session, pocket, "iron_ore", amount=ore, quality=60, origin="тест")
     if funds:
         account = await ledger.account_for(session, AccountKind.IDENTITY, identity.id)
         genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
@@ -95,10 +93,10 @@ async def test_stock_counted_wherever_it_lies(session: AsyncSession, constants: 
     """Matter is matter: pocket, node and terminal are counted together."""
     node, _, body = await _world(session, ore=10)
     yard = await world.node_container(session, node)
-    await world.grant_item(session, yard, "Железная руда", amount=5, quality=50, origin="тест")
+    await world.grant_item(session, yard, "iron_ore", amount=5, quality=50, origin="тест")
 
     remainders = await metrics.stock(session)
-    assert remainders["Железная руда"] >= 15
+    assert remainders["iron_ore"] >= 15
 
 
 # --- daily snapshot ----------------------------------------------------------
@@ -132,14 +130,14 @@ async def test_history_remembers_yesterday(session: AsyncSession, constants: Con
     await world.grant_item(
         session,
         await world.node_container(session, (await _world(session, funds=0, ore=0))[0]),
-        "Железная руда",
+        "iron_ore",
         amount=90,
         quality=50,
         origin="тест",
     )
     await metrics.store(session, constants, now=today)
 
-    row = await metrics.history(session, "stock.Железная руда", days=5)
+    row = await metrics.history(session, "stock.iron_ore", days=5)
     assert len(row) == 2
     assert row[1][1] > row[0][1], "рост запаса виден в истории"
 
@@ -165,11 +163,11 @@ async def test_i1_shows_growth_without_invented_threshold(
     today = datetime.now(UTC)
     await metrics.store(session, constants, now=today - timedelta(days=1))
     yard = await world.node_container(session, node)
-    await world.grant_item(session, yard, "Железная руда", amount=100, quality=50, origin="тест")
+    await world.grant_item(session, yard, "iron_ore", amount=100, quality=50, origin="тест")
     await metrics.store(session, constants, now=today)
 
     checks = {p["code"]: p for p in await metrics.invariants(session, constants)}
-    stock = checks.get("И1.запас.Железная руда")
+    stock = checks.get("И1.запас.iron_ore")
     assert stock is not None
     assert stock["ok"] is None, "вердикта нет: порог не задан вольтом"
     assert stock["value"] > 0, "рост измерен и показан"

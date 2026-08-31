@@ -23,6 +23,7 @@
 import { useEffect, useRef, useState } from "react";
 import { counted, trim } from "./amounts";
 import { answered, askless, carriedStack, dropCarried, fits, halved, type DragStack } from "./drag";
+import { t } from "./locale";
 
 type Ask = { stack: DragStack; x: number; y: number };
 
@@ -195,13 +196,13 @@ function AmountAsk({
       className="hud-pop drop-pop"
       style={{ left, top }}
       role="dialog"
-      aria-label={`Сколько: ${stack.label}`}
+      aria-label={t("ui-drag-how-much-of", { what: stack.label })}
     >
       <p className="drop-what">
-        {stack.label} · {trim(stack.amount)}
+        {t("ui-drag-what", { what: stack.label, amount: trim(stack.amount) })}
       </p>
       <div className="row">
-        <button onClick={() => onPick(stack.amount)}>всё</button>
+        <button onClick={() => onPick(stack.amount)}>{t("ui-drag-all")}</button>
         {half > 0 && (
           <button className="quiet" onClick={() => onPick(half)}>
             ½
@@ -220,10 +221,10 @@ function AmountAsk({
           onKeyDown={(event) => {
             if (event.key === "Enter") send();
           }}
-          aria-label="Сколько"
+          aria-label={t("ui-drag-how-much")}
         />
         <button className="quiet" onClick={send}>
-          ОК
+          {t("ui-drag-ok")}
         </button>
       </div>
     </div>

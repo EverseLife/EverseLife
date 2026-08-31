@@ -5,7 +5,9 @@
 /** One window of the location; what they share is in `shared.ts`. */
 
 import { useState } from "react";
-import { Refusal, useActions, useBook, useSession } from "../../actions";
+import { Refusal, useActions, useBook, useNames, useSession } from "../../actions";
+import { t } from "../../locale";
+import { goodsName, propertyName, requirementName } from "../../names";
 import type { Props } from "./shared";
 import { PLACES } from "./shared";
 
@@ -23,6 +25,7 @@ export function Gather({
 }: Omit<Props, "busy" | "act"> & { sign: string }) {
   const session = useSession();
   const book = useBook();
+  const names = useNames();
   //: Own waiting and own refusal: a window of its own in the row.
   const acting = useActions();
   const { busy, act } = acting;
@@ -39,51 +42,49 @@ export function Gather({
   return (
     <section>
       <Refusal of={acting} />
-      <h2>{PLACES[sign] ?? sign}</h2>
+      <h2>{PLACES[sign] ? t(PLACES[sign]) : propertyName(names, sign)}</h2>
       <div className="row">
         <input
           type="number"
           min={1}
           value={qty}
           onChange={(e) => setQty(Number(e.target.value))}
-          title="сколько добыть"
+          title={t("ui-place-gather-qty")}
         />
         {ways.flatMap((operation) =>
           (operation.gives as string[]).map((exit) => {
             const needs = operation.requires as string[];
+            const needWords = needs.map((one) => requirementName(names, one));
             const fits = needs.every(hasMeans);
             return (
               <button
-                key={`${operation.name}:${exit}`}
+                key={`${operation.id ?? operation.name}:${exit}`}
                 onClick={() =>
                   act(() =>
                     session.send("craft.start", {
                       output: exit,
                       units: qty,
-                      //: The button names the operation: one thing may
-                      //: come from several ways (D-196).
-                      way: operation.name,
+                      //: The button names the operation by its id (D-251): one
+                      //: thing may come from several ways (D-196).
+                      way: operation.id ?? operation.name,
                     }),
                   )
                 }
                 disabled={busy || qty <= 0 || !fits}
                 title={
                   fits
-                    ? needs.length > 0
-                      ? `нужен ${needs.join(", ")}; готовое — в «делах»`
-                      : "голыми руками, потому и дольше; готовое — в «делах»"
-                    : `нужен: ${needs.join(", ")}`
+                    ? needWords.length > 0
+                      ? t("ui-place-gather-needs", { needs: needWords.join(", ") })
+                      : t("ui-place-gather-barehanded")
+                    : t("ui-place-gather-missing", { needs: needWords.join(", ") })
                 }
               >
-                {operation.name}: {exit}
+                {operation.name}: {goodsName(names, exit)}
               </button>
             );
           }),
         )}
-        <span className="note">
-          Партия идёт временем, готовое забирается в «делах». Валежник и
-          прочее лежащее — в «Собирательстве».
-        </span>
+        <span className="note">{t("ui-place-gather-rule")}</span>
       </div>
     </section>
   );

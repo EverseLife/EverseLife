@@ -28,14 +28,14 @@ from src.models.craft import BatchState
 from src.models.estate import Building
 from src.models.inventory import Item
 
-BENCH = "Верстак"
+BENCH = "workbench"
 #: Made at the workbench out of wood alone -- the simplest honest batch.
-MAKE = "Рукоять"
+MAKE = "handle"
 
 
 async def _workshop(session: AsyncSession, *, machine_count: int = 1):
     stamp = uuid.uuid4().hex[:8]
-    node = await world.create_node(session, f"terra.shop.{stamp}", "Мастерская", area_m2=200)
+    node = await world.create_node(session, f"terra.shop.{stamp}", "workshop", area_m2=200)
     #: A machine lives in a building (D-106): the test's workshop is fully built.
     session.add(Building(node_id=node.id, area_m2=200))
     await session.flush()
@@ -50,7 +50,7 @@ async def _master(session: AsyncSession, node, name: str):
     body = await world.print_body(session, identity, node)
     await world.learn(session, identity, MAKE)
     pocket = await world.body_container(session, body)
-    await world.grant_item(session, pocket, "Дерево", amount=50, quality=60, origin="тест")
+    await world.grant_item(session, pocket, "wood", amount=50, quality=60, origin="тест")
     return identity, body
 
 
@@ -247,10 +247,10 @@ async def test_furniture_placed_like_machine_but_as_furniture(
     node = await _workshop(session, machine_count=0)
     _, body = await _master(session, node, "Хозяин")
     pocket = await world.body_container(session, body)
-    bed = await world.grant_item(session, pocket, "Кровать", quality=60, origin="тест")
+    bed = await world.grant_item(session, pocket, "bed", quality=60, origin="тест")
 
-    assert station.is_furniture(catalog, "Кровать")
-    assert not station.is_station(catalog, "Кровать")
+    assert station.is_furniture(catalog, "bed")
+    assert not station.is_station(catalog, "bed")
     await station.place(session, catalog, body, bed)
     yard = await world.node_container(session, node)
     assert bed.container_id == yard.id
@@ -260,7 +260,7 @@ async def test_non_machine_not_placed_in_node(session: AsyncSession, catalog: Ca
     node = await _workshop(session, machine_count=0)
     _, body = await _master(session, node, "Хозяин")
     pocket = await world.body_container(session, body)
-    sack = await world.grant_item(session, pocket, "Дерево", amount=1, quality=60, origin="тест")
+    sack = await world.grant_item(session, pocket, "wood", amount=1, quality=60, origin="тест")
     with pytest.raises(station.NotStation):
         await station.place(session, catalog, body, sack)
 

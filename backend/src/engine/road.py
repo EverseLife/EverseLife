@@ -66,7 +66,7 @@ from src.models.world import Edge, Node, Surface
 from src.units import AMOUNT_SCALE, SCALE_MAX, SCALE_MIN, amount, amount_float
 
 #: The thing class of consumables a surface is laid from (D-107, D-215).
-SURFACE_GOODS = "Полотно"
+SURFACE_GOODS = "roadbed"
 
 #: Surface tiers from bottom to top. The order is the laying ladder itself.
 LADDER = (Surface.TRAIL, Surface.ROAD, Surface.PAVED)
@@ -96,7 +96,7 @@ def next_step(surface: Surface) -> Surface:
     """The next surface tier. The highway is the ceiling."""
     place = LADDER.index(surface)
     if place + 1 >= len(LADDER):
-        raise TopSurface("мощёный тракт — верх лестницы: выше класть нечего")
+        raise TopSurface(key="road-top-surface")
     return LADDER[place + 1]
 
 
@@ -154,29 +154,31 @@ async def lay(
 
     moment = now or datetime.now(UTC)
     if body.state is not BodyState.ALIVE:
-        raise RoadError("мёртвое тело дорог не кладёт")
+        raise RoadError(key="road-dead")
     await travel.require_here(session, body)
 
     if body.node_id not in (edge.node_a_id, edge.node_b_id):
-        raise NotHere("дорогу кладут стоя в одном из концов ребра")
+        raise NotHere(key="road-stand-at-an-end")
     if mend:
         if float(edge.condition) >= SCALE_MAX:
-            raise RoadError("дорога цела: подсыпать нечего")
+            raise RoadError(key="road-intact")
         if edge.surface is Surface.TRAIL:
-            raise RoadError("бездорожью подсыпать нечего: сначала уложить дорогу")
+            raise RoadError(key="road-trail-not-mended")
         goal = edge.surface
     else:
         goal = next_step(edge.surface)
     if await pending(session, edge) is not None:
-        raise AlreadyWorking("на этом ребре уже идёт работа: дождитесь конца")
+        raise AlreadyWorking(key="road-edge-busy")
 
     #: The check comes before the write-off: a refusal must not eat half the surface.
     need_amount = needed(constants, edge, mend=mend)
     in_hands = await _surface_at_hand(session, body)
     if in_hands + _EPS < need_amount:
         raise NoSurfaceGoods(
-            f"нужно {need_amount:.0f} «{SURFACE_GOODS}», а в руках {in_hands:.0f}: "
-            "дорога — это материалы, а не намерение"
+            key="road-no-goods",
+            need=need_amount,
+            goods=SURFACE_GOODS,
+            have=in_hands,
         )
     written_off = await _take_surface(session, body, need_amount)
 
@@ -202,7 +204,7 @@ async def lay(
         body_id=body.id,
     )
     if job is None:  # pragma: no cover -- the key is unique per event
-        raise AlreadyWorking("работа уже поставлена")
+        raise AlreadyWorking(key="road-already-queued")
     return job
 
 
@@ -211,7 +213,7 @@ async def finished(session: AsyncSession, job: Job) -> None:
     """Work is done: the surface rose, the condition is as new."""
     edge = await session.get(Edge, uuid.UUID(job.payload["edge"]))
     if edge is None:  # pragma: no cover -- an edge is eternal, like the map
-        raise RoadError(f"задание {job.id}: ребра нет")
+        raise RoadError(key="road-job-no-edge", job=str(job.id))
 
     before = edge.surface
     edge.surface = Surface(job.payload["surface"])

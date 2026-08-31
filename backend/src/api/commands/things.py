@@ -13,7 +13,8 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.api.commands.common import _alive, _own_item
+from src import i18n
+from src.api.commands.common import _alive, _own_item, goods_key
 from src.api.registry import Refused, command
 from src.constants import current, current_catalog
 from src.engine import (
@@ -64,7 +65,7 @@ async def _item_hand(state: dict, db: AsyncSession, message: dict) -> dict:
     item = await _own_item(db, giver, message["item"])
     taker = await db.get(Body, uuid.UUID(message["to"]))
     if taker is None:
-        raise Refused("такого человека здесь нет")
+        raise Refused(key="cmd-person-not-here")
     qty = message.get("amount")
     given = await storage.hand(
         db,
@@ -77,12 +78,26 @@ async def _item_hand(state: dict, db: AsyncSession, message: dict) -> dict:
     )
 
     who = await db.get(Identity, taker.identity_id)
+    #: The only line the server says into a room. Written once, in the world's
+    #: default language, because an utterance is one stored row read by
+    #: everybody who was there -- the same reason the chronicle is said once
+    #: (D-251). What matters here is that it stopped saying `iron_ore`: the
+    #: goods went in as a stable key and the whole room read it.
     await chat.say(
         db,
         current(),
         giver,
-        f"передаёт {'—' if who is None else who.name}: {item.type_key}"
-        + (f" ×{given:g}" if given != 1 else ""),
+        i18n.render(
+            "chat-hands-over",
+            {
+                "named": "true" if who is not None else "false",
+                "who": "" if who is None else who.name,
+                "goods": item.type_key,
+                "counted": "true" if given != 1 else "false",
+                "amount": f"{given:g}",
+            },
+            locale=i18n.DEFAULT_LOCALE,
+        ),
         kind=Utterance.ACTION,
     )
     return {"given": given, "goods": item.type_key}
@@ -118,7 +133,7 @@ async def _ground_pick(state: dict, db: AsyncSession, message: dict) -> dict:
     body = await _alive(state, db)
     item = await db.get(Item, uuid.UUID(message["item"]))
     if item is None:
-        raise Refused("нет такой вещи")
+        raise Refused(key="cmd-no-such-thing")
     qty = message.get("amount")
     taken = await storage.pick(
         db,
@@ -137,7 +152,7 @@ async def _storage_put(state: dict, db: AsyncSession, message: dict) -> dict:
     body = await _alive(state, db)
     chest = await db.get(Item, uuid.UUID(message["storage"]))
     if chest is None:
-        raise Refused("нет такого хранилища")
+        raise Refused(key="cmd-no-such-storage")
     item = await _own_item(db, body, message["item"])
     qty = message.get("amount")
     put = await storage.put(
@@ -159,7 +174,7 @@ async def _storage_take(state: dict, db: AsyncSession, message: dict) -> dict:
     chest = await db.get(Item, uuid.UUID(message["storage"]))
     item = await db.get(Item, uuid.UUID(message["item"]))
     if chest is None or item is None:
-        raise Refused("нет такой вещи")
+        raise Refused(key="cmd-no-such-thing")
     qty = message.get("amount")
     taken = await storage.take(
         db,
@@ -185,7 +200,7 @@ async def _liquid_pour(state: dict, db: AsyncSession, message: dict) -> dict:
     source = await db.get(Item, uuid.UUID(str(message.get("from") or "")))
     target = await db.get(Item, uuid.UUID(str(message.get("to") or "")))
     if source is None or target is None:
-        raise Refused("нет такой тары")
+        raise Refused(key="cmd-no-such-vessel")
     qty = message.get("amount")
     goods_, poured = await liquid.pour(
         db,
@@ -194,7 +209,7 @@ async def _liquid_pour(state: dict, db: AsyncSession, message: dict) -> dict:
         body,
         source,
         target,
-        message.get("goods") or None,
+        goods_key(message["goods"]) if message.get("goods") else None,
         None if qty is None else float(qty),
     )
     return {"poured": poured, "goods": goods_}
@@ -215,6 +230,6 @@ async def _station_take(state: dict, db: AsyncSession, message: dict) -> dict:
     body = await _alive(state, db)
     item = await db.get(Item, uuid.UUID(message["item"]))
     if item is None:
-        raise Refused("нет такого предмета")
+        raise Refused(key="cmd-no-such-item")
     await station.take(db, current_catalog(), body, item)
     return {"taken": item.type_key}

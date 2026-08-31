@@ -32,6 +32,12 @@ import {
 } from "../panels/map/model";
 import { mooring, passage, term } from "../panels/map/orbits";
 import { long, price, spread } from "../panels/map/words";
+import { DEFAULT_LOCALE, Words, learn } from "../locale";
+
+//: The terms below are assembled from the client's own locale (D-251), which
+//: ships with the build rather than over the wire -- so an empty bundle is
+//: still a complete one here, and `spread(40, 120)` comes out in words.
+learn(new Words({ locale: DEFAULT_LOCALE, locales: [DEFAULT_LOCALE], ftl: "" }, null));
 
 const chain = (n: number): Link[] =>
   Array.from({ length: n - 1 }, (_, i) => ({

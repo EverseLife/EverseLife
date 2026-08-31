@@ -194,7 +194,7 @@ async def test_route_breaks_off_where_the_edge_went_away(
         stamp = uuid.uuid4().hex[:8]
         city = await world.create_node(session, f"terra.sa.{stamp}", "Город", area_m2=100)
         port = await world.create_node(session, f"terra.sb.{stamp}", "Космодром", area_m2=100)
-        aboard = await world.create_node(session, f"terra.sc.{stamp}", "Рубка", area_m2=100)
+        aboard = await world.create_node(session, f"terra.sc.{stamp}", "bridge", area_m2=100)
         await travel.connect(session, city, port, base_seconds=30)
         await travel.connect(session, port, aboard, base_seconds=30)
         identity = await world.create_identity(session, f"Пассажир-{stamp}")
@@ -334,7 +334,7 @@ async def test_cannot_walk_two_roads_at_once(session: AsyncSession, constants: C
 async def test_no_mining_en_route(session: AsyncSession, constants: Constants) -> None:
     """Matter requires presence, and there is no presence now (D-044)."""
     here, there, body = await _two_nodes(session)
-    vein = await world.create_vein(session, here, "Железная руда", richness=60, remaining=1000)
+    vein = await world.create_vein(session, here, "iron_ore", richness=60, remaining=1000)
     await travel.depart(session, constants, body, there)
 
     with pytest.raises(travel.InTransit):
@@ -346,13 +346,13 @@ async def test_no_loading_or_buying_en_route(
 ) -> None:
     here, there, body = await _two_nodes(session)
     yard = await world.node_container(session, here)
-    await world.grant_item(session, yard, "Терминал маркетплейса", quality=70, origin="тест")
+    await world.grant_item(session, yard, "market_terminal", quality=70, origin="тест")
     pocket = await world.body_container(session, body)
-    await world.grant_item(session, pocket, "Железная руда", amount=5, quality=60, origin="тест")
+    await world.grant_item(session, pocket, "iron_ore", amount=5, quality=60, origin="тест")
 
     await travel.depart(session, constants, body, there)
     with pytest.raises(travel.InTransit):
-        await market.load(session, constants, body, "Железная руда", 5)
+        await market.load(session, constants, body, "iron_ore", 5)
 
 
 async def test_no_recipe_copying_en_route(
@@ -365,7 +365,7 @@ async def test_no_recipe_copying_en_route(
 
     await travel.depart(session, constants, body, there)
     with pytest.raises(travel.InTransit):
-        await craft.copy_recipe(session, catalog, body, "Гвозди")
+        await craft.copy_recipe(session, catalog, body, "nails")
 
 
 async def test_no_batch_start_en_route(
@@ -373,18 +373,18 @@ async def test_no_batch_start_en_route(
 ) -> None:
     here, there, body = await _two_nodes(session)
     yard = await world.node_container(session, here)
-    await world.grant_item(session, yard, "Верстак", quality=60, origin="тест")
+    await world.grant_item(session, yard, "workbench", quality=60, origin="тест")
     identity_id = body.identity_id
     from src.models.identity import Identity
 
     identity = await session.get(Identity, identity_id)
-    await world.learn(session, identity, "Гвозди")
+    await world.learn(session, identity, "nails")
     pocket = await world.body_container(session, body)
-    await world.grant_item(session, pocket, "Слиток железа", amount=5, quality=60, origin="тест")
+    await world.grant_item(session, pocket, "iron_ingot", amount=5, quality=60, origin="тест")
 
     await travel.depart(session, constants, body, there)
     with pytest.raises(travel.InTransit):
-        await craft.plan(session, constants, catalog, body, "Гвозди", 1)
+        await craft.plan(session, constants, catalog, body, "nails", 1)
 
 
 # --- the road costs stamina (D-147) ------------------------------------------
@@ -436,7 +436,7 @@ async def test_with_vehicle_road_costs_body_nothing(
 
     here, there, body = await _two_nodes(session, seconds=3600)
     yard = await world.node_container(session, here)
-    barrow = await world.grant_item(session, yard, "Тачка", quality=60, origin="тест")
+    barrow = await world.grant_item(session, yard, "wheelbarrow", quality=60, origin="тест")
     await transport.harness(session, constants, catalog, body, barrow)
 
     before = float(body.stamina)
@@ -544,7 +544,7 @@ async def test_spaceport_is_the_second_door(session: AsyncSession, catalog: Cata
     assert not await travel.is_exit(session, market_)
 
     yard = await world.node_container(session, market_)
-    await world.grant_item(session, yard, "Космическая верфь", quality=60, origin="тест")
+    await world.grant_item(session, yard, "space_shipyard", quality=60, origin="тест")
     assert await travel.is_exit(session, market_), (
         "космодром делает узел выходом: к нему цепляются корабли"
     )

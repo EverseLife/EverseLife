@@ -110,22 +110,22 @@ async def eat(
     """
     moment = now or datetime.now(UTC)
     if body.state is not BodyState.ALIVE:
-        raise FoodError("мёртвые не едят")
+        raise FoodError(key="food-dead-eats")
     if body.sleeping_since is not None:
-        raise FoodError("тело спит: сначала проснуться")
+        raise FoodError(key="food-asleep")
 
     pocket = await world.body_container(session, body)
     if item.container_id != pocket.id:
-        raise FoodError("еда не в руках: едят своё и из рук")
+        raise FoodError(key="food-not-in-hands")
 
     recipe = _recipe_of(catalog, item.type_key)
     if recipe is None or not recipe.food:
-        raise NotFood(f"{item.type_key!r} не еда")
+        raise NotFood(key="food-not-food", goods=item.type_key)
     if item.spoils_at is not None and moment >= item.spoils_at:
         #: Rotten disappears on the attempt: it is seen, and it is gone.
         await session.delete(item)
         await session.flush()
-        raise Spoiled(f"{item.type_key!r} испортилось")
+        raise Spoiled(key="food-spoiled", goods=item.type_key)
 
     scale = constants[R.QUALITY_SCALE]
     quality = scale.mid if item.quality is None else float(item.quality)

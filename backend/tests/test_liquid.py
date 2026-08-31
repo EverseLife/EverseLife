@@ -32,17 +32,17 @@ from src.models.inventory import Item
 from src.models.world import Node
 from src.units import amount_float
 
-WATER = "Вода"
-SPIRIT = "Спирт"
-SUGAR = "Сахар"
-CANISTER = "Канистра"
-TANK = "Топливный бак"
-CHEST = "Сундук"
-PIPE = "Труба"
-COMPOST = "Компост"
-WASTE = "Органические отходы"
-VAT = "Бродильный чан"
-BENCH = "Верстак"
+WATER = "water"
+SPIRIT = "alcohol"
+SUGAR = "sugar"
+CANISTER = "canister"
+TANK = "fuel_tank"
+CHEST = "chest"
+PIPE = "pipe"
+COMPOST = "compost"
+WASTE = "organic_waste"
+VAT = "fermentation_vat"
+BENCH = "workbench"
 
 
 async def _home(session: AsyncSession, *machines: str):
@@ -86,7 +86,7 @@ async def _inside(session: AsyncSession, vessel: Item, liquid_name: str) -> floa
 def test_vault_marks_liquids_and_vessels(catalog: Catalog) -> None:
     """A list in the data and a field on the recipe, not names in code (D-090)."""
     assert liquid.is_liquid(catalog, WATER)
-    assert liquid.is_liquid(catalog, "Ракетное топливо")
+    assert liquid.is_liquid(catalog, "rocket_fuel")
     assert not liquid.is_liquid(catalog, PIPE)
     assert liquid.is_vessel(catalog, CANISTER) and liquid.is_vessel(catalog, TANK)
     assert not liquid.is_vessel(catalog, CHEST)
@@ -105,13 +105,20 @@ async def test_chest_refuses_a_liquid_and_a_vessel_refuses_a_pipe(
     chest = next(t for t in await world.contents(session, yard) if t.type_key == CHEST)
     tank = next(t for t in await world.contents(session, yard) if t.type_key == TANK)
 
+    #: Asserted by key and by the reason it carries, not by the sentence: the
+    #: wording belongs to the locale now, and a translation must not fail a
+    #: test about the rules (D-251 wave III).
     pipe = await _in_hands(session, body, PIPE, 2)
-    with pytest.raises(storage.StorageError, match="только жидкость"):
+    with pytest.raises(storage.StorageError) as into_tank:
         await storage.put(session, constants, catalog, body, tank, pipe)
+    assert into_tank.value.key == "storage-mismatch"
+    assert into_tank.value.params["why"] == "vessel"
     #: Water in the hands happens only in a test: the world never puts it there.
     water = await _in_hands(session, body, WATER, 5)
-    with pytest.raises(storage.StorageError, match="в таре"):
+    with pytest.raises(storage.StorageError) as into_chest:
         await storage.put(session, constants, catalog, body, chest, water)
+    assert into_chest.value.key == "storage-mismatch"
+    assert into_chest.value.params["why"] == "chest"
 
 
 async def test_batch_draws_water_from_the_canister(

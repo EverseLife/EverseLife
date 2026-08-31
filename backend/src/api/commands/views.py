@@ -16,7 +16,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.api.commands.common import _body, _node, _stamp
+from src.api.commands.common import _body, _node, _stamp, goods_key, tier_key
 from src.api.registry import Refused
 from src.constants import current, current_catalog
 from src.constants import registry as R
@@ -84,27 +84,32 @@ async def _city(state: dict, db: AsyncSession, message: dict):
     else:
         body = await _body(db, state["identity_id"])
         if body is None:
-            raise Refused("нет живого тела: назовите город явно")
+            raise Refused(key="cmd-no-live-body-name-city")
         node = await db.get(Node, body.node_id)
     city = await town.of_node(db, node)
     if city is None:
-        raise Refused("здесь нет города: за стенами законов нет")
+        raise Refused(key="cmd-no-city-here")
     return city
 
 
 async def _identity_by_name(db: AsyncSession, name: str) -> Identity:
     found = (await db.execute(select(Identity).where(Identity.name == name))).scalar_one_or_none()
     if found is None:
-        raise Refused(f"нет личности {name!r}")
+        raise Refused(key="cmd-no-identity-named", name=name)
     return found
 
 
 def _tiers(message: dict) -> dict[str, str]:
-    """`tiers: {input: tier}` from a request; anything else reads as "no choice"."""
+    """`tiers: {input: tier}` from a request; anything else reads as "no choice".
+
+    Canonicalized like every other inbound spelling: a pre-release tab sends
+    Russian goods and tier words, and without the translation the choice would
+    be silently ignored rather than refused.
+    """
     raw = message.get("tiers")
     if not isinstance(raw, dict):
         return {}
-    return {str(name): str(tier) for name, tier in raw.items() if tier}
+    return {goods_key(name): tier_key(tier) for name, tier in raw.items() if tier}
 
 
 def _sight(session: MiningSession, sight: mining.Sight) -> dict[str, Any]:

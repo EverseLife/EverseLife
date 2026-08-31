@@ -42,7 +42,7 @@ async def _city(session: AsyncSession, *, river: bool = False):
         area_m2=200,
         layer=Layer.CITY,
         parent=capital,
-        properties={"вода": "река" if river else "нет"},
+        properties={"water": "river" if river else "нет"},
     )
     identity = await world.create_identity(session, f"Житель-{stamp}")
     body = await world.print_body(session, identity, yard)
@@ -124,8 +124,8 @@ async def test_coal_station_burns_coal_and_dead_without_it(
     from src.units import amount_float
 
     _, yard, _, _ = await _city(session)
-    await _place(session, yard, "Угольная станция")
-    await _place(session, yard, "Уголь", qty=100)
+    await _place(session, yard, "coal_plant")
+    await _place(session, yard, "coal", qty=100)
 
     moment = datetime.now(UTC)
     pool = await energy.pool_of(session, constants, yard)
@@ -134,7 +134,7 @@ async def test_coal_station_burns_coal_and_dead_without_it(
 
     burned = constants[R.ENERGY_COAL_PLANT_FUEL_DRAW] * 2
     #: Energy per unit is a property of the material now (D-215).
-    per_coal = constants[R.ENERGY_FUEL_ENERGY]["Уголь"]
+    per_coal = constants[R.ENERGY_FUEL_ENERGY]["coal"]
     assert yielded == pytest.approx(burned * per_coal, rel=0.01)
     #: The vault rate matches the draw: 4 coal per hour give 200 energy.
     assert yielded == pytest.approx(constants[R.ENERGY_COAL_PLANT_RATE] * 2, rel=0.01)
@@ -144,7 +144,7 @@ async def test_coal_station_burns_coal_and_dead_without_it(
         amount_float(i_.amount)
         for i_ in (
             await session.execute(
-                select(Item).where(Item.container_id == container.id, Item.type_key == "Уголь")
+                select(Item).where(Item.container_id == container.id, Item.type_key == "coal")
             )
         )
         .scalars()
@@ -156,7 +156,7 @@ async def test_coal_station_burns_coal_and_dead_without_it(
     for stack in (
         (
             await session.execute(
-                select(Item).where(Item.container_id == container.id, Item.type_key == "Уголь")
+                select(Item).where(Item.container_id == container.id, Item.type_key == "coal")
             )
         )
         .scalars()
@@ -265,7 +265,7 @@ async def test_energy_does_not_sit_in_sack(session: AsyncSession, constants: Con
     """Only the pool or a battery -- there is no third kind of storage (D-071)."""
     _, yard, _, body = await _city(session)
     pocket = await world.body_container(session, body)
-    sack = await world.grant_item(session, pocket, "Шахтная крепь", quality=50, origin="тест")
+    sack = await world.grant_item(session, pocket, "shaft_support", quality=50, origin="тест")
     with pytest.raises(energy.NotBattery):
         await energy.charge_battery(session, constants, body, sack)
 

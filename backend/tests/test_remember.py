@@ -81,10 +81,10 @@ async def test_a_write_forgets_everything(session: AsyncSession):
     pocket = await world.body_container(session, body)
     assert await world.contents(session, pocket) == ()
 
-    await world.grant_item(session, pocket, "Железная руда", amount=3, origin="тест")
+    await world.grant_item(session, pocket, "iron_ore", amount=3, origin="тест")
 
     kinds = {thing.type_key for thing in await world.contents(session, pocket)}
-    assert kinds == {"Железная руда"}
+    assert kinds == {"iron_ore"}
 
 
 async def test_a_thing_put_but_not_flushed_is_seen(session: AsyncSession):
@@ -97,10 +97,10 @@ async def test_a_thing_put_but_not_flushed_is_seen(session: AsyncSession):
     assert await world.contents(session, pocket) == ()
 
     #: Added and deliberately not flushed: this is the trap the guard exists for.
-    session.add(Item(container_id=pocket.id, type_key="Гвозди", amount=to_amount(1), quality=50))
+    session.add(Item(container_id=pocket.id, type_key="nails", amount=to_amount(1), quality=50))
 
     kinds = {thing.type_key for thing in await world.contents(session, pocket)}
-    assert kinds == {"Гвозди"}
+    assert kinds == {"nails"}
 
 
 async def test_the_memory_dies_with_the_session(session: AsyncSession, database):

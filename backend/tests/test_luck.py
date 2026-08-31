@@ -113,31 +113,31 @@ async def test_luck_is_personal_and_by_matter(session: AsyncSession) -> None:
 async def test_the_deck_deals_every_card_before_repeating(session: AsyncSession) -> None:
     """Ten stones in a row and never any flax is what the deck is against (D-213)."""
     who = await _who(session)
-    table = {"Камень": 14, "Дерево": 12, "Лён": 10, "Смола": 2}
+    table = {"stone": 14, "wood": 12, "flax": 10, "resin": 2}
     dice = random.Random(4)
 
     #: One deck's worth of draws shows everything the table names.
     size = sum(max(1, round(weight / min(table.values()))) for weight in table.values())
     drawn = [await luck.draw(session, who, luck.FORAGE_WHAT, table, dice=dice) for _ in range(size)]
     assert set(drawn) == set(table), "колода обязана раздать всё, что в ней есть"
-    assert drawn.count("Смола") == 1, "редкое остаётся редким"
+    assert drawn.count("resin") == 1, "редкое остаётся редким"
 
 
 async def test_the_deck_keeps_the_table_proportions(session: AsyncSession) -> None:
     who = await _who(session)
-    table = {"Камень": 3, "Смола": 1}
+    table = {"stone": 3, "resin": 1}
     dice = random.Random(9)
     drawn = [await luck.draw(session, who, luck.FORAGE_WHAT, table, dice=dice) for _ in range(400)]
-    assert drawn.count("Камень") / len(drawn) == pytest.approx(0.75, abs=0.02)
+    assert drawn.count("stone") / len(drawn) == pytest.approx(0.75, abs=0.02)
 
 
 async def test_a_table_edited_in_the_vault_reshuffles(session: AsyncSession) -> None:
     """A deck of yesterday's things must not outlive the table it was built from."""
     who = await _who(session)
     dice = random.Random(11)
-    await luck.draw(session, who, luck.FORAGE_WHAT, {"Камень": 2, "Смола": 1}, dice=dice)
+    await luck.draw(session, who, luck.FORAGE_WHAT, {"stone": 2, "resin": 1}, dice=dice)
 
-    changed = {"Камень": 2, "Целебные травы": 1}
+    changed = {"stone": 2, "healing_herbs": 1}
     for _ in range(6):
         assert await luck.draw(session, who, luck.FORAGE_WHAT, changed, dice=dice) in changed
 

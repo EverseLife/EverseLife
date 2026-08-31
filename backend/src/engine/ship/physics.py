@@ -470,7 +470,7 @@ def passage_hours(constants: Constants, table_hours: float, thrust_ratio: float)
     otherwise it is enough to hang engines on a single node.
     """
     if thrust_ratio <= 0:  # pragma: no cover -- checked before the call
-        raise NotEnoughThrust("тяги нет вовсе")
+        raise NotEnoughThrust(key="ship-no-thrust-at-all")
     stretched = table_hours * constants[R.SHIP_REFERENCE_RATIO] / thrust_ratio
     floor = table_hours * constants[R.SHIP_ROUTE_MIN_SHARE] / PERCENT
     return max(floor, stretched)

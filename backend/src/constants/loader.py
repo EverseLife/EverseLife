@@ -23,9 +23,81 @@ from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any, TypeVar
 
+from src.constants.renames import RenameTable
 from src.constants.spec import ConstantError, Spec
 
 T = TypeVar("T")
+
+
+def _translate_keys(value: Any, table: Mapping[str, str]) -> Any:
+    """Dict keys through the D-251 rename table, recursively. Values stay."""
+    if isinstance(value, dict):
+        return {table.get(k, k): _translate_keys(v, table) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_translate_keys(v, table) for v in value]
+    return value
+
+
+def rename_key_table(renames: RenameTable) -> dict[str, str]:
+    """One merged key-translation map for constants sub-dicts.
+
+    `harvest.rates` keys by goods, `transport.speed_k` by classes,
+    `wear.environment_k` by planets, `build.types` by building kinds -- the
+    domains are disjoint in their Russian spellings, and that disjointness is
+    checked here rather than assumed: one word mapping two ways would translate
+    silently and differently depending on merge order.
+    """
+    merged: dict[str, str] = {}
+    for domain in (
+        renames.goods,
+        renames.classes,
+        renames.planets,
+        renames.building_kinds,
+        renames.virtual_stations,
+    ):
+        for name, entry_id in domain.items():
+            if merged.get(name, entry_id) != entry_id:
+                raise ConstantError(
+                    f"слово {name!r} переводится двумя ключами: {merged[name]!r} и {entry_id!r}"
+                )
+            merged[name] = entry_id
+    return merged
+
+
+def normalize_constants(raw: Mapping[str, Any], renames: RenameTable) -> dict[str, Any]:
+    """constants.json with Russian sub-dict keys translated to D-251 ids.
+
+    The vault still emits name-keyed tables; this is the constants side of the
+    same load-time seam as the catalog's. Special case: `quality.tiers` names
+    a tier in a VALUE field, and market rows store that word -- so it turns
+    into the tier id here.
+    """
+    table = rename_key_table(renames)
+    #: Three tables key by LOWERCASED vault words rather than the names
+    #: themselves: where a chat leaks ("кузница", "библиотека") and what a
+    #: vehicle class carries and how fast ("тачка", "повозка"). The lowercase
+    #: forms are admitted for them alone; a word with no class yet ("судно")
+    #: stays as written and becomes reachable when its class arrives.
+    lowered = {name.lower(): entry_id for name, entry_id in table.items()}
+    lowercase_keyed = (
+        "chat.leak_location_modifier",
+        "transport.speed_k",
+        "transport.capacity",
+    )
+    out: dict[str, Any] = {}
+    for key, value in raw.items():
+        if key in lowercase_keyed and isinstance(value, dict):
+            out[key] = {lowered.get(k, table.get(k, k)): v for k, v in value.items()}
+            continue
+        if key == "quality.tiers" and isinstance(value, list):
+            value = [
+                {**tier, "name": renames.tiers.get(tier.get("name"), tier.get("name"))}
+                if isinstance(tier, dict)
+                else tier
+                for tier in value
+            ]
+        out[key] = _translate_keys(value, table)
+    return out
 
 
 class Constants:
@@ -96,7 +168,7 @@ class Constants:
             )
 
 
-def load_constants(build_dir: Path) -> Constants:
+def load_constants(build_dir: Path, renames: RenameTable) -> Constants:
     path = Path(build_dir) / "constants.json"
     if not path.exists():
         raise ConstantError(
@@ -107,7 +179,7 @@ def load_constants(build_dir: Path) -> Constants:
         raw = json.load(fh)
     if not isinstance(raw, dict):
         raise ConstantError(f"{path}: ожидалась плоская карта ключ → значение")
-    return Constants(raw, source=str(path))
+    return Constants(normalize_constants(raw, renames), source=str(path))
 
 
 class ConstantsHolder:

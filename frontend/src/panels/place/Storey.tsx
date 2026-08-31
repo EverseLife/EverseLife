@@ -7,6 +7,7 @@
 import { useState } from "react";
 import * as api from "../../api";
 import { Refusal, useActions, useSession } from "../../actions";
+import { t } from "../../locale";
 import type { Props } from "./shared";
 import { Equipment } from "./Equipment";
 import { Ground } from "./Ground";
@@ -46,11 +47,14 @@ export function Storey({ look }: Omit<Props, "busy" | "act">) {
     <>
       <section>
         <Refusal of={acting} />
-        <h2>Этаж</h2>
+        <h2>{t("ui-place-storey-title")}</h2>
         <p className="note">
-          {look.node?.name} · {home.area.toFixed(0)} м²
-          {floor != null && home.floors > 0 && ` · ${floor}-й из ${home.floors}`}
-          {" · "}мест под оборудование {home.used} из {home.slots}
+          {look.node?.name} · {t("ui-place-area", { area: home.area.toFixed(0) })}
+          {floor != null &&
+            home.floors > 0 &&
+            t("ui-place-storey-which", { floor, floors: home.floors })}
+          {" · "}
+          {t("ui-place-slots", { used: home.used, slots: home.slots })}
         </p>
         {mine &&
           (renaming ? (
@@ -58,7 +62,7 @@ export function Storey({ look }: Omit<Props, "busy" | "act">) {
               <input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                aria-label="имя этажа"
+                aria-label={t("ui-place-storey-name")}
                 placeholder={look.node?.name}
               />
               <button
@@ -70,10 +74,10 @@ export function Storey({ look }: Omit<Props, "busy" | "act">) {
                   })
                 }
               >
-                Назвать
+                {t("ui-place-rename-save")}
               </button>
               <button className="quiet" onClick={() => setRenaming(false)}>
-                Отмена
+                {t("ui-place-cancel")}
               </button>
             </p>
           ) : (
@@ -84,35 +88,32 @@ export function Storey({ look }: Omit<Props, "busy" | "act">) {
                 setRenaming(true);
               }}
             >
-              Переименовать этаж
+              {t("ui-place-storey-rename")}
             </button>
           ))}
-        <p className="note">
-          Дом стоит на участке внизу: тип, состояние, ремонт и снос — там же.
-          Обрушится он — этаж падёт с ним, и всё, что на нём стояло и лежало.
-        </p>
+        <p className="note">{t("ui-place-storey-rule")}</p>
       </section>
 
       {/* What makes the room what it is. A storey is a floor of the house, and
           machines take its metres by exactly the rule they take the ground
           floor's (D-106, D-247). */}
       <Equipment
-        title="Рабочие станции"
+        title={t("ui-place-equipment-stations")}
         things={look.bench ?? []}
         kind="station"
         look={look}
         busy={busy}
         act={act}
-        note="За рабочей станцией работает один: пока идёт партия, второму она не отдаётся."
+        note={t("ui-place-equipment-stations-rule")}
       />
       <Equipment
-        title="Мебель"
+        title={t("ui-place-equipment-furniture")}
         things={look.furniture ?? []}
         kind="furniture"
         look={look}
         busy={busy}
         act={act}
-        note="Мебель обустраивает быт: кровать — сон быстрее, сундук — хранение. На ней не работают."
+        note={t("ui-place-equipment-furniture-rule")}
       />
 
       {/* And what lies on its floor and in its chests -- the same window a

@@ -6,7 +6,9 @@
 
 import { useEffect, useState } from "react";
 import * as api from "../../api";
-import { Refusal, useActions, useSession } from "../../actions";
+import { Refusal, useActions, useNames, useSession } from "../../actions";
+import { t } from "../../locale";
+import { buildingKindName, goodsName } from "../../names";
 import { Deadline } from "../../Deadline";
 import { Gauge } from "../../Gauge";
 import { TierPick } from "../../Tier";
@@ -36,6 +38,7 @@ import { Repair } from "./Repair";
  */
 export function House({ look }: Omit<Props, "busy" | "act">) {
   const session = useSession();
+  const names = useNames();
   //: Own waiting and own refusal: this window is a window of its own in the row.
   const acting = useActions();
   const { busy, act } = acting;
@@ -112,30 +115,35 @@ export function House({ look }: Omit<Props, "busy" | "act">) {
     <>
     <section>
       <Refusal of={acting} />
-      <h2>Здание</h2>
+      <h2>{t("ui-place-house-title")}</h2>
       {/* The house as a state card (D-238): the condition on a track, the
           wear as a warning chip -- instead of the figures buried in a sentence. */}
       {home.area > 0 ? (
         <div className="state-card">
           <div className="card-head">
-            <b>{home.kind ?? "Дом"}</b>
+            <b>{home.kind ? buildingKindName(names, home.kind) : t("ui-place-house-default")}</b>
             <span className="note">
-              {home.area.toFixed(0)} м² в {home.floors} эт. на{" "}
-              {home.ground.toFixed(0)} м² земли · мест на первом этаже{" "}
-              {home.used} из {home.slots}
+              {t("ui-place-house-summary", {
+                area: home.area.toFixed(0),
+                floors: home.floors,
+                ground: home.ground.toFixed(0),
+                used: home.used,
+                slots: home.slots,
+              })}
             </span>
           </div>
           {home.condition != null && (
             <Gauge
-              label="состояние"
+              label={t("ui-place-house-condition")}
               value={home.condition}
               reading={`${home.condition.toFixed(0)}%`}
             />
           )}
           {home.decay > 0 && (
             <div className="chips">
-              <span className="chip warn" title="порча идёт каждые сутки; чинят в этом же окне">
-                порча · <b>−{home.decay}%/сут</b>
+              <span className="chip warn" title={t("ui-place-house-decay-hint")}>
+                {t("ui-place-house-decay")}{" "}
+                <b>{t("ui-place-house-decay-rate", { decay: home.decay })}</b>
               </span>
             </div>
           )}
@@ -143,26 +151,28 @@ export function House({ look }: Omit<Props, "busy" | "act">) {
               staircase (D-247): each has its own floor and its own slots. */}
           {home.floors > 1 && (
             <p className="note">
-              Этажей выше первого: {home.floors - 1}. На каждый ведёт лестница, и у
-              каждого свой пол и свои места под оборудование — они на карте рядом.
+              {t("ui-place-house-storeys", { count: home.floors - 1 })}
             </p>
           )}
         </div>
       ) : (
-        <p className="note">
-          Дома нет — только двор. Рабочие станции и мебель ставят в дом: сначала строят.
-        </p>
+        <p className="note">{t("ui-place-house-none")}</p>
       )}
 
       {/* A site under way speaks the deadline bar, like every other term. */}
       {going.map((w, i) => (
         <div className="doing" key={`${w.ready_at}-${i}`}>
           <span className="doing-what">
-            стройка: {w.area.toFixed(0)} м² в {w.floors} эт.
-            {w.kind ? ` (${w.kind})` : ""}
+            {t("ui-place-house-site", {
+              area: w.area.toFixed(0),
+              floors: w.floors,
+            })}
+            {w.kind
+              ? t("ui-place-house-site-kind", { kind: buildingKindName(names, w.kind) })
+              : ""}
           </span>
-          <span className="doing-aside note">материалы уже в стене</span>
-          <Deadline until={w.ready_at} label="стройка" size="row" />
+          <span className="doing-aside note">{t("ui-place-house-site-note")}</span>
+          <Deadline until={w.ready_at} label={t("ui-place-house-site-label")} size="row" />
         </div>
       ))}
 
@@ -180,12 +190,16 @@ export function House({ look }: Omit<Props, "busy" | "act">) {
                 setKind(e.target.value);
                 setBill(null);
               }}
-              title="тип здания"
+              title={t("ui-place-house-kind-hint")}
             >
               {shelf.length === 0 && <option value="">…</option>}
               {shelf.map((k) => (
                 <option key={k.kind} value={k.kind}>
-                  {k.kind} · этаж ×{k.growth} · порча {k.decay}%/сут
+                  {t("ui-place-house-kind-option", {
+                    kind: buildingKindName(names, k.kind),
+                    growth: k.growth,
+                    decay: k.decay,
+                  })}
                 </option>
               ))}
             </select>
@@ -195,20 +209,23 @@ export function House({ look }: Omit<Props, "busy" | "act">) {
               max={Math.floor(free)}
               value={area}
               onChange={(e) => setArea(Number(e.target.value))}
-              title="пятно застройки, м²"
+              title={t("ui-place-house-footprint")}
             />
             <input
               type="number"
               min={1}
               value={floors}
               onChange={(e) => setFloors(Number(e.target.value))}
-              title="этажей"
+              title={t("ui-place-house-floors")}
             />
             <span className="note">
-              {area} м² × {floors} эт. = {area * floors} м² жилой площади,
-              и каждый этаж выше первого станет отдельным местом с лестницей.
-              Свободно {free.toFixed(0)} м² двора, меньше {least} м² не строится.
-              {" "}Этажность не ограничена — за высоту платит смета.
+              {t("ui-place-house-plan", {
+                area,
+                floors,
+                living: area * floors,
+                free: free.toFixed(0),
+                least,
+              })}
             </span>
           </div>
 
@@ -216,7 +233,7 @@ export function House({ look }: Omit<Props, "busy" | "act">) {
             (refusal ? (
               <p className="reason">{refusal}</p>
             ) : (
-              <p className="note">Смета считается сама, пока вы выбираете.</p>
+              <p className="note">{t("ui-place-house-counting")}</p>
             ))}
           {bill && (
             <>
@@ -224,9 +241,12 @@ export function House({ look }: Omit<Props, "busy" | "act">) {
                 <tbody>
                   {bill.materials.map((m: any) => (
                     <tr key={m.goods}>
-                      <td>{m.goods}</td>
+                      <td>{goodsName(names, m.goods)}</td>
                       <td className={m.have < m.need ? "note" : undefined}>
-                        {m.have.toFixed(1)} из {m.need.toFixed(1)}
+                        {t("ui-place-materials-have", {
+                          have: m.have.toFixed(1),
+                          need: m.need.toFixed(1),
+                        })}
                       </td>
                       <td>
                         {/* Which quality goes into the wall (D-058). */}
@@ -268,12 +288,17 @@ export function House({ look }: Omit<Props, "busy" | "act">) {
                     bill.floors !== floors
                   }
                 >
-                  Строить {area} м² в {floors} эт.
+                  {t("ui-place-house-build", { area, floors })}
                 </button>
                 <span className="note">
                   {short.length > 0
-                    ? `Не хватает: ${short.map((m: any) => m.goods).join(", ")}`
-                    : `Работы на ${(bill.minutes / 60).toFixed(1)} ч; ${bill.kind}.`}
+                    ? t("ui-place-short", {
+                        what: short.map((m: any) => goodsName(names, m.goods)).join(", "),
+                      })
+                    : t("ui-place-house-term", {
+                        hours: (bill.minutes / 60).toFixed(1),
+                        kind: buildingKindName(names, bill.kind),
+                      })}
                 </span>
               </div>
             </>
@@ -292,22 +317,22 @@ export function House({ look }: Omit<Props, "busy" | "act">) {
       )}
     </section>
     <Equipment
-      title="Рабочие станции"
+      title={t("ui-place-equipment-stations")}
       things={look.bench ?? []}
       kind="station"
       look={look}
       busy={busy}
       act={act}
-      note="За рабочей станцией работает один: пока идёт партия, второму она не отдаётся."
+      note={t("ui-place-equipment-stations-rule")}
     />
     <Equipment
-      title="Мебель"
+      title={t("ui-place-equipment-furniture")}
       things={look.furniture ?? []}
       kind="furniture"
       look={look}
       busy={busy}
       act={act}
-      note="Мебель обустраивает быт: кровать — сон быстрее, сундук — хранение. На ней не работают."
+      note={t("ui-place-equipment-furniture-rule")}
     />
     </>
   );

@@ -345,7 +345,9 @@ def composition(constants: Constants, kind: str) -> dict[str, float]:
     """
     types = constants[R.BUILD_TYPES]
     if kind not in types:
-        raise UnknownKind(f"«{kind}» — не тип здания; строят из: {', '.join(types)}")
+        #: Ids joined, not words: the message says them with `KINDS()`, and how
+        #: a list is punctuated is the language's business, not ours (D-251).
+        raise UnknownKind(key="estate-unknown-kind", kind=kind, kinds=", ".join(types))
     return types[kind]
 
 
@@ -696,31 +698,28 @@ async def construct(
     """
     moment = now or datetime.now(UTC)
     if body.state is not BodyState.ALIVE:
-        raise EstateError("мёртвое тело не строит")
+        raise EstateError(key="estate-build-dead")
     await travel.require_here(session, body)
     if body.node_id != node.id:
-        raise EstateError("строят ногами: дойдите до участка")
+        raise EstateError(key="estate-build-on-foot")
     #: A storey is a floor of a house, not ground under one (D-247). Left to
     #: the room check below it would refuse with "nothing free on the plot",
     #: which is true of a third floor and explains nothing.
     if storey_of(node) is not None:
-        raise EstateError("это этаж, а не участок: дом строят на земле — спуститесь во двор")
+        raise EstateError(key="estate-build-not-on-storey")
     nobodys = node.owner_identity_id is None and node.owner_city_id is None
     if (
         not nobodys
         and node.owner_identity_id != body.identity_id
         and not await _city_ordered_build(session, node, kind or kinds(constants)[0], area, floors)
     ):
-        raise EstateError("участок не ваш: строят у себя")
+        raise EstateError(key="estate-build-not-yours")
     if floors < 1:
-        raise EstateError("дом без этажей — это яма")
+        raise EstateError(key="estate-build-no-floors")
     #: Pyroxis does not get built on (D-230): the ground shakes too often for
     #: a wall to outlive its builder, and what stands there arrived by ship.
     if node.planet is Planet.PYROXIS:
-        raise EstateError(
-            "на Пироксисе не строят: землетрясения рушат постройки быстрее, "
-            "чем их ставят. Жильё здесь — борт корабля"
-        )
+        raise EstateError(key="estate-build-not-on-pyroxis")
 
     #: Unnamed, the house is of the plainest type there is: that is what the
     #: world was built of before types arrived, and the default must not silently
@@ -730,19 +729,20 @@ async def construct(
 
     smallest = constants[R.BUILD_AREA_MIN]
     if area < smallest:
-        raise TooSmall(
-            f"пятно меньше {smallest:.0f} м² — это навес, а не здание: просят {area:.0f}"
-        )
+        raise TooSmall(key="estate-build-too-small", smallest=smallest, area=area)
 
     #: The plot's metres are a remainder, and this is where they are spent.
     await hold_ground(session, node)
     free = await free_ground(session, node)
     if area > free:
         going = await planned_footprint(session, node)
-        started = f", в стройке {going:.0f}" if going > 0 else ""
         raise NoRoom(
-            f"на участке {float(node.area_m2):.0f} м², свободно {max(free, 0):.0f}"
-            f"{started}: ещё {area:.0f} не помещается"
+            key="estate-build-no-room",
+            plot=float(node.area_m2),
+            free=max(free, 0),
+            started="true" if going > 0 else "false",
+            going=going,
+            area=area,
         )
 
     #: Materials come from the vault, per metre of floor. Written off at once:
@@ -789,5 +789,5 @@ async def construct(
         body_id=body.id,
     )
     if job is None:  # pragma: no cover -- the key is unique per event
-        raise EstateError("стройка уже поставлена")
+        raise EstateError(key="estate-build-already-queued")
     return job

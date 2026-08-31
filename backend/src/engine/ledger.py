@@ -113,14 +113,11 @@ async def post(
     other cases going negative is a bug of the calling code.
     """
     if not postings:
-        raise Unbalanced("операция без проводок")
+        raise Unbalanced(key="ledger-no-postings")
 
     total = sum(p.amount for p in postings)
     if total != 0:
-        raise Unbalanced(
-            f"проводки не сходятся: сумма {total}, основание {reason}. "
-            f"Деньги переходят, а не появляются (И2)"
-        )
+        raise Unbalanced(key="ledger-unbalanced", total=total, reason=reason)
 
     #: Every debited account is locked before its balance is read, in id
     #: order so two operations touching the same pair never deadlock. Without
@@ -138,6 +135,11 @@ async def post(
     if not allow_overdraft:
         await _check_funds(session, postings)
 
+    #: A memo's **keys** are field names and are written in ASCII (D-251).
+    #: Most of the ones already in the book are Russian and stay that way: the
+    #: table is append-only, so they cannot be migrated, and nothing renders
+    #: them -- only the statement's `ground` reaches a player, and
+    #: `finance._memo` takes either spelling. New ones are keyed in ASCII.
     transaction = LedgerTransaction(reason=reason, event_id=event_id, memo=memo or {})
     session.add(transaction)
     await session.flush()
@@ -167,7 +169,7 @@ async def transfer(
 ) -> LedgerTransaction:
     """The common case: move from pocket to pocket."""
     if amount <= 0:
-        raise LedgerError(f"перевод должен быть положительным, получено {amount}")
+        raise LedgerError(key="ledger-not-positive", amount=amount)
     return await post(
         session,
         reason,
@@ -192,7 +194,7 @@ async def _check_funds(session: AsyncSession, postings: Sequence[Posting]) -> No
             continue
         current = await balance(session, account_id)
         if current + delta < 0:
-            raise InsufficientFunds(f"на счёте {account_id} {current}, требуется {-delta}")
+            raise InsufficientFunds(key="ledger-insufficient", have=current, need=-delta)
 
 
 async def money_supply(session: AsyncSession, currency: Currency = Currency.TK) -> int:

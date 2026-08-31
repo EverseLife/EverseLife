@@ -27,7 +27,8 @@
 
 import type { ReactNode } from "react";
 import { Hint } from "./Hint";
+import { t } from "./locale";
 
 export function Rule({ children }: { children: ReactNode }) {
-  return <Hint label="как это работает">{children}</Hint>;
+  return <Hint label={t("ui-rule")}>{children}</Hint>;
 }

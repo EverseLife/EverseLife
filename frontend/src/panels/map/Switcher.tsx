@@ -29,6 +29,7 @@
 import { Glyph } from "../../Glyph";
 import { Hint } from "../../Hint";
 import type { GlyphName } from "../../glyphs";
+import { t } from "../../locale";
 import type { LayerId } from "./model";
 
 type Layer = { id: LayerId; label: string; mark: GlyphName };
@@ -48,7 +49,7 @@ export function Switcher({
   tethered: boolean;
   onTether: (on: boolean) => void;
 }) {
-  const word = tethered ? "камера за вами" : "камера свободна";
+  const word = t(tethered ? "ui-map-cam-tied" : "ui-map-cam-free");
   return (
     <nav className="row tabs map-layers">
       {layers.map((option) => (
@@ -79,15 +80,7 @@ export function Switcher({
         <Glyph name={tethered ? "pinned" : "loose"} />
         <span className="tab-word">{word}</span>
       </button>
-      <Hint>
-        Видно два шага графа вокруг — куда можно дойти и что видно оттуда;
-        остальное открывается ходьбой. Узлы стоят там, где стоят: место узла
-        одно и то же у всех игроков и завтра, поэтому мышью их не двигают.
-        Камера за вами: вы в середине карты, она едет следом, колесо только
-        приближает и отдаляет. Камера свободна: карта листается мышью и стоит
-        где оставили — при ходьбе она за вами не поедет. Слои: космос, планета,
-        город — один и тот же граф с разной высоты.
-      </Hint>
+      <Hint>{t("ui-map-switcher-rule")}</Hint>
     </nav>
   );
 }

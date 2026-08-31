@@ -23,6 +23,7 @@
 import { SHAPES } from "../../glyphs";
 import { nodeGlyph } from "../../marks";
 import { SURFACE, spell, type MapNode } from "../../api";
+import { t } from "../../locale";
 import { DASH, type Link, type Point } from "./model";
 
 type Place = (key: string) => Point | undefined;
@@ -91,7 +92,7 @@ export function Edges({ edges, at, labelled }: {
                 that is not a road, so the tie is drawn bare. */}
             {labelled && (
               <text x={(a.x + b.x) / 2} y={(a.y + b.y) / 2 - 6} className="edge-label">
-                {spell(edge.seconds)} · {SURFACE[edge.surface as keyof typeof SURFACE]}
+                {spell(edge.seconds)} · {t(SURFACE[edge.surface as keyof typeof SURFACE])}
               </text>
             )}
           </g>
@@ -194,7 +195,7 @@ export function Nodes({
                 the map shows the unreachable and says so. */}
             {node.deferred && (
               <text x={p.x} y={p.y + 30} className="node-door">
-                вне альфы
+                {t("ui-map-node-alpha")}
               </text>
             )}
             {/* The city's two doors (D-206): every road beyond the walls starts
@@ -202,7 +203,7 @@ export function Nodes({
                 graph reads as an arbitrary tangle -- and it is not one. */}
             {(node.exit || node.port) && (
               <text x={p.x} y={p.y + 30} className="node-door">
-                {node.exit ? "ворота" : "космодром"}
+                {node.exit ? t("ui-map-node-gate") : t("ui-map-node-spaceport")}
               </text>
             )}
           </g>

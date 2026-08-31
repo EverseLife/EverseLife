@@ -22,6 +22,7 @@
 import { useMemo, useState } from "react";
 import * as api from "../api";
 import type { Door } from "../api";
+import { t } from "../locale";
 
 type Props = {
   doors: Door[];
@@ -49,33 +50,26 @@ export function Doors({ doors, name, busy, trouble, onPick, onBack }: Props) {
 
   return (
     <section className="wide doors-step">
-      <h1>Где вас напечатать</h1>
-      <p className="note center">
-        {name}, тела у вас ещё нет — есть выбор машины, которая его соберёт.
-        Первое тело печатается сразу и бесплатно везде; дальше за скорость
-        платят.
-      </p>
+      <h1>{t("ui-doors-title")}</h1>
+      <p className="note center">{t("ui-doors-lead", { name })}</p>
 
       <div className="row search">
         <input
           type="search"
-          placeholder="найти город"
+          placeholder={t("ui-doors-search")}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          aria-label="поиск города"
+          aria-label={t("ui-doors-search-label")}
         />
         <span className="note">
-          {visible.length} из {doors.length} · сортировка по людям в городе
+          {t("ui-doors-count", { shown: String(visible.length), total: String(doors.length) })}
         </span>
       </div>
 
       {doors.length === 0 ? (
-        <p className="trouble">
-          В мире нет ни одного биопринтера. Этого положения быть не должно: вход
-          в игру не блокируется никогда.
-        </p>
+        <p className="trouble">{t("ui-doors-empty-world")}</p>
       ) : visible.length === 0 ? (
-        <p className="note center">Ничего не нашлось — попробуйте иначе.</p>
+        <p className="note center">{t("ui-doors-nothing-found")}</p>
       ) : (
         <div className="doors">
           {visible.map((door) => (
@@ -83,35 +77,33 @@ export function Doors({ doors, name, busy, trouble, onPick, onBack }: Props) {
               {/* В заголовке — чем эта дверь отличается от соседней. Город
                   вынесен в строку: у столицы дверей две, и одинаковые
                   заголовки не давали бы их различить. */}
-              <h2>{door.precursor ? "Принтер Предтеч" : door.name}</h2>
+              <h2>{door.precursor ? t("ui-doors-precursor") : door.name}</h2>
               <p className="note">
-                {door.precursor
-                  ? "Вечная машина настоящих людей: ничьей казны не требует и не откажет никому."
-                  : "Городской биопринтер: работает на энергии и железе города."}
+                {door.precursor ? t("ui-doors-precursor-note") : t("ui-doors-city-note")}
               </p>
               <table>
                 <tbody>
                   <tr>
-                    <td>город</td>
-                    <td className="num">{door.city ?? "вне города"}</td>
+                    <td>{t("ui-doors-city")}</td>
+                    <td className="num">{door.city ?? t("ui-doors-outside")}</td>
                   </tr>
                   <tr>
-                    <td>людей сейчас</td>
+                    <td>{t("ui-doors-people")}</td>
                     <td className="num">{door.city ? door.population : "—"}</td>
                   </tr>
                   <tr>
-                    <td>граждан</td>
+                    <td>{t("ui-doors-citizens")}</td>
                     <td className="num">{door.city ? door.citizens : "—"}</td>
                   </tr>
                   <tr>
-                    <td>подъёмные</td>
+                    <td>{t("ui-doors-grant")}</td>
                     <td className="num">
-                      {door.grant > 0 ? `${api.tk(door.grant)} ₭` : "нет"}
+                      {door.grant > 0 ? `${api.tk(door.grant)} ₭` : t("ui-doors-nothing")}
                     </td>
                   </tr>
                   <tr>
-                    <td>первое тело</td>
-                    <td className="num">сразу</td>
+                    <td>{t("ui-doors-first-body")}</td>
+                    <td className="num">{t("ui-doors-at-once")}</td>
                   </tr>
                   {/* Условия печати (D-184). Показаны у городских дверей и
                       только у них: у Предтеч условий нет и быть не может —
@@ -119,15 +111,15 @@ export function Doors({ doors, name, busy, trouble, onPick, onBack }: Props) {
                   {door.city && (
                     <>
                       <tr>
-                        <td>гражданство</td>
+                        <td>{t("ui-doors-citizenship")}</td>
                         <td className="num">
-                          {door.citizenship ? obligation(door.term) : "не требуется"}
+                          {door.citizenship ? obligation(door.term) : t("ui-doors-not-required")}
                         </td>
                       </tr>
                       <tr>
-                        <td>налог с продажи</td>
+                        <td>{t("ui-doors-tax")}</td>
                         <td className="num">
-                          {door.tax > 0 ? `${door.tax}%` : "нет"}
+                          {door.tax > 0 ? `${door.tax}%` : t("ui-doors-nothing")}
                         </td>
                       </tr>
                     </>
@@ -139,7 +131,7 @@ export function Doors({ doors, name, busy, trouble, onPick, onBack }: Props) {
               {door.about && <p className="say">«{door.about}»</p>}
               <div className="row">
                 <button onClick={() => onPick(door.node)} disabled={busy}>
-                  Печататься здесь
+                  {t("ui-doors-print-here")}
                 </button>
               </div>
             </section>
@@ -147,23 +139,13 @@ export function Doors({ doors, name, busy, trouble, onPick, onBack }: Props) {
         </div>
       )}
 
-      <p className="note">
-        Подъёмные платит город из своей казны, а не мир из воздуха:
-        новый житель городу выгоден, и потому за него торгуются.
-      </p>
-      <p className="note">
-        Строки таблицы движок исполняет: обязательное гражданство наступает в
-        момент печати и держит весь срок, налог удерживается с каждой продажи
-. У Принтера Предтеч условий нет — машина ничья.
-      </p>
-      <p className="note">
-        В кавычках — слово самого города. Это обещание живых людей, и движок за
-        него не отвечает: не сдержали — дело суда.
-      </p>
+      <p className="note">{t("ui-doors-grant-note")}</p>
+      <p className="note">{t("ui-doors-rules-note")}</p>
+      <p className="note">{t("ui-doors-word-note")}</p>
       {trouble && <p className="trouble">{trouble}</p>}
       <div className="row">
         <button className="quiet" onClick={onBack} disabled={busy}>
-          ← назад
+          {t("ui-doors-back")}
         </button>
       </div>
     </section>
@@ -172,7 +154,9 @@ export function Doors({ doors, name, busy, trouble, onPick, onBack }: Props) {
 
 /** The obligation in words: "for 3 days" or just "mandatory". */
 function obligation(days: number): string {
-  if (days <= 0) return "обязательно";
-  if (days < 1) return `обязательно · ${Math.round(days * 24)} ч`;
-  return `обязательно · ${days % 1 === 0 ? days : days.toFixed(1)} сут`;
+  if (days <= 0) return t("ui-doors-term-always");
+  if (days < 1) return t("ui-doors-term-hours", { hours: String(Math.round(days * 24)) });
+  return t("ui-doors-term-days", {
+    days: days % 1 === 0 ? String(days) : days.toFixed(1),
+  });
 }

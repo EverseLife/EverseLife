@@ -17,6 +17,7 @@ not handing everyone the idea.
 
 from __future__ import annotations
 
+from src.api.commands.common import goods_key
 from src.api.registry import Ctx, Refused, command
 from src.constants import current, current_catalog
 from src.engine import alpha, death, liquid
@@ -30,7 +31,7 @@ async def _admin(ctx: Ctx) -> Identity:
     if not is_admin(identity.name):
         #: Deliberately the same words as an unknown command would get: a
         #: player who guessed the name learns nothing about who does have it.
-        raise Refused(f"нет такой команды: {ctx.message.get('cmd')}")
+        raise Refused(key="cmd-unknown-command", cmd=ctx.message.get("cmd"))
     return identity
 
 
@@ -51,7 +52,7 @@ async def _alpha_spawn(ctx: Ctx) -> dict:
         current(),
         current_catalog(),
         body,
-        type_key=str(ctx.arg("goods")),
+        type_key=goods_key(ctx.arg("goods")),
         amount=asked,
         quality=None if ctx.arg("quality") is None else float(ctx.arg("quality")),
     )

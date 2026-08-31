@@ -13,6 +13,7 @@
 
 import type { MapNode, WorldMap } from "../../api";
 import { Hint } from "../../Hint";
+import { t } from "../../locale";
 import type { LayerId, Point } from "./model";
 import { FORECAST_DAYS, STAR, WINDOW_EDGE, passage, term } from "./orbits";
 import type { Sky } from "./useSky";
@@ -30,7 +31,7 @@ export function SkyClock({ sky }: { sky: Sky }) {
   return (
     <div className="row sky">
       <button className="quiet" onClick={() => setWinding((on) => !on)}>
-        {winding ? "Остановить" : "Прокрутить"}
+        {t(winding ? "ui-map-sky-stop" : "ui-map-sky-wind")}
       </button>
       <input
         type="range"
@@ -38,20 +39,20 @@ export function SkyClock({ sky }: { sky: Sky }) {
         max={FORECAST_DAYS}
         step={0.25}
         value={ahead}
-        aria-label="на сколько суток вперёд показано небо"
+        aria-label={t("ui-map-sky-slider")}
         onChange={(e) => wind(Number(e.target.value))}
       />
-      <span className="note">{ahead < 0.05 ? "сейчас" : `+${ahead.toFixed(1)} сут`}</span>
+      <span className="note">
+        {ahead < 0.05
+          ? t("ui-map-sky-now-note")
+          : t("ui-map-sky-ahead", { days: ahead.toFixed(1) })}
+      </span>
       {ahead >= 0.05 && (
         <button className="quiet" onClick={() => wind(0)}>
-          Сейчас
+          {t("ui-map-sky-now")}
         </button>
       )}
-      <Hint>
-        Планеты идут вокруг звезды каждая своим сроком, и расстояние между ними
-        меняется само. Глазом этого не видно: за час орбита проходит доли
-        градуса — поэтому ход времени показывает прокрутка, а не ожидание.
-      </Hint>
+      <Hint>{t("ui-map-sky-rule")}</Hint>
     </div>
   );
 }

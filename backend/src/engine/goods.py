@@ -96,7 +96,5 @@ def at_least_one(name: str, value: float, *, catalog: Catalog | None = None) -> 
     """
     got = whole(name, value, catalog=catalog)
     if got <= 0 < value:
-        raise NotWhole(
-            f"«{name}» считается штуками: {value:g} — это меньше одной, берут и кладут целыми"
-        )
+        raise NotWhole(key="goods-not-whole", goods=name, amount=value)
     return got

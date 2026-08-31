@@ -84,7 +84,7 @@ async def _edge_with_worker(session: AsyncSession, *, condition: float, surface_
         await world.grant_item(
             session,
             pocket,
-            "Дорожное полотно",
+            "road_paving",
             amount=surface_amount,
             origin="сценарий теста",
         )

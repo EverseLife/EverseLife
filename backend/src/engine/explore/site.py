@@ -65,7 +65,7 @@ async def lay(
     if goal == LOT:
         city = await town.of_node(session, origin)
         if city is None:
-            raise ExploreError("участок ищут в городе: за стенами застройки нет")
+            raise ExploreError(key="explore-lot-outside-city")
         delegate = await session.get(Node, city.node_id)
         ring = constants[R.LAND_AREA_RING1]
         plot = await world.create_node(
@@ -161,11 +161,11 @@ async def properties(
     temperature = constants[R.SITE_TEMP_RANGE]
     rainfall = constants[R.SITE_RAIN_RANGE]
     return {
-        "вода": "река" if river else "нет",
+        "water": "river" if river else "none",
         #: On a vein find arable land is beside the point: rock bears no bread.
-        "плодородие": 0 if vein else round(PERCENT * for_land / budget),
-        "температура": round(dice.uniform(temperature.min, temperature.max)),
-        "осадки": round(dice.uniform(rainfall.min, rainfall.max)),
+        "fertility": 0 if vein else round(PERCENT * for_land / budget),
+        "temperature": round(dice.uniform(temperature.min, temperature.max)),
+        "precipitation": round(dice.uniform(rainfall.min, rainfall.max)),
         WOODS: woods
         or await luck.hit(
             session, who, luck.SITE_WOODS, constants[R.EXPLORE_FOREST_SHARE], dice=dice
@@ -205,8 +205,11 @@ async def species_of(
     for name, weight in bend.items():
         if name in paces:
             paces[name] = paces[name] * weight
-    operation = next((op for op in catalog.recipes.operations if op.name == MINING_OPERATION), None)
-    if_missing = "Камень"
+    operation = next(
+        (op for op in catalog.recipes.operations if (op.id or op.name) == MINING_OPERATION),
+        None,
+    )
+    if_missing = "stone"
     if operation is None:  # pragma: no cover -- the mining operation exists by construction
         return if_missing
     species = [name for name in operation.gives if float(paces.get(name, 0)) > 0]

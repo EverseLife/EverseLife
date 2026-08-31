@@ -15,6 +15,7 @@
 
 import type { Look } from "./api";
 import { when } from "./clock";
+import { t } from "./locale";
 
 /** Sleep is not in anybody's way: lying down freezes a batch, and the machine goes free. */
 export const CRAFT = "craft";
@@ -34,6 +35,10 @@ export function busyWith(look: Look, besides: string[] = []): string | null {
   //: The deadline is said as a distance -- "через 12 мин" -- not as a stamp:
   //: the player is choosing between waiting and going elsewhere, and the world
   //: counts a day of its own length anyway (D-029).
-  const term = doing.until ? ` · ${when(doing.until)}` : "";
-  return `тело занято: ${doing.what}${term}`;
+  //: `doing.what` arrives already rendered, in the language of whoever is
+  //: reading: the engine names the occupation and its own `i18n` writes it out
+  //: (`api/commands/look`). Only the wrapper around it is ours.
+  return doing.until
+    ? t("ui-busy-what-until", { what: doing.what, when: when(doing.until) })
+    : t("ui-busy-what", { what: doing.what });
 }

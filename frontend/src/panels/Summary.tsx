@@ -24,14 +24,25 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { Session } from "../api";
+import { useNames } from "../actions";
 import { Deadline } from "../Deadline";
+import { goodsName, type NamesRu } from "../names";
 import { Rule } from "../Rule";
 import { when } from "../clock";
+import { eventKey, t } from "../locale";
 
-/** A thing that can still be acted on. */
+/**
+ * A thing that can still be acted on.
+ *
+ * The line is named rather than written (D-251): the server sends the message
+ * and its arguments, the words are found here. It used to arrive as a finished
+ * Russian sentence -- and one of the four had a stable key inside it, so the
+ * list read «забрать бронь: iron_ore».
+ */
 type Needs = {
   kind: "case" | "vote" | "debt" | "reservation";
-  what: string;
+  say: string;
+  args?: Record<string, unknown>;
   where?: string;
   since?: string;
   until?: string;
@@ -106,42 +117,23 @@ export function useDigest(session: Session, ready: boolean) {
 
 /** What each kind of demand is called, in the words the player thinks in. */
 const CALLED: Record<Needs["kind"], string> = {
-  case: "суд",
-  vote: "голос",
-  debt: "долг",
-  reservation: "бронь",
+  case: "ui-need-case",
+  vote: "ui-need-vote",
+  debt: "ui-need-debt",
+  reservation: "ui-need-reservation",
 };
 
 /** Journal kinds in words. The player reads what happened, not an enum. */
-const SAID: Record<string, string> = {
-  "craft.finished": "партия готова",
-  "travel.arrived": "пришли",
-  "farm.harvested": "урожай собран",
-  "explore.found": "разведка: находка",
-  "explore.empty": "разведка: пусто",
-  "body.died": "тело погибло",
-  "body.printed": "напечатано тело",
-  "mining.collapsed": "обвал в забое",
-  "market.trade": "сделка",
-  "market.order_expired": "ордер снят по сроку",
-  "market.reservation_lapsed": "бронь просрочена",
-  "city.law_set": "город изменил закон",
-  "city.vote_closed": "голосование закрыто",
-  "justice.case_judged": "приговор",
-  "justice.sanction_applied": "наложена санкция",
-  "bank.debt_withheld": "с долга удержано",
-  "utility.cut_off": "узел отключён за неуплату",
-  "transport.broke": "повозка разбилась",
-  "road.laid": "дорога уложена",
-  "deed.sold": "бумага продана",
-  "land.ceded": "участок передан городу",
-  "city.grant_paid": "подъёмные выплачены",
-};
-
 /** The one detail worth showing beside the line, if the payload has one. */
-function detail(row: Happened): string | null {
+function detail(row: Happened, names: NamesRu | null): string | null {
   const p = row.payload ?? {};
-  for (const key of ["output", "goods", "resource", "node", "law", "to", "type_key"]) {
+  //: The first four keys carry goods ids (D-251) and go through the names;
+  //: a node, a law or a person is already a word.
+  for (const key of ["output", "goods", "resource", "type_key"]) {
+    const value = p[key];
+    if (typeof value === "string" && value) return goodsName(names, value);
+  }
+  for (const key of ["node", "law", "to"]) {
     const value = p[key];
     if (typeof value === "string" && value) return value;
   }
@@ -155,6 +147,7 @@ export function Summary({
   digest: Digest;
   onClose: () => void;
 }) {
+  const names = useNames();
   const needs = digest.attention;
   //: Five lines is the vault's ceiling, and it is a check on our own marking
   //: rather than a display trick: the rest is reachable where it lives.
@@ -162,53 +155,52 @@ export function Summary({
   const rest = needs.length - shown.length;
 
   return (
-    <div className="veil" role="dialog" aria-modal="true" aria-label="Что произошло">
+    <div className="veil" role="dialog" aria-modal="true" aria-label={t("ui-summary-label")}>
       <section className="intro">
         <h2>
-          Пока вас не было
+          {t("ui-summary-title")}
           <Rule>
-            Сводка считается от того момента, когда вы её закрыли в прошлый раз. Всё, у
-            чего есть срок, показано с остатком в настоящих часах: пропущенный срок в
-            этом мире необратим, поэтому о нём говорят заранее, а не после.
+            {t("ui-summary-rule")}
           </Rule>
         </h2>
 
-        <h3>Требует внимания</h3>
+        <h3>{t("ui-summary-attention")}</h3>
         {shown.length === 0 ? (
-          <p className="note">Ничего не ждёт: сроки не поджимают.</p>
+          <p className="note">{t("ui-summary-attention-none")}</p>
         ) : (
           <div className="needs">
-            {shown.map((line, i) => (
-              <div className="need" key={`${line.kind}-${i}`}>
-                <span className={`need-kind ${line.kind}`}>{CALLED[line.kind]}</span>
-                <span className="need-what">
-                  {line.what}
-                  {line.where && <span className="note"> · {line.where}</span>}
-                </span>
-                {line.until && (
-                  <Deadline until={line.until} since={line.since} label={line.what} size="row" />
-                )}
-              </div>
-            ))}
+            {shown.map((line, i) => {
+              const what = t(line.say, line.args);
+              return (
+                <div className="need" key={`${line.kind}-${i}`}>
+                  <span className={`need-kind ${line.kind}`}>{t(CALLED[line.kind])}</span>
+                  <span className="need-what">
+                    {what}
+                    {line.where && <span className="note"> · {line.where}</span>}
+                  </span>
+                  {line.until && (
+                    <Deadline until={line.until} since={line.since} label={what} size="row" />
+                  )}
+                </div>
+              );
+            })}
             {rest > 0 && (
-              <p className="note">
-                и ещё {rest}: их видно там, где они живут — в городе, в хозяйстве, в деньгах.
-              </p>
+              <p className="note">{t("ui-summary-attention-rest", { count: rest })}</p>
             )}
           </div>
         )}
 
-        <h3>Произошло</h3>
+        <h3>{t("ui-summary-happened")}</h3>
         {digest.happened.length === 0 ? (
-          <p className="note">С прошлого раза ничего не случилось.</p>
+          <p className="note">{t("ui-summary-happened-none")}</p>
         ) : (
           <table>
             <tbody>
               {digest.happened.map((row, i) => (
                 <tr key={`${row.at}-${i}`}>
                   <td>
-                    {SAID[row.kind] ?? row.kind}
-                    {detail(row) && <span className="note"> · {detail(row)}</span>}
+                    {t(eventKey(row.kind))}
+                    {detail(row, names) && <span className="note"> · {detail(row, names)}</span>}
                   </td>
                   <td className="num">{when(row.at)}</td>
                 </tr>
@@ -217,14 +209,13 @@ export function Summary({
           </table>
         )}
 
-        <h3>Разговоры</h3>
+        <h3>{t("ui-summary-talk")}</h3>
         <p className="note">
-          Разговор живёт, пока вы в комнате: истории у него нет, и вернуться к
-          сказанному нельзя. Это переписка не ведётся — это речь.
+          {t("ui-summary-talk-rule")}
         </p>
 
         <div className="row">
-          <button onClick={onClose}>Понятно</button>
+          <button onClick={onClose}>{t("ui-summary-close")}</button>
         </div>
       </section>
     </div>

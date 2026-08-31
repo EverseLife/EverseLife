@@ -36,17 +36,17 @@ from src.models.job import Job
 from src.models.world import Surface
 from src.units import amount_float
 
-BENCH = "Верстак"
-FORGE = "Кузница"
-WOOD = "Дерево"
-BEAM = "Шахтная крепь"
-BARREL = "Рукоять"
-ROPE = "Верёвка"
-HANDLE = "Рукоять"
-INGOT = "Слиток железа"
-NAILS = "Гвозди"
-CARRIER = "Рецепт"
-BLANK = "Болванка рецепта"
+BENCH = "workbench"
+FORGE = "forge"
+WOOD = "wood"
+BEAM = "shaft_support"
+BARREL = "handle"
+ROPE = "rope"
+HANDLE = "handle"
+INGOT = "iron_ingot"
+NAILS = "nails"
+CARRIER = "recorded_recipe"
+BLANK = "recipe_blank"
 
 
 async def _yard(session: AsyncSession, *, machine: str | None = BENCH, name: str = "Мастер"):
@@ -112,6 +112,30 @@ async def test_right_composition_opens_recipe_and_starts_batch(
     assert known.kind is KnowledgeKind.RECIPE and known.discovered is True
 
 
+async def test_a_recipe_opens_even_when_the_prototype_is_short(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Laid out exactly the norm: waste is taken on top of it (D-133), so the
+    hands are short by the waste and the prototype does not start.
+
+    The recipe still opens -- the guess was right -- and the answer says why
+    there is no batch. It says it by key: the note is assembled at the edge in
+    the reader's language, like a refusal (D-251 wave III). Until then the
+    refusal was turned into a string here, and once refusals became keys that
+    string was empty.
+    """
+    _, _, body = await _yard(session)
+    norm = _norm(catalog, BEAM)
+    for name, per_unit in norm.items():
+        await _give(session, body, catalog.recipes.resolve(name), per_unit)
+
+    result = await craft.invent(session, constants, catalog, body, norm, 1, station=BENCH)
+    assert result.success and result.learned == (BEAM,)
+    assert result.batch is None
+    assert result.note_key == "craft-not-enough"
+    assert result.note_args["goods"] in {catalog.recipes.resolve(name) for name in norm}
+
+
 async def test_wrong_composition_burns_what_was_laid_out(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
@@ -125,6 +149,9 @@ async def test_wrong_composition_burns_what_was_laid_out(
         session, constants, catalog, body, {WOOD: 4, INGOT: 1}, 2, station=BENCH
     )
     assert not result.success and result.batch is None
+    #: The note is a key now, not a sentence (D-251 wave III): the words are
+    #: assembled at the edge, in the language of whoever asked.
+    assert result.note_key == "craft-invent-failed"
     #: A random share within `invent.material_loss` burns -- of each kind its
     #: own. Both kinds here are counted (D-212), so the share is rounded up to
     #: whole pieces: at least one of each burns, never more than was laid out.
@@ -182,13 +209,16 @@ async def test_too_many_kinds_refused(
     """The search space stays surveyable: no more than `invent.max_ingredients` kinds."""
     _, _, body = await _yard(session)
     cap = int(constants[R.INVENT_MAX_INGREDIENTS])
-    names = [WOOD, INGOT, "Камень", "Глина", "Верёвка", "Ткань", "Смола", "Уголь"][: cap + 1]
+    names = [WOOD, INGOT, "stone", "clay", "rope", "cloth", "resin", "coal"][: cap + 1]
     for name in names:
         await _give(session, body, name, 5)
-    with pytest.raises(craft.CraftError, match="не больше"):
+    #: By key, not by wording: the sentence lives in the locale (D-251 wave III).
+    with pytest.raises(craft.CraftError) as refused:
         await craft.invent(
             session, constants, catalog, body, dict.fromkeys(names, 1.0), 1, station=BENCH
         )
+    assert refused.value.key == "craft-too-many-ingredients"
+    assert refused.value.params["max"] == constants[R.INVENT_MAX_INGREDIENTS]
 
 
 async def test_known_recipe_is_not_invented_again(
@@ -198,10 +228,12 @@ async def test_known_recipe_is_not_invented_again(
     await world.learn(session, identity, BEAM)
     await _give(session, body, WOOD, 20)
     await _give(session, body, ROPE, 5)
-    with pytest.raises(craft.CraftError, match="уже знаете"):
+    with pytest.raises(craft.CraftError) as refused:
         await craft.invent(
             session, constants, catalog, body, _norm(catalog, BEAM), 1, station=BENCH
         )
+    assert refused.value.key == "craft-already-known"
+    assert refused.value.params["recipe"] == BEAM
 
 
 async def test_operation_is_not_invented(
@@ -209,20 +241,22 @@ async def test_operation_is_not_invented(
 ) -> None:
     """Ore and coal at the furnace is smelting -- on the list for everyone. The
     attempt is refused rather than burned: a trap is not a rule."""
-    _, _, body = await _yard(session, machine="Плавильная печь")
-    await _give(session, body, "Железная руда", 10)
-    await _give(session, body, "Уголь", 10)
-    with pytest.raises(craft.Unmakeable, match="операция"):
+    _, _, body = await _yard(session, machine="smelting_furnace")
+    await _give(session, body, "iron_ore", 10)
+    await _give(session, body, "coal", 10)
+    with pytest.raises(craft.Unmakeable) as refused:
         await craft.invent(
             session,
             constants,
             catalog,
             body,
-            {"Железная руда": 4, "Уголь": 1},
+            {"iron_ore": 4, "coal": 1},
             1,
-            station="Плавильная печь",
+            station="smelting_furnace",
         )
-    assert await _held(session, body, "Железная руда") == 10
+    assert refused.value.key == "craft-known-operation"
+    assert refused.value.params["operation"] == "iron_smelting"
+    assert await _held(session, body, "iron_ore") == 10
 
 
 async def test_invention_needs_the_machine_here(
@@ -260,8 +294,9 @@ async def test_carrier_is_written_only_by_who_knows(
 
     with pytest.raises(craft.NotLearned):
         await craft.start(session, constants, catalog, body, CARRIER, 1, recipe_key=NAILS)
-    with pytest.raises(craft.CraftError, match="назовите"):
+    with pytest.raises(craft.CraftError) as refused:
         await craft.start(session, constants, catalog, body, CARRIER, 1)
+    assert refused.value.key == "craft-write-needs-recipe"
 
     await world.learn(session, identity, NAILS)
     batch = await craft.start(session, constants, catalog, body, CARRIER, 1, recipe_key=NAILS)
@@ -329,8 +364,11 @@ async def test_dead_blank_is_not_written_on(
     await world.learn(session, identity, CARRIER)
     await world.learn(session, identity, NAILS)
     await _give(session, body, BLANK, 1, quality=0)
-    with pytest.raises(craft.Unmakeable, match="в ноль"):
+    with pytest.raises(craft.Unmakeable) as refused:
         await craft.plan(session, constants, catalog, body, CARRIER, 1, recipe_key=NAILS)
+    assert refused.value.key == "craft-blank-dead"
+    #: Nothing live in the hands at all, so the refusal says only that.
+    assert refused.value.params["live"] == "false"
 
     #: A live one beside it is taken; the dead one stays.
     await _give(session, body, BLANK, 1, quality=40)
@@ -374,7 +412,7 @@ async def test_carriers_are_different_goods_per_recipe(
 ) -> None:
     """On the counter "Рецепт: Гвозди" and "Рецепт: Шахтная крепь" are two positions:
     loading one does not move the other."""
-    node, identity, body = await _yard(session, machine="Терминал маркетплейса")
+    node, identity, body = await _yard(session, machine="market_terminal")
     nails = await _written_carrier(session, catalog, body, NAILS)
     await _written_carrier(session, catalog, body, BEAM)
 
@@ -401,8 +439,10 @@ async def test_only_what_is_on_the_shelf_can_be_copied(
 ) -> None:
     """A library holds what was put into it (D-068): an empty one teaches nothing."""
     node, _, body = await _library(session)
-    with pytest.raises(craft.NoLibrary, match="ещё не принесли"):
+    with pytest.raises(craft.NoLibrary) as refused:
         await craft.copy_recipe(session, catalog, body, NAILS)
+    assert refused.value.key == "craft-library-lacks"
+    assert refused.value.params["recipe"] == NAILS
 
     await library.stock(session, node, [NAILS])
     learned = await craft.copy_recipe(session, catalog, body, NAILS)
@@ -644,7 +684,7 @@ async def test_market_load_by_tier(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
     """Loading names the tier: the good stack goes to the counter, the poor stays home."""
-    node, identity, body = await _yard(session, machine="Терминал маркетплейса")
+    node, identity, body = await _yard(session, machine="market_terminal")
     await _give(session, body, INGOT, 3, quality=25)
     await _give(session, body, INGOT, 3, quality=85)
     fine = market.tier_of(constants, 85)

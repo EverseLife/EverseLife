@@ -18,6 +18,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChatLine, Circle } from "../api";
 import { Refusal, useActions, useSession } from "../actions";
+import { t } from "../locale";
 import { PersonName } from "../Name";
 
 type Props = {
@@ -27,11 +28,29 @@ type Props = {
   place: string;
 };
 
+/**
+ * The three kinds of line, each by the message that names it.
+ *
+ * `value` goes on the wire and stays as it is; `label` is a key, drawn where
+ * the button is drawn -- a `t` here would freeze the language at import.
+ */
 const KINDS = [
-  { value: "speech", label: "речь" },
-  { value: "action", label: "действие" },
-  { value: "ooc", label: "вне игры" },
+  { value: "speech", label: "ui-chat-kind-speech" },
+  { value: "action", label: "ui-chat-kind-action" },
+  { value: "ooc", label: "ui-chat-kind-ooc" },
 ] as const;
+
+/** The placeholder over the input, by the kind of line being written. */
+const SAY_HINTS: Record<(typeof KINDS)[number]["value"], string> = {
+  speech: "ui-chat-say-speech",
+  action: "ui-chat-say-action",
+  ooc: "ui-chat-say-ooc",
+};
+
+/** A circle's name where one message wants both halves of "named or not". */
+function circleName(circle: Circle | null): Record<string, string> {
+  return { named: String(circle?.name != null), name: circle?.name ?? "" };
+}
 
 export function Chat({ place }: Omit<Props, "busy" | "act">) {
   const session = useSession();
@@ -117,8 +136,8 @@ export function Chat({ place }: Omit<Props, "busy" | "act">) {
     <section className="chat">
       <div className="chat-head">
         <span className="note">
-          разговор
-          {mine && ` · кружок «${mine.name ?? "без имени"}»`}
+          {t("ui-chat-head")}
+          {mine && t("ui-chat-head-circle", circleName(mine))}
         </span>
         <button
           type="button"
@@ -126,7 +145,7 @@ export function Chat({ place }: Omit<Props, "busy" | "act">) {
           onClick={() => setFolded((was) => !was)}
           aria-expanded={!folded}
         >
-          {folded ? "развернуть ▸" : "свернуть ▾"}
+          {folded ? t("ui-chat-unfold") : t("ui-chat-fold")}
         </button>
       </div>
       {!folded && (
@@ -134,7 +153,7 @@ export function Chat({ place }: Omit<Props, "busy" | "act">) {
       <Refusal of={acting} />
       <div className="chat-lines" ref={scroll}>
         {lines.length === 0 && (
-          <p className="note">Тихо. Разговор живёт, пока ты в комнате.</p>
+          <p className="note">{t("ui-chat-silent")}</p>
         )}
         {lines.map((line) => (
           <Line key={line.id} line={line} />
@@ -149,7 +168,7 @@ export function Chat({ place }: Omit<Props, "busy" | "act">) {
             className={kind === option.value ? "" : "quiet"}
             onClick={() => setKind(option.value)}
           >
-            {option.label}
+            {t(option.label)}
           </button>
         ))}
         <label className="note">
@@ -158,7 +177,7 @@ export function Chat({ place }: Omit<Props, "busy" | "act">) {
             checked={quiet}
             onChange={(e) => setQuiet(e.target.checked)}
           />{" "}
-          вполголоса
+          {t("ui-chat-quiet-toggle")}
         </label>
         <input
           className="chat-text"
@@ -168,19 +187,14 @@ export function Chat({ place }: Omit<Props, "busy" | "act">) {
             //: The same fuse as on the button: busy or empty -- we do not send.
             if (e.key === "Enter" && !busy && text.trim()) void say();
           }}
-          placeholder={
-            kind === "speech" ? "сказать…" : kind === "action" ? "что делает персонаж…"
-            : "не в мире…"
-          }
+          placeholder={t(SAY_HINTS[kind])}
         />
         <button onClick={say} disabled={busy || !text.trim()}>
-          Сказать
+          {t("ui-chat-say")}
         </button>
       </div>
       <p className="note">
-        {mine
-          ? `Вы в кружке «${mine.name ?? "без имени"}»: слышат участники, остальным долетают обрывки.`
-          : "Слышат все, кто здесь. Собраться потише — кнопкой «кружки» слева."}
+        {mine ? t("ui-chat-note-circle", circleName(mine)) : t("ui-chat-note-all")}
       </p>
       </>
       )}
@@ -249,19 +263,17 @@ function CircleChip({
         onClick={() => setOpen((was) => !was)}
         aria-expanded={open}
         aria-haspopup="dialog"
-        title="кому слышно сказанное; клик — подойти к кружку или собрать свой"
+        title={t("ui-chat-chip-title")}
       >
-        {mine ? `кружок «${mine.name ?? "без имени"}»` : "кружки"}
+        {mine ? t("ui-chat-chip-circle", circleName(mine)) : t("ui-chat-chip-none")}
       </button>
       {open && (
-        <div ref={pop} className="hud-pop up" role="dialog" aria-label="Кружки">
-          {circles.length === 0 && (
-            <p className="note">Никто не шепчется: весь разговор локации — общий.</p>
-          )}
+        <div ref={pop} className="hud-pop up" role="dialog" aria-label={t("ui-chat-circles-label")}>
+          {circles.length === 0 && <p className="note">{t("ui-chat-circles-none")}</p>}
           {circles.map((circle) => (
             <div className="row circle-row" key={circle.id}>
               <span>
-                <b>{circle.name ?? "кружок без имени"}</b>
+                <b>{t("ui-chat-circle-title", circleName(circle))}</b>
                 <span className="note">
                   {" "}
                   ·{" "}
@@ -279,7 +291,7 @@ function CircleChip({
                   onClick={() => move(() => session.send("chat.leave"))}
                   disabled={busy}
                 >
-                  отойти
+                  {t("ui-chat-leave")}
                 </button>
               ) : (
                 <button
@@ -287,7 +299,7 @@ function CircleChip({
                   onClick={() => move(() => session.send("chat.join", { circle: circle.id }))}
                   disabled={busy}
                 >
-                  подойти
+                  {t("ui-chat-join")}
                 </button>
               )}
             </div>
@@ -296,7 +308,7 @@ function CircleChip({
             <div className="row">
               <input
                 value={name}
-                placeholder="имя кружка (можно без)"
+                placeholder={t("ui-chat-gather-name")}
                 onChange={(e) => setName(e.target.value)}
               />
               <button
@@ -308,14 +320,11 @@ function CircleChip({
                 }
                 disabled={busy}
               >
-                Собрать
+                {t("ui-chat-gather")}
               </button>
             </div>
           )}
-          <p className="note">
-            Подошедшего к кружку видно всем; закрытых кружков нет. Пока вы в
-            кружке, реплики слышат участники — с шансом утечки к чужим ушам.
-          </p>
+          <p className="note">{t("ui-chat-circles-rule")}</p>
         </div>
       )}
     </span>
@@ -323,10 +332,13 @@ function CircleChip({
 }
 
 function Line({ line }: { line: ChatLine }) {
+  //: The name in the middle of an overheard scrap is right-clickable, so that
+  //: sentence is drawn in two halves with `PersonName` between them.
   if (line.overheard) {
     return (
       <p className="line overheard">
-        краем уха, из кружка «{line.source}»: <PersonName name={line.who} /> — «{line.text}»
+        {t("ui-chat-overheard", { source: line.source ?? "" })}{" "}
+        <PersonName name={line.who} /> {t("ui-chat-overheard-said", { text: line.text })}
       </p>
     );
   }
@@ -340,7 +352,7 @@ function Line({ line }: { line: ChatLine }) {
   if (line.kind === "ooc") {
     return (
       <p className="line ooc">
-        [вне игры] <PersonName name={line.who} />: {line.text}
+        {t("ui-chat-ooc")} <PersonName name={line.who} />: {line.text}
       </p>
     );
   }
@@ -349,7 +361,7 @@ function Line({ line }: { line: ChatLine }) {
       <PersonName name={line.who}>
         <b>{line.who}:</b>
       </PersonName>{" "}
-      {line.quiet ? <i>(вполголоса) {line.text}</i> : line.text}
+      {line.quiet ? <i>{t("ui-chat-quiet-line", { text: line.text })}</i> : line.text}
     </p>
   );
 }

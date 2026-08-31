@@ -152,7 +152,7 @@ async def test_a_node_the_world_lost_comes_back_whole(
     assert float(back.area_m2) == 120
     assert await session.scalar(select(Vein).where(Vein.node_id == back.id)) is not None
     #: The machines that make it a prison at all (D-174, D-176).
-    for thing_class in (justice.KATORGA, death.PRINTER, market.TERMINAL):
+    for thing_class in (justice.PRISON_CLASS, death.PRINTER, market.TERMINAL):
         assert await world.has_station(session, back, thing_class), thing_class
     gate = await _node(session, "terra.capital.gate")
     assert await travel._edge_between(session, gate.id, back.id) is not None
@@ -206,7 +206,7 @@ async def test_a_kept_stock_is_replenished_and_a_plain_one_is_not(
     forge = await _node(session, "terra.capital.forge")
     yard = await world.node_container(session, forge)
     for thing in await world.contents(session, yard):
-        if thing.type_key in (death.IRON, "Уголь"):
+        if thing.type_key in (death.IRON, "coal"):
             await session.delete(thing)
     await session.flush()
 
@@ -214,7 +214,7 @@ async def test_a_kept_stock_is_replenished_and_a_plain_one_is_not(
 
     names = await _yard_names(session, forge)
     assert death.IRON in names, "запас железа в принтере обязан вернуться"
-    assert "Уголь" not in names, "первый подвоз угля — разовый, дальше возят игроки"
+    assert "coal" not in names, "первый подвоз угля — разовый, дальше возят игроки"
 
 
 async def test_a_node_the_world_changed_is_left_alone(
@@ -230,7 +230,7 @@ async def test_a_node_the_world_changed_is_left_alone(
     plot.owner_identity_id = identity.id
     plot.owner_city_id = None
     plot.name = "Двор Хозяйки"
-    plot.properties = {**(plot.properties or {}), "кольцо": 2, "обжито": True}
+    plot.properties = {**(plot.properties or {}), "ring": 2, "обжито": True}
     forge = await _node(session, "terra.capital.forge")
     road = await travel._edge_between(session, forge.id, plot.id)
     road.base_seconds = 99

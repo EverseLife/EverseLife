@@ -40,9 +40,9 @@ from src.seed_surfaces import surfaces
 log = logging.getLogger("everselife.seed")
 
 
-#: Fertility of a place, as the vault names it (D-126). The catch-up that
+#: Fertility of a place, by its D-251 property id (D-126). The catch-up that
 #: gives soil to old city plots reads and writes exactly this key (D-246).
-FERTILITY = "плодородие"
+FERTILITY = "fertility"
 
 
 async def catch_up(session: AsyncSession, core: Node) -> None:
@@ -230,17 +230,19 @@ async def catch_up(session: AsyncSession, core: Node) -> None:
     #: there but laid down and grown there (D-202). Existing machines learn the
     #: current name here; the migration does the same for worlds that are not
     #: reseeded.
+    #: Right sides are D-251 ids: after the wave-II migration the database
+    #: speaks ids, and this safety net must land strays on the same spelling.
     renamed = {
-        "Монетный двор": "Монетная станция",
-        "Монетный станок": "Монетная станция",
-        "Автоматический станок": "Автоматическая станция",
+        "Монетный двор": "coin_station",
+        "Монетный станок": "coin_station",
+        "Автоматический станок": "auto_station",
         #: The item name, not the class word `ship.SPACEPORT`: a machine is
         #: stored by name, and the migration says the same.
-        "Космодром": "Космическая верфь",
-        "Верфь": "Космическая мастерская",
+        "Космодром": "space_shipyard",
+        "Верфь": "space_workshop",
         #: The navigation block got a behaviour and a name with it (D-230): the
         #: ship is commanded from it, so it is called what it does.
-        "Навигационный блок": "Консоль управления кораблём",
+        "Навигационный блок": "ship_console",
     }
     stale = (await session.execute(select(Item).where(Item.type_key.in_(renamed)))).scalars().all()
     for machine in stale:

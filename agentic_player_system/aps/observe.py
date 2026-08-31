@@ -22,6 +22,8 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
+from .names import label
+
 #: Keys that change every turn by themselves and would make every diff noisy.
 VOLATILE = {"clock"}
 #: How many turns between two full views, at most.
@@ -71,7 +73,7 @@ def _more(rows: list[Any]) -> str:
 
 
 def _batch(batch: dict[str, Any]) -> str:
-    said = f"{batch.get('output')} ×{_num(batch.get('units'))}"
+    said = f"{label('goods', batch.get('output'))} ×{_num(batch.get('units'))}"
     if batch.get("ready_at"):
         return f"{said} готово к {batch['ready_at']}"
     why = WAITING.get(str(batch.get("waiting") or ""), "ждёт")
@@ -107,7 +109,10 @@ def _terminal(look: dict[str, Any], orders: list[dict[str, Any]]) -> list[str]:
         have = float(thing.get("amount") or 0)
         held = committed.get((str(thing.get("goods")), str(thing.get("tier"))), 0.0)
         free = max(0.0, have - held)
-        line = f"«{thing.get('goods')}» ({thing.get('tier')}) ×{_num(have)}"
+        line = (
+            f"«{label('goods', thing.get('goods'))}» ({label('tiers', thing.get('tier'))})"
+            f" ×{_num(have)}"
+        )
         if held:
             line += f", свободно {'' if located else 'не больше '}{_num(free)}"
         said.append(line)
@@ -136,7 +141,7 @@ def standing(seen: dict[str, Any], look: dict[str, Any] | None = None) -> str:
         lines.append(
             "Твои заявки на рынке: "
             + "; ".join(
-                f"{'покупка' if o.get('side') == 'buy' else 'продажа'} «{o.get('goods')}»"
+                f"{'покупка' if o.get('side') == 'buy' else 'продажа'} «{label('goods', o.get('goods'))}»"
                 f" ×{_num(o.get('left'))} по {o.get('price')} [{o.get('id')}]"
                 for o in orders[:STANDING_ROWS]
             )
@@ -148,7 +153,7 @@ def standing(seen: dict[str, Any], look: dict[str, Any] | None = None) -> str:
         lines.append(
             "Твои брони: "
             + "; ".join(
-                f"«{r.get('goods')}» ×{_num(r.get('amount'))} в {r.get('node')} до"
+                f"«{label('goods', r.get('goods'))}» ×{_num(r.get('amount'))} в {r.get('node')} до"
                 f" {r.get('expires_at')} [{r.get('id')}]"
                 for r in held[:STANDING_ROWS]
             )
@@ -213,7 +218,9 @@ def digest(seen: dict[str, Any]) -> str:
         )
     items = [i for i in look.get("inventory") or [] if isinstance(i, dict)]
     if items:
-        named = [f"{i.get('goods')}×{_num(i.get('amount'))}" for i in items[:SACK_ITEMS]]
+        named = [
+            f"{label('goods', i.get('goods'))}×{_num(i.get('amount'))}" for i in items[:SACK_ITEMS]
+        ]
         more = f" …и ещё {len(items) - SACK_ITEMS}" if len(items) > SACK_ITEMS else ""
         lines.append(f"Сумка ({len(items)}): " + ", ".join(named) + more)
     else:
@@ -259,7 +266,8 @@ def _frost(look: dict[str, Any]) -> list[str]:
     if not isinstance(frost, dict):
         return []
     hours = _reserve(frost)
-    where = "узел обогрет" if frost.get("warm") else f"здесь {frost.get('climate')}"
+    climate = CLIMATE.get(str(frost.get("climate")), str(frost.get("climate")))
+    where = "узел обогрет" if frost.get("warm") else f"здесь {climate}"
     if hours <= 0:
         alarm = (
             f"ЗАМЁРЗ ({where}): выносливость горит просто на времени, работа дороже, "
@@ -269,6 +277,11 @@ def _frost(look: dict[str, Any]) -> list[str]:
         return [alarm]
     trend = "восполняется" if frost.get("warm") else "тает"
     return [f"Тепло: {_num(round(hours, 1))} ч из {_num(frost.get('max'))}, {trend} ({where})."]
+
+
+#: `frost.climate` is a two-word wire enum (D-251), not a renames domain: the
+#: digest says it in the game's language itself.
+CLIMATE = {"frost": "мороз", "heat": "жара"}
 
 
 def _reserve(frost: dict[str, Any]) -> float:
@@ -305,7 +318,9 @@ def _place(look: dict[str, Any]) -> list[str]:
     elif node.get("owner"):
         marks.append(f"владелец {node['owner']}")
     if node.get("features"):
-        marks.append("есть: " + ", ".join(map(str, node["features"][:8])))
+        marks.append(
+            "есть: " + ", ".join(label("node_properties", f) for f in node["features"][:8])
+        )
     if node.get("gated"):
         marks.append("вход закрыт")
     if node.get("mine"):
@@ -331,7 +346,7 @@ def _place(look: dict[str, Any]) -> list[str]:
         lines.append(
             "Станции здесь: "
             + ", ".join(
-                f"{b.get('goods')}{' (занята)' if b.get('busy') else ''}"
+                f"{label('goods', b.get('goods'))}{' (занята)' if b.get('busy') else ''}"
                 + (" — твоя" if b.get("mine") else "")
                 for b in bench[:8]
             )
@@ -341,21 +356,21 @@ def _place(look: dict[str, Any]) -> list[str]:
         lines.append(
             "Жилы здесь: "
             + ", ".join(
-                f"{v.get('resource')} (богатство {_num(v.get('richness'))}, id {v.get('id')})"
+                f"{label('goods', v.get('resource'))} (богатство {_num(v.get('richness'))}, id {v.get('id')})"
                 for v in veins[:6]
             )
         )
     here = []
     #: `stall` is not counted here: it is one's own shelf in the terminal, and
     #: it is said by name in the standing block, with the free part.
-    for key, label in (
+    for key, word in (
         ("storages", "хранилищ"),
         ("vehicles", "транспорта"),
         ("furniture", "мебели"),
     ):
         value = look.get(key)
         if isinstance(value, list) and value:
-            here.append(f"{label}: {len(value)}")
+            here.append(f"{word}: {len(value)}")
     if here:
         lines.append("Здесь же — " + "; ".join(here) + ".")
 
@@ -431,7 +446,7 @@ def _short_list(items: list[Any], limit: int = 6) -> str:
     named = []
     for item in items[:limit]:
         if isinstance(item, dict) and item.get("goods"):
-            named.append(f"{item['goods']}×{_num(item.get('amount'))}")
+            named.append(f"{label('goods', item['goods'])}×{_num(item.get('amount'))}")
         elif isinstance(item, dict) and (item.get("name") or item.get("title")):
             named.append(str(item.get("name") or item.get("title")))
         else:
@@ -460,6 +475,9 @@ def observation(
 
 #: Keys of an event that are bookkeeping, not news.
 EVENT_PLUMBING = {"event", "seq", "at", "touches"}
+#: Event values that name a thing by its wire id (D-251): shown as «Имя [id]»,
+#: like everywhere else in the observation.
+EVENT_GOODS_KEYS = {"key", "goods", "output", "resource"}
 
 
 def happened(events: list[dict[str, Any]], limit: int = 20) -> str:
@@ -485,6 +503,8 @@ def happened(events: list[dict[str, Any]], limit: int = 20) -> str:
             if key == "line" and isinstance(value, dict) and isinstance(value.get("text"), str):
                 clean = value["text"].replace("⟦", "").replace("⟧", "")
                 value = {**value, "text": f"⟦чужой текст: {clean}⟧"}
+            if key in EVENT_GOODS_KEYS and isinstance(value, str):
+                value = label("goods", value)
             parts.append(f"{key}: {_short(value, 160)}")
         lines.append("- " + " · ".join(parts))
     if len(events) > limit:

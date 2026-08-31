@@ -48,7 +48,7 @@ from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.constants.spec import ConstantError
 from src.engine import estate, events, food, frost, gear, luck, occupation, travel, world
-from src.engine.errors import Refusal
+from src.engine.errors import Refusal, left_to_say
 from src.models.event import EventKind
 from src.models.forage import Forage
 from src.models.identity import Body, BodyState
@@ -135,7 +135,7 @@ def search_seconds(constants: Constants, area: float, dice: random.Random) -> fl
     """
     per_hour = pace(constants, area)
     if per_hour <= 0:
-        raise NoRoom("здесь нечего искать: таблица находок пуста")
+        raise NoRoom(key="forage-empty-table")
     jitter = constants[R.FORAGE_SEARCH_JITTER]
     mean = SECONDS_PER_HOUR / per_hour
     return max(constants[R.FORAGE_SEARCH_FLOOR], mean * dice.uniform(jitter.min, jitter.max))
@@ -204,10 +204,10 @@ async def start(
     """
     moment = now or datetime.now(UTC)
     if body.state is not BodyState.ALIVE:
-        raise ForageError("мёртвое тело ничего не собирает")
+        raise ForageError(key="forage-dead-gathers")
     await travel.require_here(session, body)
     if await current(session, body) is not None:
-        raise AlreadySearching("поиск уже идёт: дождитесь находки или закончите")
+        raise AlreadySearching(key="forage-already-searching")
     #: A search is an occupation (D-211): one does not walk the plot while a
     #: batch of one's own runs at a bench or a plot lies under the plough.
 
@@ -215,14 +215,12 @@ async def start(
 
     node = await session.get(Node, body.node_id)
     if node is None:  # pragma: no cover -- a body always stands in a node
-        raise ForageError("тело стоит в никуда")
+        raise ForageError(key="forage-body-off-node")
     if not is_yours(node, body):
-        raise NotYours("чужая земля: что на ней лежит, принадлежит хозяину")
+        raise NotYours(key="forage-not-your-land")
     room = await empty_area(session, node)
     if room < constants[R.FORAGE_MIN_AREA]:
-        raise NoRoom(
-            f"пустой земли {room:.0f} м², а собирать есть где от {constants[R.FORAGE_MIN_AREA]:.0f}"
-        )
+        raise NoRoom(key="forage-too-little-land", free=room, min=constants[R.FORAGE_MIN_AREA])
 
     #: Seeded by the row's id: what this search finds is settled now and does
     #: not change on a re-read.
@@ -236,7 +234,7 @@ async def start(
         * await frost.drain_multiplier(session, constants, body)
     )
     if spend > float(body.stamina):
-        raise NoStrength(f"нет сил на поиск: нужно {spend:.2f}, есть {float(body.stamina):.2f}")
+        raise NoStrength(key="forage-no-strength", need=spend, have=float(body.stamina))
     body.stamina = Decimal(str(float(body.stamina) - spend))
 
     found, units, quality = await _roll(session, constants, body, dice)
@@ -276,9 +274,11 @@ async def _offer(session: AsyncSession, body: Body, now: datetime) -> Forage:
     await travel.require_here(session, body)
     row = await current(session, body)
     if row is None:
-        raise NothingFound("поиск не идёт: сначала начать")
+        raise NothingFound(key="forage-not-searching")
     if not revealed(row, now):
-        raise NothingFound(f"ещё ищете: находка покажется в {row.ready_at.isoformat()}")
+        raise NothingFound(
+            key="forage-still-searching", inner={"left": [left_to_say(row.ready_at)]}
+        )
     return row
 
 
@@ -366,7 +366,7 @@ async def stop(session: AsyncSession, body: Body) -> None:
     """
     row = await current(session, body)
     if row is None:
-        raise NothingFound("собирательство не идёт: заканчивать нечего")
+        raise NothingFound(key="forage-nothing-to-stop")
     await events.record(
         session,
         EventKind.FORAGE_STOPPED,

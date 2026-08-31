@@ -99,7 +99,7 @@ def test_closed_by_default(player, monkeypatch) -> None:
         assert hello["hello"] == player["name"]
         assert "admin" not in hello, "ключ доступа уехал тому, у кого доступа нет"
 
-        ws.send_json({"cmd": "alpha.spawn", "goods": "Железная руда", "amount": 1})
+        ws.send_json({"cmd": "alpha.spawn", "goods": "iron_ore", "amount": 1})
         answer = ws.receive_json()
         #: The same words an unknown command gets: guessing the name teaches
         #: nothing about whether it exists.
@@ -142,7 +142,12 @@ def test_an_admin_name_cannot_be_registered(player, monkeypatch) -> None:
             }
         )
         answer = ws.receive_json()
-        assert answer["refused"] == f"имя {wanted!r} уже занято: имя сменить нельзя"
+        #: By the key, not the sentence -- and the key is the one an actually
+        #: taken name gets (`world.spawn`), not a second message that happens
+        #: to read the same today. Two keys with equal text is exactly how
+        #: "guessing right teaches nothing" would quietly stop being true.
+        assert answer["code"] == "land-name-taken"
+        assert answer["args"] == {"name": wanted}
 
 
 def test_the_named_one_gets_the_widget(player, monkeypatch) -> None:
@@ -154,9 +159,9 @@ def test_the_named_one_gets_the_widget(player, monkeypatch) -> None:
         ws.send_json(_hello(player))
         assert ws.receive_json()["admin"] is True
 
-        ws.send_json({"cmd": "alpha.spawn", "goods": "Железная руда", "amount": 3})
+        ws.send_json({"cmd": "alpha.spawn", "goods": "iron_ore", "amount": 3})
         made = ws.receive_json()
-        assert made["spawned"] == "Железная руда"
+        assert made["spawned"] == "iron_ore"
         #: In pieces, as asked -- not in the internal integer units the row holds.
         assert made["amount"] == 3
 

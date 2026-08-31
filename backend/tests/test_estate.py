@@ -62,7 +62,7 @@ async def _city(session: AsyncSession, catalog: Catalog):
         "Ядро",
         area_m2=100,
         parent=delegate,
-        properties={"кольцо": 0, "предтечи": True},
+        properties={"ring": 0, "precursors": True},
     )
     #: The bioprinter distance is measured from: the city centre (D-089).
     core_yard = await world.node_container(session, core)
@@ -74,7 +74,7 @@ async def _city(session: AsyncSession, catalog: Catalog):
         "Ближний участок",
         area_m2=100,
         parent=delegate,
-        properties={"участок": True},
+        properties={"plot": True},
     )
     far = await world.create_node(
         session,
@@ -82,7 +82,7 @@ async def _city(session: AsyncSession, catalog: Catalog):
         "Дальний участок",
         area_m2=100,
         parent=delegate,
-        properties={"участок": True},
+        properties={"plot": True},
     )
     await travel.connect(session, core, near, base_seconds=30, surface=Surface.PAVED)
     await travel.connect(session, near, far, base_seconds=30, surface=Surface.PAVED)
@@ -378,8 +378,8 @@ async def test_owner_marks_plot_and_takes_the_mark_down(
     _, body = await _buyer(session, near, city=city)
     await estate.buy(session, constants, catalog, body, near)
 
-    await estate.emblem(session, body, near, "мастерская")
-    assert near.properties[estate.EMBLEM_PROPERTY] == "мастерская"
+    await estate.emblem(session, body, near, "workshop")
+    assert near.properties[estate.EMBLEM_PROPERTY] == "workshop"
 
     await estate.emblem(session, body, near, None)
     assert estate.EMBLEM_PROPERTY not in near.properties
@@ -452,7 +452,7 @@ async def test_cannot_mark_foreign_plot(
 
     _, passerby = await _buyer(session, near, city=city)
     with pytest.raises(estate.NotOwner):
-        await estate.emblem(session, passerby, near, "дом")
+        await estate.emblem(session, passerby, near, "house")
     assert estate.EMBLEM_PROPERTY not in near.properties
 
 
@@ -470,18 +470,18 @@ def test_public_map_serves_signs_by_allowlist() -> None:
         planet=Planet.TERRA,
         area_m2=Decimal("1"),
         properties={
-            "лес": True,
-            "предтечи": True,
+            "woods": True,
+            "precursors": True,
             "library": True,
             "будущий-флаг": True,
-            "кольцо": 2,
-            estate.EMBLEM_PROPERTY: "дом",
+            "ring": 2,
+            estate.EMBLEM_PROPERTY: "house",
         },
     )
-    assert world.public_signs(node) == ["предтечи", "лес"]
+    assert world.public_signs(node) == ["precursors", "woods"]
     #: The emblem wears the same belt on the way out: a value planted past
     #: the command -- junk, or not a string at all -- stays inside.
-    assert estate.public_emblem(node) == "дом"
+    assert estate.public_emblem(node) == "house"
     node.properties = {**node.properties, estate.EMBLEM_PROPERTY: "руины"}
     assert estate.public_emblem(node) is None
     node.properties = {**node.properties, estate.EMBLEM_PROPERTY: 7}
@@ -919,10 +919,12 @@ async def test_demolition_waits_for_the_yard_to_empty(
 
     plot, identity, body = await _house(session, constants, own_plot, area=40)
     yard = await world.node_container(session, plot)
-    bench = await world.grant_item(session, yard, "Верстак", quality=60, origin="тест")
+    bench = await world.grant_item(session, yard, "workbench", quality=60, origin="тест")
 
     reasons = await estate.demolish_blockers(session, constants, plot)
-    assert reasons and "оборудование" in reasons[0]
+    #: A message, not a sentence: the window and the refusal read the same
+    #: list, each in the language of whoever is looking (D-251 wave IV).
+    assert [one.key for one in reasons] == ["estate-blocker-equipment"]
     with pytest.raises(estate.NoRoom):
         await estate.demolish(session, constants, body, plot)
 
@@ -942,7 +944,7 @@ async def test_demolition_waits_for_the_yard_to_empty(
     roofed = await estate.built_area(session, tight)
     #: Halfway between what the yard holds and what the house holds.
     kilos = (float(tight.area_m2) + roofed) / 2 * per_m2
-    quantity = kilos / gear.mass_of(catalog, "Труба", 1)
+    quantity = kilos / gear.mass_of(catalog, "pipe", 1)
 
     upstairs = await estate.storeys_of(session, tight)
     assert len(upstairs) == 1, "второй этаж — отдельный узел (D-247)"
@@ -953,14 +955,13 @@ async def test_demolition_waits_for_the_yard_to_empty(
         owner.node_id = where.id
         await session.flush()
         goods = await world.grant_item(
-            session, pocket, "Труба", amount=quantity / 2, quality=55, origin="тест"
+            session, pocket, "pipe", amount=quantity / 2, quality=55, origin="тест"
         )
         await storage.drop(session, constants, catalog, owner, goods, quantity / 2)
     owner.node_id = tight.id
     await session.flush()
-    assert any(
-        "на полу" in reason for reason in await estate.demolish_blockers(session, constants, tight)
-    )
+    blocking = await estate.demolish_blockers(session, constants, tight)
+    assert "estate-blocker-overloaded" in [one.key for one in blocking], blocking
 
 
 async def test_demolition_is_not_ordered_twice(
@@ -1182,7 +1183,7 @@ async def test_house_at_nothing_collapses_with_what_it_sheltered(
     house = (await estate.buildings_of(session, plot))[0]
 
     yard = await world.node_container(session, plot)
-    await world.grant_item(session, yard, "Дерево", amount=5, quality=60, origin="тест")
+    await world.grant_item(session, yard, "wood", amount=5, quality=60, origin="тест")
 
     #: One step short of nothing the house is still whole: no places lost, no
     #: area lost. That is what makes repair a decision rather than a levy.

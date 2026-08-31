@@ -30,7 +30,9 @@ import { State } from "./State";
 import { Net } from "./Net";
 import { Workshop } from "./Workshop";
 import { Rule } from "../Rule";
-import { Refusal, useActions, useBook, useSession } from "../actions";
+import { Refusal, useActions, useBook, useNames, useSession } from "../actions";
+import { t } from "../locale";
+import { goodsKeyName, goodsName, tierName } from "../names";
 import { onSidebarTab, pendingSidebarTab } from "../hud";
 import { onThread } from "../people";
 
@@ -55,28 +57,31 @@ type Props = {
  * engine is built: my account, what I am doing, what I own, what I know, what
  * I keep, and the state -- if the state is any of my business.
  */
+//: `label` and `of` are message names, not words: this list is built once when
+//: the module is first imported, and the language is learnt at the greeting,
+//: long afterwards. `t` is called where a tab is drawn.
 const TABS = [
   //: The account, not the character (D-238): the body's readings live in the
   //: header's instrument strip, and this tab manages the account alone.
-  { id: "me", label: "аккаунт", icon: "me", of: "данные персонажа, пароль, почта, вид, выход" },
+  { id: "me", label: "ui-side-tab-me", icon: "me", of: "ui-side-tab-me-of" },
   //: Goods left "персонаж" for a tab of their own: the inventory is a table
   //: with a menu per row, and it does not share a screen with anything.
-  { id: "goods", label: "инвентарь", icon: "goods", of: "что в руках и что надето" },
-  { id: "work", label: "активности", icon: "work", of: "что идёт, чем это закончить, и что можно сделать руками" },
-  { id: "money", label: "финансы", icon: "money", of: "счёт, выписка, кредит, свои ордера" },
-  { id: "knows", label: "знания", icon: "knows", of: "известные рецепты" },
-  { id: "estate", label: "хозяйство", icon: "estate", of: "сеть, счета за быт, бумаги" },
+  { id: "goods", label: "ui-side-tab-goods", icon: "goods", of: "ui-side-tab-goods-of" },
+  { id: "work", label: "ui-side-tab-work", icon: "work", of: "ui-side-tab-work-of" },
+  { id: "money", label: "ui-side-tab-money", icon: "money", of: "ui-side-tab-money-of" },
+  { id: "knows", label: "ui-side-tab-knows", icon: "knows", of: "ui-side-tab-knows-of" },
+  { id: "estate", label: "ui-side-tab-estate", icon: "estate", of: "ui-side-tab-estate-of" },
   //: The Net (D-222): correspondence and channels. Remote by nature -- this
   //: is the one kind of talk that works from the road.
-  { id: "net", label: "сеть", icon: "net", of: "переписка и каналы" },
+  { id: "net", label: "ui-side-tab-net", icon: "net", of: "ui-side-tab-net-of" },
 ] as const;
 //: The state tab: figures for whoever governs. Shown only to office holders;
 //: the same summary is visible in person in the node with the administration.
 const STATE_TAB = {
   id: "state",
-  label: "город",
+  label: "ui-side-tab-state",
   icon: "state",
-  of: "экономика и население",
+  of: "ui-side-tab-state-of",
 } as const;
 type Tab = (typeof TABS)[number]["id"] | (typeof STATE_TAB)["id"];
 
@@ -103,7 +108,8 @@ export function Sidebar({ look, onLogout }: { look: Look; onLogout: () => void }
   //: dispatch time nobody was listening -- the pending ask is collected at
   //: mount, and consumed either way so a stale one never reapplies later.
   useEffect(() => {
-    const known = (name: string) => TABS.some((t) => t.id === name) || name === STATE_TAB.id;
+    const known = (name: string) =>
+      TABS.some((item) => item.id === name) || name === STATE_TAB.id;
     const asked = pendingSidebarTab();
     if (asked && known(asked)) setTab(asked as Tab);
     return onSidebarTab((name) => {
@@ -116,7 +122,7 @@ export function Sidebar({ look, onLogout }: { look: Look; onLogout: () => void }
   //: A state office is at least one power in a city (D-155).
   const official = (look.city?.powers?.length ?? 0) > 0;
   const tabs = official ? [...TABS, STATE_TAB] : TABS;
-  const current: Tab = tabs.some((t) => t.id === tab) ? tab : "me";
+  const current: Tab = tabs.some((item) => item.id === tab) ? tab : "me";
 
   //: A counter means "there is something here to look at", so only what can be
   //: waited on is counted: works under way, and money somebody else owes or holds.
@@ -146,27 +152,38 @@ export function Sidebar({ look, onLogout }: { look: Look; onLogout: () => void }
     );
   }, [look.travel, look.batches]);
 
-  const mark = (t: { id: Tab; label: string; icon: Parameters<typeof Glyph>[0]["name"]; of: string }) => {
-    const count = counts[t.id] ?? 0;
+  const mark = (item: {
+    id: Tab;
+    label: string;
+    icon: Parameters<typeof Glyph>[0]["name"];
+    of: string;
+  }) => {
+    const count = counts[item.id] ?? 0;
+    const named = t(item.label);
     return (
       <button
-        key={t.id}
-        className={`bare rail-tab${current === t.id ? " on" : ""}`}
-        aria-pressed={current === t.id}
+        key={item.id}
+        className={`bare rail-tab${current === item.id ? " on" : ""}`}
+        aria-pressed={current === item.id}
         //: The glyph is aria-hidden and the tally is a bare number, so without
         //: this the button's accessible name would be "3": the label names the
-        //: tab, with the count, and the tally stays visual.
-        aria-label={count > 0 ? `${t.label} · ${count}` : t.label}
-        onClick={() => setTab(t.id)}
-        title={`${t.label} — ${t.of}`}
+        //: tab, with the count, and the tally stays visual. The count goes in
+        //: as a string: the tally beside it is drawn raw.
+        aria-label={
+          count > 0
+            ? t("ui-side-tab-counted", { tab: named, n: String(count) })
+            : named
+        }
+        onClick={() => setTab(item.id)}
+        title={t("ui-side-tab-title", { tab: named, about: t(item.of) })}
       >
-        <Glyph name={t.icon} />
+        <Glyph name={item.icon} />
         {count > 0 && (
           <span className="tally" aria-hidden="true">
             {count}
           </span>
         )}
-        {t.id === "work" && running && (
+        {item.id === "work" && running && (
           <RailProgress until={running.until} since={running.since} />
         )}
       </button>
@@ -178,7 +195,7 @@ export function Sidebar({ look, onLogout }: { look: Look; onLogout: () => void }
       {/* The rail: marks only, every tab pinned to the top. The word lives in
           the panel's title and in the tooltip, not nowhere (the brief's rule,
           moved rather than dropped). */}
-      <nav className="rail" aria-label="разделы сайдбара">
+      <nav className="rail" aria-label={t("ui-side-rail")}>
         {TABS.map(mark)}
         {official && (
           <>
@@ -190,13 +207,13 @@ export function Sidebar({ look, onLogout }: { look: Look; onLogout: () => void }
 
       <div className="side-body">
         <Refusal of={acting} />
-        <h3 className="side-title">{tabs.find((t) => t.id === current)!.label}</h3>
+        <h3 className="side-title">{t(tabs.find((item) => item.id === current)!.label)}</h3>
 
         {current === "me" &&
           (look.profile ? (
             <Account profile={look.profile} onLogout={onLogout} />
           ) : (
-            <p className="note">аккаунт недоступен: перечитайте экран</p>
+            <p className="note">{t("ui-side-no-account")}</p>
           ))}
         {current === "goods" && <Inventory look={look} />}
         {/* Ручной крафт живёт в сайдбаре: верёвку вьют там, где стоят, и рабочая
@@ -262,9 +279,11 @@ function Slept({ since }: { since: string }) {
     const timer = setInterval(() => setMinutes(elapsedMinutes(since)), 10_000);
     return () => clearInterval(timer);
   }, [since]);
-  if (minutes < 1) return <b>меньше минуты</b>;
-  if (minutes < 60) return <b>{Math.floor(minutes)} мин</b>;
-  return <b>{(minutes / 60).toFixed(1)} ч</b>;
+  //: The figures go in as strings: they are read beside other raw ones, and
+  //: the locale's number format would space out a four-digit count of minutes.
+  if (minutes < 1) return <b>{t("ui-side-slept-under-minute")}</b>;
+  if (minutes < 60) return <b>{t("ui-side-slept-minutes", { n: String(Math.floor(minutes)) })}</b>;
+  return <b>{t("ui-side-slept-hours", { n: (minutes / 60).toFixed(1) })}</b>;
 }
 
 const elapsedMinutes = (since: string) =>
@@ -287,65 +306,67 @@ const elapsedMinutes = (since: string) =>
 function Doings({ look, busy, act }: Props) {
   const session = useSession();
   const book = useBook();
+  const names = useNames();
   const doings = look.doings ?? [];
   const asleep = doings.some((d) => d.kind === "sleep");
   //: A bed is a thing class (D-215): the engine sleeps in any member of it.
-  const bed_ = anyOfClass(book, api.stationsOf(look), "Кровать");
+  const bed_ = anyOfClass(book, api.stationsOf(look), "bed");
   //: What stands in the way of lying down: any occupation but sleep itself and
   //: a batch -- a batch freezes with the master and frees its machine (D-211).
   const cannotSleep = busyWith(look, [SLEEP, CRAFT]);
   //: Стопка кнопок «закончить»: у каждого занятия своя команда, и нет её
   //: только там, где прерывать нечего.
   const ends: Record<string, { cmd: string; label: string; why: string }> = {
-    sleep: { cmd: "rest.wake", label: "Проснуться", why: "выносливость начислится при пробуждении" },
-    forage: { cmd: "forage.stop", label: "Закончить", why: "потраченные силы не вернутся" },
-    field: { cmd: "explore.cancel", label: "Вернуться", why: "заход прервётся, находки не будет" },
-    mine: { cmd: "mine.leave", label: "Выйти из забоя", why: "добытое уйдёт в руки" },
+    sleep: { cmd: "rest.wake", label: t("ui-side-end-sleep"), why: t("ui-side-end-sleep-why") },
+    forage: { cmd: "forage.stop", label: t("ui-side-end-forage"), why: t("ui-side-end-forage-why") },
+    field: { cmd: "explore.cancel", label: t("ui-side-end-field"), why: t("ui-side-end-field-why") },
+    mine: { cmd: "mine.leave", label: t("ui-side-end-mine"), why: t("ui-side-end-mine-why") },
   };
   const empty = look.batches.length === 0 && doings.length === 0;
   const title = (job: Batch) =>
     job.work === "make"
       ? job.recipe
-        ? `${job.output}: ${job.recipe}`
-        : job.output
+        ? t("ui-side-batch-make", {
+            output: goodsName(names, job.output),
+            recipe: goodsName(names, job.recipe),
+          })
+        : goodsName(names, job.output)
       : job.work === "repair"
-        ? `починка: ${job.output}`
-        : `переработка: ${job.output}`;
+        ? t("ui-side-batch-repair", { goods: goodsName(names, job.output) })
+        : t("ui-side-batch-melt", { goods: goodsName(names, job.output) });
   //: A waiting batch says why in words (D-209): the reason decides what the
   //: player does next -- wait, walk back, or free a machine.
   const why = (job: Batch) =>
     job.waiting === "queued"
-      ? "в очереди"
+      ? t("ui-side-batch-queued")
       : job.waiting === "away"
-        ? `замерла: вернитесь в «${job.node ?? "?"}»`
-        : "ждёт свободной станции";
+        ? t("ui-side-batch-away", { node: job.node ?? "?" })
+        : t("ui-side-batch-no-station");
   const left = (job: Batch) =>
     job.left_seconds == null
       ? ""
       : job.left_seconds < 60
-        ? " · меньше минуты работы"
-        : ` · ещё ${(job.left_seconds / 60).toFixed(0)} мин работы`;
+        ? t("ui-side-batch-left-soon")
+        : t("ui-side-batch-left", { n: (job.left_seconds / 60).toFixed(0) });
+  //: The two halves used to be concatenated with a " · " written in the code;
+  //: the separator is the message's now, so a language may punctuate its own way.
+  const aside = (job: Batch) => {
+    const rest = left(job);
+    return rest ? t("ui-side-batch-aside", { why: why(job), left: rest }) : why(job);
+  };
   const anyRunning = look.batches.some((job) => job.state === "running");
   return (
     <div>
       <h3>
-        Дела
-        <Rule>
-          Тело делает одно дело за раз: спит, ищет, пашет, разведывает, идёт или
-          работает у станции. Всё, что идёт, видно здесь, и здесь же
-          заканчивается — искать окно, из которого дело начато, не нужно. Дорога
-          идёт сама, в том числе пока вы офлайн. Партия идёт, только пока вы
-          стоите у станции: ушли или легли спать — замерла, вернулись —
-          продолжилась. У одного человека идёт одна работа, остальные ждут
-          очереди в порядке запуска.
-        </Rule>
+        {t("ui-side-doings")}
+        <Rule>{t("ui-side-doings-rule")}</Rule>
       </h3>
       {look.travel && (
         <Doing
-          what={`в пути: ${look.travel.final ?? look.travel.to}`}
+          what={t("ui-side-travel", { to: look.travel.final ?? look.travel.to })}
           until={look.travel.arrives_at}
           since={look.travel.started_at}
-          aside={look.travel.final ? "до следующего узла" : undefined}
+          aside={look.travel.final ? t("ui-side-travel-next") : undefined}
         />
       )}
 
@@ -365,19 +386,24 @@ function Doings({ look, busy, act }: Props) {
               {end.label}
             </button>
           );
+          //: `d.title` and `d.what` arrive already written out, in the reader's
+          //: own language: the engine names the occupation and its `i18n`
+          //: renders it. Ours is only the colon between them.
+          const said = t("ui-side-doing", { title: d.title, what: d.what });
           return d.until ? (
-            <Doing key={d.kind} what={`${d.title}: ${d.what}`} until={d.until}>
+            <Doing key={d.kind} what={said} until={d.until}>
               {button}
             </Doing>
           ) : (
             <div className="doing" key={d.kind}>
-              <span className="doing-what">
-                {d.title}: {d.what}
-              </span>
+              <span className="doing-what">{said}</span>
               {d.kind === "sleep" && look.body?.sleeping_since && (
                 <span className="doing-aside note">
-                  спит уже <Slept since={look.body.sleeping_since} /> · начислится
-                  при пробуждении
+                  {/* Two messages rather than one: the counter between them is a
+                      live component, and folding it into an argument would cost
+                      the emphasis the duration is drawn with. */}
+                  {t("ui-side-sleeping-for")} <Slept since={look.body.sleeping_since} />{" "}
+                  {t("ui-side-sleeping-credited")}
                 </span>
               )}
               {button && <span className="doing-act">{button}</span>}
@@ -391,31 +417,32 @@ function Doings({ look, busy, act }: Props) {
             what={title(job)}
             until={job.ready_at}
             since={job.started_at}
-            aside={job.work === "make" ? `качество ${job.quality.toFixed(0)}` : undefined}
+            aside={
+              job.work === "make"
+                ? t("ui-side-batch-quality", { n: job.quality.toFixed(0) })
+                : undefined
+            }
           />
         ) : (
           <div className="doing" key={job.id}>
             <span className="doing-what">{title(job)}</span>
-            <span className="doing-aside note">
-              {why(job)}
-              {left(job)}
-            </span>
+            <span className="doing-aside note">{aside(job)}</span>
             {job.waiting === "no_station" && !anyRunning && (
               <span className="doing-act">
                 <button
                   className="quiet"
                   onClick={() => act(() => session.send("craft.resume"))}
                   disabled={busy}
-                  title="станция освободилась — продолжить"
+                  title={t("ui-side-batch-resume-title")}
                 >
-                  Продолжить
+                  {t("ui-side-batch-resume")}
                 </button>
               </span>
             )}
           </div>
         ),
       )}
-      {empty && <p className="note">ничего не идёт</p>}
+      {empty && <p className="note">{t("ui-side-doings-none")}</p>}
 
       {/* Привал стоит здесь же и последним: лечь спать — такое же занятие,
           как остальные, и начинают его там, где их заканчивают (D-211). */}
@@ -424,16 +451,14 @@ function Doings({ look, busy, act }: Props) {
           <button
             onClick={() => act(() => session.send("rest.sleep"))}
             disabled={busy || cannotSleep !== null}
-            title={cannotSleep ?? "лечь там, где стоите: выносливость начислится при пробуждении"}
+            //: What forbids lying down arrives from `busyWith`, already written
+            //: out; only the standing invitation is ours.
+            title={cannotSleep ?? t("ui-side-sleep-title")}
           >
-            {bed_ ? "Лечь в кровать" : "Лечь спать"}
+            {t("ui-side-sleep", { bed: String(Boolean(bed_)) })}
           </button>
           <span className="note">
-            {cannotSleep
-              ? cannotSleep
-              : bed_
-                ? "кровать здесь: сон быстрее"
-                : "кровати нет: сон медленнее"}
+            {cannotSleep ?? t("ui-side-sleep-note", { bed: String(Boolean(bed_)) })}
           </span>
         </div>
       )}
@@ -443,6 +468,7 @@ function Doings({ look, busy, act }: Props) {
 
 function Trade({ look, busy, act }: Props) {
   const session = useSession();
+  const names = useNames();
   return (
     <div>
       {/* Бронь — единственный способ купить удалённо, и она с часами:
@@ -450,48 +476,57 @@ function Trade({ look, busy, act }: Props) {
       {look.reservations.length > 0 && (
         <>
           <h3>
-            Брони
-            <Rule>
-              Забирают ногами: приезжайте в узел и выкупайте. Срок вышел — задаток
-              остался продавцу, товар вернулся в стакан.
-            </Rule>
+            {t("ui-side-reservations")}
+            <Rule>{t("ui-side-reservations-rule")}</Rule>
           </h3>
           {look.reservations.map((reservation) => (
             <Doing
               key={reservation.id}
-              what={`${reservation.goods}, ${reservation.tier}`}
+              what={t("ui-side-reservation", {
+                goods: goodsKeyName(names, reservation.goods),
+                tier: tierName(names, reservation.tier),
+              })}
               until={reservation.expires_at}
               since={reservation.placed_at}
-              aside={
-                `${reservation.amount} по ${api.tk(reservation.price)} ₭ · ` +
-                `${reservation.node} · задаток ${api.tk(reservation.deposit)} ₭`
-              }
+              //: The money is already spelled by `tk`, and the amount is drawn
+              //: raw everywhere else in the row: both go in as strings.
+              aside={t("ui-side-reservation-aside", {
+                amount: String(reservation.amount),
+                price: api.tk(reservation.price),
+                node: reservation.node,
+                deposit: api.tk(reservation.deposit),
+              })}
             />
           ))}
         </>
       )}
 
       <h3>
-        Ордера
-        <Rule>
-          Ордером распоряжаются отсюда; товар лежит в терминале.
-        </Rule>
+        {t("ui-side-orders")}
+        <Rule>{t("ui-side-orders-rule")}</Rule>
       </h3>
       {look.orders.length === 0 ? (
-        <p className="note">своих ордеров нет</p>
+        <p className="note">{t("ui-side-orders-none")}</p>
       ) : (
         look.orders.map((order) => (
           <div className="row" key={order.id}>
+            {/* `side` is the wire's own word, and the variant is keyed by it:
+                a variant key is an identifier, never a sentence chosen here. */}
             <span>
-              {order.side === "buy" ? "куплю" : "продам"} {order.goods}, {order.tier} ·{" "}
-              {order.left} по {api.tk(order.price)} ₭
+              {t("ui-side-order", {
+                side: order.side,
+                goods: goodsKeyName(names, order.goods),
+                tier: tierName(names, order.tier),
+                left: String(order.left),
+                price: api.tk(order.price),
+              })}
             </span>
             <button
               className="quiet"
               onClick={() => act(() => session.send("market.cancel", { order: order.id }))}
               disabled={busy}
             >
-              Снять
+              {t("ui-side-order-cancel")}
             </button>
           </div>
         ))
@@ -502,28 +537,23 @@ function Trade({ look, busy, act }: Props) {
 
 function Knowledge({ look }: { look: Look }) {
   const book = useBook();
+  const names = useNames();
   const discovered = new Set(look.discovered ?? []);
   return (
     <div>
       <h3>
-        Рецепты
-        <Rule>
-          Знание живёт в личности и не теряется ни смертью, ни судом (И8). Берут в
-          Библиотеке, читают с носителя «Рецепт» или открывают сами — у станции, без
-          рецепта. Своё открытие помечено ✦.
-        </Rule>
+        {t("ui-side-recipes")}
+        <Rule>{t("ui-side-recipes-rule")}</Rule>
       </h3>
       {look.knows.length === 0 ? (
-        <p className="note">
-          пока ничего: рецепты берут в Библиотеке, читают с носителя или открывают сами
-        </p>
+        <p className="note">{t("ui-side-recipes-none")}</p>
       ) : (
         look.knows.map((name) => (
           <p key={name}>
             <GoodsMark book={book} goods={name} />
-            {name}
+            {goodsName(names, name)}
             {discovered.has(name) && (
-              <span className="note" title="открыт вами: первооткрыватель">
+              <span className="note" title={t("ui-side-recipe-discovered")}>
                 {" "}✦
               </span>
             )}

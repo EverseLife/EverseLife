@@ -32,6 +32,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src import i18n
 from src.api import commands as _commands  # noqa: F401 -- registers every command
 from src.api import push
 from src.api.commands.common import _body
@@ -70,7 +71,14 @@ async def play(socket: WebSocket) -> None:
         await socket.send_json(_without_nulls(message))
 
     sink = push.Sink(send_raw=send_raw, cut=socket.close)
-    state: dict[str, Any] = {"identity_id": None, "sink": sink}
+    #: The language this session is answered in (D-251 wave III). The default
+    #: holds until `hello` says whose account this is: before that there is
+    #: nobody whose choice to honour.
+    state: dict[str, Any] = {
+        "identity_id": None,
+        "sink": sink,
+        "locale": i18n.DEFAULT_LOCALE,
+    }
     push.hub.attach(sink)
 
     try:
@@ -82,7 +90,7 @@ async def play(socket: WebSocket) -> None:
             #: every engine module descends from it, and the player reads it
             #: in their own words. Anything else below is a bug.
             except Refusal as refusal:
-                answer = {"refused": str(refusal)}
+                answer = _refused(refusal, state["locale"])
             #: A malformed command -- a missing argument, a string where a
             #: number or an id was expected -- is the client's mistake, and it
             #: is answered, not dropped: an exception here used to close the
@@ -93,16 +101,16 @@ async def play(socket: WebSocket) -> None:
                 #: player (and the AI citizen, D-224) must read which argument
                 #: the command wanted, not `KeyError('output')`.
                 log.warning("command %r without %s", message.get("cmd"), missing)
-                answer = {"refused": f"команде не хватает поля «{missing.args[0]}»"}
+                answer = _said("session-field-missing", state, field=missing.args[0])
             except (ValueError, TypeError) as bad:
                 log.warning("command %r not understood: %r", message.get("cmd"), bad)
-                answer = {"refused": f"команда не понята: {bad}"}
+                answer = _said("session-not-understood", state, why=str(bad))
             #: Anything else is our bug. It goes to the log whole, and the
             #: session survives it: the transaction was rolled back by
             #: `_dispatch`, so nothing half-done is left behind.
             except Exception:
                 log.exception("command %r crashed", message.get("cmd"))
-                answer = {"refused": "сервер не справился с командой; это записано"}
+                answer = _said("session-server-failed", state)
             if isinstance(message, dict) and isinstance(message.get("cmd"), str):
                 push.hub.tally.answered(message["cmd"])
             ticket = message.get("id") if isinstance(message, dict) else None
@@ -126,6 +134,47 @@ async def play(socket: WebSocket) -> None:
         push.hub.detach(sink)
 
 
+def _refused(refusal: Refusal, locale: str) -> dict[str, Any]:
+    """A refusal on the wire (D-251 wave III).
+
+    Three fields where there used to be one: the sentence for the player, the
+    `code` for whoever acts on it -- the client drawing its own window, the AI
+    citizen deciding what to try next (D-224) -- and the `args` the sentence
+    was built from, so that a reader may compose their own. A call site still
+    writing its own Russian travels as a bare string, exactly as before.
+    """
+    if refusal.key is None:
+        return {"refused": str(refusal)}
+    #: A quoted refusal is rendered first and put in as an argument (wave IV):
+    #: "тело занято: идёт разведка" is two messages, and only the outer one
+    #: knows where the inner goes.
+    quoted = {name: i18n.join(said, locale=locale) for name, said in refusal.inner.items()}
+    return {
+        "refused": i18n.render(refusal.key, {**refusal.params, **quoted}, locale=locale),
+        "code": refusal.key,
+        #: Empty rather than `{}`: `_without_nulls` drops it, and a refusal
+        #: with no numbers in it stays two fields wide. The quoted halves go
+        #: out as keys, not as the words they became: a client redrawing the
+        #: refusal renders them in its own language, like everything else.
+        "args": {**refusal.params, **_inner_args(refusal)} or None,
+    }
+
+
+def _inner_args(refusal: Refusal) -> dict[str, Any]:
+    """The quoted messages as the wire carries them: keys and their arguments."""
+    return {
+        name: [
+            {"code": said.key, **({"args": said.params} if said.params else {})} for said in says
+        ]
+        for name, says in refusal.inner.items()
+    }
+
+
+def _said(key: str, state: dict[str, Any], **params: Any) -> dict[str, Any]:
+    """The socket's own refusal -- the ones no engine module raises."""
+    return _refused(Refused(key=key, **params), state["locale"])
+
+
 def _without_nulls(value: Any) -> Any:
     """The reply without keys whose value is null (D-225, widened to every
     answer): no value -- no key. A body in the cloud has no `body`, a plot of
@@ -144,7 +193,7 @@ def _without_nulls(value: Any) -> Any:
 async def _dispatch(state: dict[str, Any], message: dict[str, Any]) -> dict[str, Any]:
     command = message.get("cmd")
     if command is None:
-        raise Refused("команда не названа")
+        raise Refused(key="session-command-unnamed")
 
     async with session_factory()() as db, db.begin():
         if command == "hello":
@@ -155,11 +204,11 @@ async def _dispatch(state: dict[str, Any], message: dict[str, Any]) -> dict[str,
 
         identity_id = state.get("identity_id")
         if identity_id is None:
-            raise Refused("сначала hello")
+            raise Refused(key="session-need-hello")
 
         known = COMMANDS.get(command)
         if known is None:
-            raise Refused(f"нет такой команды: {command}")
+            raise Refused(key="session-command-unknown", cmd=command)
         return await known.run(state, db, message)
 
 
@@ -182,15 +231,22 @@ async def _hello(state: dict, db: AsyncSession, message: dict) -> dict:
         await db.execute(select(Identity).where(Identity.account_id == account.id))
     ).scalar_one_or_none()
     if identity is None:
-        raise Refused("у аккаунта нет личности: регистрация не завершена")
+        raise Refused(key="cmd-account-without-identity")
 
     state["identity_id"] = identity.id
     state["token"] = issued
+    #: From here on this session is answered in the account's own language
+    #: (D-249): refusals, and in wave IV the events too.
+    state["locale"] = i18n.normalize(account.locale)
     body = await _body(db, identity.id)
     _listen(state, message, identity, body)
     return {
         "hello": identity.name,
         "token": issued,
+        #: What language the world is being read in. The client needs it to
+        #: ask `/public/i18n` for the matching words and to format its own
+        #: dates and sorting -- it is not derivable from anything else sent.
+        "locale": state["locale"],
         #: The client computes the device fee itself, and its account is part
         #: of the estimate (D-112).
         "account": str(identity.account_id),
@@ -223,7 +279,7 @@ def _listen(state: dict, message: dict, identity: Identity, body: Body | None) -
     try:
         state["replay"] = max(0, int(since))
     except (TypeError, ValueError) as bad:
-        raise Refused("since должен быть числом") from bad
+        raise Refused(key="cmd-since-not-a-number") from bad
     #: Turned on by the socket loop after the answer is queued: the client
     #: must hear who it is before it hears what happened.
     state["listen"] = True
@@ -249,9 +305,9 @@ async def _join(state: dict, db: AsyncSession, message: dict) -> dict:
     email = accounts.normalize_email(message.get("email"))
     password = accounts.check_password(message.get("password"))
     if message.get("password_again") is not None and message["password_again"] != password:
-        raise Refused("пароли не совпадают")
+        raise Refused(key="cmd-passwords-differ")
     if await accounts.by_email(db, email) is not None:
-        raise Refused("эта почта уже занята")
+        raise Refused(key="cmd-email-taken")
     line = accounts.check_line(message.get("line"))
     name = accounts.check_name(message.get("name"))
     if is_admin(name):
@@ -261,18 +317,18 @@ async def _join(state: dict, db: AsyncSession, message: dict) -> dict:
         #: register straight into the debug widget -- the list lives in a
         #: compose file, so the name is public and guessable. The words are the
         #: ones a taken name gets: guessing right must teach nothing.
-        raise Refused(f"имя {name!r} уже занято: имя сменить нельзя")
+        raise Refused(key="land-name-taken", name=name)
     profile = accounts.check_profile(message)
 
     key = str(message.get("node") or "").strip()
     if key:
         where = await world.door(db, key)
         if where is None:
-            raise Refused(f"у двери {key!r} не печатают")
+            raise Refused(key="cmd-door-does-not-print", node=key)
     else:
         where = await world.spawn_point(db)
     if where is None:
-        raise Refused("мир ещё не создан: печататься негде")
+        raise Refused(key="cmd-world-not-created")
     identity, body = await world.spawn(
         db, name, where, email=email, password=password, line=line, profile=profile
     )
@@ -281,10 +337,15 @@ async def _join(state: dict, db: AsyncSession, message: dict) -> dict:
     issued = await accounts.issue_token(db, account)
     state["identity_id"] = identity.id
     state["token"] = issued
+    state["locale"] = i18n.normalize(account.locale)
     _listen(state, message, identity, body)
     return {
         "hello": identity.name,
         "token": issued,
+        #: Said here as in `hello`: a client that has just registered needs the
+        #: language for the same reasons one that has just logged in does, and
+        #: it cannot derive it from anything else in this answer (D-225).
+        "locale": state["locale"],
         "account": str(identity.account_id),
         "body": str(body.id),
         "node": str(body.node_id),

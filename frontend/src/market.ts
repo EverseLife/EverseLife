@@ -11,7 +11,9 @@
  */
 
 import type { RecipeBook } from "./api";
+import { compare, type Compare } from "./locale";
 import { MONEY_SCALE } from "./money";
+import { goodsName, type NamesRu } from "./names";
 
 /**
  * A sum of money, to the last minor unit.
@@ -40,13 +42,22 @@ export function exactly(qty: number): string {
  * - liquids (D-230): they exist only inside a vessel, so no stack of one can
  *   ever be laid on the counter.
  */
-export function catalogue(book: RecipeBook | null): string[] {
+export function catalogue(
+  book: RecipeBook | null,
+  names: NamesRu | null = null,
+  order: Compare = compare,
+): string[] {
   if (!book) return [];
   const liquid = new Set(book.liquid ?? []);
-  const names = new Set<string>();
-  for (const recipe of book.recipes) if (!liquid.has(recipe.name)) names.add(recipe.name);
-  for (const material of book.materials) {
-    if (!material.relic && !liquid.has(material.name)) names.add(material.name);
+  const ids = new Set<string>();
+  for (const recipe of book.recipes) {
+    const id = recipe.id ?? recipe.name;
+    if (!liquid.has(id)) ids.add(id);
   }
-  return [...names].sort((a, b) => a.localeCompare(b, "ru"));
+  for (const material of book.materials) {
+    const id = material.id ?? material.name;
+    if (!material.relic && !liquid.has(id)) ids.add(id);
+  }
+  //: Ids out, Russian order: the list is picked from by its display words.
+  return [...ids].sort((a, b) => order(goodsName(names, a), goodsName(names, b)));
 }

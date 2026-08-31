@@ -7,7 +7,9 @@
 import { useState } from "react";
 import * as api from "../../api";
 import { tally } from "../../amounts";
-import { useSession } from "../../actions";
+import { useNames, useSession } from "../../actions";
+import { t } from "../../locale";
+import { goodsName } from "../../names";
 import type { Props } from "./shared";
 
 
@@ -19,6 +21,7 @@ import type { Props } from "./shared";
  */
 export function Demolition({ look, busy, act }: Props) {
   const session = useSession();
+  const names = useNames();
   const [plan, setPlan] = useState<any>(null);
   const going = api.houseOf(look.node).sites.length > 0;
 
@@ -31,12 +34,12 @@ export function Demolition({ look, busy, act }: Props) {
     <>
       <div className="row">
         <button className="quiet" onClick={() => act(count)} disabled={busy || going}>
-          Посчитать снос
+          {t("ui-place-demolition-estimate")}
         </button>
         <span className="note">
           {going
-            ? "Пока идёт стройка, сносить нечего: дождитесь её конца."
-            : "Снос — работа: часть материалов вернётся, остальное сломается при разборе."}
+            ? t("ui-place-demolition-going")
+            : t("ui-place-demolition-rule")}
         </span>
       </div>
 
@@ -47,8 +50,12 @@ export function Demolition({ look, busy, act }: Props) {
               <tbody>
                 {plan.back.map((m: any) => (
                   <tr key={m.goods}>
-                    <td>{m.goods}</td>
-                    <td className="note">вернётся {tally(m.goods, m.amount)}</td>
+                    <td>{goodsName(names, m.goods)}</td>
+                    <td className="note">
+                      {t("ui-place-demolition-back", {
+                        amount: tally(m.goods, m.amount),
+                      })}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -65,16 +72,18 @@ export function Demolition({ look, busy, act }: Props) {
               disabled={busy || blocking.length > 0 || !plan.mine}
               title={
                 blocking.length > 0
-                  ? "двор пустеет до сноса, а не после"
-                  : "работы идут временем, материалы придут в конце"
+                  ? t("ui-place-demolition-blocked-hint")
+                  : t("ui-place-demolition-hint")
               }
             >
-              Снести {plan.area.toFixed(0)} м²
+              {t("ui-place-demolition-do", { area: plan.area.toFixed(0) })}
             </button>
             <span className="note">
               {blocking.length > 0
-                ? `Сначала: ${blocking.join("; ")}`
-                : `Работы на ${(plan.minutes / 60).toFixed(1)} ч. Участок станет пустым.`}
+                ? t("ui-place-demolition-blocking", { what: blocking.join("; ") })
+                : t("ui-place-demolition-term", {
+                    hours: (plan.minutes / 60).toFixed(1),
+                  })}
             </span>
           </div>
         </>

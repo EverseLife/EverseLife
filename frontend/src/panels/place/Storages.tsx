@@ -8,10 +8,12 @@ import { useState } from "react";
 import { Amount } from "../../Amount";
 import { chosen, tally } from "../../amounts";
 import { Rule } from "../../Rule";
-import { useBook, useSession } from "../../actions";
+import { useBook, useNames, useSession } from "../../actions";
 import { DropZone } from "../../DragMove";
 import { chestZone, grip, noDrag } from "../../drag";
 import { isVessel } from "../../liquids";
+import { t } from "../../locale";
+import { goodsName } from "../../names";
 import type { Props } from "./shared";
 
 
@@ -24,6 +26,7 @@ import type { Props } from "./shared";
 export function Storages({ look, busy, act }: Props) {
   const session = useSession();
   const book = useBook();
+  const names = useNames();
   //: How much of a stack to move, per item. Empty means the whole of it.
   const [parts, setParts] = useState<Record<string, number | null>>({});
   const chests = look.storages ?? [];
@@ -43,23 +46,24 @@ export function Storages({ look, busy, act }: Props) {
         isVessel(book, chest.goods) ? (
           <section key={chest.id}>
             <h2>
-              {chest.goods}
-              <Rule>
-                Тара берёт только жидкость, и жидкость живёт только в таре: в бак
-                переливают из канистры и из бака — в канистру.
-              </Rule>
+              {goodsName(names, chest.goods)}
+              <Rule>{t("ui-place-tank-rule")}</Rule>
             </h2>
             <p className="note">
-              налито {chest.mass.toFixed(1)} из {chest.capacity.toFixed(0)} кг
+              {t("ui-place-tank-filled", {
+                mass: chest.mass.toFixed(1),
+                capacity: chest.capacity.toFixed(0),
+              })}
             </p>
             {!chest.mine ? (
-              <p className="note">Чужой бак: что внутри — не ваше дело.</p>
+              <p className="note">{t("ui-place-tank-foreign")}</p>
             ) : (
               <>
-                {chest.content.length === 0 && <p className="note">пусто</p>}
+                {chest.content.length === 0 && <p className="note">{t("ui-place-empty")}</p>}
                 {chest.content.map((thing) => (
                   <p key={thing.id}>
-                    {thing.goods} <span className="note">{tally(thing.goods, thing.amount)}</span>
+                    {goodsName(names, thing.goods)}{" "}
+                    <span className="note">{tally(thing.goods, thing.amount)}</span>
                     {canisters.map((canister) => (
                       <button
                         key={canister.id}
@@ -74,15 +78,16 @@ export function Storages({ look, busy, act }: Props) {
                           )
                         }
                         disabled={busy}
-                        title="слить в канистру — сколько войдёт и сколько унесёте"
+                        title={t("ui-place-tank-pour-out-hint")}
                       >
-                        В {canister.goods.toLowerCase()}
+                        {t("ui-place-tank-pour-out")}{" "}
+                        {goodsName(names, canister.goods).toLowerCase()}
                       </button>
                     ))}
                   </p>
                 ))}
                 {canisters.length === 0 ? (
-                  <p className="note">Нужна канистра в руках: жидкость не носят в ладонях.</p>
+                  <p className="note">{t("ui-place-tank-need-canister")}</p>
                 ) : (
                   canisters.map((canister) => (
                     <button
@@ -95,7 +100,9 @@ export function Storages({ look, busy, act }: Props) {
                       }
                       disabled={busy || (canister.content ?? []).length === 0}
                     >
-                      Перелить из «{canister.goods}»
+                      {t("ui-place-tank-pour-in", {
+                        goods: goodsName(names, canister.goods),
+                      })}
                     </button>
                   ))
                 )}
@@ -105,16 +112,17 @@ export function Storages({ look, busy, act }: Props) {
         ) : (
         <section key={chest.id}>
           <h2>
-            {chest.goods}
-            <Rule>
-              Дом хранит то, что не увезти в руках; полный сундук не уносят.
-            </Rule>
+            {goodsName(names, chest.goods)}
+            <Rule>{t("ui-place-chest-rule")}</Rule>
           </h2>
           <p className="note">
-            занято {chest.mass.toFixed(1)} из {chest.capacity.toFixed(0)} кг
+            {t("ui-place-chest-taken", {
+              mass: chest.mass.toFixed(1),
+              capacity: chest.capacity.toFixed(0),
+            })}
           </p>
           {!chest.mine ? (
-            <p className="note">Чужое хранилище: что внутри — не ваше дело.</p>
+            <p className="note">{t("ui-place-chest-foreign")}</p>
           ) : (
             <>
               {/* One inventory, not two (D-238): what is in the hands is in
@@ -127,7 +135,7 @@ export function Storages({ look, busy, act }: Props) {
                 zone={chestZone(chest.id)}
                 accepts={["hands"]}
                 disabled={busy}
-                hint="перетащите сюда предмет, чтобы убрать в хранилище"
+                hint={t("ui-place-chest-drop")}
                 onMove={(stack, amount) =>
                   act(() =>
                     session.send("storage.put", {
@@ -147,12 +155,12 @@ export function Storages({ look, busy, act }: Props) {
                           {...grip({
                             item: thing.id,
                             goods: thing.goods,
-                            label: thing.goods,
+                            label: goodsName(names, thing.goods),
                             amount: thing.amount,
                             zone: chestZone(chest.id),
                           })}
                         >
-                          <td>{thing.goods}</td>
+                          <td>{goodsName(names, thing.goods)}</td>
                           <td className="note">{tally(thing.goods, thing.amount)}</td>
                           <td {...noDrag}>
                             <Amount
@@ -175,9 +183,9 @@ export function Storages({ look, busy, act }: Props) {
                                 )
                               }
                               disabled={busy}
-                              title="забрать в руки — сколько унесёте; строку можно и перетащить вниз"
+                              title={t("ui-place-chest-take-hint")}
                             >
-                              Забрать
+                              {t("ui-place-chest-take")}
                             </button>
                           </td>
                         </tr>
@@ -185,7 +193,7 @@ export function Storages({ look, busy, act }: Props) {
                     </tbody>
                   </table>
                 ) : (
-                  <p className="note">пусто</p>
+                  <p className="note">{t("ui-place-empty")}</p>
                 )}
               </DropZone>
             </>

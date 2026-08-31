@@ -7,6 +7,7 @@
 import { useState } from "react";
 import * as api from "../../api";
 import { Refusal, useActions, useSession } from "../../actions";
+import { t } from "../../locale";
 import type { Props } from "./shared";
 import { Equipment } from "./Equipment";
 import { Ground } from "./Ground";
@@ -48,10 +49,10 @@ export function Berth({ look }: Omit<Props, "busy" | "act">) {
     <>
       <section>
         <Refusal of={acting} />
-        <h2>Отсек</h2>
+        <h2>{t("ui-place-berth-title")}</h2>
         <p className="note">
-          {look.node?.name} · {home.area.toFixed(0)} м² · мест под оборудование {home.used} из{" "}
-          {home.slots}
+          {look.node?.name} · {t("ui-place-area", { area: home.area.toFixed(0) })} ·{" "}
+          {t("ui-place-slots", { used: home.used, slots: home.slots })}
         </p>
         {/* The nameplate. A hull is walked by memory, and «Отсек» twice over is
             two rooms nobody can tell apart. */}
@@ -61,7 +62,7 @@ export function Berth({ look }: Omit<Props, "busy" | "act">) {
               <input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                aria-label="имя отсека"
+                aria-label={t("ui-place-berth-name")}
                 placeholder={look.node?.name}
               />
               <button
@@ -73,10 +74,10 @@ export function Berth({ look }: Omit<Props, "busy" | "act">) {
                   })
                 }
               >
-                Назвать
+                {t("ui-place-rename-save")}
               </button>
               <button className="quiet" onClick={() => setRenaming(false)}>
-                Отмена
+                {t("ui-place-cancel")}
               </button>
             </p>
           ) : (
@@ -87,7 +88,7 @@ export function Berth({ look }: Omit<Props, "busy" | "act">) {
                 setRenaming(true);
               }}
             >
-              Переименовать отсек
+              {t("ui-place-berth-rename")}
             </button>
           ))}
       </section>
@@ -96,22 +97,22 @@ export function Berth({ look }: Omit<Props, "busy" | "act">) {
           from its first second (D-106, D-202), so machines take its area by
           exactly the rule they take a house's. */}
       <Equipment
-        title="Рабочие станции"
+        title={t("ui-place-equipment-stations")}
         things={look.bench ?? []}
         kind="station"
         look={look}
         busy={busy}
         act={act}
-        note="За рабочей станцией работает один: пока идёт партия, второму она не отдаётся."
+        note={t("ui-place-equipment-stations-rule")}
       />
       <Equipment
-        title="Мебель"
+        title={t("ui-place-equipment-furniture")}
         things={look.furniture ?? []}
         kind="furniture"
         look={look}
         busy={busy}
         act={act}
-        note="Мебель обустраивает быт: кровать — сон быстрее, сундук — хранение. На ней не работают."
+        note={t("ui-place-equipment-furniture-rule")}
       />
 
       {/* And what lies on its floor and in its chests -- the same window a

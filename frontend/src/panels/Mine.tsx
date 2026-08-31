@@ -16,7 +16,10 @@ import { useState } from "react";
 import type { Look, Sight } from "../api";
 import { solve, type PowSettings } from "../pow";
 import { Rule } from "../Rule";
-import { Refusal, useActions, useSession } from "../actions";
+import { Refusal, useActions, useBook, useNames, useSession } from "../actions";
+import { classOf } from "../classes";
+import { t } from "../locale";
+import { goodsName } from "../names";
 
 type Props = {
   look: Look;
@@ -27,6 +30,8 @@ type Props = {
 
 export function Mine({ look, pow }: Omit<Props, "busy" | "act">) {
   const session = useSession();
+  const book = useBook();
+  const names = useNames();
   //: This panel's own waiting and its own refusal: one action here
   //: must not grey out the chat, the map and somebody else's orders.
   const acting = useActions();
@@ -38,7 +43,9 @@ export function Mine({ look, pow }: Omit<Props, "busy" | "act">) {
 
   const start = () =>
     act(async () => {
-      if (!vein || !pow) throw new Error("здесь нет жилы");
+      //: The button is dead without a vein, so this is a guard rather than a
+      //: path -- but `act` shows what it catches, so what it throws is copy.
+      if (!vein || !pow) throw new Error(t("ui-mine-no-vein-here"));
       setComputing(true);
       try {
         const challenge = await session.send("pow.challenge");
@@ -47,7 +54,8 @@ export function Mine({ look, pow }: Omit<Props, "busy" | "act">) {
           challenge: challenge.challenge,
           answer: answer,
           vein: vein.id,
-          tool: look.inventory.find((t) => t.goods.includes("кирка"))?.id,
+          //: The tool is found by its class (D-215), never by a substring of a name.
+          tool: look.inventory.find((thing) => classOf(book, thing.goods) === "pickaxe")?.id,
         });
       } finally {
         setComputing(false);
@@ -58,26 +66,30 @@ export function Mine({ look, pow }: Omit<Props, "busy" | "act">) {
     <section>
       <Refusal of={acting} />
       <h2>
-        Забой
-        <Rule>
-          Крепь стоит бруса и верёвки, быстрый темп даёт больше выхода и больше
-          просадки. Заученной последовательности нет: оптимум двигается вместе с ценой
-          крепи.
-        </Rule>
+        {t("ui-mine-title")}
+        <Rule>{t("ui-mine-rule")}</Rule>
       </h2>
       {!scene && (
         <>
           <p className="note">
             {vein
-              ? `Жила: ${vein.resource}, богатство ${vein.richness.toFixed(0)}`
-              : "В этом узле жилы нет"}
+              ? t("ui-mine-vein", {
+                  goods: goodsName(names, vein.resource),
+                  richness: vein.richness.toFixed(0),
+                })
+              : t("ui-mine-no-vein")}
           </p>
           <button onClick={start} disabled={busy || computing || !vein}>
-            {computing ? "считаю плату устройства…" : "Начать сессию"}
+            {t(computing ? "ui-mine-computing" : "ui-mine-start")}
           </button>
           <p className="note">
-            Одна оценка Argon2id на сессию: {pow?.memoryMib} МБ, {pow?.iterations} прохода.
-            Считает ваше устройство — это налог на масштаб, а не на вас.
+            {/* A setting the server has not sent yet leaves a hole, exactly as
+                the interpolation did before: `String(undefined)` would put the
+                word "undefined" in front of the player. */}
+            {t("ui-mine-pow", {
+              memory: pow?.memoryMib?.toString() ?? "",
+              rounds: pow?.iterations?.toString() ?? "",
+            })}
           </p>
         </>
       )}
@@ -88,15 +100,15 @@ export function Mine({ look, pow }: Omit<Props, "busy" | "act">) {
           <table>
             <tbody>
               <tr>
-                <td>добыто</td>
+                <td>{t("ui-mine-mined")}</td>
                 <td className="num">{scene.mined.toFixed(3)}</td>
               </tr>
               <tr>
-                <td>ударов</td>
+                <td>{t("ui-mine-swings")}</td>
                 <td className="num">{scene.swings}</td>
               </tr>
               <tr>
-                <td>крепей</td>
+                <td>{t("ui-mine-timbers")}</td>
                 <td className="num">{scene.timbers}</td>
               </tr>
             </tbody>
@@ -105,13 +117,13 @@ export function Mine({ look, pow }: Omit<Props, "busy" | "act">) {
           {scene.state === "active" ? (
             <div className="row">
               <button onClick={() => act(() => session.send("mine.swing"))} disabled={busy}>
-                Бить
+                {t("ui-mine-swing")}
               </button>
               <button onClick={() => act(() => session.send("mine.timber"))} disabled={busy}>
-                Ставить крепь
+                {t("ui-mine-timber")}
               </button>
               <button onClick={() => act(() => session.send("mine.leave"))} disabled={busy}>
-                Уйти
+                {t("ui-mine-leave")}
               </button>
               <button
                 className="quiet"
@@ -124,14 +136,12 @@ export function Mine({ look, pow }: Omit<Props, "busy" | "act">) {
                 }
                 disabled={busy}
               >
-                темп: {scene.pace === "fast" ? "быстрый" : "ровный"}
+                {t("ui-mine-pace", { fast: String(scene.pace === "fast") })}
               </button>
             </div>
           ) : (
             <p className="trouble">
-              {scene.state === "collapsed"
-                ? "Обрушение. Всё добытое за сессию потеряно."
-                : "Сессия закрыта."}
+              {t(scene.state === "collapsed" ? "ui-mine-collapsed" : "ui-mine-closed")}
             </p>
           )}
         </>

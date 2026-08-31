@@ -36,9 +36,9 @@ from src.models.estate import Building
 from src.models.inventory import Item
 from src.units import amount, amount_float
 
-ORE = "Железная руда"
-PICK = "Железная кирка"
-CHEST = "Сундук"
+ORE = "iron_ore"
+PICK = "iron_pickaxe"
+CHEST = "chest"
 
 
 async def _person(session: AsyncSession):
@@ -188,7 +188,7 @@ async def test_shelf_life_keeps_food_apart(session: AsyncSession) -> None:
         session.add(
             Item(
                 container_id=hands.id,
-                type_key="Зерно",
+                type_key="grain",
                 amount=amount(1),
                 quality=Decimal("50"),
                 spoils_at=now + timedelta(hours=hours),
@@ -197,7 +197,7 @@ async def test_shelf_life_keeps_food_apart(session: AsyncSession) -> None:
         await session.flush()
     fresh = Item(
         container_id=hands.id,
-        type_key="Зерно",
+        type_key="grain",
         amount=amount(1),
         quality=Decimal("50"),
         spoils_at=now + timedelta(hours=40),
@@ -205,7 +205,7 @@ async def test_shelf_life_keeps_food_apart(session: AsyncSession) -> None:
     session.add(fresh)
     await world.stack_up(session, fresh)
 
-    lying = await _stacks(session, hands, "Зерно")
+    lying = await _stacks(session, hands, "grain")
     assert len(lying) == 2, "срок годности отличает стопку"
     assert sorted(amount_float(stack.amount) for stack in lying) == [1, 2]
 
@@ -257,8 +257,8 @@ def test_the_vault_says_what_stacks(catalog: Catalog) -> None:
     from src.engine import goods
 
     assert goods.stackable(ORE, catalog), "сырьё складывается"
-    assert goods.stackable("Слиток железа", catalog), "материал складывается"
-    assert goods.stackable("Золотая монета", catalog), "монета складывается"
+    assert goods.stackable("iron_ingot", catalog), "материал складывается"
+    assert goods.stackable("gold_coin", catalog), "монета складывается"
     assert not goods.stackable(PICK, catalog), "инструмент не складывается"
     assert not goods.stackable(CHEST, catalog), "мебель не складывается"
 

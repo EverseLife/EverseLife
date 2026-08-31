@@ -107,7 +107,10 @@ async def _world_summary(state: dict, db: AsyncSession, message: dict) -> dict:
         attention.append(
             {
                 "kind": "case",
-                "what": f"против вас иск: {case.claim}",
+                #: The line is named, not written (D-251): the client draws
+                #: `attention-case` in the language of whoever is reading.
+                "say": "attention-case",
+                "args": {"claim": case.claim},
                 "since": case.opened_at.isoformat(),
                 "until": (case.opened_at + window).isoformat(),
             }
@@ -121,11 +124,16 @@ async def _world_summary(state: dict, db: AsyncSession, message: dict) -> dict:
         if native is not None:
             for poll in await vote.view(db, current_catalog(), native, identity.id):
                 if poll["may_vote"] and poll["mine"] is None and poll["choice"] is None:
-                    subject = poll.get("law") or poll["kind"]
+                    #: A law is put to the vote under a name somebody wrote;
+                    #: everything else is named by its kind, and the kind is an
+                    #: enum -- a word of it belongs in the locale, not here,
+                    #: or the player reads «голосование: council».
+                    law = poll.get("law")
                     attention.append(
                         {
                             "kind": "vote",
-                            "what": f"голосование: {subject}",
+                            "say": "attention-vote-law" if law else "attention-vote-kind",
+                            "args": {"law": law} if law else {"kind": poll["kind"]},
                             "where": native.name,
                             "until": poll["closes_at"],
                         }
@@ -138,11 +146,18 @@ async def _world_summary(state: dict, db: AsyncSession, message: dict) -> dict:
             attention.append(
                 {
                     "kind": "debt",
-                    "what": (
-                        f"долг за быт: {holding['name']}"
-                        + (" — узел отключён" if holding.get("cut_off") else "")
-                    ),
-                    "where": holding["name"],
+                    "say": "attention-debt",
+                    #: A flag rather than two keys: whether the node is cut off
+                    #: is one clause of one sentence, and a variant key in
+                    #: Fluent is an identifier, never a boolean.
+                    "args": {
+                        "node": holding["name"],
+                        "cut": "true" if holding.get("cut_off") else "false",
+                    },
+                    #: No `where`: the sentence already names the node, and the
+                    #: client draws `where` beside it -- so the line read «долг
+                    #: за быт: Двор · Двор». Carried over from the old `what`
+                    #: and dropped with it (D-225).
                 }
             )
 
@@ -162,7 +177,11 @@ async def _world_summary(state: dict, db: AsyncSession, message: dict) -> dict:
         attention.append(
             {
                 "kind": "reservation",
-                "what": f"забрать бронь: {row.type_key}",
+                "say": "attention-reservation",
+                #: `type_key` is a D-251 id and travels as one: the message
+                #: turns it into a word with `NAME()`. It used to be printed
+                #: raw, so the line read «забрать бронь: iron_ore».
+                "args": {"goods": row.type_key},
                 "since": row.created_at.isoformat(),
                 "until": row.expires_at.isoformat(),
             }

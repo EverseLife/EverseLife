@@ -103,9 +103,9 @@ the city stopped passing the gate at all.
 
 A city therefore has exactly two doors, and both are nodes:
 
-* **the gate** -- the node property `выход`. The one place one leaves the walls
+* **the gate** -- the node property `exit`. The one place one leaves the walls
   on foot, and hence the one place one arrives at from outside;
-* **the spaceport** -- the node the `Космическая верфь` machine stands in. Ship groups
+* **the spaceport** -- the node a `shipyard` machine stands in. Ship groups
   couple to it by one edge (D-201), and a ship is the only thing that arrives
   anywhere but the gate.
 
@@ -167,7 +167,7 @@ from src.engine import (
 )
 from src.engine import city as town
 from src.engine import ship as vessels
-from src.engine.errors import Refusal
+from src.engine.errors import Refusal, left_to_say
 from src.engine.jobs import enqueue, handler
 from src.models.event import EventKind
 from src.models.identity import Body, BodyState
@@ -252,7 +252,7 @@ def edge_seconds(constants: Constants, edge: Edge) -> float:
 
 #: The node property "distance" (D-180): how many transits it is from civic
 #: land. Built-up area has none at all, and that is the same as zero.
-REACH = "даль"
+REACH = "distance"
 
 
 def reach_of(node: Node) -> int:
@@ -262,7 +262,7 @@ def reach_of(node: Node) -> int:
 
 #: The node property marking the city's gate (D-097, D-206): the one node of
 #: the built-up area a road from beyond the walls may be tied to.
-EXIT = "выход"
+EXIT = "exit"
 
 
 async def is_exit(session: AsyncSession, node: Node) -> bool:
@@ -395,19 +395,14 @@ async def require_here(session: AsyncSession, body: Body) -> None:
     the scout leaves in person, and while in the field is not in the node.
     """
     if body.sleeping_since is not None:
-        raise Asleep("тело спит: сначала проснуться")
+        raise Asleep(key="travel-asleep")
     going = await current(session, body)
     if going is not None:
-        raise InTransit(
-            f"тело в пути и придёт в {going.arrives_at.isoformat()}: материя требует присутствия"
-        )
+        raise InTransit(key="travel-in-transit", inner={"left": [left_to_say(going.arrives_at)]})
 
     run = await explore.pending(session, body)
     if run is not None:
-        raise InField(
-            f"тело в разведке и вернётся в {run.run_at.isoformat()}: "
-            "отменить заход — «вернуться» на карте"
-        )
+        raise InField(key="travel-in-field", inner={"left": [left_to_say(run.run_at)]})
 
 
 async def route(
@@ -465,11 +460,7 @@ async def route(
                 heapq.heappush(queue, (step, neighbour.bytes))
 
     if to_node_id not in best:
-        raise NoRoute(
-            "пути нет вовсе: узлы не связаны рёбрами"
-            if vehicle is None
-            else "обозу туда дороги нет: бездорожье транспорт не пускает"
-        )
+        raise NoRoute(key="travel-no-route", how="foot" if vehicle is None else "convoy")
     path: list[uuid.UUID] = []
     cursor = to_node_id
     while cursor != from_node_id:
@@ -495,9 +486,9 @@ async def depart(
     """
     moment = now or datetime.now(UTC)
     if body.state is not BodyState.ALIVE:
-        raise TravelError("мёртвое тело никуда не идёт")
+        raise TravelError(key="travel-dead-goes-nowhere")
     if await current(session, body) is not None:
-        raise AlreadyGoing("тело уже в пути")
+        raise AlreadyGoing(key="travel-already-going")
     #: Setting out is an in-person start, and its door is **the same** as for
     #: all in-person actions: a sleeper does not go (D-091), a scout does not go
     #: (D-152) -- they are not in the node, they are in the field. Keeping this
@@ -505,7 +496,7 @@ async def depart(
     #: later: the scout did exactly that, walking away while staying "in the field".
     await require_here(session, body)
     if target.id == body.node_id:
-        raise NoEdge("это тот же узел")
+        raise NoEdge(key="travel-same-node")
 
     #: Imprisonment is a forced restriction of movement to the node (D-095,
     #: D-166). The engine enforces it, not guards: the verdict does not depend
@@ -514,8 +505,12 @@ async def depart(
     sits = await justice.imprisoned(session, body.identity_id)
     if sits is not None:
         raise Imprisoned(
-            "заключение: выходить из узла запрещено до "
-            + (sits.until.isoformat() if sits.until else "решения суда")
+            key="travel-imprisoned",
+            term="date" if sits.until else "verdict",
+            #: A term is told as how long is left, like every other deadline:
+            #: the day here is of the world's own length (D-029), and an ISO
+            #: stamp in it is a conversion nobody does in their head.
+            inner={} if sits.until is None else {"left": [left_to_say(sits.until)]},
         )
 
     #: Insolvency holds in the node the same way, but it is imposed not by the
@@ -523,10 +518,7 @@ async def depart(
 
     holds = await bank.restrained(session, constants, body.identity_id, now=moment)
     if holds is not None:
-        raise Imprisoned(
-            "долг не обслуживается: выходить из узла нельзя, пока не "
-            "рассчитаетесь. Заплатить за вас вправе кто угодно"
-        )
+        raise Imprisoned(key="travel-in-default")
 
     #: Somebody else's shut location is refused at departure, not at the fence
     #: (D-199): a road one cannot finish is not worth setting out on. Only the
@@ -555,7 +547,7 @@ async def depart(
         assert edge is not None  # noqa: S101 -- a route consists of edges
         next_node = await session.get(Node, legs[0])
         if next_node is None:  # pragma: no cover -- the route is over live nodes
-            raise TravelError("маршрут ведёт в исчезнувший узел")
+            raise TravelError(key="travel-route-node-gone")
         target = next_node
         plan = legs[1:] + plan
 
@@ -588,9 +580,9 @@ async def depart(
         #: Surface decides not only time but the very possibility to drive through.
         if not transport.passable(constants, edge.surface, convoy.type_key):
             raise transport.Impassable(
-                f"«{convoy.type_key}» здесь не пройдёт: "
-                f"{edge.surface.value} транспорт не пускает. "
-                "Распрягитесь либо ищите дорогу"
+                key="travel-impassable",
+                vehicle=convoy.type_key,
+                surface=edge.surface.value,
             )
         seconds /= transport.speed(constants, convoy.type_key)
 
@@ -631,10 +623,7 @@ async def depart(
         * await frost.drain_multiplier(session, constants, body)
     )
     if spend > float(body.stamina):
-        raise NoStrength(
-            f"на дорогу нужно {spend:.1f} выносливости, а есть "
-            f"{float(body.stamina):.1f}: сначала поесть или поспать"
-        )
+        raise NoStrength(key="travel-no-strength", need=spend, have=float(body.stamina))
     body.stamina = Decimal(str(float(body.stamina) - spend))
 
     travel = Travel(
@@ -713,7 +702,7 @@ async def turn_back(
     moment = now or datetime.now(UTC)
     going = await current(session, body)
     if going is None:
-        raise NotGoing("тело не в пути: возвращаться неоткуда")
+        raise NotGoing(key="travel-not-going")
 
     here = await session.get(Node, going.from_node_id)
     if (
@@ -721,10 +710,7 @@ async def turn_back(
         and here is not None
         and not await access.may_enter(session, here, body.identity_id)
     ):
-        raise access.Barred(
-            f"«{here.name}» — чужая закрытая локация, и вы идёте через неё "
-            "проходом: с полпути тут не поворачивают, проход идётся до конца"
-        )
+        raise access.Barred(key="travel-passage-not-turned", node=here.name)
 
     going.state = TravelState.CANCELLED
     going.plan = None
@@ -768,7 +754,7 @@ async def arrive(session: AsyncSession, job: Job) -> None:
     """Arrived. The body moves to the new node together with everything it carries."""
     travel = await session.get(Travel, uuid.UUID(job.payload["travel"]))
     if travel is None:  # pragma: no cover
-        raise TravelError(f"задание {job.id}: перехода нет")
+        raise TravelError(key="travel-job-no-leg", job=str(job.id))
     if travel.state is not TravelState.GOING:
         #: A job retry after a failure does not become a second arrival.
         return
@@ -776,7 +762,7 @@ async def arrive(session: AsyncSession, job: Job) -> None:
     body = await session.get(Body, travel.body_id, with_for_update=True)
     target = await session.get(Node, travel.to_node_id)
     if body is None or target is None:  # pragma: no cover
-        raise TravelError(f"переход {travel.id} ссылается в никуда")
+        raise TravelError(key="travel-leg-nowhere", leg=str(travel.id))
 
     #: The road ends here, and the hours on it were the cold itself (D-231):
     #: the reserve is settled **before** the body takes the new node, or the
@@ -828,7 +814,7 @@ async def arrive(session: AsyncSession, job: Job) -> None:
     if travel.plan:
         next_node = await session.get(Node, uuid.UUID(travel.plan[0]))
         if next_node is None:  # pragma: no cover -- the route is over live nodes
-            raise TravelError(f"переход {travel.id}: план ведёт в исчезнувший узел")
+            raise TravelError(key="travel-plan-node-gone", leg=str(travel.id))
         rest = [uuid.UUID(raw) for raw in travel.plan[1:]]
 
         #: Lazy for the same reason as in `depart`: `oxygen` reads the hull
@@ -960,10 +946,7 @@ async def require_exit(session: AsyncSession, a: Node, b: Node) -> None:
     for node, city in ((a, here), (b, there)):
         if city is None or await is_exit(session, node):
             continue
-        raise NotAnExit(
-            f"«{node.name}» — не выход из города: за стену ведут только ворота "
-            "и космодром, дорогу тянут от них"
-        )
+        raise NotAnExit(key="travel-not-an-exit", node=node.name)
 
 
 async def disconnect(session: AsyncSession, a: Node, b: Node) -> bool:
@@ -997,10 +980,7 @@ async def disconnect(session: AsyncSession, a: Node, b: Node) -> bool:
         .first()
     )
     if walking is not None:
-        raise EdgeInUse(
-            "по переходу сейчас идут: трап из-под идущего не убирают. "
-            "Дождитесь, пока дорога освободится"
-        )
+        raise EdgeInUse(key="travel-edge-in-use")
 
     await session.delete(edge)
     await session.flush()

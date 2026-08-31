@@ -101,14 +101,14 @@ class Ctx:
     def identity_id(self) -> uuid.UUID:
         found = self.state.get("identity_id")
         if found is None:
-            raise Refused("сначала hello")
+            raise Refused(key="cmd-need-hello")
         return found
 
     async def identity(self) -> Identity:
         if self._identity is None:
             found = await self.db.get(Identity, self.identity_id)
             if found is None:
-                raise Refused("личность не найдена")
+                raise Refused(key="cmd-identity-not-found")
             self._identity = found
         return self._identity
 
@@ -130,7 +130,7 @@ class Ctx:
             )
             found = (await self.db.execute(stmt)).scalars().first()
             if found is None:
-                raise Refused("нет живого тела")
+                raise Refused(key="cmd-no-live-body")
             self._body = found
         return self._body
 

@@ -44,6 +44,9 @@ COVERED = (
     "backend/src/*.py",
     "backend/tests/*.py",
     "backend/tools/*.py",
+    #: The languages the game is answered in (D-251 wave III): written by
+    #: hand, and the player-facing half of the source at that.
+    "backend/locales/*.ftl",
     "deploy/*.py",
     "agentic_player_system/aps/*.py",
     "agentic_player_system/tests/*.py",
@@ -51,6 +54,10 @@ COVERED = (
     "landing/*.py",
     "tools/*.py",
     "frontend/src/*.tsx",
+    #: The window's own words (D-251 wave IV). Beside the engine's `.ftl` for
+    #: the same reason: hand-written, and the half of the source the player
+    #: actually reads.
+    "frontend/src/locales/*.ftl",
     "frontend/*.ts",
     "frontend/*.mjs",
     "frontend/src/*.css",
@@ -74,6 +81,7 @@ EXCLUDED = (
 #: How each language spells a comment. The header goes in as whole lines.
 STYLES: dict[str, list[str]] = {
     ".py": ["# {spdx}", "# {copy}"],
+    ".ftl": ["# {spdx}", "# {copy}"],
     ".ts": ["// {spdx}", "// {copy}"],
     ".tsx": ["// {spdx}", "// {copy}"],
     ".mjs": ["// {spdx}", "// {copy}"],

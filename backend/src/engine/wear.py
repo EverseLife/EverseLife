@@ -51,14 +51,6 @@ from src.models.identity import Body, BodyState
 from src.models.inventory import Container, ContainerKind, Item
 from src.models.world import Node
 
-#: The planet name in `wear.environment_k` -- the keys there are human, as in the vault.
-PLANET_NAMES = {
-    "terra": "Терра",
-    "aquatica": "Акватика",
-    "pyroxis": "Пироксис",
-    "aurora": "Аврора",
-}
-
 
 def life_factor(constants: Constants, quality: float | None) -> float:
     """How many times longer a thing of this quality lasts.
@@ -194,7 +186,8 @@ async def daily_gear_wear(session: AsyncSession, constants: Constants, catalog: 
     for item, planet, identity_id in rows:
         if not _is_gear(catalog, item.type_key):
             continue
-        environment = modifiers.get(PLANET_NAMES.get(planet.value, ""), 1.0)
+        #: `wear.environment_k` keys are planet ids since D-251 normalization.
+        environment = modifiers.get(planet.value, 1.0)
         if await spend(
             session,
             constants,
