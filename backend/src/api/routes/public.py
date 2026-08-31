@@ -338,7 +338,7 @@ async def market_book(
     the tiers (`/public/quality/tiers`), not with every read of every book.
     """
     if step is not None and step not in MARKET_BOOK_STEPS:
-        raise HTTPException(status_code=400, detail=f"шаг цены не из списка: {step}")
+        raise _refused(400, key="cmd-step-not-on-ladder", step=step)
     async with session_factory()() as db:
         node = await _node(db, node_key)
         goods = catalog().recipes.resolve(goods)
@@ -368,10 +368,30 @@ async def quality_tiers() -> dict[str, Any]:
     }
 
 
+def _refused(status_code: int, *, key: str, **params: Any) -> HTTPException:
+    """A named refusal over plain HTTP (D-251).
+
+    The detail carries the same three fields the socket's refusal does: the
+    sentence for the player, the `code` for whoever acts on it, and the `args`
+    the sentence was built from. Rendered in the default language -- a public
+    read has no session behind it to have chosen one -- and a client reading
+    in another redraws from `code` and `args` with its own bundle, exactly as
+    it does over the socket.
+    """
+    return HTTPException(
+        status_code=status_code,
+        detail={
+            "refused": i18n.render(key, params, locale=i18n.DEFAULT_LOCALE),
+            "code": key,
+            **({"args": params} if params else {}),
+        },
+    )
+
+
 async def _node(db, key: str) -> Node:
     node = (await db.execute(select(Node).where(Node.key == key))).scalar_one_or_none()
     if node is None:
-        raise HTTPException(status_code=404, detail=f"нет узла {key!r}")
+        raise _refused(404, key="cmd-no-such-node", node=key)
     return node
 
 

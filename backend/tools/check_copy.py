@@ -57,7 +57,6 @@ KNOWN: dict[str, int] = {
     "src/api/commands/city.py": 1,
     "src/api/commands/transport.py": 1,
     "src/api/commands/views.py": 1,
-    "src/api/routes/public.py": 1,
     "src/constants/catalog.py": 14,
     "src/constants/formula.py": 8,
     "src/constants/loader.py": 10,

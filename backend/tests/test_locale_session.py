@@ -134,6 +134,31 @@ def test_a_refusal_with_no_numbers_stays_two_fields_wide(client) -> None:
         assert "args" not in answer
 
 
+def test_an_http_refusal_carries_the_same_three_fields(client) -> None:
+    """The two public reads that refuse do it in the socket's shape (D-251).
+
+    `detail` is `refused`/`code`/`args`, not a bare sentence: the HTTP edge
+    and the socket edge must not drift apart, and this is the pin.
+    """
+    answer = client.get(
+        "/public/market/terra.nowhere/book",
+        params={"goods": "iron_ore", "tier": "crude", "step": 999},
+    )
+    assert answer.status_code == 400
+    detail = answer.json()["detail"]
+    assert detail["code"] == "cmd-step-not-on-ladder"
+    assert detail["args"] == {"step": 999}
+    #: The sentence is rendered, not the key.
+    assert detail["refused"] == "шаг цены не из списка: 999"
+
+    answer = client.get("/public/market/terra.nowhere")
+    assert answer.status_code == 404
+    detail = answer.json()["detail"]
+    assert detail["code"] == "cmd-no-such-node"
+    assert detail["args"] == {"node": "terra.nowhere"}
+    assert detail["refused"] == "нет узла «terra.nowhere»"
+
+
 def test_the_account_keeps_the_language_across_logins(client, player) -> None:
     """Read back off the account at the next `hello`, not held in the socket."""
     with client.websocket_connect("/session/ws") as ws:
