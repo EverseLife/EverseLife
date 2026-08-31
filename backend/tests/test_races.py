@@ -811,3 +811,160 @@ async def test_locked_stacks_reread_what_the_session_already_holds(
             await other.execute(update(Item).where(Item.id == coal.id).values(amount=7_000))
         locked = await stock.locked_stacks(db, yard.id, ("coal",))
         assert locked[0] is held and held.amount == 7_000, "замок обязан перечитать строку"
+
+
+async def test_two_copies_at_once_cannot_outspend_one_reserve(
+    session: AsyncSession,
+    factory: async_sessionmaker[AsyncSession],
+    constants,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A recipe is free in money and paid for in stamina (D-148), and stamina
+    is on the same list as money and remainders (CLAUDE.md).
+
+    Two sockets of one identity at one shelf, two different recipes, and a
+    reserve that covers exactly one copy. Without the lock on the body both
+    read that reserve, both find it enough and both write their own remainder
+    -- the second write erases the first, both recipes are learned and the
+    body has carried off more knowledge than it had strength for. With the
+    lock the second waits at the row, rereads it after the first commits and
+    is refused.
+
+    The pause goes into the window the lock has to close: `library.has` is
+    asked before the body's row is taken, so both sessions are past the shelf
+    and at the lock together.
+    """
+    from src.engine import craft
+    from src.engine import library as shelf
+    from src.models.identity import Knowledge
+
+    _slow(monkeypatch, shelf, "has")
+    spend = current()[R.CRAFT_COPY_STAMINA]
+    stamp = uuid.uuid4().hex[:8]
+    node = await world.create_node(
+        session,
+        f"terra.shelf.{stamp}",
+        "Библиотека",
+        area_m2=100,
+        properties={"library": True},
+    )
+    who = await world.create_identity(session, f"Переписчик-{stamp}")
+    body = await world.print_body(session, who, node)
+    #: Enough for one copy and not for two: the reserve is what the race is over.
+    body.stamina = Decimal(str(spend * 1.5))
+    catalog = current_catalog()
+    first, second = (recipe.type_key for recipe in catalog.recipes.recipes[:2])
+    await shelf.stock(session, node, (first, second))
+    await session.flush()
+    body_id, who_id = body.id, who.id
+    was = float(body.stamina)
+    await session.commit()
+
+    async def copy(recipe: str) -> None:
+        async with factory() as db, db.begin():
+            hand = await db.get(Body, body_id)
+            assert hand is not None
+            await craft.copy_recipe(db, current_catalog(), hand, recipe)
+
+    outcomes = await asyncio.gather(copy(first), copy(second), return_exceptions=True)
+
+    refused = [one for one in outcomes if isinstance(one, craft.NoStrength)]
+    other = [one for one in outcomes if isinstance(one, BaseException) and one not in refused]
+    assert not other, f"сорвалось не отказом: {other}"
+    assert len(refused) == 1, "второй переписке не хватило выносливости, а её пропустили"
+
+    async with factory() as db:
+        again = await db.get(Body, body_id)
+        assert again is not None
+        assert float(again.stamina) == pytest.approx(was - spend), (
+            f"списано {was - float(again.stamina):.2f} вместо {spend:.2f}: "
+            "одна переписка досталась бесплатно"
+        )
+        learned = (
+            (
+                await db.execute(
+                    select(Knowledge.key).where(
+                        Knowledge.identity_id == who_id,
+                        Knowledge.key.in_((first, second)),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert len(learned) == 1, f"выучено рецептов: {len(learned)} на один оплаченный"
+
+
+async def test_two_copies_of_one_recipe_are_paid_for_once(
+    session: AsyncSession,
+    factory: async_sessionmaker[AsyncSession],
+    constants,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """What is already known is not rewritten: the same body does not pay twice
+    (D-148) -- and "the same body" includes its two sockets at one shelf.
+
+    The knowledge check has to sit **under** the same lock as the payment, not
+    before it. Outside the lock both sessions find the recipe unknown, both pay
+    and only the first learns anything: the second `learn` sees the committed
+    row and returns nothing, having charged for it. Here the reserve covers
+    both copies, so nothing refuses them -- only the ledger of the body shows
+    that one of them was for free of knowledge and not free of strength.
+
+    `carrier.read` is not raced separately: both paths take the same
+    `_lock_body` before the same two reads, and what is pinned here is that
+    helper's placement.
+    """
+    from src.engine import craft
+    from src.engine import library as shelf
+    from src.models.identity import Knowledge
+
+    _slow(monkeypatch, shelf, "has")
+    spend = current()[R.CRAFT_COPY_STAMINA]
+    stamp = uuid.uuid4().hex[:8]
+    node = await world.create_node(
+        session,
+        f"terra.shelf.{stamp}",
+        "Библиотека",
+        area_m2=100,
+        properties={"library": True},
+    )
+    who = await world.create_identity(session, f"Переписчик-{stamp}")
+    body = await world.print_body(session, who, node)
+    #: Enough for both copies: the refusal must not be what saves the reserve.
+    body.stamina = Decimal(str(spend * 5))
+    recipe = current_catalog().recipes.recipes[0].type_key
+    await shelf.stock(session, node, (recipe,))
+    await session.flush()
+    body_id, who_id = body.id, who.id
+    was = float(body.stamina)
+    await session.commit()
+
+    async def copy() -> None:
+        async with factory() as db, db.begin():
+            hand = await db.get(Body, body_id)
+            assert hand is not None
+            await craft.copy_recipe(db, current_catalog(), hand, recipe)
+
+    outcomes = await asyncio.gather(copy(), copy(), return_exceptions=True)
+    assert not [one for one in outcomes if isinstance(one, BaseException)], outcomes
+
+    async with factory() as db:
+        again = await db.get(Body, body_id)
+        assert again is not None
+        assert float(again.stamina) == pytest.approx(was - spend), (
+            f"списано {was - float(again.stamina):.2f} вместо {spend:.2f}: "
+            "за один рецепт заплачено дважды"
+        )
+        learned = (
+            (
+                await db.execute(
+                    select(Knowledge.key).where(
+                        Knowledge.identity_id == who_id, Knowledge.key == recipe
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert len(learned) == 1, f"рецепт записан {len(learned)} раза"
