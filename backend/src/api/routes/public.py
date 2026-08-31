@@ -24,7 +24,7 @@ from src.engine import account, estate, market, places, world
 from src.engine import ship as vessels
 from src.engine import travel as roads
 from src.models.world import Edge, Layer, Node
-from src.runtime import MARKET_BOOK_DEPTH
+from src.runtime import MARKET_BOOK_DEPTH, MARKET_BOOK_STEPS
 from src.settings import settings
 
 router = APIRouter(prefix="/public", tags=["reads"])
@@ -223,10 +223,13 @@ async def lines() -> dict[str, Any]:
 
 @router.get("/market/{node_key}")
 async def market_positions(node_key: str) -> dict[str, Any]:
-    """What trades in the node at all: goods plus quality tier.
+    """What trades in the node at all: goods plus quality tier, and what it went for.
 
     Public and remote: everyone knows the prices (D-047). Buying from here is
     not possible and will not be -- buying requires legs.
+
+    `prices` is the last deal per goods name, any tier: the picker lists names,
+    and a name without a deal behind it carries no price at all (D-002).
     """
     async with session_factory()() as db:
         node = await _node(db, node_key)
@@ -235,15 +238,28 @@ async def market_positions(node_key: str) -> dict[str, Any]:
             "positions": [
                 {"goods": goods, "tier": tier} for goods, tier in await market.positions(db, node)
             ],
+            "prices": await market.last_prices(db, node),
         }
 
 
 @router.get("/market/{node_key}/book")
-async def market_book(node_key: str, goods: str, tier: str) -> dict[str, Any]:
-    """The book for one position: buy and sell orders with depth."""
+async def market_book(
+    node_key: str, goods: str, tier: str, step: int | None = None
+) -> dict[str, Any]:
+    """The book for one position: buy and sell orders with depth.
+
+    `step` glues rows a step apart, in minor units of money; omitted, the
+    server picks the finest step the depth can hold and says which in the
+    answer. The ladder of steps to choose from is a constant and travels with
+    the tiers (`/public/quality/tiers`), not with every read of every book.
+    """
+    if step is not None and step not in MARKET_BOOK_STEPS:
+        raise HTTPException(status_code=400, detail=f"шаг цены не из списка: {step}")
     async with session_factory()() as db:
         node = await _node(db, node_key)
-        book = await market.book(db, node, goods, tier, depth=MARKET_BOOK_DEPTH)
+        book = await market.book(
+            db, current(), node, goods, tier, depth=MARKET_BOOK_DEPTH, step=step
+        )
         payload = asdict(book)
         payload["node"] = node.key
         payload["spread"] = book.spread
@@ -252,13 +268,18 @@ async def market_book(node_key: str, goods: str, tier: str) -> dict[str, Any]:
 
 @router.get("/quality/tiers")
 async def quality_tiers() -> dict[str, Any]:
-    """Quality tiers -- the book's shop window (D-058).
+    """The two rulers a book is read by: quality tiers (D-058) and price steps (D-239).
 
     In data the scale is continuous, on the market tiers trade: a continuous
-    scale would make the order book unreadable.
+    scale would make the order book unreadable. The price steps are the same
+    kind of thing for the other axis -- the rungs a book's rows may be glued
+    at -- and both are constants, read once, not with every book (D-225).
     """
     tiers = current()[R.QUALITY_TIERS]
-    return {"tiers": [{"from": t.frm, "to": t.to, "name": t.name} for t in tiers]}
+    return {
+        "tiers": [{"from": t.frm, "to": t.to, "name": t.name} for t in tiers],
+        "steps": list(MARKET_BOOK_STEPS),
+    }
 
 
 async def _node(db, key: str) -> Node:

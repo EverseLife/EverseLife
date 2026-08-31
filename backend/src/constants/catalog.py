@@ -168,6 +168,19 @@ class RecipeBook(Strict):
             raise ConstantError(f"нет рецепта {name!r} в build/recipes.json")
         return found
 
+    def names(self) -> frozenset[str]:
+        """Every name a thing can exist under: a recipe output or a material.
+
+        The two lists are the whole of what the world holds -- a thing is
+        either made by a recipe or exists without one (D-215) -- so whoever
+        asks "is there such a thing at all" asks here rather than walking both.
+        """
+        return frozenset(self._names)
+
+    def exists(self, name: str) -> bool:
+        """Whether the world knows such a thing. A synonym counts: it is a name."""
+        return self.resolve(name) in self._names
+
     def is_raw(self, name: str) -> bool:
         return self.resolve(name) in set(self.raw)
 
@@ -266,6 +279,9 @@ class RecipeBook(Strict):
         return found is not None and found.food
 
     _by_name: dict[str, Recipe] = PrivateAttr(default_factory=dict)
+    #: Every name in the world, recipes and materials alike: asked of every
+    #: order placed in a book, so a set rather than two walks.
+    _names: set[str] = PrivateAttr(default_factory=set)
     _measured: set[str] = PrivateAttr(default_factory=set)
     _liquids: set[str] = PrivateAttr(default_factory=set)
     _class_by_name: dict[str, str] = PrivateAttr(default_factory=dict)
@@ -275,6 +291,8 @@ class RecipeBook(Strict):
 
     def model_post_init(self, _: Any) -> None:
         self._by_name.update({recipe.name: recipe for recipe in self.recipes})
+        self._names.update(recipe.name for recipe in self.recipes)
+        self._names.update(material.name for material in self.materials)
         self._measured.update(self.bulk)
         self._liquids.update(self.liquid)
         self._relics.update(material.name for material in self.materials if material.relic)

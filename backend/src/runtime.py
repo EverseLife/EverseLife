@@ -43,6 +43,14 @@ MONTHS_IN_YEAR = 12
 #: market property: the book itself is not bounded by anything.
 MARKET_BOOK_DEPTH = 20
 
+#: Price steps a book may be read at, in minor units of money
+#: (`units.MONEY_SCALE` = 10 000 per coin): 0.0001, 0.001, 0.01, 0.1, 1, 10 K.
+#: Orders are placed to the minor unit, and a book of thousands of rows one
+#: minor unit apart is unreadable -- so rows are glued into steps, the finest
+#: one that fits the depth. Display again, not a market property: the order
+#: keeps the price it was given, and the deal goes at that price.
+MARKET_BOOK_STEPS = (1, 10, 100, 1_000, 10_000, 100_000)
+
 #: Live chat delivery buffer. Not history -- the server keeps none (D-070): a
 #: remark lives exactly long enough for clients to poll it.
 CHAT_BUFFER = timedelta(minutes=30)

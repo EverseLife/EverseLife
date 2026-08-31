@@ -100,16 +100,13 @@ class NoSuchThing(AlphaError):
 
 
 def known(catalog: Catalog) -> tuple[str, ...]:
-    """Every name a thing can exist under: catalog materials and recipe outputs.
+    """Every name a thing can exist under, sorted.
 
-    Sorted, so the client's list does not shuffle between reads, and built from
-    the public fields of the book rather than from a new catalog method: the
-    catalog describes the world, not what a debug widget wants to offer.
+    Sorted, so the client's list does not shuffle between reads. What belongs
+    in it is the catalog's own answer (`RecipeBook.names`): the world's roster
+    is asked by the order book too, and two copies of it would drift.
     """
-    book = catalog.recipes
-    names = {material.name for material in book.materials}
-    names.update(recipe.name for recipe in book.recipes)
-    return tuple(sorted(names))
+    return tuple(sorted(catalog.recipes.names()))
 
 
 async def spawn(

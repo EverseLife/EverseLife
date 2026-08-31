@@ -1046,6 +1046,8 @@ export type Book = {
   asks: Level[];
   last: number | null;
   spread: number | null;
+  /** The price step the rows are glued at, minor units. One -- every price its own row. */
+  step: number;
 };
 
 export class Refused extends Error {}
@@ -1383,9 +1385,11 @@ export const recipes = () => read<RecipeBook>("/public/recipes");
 export const doors = () => read<{ doors: Door[] }>("/public/doors");
 /** Character lines and the number of players -- also before identification (D-187). */
 export const lines = () => read<{ lines: Line[] }>("/public/lines");
-export const tiers = () => read<{ tiers: { from: number; to: number; name: string }[] }>(
-  "/public/quality/tiers",
-);
+/** The two rulers a book is read by: quality tiers and the price steps rows glue at. */
+export const tiers = () =>
+  read<{ tiers: { from: number; to: number; name: string }[]; steps: number[] }>(
+    "/public/quality/tiers",
+  );
 export const worldMap = () => read<WorldMap>("/public/map");
 export const plants = () =>
   read<{
@@ -1399,13 +1403,18 @@ export const plants = () =>
     }[];
   }>("/public/plants");
 export const positions = (node: string) =>
-  read<{ node: string; positions: { goods: string; tier: string }[] }>(
-    `/public/market/${encodeURIComponent(node)}`,
-  );
-export const book = (node: string, goods: string, tier: string) =>
+  read<{
+    node: string;
+    positions: { goods: string; tier: string }[];
+    /** Last deal per goods name, any tier, in minor units. Never traded -- absent. */
+    prices: Record<string, number>;
+  }>(`/public/market/${encodeURIComponent(node)}`);
+/** The book for one position. `step` omitted -- the server picks the finest that fits. */
+export const book = (node: string, goods: string, tier: string, step?: number | null) =>
   read<Book>(
     `/public/market/${encodeURIComponent(node)}/book` +
-      `?goods=${encodeURIComponent(goods)}&tier=${encodeURIComponent(tier)}`,
+      `?goods=${encodeURIComponent(goods)}&tier=${encodeURIComponent(tier)}` +
+      (step ? `&step=${step}` : ""),
   );
 
 /**
