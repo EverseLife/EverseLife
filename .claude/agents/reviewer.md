@@ -21,7 +21,8 @@ Check every item below against the change and against the code it touches:
 8. **Errors.** New `XError` not inheriting the common base (once `engine/errors.Refusal` exists); `except Exception` hiding catalog/engine errors → medium.
 9. **Events.** New `events.record` with party identities as names instead of `*_identity_id`; new kinds missing from `push.TOUCHES`/visibility; hot-path events (per swing/per tick) journaled instead of `announce` → medium.
 10. **Tests & tooling.** Backend change without tests; frontend pure module without vitest test; ruff/tsc not run (ask the caller to run them if unclear).
-11. **ASCII rule.** Non-ASCII identifiers or comments (player-facing strings are fine).
+11. **ASCII rule.** Non-ASCII identifiers or comments (a Russian comment is fine; a Russian string is item 12).
+12. **Translation (D-251).** A player-facing sentence written in the code that produces it -- JSX text, `raise ...("...")`, `title`/`placeholder` -- instead of a key → high. A string added to one language only: a `ui-` key with no line in `frontend/src/locales/en/`, an engine message with no line in `backend/locales/en/`, a new vault thing with no name in `data/locales/en.yaml` → high; nothing fails at runtime, the reader just gets the other language. Verify by running `python backend/tools/check_locales.py` and `python backend/tools/check_locales.py --tree frontend/src/locales`.
 
 Output, in Russian prose with English identifiers:
 - A list of findings, most severe first: `[critical|high|medium|low] title — file:line — what — fix`.
