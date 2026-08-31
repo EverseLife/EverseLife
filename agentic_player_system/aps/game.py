@@ -30,7 +30,22 @@ class GameError(Exception):
 
 
 class Refused(Exception):
-    """The server said no, with the same words a player would read."""
+    """The server said no, with the same words a player would read.
+
+    A converted site (D-251 wave III) also sends the key and the arguments the
+    sentence was built from. Whoever acts on a refusal reads `code` and never
+    matches the words: they change with the session's locale and with every
+    edit of a message file, and the agent is a client like any other (D-224).
+    """
+
+    def __init__(
+        self, refused: str, code: str | None = None, args: dict[str, Any] | None = None
+    ) -> None:
+        super().__init__(refused)
+        self.code = code
+        #: `params`, not `args`: assigning to an exception's own `args` slot
+        #: coerces the dict to a tuple of its keys and breaks `str()`.
+        self.params = args or {}
 
 
 def solve_fee(account: str, nonce_hex: str, values: dict[str, Any]) -> str:
@@ -125,7 +140,7 @@ class Game:
                 raise GameError(f"соединение оборвалось: {trouble}") from trouble
         answer.pop("id", None)
         if "refused" in answer:
-            raise Refused(str(answer["refused"]))
+            raise Refused(str(answer["refused"]), answer.get("code"), answer.get("args"))
         return answer
 
     def _heard(self, happening: dict[str, Any]) -> None:

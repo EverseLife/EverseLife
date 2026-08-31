@@ -85,11 +85,12 @@ MAX_EMPTY_REPLIES = 2
 #: Events after which one's own orders, reservations and batches may have
 #: moved. D-226: the server says when to reread, the client does not poll.
 STANDING_EVENTS = ("market.", "craft.", "deed.")
-#: Refusals answered by naming the arguments again: a field the command wanted
-#: and did not get, and a name where an identifier was wanted -- for the second
-#: the server says only `badly formed hexadecimal UUID string`, which names no
-#: argument at all, and the model tries the next name it can read.
-ARGUMENT_REFUSALS = ("не хватает поля", "hexadecimal UUID")
+#: Refusals answered by naming the arguments again, told apart by their wire
+#: `code` (D-251), never by their words: a field the command wanted and did
+#: not get, and a command the session could not parse at all -- a name where
+#: an identifier was wanted lands on the second, and its sentence (`badly
+#: formed hexadecimal UUID string`) names no argument the model could fix.
+ARGUMENT_REFUSALS = ("session-field-missing", "session-not-understood")
 #: The longest the agent may ask to sleep: a day. Beyond that it is "off".
 MAX_WAIT = 24 * 3600
 
@@ -225,28 +226,29 @@ TOOL_NAMES = frozenset(tool["function"]["name"] for tool in TOOLS)
 
 
 def _advice(
-    reference: dict[str, dict[str, Any]], cmd: str, args: dict[str, Any], refusal: str
+    reference: dict[str, dict[str, Any]], cmd: str, args: dict[str, Any], refusal: Refused
 ) -> str:
     """What a refusal is right about but does not say, added to it.
 
-    Both cases retire on their own: the first when the model stops calling
-    commands bare, the second when the server names the ways itself (it does,
-    since `craft/method_of_making.py` was taught to).
+    Everything here reads the refusal's `code` and `args`, never its words:
+    the sentence changes with the locale and with every edit of a message
+    file, and matching it broke twice before it was banned (D-251).
     """
     #: The commonest miss of a small model: the command name with no arguments
     #: at all, or a name where an identifier was wanted. The reference knows
     #: them, so the refusal takes the list with it instead of costing another
     #: step and another refusal.
     keys = commands.argument_list(reference.get(cmd) or {}, ", ")
-    if keys and (not args or any(mark in refusal for mark in ARGUMENT_REFUSALS)):
+    if keys and (not args or refusal.code in ARGUMENT_REFUSALS):
         return (
             f"\nАргументы {cmd}: {keys} — передавай их в args: "
             f'act(cmd="{cmd}", args={{…}}). Подробно — help(cmd="{cmd}").'
         )
-    #: An older server says only "not this way" and leaves the model guessing
-    #: the next English word for it. One thing always works: the way is
-    #: optional, and without it the game takes the main one.
-    if "не делается способом" in refusal and "способы:" not in refusal:
+    #: A goods made by recipe alone refuses a `way` without naming any ways
+    #: (`craft-unknown-way` with an empty `ways`), and the model guesses the
+    #: next English word for it. One thing always works: the way is optional,
+    #: and without it the game takes the main one.
+    if refusal.code == "craft-unknown-way" and not refusal.params.get("ways"):
         return "\nСпособ можно не указывать: без way игра берёт основной способ."
     return ""
 
@@ -707,7 +709,7 @@ async def _tool(
         except Refused as refusal:
             store.event(agent_id, "refused", cmd=cmd, request=args, text=str(refusal))
             turn.actions.append((cmd, key, False))
-            return f"ОТКАЗ: {refusal}{_advice(reference, cmd, args, str(refusal))}"
+            return f"ОТКАЗ: {refusal}{_advice(reference, cmd, args, refusal)}"
         except GameError as trouble:
             #: The socket dropped on this command. Come back on a new one and
             #: let the model decide what to do about it; only a second failure
