@@ -15,7 +15,7 @@ from src.constants import registry as R
 from src.engine import events
 from src.engine.craft._base import CraftError, Unmakeable, blank_of, carrier_names
 from src.engine.craft._internal import _knows, _num
-from src.engine.craft.batch import _pay_copy
+from src.engine.craft.batch import _lock_body, _pay_copy
 from src.engine.world import body_container, learn
 from src.models.event import EventKind
 from src.models.identity import Body, BodyState, Identity, Knowledge
@@ -40,12 +40,16 @@ async def read_carrier(
     if item.type_key not in carrier_names(catalog) or not item.recipe_key:
         raise Unmakeable("это не записанный носитель: читать нечего")
     recipe = catalog.recipes.recipe(item.recipe_key).name
+    #: The row is taken before both reads that decide the payment -- what is
+    #: known and what is left of the strength. Two hands of one identity over
+    #: the same carrier would otherwise both find it unread and both pay.
+    await _lock_body(session, body)
     if await _knows(session, body, recipe):
         return None
     identity = await session.get(Identity, body.identity_id)
     if identity is None:  # pragma: no cover
         raise CraftError("тело без личности")
-    await _pay_copy(current(), body)
+    _pay_copy(current(), body)
     await session.flush()
     learned = await learn(session, identity, recipe)
     await events.record(

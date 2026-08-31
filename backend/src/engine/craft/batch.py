@@ -715,16 +715,39 @@ async def copy_recipe(
     if identity is None:  # pragma: no cover
         raise CraftError("тело без личности")
 
+    await _lock_body(session, body)
+
     #: What is already known is not rewritten: the same body does not pay twice.
+    #: Under the lock, or the "twice" is exactly what happens: two sockets of one
+    #: identity both find the recipe unknown, both pay, and only the first of
+    #: them learns anything -- the second `learn` sees the committed row and
+    #: returns nothing, having charged for it.
     if await _knows(session, body, recipe.name):
         return None
 
-    await _pay_copy(constants, body)
+    _pay_copy(constants, body)
     return await learn(session, identity, recipe.name)
 
 
-async def _pay_copy(constants: Constants, body: Body) -> None:
-    """Copying costs stamina, at a library shelf and off a carrier alike (D-148)."""
+async def _lock_body(session: AsyncSession, body: Body) -> None:
+    """Take the body's row before the reads that decide the payment.
+
+    Stamina is on the same list as money and remainders (CLAUDE.md): read
+    outside a lock, two sockets of one identity both find the reserve enough
+    and both write their own remainder -- one copy paid for two. The lock also
+    has to cover the knowledge check, or the same pair pays twice for one
+    recipe. `mining.swing` carries the full account of the pattern, including
+    why the flush comes before the reread.
+    """
+    await session.flush()
+    await session.refresh(body, with_for_update=True)
+
+
+def _pay_copy(constants: Constants, body: Body) -> None:
+    """Copying costs stamina, at a library shelf and off a carrier alike (D-148).
+
+    The caller holds the body's row (`_lock_body`) -- this only spends it.
+    """
     spend = constants[R.CRAFT_COPY_STAMINA]
     if spend > float(body.stamina):
         raise NoStrength(
