@@ -57,7 +57,10 @@ KNOWN: dict[str, int] = {
     "src/api/commands/city.py": 1,
     "src/api/commands/transport.py": 1,
     "src/api/commands/views.py": 1,
-    "src/api/routes/public.py": 1,
+    #: Two HTTP refusal details ("нет узла", "шаг цены не из списка") -- the
+    #: player's language until the i18n waves reach the public routes; the
+    #: second arrived with D-239 after the 2026-08-31 pin.
+    "src/api/routes/public.py": 2,
     "src/constants/catalog.py": 14,
     "src/constants/formula.py": 8,
     "src/constants/loader.py": 10,
@@ -94,7 +97,8 @@ KNOWN: dict[str, int] = {
     "src/engine/jobs.py": 4,
     "src/engine/justice.py": 3,
     "src/engine/luck.py": 1,
-    "src/engine/market.py": 6,
+    "src/engine/market/deal.py": 5,
+    "src/engine/market/match.py": 1,
     "src/engine/mining.py": 3,
     "src/engine/oxygen.py": 2,
     "src/engine/plates.py": 1,

@@ -142,3 +142,51 @@ type = "forbidden"
 source_modules = ["src.engine.city.citizen", "src.engine.city.land"]
 forbidden_modules = ["src.engine.city.founding"]
 allow_indirect_imports = "true"
+
+# The market, cut out of a 1636-line `market.py` that held the vocabulary, the
+# terminal cells, the matching, the entrances and the book reading at once.
+# Same shape as the city contracts, and `forbidden` for the same reason: the
+# market sits inside engine cycles it did not create -- `craft` reaches back
+# into it lazily, and its own door to `frost` is lazy -- so a layers contract
+# would fail on chains that have nothing to do with this cut. The stack it
+# pins directly: deal -> match -> counter -> _base, window -> _base.
+[[tool.importlinter.contracts]]
+name = "The market's vocabulary asks nobody"
+type = "forbidden"
+source_modules = ["src.engine.market._base"]
+forbidden_modules = [
+    "src.engine.market.counter",
+    "src.engine.market.match",
+    "src.engine.market.deal",
+    "src.engine.market.window",
+]
+allow_indirect_imports = "true"
+
+[[tool.importlinter.contracts]]
+name = "The counter moves stacks and knows nothing of orders crossing"
+type = "forbidden"
+source_modules = ["src.engine.market.counter"]
+forbidden_modules = [
+    "src.engine.market.match",
+    "src.engine.market.deal",
+    "src.engine.market.window",
+]
+allow_indirect_imports = "true"
+
+[[tool.importlinter.contracts]]
+name = "Matching serves the entrances, never calls them"
+type = "forbidden"
+source_modules = ["src.engine.market.match"]
+forbidden_modules = ["src.engine.market.deal", "src.engine.market.window"]
+allow_indirect_imports = "true"
+
+[[tool.importlinter.contracts]]
+name = "The shop window only reads"
+type = "forbidden"
+source_modules = ["src.engine.market.window"]
+forbidden_modules = [
+    "src.engine.market.counter",
+    "src.engine.market.match",
+    "src.engine.market.deal",
+]
+allow_indirect_imports = "true"

@@ -80,9 +80,8 @@ python tools/spdx.py --apply
 Правила, которые нельзя нарушать молча:
 
 - **Файл длиннее 800 строк** — перед правкой сказать об этом и предложить
-  разрез. Добавлять в такой файл без упоминания нельзя. Список на 2026-08-31,
-  от худшего: `api.ts` (1675), `panels/Admin.tsx` (1300),
-  `engine/bank.py` (1298), `engine/market.py` (1245),
+  разрез. Добавлять в такой файл без упоминания нельзя. Список на 2026-08-31
+  (после разреза market): `panels/Admin.tsx` (1300), `engine/bank.py` (1298),
   `engine/travel.py` (1028), `engine/vote.py` (957), `engine/mining.py` (931),
   `engine/oxygen.py` (863), `engine/net.py` (863), `engine/frost.py` (828).
   Список **устаревает** — считать заново (`wc -l`), а не верить ему на слово:
@@ -92,7 +91,11 @@ python tools/spdx.py --apply
   `site`, `run`); `seed.py` → `seed.py` + `seed_parts.py` + `seed_catchup.py`;
   `engine/city/polity.py` (1084) → `founding`, `law`, `office`, `citizen` и
   `hall` в том же пакете, стек закреплён контрактами `import-linter`;
-  `engine/world.py` (932) → пакет `engine/world/` (`land`, `people`, `things`).
+  `engine/world.py` (932) → пакет `engine/world/` (`land`, `people`, `things`);
+  `api.ts` (1675) → `wire/*` по предметам + `session.ts`, `api.ts` остался
+  дверью с реэкспортом; `engine/market.py` (1636) → пакет `engine/market/`
+  (`_base`, `counter`, `match`, `deal`, `window`), стек закреплён контрактами
+  `import-linter`.
 - **Деньги, количества, остатки, выносливость** меняются только под
   блокировкой строки (`with_for_update`) или SQL-выражением
   (`col = col - :x`), и к каждой такой правке — тест-гонка на две сессии.
