@@ -23,17 +23,28 @@ enum and belong to the code, not to the language. A numeric select (`[0]`,
 forms and English in two, and demanding parity there would be demanding a
 mistranslation.
 
+Both halves of the game are checked by this one script, and on purpose. The
+engine's words live next door in `backend/locales`; the window's own live in
+`frontend/src/locales`, in the very same format, and `--tree` points the check
+at them. A second copy of this rule written in JavaScript would drift from this
+one within a wave -- a convention written twice is a convention that drifts --
+so the client's files are read by the code that already knows the rule, and
+the script lives here because the Fluent parser does.
+
     python tools/check_locales.py
+    python tools/check_locales.py --tree ../frontend/src/locales
 """
 
 from __future__ import annotations
 
+import argparse
 import sys
 from pathlib import Path
 
 from fluent.syntax import FluentParser
 from fluent.syntax import ast as ftl
 
+#: Whose words are checked unless `--tree` says otherwise: the engine's own.
 LOCALES = Path(__file__).resolve().parent.parent / "locales"
 
 #: A variant key that is a plural category or a number is the language's to
@@ -72,7 +83,7 @@ def shape(entry: ftl.Message) -> tuple[frozenset[str], frozenset[str], frozenset
     return frozenset(names), frozenset(functions), frozenset(keys)
 
 
-def messages(locale: str, only: str | None = None) -> dict[str, ftl.Message]:
+def messages(locale: str, only: str | None = None, tree: Path = LOCALES) -> dict[str, ftl.Message]:
     """Every message of one language, by id, read from all of its files.
 
     `only` narrows to a single file, which is how a translation in progress is
@@ -81,7 +92,7 @@ def messages(locale: str, only: str | None = None) -> dict[str, ftl.Message]:
     long.
     """
     found: dict[str, ftl.Message] = {}
-    for path in sorted((LOCALES / locale).glob(only or "*.ftl")):
+    for path in sorted((tree / locale).glob(only or "*.ftl")):
         for entry in FluentParser().parse(path.read_text(encoding="utf-8")).body:
             if isinstance(entry, ftl.Junk):
                 raise SystemExit(f"{path.name}: не разобрано -- {entry.content.strip()[:80]}")
@@ -90,8 +101,8 @@ def messages(locale: str, only: str | None = None) -> dict[str, ftl.Message]:
     return found
 
 
-def compare(default: str, locale: str, only: str | None = None) -> list[str]:
-    ours, theirs = messages(default, only), messages(locale, only)
+def compare(default: str, locale: str, only: str | None = None, tree: Path = LOCALES) -> list[str]:
+    ours, theirs = messages(default, only, tree), messages(locale, only, tree)
     problems = [f"{locale}: нет сообщения «{key}»" for key in sorted(set(ours) - set(theirs))]
     problems += [f"{locale}: лишнее сообщение «{key}»" for key in sorted(set(theirs) - set(ours))]
     for key in sorted(set(ours) & set(theirs)):
@@ -108,12 +119,28 @@ def compare(default: str, locale: str, only: str | None = None) -> list[str]:
 
 def main() -> int:
     #: `check_locales.py en city.ftl` -- одна пара файлов, пока перевод идёт.
-    asked = sys.argv[1] if len(sys.argv) > 1 else None
-    only = sys.argv[2] if len(sys.argv) > 2 else None
-    default, *rest = sorted(p.name for p in LOCALES.iterdir() if p.is_dir())
+    parser = argparse.ArgumentParser(description="сверить языки между собой")
+    parser.add_argument("locale", nargs="?", help="сверить только этот язык")
+    parser.add_argument("only", nargs="?", help="сверить только этот файл (city.ftl)")
+    parser.add_argument(
+        "--tree",
+        type=Path,
+        default=LOCALES,
+        help="папка с языками (по умолчанию backend/locales)",
+    )
+    args = parser.parse_args()
+    tree: Path = args.tree
+    asked, only = args.locale, args.only
+    #: An empty or missing tree is not "the languages agree": a check that
+    #: silently checked nothing is a check nobody notices for years.
+    languages = sorted(p.name for p in tree.iterdir() if p.is_dir()) if tree.is_dir() else []
+    if not languages:
+        print(f"нет языков в {tree}", file=sys.stderr)
+        return 1
+    default, *rest = languages
     #: Русский — язык вольта и точка отсчёта, где бы он ни оказался в алфавите.
-    if "ru" in [default, *rest]:
-        rest = [name for name in [default, *rest] if name != "ru"]
+    if "ru" in languages:
+        rest = [name for name in languages if name != "ru"]
         default = "ru"
     if not rest:
         print(f"локали: один язык ({default}), сверять не с чем")
@@ -123,7 +150,7 @@ def main() -> int:
         rest = [asked]
     problems: list[str] = []
     for locale in rest:
-        problems += compare(default, locale, only)
+        problems += compare(default, locale, only, tree)
     if problems:
         print(f"локали разошлись: {len(problems)} расхождени(й)\n", file=sys.stderr)
         for line in problems[:60]:
@@ -132,9 +159,13 @@ def main() -> int:
             print(f"  ... и ещё {len(problems) - 60}", file=sys.stderr)
         return 1
 
-    said = len(messages(default, only))
+    said = len(messages(default, only, tree))
     where = f" в {only}" if only else ""
-    print(f"локали сходятся: {said} сообщений{where} в каждом из ({default}, {', '.join(rest)})")
+    whose = "" if tree == LOCALES else f" в {tree}"
+    print(
+        f"локали сходятся{whose}: {said} сообщений{where} "
+        f"в каждом из ({default}, {', '.join(rest)})"
+    )
     return 0
 
 

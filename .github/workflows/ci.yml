@@ -91,6 +91,15 @@ jobs:
       - name: Locales
         run: uv run python tools/check_locales.py
 
+      #: The window's own words, by the same script and the same rule: a new
+      #: panel string added to `ru` and forgotten in `en` falls back to Russian
+      #: and shows an English player a Russian button -- silently, because the
+      #: fallback is there for a language nobody has started, not for a hole in
+      #: one that exists. Checked from here because the Fluent parser lives in
+      #: this environment; the client's job has no python.
+      - name: Locales of the client
+        run: uv run python tools/check_locales.py --tree ../frontend/src/locales
+
       - name: Migrations apply
         run: uv run alembic upgrade head
 
