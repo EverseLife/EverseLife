@@ -1,0 +1,35 @@
+# The landing's edge on its own host: TLS and one route.
+#
+# A cut-down copy of the main Caddyfile -- only the landing lives here. Caddy
+# obtains and renews the certificate itself (ACME, HTTP-01): the domain must
+# point here with its A/AAAA records and ports 80 and 443 must be open.
+{
+	email {$ACME_EMAIL}
+
+	# No HTTP/3, same reason as on the game's edge: Russian providers filter
+	# UDP/443 widely, and a browser that remembered the `Alt-Svc` offer spends
+	# the wait on QUIC before falling back to TCP -- on every visit. The udp
+	# port is not published in `compose.landing.yaml` either; putting h3 back
+	# is this line and that port, the day that filtering stops.
+	servers {
+		protocols h1 h2
+	}
+}
+
+{$LANDING_DOMAIN} {
+	encode zstd gzip
+
+	reverse_proxy landing:8080
+
+	log {
+		output stdout
+		format console
+	}
+}
+
+# `www.` needs its own certificate, so it is its own site: without this block
+# Caddy has no site for that name and breaks the TLS handshake instead of
+# redirecting. The redirect is permanent, so search engines keep one address.
+www.{$LANDING_DOMAIN} {
+	redir https://{$LANDING_DOMAIN}{uri} permanent
+}

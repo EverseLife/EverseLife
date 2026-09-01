@@ -370,3 +370,77 @@ jobs:
           jq -n --arg content "$LINE" \
             '{content: $content, allowed_mentions: {parse: []}}' \
             | curl -sS -H 'Content-Type: application/json' -d @- "$DISCORD_HOOK" > /dev/null
+
+  deploy-landing:
+    name: Deploy landing
+    needs: images
+    # The landing lives on its own host (deploy/compose.landing.yaml explains
+    # why). Until the LANDING_DEPLOY_ENABLED=true variable is set on Actions,
+    # the job is silent -- same rule as the main deploy: a fork must not knock
+    # on somebody's server.
+    if: vars.LANDING_DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      packages: read
+    env:
+      SSH_HOST: ${{ secrets.LANDING_DEPLOY_HOST }}
+      SSH_USER: ${{ secrets.LANDING_DEPLOY_USER }}
+      SSH_PORT: ${{ secrets.LANDING_DEPLOY_PORT || '22' }}
+      DIR: ${{ vars.LANDING_DEPLOY_PATH || '/opt/everselife-landing' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # The same admin key as the game host: one person, one key.
+      - name: Key and known hosts
+        env:
+          KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.LANDING_DEPLOY_KNOWN_HOSTS }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          if [ -n "$KNOWN_HOSTS" ]; then
+            printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          else
+            # Weaker: the fingerprint is taken from the server itself. Fine for
+            # the first time; afterwards put it into the secret.
+            ssh-keyscan -p "$SSH_PORT" -H "$SSH_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          fi
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Ship the compose file
+        run: |
+          scp -i ~/.ssh/id_deploy -P "$SSH_PORT" \
+            deploy/compose.landing.yaml deploy/Caddyfile.landing \
+            "$SSH_USER@$SSH_HOST:$DIR/"
+
+      # The script goes to the server as stdin, not as a command line: the
+      # registry token must not show in the process list of somebody's machine.
+      - name: Bring up
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_USER: ${{ github.actor }}
+        run: |
+          ssh -i ~/.ssh/id_deploy -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" bash -s <<REMOTE
+          set -euo pipefail
+          cd "$DIR"
+          echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+          docker compose -f compose.landing.yaml pull
+          docker compose -f compose.landing.yaml up -d --remove-orphans
+          docker logout ghcr.io
+          docker image prune -f
+          docker compose -f compose.landing.yaml ps
+          REMOTE
+
+      - name: Landing responds
+        if: vars.LANDING_DOMAIN != ''
+        run: |
+          for i in $(seq 1 20); do
+            if curl -fsS "https://${{ vars.LANDING_DOMAIN }}/" > /dev/null; then
+              echo "alive"; exit 0
+            fi
+            sleep 5
+          done
+          echo "the landing did not answer"; exit 1
