@@ -140,7 +140,10 @@ ui-inventory-floor = На пол
 ui-inventory-ground = На землю
 ui-inventory-not-yours = Земля чужая: положенное здесь достанется хозяину, и обратно вы его не возьмёте.
 ui-inventory-in-hands = { $goods } в руках
-ui-inventory-pour = Перелить в { $target }
+# Без предлога: имя сосуда стоит в именительном («канистра»), и «Перелить в
+# канистра» ломало падеж. Склонять имена нечем (D-251: имя — слой показа),
+# поэтому двоеточие, как у «Куда положить».
+ui-inventory-pour = Перелить: { $target }
 ui-inventory-pour-hint = перелить всё, что внутри, сколько войдёт
 ui-inventory-into = В { $chest }
 ui-inventory-contribute = В библиотеку
