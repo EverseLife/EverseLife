@@ -436,3 +436,126 @@ type = "forbidden"
 source_modules = ["src.engine.frost.body"]
 forbidden_modules = ["src.engine.frost.hours"]
 allow_indirect_imports = "true"
+
+# Seven more cuts of 2026-09-02 -- push, estate.building, farm, craft.batch,
+# automat, ship.view, works_city -- pinned the same way: which room may name
+# which directly, floors ask nobody.
+[[tool.importlinter.contracts]]
+name = "The push floor asks nobody, and the pump never reads its tellers"
+type = "forbidden"
+source_modules = ["src.api.push._base", "src.api.push.pump"]
+forbidden_modules = ["src.api.push.tellers"]
+allow_indirect_imports = "true"
+
+[[tool.importlinter.contracts]]
+name = "The push vocabulary asks nobody"
+type = "forbidden"
+source_modules = ["src.api.push._base"]
+forbidden_modules = ["src.api.push.pump"]
+allow_indirect_imports = "true"
+
+[[tool.importlinter.contracts]]
+name = "The frame is read before anything is raised on it"
+type = "forbidden"
+source_modules = ["src.engine.estate.building.frame"]
+forbidden_modules = ["src.engine.estate.building.build"]
+allow_indirect_imports = "true"
+
+[[tool.importlinter.contracts]]
+name = "The field's floor asks nobody"
+type = "forbidden"
+source_modules = ["src.engine.farm._base"]
+forbidden_modules = ["src.engine.farm.plot", "src.engine.farm.season"]
+allow_indirect_imports = "true"
+
+[[tool.importlinter.contracts]]
+name = "The plot and the season do not name each other"
+type = "forbidden"
+source_modules = ["src.engine.farm.plot"]
+forbidden_modules = ["src.engine.farm.season"]
+allow_indirect_imports = "true"
+
+[[tool.importlinter.contracts]]
+name = "The season shapes no plots"
+type = "forbidden"
+source_modules = ["src.engine.farm.season"]
+forbidden_modules = ["src.engine.farm.plot"]
+allow_indirect_imports = "true"
+
+[[tool.importlinter.contracts]]
+name = "The work at the bench never calls its own finisher or the shelf"
+type = "forbidden"
+source_modules = ["src.engine.craft.batch.work"]
+forbidden_modules = ["src.engine.craft.batch.finish", "src.engine.craft.batch.copy"]
+allow_indirect_imports = "true"
+
+[[tool.importlinter.contracts]]
+name = "Copying a recipe is not batch work"
+type = "forbidden"
+source_modules = ["src.engine.craft.batch.copy"]
+forbidden_modules = ["src.engine.craft.batch.work", "src.engine.craft.batch.finish"]
+allow_indirect_imports = "true"
+
+[[tool.importlinter.contracts]]
+name = "The automat's floor asks nobody"
+type = "forbidden"
+source_modules = ["src.engine.automat._base"]
+forbidden_modules = [
+    "src.engine.automat.wire",
+    "src.engine.automat.run",
+    "src.engine.automat.board",
+]
+allow_indirect_imports = "true"
+
+[[tool.importlinter.contracts]]
+name = "The wires know nothing of running or the board"
+type = "forbidden"
+source_modules = ["src.engine.automat.wire"]
+forbidden_modules = ["src.engine.automat.run", "src.engine.automat.board"]
+allow_indirect_imports = "true"
+
+[[tool.importlinter.contracts]]
+name = "The run never reads the operator's board"
+type = "forbidden"
+source_modules = ["src.engine.automat.run"]
+forbidden_modules = ["src.engine.automat.board"]
+allow_indirect_imports = "true"
+
+[[tool.importlinter.contracts]]
+name = "The sight and the sky do not name each other; only the card reads both"
+type = "forbidden"
+source_modules = ["src.engine.ship.view.sight"]
+forbidden_modules = ["src.engine.ship.view.sky", "src.engine.ship.view.card"]
+allow_indirect_imports = "true"
+
+[[tool.importlinter.contracts]]
+name = "The sky reads no sight and no card"
+type = "forbidden"
+source_modules = ["src.engine.ship.view.sky"]
+forbidden_modules = ["src.engine.ship.view.sight", "src.engine.ship.view.card"]
+allow_indirect_imports = "true"
+
+[[tool.importlinter.contracts]]
+name = "The city order's floor asks nobody"
+type = "forbidden"
+source_modules = ["src.engine.works_city._base"]
+forbidden_modules = [
+    "src.engine.works_city.order",
+    "src.engine.works_city.pay",
+    "src.engine.works_city.credit",
+]
+allow_indirect_imports = "true"
+
+[[tool.importlinter.contracts]]
+name = "Posting, paying and borrowing for works stand apart"
+type = "forbidden"
+source_modules = ["src.engine.works_city.order"]
+forbidden_modules = ["src.engine.works_city.pay", "src.engine.works_city.credit"]
+allow_indirect_imports = "true"
+
+[[tool.importlinter.contracts]]
+name = "The settlement posts nothing and borrows nothing"
+type = "forbidden"
+source_modules = ["src.engine.works_city.pay"]
+forbidden_modules = ["src.engine.works_city.order", "src.engine.works_city.credit"]
+allow_indirect_imports = "true"

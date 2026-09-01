@@ -84,6 +84,15 @@ export function buildingKindName(names: Names | null, id: string): string {
   return names?.building_kinds?.[id] ?? id;
 }
 
+/**
+ * A crop culture id ("spelt") in the player's words («Полба»). A bred
+ * cultivar's agrotech is keyed by its variety id, which no bundle names --
+ * it falls through the goods lookup to the raw key like every other helper.
+ */
+export function plantName(names: Names | null, id: string): string {
+  return names?.plants?.[id] ?? goodsName(names, id);
+}
+
 /** An operation id ("logging") in the player's words ("Рубка дерева"). */
 export function operationName(names: Names | null, id: string): string {
   return names?.operations?.[id] ?? id;

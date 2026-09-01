@@ -19,6 +19,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import * as api from "../api";
 import type { Batch, Look } from "../api";
 import { anyOfClass } from "../classes";
+import { tally } from "../amounts";
 import { busyWith, CRAFT, SLEEP } from "../busy";
 import { Doing } from "../Deadline";
 import { Glyph, GoodsMark } from "../Glyph";
@@ -32,7 +33,8 @@ import { Workshop } from "./Workshop";
 import { Rule } from "../Rule";
 import { Refusal, useActions, useBook, useNames, useSession } from "../actions";
 import { t } from "../locale";
-import { goodsKeyName, goodsName, tierName } from "../names";
+import { goodsKeyName, goodsName, plantName, tierName } from "../names";
+import { inputsOf, stationOf } from "../recipes";
 import { onSidebarTab, pendingSidebarTab } from "../hud";
 import { onThread } from "../people";
 
@@ -548,6 +550,13 @@ function Knowledge({ look }: { look: Look }) {
   const book = useBook();
   const names = useNames();
   const discovered = new Set(look.discovered ?? []);
+  //: One recipe open at a time: the eye toggles the row's details in place.
+  const [shown, setShown] = useState<string | null>(null);
+  const agrotech = look.agrotech ?? [];
+  //: The details come from the book already loaded (D-225): the station, the
+  //: inputs and the level are the vault catalog's, nothing is asked over.
+  const details = (id: string) =>
+    (book?.recipes ?? []).find((recipe) => (recipe.id ?? recipe.name) === id);
   return (
     <div>
       <h3>
@@ -557,15 +566,93 @@ function Knowledge({ look }: { look: Look }) {
       {look.knows.length === 0 ? (
         <p className="note">{t("ui-side-recipes-none")}</p>
       ) : (
-        look.knows.map((name) => (
-          <p key={name}>
-            <GoodsMark book={book} goods={name} />
-            {goodsName(names, name)}
-            {discovered.has(name) && (
-              <span className="note" title={t("ui-side-recipe-discovered")}>
-                {" "}✦
-              </span>
-            )}
+        look.knows.map((name) => {
+          const recipe = shown === name ? details(name) : undefined;
+          //: `stationOf`, not the raw field: the vault writes `by_hand` into
+          //: `station` for handwork, and only `canon` knows that word.
+          const station = recipe ? stationOf(book, name) : null;
+          const inputs = recipe ? inputsOf(book, name) : [];
+          return (
+            <div key={name}>
+              <p>
+                <GoodsMark book={book} goods={name} />
+                {goodsName(names, name)}
+                {discovered.has(name) && (
+                  <span className="note" title={t("ui-side-recipe-discovered")}>
+                    {" "}✦
+                  </span>
+                )}
+                <button
+                  className="bare peek"
+                  aria-label={t("ui-side-recipe-details", { recipe: goodsName(names, name) })}
+                  aria-expanded={shown === name}
+                  title={t("ui-side-recipe-details", { recipe: goodsName(names, name) })}
+                  onClick={() => setShown(shown === name ? null : name)}
+                >
+                  <Glyph name="eye" />
+                </button>
+              </p>
+              {recipe && (
+                <div className="note recipe-peek">
+                  <div>{t("ui-side-recipe-level", { level: String(recipe.level) })}</div>
+                  <div>
+                    {station
+                      ? t("ui-side-recipe-station", { station: goodsName(names, station) })
+                      : t("ui-side-recipe-by-hand")}
+                  </div>
+                  {inputs.length > 0 && (
+                    <div>
+                      {t("ui-side-recipe-inputs", {
+                        inputs: inputs
+                          .map((input, at) => {
+                            //: `inputsOf` resolves synonyms in order, while
+                            //: `amounts` is keyed by the recipe's raw input
+                            //: names -- so the raw name is asked too.
+                            const amount =
+                              recipe.amounts?.[input] ?? recipe.amounts?.[recipe.inputs[at]];
+                            //: The quantity is a detail after the separator
+                            //: (D-258): the name stays in the nominative.
+                            return amount
+                              ? `${goodsName(names, input)} · ${tally(input, amount)}`
+                              : goodsName(names, input);
+                          })
+                          .join(", "),
+                      })}
+                    </div>
+                  )}
+                  <div>
+                    {discovered.has(name)
+                      ? t("ui-side-recipe-discovered")
+                      : t("ui-side-recipe-source-learned")}
+                  </div>
+                  {/* The plaque (D-064, D-259): the first discoverer's name,
+                      bound to the recipe forever. Founding recipes have none. */}
+                  {look.pioneers?.[name] && (
+                    <div>{t("ui-side-recipe-pioneer", { name: look.pioneers[name] })}</div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })
+      )}
+
+      {/* Agrotech beside the recipes (D-057): the second kind of knowledge the
+          identity keeps. Taken in the Library; the tick there and this list
+          are one and the same fact. */}
+      <h3>
+        {t("ui-side-agrotech")}
+        <Rule>{t("ui-side-agrotech-rule")}</Rule>
+      </h3>
+      {agrotech.length === 0 ? (
+        <p className="note">{t("ui-side-agrotech-none")}</p>
+      ) : (
+        agrotech.map((key) => (
+          <p key={key}>
+            <span className="goods-mark">
+              <Glyph name="plant" />
+            </span>
+            {plantName(names, key)}
           </p>
         ))
       )}

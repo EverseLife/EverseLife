@@ -39,7 +39,13 @@ import type { Convoy, Exit, InSight, Transit, Vehicle } from "./travel";
  * put together by `compose()`.
  */
 export type Parts = {
-  knowledge: { knows: string[]; discovered: string[]; agrotech: string[] };
+  knowledge: {
+    knows: string[];
+    discovered: string[];
+    agrotech: string[];
+    /** The first discoverer's name per known recipe (D-064, D-259). */
+    pioneers: Record<string, string>;
+  };
   profile: Profile;
   orders: { orders: Order[]; reservations: Reservation[]; batches: Batch[] };
   deeds: DeedView[];
@@ -70,7 +76,15 @@ export const PART_OF_TOUCH: Record<string, keyof Parts> = {
 /** What `look` returns: everything but the slow parts. */
 export type LiveLook = Omit<
   Look,
-  "profile" | "knows" | "discovered" | "agrotech" | "orders" | "reservations" | "batches" | "deeds"
+  | "profile"
+  | "knows"
+  | "discovered"
+  | "agrotech"
+  | "pioneers"
+  | "orders"
+  | "reservations"
+  | "batches"
+  | "deeds"
 >;
 
 /** The panels' view: the live part with the slow parts folded back in. */
@@ -95,6 +109,11 @@ export type Look = {
   discovered: string[];
   /** Learned agrotech: crops whose norm the identity has already studied (D-057). */
   agrotech: string[];
+  /** The first discoverer's name per known recipe (D-064, D-259): the name is
+   *  bound to the recipe forever. Founding recipes have no entry at all.
+   *  Optional here, required in `Parts`: an older server's part lacks the
+   *  key, and the composed look must say so to its readers. */
+  pioneers?: Record<string, string>;
   orders: Order[];
   reservations: Reservation[];
   batches: Batch[];

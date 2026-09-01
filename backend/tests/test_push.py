@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from datetime import UTC, datetime
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -167,7 +168,7 @@ def test_look_is_the_live_part_and_the_rest_has_its_own_commands(client, miner) 
 
         ws.send_json({"id": 3, "cmd": "knowledge"})
         knowledge = ws.receive_json()["knowledge"]
-        assert set(knowledge) == {"knows", "discovered", "agrotech"}
+        assert set(knowledge) == {"knows", "discovered", "agrotech", "pioneers"}
 
         ws.send_json({"id": 4, "cmd": "orders"})
         orders = ws.receive_json()["orders"]
@@ -182,6 +183,60 @@ def test_look_is_the_live_part_and_the_rest_has_its_own_commands(client, miner) 
 
         ws.send_json({"id": 7, "cmd": "account.profile"})
         assert ws.receive_json()["profile"]["name"] == miner["name"]
+
+
+async def _discover(name: str, key: str, when: datetime) -> None:
+    """Mark an invention out of band, timed by hand: the pioneer is the earliest."""
+    engine = create_async_engine(TEST_DATABASE_URL, poolclass=NullPool)
+    try:
+        async with async_sessionmaker(engine, expire_on_commit=False)() as db, db.begin():
+            identity = (
+                await db.execute(select(Identity).where(Identity.name == name))
+            ).scalar_one()
+            learned = await world.learn(db, identity, key, discovered=True)
+            assert learned is not None
+            learned.acquired_at = when
+    finally:
+        await engine.dispose()
+
+
+def test_pioneer_is_the_earliest_discoverer_and_rides_knowledge(client, miner) -> None:
+    """The first discoverer's name per known recipe (D-064, D-259): the
+    earliest `discovered` row wins, founding recipes carry no name at all."""
+    stamp = uuid.uuid4().hex[:6]
+    first, second = f"Ранний-{stamp}", f"Поздний-{stamp}"
+
+    async def strangers() -> None:
+        engine = create_async_engine(TEST_DATABASE_URL, poolclass=NullPool)
+        try:
+            async with async_sessionmaker(engine, expire_on_commit=False)() as db, db.begin():
+                for name in (first, second):
+                    await world.create_identity(
+                        db,
+                        name,
+                        email=f"{uuid.uuid4().hex[:8]}@example.com",
+                        password="x" * 8,
+                    )
+        finally:
+            await engine.dispose()
+
+    asyncio.run(strangers())
+    #: Both opened the same recipe by experiment; the earlier one is the pioneer.
+    asyncio.run(_discover(second, "rope", datetime(2026, 9, 1, 12, tzinfo=UTC)))
+    asyncio.run(_discover(first, "rope", datetime(2026, 9, 1, 9, tzinfo=UTC)))
+    #: The miner merely knows it -- learned ready-made, no discovery of their own.
+    asyncio.run(_learn(miner["name"], "rope"))
+    asyncio.run(_learn(miner["name"], "stone_pickaxe"))
+
+    with client.websocket_connect("/session/ws") as ws:
+        ws.send_json({"id": 1, **_input(miner)})
+        ws.receive_json()
+        ws.send_json({"id": 2, "cmd": "knowledge"})
+        knowledge = ws.receive_json()["knowledge"]
+        assert "rope" in knowledge["knows"]
+        assert "rope" not in knowledge["discovered"]
+        #: One name per key, the earliest; the undiscovered recipe has none.
+        assert knowledge["pioneers"] == {"rope": first}
 
 
 def test_learning_reaches_the_knowledge_command_after_its_event(client, miner) -> None:
@@ -372,11 +427,16 @@ async def test_pump_delivers_a_late_committing_row_exactly_once(
     from sqlalchemy import func, select
 
     from src.api import push
+
+    #: Patched where the name is looked up (the push split): `pump` binds
+    #: `session_factory` into its own globals, so assigning on the door
+    #: would reach nobody.
+    from src.api.push import pump as push_pump
     from src.engine import events
     from src.models.event import Event, EventKind
 
-    real_factory = push.session_factory
-    push.session_factory = lambda: factory  # type: ignore[assignment]
+    real_factory = push_pump.session_factory
+    push_pump.session_factory = lambda: factory  # type: ignore[assignment]
     got: list[int] = []
 
     async def collect(message: dict) -> None:
@@ -416,7 +476,7 @@ async def test_pump_delivers_a_late_committing_row_exactly_once(
         assert sorted(got) == [straggler.id, later.id]
         assert got.count(straggler.id) == 1, "опоздавшая строка обязана дойти ровно раз"
     finally:
-        push.session_factory = real_factory
+        push_pump.session_factory = real_factory
 
 
 async def test_the_watermark_adopts_the_journal_it_reads(
@@ -435,8 +495,13 @@ async def test_the_watermark_adopts_the_journal_it_reads(
     await events.record(session, EventKind.TICK_RAN, kind_of_tick="test")
     await session.commit()
 
-    real_factory = push.session_factory
-    push.session_factory = lambda: factory  # type: ignore[assignment]
+    #: Patched where the name is looked up (the push split): `pump` binds
+    #: `session_factory` into its own globals, so assigning on the door
+    #: would reach nobody.
+    from src.api.push import pump as push_pump
+
+    real_factory = push_pump.session_factory
+    push_pump.session_factory = lambda: factory  # type: ignore[assignment]
     try:
         hub = push.Hub()
         #: A mark left by the journal served before this one.
@@ -446,4 +511,4 @@ async def test_the_watermark_adopts_the_journal_it_reads(
             here = (await db.execute(select(func.max(Event.id)))).scalar() or 0
         assert hub._last_id == here, "отметка обязана принадлежать читаемому журналу"
     finally:
-        push.session_factory = real_factory
+        push_pump.session_factory = real_factory

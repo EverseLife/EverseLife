@@ -220,8 +220,6 @@ from src.engine.ship.shape import (  # noqa: F401
     rename,
 )
 from src.engine.ship.view import (  # noqa: F401
-    _from_aboard,
-    _from_pier,
     beacon_lit,
     in_sight,
     landings,
