@@ -1,45 +1,10 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 Nurlan Urazkulov
 
-"""Citizens' vote (D-036, D-130, D-161).
-
-The charter asks who approves a law, at what threshold, with what quorum and
-who has a vote at all. Until now the engine ran a single branch -- "the ruler
-alone", the default one: a city that chose "by citizens' vote" simply could
-not exist.
-
-## How it works
-
-Whoever the charter allowed to propose laws does not change the law but
-**opens a poll** for `vote.duration` hours. At the deadline a journal job
-counts the result and applies it itself -- without anybody's participation,
-even if everyone has left.
-
-| Condition | Charter question |
-|---|---|
-| who has a vote | `vote_qualification`: all citizens - by residency - by property |
-| quorum | `quorum`: not required, or a share of those eligible |
-| threshold | `law_threshold`: simple majority - two thirds - unanimity |
-
-**Conditions are captured at opening.** A charter changed mid-poll does not
-rewrite the rules of one already running: otherwise a ruler who sees they are
-losing would raise the threshold on the fly. For the same reason the record
-stores the number of eligible voters at convening -- the quorum is counted from it.
-
-**A vote is cast remotely.** This is the Net, not an in-person action: a
-citizen votes from the road and from the mine. Presence is needed to
-**govern** (D-155), and a vote is not governing, it is participation.
-
-## What is not here
-
-* **Secret ballot.** The vault names visibility as a charter parameter, but
-  there is no question for it in `laws.json`, and creating one in code is
-  forbidden (D-065);
-* **A treasury-contribution census.** No table tracks personal contribution,
-  and it cannot be derived from postings: their ground does not distinguish
-  "donated" from "paid tax";
-* **Elections, recall and charter amendment.** They will sit on the same
-  machine -- same census, quorum and threshold, only the subject differs.
+"""The ballot box (D-162, D-163, D-164): a vote opens over the charter's
+rules, voices are cast by the right circle, and the close executes what
+passed -- a law, an election, a recall, an amendment, a council. One box
+for all of them, so no outcome has a second door.
 """
 
 from __future__ import annotations
@@ -54,82 +19,50 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import Catalog, Constants, current
 from src.constants import registry as R
 from src.engine import city as town
-from src.engine import events, ledger
-from src.engine.errors import Refusal
+from src.engine import events
 from src.engine.jobs import enqueue, handler
-from src.models.city import City, CouncilSeat, Power
+from src.engine.vote._base import (
+    AMENDMENT,
+    AMENDMENT_THRESHOLD,
+    BY_RULER,
+    COUNCIL_VOTERS,
+    ELECTED_COUNCIL,
+    QUORUM,
+    SIMPLE,
+    THRESHOLD,
+    Closed,
+    NoCouncil,
+    NotCandidate,
+    NotElective,
+    NoVoice,
+    Sealed,
+    VoteError,
+    answer,
+    elects_ruler,
+    may_vote,
+    open_votes,
+    param,
+    passes,
+    recallable,
+    sealed,
+    standing,
+    tally,
+)
+from src.engine.vote.council import (
+    council_mode,
+    council_of,
+    council_seats,
+    in_council,
+    seat,
+    vacate,
+    voters_for,
+)
+from src.models.city import City
 from src.models.event import EventKind
 from src.models.identity import Identity
 from src.models.job import Job, JobKind
-from src.models.ledger import AccountKind
 from src.models.vote import Ballot, Vote, VoteKind, VoteState
-from src.units import PERCENT, money
-
-#: Charter questions from which the procedure is assembled.
-APPROVAL = "law_approval"
-THRESHOLD = "law_threshold"
-QUORUM = "quorum"
-QUALIFICATION = "vote_qualification"
-
-#: Options the engine executes. The rest are named in the header.
-BY_CITIZENS = "citizens"
-SIMPLE, TWO_THIRDS, UNANIMOUS = "simple", "two_thirds", "unanimous"
-ALL, RESIDENCE, PROPERTY = "all", "residence", "property"
-
-
-class VoteError(Refusal):
-    pass
-
-
-class NoVoice(VoteError):
-    """No vote: citizenship or census is lacking. The census is the charter's business."""
-
-
-class Closed(VoteError):
-    """The poll is closed. A late vote does not change the result."""
-
-
-def answer(city: City, question: str, default: str) -> str:
-    return str((city.charter or {}).get(question) or default)
-
-
-def param(city: City, question: str) -> float:
-    """A charter option's numeric parameter: days of residency, TC of property, %."""
-    try:
-        return float((city.charter_params or {}).get(question) or 0)
-    except (TypeError, ValueError):  # pragma: no cover -- a human edits the parameter
-        return 0.0
-
-
-def by_citizens(city: City) -> bool:
-    """Whether laws are approved by a citizens' vote rather than the ruler alone."""
-    return answer(city, APPROVAL, "ruler") == BY_CITIZENS
-
-
-async def may_vote(
-    session: AsyncSession, city: City, identity_id: uuid.UUID, *, now: datetime | None = None
-) -> bool:
-    """Whether this person has a vote in this city (`vote_qualification`).
-
-    Only citizens have a vote (D-160): without that democracy turns into a
-    multi-account contest, and the whole political layer loses its value.
-    """
-
-    moment = now or datetime.now(UTC)
-    entry = await town.citizenship(session, identity_id)
-    if entry is None or entry.city_id != city.id:
-        return False
-
-    census = answer(city, QUALIFICATION, ALL)
-    if census == RESIDENCE:
-        term = timedelta(days=param(city, QUALIFICATION))
-        return entry.since + term <= moment
-    if census == PROPERTY:
-        account = await ledger.account_for(session, AccountKind.IDENTITY, identity_id)
-        return await ledger.balance(session, account.id) >= money(param(city, QUALIFICATION))
-    #: The treasury-contribution census is not enforced: contribution is not
-    #: tracked (D-161). Such a city votes with all citizens rather than locking up.
-    return True
+from src.units import PERCENT
 
 
 async def electorate(
@@ -296,44 +229,6 @@ async def may_vote_in(
     return await may_vote(session, city, identity_id, now=now)
 
 
-async def standing(session: AsyncSession, vote: Vote) -> tuple[int, int]:
-    """How many for and how many against right now. The poll is open."""
-    ballots = (
-        (await session.execute(select(Ballot).where(Ballot.vote_id == vote.id))).scalars().all()
-    )
-    pro = sum(1 for b in ballots if b.yes)
-    return pro, len(ballots) - pro
-
-
-def passes(constants: Constants, vote: Vote, pro: int, contra: int) -> tuple[bool, str]:
-    """Whether it passed. Returns the decision and the reason -- the player sees it,
-    not only the log.
-
-    The shares behind the charter's words lie in `vote.thresholds`: "two thirds"
-    is a number, and a number belongs in the vault (D-065). A simple majority
-    is taken **strictly more** than half, other thresholds not less than their
-    share: otherwise an even split would pass as a majority.
-    """
-    submitted = pro + contra
-    quorum_needed = float(vote.quorum_share) / PERCENT * vote.electorate
-    if submitted < quorum_needed:
-        return False, "кворум не собран"
-    if submitted == 0:
-        return False, "не проголосовал никто"
-
-    shares = constants[R.VOTE_THRESHOLDS]
-    share = shares.get(vote.threshold, shares.get(SIMPLE, 0))
-    needed = submitted * share
-    enough = pro > needed if vote.threshold == SIMPLE else pro >= needed
-    titles = {
-        SIMPLE: ("большинство за", "большинства нет"),
-        TWO_THIRDS: ("две трети собраны", "двух третей нет"),
-        UNANIMOUS: ("единогласно", "не единогласно"),
-    }
-    elapsed, not_passed = titles.get(vote.threshold, titles[SIMPLE])
-    return enough, (elapsed if enough else not_passed)
-
-
 @handler(JobKind.VOTE_CLOSE)
 async def close(session: AsyncSession, job: Job) -> None:
     """The term is up: we count the result and apply it ourselves (D-161)."""
@@ -380,18 +275,6 @@ async def close(session: AsyncSession, job: Job) -> None:
         yes=pro,
         no=contra,
         electorate=poll.electorate,
-    )
-
-
-async def open_votes(session: AsyncSession, city: City) -> list[Vote]:
-    return list(
-        (
-            await session.execute(
-                select(Vote).where(Vote.city_id == city.id, Vote.state == VoteState.OPEN)
-            )
-        )
-        .scalars()
-        .all()
     )
 
 
@@ -458,42 +341,6 @@ async def view(
             }
         )
     return result
-
-
-# --- election and recall (D-162) ---------------------------------------------
-
-#: Charter questions about change of power.
-SELECTION = "ruler_selection"
-TERM = "ruler_term"
-RECALL_RULE = "ruler_recall"
-
-#: Options the engine executes.
-ELECTED = "elected_citizens"
-#: The ruler is elected by the council, not the whole city (D-165).
-ELECTED_BY_COUNCIL = "elected_council"
-RECALL_BY_CITIZENS = "by_citizens"
-RECALL_BY_COUNCIL = "by_council"
-FIXED_TERM = "fixed"
-
-
-class NotElective(VoteError):
-    """The charter did not hand power to elections: turnover is also a city decision."""
-
-
-class NotCandidate(VoteError):
-    """Citizens nominate themselves, and only while the election runs."""
-
-
-def elects_ruler(city: City) -> bool:
-    """Whether the ruler is elected at all -- by the whole city or by the council (D-165)."""
-    return answer(city, SELECTION, "founder") in (ELECTED, ELECTED_BY_COUNCIL)
-
-
-def recallable(city: City) -> bool:
-    return answer(city, RECALL_RULE, "never") in (
-        RECALL_BY_CITIZENS,
-        RECALL_BY_COUNCIL,
-    )
 
 
 async def open_election(
@@ -628,20 +475,6 @@ async def choose(
     return ballot
 
 
-async def tally(session: AsyncSession, vote: Vote) -> dict[str, int]:
-    """How many votes each has. The poll is open, the tally is visible to all."""
-    ballots = (
-        (await session.execute(select(Ballot).where(Ballot.vote_id == vote.id))).scalars().all()
-    )
-    account: dict[str, int] = {}
-    for b in ballots:
-        if b.choice_identity_id is None:
-            continue
-        key = str(b.choice_identity_id)
-        account[key] = account.get(key, 0) + 1
-    return account
-
-
 async def _finish_election(session: AsyncSession, vote: Vote, city) -> str:
     """Tally the election: whoever has more votes is the ruler.
 
@@ -681,31 +514,6 @@ async def _finish_recall(session: AsyncSession, vote: Vote, city, elapsed: bool)
     await town.dismiss(session, city)
     if elects_ruler(city):
         await open_election(session, current(), city, None)
-
-
-# --- charter amendment by vote (D-163) ---------------------------------------
-
-#: The charter question about how the charter itself is amended, and its options.
-AMENDMENT = "charter_amendment"
-BY_RULER, NEVER = "ruler", "never"
-
-#: The threshold an amendment is voted at. Keys are `charter_amendment`
-#: options, values are thresholds of the same machine: the constitution has its
-#: own threshold, not `law_threshold`.
-AMENDMENT_THRESHOLD = {"two_thirds": TWO_THIRDS, "unanimous": UNANIMOUS}
-
-
-class Sealed(VoteError):
-    """The charter is sealed: `charter_amendment: never` is executed literally."""
-
-
-def amends_by_vote(city: City) -> bool:
-    """Whether the charter is amended by vote rather than the ruler's stroke of a pen."""
-    return answer(city, AMENDMENT, BY_RULER) in AMENDMENT_THRESHOLD
-
-
-def sealed(city: City) -> bool:
-    return answer(city, AMENDMENT, BY_RULER) == NEVER
 
 
 async def open_charter(
@@ -762,146 +570,6 @@ async def _finish_charter(session: AsyncSession, vote: Vote, city) -> None:
         option=vote.subject.get("option"),
         by_vote=True,
     )
-
-
-# --- council (D-164) ---------------------------------------------------------
-
-#: The charter question about the council and its options.
-COUNCIL = "council_exists"
-NO_COUNCIL, ELECTED_COUNCIL, APPOINTED_COUNCIL = "none", "elected", "appointed"
-#: Who proposes a law: the ruler or the council.
-LAWMAKER = "lawmaker"
-BY_COUNCIL = "council"
-
-#: Voter circles. As strings, because there will be more of them along with the charter.
-CITIZENS, COUNCIL_VOTERS = "citizens", "council"
-
-
-class NoCouncil(VoteError):
-    """There is no council in this city: the charter answered "no council"."""
-
-
-def council_mode(city: City) -> str:
-    return answer(city, COUNCIL, NO_COUNCIL)
-
-
-def council_seats(city: City) -> int:
-    """How many seats the charter set. Zero seats equals no council."""
-    return int(param(city, COUNCIL))
-
-
-def has_council(city: City) -> bool:
-    return council_mode(city) != NO_COUNCIL and council_seats(city) > 0
-
-
-async def council_of(session: AsyncSession, city: City) -> list[CouncilSeat]:
-    """Occupied council seats."""
-    return list(
-        (
-            await session.execute(
-                select(CouncilSeat).where(
-                    CouncilSeat.city_id == city.id,
-                    CouncilSeat.vacated_at.is_(None),
-                )
-            )
-        )
-        .scalars()
-        .all()
-    )
-
-
-async def in_council(session: AsyncSession, city: City, identity_id: uuid.UUID) -> bool:
-    return any(place.identity_id == identity_id for place in await council_of(session, city))
-
-
-def voters_for(city: City, kind: VoteKind) -> str:
-    """Who votes on this subject (D-164, D-165).
-
-    The circle is determined by the subject **and** the charter: the council
-    approves a law if so stated; the ruler is elected and recalled by whoever
-    the charter gave it to. Everything else is the citizens' business.
-
-    An empty chamber locks neither laws nor authority: a city with zero seats
-    decides itself, as a whole city, and a law is applied by whoever proposed
-    it. A charter that cannot be executed literally is executed by meaning
-    rather than blocking the city forever.
-    """
-    by_council = {
-        VoteKind.LAW: answer(city, APPROVAL, "ruler") == BY_COUNCIL,
-        VoteKind.ELECTION: answer(city, SELECTION, "founder") == ELECTED_BY_COUNCIL,
-        VoteKind.RECALL: answer(city, RECALL_RULE, "never") == RECALL_BY_COUNCIL,
-    }.get(kind, False)
-    if by_council and has_council(city):
-        return COUNCIL_VOTERS
-    return CITIZENS
-
-
-async def may_propose(session: AsyncSession, city: City, identity_id: uuid.UUID) -> bool:
-    """Whether this person may propose laws (`lawmaker`).
-
-    The `laws` right always proposes a law -- that is authority. The council is
-    added to it when the charter answers "the council proposes": then there are
-    as many legislators as seats, and the ruler is not the only one among them.
-    """
-    if answer(city, LAWMAKER, "ruler") != BY_COUNCIL:
-        return False
-    return await in_council(session, city, identity_id)
-
-
-async def seat(session: AsyncSession, city: City, who: Identity, *, how: str) -> CouncilSeat:
-    """Seat a person on the council. No more seats than the charter set."""
-    if not has_council(city):
-        raise NoCouncil(key="vote-no-council")
-    occupied_ = await council_of(session, city)
-    if any(place.identity_id == who.id for place in occupied_):
-        return next(m for m in occupied_ if m.identity_id == who.id)
-    if len(occupied_) >= council_seats(city):
-        raise NoCouncil(key="vote-council-full", seats=council_seats(city))
-
-    place = CouncilSeat(city_id=city.id, identity_id=who.id, how=how)
-    session.add(place)
-    await session.flush()
-    await events.record(
-        session,
-        EventKind.COUNCIL_SEATED,
-        actor_identity_id=who.id,
-        node_id=city.node_id,
-        city_id=str(city.id),
-        who=who.name,
-        how=how,
-    )
-    return place
-
-
-async def vacate(session: AsyncSession, city: City, who: Identity) -> bool:
-    """Vacate a seat. The record stays: who voted is a matter for the court."""
-    for place in await council_of(session, city):
-        if place.identity_id != who.id:
-            continue
-        place.vacated_at = datetime.now(UTC)
-        await session.flush()
-        await events.record(
-            session,
-            EventKind.COUNCIL_VACATED,
-            node_id=city.node_id,
-            city_id=str(city.id),
-            who=who.name,
-        )
-        return True
-    return False
-
-
-async def appoint_to_council(
-    session: AsyncSession, city: City, by: Identity, who: Identity
-) -> CouncilSeat:
-    """Appoint to the council. Only where the charter gave the seats to the ruler."""
-
-    if council_mode(city) != APPOINTED_COUNCIL:
-        raise NoCouncil(key="vote-council-not-appointed")
-    await town.require(session, by.id, city, Power.OFFICES)
-    if not await may_vote(session, city, who.id):
-        raise NoVoice(key="vote-council-needs-voice")
-    return await seat(session, city, who, how=APPOINTED_COUNCIL)
 
 
 async def open_council_election(

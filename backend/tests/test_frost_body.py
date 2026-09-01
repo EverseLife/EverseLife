@@ -374,14 +374,19 @@ async def test_the_tick_and_the_player_do_not_spend_one_stamina_twice(
 
     #: Hold each transaction between reading the stamina and writing it back:
     #: a local database answers too fast for the window to open by itself.
-    original = frost.limit_of
+    #: Patched where the name is looked up (the frost split): `hours._burn`
+    #: binds `limit_of` into its own globals, so slowing the package
+    #: re-export would slow nobody.
+    from src.engine.frost import hours as frost_hours
+
+    original = frost_hours.limit_of
 
     async def held(*args, **kwargs):
         result = await original(*args, **kwargs)
         await asyncio.sleep(0.2)
         return result
 
-    monkeypatch.setattr(frost, "limit_of", held)
+    monkeypatch.setattr(frost_hours, "limit_of", held)
 
     async def tick() -> None:
         async with factory() as db, db.begin():

@@ -264,3 +264,175 @@ forbidden_modules = [
     "src.engine.plates.ways",
 ]
 allow_indirect_imports = "true"
+
+# Six more packages cut on 2026-09-01 -- bank, travel, vote, oxygen, net,
+# frost -- same `forbidden` shape as the city, the market and the plates, and
+# for the same reason: they sit inside engine cycles they did not create, so
+# a layers contract would fail on chains that have nothing to do with the
+# cuts. What is pinned is what each cut established: which room may name
+# which directly. The floors (`_base`) ask nobody.
+[[tool.importlinter.contracts]]
+name = "The bank's floor asks nobody"
+type = "forbidden"
+source_modules = ["src.engine.bank._base"]
+forbidden_modules = [
+    "src.engine.bank.rate",
+    "src.engine.bank.trust",
+    "src.engine.bank.line",
+    "src.engine.bank.council",
+    "src.engine.bank.loan",
+]
+allow_indirect_imports = "true"
+
+[[tool.importlinter.contracts]]
+name = "The rate, the trust and the line stand apart from the entrances"
+type = "forbidden"
+source_modules = [
+    "src.engine.bank.rate",
+    "src.engine.bank.trust",
+    "src.engine.bank.line",
+]
+forbidden_modules = ["src.engine.bank.loan", "src.engine.bank.council"]
+allow_indirect_imports = "true"
+
+[[tool.importlinter.contracts]]
+name = "The council moves the rate and never a loan"
+type = "forbidden"
+source_modules = ["src.engine.bank.council"]
+forbidden_modules = [
+    "src.engine.bank.loan",
+    "src.engine.bank.line",
+    "src.engine.bank.trust",
+]
+allow_indirect_imports = "true"
+
+[[tool.importlinter.contracts]]
+name = "A loan is priced by the line and the trust, never by the council"
+type = "forbidden"
+source_modules = ["src.engine.bank.loan"]
+forbidden_modules = ["src.engine.bank.council", "src.engine.bank.rate"]
+allow_indirect_imports = "true"
+
+[[tool.importlinter.contracts]]
+name = "The road's floor asks nobody"
+type = "forbidden"
+source_modules = ["src.engine.travel._base"]
+forbidden_modules = ["src.engine.travel.map", "src.engine.travel.walk"]
+allow_indirect_imports = "true"
+
+[[tool.importlinter.contracts]]
+name = "The map and the walk do not name each other"
+type = "forbidden"
+source_modules = ["src.engine.travel.map"]
+forbidden_modules = ["src.engine.travel.walk"]
+allow_indirect_imports = "true"
+
+[[tool.importlinter.contracts]]
+name = "The walk crosses the map's edges without calling its builders"
+type = "forbidden"
+source_modules = ["src.engine.travel.walk"]
+forbidden_modules = ["src.engine.travel.map"]
+allow_indirect_imports = "true"
+
+[[tool.importlinter.contracts]]
+name = "The vote's floor asks nobody"
+type = "forbidden"
+source_modules = ["src.engine.vote._base"]
+forbidden_modules = ["src.engine.vote.council", "src.engine.vote.poll"]
+allow_indirect_imports = "true"
+
+[[tool.importlinter.contracts]]
+name = "The council is a body, not a ballot box"
+type = "forbidden"
+source_modules = ["src.engine.vote.council"]
+forbidden_modules = ["src.engine.vote.poll"]
+allow_indirect_imports = "true"
+
+[[tool.importlinter.contracts]]
+name = "The airless floor asks nobody"
+type = "forbidden"
+source_modules = ["src.engine.oxygen._base"]
+forbidden_modules = [
+    "src.engine.oxygen.supply",
+    "src.engine.oxygen.breath",
+    "src.engine.oxygen.gauge",
+]
+allow_indirect_imports = "true"
+
+[[tool.importlinter.contracts]]
+name = "The stores know nothing of breathing or the gauge"
+type = "forbidden"
+source_modules = ["src.engine.oxygen.supply"]
+forbidden_modules = ["src.engine.oxygen.breath", "src.engine.oxygen.gauge"]
+allow_indirect_imports = "true"
+
+[[tool.importlinter.contracts]]
+name = "Breathing does not read the gauge, the gauge does not breathe"
+type = "forbidden"
+source_modules = ["src.engine.oxygen.breath"]
+forbidden_modules = ["src.engine.oxygen.gauge"]
+allow_indirect_imports = "true"
+
+[[tool.importlinter.contracts]]
+name = "The gauge only reads"
+type = "forbidden"
+source_modules = ["src.engine.oxygen.gauge"]
+forbidden_modules = ["src.engine.oxygen.breath"]
+allow_indirect_imports = "true"
+
+[[tool.importlinter.contracts]]
+name = "The Net's floor asks nobody"
+type = "forbidden"
+source_modules = ["src.engine.net._base"]
+forbidden_modules = [
+    "src.engine.net.road",
+    "src.engine.net.letters",
+    "src.engine.net.channels",
+]
+allow_indirect_imports = "true"
+
+[[tool.importlinter.contracts]]
+name = "The road carries letters and posts without reading either"
+type = "forbidden"
+source_modules = ["src.engine.net.road"]
+forbidden_modules = ["src.engine.net.letters", "src.engine.net.channels"]
+allow_indirect_imports = "true"
+
+[[tool.importlinter.contracts]]
+name = "Letters and channels do not name each other"
+type = "forbidden"
+source_modules = ["src.engine.net.letters"]
+forbidden_modules = ["src.engine.net.channels"]
+allow_indirect_imports = "true"
+
+[[tool.importlinter.contracts]]
+name = "Channels and letters do not name each other"
+type = "forbidden"
+source_modules = ["src.engine.net.channels"]
+forbidden_modules = ["src.engine.net.letters"]
+allow_indirect_imports = "true"
+
+[[tool.importlinter.contracts]]
+name = "The climate's floor asks nobody"
+type = "forbidden"
+source_modules = ["src.engine.frost._base"]
+forbidden_modules = [
+    "src.engine.frost.warmth",
+    "src.engine.frost.body",
+    "src.engine.frost.hours",
+]
+allow_indirect_imports = "true"
+
+[[tool.importlinter.contracts]]
+name = "Warmth belongs to places, not to bodies or the tick"
+type = "forbidden"
+source_modules = ["src.engine.frost.warmth"]
+forbidden_modules = ["src.engine.frost.body", "src.engine.frost.hours"]
+allow_indirect_imports = "true"
+
+[[tool.importlinter.contracts]]
+name = "The body's reserve never rings the world's hours"
+type = "forbidden"
+source_modules = ["src.engine.frost.body"]
+forbidden_modules = ["src.engine.frost.hours"]
+allow_indirect_imports = "true"
