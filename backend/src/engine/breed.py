@@ -146,9 +146,13 @@ async def landrace(session: AsyncSession, catalog: Catalog, culture_id: str) -> 
     if found is not None:
         return found
 
+    #: No literal name (D-251): an authorless cultivar is shown by its
+    #: plants-domain key (`shown_as`), and `name` stays what the model says it
+    #: is -- the creator's mark. A stored display word would freeze one
+    #: language into a row every language reads.
     variety = Variety(
         culture_id=culture_id,
-        name=plant.name,
+        name=None,
         author_identity_id=None,
         generation=0,
         stable=True,
@@ -188,9 +192,12 @@ async def wild_ancestor(
 
     factors = constants[R.BREED_WILD_TRAITS]
     traits = {key: value * factors.get(key, 1.0) for key, value in traits_of_plant(plant).items()}
+    #: Nameless like the base cultivar: the wild flag plus the culture is the
+    #: whole identity, and the display word comes from the plants domain
+    #: (`spelt_wild`) in whatever language is reading (D-251).
     variety = Variety(
         culture_id=culture_id,
-        name=plant.wild_name or plant.name,
+        name=None,
         author_identity_id=None,
         generation=0,
         stable=True,
@@ -443,7 +450,13 @@ async def gather_cross(
             work="cross",
             nursery=str(nursery.id),
             sprouted=False,
-            too_close_to=similar.name or str(similar.id),
+            #: A key or a mark, never a display literal (D-251): the payload
+            #: outlives every rename, so it records what the row *is*.
+            too_close_to=(
+                plant_key(catalog, similar)
+                if similar.author_identity_id is None
+                else similar.name or str(similar.id)
+            ),
         )
         return None
 
@@ -584,6 +597,36 @@ async def seed_lot(
     #: One cultivar at one strength is one seed lot: a second harvest adds to
     #: the sack rather than putting a second sack beside it (D-214).
     return await world.stack_up(session, item)
+
+
+def plant_key(catalog: Catalog, variety: Variety) -> str:
+    """The plants-domain key an authorless cultivar is shown by (D-251).
+
+    The base cultivar is shown as its crop; the wild ancestor by the wild key
+    the vault pinned in `renames.json` (`spelt_wild`). A snapshot too old to
+    carry the wild key degrades to the crop's own -- an untranslated word, not
+    a broken row.
+    """
+    if variety.wild:
+        plant = catalog.plants.by_id(variety.culture_id)
+        return plant.wild_id or plant.id
+    return variety.culture_id
+
+
+def shown_as(catalog: Catalog, variety: Variety) -> dict[str, str | int]:
+    """How the wire names a cultivar (D-251): key, literal or generation.
+
+    An authorless cultivar travels as its plants-domain key and the client
+    reads it in the player's language via `/public/renames`. An author's name
+    is a mark, not copy -- it travels as written. A nameless hybrid travels as
+    its generation and the words are the client's (`ui-nursery-hybrid`): a
+    sentence composed here would be composed in one language only.
+    """
+    if variety.author_identity_id is None:
+        return {"key": plant_key(catalog, variety)}
+    if variety.name:
+        return {"name": variety.name}
+    return {"hybrid": variety.generation}
 
 
 def agrotech_key(variety: Variety) -> str:

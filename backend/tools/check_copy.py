@@ -53,12 +53,14 @@ SRC = Path(__file__).resolve().parent.parent / "src"
 CYRILLIC = re.compile(r"[\u0400-\u04FF]")
 
 #: Module -> how many Russian string literals it still holds. Nothing else may
-#: hold any. Taken on 2026-08-31, at the end of D-251 wave IV.
+#: hold any. Taken on 2026-08-31, at the end of D-251 wave IV; remapped
+#: 2026-09-02 after the 800-line splits moved counted files into packages
+#: (`bank`, `vote`, `works_city`, `farm`, `estate/building`) -- same literals,
+#: same totals, new paths.
 KNOWN: dict[str, int] = {
     "src/api/app.py": 1,
     "src/api/commands/city.py": 1,
     "src/api/commands/transport.py": 1,
-    "src/api/commands/views.py": 1,
     "src/constants/catalog.py": 14,
     "src/constants/formula.py": 8,
     "src/constants/loader.py": 10,
@@ -66,7 +68,7 @@ KNOWN: dict[str, int] = {
     "src/constants/spec.py": 13,
     "src/db/ddl.py": 4,
     "src/engine/account.py": 15,
-    "src/engine/bank.py": 5,
+    "src/engine/bank/loan.py": 5,
     "src/engine/battery.py": 2,
     "src/engine/chat.py": 2,
     "src/engine/city/_base.py": 1,
@@ -76,12 +78,12 @@ KNOWN: dict[str, int] = {
     "src/engine/customs.py": 5,
     "src/engine/death.py": 4,
     "src/engine/energy.py": 3,
-    "src/engine/estate/building.py": 1,
+    "src/engine/estate/building/build.py": 1,
     "src/engine/estate/deed.py": 1,
     "src/engine/estate/price.py": 3,
     "src/engine/explore/run.py": 1,
     "src/engine/explore/site.py": 4,
-    "src/engine/farm.py": 3,
+    "src/engine/farm/plot.py": 2,
     "src/engine/finance.py": 1,
     "src/engine/forage.py": 2,
     "src/engine/jobs.py": 4,
@@ -93,10 +95,13 @@ KNOWN: dict[str, int] = {
     "src/engine/ship/_base.py": 1,
     "src/engine/ship/building.py": 3,
     "src/engine/utility.py": 3,
-    "src/engine/vote.py": 18,
+    "src/engine/vote/_base.py": 8,
+    "src/engine/vote/poll.py": 10,
     "src/engine/wear.py": 1,
     "src/engine/works.py": 9,
-    "src/engine/works_city.py": 8,
+    "src/engine/works_city/credit.py": 2,
+    "src/engine/works_city/order.py": 4,
+    "src/engine/works_city/pay.py": 2,
     "src/engine/world/things.py": 2,
     "src/herald/webhook.py": 2,
     "src/i18n/__init__.py": 4,

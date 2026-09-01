@@ -346,6 +346,41 @@ async def test_wild_ancestor_is_a_second_parent(
     assert (await breed.landrace(session, catalog, SPELT)).id == base.id
 
 
+async def test_authorless_cultivar_carries_a_key_not_a_literal(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Base and wild lines store no display word (D-251).
+
+    The wire names them by their plants-domain key and the client says the
+    word in the reader's language; a stored Russian name froze one language
+    into rows every language reads. An author's name is a mark and travels
+    literally; a nameless hybrid travels as its generation.
+    """
+    base = await breed.landrace(session, catalog, SPELT)
+    wild = await breed.wild_ancestor(session, constants, catalog, SPELT)
+    assert base.name is None and wild.name is None, "authorless rows keep no display literal"
+
+    assert breed.shown_as(catalog, base) == {"key": SPELT}
+    wild_key = catalog.plants.by_id(SPELT).wild_id
+    assert wild_key and wild_key != SPELT, "the vault pins a wild key of its own"
+    assert breed.shown_as(catalog, wild) == {"key": wild_key}
+
+    author = await world.create_identity(session, f"Селекционер-{uuid.uuid4().hex[:8]}")
+    hybrid = Variety(
+        culture_id=SPELT,
+        name=None,
+        author_identity_id=author.id,
+        generation=2,
+        stable=False,
+        traits=base.traits,
+    )
+    session.add(hybrid)
+    await session.flush()
+    assert breed.shown_as(catalog, hybrid) == {"hybrid": 2}
+    hybrid.name = "Заря"
+    assert breed.shown_as(catalog, hybrid) == {"name": "Заря"}
+
+
 async def test_the_viability_gate_is_symmetric(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:

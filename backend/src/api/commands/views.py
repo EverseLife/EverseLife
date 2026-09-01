@@ -21,8 +21,8 @@ from src.api.registry import Refused
 from src.constants import Constants, current, current_catalog
 from src.constants import registry as R
 from src.constants.catalog import ItemKind
-from src.engine import city as town
 from src.engine import (
+    breed,
     craft,
     energy,
     estate,
@@ -35,6 +35,7 @@ from src.engine import (
     transport,
     world,
 )
+from src.engine import city as town
 from src.models.craft import BatchState, CraftBatch
 from src.models.identity import Body, Identity, Knowledge, KnowledgeKind
 from src.models.ledger import AccountKind
@@ -317,7 +318,7 @@ async def _listed(
         return []
     #: The mark is shown as a name: the player must see whose work it is (D-058).
     marks = await _makers(db, items)
-    cultivars = await _varieties(db, items)
+    cultivars = await _varieties(db, catalog, items)
     return [
         {
             "id": str(item.id),
@@ -364,16 +365,17 @@ async def _listed(
     ]
 
 
-async def _varieties(db: AsyncSession, items) -> dict[uuid.UUID, str]:
-    """Cultivar names by seeds. A nameless hybrid gets an honest "hybrid"."""
+async def _varieties(db: AsyncSession, catalog, items) -> dict[uuid.UUID, dict[str, str | int]]:
+    """How the cultivar behind each seed lot is named on the wire (D-251).
+
+    A plants-domain key, the author's literal mark, or a nameless hybrid's
+    generation -- `breed.shown_as` decides, and the client says the words.
+    """
     ids = {item.variety_id for item in items if item.variety_id is not None}
     if not ids:
         return {}
     rows = await db.execute(select(Variety).where(Variety.id.in_(ids)))
-    return {
-        cultivar.id: cultivar.name or f"гибрид, поколение {cultivar.generation}"
-        for cultivar in rows.scalars().all()
-    }
+    return {cultivar.id: breed.shown_as(catalog, cultivar) for cultivar in rows.scalars().all()}
 
 
 async def _makers(db: AsyncSession, items) -> dict[uuid.UUID, str]:

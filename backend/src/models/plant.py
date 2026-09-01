@@ -45,7 +45,10 @@ class Variety(Base):
     #: with.
     culture_id: Mapped[str] = mapped_column(nullable=False)
     #: The name is given by the creator and attached forever -- like a
-    #: craftsman's mark. Empty for a nameless hybrid until stabilisation.
+    #: craftsman's mark. Empty for a nameless hybrid until stabilisation, and
+    #: always empty for an authorless cultivar (D-251): base and wild lines
+    #: are shown by their plants-domain key in the reader's language, so a
+    #: stored word here would freeze one language into the row.
     name: Mapped[str | None] = mapped_column(nullable=True)
     #: The author. Empty for a crop's base cultivar: it is nobody's.
     author_identity_id: Mapped[uuid.UUID | None] = mapped_column(

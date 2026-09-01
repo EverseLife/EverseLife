@@ -337,8 +337,10 @@ async def survey(
             skipped = max(0, min(int(cycle), int(elapsed)) - plot.care_credits)
             ripe = now >= ready
 
-            row["culture_name"] = plant.name
-            row["variety"] = variety.name or f"гибрид, поколение {variety.generation}"
+            #: No `culture_name` beside `culture` (D-225): the client reads
+            #: the word from `/public/renames`. The cultivar goes the same way
+            #: -- key, mark or generation -- and the client says it (D-251).
+            row["variety"] = breed.shown_as(catalog, variety)
             row["ripe"] = ripe
 
             #: Knowledge turns guesswork into a solved problem (D-057). With

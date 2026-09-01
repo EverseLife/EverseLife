@@ -350,6 +350,9 @@ class Plant(Strict):
     #: The wild ancestor's display name (D-260): a distinct cultivar, so a
     #: distinct name. Optional until the vault emits it.
     wild_name: str | None = None
+    #: Stable key of the wild ancestor (D-251), resolved at load from the
+    #: vault's own rename table (`spelt_wild`): the engine never derives it.
+    wild_id: str | None = None
     gives: str
     #: What is sown with. Seeds are an item separate from the product: they are
     #: bought, stolen and lost with death, while agrotech is not (D-057).
@@ -603,7 +606,12 @@ def _renamed_recipes(payload: dict, renames: RenameTable) -> dict:
 
 
 def _renamed_plants(payload: dict, renames: RenameTable) -> dict:
-    """plants.json with item references as ids: gives, seed, byproduct."""
+    """plants.json with item references as ids: gives, seed, byproduct.
+
+    The wild ancestor's key rides along (D-251): the vault pins it in the
+    plants domain under the wild display name, and looking it up here keeps
+    the engine out of the id-derivation business.
+    """
     goods = renames.goods_id
     return {
         "plants": [
@@ -612,6 +620,9 @@ def _renamed_plants(payload: dict, renames: RenameTable) -> dict:
                 "gives": goods(plant["gives"]),
                 "seed": goods(plant["seed"]),
                 "byproduct": goods(plant["byproduct"]) if plant.get("byproduct") else None,
+                "wild_id": (
+                    renames.plants.get(plant["wild_name"]) if plant.get("wild_name") else None
+                ),
             }
             for plant in payload.get("plants", [])
         ]
