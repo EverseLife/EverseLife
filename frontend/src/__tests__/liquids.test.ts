@@ -6,7 +6,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { RecipeBook, Thing } from "../api";
-import { capacityOf, fill, isLiquid, isVessel } from "../liquids";
+import { capacityOf, carried, fill, isLiquid, isVessel, tiersOf } from "../liquids";
 import { Words, forget, learn } from "../locale";
 import { cityWord, planetName } from "../planets";
 
@@ -82,5 +82,54 @@ describe("planets", () => {
     //: A planet the table does not know still reads as its id.
     expect(planetName("void")).toBe("void");
     forget();
+  });
+});
+
+describe("how much of a liquid the hands hold", () => {
+  //: Nothing in `look.inventory` is ever named for a liquid (D-230): the
+  //: water is inside the canisters, and counting it means opening them.
+  const canister = (id: string, inside: { goods: string; amount: number; tier?: string }[]) =>
+    ({
+      id,
+      key: "canister",
+      goods: "canister",
+      tier: "awful",
+      amount: 1,
+      content: inside.map((one, n) => ({
+        id: `${id}-${n}`,
+        key: one.goods,
+        goods: one.goods,
+        tier: one.tier ?? "awful",
+        amount: one.amount,
+        mass: 1,
+      })),
+    }) as unknown as Thing;
+
+  it("adds up what every vessel holds of the one liquid", () => {
+    const hands = [canister("a", [{ goods: "water", amount: 12 }]), canister("b", [{ goods: "water", amount: 8 }])];
+    expect(carried(hands, "water")).toBe(20);
+  });
+
+  it("counts the asked liquid and no other", () => {
+    const hands = [canister("a", [{ goods: "water", amount: 12 }, { goods: "alcohol", amount: 3 }])];
+    expect(carried(hands, "alcohol")).toBe(3);
+  });
+
+  //: A liquid has quality like anything else, so one name in one pocket may
+  //: be two positions: the spirit of a good batch and of a bad one.
+  it("counts one tier at a time when asked for one", () => {
+    const hands = [
+      canister("a", [{ goods: "spirit", amount: 4, tier: "отличное" }]),
+      canister("b", [{ goods: "spirit", amount: 6, tier: "обычное" }]),
+    ];
+    expect(carried(hands, "spirit")).toBe(10);
+    expect(carried(hands, "spirit", "отличное")).toBe(4);
+    //: Which tiers, not in which order: the vessels arrive unordered, and
+    //: `tiersOf` says so. Whoever needs an order sorts by the ladder.
+    expect(new Set(tiersOf(hands, "spirit"))).toEqual(new Set(["обычное", "отличное"]));
+  });
+
+  it("is nought where the hands carry no vessel at all", () => {
+    expect(carried([{ id: "x", key: "iron_ore", goods: "iron_ore", tier: "good", amount: 5 } as unknown as Thing], "water")).toBe(0);
   });
 });

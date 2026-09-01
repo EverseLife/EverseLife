@@ -20,6 +20,9 @@ ui-market-none-found = ничего не нашлось
 ui-market-none-traded = здесь ещё ничем не торговали
 ui-market-quality = качество
 ui-market-stock = в терминале { $shelf } · в руках { $hand }
+# Товар под собственным ордером лежит на месте, но продать и забрать его
+# нельзя: строка говорит об этом до отказа, а не после него.
+ui-market-stock-pledged = в терминале { $shelf }, свободно { $free } · в руках { $hand }
 ui-market-bids = покупают
 ui-market-price = цена ₭
 ui-market-asks = продают
@@ -36,6 +39,7 @@ ui-market-buy-hint = встать в стакан со своей ценой; ч
 ui-market-sell = Продать
 ui-market-sell-hint = встать в стакан со своей ценой; что дороже — продастся сразу
 ui-market-sell-none = продавать нечего: товар должен лежать в терминале
+ui-market-sell-pledged = всё, что лежит, уже под своими ордерами: снимите ордер или выложите ещё
 ui-market-buy-best = По рынку купить
 ui-market-buy-best-at = По рынку купить · { $price } ₭
 ui-market-buy-best-hint = купить по лучшей цене продавцов
@@ -55,6 +59,14 @@ ui-market-terminal-drop = перетащите сюда предмет из ин
 ui-market-terminal-empty = в терминале ничего вашего
 ui-market-row = позиция { $goods }, { $tier }
 ui-market-take = Забрать
+# Жидкость торгуется из бака терминала (D-255). Её нельзя перетащить на
+# прилавок: в руках она не лежит — она в канистре, и перетащилась бы канистра.
+ui-market-pour = Налить в бак
+ui-market-pour-hint = перелить из своей тары в бак терминала; оттуда её и продают
+ui-market-pour-none = нечего лить: жидкость наливают из своей тары
+ui-market-poured-in-part = налито { $poured }, ещё { $left } осталось в таре
+ui-market-poured-part = слито { $poured } по месту в таре, { $left } осталось в баке
+ui-market-row-pledged = под ордером { $held }
 
 ## Рабочая станция
 

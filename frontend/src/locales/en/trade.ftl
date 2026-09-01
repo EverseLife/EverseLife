@@ -21,6 +21,9 @@ ui-market-none-found = nothing found
 ui-market-none-traded = nothing has been traded here yet
 ui-market-quality = quality
 ui-market-stock = in the terminal { $shelf } · in hand { $hand }
+# Goods under one's own order lie where they were, and can be neither sold
+# again nor taken back: the line says so before the refusal does.
+ui-market-stock-pledged = in the terminal { $shelf }, { $free } free · in hand { $hand }
 ui-market-bids = buying
 ui-market-price = price ₭
 ui-market-asks = selling
@@ -37,6 +40,7 @@ ui-market-buy-hint = stand in the order book at your own price; whatever is chea
 ui-market-sell = Sell
 ui-market-sell-hint = stand in the order book at your own price; whatever is dearer is sold at once
 ui-market-sell-none = nothing to sell: the goods have to lie in the terminal
+ui-market-sell-pledged = all that lies here is already under your own orders: cancel one or bring more
 ui-market-buy-best = Buy at market
 ui-market-buy-best-at = Buy at market · { $price } ₭
 ui-market-buy-best-hint = buy at the sellers' best price
@@ -56,6 +60,15 @@ ui-market-terminal-drop = drag a thing here from the inventory to put it out
 ui-market-terminal-empty = nothing of yours in the terminal
 ui-market-row = position { $goods }, { $tier }
 ui-market-take = Take
+# A liquid trades out of the terminal's tank (D-255). It cannot be dragged
+# onto the counter: it does not lie in the hands -- it is inside a canister,
+# and the canister is what would travel.
+ui-market-pour = Pour into the tank
+ui-market-pour-hint = pour out of your own vessel into the terminal's tank; that is what it sells from
+ui-market-pour-none = nothing to pour: a liquid goes out of one's own vessel
+ui-market-poured-in-part = { $poured } poured, { $left } stayed in the vessel
+ui-market-poured-part = { $poured } poured by the room in your vessels, { $left } stayed in the tank
+ui-market-row-pledged = { $held } under an order
 
 ## The work station
 

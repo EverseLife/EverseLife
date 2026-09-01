@@ -297,7 +297,10 @@ export class Session {
     return hello;
   }
 
-  async send(cmd: string, args: Record<string, unknown> = {}): Promise<Record<string, unknown>> {
+  async send<Answer = Record<string, unknown>>(
+    cmd: string,
+    args: Record<string, unknown> = {},
+  ): Promise<Answer> {
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
       //: Nothing to identify with yet: there was no session, nothing to repair.
       if (!this.token) throw new Error(t("ui-wire-no-session"));
@@ -305,7 +308,11 @@ export class Session {
     }
     const socket = this.socket!;
     const id = ++this.ticket;
-    return new Promise((resolve, reject) => {
+    //: The one cast, and it is at the seam it belongs to: what comes off the
+    //: socket is JSON and nothing more, and `Answer` is the caller's claim
+    //: about which command it asked. Made here so that no panel has to make
+    //: it at every call.
+    return new Promise<Record<string, unknown>>((resolve, reject) => {
       //: An answer that never comes must not hang a button forever.
       const timer = setTimeout(() => {
         if (this.pending.delete(id)) reject(new Error(t("ui-wire-timed-out")));
@@ -321,7 +328,7 @@ export class Session {
         },
       });
       socket.send(JSON.stringify({ id, cmd, ...args }));
-    });
+    }) as Promise<Answer>;
   }
 
   /** Bring a broken session back up. One rise for everyone who caught it.

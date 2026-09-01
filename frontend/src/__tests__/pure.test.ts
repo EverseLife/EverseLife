@@ -419,21 +419,26 @@ describe("market", () => {
     const ids = catalogue(book);
     expect(ids).toContain("iron_ore");
     expect(ids).toContain("bread");
-    //: A relic is found, never made or carried (D-232); a liquid lives only in
-    //: a vessel (D-230), so no stack of one can ever lie on the counter --
-    //: an order for either would hold money until it expires.
+    //: A relic is found, never made or carried (D-232), so an order for one
+    //: would hold money until it expires. It is the only kind left out.
     expect(ids).not.toContain("precursor_bioprinter");
-    expect(ids).not.toContain("water");
-    expect(ids).not.toContain("spirit");
+  });
+
+  //: Kept out until D-255 for a reason that has gone: a liquid lives only in a
+  //: vessel (D-230), and the terminal is now a vessel of its own.
+  it("offers a liquid: the terminal has a tank to hold it", () => {
+    const ids = catalogue(book);
+    expect(ids).toContain("water");
+    expect(ids).toContain("spirit");
   });
 
   it("orders the ids by their Russian display words", () => {
-    //: Хлеб < Железная руда is wrong; Железная руда < Хлеб is the Russian
-    //: order the picker reads in, whatever the ids spell.
+    //: Хлеб < Железная руда is wrong; Вода, Железная руда, Спирт, Хлеб is the
+    //: Russian order the picker reads in, whatever the ids spell.
     const names = {
-      goods: { iron_ore: "Железная руда", bread: "Хлеб" },
+      goods: { iron_ore: "Железная руда", bread: "Хлеб", water: "Вода", spirit: "Спирт" },
     } as never;
-    expect(catalogue(book, names)).toEqual(["iron_ore", "bread"]);
+    expect(catalogue(book, names)).toEqual(["water", "iron_ore", "spirit", "bread"]);
   });
 
   it("answers with an empty catalogue before the book arrives", () => {

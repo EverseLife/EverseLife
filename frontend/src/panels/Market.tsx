@@ -14,7 +14,10 @@
  * the sidebar's inventory is the hands, and a stack drags from it onto the
  * terminal and back. Where the two are not on screen together -- a narrow
  * screen puts the sidebar and the scene in different zones -- the way through
- * is the row menu's "В терминал" and the "Забрать" button here.
+ * is the row menu's "В терминал" and the "Забрать" button here. This file is
+ * the left column now: the right one is `market/Counter` -- the counter, its
+ * tap and its shelf -- and the shelf inside it is `market/Shelf`. Two seams,
+ * cut where the file passed 800 lines twice.
  *
  * ## A position is any goods, not only a traded one
  *
@@ -28,37 +31,21 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as api from "../api";
-import type { Book, Look, RecipeBook, Thing } from "../api";
-import { Amount } from "../Amount";
-import { chosen, counted, tally, unit } from "../amounts";
+import type { Book, Look, Thing } from "../api";
+import { counted, tally, unit } from "../amounts";
 import { Rule } from "../Rule";
+import { Counter } from "./market/Counter";
 import { Refusal, useActions, useBook, useCompare, useNames, useSession } from "../actions";
-import { DropZone } from "../DragMove";
-import { grip, noDrag } from "../drag";
 import { GoodsMark } from "../Glyph";
-import { catalogue, coins, exactly, floorOf, tierOf } from "../market";
-import type { QualityTier } from "../market";
-import { flavorText, goodsKeyName, goodsName, tierName, type Names } from "../names";
+import { onEnter } from "../keys";
+import { carried, isLiquid, tiersOf } from "../liquids";
+import { catalogue, coins, exactly, floorOf, freeOnCounter, openAt, tierOf } from "../market";
+import type { Position, QualityTier } from "../market";
+import { goodsKeyName, goodsName, tierName } from "../names";
 import { t } from "../locale";
 
 //: The panel keeps its own waiting and its own refusal, so it takes neither.
 type Props = { look: Look };
-
-type Position = { goods: string; tier: string };
-
-/**
- * A row that acts on a click acts on Enter and Space too.
- *
- * The rows here are `<tr>` rather than buttons because a button cannot hold a
- * table row, and the alternative -- a button inside every cell -- would put
- * three controls where the eye reads one line. So the row carries the button's
- * manners instead: a role, a stop on the tab ring, and these two keys.
- */
-const onEnter = (event: React.KeyboardEvent, act: () => void) => {
-  if (event.key !== "Enter" && event.key !== " ") return;
-  event.preventDefault();
-  act();
-};
 
 export function Market({ look }: Props) {
   const session = useSession();
@@ -71,6 +58,9 @@ export function Market({ look }: Props) {
   const { busy, act } = acting;
 
   const [positions, setPositions] = useState<Position[]>([]);
+  //: Whether what trades here has been read at all. Not `positions.length`:
+  //: an empty list is an answer too, and the one the fall-back exists for.
+  const [traded, setTraded] = useState(false);
   //: Last deal per goods name in this node, minor units. Only deals get in --
   //: a name nobody has traded shows no price at all (D-002).
   const [prices, setPrices] = useState<Record<string, number>>({});
@@ -121,11 +111,29 @@ export function Market({ look }: Props) {
 
   useEffect(() => {
     if (!node) return;
+    let current = true;
+    //: Unsaid again before every ask, so that the flag means "the answer for
+    //: **this** node is in" and not "some node once answered": walking from a
+    //: market with nothing on it to one where the player has goods would
+    //: otherwise let the fall-back below run on the old node's answer.
+    setTraded(false);
     void api.positions(node).then(({ positions, prices }) => {
+      //: A slow answer for the node we have left must not land on the node we
+      //: are standing in -- the same guard the book below keeps, for the same
+      //: reason.
+      if (!current) return;
       setPositions(positions);
       setPrices(prices ?? {});
       setChoice((previous) => previous ?? positions[0] ?? null);
+      //: Said after the choice, and it is what lets the fall-back below wait
+      //: for this answer instead of racing it: on the first render there are
+      //: no positions yet, and a fall-back that fired then would open every
+      //: trading market on whatever the player happens to be carrying.
+      setTraded(true);
     });
+    return () => {
+      current = false;
+    };
   }, [node, edition]);
 
   //: The book belongs to a position, and the answer must prove it does before
@@ -192,6 +200,18 @@ export function Market({ look }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [positions, carrying, shelved]);
 
+  //: A market where nothing has traded yet has no positions to open at, and
+  //: the panel used to open on nothing at all: no book, a rule sentence with
+  //: an empty tier in it, and "продавать нечего" written over a counter with
+  //: goods on it. A fresh city's market is exactly that market, so the fall
+  //: back is the first thing to hand -- what is on the counter or in the
+  //: pocket, which is what the picker offers anyway. Only once the book's own
+  //: positions have been heard: they come first when there are any.
+  useEffect(() => {
+    if (!traded || choice || near.length === 0) return;
+    setChoice(near[0]);
+  }, [traded, choice, near]);
+
   //: The comparator carries the language: a switch changes its identity and
   //: the catalogue is laid out again in the new reading order.
   const everything = useMemo(() => catalogue(book, names, order), [book, names, order]);
@@ -251,19 +271,11 @@ export function Market({ look }: Props) {
     setChoice(position);
   };
 
-  /**
-   * The tier to open a name at.
-   *
-   * What trades here wins: looking at "ore, excellent" and then searching out
-   * bread must not land on "bread, excellent" -- the books are matched by tier
-   * exactly (D-058), and an order in a tier nobody deals in would stand for
-   * ever. The tier being looked at is kept only when this name is traded in it.
-   */
-  const tierFor = (goods: string): string => {
-    const here = near.filter((p) => p.goods === goods).map((p) => p.tier);
-    if (choice && here.includes(choice.tier)) return choice.tier;
-    return here[0] ?? choice?.tier ?? tiers[2]?.name ?? "common";
-  };
+  //: The tier to open a name at (`openAt`). What the hands hold matters only
+  //: for a liquid: everything else is a stack in `near` already, while a
+  //: liquid sits inside a canister and shows up in no list of stacks.
+  const tierFor = (goods: string): string =>
+    openAt(goods, near, isLiquid(book, goods) ? tiersOf(inHands, goods) : [], choice, tiers);
 
   /** A rung of the book becomes the price in the field: reading a number off
    *  the screen to type it back in is work the panel can do. */
@@ -276,16 +288,37 @@ export function Market({ look }: Props) {
   const whole = choice ? counted(choice.goods) : false;
 
   const nameOf = (one: Thing) => one.key ?? one.goods;
-  const onShelf = choice
-    ? terminal
-        .filter((one) => nameOf(one) === choice.goods && one.tier === choice.tier)
-        .reduce((sum, one) => sum + one.amount, 0)
-    : 0;
-  const atHand = choice
-    ? inHands
-        .filter((one) => nameOf(one) === choice.goods && one.tier === choice.tier)
-        .reduce((sum, one) => sum + one.amount, 0)
-    : 0;
+  const shelfTotal = (goods: string, tier: string) =>
+    terminal
+      .filter((one) => nameOf(one) === goods && one.tier === tier)
+      .reduce((sum, one) => sum + one.amount, 0);
+  //: What is free of what lies here: without it the panel offered "Забрать"
+  //: and "Продать" over a shelf pledged to the last coin, and the player
+  //: learnt it from a refusal. The count itself is `freeOnCounter`.
+  const freeOn = (goods: string, tier: string) =>
+    freeOnCounter(
+      terminal.map((one) => ({ goods: nameOf(one), tier: one.tier, amount: one.amount })),
+      look.orders ?? [],
+      node,
+      goods,
+      tier,
+    );
+  const onShelf = choice ? shelfTotal(choice.goods, choice.tier) : 0;
+  const freeShelf = choice ? freeOn(choice.goods, choice.tier) : 0;
+  //: Whether this position is poured rather than handed (D-230, D-255).
+  const wet = choice ? isLiquid(book, choice.goods) : false;
+  //: What is in the hands, of this position and no other. A liquid is nowhere
+  //: among the stacks -- it is inside the canisters -- so it is counted
+  //: through them; and it is matched on the tier like everything else, having
+  //: quality like everything else: a crafted spirit carries its batch's, a
+  //: drilled oil its vein's.
+  const atHand = !choice
+    ? 0
+    : wet
+      ? carried(inHands, choice.goods, choice.tier)
+      : inHands
+          .filter((one) => nameOf(one) === choice.goods && one.tier === choice.tier)
+          .reduce((sum, one) => sum + one.amount, 0);
 
   const deal = (side: "market.buy" | "market.sell", price: number) =>
     act(() =>
@@ -384,7 +417,15 @@ export function Market({ look }: Props) {
               {goodsKeyName(names, choice.goods)} · {tierName(names, choice.tier)}
               <span className="note">
                 {" "}
-                {t("ui-market-stock", { shelf: exactly(onShelf), hand: exactly(atHand) })}
+                {/* What is pledged is said only where there is any: on a
+                    counter nothing stands on, "свободно" repeats the shelf. */}
+                {onShelf > freeShelf
+                  ? t("ui-market-stock-pledged", {
+                      shelf: exactly(onShelf),
+                      free: exactly(freeShelf),
+                      hand: exactly(atHand),
+                    })
+                  : t("ui-market-stock", { shelf: exactly(onShelf), hand: exactly(atHand) })}
               </span>
             </p>
           )}
@@ -530,7 +571,7 @@ export function Market({ look }: Props) {
               {t("ui-market-total")} <b className="num">{coins(api.minor(price) * volume)} ₭</b>
               <span className="note"> · {t("ui-market-tax")}</span>
             </p>
-            {tiers.length > 0 && (
+            {choice && tiers.length > 0 && (
               <p className="note">
                 {t("ui-market-floor-rule", {
                   floor: tierName(names, tierOf(tiers, floor) ?? ""),
@@ -548,8 +589,16 @@ export function Market({ look }: Props) {
               </button>
               <button
                 onClick={() => deal("market.sell", api.minor(price))}
-                disabled={busy || !choice || volume <= 0 || price <= 0 || onShelf <= 0}
-                title={onShelf > 0 ? t("ui-market-sell-hint") : t("ui-market-sell-none")}
+                disabled={busy || !choice || volume <= 0 || price <= 0 || freeShelf <= 0}
+                title={
+                  freeShelf > 0
+                    ? t("ui-market-sell-hint")
+                    : //: Two ways to have nothing to sell, and they want
+                      //: different answers: bring goods, or free your own.
+                      onShelf > 0
+                      ? t("ui-market-sell-pledged")
+                      : t("ui-market-sell-none")
+                }
               >
                 {t("ui-market-sell")}
               </button>
@@ -568,7 +617,7 @@ export function Market({ look }: Props) {
               <button
                 className="quiet"
                 onClick={() => deal("market.sell", bestBuy!.price)}
-                disabled={busy || !choice || !bestBuy || volume <= 0 || onShelf <= 0}
+                disabled={busy || !choice || !bestBuy || volume <= 0 || freeShelf <= 0}
                 title={t("ui-market-sell-best-hint")}
               >
                 {bestBuy
@@ -648,143 +697,20 @@ export function Market({ look }: Props) {
             ))}
         </div>
 
-        <div>
-          <h3>
-            {t("ui-market-terminal")}
-            <Rule>{t("ui-market-terminal-rule")}</Rule>
-          </h3>
-          {/* The drag pair (D-238): the sidebar's inventory is the other half
-              of it. A stack dropped here is loaded, a row dragged out of here
-              into the sidebar is taken back -- the same two commands the
-              buttons send. */}
-          <DropZone
-            zone="terminal"
-            accepts={["hands"]}
-            disabled={busy}
-            hint={t("ui-market-terminal-drop")}
-            onMove={(stack, amount) =>
-              //: The stack carries its own key and tier (grip below): the
-              //: command needs no lookup that could miss after a reread.
-              act(() =>
-                session.send("market.load", {
-                  goods: stack.key ?? stack.goods,
-                  amount,
-                  tier: stack.tier,
-                }),
-              )
-            }
-          >
-            <Shelf
-              things={terminal}
-              book={book}
-              names={names}
-              choice={choice}
-              mark={pick}
-              busy={busy}
-              take={(stack, amount) =>
-                act(() =>
-                  session.send("market.take", {
-                    goods: nameOf(stack),
-                    tier: stack.tier,
-                    amount,
-                  }),
-                )
-              }
-            />
-          </DropZone>
-        </div>
+        <Counter
+          things={terminal}
+          book={book}
+          names={names}
+          choice={choice}
+          mark={pick}
+          free={freeOn}
+          node={node}
+          session={session}
+          acting={acting}
+          wet={wet}
+          atHand={atHand}
+        />
       </div>
     </section>
-  );
-}
-
-/** What lies on the counter: rows to sell from, and a way to take them back. */
-function Shelf({
-  things,
-  book,
-  names,
-  choice,
-  mark,
-  take,
-  busy,
-}: {
-  things: Thing[];
-  book: RecipeBook | null;
-  names: Names | null;
-  choice: Position | null;
-  mark: (p: Position) => void;
-  take: (stack: Thing, amount: number) => void;
-  busy: boolean;
-}) {
-  //: How much of each stack to take back. Empty means the whole of it.
-  const [parts, setParts] = useState<Record<string, number | null>>({});
-  if (things.length === 0) {
-    return <p className="note">{t("ui-market-terminal-empty")}</p>;
-  }
-  return (
-    <table>
-      <tbody>
-        {/* The row is `stack`, not `t`: `t` is the locale's now, and a stack
-            shadowing it would turn a label into a call on a thing. */}
-        {things.map((stack) => {
-          const name = stack.key ?? stack.goods;
-          const shown = stack.flavor ? flavorText(names, stack.flavor) : goodsKeyName(names, name);
-          const selected = choice?.goods === name && choice?.tier === stack.tier;
-          const part = chosen(parts[stack.id] ?? null, stack.amount);
-          return (
-            <tr
-              key={stack.id}
-              className={`pick ${selected ? "picked" : ""}`}
-              role="button"
-              tabIndex={0}
-              aria-pressed={selected}
-              aria-label={t("ui-market-row", { goods: shown, tier: tierName(names, stack.tier) })}
-              onClick={() => mark({ goods: name, tier: stack.tier })}
-              onKeyDown={(e) => onEnter(e, () => mark({ goods: name, tier: stack.tier }))}
-              {...grip({
-                item: stack.id,
-                goods: stack.goods,
-                label: shown,
-                amount: stack.amount,
-                zone: "terminal",
-                tier: stack.tier,
-                key: stack.key ?? undefined,
-              })}
-            >
-              <td>
-                <GoodsMark book={book} goods={stack.goods} />
-                {shown}
-              </td>
-              <td className="num">{tally(stack.goods, stack.amount)}</td>
-              <td className="note">
-                {stack.quality == null
-                  ? ""
-                  : `${stack.quality.toFixed(0)} · ${tierName(names, stack.tier)}`}
-              </td>
-              <td onClick={(e) => e.stopPropagation()} {...noDrag}>
-                <Amount
-                  goods={stack.goods}
-                  value={parts[stack.id] ?? null}
-                  max={stack.amount}
-                  onChange={(value) => setParts((was) => ({ ...was, [stack.id]: value }))}
-                />
-              </td>
-              <td>
-                <button
-                  className="quiet"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    take(stack, part);
-                  }}
-                  disabled={busy || part <= 0}
-                >
-                  {t("ui-market-take")}
-                </button>
-              </td>
-            </tr>
-          );
-        })}
-      </tbody>
-    </table>
   );
 }
