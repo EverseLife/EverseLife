@@ -41,6 +41,7 @@ cmd-no-such-vein = нет такой жилы
 cmd-no-such-rig = нет такой установки
 cmd-no-such-ship = нет такого корабля
 cmd-no-such-plot = нет такой делянки
+cmd-merge-one-plot = делянку не сводят саму с собой: нужны две разные
 cmd-no-such-nursery = нет такого питомника
 cmd-no-such-variety = нет такого сорта
 cmd-no-such-deed = нет такой бумаги

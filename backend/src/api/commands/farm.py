@@ -186,6 +186,25 @@ async def _farm_split(state: dict, db: AsyncSession, message: dict) -> dict:
     return {"piece": str(piece.id)}
 
 
+@command("farm.merge")
+async def _farm_merge(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Merge two fields into one: `other` is folded into `plot` and ceases to be.
+
+    The door the engine's `merge` had been waiting for. Without it a plot could
+    be cut and never sewn back, so a farmer who split one strip too many was
+    left with the pieces -- and the anti-exploit that makes merging honest
+    (fertility by area, history by the heavier half, D-118) guarded nothing,
+    because nobody could reach it.
+    """
+    body = await _alive(state, db)
+    one = await _plot(db, message)
+    other = await _plot(db, message, field="other")
+    if one.id == other.id:
+        raise Refused(key="cmd-merge-one-plot")
+    whole = await farm.merge(db, current(), body, one, other)
+    return {"plot": str(whole.id), "area": float(whole.area_m2)}
+
+
 @command("farm.survey")
 async def _farm_survey(state: dict, db: AsyncSession, message: dict) -> dict:
     """Farm summary. Remote: readable even from the road (D-118)."""
@@ -193,9 +212,9 @@ async def _farm_survey(state: dict, db: AsyncSession, message: dict) -> dict:
     return {"plots": rows}
 
 
-async def _plot(db: AsyncSession, message: dict):
+async def _plot(db: AsyncSession, message: dict, field: str = "plot"):
 
-    plot = await db.get(Plot, uuid.UUID(message["plot"]))
+    plot = await db.get(Plot, uuid.UUID(message[field]))
     if plot is None:
         raise Refused(key="cmd-no-such-plot")
     return plot

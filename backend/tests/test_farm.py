@@ -505,3 +505,35 @@ async def test_a_riverside_bed_is_not_asked_to_carry_water(
     }
     assert "water_need" not in rows[wet.key], "у реки воду не носят"
     assert rows[dry.key]["water_need"] > 0, "в сухом месте носят, и сколько — надо сказать"
+
+
+async def test_the_split_field_can_be_sewn_back(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """`farm.merge` is reachable from the socket, and refuses a plot with itself.
+
+    The engine could merge from the day plots were cut, but no command led to
+    it: a strip could be split and never sewn back, and the anti-exploit that
+    makes merging honest (fertility by area, history by the heavier half,
+    D-118) guarded a door nobody could open.
+    """
+    from src.api import commands as _registered  # noqa: F401 -- registers the command
+    from src.api.registry import COMMANDS, Refused
+
+    _, identity, body = await _farmstead(session)
+    plot = await farm.mark(session, constants, body, name="поле", area=100)
+    piece = await farm.split(session, constants, body, plot, 40, name="отрез")
+    await session.flush()
+
+    state = {"identity_id": identity.id}
+    with pytest.raises(Refused):
+        await COMMANDS["farm.merge"].run(
+            state, session, {"plot": str(plot.id), "other": str(plot.id)}
+        )
+
+    answer = await COMMANDS["farm.merge"].run(
+        state, session, {"plot": str(plot.id), "other": str(piece.id)}
+    )
+    assert answer["plot"] == str(plot.id)
+    assert answer["area"] == pytest.approx(100)
+    assert await session.get(Plot, piece.id) is None, "сведённая половина перестаёт быть"
