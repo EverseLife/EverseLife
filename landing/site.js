@@ -67,12 +67,6 @@
   //    printing `undefined` where a sentence should be.
   const WORDS = SAID[document.documentElement.lang] || SAID.ru;
 
-  // ── First paint: let the hero rise ─────────────────────────────────────
-  document.fonts && document.fonts.ready
-    ? document.fonts.ready.then(() => document.documentElement.classList.add("ready"))
-    : document.documentElement.classList.add("ready");
-  setTimeout(() => document.documentElement.classList.add("ready"), 900);
-
   // ── The header parts from the hero once the page moves ──────────────
   const top = document.querySelector("header.top");
   const onScroll = () => top.classList.toggle("scrolled", scrollY > 24);

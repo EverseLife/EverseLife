@@ -12,6 +12,17 @@
 (() => {
   const host = document.getElementById("space");
   if (!host) return;
+
+  // The sky waits its turn. Compiling the shader and reading layout cost ~4 s
+  // of main-thread time on a throttled phone, and doing it during parse put
+  // all of it in front of the first paint. The page's base is a dark ground
+  // either way, so the stars may arrive a beat later: boot after `load`, at
+  // idle. `boot` is hoisted, so the body below reads exactly as before.
+  const idle = window.requestIdleCallback || ((fn) => setTimeout(fn, 1));
+  if (document.readyState === "complete") idle(boot);
+  else addEventListener("load", () => idle(boot), { once: true });
+
+  function boot() {
   const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
   const sizeKey = () => innerWidth + "x" + innerHeight;
 
@@ -82,6 +93,17 @@
       requestAnimationFrame(frame);
     }
   };
+
+  // A phone gets the 2D sky by choice, not by failure -- unless the page
+  // draws worlds. Compiling the nebula shader costs a couple of seconds of a
+  // throttled phone's main thread, and on a starfield-only page it buys a
+  // texture nobody without a pointer can even parallax. The world page keeps
+  // WebGL everywhere: its carousel planets are painted by this shader, and
+  // textual cards would be a poorer trade than the compile.
+  if (matchMedia("(pointer: coarse)").matches && !document.querySelector(".planets .planet")) {
+    fallback(host);
+    return;
+  }
 
   const gl = host.getContext("webgl", {
     alpha: false, antialias: false, depth: false, stencil: false,
@@ -207,7 +229,15 @@ vec4 planet(vec2 frag, vec4 P, vec3 base, vec3 land, vec3 atm, vec3 prm, float s
       col = mix(col, atm, 0.35) * scan;
       alpha = 0.6 + 0.15 * sin(u_time * 1.3);
     }
-    alpha *= smoothstep(1.0, 0.985, r);
+    // the disc fades out over the last 1.5% of the radius for a clean edge,
+    // and the halo has to show through under that fade: where the two only
+    // met at r = 1 the gap between them drew the sky as a dark hairline
+    // around every world. Same expression as the halo below, which is 1.0
+    // everywhere inside the disc -- the two meet at the same value.
+    float cov = smoothstep(1.0, 0.985, r);
+    float glow = smoothstep(1.4, 1.0, r) * 0.5;
+    col = mix(atm * glow, col, cov);
+    alpha = mix(glow * (prm.z > 0.5 ? 0.55 : 1.0), alpha, cov);
   } else {
     float glow = smoothstep(1.4, 1.0, r);
     col = atm * glow * 0.5;
@@ -258,6 +288,21 @@ void main() {
   const prog = gl.createProgram();
   gl.attachShader(prog, vs); gl.attachShader(prog, fs);
   gl.linkProgram(prog);
+
+  // Asking LINK_STATUS right after linking forces the driver to finish the
+  // compile on the spot -- the single longest task this page had (~half a
+  // second even on a desktop). With KHR_parallel_shader_compile the driver
+  // compiles on its own threads while we poll a status flag that costs
+  // nothing; without the extension the else-branch is the old synchronous
+  // path. `launch` is hoisted, so the body below reads as before.
+  const parallel = gl.getExtension("KHR_parallel_shader_compile");
+  if (parallel) {
+    const poll = () =>
+      gl.getProgramParameter(prog, parallel.COMPLETION_STATUS_KHR) ? launch() : setTimeout(poll, 30);
+    poll();
+  } else launch();
+
+  function launch() {
   if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) { fallback(host); return; }
   gl.useProgram(prog);
 
@@ -429,5 +474,7 @@ void main() {
     addEventListener("scroll", () => { if (!lost) draw(0); }, { passive: true });
   } else {
     requestAnimationFrame(frame);
+  }
+  }
   }
 })();
