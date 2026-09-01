@@ -277,7 +277,7 @@ ui-kitchen-cook = Сварить котёл
 
 ui-library-title = Библиотека
 ui-library-rule = Бесплатно и без условий, но только придя; переписывание стоит выносливости. Здесь лежит то, что сюда положили: столичная полна с основания, городскую наполняют носителями — из инвентаря, «Положить… → В библиотеку». Положенное остаётся навсегда, имя вкладчика — при рецепте.
-ui-library-search = рецепт, станция, вход или вкладчик
+ui-library-search = рецепт, станция, вход или имя
 ui-library-found = { $found } из { $all }
 ui-library-shelf-empty = Полки пусты: эта библиотека ещё ничего не получила. Принесите носитель «Рецепт» и положите его сюда из инвентаря.
 ui-library-recipe = рецепт
@@ -286,6 +286,7 @@ ui-library-station = станция
 ui-library-inputs = из чего
 ui-library-contribution = вклад
 ui-library-founding = основание
+ui-library-pioneer = первооткрыватель
 ui-library-known = знаю
 ui-library-take = Взять
 ui-library-none-found = ничего не нашлось

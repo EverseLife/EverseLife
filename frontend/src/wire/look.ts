@@ -49,8 +49,11 @@ export type Parts = {
   profile: Profile;
   orders: { orders: Order[]; reservations: Reservation[]; batches: Batch[] };
   deeds: DeedView[];
-  /** The library here: empty where there is none. Reread on arrival too. */
-  shelf: { recipe: string; contributor?: string }[];
+  /** The library here: empty where there is none. Reread on arrival too.
+   *  Each entry may carry the first discoverer's name (D-259): the
+   *  contribution and the discovery are different names, and a founding
+   *  recipe has no pioneer key at all (D-225). */
+  shelf: { recipe: string; contributor?: string; pioneer?: string }[];
 };
 
 /** Which command reads a part. Exported for `Session.part()` alone: the two
@@ -213,10 +216,11 @@ export type Look = {
      * every node from the bioprinter, like the purchase price does. */
     tax: number;
     /**
-     * What this library holds and who brought each recipe (D-068, D-209). Only
-     * when a library stands here; the catalog table is this shelf, not the vault.
+     * What this library holds and who brought each recipe (D-068, D-209),
+     * with the first discoverer's name where one exists (D-259). Only when a
+     * library stands here; the catalog table is this shelf, not the vault.
      */
-    shelf?: { recipe: string; contributor?: string }[];
+    shelf?: { recipe: string; contributor?: string; pioneer?: string }[];
     /**
      * The door lists, by names, and only to the holder (D-204): `allowed` enter
      * a shut location, `barred` enter nowhere. Black beats white.

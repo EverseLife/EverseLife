@@ -274,7 +274,7 @@ ui-kitchen-cook = Boil the pot
 
 ui-library-title = Library
 ui-library-rule = Free and on no conditions, but only by coming; copying out costs stamina. What lies here is what was put here: the capital's is full from the founding, a city's is filled with carriers — from the inventory, “Put… → To the library”. What is put stays for good, the contributor's name with the recipe.
-ui-library-search = recipe, station, input or contributor
+ui-library-search = recipe, station, input or name
 ui-library-found = { $found } of { $all }
 ui-library-shelf-empty = The shelves are empty: this library has been given nothing yet. Bring a “Recipe” carrier and put it here from the inventory.
 ui-library-recipe = recipe
@@ -283,6 +283,7 @@ ui-library-station = station
 ui-library-inputs = what from
 ui-library-contribution = contribution
 ui-library-founding = founding
+ui-library-pioneer = discovered by
 ui-library-known = known
 ui-library-take = Take
 ui-library-none-found = nothing found

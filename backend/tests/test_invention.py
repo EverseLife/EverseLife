@@ -26,6 +26,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from src.api.commands.views import _shelf
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import craft, jobs, library, market, travel, world
@@ -474,6 +475,22 @@ async def test_contributed_carrier_stays_with_the_name(
     with pytest.raises(library.AlreadyThere):
         await library.contribute(session, catalog, body, again)
     assert await session.get(Item, again.id) is not None
+
+
+async def test_shelf_names_the_pioneer_beside_the_contributor(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The shelf says both names (D-259): who brought the carrier and who
+    first opened the recipe. A founding entry carries no pioneer key at
+    all (D-225) -- nobody ever opened it."""
+    node, _, _ = await _library(session)
+    await library.stock(session, node, [NAILS, ROPE])
+    discoverer = await world.create_identity(session, f"Пионер-{uuid.uuid4().hex[:6]}")
+    await world.learn(session, discoverer, NAILS, discovered=True)
+
+    shelf = {entry["recipe"]: entry for entry in await _shelf(session, node)}
+    assert shelf[NAILS]["pioneer"] == discoverer.name
+    assert "pioneer" not in shelf[ROPE]
 
 
 async def test_only_a_written_carrier_goes_to_the_shelf(

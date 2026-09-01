@@ -67,6 +67,9 @@ export function Library({ look }: Omit<Props, "busy" | "act">) {
     ...(byId[entry.recipe] ?? { name: entry.recipe, inputs: [], level: "?", station: null }),
     id: entry.recipe,
     contributor: entry.contributor,
+    //: The first discoverer (D-259): a different name than the contributor --
+    //: who opened the recipe, not who brought the carrier here.
+    pioneer: entry.pioneer,
   }));
   const query = search.trim().toLowerCase();
   //: The player types Russian, so the match runs over the display words.
@@ -76,6 +79,7 @@ export function Library({ look }: Omit<Props, "busy" | "act">) {
       goodsName(names, recipe.id).toLowerCase().includes(query) ||
       (recipe.station ? goodsName(names, recipe.station) : "").toLowerCase().includes(query) ||
       (recipe.contributor ?? "").toLowerCase().includes(query) ||
+      (recipe.pioneer ?? "").toLowerCase().includes(query) ||
       recipe.inputs.some((entry: string) =>
         goodsName(names, entry).toLowerCase().includes(query),
       ),
@@ -120,6 +124,7 @@ export function Library({ look }: Omit<Props, "busy" | "act">) {
             <th>{t("ui-library-station")}</th>
             <th>{t("ui-library-inputs")}</th>
             <th>{t("ui-library-contribution")}</th>
+            <th>{t("ui-library-pioneer")}</th>
             <th />
           </tr>
         </thead>
@@ -133,6 +138,7 @@ export function Library({ look }: Omit<Props, "busy" | "act">) {
                 {recipe.inputs.map((one: string) => goodsName(names, one)).join(", ") || "—"}
               </td>
               <td className="note">{recipe.contributor ?? t("ui-library-founding")}</td>
+              <td className="note">{recipe.pioneer ?? "—"}</td>
               <td>
                 {look.knows.includes(recipe.id) ? (
                   <span className="note">{t("ui-library-known")}</span>
@@ -152,7 +158,7 @@ export function Library({ look }: Omit<Props, "busy" | "act">) {
           ))}
           {shown.length === 0 && all.length > 0 && (
             <tr>
-              <td colSpan={6} className="note">
+              <td colSpan={7} className="note">
                 {t("ui-library-none-found")}
               </td>
             </tr>

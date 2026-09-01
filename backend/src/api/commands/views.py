@@ -10,10 +10,11 @@ socket loop stayed there, the commands live by domain.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from dataclasses import asdict
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import Select, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.commands.common import _body, _node, _stamp, goods_key, tier_key
@@ -443,18 +444,16 @@ async def _discovered(db: AsyncSession, identity_id: uuid.UUID) -> list[str]:
     return sorted(row[0] for row in rows)
 
 
-async def _pioneers(db: AsyncSession, identity_id: uuid.UUID) -> dict[str, str]:
-    """The first discoverer's name per known recipe (D-064, D-259).
+async def _pioneer_names(
+    db: AsyncSession, keys: Sequence[str] | Select[tuple[str]]
+) -> dict[str, str]:
+    """The first discoverer's name per recipe key (D-064, D-259).
 
     The pioneer is whoever holds the **earliest** `discovered` row for the
     key: the name is bound to the recipe forever and shown to everyone who
-    uses it. Founding recipes were opened by nobody and have no entry. Only
-    the recipes this identity knows are answered: the map rides the
-    `knowledge` part, and the details window is where it is read.
+    uses it. Founding recipes were opened by nobody and have no entry.
+    `keys` is whatever `IN` takes: a list of keys, or a selectable of them.
     """
-    mine = select(Knowledge.key).where(
-        Knowledge.identity_id == identity_id, Knowledge.kind == KnowledgeKind.RECIPE
-    )
     rows = await db.execute(
         select(Knowledge.key, Identity.name)
         .join(Identity, Identity.id == Knowledge.identity_id)
@@ -464,7 +463,7 @@ async def _pioneers(db: AsyncSession, identity_id: uuid.UUID) -> dict[str, str]:
             #: which the planner refuses to match against the partial
             #: `ix_knowledge_pioneer` (`WHERE discovered`) -- see the model.
             Knowledge.discovered,
-            Knowledge.key.in_(mine),
+            Knowledge.key.in_(keys),
         )
         #: DISTINCT ON keeps the first row per key of the given order: the
         #: earliest acquisition wins, the id breaks a same-instant tie.
@@ -472,6 +471,15 @@ async def _pioneers(db: AsyncSession, identity_id: uuid.UUID) -> dict[str, str]:
         .order_by(Knowledge.key, Knowledge.acquired_at, Knowledge.id)
     )
     return {key: name for key, name in rows.all()}
+
+
+async def _pioneers(db: AsyncSession, identity_id: uuid.UUID) -> dict[str, str]:
+    """The map the `knowledge` part rides (D-259): only the recipes this
+    identity knows are answered -- the details window is where it is read."""
+    mine = select(Knowledge.key).where(
+        Knowledge.identity_id == identity_id, Knowledge.kind == KnowledgeKind.RECIPE
+    )
+    return await _pioneer_names(db, mine)
 
 
 def _buy_floor(constants: Constants, order: Order) -> int | None:
@@ -643,13 +651,21 @@ async def _batches(db: AsyncSession, identity_id: uuid.UUID) -> list[dict[str, A
 
 
 async def _shelf(db: AsyncSession, node: Node) -> list[dict[str, Any]]:
-    """The library's list with contributors' names (D-209)."""
+    """The library's list with contributors' names (D-209) and, where the
+    recipe was opened by somebody's experiment, the first discoverer's
+    (D-259). The contribution and the discovery are different names -- who
+    brought the carrier and who opened the recipe -- and the shelf says
+    both. A key carrying nothing is not sent (D-225): founding recipes
+    have no pioneer at all.
+    """
     rows = await library.entries(db, node)
     names = await library.contributors(db, rows)
+    pioneers = {} if not rows else await _pioneer_names(db, [entry.recipe for entry in rows])
     return [
         {
             "recipe": entry.recipe,
             "contributor": names.get(entry.contributor_identity_id),
+            **({"pioneer": pioneers[entry.recipe]} if entry.recipe in pioneers else {}),
         }
         for entry in rows
     ]
