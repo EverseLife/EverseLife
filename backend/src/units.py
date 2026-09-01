@@ -39,6 +39,24 @@ PERMILLE = 1000.0
 SCALE_MIN = 0.0
 SCALE_MAX = 100.0
 
+#: The daylight scale: 0..3 (D-261). Catalog demands (`requires.light`) are
+#: written on 1-3, and 3 is an open clearing at noon. The ceiling is how the
+#: scale is written, not balance: what takes a step off it lies in the catalog
+#: and in `farm.shade_built_share`.
+LIGHT_MAX = 3
+
+#: The hardiness scale the catalog writes traits on: 1..5 (plants.yaml,
+#: D-261). The bound defines the scale; what 5/5 buys is balance and lies in
+#: `farm.hardiness_relief`.
+HARDINESS_SCALE = 5.0
+
+#: Where the diurnal cosine crosses the mean: the lit half of the planetary
+#: day is phase [0.25, 0.75), exactly the hours the temperature runs above
+#: the node's mean (D-261). Geometry of the day model, not balance -- moving
+#: these alone would tear "day" away from the temperature curve.
+DAY_PHASE_DAWN = 0.25
+DAY_PHASE_DUSK = 0.75
+
 #: Minutes per hour. Vault constants are given in hours (`mining.iron_per_hour`,
 #: `wound.recovery_hours`), while sessions live in minutes.
 MINUTES_PER_HOUR = 60.0

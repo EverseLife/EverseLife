@@ -51,6 +51,28 @@ async def test_the_day_breathes_between_the_swing_edges(
     assert climate.is_day(constants, Planet.TERRA, origin, noon)
 
 
+async def test_day_is_when_temperature_runs_above_the_mean(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """The dawn and dusk marks in `units.py` are the diurnal cosine's zero
+    crossings: "day" and "the temperature above the node's mean" must stay one
+    statement (D-261), or the quarter marks silently detach from the curve
+    should its shape ever change."""
+    node = await _place(session, {"temperature": 20})
+    origin = await world.epoch(session)
+    swing = climate.swing_of(constants, Planet.TERRA)
+    assert swing > 0, "без размаха у суток нет температурного дня"
+    day = climate.day_hours_of(constants, Planet.TERRA)
+
+    #: A prime count of samples never lands on the quarter marks themselves,
+    #: where the curve touches the mean and the sign carries no information.
+    samples = 97
+    for step in range(samples):
+        moment = origin + timedelta(hours=day * step / samples)
+        above = climate.temperature_now(constants, node, origin, moment) > 20
+        assert climate.is_day(constants, Planet.TERRA, origin, moment) == above
+
+
 async def test_each_planet_counts_its_own_day(constants: Constants) -> None:
     """Terra's 38 hours are nobody else's (OQ-028): the clock and the phase
     must both pick the day by the planet."""
