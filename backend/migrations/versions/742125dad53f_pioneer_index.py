@@ -9,7 +9,7 @@ the unique `(identity_id, kind, key)`, which leads with the identity and
 cannot serve that scan -- a partial index over the discovered rows can.
 
 Revision ID: 742125dad53f
-Revises: b3e7d19a5c42
+Revises: c7f2a95e31d8
 Create Date: 2026-09-02
 """
 
@@ -21,7 +21,10 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "742125dad53f"
-down_revision: str | None = "b3e7d19a5c42"
+#: Re-parented at merge time: the branch grew from b3e7d19a5c42 while the
+#: variety pair (c7d2a94f1e83, c7f2a95e31d8) landed in parallel -- the chain
+#: stays linear, and the index depends on nothing they change.
+down_revision: str | None = "c7f2a95e31d8"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
