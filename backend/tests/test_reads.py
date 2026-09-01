@@ -198,6 +198,58 @@ async def test_forecasts_make_no_yard_in_a_place_without_one(
     assert await yards() == 0, "прогноз завёл двор там, где только смотрели"
 
 
+async def test_farm_survey_writes_nothing(
+    session: AsyncSession, factory: async_sessionmaker[AsyncSession], constants, catalog
+) -> None:
+    """The farm summary is a read even over a broken bed.
+
+    A sown plot whose cultivar row is missing -- a dangling `variety_id` --
+    used to fall back to `breed.landrace`, and that is get-or-create: the
+    survey inserted a Variety row. Now the fallback is a transient base line,
+    and the whole summary flushes nothing.
+    """
+    from decimal import Decimal
+
+    from src.engine import breed, farm
+    from src.models.farm import PlotState
+    from src.models.plant import Variety
+
+    stamp = uuid.uuid4().hex[:8]
+    node = await world.create_node(
+        session,
+        f"terra.readfield.{stamp}",
+        "Поле",
+        area_m2=100,
+        properties={"water": "none", "fertility": 60},
+    )
+    identity = await world.create_identity(session, f"Фермер-{stamp}")
+    body = await world.print_body(session, identity, node)
+    node.owner_identity_id = identity.id
+    cultivar = await breed.landrace(session, catalog, "spelt")
+    pocket = await world.body_container(session, body)
+    seeds = await breed.seed_lot(session, catalog, pocket.id, cultivar, 500, 100)
+    plot = await farm.mark(session, constants, body, name="грядка", area=10)
+    plot.state = PlotState.PLOWED
+    plot.fertility = Decimal("60")
+    await session.flush()
+    await farm.sow(session, constants, catalog, body, plot, seeds)
+    #: The bed as a broken world leaves it: sown, but the cultivar row is gone.
+    plot.variety_id = uuid.uuid4()
+    await session.commit()
+
+    from sqlalchemy import func
+
+    async def cultivars() -> int:
+        return await session.scalar(select(func.count()).select_from(Variety))
+
+    before = await cultivars()
+    async with factory() as db, db.begin(), _writes_forbidden(db):
+        (line,) = await farm.survey(db, constants, catalog, identity.id)
+    assert line["culture"] == "spelt"
+    assert line["variety"] == catalog.plants.by_id("spelt").name
+    assert await cultivars() == before, "обзор завёл сорт -- чтение не пишет"
+
+
 async def test_forecast_does_not_wait_for_the_body_lock(
     session: AsyncSession, factory: async_sessionmaker[AsyncSession]
 ) -> None:

@@ -355,6 +355,26 @@ async def survey(
         )
     ).all()
 
+    #: The whole summary in three queries, not two per bed: cultivars and
+    #: agrotech knowledge are read for the list at once. A sown plot whose
+    #: cultivar row is missing shows the base line's numbers from a transient
+    #: object -- `landrace` is get-or-create, and a survey is a read.
+    sown = [
+        plot
+        for plot, _ in plots
+        if plot.state is PlotState.SOWN and plot.culture_id is not None and plot.sown_at
+    ]
+    ids = {plot.variety_id for plot in sown if plot.variety_id is not None}
+    found: dict[uuid.UUID, Variety] = {}
+    if ids:
+        rows = await session.execute(select(Variety).where(Variety.id.in_(ids)))
+        found = {cultivar.id: cultivar for cultivar in rows.scalars()}
+    varieties = {
+        plot.id: found.get(plot.variety_id) or breed.base_line(catalog, plot.culture_id)
+        for plot in sown
+    }
+    known = await breed.known_agrotech_keys(session, identity_id, varieties.values())
+
     out: list[dict] = []
     for plot, node in plots:
         row: dict = {
@@ -367,11 +387,9 @@ async def survey(
             "fertility": float(plot.fertility),
             "culture": plot.culture_id,
         }
-        if plot.state is PlotState.SOWN and plot.culture_id is not None and plot.sown_at:
+        if plot.id in varieties:
             plant = catalog.plants.by_id(plot.culture_id)
-            variety = (
-                await session.get(Variety, plot.variety_id) if plot.variety_id is not None else None
-            ) or await breed.landrace(session, catalog, plant.id)
+            variety = varieties[plot.id]
             signs = variety.traits or breed.traits_of_plant(plant)
             cycle = float(signs.get("cycle_days", plant.cycle_days))
             fertility_needed = float(signs.get("fertility", plant.requires.fertility))
@@ -395,7 +413,7 @@ async def survey(
             #: agrotech norms and the remainder to them are visible; without it
             #: only symptoms, common to all crops, and what to do about them the
             #: farmer finds out by experience, by buying knowledge, or by stubbornness.
-            knows = await breed.knows_agrotech(session, identity_id, variety)
+            knows = breed.agrotech_key(variety) in known
             row["agrotech"] = knows
             if knows:
                 row["ripe_at"] = ready.isoformat()

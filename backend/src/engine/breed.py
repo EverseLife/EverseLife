@@ -59,6 +59,7 @@ from __future__ import annotations
 
 import random
 import uuid
+from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from statistics import fmean
@@ -120,6 +121,26 @@ def traits_of_plant(plant: Plant) -> dict[str, float]:
         "spoilage_k": plant.traits.spoilage_k,
         "hardiness": plant.traits.hardiness,
     }
+
+
+def base_line(catalog: Catalog, culture_id: str) -> Variety:
+    """The crop's base cultivar as a transient object: same numbers, no row.
+
+    `landrace` is get-or-create, so a read path must not call it ("reads do
+    not write", review 2026-08-23): a survey of a plot whose cultivar row is
+    missing -- old plots, a dangling reference -- shows the base line's
+    numbers from an object that is never added to the session.
+    """
+    plant = catalog.plants.by_id(culture_id)
+    return Variety(
+        culture_id=culture_id,
+        name=plant.name,
+        author_identity_id=None,
+        generation=0,
+        stable=True,
+        wild=False,
+        traits=traits_of_plant(plant),
+    )
 
 
 async def landrace(session: AsyncSession, catalog: Catalog, culture_id: str) -> Variety:
@@ -612,6 +633,27 @@ async def knows_agrotech(session: AsyncSession, identity_id: uuid.UUID, variety:
         )
     )
     return found.scalar_one_or_none() is not None
+
+
+async def known_agrotech_keys(
+    session: AsyncSession, identity_id: uuid.UUID, varieties: Iterable[Variety]
+) -> set[str]:
+    """The agrotech keys of these cultivars the identity knows: one query.
+
+    The per-cultivar question is `knows_agrotech`; a summary over a list of
+    plots asks once for the whole list instead of once per row.
+    """
+    keys = {agrotech_key(variety) for variety in varieties}
+    if not keys:
+        return set()
+    rows = await session.execute(
+        select(Knowledge.key).where(
+            Knowledge.identity_id == identity_id,
+            Knowledge.kind == KnowledgeKind.AGROTECH,
+            Knowledge.key.in_(keys),
+        )
+    )
+    return set(rows.scalars())
 
 
 async def copy_agrotech(
