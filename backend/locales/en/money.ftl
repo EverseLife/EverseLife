@@ -20,6 +20,10 @@
 
 market-no-terminal = node { $node } has no marketplace terminal
 market-nothing-free = no free “{ NAME($goods) }” in the terminal: all of it is under orders
+# The terminal's tank (D-255): a liquid trades out of it and into it.
+market-tank-full = the terminal's tank is full: nowhere to pour “{ NAME($goods) }” until somebody buys
+market-liquid-no-room = nothing to pour “{ NAME($goods) }” into: the purchase waits in the tank, come with a vessel
+market-nothing-loaded = your vessels hold no “{ NAME($goods) }”: a liquid is poured out of one's own vessel
 market-not-enough-free = the terminal has { NUMBER($free, minimumFractionDigits: 1, maximumFractionDigits: 1) } free “{ NAME($goods) }” of tier “{ TIER($tier) }”, and { NUMBER($quantity, minimumFractionDigits: 1, maximumFractionDigits: 1) } is wanted
 market-dead-trades = a dead body does not trade
 market-body-without-identity = a body without an identity
@@ -34,7 +38,6 @@ market-floor-not-in-tier = quality { $floor } is the “{ TIER($floor_tier) }”
 market-floor-off-scale = quality is a number from { $frm } to { $to }, not { $floor }
 market-no-such-goods = the world knows no such goods: “{ NAME($goods) }”
 market-goods-relic = “{ NAME($goods) }” is a Forerunner relic: nobody makes or carries those
-market-goods-liquid = “{ NAME($goods) }” is a liquid: it exists in a vessel and cannot lie on a counter
 market-no-such-recipe = the world knows no such recipe: “{ NAME($recipe) }”
 
 market-reserve-not-a-sale = goods are reserved, not a buy order

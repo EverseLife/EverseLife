@@ -189,24 +189,26 @@ async def test_relic_is_not_traded(
         )
 
 
-async def test_liquid_is_not_traded(
+async def test_liquid_is_a_position_since_the_tank(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """A liquid lives in a vessel and nowhere else (D-230): a counter is not a vessel."""
+    """D-255 opened the counter to liquids: the terminal is a vessel of its
+    own, and an order for a liquid is as ordinary as one for ore. The cycle
+    itself is pinned by the tank tests at the end of this file."""
     node = await _city(session)
     _, body = await _trader(session, node, "Водовоз", funds=100)
 
-    with pytest.raises(market.Untradable):
-        await market.buy(
-            session,
-            constants,
-            catalog,
-            body,
-            type_key=catalog.recipes.liquid[0],
-            tier=market.tier_of(constants, 65),
-            price=money(5),
-            quantity=1,
-        )
+    fill = await market.buy(
+        session,
+        constants,
+        catalog,
+        body,
+        type_key=catalog.recipes.liquid[0],
+        tier=market.tier_of(constants, 65),
+        price=money(1),
+        quantity=1,
+    )
+    assert fill.traded == 0, "ордер встал в стакан: жидкость — обычная позиция"
 
 
 async def test_written_carrier_is_a_position_of_its_own(
@@ -1328,3 +1330,154 @@ async def test_own_buy_order_carries_the_hand_named_floor(
     sold = await COMMANDS["orders"].run({"identity_id": seller.id}, session, {})
     (sell_row,) = sold["orders"]["orders"]
     assert sell_row["side"] == "sell" and "min_quality" not in sell_row
+
+
+# --- the terminal's tank (D-255) ---------------------------------------------
+
+
+LUBRICANT = "lubricant"
+
+
+async def _with_canister(
+    session: AsyncSession, node, name: str, *, fill: float = 0, funds: float = 0
+):
+    """A trader carrying a canister, optionally with lubricant already in it."""
+    from src.engine import storage
+
+    identity, body = await _trader(session, node, name, funds=funds)
+    pocket = await world.body_container(session, body)
+    canister = await world.grant_item(session, pocket, "canister", quality=60, origin="тест")
+    if fill > 0:
+        inside = await storage.inside(session, canister)
+        await world.grant_item(session, inside, LUBRICANT, amount=fill, quality=55, origin="тест")
+    return identity, body, canister
+
+
+async def test_a_liquid_trades_out_of_the_tank_and_into_a_vessel(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The whole cycle of D-255: the seller pours in, the deal moves cells,
+    the buyer pours out -- and the liquid lies loose nowhere on the way."""
+    from src.engine import storage
+
+    node = await _city(session)
+    seller_id, seller, seller_can = await _with_canister(session, node, "Нефтяник", fill=50)
+    loaded = await market.load(session, constants, seller, LUBRICANT, 30)
+    assert loaded == pytest.approx(30)
+    inside = await storage.inside(session, seller_can)
+    left = (
+        await session.execute(
+            select(Item).where(Item.container_id == inside.id, Item.type_key == LUBRICANT)
+        )
+    ).scalar_one()
+    assert amount_float(left.amount) == pytest.approx(20), "из канистры ушло ровно налитое"
+
+    await market.sell(
+        session,
+        constants,
+        catalog,
+        seller_id,
+        node,
+        type_key=LUBRICANT,
+        tier=market.tier_of(constants, 55),
+        price=money(2),
+        quantity=30,
+    )
+
+    buyer_id, buyer, buyer_can = await _with_canister(session, node, "Покупатель", funds=1000)
+    fill = await market.buy(
+        session,
+        constants,
+        catalog,
+        buyer,
+        type_key=LUBRICANT,
+        tier=market.tier_of(constants, 55),
+        price=money(2),
+        quantity=30,
+    )
+    assert fill.traded == pytest.approx(30)
+
+    #: Poured by the vessel's room (D-255): the canister holds twenty
+    #: kilograms of it, the remainder waits in the tank for the next trip.
+    room_units = 20 / catalog.recipes.mass_of(LUBRICANT)
+    taken = await market.take(session, constants, buyer, LUBRICANT, 30)
+    assert taken == pytest.approx(room_units, abs=0.01)
+    inside = await storage.inside(session, buyer_can)
+    got = (
+        await session.execute(
+            select(Item).where(Item.container_id == inside.id, Item.type_key == LUBRICANT)
+        )
+    ).scalar_one()
+    assert amount_float(got.amount) == pytest.approx(taken), "слито ровно по месту тары"
+
+    #: Nowhere on the way did the liquid lie loose in a pocket (D-230).
+    pockets = [
+        await world.body_container(session, seller),
+        await world.body_container(session, buyer),
+    ]
+    for pocket in pockets:
+        loose = (
+            (
+                await session.execute(
+                    select(Item).where(Item.container_id == pocket.id, Item.type_key == LUBRICANT)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert loose == []
+
+
+async def test_the_tank_is_exactly_as_big_as_its_vessel(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """`market.tank_capacity` bounds the liquid market: a full tank refuses."""
+    from src.constants import registry as R
+
+    node = await _city(session)
+    unit = catalog.recipes.mass_of(LUBRICANT)
+    cap_units = constants[R.MARKET_TANK_CAPACITY] / unit
+    _, seller, _ = await _with_canister(session, node, "Нефтяник", fill=cap_units + 100)
+
+    #: The fixture overfills the canister on purpose (`grant_item` does not
+    #: judge a vessel's store): the tank's own ceiling is what is under test,
+    #: and load takes whatever the vessels actually hold.
+    poured = await market.load(session, constants, seller, LUBRICANT, cap_units + 100)
+    assert poured <= cap_units + 1e-6
+
+    with pytest.raises(market.TankFull):
+        await market.load(session, constants, seller, LUBRICANT, 1)
+
+
+async def test_a_buyer_without_a_vessel_waits(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """No canister -- the purchase stays in the tank, said plainly (D-255)."""
+    node = await _city(session)
+    seller_id, seller, _ = await _with_canister(session, node, "Нефтяник", fill=50)
+    await market.load(session, constants, seller, LUBRICANT, 30)
+    await market.sell(
+        session,
+        constants,
+        catalog,
+        seller_id,
+        node,
+        type_key=LUBRICANT,
+        tier=market.tier_of(constants, 55),
+        price=money(2),
+        quantity=30,
+    )
+    buyer_id, buyer = await _trader(session, node, "Безтарный", funds=1000)
+    fill = await market.buy(
+        session,
+        constants,
+        catalog,
+        buyer,
+        type_key=LUBRICANT,
+        tier=market.tier_of(constants, 55),
+        price=money(2),
+        quantity=30,
+    )
+    assert fill.traded == pytest.approx(30)
+    with pytest.raises(market.NoRoom):
+        await market.take(session, constants, buyer, LUBRICANT, 30)

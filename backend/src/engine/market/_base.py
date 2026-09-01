@@ -49,6 +49,14 @@ class BadOrder(MarketError):
     """The order is meaningless: zero volume, zero price, foreign tier."""
 
 
+class TankFull(MarketError):
+    """The terminal's tank is full (D-255): the liquid market is as big as its vessel."""
+
+
+class NoRoom(MarketError):
+    """Nowhere to pour (D-255): a bought liquid waits in the tank for a vessel with room."""
+
+
 class Untradable(MarketError):
     """The goods cannot lie on a counter, so an order for them can never fill.
 
@@ -243,8 +251,10 @@ def _tradable(constants: Constants, catalog: Catalog, type_key: str, tier: str) 
         raise Untradable(key="market-no-such-goods", goods=kind)
     if book.is_relic(kind):
         raise Untradable(key="market-goods-relic", goods=kind)
-    if book.is_liquid(kind):
-        raise Untradable(key="market-goods-liquid", goods=kind)
+    #: A liquid trades since D-255: the terminal is a vessel of its own, the
+    #: cells behind it are its tank, and D-230 holds -- the liquid goes from
+    #: the seller's canister into the tank and from the tank into the
+    #: buyer's, never lying loose in anybody's hands.
     if tier not in {step.name for step in constants[R.QUALITY_TIERS]}:
         raise BadOrder(key="market-no-such-tier", tier=tier)
     if recipe is None:

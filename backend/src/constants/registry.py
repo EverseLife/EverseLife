@@ -164,6 +164,10 @@ MARKET_DEFAULT_FEE = Num("market.default_fee")
 MARKET_RESERVATION_DEPOSIT = Num("market.reservation_deposit")
 MARKET_RESERVATION_PERIOD = Num("market.reservation_period")
 MARKET_ORPHAN_DECAY_MULTIPLIER = Num("market.orphan_decay_multiplier")
+#: The terminal's own tank (D-255): how many kilograms of liquid the whole
+#: counter holds across every cell. The knob that bounds the liquid
+#: market's liquidity -- a bigger terminal is a bigger market.
+MARKET_TANK_CAPACITY = Num("market.tank_capacity")
 
 # --- Cooking (D-119, D-128) -------------------------------------------------
 COOK_ROLE_WEIGHTS = Table("cook.role_weights")

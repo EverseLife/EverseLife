@@ -1355,3 +1355,54 @@ async def test_two_empties_of_one_liquid_hopper_pour_each_unit_once(
         "каждая единица нефти налита ровно один раз: бункер плюс тара сходятся с добытым"
     )
     assert poured == to_units(sum(taken)), "слито ровно столько, сколько отдано вызовами"
+
+
+async def test_two_sellers_do_not_overfill_the_tank(
+    session: AsyncSession,
+    factory: async_sessionmaker[AsyncSession],
+    constants,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The terminal's tank is finite (D-255), and the room is read before it
+    is filled: without the terminal lock two sellers pouring at once both see
+    the same room and the tank ends up holding more than its vessel."""
+    from src.constants import registry as R
+    from src.engine import storage
+    from src.engine.market import counter
+
+    stamp = uuid.uuid4().hex[:6]
+    node = await world.create_node(session, f"terra.tank.{stamp}", "Торг", area_m2=100)
+    yard = await world.node_container(session, node)
+    await world.grant_item(session, yard, "market_terminal", quality=70, origin="тест")
+
+    catalog = current_catalog()
+    unit = catalog.recipes.mass_of("lubricant")
+    cap_units = constants[R.MARKET_TANK_CAPACITY] / unit
+    each = int(cap_units * 0.7)
+
+    bodies = []
+    for i in range(2):
+        identity = await world.create_identity(session, f"Нефтяник-{i}-{stamp}")
+        body = await world.print_body(session, identity, node)
+        pocket = await world.body_container(session, body)
+        canister = await world.grant_item(session, pocket, "canister", quality=60, origin="тест")
+        inside = await storage.inside(session, canister)
+        await world.grant_item(session, inside, "lubricant", amount=each, quality=55, origin="тест")
+        bodies.append(body.id)
+    await session.commit()
+    _slow(monkeypatch, counter, "_tank_mass")
+
+    async def pour(body_id) -> float:
+        async with factory() as db, db.begin():
+            own = await db.get(Body, body_id)
+            try:
+                return await counter.load(db, constants, own, "lubricant", each)
+            except counter.TankFull:
+                return 0.0
+
+    poured = await asyncio.gather(*(pour(b) for b in bodies))
+    total_kg = sum(poured) * unit
+    assert total_kg <= constants[R.MARKET_TANK_CAPACITY] + 1e-6, (
+        "бак держит не больше своей ёмкости: второй налив увидел остаток места"
+    )
+    assert sum(poured) > 0, "первый налив прошёл"

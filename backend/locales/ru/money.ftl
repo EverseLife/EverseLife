@@ -20,6 +20,10 @@
 
 market-no-terminal = в узле { $node } нет терминала маркетплейса
 market-nothing-free = свободного «{ NAME($goods) }» в терминале нет: всё под ордерами
+# Бак терминала (D-255): жидкость торгуется из него и в него.
+market-tank-full = бак терминала полон: «{ NAME($goods) }» некуда лить, пока кто-нибудь не выкупит
+market-liquid-no-room = «{ NAME($goods) }» не во что слить: купленное ждёт в баке, приходите с тарой
+market-nothing-loaded = в вашей таре нет «{ NAME($goods) }»: жидкость наливают из своей тары
 market-not-enough-free = в терминале свободно { NUMBER($free, minimumFractionDigits: 1, maximumFractionDigits: 1) } «{ NAME($goods) }» ступени «{ TIER($tier) }», нужно { NUMBER($quantity, minimumFractionDigits: 1, maximumFractionDigits: 1) }
 market-dead-trades = мёртвое тело не торгует
 market-body-without-identity = тело без личности
@@ -34,7 +38,6 @@ market-floor-not-in-tier = качество { $floor } — это ступень
 market-floor-off-scale = качество называют числом от { $frm } до { $to }, а не { $floor }
 market-no-such-goods = в мире нет такого товара: «{ NAME($goods) }»
 market-goods-relic = «{ NAME($goods) }» — наследие Предтеч: такое не делают и не переносят
-market-goods-liquid = «{ NAME($goods) }» — жидкость: она бывает только в таре, на прилавок её не выложить
 market-no-such-recipe = в мире нет такого рецепта: «{ NAME($recipe) }»
 
 market-reserve-not-a-sale = бронируют товар, а не заявку на покупку
