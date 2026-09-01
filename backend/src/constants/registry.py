@@ -246,7 +246,8 @@ ENERGY_TARIFF_DEFAULT = Num("energy.tariff_default")
 ENERGY_METER_PERIOD = Num("energy.meter_period")
 
 # --- Breeding (D-057, D-067) ------------------------------------------------
-FARM_HARVEST_SEED_SHARE = Num("farm.harvest_seed_share")
+#: Seed multiplication ratio at full care on healthy soil (D-257).
+FARM_SEED_RETURN = Num("farm.seed_return")
 BREED_INHERIT_DRIFT = FormulaRef("breed.inherit_drift")
 BREED_NOVEL_TRAIT_CHANCE = Num("breed.novel_trait_chance")
 BREED_HYBRID_DECAY = Num("breed.hybrid_decay")

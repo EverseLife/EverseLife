@@ -7,7 +7,7 @@ Checked is what the system was introduced for: **an experienced farmer's
 advantage without skills and levels**.
 
 * one sows with seeds, not harvest: the batch has a cultivar and its own strength;
-* harvest leaves own seed by the `farm.harvest_seed_share` share;
+* harvest returns own seed as a multiple of the sowing norm (`farm.seed_return`);
 * selection holds the fund, without it the fund degrades, and a hybrid also segregates;
 * crossing takes a full cycle, costs seeds and needs a nursery;
 * a too similar cultivar **does not sprout** -- the gate is in biology, not the interface;
@@ -124,7 +124,7 @@ async def test_cannot_sow_harvest(
 async def test_harvest_leaves_own_seed(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """A share of the harvest goes to the fund, not for sale (`farm.harvest_seed_share`)."""
+    """The fund comes back as a multiple of what was sown (`farm.seed_return`, D-257)."""
     _, _, body = await _farm(session)
     cultivar = await breed.landrace(session, catalog, SPELT)
     seeds = await _seeds(session, catalog, body, cultivar)
@@ -145,9 +145,18 @@ async def test_harvest_leaves_own_seed(
         .all()
     )
     new_ = sum(amount_float(i_.amount) for i_ in fund if i_.id != seeds.id)
+    #: The same soil, care and strength shares scale the goods and the seeds,
+    #: so the shares cancel: seeds = seed_rate * seed_return * goods / yield.
     assert new_ == pytest.approx(
-        collected * constants[R.FARM_HARVEST_SEED_SHARE] / PERCENT, rel=0.01
+        constants[R.FARM_SEED_RATE]
+        * constants[R.FARM_SEED_RETURN]
+        * collected
+        / plant.yield_per_m2,
+        rel=0.01,
     )
+    #: The OQ-112 promise: a full-care cycle multiplies the fund -- the farmer
+    #: lives off it instead of walking back to the meadow every cycle.
+    assert new_ > constants[R.FARM_SEED_RATE] * 100, "фонд обязан покрыть свой пересев"
 
 
 # --- degradation -------------------------------------------------------------

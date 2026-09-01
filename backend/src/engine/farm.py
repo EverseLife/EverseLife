@@ -388,10 +388,12 @@ async def harvest(
     strength**; land depletion and recovery are credited right here -- the
     harvest closes the cycle.
 
-    Part of the harvest (`farm.harvest_seed_share`) stays for seeds. If the
-    farmer did **selection** -- in-person work where mastery shows -- the fund
-    keeps its strength; if not, the seeds degrade, and a hybrid additionally
-    segregates (D-057, D-067).
+    Seeds come back as a multiple of what was sown (`farm.seed_return`, D-257),
+    scaled by the same soil, care and lot-strength shares as the goods: the
+    fund reproduces by construction, and neglect, poor soil or a weak lot
+    honestly sink the return below one. If the farmer did **selection** --
+    in-person work where mastery shows -- the fund keeps its strength; if not,
+    the seeds degrade, and a hybrid additionally segregates (D-057, D-067).
     """
     moment = now or datetime.now(UTC)
     await _here(session, body)
@@ -452,8 +454,15 @@ async def harvest(
         #: same to the last number -- shelf life included (D-214).
         await world.stack_up(session, reaped)
 
-    #: Own seed: the harvest share kept for sowing, not for sale.
-    seed_amount = got * constants[R.FARM_HARVEST_SEED_SHARE] / PERCENT
+    #: Own seed: a multiple of the sowing norm, not a share of the goods (D-257).
+    seed_amount = (
+        constants[R.FARM_SEED_RATE]
+        * area
+        * constants[R.FARM_SEED_RETURN]
+        * soil_share
+        * care_share
+        * (strength / PERCENT)
+    )
     if seed_amount > 0:
         seed_strength = breed.next_vigor(constants, variety, strength, selected=select_seed)
         if select_seed:

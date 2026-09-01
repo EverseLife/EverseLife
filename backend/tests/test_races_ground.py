@@ -690,9 +690,12 @@ async def test_two_harvests_of_one_strip_reap_it_once(
         reaped = sum(int(thing.amount) for thing in things if thing.type_key == plant.gives)
         fund = sum(int(thing.amount) for thing in things if thing.type_key == plant.seed)
         assert reaped == to_units(got[0]), "урожай в кармане — ровно одна жатва"
-        assert fund == to_units(got[0] * constants[R.FARM_HARVEST_SEED_SHARE] / PERCENT), (
-            "семенной фонд отложен один раз"
-        )
+        #: The engine's seed formula verbatim (D-257): full care and full
+        #: strength multiply by one, so only the soil share is left to mirror.
+        soil = min(55 / plant.requires.fertility, constants[R.FARM_SOIL_SHARE_CAP] / PERCENT)
+        assert fund == to_units(
+            constants[R.FARM_SEED_RATE] * 10.0 * constants[R.FARM_SEED_RETURN] * soil
+        ), "семенной фонд отложен один раз"
 
 
 async def test_two_bumps_of_one_counter_lose_neither(
