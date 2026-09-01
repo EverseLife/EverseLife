@@ -18,6 +18,11 @@ from src.constants.spec import Book, Flag, FormulaRef, Num, Span, Spec, Table, T
 # --- Time and tick ----------------------------------------------------------
 TIME_TICK = Num("time.tick")
 TIME_DAY_TERRA = Num("time.day_terra")
+TIME_DAY_AQUATICA = Num("time.day_aquatica")
+TIME_DAY_PYROXIS = Num("time.day_pyroxis")
+TIME_DAY_AURORA = Num("time.day_aurora")
+#: Diurnal temperature swing around the node's mean, per planet (D-261).
+PLANET_TEMP_SWING = Table("planet.temp_swing")
 
 # --- Body (20-systems/00-character, D-091) ----------------------------------
 BODY_STAMINA_MAX = Num("body.stamina_max")
@@ -102,7 +107,15 @@ FARM_SEED_RATE = Num("farm.seed_rate")
 FARM_CARE_TIME_PER_M2 = Num("farm.care_time_per_m2")
 FARM_PLOT_OVERHEAD = Num("farm.plot_overhead")
 FARM_WATER_PER_M2 = Num("farm.water_per_m2")
-FARM_NEGLECT_PENALTY = Num("farm.neglect_penalty")
+#: The culture's thirst (requires.water 1-3) scales the watering norm (D-261).
+FARM_WATER_BY_NEED = Table("farm.water_by_need")
+#: How much hardiness 5/5 softens the neglect penalty (D-261).
+FARM_HARDINESS_RELIEF = Num("farm.hardiness_relief")
+#: From this built share of the node's ground the place loses a light step (D-261).
+FARM_SHADE_BUILT_SHARE = Num("farm.shade_built_share")
+#: Harvest share lost to a full cycle's walk-out; one miss costs its share
+#: of the cycle, so zeroing is impossible (D-263).
+FARM_NEGLECT_TOTAL = Num("farm.neglect_total")
 FARM_SOIL_DEPLETION = Num("farm.soil_depletion")
 #: Extra depletion for a repeat of the same crop in a row (D-256).
 FARM_MONOCULTURE_PENALTY = Num("farm.monoculture_penalty")
@@ -410,6 +423,9 @@ TRADE_REFERENCE_PRICE_WINDOW = Num("trade.reference_price_window")
 
 # --- Exploration (D-152, run price -- D-156) --------------------------------
 #: A run in untrodden surroundings: minutes. Grows with place depletion from there.
+#: Searching "near": temperature/precipitation drift from the origin node,
+#: and terrain marks repeat it with the kinship share (D-262).
+EXPLORE_NEAR_DRIFT = Table("explore.near_drift")
 EXPLORE_ATTEMPT_MINUTES = Span("explore.attempt_minutes")
 #: Ceiling of run duration, not its length.
 EXPLORE_ATTEMPT_HOURS = Num("explore.attempt_hours")
@@ -592,6 +608,8 @@ FROST_BRAZIER_FUEL_DRAW = Num("frost.brazier_fuel_draw")
 # --- Place properties (D-126) -----------------------------------------------
 SITE_TEMP_RANGE = Span("site.temp_range")
 SITE_RAIN_RANGE = Span("site.rain_range")
+#: How much of the watering round the rain covers at the top of the scale (D-261).
+SITE_RAIN_WATER_OFFSET = Num("site.rain_water_offset")
 SITE_RIVER_SHARE = Num("site.river_share")
 SITE_QUALITY_BUDGET = Num("site.quality_budget")
 

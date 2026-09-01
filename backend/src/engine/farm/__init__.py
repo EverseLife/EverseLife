@@ -21,16 +21,30 @@ engine's business.
 
 **Care.** Once a day, for the whole plot. The round time is a vault formula:
 `farm.plot_overhead + farm.care_time_per_m2 * area`; water is
-`farm.water_per_m2 * area`, and by a river it is taken from the river, while
-in a dry place it is carried as an item. Skipped days do not zero the harvest
-but cut it by `farm.neglect_penalty` each: a holiday is not punished, but
-neglect shows.
+`farm.water_per_m2 * area * thirst * (1 - rain covered)` (D-261): the
+culture's thirst is `farm.water_by_need` over `requires.water`, and rain
+covers up to `site.rain_water_offset` of the round. By a river it is taken
+from the river, in a dry place it is carried as an item. Skipped days do not
+zero the harvest but cut it by the miss's share of the cycle
+(`farm.neglect_total` over the cycle length, D-263), softened by the
+cultivar's hardiness (`farm.hardiness_relief`, D-261): a holiday is not
+punished, neglect shows -- less on a forgiving crop -- and a full walk-out
+still leaves a quarter. The round goes by the planet's **calendar day**, at
+any hour of it (D-263): the window never drifts away from a player's own
+rhythm, and no alarm clock is asked for.
+
+**Climate gate (D-261).** Sowing checks the place: the node's daily
+temperature band (mean from exploration, swing from `planet.temp_swing`)
+must fit the culture's `requires.temp` whole, and the day's light
+(`engine/climate.py`: 3 in the open, less under woods and buildings) must
+reach `requires.light`. A node without a temperature record -- old ones, a
+ship's hydroponics bay -- carries no gate.
 
 **Harvest.** "Proportional to area, fertility and care quality":
 
     yield = area * yield_per_m2 * soil share * care share
     soil share = min(fertility / required, farm.soil_share_cap)  (D-256)
-    care share = 1 - neglect_penalty * skipped days / 100  (not below zero)
+    care share = 1 - neglect_total * (1 - relief * hardiness/5) * skipped/cycle / 100
 
 The soil share is capped: rich land is an edge, not a multiplier, otherwise
 the degenerate optimum is the least demanding crop on the best land (OQ-107).
@@ -64,6 +78,7 @@ from src.engine.farm._base import (  # noqa: F401
     NotYours,
     NoWater,
     TooSmall,
+    WrongClimate,
     WrongState,
     care_minutes,
     day_hours,
@@ -81,4 +96,5 @@ from src.engine.farm.season import (  # noqa: F401
     harvest,
     sow,
     survey,
+    water_need,
 )

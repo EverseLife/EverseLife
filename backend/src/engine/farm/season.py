@@ -14,14 +14,16 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.constants import Catalog, Constants
+from src.constants import Catalog, Constants, current_catalog
 from src.constants import registry as R
-from src.engine import breed, events, food, world
+from src.constants.catalog import Plant
+from src.engine import breed, climate, events, food, world
 from src.engine.errors import left_to_say
 from src.engine.farm._base import (
     WATER,
     NoSeeds,
     NoWater,
+    WrongClimate,
     WrongState,
     _consume,
     _here,
@@ -36,6 +38,23 @@ from src.models.inventory import Item
 from src.models.plant import Variety
 from src.models.world import Node
 from src.units import PERCENT, SCALE_MAX, SCALE_MIN, SECONDS_PER_HOUR, amount, amount_float
+
+#: The catalog's hardiness scale (plants.yaml: 1-5). 5/5 takes the whole
+#: relief `farm.hardiness_relief` off the neglect penalty (D-261).
+HARDINESS_SCALE = 5.0
+
+
+def water_need(constants: Constants, plant: Plant, node: Node | None, area: float) -> float:
+    """One round's water: the norm by area, the culture's thirst, minus rain (D-261).
+
+    Thirst is `farm.water_by_need` over `requires.water`; rain covers up to
+    `site.rain_water_offset` of the round at the top of the scale. A node
+    without a rainfall record reads as dry, like the scale's floor.
+    """
+    thirst = float(constants[R.FARM_WATER_BY_NEED].get(str(int(plant.requires.water)), 1.0))
+    rain = min(climate.precipitation(node), PERCENT) / PERCENT if node is not None else 0.0
+    covered = constants[R.SITE_RAIN_WATER_OFFSET] / PERCENT * rain
+    return constants[R.FARM_WATER_PER_M2] * area * thirst * max(0.0, 1.0 - covered)
 
 
 async def sow(
@@ -68,6 +87,29 @@ async def sow(
     pocket = await world.body_container(session, body)
     if seeds.container_id != pocket.id:
         raise NoSeeds(key="farm-seeds-not-in-hands")
+
+    #: The climate gate (D-261): the crop lives through every hour of its
+    #: cycle, so the node's whole daily band must fit the culture's range,
+    #: and the day must carry enough light. A node without a temperature
+    #: record -- old ones, a ship's hydroponics bay -- carries no gate:
+    #: absence of a record is not a climate.
+    node = await session.get(Node, plot.node_id)
+    mean = climate.mean_temperature(node)
+    if node is not None and mean is not None:
+        swing = climate.swing_of(constants, node.planet)
+        wants = plant.requires.temp
+        if mean - swing < wants["min"]:
+            raise WrongClimate(key="farm-too-cold", culture=plant.name, night=round(mean - swing))
+        if mean + swing > wants["max"]:
+            raise WrongClimate(key="farm-too-hot", culture=plant.name, noon=round(mean + swing))
+        shine = await climate.daylight(session, constants, node)
+        if shine < plant.requires.light:
+            raise WrongClimate(
+                key="farm-too-dark",
+                culture=plant.name,
+                light=shine,
+                need=int(plant.requires.light),
+            )
 
     need = amount(constants[R.FARM_SEED_RATE] * float(plot.area_m2))
     if seeds.amount < need:
@@ -113,7 +155,13 @@ async def care(
     *,
     now: datetime | None = None,
 ) -> Plot:
-    """Do the plot round: once a day, on foot, with water.
+    """Do the plot round: once a calendar day of the planet, on foot, with water.
+
+    One day -- one round, **at any hour of it** (D-263): the day is counted
+    from the world's epoch, the same scale the client's clock draws, so the
+    window never drifts away from the player's own rhythm. It used to be a
+    38-hour interval, and the care hour ran away by fourteen every day --
+    farming demanded an alarm clock.
 
     By a river water is taken from the river; in a dry place from the
     inventory, and that makes water a commodity where there is none (D-126).
@@ -124,13 +172,18 @@ async def care(
     if plot.state is not PlotState.SOWN or plot.sown_at is None:
         raise WrongState(key="farm-nothing-grows", plot=plot.name)
 
-    day = timedelta(hours=day_hours(constants))
-    if plot.cared_at is not None and moment - plot.cared_at < day:
-        raise WrongState(key="farm-cared-today")
-
     node = await session.get(Node, plot.node_id)
+    epoch = await world.epoch(session)
+    if plot.cared_at is not None and climate.day_index(
+        constants, node.planet, epoch, plot.cared_at
+    ) == climate.day_index(constants, node.planet, epoch, moment):
+        raise WrongState(key="farm-cared-today")
     if not world.has_place(node, world.WATER):
-        need = amount(constants[R.FARM_WATER_PER_M2] * float(plot.area_m2))
+        #: Thirst and rain are in the norm (D-261). The culture is looked up
+        #: by the plot -- a SOWN plot always has one, the state check above
+        #: guarantees it -- and the round is for what actually grows here.
+        plant = current_catalog().plants.by_id(plot.culture_id)
+        need = amount(water_need(constants, plant, node, float(plot.area_m2)))
         await _consume(
             session,
             body,
@@ -200,9 +253,18 @@ async def harvest(
 
     area = float(plot.area_m2)
     fertility = float(plot.fertility)
-    #: Skipped care days cut the harvest but do not zero it.
+    #: Skipped care days cut the harvest but can never zero it (D-263): a
+    #: miss costs its share of the cycle, so a long crop forgives a single
+    #: skip more, not less, and a full walk-out still leaves a quarter.
+    #: Hardiness softens the cut on top (D-261) -- the trait the breeder
+    #: selects for keeps mattering.
     missed = max(0, int(cycle) - plot.care_credits)
-    care_share = max(0.0, 1 - constants[R.FARM_NEGLECT_PENALTY] * missed / PERCENT)
+    hardiness = float(signs.get("hardiness", plant.traits.hardiness))
+    forgiven = 1 - constants[R.FARM_HARDINESS_RELIEF] / PERCENT * hardiness / HARDINESS_SCALE
+    care_share = max(
+        0.0,
+        1 - constants[R.FARM_NEGLECT_TOTAL] * forgiven * missed / max(cycle, 1.0) / PERCENT,
+    )
     #: Capped above: rich land is an edge, not a multiplier (D-256).
     soil_share = min(
         fertility / float(signs.get("fertility", plant.requires.fertility)),
@@ -327,8 +389,12 @@ async def survey(
             fertility_needed = float(signs.get("fertility", plant.requires.fertility))
 
             ready = plot.sown_at + timedelta(hours=cycle * day_hours(constants))
-            day = timedelta(hours=day_hours(constants))
-            needs_care = plot.cared_at is None or now - plot.cared_at >= day
+            #: The round goes by the planet's calendar day (D-263): "asks
+            #: care" means this day has not seen one, whatever its hour.
+            epoch = await world.epoch(session)
+            needs_care = plot.cared_at is None or climate.day_index(
+                constants, node.planet, epoch, plot.cared_at
+            ) < climate.day_index(constants, node.planet, epoch, now)
             #: Losses accrue on the day they accrue, not as a surprise at
             #: harvest (D-118).
             elapsed = (now - plot.sown_at).total_seconds() / (
@@ -337,8 +403,10 @@ async def survey(
             skipped = max(0, min(int(cycle), int(elapsed)) - plot.care_credits)
             ripe = now >= ready
 
-            row["culture_name"] = plant.name
-            row["variety"] = variety.name or f"гибрид, поколение {variety.generation}"
+            #: No `culture_name` beside `culture` (D-225): the client reads
+            #: the word from `/public/renames`. The cultivar goes the same way
+            #: -- key, mark or generation -- and the client says it (D-251).
+            row["variety"] = breed.shown_as(catalog, variety)
             row["ripe"] = ripe
 
             #: Knowledge turns guesswork into a solved problem (D-057). With
@@ -363,7 +431,7 @@ async def survey(
                 #: engine does not ask for -- the same number `care` refuses by
                 #: when there is no river, said where there is one.
                 if not world.has_place(node, world.WATER):
-                    row["water_need"] = constants[R.FARM_WATER_PER_M2] * float(plot.area_m2)
+                    row["water_need"] = water_need(constants, plant, node, float(plot.area_m2))
             else:
                 #: The engine names the sign, the client picks the word: a
                 #: symptom is what is seen, not what is computed.

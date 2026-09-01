@@ -108,13 +108,16 @@ reason.
 """
 
 from src.engine.explore._base import (  # noqa: F401
+    FAR,
     FOREST,
     FOUND_HERE,
     GOALS,
     LOT,
     MEADOW,
     MINING_OPERATION,
+    NEAR,
     PLOT,
+    REACHES,
     ROOM,
     SITE,
     STONES,

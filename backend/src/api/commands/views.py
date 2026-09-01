@@ -19,10 +19,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.api.commands.common import _body, _node, _stamp, goods_key, tier_key
 from src.api.registry import Refused
 from src.constants import Constants, current, current_catalog
-from src.constants import registry as R
 from src.constants.catalog import ItemKind
-from src.engine import city as town
 from src.engine import (
+    breed,
+    climate,
     craft,
     energy,
     estate,
@@ -35,6 +35,7 @@ from src.engine import (
     transport,
     world,
 )
+from src.engine import city as town
 from src.models.craft import BatchState, CraftBatch
 from src.models.identity import Body, Identity, Knowledge, KnowledgeKind
 from src.models.ledger import AccountKind
@@ -190,7 +191,32 @@ async def _clock(db: AsyncSession, constants, node: Node) -> dict[str, Any]:
     return {
         "planet": node.planet.value,
         "epoch": None if origin is None else origin.isoformat(),
-        "day_hours": constants[R.TIME_DAY_TERRA],
+        #: Each planet counts its own day (OQ-028, D-261): the clock used to
+        #: say Terra's 38 hours on every planet.
+        "day_hours": climate.day_hours_of(constants, node.planet),
+    }
+
+
+async def _climate(db: AsyncSession, constants, node: Node) -> dict[str, Any] | None:
+    """The place's climate for the land window (D-261).
+
+    Only what the client cannot derive (D-225): the node's mean and the
+    planet's swing, the day's light and the rainfall. The current temperature
+    and the night are the client's arithmetic over `look.clock` -- computed
+    there they stay alive between looks, and by construction agree with the
+    drawn hand. Empty where exploration never wrote a temperature: such a
+    place has no climate gate.
+    """
+    mean = climate.mean_temperature(node)
+    if mean is None:
+        return None
+    return {
+        "temperature": {
+            "mean": mean,
+            "swing": climate.swing_of(constants, node.planet),
+        },
+        "light": {"day": await climate.daylight(db, constants, node)},
+        "precipitation": climate.precipitation(node),
     }
 
 
@@ -317,7 +343,7 @@ async def _listed(
         return []
     #: The mark is shown as a name: the player must see whose work it is (D-058).
     marks = await _makers(db, items)
-    cultivars = await _varieties(db, items)
+    cultivars = await _varieties(db, catalog, items)
     return [
         {
             "id": str(item.id),
@@ -364,16 +390,17 @@ async def _listed(
     ]
 
 
-async def _varieties(db: AsyncSession, items) -> dict[uuid.UUID, str]:
-    """Cultivar names by seeds. A nameless hybrid gets an honest "hybrid"."""
+async def _varieties(db: AsyncSession, catalog, items) -> dict[uuid.UUID, dict[str, str | int]]:
+    """How the cultivar behind each seed lot is named on the wire (D-251).
+
+    A plants-domain key, the author's literal mark, or a nameless hybrid's
+    generation -- `breed.shown_as` decides, and the client says the words.
+    """
     ids = {item.variety_id for item in items if item.variety_id is not None}
     if not ids:
         return {}
     rows = await db.execute(select(Variety).where(Variety.id.in_(ids)))
-    return {
-        cultivar.id: cultivar.name or f"гибрид, поколение {cultivar.generation}"
-        for cultivar in rows.scalars().all()
-    }
+    return {cultivar.id: breed.shown_as(catalog, cultivar) for cultivar in rows.scalars().all()}
 
 
 async def _makers(db: AsyncSession, items) -> dict[uuid.UUID, str]:

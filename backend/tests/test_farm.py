@@ -7,7 +7,7 @@ Checked is what the system is built this way for:
 
 * land is finite: the sum of plots is no more than the node's area;
 * the cycle is honest: not ploughed -- cannot sow, not ripe -- cannot harvest;
-* neglect cuts the harvest by `farm.neglect_penalty` per day but does not zero it;
+* neglect cuts the harvest by its share of the cycle and can never zero it (D-263);
 * rich land is an edge, not a multiplier: the soil share is capped (D-256);
 * every harvest depletes, monoculture doubly; beans restore, fallow heals over time;
 * redrawing borders does not heal the land: inheritance on split and merge;
@@ -29,6 +29,7 @@ from src.engine import farm, jobs, world
 from src.models.estate import Building
 from src.models.farm import Plot, PlotState
 from src.models.inventory import Item
+from src.models.world import Node
 from src.units import amount_float
 
 SPELT = "spelt"
@@ -257,20 +258,38 @@ async def test_neglect_cuts_but_does_not_zero(
     #: Not a single round for the whole cycle.
     abandoned = await farm.harvest(session, constants, catalog, body, plot, now=ripeness)
 
-    share = 1 - constants[R.FARM_NEGLECT_PENALTY] * plant.cycle_days / 100
+    #: A miss costs its share of the cycle (D-263) softened by hardiness
+    #: (D-261): a full walk-out leaves a share for any crop, never zero.
+    forgiven = 1 - constants[R.FARM_HARDINESS_RELIEF] / 100 * plant.traits.hardiness / 5
+    share = (
+        1 - constants[R.FARM_NEGLECT_TOTAL] * forgiven * plant.cycle_days / plant.cycle_days / 100
+    )
     soil = min(55 / plant.requires.fertility, constants[R.FARM_SOIL_SHARE_CAP] / 100)
     full = 10 * plant.yield_per_m2 * soil
+    assert share > 0, "полный прогул оставляет долю, а не ноль (D-263)"
     assert abandoned == pytest.approx(max(0.0, full * share), rel=0.01)
 
 
-async def test_care_is_daily_not_hourly(
+async def test_care_goes_by_the_planets_calendar_day(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
+    """One day -- one round, at any hour of it (D-263).
+
+    The old rule was a 38-hour interval, and the care hour drifted by
+    fourteen every day: two rounds two hours apart across a day boundary
+    were forbidden, which is exactly what a player with an Earth rhythm did.
+    """
     _, _, body = await _farmstead(session)
     plot = await _ready(session, constants, catalog, body)
-    await farm.care(session, constants, body, plot, now=plot.sown_at)
+    #: The farmstead node is the world's first, so its planetary day starts
+    #: at the epoch and the boundaries sit at whole day lengths from sowing.
+    late = plot.sown_at + timedelta(hours=constants[R.TIME_DAY_TERRA] - 1)
+    await farm.care(session, constants, body, plot, now=late)
+    #: Two hours later -- but a new planetary day: allowed, no drift.
+    await farm.care(session, constants, body, plot, now=late + timedelta(hours=2))
     with pytest.raises(farm.WrongState):
-        await farm.care(session, constants, body, plot, now=plot.sown_at + timedelta(hours=1))
+        #: The same day's second round is what stays forbidden.
+        await farm.care(session, constants, body, plot, now=late + timedelta(hours=3))
 
 
 async def test_water_carried_by_hand_in_dry_place(
@@ -368,6 +387,77 @@ async def test_rich_land_is_an_edge_not_a_multiplier(
     collected = await farm.harvest(session, constants, catalog, body, plot, now=ripeness)
     expected = 10 * plant.yield_per_m2 * constants[R.FARM_SOIL_SHARE_CAP] / 100
     assert collected == pytest.approx(expected, rel=0.01)
+
+
+async def test_climate_gates_the_sowing(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The place refuses the culture (D-261): too cold, too hot, too dark.
+
+    The whole daily band must fit -- the crop lives through the night too --
+    and a node without a temperature record carries no gate at all (the
+    fixtures above farm exactly such nodes).
+    """
+    plant = catalog.plants.by_id(SPELT)
+    swing = constants[R.PLANET_TEMP_SWING]["terra"]
+
+    _, _, cold = await _farmstead(session, fertility=55)
+    plot = await farm.mark(session, constants, cold, name="мерзлота", area=10)
+    plot.state = PlotState.PLOWED
+    node = await session.get(Node, plot.node_id)
+    node.properties = {**node.properties, "temperature": plant.requires.temp["min"] - 1}
+    await session.flush()
+    seeds = await _grain(session, cold, catalog, SPELT)
+    with pytest.raises(farm.WrongClimate):
+        await farm.sow(session, constants, catalog, cold, plot, seeds)
+
+    #: The same mean would pass a gate on the mean alone: the band does not fit.
+    node.properties = {**node.properties, "temperature": plant.requires.temp["max"] - swing + 1}
+    await session.flush()
+    with pytest.raises(farm.WrongClimate):
+        await farm.sow(session, constants, catalog, cold, plot, seeds)
+
+    #: A light-hungry culture refuses the woods; spelt puts up with them.
+    sunny = catalog.plants.by_id("camelina")
+    assert sunny.requires.light > plant.requires.light, "тесту нужна светолюбивая культура"
+    _, _, shaded = await _farmstead(session, fertility=55)
+    strip = await farm.mark(session, constants, shaded, name="под пологом", area=10)
+    strip.state = PlotState.PLOWED
+    grove = await session.get(Node, strip.node_id)
+    grove.properties = {**grove.properties, "temperature": 18, "woods": True}
+    await session.flush()
+    sunny_seeds = await _grain(session, shaded, catalog, "camelina")
+    with pytest.raises(farm.WrongClimate):
+        await farm.sow(session, constants, catalog, shaded, strip, sunny_seeds)
+    spelt_seeds = await _grain(session, shaded, catalog, SPELT)
+    await farm.sow(session, constants, catalog, shaded, strip, spelt_seeds)
+    assert strip.state is PlotState.SOWN
+
+
+async def test_thirst_and_rain_shape_the_watering(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Water is the norm by area, the culture's thirst, minus rain (D-261)."""
+    _, _, body = await _farmstead(session, water="нет")
+    plot = await _ready(session, constants, catalog, body, area=10)
+    node = await session.get(Node, plot.node_id)
+    node.properties = {**node.properties, "precipitation": 100}
+    await session.flush()
+
+    pocket = await world.body_container(session, body)
+    await world.grant_item(session, pocket, farm.WATER, amount=100, origin="тест")
+    await farm.care(session, constants, body, plot, now=plot.sown_at)
+
+    plant = catalog.plants.by_id(SPELT)
+    thirst = constants[R.FARM_WATER_BY_NEED][str(int(plant.requires.water))]
+    covered = constants[R.SITE_RAIN_WATER_OFFSET] / 100
+    need = constants[R.FARM_WATER_PER_M2] * 10 * thirst * (1 - covered)
+    left = await session.scalar(
+        select(func.coalesce(func.sum(Item.amount), 0)).where(
+            Item.container_id == pocket.id, Item.type_key == farm.WATER
+        )
+    )
+    assert amount_float(int(left)) == pytest.approx(100 - need)
 
 
 async def test_fallow_heals_over_time(

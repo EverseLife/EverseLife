@@ -8,6 +8,7 @@ import { useState } from "react";
 import * as api from "../../api";
 import { Refusal, useActions, useSession } from "../../actions";
 import { Glyph } from "../../Glyph";
+import { dayPhase, isDay } from "../../clock";
 import { t } from "../../locale";
 import { EMBLEM_MARKS, EMBLEM_WORDS } from "../../marks";
 import type { Props } from "./shared";
@@ -49,10 +50,30 @@ function Marking({ look, busy, act }: Props) {
   //: and the window says so before the refusal rather than after it.
   const climate = look.frost?.climate ?? null;
 
+  const weather = look.node?.climate ?? null;
+
   if ((look.node?.fertility ?? 0) <= 0) return null;
   return (
     <div className="pocket">
       <h3>{t("ui-place-marking-title")}</h3>
+      {weather && look.clock && (
+        //: The place's climate (D-261): what the sowing gate will judge by.
+        //: "Now" is this client's arithmetic over the planetary clock (D-225)
+        //: -- alive between looks and agreeing with the drawn hand.
+        <p className="note">
+          {t(isDay(look.clock) ? "ui-place-climate-day" : "ui-place-climate-night", {
+            now: Math.round(
+              weather.temperature.mean -
+                weather.temperature.swing * Math.cos(2 * Math.PI * dayPhase(look.clock)),
+            ),
+            low: Math.round(weather.temperature.mean - weather.temperature.swing),
+            high: Math.round(weather.temperature.mean + weather.temperature.swing),
+            light: isDay(look.clock) ? weather.light.day : 0,
+            top: weather.light.day,
+            rain: Math.round(weather.precipitation),
+          })}
+        </p>
+      )}
       {climate ? (
         <p className="note">{t("ui-place-marking-climate", { climate })}</p>
       ) : (

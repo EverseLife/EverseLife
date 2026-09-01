@@ -25,7 +25,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import ForeignKey, Index, Numeric, Uuid
+from sqlalchemy import ForeignKey, Index, Numeric, Uuid, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.db.base import Base, created_column, uuid_pk
@@ -38,6 +38,17 @@ class Variety(Base):
     __table_args__ = (
         Index("ix_variety_culture", "culture_id"),
         Index("ix_variety_author", "author_identity_id"),
+        #: A culture has one base cultivar and one wild ancestor, not however
+        #: many two racing sessions insert: the lazy creators in
+        #: `engine.breed` select-then-insert, and the index is what makes the
+        #: second insert refuse instead of doubling the row.
+        Index(
+            "uq_variety_authorless",
+            "culture_id",
+            "wild",
+            unique=True,
+            postgresql_where=text("author_identity_id IS NULL"),
+        ),
     )
 
     id: Mapped[uuid.UUID] = uuid_pk()
@@ -45,7 +56,10 @@ class Variety(Base):
     #: with.
     culture_id: Mapped[str] = mapped_column(nullable=False)
     #: The name is given by the creator and attached forever -- like a
-    #: craftsman's mark. Empty for a nameless hybrid until stabilisation.
+    #: craftsman's mark. Empty for a nameless hybrid until stabilisation, and
+    #: always empty for an authorless cultivar (D-251): base and wild lines
+    #: are shown by their plants-domain key in the reader's language, so a
+    #: stored word here would freeze one language into the row.
     name: Mapped[str | None] = mapped_column(nullable=True)
     #: The author. Empty for a crop's base cultivar: it is nobody's.
     author_identity_id: Mapped[uuid.UUID | None] = mapped_column(

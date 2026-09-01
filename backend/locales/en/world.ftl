@@ -45,6 +45,9 @@ farm-not-enough-seeds = sowing needs { $need } “{ NAME($seeds) }”, there are
 farm-nothing-grows = nothing grows on plot “{ $plot }”
 farm-cared-today = already tended today: care is daily, not hourly
 farm-no-water = { $need } water needed: there is no river here, water is carried by hand
+farm-too-cold = { $culture } would freeze here: the night drops to { $night } degrees
+farm-too-hot = { $culture } would scorch here: noon reaches { $noon } degrees
+farm-too-dark = { $culture } asks for light { $need }, and this place gives { $light }: woods and walls shade the sky
 farm-nothing-to-harvest = nothing to harvest on plot “{ $plot }”
 farm-not-ripe = the crop needs longer: { $left }, cycle { $cycle } days
 farm-halves-too-small = both halves must be no smaller than farm.plot_min_area
@@ -225,6 +228,7 @@ death-job-dangling = printing { $job } points nowhere
 # --- exploration (engine/explore/) -------------------------------------------
 
 explore-unknown-goal = unknown search goal: { $goal }
+explore-unknown-reach = a search is either near or far, and “{ $reach }” is neither
 explore-dead-scouts = a dead body does not scout
 explore-no-such-ore = that rock is not mined in this world: “{ NAME($resource) }”
 explore-body-off-node = a search goes out from a node, and the body stands nowhere

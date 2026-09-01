@@ -111,7 +111,8 @@ export { Refused, Session } from "./session";
 export type { Happening, Listener } from "./session";
 
 /** A thing and what holds it (`wire/thing.ts`). */
-export type { Bench, Carry, Storage, Thing } from "./wire/thing";
+export { varietyText } from "./wire/thing";
+export type { Bench, Carry, Storage, Thing, VarietyRef } from "./wire/thing";
 
 /** The graph and moving along it (`wire/travel.ts`). */
 export { SURFACE, spell } from "./wire/travel";

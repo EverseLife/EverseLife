@@ -16,7 +16,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { tally } from "../amounts";
-import type { Look, Thing } from "../api";
+import { varietyText, type Look, type Thing } from "../api";
 import { when } from "../clock";
 import { Rule } from "../Rule";
 import { Refusal, useActions, useEdition, useNames, useSession } from "../actions";
@@ -85,7 +85,8 @@ export function Nursery({ look }: Omit<Props, "busy" | "act">) {
           <option value="">{t("ui-nursery-first")}</option>
           {seeds.map((seed) => (
             <option key={seed.id} value={seed.id}>
-              {goodsName(names, seed.goods)} · {seed.variety ?? t("ui-nursery-variety")} ·{" "}
+              {goodsName(names, seed.goods)} ·{" "}
+              {varietyText(names, seed.variety) ?? t("ui-nursery-variety")} ·{" "}
               {tally(seed.goods, seed.amount)}
             </option>
           ))}
@@ -94,7 +95,8 @@ export function Nursery({ look }: Omit<Props, "busy" | "act">) {
           <option value="">{t("ui-nursery-second")}</option>
           {seeds.map((seed) => (
             <option key={seed.id} value={seed.id}>
-              {goodsName(names, seed.goods)} · {seed.variety ?? t("ui-nursery-variety")} ·{" "}
+              {goodsName(names, seed.goods)} ·{" "}
+              {varietyText(names, seed.variety) ?? t("ui-nursery-variety")} ·{" "}
               {tally(seed.goods, seed.amount)}
             </option>
           ))}

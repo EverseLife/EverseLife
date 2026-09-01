@@ -174,6 +174,8 @@ async def _explore_survey(state: dict, db: AsyncSession, message: dict) -> dict:
         body,
         goal=str(message.get("goal") or explore.SITE),
         resource=message.get("resource") or None,
+        #: Near or far (D-262): omitted reads as the far it always was.
+        reach=str(message.get("reach") or explore.FAR),
     )
     return {"survey": str(job.id), "returns_at": job.run_at.isoformat()}
 

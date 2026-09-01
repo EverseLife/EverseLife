@@ -12,6 +12,26 @@
  * three in the same edit.
  */
 
+import { t } from "../locale";
+import { plantName, type Names } from "../names";
+
+/**
+ * How the wire names a cultivar (D-251), one of three and never a sentence:
+ * an authorless line travels as its plants-domain key (`spelt`, `spelt_wild`)
+ * and is read via `/public/renames`; an author's name is a mark and travels
+ * as written; a nameless hybrid travels as its generation and the words are
+ * this end's.
+ */
+export type VarietyRef = { key: string } | { name: string } | { hybrid: number };
+
+/** The cultivar in the player's words, or null when the wire named none. */
+export function varietyText(names: Names | null, ref?: VarietyRef): string | null {
+  if (!ref) return null;
+  if ("key" in ref) return plantName(names, ref.key);
+  if ("name" in ref) return ref.name;
+  return t("ui-nursery-hybrid", { generation: String(ref.hybrid) });
+}
+
 export type Thing = {
   id: string;
   goods: string;
@@ -31,7 +51,7 @@ export type Thing = {
   /** The mark: whose work this is (D-058). */
   maker?: string;
   /** For seeds: cultivar and batch strength, % (D-057). */
-  variety?: string;
+  variety?: VarietyRef;
   vigor?: number;
   /** For a battery: charge with self-discharge (D-071). */
   charge?: number;

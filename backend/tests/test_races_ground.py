@@ -728,3 +728,107 @@ async def test_two_bumps_of_one_counter_lose_neither(
         assert int((again.properties or {}).get(FOUND_HERE, 0)) == 2, (
             "две разведки — два, а не одно"
         )
+
+
+async def test_two_sessions_grow_one_landrace(
+    factory: async_sessionmaker[AsyncSession],
+    catalog,
+) -> None:
+    """A culture's base cultivar is created lazily at first need (D-057), and
+    two first needs come in the same second: two foragers take one culture's
+    seeds in different workers. Both select nothing, both insert -- and
+    without the partial unique index (`uq_variety_authorless`) the culture
+    got two authorless base rows, after which `.first()` without ORDER BY
+    answered each caller with whichever row the planner met first: seed lots
+    of "the same" cultivar stopped stacking and sown plots pointed apart.
+
+    The loser must not die of the refusal either: the violation is caught
+    under a savepoint (`breed._create_once`) and the winner's row is reread.
+    The first session holds its insert uncommitted for the window; the second
+    then provably selects nothing and queues its insert at the index until
+    the winner commits.
+    """
+    from src.engine import breed
+    from src.models.plant import Variety
+
+    planted = asyncio.Event()
+
+    async def first() -> uuid.UUID:
+        async with factory() as db, db.begin():
+            grown = await breed.landrace(db, catalog, "spelt")
+            planted.set()
+            await asyncio.sleep(0.2)
+            return grown.id
+
+    async def second() -> uuid.UUID:
+        await planted.wait()
+        async with factory() as db, db.begin():
+            grown = await breed.landrace(db, catalog, "spelt")
+            return grown.id
+
+    ids = await asyncio.gather(first(), second())
+    assert ids[0] == ids[1], f"две сессии — один базовый сорт: {ids}"
+
+    async with factory() as db:
+        rows = (
+            (
+                await db.execute(
+                    select(Variety).where(
+                        Variety.culture_id == "spelt",
+                        Variety.author_identity_id.is_(None),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert len(rows) == 1, "базовый сорт удвоился"
+
+
+async def test_two_sessions_grow_one_wild_ancestor(
+    factory: async_sessionmaker[AsyncSession],
+    constants,
+    catalog,
+) -> None:
+    """The wild ancestor (D-260) is created by the same select-then-insert as
+    the base cultivar, and doubles the same way -- two `forage.take` of one
+    culture's wild seeds in one second. The same construction as the landrace
+    test above: the winner holds its insert uncommitted through the window,
+    the loser queues at the index and rereads the winner's row.
+    """
+    from src.engine import breed
+    from src.models.plant import Variety
+
+    planted = asyncio.Event()
+
+    async def first() -> uuid.UUID:
+        async with factory() as db, db.begin():
+            grown = await breed.wild_ancestor(db, constants, catalog, "spelt")
+            planted.set()
+            await asyncio.sleep(0.2)
+            return grown.id
+
+    async def second() -> uuid.UUID:
+        await planted.wait()
+        async with factory() as db, db.begin():
+            grown = await breed.wild_ancestor(db, constants, catalog, "spelt")
+            return grown.id
+
+    ids = await asyncio.gather(first(), second())
+    assert ids[0] == ids[1], f"две сессии — один дикий предок: {ids}"
+
+    async with factory() as db:
+        rows = (
+            (
+                await db.execute(
+                    select(Variety).where(
+                        Variety.culture_id == "spelt",
+                        Variety.author_identity_id.is_(None),
+                        Variety.wild.is_(True),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert len(rows) == 1, "дикий предок удвоился"

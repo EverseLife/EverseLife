@@ -181,8 +181,16 @@ async def test_hybrid_seeds_segregate_more(
 ) -> None:
     """A hybrid is good once: the buyer will come back -- that is the business (D-057)."""
     cultivar = await breed.landrace(session, catalog, SPELT)
+    #: A hybrid always has an author -- an authorless non-base row is exactly
+    #: what `uq_variety_authorless` refuses.
+    breeder = await world.create_identity(session, f"Селекционер-{uuid.uuid4().hex[:8]}")
     hybrid = Variety(
-        culture_id=SPELT, name=None, generation=1, stable=False, traits=cultivar.traits
+        culture_id=SPELT,
+        name=None,
+        generation=1,
+        stable=False,
+        author_identity_id=breeder.id,
+        traits=cultivar.traits,
     )
     session.add(hybrid)
     await session.flush()
@@ -279,12 +287,14 @@ async def test_different_parents_give_new_cultivar(
     """Traits are the parents' mean with deviation: the vault formula verbatim."""
     _, identity, body = await _farm(session, nursery=True)
     base = await breed.landrace(session, catalog, SPELT)
-    #: The second parent is noticeably different -- such appears in the world by selection.
+    #: The second parent is noticeably different -- such appears in the world
+    #: by selection, so it has an author (`uq_variety_authorless`).
     other = Variety(
         culture_id=SPELT,
         name="Скороспелка",
         generation=0,
         stable=True,
+        author_identity_id=identity.id,
         traits={
             **base.traits,
             "yield_per_m2": base.traits["yield_per_m2"] * 2,
@@ -344,6 +354,41 @@ async def test_wild_ancestor_is_a_second_parent(
     #: itself with the wild one present: the flag tells them apart.
     assert (await breed.wild_ancestor(session, constants, catalog, SPELT)).id == wild.id
     assert (await breed.landrace(session, catalog, SPELT)).id == base.id
+
+
+async def test_authorless_cultivar_carries_a_key_not_a_literal(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Base and wild lines store no display word (D-251).
+
+    The wire names them by their plants-domain key and the client says the
+    word in the reader's language; a stored Russian name froze one language
+    into rows every language reads. An author's name is a mark and travels
+    literally; a nameless hybrid travels as its generation.
+    """
+    base = await breed.landrace(session, catalog, SPELT)
+    wild = await breed.wild_ancestor(session, constants, catalog, SPELT)
+    assert base.name is None and wild.name is None, "authorless rows keep no display literal"
+
+    assert breed.shown_as(catalog, base) == {"key": SPELT}
+    wild_key = catalog.plants.by_id(SPELT).wild_id
+    assert wild_key and wild_key != SPELT, "the vault pins a wild key of its own"
+    assert breed.shown_as(catalog, wild) == {"key": wild_key}
+
+    author = await world.create_identity(session, f"Селекционер-{uuid.uuid4().hex[:8]}")
+    hybrid = Variety(
+        culture_id=SPELT,
+        name=None,
+        author_identity_id=author.id,
+        generation=2,
+        stable=False,
+        traits=base.traits,
+    )
+    session.add(hybrid)
+    await session.flush()
+    assert breed.shown_as(catalog, hybrid) == {"hybrid": 2}
+    hybrid.name = "Заря"
+    assert breed.shown_as(catalog, hybrid) == {"name": "Заря"}
 
 
 async def test_the_viability_gate_is_symmetric(
