@@ -42,9 +42,9 @@ market-no-such-recipe = в мире нет такого рецепта: «{ NAME
 
 market-reserve-not-a-sale = бронируют товар, а не заявку на покупку
 market-order-not-active = заявка уже { $state ->
-        [filled] исполнен
-        [cancelled] снят
-        [expired] просрочен
+        [filled] исполнена
+        [cancelled] снята
+        [expired] просрочена
        *[active] в работе
     }
 market-reserve-own = свой товар бронировать незачем: он и так ваш
