@@ -61,6 +61,19 @@ async def _farm_sow(state: dict, db: AsyncSession, message: dict) -> dict:
     }
 
 
+@command("farm.fertilize")
+async def _farm_fertilize(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Work fertilizer into a fallow or plowed strip (D-264): compost or the
+    mineral one, one dose, two strengths. Feeding a growing bed waits for
+    the five care decisions (OQ-098)."""
+    body = await _alive(state, db)
+    #: The kind is named, never defaulted: a silent "compost" would spend
+    #: goods the player did not choose (review of D-264).
+    goods = str(message["goods"])
+    plot = await farm.fertilize(db, current(), body, await _plot(db, message), goods)
+    return {"fertilized": str(plot.id), "goods": goods, "fertility": float(plot.fertility)}
+
+
 @command("farm.care")
 async def _farm_care(state: dict, db: AsyncSession, message: dict) -> dict:
     """Tend the field: water and weed, as the crop's agrotech asks (D-057). In person, the body

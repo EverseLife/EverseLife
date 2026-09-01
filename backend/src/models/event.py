@@ -183,6 +183,7 @@ class EventKind(StrEnum):
     PLOT_PLOWED = "farm.plowed"
     PLOT_SOWN = "farm.sown"
     PLOT_CARED = "farm.cared"
+    PLOT_FERTILIZED = "farm.fertilized"
     PLOT_HARVESTED = "farm.harvested"
 
     # energy (D-071, D-082, D-085)

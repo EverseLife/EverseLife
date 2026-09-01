@@ -323,6 +323,7 @@ ui-farm-fertility = fertility
 ui-farm-norm = the variety's norm: { $norm }
 ui-farm-reading = { $value } of { $norm }
 ui-farm-ripens = ripens
+ui-farm-fertilize = Fertilize: { $goods }
 ui-farm-plow = Plough
 ui-farm-no-seeds = — no seeds —
 ui-farm-vigor = vigour { $vigor }

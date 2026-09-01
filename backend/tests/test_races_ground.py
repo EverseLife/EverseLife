@@ -832,3 +832,69 @@ async def test_two_sessions_grow_one_wild_ancestor(
             .all()
         )
         assert len(rows) == 1, "дикий предок удвоился"
+
+
+async def test_two_fertilizings_of_one_strip_both_land(
+    session: AsyncSession,
+    factory: async_sessionmaker[AsyncSession],
+    constants,
+) -> None:
+    """Fertility is a remainder and takes both writes, losing neither (D-264).
+
+    Two rounds of fertilizing race through the command door: the plot lock in
+    `api.commands.farm._plot` serialises them, so the second reads the
+    fertility the first wrote -- 40 becomes 60, not 50 twice. The dose is
+    debited from the pocket both times.
+    """
+    from src.api.commands.farm import _plot
+    from src.constants import registry as R
+    from src.engine import farm
+
+    stamp = uuid.uuid4().hex[:8]
+    node = await world.create_node(
+        session,
+        f"terra.dung.{stamp}",
+        "Хутор",
+        area_m2=200,
+        properties={"water": "river", "fertility": 40},
+    )
+    who = await world.create_identity(session, f"Фермер-{stamp}")
+    body = await world.print_body(session, who, node)
+    node.owner_identity_id = who.id
+    await session.flush()
+
+    plot = await farm.mark(session, current(), body, name="тощая", area=10)
+    pocket = await world.body_container(session, body)
+    await world.grant_item(session, pocket, "compost", amount=20, origin="тест")
+    plot_id, body_id, pocket_id = plot.id, body.id, pocket.id
+    await session.commit()
+
+    async def spread() -> None:
+        async with factory() as db, db.begin():
+            own = await db.get(Body, body_id)
+            assert own is not None
+            strip = await _plot(db, {"plot": str(plot_id)})
+            await farm.fertilize(db, current(), own, strip, "compost")
+
+    outcome = await asyncio.gather(spread(), spread(), return_exceptions=True)
+    assert not [one for one in outcome if isinstance(one, BaseException)], outcome
+
+    async with factory() as db:
+        from src.models.farm import Plot
+
+        strip = await db.get(Plot, plot_id)
+        assert float(strip.fertility) == pytest.approx(
+            40 + 2 * current()[R.FARM_COMPOST_RECOVERY]
+        ), "оба внесения легли в землю"
+        left = sum(
+            int(thing.amount)
+            for thing in (
+                (await db.execute(select(Item).where(Item.container_id == pocket_id))).scalars()
+            )
+            if thing.type_key == "compost"
+        )
+        from src.units import amount as to_units
+
+        assert left == to_units(20) - 2 * to_units(current()[R.FARM_FERTILIZER_PER_M2] * 10), (
+            "норма списана дважды"
+        )

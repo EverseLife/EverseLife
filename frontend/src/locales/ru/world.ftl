@@ -323,6 +323,7 @@ ui-farm-fertility = плодородие
 ui-farm-norm = норма сорта: { $norm }
 ui-farm-reading = { $value } из { $norm }
 ui-farm-ripens = созреет
+ui-farm-fertilize = Удобрить: { $goods }
 ui-farm-plow = Вспахать
 ui-farm-no-seeds = — семян нет —
 ui-farm-vigor = сила { $vigor }

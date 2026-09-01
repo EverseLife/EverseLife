@@ -23,6 +23,7 @@ from src.engine.farm._base import (
     TooSmall,
     WrongState,
     _accrue_fallow,
+    _consume,
     _ground_fertility,
     _here,
     _open_ground,
@@ -35,6 +36,7 @@ from src.models.farm import Plot, PlotState
 from src.models.identity import Body
 from src.models.job import Job, JobKind
 from src.models.world import Node
+from src.units import SCALE_MAX, amount, amount_float
 
 
 async def mark(
@@ -161,6 +163,74 @@ async def plow_done(session: AsyncSession, job: Job) -> None:
         return
     plot.state = PlotState.PLOWED
     await session.flush()
+
+
+#: The two fertilizers of the vault (D-264), by their D-251 ids. The dose is
+#: one for both -- the difference is strength, and it is these constants.
+FERTILIZERS = {
+    "compost": R.FARM_COMPOST_RECOVERY,
+    "mineral_fertilizer": R.FARM_MINERAL_RECOVERY,
+}
+
+
+async def fertilize(
+    session: AsyncSession,
+    constants: Constants,
+    body: Body,
+    plot: Plot,
+    goods: str,
+    *,
+    now: datetime | None = None,
+) -> Plot:
+    """Work fertilizer into the land (D-264, closes OQ-108).
+
+    Into the **land**, not into what grows: a fallow or plowed strip. Feeding
+    a growing bed is the "feeding" of the five care decisions and waits for
+    OQ-098. The dose is one norm for either kind (`farm.fertilizer_per_m2`);
+    the kinds differ in what they give back -- compost returns
+    `farm.compost_recovery`, the mineral one `farm.mineral_recovery`, most of
+    all, as the vault's table promises. No limit per cycle: the price is the
+    limit -- compost costs waste and water, saltpeter comes from the Salt
+    Wastes and is wanted by the rocket too.
+    """
+    moment = now or datetime.now(UTC)
+    await _here(session, body)
+    _owned(plot, body)
+    if plot.state not in (PlotState.IDLE, PlotState.PLOWED):
+        raise WrongState(key="farm-fertilize-sown", plot=plot.name)
+    spec = FERTILIZERS.get(goods)
+    if spec is None:
+        raise FarmError(key="farm-not-a-fertilizer", goods=goods)
+
+    #: Fallow is credited first: the fertilizer tops up the healed land, and
+    #: the ceiling refusal below judges the honest, current number.
+    _accrue_fallow(constants, plot, moment)
+    fertility = float(plot.fertility)
+    if fertility >= SCALE_MAX:
+        raise WrongState(key="farm-land-sated", plot=plot.name)
+
+    need = amount(constants[R.FARM_FERTILIZER_PER_M2] * float(plot.area_m2))
+    await _consume(
+        session,
+        body,
+        goods,
+        need,
+        why=FarmError(key="farm-no-fertilizer", goods=goods, need=amount_float(need)),
+    )
+    plot.fertility = Decimal(str(min(SCALE_MAX, fertility + constants[spec])))
+    await session.flush()
+
+    await events.record(
+        session,
+        EventKind.PLOT_FERTILIZED,
+        actor_identity_id=body.identity_id,
+        node_id=plot.node_id,
+        plot_id=str(plot.id),
+        goods=goods,
+        spent=amount_float(need),
+        fertility=float(plot.fertility),
+    )
+    return plot
 
 
 async def split(
