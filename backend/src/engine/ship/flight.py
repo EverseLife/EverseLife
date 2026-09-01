@@ -39,20 +39,20 @@ from src.engine.ship._base import (
     orbit_node_of,
 )
 from src.engine.ship.belonging import crew_of, nodes_of
-from src.engine.ship.building import _planet_root, _spend
+from src.engine.ship.building import _planet_root
 from src.engine.ship.command import _commanded_by, _landable, _will_take
 from src.engine.ship.physics import (
     base_hours,
     climb_hours,
     engine_class,
     fall_hours,
-    fuel_aboard,
     fuel_for,
-    fuel_stacks,
+    fuel_worth,
     life_support,
     mass,
     passage_hours,
     ratio,
+    spend_fuel,
 )
 from src.engine.ship.view import lands_anywhere, open_landings
 from src.models.event import EventKind
@@ -177,11 +177,14 @@ async def _burn(
     #: tanks.
     need = fuel_for(constants, weight, hours, klass=klass)
     whole = fuel_for(constants, weight, hours + reserve, klass=klass)
-    have = await fuel_aboard(session, ship)
+    #: In reference units on both sides (D-252): the need is quoted in
+    #: rocket-fuel units, and the tanks answer with what their kinds are
+    #: worth -- kerosene closes more of it per unit than it shows.
+    have = await fuel_worth(session, constants, ship)
     if have + _EPS < whole:
         raise NoFuel(key="ship-no-fuel", why=refusal, need=whole, goods=FUEL, have=have)
     #: Burnt out of the tanks (D-230): the engines reach nothing else.
-    return await _spend(session, await fuel_stacks(session, ship), need), weight
+    return await spend_fuel(session, constants, ship, need), weight
 
 
 async def _cast_off(session: AsyncSession, ship: Ship, here: Node, connector: Node) -> None:

@@ -1830,3 +1830,62 @@ async def test_an_orbit_has_no_pier_to_queue_at(
         parked.append(await _in_orbit(session, constants, catalog, owner, vessel))
 
     assert [vessel.berth for vessel in parked] == [1, 1, 1], "на орбите причала нет"
+
+
+# --- the kind of fuel (D-252) ------------------------------------------------
+
+
+async def test_kerosene_closes_more_of_the_spend_per_unit(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """The spend is quoted in reference units; the tanks pay by density.
+
+    A unit of kerosene fuel is worth `ship.fuel_energy` reference units, so
+    the same tank flies further -- the whole reason a second fuel exists at
+    all (D-223: no behaviour, no thing)."""
+    worth = constants[R.SHIP_FUEL_ENERGY]
+    assert worth["kerosene_fuel"] > worth["rocket_fuel"], "керосин плотнее эталона"
+
+    port = await _port(session)
+    _, owner = await _shipwright(session, port)
+    vessel = await _laid(session, constants, owner, port)
+    connector = await session.get(Node, vessel.connector_node_id)
+    tank = await _equip(session, connector, TANK)
+    inside = await storage.inside(session, tank)
+    await world.grant_item(session, inside, "kerosene_fuel", amount=100, quality=60, origin="тест")
+
+    #: A hundred units of kerosene answer for 125 reference units...
+    assert await ship.fuel_worth(session, constants, vessel) == pytest.approx(
+        100 * worth["kerosene_fuel"]
+    )
+    #: ...while the console still shows the hundred that has mass (D-230).
+    assert await ship.fuel_aboard(session, vessel) == pytest.approx(100)
+
+    #: Burning 50 reference units costs 40 physical ones: 50 / 1.25.
+    burnt = await ship.spend_fuel(session, constants, vessel, 50)
+    assert burnt == pytest.approx(50 / worth["kerosene_fuel"])
+    assert await ship.fuel_aboard(session, vessel) == pytest.approx(100 - burnt)
+
+
+async def test_mixed_tanks_pay_stack_by_stack(session: AsyncSession, constants: Constants) -> None:
+    """Rocket fuel beside kerosene in one tank: each stack pays at its own
+    worth, and the total energy drawn is exactly what was asked."""
+    port = await _port(session)
+    _, owner = await _shipwright(session, port)
+    vessel = await _laid(session, constants, owner, port)
+    connector = await session.get(Node, vessel.connector_node_id)
+    tank = await _equip(session, connector, TANK)
+    inside = await storage.inside(session, tank)
+    await world.grant_item(session, inside, "rocket_fuel", amount=30, quality=60, origin="тест")
+    await world.grant_item(session, inside, "kerosene_fuel", amount=100, quality=60, origin="тест")
+
+    worth = constants[R.SHIP_FUEL_ENERGY]
+    before = await ship.fuel_worth(session, constants, vessel)
+    #: More than the rocket stack alone holds: the spend crosses into kerosene.
+    burnt = await ship.spend_fuel(session, constants, vessel, 40)
+    left = await ship.fuel_worth(session, constants, vessel)
+    assert before - left == pytest.approx(40, abs=0.01), (
+        "снято ровно столько энергии, сколько запрошено"
+    )
+    #: 30 rocket units + 10 reference units of kerosene = 30 + 10/1.25 physical.
+    assert burnt == pytest.approx(30 + 10 / worth["kerosene_fuel"], abs=0.01)

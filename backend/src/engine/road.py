@@ -50,7 +50,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
-from sqlalchemy import or_, select
+from sqlalchemy import inspect, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants, current
@@ -180,7 +180,7 @@ async def lay(
             goods=SURFACE_GOODS,
             have=in_hands,
         )
-    written_off = await _take_surface(session, body, need_amount)
+    written_off, paving = await _take_surface(session, constants, body, need_amount)
 
     ready_ = moment + timedelta(hours=constants[R.ROAD_BUILD_HOURS])
     event = await events.record(
@@ -192,13 +192,14 @@ async def lay(
         surface=goal.value,
         mend=mend,
         spent=written_off,
+        paving=paving,
         ready_at=ready_.isoformat(),
     )
     job = await enqueue(
         session,
         JobKind.ROAD_WORK,
         ready_,
-        payload={"edge": str(edge.id), "surface": goal.value, "mend": mend},
+        payload={"edge": str(edge.id), "surface": goal.value, "mend": mend, "paving": paving},
         dedup_key=f"road.work:{edge.id}:{event.id}",
         cause_event_id=event.id,
         body_id=body.id,
@@ -218,6 +219,13 @@ async def finished(session: AsyncSession, job: Job) -> None:
     before = edge.surface
     edge.surface = Surface(job.payload["surface"])
     edge.condition = Decimal(str(SCALE_MAX))
+    #: The edge remembers what it was laid from (D-252): decay reads its
+    #: multiplier off the mark. A mend overwrites it too -- what you patch
+    #: with is what the road is covered with now. Jobs queued before the
+    #: mark existed carry none and change nothing.
+    paving = job.payload.get("paving")
+    if paving:
+        edge.paving = paving
     await session.flush()
 
     await events.record(
@@ -227,6 +235,7 @@ async def finished(session: AsyncSession, job: Job) -> None:
         was=before.value,
         surface=edge.surface.value,
         mend=bool(job.payload.get("mend")),
+        paving=edge.paving,
     )
     #: A mend with an open state order on this edge collects its pay (D-248):
     #: the engine just verified the work in its own data -- the condition is
@@ -253,9 +262,14 @@ async def decay(session: AsyncSession, constants: Constants) -> int:
     )
 
     step = constants[R.ROAD_DECAY_RATE]
+    #: By what the edge was laid from (D-252): asphalt sags at half the pace
+    #: of gravel, and that is the whole reason it is a separate paving. An
+    #: unmarked edge -- the world's own road, laid by nobody -- goes at the
+    #: base rate, like a paving the table does not name.
+    slower = constants[R.ROAD_DECAY_BY_PAVING]
     overgrown = 0
     for edge in edges:
-        left = float(edge.condition) - step
+        left = float(edge.condition) - step * float(slower.get(edge.paving, 1.0))
         if left > SCALE_MIN:
             edge.condition = Decimal(str(left))
             continue
@@ -266,8 +280,10 @@ async def decay(session: AsyncSession, constants: Constants) -> int:
         edge.surface = below
         #: A sagged surface exposes what is under it: the new tier starts with
         #: fresh condition, not zero -- otherwise a road would crumble down to
-        #: offroad in two days.
+        #: offroad in two days. The covering is gone with the tier, and the
+        #: mark goes with it (D-252).
         edge.condition = Decimal(str(SCALE_MAX))
+        edge.paving = None
         overgrown += 1
         await events.record(
             session,
@@ -354,8 +370,31 @@ async def _surface_at_hand(session: AsyncSession, body: Body) -> float:
     return sum(amount_float(stack.amount) for stack in stacks)
 
 
-async def _take_surface(session: AsyncSession, body: Body, need_amount: float) -> float:
-    """Write off surface from the hands. Returns how much could be taken."""
+async def _take_surface(
+    session: AsyncSession, constants: Constants, body: Body, need_amount: float
+) -> tuple[float, str | None]:
+    """Write off surface from the hands. Returns (taken, the dominant kind).
+
+    Kinds may mix in one laying -- the norm is taken off whatever stacks of
+    the class are carried, as before D-252 -- and the edge is marked by the
+    kind that made up most of it. A tie goes to the slower-sagging one: the
+    builder who brought half asphalt gets the benefit of the doubt.
+    """
     pocket = await world.body_container(session, body)
     stacks = await stock.locked_stacks(session, pocket.id, world.station_names(SURFACE_GOODS))
-    return amount_float(await stock.consume(session, stacks, amount(need_amount)))
+    before = {stack.id: (stack.type_key, amount_float(stack.amount)) for stack in stacks}
+    taken = amount_float(await stock.consume(session, stacks, amount(need_amount)))
+    spent: dict[str, float] = {}
+    for stack in stacks:
+        kind, had = before[stack.id]
+        #: A stack drained whole is deleted with its amount untouched
+        #: (`stock.consume`): what it still shows is not what is left of it.
+        left_now = 0.0 if inspect(stack).deleted else amount_float(stack.amount)
+        spent[kind] = spent.get(kind, 0.0) + had - left_now
+    slower = constants[R.ROAD_DECAY_BY_PAVING]
+    dominant = max(
+        (kind for kind, used in spent.items() if used > 0),
+        key=lambda kind: (spent[kind], -float(slower.get(kind, 1.0))),
+        default=None,
+    )
+    return taken, dominant

@@ -50,6 +50,9 @@ ROAD_PAVED_MULTIPLIER = Num("road.paved_multiplier")
 ROAD_SURFACE_PER_EDGE = Num("road.surface_per_edge")
 ROAD_BUILD_HOURS = Num("road.build_hours")
 ROAD_DECAY_RATE = Num("road.decay_rate")
+#: Multiplier to the decay rate by what the edge was laid from (D-252):
+#: asphalt sags at half the pace of gravel, and that is its whole point.
+ROAD_DECAY_BY_PAVING = Table("road.decay_by_paving")
 
 # --- Inventory (20-systems/04-items, D-146) ---------------------------------
 INVENTORY_CARRY_MASS = Num("inventory.carry_mass")
@@ -461,6 +464,10 @@ SHIP_LIFE_SUPPORT_CREW = Num("ship.life_support_crew")
 #: The orbital step (D-245): what it costs to leave a planet and to come back
 #: down to it. Multiplied by the planet's own gravity and stretched by
 #: thrust-to-mass, like every other passage. Descent is the shorter of the two:
+#: Reference units one unit of a fuel kind is worth (D-252): the spend is
+#: computed in rocket-fuel units, the tanks pay by density -- kerosene burns
+#: fewer units for the same passage. Absent from the table -- worth one.
+SHIP_FUEL_ENERGY = Table("ship.fuel_energy")
 #: down, the gravity one climbed against helps.
 SHIP_ASCENT_HOURS = Num("ship.ascent_hours")
 SHIP_DESCENT_HOURS = Num("ship.descent_hours")
