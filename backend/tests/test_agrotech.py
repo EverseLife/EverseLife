@@ -138,11 +138,13 @@ async def test_bred_agrotech_known_only_to_author(
     base = await breed.landrace(session, catalog, SPELT)
     from src.models.plant import Variety
 
+    #: Bred by someone, like every non-base cultivar (`uq_variety_authorless`).
     other = Variety(
         culture_id=SPELT,
         name="Скороспелка",
         stable=True,
         generation=0,
+        author_identity_id=foreign_identity.id,
         traits={
             **base.traits,
             "yield_per_m2": base.traits["yield_per_m2"] * 2,

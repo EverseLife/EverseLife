@@ -63,7 +63,8 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from statistics import fmean
 
-from sqlalchemy import select
+from sqlalchemy import Select, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants
@@ -129,20 +130,13 @@ async def landrace(session: AsyncSession, catalog: Catalog, culture_id: str) -> 
     goes up, and an abandoned seed fund goes down.
     """
     plant = catalog.plants.by_id(culture_id)
-    found = (
-        (
-            await session.execute(
-                select(Variety).where(
-                    Variety.culture_id == culture_id,
-                    Variety.author_identity_id.is_(None),
-                    Variety.stable.is_(True),
-                    Variety.wild.is_(False),
-                )
-            )
-        )
-        .scalars()
-        .first()
+    lookup = select(Variety).where(
+        Variety.culture_id == culture_id,
+        Variety.author_identity_id.is_(None),
+        Variety.stable.is_(True),
+        Variety.wild.is_(False),
     )
+    found = (await session.execute(lookup)).scalars().first()
     if found is not None:
         return found
 
@@ -154,9 +148,7 @@ async def landrace(session: AsyncSession, catalog: Catalog, culture_id: str) -> 
         stable=True,
         traits=traits_of_plant(plant),
     )
-    session.add(variety)
-    await session.flush()
-    return variety
+    return await _create_once(session, variety, lookup)
 
 
 async def wild_ancestor(
@@ -170,19 +162,12 @@ async def wild_ancestor(
     with base gets a real spread, and breeding stops being self times self.
     """
     plant = catalog.plants.by_id(culture_id)
-    found = (
-        (
-            await session.execute(
-                select(Variety).where(
-                    Variety.culture_id == culture_id,
-                    Variety.author_identity_id.is_(None),
-                    Variety.wild.is_(True),
-                )
-            )
-        )
-        .scalars()
-        .first()
+    lookup = select(Variety).where(
+        Variety.culture_id == culture_id,
+        Variety.author_identity_id.is_(None),
+        Variety.wild.is_(True),
     )
+    found = (await session.execute(lookup)).scalars().first()
     if found is not None:
         return found
 
@@ -197,8 +182,28 @@ async def wild_ancestor(
         wild=True,
         traits=traits,
     )
-    session.add(variety)
-    await session.flush()
+    return await _create_once(session, variety, lookup)
+
+
+async def _create_once(
+    session: AsyncSession, variety: Variety, lookup: Select[tuple[Variety]]
+) -> Variety:
+    """Insert an authorless cultivar, or take the one a rival session just made.
+
+    Two sessions ask for a culture's lazy cultivar in the same second -- two
+    `forage.take` of one culture's seeds is enough -- and both select nothing
+    and both insert. The partial unique index on `(culture_id, wild)` for
+    authorless rows makes the second insert refuse instead of doubling the
+    cultivar; the savepoint keeps the caller's transaction alive through the
+    refusal, and the loser rereads the winner's row. The reread sees it:
+    the violation is raised only once the winner's insert is committed.
+    """
+    try:
+        async with session.begin_nested():
+            session.add(variety)
+            await session.flush()
+    except IntegrityError:
+        return (await session.execute(lookup)).scalars().one()
     return variety
 
 
