@@ -477,19 +477,28 @@ python tools/subnet_watch.py <адрес>
    `deploy/Caddyfile.landing` и `.env` c `LANDING_DOMAIN` и `ACME_EMAIL`
    (по желанию — `LANDING_DISCORD_WEBHOOK`, `LANDING_INDEXNOW_KEY` со старого
    `.env`).
-2. Образ: первый раз, до настройки секретов CI, проще перекинуть с игрового
-   хоста, чем возиться с токеном GHCR:
+2. Образ. Правильный путь — сделать пакет `everselife-landing` в GHCR
+   публичным (страница пакета → Package settings → Change visibility):
+   репозиторий и так публичный, а тянуть образы без токенов сможет любой
+   хост. Тогда шаг сводится к `docker compose pull`. Пока пакет приватный —
+   перекинуть файлом. Только не через пайп между двумя `ssh`: PowerShell
+   перекодирует поток как текст и портит бинарные данные, поэтому каждый
+   бинарник едет через `scp`, а не через `|`:
 
    ```bash
-   ssh СТАРЫЙ docker save ghcr.io/everselife/everselife-landing:latest | ssh НОВЫЙ docker load
+   ssh СТАРЫЙ "docker save ghcr.io/everselife/everselife-landing:latest | gzip > /tmp/landing.tgz"
+   scp СТАРЫЙ:/tmp/landing.tgz .
+   scp landing.tgz НОВЫЙ:/tmp/
+   ssh НОВЫЙ "gunzip < /tmp/landing.tgz | docker load && rm /tmp/landing.tgz"
    ```
 
-3. Заявки. Том лендинга переезжает файлом:
+3. Заявки. Тот же принцип — файлом через `scp`:
 
    ```bash
-   ssh СТАРЫЙ "docker run --rm -v everselife_landing_data:/data alpine cat /data/signups.db" > signups.db
+   ssh СТАРЫЙ "docker run --rm -v everselife_landing_data:/data -v /tmp:/out alpine cp /data/signups.db /out/signups.db"
+   scp СТАРЫЙ:/tmp/signups.db .
    scp signups.db НОВЫЙ:/tmp/
-   ssh НОВЫЙ "docker run --rm -i -v everselife-landing_landing_data:/data alpine sh -c 'cat > /data/signups.db' < /tmp/signups.db && rm /tmp/signups.db"
+   ssh НОВЫЙ "docker volume create everselife-landing_landing_data && docker run --rm -v everselife-landing_landing_data:/data -v /tmp:/src alpine cp /src/signups.db /data/signups.db && rm /tmp/signups.db"
    ```
 
    Имена томов — от имени папки состава; при сомнении `docker volume ls`.
