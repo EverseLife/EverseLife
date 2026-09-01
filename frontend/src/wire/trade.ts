@@ -23,6 +23,14 @@ export type Order = {
   min_quality?: number;
   price: number;
   left: number;
+  /** The node's name, to say where an order stands: they are read from anywhere. */
+  node: string;
+  /**
+   * The node's key. Here for the sum nothing outside the server can do
+   * without it: how much of the terminal shelf is still free to sell, i.e.
+   * the shelf less one's own sell orders **in this node** (D-225).
+   */
+  node_key: string;
 };
 
 /** Reservation: the only way to buy remotely -- with a deposit and a term (D-047). */
@@ -53,3 +61,20 @@ export type Book = {
   /** The price step the rows are glued at, minor units. One -- every price its own row. */
   step: number;
 };
+
+/**
+ * What came of pouring into the terminal's tank (D-255).
+ *
+ * `loaded` is what went in, not what was asked for: the tank is finite and
+ * shared by the whole node, and the vessels may hold less than the hands were
+ * told a moment ago.
+ */
+export type Loaded = { loaded: number; goods: string };
+
+/**
+ * What came of taking off the counter.
+ *
+ * `taken` is what moved. For a liquid that is what the buyer's vessels had
+ * room for -- the rest stays in the tank and waits (D-255).
+ */
+export type Taken = { taken: number; goods: string };

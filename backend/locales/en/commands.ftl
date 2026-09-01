@@ -41,6 +41,7 @@ cmd-no-such-vein = no such vein
 cmd-no-such-rig = no such rig
 cmd-no-such-ship = no such ship
 cmd-no-such-plot = no such plot
+cmd-merge-one-plot = a plot is not merged with itself: two different ones are needed
 cmd-no-such-nursery = no such nursery
 cmd-no-such-variety = no such variety
 cmd-no-such-deed = no such deed

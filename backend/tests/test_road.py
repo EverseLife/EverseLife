@@ -255,3 +255,73 @@ async def test_surface_is_craftable_at_all(
     )
     method = craft.procedure(catalog, "road_paving")
     assert method.station == catalog.recipes.resolve(recipe.station)
+
+
+# --- what the road is laid from (D-252) --------------------------------------
+
+
+async def test_asphalt_marks_the_edge_and_sags_slower(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Asphalt is a separate paving for exactly one reason: it decays slower.
+
+    The edge remembers the dominant kind of the laying, and the daily pass
+    reads the multiplier off that mark (`road.decay_by_paving`)."""
+    _, _, body, edge = await _edge(session)
+    pocket = await world.body_container(session, body)
+    await world.grant_item(session, pocket, "asphalt_paving", amount=100, origin="сценарий теста")
+
+    await _finish(session, await road.lay(session, constants, catalog, body, edge))
+    assert edge.paving == "asphalt_paving", "ребро помнит, чем его укладывали"
+
+    step = constants[R.ROAD_DECAY_RATE]
+    slower = constants[R.ROAD_DECAY_BY_PAVING]["asphalt_paving"]
+    await road.decay(session, constants)
+    assert float(edge.condition) == pytest.approx(SCALE_MAX - step * slower)
+    assert slower < 1, "асфальт садится медленнее гравия — в этом весь его смысл"
+
+
+async def test_the_dominant_kind_wins_the_mark(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Kinds may mix in one laying, as before; the mark goes to the majority."""
+    _, _, body, edge = await _edge(session, surface_amount=100)
+    pocket = await world.body_container(session, body)
+    #: A splash of asphalt on top of a heap of gravel: the road is gravel.
+    await world.grant_item(session, pocket, "asphalt_paving", amount=1, origin="сценарий теста")
+
+    await _finish(session, await road.lay(session, constants, catalog, body, edge))
+    assert edge.paving == "road_paving"
+
+
+async def test_the_lost_tier_takes_the_mark_with_it(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """A sagged surface exposes what is under it -- and that is not asphalt."""
+    _, _, body, edge = await _edge(session)
+    pocket = await world.body_container(session, body)
+    await world.grant_item(session, pocket, "asphalt_paving", amount=100, origin="сценарий теста")
+    await _finish(session, await road.lay(session, constants, catalog, body, edge))
+
+    #: Below even the slowed step: asphalt has to actually fall this pass.
+    edge.condition = Decimal("0.01")
+    await session.flush()
+    assert await road.decay(session, constants) == 1
+    assert edge.surface is Surface.TRAIL
+    assert edge.paving is None, "покрытие ушло вместе с ярусом"
+
+
+async def test_the_tie_goes_to_the_slower_sagging_kind(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Half gravel, half asphalt: the builder gets the benefit of the doubt."""
+    _, _, body, edge = await _edge(session)
+    pocket = await world.body_container(session, body)
+    norm = constants[R.ROAD_SURFACE_PER_EDGE]
+    await world.grant_item(session, pocket, "road_paving", amount=norm / 2, origin="сценарий теста")
+    await world.grant_item(
+        session, pocket, "asphalt_paving", amount=norm / 2, origin="сценарий теста"
+    )
+
+    await _finish(session, await road.lay(session, constants, catalog, body, edge))
+    assert edge.paving == "asphalt_paving", "при равной трате побеждает то, что садится медленнее"

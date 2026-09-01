@@ -49,7 +49,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Constants, current_catalog
 from src.constants import registry as R
-from src.engine import events, stock, travel, wear, world
+from src.engine import events, liquid, stock, travel, wear, world
 from src.engine.errors import Refusal
 from src.models.event import EventKind
 from src.models.identity import Body, BodyState
@@ -83,6 +83,10 @@ class RigError(Refusal):
 
 class NoRig(RigError):
     pass
+
+
+class NoRoom(RigError):
+    """Nowhere to pour (D-252): a liquid hopper empties only into vessels with room."""
 
 
 class NotYours(RigError):
@@ -251,12 +255,17 @@ async def empty_hopper(
         return 0.0
 
     vein = await session.get(Vein, rig.vein_id)
+    #: A rig without a vein should not happen; coal is the least-wrong stub.
+    resource = vein.resource if vein else "coal"
+    catalog = current_catalog()
     #: The hopper is emptied by hand, and hands are not bottomless: without a
-    #: wagon the hopper cannot be emptied whole, and that is work for a carter (D-146).
-    if vein is not None:
+    #: wagon the hopper cannot be emptied whole, and that is work for a carter
+    #: (D-146). A liquid is exempt: it goes into vessels, and a full canister
+    #: already weighs its fill (D-230) -- the carry limit judges the vessel.
+    if vein is not None and not liquid.is_liquid(catalog, resource):
         from src.engine import gear  # noqa: PLC0415 -- lazy: breaks the import cycle with gear
 
-        await gear.check_carry(session, constants, current_catalog(), body, vein.resource, taken)
+        await gear.check_carry(session, constants, catalog, body, resource, taken)
 
     machine = await session.get(Item, rig.item_id)
     #: Three ceilings, and the lowest is taken: the vein gives no more than its
@@ -270,14 +279,37 @@ async def empty_hopper(
     pocket = await world.body_container(session, body)
     emptied = Item(
         container_id=pocket.id,
-        #: A rig without a vein should not happen; coal is the least-wrong stub.
-        type_key=vein.resource if vein else "coal",
+        type_key=resource,
         amount=amount(taken),
         quality=Decimal(str(quality)),
     )
     session.add(emptied)
-    await world.stack_up(session, emptied)
-    rig.hopper = Decimal(0)
+    if liquid.is_liquid(catalog, resource):
+        #: A liquid hopper is poured, not handed over (D-252): into the vessels
+        #: in the hands first, then those standing in the node -- the same
+        #: order as a batch's liquid output. What fits nowhere **stays in the
+        #: hopper**: the well does not spill for a forgotten canister, it
+        #: waits. Nothing poured at all is a refusal, so the trip is not
+        #: silently for nothing.
+        await session.flush()
+        node = await session.get(Node, rig.node_id)
+        yard = await world.node_container(session, node)
+        taken = await liquid.fill(session, catalog, emptied, (pocket, yard))
+        if taken <= 0:
+            raise NoRoom(key="rig-liquid-no-room", goods=resource)
+        left = 0.0
+        if emptied.container_id == pocket.id:
+            #: The stack that went in whole lives inside a vessel now, and its
+            #: amount may have grown by the twins it swallowed -- only the
+            #: remainder still lying loose in the pocket reads as leftover.
+            #: It must not outlive this call (D-230): back into the hopper as
+            #: a number, not a stack on the ground.
+            left = amount_float(emptied.amount)
+            await session.delete(emptied)
+        rig.hopper = Decimal(str(left))
+    else:
+        await world.stack_up(session, emptied)
+        rig.hopper = Decimal(0)
     await session.flush()
 
     await events.record(
@@ -373,7 +405,7 @@ async def _burn(session: AsyncSession, container_id: uuid.UUID, qty: float) -> N
 def _deplete(constants: Constants, vein: Vein, moment: datetime, extracted_before: int) -> None:
     """The vein depletes in the same tiers as from a pickaxe: one rule for all."""
     from src.engine.mining import (  # noqa: PLC0415 -- lazy: breaks the import cycle with mining
-        _deplete as by_general_rule,
+        deplete as by_general_rule,
     )
 
     by_general_rule(constants, vein, moment, extracted_before)

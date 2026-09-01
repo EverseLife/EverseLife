@@ -269,6 +269,7 @@ ui-stand-mine-about = The mine face window: go down into the vein and cut, rock 
 ui-stand-batch = batch · { $goods }
 ui-stand-bench-about = The “{ $machine }” work station window: batches by recipe, repairs and attempts without a recipe.
 ui-stand-trade-kitchen = { " " }Food is cooked here.
+ui-stand-trade-factory = { " " }Machines work by themselves here.
 ui-stand-trade-nursery = { " " }Animals are bred here.
 ui-stand-trade-fuel-plant = { " " }Ship fuel is distilled here.
 ui-stand-trade-mint = { " " }The city's coin is minted here.

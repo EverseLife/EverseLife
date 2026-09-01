@@ -13,7 +13,7 @@ is already wired up and what is not yet.
 
 from __future__ import annotations
 
-from src.constants.spec import Book, Flag, FormulaRef, Num, Span, Spec, Table, Tiers
+from src.constants.spec import Book, Flag, FormulaRef, Num, Span, Spec, Table, Tiers, Words
 
 # --- Time and tick ----------------------------------------------------------
 TIME_TICK = Num("time.tick")
@@ -50,6 +50,9 @@ ROAD_PAVED_MULTIPLIER = Num("road.paved_multiplier")
 ROAD_SURFACE_PER_EDGE = Num("road.surface_per_edge")
 ROAD_BUILD_HOURS = Num("road.build_hours")
 ROAD_DECAY_RATE = Num("road.decay_rate")
+#: Multiplier to the decay rate by what the edge was laid from (D-252):
+#: asphalt sags at half the pace of gravel, and that is its whole point.
+ROAD_DECAY_BY_PAVING = Table("road.decay_by_paving")
 
 # --- Inventory (20-systems/04-items, D-146) ---------------------------------
 INVENTORY_CARRY_MASS = Num("inventory.carry_mass")
@@ -114,7 +117,6 @@ WEAR_TRANSPORT_PER_LEG = Num("wear.transport_per_leg")
 # --- Craft (D-092, D-133) ---------------------------------------------------
 CRAFT_TIME_PER_UNIT = Num("craft.time_per_unit")
 CRAFT_STATION_SPEED_K = Span("craft.station_speed_k")
-CRAFT_AUTO_SPEED_K = Num("craft.auto_speed_k")
 CRAFT_BATCH_MAX = Num("craft.batch_max")
 CRAFT_WASTE_SHARE = Num("craft.waste_share")
 CRAFT_WASTE_BAD_RATIO = Num("craft.waste_bad_ratio")
@@ -162,6 +164,10 @@ MARKET_DEFAULT_FEE = Num("market.default_fee")
 MARKET_RESERVATION_DEPOSIT = Num("market.reservation_deposit")
 MARKET_RESERVATION_PERIOD = Num("market.reservation_period")
 MARKET_ORPHAN_DECAY_MULTIPLIER = Num("market.orphan_decay_multiplier")
+#: The terminal's own tank (D-255): how many kilograms of liquid the whole
+#: counter holds across every cell. The knob that bounds the liquid
+#: market's liquidity -- a bigger terminal is a bigger market.
+MARKET_TANK_CAPACITY = Num("market.tank_capacity")
 
 # --- Cooking (D-119, D-128) -------------------------------------------------
 COOK_ROLE_WEIGHTS = Table("cook.role_weights")
@@ -207,6 +213,20 @@ RIG_HOPPER_CAPACITY = Num("rig.hopper_capacity")
 RIG_DEPLETION_MULTIPLIER = Num("rig.depletion_multiplier")
 RIG_WEAR_PER_DAY = Num("rig.wear_per_day")
 
+#: The automat family (D-253): a station that works without the player,
+#: burning lubricant and pool energy by the hour. One set of knobs for the
+#: whole family; which station each automat stands in for is `auto.covers`.
+AUTO_ENERGY_PER_HOUR = Num("auto.energy_per_hour")
+AUTO_LUBE_PER_HOUR = Num("auto.lube_per_hour")
+AUTO_WEAR_PER_DAY = Num("auto.wear_per_day")
+AUTO_QUALITY_CAP = Num("auto.quality_cap")
+AUTO_SPEED_SHARE = Num("auto.speed_share")
+#: station -> {automat: 1}. Both sides are dict keys so the D-251 rename
+#: pass translates them; the one means membership, not a number.
+AUTO_COVERS = Book("auto.covers")
+#: The pyroxite tier is barred until its own station exists (OQ-106).
+AUTO_BARRED_INPUTS = Table("auto.barred_inputs")
+
 # --- Energy (D-071, D-082, D-085) -------------------------------------------
 #: Energy per unit of every burnable material, keyed by name (D-215): the old
 #: `energy.per_coal` generalized -- built by the vault from material `fuel` fields.
@@ -219,7 +239,6 @@ ENERGY_BATTERY_CAPACITY = Num("energy.battery_capacity")
 ENERGY_BATTERY_MASS = Num("energy.battery_mass")
 ENERGY_BATTERY_SELFDISCHARGE = Num("energy.battery_selfdischarge")
 ENERGY_TARIFF_DEFAULT = Num("energy.tariff_default")
-ENERGY_AUTO_BENCH_DRAW = Num("energy.auto_bench_draw")
 ENERGY_METER_PERIOD = Num("energy.meter_period")
 
 # --- Breeding (D-057, D-067) ------------------------------------------------
@@ -423,6 +442,10 @@ FORAGE_REFERENCE_AREA = Num("forage.reference_area")
 FORAGE_FINDS = Table("forage.finds")
 #: How many units one find brings, by thing. Same keys as `forage.finds`.
 FORAGE_HANDFUL = Table("forage.handful")
+#: The place mark a find lies under (D-254): a subset of `forage.finds`, and a
+#: thing missing from it lies everywhere. The land's marks decide what a walk
+#: over it can turn up at all -- stone on stony ground, water by the river.
+FORAGE_PLACE = Words("forage.place")
 #: A search never goes faster than this many seconds, however much land.
 FORAGE_SEARCH_FLOOR = Num("forage.search_floor")
 #: Spread of one search's length around the computed one.
@@ -457,6 +480,10 @@ SHIP_BERTH_SECONDS = Num("ship.berth_seconds")
 #: between compartments to measure.
 SHIP_STEP_SECONDS = Num("ship.step_seconds")
 SHIP_FUEL_PER_TON_DAY = Num("ship.fuel_per_ton_day")
+#: Reference units one unit of a fuel kind is worth (D-252): the spend is
+#: computed in rocket-fuel units, the tanks pay by density -- kerosene burns
+#: fewer units for the same passage. Absent from the table -- worth one.
+SHIP_FUEL_ENERGY = Table("ship.fuel_energy")
 SHIP_LIFE_SUPPORT_CREW = Num("ship.life_support_crew")
 #: The orbital step (D-245): what it costs to leave a planet and to come back
 #: down to it. Multiplied by the planet's own gravity and stretched by

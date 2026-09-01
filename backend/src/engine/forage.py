@@ -22,6 +22,12 @@ with one occupation that lives on any plot with room to walk:
   scaled by the empty area is the pace; a thing's share of the sum is what it
   is that turns up. More land -- faster, but never under
   `forage.search_floor`;
+- **the land decides which of them lie on it** (D-254). `forage.place` binds a
+  find to a mark of the place -- stone to stony ground, wood and resin to the
+  woods, flax and wild seed to a meadow, clay, sand and water to the river --
+  and only what is bound to a mark this node carries is in the deck at all.
+  So the pace is the sum of what is *here*: a river meadow is walked faster
+  than a bare field, and a node whose marks give nothing has no window;
 - **the searcher stands here and the land is theirs or nobody's** -- the same
   rule as felling (D-177). Walking away abandons the search and whatever it
   found. Every search costs stamina; with none, nobody searches.
@@ -47,13 +53,26 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.constants.spec import ConstantError
-from src.engine import estate, events, food, frost, gear, luck, occupation, travel, world
+from src.engine import (
+    breed,
+    estate,
+    events,
+    food,
+    frost,
+    gear,
+    liquid,
+    luck,
+    occupation,
+    travel,
+    world,
+)
 from src.engine.errors import Refusal, left_to_say
 from src.models.event import EventKind
 from src.models.forage import Forage
 from src.models.identity import Body, BodyState
+from src.models.inventory import Container
 from src.models.world import Node
-from src.units import ROUND_MASS, ROUND_QUALITY, SECONDS_PER_HOUR
+from src.units import ROUND_MASS, ROUND_QUALITY, SECONDS_PER_HOUR, amount_float
 
 #: The event's ground for the matter that appears (pillar P1).
 ORIGIN = "собирательство"
@@ -83,6 +102,14 @@ class NoStrength(ForageError):
     """No stamina left for the search."""
 
 
+class NothingHere(ForageError):
+    """The land's marks give nothing: bare ground feeds nobody (D-254)."""
+
+
+class NowhereToPour(ForageError):
+    """A liquid find and no vessel to take it in (D-230)."""
+
+
 # --- the plot -----------------------------------------------------------------
 
 
@@ -108,8 +135,17 @@ def is_yours(node: Node, body: Body) -> bool:
     return node.owner_city_id is None
 
 
-def finds(constants: Constants) -> dict[str, float]:
-    """What is found at all, with its pace: the vault's table (D-210).
+def _marks(constants: Constants) -> frozenset[str]:
+    """The place marks the find table binds to.
+
+    Read off the vault's own table rather than listed here: a mark added to
+    `forage.place` tomorrow must start splitting the deck without a code change.
+    """
+    return frozenset(constants[R.FORAGE_PLACE].values())
+
+
+def whole_table(constants: Constants) -> dict[str, float]:
+    """Everything that lies on the surface anywhere, with its pace (D-210).
 
     The handful table must name the same things: a find without a handful
     would be a find of nothing, and the mismatch is a data error, not a roll.
@@ -119,23 +155,57 @@ def finds(constants: Constants) -> dict[str, float]:
     missing = sorted(set(paces) - set(handfuls))
     if missing:
         raise ConstantError("forage.handful не называет горсть для: " + ", ".join(missing))
+    #: A place named for a thing that is not found at all is a typo, and a
+    #: silent one: "absent from the table" is how the data says "lies
+    #: everywhere", so the misspelling would read as a deliberate choice.
+    stray = sorted(set(constants[R.FORAGE_PLACE]) - set(paces))
+    if stray:
+        raise ConstantError(
+            "forage.place names a place for what is never found: " + ", ".join(stray)
+        )
     return paces
 
 
-def pace(constants: Constants, area: float) -> float:
-    """Finds per hour on this much empty land: the table's sum scaled by area."""
-    return sum(finds(constants).values()) * area / constants[R.FORAGE_REFERENCE_AREA]
+def finds(constants: Constants, node: Node) -> dict[str, float]:
+    """What THIS land can turn up, with its pace (D-254).
+
+    A find lies where its place is: stone on stony ground, wood and resin in
+    the woods, flax and wild seed in a meadow, clay, sand and water by the
+    river. `forage.place` names that mark for each thing, and a thing missing
+    from it lies everywhere -- an empty table is a claim about the world, not
+    a gap in the data.
+
+    So the pace is the sum of what is available *here*: a rich place is
+    walked faster than a bare one, and a node whose marks give nothing gives
+    nothing at all. That is the geography D-196 meant and D-210 lost when it
+    replaced three place operations with one flat table.
+    """
+    where = constants[R.FORAGE_PLACE]
+    return {
+        name: pace
+        for name, pace in whole_table(constants).items()
+        if name not in where or world.has_place(node, where[name])
+    }
 
 
-def search_seconds(constants: Constants, area: float, dice: random.Random) -> float:
+def pace(constants: Constants, table: dict[str, float], area: float) -> float:
+    """Finds per hour on this much empty land: what lies here, scaled by area.
+
+    Takes the land's table rather than the node, so a caller that has already
+    asked what lies here does not ask twice.
+    """
+    return sum(table.values()) * area / constants[R.FORAGE_REFERENCE_AREA]
+
+
+def search_seconds(constants: Constants, node: Node, area: float, dice: random.Random) -> float:
     """How long one search takes on this much empty land.
 
     The mean is the inverse of the pace; the jitter keeps it from reading as
     a timer; the floor keeps a big yard from becoming a tap.
     """
-    per_hour = pace(constants, area)
+    per_hour = pace(constants, finds(constants, node), area)
     if per_hour <= 0:
-        raise NoRoom(key="forage-empty-table")
+        raise NothingHere(key="forage-nothing-here", node=node.name)
     jitter = constants[R.FORAGE_SEARCH_JITTER]
     mean = SECONDS_PER_HOUR / per_hour
     return max(constants[R.FORAGE_SEARCH_FLOOR], mean * dice.uniform(jitter.min, jitter.max))
@@ -145,6 +215,7 @@ async def _roll(
     session: AsyncSession,
     constants: Constants,
     body: Body,
+    node: Node,
     dice: random.Random,
 ) -> tuple[str, int, float]:
     """What turns up: a thing dealt from the table's deck, its handful, its quality.
@@ -159,9 +230,18 @@ async def _roll(
     treasure and a piece of junk are rare. A magnitude has no droughts.
     """
 
-    found = await luck.draw(
-        session, body.identity_id, luck.FORAGE_WHAT, finds(constants), dice=dice
-    )
+    #: The deck is this land's, not the world's (D-254): a meadow deals flax
+    #: and wild seed, and never deals stone it does not have.
+    #:
+    #: **A deck per kind of place**, the way exploration keeps one per planet
+    #: (D-213). The deck is rebuilt whenever the things it holds stop matching
+    #: what is available, so one shared deck would be thrown away and reshuffled
+    #: on every walk from a meadow into a forest -- and the anti-drought promise
+    #: with it. Keyed by the marks rather than the node, so the guarantee is
+    #: "not ten stones running in woods like these", not "in this one clearing".
+    table = finds(constants, node)
+    deck = f"{luck.FORAGE_WHAT}:{_kind_of_place(constants, node)}"
+    found = await luck.draw(session, body.identity_id, deck, table, dice=dice)
     units = max(1, int(constants[R.FORAGE_HANDFUL][found]))
     grade = constants[R.FORAGE_QUALITY]
     quality = dice.triangular(grade.min, grade.max, grade.mid)
@@ -169,6 +249,17 @@ async def _roll(
 
 
 # --- the search ---------------------------------------------------------------
+
+
+def _kind_of_place(constants: Constants, node: Node) -> str:
+    """What kind of place this is, as the find deck sees it: its marks, sorted.
+
+    Two river meadows are the same kind of place and share a deck; a forest is
+    a different one. Sorted so the key is stable, and built from the marks the
+    find table actually binds to rather than every property a node carries --
+    a ring number or a map point must not split the deck.
+    """
+    return ",".join(sorted(mark for mark in _marks(constants) if world.has_place(node, mark)))
 
 
 async def current(session: AsyncSession, body: Body) -> Forage | None:
@@ -226,7 +317,7 @@ async def start(
     #: not change on a re-read.
     row_id = uuid.uuid4()
     dice = random.Random(str(row_id))
-    seconds = search_seconds(constants, room, dice)
+    seconds = search_seconds(constants, node, room, dice)
 
     spend = (
         constants[R.FORAGE_SEARCH_STAMINA]
@@ -237,7 +328,7 @@ async def start(
         raise NoStrength(key="forage-no-strength", need=spend, have=float(body.stamina))
     body.stamina = Decimal(str(float(body.stamina) - spend))
 
-    found, units, quality = await _roll(session, constants, body, dice)
+    found, units, quality = await _roll(session, constants, body, node, dice)
     row = Forage(
         id=row_id,
         body_id=body.id,
@@ -308,14 +399,7 @@ async def take(
     await gear.check_carry(session, constants, catalog, body, row.found, row.units)
 
     pocket = await world.body_container(session, body)
-    await world.grant_item(
-        session,
-        pocket,
-        row.found,
-        amount=row.units,
-        quality=float(row.quality),
-        origin=ORIGIN,
-    )
+    await _into_hands(session, catalog, pocket, row, moment)
     await events.record(
         session,
         EventKind.FORAGE_TAKEN,
@@ -327,6 +411,65 @@ async def take(
     )
     await session.delete(row)
     await session.flush()
+
+
+async def _into_hands(
+    session: AsyncSession,
+    catalog: Catalog,
+    pocket: Container,
+    row: Forage,
+    moment: datetime,
+) -> None:
+    """Put the find in the hands -- as the kind of thing it is.
+
+    Three kinds, and two of them are not an ordinary stack:
+
+    * **a seed is a batch of a cultivar** (D-057), never bare goods. What the
+      meadow gives is the crop's base cultivar -- what grows for everyone --
+      and the roll that would have been the find's quality becomes the lot's
+      strength instead: wild seed is weaker than a tended fund, and by how
+      much is the same luck that decides a good stone from a poor one. Seeds
+      carry no quality of their own, so nothing is lost by spending the roll
+      this way;
+    * **a liquid is poured, not held** (D-230). Water goes into the vessels in
+      the hands, and with none there the find keeps lying: the walk is not
+      wasted, the canister is simply missing. Refused rather than spilled --
+      spilling is the honest end of work already done, and here the work is
+      still on offer;
+    * everything else is the handful it always was.
+    """
+    plant = catalog.plants.by_seed(row.found)
+    if plant is not None:
+        cultivar = await breed.landrace(session, catalog, plant.id)
+        await breed.seed_lot(
+            session, catalog, pocket.id, cultivar, row.units, float(row.quality), now=moment
+        )
+        return
+
+    wet = liquid.is_liquid(catalog, row.found)
+    if wet and await liquid.room_for(session, catalog, pocket, row.found) < row.units:
+        #: Asked before the water exists, not after, and under the lock the
+        #: pouring itself takes: a find refused must stay a find, so it must
+        #: not be conjured and then thrown away -- and the answer must still
+        #: be true by the time it is acted on.
+        raise NowhereToPour(key="forage-nowhere-to-pour", goods=row.found)
+
+    item = await world.grant_item(
+        session,
+        pocket,
+        row.found,
+        amount=row.units,
+        quality=float(row.quality),
+        origin=ORIGIN,
+    )
+    if wet:
+        #: The room was measured under the lock this call keeps, so everything
+        #: goes in -- and that is checked rather than trusted: `grant_item`
+        #: folds the find into a stack that may already hold loose water, and
+        #: a remainder left lying in the hands is the one state D-230 forbids.
+        left = amount_float(item.amount) - await liquid.fill(session, catalog, item, [pocket])
+        if left > 0:  # pragma: no cover -- the room was locked before the pour
+            raise NowhereToPour(key="forage-nowhere-to-pour", goods=row.found)
 
 
 async def pass_(
@@ -401,13 +544,17 @@ async def view(
     row = await current(session, body)
     room = await empty_area(session, node)
     least = constants[R.FORAGE_MIN_AREA]
-    allowed = is_yours(node, body) and room >= least
+    table = finds(constants, node)
+    #: Bare ground has no window (D-254): a place whose marks give nothing is
+    #: not a foraging spot with an empty list, it is not a foraging spot. The
+    #: search already going here still gets one -- what it found must remain
+    #: decidable even if the land has since been built over.
+    allowed = is_yours(node, body) and room >= least and bool(table)
     if not allowed and row is None:
         return None
 
-    table = finds(constants)
     total = sum(table.values()) or 1.0
-    per_hour = pace(constants, room)
+    per_hour = pace(constants, table, room)
     seen: dict = {
         "area": room,
         "min_area": least,

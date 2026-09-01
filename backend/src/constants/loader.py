@@ -64,6 +64,19 @@ def rename_key_table(renames: RenameTable) -> dict[str, str]:
     return merged
 
 
+def _mark(renames: RenameTable, word: str) -> str:
+    """A node-property word as its id, or a refusal to start.
+
+    Loudly, because the quiet version is invisible: an untranslated mark would
+    match no node ever, and the thing bound to it would simply stop existing in
+    the world -- a typo in the vault reading as a design decision.
+    """
+    found = renames.node_properties.get(word)
+    if found is None:
+        raise ConstantError(f"forage.place: unknown node property {word!r}")
+    return found
+
+
 def normalize_constants(raw: Mapping[str, Any], renames: RenameTable) -> dict[str, Any]:
     """constants.json with Russian sub-dict keys translated to D-251 ids.
 
@@ -88,6 +101,13 @@ def normalize_constants(raw: Mapping[str, Any], renames: RenameTable) -> dict[st
     for key, value in raw.items():
         if key in lowercase_keyed and isinstance(value, dict):
             out[key] = {lowered.get(k, table.get(k, k)): v for k, v in value.items()}
+            continue
+        if key == "forage.place" and isinstance(value, dict):
+            #: The one table whose VALUE is a place mark rather than a number
+            #: (D-254). Its keys are goods and go through the merged table
+            #: like any other; its values live in their own domain, and
+            #: translating them with the goods map would leave them Russian.
+            out[key] = {table.get(name, name): _mark(renames, mark) for name, mark in value.items()}
             continue
         if key == "quality.tiers" and isinstance(value, list):
             value = [

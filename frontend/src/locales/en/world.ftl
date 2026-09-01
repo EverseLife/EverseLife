@@ -394,3 +394,15 @@ ui-forage-stop-hint-found = finish gathering; the find will stay lying there
 ui-forage-searching = searching · a find will show in
 ui-forage-label = search
 ui-forage-finds = found here:
+
+## The factory floor: the node editor of the automats (D-253, wave 5).
+
+ui-factory-title = Factory floor
+ui-factory-rule = machines and wires
+ui-factory-hint = A wire runs from a machine's right dot to another's left dot: what feeds stands left of what eats. A click on a wire cuts it.
+ui-factory-wire-armed = The output is taken -- click the left dot of the machine it feeds. Clicking the output again cancels.
+ui-factory-unlink = cut the wire
+ui-factory-port-in = input
+ui-factory-port-out = output
+ui-factory-idle = -- no programme --
+ui-factory-backlog = in work { $backlog }

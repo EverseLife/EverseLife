@@ -168,7 +168,7 @@ export type {
 } from "./wire/city";
 
 /** Buying and selling (`wire/trade.ts`). */
-export type { Book, Level, Order, Reservation } from "./wire/trade";
+export type { Book, Level, Loaded, Order, Reservation, Taken } from "./wire/trade";
 
 /** The recipe book, the estimate and the work (`wire/craft.ts`). */
 export type { Batch, Invention, Operation, Plan, Recipe, RecipeBook } from "./wire/craft";

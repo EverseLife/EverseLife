@@ -17,17 +17,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import Catalog, ConstantError, Constants
 from src.constants import registry as R
 from src.constants.catalog import ItemKind
-from src.engine import gear, world
+from src.engine import gear, stock, world
 from src.engine.ship._base import FUEL, LIFE_SUPPORT, TANK, NotEnoughThrust
 from src.engine.ship.belonging import nodes_of
 from src.models.inventory import Container, ContainerKind, Item
 from src.models.ship import Ship
 from src.models.world import Layer, Node, Planet
 from src.units import (
+    AMOUNT_SCALE,
     HOURS_PER_DAY,
     KG_PER_TON,
     PERCENT,
     SECONDS_PER_HOUR,
+    amount,
     amount_float,
 )
 
@@ -217,6 +219,85 @@ async def fuel_stacks(session: AsyncSession, ship: Ship) -> list[Item]:
 
 async def fuel_aboard(session: AsyncSession, ship: Ship) -> float:
     return sum(amount_float(thing.amount) for thing in await fuel_stacks(session, ship))
+
+
+def fuel_energy(constants: Constants, type_key: str) -> float:
+    """Reference units one unit of this fuel is worth (D-252).
+
+    The spend is computed in rocket-fuel units (`fuel_for`); the tanks pay by
+    density: a unit of kerosene fuel closes 1.25 reference units, so the same
+    tank flies further. A kind the table does not name is worth one -- the
+    reference itself, and whatever arrives before its line does.
+    """
+    return float(constants[R.SHIP_FUEL_ENERGY].get(type_key, 1.0))
+
+
+async def fuel_worth(session: AsyncSession, constants: Constants, ship: Ship) -> float:
+    """What the tanks hold, in reference units (D-252).
+
+    `fuel_aboard` keeps counting physical units -- that is what the console
+    shows and what has mass; this is what a passage can pay with.
+    """
+    return sum(
+        amount_float(thing.amount) * fuel_energy(constants, thing.type_key)
+        for thing in await fuel_stacks(session, ship)
+    )
+
+
+async def spend_fuel(
+    session: AsyncSession,
+    constants: Constants,
+    ship: Ship,
+    need: float,
+    *,
+    stacks: list[Item] | None = None,
+) -> float:
+    """Burn `need` reference units out of the tanks. Returns the units burnt.
+
+    Stack by stack in id order, each paying at its own worth (D-252): a tank
+    holding kerosene beside rocket fuel spends fewer physical units for the
+    same passage. `stacks` are already-locked rows from `burn_checked`, so
+    the check and the burn share one lock; without them the tanks are locked
+    here, and running dry is the caller's arithmetic being wrong.
+    """
+    if stacks is None:
+        stacks = await stock.lock_items(session, await fuel_stacks(session, ship))
+    burnt = 0.0
+    left = need
+    for stack in stacks:
+        if left <= _FUEL_EPS:
+            break
+        worth = fuel_energy(constants, stack.type_key)
+        asked = min(amount_float(stack.amount), left / worth)
+        got = amount_float(await stock.consume(session, [stack], amount(asked)))
+        burnt += got
+        left -= got * worth
+    return burnt
+
+
+#: Spend splits into thousandths, like every amount: the last digit of a
+#: representation must not demand one more stack.
+_FUEL_EPS = 1 / AMOUNT_SCALE
+
+
+async def burn_checked(
+    session: AsyncSession, constants: Constants, ship: Ship, *, need: float, whole: float
+) -> tuple[float, float]:
+    """Lock the tanks, weigh them, and burn only if `whole` is covered.
+
+    Returns (burnt, worth aboard). Burnt is zero when the worth falls short
+    -- the caller words the refusal; the arithmetic stays under one lock, so
+    a canister filling from the same tank between the check and the burn
+    cannot let a leg fly on fuel it never paid (the quality bar: amounts
+    change only under the row lock).
+    """
+    stacks = await stock.lock_items(session, await fuel_stacks(session, ship))
+    worth = sum(
+        amount_float(stack.amount) * fuel_energy(constants, stack.type_key) for stack in stacks
+    )
+    if worth + _FUEL_EPS < whole:
+        return 0.0, worth
+    return await spend_fuel(session, constants, ship, need, stacks=stacks), worth
 
 
 async def engines(

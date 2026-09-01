@@ -154,7 +154,7 @@ class Applied:
 
 #: Water is the one property whose VALUE is a word of the vault ("нет"/"река");
 #: everything else is numbers and booleans.
-_WATER_VALUES = {"нет": "none", "река": "river"}
+_WATER_VALUES = {"нет": world.NO_WATER, "река": world.RIVER}
 
 
 def _renamed_properties(properties: dict, renames: RenameTable) -> dict:

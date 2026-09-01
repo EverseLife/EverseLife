@@ -35,11 +35,13 @@ from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import select
+from sqlalchemy.exc import InvalidRequestError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import current_catalog
 from src.db.base import remember
 from src.engine import events, goods
+from src.engine.errors import Refusal
 from src.models.craft import BatchState, CraftBatch
 from src.models.event import EventKind
 from src.models.identity import Body
@@ -217,7 +219,24 @@ async def move_stack(
     #: The stack is locked and reread first: every move in the world comes
     #: through here, and whoever moves the same stack at the same time must
     #: see the remainder, not the snapshot (review 2026-08-23).
-    await session.refresh(item, with_for_update=True)
+    #:
+    #: **And it may not be there to lock.** Between the moment a player was
+    #: shown a thing and the moment they reach for it, the world may have
+    #: taken it: an eruption burns a node's yard (`plates._burn`), a house
+    #: falls, somebody else picks the last of it up. The refresh then fails,
+    #: and what came back was `InvalidRequestError` -- the player reading
+    #: "the server failed" where the truth is that the sack is gone. A thing
+    #: that vanished under a hand is an ordinary answer of the world, so it
+    #: is said in words like any other (D-011).
+    #: Read before the refresh, because a failed refresh leaves the instance
+    #: with no usable state: touching a column on it then goes looking for the
+    #: row that is not there, and the answer would be a second, stranger error
+    #: instead of the plain one this is here to give.
+    named = item.type_key
+    try:
+        await session.refresh(item, with_for_update=True)
+    except InvalidRequestError as gone:
+        raise ItemGone(key="thing-gone", goods=named) from gone
     qty = min(to_units(goods.at_least_one(item.type_key, quantity)), item.amount)
     if qty >= item.amount:
         item.container_id = target.id
@@ -263,6 +282,10 @@ async def move_stack(
 #: worked at belongs to machines, tools, gear and wagons, and none of those
 #: fold at all -- so a fold can never take a thing out from under its use.
 #: The one exception is work on a loose stack, and that is guarded below.
+class ItemGone(Refusal):
+    """The stack was taken out of the world between the look and the reach."""
+
+
 SAMENESS = (
     "type_key",
     "quality",
@@ -398,27 +421,42 @@ async def grant_item(
     #: to learn that.
 
     amount = goods.at_least_one(type_key, amount)
-    item = Item(
-        container_id=container.id,
-        type_key=type_key,
-        amount=to_amount(amount),
-        quality=None if quality is None else Decimal(str(quality)),
-        maker_identity_id=maker_identity_id,
-        made_at=datetime.now(UTC) if maker_identity_id else None,
-        made_node_id=made_node_id,
-    )
-    session.add(item)
-    await session.flush()
-    await events.record(
-        session,
-        EventKind.ITEM_CREATED,
-        actor_identity_id=maker_identity_id,
-        item_id=str(item.id),
-        type_key=type_key,
-        amount=amount,
-        quality=quality,
-        origin=origin,
-    )
-    #: The event is written before the fold and about the arrival alone: the
-    #: journal says what came into the world, not what the stack grew to (D-214).
-    return await stack_up(session, item)
+    #: **A thing that does not stack arrives as things, not as a heap of one**
+    #: (04-items, D-212). Loose matter is a quantity and one row holds it all;
+    #: a tool, a vessel or a piece of furniture is a thing, and five of them
+    #: are five. The batch has always laid them out this way (`craft._pieces`)
+    #: and everything downstream assumes it: a chest keeps its contents in a
+    #: container of its own, and a row saying "eight canisters" had one inside
+    #: between the eight -- so eight canisters held what one holds, and there
+    #: was no way to take one of them out of the row.
+    pieces = [amount] if goods.stackable(type_key) else [1.0] * int(amount)
+    laid: list[Item] = []
+    for piece in pieces:
+        item = Item(
+            container_id=container.id,
+            type_key=type_key,
+            amount=to_amount(piece),
+            quality=None if quality is None else Decimal(str(quality)),
+            maker_identity_id=maker_identity_id,
+            made_at=datetime.now(UTC) if maker_identity_id else None,
+            made_node_id=made_node_id,
+        )
+        session.add(item)
+        await session.flush()
+        await events.record(
+            session,
+            EventKind.ITEM_CREATED,
+            actor_identity_id=maker_identity_id,
+            item_id=str(item.id),
+            type_key=type_key,
+            amount=piece,
+            quality=quality,
+            origin=origin,
+        )
+        #: The event is written before the fold and about the arrival alone: the
+        #: journal says what came into the world, not what the stack grew to (D-214).
+        laid.append(await stack_up(session, item))
+    #: The last one laid: the caller holds a live row either way, and for the
+    #: loose kinds -- the only ones a caller pours from or folds into -- there
+    #: is exactly one.
+    return laid[-1]

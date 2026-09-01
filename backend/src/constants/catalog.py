@@ -56,8 +56,9 @@ class Material(Strict):
     edible: bool = False
     #: Units per hour of labour; also the vein weight for minerals.
     rate: float | None = None
-    #: {finds, handful} -- present when the thing lies on the surface (D-210).
-    forage: dict[str, float] | None = None
+    #: {finds, handful, place} -- present when the thing lies on the surface
+    #: (D-210). `place` is a node-property word (D-254), the rest are numbers.
+    forage: dict[str, float | str] | None = None
     #: Energy per unit when burned. Present -- the thing is a fuel (D-215).
     fuel: float | None = None
     #: A relic of the Forerunners (D-232): found, never made. It is not taken
@@ -373,6 +374,17 @@ class PlantCatalog(Strict):
             if plant.id == plant_id:
                 return plant
         raise ConstantError(f"нет культуры {plant_id!r} в build/plants.json")
+
+    def by_seed(self, type_key: str) -> Plant | None:
+        """The crop these seeds sow, or None if the goods are not a seed at all.
+
+        Asked by whatever meets a stack before knowing what it is -- a find on
+        the ground (D-254) -- so a miss is an answer, not an error.
+        """
+        for plant in self.plants:
+            if plant.seed == type_key:
+                return plant
+        return None
 
 
 class CharterOption(Strict):

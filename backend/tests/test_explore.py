@@ -429,6 +429,31 @@ async def test_species_taken_from_vault(
     assert "iron_ore" in rolled
 
 
+async def test_oil_turns_up_on_terra_and_never_on_pyroxis(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Oil is in Terra's deck (D-252), and Pyroxis has none at all: a planet
+    of lava held no organics (D-233). The zero weight drops the species from
+    the deck rather than merely making it rare."""
+    import random
+
+    from src.models.world import Planet
+
+    on_terra = {
+        await explore.species_of(session, constants, catalog, random.Random(grain))
+        for grain in range(300)
+    }
+    assert "crude_oil" in on_terra, "на Терре нефть находится"
+
+    on_pyroxis = {
+        await explore.species_of(
+            session, constants, catalog, random.Random(grain), planet=Planet.PYROXIS
+        )
+        for grain in range(300)
+    }
+    assert "crude_oil" not in on_pyroxis, "на Пироксисе нефти не бывает"
+
+
 async def test_vein_has_stock_and_richness(session: AsyncSession, constants: Constants) -> None:
     """Veins are finite -- that is irrevocable (pillar P2)."""
     _, _, body = await _scout(session)

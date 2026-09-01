@@ -229,6 +229,11 @@ class Edge(Base):
     #: at zero the surface drops a tier and the condition starts anew. For
     #: offroad it has no meaning: nothing there to overgrow.
     condition: Mapped[float] = mapped_column(Numeric(6, 2), nullable=False, default=100)
+    #: What the surface was laid from (D-252): the goods key of the dominant
+    #: paving of the last laying. Decay reads its multiplier from
+    #: `road.decay_by_paving`; a tier lost wipes it together with the
+    #: covering. NULL -- the world's own road: laid by nobody, base rate.
+    paving: Mapped[str | None] = mapped_column(nullable=True)
     created_at: Mapped[datetime] = created_column()
 
 

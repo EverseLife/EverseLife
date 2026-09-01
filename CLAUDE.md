@@ -91,13 +91,13 @@ python tools/spdx.py --apply
 Правила, которые нельзя нарушать молча:
 
 - **Файл длиннее 800 строк** — перед правкой сказать об этом и предложить
-  разрез. Добавлять в такой файл без упоминания нельзя. Список на 2026-08-31
-  (после разреза market): `panels/Admin.tsx` (1300), `engine/bank.py` (1298),
-  `engine/travel.py` (1028), `engine/vote.py` (957), `engine/mining.py` (931),
-  `engine/oxygen.py` (863), `engine/net.py` (863), `engine/frost.py` (828).
+  разрез. Добавлять в такой файл без упоминания нельзя. Список на 2026-09-01
+  (после разрезов market и mining): `engine/bank.py` (1298),
+  `engine/travel.py` (1028), `engine/vote.py` (957), `engine/oxygen.py` (867),
+  `engine/net.py` (863), `engine/frost.py` (830).
   Список **устаревает** — считать заново (`wc -l`), а не верить ему на слово:
   прошлый пересчитывали 2026-08-29, и за два дня два файла из него не
-  уменьшились, а выросли.
+  уменьшились, а выросли; `panels/Admin.tsx` из него, наоборот, разрезали.
   Разрезанное: `engine/explore.py` → пакет `engine/explore/` (`_base`, `odds`,
   `site`, `run`); `seed.py` → `seed.py` + `seed_parts.py` + `seed_catchup.py`;
   `engine/city/polity.py` (1084) → `founding`, `law`, `office`, `citizen` и
@@ -106,9 +106,10 @@ python tools/spdx.py --apply
   `api.ts` (1675) → `wire/*` по предметам + `session.ts`, `api.ts` остался
   дверью с реэкспортом; `engine/market.py` (1636) → пакет `engine/market/`
   (`_base`, `counter`, `match`, `deal`, `window`), стек закреплён контрактами
-  `import-linter`; `engine/plates.py` (814) → пакет `engine/plates/`
-  (`_base`, `clock`, `fire`, `ways`, `veins`), стек закреплён контрактами
-  `import-linter`.
+  `import-linter`; `engine/mining.py` (931) → пакет `engine/mining/`
+  (`_base`, `face`, `collapse`), стек закреплён контрактами `import-linter`;
+  `engine/plates.py` (814) → пакет `engine/plates/` (`_base`, `clock`,
+  `fire`, `ways`, `veins`), стек закреплён контрактами `import-linter`.
 - **Деньги, количества, остатки, выносливость** меняются только под
   блокировкой строки (`with_for_update`) или SQL-выражением
   (`col = col - :x`), и к каждой такой правке — тест-гонка на две сессии.

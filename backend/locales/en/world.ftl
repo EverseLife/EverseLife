@@ -73,6 +73,7 @@ breed-one-batch = two batches of seed are needed: a variety is not crossed with 
 breed-not-enough-seeds = a nursery needs { $need } seeds of each variety
 breed-nursery-done = this nursery has already been taken apart
 breed-nursery-not-ready = the nursery will ripen: { $left }
+thing-gone = the { NAME($goods) } is no longer here: it went while you were reaching
 breed-parent-gone = the parent variety is gone
 breed-not-stable = the variety is not stable yet: a name goes to what gives the same result time after time
 breed-not-the-author = a variety is named by the one who bred it
@@ -85,7 +86,8 @@ breed-body-off-node = the body is outside a node
 
 # --- gathering (engine/forage.py) --------------------------------------------
 
-forage-empty-table = nothing to look for here: the find table is empty
+forage-nothing-here = nothing lies on this land: { $node } is bare ground, and a walk turns up what a place grows or is made of
+forage-nowhere-to-pour = nothing to take the { NAME($goods) } in: a liquid lives only in a vessel
 forage-dead-gathers = a dead body gathers nothing
 forage-already-searching = a search is already under way: wait for the find or finish it
 forage-body-off-node = the body stands nowhere
@@ -164,6 +166,8 @@ mining-session-closed = session { $session } is closed: { $state ->
        *[active] the face is still worked
     }
 mining-session-dangling = the session points nowhere
+# A liquid vein (D-252): the pick has nothing to grip.
+mining-vein-liquid = “{ NAME($goods) }” is not taken by pick: a liquid vein is pumped by the rig
 # $names is a list of ids: NAMES() takes it apart.
 mining-no-tool = mining needs a tool of class “{ NAME($tool_class) }” ({ NAMES($names) }), and there is none in hand
 
@@ -174,6 +178,21 @@ rig-not-a-rig = “{ NAME($goods) }” is not a drilling rig
 rig-vein-not-here = the vein is not here: a rig is set up on the spot
 rig-not-here = the rig is not here: the hopper is hauled out on foot
 rig-not-yours = another's rig: hauling out goes by contract with the owner
+# A liquid hopper (D-252): pours only into vessels, the remainder waits in the hopper.
+rig-liquid-no-room = nowhere to pour “{ NAME($goods) }”: bring a vessel with room, in hand or in the node
+
+# --- the automats (engine/automat.py) ----------------------------------------
+
+auto-dead-works = a dead body does not work
+auto-not-an-automat = “{ NAME($goods) }” is not an automat
+auto-not-here = the automat is not here: a programme is loaded on the spot
+auto-not-entitled = automats are programmed on one's own ground
+auto-recipe-unknown = you do not know the recipe “{ NAME($goods) }”: an automat is not a library, learn it first
+auto-not-covered = “{ NAME($station) }” is not the business of the automat “{ NAME($goods) }”: every station has its own
+auto-barred-input = “{ NAME($goods) }” cannot be programmed: the pyroxite tier waits for its own station
+auto-no-station-builds = “{ NAME($goods) }” is a build: stations are put together by hand, no machine builds them
+auto-body-off-node = the body is off any node
+auto-link-self = “{ NAME($goods) }” does not feed itself: a wire needs two ends
 
 # --- Precursor ruins (engine/ruins.py) ---------------------------------------
 

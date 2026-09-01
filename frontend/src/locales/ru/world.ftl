@@ -394,3 +394,15 @@ ui-forage-stop-hint-found = закончить собирательство; н�
 ui-forage-searching = ищете · находка покажется через
 ui-forage-label = поиск
 ui-forage-finds = здесь находят:
+
+## Цех: нод-едитор автоматов (D-253, волна 5).
+
+ui-factory-title = Цех
+ui-factory-rule = машины и провода
+ui-factory-hint = Провод ведут от правой точки машины к левой точке другой: что кормит — левее того, что ест. Провод режется щелчком по нему.
+ui-factory-wire-armed = Выход взят — щёлкните левую точку машины, которую он кормит. Щелчок по выходу ещё раз — отмена.
+ui-factory-unlink = перерезать провод
+ui-factory-port-in = вход
+ui-factory-port-out = выход
+ui-factory-idle = — без программы —
+ui-factory-backlog = в работе { $backlog }

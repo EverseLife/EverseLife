@@ -1,0 +1,99 @@
+/* SPDX-License-Identifier: AGPL-3.0-only
+   Copyright (C) 2026 Nurlan Urazkulov */
+
+/* The factory floor: the node editor of the automats (D-253, wave 5).
+   Cards on a computed grid, wires as hairline curves beneath them: the
+   brief's service-mark language (D-238) -- stroke only, no fills, no glow. */
+
+.factory {
+  position: relative;
+  margin-top: var(--s3);
+  /* The floor can outgrow the panel; the panel must not outgrow the page. */
+  max-width: 100%;
+  overflow-x: auto;
+  /* Room for the ports: they sit 5px proud of the outer cards, and without
+     this the overflow clip halves the first column's in-dot -- the live
+     playtest could not click it. Absolute children anchor to the padding
+     box, so the cards and the wire canvas shift together. */
+  padding: 0 5px;
+}
+
+.factory-wires {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.factory-wire {
+  fill: none;
+  stroke: var(--base-400);
+  stroke-width: 1;
+}
+
+.factory-wire-hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 12;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+
+/* The visible line answers the hover of its wide twin: the wire says it
+   is a button by turning accent, not by growing fat. */
+.factory-wire-pair:hover .factory-wire {
+  stroke: var(--accent);
+}
+
+.factory-card {
+  position: absolute;
+  box-sizing: border-box;
+  padding: var(--s2) var(--s3);
+  border: 1px solid var(--base-600);
+  border-radius: var(--r-control);
+  background: var(--base-900);
+}
+
+.factory-card.armed {
+  border-color: var(--accent);
+}
+
+.factory-card .sign {
+  margin: 0 0 var(--s1);
+}
+
+.factory-card select {
+  width: 100%;
+}
+
+/* The ports: the two ends a wire is drawn between. A dot, not a button --
+   but a button underneath, because a picture one cannot press is a lie. */
+.factory-port {
+  position: absolute;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  padding: 0;
+  transform: translateY(-50%);
+  border: 1px solid var(--base-400);
+  border-radius: 50%;
+  background: var(--base-900);
+  cursor: pointer;
+}
+
+.factory-port.in {
+  left: -5px;
+}
+
+.factory-port.out {
+  right: -5px;
+}
+
+.factory-port:disabled {
+  cursor: default;
+  border-color: var(--base-600);
+}
+
+.factory-card.armed .factory-port.out {
+  border-color: var(--accent);
+  background: var(--accent);
+}

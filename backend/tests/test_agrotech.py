@@ -38,7 +38,10 @@ async def _field(session: AsyncSession, *, library: bool = False, nursery: bool 
         f"terra.agro.{stamp}",
         "Поле",
         area_m2=400,
-        properties={"water": "river", "fertility": 30, "library": library},
+        #: Dry ground on purpose: the water norm is a norm only where water is
+        #: carried (D-126), so a river-fed field would hide the very number
+        #: these tests are about -- and thirst is what a dry field shows.
+        properties={"water": "none", "fertility": 30, "library": library},
     )
     if nursery:
         yard = await world.node_container(session, node)

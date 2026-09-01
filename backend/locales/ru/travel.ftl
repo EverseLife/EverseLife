@@ -125,7 +125,7 @@ ship-no-fuel = { $why ->
         [cross] на переход и посадку в конце топлива не хватает
         [turn-back] на разворот топлива не хватает: с пустыми баками в пустоте не разворачиваются — идите до конца
        *[land] на посадку топлива не хватает
-    }: нужно { NUMBER($need, minimumFractionDigits: 1, maximumFractionDigits: 1) } «{ NAME($goods) }», а в баках { NUMBER($have, minimumFractionDigits: 1, maximumFractionDigits: 1) }
+    }: нужно { NUMBER($need, minimumFractionDigits: 1, maximumFractionDigits: 1) } «{ NAME($goods) }» в пересчёте на ракетное, а баки закрывают { NUMBER($have, minimumFractionDigits: 1, maximumFractionDigits: 1) }
 ship-passage-already-queued = рейс уже поставлен
 ship-already-in-orbit = «{ $ship }» уже на околопланетной орбите: выше подниматься некуда
 ship-planet-has-no-orbit = у планеты { PLANET($planet) } нет орбитального узла

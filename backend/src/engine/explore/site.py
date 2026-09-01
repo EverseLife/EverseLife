@@ -161,7 +161,7 @@ async def properties(
     temperature = constants[R.SITE_TEMP_RANGE]
     rainfall = constants[R.SITE_RAIN_RANGE]
     return {
-        "water": "river" if river else "none",
+        world.WATER: world.RIVER if river else world.NO_WATER,
         #: On a vein find arable land is beside the point: rock bears no bread.
         "fertility": 0 if vein else round(PERCENT * for_land / budget),
         "temperature": round(dice.uniform(temperature.min, temperature.max)),

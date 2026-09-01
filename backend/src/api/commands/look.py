@@ -218,9 +218,17 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
         #: The `library` property is a legacy of old worlds (D-176) and is not
         #: a sign of the land; the machine in `bench` answers for it.
         "features": sorted(
-            name
-            for name, value in (node.properties or {}).items()
-            if value is True and name != "library"
+            {
+                name
+                for name, value in (node.properties or {}).items()
+                if value is True and name != "library"
+            }
+            #: The river is a mark like the others and the only one stored as a
+            #: word rather than a flag (D-126), so it never reached this list.
+            #: Since finds are bound to the land (D-254) it decides what a walk
+            #: here turns up and whether a bed needs water carried to it -- and
+            #: the client cannot derive it from anything else sent (D-225).
+            | ({world.WATER} if world.has_place(node, world.WATER) else set())
         ),
         #: The owner's map mark, if one is nailed on (D-238): the plot window
         #: preselects it in the picker. Belted like the public map's copy.

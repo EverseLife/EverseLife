@@ -450,6 +450,91 @@ docker compose exec landing python export.py > signups.csv
 
 Подробности — в [landing/README.md](landing/README.md).
 
+## Лендинг на своём хосте
+
+С сентября 2026 лендинг живёт отдельно от игры. Причина — доступность из РФ:
+адреса Contabo фильтруются частью российских домашних сетей по спискам,
+которых никто не публикует, а лендинг — воронка, страница, обязанная
+открываться у незнакомца. Он и построен отделяемым: своя SQLite на своём томе,
+в игровую базу — ни одного запроса. Игра остаётся на прежнем хосте (записи
+`alpha.` и `agents.` не трогаются), пока новый адрес не докажет себя.
+
+Хост выбирается по одному критерию — досягаемость из российских домашних
+сетей. Проверка кандидата до оплаты и после выдачи адреса:
+
+```bash
+python tools/subnet_watch.py <адрес>
+```
+
+Чистота по публичным спискам необходима, но недостаточна (фильтры по
+хостерским диапазонам не публикуются), поэтому после переключения DNS
+единственная настоящая проверка — люди из РФ в Discord.
+
+Порядок на чистой Ubuntu (докер и пользователь — как в «Один раз: подготовка
+сервера», это умеет cloud-init):
+
+1. `mkdir -p /opt/everselife-landing`, туда — `deploy/compose.landing.yaml`,
+   `deploy/Caddyfile.landing` и `.env` c `LANDING_DOMAIN` и `ACME_EMAIL`
+   (по желанию — `LANDING_DISCORD_WEBHOOK`, `LANDING_INDEXNOW_KEY` со старого
+   `.env`).
+2. Образ. Правильный путь — сделать пакет `everselife-landing` в GHCR
+   публичным (страница пакета → Package settings → Change visibility):
+   репозиторий и так публичный, а тянуть образы без токенов сможет любой
+   хост. Тогда шаг сводится к `docker compose pull`. Пока пакет приватный —
+   перекинуть файлом. Только не через пайп между двумя `ssh`: PowerShell
+   перекодирует поток как текст и портит бинарные данные, поэтому каждый
+   бинарник едет через `scp`, а не через `|`:
+
+   ```bash
+   ssh СТАРЫЙ "docker save ghcr.io/everselife/everselife-landing:latest | gzip > /tmp/landing.tgz"
+   scp СТАРЫЙ:/tmp/landing.tgz .
+   scp landing.tgz НОВЫЙ:/tmp/
+   ssh НОВЫЙ "gunzip < /tmp/landing.tgz | docker load && rm /tmp/landing.tgz"
+   ```
+
+3. Заявки. Тот же принцип — файлом через `scp`:
+
+   ```bash
+   ssh СТАРЫЙ "docker run --rm -v everselife_landing_data:/data -v /tmp:/out alpine cp /data/signups.db /out/signups.db"
+   scp СТАРЫЙ:/tmp/signups.db .
+   scp signups.db НОВЫЙ:/tmp/
+   ssh НОВЫЙ "docker volume create everselife-landing_landing_data && docker run --rm -v everselife-landing_landing_data:/data -v /tmp:/src alpine cp /src/signups.db /data/signups.db && rm /tmp/signups.db"
+   ```
+
+   Имена томов — от имени папки состава; при сомнении `docker volume ls`.
+   Порядок важен: сначала том, потом `up`, иначе новые заявки разъедутся по
+   двум базам, и их придётся сливать экспортом.
+4. `docker compose -f compose.landing.yaml up -d`. По 443 до переключения DNS
+   проверить нечего: ACME HTTP-01 не пройдёт, пока имя не смотрит сюда, а без
+   сертификата Caddy не завершает рукопожатие вовсе (`-k` не спасает — ему
+   нечего предъявить). Дым проверяется по 80-му порту, редиректом от Caddy:
+   `curl --resolve $LANDING_DOMAIN:80:<адрес> -sI http://$LANDING_DOMAIN/` —
+   ответ `308` значит, что кромка стоит и маршрут жив.
+5. Сразу после переключения DNS — `docker compose -f compose.landing.yaml
+   restart caddy`: неудачные попытки ACME копят задержку повтора, и без
+   рестарта сертификат может прийти на минуты позже, чем DNS.
+6. DNS: A и AAAA голого домена → новый хост. `www` уедет CNAME'ом сам, свой
+   сертификат Caddy выпишет в первую минуту после переключения. Записи
+   `alpha.` и `agents.` остаются на игровом хосте — обе, включая AAAA.
+7. Секреты Actions для автоматической выкладки: `LANDING_DEPLOY_HOST`,
+   `LANDING_DEPLOY_USER`, при нестандартном порте `LANDING_DEPLOY_PORT`,
+   отпечаток в `LANDING_DEPLOY_KNOWN_HOSTS`; ключ — тот же `DEPLOY_SSH_KEY`
+   (его публичная половина — в `authorized_keys` нового хоста). Переменные:
+   `LANDING_DEPLOY_ENABLED=true`, `LANDING_DOMAIN` — для проверки «ожил».
+   До этого шага джоб `deploy-landing` молчит, и правки лендинга едут только
+   руками.
+8. Мониторинг перенастраивать не нужно: `subnet-watch` проверяет каждое имя
+   по тому адресу, куда смотрит DNS, — с переключением он сам начнёт
+   сторожить новый хост, а игровые имена — прежний.
+
+Откат — вернуть записи голого домена на игровой хост. Если на новом успели
+накопиться заявки, слить их: `export.py` с обоих, объединить, залить файл
+обратно шагом 3.
+
+Блок `{$LANDING_DOMAIN}` в основном `Caddyfile` при этом не трогается: DNS
+уводит трафик, и блок просто перестаёт отвечать. Убирать его стоит только
+вместе с переездом игры, если он случится.
+
 ## Если у состава меняется имя
 
 Имя состава (`name:` в `compose.yaml`) — то, из чего Docker выводит имена томов.

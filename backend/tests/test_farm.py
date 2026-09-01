@@ -481,3 +481,59 @@ async def test_civic_plot_is_handed_over_once(
         await world.grant_node(session, civic, other)
     with pytest.raises(farm.NotYours):
         await farm.mark(session, constants, other_body, name="чужая", area=10)
+
+
+async def test_a_riverside_bed_is_not_asked_to_carry_water(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """By a river the round takes water from the river (D-126), so the window
+    must not name a load of it. On dry ground the same window must."""
+    from src.models.identity import KnowledgeKind
+
+    wet, identity, body = await _farmstead(session, water="river")
+    await world.learn(session, identity, SPELT, kind=KnowledgeKind.AGROTECH)
+    await _ready(session, constants, catalog, body, area=20)
+
+    dry, _, _ = await _farmstead(session, water="none")
+    dry.owner_identity_id = identity.id
+    body.node_id = dry.id
+    await session.flush()
+    await _ready(session, constants, catalog, body, area=20)
+
+    rows = {
+        row["node_key"]: row for row in await farm.survey(session, constants, catalog, identity.id)
+    }
+    assert "water_need" not in rows[wet.key], "у реки воду не носят"
+    assert rows[dry.key]["water_need"] > 0, "в сухом месте носят, и сколько — надо сказать"
+
+
+async def test_the_split_field_can_be_sewn_back(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """`farm.merge` is reachable from the socket, and refuses a plot with itself.
+
+    The engine could merge from the day plots were cut, but no command led to
+    it: a strip could be split and never sewn back, and the anti-exploit that
+    makes merging honest (fertility by area, history by the heavier half,
+    D-118) guarded a door nobody could open.
+    """
+    from src.api import commands as _registered  # noqa: F401 -- registers the command
+    from src.api.registry import COMMANDS, Refused
+
+    _, identity, body = await _farmstead(session)
+    plot = await farm.mark(session, constants, body, name="поле", area=100)
+    piece = await farm.split(session, constants, body, plot, 40, name="отрез")
+    await session.flush()
+
+    state = {"identity_id": identity.id}
+    with pytest.raises(Refused):
+        await COMMANDS["farm.merge"].run(
+            state, session, {"plot": str(plot.id), "other": str(plot.id)}
+        )
+
+    answer = await COMMANDS["farm.merge"].run(
+        state, session, {"plot": str(plot.id), "other": str(piece.id)}
+    )
+    assert answer["plot"] == str(plot.id)
+    assert answer["area"] == pytest.approx(100)
+    assert await session.get(Plot, piece.id) is None, "сведённая половина перестаёт быть"

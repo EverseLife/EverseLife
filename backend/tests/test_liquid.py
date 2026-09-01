@@ -339,3 +339,49 @@ def _slow(monkeypatch: pytest.MonkeyPatch, module: object, name: str, delay: flo
         return result
 
     monkeypatch.setattr(module, name, held)
+
+
+async def test_vessels_arrive_as_vessels_and_each_one_holds_its_own(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Five canisters are five things, not a heap of one (04-items, D-212).
+
+    A thing that does not stack has always been laid out piece by piece by the
+    batch (`craft._pieces`); a grant did not, and a row saying "five canisters"
+    kept one inside container between the five. So five canisters held what one
+    holds, and there was no way to take a single one out of the row.
+    """
+    _, _, body = await _home(session)
+    pocket = await world.body_container(session, body)
+    await _in_hands(session, body, "canister", amount=5)
+
+    rows = await liquid.vessels_in(session, catalog, pocket)
+    assert len(rows) == 5, "канистры — вещи, а не куча"
+    assert all(amount_float(row.amount) == 1 for row in rows)
+
+    #: And the room in the hands is the room of five, not of one.
+    one = storage.capacity(catalog, "canister")
+    assert await liquid.room_for(session, catalog, pocket, "water") == pytest.approx(
+        5 * one / catalog.recipes.mass_of("water")
+    )
+
+
+async def test_loose_matter_still_arrives_as_one_heap(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The other half of the same rule: a quantity is one row, however large."""
+    _, _, body = await _home(session)
+    pocket = await world.body_container(session, body)
+    await _in_hands(session, body, "clay", amount=40)
+
+    heaps = (
+        (
+            await session.execute(
+                select(Item).where(Item.container_id == pocket.id, Item.type_key == "clay")
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(heaps) == 1
+    assert amount_float(heaps[0].amount) == 40

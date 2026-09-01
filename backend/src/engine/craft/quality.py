@@ -69,7 +69,6 @@ def forecast_quality(
     ceiling: float,
     material: float,
     accuracy: float,
-    auto: bool = False,
 ) -> float:
     """Quality forecast: the ceiling and how close to it we came."""
     scale = constants[R.QUALITY_SCALE]
@@ -82,18 +81,16 @@ def forecast_quality(
         closeness = material
     value = ceiling * closeness / scale.max
     #: Craft premium: the master sees today's ore is worse than usual and
-    #: adjusts proportions for it. A machine always works by its setting
-    #: (15-quality), so the automaton gets no premium -- that is the whole
-    #: difference between the modes.
-    if proc.mix and not auto:
+    #: adjusts proportions for it (15-quality). The unattended machine has its
+    #: own ceiling instead (`auto.quality_cap`, D-253) -- that is the whole
+    #: difference between hand and factory.
+    if proc.mix:
         value += constants[R.QUALITY_HAND_CRAFT_BONUS] * accuracy
-    return scale.clamp(min(value, quality_cap(constants, proc, ceiling, auto=auto)))
+    return scale.clamp(min(value, quality_cap(constants, proc, ceiling)))
 
 
-def quality_cap(
-    constants: Constants, proc: Procedure, ceiling: float, *, auto: bool = False
-) -> float:
+def quality_cap(constants: Constants, proc: Procedure, ceiling: float) -> float:
     """Only the craft premium rises above the ceiling, and only for a mix."""
     scale = constants[R.QUALITY_SCALE]
-    bonus = constants[R.QUALITY_HAND_CRAFT_BONUS] if proc.mix and not auto else 0.0
+    bonus = constants[R.QUALITY_HAND_CRAFT_BONUS] if proc.mix else 0.0
     return min(scale.max, ceiling + bonus)

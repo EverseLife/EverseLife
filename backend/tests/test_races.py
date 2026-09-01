@@ -17,7 +17,7 @@ import contextlib
 import random
 import uuid
 from collections.abc import AsyncIterator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
@@ -75,8 +75,8 @@ async def test_the_eruption_does_not_burn_what_was_carried_out(
     """The window before an eruption is the whole licence for the burning
     (D-197, P6), and somebody using it must not be robbed by the fire anyway.
 
-    The carry-out goes **first** and holds its row: the sleep sits between
-    `storage.pick` and its commit, so the fire meets a sack already moving.
+    The carry-out goes **first** and holds its row: the fire waits for the row
+    to be taken, so it meets a sack already moving.
 
     With the lock the fire waits at that row, rereads it after the commit and
     finds the sack in a pocket -- not in the node -- so there is nothing here
@@ -87,7 +87,24 @@ async def test_the_eruption_does_not_burn_what_was_carried_out(
     from src.engine import plates, storage
     from src.models.world import Layer, Planet
 
-    _slow(monkeypatch, storage, "pick")
+    #: **A handshake, not a pause.** The window this test needs is the one
+    #: between taking the row and committing, and `_slow` on `pick` does not
+    #: open it: the pause lands after `pick` returns, while the checks that
+    #: run *before* `move_stack` reaches the row -- presence, the node, the
+    #: door, the relic, the carry limit -- take longer than any head start the
+    #: fire can be given by guesswork. The fire then took the row first, burnt
+    #: the sack and the carry-out found nothing to move. So the fire waits for
+    #: the row to be taken instead of waiting a number of milliseconds.
+    took_the_row = asyncio.Event()
+    carrying = world.move_stack
+
+    async def held(*args, **kwargs):
+        moved = await carrying(*args, **kwargs)
+        took_the_row.set()
+        await asyncio.sleep(0.2)
+        return moved
+
+    monkeypatch.setattr(world, "move_stack", held)
     stamp = uuid.uuid4().hex[:8]
     sphere = await world.create_node(
         session,
@@ -120,13 +137,14 @@ async def test_the_eruption_does_not_burn_what_was_carried_out(
     await session.commit()
 
     async def erupt() -> None:
-        #: Long enough for the carry-out to be inside its transaction and
-        #: holding the row; short enough to be well inside its sleep.
-        await asyncio.sleep(0.05)
+        #: The carry-out is inside its transaction and holding the row -- not
+        #: probably, but by construction.
+        await took_the_row.wait()
         async with factory() as db, db.begin():
             place = await db.get(Node, field_id)
             assert place is not None
-            await plates._burn(db, [place])
+            burnt = await plates._burn(db, [place])
+            assert burnt == 0, "огонь сжёг то, что уже уносили"
 
     async def carry() -> None:
         async with factory() as db, db.begin():
@@ -244,10 +262,30 @@ async def test_death_and_leaving_one_face_do_not_both_carry_the_haul(
     afterwards, not the thing the lock buys.
     """
     from src.engine import death, mining, plates
+    from src.engine.mining import face as mining_face
     from src.models.mining import MiningSession, Pace, SessionState
     from src.models.world import Layer, Planet
 
-    _slow(monkeypatch, mining, "session_container")
+    #: **A handshake, not a pause**, like the carry-out tests above: the
+    #: eruption must arrive while the death holds the gate -- by construction,
+    #: not after a guessed number of milliseconds. A cold connection costs
+    #: some seventy milliseconds to open, so a guessed head start loses often
+    #: enough for the eruption to win the gate, carry the haul into the pocket
+    #: and hand it to the salvage -- a legal outcome, but not the branch this
+    #: test pins. `session_container` is the first thing `abandon` asks after
+    #: taking the session row, and `face` binds it into its own globals
+    #: (D-252 split), so the patch lands where the closers look it up while
+    #: the fixture's call below goes through the package door to the original.
+    holds_the_gate = asyncio.Event()
+    asking = mining_face.session_container
+
+    async def held(*args, **kwargs):
+        container = await asking(*args, **kwargs)
+        holds_the_gate.set()
+        await asyncio.sleep(0.2)
+        return container
+
+    monkeypatch.setattr(mining_face, "session_container", held)
     stamp = uuid.uuid4().hex[:8]
     sphere = await world.create_node(
         session, "pyroxis", "Пироксис", planet=Planet.PYROXIS, area_m2=1, layer=Layer.SPACE
@@ -318,7 +356,9 @@ async def test_death_and_leaving_one_face_do_not_both_carry_the_haul(
             await death.die(db, current(), mine, cause="rift")
 
     async def ground_moves() -> None:
-        await asyncio.sleep(0.05)
+        #: The death is past its gate and inside the face -- not probably,
+        #: but by construction.
+        await holds_the_gate.wait()
         async with factory() as db, db.begin():
             rock = await db.get(Vein, vein_id)
             assert rock is not None
@@ -363,14 +403,27 @@ async def test_death_and_the_burning_ground_close_one_face_without_a_deadlock(
     from `erupted`) makes the gate the meeting point: whoever comes second
     waits at it holding nothing the winner wants.
 
-    The pause rides on `stack_up`: every heap the death lays into the yard is
-    held long enough for the fire to be certain to arrive while it is in hand.
+    The handshake rides on `stack_up`: the first heap the death lays into the
+    yard comes after its gate, so the fire that waits for it arrives with the
+    death provably past the gate and holding the heap -- by construction, not
+    after a guessed number of milliseconds. On the old order of `die` the same
+    handshake fired from the salvage, **before** the gate, and the test died
+    of the very ABBA it now pins shut.
     """
     from src.engine import death, mining, plates
     from src.models.mining import MiningSession, Pace, SessionState
     from src.models.world import Layer, Planet
 
-    _slow(monkeypatch, world, "stack_up")
+    laid_a_heap = asyncio.Event()
+    laying = world.stack_up
+
+    async def held(*args, **kwargs):
+        heap = await laying(*args, **kwargs)
+        laid_a_heap.set()
+        await asyncio.sleep(0.2)
+        return heap
+
+    monkeypatch.setattr(world, "stack_up", held)
     stamp = uuid.uuid4().hex[:8]
     sphere = await world.create_node(
         session, "pyroxis", "Пироксис", planet=Planet.PYROXIS, area_m2=1, layer=Layer.SPACE
@@ -427,7 +480,9 @@ async def test_death_and_the_burning_ground_close_one_face_without_a_deadlock(
             await death.die(db, current(), mine, cause="rift")
 
     async def ground_burns() -> None:
-        await asyncio.sleep(0.05)
+        #: The death is past its gate and laying heaps -- not probably, but
+        #: by construction.
+        await laid_a_heap.wait()
         async with factory() as db, db.begin():
             place = await db.get(Node, field_id)
             rock = await db.get(Vein, vein_id)
@@ -1090,7 +1145,10 @@ async def test_two_swings_on_one_vein_do_not_mine_the_same_ore_twice(
         sessions.append((await mining.start(session, current(), body, vein)).id)
     await session.commit()
     start = await session.scalar(select(Vein.remaining).where(Vein.id == vein.id))
-    _slow(monkeypatch, mining, "session_container")
+    #: Patched where the name is looked up (D-252 split), see above.
+    from src.engine.mining import face as mining_face
+
+    _slow(monkeypatch, mining_face, "session_container")
 
     async def swing(session_id: uuid.UUID) -> float:
         async with factory() as db, db.begin():
@@ -1411,3 +1469,117 @@ async def test_two_bumps_of_one_counter_lose_neither(
         assert int((again.properties or {}).get(FOUND_HERE, 0)) == 2, (
             "две разведки — два, а не одно"
         )
+
+
+async def test_two_empties_of_one_liquid_hopper_pour_each_unit_once(
+    session: AsyncSession,
+    factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The oil hopper is money-shaped (D-252): two carters emptying it at once
+    must not pour the same units into two canisters. The rig row is taken
+    `with_for_update`, so the second empties what the first left."""
+    from src.engine import rig, storage
+
+    stamp = uuid.uuid4().hex[:6]
+    node = await world.create_node(session, f"terra.oil.{stamp}", "Поле", area_m2=200)
+    vein = await world.create_vein(session, node, "crude_oil", richness=55, remaining=100_000)
+    yard = await world.node_container(session, node)
+    await world.grant_item(session, yard, "coal", amount=100, quality=55, origin="тест")
+    #: Two canisters standing in the node: together they hold more than the
+    #: hopper gave, so every pumped unit has somewhere to go.
+    vessels = [
+        await world.grant_item(session, yard, "canister", quality=60, origin="тест")
+        for _ in range(2)
+    ]
+    identity = await world.create_identity(session, f"Нефтяник-{stamp}")
+    body = await world.print_body(session, identity, node)
+    pocket = await world.body_container(session, body)
+    machine = await world.grant_item(session, pocket, "drilling_rig", quality=70, origin="тест")
+    installation = await rig.place(session, body, machine, vein)
+    #: The hopper is filled and pinned to one moment: both empties advance to
+    #: the same "now", so time adds nothing between them.
+    moment = installation.counted_at + timedelta(hours=6)
+    pumped = await rig.advance(session, current(), installation, now=moment)
+    await session.commit()
+    _slow(monkeypatch, rig, "advance")
+
+    async def take() -> float:
+        async with factory() as db, db.begin():
+            own_body = await db.get(Body, body.id)
+            own_rig = await db.get(type(installation), installation.id)
+            with contextlib.suppress(rig.NoRoom):
+                return await rig.empty_hopper(db, current(), own_body, own_rig, now=moment)
+            return 0.0
+
+    taken = await asyncio.gather(take(), take())
+
+    from src.units import amount as to_units
+
+    poured = 0
+    for vessel in vessels:
+        inside = await storage.inside(session, await session.get(Item, vessel.id))
+        rows = (
+            (await session.execute(select(Item).where(Item.container_id == inside.id)))
+            .scalars()
+            .all()
+        )
+        poured += sum(int(r.amount) for r in rows)
+    left = await session.scalar(
+        select(type(installation).hopper).where(type(installation).id == installation.id)
+    )
+    assert poured + to_units(float(left)) == to_units(pumped), (
+        "каждая единица нефти налита ровно один раз: бункер плюс тара сходятся с добытым"
+    )
+    assert poured == to_units(sum(taken)), "слито ровно столько, сколько отдано вызовами"
+
+
+async def test_two_sellers_do_not_overfill_the_tank(
+    session: AsyncSession,
+    factory: async_sessionmaker[AsyncSession],
+    constants,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The terminal's tank is finite (D-255), and the room is read before it
+    is filled: without the terminal lock two sellers pouring at once both see
+    the same room and the tank ends up holding more than its vessel."""
+    from src.constants import registry as R
+    from src.engine import storage
+    from src.engine.market import counter
+
+    stamp = uuid.uuid4().hex[:6]
+    node = await world.create_node(session, f"terra.tank.{stamp}", "Торг", area_m2=100)
+    yard = await world.node_container(session, node)
+    await world.grant_item(session, yard, "market_terminal", quality=70, origin="тест")
+
+    catalog = current_catalog()
+    unit = catalog.recipes.mass_of("lubricant")
+    cap_units = constants[R.MARKET_TANK_CAPACITY] / unit
+    each = int(cap_units * 0.7)
+
+    bodies = []
+    for i in range(2):
+        identity = await world.create_identity(session, f"Нефтяник-{i}-{stamp}")
+        body = await world.print_body(session, identity, node)
+        pocket = await world.body_container(session, body)
+        canister = await world.grant_item(session, pocket, "canister", quality=60, origin="тест")
+        inside = await storage.inside(session, canister)
+        await world.grant_item(session, inside, "lubricant", amount=each, quality=55, origin="тест")
+        bodies.append(body.id)
+    await session.commit()
+    _slow(monkeypatch, counter, "_tank_mass")
+
+    async def pour(body_id) -> float:
+        async with factory() as db, db.begin():
+            own = await db.get(Body, body_id)
+            try:
+                return await counter.load(db, constants, own, "lubricant", each)
+            except counter.TankFull:
+                return 0.0
+
+    poured = await asyncio.gather(*(pour(b) for b in bodies))
+    total_kg = sum(poured) * unit
+    assert total_kg <= constants[R.MARKET_TANK_CAPACITY] + 1e-6, (
+        "бак держит не больше своей ёмкости: второй налив увидел остаток места"
+    )
+    assert sum(poured) > 0, "первый налив прошёл"

@@ -218,7 +218,7 @@ async def produce(
             .scalars()
             .all()
         )
-        river = node.properties.get("water") == "river"
+        river = world.has_place(node, world.WATER)
 
         wheels = set(world.station_names(WHEEL))
         windmills = set(world.station_names(WINDMILL))

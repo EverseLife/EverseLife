@@ -106,6 +106,9 @@ TOUCHES: dict[str, tuple[str, ...]] = {
     "plates": ("node",),
     "utility": ("node", "money"),
     "station": ("node",),
+    #: The factory floor changed under its owner (D-253): a programme, a wire
+    #: or a payout -- the node view is where the panel reads it back.
+    "automat": ("node",),
     "storage": ("node", "inventory"),
     "explore": ("doings", "node"),
     "forage": ("doings", "inventory"),

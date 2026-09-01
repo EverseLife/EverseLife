@@ -39,16 +39,15 @@ from src.engine.ship._base import (
     orbit_node_of,
 )
 from src.engine.ship.belonging import crew_of, nodes_of
-from src.engine.ship.building import _planet_root, _spend
+from src.engine.ship.building import _planet_root
 from src.engine.ship.command import _commanded_by, _landable, _will_take
 from src.engine.ship.physics import (
     base_hours,
+    burn_checked,
     climb_hours,
     engine_class,
     fall_hours,
-    fuel_aboard,
     fuel_for,
-    fuel_stacks,
     life_support,
     mass,
     passage_hours,
@@ -177,11 +176,16 @@ async def _burn(
     #: tanks.
     need = fuel_for(constants, weight, hours, klass=klass)
     whole = fuel_for(constants, weight, hours + reserve, klass=klass)
-    have = await fuel_aboard(session, ship)
-    if have + _EPS < whole:
+    #: In reference units on both sides (D-252): the need is quoted in
+    #: rocket-fuel units, and the tanks answer with what their kinds are
+    #: worth -- kerosene closes more of it per unit than it shows. Checked
+    #: and burnt under one lock (`burn_checked`): a tank drained between the
+    #: two would otherwise let the leg fly on fuel it never paid. Burnt out
+    #: of the tanks (D-230): the engines reach nothing else.
+    burnt, have = await burn_checked(session, constants, ship, need=need, whole=whole)
+    if burnt <= 0 and have + _EPS < whole:
         raise NoFuel(key="ship-no-fuel", why=refusal, need=whole, goods=FUEL, have=have)
-    #: Burnt out of the tanks (D-230): the engines reach nothing else.
-    return await _spend(session, await fuel_stacks(session, ship), need), weight
+    return burnt, weight
 
 
 async def _cast_off(session: AsyncSession, ship: Ship, here: Node, connector: Node) -> None:
