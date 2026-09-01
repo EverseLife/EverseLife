@@ -454,3 +454,47 @@ async def test_crowding_is_measured_at_the_anchor_not_at_the_origin(
     plot = await explore.outlook(session, constants, body, goal=explore.LOT)
     assert plot is not None
     assert plot["crowding"] == 1.0
+
+
+async def test_near_search_keeps_the_find_kindred(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """Searching near drifts the find from the origin (D-262).
+
+    Temperature and rainfall stay within `explore.near_drift` of the origin's,
+    and with full kinship the terrain marks repeat it exactly. The far search
+    is the independent roll the other tests here already pin.
+    """
+    import random
+
+    stamp = uuid.uuid4().hex[:8]
+    origin = await world.create_node(
+        session,
+        f"terra.kin.{stamp}",
+        "Пойма",
+        area_m2=500,
+        properties={
+            "water": "river",
+            "fertility": 60,
+            "temperature": 20,
+            "precipitation": 80,
+            "woods": True,
+            "meadow": False,
+            "stones": False,
+        },
+    )
+    #: Full kinship, so the mark copies are deterministic and the test pins
+    #: the copy itself rather than a lucky roll.
+    kin = constants.with_overrides(
+        {"explore.near_drift": {"temperature": 5, "precipitation": 15, "kinship": 100}}
+    )
+    for seed in range(5):
+        rolled = await explore.properties(
+            session, kin, random.Random(seed), vein=False, origin=origin
+        )
+        assert abs(rolled["temperature"] - 20) <= 5, "тепло дрейфует, а не бросается заново"
+        assert abs(rolled["precipitation"] - 80) <= 15
+        assert rolled["water"] == "river"
+        assert rolled["woods"] is True
+        assert rolled["meadow"] is False
+        assert rolled["stones"] is False

@@ -77,6 +77,9 @@ export function Search({
   const names = useNames();
   const [speciesList, setSpeciesList] = useState<string[]>([]);
   const [species, setSpecies] = useState("");
+  //: Near or far (D-262): near keeps the find kindred to this place, far is
+  //: the lottery it always was. The server defaults to far when omitted.
+  const [reach, setReach] = useState<"near" | "far">("far");
   const [forecast, setForecast] = useState<Outlook | null>(null);
   //: Отдельный прогноз для леса: он сужает шанс на лесистость мира (D-191).
   const [woods, setWoods] = useState<Outlook | null>(null);
@@ -140,7 +143,7 @@ export function Search({
   if (!run && here.length === 0) return null;
 
   const seek = (goal: string, resource?: string) =>
-    act(() => session.send("explore.survey", { goal, resource }));
+    act(() => session.send("explore.survey", { goal, resource, reach }));
 
   /** The layer in the player's words, for the note that names another map. */
   const mapWord = (one: LayerId) => {
@@ -174,6 +177,14 @@ export function Search({
               them appears. Anything the server did not name would be a promised
               refusal; anything named but belonging to the other map is a line
               below rather than a button missing without explanation. */}
+          <select
+            value={reach}
+            onChange={(e) => setReach(e.target.value as "near" | "far")}
+            title={t("ui-map-search-reach-rule")}
+          >
+            <option value="far">{t("ui-map-search-far")}</option>
+            <option value="near">{t("ui-map-search-near")}</option>
+          </select>
           {goals.includes("room") && (
             <>
               <button onClick={() => seek("room")} disabled={busy}>

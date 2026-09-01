@@ -145,6 +145,18 @@ export type Look = {
     /** The place's own words, written by whoever disposes of it (D-238). */
     about?: string;
     fertility: number;
+    /**
+     * The place's climate as farming reads it (D-261): the node's mean and
+     * the planet's swing, the day's light and the rainfall. The current
+     * temperature and the night are this client's arithmetic over
+     * `look.clock` (D-225) -- alive between looks by construction.
+     * Absent where exploration never wrote a temperature -- no gate there.
+     */
+    climate?: {
+      temperature: { mean: number; swing: number };
+      light: { day: number };
+      precipitation: number;
+    } | null;
     /** Whose plot: the holder runs the estate (06-farming). */
     owner?: string;
     /** The owning city, if the land is civic: ownership is public (D-178). */

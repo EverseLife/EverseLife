@@ -32,6 +32,22 @@ export function worldTime(clock: Clock, at: Date = new Date()) {
   return { day, hour, minute };
 }
 
+/**
+ * Where in the planetary day the moment falls: 0 is midnight, 0.5 noon.
+ * The same origin the server's climate gate counts from (D-261), so the
+ * temperature drawn here agrees with the refusal said there.
+ */
+export function dayPhase(clock: Clock, at: Date = new Date()): number {
+  const { hour, minute } = worldTime(clock, at);
+  return (hour + minute / 60) / clock.day_hours;
+}
+
+/** The lit half of the planetary day: the middle two quarters (D-261). */
+export function isDay(clock: Clock, at: Date = new Date()): boolean {
+  const phase = dayPhase(clock, at);
+  return phase >= 0.25 && phase < 0.75;
+}
+
 /** "07:40" -- the hands of the local clock. */
 export function hands(clock: Clock, at: Date = new Date()): string {
   const { hour, minute } = worldTime(clock, at);
