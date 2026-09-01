@@ -74,6 +74,25 @@ async def test_mining_requires_a_pickaxe(session: AsyncSession, constants: Const
     assert refused.value.params["tool_class"] == "pickaxe"
 
 
+async def test_pick_refuses_a_liquid_vein(
+    session: AsyncSession, constants: Constants, catalog
+) -> None:
+    """A liquid vein is not worked by hand (D-252): oil is pumped by the rig,
+    and the pick has nothing to grip. Refused at the door, before any effect."""
+    stamp = uuid.uuid4().hex[:8]
+    node = await world.create_node(session, f"terra.oil.{stamp}", "Поле", area_m2=100)
+    vein = await world.create_vein(session, node, "crude_oil", richness=55, remaining=40_000)
+    identity = await world.create_identity(session, f"Бурильщик-{stamp}")
+    body = await world.print_body(session, identity, node)
+    pocket = await world.body_container(session, body)
+    await world.grant_item(session, pocket, "stone_pickaxe", quality=50, origin="сценарий теста")
+
+    with pytest.raises(mining.VeinLiquid) as refused:
+        await mining.start(session, constants, body, vein, catalog=catalog)
+    assert refused.value.key == "mining-vein-liquid"
+    assert refused.value.params["goods"] == "crude_oil"
+
+
 # --- hidden state ------------------------------------------------------------
 
 

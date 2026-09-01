@@ -190,3 +190,27 @@ forbidden_modules = [
     "src.engine.market.deal",
 ]
 allow_indirect_imports = "true"
+
+# The face, cut out of a 931-line `mining.py` that held the formulas, the
+# shift commands and the collapse at once. Same shape as the market contracts,
+# and `forbidden` for the same reason: mining sits inside engine cycles it did
+# not create -- `death` reaches back into it lazily, `rig` borrows its
+# depletion rule lazily -- so a layers contract would fail on chains that have
+# nothing to do with this cut. The stack it pins directly:
+# face -> collapse -> _base.
+[[tool.importlinter.contracts]]
+name = "The mining vocabulary asks nobody"
+type = "forbidden"
+source_modules = ["src.engine.mining._base"]
+forbidden_modules = [
+    "src.engine.mining.face",
+    "src.engine.mining.collapse",
+]
+allow_indirect_imports = "true"
+
+[[tool.importlinter.contracts]]
+name = "A collapse ends a shift and never opens one"
+type = "forbidden"
+source_modules = ["src.engine.mining.collapse"]
+forbidden_modules = ["src.engine.mining.face"]
+allow_indirect_imports = "true"

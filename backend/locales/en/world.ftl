@@ -165,6 +165,8 @@ mining-session-closed = session { $session } is closed: { $state ->
     }
 mining-session-dangling = the session points nowhere
 # $names is a list of ids: NAMES() takes it apart.
+# A liquid vein (D-252): the pick has nothing to grip.
+mining-vein-liquid = “{ NAME($goods) }” is not taken by pick: a liquid vein is pumped by the rig
 mining-no-tool = mining needs a tool of class “{ NAME($tool_class) }” ({ NAMES($names) }), and there is none in hand
 
 # --- the rig (engine/rig.py) -------------------------------------------------
@@ -175,6 +177,8 @@ rig-vein-not-here = the vein is not here: a rig is set up on the spot
 rig-not-here = the rig is not here: the hopper is hauled out on foot
 rig-not-yours = another's rig: hauling out goes by contract with the owner
 
+# A liquid hopper (D-252): pours only into vessels, the remainder waits in the hopper.
+rig-liquid-no-room = nowhere to pour “{ NAME($goods) }”: bring a vessel with room, in hand or in the node
 # --- Precursor ruins (engine/ruins.py) ---------------------------------------
 
 ruins-no-relic-of-class = the registry has no relic of class “{ NAME($thing_class) }”

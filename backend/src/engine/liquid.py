@@ -138,6 +138,49 @@ async def free_in(session: AsyncSession, catalog: Catalog, vessel: Item) -> floa
     return limit - await storage.stored_mass(session, catalog, vessel)
 
 
+async def fill(
+    session: AsyncSession,
+    catalog: Catalog,
+    item: Item,
+    containers: Sequence[Container],
+) -> float:
+    """Pour as much of a liquid stack as fits into the vessels within reach.
+
+    `item` lies in some container already; it is moved into vessels in the
+    order of `containers` -- the pocket first, then the yard. The remainder
+    **stays in the stack**, and disposing of it is the caller's decision: a
+    batch spills it (`settle`), the rig puts it back into the hopper (D-252)
+    -- a loose liquid stack must not outlive the caller either way. A thing
+    that is not a liquid is left where it is, untouched.
+
+    Returns what was poured.
+    """
+    if not is_liquid(catalog, item.type_key):
+        return 0.0
+    unit = catalog.recipes.mass_of(item.type_key)
+    before = amount_float(item.amount)
+    for container in containers:
+        for vessel in await vessels_in(session, catalog, container):
+            if item.amount <= 0:
+                break
+            #: Under lock, like `pour`: the worker finishing a batch and the
+            #: owner filling the same canister must not both see it half empty.
+            await _lock(session, vessel)
+            room = await free_in(session, catalog, vessel)
+            have = amount_float(item.amount)
+            fits = have if unit <= 0 else min(have, room / unit)
+            if fits * AMOUNT_SCALE < 1:
+                continue
+            inside = await storage.inside(session, vessel)
+            #: `move_stack` copies the stack's whole identity into the vessel
+            #: and folds it with a twin already there (D-214). The whole stack
+            #: gone over -- nothing left behind.
+            await world.move_stack(session, item, inside, fits)
+            if item.container_id == inside.id:
+                return before
+    return before - amount_float(item.amount)
+
+
 async def settle(
     session: AsyncSession,
     catalog: Catalog,
@@ -154,27 +197,10 @@ async def settle(
     """
     if not is_liquid(catalog, item.type_key):
         return 0.0
-    unit = catalog.recipes.mass_of(item.type_key)
-    for container in containers:
-        for vessel in await vessels_in(session, catalog, container):
-            if item.amount <= 0:
-                break
-            #: Under lock, like `pour`: the worker finishing a batch and the
-            #: owner filling the same canister must not both see it half empty.
-            await _lock(session, vessel)
-            room = await free_in(session, catalog, vessel)
-            have = amount_float(item.amount)
-            fits = have if unit <= 0 else min(have, room / unit)
-            if fits * AMOUNT_SCALE < 1:
-                continue
-            inside = await storage.inside(session, vessel)
-            #: `move_stack` copies the stack's whole identity into the vessel
-            #: and folds it with a twin already there (D-214). The whole stack
-            #: gone over -- nothing spilled.
-            await world.move_stack(session, item, inside, fits)
-            if item.container_id == inside.id:
-                return 0.0
-    spilled = amount_float(item.amount)
+    before = amount_float(item.amount)
+    #: What did not pour is what spills -- never the stack's own amount: a
+    #: stack that went in whole still carries it, only inside a vessel now.
+    spilled = before - await fill(session, catalog, item, containers)
     if spilled > 0:
         await session.delete(item)
         await session.flush()

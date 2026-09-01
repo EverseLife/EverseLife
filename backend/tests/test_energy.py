@@ -323,3 +323,24 @@ async def test_foreign_battery_in_other_node_not_chargeable(
 
     with pytest.raises(energy.BatteryError):
         await energy.charge_battery(session, constants, body, foreign_)
+
+
+async def test_fuel_plant_burns_petroleum_coke_too(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """What burns is data (D-215): the coke of D-252 carries `fuel: 90`, and
+    the same coal plant eats it with no engine change -- denser than coal,
+    so the same draw yields nearly twice the energy."""
+    _, yard, _, _ = await _city(session)
+    await _place(session, yard, "coal_plant")
+    await _place(session, yard, "petroleum_coke", qty=100)
+
+    moment = datetime.now(UTC)
+    pool = await energy.pool_of(session, constants, yard)
+    pool.counted_at = moment - timedelta(hours=2)
+    yielded = await energy.produce(session, constants, pool, now=moment)
+
+    burned = constants[R.ENERGY_COAL_PLANT_FUEL_DRAW] * 2
+    per_coke = constants[R.ENERGY_FUEL_ENERGY]["petroleum_coke"]
+    assert per_coke > constants[R.ENERGY_FUEL_ENERGY]["coal"], "кокс плотнее угля"
+    assert yielded == pytest.approx(burned * per_coke, rel=0.01)

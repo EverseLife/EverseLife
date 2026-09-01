@@ -56,8 +56,9 @@ class Material(Strict):
     edible: bool = False
     #: Units per hour of labour; also the vein weight for minerals.
     rate: float | None = None
-    #: {finds, handful} -- present when the thing lies on the surface (D-210).
-    forage: dict[str, float] | None = None
+    #: {finds, handful, place} -- present when the thing lies on the surface
+    #: (D-210). `place` is a node-property word (D-254), the rest are numbers.
+    forage: dict[str, float | str] | None = None
     #: Energy per unit when burned. Present -- the thing is a fuel (D-215).
     fuel: float | None = None
     #: A relic of the Forerunners (D-232): found, never made. It is not taken

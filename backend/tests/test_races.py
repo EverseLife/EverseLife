@@ -17,7 +17,7 @@ import contextlib
 import random
 import uuid
 from collections.abc import AsyncIterator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
@@ -242,10 +242,14 @@ async def test_death_and_leaving_one_face_do_not_both_carry_the_haul(
     the invariant that must hold afterwards, not the thing the lock buys.
     """
     from src.engine import death, mining, plates
+    from src.engine.mining import face as mining_face
     from src.models.mining import MiningSession, Pace, SessionState
     from src.models.world import Layer, Planet
 
-    _slow(monkeypatch, mining, "session_container")
+    #: Patched where the name is looked up (D-252 split): `face` binds
+    #: `session_container` into its own globals, so slowing the package
+    #: re-export would slow nobody.
+    _slow(monkeypatch, mining_face, "session_container")
     stamp = uuid.uuid4().hex[:8]
     sphere = await world.create_node(
         session, "pyroxis", "Пироксис", planet=Planet.PYROXIS, area_m2=1, layer=Layer.SPACE
@@ -964,7 +968,10 @@ async def test_two_swings_on_one_vein_do_not_mine_the_same_ore_twice(
         sessions.append((await mining.start(session, current(), body, vein)).id)
     await session.commit()
     start = await session.scalar(select(Vein.remaining).where(Vein.id == vein.id))
-    _slow(monkeypatch, mining, "session_container")
+    #: Patched where the name is looked up (D-252 split), see above.
+    from src.engine.mining import face as mining_face
+
+    _slow(monkeypatch, mining_face, "session_container")
 
     async def swing(session_id: uuid.UUID) -> float:
         async with factory() as db, db.begin():
@@ -1285,3 +1292,66 @@ async def test_two_bumps_of_one_counter_lose_neither(
         assert int((again.properties or {}).get(FOUND_HERE, 0)) == 2, (
             "две разведки — два, а не одно"
         )
+
+
+async def test_two_empties_of_one_liquid_hopper_pour_each_unit_once(
+    session: AsyncSession,
+    factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The oil hopper is money-shaped (D-252): two carters emptying it at once
+    must not pour the same units into two canisters. The rig row is taken
+    `with_for_update`, so the second empties what the first left."""
+    from src.engine import rig, storage
+
+    stamp = uuid.uuid4().hex[:6]
+    node = await world.create_node(session, f"terra.oil.{stamp}", "Поле", area_m2=200)
+    vein = await world.create_vein(session, node, "crude_oil", richness=55, remaining=100_000)
+    yard = await world.node_container(session, node)
+    await world.grant_item(session, yard, "coal", amount=100, quality=55, origin="тест")
+    #: Two canisters standing in the node: together they hold more than the
+    #: hopper gave, so every pumped unit has somewhere to go.
+    vessels = [
+        await world.grant_item(session, yard, "canister", quality=60, origin="тест")
+        for _ in range(2)
+    ]
+    identity = await world.create_identity(session, f"Нефтяник-{stamp}")
+    body = await world.print_body(session, identity, node)
+    pocket = await world.body_container(session, body)
+    machine = await world.grant_item(session, pocket, "drilling_rig", quality=70, origin="тест")
+    installation = await rig.place(session, body, machine, vein)
+    #: The hopper is filled and pinned to one moment: both empties advance to
+    #: the same "now", so time adds nothing between them.
+    moment = installation.counted_at + timedelta(hours=6)
+    pumped = await rig.advance(session, current(), installation, now=moment)
+    await session.commit()
+    _slow(monkeypatch, rig, "advance")
+
+    async def take() -> float:
+        async with factory() as db, db.begin():
+            own_body = await db.get(Body, body.id)
+            own_rig = await db.get(type(installation), installation.id)
+            with contextlib.suppress(rig.NoRoom):
+                return await rig.empty_hopper(db, current(), own_body, own_rig, now=moment)
+            return 0.0
+
+    taken = await asyncio.gather(take(), take())
+
+    from src.units import amount as to_units
+
+    poured = 0
+    for vessel in vessels:
+        inside = await storage.inside(session, await session.get(Item, vessel.id))
+        rows = (
+            (await session.execute(select(Item).where(Item.container_id == inside.id)))
+            .scalars()
+            .all()
+        )
+        poured += sum(int(r.amount) for r in rows)
+    left = await session.scalar(
+        select(type(installation).hopper).where(type(installation).id == installation.id)
+    )
+    assert poured + to_units(float(left)) == to_units(pumped), (
+        "каждая единица нефти налита ровно один раз: бункер плюс тара сходятся с добытым"
+    )
+    assert poured == to_units(sum(taken)), "слито ровно столько, сколько отдано вызовами"
