@@ -104,6 +104,10 @@ FARM_PLOT_OVERHEAD = Num("farm.plot_overhead")
 FARM_WATER_PER_M2 = Num("farm.water_per_m2")
 FARM_NEGLECT_PENALTY = Num("farm.neglect_penalty")
 FARM_SOIL_DEPLETION = Num("farm.soil_depletion")
+#: Extra depletion for a repeat of the same crop in a row (D-256).
+FARM_MONOCULTURE_PENALTY = Num("farm.monoculture_penalty")
+#: Ceiling of the fertility/required ratio: rich land is an edge, not a multiplier (D-256).
+FARM_SOIL_SHARE_CAP = Num("farm.soil_share_cap")
 FARM_FALLOW_RECOVERY = Num("farm.fallow_recovery")
 
 # --- Wear (D-129) -----------------------------------------------------------

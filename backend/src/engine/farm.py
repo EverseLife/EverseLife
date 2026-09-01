@@ -29,18 +29,24 @@ neglect shows.
 
 **Harvest.** "Proportional to area, fertility and care quality":
 
-    yield = area * yield_per_m2 * (fertility / required) * care share
+    yield = area * yield_per_m2 * soil share * care share
+    soil share = min(fertility / required, farm.soil_share_cap)  (D-256)
     care share = 1 - neglect_penalty * skipped days / 100  (not below zero)
+
+The soil share is capped: rich land is an edge, not a multiplier, otherwise
+the degenerate optimum is the least demanding crop on the best land (OQ-107).
 
 `yield_per_m2` is not set by hand -- the vault derived it from `harvest.rates`
 (D-136), and the engine takes it ready. Harvest quality is fertility taken by
 the care share: tended land gives what is in it, neglected land gives worse.
 
-**Depletion.** `farm.soil_depletion` for each cycle of **the same crop** in a
-row: monoculture eats the land, rotation does not. A restoring crop returns
-its `restores_fertility` from the data (beans), fallow recovers by
-`farm.fallow_recovery` per idle day, credited by elapsed time on the next
-action -- the land needs no tick, like sleep.
+**Depletion.** `farm.soil_depletion` for **every** harvest, whatever the crop;
+a repeat of the same crop in a row adds `farm.monoculture_penalty` on top
+(D-256): monoculture eats the land twice as fast, but rotation is not free
+either -- otherwise alternating two crops was a perpetual motion machine.
+A restoring crop returns its `restores_fertility` from the data (beans),
+fallow recovers by `farm.fallow_recovery` per idle day, credited by elapsed
+time on the next action -- the land needs no tick, like sleep.
 
 ## Honest simplifications of this version
 
@@ -408,7 +414,11 @@ async def harvest(
     #: Skipped care days cut the harvest but do not zero it.
     missed = max(0, int(cycle) - plot.care_credits)
     care_share = max(0.0, 1 - constants[R.FARM_NEGLECT_PENALTY] * missed / PERCENT)
-    soil_share = fertility / float(signs.get("fertility", plant.requires.fertility))
+    #: Capped above: rich land is an edge, not a multiplier (D-256).
+    soil_share = min(
+        fertility / float(signs.get("fertility", plant.requires.fertility)),
+        constants[R.FARM_SOIL_SHARE_CAP] / PERCENT,
+    )
 
     got = (
         area
@@ -448,8 +458,11 @@ async def harvest(
             session, catalog, pocket.id, variety, seed_amount, seed_strength, now=moment
         )
 
-    #: The land remembers what grew on it: monoculture eats it, rotation does not.
-    depletion = constants[R.FARM_SOIL_DEPLETION] if plot.last_culture == plant.id else 0.0
+    #: Every harvest takes from the land; the land remembers what grew on it,
+    #: and a repeat of the same crop takes extra (D-256).
+    depletion = constants[R.FARM_SOIL_DEPLETION] + (
+        constants[R.FARM_MONOCULTURE_PENALTY] if plot.last_culture == plant.id else 0.0
+    )
     restored = plant.restores_fertility
     plot.fertility = Decimal(str(max(SCALE_MIN, min(SCALE_MAX, fertility - depletion + restored))))
     plot.same_culture_cycles = plot.same_culture_cycles + 1 if plot.last_culture == plant.id else 1

@@ -8,7 +8,8 @@ Checked is what the system is built this way for:
 * land is finite: the sum of plots is no more than the node's area;
 * the cycle is honest: not ploughed -- cannot sow, not ripe -- cannot harvest;
 * neglect cuts the harvest by `farm.neglect_penalty` per day but does not zero it;
-* monoculture depletes, beans restore, fallow heals over time;
+* rich land is an edge, not a multiplier: the soil share is capped (D-256);
+* every harvest depletes, monoculture doubly; beans restore, fallow heals over time;
 * redrawing borders does not heal the land: inheritance on split and merge;
 * by a river one waters from the river, in a dry place water is carried by hand.
 """
@@ -32,6 +33,9 @@ from src.units import amount_float
 
 SPELT = "spelt"
 BEANS = "beans"
+#: The least demanding crop of the catalog: its fertility norm is 10, which is
+#: exactly what made the uncapped soil share a tenfold multiplier (OQ-107).
+BROME = "brome"
 
 
 async def _farmstead(
@@ -201,9 +205,16 @@ async def test_sowing_spends_seeds(
 async def test_harvest_from_vault_formula(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Area x derived yield x fertility x care -- and nothing beyond."""
-    _, _, body = await _farmstead(session, fertility=55)
+    """Area x derived yield x fertility x care -- and nothing beyond.
+
+    Fertility sits below the crop's norm on purpose: this test pins the
+    proportional branch of the soil share, the cap has its own test below.
+    """
+    _, _, body = await _farmstead(session, fertility=40)
     plant = catalog.plants.by_id(SPELT)
+    assert 40 / plant.requires.fertility < constants[R.FARM_SOIL_SHARE_CAP] / 100, (
+        "тесту нужна доля ниже потолка, иначе пропорциональность не проверена"
+    )
     plot = await _ready(session, constants, catalog, body, area=10)
 
     #: Full care: we do the round every day of the cycle.
@@ -215,7 +226,7 @@ async def test_harvest_from_vault_formula(
     collected = await farm.harvest(session, constants, catalog, body, plot, now=ripeness)
     await session.commit()
 
-    expected = 10 * plant.yield_per_m2 * (55 / plant.requires.fertility)
+    expected = 10 * plant.yield_per_m2 * (40 / plant.requires.fertility)
     assert collected == pytest.approx(expected, rel=0.01)
 
     #: The collected stack is not a seed sack: we search by harvest quality,
@@ -231,7 +242,7 @@ async def test_harvest_from_vault_formula(
         .all()
     )
     qualities = {None if s.quality is None else float(s.quality) for s in stacks}
-    assert 55.0 in qualities, f"среди стопок нет урожая: {qualities}"
+    assert 40.0 in qualities, f"среди стопок нет урожая: {qualities}"
 
 
 async def test_neglect_cuts_but_does_not_zero(
@@ -247,7 +258,8 @@ async def test_neglect_cuts_but_does_not_zero(
     abandoned = await farm.harvest(session, constants, catalog, body, plot, now=ripeness)
 
     share = 1 - constants[R.FARM_NEGLECT_PENALTY] * plant.cycle_days / 100
-    full = 10 * plant.yield_per_m2 * (55 / plant.requires.fertility)
+    soil = min(55 / plant.requires.fertility, constants[R.FARM_SOIL_SHARE_CAP] / 100)
+    full = 10 * plant.yield_per_m2 * soil
     assert abandoned == pytest.approx(max(0.0, full * share), rel=0.01)
 
 
@@ -294,24 +306,31 @@ async def test_monoculture_depletes_and_beans_restore(
     plot = await _ready(session, constants, catalog, body, area=10)
     moment = farm.ripe_at(constants, plot, plant)
 
-    #: First cycle: the crop changed (from "nothing"), no depletion.
+    #: First cycle takes too: every harvest costs the land (D-256), otherwise
+    #: alternating two crops was a perpetual motion machine.
     await farm.harvest(session, constants, catalog, body, plot, now=moment)
-    assert float(plot.fertility) == pytest.approx(55)
+    assert float(plot.fertility) == pytest.approx(55 - constants[R.FARM_SOIL_DEPLETION])
 
-    #: Second cycle of the same crop in a row -- depletion.
+    #: Second cycle of the same crop in a row -- the monoculture extra on top.
     plot.state = PlotState.PLOWED
     plot.idle_since = None
     await session.flush()
     more = await _grain(session, body, catalog, SPELT)
     await farm.sow(session, constants, catalog, body, plot, more, now=moment)
     moment = farm.ripe_at(constants, plot, plant)
+    before = float(plot.fertility)
     await farm.harvest(session, constants, catalog, body, plot, now=moment)
-    assert float(plot.fertility) == pytest.approx(55 - constants[R.FARM_SOIL_DEPLETION])
+    assert float(plot.fertility) == pytest.approx(
+        before - constants[R.FARM_SOIL_DEPLETION] - constants[R.FARM_MONOCULTURE_PENALTY]
+    )
     assert plot.same_culture_cycles == 2
 
-    #: Beans return their `restores_fertility` from the data.
+    #: Beans return their `restores_fertility` from the data -- net of the
+    #: depletion every harvest pays, so rotation costs something too.
     beans = catalog.plants.by_id(BEANS)
-    assert beans.restores_fertility > 0, "иначе севообороту не на чем держаться"
+    assert beans.restores_fertility > constants[R.FARM_SOIL_DEPLETION], (
+        "иначе севообороту не на чем держаться"
+    )
     plot.state = PlotState.PLOWED
     plot.idle_since = None
     await session.flush()
@@ -320,8 +339,35 @@ async def test_monoculture_depletes_and_beans_restore(
     moment = farm.ripe_at(constants, plot, beans)
     before = float(plot.fertility)
     await farm.harvest(session, constants, catalog, body, plot, now=moment)
-    assert float(plot.fertility) == pytest.approx(before + beans.restores_fertility)
+    assert float(plot.fertility) == pytest.approx(
+        before + beans.restores_fertility - constants[R.FARM_SOIL_DEPLETION]
+    )
     assert plot.same_culture_cycles == 1
+
+
+async def test_rich_land_is_an_edge_not_a_multiplier(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The soil share is capped (D-256).
+
+    Before the cap the least demanding crop on the best land beat everything
+    tenfold: the playtest reaped 189.5 of hay against the nominal 18.95 (OQ-107).
+    """
+    _, _, body = await _farmstead(session, fertility=100)
+    plant = catalog.plants.by_id(BROME)
+    assert 100 / plant.requires.fertility > constants[R.FARM_SOIL_SHARE_CAP] / 100, (
+        "тесту нужен запас плодородия над нормой, иначе потолок не виден"
+    )
+    plot = await _ready(session, constants, catalog, body, culture=BROME)
+
+    sown = plot.sown_at
+    for day_ in range(int(plant.cycle_days)):
+        await farm.care(session, constants, body, plot, now=sown + _day(constants) * day_)
+
+    ripeness = farm.ripe_at(constants, plot, plant)
+    collected = await farm.harvest(session, constants, catalog, body, plot, now=ripeness)
+    expected = 10 * plant.yield_per_m2 * constants[R.FARM_SOIL_SHARE_CAP] / 100
+    assert collected == pytest.approx(expected, rel=0.01)
 
 
 async def test_fallow_heals_over_time(
