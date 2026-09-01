@@ -270,8 +270,16 @@ def account_of(name: str) -> dict:
 async def buildings(session: AsyncSession) -> None:
     """Place a building wherever a machine or furniture stands and there is no building.
 
-    Idempotent: a second run adds nothing. The area is the whole plot: the
-    city's built-up area is the building, it has no yard.
+    Idempotent: a second run adds nothing.
+
+    **The area is the whole plot only inside a city** (D-254). A forge is its
+    plot -- the city's built-up area is the building, and it has no yard. Open
+    land is the other way round: a hearth by the river is a hearth, not a wall
+    across the meadow, and roofing the whole node over left the world's one
+    river-fed field with nothing to plough. Outside a city the building is cut
+    to what stands in it -- `build.slots_per_area` per machine, never below
+    `build.area_min` -- and the rest of the plot stays yard: beds (D-246) and
+    ground to walk over (D-210).
     """
 
     book = current_catalog().recipes
@@ -284,6 +292,7 @@ async def buildings(session: AsyncSession) -> None:
         )
     ).all()
     furnished: dict[str, Node] = {}
+    standing: dict[str, int] = {}
     for node, thing in rows:
         try:
             recipe = book.recipe(thing)
@@ -291,9 +300,23 @@ async def buildings(session: AsyncSession) -> None:
             continue
         if recipe.kind in (ItemKind.STATION, ItemKind.FURNITURE):
             furnished[node.key] = node
-    for node in furnished.values():
-        if await estate.built_area(session, node) <= 0:
-            session.add(Building(node_id=node.id, area_m2=float(node.area_m2)))
+            standing[node.key] = standing.get(node.key, 0) + 1
+    constants = current()
+    for key, node in furnished.items():
+        if await estate.built_area(session, node) > 0:
+            continue
+        whole = float(node.area_m2)
+        if node.owner_city_id is None:
+            #: Room for what stands here and no more. The cap is the plot
+            #: itself: a machine cannot be roofed with land the node has not got.
+            whole = min(
+                whole,
+                max(
+                    constants[R.BUILD_AREA_MIN],
+                    standing[key] * constants[R.BUILD_SLOTS_PER_AREA],
+                ),
+            )
+        session.add(Building(node_id=node.id, area_m2=whole))
     await session.flush()
 
 

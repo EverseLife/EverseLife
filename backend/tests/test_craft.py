@@ -207,7 +207,9 @@ def test_stone_axe_ladder_needs_no_tools(catalog: Catalog, constants: Constants)
     """
     from src.engine import forage
 
-    found = forage.finds(constants)
+    #: The whole surface, not one place's share: what the ladder needs is
+    #: that these lie about somewhere at all (D-254 binds each to its mark).
+    found = forage.whole_table(constants)
     for output in ("wood", "stone", "flax"):
         assert output in found, f"{output} должен находиться собирательством"
 

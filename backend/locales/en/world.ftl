@@ -85,7 +85,8 @@ breed-body-off-node = the body is outside a node
 
 # --- gathering (engine/forage.py) --------------------------------------------
 
-forage-empty-table = nothing to look for here: the find table is empty
+forage-nothing-here = nothing lies on this land: { $node } is bare ground, and a walk turns up what a place grows or is made of
+forage-nowhere-to-pour = nothing to take the { NAME($goods) } in: a liquid lives only in a vessel
 forage-dead-gathers = a dead body gathers nothing
 forage-already-searching = a search is already under way: wait for the find or finish it
 forage-body-off-node = the body stands nowhere
@@ -164,9 +165,9 @@ mining-session-closed = session { $session } is closed: { $state ->
        *[active] the face is still worked
     }
 mining-session-dangling = the session points nowhere
-# $names is a list of ids: NAMES() takes it apart.
 # A liquid vein (D-252): the pick has nothing to grip.
 mining-vein-liquid = “{ NAME($goods) }” is not taken by pick: a liquid vein is pumped by the rig
+# $names is a list of ids: NAMES() takes it apart.
 mining-no-tool = mining needs a tool of class “{ NAME($tool_class) }” ({ NAMES($names) }), and there is none in hand
 
 # --- the rig (engine/rig.py) -------------------------------------------------
@@ -176,9 +177,9 @@ rig-not-a-rig = “{ NAME($goods) }” is not a drilling rig
 rig-vein-not-here = the vein is not here: a rig is set up on the spot
 rig-not-here = the rig is not here: the hopper is hauled out on foot
 rig-not-yours = another's rig: hauling out goes by contract with the owner
-
 # A liquid hopper (D-252): pours only into vessels, the remainder waits in the hopper.
 rig-liquid-no-room = nowhere to pour “{ NAME($goods) }”: bring a vessel with room, in hand or in the node
+
 # --- Precursor ruins (engine/ruins.py) ---------------------------------------
 
 ruins-no-relic-of-class = the registry has no relic of class “{ NAME($thing_class) }”

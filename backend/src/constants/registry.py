@@ -13,7 +13,7 @@ is already wired up and what is not yet.
 
 from __future__ import annotations
 
-from src.constants.spec import Book, Flag, FormulaRef, Num, Span, Spec, Table, Tiers
+from src.constants.spec import Book, Flag, FormulaRef, Num, Span, Spec, Table, Tiers, Words
 
 # --- Time and tick ----------------------------------------------------------
 TIME_TICK = Num("time.tick")
@@ -426,6 +426,10 @@ FORAGE_REFERENCE_AREA = Num("forage.reference_area")
 FORAGE_FINDS = Table("forage.finds")
 #: How many units one find brings, by thing. Same keys as `forage.finds`.
 FORAGE_HANDFUL = Table("forage.handful")
+#: The place mark a find lies under (D-254): a subset of `forage.finds`, and a
+#: thing missing from it lies everywhere. The land's marks decide what a walk
+#: over it can turn up at all -- stone on stony ground, water by the river.
+FORAGE_PLACE = Words("forage.place")
 #: A search never goes faster than this many seconds, however much land.
 FORAGE_SEARCH_FLOOR = Num("forage.search_floor")
 #: Spread of one search's length around the computed one.

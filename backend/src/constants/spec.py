@@ -142,6 +142,26 @@ class Table(Spec):
 
 
 @dataclass(frozen=True, slots=True)
+class Words(Spec):
+    """A map `name -> word`: not every table is numbers.
+
+    `forage.place` says where a find lies, and the answer is a place mark
+    rather than a quantity (D-254). Read apart from `Table` on purpose: a
+    table of numbers that quietly admitted a string would stop being one.
+    """
+
+    def read(self, raw: Any) -> dict[str, str]:
+        if not isinstance(raw, dict):
+            raise self._fail(raw, "a map of name to word")
+        out: dict[str, str] = {}
+        for name, value in raw.items():
+            if not isinstance(value, str) or not value:
+                raise self._fail(raw, f"a non-empty word under {name!r}")
+            out[str(name)] = value
+        return out
+
+
+@dataclass(frozen=True, slots=True)
 class Book(Spec):
     """A map `name -> (part -> number)`: a named composition, not one number.
 

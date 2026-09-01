@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import logging
 import random
+import uuid
+from decimal import Decimal
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,13 +28,15 @@ from src import seed_parts as parts
 from src import seed_world
 from src.constants import current, current_catalog
 from src.constants import registry as R
+from src.constants.catalog import ItemKind
 from src.engine import account as accounts
 from src.engine import city as town
 from src.engine import death, energy, estate, explore, places, props, ship, tick, travel, utility
 from src.models.city import City
 from src.models.estate import Building, Deed
+from src.models.event import Event, EventKind
 from src.models.identity import Account, Identity
-from src.models.inventory import Item
+from src.models.inventory import Container, ContainerKind, Item
 from src.models.ship import Ship
 from src.models.world import Edge, Layer, Node, Surface
 from src.seed_surfaces import surfaces
@@ -254,6 +258,12 @@ async def catch_up(session: AsyncSession, core: Node) -> None:
     #: (D-106), and nodes furnished before buildings get them retroactively.
     await parts.buildings(session)
 
+    #: Roofs pulled back off open land (D-254). The rule that a building is
+    #: the whole plot belongs inside a city; applied beyond the walls it
+    #: roofed the world's one river-fed field over, and no bed could ever be
+    #: marked on it. Only shrinking, and only where nothing was built since.
+    await _unroof_open_land(session, constants)
+
     #: Soil under the city's plots (D-246). A plot laid or found before the
     #: rule arrived with its mark alone, and an absent property reads as nought:
     #: every plot inside every city was barren rock and grew nothing. Rolled
@@ -359,6 +369,97 @@ async def _soil(session: AsyncSession, constants, scenario: seed_world.Scenario)
     if given:
         await session.flush()
         log.info("soil given to %s city plots", given)
+
+
+async def _unroof_open_land(session: AsyncSession, constants) -> None:
+    """Cut a building outside a city back to what stands in it (D-254).
+
+    The seed used to roof any node holding a machine over completely -- true
+    of a forge, which *is* its plot, and false of a hearth by a river, which
+    left `terra.floodplain` with nought free and unfarmable for good.
+
+    **Only a roof the seed itself laid.** Beyond the walls anybody may build
+    (`station.may_build` allows it on unowned land), and a house that covers
+    its whole plot is an ordinary, legal house -- so "whole-node building on
+    open ground" describes a player's home just as well as a seeded roof, and
+    the two are told apart by the one thing that differs: a house somebody
+    raised was raised by a job, and that job wrote `BUILDING_BUILT`. A seeded
+    roof never passed through one and has no such event.
+
+    Three further guards, each for a shape that is a whole-node building for a
+    reason of its own: a cabin aboard a ship is its hull (D-234); a house of
+    more than one storey holds `area = footprint * floors`, an invariant this
+    step does not know how to keep; and a node with nothing standing in it was
+    never roofed by `buildings()` to begin with.
+    """
+    #: Nodes whose building somebody built. Read once: this runs at every
+    #: deploy, and asking per row would grow with the world.
+    built = set(
+        (
+            await session.execute(
+                select(Event.node_id).where(Event.kind == EventKind.BUILDING_BUILT.value)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    roofed = (
+        await session.execute(
+            select(Node, Building)
+            .join(Building, Building.node_id == Node.id)
+            .where(
+                Node.owner_city_id.is_(None),
+                Building.area_m2 == Node.area_m2,
+                Building.floors == 1,
+            )
+        )
+    ).all()
+    #: Machines by node in one pass, the same count `buildings()` lays roofs by.
+    book = current_catalog().recipes
+    standing: dict[uuid.UUID, int] = {}
+    for node_id, thing in (
+        await session.execute(
+            select(Container.owner_id, Item.type_key)
+            .join(Item, Item.container_id == Container.id)
+            .where(
+                Container.kind == ContainerKind.NODE,
+                #: Only the candidates. Every thing in every node of the world
+                #: is a scan that grows with the players, and it runs at every
+                #: deploy for the sake of a handful of rows.
+                Container.owner_id.in_([node.id for node, _ in roofed]),
+            )
+        )
+    ).all():
+        try:
+            recipe = book.recipe(thing)
+        except Exception:  # noqa: BLE001 -- raw material at the machine has no recipe
+            continue
+        if recipe.kind in (ItemKind.STATION, ItemKind.FURNITURE):
+            standing[node_id] = standing.get(node_id, 0) + 1
+
+    cut = 0
+    for node, building in roofed:
+        if node.id in built or ship.is_aboard(node) or estate.storey_of(node) is not None:
+            continue
+        if not standing.get(node.id):
+            continue
+        want = min(
+            float(node.area_m2),
+            max(
+                constants[R.BUILD_AREA_MIN],
+                standing[node.id] * constants[R.BUILD_SLOTS_PER_AREA],
+            ),
+        )
+        if want >= float(building.area_m2):
+            continue
+        building.area_m2 = Decimal(str(want))
+        #: One storey, so the footprint is the area: it is what the plot is
+        #: measured against (D-125), and leaving it whole would free nothing.
+        building.footprint_m2 = Decimal(str(want))
+        cut += 1
+    if cut:
+        await session.flush()
+        log.info("roofs cut back on %s nodes of open land", cut)
 
 
 async def _storeys(session: AsyncSession, constants) -> None:

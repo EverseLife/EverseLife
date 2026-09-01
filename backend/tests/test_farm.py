@@ -481,3 +481,27 @@ async def test_civic_plot_is_handed_over_once(
         await world.grant_node(session, civic, other)
     with pytest.raises(farm.NotYours):
         await farm.mark(session, constants, other_body, name="чужая", area=10)
+
+
+async def test_a_riverside_bed_is_not_asked_to_carry_water(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """By a river the round takes water from the river (D-126), so the window
+    must not name a load of it. On dry ground the same window must."""
+    from src.models.identity import KnowledgeKind
+
+    wet, identity, body = await _farmstead(session, water="river")
+    await world.learn(session, identity, SPELT, kind=KnowledgeKind.AGROTECH)
+    await _ready(session, constants, catalog, body, area=20)
+
+    dry, _, _ = await _farmstead(session, water="none")
+    dry.owner_identity_id = identity.id
+    body.node_id = dry.id
+    await session.flush()
+    await _ready(session, constants, catalog, body, area=20)
+
+    rows = {
+        row["node_key"]: row for row in await farm.survey(session, constants, catalog, identity.id)
+    }
+    assert "water_need" not in rows[wet.key], "у реки воду не носят"
+    assert rows[dry.key]["water_need"] > 0, "в сухом месте носят, и сколько — надо сказать"

@@ -375,6 +375,17 @@ class PlantCatalog(Strict):
                 return plant
         raise ConstantError(f"нет культуры {plant_id!r} в build/plants.json")
 
+    def by_seed(self, type_key: str) -> Plant | None:
+        """The crop these seeds sow, or None if the goods are not a seed at all.
+
+        Asked by whatever meets a stack before knowing what it is -- a find on
+        the ground (D-254) -- so a miss is an answer, not an error.
+        """
+        for plant in self.plants:
+            if plant.seed == type_key:
+                return plant
+        return None
+
 
 class CharterOption(Strict):
     id: str

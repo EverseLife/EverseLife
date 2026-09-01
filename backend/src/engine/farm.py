@@ -336,7 +336,7 @@ async def care(
         raise WrongState(key="farm-cared-today")
 
     node = await session.get(Node, plot.node_id)
-    if node is None or node.properties.get("water") != "river":
+    if not world.has_place(node, world.WATER):
         need = amount(constants[R.FARM_WATER_PER_M2] * float(plot.area_m2))
         await _consume(
             session,
@@ -570,7 +570,7 @@ async def survey(
     now = datetime.now(UTC)
     plots = (
         await session.execute(
-            select(Plot, Node.name, Node.key)
+            select(Plot, Node)
             .join(Node, Node.id == Plot.node_id)
             .where(Plot.owner_identity_id == identity_id)
             .order_by(Plot.created_at)
@@ -578,12 +578,12 @@ async def survey(
     ).all()
 
     out: list[dict] = []
-    for plot, node_name, node_key in plots:
+    for plot, node in plots:
         row: dict = {
             "id": str(plot.id),
             "name": plot.name,
-            "node": node_name,
-            "node_key": node_key,
+            "node": node.name,
+            "node_key": node.key,
             "area": float(plot.area_m2),
             "state": plot.state.value,
             "fertility": float(plot.fertility),
@@ -629,7 +629,13 @@ async def survey(
                 row["missed_days"] = skipped
                 row["cycle_days"] = cycle
                 row["fertility_required"] = fertility_needed
-                row["water_need"] = constants[R.FARM_WATER_PER_M2] * float(plot.area_m2)
+                #: Only where it is actually carried (D-126). By a river the
+                #: round takes water from the river, and telling the farmer to
+                #: bring seventy-five of it was the window asking for work the
+                #: engine does not ask for -- the same number `care` refuses by
+                #: when there is no river, said where there is one.
+                if not world.has_place(node, world.WATER):
+                    row["water_need"] = constants[R.FARM_WATER_PER_M2] * float(plot.area_m2)
             else:
                 #: The engine names the sign, the client picks the word: a
                 #: symptom is what is seen, not what is computed.

@@ -138,6 +138,27 @@ async def free_in(session: AsyncSession, catalog: Catalog, vessel: Item) -> floa
     return limit - await storage.stored_mass(session, catalog, vessel)
 
 
+async def room_for(
+    session: AsyncSession, catalog: Catalog, container: Container, type_key: str
+) -> float:
+    """How many units of this liquid the vessels within reach still take.
+
+    **Under the same lock the pouring takes**, so that an answer may be acted
+    on: a caller that has to refuse before making the matter -- a find offered
+    by the land, which must keep lying rather than be conjured and spilled --
+    would otherwise read the free space, lose the race to a batch finishing
+    into the same canister, and pour less than it promised without a word.
+    """
+    if not is_liquid(catalog, type_key):
+        return 0.0
+    unit = catalog.recipes.mass_of(type_key)
+    free = 0.0
+    for vessel in await vessels_in(session, catalog, container):
+        await _lock(session, vessel)
+        free += await free_in(session, catalog, vessel)
+    return free if unit <= 0 else free / unit
+
+
 async def fill(
     session: AsyncSession,
     catalog: Catalog,

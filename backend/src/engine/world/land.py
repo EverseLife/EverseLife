@@ -62,6 +62,33 @@ def public_signs(node: Node) -> list[str]:
     return [name for name in PUBLIC_SIGNS if held.get(name) is True]
 
 
+#: The place mark whose value is a word rather than a flag: a node's water is
+#: `river` or `none` (D-126), and both are non-empty. Truthiness alone -- which
+#: is what a place check is for every other mark -- would call a dry waste
+#: watered, so the one word that means water is named here.
+WATER = "water"
+RIVER = "river"
+#: The same property saying there is none. A word, not an absence: a node
+#: whose water was never rolled and one rolled dry read alike to `has_place`.
+NO_WATER = "none"
+
+
+def has_place(node: Node | None, mark: str) -> bool:
+    """Whether the node carries this place mark (D-177, D-254).
+
+    One question with one answer, asked by everything that binds work to the
+    land: the felling operation, and every find of the walk over a plot. It
+    was two before, and the second one was wrong -- `water` is the only mark
+    stored as a word, so a bare `properties.get("water")` said yes to `none`.
+    """
+    if node is None:
+        return False
+    held = (node.properties or {}).get(mark)
+    if mark == WATER:
+        return held == RIVER
+    return bool(held)
+
+
 async def epoch(session: AsyncSession) -> datetime | None:
     """When the world began: the birth of its first node.
 

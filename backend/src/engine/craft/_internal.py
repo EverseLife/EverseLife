@@ -44,7 +44,7 @@ from src.engine.craft.quality import (
     spread_of,
     waste_share,
 )
-from src.engine.world import body_container, node_yard
+from src.engine.world import body_container, has_place, node_yard
 from src.models.craft import CraftBatch
 from src.models.identity import Body, BodyState, Knowledge, KnowledgeKind
 from src.models.inventory import Container, Item
@@ -111,7 +111,9 @@ async def _prepare(
     #: and only on own or unowned land -- somebody else's forest belongs to its owner.
     if proc.place is not None:
         node = await session.get(Node, body.node_id)
-        if node is None or not (node.properties or {}).get(proc.place):
+        #: Asked through the one shared question (D-254): `water` is stored as
+        #: a word, and a bare truthiness test read a dry node as watered.
+        if not has_place(node, proc.place):
             raise CraftError(key="craft-no-place", place=proc.place)
         foreign = (
             node.owner_identity_id is not None and node.owner_identity_id != body.identity_id

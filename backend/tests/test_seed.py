@@ -24,13 +24,14 @@ import pytest
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src import seed_world
+from src import seed_catchup, seed_parts, seed_world
 from src.constants import Catalog, ConstantError, Constants, current_catalog, display_name
 from src.constants import registry as R
 from src.constants.catalog import ItemKind
 from src.engine import (
     death,
     estate,
+    events,
     explore,
     frost,
     justice,
@@ -40,6 +41,8 @@ from src.engine import (
     travel,
     world,
 )
+from src.models.city import City
+from src.models.estate import Building
 from src.models.event import Event, EventKind
 from src.models.inventory import Container, ContainerKind, Item
 from src.models.world import Layer, Node, Planet, Vein
@@ -517,3 +520,134 @@ async def test_a_vein_can_move_on_the_world_the_seed_lays(
     #: And not onto the plateau: there it would stand for ever.
     plateau = await session.scalar(select(Node).where(Node.key == PYROXIS_PLATEAU))
     assert plateau.id not in after.values()
+
+
+async def test_open_land_keeps_its_yard_and_a_hull_keeps_its_walls(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """A seeded roof outside a city is cut to its machines; nothing else is (D-254).
+
+    The rule that a building is the whole plot belongs inside a city. Applied
+    beyond the walls it roofed the world's one river-fed field over and left
+    no metre to plough. What must survive the retraction, and did not on the
+    first pass, is everything that is a whole-node building for a reason of
+    its own: a cabin aboard a ship is its hull.
+    """
+    field = await world.create_node(
+        session, "terra.field.unroof", "Пойма", area_m2=400, properties={"meadow": True}
+    )
+    cabin = await world.create_node(
+        session, "ship.node.unroof", "Каюта", area_m2=40, properties={"aboard": True}
+    )
+    house = await world.create_node(
+        session, "terra.house.unroof", "Дом", area_m2=120, properties={"wild": True}
+    )
+    for node in (field, cabin, house):
+        session.add(
+            Building(node_id=node.id, area_m2=float(node.area_m2), footprint_m2=float(node.area_m2))
+        )
+    #: Only the field has a machine standing in it -- that is what makes its
+    #: roof the seed's doing rather than somebody's wall.
+    yard = await world.node_container(session, field)
+    await world.grant_item(session, yard, "hearth", amount=1, origin="тест")
+    await session.flush()
+
+    await seed_catchup._unroof_open_land(session, constants)  # noqa: SLF001
+
+    roofs = {
+        node.key: float(building.area_m2)
+        for node, building in (
+            await session.execute(
+                select(Node, Building).join(Building, Building.node_id == Node.id)
+            )
+        ).all()
+    }
+    assert roofs["terra.field.unroof"] < 400, "поле обязано освободиться под грядки"
+    assert roofs["ship.node.unroof"] == 40, "каюта — это корпус, а не крыша от сеятеля"
+    assert roofs["terra.house.unroof"] == 120, "чужой дом не перекраивают"
+    assert await estate.free_ground(session, field) > 300
+
+
+async def test_a_house_somebody_built_is_never_cut_back(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """Beyond the walls a whole-plot house is an ordinary, legal house (D-254).
+
+    `station.may_build` lets anybody build on unowned land, and `estate.build`
+    refuses only when the area exceeds what is free -- so a house covering its
+    whole plot is a normal thing to own, and it is shaped exactly like the
+    seed's overreach. What tells them apart is that a house was raised by a
+    job and wrote `BUILDING_BUILT`; a seeded roof never did. Without that the
+    retraction would shave somebody's home at every deploy, materials and all.
+    """
+    mine = await world.create_node(
+        session, "terra.built.house", "Дом", area_m2=200, properties={"wild": True}
+    )
+    session.add(Building(node_id=mine.id, area_m2=200, footprint_m2=200))
+    yard = await world.node_container(session, mine)
+    await world.grant_item(session, yard, "hearth", amount=1, origin="тест")
+    await session.flush()
+    await events.record(session, EventKind.BUILDING_BUILT, actor_identity_id=None, node_id=mine.id)
+
+    #: And a two-storey house, whose area is footprint times floors: the step
+    #: writes both numbers and knows nothing of keeping that invariant.
+    tall = await world.create_node(
+        session, "terra.built.tall", "Башня", area_m2=200, properties={"wild": True}
+    )
+    session.add(Building(node_id=tall.id, area_m2=200, footprint_m2=100, floors=2))
+    tall_yard = await world.node_container(session, tall)
+    await world.grant_item(session, tall_yard, "hearth", amount=1, origin="тест")
+    await session.flush()
+
+    await seed_catchup._unroof_open_land(session, constants)  # noqa: SLF001
+
+    kept = {
+        node.key: float(building.area_m2)
+        for node, building in (
+            await session.execute(
+                select(Node, Building).join(Building, Building.node_id == Node.id)
+            )
+        ).all()
+    }
+    assert kept["terra.built.house"] == 200, "построенный дом не трогают"
+    assert kept["terra.built.tall"] == 200, "двухэтажный дом не трогают: area = пятно × этажи"
+
+
+async def test_the_seed_leaves_a_yard_around_a_rural_hearth(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """A fresh world must not repeat the retraction's own bug (D-254).
+
+    `_unroof_open_land` puts old worlds right; this is the same rule on the
+    laying side, and it is the one that matters for every world made from
+    today. Inside a city the plot is still the building -- a forge is its plot.
+    """
+    #: A real world first: the rule turns on who owns the ground, so the test
+    #: needs a city that actually exists to hand a plot to.
+    await seed(session)
+    town_id = (await session.execute(select(City.id))).scalars().one()
+    field = await world.create_node(
+        session, "terra.field.lay", "Пойма", area_m2=400, properties={"meadow": True}
+    )
+    city = await world.create_node(
+        session, "terra.city.lay", "Кузница", area_m2=260, properties={"ring": 2}
+    )
+    city.owner_city_id = town_id
+    for node in (field, city):
+        yard = await world.node_container(session, node)
+        await world.grant_item(session, yard, "hearth", amount=1, origin="тест")
+    await session.flush()
+
+    await seed_parts.buildings(session)
+
+    laid = {
+        node.key: float(building.area_m2)
+        for node, building in (
+            await session.execute(
+                select(Node, Building).join(Building, Building.node_id == Node.id)
+            )
+        ).all()
+    }
+    assert laid["terra.field.lay"] == 10, "очаг у реки — это очаг, а не стена поперёк луга"
+    assert laid["terra.city.lay"] == 260, "в городе застройка и есть участок"
+    assert await estate.free_ground(session, field) > 350
