@@ -197,11 +197,14 @@ async def _farm_merge(state: dict, db: AsyncSession, message: dict) -> dict:
     because nobody could reach it.
     """
     body = await _alive(state, db)
-    one = await _plot(db, message)
-    other = await _plot(db, message, field="other")
-    if one.id == other.id:
+    one_id = uuid.UUID(message["plot"])
+    other_id = uuid.UUID(message["other"])
+    if one_id == other_id:
         raise Refused(key="cmd-merge-one-plot")
-    whole = await farm.merge(db, current(), body, one, other)
+    #: Both rows in one stable order, whichever way the player named them:
+    #: two reversed merges otherwise meet at each other's second lock.
+    locked = {pid: await _locked_plot(db, pid) for pid in sorted((one_id, other_id))}
+    whole = await farm.merge(db, current(), body, locked[one_id], locked[other_id])
     return {"plot": str(whole.id), "area": float(whole.area_m2)}
 
 
@@ -212,9 +215,23 @@ async def _farm_survey(state: dict, db: AsyncSession, message: dict) -> dict:
     return {"plots": rows}
 
 
-async def _plot(db: AsyncSession, message: dict, field: str = "plot"):
+async def _plot(db: AsyncSession, message: dict) -> Plot:
+    return await _locked_plot(db, uuid.UUID(message["plot"]))
 
-    plot = await db.get(Plot, uuid.UUID(message[field]))
+
+async def _locked_plot(db: AsyncSession, plot_id: uuid.UUID) -> Plot:
+    """The plot under the command's hands, taken for the transaction.
+
+    Fertility, state and the sown fund are remainders like money (CLAUDE.md):
+    without the lock two harvests of one field both see SOWN, both hand out
+    the crop and the seed fund, and fertility is written twice from one read
+    value. `populate_existing` for the same reason as `estate.hold_ground`:
+    a copy loaded before the lock is reread after it, not served stale.
+
+    Lock order: the body first (`_alive`), the plot second -- same as every
+    farm command reaches this helper.
+    """
+    plot = await db.get(Plot, plot_id, with_for_update=True, populate_existing=True)
     if plot is None:
         raise Refused(key="cmd-no-such-plot")
     return plot

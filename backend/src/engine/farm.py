@@ -235,7 +235,11 @@ async def plow(
 
 @handler(JobKind.FARM_PLOW)
 async def plow_done(session: AsyncSession, job: Job) -> None:
-    plot = await session.get(Plot, uuid.UUID(job.payload["plot"]))
+    #: Under the same lock the commands take (`api.commands.farm._plot`):
+    #: the state write below must not race a split or a merge of the strip.
+    plot = await session.get(
+        Plot, uuid.UUID(job.payload["plot"]), with_for_update=True, populate_existing=True
+    )
     if plot is None:  # pragma: no cover
         raise FarmError(key="farm-job-no-plot", job=str(job.id))
     if plot.state is not PlotState.PLOWING:
