@@ -254,3 +254,26 @@ def own_plot(session: AsyncSession):
         return await world.grant_node(session, node, identity)
 
     return give
+
+
+def _slow(monkeypatch: pytest.MonkeyPatch, module: object, name: str, delay: float = 0.2) -> None:
+    """Hold the transaction between its check and its write.
+
+    A local database answers in well under a millisecond, and two coroutines
+    then rarely overlap in the window the bug needs. The pause widens the
+    window to a certainty: without the lock both pass the check before either
+    writes; with the lock the second waits at the lock and sees the first's
+    commit.
+
+    Shared by the race files (`test_races*.py`), which is why it lives here
+    and not beside one of them: the technique is the suite's, not one
+    domain's.
+    """
+    original = getattr(module, name)
+
+    async def held(*args, **kwargs):
+        result = await original(*args, **kwargs)
+        await asyncio.sleep(delay)
+        return result
+
+    monkeypatch.setattr(module, name, held)

@@ -109,7 +109,10 @@ python tools/spdx.py --apply
   `import-linter`; `engine/mining.py` (931) → пакет `engine/mining/`
   (`_base`, `face`, `collapse`), стек закреплён контрактами `import-linter`;
   `engine/plates.py` (814) → пакет `engine/plates/` (`_base`, `clock`,
-  `fire`, `ways`, `veins`), стек закреплён контрактами `import-linter`.
+  `fire`, `ways`, `veins`), стек закреплён контрактами `import-linter`;
+  `tests/test_races.py` (1585) → `test_races.py` (деньги, заказы, резервы) +
+  `test_races_ground.py` (земля) + `test_races_mining.py` (выработки) +
+  `test_reads.py` («чтение не пишет»), общий `_slow` — в `conftest.py`.
 - **Деньги, количества, остатки, выносливость** меняются только под
   блокировкой строки (`with_for_update`) или SQL-выражением
   (`col = col - :x`), и к каждой такой правке — тест-гонка на две сессии.
