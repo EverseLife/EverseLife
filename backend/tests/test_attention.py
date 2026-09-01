@@ -130,3 +130,41 @@ async def test_no_line_writes_its_own_russian(session: AsyncSession, constants: 
     for line in answer["attention"]:
         assert "say" in line, f"строка без ключа: {line}"
         assert i18n.current().has(line["say"]), line["say"]
+
+
+@pytest.mark.asyncio
+async def test_arrived_says_where(session: AsyncSession, constants: Constants) -> None:
+    """The digest's «пришли» names the destination.
+
+    The regression: `travel.arrived` carries the node as a **column**, not in
+    the payload, and the client cannot turn a node id into a word -- nodes are
+    not in the renames. So the row read as a bare «пришли», and three of them
+    in a column said nothing at all. The summary attaches the display name to
+    the wire copy; the journal row itself must stay untouched -- a read that
+    writes is the older regression (review 2026-08-23).
+    """
+    from src.engine import events
+    from src.models.event import EventKind
+
+    stamp = uuid.uuid4().hex[:6]
+    node = await world.create_node(session, f"terra.arrived.{stamp}", "Дальний двор", area_m2=100)
+    walker = await world.create_identity(
+        session, f"Ходок-{stamp}", email=f"walker-{stamp}@example.com", password="kirka-i-krep"
+    )
+    await world.print_body(session, walker, node)
+    recorded = await events.record(
+        session,
+        EventKind.TRAVEL_ARRIVED,
+        actor_identity_id=walker.id,
+        node_id=node.id,
+        travel_id=str(uuid.uuid4()),
+    )
+
+    answer = await _world_summary({"identity_id": walker.id}, session, {})
+    lines = [row for row in answer["happened"] if row["kind"] == EventKind.TRAVEL_ARRIVED.value]
+    assert len(lines) == 1, "одно прибытие -- одна строка"
+    assert lines[0]["payload"]["node"] == "Дальний двор"
+
+    #: The wire copy was enriched; the journal row was not.
+    await session.refresh(recorded)
+    assert "node" not in recorded.payload, "сводка вписала имя в журнал: чтение не пишет"

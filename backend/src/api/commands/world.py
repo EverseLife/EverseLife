@@ -31,6 +31,7 @@ from src.models.market import (
     Reservation,
     ReservationState,
 )
+from src.models.world import Node
 from src.telemetry import metrics
 
 
@@ -241,11 +242,32 @@ async def _world_summary(state: dict, db: AsyncSession, message: dict) -> dict:
         ]
         happened = sorted(happened, key=lambda row: row.at, reverse=True)[: runtime.SUMMARY_LIMIT]
 
+    #: «пришли» with no place said nothing: the destination sits on the event
+    #: row as a column, not in its payload, and the client cannot turn a node
+    #: id into a word -- nodes are not in the renames (D-251), their names come
+    #: from the server wherever they show. Attached to the wire copy only: the
+    #: journal row keeps its shape, the read writes nothing.
+    where_to = {
+        row.node_id
+        for row in happened
+        if row.kind == EventKind.TRAVEL_ARRIVED.value and row.node_id is not None
+    }
+    called: dict[Any, str] = {}
+    if where_to:
+        called = dict(
+            (await db.execute(select(Node.id, Node.name).where(Node.id.in_(where_to)))).all()
+        )
+
+    def _said(row: Event) -> dict:
+        if row.kind == EventKind.TRAVEL_ARRIVED.value and row.node_id in called:
+            return {**(row.payload or {}), "node": called[row.node_id]}
+        return row.payload
+
     return {
         "at": now_.isoformat(),
         "attention": attention,
         "happened": [
-            {"at": row.at.isoformat(), "kind": row.kind, "payload": row.payload} for row in happened
+            {"at": row.at.isoformat(), "kind": row.kind, "payload": _said(row)} for row in happened
         ],
     }
 
