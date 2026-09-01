@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from src.db import ddl
 from src.db.base import Base
-from src.models.automat import Automat
+from src.models.automat import Automat, AutomatLink
 from src.models.bank import DefectReport, Loan, LoanState, RateDecision
 from src.models.chat import ChatGroup, ChatMember, ChatMessage, Utterance
 from src.models.city import City, CityGrant, Office, Power, UtilityMeter
@@ -80,6 +80,7 @@ ddl.attach(Base.metadata)
 __all__ = [
     "Account",
     "Automat",
+    "AutomatLink",
     "AccountKind",
     "Base",
     "BatchKind",

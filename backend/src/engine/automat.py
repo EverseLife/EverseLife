@@ -56,6 +56,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants, current_catalog
@@ -65,6 +66,7 @@ from src.engine import battery, energy, events, ledger, liquid, station, stock, 
 from src.engine.craft import HANDS, Procedure, Unmakeable, procedure
 from src.engine.errors import Refusal
 from src.models.automat import Automat as AutomatRow
+from src.models.automat import AutomatLink
 from src.models.event import EventKind
 from src.models.identity import Body, BodyState, Knowledge, KnowledgeKind
 from src.models.inventory import Container, Item
@@ -118,6 +120,10 @@ class RecipeUnknown(AutomatError):
     """The owner does not know the recipe: the machine is not a free library (D-253)."""
 
 
+class SelfLink(AutomatError):
+    """A machine does not feed itself: the wire needs two ends (D-253)."""
+
+
 async def of_item(session: AsyncSession, item: Item) -> AutomatRow | None:
     """The automat row of this machine, if it was ever programmed."""
     return (
@@ -164,6 +170,10 @@ async def program(
         #: never consumed (the backlog is time), so nothing is lost but time.
         row.backlog = Decimal(0)
         row.owner_identity_id = body.identity_id
+        if row.node_id != node.id:
+            #: The machine moved houses: its wires pointed at the old floor,
+            #: and a wire between nodes is not a thing (D-047).
+            await _drop_wires(session, item.id)
         row.node_id = node.id
     row.recipe_key = proc.output
     await session.flush()
@@ -188,15 +198,20 @@ async def stop(
     *,
     now: datetime | None = None,
 ) -> AutomatRow | None:
-    """Take the programme off. The machine stays; the recipe goes."""
+    """Take the programme off. The machine stays; the row goes with it.
+
+    A row is the working state of a programmed machine and nothing else
+    (D-253): without one the machine is a thing again -- it does not wear by
+    the clock and does not cost the tick a lock. The wires stay: they are
+    keyed by the machine itself, and the picture outlives the programme.
+    """
     moment = now or datetime.now(UTC)
     node = await _machine_here(session, body, item)
     row = await of_item(session, item)
-    if row is None or row.recipe_key is None:
-        return row
+    if row is None:
+        return None
     await advance(session, constants, row, now=moment)
-    row.recipe_key = None
-    row.backlog = Decimal(0)
+    await session.delete(row)
     await session.flush()
 
     await events.record(
@@ -204,10 +219,9 @@ async def stop(
         EventKind.AUTOMAT_STOPPED,
         actor_identity_id=body.identity_id,
         node_id=node.id,
-        automat=str(row.id),
         machine=item.type_key,
     )
-    return row
+    return None
 
 
 async def advance(
@@ -237,8 +251,9 @@ async def advance(
     machine = await session.get(Item, row.item_id)
     node = await session.get(Node, row.node_id)
     if machine is None:
-        #: The machine is gone -- dismantled or worn to nothing. The row goes
-        #: with it: a dead automat must not cost the tick a lock every pass.
+        #: The machine is gone -- dismantled or worn to nothing. The row
+        #: goes with it (the wires went with the machine itself, by CASCADE):
+        #: a dead automat must not cost the tick a lock every pass.
         await session.delete(row)
         await session.flush()
         return 0.0
@@ -256,7 +271,9 @@ async def advance(
         await session.flush()
         return 0.0
     if node is None or row.recipe_key is None:
-        row.counted_at = moment
+        #: A row without a programme is a leftover of an older shape: the row
+        #: is the working state, and a machine that works nothing has none.
+        await session.delete(row)
         await session.flush()
         return 0.0
     yard = await world.node_container(session, node)
@@ -338,6 +355,18 @@ async def advance(
         if paid > 0:
             await _pay_out(session, constants, book, row, machine, yard, proc, paid, by_name)
             produced = paid
+            #: Told, not journaled (D-227), like a swing: the owner watching
+            #: the floor sees the payout land without acting, and a thousand
+            #: payouts a day stay out of the journal.
+            if row.owner_identity_id is not None:
+                await events.announce(
+                    session,
+                    touches=("node",),
+                    identity_id=row.owner_identity_id,
+                    event="automat.paid",
+                    goods=proc.output,
+                    made=amount_float(amount(paid)),
+                )
         row.backlog = Decimal(str(max(0.0, progress - paid)))
         #: Lubricant burns for the hours worked, produced or not: the machine
         #: ran. Consumed after the payout maths so a refusal-free tick stays
@@ -355,17 +384,141 @@ async def tick_automats(
 ) -> float:
     """Advance all automats of the world.
 
-    The machine does not sleep -- that is its whole strength.
+    The machine does not sleep -- that is its whole strength. Within a node
+    the wires set the order (D-253 wave 5): a producer advances before the
+    consumer it feeds, so a chain flows within one pass instead of lagging a
+    tick per stage. A cycle of wires falls back to id order -- harmless: the
+    order is a courtesy, not a correctness rule.
     """
     moment = now or datetime.now(UTC)
     rows = (await session.execute(select(AutomatRow).order_by(AutomatRow.id))).scalars().all()
+    links = (await session.execute(select(AutomatLink))).scalars().all()
     made = 0.0
-    for row in rows:
+    for row in _chain_order(rows, links):
         made += await advance(session, constants, row, now=moment)
     return made
 
 
-async def view(session: AsyncSession, catalog: Catalog, body: Body) -> list[dict]:
+def _chain_order(rows: list[AutomatRow], links: list[AutomatLink]) -> list[AutomatRow]:
+    """Kahn over the wires, per the whole world at once: feeders first.
+
+    Wires are keyed by the machine items; a wire whose end has no working
+    row feeds nobody and is skipped. Ties and cycles keep the incoming
+    order -- the input arrives sorted by row id, and the queue preserves it.
+    """
+    by_item = {row.item_id: row for row in rows}
+    feeds: dict[object, list[object]] = {}
+    waits: dict[object, int] = {row.item_id: 0 for row in rows}
+    for wire in links:
+        if wire.from_item_id in by_item and wire.to_item_id in by_item:
+            feeds.setdefault(wire.from_item_id, []).append(wire.to_item_id)
+            waits[wire.to_item_id] += 1
+    queue = [row.item_id for row in rows if waits[row.item_id] == 0]
+    ordered: list[AutomatRow] = []
+    while queue:
+        current = queue.pop(0)
+        ordered.append(by_item[current])
+        for fed in feeds.get(current, []):
+            waits[fed] -= 1
+            if waits[fed] == 0:
+                queue.append(fed)
+    #: A cycle of wires: whatever Kahn could not release goes in id order.
+    if len(ordered) < len(rows):
+        left = {row.item_id for row in ordered}
+        ordered.extend(row for row in rows if row.item_id not in left)
+    return ordered
+
+
+async def link(
+    session: AsyncSession,
+    body: Body,
+    from_item: Item,
+    to_item: Item,
+) -> AutomatLink:
+    """Wire A's output to B's input. Both machines here, both this owner's ground.
+
+    Idempotent: the same wire drawn twice is one wire. The wire's mechanical
+    meaning is the tick's order; the rest is the picture the editor draws.
+    """
+    if from_item.id == to_item.id:
+        raise SelfLink(key="auto-link-self", goods=from_item.type_key)
+    node = await _machine_here(session, body, from_item)
+    await _machine_here(session, body, to_item)
+    #: Idempotent under a race too: two hands drawing one wire must both
+    #: succeed, not one of them crash on the unique pair (the quality bar).
+    await session.execute(
+        pg_insert(AutomatLink)
+        .values(from_item_id=from_item.id, to_item_id=to_item.id)
+        .on_conflict_do_nothing(constraint="uq_automat_link")
+    )
+    wire = (
+        await session.execute(
+            select(AutomatLink).where(
+                AutomatLink.from_item_id == from_item.id,
+                AutomatLink.to_item_id == to_item.id,
+            )
+        )
+    ).scalar_one()
+    await events.record(
+        session,
+        EventKind.AUTOMAT_LINKED,
+        actor_identity_id=body.identity_id,
+        node_id=node.id,
+        source=str(from_item.id),
+        target=str(to_item.id),
+    )
+    return wire
+
+
+async def unlink(
+    session: AsyncSession,
+    body: Body,
+    from_item: Item,
+    to_item: Item,
+) -> bool:
+    """Cut the wire. Idempotent: cutting what is not there changes nothing."""
+    node = await _machine_here(session, body, from_item)
+    await _machine_here(session, body, to_item)
+    wire = (
+        await session.execute(
+            select(AutomatLink).where(
+                AutomatLink.from_item_id == from_item.id,
+                AutomatLink.to_item_id == to_item.id,
+            )
+        )
+    ).scalar_one_or_none()
+    if wire is None:
+        return False
+    await session.delete(wire)
+    await session.flush()
+    await events.record(
+        session,
+        EventKind.AUTOMAT_UNLINKED,
+        actor_identity_id=body.identity_id,
+        node_id=node.id,
+        source=str(from_item.id),
+        target=str(to_item.id),
+    )
+    return True
+
+
+async def _drop_wires(session: AsyncSession, item_id) -> None:
+    """Cut every wire touching this machine: it moved houses (D-047)."""
+    for wire in (
+        (
+            await session.execute(
+                select(AutomatLink).where(
+                    (AutomatLink.from_item_id == item_id) | (AutomatLink.to_item_id == item_id)
+                )
+            )
+        )
+        .scalars()
+        .all()
+    ):
+        await session.delete(wire)
+
+
+async def view(session: AsyncSession, catalog: Catalog, body: Body) -> dict:
     """The automats standing where the body stands: machine, programme, backlog.
 
     A read: nothing is advanced and nothing is written (the tick does that).
@@ -381,18 +534,39 @@ async def view(session: AsyncSession, catalog: Catalog, body: Body) -> list[dict
         .scalars()
         .all()
     )
+    #: The wires of the floor: keyed by the machines standing here, so a
+    #: wire between two unprogrammed machines is part of the picture too.
+    node = await session.get(Node, body.node_id)
+    yard = await world.node_container(session, node)
+    here = (
+        (await session.execute(select(Item.id).where(Item.container_id == yard.id))).scalars().all()
+    )
+    standing = set(here)
+    wires = (
+        (await session.execute(select(AutomatLink).where(AutomatLink.from_item_id.in_(standing))))
+        .scalars()
+        .all()
+    )
     #: The machine's kind and place the client already has from `look` --
     #: only what it cannot derive travels (D-225): the address, the
-    #: programme, and the work in flight.
-    return [
-        {
-            "item": str(row.item_id),
-            "recipe": row.recipe_key,
-            "backlog": float(row.backlog),
-            "counted_at": row.counted_at.isoformat(),
-        }
-        for row in rows
-    ]
+    #: programme, the work in flight, and the wires (addressed by the same
+    #: item ids the commands take).
+    return {
+        "machines": [
+            {
+                "item": str(row.item_id),
+                "recipe": row.recipe_key,
+                "backlog": float(row.backlog),
+                "counted_at": row.counted_at.isoformat(),
+            }
+            for row in rows
+        ],
+        "links": [
+            {"from": str(wire.from_item_id), "to": str(wire.to_item_id)}
+            for wire in wires
+            if wire.to_item_id in standing
+        ],
+    }
 
 
 # --- internal ----------------------------------------------------------------

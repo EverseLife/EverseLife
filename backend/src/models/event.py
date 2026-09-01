@@ -60,6 +60,8 @@ class EventKind(StrEnum):
     # the automat: production without the player (D-253)
     AUTOMAT_PROGRAMMED = "automat.programmed"
     AUTOMAT_STOPPED = "automat.stopped"
+    AUTOMAT_LINKED = "automat.linked"
+    AUTOMAT_UNLINKED = "automat.unlinked"
 
     # mining (D-143)
     MINING_STARTED = "mining.started"

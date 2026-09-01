@@ -188,6 +188,7 @@ auto-not-covered = «{ NAME($station) }» не по части автомата 
 auto-barred-input = «{ NAME($goods) }» не программируется: пироксисовый тир ждёт своей станции
 auto-no-station-builds = «{ NAME($goods) }» — стройка: станции собирают руками, автомат их не строит
 auto-body-off-node = тело вне узла
+auto-link-self = «{ NAME($goods) }» сам себя не кормит: у провода два конца
 
 # --- развалины Предтеч (engine/ruins.py) -------------------------------------
 

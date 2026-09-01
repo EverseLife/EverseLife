@@ -269,6 +269,7 @@ ui-stand-mine-about = Окно забоя: спуститься в жилу и �
 ui-stand-batch = партия · { $goods }
 ui-stand-bench-about = Окно рабочей станции «{ $machine }»: партии по рецептам, ремонт и попытки без рецепта.
 ui-stand-trade-kitchen = { " " }Здесь готовят еду.
+ui-stand-trade-factory = { " " }Здесь машины работают сами.
 ui-stand-trade-nursery = { " " }Здесь разводят животных.
 ui-stand-trade-fuel-plant = { " " }Здесь гонят корабельное топливо.
 ui-stand-trade-mint = { " " }Здесь чеканят монету города.

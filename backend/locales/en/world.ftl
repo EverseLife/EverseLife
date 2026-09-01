@@ -191,6 +191,7 @@ auto-not-covered = “{ NAME($station) }” is not the business of the automat �
 auto-barred-input = “{ NAME($goods) }” cannot be programmed: the pyroxite tier waits for its own station
 auto-no-station-builds = “{ NAME($goods) }” is a build: stations are put together by hand, no machine builds them
 auto-body-off-node = the body is off any node
+auto-link-self = “{ NAME($goods) }” does not feed itself: a wire needs two ends
 
 # --- Precursor ruins (engine/ruins.py) ---------------------------------------
 

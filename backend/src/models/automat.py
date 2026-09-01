@@ -19,7 +19,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import ForeignKey, Index, Numeric, Uuid
+from sqlalchemy import CheckConstraint, ForeignKey, Index, Numeric, UniqueConstraint, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.db.base import Base, created_column, uuid_pk
@@ -53,5 +53,41 @@ class Automat(Base):
     #: Up to what moment work is computed. As with the rig: the machine lives
     #: by time, not by click.
     counted_at: Mapped[datetime] = created_column()
+
+    created_at: Mapped[datetime] = created_column()
+
+
+class AutomatLink(Base):
+    """A wire of the node editor (D-253, wave 5): A's output feeds B.
+
+    Keyed by the machines themselves, not by their `Automat` rows: a wire may
+    be drawn before either end is programmed -- the picture of the factory
+    comes first -- and a wire must not conjure a row, because a row is the
+    machine's working state and rows exist exactly for programmed machines.
+    A dismantled or worn-out machine takes its wires along (CASCADE).
+
+    Links live inside one node -- between nodes matter still travels on
+    people and wagons (D-047) -- and their mechanical meaning is the tick's
+    order: a producer advances before the consumer it feeds, so a chain
+    flows within one pass instead of lagging a tick per stage. The rest of
+    the wire is the picture: the editor draws the factory as its owner
+    wired it.
+    """
+
+    __tablename__ = "automat_link"
+    __table_args__ = (
+        UniqueConstraint("from_item_id", "to_item_id", name="uq_automat_link"),
+        CheckConstraint("from_item_id <> to_item_id", name="automat_link_not_a_loop"),
+        Index("ix_automat_link_from", "from_item_id"),
+        Index("ix_automat_link_to", "to_item_id"),
+    )
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    from_item_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("item.id", ondelete="CASCADE"), nullable=False
+    )
+    to_item_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("item.id", ondelete="CASCADE"), nullable=False
+    )
 
     created_at: Mapped[datetime] = created_column()

@@ -406,12 +406,13 @@ async def test_stop_takes_the_programme_off(
     await automat.program(session, constants, catalog, body, machine, NAILS)
 
     floor = await automat.view(session, catalog, body)
-    assert floor and floor[0]["recipe"] == NAILS
+    assert floor["machines"] and floor["machines"][0]["recipe"] == NAILS
 
-    row = await automat.stop(session, constants, body, machine)
-    assert row is not None and row.recipe_key is None
+    #: The row goes with the programme: a machine without one is a thing
+    #: again -- it does not wear by the clock and does not cost the tick.
+    assert await automat.stop(session, constants, body, machine) is None
     floor = await automat.view(session, catalog, body)
-    assert floor[0]["recipe"] is None
+    assert floor["machines"] == []
 
 
 async def test_reprogramming_pays_the_old_programme_first(
@@ -443,3 +444,95 @@ async def test_reprogramming_pays_the_old_programme_first(
         .all()
     )
     assert nails, "часы старой программы выплачены гвоздями при переключении"
+
+
+# --- the wires (D-253, wave 5) -----------------------------------------------
+
+
+async def test_a_wire_joins_two_machines_and_the_view_draws_it(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Idempotent both ways: one wire drawn twice is one wire, and cutting
+    what is not there changes nothing. Drawn before any programme: the
+    picture of the factory comes first."""
+    _, yard, identity, body, assembler = await _factory_floor(session, constants)
+    furnace = await world.grant_item(session, yard, "auto_furnace", quality=70, origin="тест")
+
+    await automat.link(session, body, furnace, assembler)
+    await automat.link(session, body, furnace, assembler)
+    floor = await automat.view(session, catalog, body)
+    assert floor["links"] == [{"from": str(furnace.id), "to": str(assembler.id)}]
+
+    with pytest.raises(automat.SelfLink):
+        await automat.link(session, body, assembler, assembler)
+
+    assert await automat.unlink(session, body, furnace, assembler) is True
+    assert await automat.unlink(session, body, furnace, assembler) is False
+    floor = await automat.view(session, catalog, body)
+    assert floor["links"] == []
+
+
+async def test_the_chain_flows_within_one_tick(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The wire's mechanical meaning (D-253 wave 5): the furnace smelts
+    before the assembler eats, so ore becomes nails in one pass. Unwired,
+    the same floor lags: the consumer advances first (lower id) and starves."""
+    from datetime import timedelta as delta
+
+    _, yard, identity, body, assembler = await _factory_floor(session, constants)
+    furnace = await world.grant_item(session, yard, "auto_furnace", quality=70, origin="тест")
+    await world.grant_item(session, yard, "iron_ore", amount=4000, quality=60, origin="тест")
+    await world.grant_item(session, yard, "coal", amount=1000, quality=60, origin="тест")
+    await _lube_in(session, yard, 1000)
+    await _learn(session, identity, NAILS)
+    #: The consumer is programmed FIRST: its row id is lower, and the bare id
+    #: order would advance it before the furnace it feeds.
+    eater = await automat.program(session, constants, catalog, body, assembler, NAILS)
+    smelter = await automat.program(session, constants, catalog, body, furnace, IRON)
+    assert eater.id != smelter.id
+
+    await automat.link(session, body, furnace, assembler)
+    moment = eater.counted_at + delta(hours=10)
+    made = await automat.tick_automats(session, constants, now=moment)
+    assert made > 0
+
+    nails = (
+        (
+            await session.execute(
+                select(Item).where(Item.container_id == yard.id, Item.type_key == NAILS)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert nails, "руда стала гвоздями за один проход: печь отработала раньше сборщика"
+
+
+def test_chain_order_puts_feeders_first_whatever_the_ids() -> None:
+    """The Kahn helper, both id orders: the wire decides, never the uuid.
+
+    The integration test above cannot pin this -- uuids land in random
+    order -- so the helper is pinned directly, adversarially both ways.
+    """
+    from types import SimpleNamespace
+    from uuid import UUID
+
+    low, high = UUID(int=1), UUID(int=2)
+    for eater_item, smelter_item in ((low, high), (high, low)):
+        eater = SimpleNamespace(item_id=eater_item)
+        smelter = SimpleNamespace(item_id=smelter_item)
+        rows = sorted([eater, smelter], key=lambda r: r.item_id)
+        wire = SimpleNamespace(from_item_id=smelter_item, to_item_id=eater_item)
+        ordered = automat._chain_order(rows, [wire])
+        assert ordered.index(smelter) < ordered.index(eater), (
+            "кормящий раньше кормимого при любом порядке id"
+        )
+
+    #: A cycle releases everybody, in the incoming order.
+    a, b = SimpleNamespace(item_id=low), SimpleNamespace(item_id=high)
+    ring = [
+        SimpleNamespace(from_item_id=low, to_item_id=high),
+        SimpleNamespace(from_item_id=high, to_item_id=low),
+    ]
+    assert automat._chain_order([a, b], ring) == [a, b]

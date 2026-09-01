@@ -45,8 +45,32 @@ async def _auto_stop(state: dict, db: AsyncSession, message: dict) -> dict:
     return {"item": str(item.id), "stopped": True}
 
 
+@command("auto.link")
+async def _auto_link(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Wire one automat's output to another's input (D-253, wave 5)."""
+    body = await _alive(state, db)
+    source = await db.get(Item, uuid.UUID(message["from"]))
+    target = await db.get(Item, uuid.UUID(message["to"]))
+    if source is None or target is None:
+        raise Refused(key="cmd-no-such-item")
+    await automat.link(db, body, source, target)
+    return {"from": str(source.id), "to": str(target.id), "linked": True}
+
+
+@command("auto.unlink")
+async def _auto_unlink(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Cut the wire. Idempotent."""
+    body = await _alive(state, db)
+    source = await db.get(Item, uuid.UUID(message["from"]))
+    target = await db.get(Item, uuid.UUID(message["to"]))
+    if source is None or target is None:
+        raise Refused(key="cmd-no-such-item")
+    cut = await automat.unlink(db, body, source, target)
+    return {"from": str(source.id), "to": str(target.id), "cut": cut}
+
+
 @command("auto.view", readonly=True)
 async def _auto_view(state: dict, db: AsyncSession, message: dict) -> dict:
     """The automats standing here: machine, programme, backlog. A read."""
     body = await _alive_read(state, db)
-    return {"automats": await automat.view(db, current_catalog(), body)}
+    return await automat.view(db, current_catalog(), body)

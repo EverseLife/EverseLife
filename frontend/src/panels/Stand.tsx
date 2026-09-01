@@ -44,6 +44,7 @@ import { craftableAt } from "../recipes";
 import { Admin } from "./Admin";
 import { Farm } from "./Farm";
 import { Forage } from "./Forage";
+import { Factory } from "./Factory";
 import { Kitchen } from "./Kitchen";
 import { Library } from "./Library";
 import { Market } from "./Market";
@@ -79,6 +80,7 @@ const BRIDGE = "bridge";
 const GROUND_BRIDGE = "ground_bridge";
 const RIG = "rig";
 const KITCHEN = "kitchen";
+const AUTOMATON = "automaton";
 const NURSERY = "nursery";
 const FUEL_PLANT = "fuel_plant";
 const MINT = "mint";
@@ -270,6 +272,7 @@ function assemble(
    */
   const SPECIAL: Record<string, () => ReactNode> = {
     [KITCHEN]: () => <Kitchen look={look} />,
+    [AUTOMATON]: () => <Factory look={look} values={values} />,
     [NURSERY]: () => <Nursery look={look} />,
     [FUEL_PLANT]: () => <Plant look={look} />,
     [MINT]: () => <Mint look={look} values={values} />,
@@ -290,15 +293,23 @@ function assemble(
     ) || (book?.operations ?? []).some((o) =>
       (o.requires ?? []).some((w: string) => (book?.synonyms?.[w] ?? w) === machine),
     );
+  //: One factory floor, however many automat kinds stand here: the window
+  //: is about the whole floor, and three tiles must not mount three of it.
+  let factoryShown = false;
   for (const machine of stations) {
     const thingClass = classOf(book, machine);
-    const special = thingClass === null ? undefined : SPECIAL[thingClass];
+    let special = thingClass === null ? undefined : SPECIAL[thingClass];
+    if (thingClass === AUTOMATON) {
+      if (factoryShown) special = undefined;
+      factoryShown = true;
+    }
     const recipes = craftableAt(book, machine, look.knows).length > 0 || workable(machine);
     if (!special && !recipes) continue;
     //: The tile's hint: what the window is for, in one line. The special
     //: classes add their trade -- the hearth cooks, the mint strikes coin.
     const TRADES: Record<string, string> = {
       [KITCHEN]: "ui-stand-trade-kitchen",
+      [AUTOMATON]: "ui-stand-trade-factory",
       [NURSERY]: "ui-stand-trade-nursery",
       [FUEL_PLANT]: "ui-stand-trade-fuel-plant",
       [MINT]: "ui-stand-trade-mint",

@@ -52,8 +52,7 @@ type Props = {
 
 /**
  * The knowledge carrier: made by hand, and it needs to be told what to carry
- * (D-209). A thing class (D-215) -- `craft.CARRIER` in the engine -- and the
- * automatic bench likewise (`craft.AUTO_BENCH`).
+ * (D-209). A thing class (D-215) -- `craft.CARRIER` in the engine.
  */
 const CARRIER = "carrier";
 
