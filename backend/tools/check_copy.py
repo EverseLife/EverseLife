@@ -53,10 +53,12 @@ SRC = Path(__file__).resolve().parent.parent / "src"
 CYRILLIC = re.compile(r"[\u0400-\u04FF]")
 
 #: Module -> how many Russian string literals it still holds. Nothing else may
-#: hold any. Taken on 2026-08-31, at the end of D-251 wave IV. The file splits
-#: of 2026-09-01/02 (bank, vote, works_city, farm, estate/building became
-#: packages) moved literals without adding any: those entries are re-keyed to
-#: the new paths with the same totals.
+#: hold any. Taken on 2026-08-31, at the end of D-251 wave IV. The god-file
+#: splits of 2026-09-01/02 moved five entries onto their package parts with
+#: the totals conserved literal for literal (bank -> bank/loan, vote ->
+#: vote/_base + vote/poll, works_city -> credit + order + pay, farm ->
+#: plot + season, estate/building -> estate/building/build); nothing new
+#: was written, and the kinds above still cover every one of them.
 KNOWN: dict[str, int] = {
     "src/api/app.py": 1,
     "src/api/commands/city.py": 1,
