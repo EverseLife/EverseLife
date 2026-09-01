@@ -36,12 +36,16 @@ from src.models.farm import Plot, PlotState
 from src.models.identity import Body
 from src.models.inventory import Item
 from src.models.plant import Variety
-from src.models.world import Node
-from src.units import PERCENT, SCALE_MAX, SCALE_MIN, SECONDS_PER_HOUR, amount, amount_float
-
-#: The catalog's hardiness scale (plants.yaml: 1-5). 5/5 takes the whole
-#: relief `farm.hardiness_relief` off the neglect penalty (D-261).
-HARDINESS_SCALE = 5.0
+from src.models.world import Node, Planet
+from src.units import (
+    HARDINESS_SCALE,
+    PERCENT,
+    SCALE_MAX,
+    SCALE_MIN,
+    SECONDS_PER_HOUR,
+    amount,
+    amount_float,
+)
 
 
 def water_need(constants: Constants, plant: Plant, node: Node | None, area: float) -> float:
@@ -174,9 +178,14 @@ async def care(
 
     node = await session.get(Node, plot.node_id)
     epoch = await world.epoch(session)
+    #: The farm's day is Terran everywhere (D-008): the cycle, the ripeness
+    #: and this round all count the same day, whatever ground the bed is on
+    #: -- a hull's hydroponics must not tend by the planet the ship visits.
+    #: `<=` and not equality: a moment handed from the past must not mint a
+    #: second credit for a day already tended.
     if plot.cared_at is not None and climate.day_index(
-        constants, node.planet, epoch, plot.cared_at
-    ) == climate.day_index(constants, node.planet, epoch, moment):
+        constants, Planet.TERRA, epoch, moment
+    ) <= climate.day_index(constants, Planet.TERRA, epoch, plot.cared_at):
         raise WrongState(key="farm-cared-today")
     if not world.has_place(node, world.WATER):
         #: Thirst and rain are in the norm (D-261). The culture is looked up
@@ -387,6 +396,7 @@ async def survey(
     }
     known = await breed.known_agrotech_keys(session, identity_id, varieties.values())
 
+    epoch = await world.epoch(session)
     out: list[dict] = []
     for plot, node in plots:
         row: dict = {
@@ -407,12 +417,12 @@ async def survey(
             fertility_needed = float(signs.get("fertility", plant.requires.fertility))
 
             ready = plot.sown_at + timedelta(hours=cycle * day_hours(constants))
-            #: The round goes by the planet's calendar day (D-263): "asks
-            #: care" means this day has not seen one, whatever its hour.
-            epoch = await world.epoch(session)
+            #: The round goes by the calendar day (D-263), Terran like every
+            #: other farm term (D-008): "asks care" means this day has not
+            #: seen one, whatever its hour.
             needs_care = plot.cared_at is None or climate.day_index(
-                constants, node.planet, epoch, plot.cared_at
-            ) < climate.day_index(constants, node.planet, epoch, now)
+                constants, Planet.TERRA, epoch, plot.cared_at
+            ) < climate.day_index(constants, Planet.TERRA, epoch, now)
             #: Losses accrue on the day they accrue, not as a surprise at
             #: harvest (D-118).
             elapsed = (now - plot.sown_at).total_seconds() / (

@@ -66,7 +66,10 @@ TOUCHES: dict[str, tuple[str, ...]] = {
     "land": ("node", "deeds"),
     "deed": ("node", "deeds"),
     "building": ("node",),
-    "farm": ("farm",),
+    #: Farm work moves goods too: sowing spends seeds, care spends water,
+    #: fertilizing spends compost, the harvest fills the pocket (D-264 review
+    #: -- the second tab used to keep a stale inventory through all of them).
+    "farm": ("farm", "inventory"),
     "energy": ("node",),
     #: The planet redrew the map around you (D-197): the ways out, what lies
     #: here and what the veins are have all just changed.

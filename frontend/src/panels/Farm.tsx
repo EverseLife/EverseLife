@@ -143,6 +143,14 @@ export function Farm({ look }: Omit<Props, "busy" | "act">) {
   //: Seeds are recognised by name from vault data, not by the client's guess.
   const seedNames = new Set(plants.map((p) => p.seed));
   const seeds = look.inventory.filter((t) => seedNames.has(t.goods));
+  //: The two fertilizers of the vault (D-264), one button per kind in hand.
+  const dung = [
+    ...new Map(
+      look.inventory
+        .filter((t) => t.goods === "compost" || t.goods === "mineral_fertilizer")
+        .map((t) => [t.goods, t]),
+    ).values(),
+  ];
 
   const reload = useCallback(async () => {
     const answer = await session.send("farm.survey");
@@ -254,6 +262,21 @@ export function Farm({ look }: Omit<Props, "busy" | "act">) {
               {t("ui-farm-plow")}
             </button>
           )}
+          {(row.state === "idle" || row.state === "plowed") &&
+            dung.map((heap) => (
+              <button
+                key={heap.goods}
+                onClick={() =>
+                  go(() =>
+                    session.send("farm.fertilize", { plot: row.id, goods: heap.goods }),
+                  )
+                }
+                disabled={busy || occupied !== null}
+                title={occupied ?? ""}
+              >
+                {t("ui-farm-fertilize", { goods: goodsName(names, heap.goods) })}
+              </button>
+            ))}
           {row.state === "plowed" && (
             <>
               <select

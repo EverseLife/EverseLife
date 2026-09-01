@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 
 import pytest
 from sqlalchemy import func, select
@@ -290,6 +291,10 @@ async def test_care_goes_by_the_planets_calendar_day(
     with pytest.raises(farm.WrongState):
         #: The same day's second round is what stays forbidden.
         await farm.care(session, constants, body, plot, now=late + timedelta(hours=3))
+    with pytest.raises(farm.WrongState):
+        #: A moment handed from the past does not mint a credit either: the
+        #: guard compares day numbers with <=, not equality.
+        await farm.care(session, constants, body, plot, now=late)
 
 
 async def test_water_carried_by_hand_in_dry_place(
@@ -458,6 +463,76 @@ async def test_thirst_and_rain_shape_the_watering(
         )
     )
     assert amount_float(int(left)) == pytest.approx(100 - need)
+
+
+async def test_fertilizer_feeds_the_land_not_the_bed(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Fertilizer goes into fallow or plowed ground (D-264, closes OQ-108).
+
+    One dose for either kind, two strengths -- and the mineral one gives
+    most of all, as the vault's table promises. A growing bed refuses:
+    feeding it is one of the five care decisions and waits for OQ-098.
+    """
+    moment = datetime.now(UTC)
+    _, _, body = await _farmstead(session, fertility=40)
+    plot = await farm.mark(session, constants, body, name="тощая", area=10, now=moment)
+    pocket = await world.body_container(session, body)
+    await world.grant_item(session, pocket, "compost", amount=20, origin="тест")
+    await world.grant_item(session, pocket, "mineral_fertilizer", amount=20, origin="тест")
+
+    with pytest.raises(farm.FarmError):
+        await farm.fertilize(session, constants, body, plot, "grain", now=moment)
+
+    await farm.fertilize(session, constants, body, plot, "compost", now=moment)
+    assert float(plot.fertility) == pytest.approx(40 + constants[R.FARM_COMPOST_RECOVERY])
+    await farm.fertilize(session, constants, body, plot, "mineral_fertilizer", now=moment)
+    assert float(plot.fertility) == pytest.approx(
+        40 + constants[R.FARM_COMPOST_RECOVERY] + constants[R.FARM_MINERAL_RECOVERY]
+    )
+    assert constants[R.FARM_MINERAL_RECOVERY] > constants[R.FARM_COMPOST_RECOVERY], (
+        "минеральное обязано давать больше всех"
+    )
+
+    #: The dose went by area, once per kind.
+    left = await session.scalar(
+        select(func.coalesce(func.sum(Item.amount), 0)).where(
+            Item.container_id == pocket.id, Item.type_key == "compost"
+        )
+    )
+    assert amount_float(int(left)) == pytest.approx(20 - constants[R.FARM_FERTILIZER_PER_M2] * 10)
+
+    #: Sated land refuses: the ceiling is the scale's, not the purse's.
+    plot.fertility = Decimal("100")
+    await session.flush()
+    with pytest.raises(farm.WrongState):
+        await farm.fertilize(session, constants, body, plot, "compost", now=moment)
+
+    #: A growing bed is not the land: the strip refuses whole.
+    sown = await _ready(session, constants, catalog, body, area=10)
+    with pytest.raises(farm.WrongState):
+        await farm.fertilize(session, constants, body, sown, "compost", now=moment)
+
+    #: An empty pocket refuses before anything changes.
+    bare = await farm.mark(session, constants, body, name="без запаса", area=10, now=moment)
+    stacks = (
+        (
+            await session.execute(
+                select(Item).where(
+                    Item.container_id == pocket.id, Item.type_key == "mineral_fertilizer"
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for stack in stacks:
+        await session.delete(stack)
+    await session.flush()
+    before = float(bare.fertility)
+    with pytest.raises(farm.FarmError):
+        await farm.fertilize(session, constants, body, bare, "mineral_fertilizer", now=moment)
+    assert float(bare.fertility) == pytest.approx(before)
 
 
 async def test_fallow_heals_over_time(
