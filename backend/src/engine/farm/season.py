@@ -155,7 +155,13 @@ async def care(
     *,
     now: datetime | None = None,
 ) -> Plot:
-    """Do the plot round: once a day, on foot, with water.
+    """Do the plot round: once a calendar day of the planet, on foot, with water.
+
+    One day -- one round, **at any hour of it** (D-263): the day is counted
+    from the world's epoch, the same scale the client's clock draws, so the
+    window never drifts away from the player's own rhythm. It used to be a
+    38-hour interval, and the care hour ran away by fourteen every day --
+    farming demanded an alarm clock.
 
     By a river water is taken from the river; in a dry place from the
     inventory, and that makes water a commodity where there is none (D-126).
@@ -166,11 +172,12 @@ async def care(
     if plot.state is not PlotState.SOWN or plot.sown_at is None:
         raise WrongState(key="farm-nothing-grows", plot=plot.name)
 
-    day = timedelta(hours=day_hours(constants))
-    if plot.cared_at is not None and moment - plot.cared_at < day:
-        raise WrongState(key="farm-cared-today")
-
     node = await session.get(Node, plot.node_id)
+    epoch = await world.epoch(session)
+    if plot.cared_at is not None and climate.day_index(
+        constants, node.planet, epoch, plot.cared_at
+    ) == climate.day_index(constants, node.planet, epoch, moment):
+        raise WrongState(key="farm-cared-today")
     if not world.has_place(node, world.WATER):
         #: Thirst and rain are in the norm (D-261). The culture is looked up
         #: by the plot -- a SOWN plot always has one, the state check above
@@ -246,13 +253,18 @@ async def harvest(
 
     area = float(plot.area_m2)
     fertility = float(plot.fertility)
-    #: Skipped care days cut the harvest but do not zero it; hardiness softens
-    #: the cut (D-261) -- a forgiving crop loses less per skipped round, and
-    #: the trait the breeder selects for finally matters.
+    #: Skipped care days cut the harvest but can never zero it (D-263): a
+    #: miss costs its share of the cycle, so a long crop forgives a single
+    #: skip more, not less, and a full walk-out still leaves a quarter.
+    #: Hardiness softens the cut on top (D-261) -- the trait the breeder
+    #: selects for keeps mattering.
     missed = max(0, int(cycle) - plot.care_credits)
     hardiness = float(signs.get("hardiness", plant.traits.hardiness))
     forgiven = 1 - constants[R.FARM_HARDINESS_RELIEF] / PERCENT * hardiness / HARDINESS_SCALE
-    care_share = max(0.0, 1 - constants[R.FARM_NEGLECT_PENALTY] * forgiven * missed / PERCENT)
+    care_share = max(
+        0.0,
+        1 - constants[R.FARM_NEGLECT_TOTAL] * forgiven * missed / max(cycle, 1.0) / PERCENT,
+    )
     #: Capped above: rich land is an edge, not a multiplier (D-256).
     soil_share = min(
         fertility / float(signs.get("fertility", plant.requires.fertility)),
@@ -395,8 +407,12 @@ async def survey(
             fertility_needed = float(signs.get("fertility", plant.requires.fertility))
 
             ready = plot.sown_at + timedelta(hours=cycle * day_hours(constants))
-            day = timedelta(hours=day_hours(constants))
-            needs_care = plot.cared_at is None or now - plot.cared_at >= day
+            #: The round goes by the planet's calendar day (D-263): "asks
+            #: care" means this day has not seen one, whatever its hour.
+            epoch = await world.epoch(session)
+            needs_care = plot.cared_at is None or climate.day_index(
+                constants, node.planet, epoch, plot.cared_at
+            ) < climate.day_index(constants, node.planet, epoch, now)
             #: Losses accrue on the day they accrue, not as a surprise at
             #: harvest (D-118).
             elapsed = (now - plot.sown_at).total_seconds() / (
@@ -405,8 +421,10 @@ async def survey(
             skipped = max(0, min(int(cycle), int(elapsed)) - plot.care_credits)
             ripe = now >= ready
 
-            row["culture_name"] = plant.name
-            row["variety"] = variety.name or f"гибрид, поколение {variety.generation}"
+            #: No `culture_name` beside `culture` (D-225): the client reads
+            #: the word from `/public/renames`. The cultivar goes the same way
+            #: -- key, mark or generation -- and the client says it (D-251).
+            row["variety"] = breed.shown_as(catalog, variety)
             row["ripe"] = ripe
 
             #: Knowledge turns guesswork into a solved problem (D-057). With

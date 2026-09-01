@@ -21,7 +21,7 @@
 
 import { useEffect, useState } from "react";
 import type { RecipeBook } from "../api";
-import { stationsOf, type Look, type Thing } from "../api";
+import { stationsOf, varietyText, type Look, type Thing } from "../api";
 import { Refusal, useActions, useBook, useNames, useSession } from "../actions";
 import { flavorText, goodsName, slotName, tierName, type Names } from "../names";
 import { t } from "../locale";
@@ -700,7 +700,7 @@ function tells(thing: Thing, names: Names | null): string {
   } else if (thing.vigor != null) {
     parts.push(
       t("ui-inventory-vigor", {
-        variety: thing.variety ?? t("ui-inventory-variety"),
+        variety: varietyText(names, thing.variety) ?? t("ui-inventory-variety"),
         vigor: thing.vigor.toFixed(0),
       }),
     );

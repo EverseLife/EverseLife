@@ -15,9 +15,10 @@ import * as api from "../api";
 import { tally } from "../amounts";
 import { busyWith } from "../busy";
 import type { Look } from "../api";
+import { varietyText, type VarietyRef } from "../api";
 import { Refusal, useActions, useEdition, useNames, useSession } from "../actions";
 import { t } from "../locale";
-import { goodsName } from "../names";
+import { goodsName, plantName, type Names } from "../names";
 import { Doing } from "../Deadline";
 import { Gauge } from "../Gauge";
 import { Glyph } from "../Glyph";
@@ -37,8 +38,7 @@ type Row = {
   state: "idle" | "plowing" | "plowed" | "sown";
   fertility: number;
   culture: string | null;
-  culture_name?: string;
-  variety?: string;
+  variety?: VarietyRef;
   ripe?: boolean;
   /** Whether the owner knows the cultivar's agrotech: everything below depends on it (D-057). */
   agrotech?: boolean;
@@ -104,6 +104,14 @@ function PlotChips({ row }: { row: Row }) {
   }
   if (chips.length === 0) return null;
   return <div className="chips">{chips}</div>;
+}
+
+/** The cultivar in brackets after the crop -- unless it *is* the crop: the
+ *  base line would only echo the culture's own name twice. */
+function cultivarNote(names: Names | null, row: Row): string {
+  if (!row.variety || ("key" in row.variety && row.variety.key === row.culture)) return "";
+  const text = varietyText(names, row.variety);
+  return text ? ` (${text})` : "";
 }
 
 export function Farm({ look }: Omit<Props, "busy" | "act">) {
@@ -196,8 +204,8 @@ export function Farm({ look }: Omit<Props, "busy" | "act">) {
             <b>{row.name}</b>
             <span className="note">
               {t("ui-farm-area", { area: String(row.area) })} · {t(STATE[row.state])}
-              {row.state === "sown" && row.culture_name && (
-                <> · {row.culture_name}{row.variety ? ` (${row.variety})` : ""}</>
+              {row.state === "sown" && row.culture && (
+                <> · {plantName(names, row.culture)}{cultivarNote(names, row)}</>
               )}
             </span>
           </div>

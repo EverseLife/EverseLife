@@ -113,7 +113,9 @@ FARM_WATER_BY_NEED = Table("farm.water_by_need")
 FARM_HARDINESS_RELIEF = Num("farm.hardiness_relief")
 #: From this built share of the node's ground the place loses a light step (D-261).
 FARM_SHADE_BUILT_SHARE = Num("farm.shade_built_share")
-FARM_NEGLECT_PENALTY = Num("farm.neglect_penalty")
+#: Harvest share lost to a full cycle's walk-out; one miss costs its share
+#: of the cycle, so zeroing is impossible (D-263).
+FARM_NEGLECT_TOTAL = Num("farm.neglect_total")
 FARM_SOIL_DEPLETION = Num("farm.soil_depletion")
 #: Extra depletion for a repeat of the same crop in a row (D-256).
 FARM_MONOCULTURE_PENALTY = Num("farm.monoculture_penalty")
