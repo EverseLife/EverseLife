@@ -106,6 +106,8 @@ python tools/spdx.py --apply
   `api.ts` (1675) → `wire/*` по предметам + `session.ts`, `api.ts` остался
   дверью с реэкспортом; `engine/market.py` (1636) → пакет `engine/market/`
   (`_base`, `counter`, `match`, `deal`, `window`), стек закреплён контрактами
+  `import-linter`; `engine/plates.py` (814) → пакет `engine/plates/`
+  (`_base`, `clock`, `fire`, `ways`, `veins`), стек закреплён контрактами
   `import-linter`.
 - **Деньги, количества, остатки, выносливость** меняются только под
   блокировкой строки (`with_for_update`) или SQL-выражением

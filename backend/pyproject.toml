@@ -190,3 +190,53 @@ forbidden_modules = [
     "src.engine.market.deal",
 ]
 allow_indirect_imports = "true"
+
+# The eruptions, cut out of an 814-line `plates.py` that held the job chain,
+# the fire, the map redraw and the vein moves at once. Same shape and same
+# `forbidden` reasoning as the city and the market: plates sits inside engine
+# cycles it did not create (`veins` reaches into `mining` lazily, `ways` into
+# `death`, and both reach back), so a layers contract would fail on chains
+# that have nothing to do with this cut. The stack it pins directly:
+# clock -> {fire, ways, veins} -> _base, with `ways` allowed one door into
+# `fire` for `_consume` -- the rift under a walker burns the pocket by the
+# same rule the fields burn by.
+[[tool.importlinter.contracts]]
+name = "The planet's floor asks nobody above it"
+type = "forbidden"
+source_modules = ["src.engine.plates._base"]
+forbidden_modules = [
+    "src.engine.plates.clock",
+    "src.engine.plates.fire",
+    "src.engine.plates.ways",
+    "src.engine.plates.veins",
+]
+allow_indirect_imports = "true"
+
+[[tool.importlinter.contracts]]
+name = "The fire knows nothing of the clock, the ways or the veins"
+type = "forbidden"
+source_modules = ["src.engine.plates.fire"]
+forbidden_modules = [
+    "src.engine.plates.clock",
+    "src.engine.plates.ways",
+    "src.engine.plates.veins",
+]
+allow_indirect_imports = "true"
+
+[[tool.importlinter.contracts]]
+name = "The ways burn through the fire's one door and never ring the clock"
+type = "forbidden"
+source_modules = ["src.engine.plates.ways"]
+forbidden_modules = ["src.engine.plates.clock", "src.engine.plates.veins"]
+allow_indirect_imports = "true"
+
+[[tool.importlinter.contracts]]
+name = "The veins move on the floor alone"
+type = "forbidden"
+source_modules = ["src.engine.plates.veins"]
+forbidden_modules = [
+    "src.engine.plates.clock",
+    "src.engine.plates.fire",
+    "src.engine.plates.ways",
+]
+allow_indirect_imports = "true"
