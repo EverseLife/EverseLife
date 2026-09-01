@@ -42,6 +42,9 @@ farm-not-enough-seeds = нужно { $need } «{ NAME($seeds) }» на посе�
 farm-nothing-grows = на делянке «{ $plot }» ничего не растёт
 farm-cared-today = сегодня уже ухожено: уход суточный, а не почасовой
 farm-no-water = нужно { $need } воды: реки здесь нет, воду носят руками
+farm-too-cold = «{ $culture }» здесь вымерзнет: ночь опускается до { $night }°
+farm-too-hot = «{ $culture }» здесь сгорит: полдень доходит до { $noon }°
+farm-too-dark = «{ $culture }» просит света { $need }, а это место даёт { $light }: лес и стены застят небо
 farm-nothing-to-harvest = на делянке «{ $plot }» нечего убирать
 farm-not-ripe = культура дозреет: { $left }, цикл { $cycle } суток
 farm-halves-too-small = обе части обязаны быть не меньше farm.plot_min_area
@@ -222,6 +225,7 @@ death-job-dangling = печать { $job } ссылается в никуда
 # --- разведка (engine/explore/) ----------------------------------------------
 
 explore-unknown-goal = неизвестная цель поиска: { $goal }
+explore-unknown-reach = поиск бывает ближним или дальним, «{ $reach }» — не про расстояние
 explore-dead-scouts = мёртвое тело не разведывает
 explore-no-such-ore = такой породы в этом мире не добывают: «{ NAME($resource) }»
 explore-body-off-node = разведка идёт из узла, а тело стоит в никуда

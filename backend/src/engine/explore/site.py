@@ -45,6 +45,7 @@ async def lay(
     *,
     goal: str,
     vein: bool,
+    near: bool = False,
     who: uuid.UUID | None = None,
 ) -> Node:
     """Create the found node next to the one we left from.
@@ -79,7 +80,9 @@ async def lay(
             #: On the built-up map the plot lies where it was found: beside the
             #: very node the scout set out from (D-237).
             anchor=origin,
-            properties=await civic_properties(session, constants, dice, who=who),
+            properties=await civic_properties(
+                session, constants, dice, origin=origin if near else None, who=who
+            ),
         )
         plot.owner_city_id = city.id
         await session.flush()
@@ -103,7 +106,13 @@ async def lay(
         #: Distance grows by a step from the node we left from (D-180): the
         #: frontier recedes by itself as it is pushed.
         properties=await properties(
-            session, constants, dice, vein=vein, woods=goal == FOREST, who=who
+            session,
+            constants,
+            dice,
+            vein=vein,
+            woods=goal == FOREST,
+            origin=origin if near else None,
+            who=who,
         )
         | {travel.REACH: travel.reach_of(origin) + 1},
     )
@@ -114,6 +123,7 @@ async def civic_properties(
     constants: Constants,
     dice: random.Random,
     *,
+    origin: Node | None = None,
     who: uuid.UUID | None = None,
 ) -> dict:
     """Place properties of a city plot (D-246).
@@ -127,7 +137,7 @@ async def civic_properties(
     Only `дикий` is dropped: this ground is the city's, and the authority hands
     it out (D-089).
     """
-    rolled = await properties(session, constants, dice, vein=False, who=who)
+    rolled = await properties(session, constants, dice, vein=False, origin=origin, who=who)
     return {name: value for name, value in rolled.items() if name != WILD} | {PLOT: True}
 
 
@@ -138,6 +148,7 @@ async def properties(
     *,
     vein: bool,
     woods: bool = False,
+    origin: Node | None = None,
     who: uuid.UUID | None = None,
 ) -> dict:
     """Place properties under a common merit budget (D-126).
@@ -148,36 +159,64 @@ async def properties(
     Woods grow by themselves on `explore.forest_share` of finds (D-191), and
     always where the woods are what the scout went looking for: the world gets
     forested without anybody asking, and timber becomes geography.
+
+    With an `origin` the search went **near** (D-262): temperature and
+    rainfall drift from the origin's within `explore.near_drift`, and the
+    terrain marks -- river, woods, stones, meadow -- repeat the origin with
+    the kinship share instead of their own luck. A kindred copy is a copy,
+    not a roll, so it neither spends nor feeds the luck memory (D-213):
+    the announced shares stay about the independent search.
     """
 
     budget = constants[R.SITE_QUALITY_BUDGET]
-    #: Each of the place's signs is a chance with a memory (D-213): a scout
-    #: who never once found a river is the same complaint as one who never
-    #: found anything.
-    river = await luck.hit(session, who, luck.SITE_RIVER, constants[R.SITE_RIVER_SHARE], dice=dice)
+    drift = constants[R.EXPLORE_NEAR_DRIFT]
+    kinship = float(drift.get("kinship", 0.0)) / PERCENT if origin is not None else 0.0
+
+    async def mark_of(sign: str, key: str, share: float) -> bool:
+        if origin is not None and dice.random() < kinship:
+            return world.has_place(origin, sign)
+        #: Each of the place's signs is a chance with a memory (D-213): a scout
+        #: who never once found a river is the same complaint as one who never
+        #: found anything.
+        return await luck.hit(session, who, key, share, dice=dice)
+
+    def near_number(sign: str, spread: float, low: float, high: float) -> float | None:
+        if origin is None:
+            return None
+        raw = (origin.properties or {}).get(sign)
+        try:
+            base = None if raw is None else float(raw)
+        except (TypeError, ValueError):  # pragma: no cover -- engine-written
+            base = None
+        if base is None:
+            return None
+        return min(high, max(low, base + dice.uniform(-spread, spread)))
+
+    river = await mark_of(world.WATER, luck.SITE_RIVER, constants[R.SITE_RIVER_SHARE])
     for_water = dice.uniform(0, budget) if river else 0.0
     for_land = max(0.0, budget - for_water)
 
     temperature = constants[R.SITE_TEMP_RANGE]
     rainfall = constants[R.SITE_RAIN_RANGE]
+    warmth = near_number(
+        "temperature", float(drift.get("temperature", 0.0)), temperature.min, temperature.max
+    )
+    rain = near_number(
+        "precipitation", float(drift.get("precipitation", 0.0)), rainfall.min, rainfall.max
+    )
     return {
         world.WATER: world.RIVER if river else world.NO_WATER,
         #: On a vein find arable land is beside the point: rock bears no bread.
         "fertility": 0 if vein else round(PERCENT * for_land / budget),
-        "temperature": round(dice.uniform(temperature.min, temperature.max)),
-        "precipitation": round(dice.uniform(rainfall.min, rainfall.max)),
-        WOODS: woods
-        or await luck.hit(
-            session, who, luck.SITE_WOODS, constants[R.EXPLORE_FOREST_SHARE], dice=dice
+        "temperature": round(
+            dice.uniform(temperature.min, temperature.max) if warmth is None else warmth
         ),
+        "precipitation": round(dice.uniform(rainfall.min, rainfall.max) if rain is None else rain),
+        WOODS: woods or await mark_of(WOODS, luck.SITE_WOODS, constants[R.EXPLORE_FOREST_SHARE]),
         #: Stones and meadow fall out on their own, like woods (D-196): one
         #: goes for stone and for flax in different directions.
-        STONES: await luck.hit(
-            session, who, luck.SITE_STONES, constants[R.EXPLORE_STONES_SHARE], dice=dice
-        ),
-        MEADOW: await luck.hit(
-            session, who, luck.SITE_MEADOW, constants[R.EXPLORE_MEADOW_SHARE], dice=dice
-        ),
+        STONES: await mark_of(STONES, luck.SITE_STONES, constants[R.EXPLORE_STONES_SHARE]),
+        MEADOW: await mark_of(MEADOW, luck.SITE_MEADOW, constants[R.EXPLORE_MEADOW_SHARE]),
         WILD: True,
     }
 

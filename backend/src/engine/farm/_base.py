@@ -47,6 +47,10 @@ class NoSeeds(FarmError):
     pass
 
 
+class WrongClimate(FarmError):
+    """The place refuses the culture (D-261): too cold, too hot or too dark."""
+
+
 class NoWater(FarmError):
     """In a dry place water is carried by hand (D-126)."""
 

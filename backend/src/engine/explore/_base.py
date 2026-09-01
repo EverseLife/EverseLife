@@ -35,6 +35,12 @@ FOREST = "forest"
 ROOM = ruins.ROOM
 GOALS = (LOT, SITE, VEIN, FOREST, ROOM)
 
+#: How far to search (D-262): "near" drifts the find's properties from the
+#: origin node, "far" is the independent roll it always was.
+NEAR = "near"
+FAR = "far"
+REACHES = (NEAR, FAR)
+
 #: A goal's own word is `explore-goal-<goal>` in the locale, not a map here.
 #: It used to be one: five Russian nouns in the accusative, welded to the one
 #: sentence that joined them, so no other language could say them and no other

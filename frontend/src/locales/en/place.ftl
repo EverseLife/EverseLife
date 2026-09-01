@@ -62,6 +62,8 @@ ui-place-plot-about-save = Save the description
 
 ## Strips: the land bears them, and the work on them is in the garden.
 
+ui-place-climate-day = Daytime now, { $now } deg. The day runs { $low }-{ $high } deg, light { $light } of 3, rainfall { $rain } of 100.
+ui-place-climate-night = Night now, { $now } deg. The day runs { $low }-{ $high } deg, daytime light { $top } of 3, rainfall { $rain } of 100.
 ui-place-marking-title = Strips
 ui-place-marking-climate = It is { $climate } here: nothing grows in open ground, and heating the node does not change that. Food comes here by ship.
 ui-place-marking-name = strip name

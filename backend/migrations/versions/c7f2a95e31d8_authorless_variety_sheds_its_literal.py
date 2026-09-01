@@ -11,7 +11,7 @@ client says the word from the plants domain of
 Author-named cultivars are marks, not copy, and keep their literal.
 
 Revision ID: c7f2a95e31d8
-Revises: b3e7d19a5c42
+Revises: c7d2a94f1e83
 Create Date: 2026-09-02
 """
 
@@ -22,7 +22,7 @@ from collections.abc import Sequence
 from alembic import op
 
 revision: str = "c7f2a95e31d8"
-down_revision: str | None = "b3e7d19a5c42"
+down_revision: str | None = "c7d2a94f1e83"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

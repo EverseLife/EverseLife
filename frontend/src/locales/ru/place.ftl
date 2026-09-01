@@ -62,6 +62,8 @@ ui-place-plot-about-save = Сохранить описание
 
 ## Делянки: земля родит их, а работа с ними — в огороде.
 
+ui-place-climate-day = Сейчас день, { $now }°. Суточный ход { $low }…{ $high }°, света { $light } из 3, осадки { $rain } из 100.
+ui-place-climate-night = Сейчас ночь, { $now }°. Суточный ход { $low }…{ $high }°, днём света { $top } из 3, осадки { $rain } из 100.
 ui-place-marking-title = Делянки
 ui-place-marking-climate = Здесь { $climate }: в открытом грунте ничего не растёт, и обогрев узла этого не меняет. Еда сюда приходит кораблём.
 ui-place-marking-name = имя делянки

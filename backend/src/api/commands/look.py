@@ -21,6 +21,7 @@ from src.api.commands.common import _body, _identity, _node, speaks
 from src.api.commands.views import (
     _batches,
     _bench,
+    _climate,
     _clock,
     _deeds,
     _discovered,
@@ -238,6 +239,11 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
         "emblem": estate.public_emblem(node),
         #: Fertility is a place property (D-126): the plots scene is shown by it.
         "fertility": float(node.properties.get("fertility", 0) or 0),
+        #: The place's climate as farming reads it (D-261): the current values
+        #: plus the parameters of the diurnal swing, so the client draws the
+        #: day's breath without a data timer (D-225, D-226). Absent where
+        #: exploration never wrote a temperature -- there is no gate there.
+        "climate": await _climate(db, constants, node),
         #: Whose plot: the holder runs the estate, others by contract (D-116).
         #: Ownership is a public fact: whoever enters sees the owner, whoever it
         #: is, a person or a city (D-178).

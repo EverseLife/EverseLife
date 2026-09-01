@@ -40,9 +40,12 @@ from src.engine.errors import Says
 from src.engine.explore import odds as forecast
 from src.engine.explore import site
 from src.engine.explore._base import (
+    FAR,
     FOUND_HERE,
     GOALS,
     LOT,
+    NEAR,
+    REACHES,
     ROOM,
     SITE,
     VEIN,
@@ -83,6 +86,7 @@ async def survey(
     *,
     goal: str = SITE,
     resource: str | None = None,
+    reach: str = FAR,
     now: datetime | None = None,
 ) -> Job:
     """Go exploring from this node for the named goal. The find arrives on schedule.
@@ -102,6 +106,10 @@ async def survey(
     moment = now or datetime.now(UTC)
     if goal not in GOALS:
         raise ExploreError(key="explore-unknown-goal", goal=goal)
+    #: Near or far (D-262): near drifts the find's properties from this very
+    #: node, far is the independent roll it always was.
+    if reach not in REACHES:
+        raise ExploreError(key="explore-unknown-reach", reach=reach)
     if body.state is not BodyState.ALIVE:
         raise ExploreError(key="explore-dead-scouts")
     if resource is not None and resource not in mineable(current_catalog()):
@@ -209,6 +217,7 @@ async def survey(
             "from": str(body.node_id),
             "goal": goal,
             "resource": resource,
+            "reach": reach,
             "chance": odds,
         },
         dedup_key=f"explore.survey:{body.id}:{event.id}",
@@ -289,6 +298,8 @@ async def returned(session: AsyncSession, job: Job) -> None:
             origin,
             goal=goal,
             vein=with_vein,
+            #: Old jobs carry no reach and read as the far they were (D-262).
+            near=job.payload.get("reach") == NEAR,
             who=body.identity_id,
         )
 

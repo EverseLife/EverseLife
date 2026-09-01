@@ -127,6 +127,9 @@ COUNTED = {
     "min",
     "minutes",
     "need",
+    #: The day's temperature edges (D-261): degrees, not names.
+    "night",
+    "noon",
     "needed",
     "needs",
     "norm",

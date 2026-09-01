@@ -181,8 +181,16 @@ async def test_hybrid_seeds_segregate_more(
 ) -> None:
     """A hybrid is good once: the buyer will come back -- that is the business (D-057)."""
     cultivar = await breed.landrace(session, catalog, SPELT)
+    #: A hybrid always has an author -- an authorless non-base row is exactly
+    #: what `uq_variety_authorless` refuses.
+    breeder = await world.create_identity(session, f"Селекционер-{uuid.uuid4().hex[:8]}")
     hybrid = Variety(
-        culture_id=SPELT, name=None, generation=1, stable=False, traits=cultivar.traits
+        culture_id=SPELT,
+        name=None,
+        generation=1,
+        stable=False,
+        author_identity_id=breeder.id,
+        traits=cultivar.traits,
     )
     session.add(hybrid)
     await session.flush()
@@ -279,12 +287,14 @@ async def test_different_parents_give_new_cultivar(
     """Traits are the parents' mean with deviation: the vault formula verbatim."""
     _, identity, body = await _farm(session, nursery=True)
     base = await breed.landrace(session, catalog, SPELT)
-    #: The second parent is noticeably different -- such appears in the world by selection.
+    #: The second parent is noticeably different -- such appears in the world
+    #: by selection, so it has an author (`uq_variety_authorless`).
     other = Variety(
         culture_id=SPELT,
         name="Скороспелка",
         generation=0,
         stable=True,
+        author_identity_id=identity.id,
         traits={
             **base.traits,
             "yield_per_m2": base.traits["yield_per_m2"] * 2,
