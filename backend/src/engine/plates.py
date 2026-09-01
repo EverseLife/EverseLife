@@ -451,8 +451,29 @@ async def _close_faces(
 
     Called **before** the vein moves, so the ore is carried out of the face
     where it was actually mined.
+
+    **Takes the node's things before the sessions**, which is the file's lock
+    order (`erupted`) held locally rather than borrowed. In the eruption the
+    rows are already this transaction's -- `_burn` took the same yards two
+    steps earlier -- so the statement below costs nothing and changes nothing.
+    It is here for the caller that has not taken them: `mining.abandon` warns
+    that whoever takes a session before the node's heaps meets `death.die`
+    coming the other way and one of the two is killed as a deadlock, and a
+    private helper whose safety rests on what its callers did first is a trap
+    laid for the next one. The invariant belongs to the function that needs it.
     """
     from src.engine import mining  # noqa: PLC0415 -- lazy: breaks the cycle with mining
+
+    where = await session.get(Node, vein.node_id)
+    if where is not None:
+        yard = await world.node_container(session, where)
+        await session.execute(
+            select(Item)
+            .where(Item.container_id == yard.id)
+            .order_by(Item.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
 
     working = (
         (
