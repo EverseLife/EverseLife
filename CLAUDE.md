@@ -92,9 +92,8 @@ python tools/spdx.py --apply
 
 - **Файл длиннее 800 строк** — перед правкой сказать об этом и предложить
   разрез. Добавлять в такой файл без упоминания нельзя. Список на 2026-09-01
-  (после разрезов market и mining): `engine/bank.py` (1298),
-  `engine/travel.py` (1028), `engine/vote.py` (957), `engine/oxygen.py` (867),
-  `engine/net.py` (863), `engine/frost.py` (830).
+  **пуст**: последние шесть (`bank`, `travel`, `vote`, `oxygen`, `net`,
+  `frost`) разрезаны в пакеты той же датой.
   Список **устаревает** — считать заново (`wc -l`), а не верить ему на слово:
   прошлый пересчитывали 2026-08-29, и за два дня два файла из него не
   уменьшились, а выросли; `panels/Admin.tsx` из него, наоборот, разрезали.
@@ -110,6 +109,13 @@ python tools/spdx.py --apply
   (`_base`, `face`, `collapse`), стек закреплён контрактами `import-linter`;
   `engine/plates.py` (814) → пакет `engine/plates/` (`_base`, `clock`,
   `fire`, `ways`, `veins`), стек закреплён контрактами `import-linter`;
+  2026-09-01 той же формой (пакет с дверью, `_base`-пол, контракты):
+  `engine/bank.py` (1298) → `_base`, `rate`, `trust`, `line`, `council`,
+  `loan`; `engine/travel.py` (1028) → `_base`, `map`, `walk`;
+  `engine/vote.py` (957) → `_base`, `council`, `poll`; `engine/oxygen.py`
+  (867) → `_base`, `supply`, `breath`, `gauge`; `engine/net.py` (863) →
+  `_base`, `road`, `letters`, `channels`; `engine/frost.py` (830) →
+  `_base`, `warmth`, `body`, `hours`;
   `tests/test_races.py` (1585) → `test_races.py` (деньги, заказы, резервы) +
   `test_races_ground.py` (земля) + `test_races_mining.py` (выработки) +
   `test_reads.py` («чтение не пишет»), общий `_slow` — в `conftest.py`.
