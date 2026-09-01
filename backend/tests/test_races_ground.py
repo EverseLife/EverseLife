@@ -7,13 +7,15 @@ One of the race files (see `test_races.py` for the family's method): here the
 contested thing is the place itself -- a field the eruption burns while
 somebody carries a sack out of it, a face closed by a death and by the moving
 ground in the same second, a ruin room two scouts open at once, a node's
-properties two writers stamp together. The invariant must hold whichever
-side wins, and neither side may die of a deadlock.
+properties two writers stamp together, a sown strip two harvests reap at
+once. The invariant must hold whichever side wins, and neither side may die
+of a deadlock.
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import random
 import uuid
 from datetime import UTC, datetime
@@ -596,6 +598,101 @@ async def test_two_marks_on_one_node_do_not_erase_each_other(
         held = again.properties or {}
         assert held.get(travel.EXIT) is True, "печать ворот стёрта счётчиком разведки"
         assert int(held.get(FOUND_HERE, 0)) == 1, "счётчик разведки стёрт печатью ворот"
+
+
+async def test_two_harvests_of_one_strip_reap_it_once(
+    session: AsyncSession,
+    factory: async_sessionmaker[AsyncSession],
+    constants,
+    catalog,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The strip's state, its fertility and the sown fund are remainders
+    (CLAUDE.md).
+
+    Two harvests of one sown field in the same second: without the plot's
+    row lock both read SOWN, both hand out the crop and the seed fund, and
+    both write fertility from the same read value -- the harvest doubles out
+    of thin air. The lock lives in the command's door
+    (`api.commands.farm._plot`), so the race goes through it, not around it.
+
+    The body's own lock (`_alive`) is bypassed on purpose: through the full
+    command path it happens to serialise two sockets of one farmer before
+    they reach the plot, and the remainder would then be guarded by a
+    coincidence of somebody else's lock -- exactly what the quality bar
+    forbids. The plot's door must hold on its own, body lock or no body
+    lock, and this test pins that and nothing wider.
+    """
+    from src.api.commands.farm import _plot
+    from src.constants import registry as R
+    from src.engine import breed, farm
+    from src.models.farm import PlotState
+    from src.units import PERCENT
+    from src.units import amount as to_units
+
+    stamp = uuid.uuid4().hex[:8]
+    node = await world.create_node(
+        session,
+        f"terra.strip.{stamp}",
+        "Хутор",
+        area_m2=200,
+        properties={"water": "river", "fertility": 55},
+    )
+    who = await world.create_identity(session, f"Фермер-{stamp}")
+    body = await world.print_body(session, who, node)
+    node.owner_identity_id = who.id
+    await session.flush()
+
+    plot = await farm.mark(session, constants, body, name="грядка", area=10)
+    plot.state = PlotState.PLOWED
+    await session.flush()
+    #: Exactly the sowing norm, so the sack is spent whole and the pocket is
+    #: empty when the race starts: whatever lies in it afterwards, the
+    #: harvests put there.
+    cultivar = await breed.landrace(session, catalog, "spelt")
+    pocket = await world.body_container(session, body)
+    seeds = await breed.seed_lot(
+        session, catalog, pocket.id, cultivar, constants[R.FARM_SEED_RATE] * 10.0, PERCENT
+    )
+    await farm.sow(session, constants, catalog, body, plot, seeds)
+    plant = catalog.plants.by_id("spelt")
+    #: Every round done, so the crop is a full one and provably nonzero.
+    plot.care_credits = int(plant.cycle_days)
+    await session.flush()
+    ripeness = farm.ripe_at(constants, plot, plant)
+    plot_id, body_id, pocket_id = plot.id, body.id, pocket.id
+    await session.commit()
+
+    #: The pause goes between the state check and the writes: the pocket is
+    #: the first thing harvest asks for once the checks have passed.
+    _slow(monkeypatch, world, "body_container")
+
+    async def reap() -> float:
+        async with factory() as db, db.begin():
+            own = await db.get(Body, body_id)
+            assert own is not None
+            with contextlib.suppress(farm.WrongState):
+                strip = await _plot(db, {"plot": str(plot_id)})
+                return await farm.harvest(
+                    db, current(), current_catalog(), own, strip, now=ripeness
+                )
+            return 0.0
+
+    taken = await asyncio.gather(reap(), reap())
+
+    got = [one for one in taken if one]
+    assert len(got) == 1, f"обе жатвы прошли по одному посеву: {taken}"
+
+    async with factory() as db:
+        things = (
+            (await db.execute(select(Item).where(Item.container_id == pocket_id))).scalars().all()
+        )
+        reaped = sum(int(thing.amount) for thing in things if thing.type_key == plant.gives)
+        fund = sum(int(thing.amount) for thing in things if thing.type_key == plant.seed)
+        assert reaped == to_units(got[0]), "урожай в кармане — ровно одна жатва"
+        assert fund == to_units(got[0] * constants[R.FARM_HARVEST_SEED_SHARE] / PERCENT), (
+            "семенной фонд отложен один раз"
+        )
 
 
 async def test_two_bumps_of_one_counter_lose_neither(
