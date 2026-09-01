@@ -125,7 +125,7 @@ ship-no-fuel = { $why ->
         [cross] there is not enough fuel for the crossing and the landing at the end of it
         [turn-back] there is not enough fuel to turn back: on empty tanks nobody turns around in the void, the passage goes through to the end
        *[land] there is not enough fuel to land
-    }: you need { NUMBER($need, minimumFractionDigits: 1, maximumFractionDigits: 1) } “{ NAME($goods) }” and the tanks hold { NUMBER($have, minimumFractionDigits: 1, maximumFractionDigits: 1) }
+    }: you need { NUMBER($need, minimumFractionDigits: 1, maximumFractionDigits: 1) } “{ NAME($goods) }” counted in rocket-fuel units, and the tanks answer for { NUMBER($have, minimumFractionDigits: 1, maximumFractionDigits: 1) }
 ship-passage-already-queued = the passage is already queued
 ship-already-in-orbit = “{ $ship }” is already in planetary orbit: there is nowhere higher to climb
 ship-planet-has-no-orbit = planet { PLANET($planet) } has no orbital node

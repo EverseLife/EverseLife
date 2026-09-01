@@ -189,6 +189,7 @@ from src.engine.ship.physics import (  # noqa: F401
     _sphere,
     _things,
     base_hours,
+    burn_checked,
     climb_hours,
     corridors,
     engine_class,

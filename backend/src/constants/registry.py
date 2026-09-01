@@ -460,14 +460,14 @@ SHIP_BERTH_SECONDS = Num("ship.berth_seconds")
 #: between compartments to measure.
 SHIP_STEP_SECONDS = Num("ship.step_seconds")
 SHIP_FUEL_PER_TON_DAY = Num("ship.fuel_per_ton_day")
-SHIP_LIFE_SUPPORT_CREW = Num("ship.life_support_crew")
-#: The orbital step (D-245): what it costs to leave a planet and to come back
-#: down to it. Multiplied by the planet's own gravity and stretched by
-#: thrust-to-mass, like every other passage. Descent is the shorter of the two:
 #: Reference units one unit of a fuel kind is worth (D-252): the spend is
 #: computed in rocket-fuel units, the tanks pay by density -- kerosene burns
 #: fewer units for the same passage. Absent from the table -- worth one.
 SHIP_FUEL_ENERGY = Table("ship.fuel_energy")
+SHIP_LIFE_SUPPORT_CREW = Num("ship.life_support_crew")
+#: The orbital step (D-245): what it costs to leave a planet and to come back
+#: down to it. Multiplied by the planet's own gravity and stretched by
+#: thrust-to-mass, like every other passage. Descent is the shorter of the two:
 #: down, the gravity one climbed against helps.
 SHIP_ASCENT_HOURS = Num("ship.ascent_hours")
 SHIP_DESCENT_HOURS = Num("ship.descent_hours")

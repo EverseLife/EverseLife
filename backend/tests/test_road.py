@@ -309,3 +309,19 @@ async def test_the_lost_tier_takes_the_mark_with_it(
     assert await road.decay(session, constants) == 1
     assert edge.surface is Surface.TRAIL
     assert edge.paving is None, "покрытие ушло вместе с ярусом"
+
+
+async def test_the_tie_goes_to_the_slower_sagging_kind(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Half gravel, half asphalt: the builder gets the benefit of the doubt."""
+    _, _, body, edge = await _edge(session)
+    pocket = await world.body_container(session, body)
+    norm = constants[R.ROAD_SURFACE_PER_EDGE]
+    await world.grant_item(session, pocket, "road_paving", amount=norm / 2, origin="сценарий теста")
+    await world.grant_item(
+        session, pocket, "asphalt_paving", amount=norm / 2, origin="сценарий теста"
+    )
+
+    await _finish(session, await road.lay(session, constants, catalog, body, edge))
+    assert edge.paving == "asphalt_paving", "при равной трате побеждает то, что садится медленнее"

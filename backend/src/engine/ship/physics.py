@@ -244,15 +244,24 @@ async def fuel_worth(session: AsyncSession, constants: Constants, ship: Ship) ->
     )
 
 
-async def spend_fuel(session: AsyncSession, constants: Constants, ship: Ship, need: float) -> float:
+async def spend_fuel(
+    session: AsyncSession,
+    constants: Constants,
+    ship: Ship,
+    need: float,
+    *,
+    stacks: list[Item] | None = None,
+) -> float:
     """Burn `need` reference units out of the tanks. Returns the units burnt.
 
     Stack by stack in id order, each paying at its own worth (D-252): a tank
     holding kerosene beside rocket fuel spends fewer physical units for the
-    same passage. The caller checked the worth aboard first, so running dry
-    here is the caller's arithmetic being wrong, not a player-facing refusal.
+    same passage. `stacks` are already-locked rows from `burn_checked`, so
+    the check and the burn share one lock; without them the tanks are locked
+    here, and running dry is the caller's arithmetic being wrong.
     """
-    stacks = await stock.lock_items(session, await fuel_stacks(session, ship))
+    if stacks is None:
+        stacks = await stock.lock_items(session, await fuel_stacks(session, ship))
     burnt = 0.0
     left = need
     for stack in stacks:
@@ -269,6 +278,26 @@ async def spend_fuel(session: AsyncSession, constants: Constants, ship: Ship, ne
 #: Spend splits into thousandths, like every amount: the last digit of a
 #: representation must not demand one more stack.
 _FUEL_EPS = 1 / AMOUNT_SCALE
+
+
+async def burn_checked(
+    session: AsyncSession, constants: Constants, ship: Ship, *, need: float, whole: float
+) -> tuple[float, float]:
+    """Lock the tanks, weigh them, and burn only if `whole` is covered.
+
+    Returns (burnt, worth aboard). Burnt is zero when the worth falls short
+    -- the caller words the refusal; the arithmetic stays under one lock, so
+    a canister filling from the same tank between the check and the burn
+    cannot let a leg fly on fuel it never paid (the quality bar: amounts
+    change only under the row lock).
+    """
+    stacks = await stock.lock_items(session, await fuel_stacks(session, ship))
+    worth = sum(
+        amount_float(stack.amount) * fuel_energy(constants, stack.type_key) for stack in stacks
+    )
+    if worth + _FUEL_EPS < whole:
+        return 0.0, worth
+    return await spend_fuel(session, constants, ship, need, stacks=stacks), worth
 
 
 async def engines(
