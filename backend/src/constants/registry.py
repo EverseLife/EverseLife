@@ -210,6 +210,20 @@ RIG_HOPPER_CAPACITY = Num("rig.hopper_capacity")
 RIG_DEPLETION_MULTIPLIER = Num("rig.depletion_multiplier")
 RIG_WEAR_PER_DAY = Num("rig.wear_per_day")
 
+#: The automat family (D-253): a station that works without the player,
+#: burning lubricant and pool energy by the hour. One set of knobs for the
+#: whole family; which station each automat stands in for is `auto.covers`.
+AUTO_ENERGY_PER_HOUR = Num("auto.energy_per_hour")
+AUTO_LUBE_PER_HOUR = Num("auto.lube_per_hour")
+AUTO_WEAR_PER_DAY = Num("auto.wear_per_day")
+AUTO_QUALITY_CAP = Num("auto.quality_cap")
+AUTO_SPEED_SHARE = Num("auto.speed_share")
+#: station -> {automat: 1}. Both sides are dict keys so the D-251 rename
+#: pass translates them; the one means membership, not a number.
+AUTO_COVERS = Book("auto.covers")
+#: The pyroxite tier is barred until its own station exists (OQ-106).
+AUTO_BARRED_INPUTS = Table("auto.barred_inputs")
+
 # --- Energy (D-071, D-082, D-085) -------------------------------------------
 #: Energy per unit of every burnable material, keyed by name (D-215): the old
 #: `energy.per_coal` generalized -- built by the vault from material `fuel` fields.

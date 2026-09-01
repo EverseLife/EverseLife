@@ -6,6 +6,7 @@
 from src.api.commands import (  # noqa: F401
     account,
     alpha,
+    automat,
     city,
     common,
     craft,

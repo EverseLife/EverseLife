@@ -57,6 +57,10 @@ class EventKind(StrEnum):
     GEAR_EQUIPPED = "gear.equipped"
     GEAR_UNEQUIPPED = "gear.unequipped"
 
+    # the automat: production without the player (D-253)
+    AUTOMAT_PROGRAMMED = "automat.programmed"
+    AUTOMAT_STOPPED = "automat.stopped"
+
     # mining (D-143)
     MINING_STARTED = "mining.started"
     MINING_SWING = "mining.swing"

@@ -180,6 +180,18 @@ rig-not-yours = another's rig: hauling out goes by contract with the owner
 # A liquid hopper (D-252): pours only into vessels, the remainder waits in the hopper.
 rig-liquid-no-room = nowhere to pour “{ NAME($goods) }”: bring a vessel with room, in hand or in the node
 
+# --- the automats (engine/automat.py) ----------------------------------------
+
+auto-dead-works = a dead body does not work
+auto-not-an-automat = “{ NAME($goods) }” is not an automat
+auto-not-here = the automat is not here: a programme is loaded on the spot
+auto-not-entitled = automats are programmed on one's own ground
+auto-recipe-unknown = you do not know the recipe “{ NAME($goods) }”: an automat is not a library, learn it first
+auto-not-covered = “{ NAME($station) }” is not the business of the automat “{ NAME($goods) }”: every station has its own
+auto-barred-input = “{ NAME($goods) }” cannot be programmed: the pyroxite tier waits for its own station
+auto-no-station-builds = “{ NAME($goods) }” is a build: stations are put together by hand, no machine builds them
+auto-body-off-node = the body is off any node
+
 # --- Precursor ruins (engine/ruins.py) ---------------------------------------
 
 ruins-no-relic-of-class = the registry has no relic of class “{ NAME($thing_class) }”

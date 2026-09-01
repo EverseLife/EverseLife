@@ -30,6 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import current, current_catalog
 from src.constants import registry as R
 from src.engine import (
+    automat,
     bank,
     chat,
     craft,
@@ -111,6 +112,13 @@ async def _energy(session: AsyncSession, now: datetime) -> dict[str, Any]:
     #: station burns the delivered coal all that time (D-082). What the city's
     #: heat ate is off the same pass (D-231), so the number is the net change.
     return {"energy_net": await energy.tick_pools(session, current(), now=now)}
+
+
+async def _automats(session: AsyncSession, now: datetime) -> dict[str, Any]:
+    #: The automat does not sleep either (D-253): it drinks lubricant, draws
+    #: the pool and fills the yard while the owner is busy elsewhere. Any of
+    #: the three runs out -- it stands.
+    return {"automat_made": await automat.tick_automats(session, current(), now=now)}
 
 
 async def _rigs(session: AsyncSession, now: datetime) -> dict[str, Any]:
@@ -215,6 +223,7 @@ WORLD_STEPS: dict[str, tuple[Step, str]] = {
     "chat": (_chat, "first"),
     "energy": (_energy, "first"),
     "rigs": (_rigs, "first"),
+    "automats": (_automats, "first"),
     "orphans": (_orphans, "first"),
     "frost": (_frost, "first"),
     "oxygen": (_oxygen, "first"),
