@@ -133,9 +133,12 @@ def base_line(catalog: Catalog, culture_id: str) -> Variety:
     numbers from an object that is never added to the session.
     """
     plant = catalog.plants.by_id(culture_id)
+    #: `name` stays empty like `landrace` leaves it (D-251): an authorless
+    #: cultivar is shown by its plants-domain key (`shown_as`), never by a
+    #: stored word.
     return Variety(
         culture_id=culture_id,
-        name=plant.name,
+        name=None,
         author_identity_id=None,
         generation=0,
         stable=True,

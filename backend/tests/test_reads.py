@@ -246,7 +246,7 @@ async def test_farm_survey_writes_nothing(
     async with factory() as db, db.begin(), _writes_forbidden(db):
         (line,) = await farm.survey(db, constants, catalog, identity.id)
     assert line["culture"] == "spelt"
-    assert line["variety"] == catalog.plants.by_id("spelt").name
+    assert line["variety"] == {"key": "spelt"}
     assert await cultivars() == before, "обзор завёл сорт -- чтение не пишет"
 
 
