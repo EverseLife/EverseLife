@@ -232,14 +232,16 @@ async def test_death_and_leaving_one_face_do_not_both_carry_the_haul(
     A rift takes the miner while the ground moves the vein: `death.die` closes
     the face and leaves the ore in the node, `plates._close_faces` closes it
     and carries the ore into a pocket. Both are right on their own. Together
-    they are two transactions over one haul, and the lock on the session row is
-    what makes them a queue instead of a collision.
+    they are two transactions over one haul, and the session row is the gate
+    both take **first**: whoever wins it plays the whole story out while the
+    loser waits at it holding nothing the winner could want.
 
-    What goes red without it is the **order**: one side holds the things and
-    waits for the session, the other holds the session and waits for the
-    things, and the database kills one of them. So the assertion that actually
-    catches it is the one about neither call raising -- the count of the ore is
-    the invariant that must hold afterwards, not the thing the lock buys.
+    What goes red without the gate is the **order**: one side holds the pocket
+    and waits for the session, the other holds the session and waits for the
+    pocket (`leave` carries the haul into it), and the database kills one of
+    them. So the assertion that actually catches it is the one about neither
+    call raising -- the count of the ore is the invariant that must hold
+    afterwards, not the thing the lock buys.
     """
     from src.engine import death, mining, plates
     from src.models.mining import MiningSession, Pace, SessionState
@@ -284,11 +286,12 @@ async def test_death_and_leaving_one_face_do_not_both_carry_the_haul(
         origin="тест",
     )
     #: And the long branch of `die`: a pocket with something in it, and a heap
-    #: of the same goods already lying in the node. Then the death lays its
-    #: salvage into that heap -- `stack_up` takes the node's things under a
-    #: lock -- **before** it closes the face, which is the order the eruption
-    #: takes them in too. With an empty pocket the death skips all of that and
-    #: the test walks a branch where the order cannot be wrong.
+    #: of the same goods already lying in the node. Then the death, past the
+    #: gate, locks the pocket and lays its salvage into that heap --
+    #: `stack_up` takes the node's things under a lock -- the very rows the
+    #: eruption's `leave` would carry the haul into. With an empty pocket the
+    #: death skips all of that and the test walks a branch where the order
+    #: cannot be wrong.
     await world.grant_item(
         session,
         await world.body_container(session, body),
@@ -341,6 +344,129 @@ async def test_death_and_leaving_one_face_do_not_both_carry_the_haul(
         #: pocket whatever the salvage roll kept -- never more than fifteen and
         #: never less than the eleven that were never on the body.
         assert 11 <= total <= 15, f"добытое размножилось или пропало: {total}"
+
+
+async def test_death_and_the_burning_ground_close_one_face_without_a_deadlock(
+    session: AsyncSession,
+    factory: async_sessionmaker[AsyncSession],
+    constants,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The second arm of the same ABBA: the fire against the death.
+
+    `plates.erupted` burns the yards and only later closes the faces, while a
+    death lays what the face and the pocket held into those same yards. In the
+    old order -- the yards first, the session rows only inside `_close_faces` --
+    the job held the burning heaps and waited for the gate the death held, and
+    the death held its gate and waited for a heap the fire held. The pre-lock
+    of the veins and the sessions **before the first flame** (mirrored here
+    from `erupted`) makes the gate the meeting point: whoever comes second
+    waits at it holding nothing the winner wants.
+
+    The pause rides on `stack_up`: every heap the death lays into the yard is
+    held long enough for the fire to be certain to arrive while it is in hand.
+    """
+    from src.engine import death, mining, plates
+    from src.models.mining import MiningSession, Pace, SessionState
+    from src.models.world import Layer, Planet
+
+    _slow(monkeypatch, world, "stack_up")
+    stamp = uuid.uuid4().hex[:8]
+    sphere = await world.create_node(
+        session, "pyroxis", "Пироксис", planet=Planet.PYROXIS, area_m2=1, layer=Layer.SPACE
+    )
+    field = await world.create_node(
+        session,
+        f"pyroxis.{stamp}.field",
+        "Чёрное поле",
+        planet=Planet.PYROXIS,
+        area_m2=5000,
+        layer=Layer.PLANET,
+        parent=sphere,
+    )
+    vein = await world.create_vein(session, field, ORE, richness=70, remaining=1000)
+    who = await world.create_identity(session, f"Вахтовик-{stamp}")
+    body = await world.print_body(session, who, field)
+    face = MiningSession(body_id=body.id, vein_id=vein.id, pace=Pace.STEADY, roof=100)
+    session.add(face)
+    await session.flush()
+    await world.grant_item(
+        session,
+        await mining.session_container(session, face),
+        ORE,
+        amount=9,
+        quality=60,
+        origin="тест",
+    )
+    #: A pocket with goods and a heap of the same ore in the yard: the death
+    #: then lays both hauls into the field -- the twins `stack_up` locks are
+    #: the very rows the fire takes first.
+    await world.grant_item(
+        session,
+        await world.body_container(session, body),
+        ORE,
+        amount=4,
+        quality=60,
+        origin="тест",
+    )
+    await world.grant_item(
+        session,
+        await world.node_container(session, field),
+        ORE,
+        amount=2,
+        quality=60,
+        origin="тест",
+    )
+    field_id, body_id, vein_id, face_id = field.id, body.id, vein.id, face.id
+    await session.commit()
+
+    async def dies() -> None:
+        async with factory() as db, db.begin():
+            mine = await db.get(Body, body_id)
+            assert mine is not None
+            await death.die(db, current(), mine, cause="rift")
+
+    async def ground_burns() -> None:
+        await asyncio.sleep(0.05)
+        async with factory() as db, db.begin():
+            place = await db.get(Node, field_id)
+            rock = await db.get(Vein, vein_id)
+            assert place is not None and rock is not None
+            #: The eruption's own order, mirrored from `plates.erupted`: the
+            #: veins, then the sessions at the faces -- the gate -- and only
+            #: then the fire and the closing.
+            await db.execute(
+                select(Vein).where(Vein.node_id == place.id).order_by(Vein.id).with_for_update()
+            )
+            await db.execute(
+                select(MiningSession)
+                .join(Vein, Vein.id == MiningSession.vein_id)
+                .where(Vein.node_id == place.id, MiningSession.state == SessionState.ACTIVE)
+                .order_by(MiningSession.id)
+                .with_for_update(of=MiningSession)
+            )
+            await plates._burn(db, [place])
+            await plates._close_faces(db, current(), rock, now=datetime.now(UTC))
+
+    outcome = await asyncio.gather(dies(), ground_burns(), return_exceptions=True)
+    assert not [one for one in outcome if isinstance(one, BaseException)], outcome
+
+    async with factory() as db:
+        closed = await db.get(MiningSession, face_id)
+        assert closed is not None and closed.state is SessionState.LEFT
+        here = await world.contents(
+            db, await world.node_container(db, await db.get(Node, field_id))
+        )
+        pocket = await world.contents(
+            db, await world.body_container(db, await db.get(Body, body_id))
+        )
+        total = sum(
+            float(thing.amount) / 1000 for thing in [*here, *pocket] if thing.type_key == ORE
+        )
+        #: The death won the gate, so everything it laid down was lying under
+        #: the open sky when the fire came -- and what lies in a shaken field
+        #: burns with it, to the last unit (D-197).
+        assert total == 0, f"уложенное в поле должно сгореть с полем: {total}"
 
 
 async def test_two_swings_at_once_are_paid_for_twice(

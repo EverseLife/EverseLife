@@ -140,12 +140,32 @@ async def die(
     dice = random.Random(str(body.id))
     share = constants[R.DEATH_SALVAGE_RATIO] / PERCENT
 
+    #: The face closes **first**, before any other shared row is taken: the
+    #: session row is the gate every closer of a face takes as its opening
+    #: lock, and `plates._close_faces` takes the same rows the same way. The
+    #: winner of the gate plays its whole story out while the loser waits at it
+    #: holding nothing the winner could want. The old order -- pocket first,
+    #: session later -- held the pocket while waiting for the session, and the
+    #: eruption held the session while carrying a haul into that same pocket
+    #: (`mining.leave` -> `stack_up`): an ABBA the database resolved by killing
+    #: one of the two.
+    #:
+    #: What was already mined stays lying at the face: it was out of the rock
+    #: and in the node before the body fell, so it stays in the node like
+    #: everything else the place kept (D-011). A session left open would hold
+    #: its haul where nobody could ever reach it again.
+
+    from src.engine import mining  # noqa: PLC0415 -- lazy: mining imports death (the face kills)
+
+    abandoned = await mining.abandon(session, body, now=moment)
+
     node = await session.get(Node, body.node_id)
     pocket = await world.body_container(session, body)
-    #: Under the lock: an eruption moving a vein closes the faces at it in
-    #: another transaction (`plates._close_faces` -> `mining.leave`), and that
-    #: puts a haul **into this pocket**. Read without the lock, the new heap
-    #: would miss the snapshot and stay in a dead body's pocket for ever.
+    #: Under the lock, and read fresh: if the eruption won the gate above, its
+    #: `mining.leave` has already carried the haul of the closing face **into
+    #: this pocket** -- the salvage must see that heap and tax it like
+    #: everything else worn, not miss it and leave it in a dead body's pocket
+    #: for ever.
     things = (
         (
             await session.execute(
@@ -210,19 +230,6 @@ async def die(
     #: and what was written off for it is lost with the body like the pocket.
 
     await craft.freeze(session, body, now=moment)
-
-    #: The face is abandoned the same way, and what was already mined stays
-    #: lying at it: it was out of the rock and in the node before the body
-    #: fell, so it stays in the node like everything else the place kept
-    #: (D-011). A session left open would hold its haul where nobody could
-    #: ever reach it again.
-
-    from src.engine import mining  # noqa: PLC0415 -- lazy: mining imports death (the face kills)
-
-    #: **After** the pocket is laid into the node, never before: the order of
-    #: locks -- the node's things, then the session at the face -- is the one
-    #: `plates.erupted` takes them in, and it is written out in full there.
-    abandoned = await mining.abandon(session, body, now=moment)
 
     body.state = BodyState.DEAD
     body.died_at = moment

@@ -182,16 +182,46 @@ async def erupted(session: AsyncSession, job: Job) -> None:
 
     #: **The lock order of the whole file, and it is written down once here.**
     #:
-    #:     the things lying in a node  ->  bodies  ->  the sessions at a face
+    #:     veins  ->  the sessions at a face  ->  the things lying in a node
+    #:     ->  bodies  ->  (inside a closer) the face's things  ->  the node's
+    #:     heaps  ->  the pocket
     #:
-    #: A miner can die in another transaction while the planet shakes -- of the
-    #: heat, of their own roof -- and `death.die` takes the same rows in the
-    #: same order: it lays the salvaged pocket into the node first (`stack_up`
-    #: locks what is already lying there), and only then closes the face
-    #: (`mining.abandon`). Two transactions that took them in opposite orders
-    #: would deadlock on the first miner who died in a shaking node (ABBA), so
-    #: the fire goes first even though it reads like the end of the story.
+    #: A miner can die in another transaction while the planet shakes -- of
+    #: the heat, of their own roof -- and the session row is the **gate** the
+    #: two closers of a face agree on: `death.die` opens with `mining.abandon`
+    #: (the session rows are its first lock), and this job takes the same rows
+    #: right here, before the fire touches the first heap. Whoever wins the
+    #: gate plays the whole story out; the loser waits at it holding nothing
+    #: the winner could want. Locked any later -- as they were, in
+    #: `_close_faces` after `_burn` had the yards -- a death holding its gate
+    #: and laying salvage into a burning yard crossed this job holding the
+    #: yards and closing his face: ABBA, and the database killed one of the
+    #: two. The veins go before the sessions for the same reason: a swing
+    #: holds its vein and then writes its session row, and taking them here
+    #: the other way round would cross it.
     #:
+    #: What this order still does not cover, all of it a job crossing a tick
+    #: once in a planet's rhythm, and all of it replayed by the worker's retry
+    #: (`jobs._mark_failure`) if the database kills one side: a frost or
+    #: oxygen death of a **walker** in a shaken node takes his body first
+    #: while this job takes the yards first, and `_kill_on` wants bodies late
+    #: (B <-> N); a session **started** between this pre-lock and
+    #: `_close_faces` is seen there but its gate is taken with the yards
+    #: already burnt; and a tick that killed two bodies in one pass holds the
+    #: first death's heaps in a shaken yard while the second death waits at a
+    #: gate this job pre-locked (N <-> S).
+    ids = [node.id for node in shaken]
+    await session.execute(
+        select(Vein).where(Vein.node_id.in_(ids)).order_by(Vein.id).with_for_update()
+    )
+    await session.execute(
+        select(MiningSession)
+        .join(Vein, Vein.id == MiningSession.vein_id)
+        .where(Vein.node_id.in_(ids), MiningSession.state == SessionState.ACTIVE)
+        .order_by(MiningSession.id)
+        .with_for_update(of=MiningSession)
+    )
+
     #: The redraw before the veins move is a separate decision: a vein moves
     #: along the ways as they are **after** the eruption -- it may cross a
     #: bridge laid this same second and may not cross an edge that has just
@@ -451,6 +481,13 @@ async def _close_faces(
 
     Called **before** the vein moves, so the ore is carried out of the face
     where it was actually mined.
+
+    The session rows go first and nothing shared is held before them (the
+    caller holds only the veins): they are the gate this path shares with
+    `death.die`, whose first lock is the same row through `mining.abandon`.
+    Held-then-wanted the other way -- the death holding the pocket these
+    faces' hauls land in, this path holding the session -- the two deadlocked
+    (ABBA); at the gate the loser waits holding nothing the winner could want.
     """
     from src.engine import mining  # noqa: PLC0415 -- lazy: breaks the cycle with mining
 

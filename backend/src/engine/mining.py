@@ -497,6 +497,18 @@ async def leave(
     the one thing a face never refuses.
     """
     moment = now or datetime.now(UTC)
+    #: The session row first, like every closer of a face (`abandon`,
+    #: `plates._close_faces`): the row is the gate, and a leaver who reached
+    #: the pocket's rows before it would hold them against a death or an
+    #: eruption closing this same face the other way round. Reread after the
+    #: lock: taken second, the face may already be closed, and
+    #: `_require_active` turns that into the refusal.
+    await session.execute(
+        select(MiningSession)
+        .where(MiningSession.id == mining.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
     body, vein = await _require_active(session, mining, working=False)
 
     #: Prison labour (D-174): in a prison node the insolvent's yield goes to
@@ -537,12 +549,21 @@ async def abandon(session: AsyncSession, body: Body, *, now: datetime | None = N
     can ever open again -- a leak of matter with no decision behind it, and one
     that also blocks `leave` for whoever inherits the face.
 
-    **Called after the caller has settled the node's things, not before.** This
-    takes the session row and then, through `stack_up`, the heaps already lying
-    in the node -- so a caller that took the session first and the node's
-    things second would face `plates.erupted`, which takes them the other way
-    round, and one of the two would be killed as a deadlock. The order is
-    written out in full in `plates.erupted`.
+    **The caller takes no row another closer of this face wants before this
+    call.** The session row is the gate every closer of a face agrees on --
+    `death.die` opens with this call, `plates._close_faces` takes the same rows
+    FOR UPDATE before touching anything else, and `leave` starts by locking its
+    own row. The winner of the gate plays the whole story out -- haul, heaps,
+    state -- while the loser waits at it holding nothing the winner could want.
+    A caller that took a contended row first -- the dying body's pocket, say --
+    would hold it against the eruption carrying a haul into that same pocket,
+    and one of the two would be killed as a deadlock (ABBA). Two rows a caller
+    **may** hold, because no closer ever waits on them past its gate: the body
+    (every death holds it FOR UPDATE, no closer locks another's body), and the
+    vein (`_collapse` arrives holding it, and the eruption serializes with a
+    swing on that very lock before either reaches a session). Past the gate
+    the inside order is the shared one: the session row, the face's things,
+    then the node's heaps through `stack_up`.
     """
     moment = now or datetime.now(UTC)
     #: The session row is **taken for the transaction**, and its state reread
