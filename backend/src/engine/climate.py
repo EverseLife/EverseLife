@@ -103,6 +103,23 @@ def is_day(constants: Constants, planet: Planet, origin: datetime | None, moment
     return 0.25 <= day_phase(constants, planet, origin, moment) < 0.75
 
 
+def day_index(
+    constants: Constants, planet: Planet, origin: datetime | None, moment: datetime
+) -> int:
+    """Which calendar day of the planet the moment falls in, counted from the
+    world's epoch (D-263).
+
+    The farm round goes by this number, not by an interval: one day -- one
+    round, at any hour of it, so the care window never drifts away from a
+    player's own rhythm. A world with no epoch has nothing to farm and lives
+    in its day nought.
+    """
+    if origin is None:
+        return 0
+    day_seconds = day_hours_of(constants, planet) * SECONDS_PER_HOUR
+    return int((moment - origin).total_seconds() // day_seconds)
+
+
 def temperature_now(
     constants: Constants, node: Node, origin: datetime | None, moment: datetime
 ) -> float | None:
