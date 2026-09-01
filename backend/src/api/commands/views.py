@@ -416,6 +416,34 @@ async def _discovered(db: AsyncSession, identity_id: uuid.UUID) -> list[str]:
     return sorted(row[0] for row in rows)
 
 
+async def _pioneers(db: AsyncSession, identity_id: uuid.UUID) -> dict[str, str]:
+    """The first discoverer's name per known recipe (D-064, D-259).
+
+    The pioneer is whoever holds the **earliest** `discovered` row for the
+    key: the name is bound to the recipe forever and shown to everyone who
+    uses it. Founding recipes were opened by nobody and have no entry. Only
+    the recipes this identity knows are answered: the map rides the
+    `knowledge` part, and the details window is where it is read.
+    """
+    mine = select(Knowledge.key).where(
+        Knowledge.identity_id == identity_id, Knowledge.kind == KnowledgeKind.RECIPE
+    )
+    rows = await db.execute(
+        select(Knowledge.key, Identity.name)
+        .join(Identity, Identity.id == Knowledge.identity_id)
+        .where(
+            Knowledge.kind == KnowledgeKind.RECIPE,
+            Knowledge.discovered.is_(True),
+            Knowledge.key.in_(mine),
+        )
+        #: DISTINCT ON keeps the first row per key of the given order: the
+        #: earliest acquisition wins, the id breaks a same-instant tie.
+        .distinct(Knowledge.key)
+        .order_by(Knowledge.key, Knowledge.acquired_at, Knowledge.id)
+    )
+    return {key: name for key, name in rows.all()}
+
+
 def _buy_floor(constants: Constants, order: Order) -> int | None:
     """The buy's quality floor (D-239), but only the part the tier does not say.
 

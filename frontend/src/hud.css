@@ -192,6 +192,30 @@ button.rail-tab .tally {
   color: var(--base-400);
 }
 
+/* The eye by a known recipe: opens the row's details in place. A structural
+   control, not a button-shaped thing -- it dims until wanted, like `.dots`. */
+button.peek {
+  border: 0;
+  padding: 0 0.25rem;
+  margin-left: 0.3rem;
+  color: var(--base-400);
+  vertical-align: middle;
+}
+button.peek .glyph {
+  display: inline-block;
+  vertical-align: -2px;
+}
+button.peek:not(:disabled):hover,
+button.peek[aria-expanded="true"] {
+  color: var(--base-50);
+}
+/* The opened details: a quiet block indented under its recipe's row. */
+.recipe-peek {
+  margin: -0.35rem 0 0.6rem 1.5rem;
+  padding-left: 0.6rem;
+  border-left: 1px solid var(--line);
+}
+
 /* --- dragging a stack (D-238, amendment 4) -------------------------------- */
 
 /* A draggable row says so with the hand; its buttons still work as before. */

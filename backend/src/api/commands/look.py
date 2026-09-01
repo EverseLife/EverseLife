@@ -27,6 +27,7 @@ from src.api.commands.views import (
     _knowledge,
     _money,
     _orders,
+    _pioneers,
     _reservations,
     _shelf,
     _shown,
@@ -72,8 +73,9 @@ from src.models.world import Layer, Node, Vein
 @command("knowledge", readonly=True)
 async def _knowledge_read(ctx: Ctx) -> dict:
     """What the identity knows: recipes (`knows`), which of them were opened
-    by one's own experiment (`discovered`, D-064, D-209), and the agrotech
-    studied (`agrotech`, D-057). Read once and kept: `knowledge.learned` and
+    by one's own experiment (`discovered`, D-064, D-209), the agrotech
+    studied (`agrotech`, D-057), and the first discoverer's name per known
+    recipe (`pioneers`, D-259). Read once and kept: `knowledge.learned` and
     `craft.invented` say when to read again (D-226)."""
     who = ctx.identity_id
     return {
@@ -81,6 +83,7 @@ async def _knowledge_read(ctx: Ctx) -> dict:
             "knows": await _knowledge(ctx.db, who),
             "discovered": await _discovered(ctx.db, who),
             "agrotech": await _knowledge(ctx.db, who, kind=KnowledgeKind.AGROTECH),
+            "pioneers": await _pioneers(ctx.db, who),
         }
     }
 

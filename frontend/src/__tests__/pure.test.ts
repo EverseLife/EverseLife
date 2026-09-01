@@ -19,6 +19,7 @@ import {
   flavorText,
   goodsKeyName,
   goodsName,
+  plantName,
   tierName,
   type Names,
 } from "../names";
@@ -328,6 +329,7 @@ describe("names", () => {
     goods: { iron_ore: "Железная руда", soup: "Суп", beans: "Бобы", recorded_recipe: "Рецепт" },
     tiers: { fine: "отличное" },
     virtual_stations: { by_hand: "Руками" },
+    plants: { spelt: "Полба" },
   } as unknown as Names;
 
   it("says an id in the player's words and passes the unknown through", () => {
@@ -343,6 +345,15 @@ describe("names", () => {
   it("renders an id-composed flavor token by token, old flavors verbatim", () => {
     expect(flavorText(table, "soup · beans")).toBe("Суп · Бобы");
     expect(flavorText(table, "суп — бобы")).toBe("суп — бобы");
+  });
+
+  it("names a crop by the plants domain, a bred cultivar's key raw", () => {
+    expect(plantName(table, "spelt")).toBe("Полба");
+    //: A bred cultivar's agrotech is keyed by its variety id: no bundle names
+    //: it, and the raw key must come through rather than crash the render.
+    expect(plantName(table, "0f8b3a52-aaaa-bbbb-cccc-000000000000")).toBe(
+      "0f8b3a52-aaaa-bbbb-cccc-000000000000",
+    );
   });
 
   it("splits a carrier's counter key and keeps old keys whole", () => {

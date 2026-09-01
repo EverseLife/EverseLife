@@ -127,7 +127,20 @@ ui-side-order-cancel = Withdraw
 ui-side-recipes = Recipes
 ui-side-recipes-rule = Knowledge lives in the person and is lost neither to death nor to court (И8). It is taken at the Library, read off a “Recipe” carrier, or discovered on your own — at a station, without a recipe. Your own discovery is marked ✦.
 ui-side-recipes-none = nothing yet: recipes are taken at the Library, read off a carrier, or discovered on your own
-ui-side-recipe-discovered = discovered by you: first to find it
+ui-side-recipe-discovered = discovered by you: your own experiment
+ui-side-recipe-pioneer = first discovered by: { $name }
+ui-side-recipe-details = Details of the “{ $recipe }” recipe
+ui-side-recipe-level = level: { $level }
+ui-side-recipe-station = station: { $station }
+ui-side-recipe-by-hand = made by hand, no station needed
+ui-side-recipe-inputs = takes per unit: { $inputs }
+ui-side-recipe-source-learned = learned ready-made: taken at the Library or read off a carrier
+
+## Agronomy: the identity's second kind of knowledge (D-057) — the crops' norms.
+
+ui-side-agrotech = Agronomy
+ui-side-agrotech-rule = The crop norms studied: with them a bed shows the norm, not a symptom. Taken at the Library; the knowledge lives in the person and is not lost.
+ui-side-agrotech-none = nothing yet: the basic crops' norms are taken at the Library — free, for good
 
 ## The top bar: where the body is and what is with it, above everything else (D-238).
 
