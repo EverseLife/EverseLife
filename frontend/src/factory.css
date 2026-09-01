@@ -11,6 +11,11 @@
   /* The floor can outgrow the panel; the panel must not outgrow the page. */
   max-width: 100%;
   overflow-x: auto;
+  /* Room for the ports: they sit 5px proud of the outer cards, and without
+     this the overflow clip halves the first column's in-dot -- the live
+     playtest could not click it. Absolute children anchor to the padding
+     box, so the cards and the wire canvas shift together. */
+  padding: 0 5px;
 }
 
 .factory-wires {
