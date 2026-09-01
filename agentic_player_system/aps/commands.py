@@ -123,6 +123,58 @@ def _uuid_positions(func: ast.AsyncFunctionDef | ast.FunctionDef) -> list[int]:
     return spots
 
 
+def _key_params(func: ast.AsyncFunctionDef | ast.FunctionDef) -> dict[str, dict[str, Any]]:
+    """Parameters the function uses as a request key: `message[field]` where
+    `field` is its own parameter with a string default.
+
+    The game grew this shape with the farm rework: `_plot(db, message,
+    field="plot")` reads whichever key the call site names and `plot` when it
+    names none -- so the key is no longer a literal in anybody's body, and the
+    reference went quietly thin (`farm.sow` lost `plot`). Recorded per
+    parameter: its default, its position, and whether the read is parsed as an
+    identifier (`uuid.UUID(message[field])`).
+    """
+    names = [argument.arg for argument in func.args.args]
+    defaults: dict[str, str] = {}
+    for argument, default in zip(names[len(names) - len(func.args.defaults) :], func.args.defaults):
+        if isinstance(default, ast.Constant) and isinstance(default.value, str):
+            defaults[argument] = default.value
+
+    def read_by(node: ast.AST) -> str | None:
+        """The parameter name when `node` is `message[param]`/`message.get(param)`."""
+        if (
+            isinstance(node, ast.Subscript)
+            and _reads_message(node.value)
+            and isinstance(node.slice, ast.Name)
+        ):
+            return node.slice.id
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "get"
+            and _reads_message(node.func.value)
+            and node.args
+            and isinstance(node.args[0], ast.Name)
+        ):
+            return node.args[0].id
+        return None
+
+    found: dict[str, dict[str, Any]] = {}
+    for node in ast.walk(func):
+        parses_id = isinstance(node, ast.Call) and _is_uuid_call(node)
+        reads = node.args if parses_id else [node]
+        for read in reads:
+            param = read_by(read)
+            if param is None or param not in defaults:
+                continue
+            entry = found.setdefault(
+                param,
+                {"default": defaults[param], "index": names.index(param), "id": False},
+            )
+            entry["id"] = entry["id"] or parses_id
+    return found
+
+
 def _called_name(call: ast.Call) -> str | None:
     if isinstance(call.func, ast.Name):
         return call.func.id
@@ -210,8 +262,14 @@ def _helpers(source: str) -> dict[str, dict[str, list[str]]]:
             continue
         keys = _keys(node)
         spots = _uuid_positions(node)
-        if keys or spots:
-            found[node.name] = {"keys": keys, "ids": _id_keys(node), "uuid_at": spots}
+        key_params = _key_params(node)
+        if keys or spots or key_params:
+            found[node.name] = {
+                "keys": keys,
+                "ids": _id_keys(node),
+                "uuid_at": spots,
+                "key_params": key_params,
+            }
     return found
 
 
@@ -277,12 +335,34 @@ def extract(
         for call in ast.walk(node):
             if not isinstance(call, ast.Call):
                 continue
-            spots = (known.get(_called_name(call) or "") or {}).get("uuid_at") or ()
-            for index in spots:
+            helper = known.get(_called_name(call) or "") or {}
+            for index in helper.get("uuid_at") or ():
                 if index < len(call.args):
                     for key in _keys(call.args[index]):
                         if key not in ids:
                             ids.append(key)
+            #: A helper whose key is its own parameter (`_plot(db, message,
+            #: field="plot")`): the call site names the key, or the default is
+            #: the key. Only when the request itself is handed over -- a call
+            #: that never passes `message` reads nothing for this command.
+            passes_message = any(
+                _reads_message(argument)
+                for argument in list(call.args) + [word.value for word in call.keywords]
+            )
+            for param, spec in (helper.get("key_params") or {}).items() if passes_message else ():
+                key = spec["default"]
+                index = spec["index"]
+                if index < len(call.args) and isinstance(call.args[index], ast.Constant):
+                    key = call.args[index].value
+                for word in call.keywords:
+                    if word.arg == param and isinstance(word.value, ast.Constant):
+                        key = word.value.value
+                if not isinstance(key, str):
+                    continue
+                if key not in keys:
+                    keys.append(key)
+                if spec["id"] and key not in ids:
+                    ids.append(key)
         reference[command] = {
             "doc": ast.get_docstring(node) or "",
             "keys": keys,
