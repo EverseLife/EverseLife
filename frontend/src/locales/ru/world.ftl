@@ -65,7 +65,7 @@ ui-map-forecast = заход отсюда: { $term } · шанс { $chance }% ·
 ui-map-forecast-rare = { $goods } редка: шанс уже в { $times } раз
 ui-map-forecast-explored = окрестность исхожена: находок отсюда { $count }
 ui-map-forecast-crowding = тесно{ $near ->
-        [true] { " " }у { $anchor }
+        [true] { " " }у «{ $anchor }»
        *[false] {""}
     }: шанс уже в { $times } раз
 

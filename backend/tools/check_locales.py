@@ -13,6 +13,13 @@ lost silently, and none of them raises anything at render time --
 * a **function**. `NAME($goods)` written as `{ $goods }` prints `iron_ore` in
   the middle of the sentence -- exactly the defect wave IV spent itself on.
 
+A fourth thing is not lost but broken in place: a substituted **name under a
+preposition** (D-258). The name arrives in the nominative and nothing can
+decline it, so «Перелить в { $target }» renders «Перелить в канистра». A
+number under a preposition is fine («из { $cap }»), and quotes are the legal
+escape («из «{ NAME($goods) }»» -- the text then ends with the quote, not the
+preposition). Checked per language, for the languages that decline.
+
 So the check is parity against the default language, per message: the same
 ids, the same `$names`, the same functions. Wording is nobody's business here.
 
@@ -38,6 +45,7 @@ the script lives here because the Fluent parser does.
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from pathlib import Path
 
@@ -50,6 +58,96 @@ LOCALES = Path(__file__).resolve().parent.parent / "locales"
 #: A variant key that is a plural category or a number is the language's to
 #: choose. Anything else is an identifier the code selects on.
 PLURAL = {"zero", "one", "two", "few", "many", "other"}
+
+#: The prepositions of every language that declines (D-258): a substitution
+#: right after one of these is a case the string demands and nobody forms.
+#: A new cased language adds its list here; a language absent here is not
+#: checked -- English survives any preposition.
+PREPOSITIONS = {
+    "ru": [
+        "в",
+        "во",
+        "на",
+        "из",
+        "изо",
+        "к",
+        "ко",
+        "с",
+        "со",
+        "от",
+        "до",
+        "у",
+        "о",
+        "об",
+        "обо",
+        "за",
+        "под",
+        "над",
+        "надо",
+        "при",
+        "про",
+        "без",
+        "безо",
+        "через",
+        "для",
+        "по",
+        "перед",
+        "передо",
+        "среди",
+        "между",
+        "вокруг",
+        "после",
+        "кроме",
+        "ради",
+        "сквозь",
+        "вместо",
+    ],
+}
+
+#: Arguments that carry a number or a date, which any preposition may govern
+#: («из { $cap }», «в мире с { $since }»). The check cannot tell a name from
+#: a number by syntax, so the counted ones are named; a new counted argument
+#: under a preposition is added here, a *name* never is -- for a name the
+#: string itself is rebuilt (D-258): a colon label, quotes, or a « · » detail.
+COUNTED = {
+    "advised",
+    "all",
+    "amount",
+    "area",
+    "cap",
+    "capacity",
+    "days",
+    "floors",
+    "frm",
+    "ground",
+    "hours",
+    "left",
+    "limit",
+    "max",
+    "min",
+    "minutes",
+    "need",
+    "needed",
+    "needs",
+    "norm",
+    "of",
+    "pages",
+    "per",
+    "permitted",
+    "price",
+    "principal",
+    "rate",
+    "since",
+    "slots",
+    "span",
+    "support",
+    "term",
+    "times",
+    "to",
+    "total",
+    "until",
+    "yes",
+}
 
 
 def _walk(node: object):
@@ -117,6 +215,45 @@ def compare(default: str, locale: str, only: str | None = None, tree: Path = LOC
     return problems
 
 
+def declined(locale: str, only: str | None = None, tree: Path = LOCALES) -> list[str]:
+    """Substituted names put under a preposition (D-258) -- per one language.
+
+    Structural, not a grep: the parser already splits a pattern into text and
+    placeables, so the check looks for a text element that *ends* with a
+    preposition right before a placeable -- variants of a select included.
+    The quoted escape passes by construction: «из «{ NAME($goods) }»» ends
+    with the quote, not the preposition.
+    """
+    prepositions = PREPOSITIONS.get(locale)
+    if not prepositions:
+        return []
+    tail = re.compile(r"(?:^|[\s(«\"—–-])(?:" + "|".join(prepositions) + r")\s+$", re.IGNORECASE)
+    problems: list[str] = []
+    for path in sorted((tree / locale).glob(only or "*.ftl")):
+        for entry in FluentParser().parse(path.read_text(encoding="utf-8")).body:
+            if not isinstance(entry, ftl.Message):
+                continue
+            for pattern in (node for node in _walk(entry) if isinstance(node, ftl.Pattern)):
+                for text, place in zip(pattern.elements, pattern.elements[1:], strict=False):
+                    if not (
+                        isinstance(text, ftl.TextElement)
+                        and isinstance(place, ftl.Placeable)
+                        and tail.search(text.value)
+                    ):
+                        continue
+                    what = place.expression
+                    if isinstance(what, ftl.VariableReference) and what.id.name in COUNTED:
+                        continue
+                    if isinstance(what, ftl.FunctionReference) and what.id.name == "NUMBER":
+                        continue
+                    said = text.value.split()[-1]
+                    problems.append(
+                        f"{locale}: «{entry.id.name}» ({path.name}) ставит подстановку "
+                        f"под предлог «{said}» -- имя не склоняется (D-258)"
+                    )
+    return problems
+
+
 def main() -> int:
     #: `check_locales.py en city.ftl` -- одна пара файлов, пока перевод идёт.
     parser = argparse.ArgumentParser(description="сверить языки между собой")
@@ -151,6 +288,10 @@ def main() -> int:
     problems: list[str] = []
     for locale in rest:
         problems += compare(default, locale, only, tree)
+    #: The default language answers for its own cases too: the declension
+    #: rule is per language, not a parity with anything.
+    for locale in {default, *rest}:
+        problems += declined(locale, only, tree)
     if problems:
         print(f"локали разошлись: {len(problems)} расхождени(й)\n", file=sys.stderr)
         for line in problems[:60]:
