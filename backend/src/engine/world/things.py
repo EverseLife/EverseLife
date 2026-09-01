@@ -35,11 +35,13 @@ from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import select
+from sqlalchemy.exc import InvalidRequestError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import current_catalog
 from src.db.base import remember
 from src.engine import events, goods
+from src.engine.errors import Refusal
 from src.models.craft import BatchState, CraftBatch
 from src.models.event import EventKind
 from src.models.identity import Body
@@ -217,7 +219,24 @@ async def move_stack(
     #: The stack is locked and reread first: every move in the world comes
     #: through here, and whoever moves the same stack at the same time must
     #: see the remainder, not the snapshot (review 2026-08-23).
-    await session.refresh(item, with_for_update=True)
+    #:
+    #: **And it may not be there to lock.** Between the moment a player was
+    #: shown a thing and the moment they reach for it, the world may have
+    #: taken it: an eruption burns a node's yard (`plates._burn`), a house
+    #: falls, somebody else picks the last of it up. The refresh then fails,
+    #: and what came back was `InvalidRequestError` -- the player reading
+    #: "the server failed" where the truth is that the sack is gone. A thing
+    #: that vanished under a hand is an ordinary answer of the world, so it
+    #: is said in words like any other (D-011).
+    #: Read before the refresh, because a failed refresh leaves the instance
+    #: with no usable state: touching a column on it then goes looking for the
+    #: row that is not there, and the answer would be a second, stranger error
+    #: instead of the plain one this is here to give.
+    named = item.type_key
+    try:
+        await session.refresh(item, with_for_update=True)
+    except InvalidRequestError as gone:
+        raise ItemGone(key="thing-gone", goods=named) from gone
     qty = min(to_units(goods.at_least_one(item.type_key, quantity)), item.amount)
     if qty >= item.amount:
         item.container_id = target.id
@@ -263,6 +282,10 @@ async def move_stack(
 #: worked at belongs to machines, tools, gear and wagons, and none of those
 #: fold at all -- so a fold can never take a thing out from under its use.
 #: The one exception is work on a loose stack, and that is guarded below.
+class ItemGone(Refusal):
+    """The stack was taken out of the world between the look and the reach."""
+
+
 SAMENESS = (
     "type_key",
     "quality",

@@ -73,6 +73,7 @@ breed-one-batch = two batches of seed are needed: a variety is not crossed with 
 breed-not-enough-seeds = a nursery needs { $need } seeds of each variety
 breed-nursery-done = this nursery has already been taken apart
 breed-nursery-not-ready = the nursery will ripen: { $left }
+thing-gone = the { NAME($goods) } is no longer here: it went while you were reaching
 breed-parent-gone = the parent variety is gone
 breed-not-stable = the variety is not stable yet: a name goes to what gives the same result time after time
 breed-not-the-author = a variety is named by the one who bred it

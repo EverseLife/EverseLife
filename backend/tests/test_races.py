@@ -75,8 +75,8 @@ async def test_the_eruption_does_not_burn_what_was_carried_out(
     """The window before an eruption is the whole licence for the burning
     (D-197, P6), and somebody using it must not be robbed by the fire anyway.
 
-    The carry-out goes **first** and holds its row: the sleep sits between
-    `storage.pick` and its commit, so the fire meets a sack already moving.
+    The carry-out goes **first** and holds its row: the fire waits for the row
+    to be taken, so it meets a sack already moving.
 
     With the lock the fire waits at that row, rereads it after the commit and
     finds the sack in a pocket -- not in the node -- so there is nothing here
@@ -87,7 +87,24 @@ async def test_the_eruption_does_not_burn_what_was_carried_out(
     from src.engine import plates, storage
     from src.models.world import Layer, Planet
 
-    _slow(monkeypatch, storage, "pick")
+    #: **A handshake, not a pause.** The window this test needs is the one
+    #: between taking the row and committing, and `_slow` on `pick` does not
+    #: open it: the pause lands after `pick` returns, while the checks that
+    #: run *before* `move_stack` reaches the row -- presence, the node, the
+    #: door, the relic, the carry limit -- take longer than any head start the
+    #: fire can be given by guesswork. The fire then took the row first, burnt
+    #: the sack and the carry-out found nothing to move. So the fire waits for
+    #: the row to be taken instead of waiting a number of milliseconds.
+    took_the_row = asyncio.Event()
+    carrying = world.move_stack
+
+    async def held(*args, **kwargs):
+        moved = await carrying(*args, **kwargs)
+        took_the_row.set()
+        await asyncio.sleep(0.2)
+        return moved
+
+    monkeypatch.setattr(world, "move_stack", held)
     stamp = uuid.uuid4().hex[:8]
     sphere = await world.create_node(
         session,
@@ -120,13 +137,14 @@ async def test_the_eruption_does_not_burn_what_was_carried_out(
     await session.commit()
 
     async def erupt() -> None:
-        #: Long enough for the carry-out to be inside its transaction and
-        #: holding the row; short enough to be well inside its sleep.
-        await asyncio.sleep(0.05)
+        #: The carry-out is inside its transaction and holding the row -- not
+        #: probably, but by construction.
+        await took_the_row.wait()
         async with factory() as db, db.begin():
             place = await db.get(Node, field_id)
             assert place is not None
-            await plates._burn(db, [place])
+            burnt = await plates._burn(db, [place])
+            assert burnt == 0, "огонь сжёг то, что уже уносили"
 
     async def carry() -> None:
         async with factory() as db, db.begin():

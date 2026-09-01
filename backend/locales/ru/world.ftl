@@ -70,6 +70,7 @@ breed-one-batch = нужны две партии семян: сорт сам с 
 breed-not-enough-seeds = на питомник нужно { $need } семян каждого сорта
 breed-nursery-done = этот питомник уже разобран
 breed-nursery-not-ready = питомник созреет: { $left }
+thing-gone = { NAME($goods) } здесь больше нет: пока вы тянулись, это унесли
 breed-parent-gone = родительский сорт исчез
 breed-not-stable = сорт ещё не постоянен: имя даётся тому, что даёт тот же результат из раза в раз
 breed-not-the-author = называет сорт тот, кто его вывел
