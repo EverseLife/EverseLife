@@ -145,7 +145,9 @@ ui-inventory-in-hands = { $goods } в руках
 # поэтому двоеточие, как у «Куда положить».
 ui-inventory-pour = Перелить: { $target }
 ui-inventory-pour-hint = перелить всё, что внутри, сколько войдёт
-ui-inventory-into = В { $chest }
+# Та же мина, что у «Перелить»: имя ящика в именительном, и мужской род её
+# прятал («В сундук» сходится случайно), а женский взорвёт — «В бочка».
+ui-inventory-into = Внутрь: { $chest }
 ui-inventory-contribute = В библиотеку
 ui-inventory-contribute-hint = отдать в библиотеку навсегда: ваше имя останется при рецепте
 ui-inventory-contribute-there = этот рецепт здесь уже лежит
