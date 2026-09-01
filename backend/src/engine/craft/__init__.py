@@ -120,14 +120,9 @@ from src.engine.craft._internal import (  # noqa: F401
 )
 from src.engine.craft.batch import (  # noqa: F401
     UTENSILS,
-    _finish_make,
-    _finish_recycle,
-    _finish_repair,
     #: The pair goes out together: the spend is only safe under the lock.
     _lock_body,
     _pay_copy,
-    _target,
-    _work_on,
     cook,
     copy_recipe,
     finish,

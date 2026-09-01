@@ -372,11 +372,16 @@ async def test_pump_delivers_a_late_committing_row_exactly_once(
     from sqlalchemy import func, select
 
     from src.api import push
+
+    #: Patched where the name is looked up (the push split): `pump` binds
+    #: `session_factory` into its own globals, so assigning on the door
+    #: would reach nobody.
+    from src.api.push import pump as push_pump
     from src.engine import events
     from src.models.event import Event, EventKind
 
-    real_factory = push.session_factory
-    push.session_factory = lambda: factory  # type: ignore[assignment]
+    real_factory = push_pump.session_factory
+    push_pump.session_factory = lambda: factory  # type: ignore[assignment]
     got: list[int] = []
 
     async def collect(message: dict) -> None:
@@ -416,7 +421,7 @@ async def test_pump_delivers_a_late_committing_row_exactly_once(
         assert sorted(got) == [straggler.id, later.id]
         assert got.count(straggler.id) == 1, "опоздавшая строка обязана дойти ровно раз"
     finally:
-        push.session_factory = real_factory
+        push_pump.session_factory = real_factory
 
 
 async def test_the_watermark_adopts_the_journal_it_reads(
@@ -435,8 +440,13 @@ async def test_the_watermark_adopts_the_journal_it_reads(
     await events.record(session, EventKind.TICK_RAN, kind_of_tick="test")
     await session.commit()
 
-    real_factory = push.session_factory
-    push.session_factory = lambda: factory  # type: ignore[assignment]
+    #: Patched where the name is looked up (the push split): `pump` binds
+    #: `session_factory` into its own globals, so assigning on the door
+    #: would reach nobody.
+    from src.api.push import pump as push_pump
+
+    real_factory = push_pump.session_factory
+    push_pump.session_factory = lambda: factory  # type: ignore[assignment]
     try:
         hub = push.Hub()
         #: A mark left by the journal served before this one.
@@ -446,4 +456,4 @@ async def test_the_watermark_adopts_the_journal_it_reads(
             here = (await db.execute(select(func.max(Event.id)))).scalar() or 0
         assert hub._last_id == here, "отметка обязана принадлежать читаемому журналу"
     finally:
-        push.session_factory = real_factory
+        push_pump.session_factory = real_factory

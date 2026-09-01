@@ -115,7 +115,15 @@ python tools/spdx.py --apply
   `engine/vote.py` (957) → `_base`, `council`, `poll`; `engine/oxygen.py`
   (867) → `_base`, `supply`, `breath`, `gauge`; `engine/net.py` (863) →
   `_base`, `road`, `letters`, `channels`; `engine/frost.py` (830) →
-  `_base`, `warmth`, `body`, `hours`;
+  `_base`, `warmth`, `body`, `hours`; 2026-09-02 подросшее к планке:
+  `api/push.py` (802) → `_base`, `pump`, `tellers`;
+  `engine/estate/building.py` (795) → вложенный пакет `building/`
+  (`frame`, `build`); `engine/farm.py` (769) → `_base`, `plot`, `season`;
+  `engine/craft/batch.py` (733) → вложенный пакет `batch/` (`work`,
+  `finish`, `copy`); `engine/automat.py` (733) → `_base`, `wire`, `run`,
+  `board`; `engine/ship/view.py` (721) → вложенный пакет `view/`
+  (`sight`, `sky`, `card`); `engine/works_city.py` (716) → `_base`,
+  `order`, `pay`, `credit`;
   `tests/test_races.py` (1585) → `test_races.py` (деньги, заказы, резервы) +
   `test_races_ground.py` (земля) + `test_races_mining.py` (выработки) +
   `test_reads.py` («чтение не пишет»), общий `_slow` — в `conftest.py`.
