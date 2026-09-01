@@ -29,7 +29,7 @@
 import { useEffect, useState } from "react";
 import * as api from "../api";
 import type { Invention, Look, Plan, Thing } from "../api";
-import { anyOfClass, isRelic, membersOf } from "../classes";
+import { isRelic, membersOf } from "../classes";
 import { tally } from "../amounts";
 import { busyWith, CRAFT } from "../busy";
 import { craftableAt, inputsOf, stationOf } from "../recipes";
@@ -56,7 +56,6 @@ type Props = {
  * automatic bench likewise (`craft.AUTO_BENCH`).
  */
 const CARRIER = "carrier";
-const AUTO_BENCH = "automaton";
 
 export function Workshop({ look, machine }: Omit<Props, "busy" | "act">) {
   const session = useSession();
@@ -78,7 +77,6 @@ export function Workshop({ look, machine }: Omit<Props, "busy" | "act">) {
   const [refusal, setRefusal] = useState<string | null>(null);
   //: "Put on automatic" is a choice of mode: volume and an energy bill against
   //: quality and attention (D-035, D-058).
-  const [automaton, setAutomaton] = useState(false);
   //: For a carrier: which of the known recipes goes onto it (D-209).
   const [onto, setOnto] = useState<string | null>(null);
   //: Which quality tier feeds each input -- the master's choice (D-058);
@@ -88,7 +86,6 @@ export function Workshop({ look, machine }: Omit<Props, "busy" | "act">) {
   //: Computed before the early return below: a hook may not be called
   //: conditionally, and the forecast effect needs both of these.
   const selected = what && known.includes(what) ? what : (known[0] ?? null);
-  const automated = machine !== null && anyOfClass(book, [machine], AUTO_BENCH);
   //: What may be written: everything known except the carrier itself -- a
   //: recipe for writing recipes on a carrier is a loop nobody needs.
   const carriers = new Set(membersOf(book, CARRIER));
@@ -122,7 +119,6 @@ export function Workshop({ look, machine }: Omit<Props, "busy" | "act">) {
         .send("craft.plan", {
           output: selected,
           units: qty,
-          auto: automaton && automated,
           recipe: recipe ?? undefined,
           tiers: chosenTiers,
         })
@@ -149,7 +145,7 @@ export function Workshop({ look, machine }: Omit<Props, "busy" | "act">) {
     //: `tiersKey` stands for `chosenTiers`: a fresh object every render would
     //: refire the effect endlessly, its string does not.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session, selected, qty, automaton, automated, recipe, tiersKey, look.node?.key, look.travel, look.survey]);
+  }, [session, selected, qty, recipe, tiersKey, look.node?.key, look.travel, look.survey]);
 
   const myMachine = (look.bench ?? []).filter((b) => b.goods === machine);
 
@@ -158,7 +154,6 @@ export function Workshop({ look, machine }: Omit<Props, "busy" | "act">) {
       await session.send("craft.start", {
         output: selected,
         units: qty,
-        auto: automaton && automated,
         recipe: recipe ?? undefined,
         tiers: chosenTiers,
       });
@@ -239,16 +234,6 @@ export function Workshop({ look, machine }: Omit<Props, "busy" | "act">) {
               value={qty}
               onChange={(e) => setQty(Number(e.target.value))}
             />
-            {automated && (
-              <label className="note">
-                <input
-                  type="checkbox"
-                  checked={automaton}
-                  onChange={(e) => setAutomaton(e.target.checked)}
-                />{" "}
-                {t("ui-workshop-auto")}
-              </label>
-            )}
           </div>
 
           {/* What goes in and which quality of it (D-058): a row per input,
@@ -334,15 +319,6 @@ export function Workshop({ look, machine }: Omit<Props, "busy" | "act">) {
                   {Object.entries(forecast.consumes)
                     .map(([name, qty]) => `${goodsName(names, name)} ${tally(name, qty)}`)
                     .join(", ")}
-                  {forecast.auto && forecast.energy > 0 && (
-                    <>
-                      {" "}·{" "}
-                      {t("ui-workshop-energy", {
-                        energy: forecast.energy.toFixed(0),
-                        cost: api.tk(forecast.energy_cost),
-                      })}
-                    </>
-                  )}
                 </p>
               </>
             ) : refusal ? (

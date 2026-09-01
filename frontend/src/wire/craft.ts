@@ -88,11 +88,6 @@ export type Plan = {
   waste: number;
   minutes: number;
   consumes: Record<string, number>;
-  /** Industrial mode: the batch runs on the automaton (D-035). */
-  auto: boolean;
-  /** How much energy the automaton eats and what that costs at the city tariff. */
-  energy: number;
-  energy_cost: number;
 };
 
 export type Batch = {

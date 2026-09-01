@@ -197,9 +197,6 @@ def _craft_request(message: dict) -> tuple[str, float, dict[str, Any]]:
         {
             "tool_item_id": _optional_uuid(message.get("tool")),
             "proportions": message.get("proportions"),
-            #: "Put on automatic" is the master's decision: volume instead of
-            #: quality, and an energy bill (D-035, D-058).
-            "auto": bool(message.get("auto", False)),
             #: Which operation, when several give the same thing (D-196).
             "way": message.get("way"),
             #: For a knowledge carrier: which recipe goes onto it (D-209).

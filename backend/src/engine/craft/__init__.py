@@ -65,8 +65,8 @@ added to `data/constants.yaml`, not to code (D-065).
 
 * **Dishes by roles** (`roles: true`) -- arrive with cooking on E2 (D-119,
   D-128) together with `cook.*`;
-* **Automatic machine** -- on E2.5 together with energy (D-035), when
-  `craft.auto_speed_k` switches on;
+* **The unattended automat** lives in `engine/automat.py` (D-253): the
+  D-035 attended mode is gone -- one machine, one meaning;
 * **Invention, repair and recycling** -- separate registry actions with their
   own constants.
 
@@ -75,7 +75,6 @@ the names so `from src.engine import craft` reads as before.
 """
 
 from src.engine.craft._base import (  # noqa: F401
-    AUTO_BENCH,
     BENCHLESS,
     BLANK,
     CARRIER,
@@ -103,7 +102,6 @@ from src.engine.craft._internal import (  # noqa: F401
     _base_quality,
     _knows,
     _material_quality,
-    _named_station,
     _num,
     _occupy,
     _pick,

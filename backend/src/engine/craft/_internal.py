@@ -20,7 +20,6 @@ from src.constants import Catalog, Constants, current, current_catalog
 from src.constants import registry as R
 from src.engine import goods, travel, wear
 from src.engine.craft._base import (
-    AUTO_BENCH,
     Busy,
     CraftError,
     CutOff,
@@ -68,7 +67,6 @@ async def _prepare(
     *,
     tool_item_id: uuid.UUID | None,
     proportions: dict[str, float] | None,
-    auto: bool = False,
     way: str | None = None,
     recipe_key: str | None = None,
     tiers: dict[str, str] | None = None,
@@ -121,14 +119,8 @@ async def _prepare(
         if foreign:
             raise CraftError(key="craft-place-not-yours", place=proc.place)
 
-    if auto:
-        #: Industrial mode: the machine sets the ceiling, no tool is needed at
-        #: all, proportions are its setting, not the master's decision (D-058).
-        station = await _named_station(session, body, AUTO_BENCH)
-        tools: list[Item] = []
-    else:
-        station = await _station_item(session, body, proc)
-        tools = await _tool_items(session, catalog, body, proc, tool_item_id)
+    station = await _station_item(session, body, proc)
+    tools = await _tool_items(session, catalog, body, proc, tool_item_id)
 
     scale = constants[R.QUALITY_SCALE]
     #: Limits **effective** quality: a broken anvil gives a worse result, not
@@ -148,12 +140,10 @@ async def _prepare(
     optimal = optimal_amounts(constants, proc, units, _base_quality(proc, stock, scale.max))
     actual = (
         {catalog.recipes.resolve(name): value * units for name, value in proportions.items()}
-        if proportions and not auto
+        if proportions
         else {name: value * units for name, value in proc.per_unit.items()}
     )
-    #: For the automaton the proportion is its setting, made once: it always
-    #: works by the recipe norm and therefore hits it exactly (D-058).
-    accuracy = 1.0 if auto or not proc.mix else ratio_accuracy(actual, optimal)
+    accuracy = 1.0 if not proc.mix else ratio_accuracy(actual, optimal)
 
     waste = waste_share(constants, accuracy)
     #: Waste is a share of the **inputs**, so it is taken on top of the norm,
@@ -169,18 +159,7 @@ async def _prepare(
     }
 
     picks = _pick(stock, required)
-    minutes = batch_minutes(constants, proc, units, wear.effective(constants, station), auto=auto)
-    #: The automaton eats energy for its working time. A manual workbench
-    #: consumes nothing: craft stays available to those with no money for bills.
-    from src.engine import (  # noqa: PLC0415 -- lazy: breaks the import cycle with energy
-        energy as power,
-    )
-
-    energy = constants[R.ENERGY_AUTO_BENCH_DRAW] * minutes / MINUTES_PER_HOUR if auto else 0.0
-    energy_price = 0
-    if energy > 0:
-        node = await session.get(Node, body.node_id)
-        energy_price = await power.price_of(session, constants, node, energy)
+    minutes = batch_minutes(constants, proc, units, wear.effective(constants, station))
 
     forecast = Plan(
         output=proc.output,
@@ -191,7 +170,6 @@ async def _prepare(
             ceiling=ceiling,
             material=_material_quality(picks, scale.max),
             accuracy=accuracy,
-            auto=auto,
         ),
         spread=spread_of(constants, accuracy),
         ceiling=ceiling,
@@ -199,13 +177,8 @@ async def _prepare(
         waste=waste,
         minutes=minutes,
         consumes=dict(required),
-        auto=auto,
-        energy=energy,
-        energy_cost=energy_price,
     )
-    return _Ready(
-        plan=forecast, picks=tuple(picks), station=station, auto=auto, recipe_key=recipe_key
-    )
+    return _Ready(plan=forecast, picks=tuple(picks), station=station, recipe_key=recipe_key)
 
 
 async def _prepare_write(
@@ -281,11 +254,6 @@ async def _knows(session: AsyncSession, body: Body, key: str) -> bool:
         Knowledge.key == key,
     )
     return (await session.execute(stmt)).scalar_one_or_none() is not None
-
-
-async def _named_station(session: AsyncSession, body: Body, name: str) -> Item:
-    """The machine with this name in the node, the best of the free ones."""
-    return await _pick_station(session, body, name, allow_own=True)
 
 
 async def _station_item(session: AsyncSession, body: Body, proc: Procedure) -> Item | None:

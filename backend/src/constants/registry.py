@@ -117,7 +117,6 @@ WEAR_TRANSPORT_PER_LEG = Num("wear.transport_per_leg")
 # --- Craft (D-092, D-133) ---------------------------------------------------
 CRAFT_TIME_PER_UNIT = Num("craft.time_per_unit")
 CRAFT_STATION_SPEED_K = Span("craft.station_speed_k")
-CRAFT_AUTO_SPEED_K = Num("craft.auto_speed_k")
 CRAFT_BATCH_MAX = Num("craft.batch_max")
 CRAFT_WASTE_SHARE = Num("craft.waste_share")
 CRAFT_WASTE_BAD_RATIO = Num("craft.waste_bad_ratio")
@@ -236,7 +235,6 @@ ENERGY_BATTERY_CAPACITY = Num("energy.battery_capacity")
 ENERGY_BATTERY_MASS = Num("energy.battery_mass")
 ENERGY_BATTERY_SELFDISCHARGE = Num("energy.battery_selfdischarge")
 ENERGY_TARIFF_DEFAULT = Num("energy.tariff_default")
-ENERGY_AUTO_BENCH_DRAW = Num("energy.auto_bench_draw")
 ENERGY_METER_PERIOD = Num("energy.meter_period")
 
 # --- Breeding (D-057, D-067) ------------------------------------------------

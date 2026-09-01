@@ -73,7 +73,6 @@ async def plan(
     *,
     tool_item_id: uuid.UUID | None = None,
     proportions: dict[str, float] | None = None,
-    auto: bool = False,
     way: str | None = None,
     recipe_key: str | None = None,
     tiers: dict[str, str] | None = None,
@@ -88,7 +87,6 @@ async def plan(
         units,
         tool_item_id=tool_item_id,
         proportions=proportions,
-        auto=auto,
         way=way,
         recipe_key=recipe_key,
         tiers=tiers,
@@ -106,7 +104,6 @@ async def start(
     *,
     tool_item_id: uuid.UUID | None = None,
     proportions: dict[str, float] | None = None,
-    auto: bool = False,
     way: str | None = None,
     recipe_key: str | None = None,
     tiers: dict[str, str] | None = None,
@@ -132,32 +129,11 @@ async def start(
         units,
         tool_item_id=tool_item_id,
         proportions=proportions,
-        auto=auto,
         way=way,
         recipe_key=recipe_key,
         tiers=tiers,
     )
     forecast = ready.plan
-
-    #: The automaton's energy is written off up front, like materials: the city
-    #: releases it at the tariff, and whoever burns it pays (D-085, D-135).
-    if forecast.energy > 0:
-        from src.engine import (  # noqa: PLC0415 -- lazy: breaks the import cycle with energy
-            energy as power,
-        )
-
-        await power.draw_for_work(
-            session,
-            constants,
-            body,
-            forecast.energy,
-            #: The id, not a sentence about it. This used to hand over
-            #: `f"партия «{output}»"` -- a Russian literal built in Python and
-            #: interpolated into every language, with a raw D-251 key inside
-            #: it, so an English player read «партия «iron_ingot»» (D-251).
-            goods=forecast.output,
-            now=moment,
-        )
 
     for pick in ready.picks:
         if pick.item.amount > pick.take:

@@ -65,8 +65,8 @@ added to `data/constants.yaml`, not to code (D-065).
 
 * **Dishes by roles** (`roles: true`) -- arrive with cooking on E2 (D-119,
   D-128) together with `cook.*`;
-* **Automatic machine** -- on E2.5 together with energy (D-035), when
-  `craft.auto_speed_k` switches on;
+* **The unattended automat** lives in `engine/automat.py` (D-253): the
+  D-035 attended mode is gone -- one machine, one meaning;
 * **Invention, repair and recycling** -- separate registry actions with their
   own constants.
 """
@@ -143,8 +143,8 @@ added to `data/constants.yaml`, not to code (D-065).
 
 * **Dishes by roles** (`roles: true`) -- arrive with cooking on E2 (D-119,
   D-128) together with `cook.*`;
-* **Automatic machine** -- on E2.5 together with energy (D-035), when
-  `craft.auto_speed_k` switches on;
+* **The unattended automat** lives in `engine/automat.py` (D-253): the
+  D-035 attended mode is gone -- one machine, one meaning;
 * **Invention, repair and recycling** -- separate registry actions with their
   own constants.
 """
@@ -253,16 +253,6 @@ def blank_of(catalog: Catalog, carrier_type: str) -> str:
     raise Unmakeable(key="craft-no-blank", carrier=carrier_type, cls=BLANK)
 
 
-#: The automatic workstation class (D-035, D-058, D-215). The industrial mode:
-#: works twice as fast, sets the ceiling itself, needs no tool, gives an even
-#: result -- and for that it eats energy from the city pool at the tariff.
-#:
-#: The vault does not list which processes are automated, so the automaton is
-#: substituted for any recipe station -- by the master's own decision, not
-#: silently: "put on automatic" is a choice between quality and volume.
-AUTO_BENCH = "automaton"
-
-
 @dataclass(frozen=True, slots=True)
 class Procedure:
     """A way to make something: a recipe, or an operation without a recipe.
@@ -309,12 +299,6 @@ class Plan:
     waste: float
     minutes: float
     consumes: dict[str, float] = field(default_factory=dict)
-    #: Industrial mode: the batch runs on the automaton (D-035, D-058).
-    auto: bool = False
-    #: How much energy the automaton eats per batch and what that costs at the
-    #: city tariff. Zero for a manual batch: a workbench consumes nothing.
-    energy: float = 0.0
-    energy_cost: int = 0
 
 
 @dataclass(frozen=True, slots=True)

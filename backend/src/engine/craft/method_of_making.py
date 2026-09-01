@@ -143,15 +143,9 @@ def batch_minutes(
     proc: Procedure,
     units: float,
     station_quality: float,
-    *,
-    auto: bool = False,
 ) -> float:
-    """How long a batch takes. A broken anvil works slowly.
-
-    The automaton wins on volume: `craft.auto_speed_k` -- that many times faster.
-    """
+    """How long a batch takes. A broken anvil works slowly."""
     speed = constants[R.CRAFT_STATION_SPEED_K]
     scale = constants[R.QUALITY_SCALE]
     k = speed.max - (speed.max - speed.min) * station_quality / scale.max
-    minutes = proc.step_hours * MINUTES_PER_HOUR * units * k
-    return minutes / constants[R.CRAFT_AUTO_SPEED_K] if auto else minutes
+    return proc.step_hours * MINUTES_PER_HOUR * units * k
