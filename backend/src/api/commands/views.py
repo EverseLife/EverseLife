@@ -433,7 +433,10 @@ async def _pioneers(db: AsyncSession, identity_id: uuid.UUID) -> dict[str, str]:
         .join(Identity, Identity.id == Knowledge.identity_id)
         .where(
             Knowledge.kind == KnowledgeKind.RECIPE,
-            Knowledge.discovered.is_(True),
+            #: The bare column, not `.is_(True)`: the latter renders `IS true`,
+            #: which the planner refuses to match against the partial
+            #: `ix_knowledge_pioneer` (`WHERE discovered`) -- see the model.
+            Knowledge.discovered,
             Knowledge.key.in_(mine),
         )
         #: DISTINCT ON keeps the first row per key of the given order: the
