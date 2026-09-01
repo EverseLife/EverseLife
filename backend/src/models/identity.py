@@ -22,7 +22,7 @@ import uuid
 from datetime import datetime
 from enum import StrEnum
 
-from sqlalchemy import ForeignKey, Index, Numeric, String, UniqueConstraint, Uuid
+from sqlalchemy import ForeignKey, Index, Numeric, String, UniqueConstraint, Uuid, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.db.base import Base, created_column, enum_column, uuid_pk
@@ -121,6 +121,13 @@ class Knowledge(Base):
     __tablename__ = "knowledge"
     __table_args__ = (
         UniqueConstraint("identity_id", "kind", "key", name="uq_knowledge_identity_key"),
+        #: The pioneer lookup (D-259) scans `kind = 'recipe' AND discovered`
+        #: by key on every read of the `knowledge` part; the unique above
+        #: leads with `identity_id` and cannot serve it. The query must say
+        #: `Knowledge.discovered` or `== true()` -- never `.is_(True)`:
+        #: Postgres does not prove `IS true` implied by this predicate, and
+        #: the planner walks past the index (checked by EXPLAIN, PG 16).
+        Index("ix_knowledge_pioneer", "kind", "key", postgresql_where=text("discovered")),
     )
 
     id: Mapped[uuid.UUID] = uuid_pk()
