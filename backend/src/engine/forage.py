@@ -399,7 +399,7 @@ async def take(
     await gear.check_carry(session, constants, catalog, body, row.found, row.units)
 
     pocket = await world.body_container(session, body)
-    await _into_hands(session, catalog, pocket, row, moment)
+    await _into_hands(session, constants, catalog, pocket, row, moment)
     await events.record(
         session,
         EventKind.FORAGE_TAKEN,
@@ -415,6 +415,7 @@ async def take(
 
 async def _into_hands(
     session: AsyncSession,
+    constants: Constants,
     catalog: Catalog,
     pocket: Container,
     row: Forage,
@@ -425,7 +426,8 @@ async def _into_hands(
     Three kinds, and two of them are not an ordinary stack:
 
     * **a seed is a batch of a cultivar** (D-057), never bare goods. What the
-      meadow gives is the crop's base cultivar -- what grows for everyone --
+      meadow gives is the crop's **wild ancestor** (D-260) -- a distinct
+      cultivar with its own traits, the second parent breeding stands on --
       and the roll that would have been the find's quality becomes the lot's
       strength instead: wild seed is weaker than a tended fund, and by how
       much is the same luck that decides a good stone from a poor one. Seeds
@@ -440,7 +442,7 @@ async def _into_hands(
     """
     plant = catalog.plants.by_seed(row.found)
     if plant is not None:
-        cultivar = await breed.landrace(session, catalog, plant.id)
+        cultivar = await breed.wild_ancestor(session, constants, catalog, plant.id)
         await breed.seed_lot(
             session, catalog, pocket.id, cultivar, row.units, float(row.quality), now=moment
         )

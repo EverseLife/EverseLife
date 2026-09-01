@@ -37,6 +37,7 @@ from src.models.farm import Plot
 from src.models.forage import Forage
 from src.models.identity import Identity
 from src.models.inventory import Item
+from src.models.plant import Variety
 from src.units import amount_float
 
 #: A place carrying every mark there is, so that a test about the search is
@@ -443,14 +444,15 @@ async def test_water_is_poured_into_a_vessel_or_refused(
     assert sum(amount_float(item.amount) for item in held) == pytest.approx(5)
 
 
-async def test_a_wild_seed_comes_as_a_batch_of_the_base_cultivar(
+async def test_a_wild_seed_comes_as_a_batch_of_the_wild_ancestor(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
     """The first seeds are gathered by hand, and what is gathered is sowable.
 
     A bare stack of `spelt_seeds` could not be sown at all: sowing wants a
     cultivar and a strength (D-057), and the meadow's answer is the crop's
-    base cultivar with the strength the walk rolled.
+    **wild ancestor** (D-260) -- a distinct cultivar, the second parent
+    breeding stands on -- with the strength the walk rolled.
     """
     node, body = await _yard(session)
     row = await forage.start(session, constants, body)
@@ -465,6 +467,8 @@ async def test_a_wild_seed_comes_as_a_batch_of_the_base_cultivar(
         )
     ).scalar_one()
     assert lot.variety_id is not None, "дикое семя обязано нести сорт, иначе его не посеять"
+    found_variety = await session.get(Variety, lot.variety_id)
+    assert found_variety is not None and found_variety.wild, "луг отдаёт дикого предка (D-260)"
     assert lot.vigor is not None and 0 < float(lot.vigor) <= 100
     #: Seeds have no quality of their own -- the roll went into the strength.
     assert lot.quality is None

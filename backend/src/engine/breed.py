@@ -33,8 +33,8 @@ list the vault does not have.
 is viable only if it noticeably differs from those already existing in this
 crop. Otherwise **the bed simply does not sprout**: the gate is built into
 biology, not the interface, and the player gets the refusal from the field,
-not a window (D-067). Distance is computed as the mean relative difference
-across traits, in percent.
+not a window (D-067). Distance is the largest relative difference across
+traits, in percent, taken against the existing cultivar (D-260).
 
 **Segregation and degradation.** Hybrid seeds are unstable: without selection
 the next generation loses `breed.hybrid_decay`. Any seed fund without
@@ -51,8 +51,6 @@ Selection meanwhile holds the batch strength: it is the breeder's work.
   cultivars, but the interface shows norms to everyone alike. The split
   "symptoms without knowledge -- norms with knowledge" waits for closing the
   OQ about the five care parameters;
-* **Wild ancestors in wild nodes**: gathering the first seeds by hand arrives
-  with exploration;
 * **Traits beyond four numbers**: diseases and crowding are inherited but
   affect nothing yet -- their mechanics do not exist (OQ-098).
 """
@@ -138,6 +136,7 @@ async def landrace(session: AsyncSession, catalog: Catalog, culture_id: str) -> 
                     Variety.culture_id == culture_id,
                     Variety.author_identity_id.is_(None),
                     Variety.stable.is_(True),
+                    Variety.wild.is_(False),
                 )
             )
         )
@@ -160,23 +159,71 @@ async def landrace(session: AsyncSession, catalog: Catalog, culture_id: str) -> 
     return variety
 
 
-def distance(one: dict[str, float], other: dict[str, float]) -> float:
-    """How much two cultivars differ, in percent.
+async def wild_ancestor(
+    session: AsyncSession, constants: Constants, catalog: Catalog, culture_id: str
+) -> Variety:
+    """The crop's wild ancestor: nobody's, stable, created at first need (D-260).
+
+    A distinct cultivar, not the base one with a discount: its traits differ
+    (`breed.wild_traits` -- lower yield, higher hardiness), and that difference
+    is the whole point. It is the second parent D-057 intended: crossing wild
+    with base gets a real spread, and breeding stops being self times self.
+    """
+    plant = catalog.plants.by_id(culture_id)
+    found = (
+        (
+            await session.execute(
+                select(Variety).where(
+                    Variety.culture_id == culture_id,
+                    Variety.author_identity_id.is_(None),
+                    Variety.wild.is_(True),
+                )
+            )
+        )
+        .scalars()
+        .first()
+    )
+    if found is not None:
+        return found
+
+    factors = constants[R.BREED_WILD_TRAITS]
+    traits = {key: value * factors.get(key, 1.0) for key, value in traits_of_plant(plant).items()}
+    variety = Variety(
+        culture_id=culture_id,
+        name=plant.wild_name or plant.name,
+        author_identity_id=None,
+        generation=0,
+        stable=True,
+        wild=True,
+        traits=traits,
+    )
+    session.add(variety)
+    await session.flush()
+    return variety
+
+
+def distance(new: dict[str, float], reference: dict[str, float]) -> float:
+    """How much a seedling differs from an existing cultivar, in percent.
 
     The **largest** relative difference across traits is taken, not the mean:
     "noticeably differs" means differs in at least something. A cultivar with
     double yield is another cultivar even if in everything else it copies its
     parent; averaging across traits would drown such a difference in zeros.
 
+    The difference is relative to the **existing** cultivar, not to the larger
+    of the two (D-260): dividing by the larger let a worsening through the
+    viability gate and never an improvement -- x0.85 measured 15% while x1.15
+    measured 13% -- so the gate bred degradations by arithmetic alone.
+
     The vault does not set the metric -- it sets only the threshold
     (`breed.distinctness_threshold`), and the choice here belongs to the engine.
     """
     diffs: list[float] = []
     for key in TRAITS:
-        a, b = one.get(key), other.get(key)
+        a, b = new.get(key), reference.get(key)
         if a is None or b is None:
             continue
-        base = max(abs(a), abs(b))
+        base = abs(b)
         if base <= 0:
             continue
         diffs.append(abs(a - b) / base * PERCENT)
@@ -209,8 +256,9 @@ async def inherit(
 
     #: Occasionally a trait appears that neither parent had. The only honest
     #: way to show that with numbers is to shift one trait **from the middle**,
-    #: not within the parents' range. The shift coefficient is the same as for
-    #: inheritance: the vault sets no second one.
+    #: not within the parents' range. The shift has its own vault quantity
+    #: (D-260): tied to the inheritance drift it sat exactly on the viability
+    #: threshold, and the whole branch balanced on a float boundary.
     #: The chance keeps a memory (D-213): a breeder who never once saw a new
     #: trait in twenty crossings has the same complaint as a scout who never
     #: found anything, and the announced share is unchanged by the memory.
@@ -224,7 +272,7 @@ async def inherit(
     )
     if novel and child:
         key = rng.choice(sorted(child))
-        child[key] *= 1 + rng.choice((-1, 1)) * drift
+        child[key] *= 1 + rng.choice((-1, 1)) * constants[R.BREED_NOVEL_TRAIT_SHIFT] / PERCENT
     return child
 
 
@@ -432,7 +480,9 @@ async def gather_cross(
         type_key=plant.seed,
         amount=amount(float(nursery.seeds)),
         variety_id=hybrid.id,
-        vigor=Decimal(str(FULL_VIGOR)),
+        #: Heterosis (D-260): the F1 lot outdoes both parents through lot
+        #: strength -- and exactly one sowing long, `next_vigor` caps the rest.
+        vigor=Decimal(str(FULL_VIGOR + constants[R.BREED_HYBRID_VIGOR])),
         maker_identity_id=body.identity_id,
         made_at=moment,
         made_node_id=nursery.node_id,
@@ -459,13 +509,18 @@ def next_vigor(constants: Constants, variety: Variety, vigor: float, *, selected
 
     Selection is work: it holds the fund. Without selection the fund degrades,
     and a hybrid additionally segregates. Both vault quantities are negative.
+
+    Heterosis is not inherited (D-260): whatever strength above one hundred an
+    F1 lot carried, its offspring starts from one hundred at best -- the bonus
+    lives exactly one sowing, and that is the hybrid seller's whole business.
     """
+    ceiling = min(vigor, FULL_VIGOR)
     if selected:
-        return vigor
+        return ceiling
     loss = constants[R.BREED_DEGRADATION_PER_GEN]
     if not variety.stable:
         loss += constants[R.BREED_HYBRID_DECAY]
-    return max(0.0, vigor + loss)
+    return max(0.0, ceiling + loss)
 
 
 async def select_generation(

@@ -58,6 +58,9 @@ class Variety(Base):
     generation: Mapped[int] = mapped_column(nullable=False, default=0)
     #: Whether stable: a cultivar's seeds give the same thing, a hybrid's do not.
     stable: Mapped[bool] = mapped_column(nullable=False, default=True)
+    #: The crop's wild ancestor (D-260): authorless and stable, like the base
+    #: cultivar -- the flag is what tells the two apart when both exist.
+    wild: Mapped[bool] = mapped_column(nullable=False, default=False)
 
     #: The cultivar's numbers: yield, cycle, required fertility, spoilage, temper.
     #: The units are the same as the crop's in `build/plants.json`.

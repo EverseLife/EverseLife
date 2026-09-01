@@ -254,6 +254,13 @@ BREED_HYBRID_DECAY = Num("breed.hybrid_decay")
 BREED_GENERATIONS_TO_STABILIZE = Span("breed.generations_to_stabilize")
 BREED_DEGRADATION_PER_GEN = Num("breed.degradation_per_gen")
 BREED_DISTINCTNESS_THRESHOLD = Num("breed.distinctness_threshold")
+#: The wild ancestor's traits as multipliers over the base cultivar (D-260).
+BREED_WILD_TRAITS = Table("breed.wild_traits")
+#: A novel trait's shift from the middle: clears the distinctness threshold
+#: with margin and is no longer tied to the inheritance drift (D-260).
+BREED_NOVEL_TRAIT_SHIFT = Num("breed.novel_trait_shift")
+#: F1 heterosis: the nursery lot's vigor above one hundred, one sowing long (D-260).
+BREED_HYBRID_VIGOR = Num("breed.hybrid_vigor")
 
 # --- Coin (D-016, D-086) ----------------------------------------------------
 #: Coin fineness, per mille. There is no debasement mechanic any more: a coin

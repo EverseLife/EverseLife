@@ -319,6 +319,95 @@ async def test_different_parents_give_new_cultivar(
         assert abs(hybrid.traits[key] - middle) <= spread_ * deviation * 2 + 1e-6
 
 
+async def test_wild_ancestor_is_a_second_parent(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The meadow's cultivar is not the base one with a discount (D-260).
+
+    Its traits differ by the vault map, and that difference is the genetic
+    material breeding stands on -- with one cultivar in the world, crossing
+    was self times self and the spread was zero.
+    """
+    wild = await breed.wild_ancestor(session, constants, catalog, SPELT)
+    base = await breed.landrace(session, catalog, SPELT)
+    assert wild.id != base.id, "дикий предок и базовый сорт — разные строки"
+    assert wild.wild and not base.wild
+    assert wild.stable and wild.author_identity_id is None
+
+    factors = constants[R.BREED_WILD_TRAITS]
+    for key, factor in factors.items():
+        assert wild.traits[key] == pytest.approx(base.traits[key] * factor)
+    #: The map's whole point: the two cultivars clear the viability gate.
+    assert breed.distance(wild.traits, base.traits) >= (constants[R.BREED_DISTINCTNESS_THRESHOLD])
+
+    #: Lazy creation is idempotent, and the base cultivar keeps resolving to
+    #: itself with the wild one present: the flag tells them apart.
+    assert (await breed.wild_ancestor(session, constants, catalog, SPELT)).id == wild.id
+    assert (await breed.landrace(session, catalog, SPELT)).id == base.id
+
+
+async def test_the_viability_gate_is_symmetric(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Improvement and degradation measure the same against a neighbour (D-260).
+
+    Dividing by the larger of the two let a worsening through and never an
+    improvement: x0.85 measured 15% while x1.15 measured 13% -- the gate bred
+    degradations by arithmetic alone.
+    """
+    base = await breed.landrace(session, catalog, SPELT)
+    better = {**base.traits, "yield_per_m2": base.traits["yield_per_m2"] * 1.15}
+    worse = {**base.traits, "yield_per_m2": base.traits["yield_per_m2"] * 0.85}
+    up = breed.distance(better, base.traits)
+    down = breed.distance(worse, base.traits)
+    assert up == pytest.approx(down)
+    assert up == pytest.approx(15.0)
+
+
+async def test_wild_cross_sprouts_and_the_hybrid_carries_heterosis(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Wild x base is the crossing the world starts with, and it works (D-260).
+
+    The F1 lot leaves the nursery stronger than a hundred: the hybrid outdoes
+    both parents through lot strength -- and exactly one sowing long.
+    """
+    _, _, body = await _farm(session, nursery=True)
+    wild = await breed.wild_ancestor(session, constants, catalog, SPELT)
+    base = await breed.landrace(session, catalog, SPELT)
+
+    a = await _seeds(session, catalog, body, wild)
+    b = await _seeds(session, catalog, body, base)
+    nursery = await breed.cross(session, constants, catalog, body, a, b)
+    hybrid = await breed.gather_cross(
+        session,
+        constants,
+        catalog,
+        body,
+        nursery,
+        now=nursery.ready_at,
+        rng=random.Random(7),
+    )
+    assert hybrid is not None, "дикий предок и базовый сорт различимы — потомство всходит"
+
+    pocket = await world.body_container(session, body)
+    lot = (
+        await session.execute(
+            select(Item).where(Item.container_id == pocket.id, Item.variety_id == hybrid.id)
+        )
+    ).scalar_one()
+    assert float(lot.vigor) == pytest.approx(breed.FULL_VIGOR + constants[R.BREED_HYBRID_VIGOR])
+
+    #: Heterosis is not inherited: the offspring starts from a hundred at
+    #: best, and without selection the hybrid also segregates.
+    kept = breed.next_vigor(constants, hybrid, float(lot.vigor), selected=True)
+    assert kept == pytest.approx(breed.FULL_VIGOR)
+    dropped = breed.next_vigor(constants, hybrid, float(lot.vigor), selected=False)
+    assert dropped == pytest.approx(
+        breed.FULL_VIGOR + constants[R.BREED_DEGRADATION_PER_GEN] + constants[R.BREED_HYBRID_DECAY]
+    )
+
+
 async def test_name_only_for_stable_cultivar_and_only_by_author(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:

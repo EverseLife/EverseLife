@@ -347,6 +347,9 @@ class PlantTraits(Strict):
 class Plant(Strict):
     id: str
     name: str
+    #: The wild ancestor's display name (D-260): a distinct cultivar, so a
+    #: distinct name. Optional until the vault emits it.
+    wild_name: str | None = None
     gives: str
     #: What is sown with. Seeds are an item separate from the product: they are
     #: bought, stolen and lost with death, while agrotech is not (D-057).
