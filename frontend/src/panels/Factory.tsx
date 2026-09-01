@@ -148,7 +148,9 @@ export function Factory({ look, values }: Props) {
     }));
   }, [machines, floor]);
 
-  const knows = look.knowledge?.knows ?? [];
+  //: `Look` carries knowledge flattened (`wire/look.compose`): the panel
+  //: reads `knows` off the top, there is no `knowledge` object to reach into.
+  const knows = look.knows ?? [];
 
   //: The picture: columns by flow, rows within a column by arrival.
   const layout = useMemo(() => {
