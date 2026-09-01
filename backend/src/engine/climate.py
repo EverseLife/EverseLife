@@ -35,11 +35,12 @@ from src.constants import Constants
 from src.constants import registry as R
 from src.engine import estate, world
 from src.models.world import Node, Planet
-from src.units import PERCENT, SECONDS_PER_HOUR
+from src.units import DAY_PHASE_DAWN, DAY_PHASE_DUSK, LIGHT_MAX, PERCENT, SECONDS_PER_HOUR
 
 #: The light scale's ceiling: an open clearing at noon. Matches the catalog's
-#: `requires.light` 1-3, with nought left for the night.
-FULL_LIGHT = 3
+#: `requires.light` 1-3, with nought left for the night; the scale itself is
+#: representation and lives in `units.LIGHT_MAX`.
+FULL_LIGHT = LIGHT_MAX
 
 #: The place mark exploration writes for a forest (`explore._base.WOODS`,
 #: D-191). Named here like farm's WATER: importing explore for one word would
@@ -100,7 +101,7 @@ def day_phase(
 
 def is_day(constants: Constants, planet: Planet, origin: datetime | None, moment: datetime) -> bool:
     """The lit half of the planetary day: the middle two quarters."""
-    return 0.25 <= day_phase(constants, planet, origin, moment) < 0.75
+    return DAY_PHASE_DAWN <= day_phase(constants, planet, origin, moment) < DAY_PHASE_DUSK
 
 
 def day_index(
@@ -129,7 +130,7 @@ def temperature_now(
         return None
     swing = swing_of(constants, node.planet)
     phase = day_phase(constants, node.planet, origin, moment)
-    return mean - swing * math.cos(2 * math.pi * phase)
+    return mean - swing * math.cos(math.tau * phase)
 
 
 async def daylight(session: AsyncSession, constants: Constants, node: Node) -> int:

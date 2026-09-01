@@ -37,11 +37,15 @@ from src.models.identity import Body
 from src.models.inventory import Item
 from src.models.plant import Variety
 from src.models.world import Node
-from src.units import PERCENT, SCALE_MAX, SCALE_MIN, SECONDS_PER_HOUR, amount, amount_float
-
-#: The catalog's hardiness scale (plants.yaml: 1-5). 5/5 takes the whole
-#: relief `farm.hardiness_relief` off the neglect penalty (D-261).
-HARDINESS_SCALE = 5.0
+from src.units import (
+    HARDINESS_SCALE,
+    PERCENT,
+    SCALE_MAX,
+    SCALE_MIN,
+    SECONDS_PER_HOUR,
+    amount,
+    amount_float,
+)
 
 
 def water_need(constants: Constants, plant: Plant, node: Node | None, area: float) -> float:
