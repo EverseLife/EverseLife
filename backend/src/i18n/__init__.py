@@ -133,7 +133,7 @@ class Words:
 #: is «Камень» among goods and «каменный» among building kinds -- so a single
 #: merged lookup would render one of them wrong without ever saying so. Which
 #: domains stand behind each name is the caller's business (`NAME_DOMAINS`).
-NAME_FUNCTIONS: tuple[str, ...] = ("NAME", "KIND", "PLANET", "TIER", "SLOT", "CULTURE")
+NAME_FUNCTIONS: tuple[str, ...] = ("NAME", "KIND", "PLANET", "TIER", "SLOT", "CULTURE", "LAW")
 
 #: The plural of the two that are handed lists -- what a machine can be made
 #: of, what a house may be built from. Fluent takes no list argument (it

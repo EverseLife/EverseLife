@@ -23,7 +23,7 @@ chronicle-somewhere = где-то
 chronicle-city-founded = 🏛 **Основан город { $city }** — { $where }. Кто основал: { $who }.
 
 chronicle-city-law-set = 📐 { $city }: код-закон «{ $named ->
-        [true] { $law }
+        [true] { LAW($law) }
        *[false] закон
     }» — было { $was }, стало { $now }.
 

@@ -40,7 +40,8 @@ import type {
 } from "../api";
 import { t } from "../locale";
 import { Rule } from "../Rule";
-import { Refusal, useActions, useBook, useEdition, useSession } from "../actions";
+import { Refusal, useActions, useBook, useEdition, useNames, useSession } from "../actions";
+import { lawName, type Names } from "../names";
 import { when } from "../clock";
 import { CityWorks } from "./CityWorks";
 import { Citizenship } from "./admin/Citizenship";
@@ -108,6 +109,7 @@ export function Admin({ look }: Omit<Props, "busy" | "act">) {
 
   //: Another hand's signature or a print elsewhere in the hall moves the
   //: counter this window shows (D-226): reread when the server says so.
+  const names = useNames();
   const edition = useEdition("emission.", "city.");
   useEffect(() => {
     void reload();
@@ -192,7 +194,7 @@ export function Admin({ look }: Omit<Props, "busy" | "act">) {
             {city.powers.length === 0
               ? t("ui-admin-resident")
               : t("ui-admin-your-rights", {
-                  rights: city.powers.map(rightName(city)).join(", "),
+                  rights: city.powers.map(rightName(names)).join(", "),
                 })}
             {!decides && city.powers.length > 0 && <b> {t("ui-admin-come-in")}</b>}
           </p>
@@ -214,7 +216,7 @@ export function Admin({ look }: Omit<Props, "busy" | "act">) {
                   <b>{office.title}</b> · {office.who}
                   <span className="note">
                     {" "}
-                    · {office.powers.map(rightName(city)).join(", ")}
+                    · {office.powers.map(rightName(names)).join(", ")}
                   </span>
                 </span>
                 {can("offices") && decides && office.who !== look.identity && (
@@ -277,7 +279,7 @@ export function Admin({ look }: Omit<Props, "busy" | "act">) {
                 return (
                   <tr key={key}>
                     <td title={law.note ?? ""}>
-                      {law.name}
+                      {lawName(names, key)}
                       {law.unit && <span className="note"> · {law.unit}</span>}
                     </td>
                     <td className="num">
@@ -323,7 +325,7 @@ export function Admin({ look }: Omit<Props, "busy" | "act">) {
               <Customs
                 key={key}
                 law={key}
-                name={city.laws[key]?.name ?? key}
+                name={lawName(names, key)}
                 value={city.laws[key]?.value ?? null}
                 goods={Object.keys(panel?.goods ?? {})}
                 busy={busy}
@@ -529,10 +531,9 @@ export function Admin({ look }: Omit<Props, "busy" | "act">) {
 }
 
 /** A right in words. A narrow one is shown by its law's name. */
-const rightName = (city: CityView) => (right: string) => {
+const rightName = (names: Names | null) => (right: string) => {
   if (right.startsWith(api.LAW_SCOPE)) {
-    const key = right.slice(api.LAW_SCOPE.length);
-    return city.laws[key]?.name ?? key;
+    return lawName(names, right.slice(api.LAW_SCOPE.length));
   }
   //: A right the map does not know shows itself: the scope key is honest.
   const word = api.POWERS[right];

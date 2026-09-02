@@ -62,6 +62,7 @@ from src.engine import (
     transport,
     travel,
     utility,
+    vote,
     world,
 )
 from src.engine import city as town
@@ -152,6 +153,12 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
         #: What has arrived in the Net and is not read yet (D-222): the tab's count.
         "net_unread": await net.unread_letters(db, identity.id)
         + await net.unread_posts(db, constants, identity.id),
+        #: Polls of one's own city still waiting for an answer. Counted apart
+        #: from the letters rather than added into them: an unread letter and
+        #: an unanswered ballot are different things, and the tab adds them up
+        #: itself. Counted rather than assembled, because this is `look`: see
+        #: `vote.waiting` for what that costs (D-161).
+        "net_votes": await vote.waiting(db, identity.id),
     }
     if body is None:
         #: No body -- the identity is in the cloud (D-012). It still controls the

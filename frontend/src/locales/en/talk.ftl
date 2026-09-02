@@ -94,6 +94,7 @@ ui-profile-write = Write a message
 
 ## The Net (D-044, D-069, D-222): the list of letters and channels.
 
+ui-net-votes = Votes
 ui-net-write = Write
 ui-net-channels = Channels
 ui-net-threads = Letters

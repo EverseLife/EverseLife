@@ -30,6 +30,10 @@ export type Names = {
    *  «Зерно» is harvested -- so it is a domain of its own. */
   plants: Record<string, string>;
   virtual_stations: Record<string, string>;
+  /** Code-laws (D-094): `tax_trade` -> «Налог с продажи». The city's own laws
+   *  travel as ids and are named here, so the wire carries no copy of a word
+   *  the table already holds in every language. */
+  laws: Record<string, string>;
 };
 
 /**
@@ -77,6 +81,11 @@ export function slotName(names: Names | null, id: string): string {
 /** A node property id ("woods", "aboard") in the player's words. */
 export function propertyName(names: Names | null, id: string): string {
   return names?.node_properties?.[id] ?? id;
+}
+
+/** A code-law id ("tax_trade") in the player's words («Налог с продажи»). */
+export function lawName(names: Names | null, id: string): string {
+  return names?.laws?.[id] ?? id;
 }
 
 /** A building kind id ("wooden") in the player's words ("деревянный"). */

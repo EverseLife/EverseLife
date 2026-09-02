@@ -26,7 +26,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { Session } from "../api";
 import { useNames } from "../actions";
 import { Deadline } from "../Deadline";
-import { goodsName, type Names } from "../names";
+import { goodsName, lawName, type Names } from "../names";
 import { Rule } from "../Rule";
 import { when } from "../clock";
 import { eventKey, t } from "../locale";
@@ -127,13 +127,17 @@ const CALLED: Record<Needs["kind"], string> = {
 /** The one detail worth showing beside the line, if the payload has one. */
 function detail(row: Happened, names: Names | null): string | null {
   const p = row.payload ?? {};
-  //: The first four keys carry goods ids (D-251) and go through the names;
-  //: a node, a law or a person is already a word.
+  //: These four keys carry goods ids (D-251) and go through the names.
   for (const key of ["output", "goods", "resource", "type_key"]) {
     const value = p[key];
     if (typeof value === "string" && value) return goodsName(names, value);
   }
-  for (const key of ["node", "law", "to"]) {
+  //: A law is an id too, and its own table names it: the line used to read
+  //: «город изменил закон · tax_trade» to the very person who changed it.
+  if (typeof p.law === "string" && p.law) return lawName(names, p.law);
+  //: A node and a person are already words: both are named by whoever made
+  //: them, and there is no table to look either up in.
+  for (const key of ["node", "to"]) {
     const value = p[key];
     if (typeof value === "string" && value) return value;
   }

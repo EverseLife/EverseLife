@@ -20,6 +20,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   Channel,
   ChannelFound,
+  CityVote,
   Letter,
   Post,
   Thread,
@@ -28,7 +29,10 @@ import { when } from "../clock";
 import { t } from "../locale";
 import { PersonName } from "../Name";
 import { askProfile } from "../people";
-import { Refusal, useActions, useSession } from "../actions";
+import { Refusal, useActions, useNames, useSession } from "../actions";
+import { Deadline } from "../Deadline";
+import { PollAnswer, PollSubject } from "./Poll";
+import { pollTally } from "../polls";
 
 type Props = {
   /** The count from `look`: when it grows, the list is reread. */
@@ -37,6 +41,14 @@ type Props = {
   wanted: string | null;
   onWanted: () => void;
 };
+
+/** The city's events the ballot box moves on. */
+const POLL_EVENTS = [
+  "city.vote_opened",
+  "city.vote_cast",
+  "city.vote_nominated",
+  "city.vote_closed",
+];
 
 type View =
   | { kind: "list" }
@@ -51,12 +63,14 @@ export function Net({ unread, wanted, onWanted }: Props) {
   const [view, setView] = useState<View>({ kind: "list" });
   const [threads, setThreads] = useState<Thread[]>([]);
   const [channels, setChannels] = useState<Channel[]>([]);
+  const [polls, setPolls] = useState<CityVote[]>([]);
 
   const reread = useCallback(async () => {
     try {
       const answer = await session.send("net.threads");
       setThreads(answer.threads as Thread[]);
       setChannels(answer.channels as Channel[]);
+      setPolls(answer.votes as CityVote[]);
     } catch {
       /* the session rises by itself; the next reading will do */
     }
@@ -64,7 +78,17 @@ export function Net({ unread, wanted, onWanted }: Props) {
 
   useEffect(() => {
     void reread();
-    return session.on("net.", () => void reread());
+    const stops = [
+      session.on("net.", () => void reread()),
+      //: A poll is the city's affair and arrives with the city's events rather
+      //: than the Net's: convened, stood in, cast in, counted. The tally moves
+      //: under a reader who is only watching, and the list moves with it
+      //: (D-226). Named one by one because `on` takes a **kind or a prefix
+      //: ending in a dot**: «city.vote_» is neither, and matched nothing at
+      //: all -- a poll convened while the tab was open never showed up in it.
+      ...POLL_EVENTS.map((kind) => session.on(kind, () => void reread())),
+    ];
+    return () => stops.forEach((stop) => stop());
   }, [reread, unread, view.kind, session]);
 
   //: "Write" from somebody's card: the card has opened the thread already,
@@ -115,6 +139,8 @@ export function Net({ unread, wanted, onWanted }: Props) {
         </button>
       </div>
 
+      <Polls polls={polls} onAnswered={reread} />
+
       <h3>{t("ui-net-threads")}</h3>
       {threads.length === 0 && <p className="note">{t("ui-net-threads-none")}</p>}
       <ul className="net-list">
@@ -164,6 +190,53 @@ export function Net({ unread, wanted, onWanted }: Props) {
         </>
       )}
     </div>
+  );
+}
+
+/** The city's polls, where a citizen answers them (D-161).
+ *
+ * Here rather than only in the administration because a vote is participation
+ * and not governing: the ballot travels to whoever has a voice, wherever they
+ * stand, and the citizen who never opens the administration is exactly the one
+ * the poll had to reach. The section appears only while a poll is running --
+ * an empty heading in an inbox is noise -- and an answered one stays in it
+ * until the deadline: a mind may be changed while the box is open.
+ */
+function Polls({ polls, onAnswered }: { polls: CityVote[]; onAnswered: () => Promise<void> }) {
+  const names = useNames();
+  const acting = useActions();
+  //: The refusal outlives the row it came from: a poll closed between the
+  //: drawing and the press disappears on the reread, and with the section
+  //: gone the player would see the line vanish and never learn why.
+  if (polls.length === 0 && !acting.trouble) return null;
+  const answer = (what: () => Promise<unknown>) =>
+    acting.act(async () => {
+      await what();
+      await onAnswered();
+    });
+  return (
+    <>
+      <h3>{t("ui-net-votes")}</h3>
+      <ul className="net-list">
+        {polls.map((poll) => (
+          <li key={poll.id}>
+            <div className="net-row net-poll">
+              <span className="net-head">
+                <b>
+                  <PollSubject poll={poll} names={names} />
+                </b>
+              </span>
+              <span className="net-preview">{pollTally(poll)}</span>
+              <span className="row">
+                <PollAnswer poll={poll} go={answer} busy={acting.busy} />
+                <Deadline until={poll.closes_at} label={t("ui-net-votes")} size="row" />
+              </span>
+            </div>
+          </li>
+        ))}
+      </ul>
+      <Refusal of={acting} />
+    </>
   );
 }
 

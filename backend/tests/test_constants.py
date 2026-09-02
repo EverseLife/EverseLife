@@ -33,7 +33,7 @@ def test_missing_constant_breaks_check() -> None:
 
 def test_wrong_shape_breaks_check() -> None:
     snapshot = Constants({"body.drain_rate": 5}, source="тест")
-    with pytest.raises(ConstantError, match="ожидалось"):
+    with pytest.raises(ConstantError, match="expected"):
         snapshot[Span("body.drain_rate")]
 
 
@@ -46,7 +46,7 @@ def test_range_with_min_above_max_rejected() -> None:
 def test_edit_of_missing_key_rejected(constants: Constants) -> None:
     """An edit changes a value rather than introducing a new quantity: a new one is created in
     the vault."""
-    with pytest.raises(ConstantError, match="несуществующие"):
+    with pytest.raises(ConstantError, match="do not exist"):
         constants.with_overrides({"выдуманная.константа": 1})
 
 

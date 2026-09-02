@@ -7,7 +7,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import * as amounts from "../amounts";
-import type { RecipeBook, Thing } from "../api";
+import type { CityVote, RecipeBook, Thing } from "../api";
 import { arrange } from "../arrange";
 import { answered, askless, CHEST_ANY, chestOf, chestZone, fits, halved } from "../drag";
 import { goodsGlyph, nodeGlyph } from "../marks";
@@ -15,6 +15,7 @@ import { duration, hands, stamp, when, worldTime } from "../clock";
 import { groundName } from "../grounds";
 import { forget, learn, Words } from "../locale";
 import { catalogue, coins, exactly } from "../market";
+import { pollTally, pollThreshold } from "../polls";
 import {
   flavorText,
   goodsKeyName,
@@ -402,6 +403,56 @@ describe("grounds", () => {
   //: worse than a word and better than a blank.
   it("leaves an unknown ground as it came", () => {
     expect(groundName("свежее_основание")).toBe("свежее_основание");
+  });
+});
+
+describe("polls", () => {
+  //: The words are the client's own, and they are shared by the two windows
+  //: that draw a ballot -- so they are read here the way a session reads them,
+  //: from the very file the bundle is built out of.
+  const SAID = import.meta.glob("../locales/ru/city.ftl", {
+    query: "?raw",
+    import: "default",
+    eager: true,
+  }) as Record<string, string>;
+  const said = Object.values(SAID).join("\n");
+
+  const poll = (over: Partial<CityVote>): CityVote =>
+    ({
+      id: "p",
+      kind: "law",
+      voters: "citizens",
+      value: "7",
+      candidates: [],
+      closes_at: "2026-09-03T00:00:00Z",
+      threshold: "simple",
+      quorum: 0,
+      electorate: 9,
+      yes: 0,
+      no: 0,
+      may_vote: true,
+      ...over,
+    }) as CityVote;
+
+  beforeEach(() => learn(new Words({ locale: "ru", locales: ["ru"], ftl: said }, null)));
+  afterEach(() => forget());
+
+  it.skipIf(!said)("counts a law for and against, an election by turnout", () => {
+    //: An election has no "against": every ballot in one names a candidate,
+    //: and «против 0» would read as "nobody objects".
+    expect(pollTally(poll({ yes: 4, no: 2 }))).toBe("за 4 · против 2 · из 9");
+    expect(pollTally(poll({ kind: "election", yes: 4 }))).toBe("проголосовало 4 из 9");
+  });
+
+  it.skipIf(!said)("says the bar, and the quorum only where there is one", () => {
+    expect(pollThreshold(poll({ threshold: "two_thirds" }))).toBe("две трети");
+    expect(pollThreshold(poll({ quorum: 60 }))).toBe("простое большинство · кворум 60%");
+  });
+
+  //: The charter's options live in the vault and may outgrow the client's map
+  //: (D-094): a key reads worse than a word and better than a blank.
+  it("shows a threshold it does not know as it came", () => {
+    expect(pollThreshold(poll({ threshold: "три четверти" as never }))).toBe("три четверти");
   });
 });
 

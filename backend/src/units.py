@@ -99,9 +99,11 @@ SKY_CALENDAR_MEMO = 64
 #: to a single column is pinned to it by a test.
 #: Quality is stored to a hundredth of a point (`Numeric(6, 2)` columns).
 ROUND_QUALITY = 2
-#: Banked minutes of work are stored to a hundredth (`Numeric(10, 2)`): the
-#: plough keeps its progress across a pause (D-277). The column's scale, not
-#: balance -- how long the ploughing takes lies in `farm.plow_time_per_m2`.
+#: Work banked in minutes is stored to a hundredth (`Plot.plow_done_minutes`
+#: is `Numeric(10, 2)`): a plough is paused and taken up again (D-277), so the
+#: remainder has to survive the round trip through the row unchanged. The
+#: scale of the column, not a property of the game -- how long the ploughing
+#: takes lies in `farm.plow_time_per_m2`.
 ROUND_MINUTES = 2
 
 #: Argon2id takes memory in KiB, while `pow.memory_per_session` is given in MB.
