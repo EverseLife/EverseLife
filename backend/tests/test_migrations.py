@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import os
 import re
+from pathlib import Path
 
 import pytest
 from alembic.autogenerate import compare_metadata
@@ -179,30 +180,50 @@ def test_migrations_have_exactly_one_head() -> None:
     this tree. That is `tools/check_migration_parents.py`, run by the
     pre-commit hook, where the branches actually are.
     """
-    from pathlib import Path
+    #: The same parser the pre-commit check uses (`tools/check_migration_parents`):
+    #: two copies of this regex would rot apart the day alembic changes its
+    #: template, and both would rot silently.
+    from tools.check_migration_parents import parse as parse_migration
 
     versions = Path(__file__).resolve().parents[1] / "migrations" / "versions"
     revisions: dict[str, str] = {}
-    parents: dict[str, str] = {}
+    parents: dict[str, tuple[str, ...]] = {}
     for path in sorted(versions.glob("*.py")):
-        text_ = path.read_text(encoding="utf-8")
-        revision = re.search(r"^revision(?::[^=]*)?\s*=\s*[\"']([^\"']+)", text_, re.M)
-        assert revision is not None, f"{path.name}: не найден `revision`"
-        revisions[revision.group(1)] = path.name
-        down = re.search(r"^down_revision(?::[^=]*)?\s*=\s*[\"']([^\"']+)", text_, re.M)
-        if down is not None:
-            parents[revision.group(1)] = down.group(1)
+        parsed = parse_migration(path.read_text(encoding="utf-8"))
+        assert parsed is not None, f"{path.name}: не найден `revision`"
+        revision, up = parsed
+        #: Two files under one id is a fault alembic itself trips over, and
+        #: a dict would swallow it: the second silently replaces the first.
+        assert revision not in revisions, (
+            f"ревизия {revision} объявлена дважды: {revisions[revision]} и {path.name}"
+        )
+        revisions[revision] = path.name
+        parents[revision] = up
+
+    #: A parent nobody wrote is a broken chain that still counts one head, so
+    #: the head test alone would pass over it.
+    dangling = {
+        revisions[revision]: parent
+        for revision, up in parents.items()
+        for parent in up
+        if parent not in revisions
+    }
+    assert not dangling, f"родитель не существует: {dangling}"
 
     #: A parent named twice is the collision itself -- reported before the head
     #: count, because it says *which* two files disagree rather than that the
-    #: chain has two ends.
+    #: chain has two ends. A merge migration legitimately joins two parents,
+    #: and it is a head-count question, not a child-count one -- so a parent
+    #: whose children are rejoined below is not reported here.
     claimed: dict[str, list[str]] = {}
-    for revision, parent in parents.items():
-        claimed.setdefault(parent, []).append(revisions[revision])
-    twice = {parent: sorted(names) for parent, names in claimed.items() if len(names) > 1}
-    assert not twice, f"у одного родителя две миграции: {twice}"
+    for revision, up in parents.items():
+        for parent in up:
+            claimed.setdefault(parent, []).append(revisions[revision])
+    named = {parent: sorted(names) for parent, names in claimed.items() if len(names) > 1}
 
-    heads = sorted(set(revisions) - set(parents.values()))
-    assert len(heads) == 1, f"голов должно быть одна, а их {len(heads)}: " + ", ".join(
-        f"{head} ({revisions[head]})" for head in heads
+    heads = sorted(set(revisions) - {parent for up in parents.values() for parent in up})
+    assert len(heads) == 1, (
+        f"голов должно быть одна, а их {len(heads)}: "
+        + ", ".join(f"{head} ({revisions[head]})" for head in heads)
+        + (f"; у одного родителя несколько детей: {named}" if named else "")
     )

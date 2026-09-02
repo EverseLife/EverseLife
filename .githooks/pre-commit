@@ -119,8 +119,15 @@ fi
 # faultless, together they are two alembic heads and `upgrade head` refuses to
 # choose. Only a local check can see this -- the branches never leave the
 # machine, so a CI runner has nothing to compare (see the script's docstring).
-if ! "$py" backend/tools/check_migration_parents.py; then
-    exit 1
+# The `-f` guard is not caution but arithmetic: `core.hooksPath` is one path
+# for every worktree, so the moment this lands in main the hook is live in
+# trees whose branch predates the script -- and there the run dies on a
+# missing file, blocking a commit for a reason it cannot explain. The
+# neighbouring blocks hedge the same way with `command -v` and `import`.
+if [ -f backend/tools/check_migration_parents.py ]; then
+    if ! "$py" backend/tools/check_migration_parents.py; then
+        exit 1
+    fi
 fi
 
 # The vault snapshot is not in the repository any more: CI builds it from the
