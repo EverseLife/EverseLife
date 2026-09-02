@@ -30,6 +30,7 @@ ground so that such an arrival is visible in telemetry.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
@@ -202,6 +203,41 @@ async def has_station(session: AsyncSession, node: Node, name: str) -> bool:
     is. The word is a thing class (D-215); a plain item name still matches
     itself through the fallback in `station_names`."""
     return bool(await thing_kinds(session, node) & frozenset(station_names(name)))
+
+
+async def nodes_with_station(
+    session: AsyncSession, nodes: Sequence[Node], thing_class: str
+) -> frozenset[uuid.UUID]:
+    """Which of these nodes hold a machine of this class -- in one query.
+
+    `has_station` asks about one node and reads that node's yard to answer,
+    which is the right shape where the question is about the place somebody
+    stands. Asked about a whole city it is the wrong one: `city.core` walked
+    every node the city owns and paid a yard and its contents for each, two
+    queries a node, to find a single printer -- and that walk is on the path of
+    `look`, through `estate.price.center_of`. A capital has thirteen nodes and
+    grows with every plot bought.
+
+    Nodes without a yard, and nodes whose machines only lie on the floor, are
+    simply absent from the answer: what counts is what **stands** (D-278), the
+    same as in `thing_kinds`.
+    """
+    kinds = frozenset(station_names(thing_class))
+    here = [node.id for node in nodes]
+    if not here or not kinds:
+        return frozenset()
+    rows = await session.execute(
+        select(Container.owner_id)
+        .join(Item, Item.container_id == Container.id)
+        .where(
+            Container.kind == ContainerKind.NODE,
+            Container.owner_id.in_(here),
+            Item.type_key.in_(kinds),
+            Item.installed.is_(True),
+        )
+        .distinct()
+    )
+    return frozenset(rows.scalars())
 
 
 async def is_library(session: AsyncSession, node: Node) -> bool:
