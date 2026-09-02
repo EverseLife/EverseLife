@@ -155,7 +155,7 @@ export { compose, houseOf, isCivic, isMine, isWild, PART_OF_TOUCH, stationsOf } 
 export type { LiveLook, Look, Parts } from "./wire/look";
 
 /** The city as a polity (`wire/city.ts`). */
-export { CITY_ABOUT_LIMIT, LAW_SCOPE, POWERS } from "./wire/city";
+export { CITY_ABOUT_LIMIT, CITY_NAME_LIMIT, LAW_SCOPE, POWERS } from "./wire/city";
 export type {
   CityLoans,
   CityPanel,

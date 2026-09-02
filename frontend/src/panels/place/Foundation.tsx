@@ -5,6 +5,7 @@
 /** One window of the location; what they share is in `shared.ts`. */
 
 import { useState } from "react";
+import * as api from "../../api";
 import { useNames, useSession } from "../../actions";
 import { t } from "../../locale";
 import { goodsName } from "../../names";
@@ -51,6 +52,7 @@ export function Foundation({ look, busy, act }: Props) {
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder={t("ui-place-foundation-name")}
+          maxLength={api.CITY_NAME_LIMIT}
           disabled={!ready}
         />
         <button

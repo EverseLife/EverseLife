@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from city_kit import _capital, _resident
 from src.constants import Catalog, Constants
 from src.engine import city as town
-from src.engine import world
+from src.engine import net, world
 from src.models.city import Power
 from src.models.world import Layer, Node
 from src.units import money
@@ -229,6 +229,49 @@ async def test_land_under_city_goes_to_city(
     assert (
         await session.execute(select(Deed).where(Deed.node_id == place.id))
     ).scalar_one_or_none() is None, "городская земля бумагой не торгуется"
+
+
+async def test_city_name_is_bounded(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """A city name has a ceiling, and founding is the only place to set one.
+
+    The name is not just the card's: it goes into the chronicle, into every
+    refusal that quotes the city, and into the name of the city's official
+    channel -- which is why the bound is no higher than the Net's own
+    (`net.channel.create` would have refused what founding used to accept).
+    """
+    from src.runtime import CITY_NAME_LIMIT, NET_NAME_LIMIT
+
+    assert CITY_NAME_LIMIT <= NET_NAME_LIMIT, (
+        "имя города становится именем канала: потолок не выше сетевого"
+    )
+
+    place, _, body = await _wasteland(session)
+    await _build_up(session, place)
+
+    #: By the key, not the sentence: the wording is the locale's (D-251).
+    with pytest.raises(town.CityError) as refusal:
+        await town.establish(session, constants, catalog, body, "Г" * (CITY_NAME_LIMIT + 1))
+    assert refusal.value.key == "city-found-name-too-long"
+    assert refusal.value.params["limit"] == CITY_NAME_LIMIT
+
+    #: The bound itself is allowed: it is a ceiling, not a step below one.
+    city = await town.establish(session, constants, catalog, body, "Г" * CITY_NAME_LIMIT)
+    assert len(city.name) == CITY_NAME_LIMIT
+
+    #: And the whole point of the ceiling, end to end: the longest name a
+    #: player can get through founding still fits the Net, because the city's
+    #: official channel is named after the city. Checked here rather than in
+    #: `test_net` because only this side runs the door that does the bounding
+    #: -- the same assertion over a city made by `found` would hold whatever
+    #: `establish` did with the name.
+    channel = await net.city_channel(session, city)
+    assert channel is not None
+    assert channel.name == city.name
+    assert len(channel.name) <= NET_NAME_LIMIT, (
+        "имя канала города не длиннее того, что принимает net.channel.create"
+    )
 
 
 async def test_no_second_city_on_same_node(

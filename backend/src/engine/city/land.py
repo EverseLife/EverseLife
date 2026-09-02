@@ -27,7 +27,7 @@ from src.models.city import (
 from src.models.estate import Deed
 from src.models.event import EventKind
 from src.models.identity import BodyState, Identity
-from src.models.world import PLOT, Node, NodePass
+from src.models.world import Node, NodePass
 from src.units import ENERGY_PER_TARIFF_UNIT, money, money_str
 
 
@@ -46,22 +46,11 @@ async def allot(
     rings is answered by the code-law `build_permit`. The engine checks the
     `land` right: allotting land is a separate decision, neither lawmaking nor
     treasury spending (D-155).
-
-    What is given out is a **plot**. The city's own locations are not land in
-    the queue: a location the city works from is nobody's private yard, and
-    entering it is not for one holder to allow (D-199).
     """
     await require_at_hall(session, body, city)
     await require(session, by.id, city, Power.LAND)
     if node.owner_city_id != city.id:
         raise CityError(key="city-land-not-civic")
-    #: A plot, and not simply a node the city owns: the core with the printer,
-    #: the market, the administration, the gate are the city's own places, and
-    #: the city does not hand **itself** out. The window has always listed only
-    #: marked plots as free -- the wire had no such rule, and one command with
-    #: another node's key turned the capital's centre into somebody's yard.
-    if not (node.properties or {}).get(PLOT):
-        raise CityError(key="city-land-not-a-plot", node=node.name)
     if node.owner_identity_id is not None:
         raise CityError(key="city-land-taken")
 
