@@ -150,7 +150,7 @@ async def _works_board(state: dict, db: AsyncSession, message: dict) -> dict:
 
 @command("bank.borrow")
 async def _bank_borrow(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Take a loan. Money comes from the reserve; the shortfall is printed (D-087)."""
+    """Take a loan. The money is the city's own, out of its treasury (D-283)."""
     identity = await _identity(state, db)
     loan = await bank.borrow(db, current(), current_catalog(), identity, float(message["amount"]))
     return {"loan": str(loan.id), "rate": float(loan.rate)}

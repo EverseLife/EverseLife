@@ -13,12 +13,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Constants
-from src.engine import bank, events
+from src.engine import bank
 from src.engine import city as town
 from src.engine.works_city._base import WorksCityError
 from src.models.bank import Loan, LoanState
 from src.models.city import City, Power
-from src.models.event import EventKind
 from src.models.identity import Body, Identity
 from src.units import money, money_str
 
@@ -66,23 +65,13 @@ async def borrow_for_works(
             permitted=money_str(permitted),
         )
 
-    #: The money itself is moved by the bank (D-283): reserve first, the
-    #: shortfall printed, the row written -- the same primitive that fills a
-    #: treasury which is about to lend to its own citizen. What stays here is
-    #: what only this road knows: who asked, and that they asked for works.
-    loan = await bank.lend_to_city(session, constants, city, total, now=moment, why="works")
-    await events.record(
-        session,
-        EventKind.LOAN_TAKEN,
-        actor_identity_id=by.id,
-        loan_id=str(loan.id),
-        amount=total,
-        rate=float(loan.rate),
-        printed=loan.printed,
-        city=city.name,
-        treasury_loan=True,
+    #: The money, the row and the record are all the bank's (D-283): the same
+    #: primitive that fills a treasury about to lend to its own citizen. What
+    #: this road adds is only who asked -- writing a second event of the same
+    #: kind for the same loan would have the world take one loan twice.
+    return await bank.lend_to_city(
+        session, constants, city, total, now=moment, why="works", by=by.id
     )
-    return loan
 
 
 async def repay_for_works(

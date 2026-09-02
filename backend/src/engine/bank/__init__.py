@@ -40,16 +40,26 @@ back the same second costs nothing and proves nothing.
 
 ## The bank is two-tier (D-175)
 
-Only the capital prints money. A citizen borrows **from their city** at
-"key + city margin" (code-law `bank_margin`, ceiling `bank.city_margin_cap`);
-each such loan sits on the city's credit line with the capital --
-`bank.debt_to_turnover_cap` of its turnover. Line exhausted or no citizenship
--- a direct loan from the capital at the worse rate: there is always a way out,
-but cheap credit is a privilege of citizenship (D-160).
+Only the capital prints money, and only for a city. A citizen borrows **from
+their own city and nowhere else** (D-281) at "key + city margin" (code-law
+`bank_margin`, ceiling `bank.city_margin_cap`), and what they are handed is
+the city's own money out of its treasury (D-283). Short of it, the city
+borrows the difference from the capital on its line, at the key rate and no
+margin -- so the whole of the world's printing happens one level up, under a
+city's debt and never under a person's.
 
-The margin from each interest payment goes to the city treasury, the key part
-to the capital's reserve. So the city earns on its borrowers and answers for
-them with its line: seigniorage (D-171) is cancelled as unnecessary.
+Every payment goes back to whoever lent: a citizen pays their city in full,
+principal and interest alike, and the city pays the capital on its own loan.
+Seigniorage (D-171) was cancelled before; the split into "the city's margin,
+the capital's key share" went with D-283, because there are no longer two
+lenders inside one loan.
+
+The line is what the **city** may owe, measured the way a person is measured
+(D-285): a base, the trade on its land, the interest it has paid, all of it
+times its own trust, which its unpaid overdue cuts. While such an overdue
+stands the capital keeps `bank.income_withheld_share` of everything that comes
+into the treasury -- a share of the takings, so a city in debt lives narrowly
+rather than not at all.
 
 ## What is not here
 

@@ -29,10 +29,15 @@ Split out of `engine/works.py` before it crossed the size bar, the way
 ## The treasury as a borrower
 
 The city may borrow from the CB for its works: at the key rate, with no
-margin and no risk premium -- a city cannot mark itself up -- on the same
-credit line its citizens' loans occupy (`bank.debt_to_turnover_cap`). There
-is no forced collection from a treasury: the city's discipline is the line
-itself, occupied until repaid.
+margin and no risk premium -- a city cannot mark itself up -- on its own
+credit line, which since D-285 is measured by what the city has earned the
+right to owe rather than by a flat share of turnover. The same line and the
+same primitive as the borrowing a citizen's loan sets off when the treasury
+is short (D-283): one road to the capital, not two.
+
+Nor is a treasury left to its conscience any more: while an overdue loan of
+the city stands, the capital keeps a share of everything that comes into the
+treasury until it is settled (D-285).
 """
 
 from src.engine.works_city._base import (  # noqa: F401

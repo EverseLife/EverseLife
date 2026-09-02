@@ -42,7 +42,13 @@ async def trust(session: AsyncSession, constants: Constants, identity_id: uuid.U
     return max(constants[R.CREDIT_TRUST_FLOOR] / PERCENT, share)
 
 
-async def city_trust(session: AsyncSession, constants: Constants, city_id: uuid.UUID) -> float:
+async def city_trust(
+    session: AsyncSession,
+    constants: Constants,
+    city_id: uuid.UUID,
+    *,
+    now: datetime | None = None,
+) -> float:
     """A city's trust 0..1, and it is its own payment record (D-285).
 
     A citizen's trust is cut by complaints about a defective print; nobody
@@ -57,7 +63,7 @@ async def city_trust(session: AsyncSession, constants: Constants, city_id: uuid.
     is what makes "recovers by paying" true without anything having to forget:
     the loan is settled, the row leaves the count, the trust is back.
     """
-    moment = datetime.now(UTC)
+    moment = now or datetime.now(UTC)
     since = moment - timedelta(days=constants[R.DEBT_GRACE_PERIOD])
     late = await session.scalar(
         select(func.count())

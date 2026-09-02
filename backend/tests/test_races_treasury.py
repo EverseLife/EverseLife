@@ -27,7 +27,6 @@ from conftest import _slow
 from src.constants import Catalog, Constants
 from src.engine import bank, ledger, world
 from src.engine import city as town
-from src.engine.bank import loan as lending
 from src.models.bank import Loan, LoanState
 from src.models.city import Citizen
 from src.models.identity import Identity
@@ -83,7 +82,11 @@ async def test_two_citizens_do_not_spend_one_treasury_twice(
     await bank.reserve_account(session)
     await session.commit()
 
-    _slow(monkeypatch, lending, "city_line")
+    #: The pause goes where this scenario actually walks: the treasury has the
+    #: money, so `city_line` is never reached (`shortfall == 0`) and a hook on
+    #: it would widen no window at all. What both borrowers do read is the
+    #: balance, and that is what is held.
+    _slow(monkeypatch, ledger, "balance")
 
     async def take(identity_id: uuid.UUID) -> Loan:
         async with factory() as db, db.begin():

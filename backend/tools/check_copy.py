@@ -68,7 +68,7 @@ KNOWN: dict[str, int] = {
     "src/api/commands/transport.py": 1,
     "src/db/ddl.py": 4,
     "src/engine/account.py": 15,
-    "src/engine/bank/loan.py": 5,
+    "src/engine/bank/loan.py": 1,
     "src/engine/battery.py": 2,
     "src/engine/chat.py": 2,
     "src/engine/city/_base.py": 1,

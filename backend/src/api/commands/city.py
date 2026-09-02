@@ -341,9 +341,16 @@ async def _ours(db: AsyncSession, city, loan: Loan) -> bool:
 
 @command("city.bail")
 async def _city_bail(state: dict, db: AsyncSession, message: dict) -> dict:
-    """The city repays a citizen's debt from the treasury (D-175): frees its own line.
+    """The city settles a debt of its own citizen out of the treasury (D-175, D-283).
 
     In person and by treasury right: spending is an authority decision (D-155).
+
+    Two different deeds behind one door since D-283, and whose money is in the
+    loan tells them apart. Against the capital's -- a loan from before that
+    decision -- the treasury pays and money moves. Against the city's own the
+    treasury would be paying itself, so nothing moves and the debt is
+    forgiven: that costs the city its claim, which is real, but it costs the
+    debtor nothing, so it must not buy them a credit limit (D-280).
     """
 
     identity = await _identity(state, db)
@@ -361,6 +368,7 @@ async def _city_bail(state: dict, db: AsyncSession, message: dict) -> dict:
     if not await _ours(db, city, loan):
         raise Refused(key="cmd-loan-not-ours")
     treasury = await town.treasury(db, city)
+    forgiven = loan.identity_id is not None and loan.city_id == city.id
     paid = await bank.repay(
         db,
         current(),
@@ -368,8 +376,9 @@ async def _city_bail(state: dict, db: AsyncSession, message: dict) -> dict:
         loan,
         None if message.get("amount") is None else float(message["amount"]),
         from_account=treasury,
+        earns_history=not forgiven,
     )
-    return {"paid": paid, "left": loan.outstanding}
+    return {"paid": paid, "left": loan.outstanding, "forgiven": forgiven}
 
 
 @command("city.survey")

@@ -143,9 +143,9 @@ export function Panel({ panel }: { panel: CityPanel | null }) {
         <>
           <h3>{t("ui-admin-panel-treasury")}</h3>
           <p>{t("ui-admin-panel-balance", { balance: panel.treasury.balance.toFixed(2) })}</p>
-          {/* Роздано в кредит (D-283): пустая казна, раздавшая кредиты, и
-              пустая проевшая — разные положения, и правитель обязан их
-              различать. Строка молчит, когда не роздано ничего. */}
+          {/* Lent out (D-283): a treasury emptied by lending and one eaten
+              through are different positions, and the ruler has to tell them
+              apart. The line is silent when nothing is out. */}
           {panel.treasury.lent > 0 && (
             <p>{t("ui-admin-panel-lent", { lent: panel.treasury.lent.toFixed(2) })}</p>
           )}

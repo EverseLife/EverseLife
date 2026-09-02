@@ -118,7 +118,7 @@ bank-why-limit-trust = trust { NUMBER($trust, maximumFractionDigits: 0) }% from 
 bank-why-offer-key = key rate { NUMBER($key, minimumFractionDigits: 2, maximumFractionDigits: 2) }%
 bank-why-offer-no-citizenship = no loan at all: one borrows from the city one belongs to, and you belong to none (D-281)
 bank-why-offer-city = key rate { NUMBER($key, minimumFractionDigits: 2, maximumFractionDigits: 2) }% + city margin { NUMBER($margin, minimumFractionDigits: 2, maximumFractionDigits: 2) }% ({ $city }); { $free } ₭ free on the line
-bank-why-offer-line-exhausted = key rate { NUMBER($key, minimumFractionDigits: 2, maximumFractionDigits: 2) }% + a { NUMBER($margin, minimumFractionDigits: 2, maximumFractionDigits: 2) }% margin, but there is nothing to borrow right now: the line of «{ $city }» is exhausted — { $permitted } ₭ allowed against turnover, { $free } ₭ free. The line is raised by trades on its land (D-193)
+bank-why-offer-cannot-fund = key rate { NUMBER($key, minimumFractionDigits: 2, maximumFractionDigits: 2) }% + a { NUMBER($margin, minimumFractionDigits: 2, maximumFractionDigits: 2) }% margin, but there is nothing to borrow right now: «{ $city }» has { $own } ₭ in the treasury and may add { $free } ₭ from the capital. The treasury fills with taxes and duties, the line with trade on the city's land and the interest it has paid (D-285)
 
 ## Transfers
 

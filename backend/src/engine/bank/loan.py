@@ -57,6 +57,7 @@ async def lend_to_city(
     *,
     now: datetime | None = None,
     why: str,
+    by: uuid.UUID | None = None,
 ) -> Loan:
     """The capital lends to a city: key rate, no margin, on the city's line (D-248).
 
@@ -83,7 +84,7 @@ async def lend_to_city(
             debit=genesis.id,
             credit=reserve_treasury.id,
             amount=printed,
-            memo={"печать под кредит казне": city.name},
+            memo={"printed_for": city.name},
         )
     await ledger.transfer(
         session,
@@ -91,7 +92,7 @@ async def lend_to_city(
         debit=reserve_treasury.id,
         credit=(await town.treasury(session, city)).id,
         amount=total,
-        memo={"кредит казне": f"{city.name} · {why}"},
+        memo={"treasury_loan": f"{city.name} · {why}"},
     )
     rate_value = await key_rate(session, constants)
     loan = Loan(
@@ -111,12 +112,16 @@ async def lend_to_city(
     await events.record(
         session,
         EventKind.LOAN_TAKEN,
+        #: Empty when the loan is taken because a citizen asked: nobody
+        #: decided it, the city's own shortfall did.
+        actor_identity_id=by,
         loan_id=str(loan.id),
         amount=total,
         rate=rate_value,
         printed=printed,
         city=city.name,
         margin=0,
+        treasury_loan=True,
         why=why,
     )
     return loan
@@ -214,7 +219,7 @@ async def borrow(
         debit=treasury.id,
         credit=account.id,
         amount=total,
-        memo={"кредит города": city.name, "кому": who.name},
+        memo={"loan": city.name, "to": who.name},
     )
 
     loan = Loan(
@@ -290,6 +295,7 @@ async def repay(
     amount: float | None = None,
     *,
     from_account=None,
+    earns_history: bool = True,
     now: datetime | None = None,
 ) -> int:
     """Repay debt. Money goes **to the reserve**, not into circulation (D-087).
@@ -305,13 +311,23 @@ async def repay(
     await accrue(session, constants, loan, now=moment)
 
     account = from_account or await ledger.account_for(session, AccountKind.IDENTITY, who.id)
-    have = await ledger.balance(session, account.id)
+    #: A payer who is also the lender writes the debt down instead of moving
+    #: money (D-283), so their balance bounds nothing: a city that lent its
+    #: whole treasury out is exactly the city whose convict is working the
+    #: debt off, and asking it for cash would close that door on the world
+    #: D-283 makes ordinary.
+    lender = await _lender_of(session, loan)
+    have = (
+        loan.outstanding
+        if lender is not None and lender.id == account.id
+        else await ledger.balance(session, account.id)
+    )
     wants = loan.outstanding if amount is None else money(amount)
     payment = min(wants, loan.outstanding, have)
     if payment <= 0:
         raise NothingToRepay(key="bank-nothing-to-pay-with")
 
-    await _settle(session, loan, account, payment)
+    await _settle(session, loan, account, payment, earns_history=earns_history)
     loan.serviced_at = moment
     if loan.outstanding <= 0:
         loan.state = LoanState.REPAID
@@ -340,7 +356,38 @@ async def _locked(session: AsyncSession, loan: Loan) -> None:
     await session.refresh(loan, with_for_update=True)
 
 
-async def _settle(session: AsyncSession, loan: Loan, account, payment: int) -> None:
+async def _lender_of(session: AsyncSession, loan: Loan):
+    """Whose money is in this loan: the city's treasury, or the capital's reserve.
+
+    One rule, and both the posting and the two gates that ask "has the payer
+    got it" read it from here (D-283): a citizen's loan is the city's money, a
+    city's own loan and everything from before that decision is the capital's.
+    """
+    city = None if loan.city_id is None else await town.by_id(session, loan.city_id)
+    if loan.identity_id is not None and city is not None:
+        return await town.treasury(session, city)
+    return await reserve_account(session)
+
+
+async def _owed_to_city(session: AsyncSession, city, debtor_identity_id: uuid.UUID) -> bool:
+    """Whether this debtor owes **this** city -- then a work-off costs it nothing."""
+    found = (
+        await session.execute(
+            select(Loan.id)
+            .where(
+                Loan.identity_id == debtor_identity_id,
+                Loan.city_id == city.id,
+                Loan.state == LoanState.OPEN,
+            )
+            .limit(1)
+        )
+    ).first()
+    return found is not None
+
+
+async def _settle(
+    session: AsyncSession, loan: Loan, account, payment: int, *, earns_history: bool = True
+) -> None:
     """Post a payment: interest ahead of principal, and all of it to the lender.
 
     The banking order stays, because without it the interest cannot be told
@@ -354,17 +401,16 @@ async def _settle(session: AsyncSession, loan: Loan, account, payment: int) -> N
     issued itself, which is how a prisoner's work-off lands (D-174). Then no
     money moves at all and the debt is simply written down -- the city has
     already been paid, in ore.
+
+    `earns_history` is what tells that write-down from a gift. A credit limit
+    grows on interest that left for good (D-280), so a debt the city simply
+    forgives its own citizen must not buy them one: otherwise a ruler raises
+    somebody's limit with a click and it costs the treasury nothing at all.
+    The convict's ore is another matter -- it was paid, in kind.
     """
 
     interest = min(payment, max(0, loan.interest_accrued - loan.interest_paid))
-    city = None if loan.city_id is None else await town.by_id(session, loan.city_id)
-    #: A citizen's loan is the city's money (D-283); a city's own loan, and a
-    #: loan of the world before that decision, is the capital's.
-    lender = (
-        await town.treasury(session, city)
-        if loan.identity_id is not None and city is not None
-        else await reserve_account(session)
-    )
+    lender = await _lender_of(session, loan)
 
     if payment > 0 and lender.id != account.id:
         await ledger.transfer(
@@ -375,7 +421,8 @@ async def _settle(session: AsyncSession, loan: Loan, account, payment: int) -> N
             amount=payment,
             memo={"погашение": str(loan.id)},
         )
-    loan.interest_paid += interest
+    if earns_history:
+        loan.interest_paid += interest
     loan.outstanding -= payment
 
 
@@ -568,7 +615,7 @@ async def credit_limit(
     return limit_, reasons
 
 
-# --- prison credit (D-174) ---------------------------------------------------
+# --- the city as a debtor (D-285) --------------------------------------------
 
 
 async def collect_from_cities(
@@ -615,63 +662,105 @@ async def collect_from_cities(
         .scalars()
         .all()
     )
+    #: Grouped by city, because the income is the treasury's and the watermark
+    #: sits on the loans: asked once per loan, the same takings would be
+    #: charged over and over -- a city with two overdue loans would lose the
+    #: whole of its income instead of half, which is exactly what the share
+    #: exists to prevent. One budget per city, split between its debts in the
+    #: order they are locked in.
+    owed_by_city: dict[uuid.UUID, list[Loan]] = {}
     for loan in loans:
-        city = await town.by_id(session, loan.city_id)
+        owed_by_city.setdefault(loan.city_id, []).append(loan)
+
+    for city_id, owed in owed_by_city.items():
+        city = await town.by_id(session, city_id)
         if city is None:  # pragma: no cover -- a loan of a city that is gone
             continue
-        await accrue(session, constants, loan, now=moment)
         treasury = await town.treasury(session, city)
-        income = await _income_since(session, treasury.id, loan.serviced_at)
-        payment = min(
-            int(income * share), await ledger.balance(session, treasury.id), loan.outstanding
-        )
-        if payment <= 0:
+        #: From the oldest unserviced debt: everything the city took since then
+        #: is income this pass has not yet charged for.
+        watermark = min(loan.serviced_at for loan in owed)
+        income, last_at = await _income_since(session, treasury.id, watermark)
+        budget = int(income * share)
+        if budget <= 0:
             continue
 
-        await _settle(session, loan, treasury, payment)
-        #: Unlike a citizen's withholding this **does** move the debt's clock:
-        #: the moment is the watermark the next pass counts income from, and
-        #: the city is paying, which is what being serviced means.
-        loan.serviced_at = moment
-        if loan.outstanding <= 0:
-            loan.state = LoanState.REPAID
-            loan.repaid_at = moment
-        withheld += payment
-        await events.record(
-            session,
-            EventKind.DEBT_WITHHELD,
-            node_id=city.node_id,
-            city_id=str(city.id),
-            loan_id=str(loan.id),
-            amount=payment,
-            left=loan.outstanding,
-            treasury_loan=True,
-        )
+        collected = 0
+        for loan in owed:
+            room = budget - collected
+            if room <= 0:
+                break
+            await accrue(session, constants, loan, now=moment)
+            payment = min(room, await ledger.balance(session, treasury.id), loan.outstanding)
+            if payment <= 0:
+                continue
+
+            await _settle(session, loan, treasury, payment)
+            if loan.outstanding <= 0:
+                loan.state = LoanState.REPAID
+                loan.repaid_at = moment
+            collected += payment
+            await events.record(
+                session,
+                EventKind.CITY_DEBT_WITHHELD,
+                node_id=city.node_id,
+                city_id=str(city.id),
+                loan_id=str(loan.id),
+                amount=payment,
+                left=loan.outstanding,
+            )
+        withheld += collected
+
+        #: The clock moves only when the share was taken whole. Short of that
+        #: the city took money the capital has not had its half of -- because
+        #: the treasury was already spent -- and the claim waits for the next
+        #: takings rather than being forgiven (D-285). It moves to the last
+        #: income actually counted, not to the tick's nominal hour: the step
+        #: runs minutes after that hour, and anything arriving in between would
+        #: otherwise be charged twice or not at all.
+        if collected >= budget and last_at is not None:
+            for loan in owed:
+                loan.serviced_at = last_at
     await session.flush()
     return withheld
 
 
-async def _income_since(session: AsyncSession, account_id: uuid.UUID, since: datetime) -> int:
-    """What the city **took** after that moment: credits, less what it borrowed.
+async def _income_since(
+    session: AsyncSession, account_id: uuid.UUID, since: datetime
+) -> tuple[int, datetime | None]:
+    """What the city **took** after that moment, and when it last took it.
 
-    A loan paid into the treasury is not income, and withholding a share of it
-    would mean the capital handing a city a hundred and taking fifty of it
-    straight back -- the city would end up owing a hundred for fifty, which is
-    not a debt but a trick. Everything else counts: duty, tax, works, land,
-    fines, and whatever is added to that list after this line is written.
+    Credits only, less what it borrowed: a loan paid into the treasury is not
+    income, and withholding a share of it would mean the capital handing a city
+    a hundred and taking fifty of it straight back -- the city would end up
+    owing a hundred for fifty, which is not a debt but a trick. Everything else
+    counts: duty, tax, works, land, fines, and whatever is added to that list
+    after this line is written.
+
+    The moment comes back with the sum because it is the next watermark: the
+    journal's own clock, so nothing falls between two passes and nothing is
+    charged by both.
     """
-    total = await session.scalar(
-        select(func.coalesce(func.sum(LedgerEntry.amount), 0))
-        .select_from(LedgerEntry)
-        .join(LedgerTransaction, LedgerTransaction.id == LedgerEntry.transaction_id)
-        .where(
-            LedgerEntry.account_id == account_id,
-            LedgerEntry.amount > 0,
-            LedgerTransaction.at > since,
-            LedgerTransaction.reason != PostingReason.LOAN,
+    row = (
+        await session.execute(
+            select(
+                func.coalesce(func.sum(LedgerEntry.amount), 0),
+                func.max(LedgerTransaction.at),
+            )
+            .select_from(LedgerEntry)
+            .join(LedgerTransaction, LedgerTransaction.id == LedgerEntry.transaction_id)
+            .where(
+                LedgerEntry.account_id == account_id,
+                LedgerEntry.amount > 0,
+                LedgerTransaction.at > since,
+                LedgerTransaction.reason != PostingReason.LOAN,
+            )
         )
-    )
-    return int(total or 0)
+    ).one()
+    return int(row[0] or 0), row[1]
+
+
+# --- prison credit (D-174) ---------------------------------------------------
 
 
 async def prison_credit(
@@ -690,13 +779,21 @@ async def prison_credit(
     the claim is written down and the city is paid in ore. Against a loan of
     the capital's -- a city's own borrowing, or a citizen's loan from before
     D-283 -- the treasury pays as it always did, and the money returns to the
-    reserve. Returns how much could be credited; zero -- the treasury is empty,
-    and the ore stays with the prisoner.
+    reserve. That is the one case an empty treasury refuses, because it is the
+    one case money has to move; against its own claim a city writes the debt
+    down however poor it is. Returns how much could be credited.
     """
 
     moment = now or datetime.now(UTC)
     treasury = await town.treasury(session, city)
-    if await ledger.balance(session, treasury.id) < cost:
+    #: Money is only needed when money moves. Against the city's own loan the
+    #: ore is the payment and the claim is simply written down (D-283, D-174),
+    #: and a treasury emptied by lending is the commonest state there is now --
+    #: gating on its balance would mean the poorer the city, the less it may
+    #: take from the mine that was built to make it richer.
+    if await ledger.balance(session, treasury.id) < cost and not await _owed_to_city(
+        session, city, debtor_identity_id
+    ):
         return 0
 
     debtor = await session.get(Identity, debtor_identity_id)

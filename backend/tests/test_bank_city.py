@@ -479,6 +479,78 @@ async def test_a_debtor_city_pays_with_half_of_what_it_takes(
     assert await town.treasury_balance(session, city) == money(40) - withheld, "половина осталась"
 
 
+async def test_two_debts_of_one_city_share_one_income(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Half of the takings, however many debts they are set against (D-285).
+
+    The watermark sits on the loan and the income belongs to the treasury, so
+    a pass that asks per loan charges the same takings once for each -- a city
+    with two overdue loans would lose everything it took instead of half, and
+    the share would stop being a share.
+    """
+    from src.engine import city as town
+
+    city = await _city_with_turnover(session, catalog)
+    long_ago = datetime.now(UTC) - timedelta(days=constants[R.DEBT_GRACE_PERIOD] + 5)
+    for _ in range(2):
+        loan = await bank.lend_to_city(session, constants, city, money(1000), why="тест")
+        loan.serviced_at = long_ago
+    treasury = await town.treasury(session, city)
+    genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
+    await ledger.transfer(
+        session,
+        PostingReason.GENESIS,
+        debit=treasury.id,
+        credit=genesis.id,
+        amount=await ledger.balance(session, treasury.id),
+    )
+    await session.flush()
+    await ledger.transfer(
+        session,
+        PostingReason.GENESIS,
+        debit=genesis.id,
+        credit=treasury.id,
+        amount=money(100),
+    )
+
+    withheld = await bank.collect_from_cities(session, constants)
+
+    share = constants[R.BANK_INCOME_WITHHELD_SHARE] / PERCENT
+    assert withheld == money(100) * share, "половина прихода, а не половина за каждый долг"
+    assert await town.treasury_balance(session, city) == money(100) - withheld
+
+
+async def test_the_same_takings_are_not_withheld_twice(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The watermark moves with the money: a second pass finds nothing new (D-285)."""
+    from src.engine import city as town
+
+    city = await _city_with_turnover(session, catalog)
+    loan = await bank.lend_to_city(session, constants, city, money(1000), why="тест")
+    loan.serviced_at = datetime.now(UTC) - timedelta(days=constants[R.DEBT_GRACE_PERIOD] + 5)
+    treasury = await town.treasury(session, city)
+    genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
+    await ledger.transfer(
+        session,
+        PostingReason.GENESIS,
+        debit=treasury.id,
+        credit=genesis.id,
+        amount=await ledger.balance(session, treasury.id),
+    )
+    await session.flush()
+    await ledger.transfer(
+        session, PostingReason.GENESIS, debit=genesis.id, credit=treasury.id, amount=money(100)
+    )
+
+    first = await bank.collect_from_cities(session, constants)
+    second = await bank.collect_from_cities(session, constants)
+
+    assert first > 0
+    assert second == 0, "тот же приход обложен дважды"
+
+
 async def test_a_citys_overdue_cuts_what_it_may_borrow(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
@@ -545,13 +617,49 @@ async def test_treasury_pays_for_ore_toward_repayment(
     assert await bank.reserve(session) == reserve_before, "в резерв ничего не ушло"
 
 
-async def test_empty_treasury_gives_no_credit(
+async def test_an_empty_treasury_still_writes_off_its_own_loan(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """No money -- no penal labour: the ore stays with the prisoner (D-174)."""
+    """The city that lent its treasury out is the one whose convict is mining.
+
+    Nothing is transferred against a loan of the city's own (D-283), so its
+    balance bounds nothing: the ore is the payment. Gating on cash here would
+    shut D-174 in exactly the state D-283 makes ordinary -- a city poor because
+    it lent, with a debtor in its prison.
+    """
+    from src.engine import city as town
+
     city, who = await _citizen_with_city(session, catalog)
-    await bank.borrow(session, constants, catalog, who, 100)
+    loan = await bank.borrow(session, constants, catalog, who, 100)
+    assert await town.treasury_balance(session, city) == 0, "казна роздана"
+
+    before = loan.outstanding
+    assert await bank.prison_credit(session, constants, city, who.id, money(60)) == money(60)
+    assert loan.outstanding == before - money(60)
+
+
+async def test_an_empty_treasury_pays_nothing_it_must_pay_for(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Against somebody else's loan the ore is not payment: money has to move.
+
+    A convict whose debt is the capital's -- a city's own borrowing, or a loan
+    from before D-283 -- is worked off by the treasury paying, and an empty one
+    cannot. The ore stays with the prisoner (D-174).
+    """
+    from src.engine import city as town
+
+    city, who = await _citizen_with_city(session, catalog)
+    loan = await bank.borrow(session, constants, catalog, who, 100)
+    #: The loan is moved off this city's books: the capital holds it now, and
+    #: the city has nothing to write down and nothing to pay with.
+    elsewhere = await _city_with_turnover(session, catalog)
+    loan.city_id = elsewhere.id
+    await session.flush()
+    assert await town.treasury_balance(session, city) == 0
+
     assert await bank.prison_credit(session, constants, city, who.id, money(60)) == 0
+    assert loan.outstanding == money(100)
 
 
 async def test_labour_in_prison_face_repays_debt(

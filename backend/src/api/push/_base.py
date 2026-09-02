@@ -121,6 +121,9 @@ TOUCHES_BY_KIND: dict[str, tuple[str, ...]] = {
     #: rereads after its own command anyway; a law passed by a vote is nobody's
     #: command, and the tariff on the screen stayed at yesterday's figure.
     "city.law_set": ("city", "node"),
+    #: The capital took its share of the treasury (D-285): the panel
+    #: shows the balance and what is lent out, and both just moved.
+    "city.debt_withheld": ("city",),
 }
 
 #: What everybody standing in the node sees happen there, by prefix or kind.
@@ -182,7 +185,7 @@ ADDRESSEE_SUFFIX = "_identity_id"
 #: A sum proposed or printed in the capital is the citizens' affair too (D-270).
 CITY_VISIBLE_PREFIXES = frozenset({"city", "justice", "emission"})
 
-CITY_VISIBLE_KINDS = frozenset({"bank.rate_decided"})
+CITY_VISIBLE_KINDS = frozenset({"bank.rate_decided", "city.debt_withheld"})
 
 #: Bystanders learn **who** only where the deed is in plain sight: somebody
 #: arrived, fell, dropped a thing, was appointed. Trade, tax, fuel and

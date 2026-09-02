@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import Constants
 from src.constants import registry as R
 from src.engine import city as town
+from src.engine import ledger
 from src.engine.bank._base import key_rate
 from src.engine.bank.trust import city_trust
 from src.engine.errors import Says
@@ -125,30 +126,42 @@ async def offered_rate(
     if city is None:  # pragma: no cover -- citizenship into nowhere is a bug
         return key, [Says("bank-why-offer-key", {"key": key})]
 
-    permitted, _, free = await city_line(session, constants, city, now=moment)
+    _, _, free = await city_line(session, constants, city, now=moment)
     margin = city_margin(constants, catalog, city)
-    if amount <= free:
+    #: The same arithmetic as `borrow`, and since D-283 that means the treasury
+    #: first: the city hands over its own money and goes to the capital only
+    #: for the shortfall. A window that looked at the line alone told a citizen
+    #: of a rich city with a spent line that there was no money for them, and
+    #: then the loan went through -- the exact shape this function exists to
+    #: prevent.
+    own = await ledger.balance(session, (await town.treasury(session, city)).id)
+    if amount <= own + free:
         return key + margin, [
             Says(
                 "bank-why-offer-city",
                 #: A city's name is already a word: it is written by whoever
                 #: founded the city, not chosen from a catalogue, so it goes
                 #: in plain and not through `NAME()`.
-                {"key": key, "margin": margin, "city": city.name, "free": money_str(free)},
+                {
+                    "key": key,
+                    "margin": margin,
+                    "city": city.name,
+                    "free": money_str(own + free),
+                },
             )
         ]
 
-    #: The line is out, and past it there is nothing -- the direct loan from
-    #: the capital is gone (D-281). The rate answered is still the city's own:
-    #: it is the rate of the loan one may take for what the line has left.
+    #: Neither its own nor borrowed: past that there is nothing at all (D-281,
+    #: D-283). The rate answered is still the city's own -- it is the rate of
+    #: the loan one may take for what the city can still find.
     return key + margin, [
         Says(
-            "bank-why-offer-line-exhausted",
+            "bank-why-offer-cannot-fund",
             {
                 "key": key,
                 "margin": margin,
                 "city": city.name,
-                "permitted": money_str(permitted),
+                "own": money_str(own),
                 "free": money_str(free),
             },
         )
@@ -200,7 +213,7 @@ async def city_line(
         + int(turnover * constants[R.CREDIT_CITY_TURNOVER_SHARE] / PERCENT)
         + int(served * constants[R.CREDIT_CITY_INTEREST_SHARE] / PERCENT)
     )
-    permitted = int(earned * await city_trust(session, constants, city.id))
+    permitted = int(earned * await city_trust(session, constants, city.id, now=moment))
     occupied = await city_outstanding(session, city)
     return permitted, occupied, max(0, permitted - occupied)
 

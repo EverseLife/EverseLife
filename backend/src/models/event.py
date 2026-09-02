@@ -288,6 +288,11 @@ class EventKind(StrEnum):
     LOAN_REPAID = "bank.loan_repaid"
     #: Insolvency (D-168): withheld by force, freedom restricted.
     DEBT_WITHHELD = "bank.debt_withheld"
+    #: The capital keeping its share of a debtor city's takings (D-285). Its
+    #: own kind rather than the one above: that one is a person's misfortune
+    #: and reaches them alone, this one is the city's and belongs to whoever
+    #: reads its treasury.
+    CITY_DEBT_WITHHELD = "city.debt_withheld"
     DEBT_RESTRAINED = "bank.debt_restrained"
     #: Reserve surplus burned: there is less money in the world (D-169).
     RESERVE_BURNED = "bank.reserve_burned"

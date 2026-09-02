@@ -134,14 +134,15 @@ async def test_two_citizens_do_not_lie_twice_on_the_same_line(
 ) -> None:
     """The city's line with the capital is one remainder for all its citizens.
 
-    `bank.debt_to_turnover_cap` bounds how much of its turnover a city may owe
-    (D-175). Without the city's row two citizens read the same free room and
-    both lie down on it -- the cap is through, and the capital prints against
-    turnover that was counted once.
+    The line bounds how much a city may owe the capital (D-175, D-285), and
+    since D-283 a citizen's loan reaches it through the city's own borrowing:
+    an empty treasury sends the city to the capital for every coin. Without the
+    city's row two citizens read the same free room and both lie down on it --
+    the ceiling is through, and the capital prints against a line counted once.
     """
     from src.engine import bank
     from src.engine.bank import line as line_module
-    from src.models.bank import Loan
+    from src.models.bank import Loan, LoanState
     from src.models.city import Citizen
 
     stamp = uuid.uuid4().hex[:8]
@@ -214,16 +215,24 @@ async def test_two_citizens_do_not_lie_twice_on_the_same_line(
     ], outcomes
 
     async with factory() as db:
+        #: What sits on the line is the CITY's own borrowing (D-283): a citizen's
+        #: loan is paid out of the treasury and is the city's asset, not its
+        #: debt. Counting the citizens' rows here would measure the rule with
+        #: the wrong ruler and pass whatever the line did.
         on_line = (
             (
                 await db.execute(
-                    select(Loan).where(Loan.city_id == city.id, Loan.identity_id.in_(borrowers))
+                    select(Loan).where(
+                        Loan.city_id == city.id,
+                        Loan.identity_id.is_(None),
+                        Loan.state == LoanState.OPEN,
+                    )
                 )
             )
             .scalars()
             .all()
         )
-        assert on_line, "первый заём лёг на линию города"
+        assert on_line, "город занял у столицы под первый же заём гражданина"
         assert sum(one.outstanding for one in on_line) <= permitted, (
             "на линию города легло больше, чем город может занять"
         )

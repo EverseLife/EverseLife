@@ -117,7 +117,7 @@ bank-why-limit-trust = доверие { NUMBER($trust, maximumFractionDigits: 0)
 bank-why-offer-key = ключевая { NUMBER($key, minimumFractionDigits: 2, maximumFractionDigits: 2) }%
 bank-why-offer-no-citizenship = кредита нет: занимают только у города своего гражданства, а вы нигде не состоите (D-281)
 bank-why-offer-city = ключевая { NUMBER($key, minimumFractionDigits: 2, maximumFractionDigits: 2) }% + маржа города { NUMBER($margin, minimumFractionDigits: 2, maximumFractionDigits: 2) }% ({ $city }); линии свободно { $free } ₭
-bank-why-offer-line-exhausted = ключевая { NUMBER($key, minimumFractionDigits: 2, maximumFractionDigits: 2) }% + маржа { NUMBER($margin, minimumFractionDigits: 2, maximumFractionDigits: 2) }%, но занять сейчас нечего: линия города «{ $city }» исчерпана — разрешено { $permitted } ₭ от оборота, свободно { $free } ₭. Линию поднимают сделки на его земле (D-193)
+bank-why-offer-cannot-fund = ключевая { NUMBER($key, minimumFractionDigits: 2, maximumFractionDigits: 2) }% + маржа { NUMBER($margin, minimumFractionDigits: 2, maximumFractionDigits: 2) }%, но занять сейчас нечего: у города «{ $city }» в казне { $own } ₭ и он может добрать у столицы ещё { $free } ₭. Казну пополняют налоги и пошлины, линию — оборот на земле города и уплаченный им процент (D-285)
 
 ## Переводы
 
