@@ -13,16 +13,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Constants
-from src.constants import registry as R
-from src.engine import bank, events, ledger
+from src.engine import bank, events
 from src.engine import city as town
 from src.engine.works_city._base import WorksCityError
 from src.models.bank import Loan, LoanState
 from src.models.city import City, Power
 from src.models.event import EventKind
 from src.models.identity import Body, Identity
-from src.models.ledger import AccountKind
-from src.models.ledger import PostingReason as Reason
 from src.units import money, money_str
 
 # --- the treasury as a borrower (D-248) ---------------------------------------
@@ -61,58 +58,27 @@ async def borrow_for_works(
     #: free. The city row serialises them; the loser rereads a line that
     #: already carries the winner's loan.
     await session.execute(select(City.id).where(City.id == city.id).with_for_update())
-    _, _, free = await bank.city_line(session, constants, city, now=moment)
+    permitted, _, free = await bank.city_line(session, constants, city, now=moment)
     if total > free:
         raise WorksCityError(
             key="works-city-line-exhausted",
             money=money_str(free),
-            cap=constants[R.BANK_DEBT_TO_TURNOVER_CAP],
+            permitted=money_str(permitted),
         )
 
-    rate_value = await bank.key_rate(session, constants)
-    reserve_treasury = await bank.reserve_account(session)
-    have = await ledger.balance(session, reserve_treasury.id)
-    printed = max(0, total - have)
-    if printed > 0:
-        genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
-        await ledger.transfer(
-            session,
-            Reason.GENESIS,
-            debit=genesis.id,
-            credit=reserve_treasury.id,
-            amount=printed,
-            memo={"печать под кредит казне": city.name},
-        )
-    await ledger.transfer(
-        session,
-        Reason.LOAN,
-        debit=reserve_treasury.id,
-        credit=(await town.treasury(session, city)).id,
-        amount=total,
-        memo={"кредит казне": city.name},
-    )
-    loan = Loan(
-        identity_id=None,
-        principal=total,
-        outstanding=total,
-        rate=rate_value,
-        city_id=city.id,
-        margin=0,
-        printed=printed,
-        taken_at=moment,
-        accrued_at=moment,
-        serviced_at=moment,
-    )
-    session.add(loan)
-    await session.flush()
+    #: The money itself is moved by the bank (D-283): reserve first, the
+    #: shortfall printed, the row written -- the same primitive that fills a
+    #: treasury which is about to lend to its own citizen. What stays here is
+    #: what only this road knows: who asked, and that they asked for works.
+    loan = await bank.lend_to_city(session, constants, city, total, now=moment, why="works")
     await events.record(
         session,
         EventKind.LOAN_TAKEN,
         actor_identity_id=by.id,
         loan_id=str(loan.id),
         amount=total,
-        rate=rate_value,
-        printed=printed,
+        rate=float(loan.rate),
+        printed=loan.printed,
         city=city.name,
         treasury_loan=True,
     )

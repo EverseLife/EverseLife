@@ -23,9 +23,9 @@ from bank_kit import _borrower, _city_with_turnover, _deal, _home
 from src import i18n
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import bank, world
+from src.engine import bank, ledger, world
 from src.models.bank import LoanState
-from src.models.ledger import AccountKind
+from src.models.ledger import AccountKind, PostingReason
 from src.units import MONEY_SCALE, PERCENT, money
 
 # --- collateral ratio as a lever (D-170) -------------------------------------
@@ -312,14 +312,99 @@ async def test_citizen_borrows_from_city_with_margin(
     assert loan.city_id == city.id
     assert float(loan.margin) == pytest.approx(margin)
     assert float(loan.rate) == pytest.approx(constants[R.BANK_BASE_RATE] + margin)
+    #: The line carries what the CITY borrowed to fund it (D-283), not the
+    #: citizen's loan: an empty treasury had to go to the capital for all of it.
     _, occupied, _ = await bank.city_line(session, constants, city)
-    assert occupied == loan.outstanding, "заём висит на линии города"
+    assert occupied == loan.principal, "город занял у столицы под этот заём"
 
 
-async def test_city_margin_goes_to_its_treasury(
+async def test_a_rich_city_lends_its_own_and_borrows_nothing(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """The city earns on its borrowers -- seigniorage is unnecessary (D-175)."""
+    """The treasury is the source, and a full one needs no capital (D-283)."""
+    from src.engine import city as town
+
+    city, who = await _citizen_with_city(session, catalog)
+    treasury = await town.treasury(session, city)
+    genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
+    await ledger.transfer(
+        session, PostingReason.GENESIS, debit=genesis.id, credit=treasury.id, amount=money(500)
+    )
+    reserve_before = await bank.reserve(session)
+
+    loan = await bank.borrow(session, constants, catalog, who, 100)
+
+    assert loan.printed == 0
+    assert await town.treasury_balance(session, city) == money(400), "казна отдала своё"
+    assert await bank.reserve(session) == reserve_before, "столица не участвовала"
+    assert await bank.city_outstanding(session, city) == 0, "городу не пришлось занимать"
+
+
+async def test_a_short_treasury_borrows_only_the_difference(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Not enough of its own -- the city borrows the shortfall, not the whole (D-283)."""
+    from src.engine import city as town
+
+    city, who = await _citizen_with_city(session, catalog)
+    treasury = await town.treasury(session, city)
+    genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
+    await ledger.transfer(
+        session, PostingReason.GENESIS, debit=genesis.id, credit=treasury.id, amount=money(30)
+    )
+
+    await bank.borrow(session, constants, catalog, who, 100)
+
+    assert await bank.city_outstanding(session, city) == money(70), "занято ровно недостающее"
+    assert await town.treasury_balance(session, city) == 0, "казна отдала всё, что было"
+
+
+async def test_a_city_that_cannot_borrow_lends_nothing(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """An empty treasury and no line is a refusal, not a loan from nowhere (D-283).
+
+    Past the city's line there is nothing at all, and that is the whole of the
+    change: the direct loan from the capital used to stand behind it, so the
+    line ran out and the borrowing went on, only dearer (D-281 took that away).
+    Now the city hands over its own money, and when it has none and cannot
+    borrow any, the answer is no.
+    """
+    from src.engine import city as town
+
+    city, who = await _citizen_with_city(session, catalog, turnover=1)
+    #: The line is filled by the city's own borrowing and the money it brought
+    #: is spent, so the city is left with nothing of its own and nothing to
+    #: borrow -- the one position in which it cannot lend at all.
+    _, _, free = await bank.city_line(session, constants, city)
+    if free > 0:
+        await bank.lend_to_city(session, constants, city, free, why="тест")
+    treasury = await town.treasury(session, city)
+    genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
+    await ledger.transfer(
+        session,
+        PostingReason.GENESIS,
+        debit=treasury.id,
+        credit=genesis.id,
+        amount=await ledger.balance(session, treasury.id),
+    )
+
+    with pytest.raises(bank.TooMuch):
+        await bank.borrow(session, constants, catalog, who, 100)
+    assert await bank.debt_of(session, who.id) == 0
+
+
+async def test_the_whole_interest_goes_to_the_city_that_lent(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The city earns on its borrowers, and since D-283 it earns all of it.
+
+    The payment used to be cut in two -- the city's margin to its treasury, the
+    key part to the capital's reserve -- because the loan was the capital's
+    money handed out under the city's name. It is the city's money now, so
+    there is nobody to share the interest with; what the city owes the capital
+    for having borrowed it in the first place is a loan of its own.
+    """
     from src.engine import city as town
 
     city, who = await _citizen_with_city(session, catalog)
@@ -329,31 +414,13 @@ async def test_city_margin_goes_to_its_treasury(
 
     treasury_before = await town.treasury_balance(session, city)
     reserve_before = await bank.reserve(session)
-    #: We repay exactly the interest: that is what is split between city and capital.
+    #: Exactly the interest is repaid: it is what used to be split.
     interest = loan.interest_accrued
     payer = await _borrower(session, funds=1000)
     await bank.repay(session, constants, payer, loan, interest / 10_000, now=in_a_year)
 
-    city_share = int(interest * float(loan.margin) / float(loan.rate))
-    assert await town.treasury_balance(session, city) - treasury_before == city_share
-    assert await bank.reserve(session) - reserve_before == interest - city_share
-
-
-async def test_exhausted_line_closes_the_door(
-    session: AsyncSession, constants: Constants, catalog: Catalog
-) -> None:
-    """Past the city's line there is nothing at all now (D-281).
-
-    The direct loan from the capital at the risk premium used to stand behind
-    it: the line ran out and the borrowing went on, only dearer. It does not
-    -- the capital lends against a line, and a city that has none has nothing
-    to put up for its own.
-    """
-    city, who = await _citizen_with_city(session, catalog, turnover=100)
-    #: Line = cap% of turnover 100: the very first big loan overflows it.
-    await _deal(session, "iron_ore", 4000, 1, seller=who)
-    with pytest.raises(bank.TooMuch):
-        await bank.borrow(session, constants, catalog, who, 900)
+    assert await town.treasury_balance(session, city) - treasury_before == interest
+    assert await bank.reserve(session) == reserve_before, "столица не получила ничего"
 
 
 async def test_non_citizen_borrows_nowhere(
@@ -371,13 +438,83 @@ async def test_non_citizen_borrows_nowhere(
     assert [says.key for says in why] == ["bank-why-offer-no-citizenship"]
 
 
+async def test_a_debtor_city_pays_with_half_of_what_it_takes(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Overdue on its own loan: the capital keeps a share of every income (D-285)."""
+    from src.engine import city as town
+
+    city = await _city_with_turnover(session, catalog)
+    loan = await bank.lend_to_city(session, constants, city, money(100), why="тест")
+    #: The money it borrowed is spent, and the debt goes unserviced past the grace.
+    treasury = await town.treasury(session, city)
+    genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
+    await ledger.transfer(
+        session,
+        PostingReason.GENESIS,
+        debit=treasury.id,
+        credit=genesis.id,
+        amount=await ledger.balance(session, treasury.id),
+    )
+    loan.serviced_at = datetime.now(UTC) - timedelta(days=constants[R.DEBT_GRACE_PERIOD] + 5)
+    await session.flush()
+
+    #: And then the city takes something: duty, tax, a works payment -- the
+    #: journal does not care which, and neither does the withholding.
+    await ledger.transfer(
+        session,
+        PostingReason.GENESIS,
+        debit=genesis.id,
+        credit=treasury.id,
+        amount=money(40),
+    )
+    owed_before, reserve_before = loan.outstanding, await bank.reserve(session)
+
+    withheld = await bank.collect_from_cities(session, constants)
+
+    share = constants[R.BANK_INCOME_WITHHELD_SHARE] / PERCENT
+    assert withheld == money(40) * share, "удержана доля прихода, а не остаток казны"
+    assert loan.outstanding < owed_before, "долг уменьшился"
+    assert await bank.reserve(session) - reserve_before == withheld, "ушло в резерв столицы"
+    assert await town.treasury_balance(session, city) == money(40) - withheld, "половина осталась"
+
+
+async def test_a_citys_overdue_cuts_what_it_may_borrow(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """A city's trust is its own payment record (D-285), and the line follows it."""
+    city = await _city_with_turnover(session, catalog)
+    full, _, _ = await bank.city_line(session, constants, city)
+    assert await bank.city_trust(session, constants, city.id) == 1
+
+    loan = await bank.lend_to_city(session, constants, city, money(10), why="тест")
+    loan.serviced_at = datetime.now(UTC) - timedelta(days=constants[R.DEBT_GRACE_PERIOD] + 5)
+    await session.flush()
+
+    cut = constants[R.CREDIT_CITY_OVERDUE_PENALTY] / PERCENT
+    assert await bank.city_trust(session, constants, city.id) == pytest.approx(1 - cut)
+    narrowed, _, _ = await bank.city_line(session, constants, city)
+    assert narrowed < full, "просрочка сузила линию"
+
+    #: Settled -- and the line is back: trust is what is owed now, not a memory
+    #: of what once was.
+    loan.state = LoanState.REPAID
+    await session.flush()
+    assert await bank.city_trust(session, constants, city.id) == 1
+
+
 # --- prison credit (D-174) ---------------------------------------------------
 
 
 async def test_treasury_pays_for_ore_toward_repayment(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """The circle closes: ore to the city, treasury money to the capital's reserve."""
+    """The circle closes inside the city: ore to the city, its own claim written down.
+
+    Nothing is transferred any more (D-283): the loan is the city's asset, so
+    the treasury paying it would be paying itself. The debt drops, the treasury
+    keeps its money, and what the city got for it is the ore.
+    """
     from src.engine import city as town
     from src.engine import ledger as l
     from src.models.ledger import PostingReason as PR
@@ -397,9 +534,15 @@ async def test_treasury_pays_for_ore_toward_repayment(
     )
 
     before = loan.outstanding
+    in_treasury = await town.treasury_balance(session, city)
+    reserve_before = await bank.reserve(session)
+
     credited = await bank.prison_credit(session, constants, city, who.id, money(60))
+
     assert credited == money(60)
     assert loan.outstanding == before - money(60)
+    assert await town.treasury_balance(session, city) == in_treasury, "казна платила себе"
+    assert await bank.reserve(session) == reserve_before, "в резерв ничего не ушло"
 
 
 async def test_empty_treasury_gives_no_credit(

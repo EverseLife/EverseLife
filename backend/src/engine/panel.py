@@ -56,6 +56,7 @@ from src.constants import Constants
 from src.constants import registry as R
 from src.engine import city as town
 from src.engine import customs, utility, world
+from src.models.bank import Loan, LoanState
 from src.models.city import City
 from src.models.energy import EnergyPool
 from src.models.event import Event, EventKind
@@ -344,9 +345,28 @@ async def _treasury(session: AsyncSession, city: City, *, since: datetime) -> di
             spent_[name] = spent_.get(name, 0.0) - value / MONEY_SCALE
     return {
         "balance": await town.treasury_balance(session, city) / MONEY_SCALE,
+        #: What the treasury has lent to its own and not got back (D-283).
+        #: Without this line an empty treasury tells the ruler nothing: money
+        #: given out as credit looks exactly like money spent, and the two are
+        #: opposite -- one comes back with interest, the other does not come
+        #: back at all. The client cannot work it out from anything else it is
+        #: given (D-225): loans are not in the panel.
+        "lent": await _lent_out(session, city) / MONEY_SCALE,
         "collected": collected,
         "spent": spent_,
     }
+
+
+async def _lent_out(session: AsyncSession, city: City) -> int:
+    """What the city's citizens still owe it (D-283)."""
+    total = await session.scalar(
+        select(func.coalesce(func.sum(Loan.outstanding), 0)).where(
+            Loan.city_id == city.id,
+            Loan.identity_id.is_not(None),
+            Loan.state == LoanState.OPEN,
+        )
+    )
+    return int(total or 0)
 
 
 async def store_daily(

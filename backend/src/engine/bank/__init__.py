@@ -80,6 +80,7 @@ from src.engine.bank.council import (  # noqa: F401
     locked_until,
 )
 from src.engine.bank.line import (  # noqa: F401
+    city_interest_paid,
     city_line,
     city_margin,
     city_outstanding,
@@ -90,8 +91,10 @@ from src.engine.bank.loan import (  # noqa: F401
     accrue,
     borrow,
     collect,
+    collect_from_cities,
     credit_limit,
     debt_of,
+    lend_to_city,
     loans_of,
     overdue,
     overdue_days,
@@ -112,6 +115,7 @@ from src.engine.bank.rate import (  # noqa: F401
     seigniorage_cancelled,
 )
 from src.engine.bank.trust import (  # noqa: F401
+    city_trust,
     interest_paid_total,
     personal_turnover,
     report_defect,

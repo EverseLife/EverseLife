@@ -75,7 +75,7 @@ market-job-no-order = задание { $job }: ордера нет
 
 bank-loan-not-positive = заём должен быть положительным
 bank-no-citizenship = занять можно только у города своего гражданства, а вы нигде не состоите (D-281)
-bank-city-line-exhausted = кредитная линия города «{ $city }» со столицей исчерпана: свободно { $free } ₭. Линию поднимают сделки на его земле (D-193)
+bank-city-cannot-fund = у города «{ $city }» нет на это денег: в казне { $own } ₭, занять у столицы он может ещё { $free } ₭. Кредит выдаёт город из своей казны (D-283)
 bank-over-limit = столько не дают: доступно { $available } ₭ из лимита { $limit } ₭ ({ $reason })
 bank-loan-closed = этот заём уже закрыт
 bank-nothing-to-pay-with = платить нечем
@@ -152,7 +152,7 @@ works-city-work-under-way = работа по заказу уже идёт: ра
 
 works-city-loan-not-positive = заём должен быть положительным
 works-city-capital-prints = столица у самой себя не занимает: «{ $city }» печатает деньги по подписям держателей права
-works-city-line-exhausted = линия города исчерпана: свободно { $money } ₭ из { NUMBER($cap, maximumFractionDigits: 2) }% оборота
+works-city-line-exhausted = линия города исчерпана: свободно { $money } ₭ из { $permitted } ₭. Линию поднимают оборот на земле города и уплаченный им процент (D-285)
 works-city-not-treasury-loan = это не заём казны этого города
 
 ## Таможня

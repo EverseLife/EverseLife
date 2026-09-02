@@ -164,10 +164,35 @@ async def test_two_citizens_do_not_lie_twice_on_the_same_line(
     await ledger.account_for(session, AccountKind.GENESIS, None)
     await session.commit()
 
-    permitted, occupied, free = await bank.city_line(session, constants, city)
-    assert occupied == 0 and free == permitted > 0
     limit_, _ = await bank.credit_limit(session, constants, borrowers[0])
-    assert free < limit_, "линия города должна упереться раньше личного лимита"
+    #: What is left of the city's line is brought down under the personal limit
+    #: -- the line is a lot wider since D-285, and the race is about the line,
+    #: not about anybody's own ceiling. The city's treasury stays empty, so each
+    #: loan to a citizen goes to the capital for the whole of it (D-283) and
+    #: lands on the very line under test.
+    _, _, free = await bank.city_line(session, constants, city)
+    if free > limit_ // 2:
+        await bank.lend_to_city(session, constants, city, free - limit_ // 2, why="тест")
+    #: And what that loan brought is spent, because it landed in the treasury:
+    #: a city with money in hand pays its citizens out of it and never reaches
+    #: the line at all (D-283). Empty, it goes to the capital for every coin,
+    #: and the race is back where this test wants it.
+    treasury = await town.treasury(session, city)
+    genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
+    await ledger.transfer(
+        session,
+        PostingReason.GENESIS,
+        debit=treasury.id,
+        credit=genesis.id,
+        amount=await ledger.balance(session, treasury.id),
+    )
+    permitted, occupied, free = await bank.city_line(session, constants, city)
+    assert 0 < free < limit_, "линия города упирается раньше личного лимита"
+    #: And the fixture's own transaction is closed before the race: the loan
+    #: above is a write, and an open transaction holding its rows is a third
+    #: party at a table set for two -- both borrowers would wait on it for as
+    #: long as the test lives.
+    await session.commit()
 
     _slow(monkeypatch, line_module, "city_outstanding")
 

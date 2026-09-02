@@ -25,8 +25,9 @@ from src import i18n
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import bank, ledger, world
+from src.engine import city as town
 from src.engine.errors import Says
-from src.models.bank import LoanState
+from src.models.bank import Loan, LoanState
 from src.models.ledger import AccountKind, LedgerAccount, PostingReason
 from src.units import PERCENT, money
 
@@ -43,6 +44,28 @@ async def _account(session: AsyncSession, who) -> int:
 
 
 # --- reserve and emission ----------------------------------------------------
+
+
+async def _city_repays(session: AsyncSession, constants: Constants, borrower) -> None:
+    """The lender's own lender: a city returning to the capital what it borrowed
+    in order to have something to lend its citizen (D-283). The reserve fills here."""
+    home = await _home(session, borrower)
+    treasury = await town.treasury(session, home)
+    owed = (
+        (
+            await session.execute(
+                select(Loan).where(
+                    Loan.city_id == home.id,
+                    Loan.identity_id.is_(None),
+                    Loan.state == LoanState.OPEN,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for own in owed:
+        await bank.repay(session, constants, borrower, own, from_account=treasury)
 
 
 async def test_every_restart_does_not_add_a_rate_review(
@@ -102,28 +125,57 @@ async def test_every_restart_does_not_add_a_rate_review(
 async def test_empty_reserve_prints_exactly_what_is_needed(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
+    """Printing happens one level up now (D-283): under the city's own loan.
+
+    The citizen is paid by their city out of the treasury, so their loan prints
+    nothing; what the empty reserve had to make, it made for the city that had
+    nothing to lend.
+    """
     who = await _borrower(session)
     loan = await bank.borrow(session, constants, catalog, who, 100)
 
-    assert loan.printed == money(100), "резерв был пуст — напечатано всё"
+    assert loan.printed == 0, "заём гражданина ничего не печатает"
     assert await _account(session, who) == money(100)
     assert await bank.reserve(session) == 0, "выданное ушло из резерва"
+
+    home = await _home(session, who)
+    city_debt = await bank.city_outstanding(session, home)
+    assert city_debt == money(100), "город занял у столицы ровно то, чего ему не хватало"
+    printed = sum(
+        one.printed
+        for one in (
+            await session.execute(
+                select(Loan).where(Loan.city_id == home.id, Loan.identity_id.is_(None))
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert printed == money(100), "резерв был пуст — напечатано всё, но под заём городу"
 
 
 async def test_repayment_returns_money_to_reserve_not_circulation(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """The reserve is a steriliser: money leaves circulation and waits for a borrower."""
+    """A payment goes back to whoever lent -- the city, since D-283.
+
+    The steriliser is still there, one step further off: the city takes the
+    payment into its treasury, and the reserve gets its own back when the city
+    repays what it borrowed to have something to lend.
+    """
     who = await _borrower(session)
     loan = await bank.borrow(session, constants, catalog, who, 100)
+    home = await _home(session, who)
+    treasury = await town.treasury(session, home)
+    was_in_treasury = await ledger.balance(session, treasury.id)
     turnover_before, reserve_before = await _mass(session)
 
     gave_back = await bank.repay(session, constants, who, loan, 40)
 
     turnover_after, reserve_after = await _mass(session)
     assert gave_back == money(40)
-    assert reserve_after - reserve_before == money(40)
-    assert turnover_before - turnover_after == money(40)
+    assert await ledger.balance(session, treasury.id) - was_in_treasury == money(40)
+    assert reserve_after == reserve_before, "столица тут ни при чём: дал город"
     assert turnover_before + reserve_before == turnover_after + reserve_after, (
         "вся масса ТК не изменилась: погашение не сжигает деньги"
     )
@@ -492,6 +544,9 @@ async def test_reserve_surplus_burned_under_high_inflation(
     who = await _borrower(session, funds=100)
     loan = await bank.borrow(session, constants, catalog, who, 200)
     await bank.repay(session, constants, who, loan, 200)
+    #: And the city returns what it borrowed to have that to lend: since D-283
+    #: the reserve fills from the city's own repayment, not the citizen's.
+    await _city_repays(session, constants, who)
 
     #: The price index ran up: inflation well above target, everything burns.
     today = datetime.now(UTC).date()

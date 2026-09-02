@@ -270,6 +270,7 @@ ui-admin-panel-no-trades = there were no trades over the period
 ui-admin-panel-goods = Goods in the city
 ui-admin-panel-treasury = Treasury
 ui-admin-panel-balance = balance { $balance } ₭
+ui-admin-panel-lent = lent out { $lent } ₭
 ui-admin-panel-collected = collected: { $lines }
 ui-admin-panel-spent = spent: { $lines }
 ui-admin-panel-ledger-line = { $ground } { $amount } ₭

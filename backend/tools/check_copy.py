@@ -98,7 +98,6 @@ KNOWN: dict[str, int] = {
     "src/engine/vote/poll.py": 10,
     "src/engine/wear.py": 1,
     "src/engine/works.py": 9,
-    "src/engine/works_city/credit.py": 2,
     "src/engine/works_city/order.py": 4,
     "src/engine/works_city/pay.py": 2,
     "src/engine/world/things.py": 2,

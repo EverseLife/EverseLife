@@ -16,7 +16,7 @@ existing rows start at nothing: no city is owed anything for the hours before
 this, and crediting them would invent energy.
 
 Revision ID: d3f8a29c61b7
-Revises: b6e3d1a94c07
+Revises: d7f4b1a92c58
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "d3f8a29c61b7"
-down_revision: str | None = "b6e3d1a94c07"
+down_revision: str | None = "d7f4b1a92c58"
 branch_labels: str | None = None
 depends_on: str | None = None
 

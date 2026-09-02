@@ -1,8 +1,10 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 Nurlan Urazkulov
 
-"""The city's line and margin (D-175): a city lends to its own at the key
-rate plus its margin, inside a line measured by the city's turnover.
+"""The city's line and margin (D-175, D-283, D-285): a city lends to its own
+at the key rate plus its margin, out of its own treasury -- and what it may
+borrow from the capital to fill that treasury is measured the way a person is
+measured, by trade, by interest paid and by trust.
 """
 
 from __future__ import annotations
@@ -17,13 +19,14 @@ from src.constants import Constants
 from src.constants import registry as R
 from src.engine import city as town
 from src.engine.bank._base import key_rate
+from src.engine.bank.trust import city_trust
 from src.engine.errors import Says
 from src.models.bank import Loan, LoanState
 from src.models.event import Event, EventKind
 from src.models.identity import Identity
 from src.models.market import Trade
 from src.models.world import Node
-from src.units import PERCENT, amount_float, money_str
+from src.units import PERCENT, amount_float, money, money_str
 
 # --- city credit line (D-175) ------------------------------------------------
 
@@ -153,10 +156,19 @@ async def offered_rate(
 
 
 async def city_outstanding(session: AsyncSession, city) -> int:
-    """How much citizen debt sits on this city's line with the capital."""
+    """How much this city owes the capital on its line.
+
+    Its **own** borrowing, and only that (D-283): a citizen's loan is paid by
+    the city out of its treasury and is the city's asset, not its debt. What
+    the line bounds is how much a city may borrow from the capital -- for a
+    works order (D-248) or to have something to lend its own people -- and how
+    much of that it hands on is a matter for its treasury, not for the line.
+    """
     result = await session.scalar(
         select(func.coalesce(func.sum(Loan.outstanding), 0)).where(
-            Loan.city_id == city.id, Loan.state == LoanState.OPEN
+            Loan.city_id == city.id,
+            Loan.identity_id.is_(None),
+            Loan.state == LoanState.OPEN,
         )
     )
     return int(result or 0)
@@ -167,15 +179,41 @@ async def city_line(
 ) -> tuple[int, int, int]:
     """City line: (permitted, occupied, free), in minor units.
 
-    Permitted is `bank.debt_to_turnover_cap` of the city's turnover over
-    `credit.window`. The city's debt outlives the authority (D-175): a change of
-    ruler repays nothing, otherwise "borrow, hand out to your own, get
-    re-elected" is the dominant strategy.
+    How much the city may owe the capital, by the same measure a person is
+    lent by (D-285): a base, the trade on its land, the interest it has paid,
+    and its own trust over all three. The city's debt outlives the authority
+    (D-175): a change of ruler repays nothing, otherwise "borrow, hand out to
+    your own, get re-elected" is the dominant strategy.
     """
     moment = now or datetime.now(UTC)
     window = moment - timedelta(days=constants[R.CREDIT_WINDOW])
     turnovers = await _turnover_by_city(session, window)
     turnover = turnovers.get(city.id, 0)
-    permitted = int(turnover * constants[R.BANK_DEBT_TO_TURNOVER_CAP] / PERCENT)
+    #: The same formula a person is measured by (D-173, D-280, D-285), with the
+    #: city put where the person stood: a base to start from, the trade that
+    #: happened on its land, the interest it has actually paid -- all of it
+    #: taken down by its own trust. Its own numbers, though: a city lends to
+    #: others rather than to itself, so it starts from more than a person does.
+    served = await city_interest_paid(session, city)
+    earned = (
+        money(constants[R.CREDIT_CITY_BASE])
+        + int(turnover * constants[R.CREDIT_CITY_TURNOVER_SHARE] / PERCENT)
+        + int(served * constants[R.CREDIT_CITY_INTEREST_SHARE] / PERCENT)
+    )
+    permitted = int(earned * await city_trust(session, constants, city.id))
     occupied = await city_outstanding(session, city)
     return permitted, occupied, max(0, permitted - occupied)
+
+
+async def city_interest_paid(session: AsyncSession, city) -> int:
+    """Interest the city has paid the capital on its own loans -- ever (D-285).
+
+    Its credit history, and it is written the way a citizen's is (D-280): by
+    money that left for good, not by principal that merely went round.
+    """
+    total = await session.scalar(
+        select(func.coalesce(func.sum(Loan.interest_paid), 0)).where(
+            Loan.city_id == city.id, Loan.identity_id.is_(None)
+        )
+    )
+    return int(total or 0)

@@ -653,6 +653,8 @@ async def test_treasury_bails_out_only_its_own(
     #: so a stranger's loan is a stranger's city's line, never this one's.
     elsewhere, far_core = await _capital(session, catalog)
     await _turnover(session, far_core, 1000)
+    neighbour, _ = await _resident(session, far_core, "Сосед-правитель")
+    await town.install_founder(session, elsewhere, neighbour)
     stranger, stranger_body = await _resident(session, far_core, "Чужой")
     await town.join(session, stranger_body, elsewhere)
     debt = await bank.borrow(session, constants, catalog, stranger, 100)
@@ -664,7 +666,23 @@ async def test_treasury_bails_out_only_its_own(
         await _city_bail(state, session, {"city": core.key, "loan": str(debt.id)})
     assert debt.outstanding == money(100), "казна не заплатила по чужому займу"
 
-    #: Its own citizen -- the city stands for them, and that is what a city is for.
+    #: Nor does taking the debtor in make the debt this city's: the money in
+    #: that loan is the other city's, and an exile carries their debt with them
+    #: rather than handing it to the treasury that sheltered them. Exile is the
+    #: only road here at all -- one leaves no city while owing it (D-281) --
+    #: and the debt stays with whoever sent them away.
+    await town.exile(session, neighbour, elsewhere, stranger)
+    #: One is enrolled where the city makes its decisions (D-155), so the exile
+    #: walks over before asking.
+    stranger_body.node_id = core.id
+    await session.flush()
+    await town.join(session, stranger_body, city)
+    assert await town.is_citizen(session, stranger.id, city)
+    with pytest.raises(Refused):
+        await _city_bail(state, session, {"city": core.key, "loan": str(debt.id)})
+    assert debt.outstanding == money(100), "казна не платит за приютённого должника"
+
+    #: Its own line -- and that is the whole of what a treasury stands behind.
     own, own_body = await _resident(session, core, "Свой")
     await town.join(session, own_body, city)
     mine = await bank.borrow(session, constants, catalog, own, 50)

@@ -143,6 +143,12 @@ export function Panel({ panel }: { panel: CityPanel | null }) {
         <>
           <h3>{t("ui-admin-panel-treasury")}</h3>
           <p>{t("ui-admin-panel-balance", { balance: panel.treasury.balance.toFixed(2) })}</p>
+          {/* Роздано в кредит (D-283): пустая казна, раздавшая кредиты, и
+              пустая проевшая — разные положения, и правитель обязан их
+              различать. Строка молчит, когда не роздано ничего. */}
+          {panel.treasury.lent > 0 && (
+            <p>{t("ui-admin-panel-lent", { lent: panel.treasury.lent.toFixed(2) })}</p>
+          )}
           <p className="note">
             {t("ui-admin-panel-collected", { lines: ledger(panel.treasury.collected) })}
           </p>
