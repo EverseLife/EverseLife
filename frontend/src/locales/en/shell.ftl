@@ -67,6 +67,8 @@ ui-side-end-field = Return
 ui-side-end-field-why = the run is cut short, there will be no find
 ui-side-end-mine = Leave the face
 ui-side-end-mine-why = what was mined goes into your hands
+ui-side-end-plot = Pause
+ui-side-end-plot-why = what is done stays; take it up or drop it from the strip
 
 ## Sleep: how long it has gone on. In two pieces, because a live counter stands between them.
 

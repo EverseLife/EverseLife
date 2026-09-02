@@ -187,6 +187,10 @@ class EventKind(StrEnum):
     BUILDING_REPAIRED = "building.repaired"
     PLOT_MARKED = "farm.marked"
     PLOT_PLOWED = "farm.plowed"
+    #: The plough paused with its progress banked, or dropped: fallow again,
+    #: nothing kept (D-277).
+    PLOT_PLOW_PAUSED = "farm.plow_paused"
+    PLOT_PLOW_RESET = "farm.plow_reset"
     PLOT_SOWN = "farm.sown"
     PLOT_CARED = "farm.cared"
     PLOT_FERTILIZED = "farm.fertilized"

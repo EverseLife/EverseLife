@@ -30,6 +30,8 @@ from src.engine.farm._base import (
     _owned,
     care_minutes,
     day_hours,
+    plow_done_minutes,
+    plow_minutes,
 )
 from src.models.event import EventKind
 from src.models.farm import Plot, PlotState
@@ -409,6 +411,18 @@ async def survey(
             "fertility": float(plot.fertility),
             "culture": plot.culture_id,
         }
+        if plot.state is PlotState.PLOWING:
+            #: The plough's progress (D-277): the share done and, while a run
+            #: is under way, when it began and ends, for the deadline bar. The
+            #: client cannot derive either (D-225): the norm is the engine's
+            #: and the bank is the row's. "Paused" it derives itself -- under
+            #: the plough with no run under way -- so it is not sent.
+            whole = plow_minutes(constants, plot)
+            row["plow_share"] = min(1.0, plow_done_minutes(plot, now) / whole) if whole > 0 else 1.0
+            if plot.plow_since is not None:
+                left = max(0.0, whole - plow_done_minutes(plot, now))
+                row["plow_since"] = plot.plow_since.isoformat()
+                row["plow_ready_at"] = (now + timedelta(minutes=left)).isoformat()
         if plot.id in varieties:
             plant = catalog.plants.by_id(plot.culture_id)
             variety = varieties[plot.id]

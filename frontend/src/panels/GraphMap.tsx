@@ -367,7 +367,7 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
   //: What a hand may do to the frame lives in `map/hand`: the rule differs by
   //: whether the camera is tied to the body, and it is one rule in one place
   //: rather than a check repeated at every handler.
-  const { grabField, movePointer, releasePointer, zoom } = useHand({
+  const { grabField, movePointer, releasePointer, zoom, zoomBy } = useHand({
     cam,
     svg: svgRef,
     tethered,
@@ -624,6 +624,7 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
         onLayer={setLayer}
         tethered={tethered}
         onTether={tether}
+        onZoom={zoomBy}
       />
 
       {visible.length === 0 ? (
@@ -639,6 +640,7 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
           onPointerMove={movePointer}
           onPointerUp={releasePointer}
           onPointerLeave={releasePointer}
+          onPointerCancel={releasePointer}
           onWheel={zoom}
         >
           {orbiting && (

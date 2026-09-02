@@ -330,8 +330,10 @@ const elapsedMinutes = (since: string) =>
  * every occupation (`look.doings`); the list draws them in one column, each
  * with what ends it where anything can.
  *
- * The road and the plough have no button on purpose: a road is walked to its
- * end, and a plough is not thrown half-way. Batches keep their own rows below
+ * The road has no button on purpose: a road is walked to its end. The plough
+ * is paused from here as well as from the field window (D-277): what is
+ * done stays on the strip, and dropping it is a decision taken there, not
+ * here. Batches keep their own rows below
  * -- they carry a queue, a reason for waiting and a quality, and none of that
  * fits one line.
  */
@@ -353,6 +355,7 @@ function Doings({ look, busy, act }: Props) {
     forage: { cmd: "forage.stop", label: t("ui-side-end-forage"), why: t("ui-side-end-forage-why") },
     field: { cmd: "explore.cancel", label: t("ui-side-end-field"), why: t("ui-side-end-field-why") },
     mine: { cmd: "mine.leave", label: t("ui-side-end-mine"), why: t("ui-side-end-mine-why") },
+    plot: { cmd: "farm.plow_pause", label: t("ui-side-end-plot"), why: t("ui-side-end-plot-why") },
   };
   const empty = look.batches.length === 0 && doings.length === 0;
   const title = (job: Batch) =>

@@ -106,6 +106,11 @@ TOUCHES: dict[str, tuple[str, ...]] = {
 
 #: Kinds with their own list, when the prefix rule is too coarse.
 TOUCHES_BY_KIND: dict[str, tuple[str, ...]] = {
+    #: A plough begun or stopped is an occupation of the body (D-211): the
+    #: "activities" column reads it back from the doings, not from the farm.
+    "farm.plowed": ("farm", "inventory", "doings"),
+    "farm.plow_paused": ("farm", "doings"),
+    "farm.plow_reset": ("farm", "doings"),
     "craft.invented": ("doings", "inventory", "knowledge", "orders"),
     #: The widget's energy goes into the city pool, not the hands (D-229).
     "alpha.energized": ("node",),

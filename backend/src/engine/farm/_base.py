@@ -123,7 +123,7 @@ def _owned(plot: Plot, body: Body) -> None:
 
 def _recuttable(plot: Plot) -> None:
     if plot.state not in (PlotState.IDLE, PlotState.PLOWED):
-        raise WrongState(key="farm-recut-sown")
+        raise WrongState(key="farm-recut-sown", state=plot.state.value)
 
 
 def _ground_fertility(node: Node) -> float:
@@ -163,3 +163,21 @@ async def _consume(
     if sum(stack.amount for stack in stacks) < need:
         raise why
     await stock.consume(session, stacks, need)
+
+
+def plow_minutes(constants: Constants, plot: Plot) -> float:
+    """The whole of the plough on this strip, in minutes: the norm by the area."""
+    return constants[R.FARM_PLOW_TIME_PER_M2] * float(plot.area_m2)
+
+
+def plow_done_minutes(plot: Plot, moment: datetime) -> float:
+    """What is ploughed by now: the banked minutes and the run under way."""
+    done = float(plot.plow_done_minutes)
+    if plot.plow_since is not None:
+        done += max(0.0, (moment - plot.plow_since).total_seconds() / 60)
+    return done
+
+
+def plow_paused(plot: Plot) -> bool:
+    """Under the plough, but nobody at it: paused with its progress kept."""
+    return plot.state is PlotState.PLOWING and plot.plow_since is None

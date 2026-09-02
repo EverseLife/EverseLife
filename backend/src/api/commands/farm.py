@@ -48,6 +48,36 @@ async def _farm_plow(state: dict, db: AsyncSession, message: dict) -> dict:
     return {"plowing": str(plot.id)}
 
 
+@command("farm.plow_pause")
+async def _farm_plow_pause(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Pause the plough: what is done stays on the strip, the hands are free
+    (D-277). `plot` is optional -- the "activities" column pauses the body's
+    one plough without naming it. The plot is not taken through `_plot` here
+    on purpose: the engine locks the job before the strip, in the worker's
+    order."""
+    body = await _alive(state, db)
+    plot = None
+    if message.get("plot"):
+        plot = await db.get(Plot, uuid.UUID(message["plot"]))
+        if plot is None:
+            raise Refused(key="cmd-no-such-plot")
+    strip = await farm.plow_pause(db, current(), body, plot=plot)
+    return {"paused": str(strip.id)}
+
+
+@command("farm.plow_reset")
+async def _farm_plow_reset(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Drop the plough's progress: the strip is fallow again (D-277). A
+    decision of its own, apart from pausing, and only from a pause: a
+    running plough is refused. The engine takes the strip's lock itself."""
+    body = await _alive(state, db)
+    plot = await db.get(Plot, uuid.UUID(message["plot"]))
+    if plot is None:
+        raise Refused(key="cmd-no-such-plot")
+    strip = await farm.plow_reset(db, body, plot)
+    return {"reset": str(strip.id)}
+
+
 @command("farm.sow")
 async def _farm_sow(state: dict, db: AsyncSession, message: dict) -> dict:
     """Sow with seeds of a cultivar: the batch has both a cultivar and its own strength (D-057)."""

@@ -142,7 +142,9 @@ ui-map-sky-rule = The planets go round the star each on its own term, and the di
 
 ui-map-cam-tied = camera follows you
 ui-map-cam-free = camera is free
-ui-map-switcher-rule = Two steps of the graph are visible around you — where you can walk and what is seen from there; the rest opens by walking. Nodes stand where they stand: a node's place is the same for every player and the same tomorrow, so they are not dragged with the mouse. Camera follows you: you are in the middle of the map, it rides after you, the wheel only zooms in and out. Camera is free: the map is panned with the mouse and stays where it was left — it will not ride after you as you walk. Layers: space, planet, city — the same graph from different heights.
+ui-map-zoom-in = zoom in
+ui-map-zoom-out = zoom out
+ui-map-switcher-rule = Two steps of the graph are visible around you — where you can walk and what is seen from there; the rest opens by walking. Nodes stand where they stand: a node's place is the same for every player and the same tomorrow, so they are not dragged with the mouse. Camera follows you: you are in the middle of the map, it rides after you; the wheel, the loupe buttons and a two-finger pinch only zoom in and out. Camera is free: the map is panned with the mouse or a finger and stays where it was left — it will not ride after you as you walk. Layers: space, planet, city — the same graph from different heights.
 
 ## The map field itself.
 
@@ -324,6 +326,13 @@ ui-farm-reading = { $value } of { $norm }
 ui-farm-ripens = ripens
 ui-farm-fertilize = Fertilize: { $goods }
 ui-farm-plow = Plough
+ui-farm-plow-pause = Pause
+ui-farm-plow-pause-why = what is done stays, take it up again from here
+ui-farm-plow-resume = Resume ploughing
+ui-farm-plow-reset = Drop the ploughing
+ui-farm-plow-reset-why = the strip is fallow again, what was done is lost
+ui-farm-plow-paused = paused · { $share }% ploughed
+ui-farm-plow-share = { $share }% ploughed
 ui-farm-no-seeds = — no seeds —
 ui-farm-vigor = vigour { $vigor }
 ui-farm-sow = Sow

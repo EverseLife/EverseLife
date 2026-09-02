@@ -51,7 +51,16 @@ type Row = {
   symptoms?: string[];
   /** The start of the growth term, named with agrotech (the bar's share). */
   sown_at?: string;
+  /** The plough's progress (D-277): its share, and -- while a run is
+   *  under way -- the run's start and end for the bar. Paused is the
+   *  absence of a run: under the plough with no `plow_since`. */
+  plow_share?: number;
+  plow_since?: string;
+  plow_ready_at?: string;
 };
+
+/** Under the plough, nobody at it (D-277). Derived, not sent (D-225). */
+const pausedPlough = (row: Row) => row.state === "plowing" && !row.plow_since;
 
 //: Symptoms are common to all crops, norms differ. So an experienced person
 //: reads a bed at a glance even for an unfamiliar cultivar, while the exact
@@ -215,6 +224,17 @@ export function Farm({ look }: Omit<Props, "busy" | "act">) {
               {row.state === "sown" && row.culture && (
                 <> · {plantName(names, row.culture)}{cultivarNote(names, row)}</>
               )}
+              {/* The share stands in the head running or paused: the bar below
+                  draws only the current run, and a strip taken up at ninety
+                  per cent would otherwise look untouched. */}
+              {row.state === "plowing" && (
+                <>
+                  {" · "}
+                  {t(pausedPlough(row) ? "ui-farm-plow-paused" : "ui-farm-plow-share", {
+                    share: String(Math.round((row.plow_share ?? 0) * 100)),
+                  })}
+                </>
+              )}
             </span>
           </div>
 
@@ -249,6 +269,13 @@ export function Farm({ look }: Omit<Props, "busy" | "act">) {
           {row.state === "sown" && !row.ripe && row.ripe_at && (
             <Doing what={t("ui-farm-ripens")} until={row.ripe_at} since={row.sown_at} />
           )}
+          {row.state === "plowing" && !pausedPlough(row) && row.plow_ready_at && (
+            <Doing
+              what={t("ui-farm-state-plowing")}
+              until={row.plow_ready_at}
+              since={row.plow_since}
+            />
+          )}
 
           {row.state === "sown" && <PlotChips row={row} />}
 
@@ -261,6 +288,40 @@ export function Farm({ look }: Omit<Props, "busy" | "act">) {
             >
               {t("ui-farm-plow")}
             </button>
+          )}
+          {/* A running plough is paused from the strip as well as from the
+              "activities" column -- the same command, this one naming the
+              strip. Not greyed by `occupied`: the occupation is this very
+              plough. Dropping the progress is a button of its own, and only
+              on a paused strip (D-277): never a side effect of stopping. */}
+          {row.state === "plowing" && !pausedPlough(row) && (
+            <button
+              className="quiet"
+              onClick={() => go(() => session.send("farm.plow_pause", { plot: row.id }))}
+              disabled={busy}
+              title={t("ui-farm-plow-pause-why")}
+            >
+              {t("ui-farm-plow-pause")}
+            </button>
+          )}
+          {pausedPlough(row) && (
+            <>
+              <button
+                onClick={() => go(() => session.send("farm.plow", { plot: row.id }))}
+                disabled={busy || occupied !== null}
+                title={occupied ?? ""}
+              >
+                {t("ui-farm-plow-resume")}
+              </button>
+              <button
+                className="quiet"
+                onClick={() => go(() => session.send("farm.plow_reset", { plot: row.id }))}
+                disabled={busy}
+                title={t("ui-farm-plow-reset-why")}
+              >
+                {t("ui-farm-plow-reset")}
+              </button>
+            </>
           )}
           {(row.state === "idle" || row.state === "plowed") &&
             dung.map((heap) => (

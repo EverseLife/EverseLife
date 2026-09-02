@@ -16,7 +16,7 @@ import {
   frameOn,
   type Frame,
 } from "../panels/map/camera";
-import { lensOn, worldAt } from "../panels/map/hand";
+import { clampScale, lensOn, pinchScale, pinchTo, worldAt } from "../panels/map/hand";
 import { settle } from "../panels/map/layout";
 import {
   DEPTH,
@@ -29,6 +29,7 @@ import {
   offworld,
   sceneKey,
   type Link,
+  type Point,
 } from "../panels/map/model";
 import { along, forecast, mooring, term, windowOpen } from "../panels/map/orbits";
 import { long, price, spread } from "../panels/map/words";
@@ -624,6 +625,46 @@ describe("orbits", () => {
     for (const key of ["a", "ship.node.abc", "", "длинный ключ"]) {
       expect(mooring(key)).toBeGreaterThanOrEqual(0);
       expect(mooring(key)).toBeLessThan(Math.PI * 2);
+    }
+  });
+});
+
+describe("the pinch", () => {
+  it("scales by the fingers' spread against where the pinch began", () => {
+    //: Fingers twice as far apart: twice as near. Measured from the start,
+    //: so the same spread asks for the same scale however many moves between.
+    expect(pinchScale(1, 100, 200)).toBe(2);
+    expect(pinchScale(1, 100, 50)).toBe(0.5);
+    expect(pinchScale(2, 100, 150)).toBe(3);
+  });
+
+  it("stays within what the map may show", () => {
+    expect(pinchScale(1, 10, 1000)).toBe(clampScale(100));
+    expect(pinchScale(1, 1000, 10)).toBe(clampScale(0.01));
+    //: Fingers that began on one point are no measure: the scale holds.
+    expect(pinchScale(1.5, 0, 80)).toBe(1.5);
+  });
+
+  it("keeps what lay under the fingers' middle under it, move after move", () => {
+    //: A field of the world's own proportions, and a loose camera that
+    //: paints nowhere: the invariant is about the frame, not the svg.
+    const box = { left: 0, top: 0, width: W, height: H };
+    const cam = createCamera({ onFrame: () => {}, raf: () => 0, cancel: () => {} });
+    const under = (at: Point) => worldAt(box, cam.frame(), { clientX: at.x, clientY: at.y });
+    let mid = { x: 100, y: 80 };
+    const held = under(mid);
+    //: Three moves that drift and zoom at once, one of them zooming back out:
+    //: after each the same world point lies under the fingers' middle.
+    for (const [to, scale] of [
+      [{ x: 150, y: 120 }, 2],
+      [{ x: 160, y: 130 }, 3],
+      [{ x: 120, y: 100 }, 1.5],
+    ] as const) {
+      pinchTo(cam, box, mid, to, scale);
+      mid = to;
+      expect(cam.frame().scale).toBe(scale);
+      expect(under(mid).x).toBeCloseTo(held.x, 6);
+      expect(under(mid).y).toBeCloseTo(held.y, 6);
     }
   });
 });

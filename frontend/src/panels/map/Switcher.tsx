@@ -6,7 +6,9 @@
  *
  * It holds the two questions that are about the view rather than about the
  * world -- from what height am I looking, and does the camera come with me --
- * and it holds them together because they are one question asked twice. It
+ * and it holds them together because they are one question asked twice --
+ * and, beside the tether, the two loupe buttons: a phone has no wheel to turn
+ * and a pinch is a gesture one has to know about. It
  * stands on the map itself, in the middle of its top edge, where the eye
  * already is: a strip above the field would cost a line of the height the map
  * is the whole point of.
@@ -40,6 +42,7 @@ export function Switcher({
   onLayer,
   tethered,
   onTether,
+  onZoom,
 }: {
   /** The layers worth offering: an empty one is not shown at all. */
   layers: readonly Layer[];
@@ -48,6 +51,8 @@ export function Switcher({
   /** Whether the camera is tied to the body -- see `GraphMap`. */
   tethered: boolean;
   onTether: (on: boolean) => void;
+  /** A notch nearer (`1`) or farther (`-1`), about the middle of the frame. */
+  onZoom: (direction: 1 | -1) => void;
 }) {
   const word = t(tethered ? "ui-map-cam-tied" : "ui-map-cam-free");
   return (
@@ -79,6 +84,25 @@ export function Switcher({
       >
         <Glyph name={tethered ? "pinned" : "loose"} />
         <span className="tab-word">{word}</span>
+      </button>
+      {/* Marks alone at every width: a loupe reads without a word, and the
+          word would make the bar wrap on the very screens these are for. A
+          `title` where the others have none, for the same reason. */}
+      <button
+        className="quiet"
+        aria-label={t("ui-map-zoom-in")}
+        title={t("ui-map-zoom-in")}
+        onClick={() => onZoom(1)}
+      >
+        <Glyph name="nearer" />
+      </button>
+      <button
+        className="quiet"
+        aria-label={t("ui-map-zoom-out")}
+        title={t("ui-map-zoom-out")}
+        onClick={() => onZoom(-1)}
+      >
+        <Glyph name="farther" />
       </button>
       <Hint>{t("ui-map-switcher-rule")}</Hint>
     </nav>

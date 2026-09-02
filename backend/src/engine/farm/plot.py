@@ -11,6 +11,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Constants
@@ -29,12 +30,15 @@ from src.engine.farm._base import (
     _open_ground,
     _owned,
     _recuttable,
+    plow_done_minutes,
+    plow_minutes,
+    plow_paused,
 )
 from src.engine.jobs import enqueue, handler
 from src.models.event import EventKind
 from src.models.farm import Plot, PlotState
 from src.models.identity import Body
-from src.models.job import Job, JobKind
+from src.models.job import Job, JobKind, JobState
 from src.models.world import Node
 from src.units import SCALE_MAX, amount, amount_float
 
@@ -117,25 +121,35 @@ async def plow(
     *,
     now: datetime | None = None,
 ) -> Plot:
-    """Plough. Long-running: started in person, goes by itself."""
+    """Plough. Long-running: started in person, goes by itself.
+
+    Taking up a paused plough is the same act (D-277): the strip keeps what
+    was ploughed, and the run is queued for the remainder alone.
+    """
     moment = now or datetime.now(UTC)
     await _here(session, body)
     _owned(plot, body)
-    if plot.state is not PlotState.IDLE:
+    resumed = plow_paused(plot)
+    if plot.state is PlotState.IDLE:
+        _accrue_fallow(constants, plot, moment)
+        plot.plow_done_minutes = Decimal(0)
+    elif not resumed:
         raise WrongState(key="farm-not-fallow", plot=plot.name, state=plot.state.value)
 
-    _accrue_fallow(constants, plot, moment)
     plot.state = PlotState.PLOWING
     plot.idle_since = None
+    plot.plow_since = moment
     await session.flush()
 
-    ready = moment + timedelta(minutes=constants[R.FARM_PLOW_TIME_PER_M2] * float(plot.area_m2))
+    left = max(0.0, plow_minutes(constants, plot) - float(plot.plow_done_minutes))
+    ready = moment + timedelta(minutes=left)
     event = await events.record(
         session,
         EventKind.PLOT_PLOWED,
         actor_identity_id=body.identity_id,
         node_id=plot.node_id,
         plot_id=str(plot.id),
+        resumed=resumed,
     )
     await enqueue(
         session,
@@ -149,6 +163,126 @@ async def plow(
     return plot
 
 
+async def _running_plough(session: AsyncSession, **where: object) -> Job | None:
+    """The pending plough job, locked -- by the body at it or by the strip.
+
+    Lock order: the job first, the plot second -- the worker's own order
+    (`jobs.run_one` claims the job, `plow_done` then locks the plot). Taken
+    the other way round, a pause holding the plot while it waits for the job
+    and a worker holding the job while it waits for the plot would deadlock.
+    The wait on the lock may end with the worker's commit: the row is then
+    DONE, the condition fails on reread, and there is nothing to pause.
+    """
+    stmt = (
+        select(Job)
+        .where(Job.kind == JobKind.FARM_PLOW.value, Job.state == JobState.PENDING)
+        .with_for_update()
+    )
+    if "body" in where:
+        stmt = stmt.where(Job.body_id == where["body"])
+    if "plot" in where:
+        stmt = stmt.where(Job.payload["plot"].astext == str(where["plot"]))
+    return (await session.execute(stmt)).scalars().first()
+
+
+async def _locked_plot(session: AsyncSession, plot_id: uuid.UUID) -> Plot:
+    plot = await session.get(Plot, plot_id, with_for_update=True, populate_existing=True)
+    if plot is None:  # pragma: no cover
+        raise FarmError(key="farm-job-no-plot", job=str(plot_id))
+    return plot
+
+
+async def plow_pause(
+    session: AsyncSession,
+    constants: Constants,
+    body: Body,
+    *,
+    plot: Plot | None = None,
+    now: datetime | None = None,
+) -> Plot:
+    """Take the hands off the plough: the work stops, what is done stays (D-277).
+
+    The minutes ploughed are banked on the strip, never more than the whole
+    -- a pause after the job's hour and before the worker's visit is a
+    finished plough waiting, not a surplus. `plow` takes the bank up again
+    for the remainder. The body is free at once, wherever it has wandered to
+    meanwhile: the plough is a work of these hands, not a place
+    (`occupation._ploughing`), so pausing asks for no presence.
+
+    Named, it is the strip's plough that is paused, whoever's hands began it
+    -- a body printed anew after a death still owns its strips and their
+    work. Unnamed, it is this body's one plough: the "activities" column
+    knows the occupation, not the plot.
+    """
+    moment = now or datetime.now(UTC)
+    if plot is not None:
+        _owned(plot, body)
+        job = await _running_plough(session, plot=plot.id)
+        if job is None:
+            raise WrongState(key="farm-plot-not-plowing", plot=plot.name)
+    else:
+        job = await _running_plough(session, body=body.id)
+        if job is None:
+            raise WrongState(key="farm-not-plowing")
+    strip = await _locked_plot(session, uuid.UUID(job.payload["plot"]))
+
+    job.state = JobState.CANCELLED
+    job.finished_at = moment
+    done = min(plow_minutes(constants, strip), plow_done_minutes(strip, moment))
+    strip.plow_done_minutes = Decimal(str(round(done, 2)))
+    strip.plow_since = None
+    await session.flush()
+
+    await events.record(
+        session,
+        EventKind.PLOT_PLOW_PAUSED,
+        actor_identity_id=body.identity_id,
+        node_id=strip.node_id,
+        plot_id=str(strip.id),
+        done_minutes=float(strip.plow_done_minutes),
+    )
+    return strip
+
+
+async def plow_reset(
+    session: AsyncSession,
+    body: Body,
+    plot: Plot,
+    *,
+    now: datetime | None = None,
+) -> Plot:
+    """Drop the plough's progress: the strip is fallow again, nothing kept (D-277).
+
+    A decision of its own, never a side effect: pausing keeps the work, and
+    only this throws it away -- and only from a pause, so that dropping is
+    always two presses apart from working. A running plough is refused and
+    told to pause first; so there is no job to take here, and the strip's own
+    lock is the whole of the ordering.
+    """
+    moment = now or datetime.now(UTC)
+    _owned(plot, body)
+    strip = await _locked_plot(session, plot.id)
+    #: Judged under the lock: a resume may have committed while we waited.
+    if strip.state is not PlotState.PLOWING:
+        raise WrongState(key="farm-plot-not-plowing", plot=strip.name)
+    if strip.plow_since is not None:
+        raise WrongState(key="farm-plow-running", plot=strip.name)
+
+    strip.state = PlotState.IDLE
+    strip.plow_done_minutes = Decimal(0)
+    strip.idle_since = moment
+    await session.flush()
+
+    await events.record(
+        session,
+        EventKind.PLOT_PLOW_RESET,
+        actor_identity_id=body.identity_id,
+        node_id=strip.node_id,
+        plot_id=str(strip.id),
+    )
+    return strip
+
+
 @handler(JobKind.FARM_PLOW)
 async def plow_done(session: AsyncSession, job: Job) -> None:
     #: Under the same lock the commands take (`api.commands.farm._plot`):
@@ -158,10 +292,13 @@ async def plow_done(session: AsyncSession, job: Job) -> None:
     )
     if plot is None:  # pragma: no cover
         raise FarmError(key="farm-job-no-plot", job=str(job.id))
-    if plot.state is not PlotState.PLOWING:
-        #: A job retry after a failure does not double the ploughing.
+    if plot.state is not PlotState.PLOWING or plot.plow_since is None:
+        #: A job retry after a failure does not double the ploughing, and a
+        #: job of a run that was paused meanwhile finishes nothing.
         return
     plot.state = PlotState.PLOWED
+    plot.plow_done_minutes = Decimal(0)
+    plot.plow_since = None
     await session.flush()
 
 
@@ -197,7 +334,7 @@ async def fertilize(
     await _here(session, body)
     _owned(plot, body)
     if plot.state not in (PlotState.IDLE, PlotState.PLOWED):
-        raise WrongState(key="farm-fertilize-sown", plot=plot.name)
+        raise WrongState(key="farm-fertilize-sown", plot=plot.name, state=plot.state.value)
     spec = FERTILIZERS.get(goods)
     if spec is None:
         raise FarmError(key="farm-not-a-fertilizer", goods=goods)

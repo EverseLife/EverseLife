@@ -22,41 +22,17 @@ from decimal import Decimal
 
 import pytest
 from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from farm_kit import BEANS, BROME, SPELT, _farmstead
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import farm, jobs, world
+from src.engine import farm, world
 from src.models.estate import Building
 from src.models.farm import Plot, PlotState
 from src.models.inventory import Item
 from src.models.world import Node
 from src.units import amount_float
-
-SPELT = "spelt"
-BEANS = "beans"
-#: The least demanding crop of the catalog: its fertility norm is 10, which is
-#: exactly what made the uncapped soil share a tenfold multiplier (OQ-107).
-BROME = "brome"
-
-
-async def _farmstead(
-    session: AsyncSession, *, water: str = "river", fertility: float = 55, area: float = 200
-):
-    stamp = uuid.uuid4().hex[:8]
-    node = await world.create_node(
-        session,
-        f"terra.farm.{stamp}",
-        "Хутор",
-        area_m2=area,
-        properties={"water": water, "fertility": fertility},
-    )
-    identity = await world.create_identity(session, f"Фермер-{stamp}")
-    body = await world.print_body(session, identity, node)
-    #: The holder runs the estate: the fixture's farmer has already taken their plot.
-    node.owner_identity_id = identity.id
-    await session.flush()
-    return node, identity, body
 
 
 async def _grain(session: AsyncSession, body, cat: Catalog, culture: str, qty=200):
@@ -152,28 +128,6 @@ async def test_cycle_is_honest(
     with pytest.raises(farm.WrongState):
         #: Not ripe -- cannot harvest.
         await farm.harvest(session, constants, catalog, body, plot)
-
-
-async def test_ploughing_goes_by_job(
-    factory: async_sessionmaker[AsyncSession], constants: Constants
-) -> None:
-    async with factory() as session, session.begin():
-        _, _, body = await _farmstead(session)
-        plot = await farm.plow(
-            session,
-            constants,
-            body,
-            await farm.mark(session, constants, body, name="грядка", area=10),
-        )
-        assert plot.state is PlotState.PLOWING
-        plot_id = plot.id
-
-    job = await jobs.run_one(factory, now=datetime.now(UTC) + timedelta(hours=1))
-    assert job is not None and job.kind == "farm.plow"
-
-    async with factory() as session:
-        plot = await session.get(Plot, plot_id)
-        assert plot.state is PlotState.PLOWED
 
 
 async def test_sowing_spends_seeds(

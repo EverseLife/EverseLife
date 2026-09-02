@@ -82,4 +82,13 @@ class Plot(Base):
 
     idle_since: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    #: The plough's progress, banked in minutes of work done: a plough is
+    #: paused and taken up again with what was done kept (D-277), and
+    #: dropped only by a separate decision. `plow_since` is when the current
+    #: run began -- empty while the plough stands paused.
+    plow_done_minutes: Mapped[float] = mapped_column(
+        Numeric(10, 2), nullable=False, default=0, server_default="0"
+    )
+    plow_since: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
     created_at: Mapped[datetime] = created_column()

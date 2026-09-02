@@ -37,6 +37,9 @@ farm-not-fallow = plot “{ $plot }” is not fallow: { $state ->
         [idle] fallow
        *[other] { $state }
     }
+farm-not-plowing = the plough is idle: no plot is being ploughed right now
+farm-plot-not-plowing = plot “{ $plot }” is not being ploughed
+farm-plow-running = the ploughing of “{ $plot }” is still running: pause it first
 farm-job-no-plot = job { $job }: no plot
 farm-not-plowed = plot “{ $plot }” is not ploughed
 farm-wrong-seeds = “{ NAME($goods) }” are not seeds of the crop “{ CULTURE($culture) }”
@@ -44,7 +47,10 @@ farm-seeds-not-in-hands = the seeds are not in hand: one sows one's own
 farm-not-enough-seeds = sowing needs { $need } “{ NAME($seeds) }”, there are { $have }
 farm-nothing-grows = nothing grows on plot “{ $plot }”
 farm-cared-today = already tended today: care is daily, not hourly
-farm-fertilize-sown = a crop is growing on { $plot }: one fertilizes the land, not the bed -- feeding comes with the five care decisions
+farm-fertilize-sown = { $state ->
+        [plowing] “{ $plot }” is under the plough: one fertilizes fallow or ploughed land, and a ploughing is finished or dropped first
+       *[other] a crop is growing on { $plot }: one fertilizes the land, not the bed -- feeding comes with the five care decisions
+    }
 farm-not-a-fertilizer = { NAME($goods) } is not a fertilizer: the land is fed compost or the mineral one
 farm-no-fertilizer = { $need } of { NAME($goods) } needed: the dose goes by area
 farm-land-sated = { $plot } has had its fill: fertility is at the ceiling, and the fertilizer would go to waste
@@ -59,7 +65,10 @@ farm-merge-other-node = neighbouring plots are merged, not land from different n
 farm-no-open-ground = “{ $node }”: { NAME($weather) } — nothing grows in open ground here. Food comes in by ship
 farm-dead-works = a dead body does not work
 farm-plot-not-yours = another's plot: renting and hiring go through a contract
-farm-recut-sown = only the unsown can be recut
+farm-recut-sown = { $state ->
+        [plowing] the strip is under the plough: finish or drop the ploughing first
+       *[other] only the unsown can be recut
+    }
 
 # --- food (engine/food.py) ---------------------------------------------------
 
