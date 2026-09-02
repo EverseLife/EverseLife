@@ -47,6 +47,7 @@ from src.models.city import (
 from src.models.event import EventKind
 from src.models.identity import BodyState, Identity
 from src.models.world import Layer, Node
+from src.runtime import CITY_NAME_LIMIT
 
 
 async def found(
@@ -67,7 +68,13 @@ async def found(
     is the build's business, not a refusal's -- a content bug should stop the
     build, not reach a player as words written for a human in a window. So the
     ceiling for this door stands in the vault: `WORLD_CITY_NAME_LIMIT` in its
-    `tools/world.py` refuses to build a `city: true` node named longer.
+    `tools/world.py` refuses to build a `city: true` node named longer, and
+    those are exactly the nodes the two seeds found cities on.
+
+    The player's door is `establish`, and it measures what was typed. The two
+    guarantees are therefore the same one -- "no city has an over-long name",
+    not merely "no player founds one" -- each door bounded at the layer where
+    its names are written.
 
     What hangs on that is not the city card. The city's official channel takes
     its name from the city -- `net.city_channel` builds the row directly, past
@@ -224,6 +231,15 @@ async def establish(
     title = name.strip()
     if not title:
         raise CityError(key="city-found-no-name")
+    #: The bound sits on this door and not in `found`, because this is where a
+    #: player names a city -- `found` is also the seed's, and vault names are
+    #: the vault build's business, not a refusal's. There is no renaming
+    #: afterwards, so this is the only moment. What hangs on the bound is not
+    #: only the card: the city's official channel takes its name from the city,
+    #: and `CITY_NAME_LIMIT <= NET_NAME_LIMIT` (pinned in `test_city_founding`)
+    #: is what makes that name one the Net could have accepted itself.
+    if len(title) > CITY_NAME_LIMIT:
+        raise CityError(key="city-found-name-too-long", limit=CITY_NAME_LIMIT)
 
     identity = await session.get(Identity, body.identity_id)
     city = await found(session, catalog, node, title, founder=identity)
