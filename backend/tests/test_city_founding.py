@@ -18,7 +18,6 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from city_kit import _capital, _resident
-from src import i18n
 from src.constants import Catalog, Constants
 from src.engine import city as town
 from src.engine import net, world
@@ -192,12 +191,11 @@ async def test_the_window_offers_founding_on_nobodys_land(
     seen = (await _look({"identity_id": body.identity_id}, session, {}))["look"]
     ground = seen["foundation"]
     assert ground is not None, "на ничьей земле окно основания открыто"
-    assert len(ground["needs"]) == 4, "перечислены все четыре роли, а не только пустые"
-    #: The words are the locale's, and the window says them at the edge
-    #: (D-251 wave IV) -- so the check is against the locale, not a sentence.
-    missing = i18n.render("city-role-bioprinter", locale=i18n.DEFAULT_LOCALE)
-    assert ground["missing"] == [missing], "и названа ровно та, которой нет"
-    assert missing in [need["role"] for need in ground["needs"]], "она же — строка списка"
+    #: Role keys, not words: the table of roles and the word for each are
+    #: constants and live in `/public/founding` (D-225). The wire carries
+    #: only what this node lacks.
+    assert ground["missing"] == ["bioprinter"], "и названа ровно та роль, которой нет"
+    assert set(ground) == {"missing"}, "каталог ролей здесь не едет"
 
 
 async def test_the_window_hides_founding_where_the_door_would_refuse(

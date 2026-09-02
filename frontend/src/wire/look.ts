@@ -332,10 +332,11 @@ export type Look = {
   clock?: { planet: string; epoch?: string; day_hours: number };
   /** Whether a city can be founded here and what is missing for that (D-159).
    *  Empty -- the place or the person is unsuitable: foreign land, a city over
-   *  the node, not a planet, or a citizenship already held elsewhere (D-281). */
+   *  the node, not a planet, or a citizenship already held elsewhere (D-281).
+   *  Only the keys of the roles this node lacks: the roles themselves and the
+   *  machines that fill them are a constant and come from `/public/founding`. */
   foundation?: {
     missing: string[];
-    needs: { role: string; any_of: string[] }[];
   };
   /** Own convoy: what it is harnessed to and what it carries (D-157). */
   convoy?: Convoy;

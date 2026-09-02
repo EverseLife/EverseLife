@@ -18,6 +18,21 @@
  */
 
 /**
+ * One line of the founding threshold: a role a settlement cannot live without,
+ * and the machines any one of which fills it.
+ *
+ * A catalog constant -- the same for every player, every place and every
+ * language -- so it comes from `/public/founding` and not from `look`, which
+ * carries only the keys of the roles the node one stands in still lacks
+ * (D-225). The role is a key; its word is the world's own message,
+ * `city-role-<role>`, the very one the door's refusal quotes.
+ */
+export type FoundingRole = {
+  role: string;
+  any_of: string[];
+};
+
+/**
  * A code-law as it stands in the city: the value in force, and whether the
  * city decided it or the vault did. Nothing else -- the name, the unit and
  * the note are vault text, held by id in the names table in every language

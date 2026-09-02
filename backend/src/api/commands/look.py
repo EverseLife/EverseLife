@@ -458,18 +458,13 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
         and node.owner_identity_id in (None, identity.id)
         and own_ is None
     ):
-        #: The roles are keys (D-251 wave IV); the words are said here, at the
-        #: edge, in the reader's language -- as `doings` and refusals are.
-        seen["foundation"] = {
-            "missing": [
-                i18n.render(f"city-role-{role}", locale=said)
-                for role in await town.missing_for_foundation(db, node)
-            ],
-            "needs": [
-                {"role": i18n.render(f"city-role-{role}", locale=said), "any_of": list(with_what)}
-                for role, with_what in town.foundation_needs()
-            ],
-        }
+        #: Only what **this** node lacks, and as role keys. The table of roles
+        #: and the machines that fill them is a constant of the catalog and is
+        #: read once from `/public/founding` (D-225); it used to ride here in
+        #: full, in words, and the client told a filled role from an empty one
+        #: by comparing two translated strings -- so the tick beside a role
+        #: hung on the wording of a sentence.
+        seen["foundation"] = {"missing": list(await town.missing_for_foundation(db, node))}
     #: An ongoing exploration run: the map grows on foot, and the wait is
     #: real (D-152).
     run = await explore.pending(db, body)

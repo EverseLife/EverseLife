@@ -23,6 +23,7 @@
 import { HTTP } from "./host";
 import type { WordsBundle } from "./locale";
 import type { Renames } from "./names";
+import type { FoundingRole } from "./wire/city";
 import type { RecipeBook } from "./wire/craft";
 import type { Door, Line } from "./wire/person";
 import type { Book } from "./wire/trade";
@@ -61,6 +62,11 @@ export const tiers = () =>
   read<{ tiers: { from: number; to: number; name: string }[]; steps: number[] }>(
     "/public/quality/tiers",
   );
+/** What a place must have before a city can be founded on it: a role and the
+ *  machines that fill it. A catalog constant, read once from here instead of
+ *  riding in every `look`; `look` says only which roles the node lacks. */
+export const founding = () =>
+  read<{ roles: FoundingRole[] }>("/public/founding");
 /**
  * The map as it looks from where you stand (D-240).
  *
@@ -162,6 +168,7 @@ export type {
   CityView,
   CityVote,
   CourtCase,
+  FoundingRole,
   Law,
   Office,
   SanctionKind,

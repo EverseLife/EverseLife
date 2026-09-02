@@ -24,6 +24,7 @@ from src.constants import current_catalog as catalog
 from src.constants import registry as R
 from src.db.base import session_factory
 from src.engine import account, estate, market, places, sight, world
+from src.engine import city as town
 from src.engine import ship as vessels
 from src.engine import travel as roads
 from src.engine.errors import Refusal
@@ -366,6 +367,28 @@ async def quality_tiers() -> dict[str, Any]:
     return {
         "tiers": [{"from": t.frm, "to": t.to, "name": t.name} for t in tiers],
         "steps": list(MARKET_BOOK_STEPS),
+    }
+
+
+@router.get("/founding")
+async def founding() -> dict[str, Any]:
+    """What a place must already have before a city can be founded on it (D-023, D-159).
+
+    A role and the machines that fill it -- the same table for every player,
+    every place and every language, changing only when the vault does. So it
+    is read once from here rather than carried by every `look` (D-225); what
+    `look` says about a particular node is which of these roles it lacks, and
+    that is the only part that is not a constant.
+
+    The role travels as a key, and the word for it is the world's own message
+    (`city-role-<role>`), which the client already holds from `/public/i18n`:
+    the door's refusal quotes that same message, so the window and the refusal
+    cannot end up calling one thing by two names.
+    """
+    return {
+        "roles": [
+            {"role": role, "any_of": list(with_what)} for role, with_what in town.foundation_needs()
+        ]
     }
 
 
