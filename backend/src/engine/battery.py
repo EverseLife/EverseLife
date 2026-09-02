@@ -42,6 +42,7 @@ from src.models.world import Node
 from src.units import (
     ENERGY_PER_TARIFF_UNIT,
     PERCENT,
+    ROUND_CHARGE,
     SECONDS_PER_HOUR,
     amount_float,
     money,
@@ -93,16 +94,34 @@ def charge_of(constants: Constants, item: Item, *, now: datetime | None = None) 
     return max(0.0, float(item.charge) - leaked * days)
 
 
+#: The grid the charge column keeps (`Numeric(12, 3)`). A charge is put on it
+#: before it is stored, so what the engine believes a cell holds is what the
+#: row holds -- otherwise Postgres rounds the write and the two drift apart.
+_STEP = Decimal(1).scaleb(-ROUND_CHARGE)
+
+
+def _on_grid(charge: float | Decimal) -> Decimal:
+    """The charge as the column will keep it, to the nearest thousandth.
+
+    Not downwards: a charge reached through floats sits a hair below itself --
+    sixteen arrives as `15.999999999999998` -- and flooring that would shave a
+    thousandth off every write. The rounding is the one Postgres would have
+    done anyway; putting it here is what makes the stored row and the engine's
+    idea of it the same number, which is what the drain then measures against.
+    """
+    return max(Decimal(0), Decimal(str(charge)).quantize(_STEP))
+
+
 async def settle_charge(
     session: AsyncSession, constants: Constants, item: Item, *, now: datetime | None = None
 ) -> float:
     """Write into the battery its actual charge as of now."""
     moment = now or datetime.now(UTC)
-    charge_ = charge_of(constants, item, now=moment)
-    item.charge = Decimal(str(charge_))
+    charge_ = _on_grid(charge_of(constants, item, now=moment))
+    item.charge = charge_
     item.charged_at = moment
     await session.flush()
-    return charge_
+    return float(charge_)
 
 
 async def charge_battery(
@@ -168,7 +187,7 @@ async def charge_battery(
         )
 
     pool.stored = Decimal(str(float(pool.stored) - will_give))
-    item.charge = Decimal(str(have + will_give))
+    item.charge = _on_grid(have + will_give)
     item.charged_at = moment
     await session.flush()
 
@@ -274,7 +293,13 @@ async def drain_cells(
     *,
     now: datetime | None = None,
 ) -> float:
-    """Take charge out of these locked cells, in order. Returns what was taken."""
+    """Take charge out of these locked cells, in order.
+
+    Returns what the caller may spend, never more than `wanted` and never more
+    than the cells actually gave up. The two can differ: the charge column
+    holds a thousandth of one cell, so a stack pays in whole steps and the
+    remainder is lost rather than handed on.
+    """
     moment = now or datetime.now(UTC)
     if wanted <= 0:  # pragma: no cover -- callers ask for a positive draw
         return 0.0
@@ -292,10 +317,29 @@ async def drain_cells(
         spend = min(left, have * pile)
         #: Drawn evenly from the pile, so a stack never splits into cells of
         #: different charge -- that is what would make it two stacks.
-        cell.charge = Decimal(str(max(0.0, have - spend / pile)))
+        was = Decimal(str(have))
+        rest = _on_grid(was - Decimal(str(spend)) / Decimal(str(pile)))
+        #: A draw thinner than a thousandth of a cell has nowhere to be
+        #: written: the row would keep the charge it started with while the
+        #: caller was told it got the energy, and the next command would find
+        #: the stack full again. A stack of a thousand made every draw under
+        #: half a unit free. So a draw that cannot show takes the smallest
+        #: step the column holds, and what left the cells is read back from
+        #: the cells rather than assumed.
+        if rest >= was:
+            rest = max(Decimal(0), was - _STEP)
+        cell.charge = rest
         cell.charged_at = moment
-        left -= spend
-        taken += spend
+        #: What the cells actually gave up, and what the caller is credited,
+        #: are two numbers. The stack loses a whole step per cell even for a
+        #: draw thinner than that, and the caller must not be handed the
+        #: overshoot: `automat` turns energy into worked hours (`taken / rate`)
+        #: and would run a machine longer than the clock allows. The remainder
+        #: is lost on the grid -- against the drawer, which is the safe side.
+        really = float((was - rest) * Decimal(str(pile)))
+        given = min(really, spend)
+        left -= given
+        taken += given
     if taken > 0:
         await session.flush()
     return taken
