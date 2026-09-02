@@ -15,6 +15,7 @@ import { duration, hands, stamp, when, worldTime } from "../clock";
 import { groundName } from "../grounds";
 import { forget, learn, Words } from "../locale";
 import { catalogue, coins, exactly } from "../market";
+import { lawOption } from "../names";
 import { pollTally, pollThreshold } from "../polls";
 import {
   flavorText,
@@ -442,6 +443,19 @@ describe("polls", () => {
     //: and «против 0» would read as "nobody objects".
     expect(pollTally(poll({ yes: 4, no: 2 }))).toBe("за 4 · против 2 · из 9");
     expect(pollTally(poll({ kind: "election", yes: 4 }))).toBe("проголосовало 4 из 9");
+  });
+
+  it("names a law's choice by both halves of its key", () => {
+    //: `citizens` is a choice of two laws and reads differently in each, which
+    //: is the whole reason the key carries the law as well as the option.
+    const table = {
+      law_options: { "build_permit.citizens": "граждане", "body_print.citizens": "гражданам" },
+    } as unknown as Names;
+    expect(lawOption(table, "build_permit", "citizens")).toBe("граждане");
+    expect(lawOption(table, "body_print", "citizens")).toBe("гражданам");
+    //: A value the table has no word for -- a rate, a sum -- comes back as it
+    //: is, so a number needs no telling apart at the call site.
+    expect(lawOption(table, "tax_trade", "3")).toBe("3");
   });
 
   it.skipIf(!said)("says the bar, and the quorum only where there is one", () => {

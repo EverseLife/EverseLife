@@ -115,5 +115,26 @@ if "$py" -c "import fluent.syntax" > /dev/null 2>&1; then
     fi
 fi
 
+# Two branches must not build a migration on the same parent: alone each is
+# faultless, together they are two alembic heads and `upgrade head` refuses to
+# choose. Only a local check can see this -- the branches never leave the
+# machine, so a CI runner has nothing to compare (see the script's docstring).
+# The `-f` guard is not caution but arithmetic: `core.hooksPath` is one path
+# for every worktree, so the moment this lands in main the hook is live in
+# trees whose branch predates the script -- and there the run dies on a
+# missing file, blocking a commit for a reason it cannot explain. The
+# neighbouring blocks hedge the same way with `command -v` and `import`.
+# A forecast, and it is allowed to speak but not to stop. The collision it sees
+# may be weeks away and may never happen; refusing a commit over one locks the
+# machine, because the cure for a collision is itself a commit -- and it locks
+# the innocent first, since whoever merges first is not the one who must
+# re-parent. Two sessions stood in exactly that deadlock within an hour of the
+# first version, the author of the check among them. So the script exits 0 in
+# this mode by construction, not by the hook ignoring it; the hard stop lives
+# in `pre-merge-commit`, where the damage is actually done.
+if [ -f backend/tools/check_migration_parents.py ]; then
+    "$py" backend/tools/check_migration_parents.py || true
+fi
+
 # The vault snapshot is not in the repository any more: CI builds it from the
 # vault, and `vault/` here is scratch. Nothing left to compare.

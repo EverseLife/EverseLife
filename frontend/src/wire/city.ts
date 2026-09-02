@@ -44,6 +44,22 @@ export type Law = {
   own: boolean;
 };
 
+/** The choice that means "switched off" in every law that is a choice: the
+ *  city prints for nobody, nobody may take the rings. Named here because two
+ *  windows read it and neither should spell it out. */
+export const NOBODY = "nobody";
+
+/**
+ * The law book out of `/public/laws`: the catalog half, which the city's own
+ * answer no longer repeats. Only the option **ids** are read -- a law that has
+ * them is picked from a list, one that has none is typed -- and the word for
+ * each comes from the names table (`lawOption`), not from here: the label the
+ * vault ships is one language, and the table holds every one.
+ */
+export type LawBook = {
+  code_laws: { id: string; options?: { id: string }[] }[];
+};
+
 export type Office = {
   id: string;
   who: string;

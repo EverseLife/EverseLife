@@ -41,7 +41,11 @@ async def _capital(session: AsyncSession, catalog: Catalog, *, funds: float = 0)
         parent=delegate,
         properties={"ring": 0},
     )
-    city = await town.found(session, catalog, delegate, "Столица")
+    #: Stamped, not "Столица": a city name is unique across the world
+    #: (`uq_city_name_lower`), and a test that raises two capitals -- one to
+    #: leave, one to join -- would collide on the name rather than on what it
+    #: is testing. The node keys were stamped already, for the same reason.
+    city = await town.found(session, catalog, delegate, f"Столица-{stamp}")
     core.owner_city_id = city.id
     await session.flush()
     #: Governing is in-person (D-155): decisions are made where the

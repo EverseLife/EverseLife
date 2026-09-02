@@ -23,7 +23,7 @@
 import { HTTP } from "./host";
 import type { WordsBundle } from "./locale";
 import type { Renames } from "./names";
-import type { FoundingRole } from "./wire/city";
+import type { FoundingRole, LawBook } from "./wire/city";
 import type { RecipeBook } from "./wire/craft";
 import type { Door, Line } from "./wire/person";
 import type { Book } from "./wire/trade";
@@ -53,6 +53,10 @@ export const renames = () => read<Renames>("/public/renames");
  *  One file feeds both ends, so a message cannot drift between them. */
 export const words = (locale: string) =>
   read<WordsBundle>(`/public/i18n/${encodeURIComponent(locale)}`);
+/** The law book: which laws exist and, for the ones that are a choice, what
+ *  may be chosen. Catalog constants belong in `/public`, not in a socket
+ *  answer (D-225) -- the city sends only what it decided. */
+export const laws = () => read<LawBook>("/public/laws");
 /** Doors into the world: read before identification -- a newcomer has no identity yet. */
 export const doors = () => read<{ doors: Door[] }>("/public/doors");
 /** Character lines and the number of players -- also before identification (D-187). */
@@ -170,6 +174,7 @@ export type {
   CourtCase,
   FoundingRole,
   Law,
+  LawBook,
   Office,
   SanctionKind,
   WorksBoard,

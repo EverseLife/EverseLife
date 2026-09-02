@@ -25,7 +25,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, UniqueConstraint, Uuid
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, UniqueConstraint, Uuid, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.db.base import Base, created_column, uuid_pk
@@ -84,7 +84,17 @@ class NetChannel(Base):
     """One author's feed. Official when it is a city's (D-222)."""
 
     __tablename__ = "net_channel"
-    __table_args__ = (Index("ix_net_channel_owner", "owner_identity_id"),)
+    #: One name, one channel, case ignored (D-284). `create_channel` asks first, so
+    #: that a person gets words rather than a database error, but two people
+    #: typing one name in the same second pass that question together -- and a
+    #: city carries its name in here without asking the Net at all
+    #: (`city._open_channel`). The index is what makes the rule true rather
+    #: than usually true, and it is the reason the Net can promise, in the
+    #: words it refuses with, that no two channels share a name.
+    __table_args__ = (
+        Index("ix_net_channel_owner", "owner_identity_id"),
+        Index("uq_net_channel_name_lower", text("lower(name)"), unique=True),
+    )
 
     id: Mapped[uuid.UUID] = uuid_pk()
     name: Mapped[str] = mapped_column(nullable=False)

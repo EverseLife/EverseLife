@@ -305,7 +305,7 @@ async def test_city_can_print_at_own_expense(
         president,
         city,
         "body_print",
-        "всем",
+        town.EVERYONE,
         body=president_body,
     )
 
