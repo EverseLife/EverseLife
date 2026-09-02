@@ -30,8 +30,8 @@ from src.engine.farm._base import (
     _owned,
     care_minutes,
     day_hours,
-    plow_done_minutes,
     plow_minutes,
+    plow_progress_minutes,
 )
 from src.models.event import EventKind
 from src.models.farm import Plot, PlotState
@@ -418,9 +418,10 @@ async def survey(
             #: and the bank is the row's. "Paused" it derives itself -- under
             #: the plough with no run under way -- so it is not sent.
             whole = plow_minutes(constants, plot)
-            row["plow_share"] = min(1.0, plow_done_minutes(plot, now) / whole) if whole > 0 else 1.0
+            done = plow_progress_minutes(plot, now)
+            row["plow_share"] = min(1.0, done / whole) if whole > 0 else 1.0
             if plot.plow_since is not None:
-                left = max(0.0, whole - plow_done_minutes(plot, now))
+                left = max(0.0, whole - done)
                 row["plow_since"] = plot.plow_since.isoformat()
                 row["plow_ready_at"] = (now + timedelta(minutes=left)).isoformat()
         if plot.id in varieties:
