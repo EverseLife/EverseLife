@@ -99,7 +99,7 @@ async def test_look_counts_the_polls_without_opening_an_account(
 
     from src.api.commands import look as api
     from src.engine import city as town
-    from src.engine import net, vote
+    from src.engine import vote
     from src.models.city import Citizen
     from src.models.ledger import LedgerAccount
 
@@ -126,12 +126,6 @@ async def test_look_counts_the_polls_without_opening_an_account(
     session.add(Citizen(identity_id=identity.id, city_id=city.id))
     await session.flush()
     await vote.open_law(session, current(), city, identity, "tax_trade", "4")
-    #: The city's channel is made here rather than left to the read, and that
-    #: is not tidiness: `net.channels` **creates** it when it does not find
-    #: one, so the very first look of the very first citizen of a city writes
-    #: a row. Older than this counter and not its doing -- a leak of the same
-    #: family, written down where it was found rather than fixed in passing.
-    await net.city_channel(session, city)
     await session.commit()
 
     before = await session.scalar(select(func.count()).select_from(LedgerAccount))
