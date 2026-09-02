@@ -634,7 +634,7 @@ async def _batches(db: AsyncSession, identity_id: uuid.UUID) -> list[dict[str, A
                 "station": batch.station,
                 "state": batch.state.value,
                 "waiting": why,
-                "node": world.get(batch.node_id),
+                "node": places.get(batch.node_id),
                 #: Both ends of the term, not just the far one: the deadline bar
                 #: shows a share of the whole, and a share needs a beginning.
                 #: The near end is the current run, not the first start -- a

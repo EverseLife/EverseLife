@@ -244,3 +244,33 @@ async def test_the_queue_of_batches_survives(
     assert first.state is BatchState.RUNNING
     assert second.state is BatchState.WAITING
     assert [batch.id for batch in await craft.waiting(session, body)] == [second.id]
+
+
+async def test_the_queue_is_seen_through_orders(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The client draws the queue from the `orders` command (D-209): the running
+    batch and the one behind it, each with its node named.
+
+    Pinned because the listing broke at the node's name and nobody's batch
+    reached the screen for a week: the reply was a refusal, and the sidebar
+    kept the empty list it had. Handwork on purpose -- the case reported.
+    """
+    import src.api.session  # noqa: F401, PLC0415 -- registers the commands
+    from src.api.registry import COMMANDS
+
+    node, identity, body = await _yard(session)
+    await world.learn(session, identity, "fiber")
+    await _give(session, body, "flax", 10)
+    first = await craft.start(session, constants, catalog, body, "fiber", 1)
+    second = await craft.start(session, constants, catalog, body, "fiber", 1)
+
+    answer = await COMMANDS["orders"].run({"identity_id": identity.id}, session, {})
+    rows = {row["id"]: row for row in answer["orders"]["batches"]}
+    assert set(rows) == {str(first.id), str(second.id)}
+    assert rows[str(first.id)]["state"] == "running"
+    assert rows[str(first.id)]["started_at"] and rows[str(first.id)]["ready_at"]
+    assert rows[str(second.id)]["state"] == "waiting"
+    assert rows[str(second.id)]["waiting"] == "queued"
+    assert rows[str(second.id)]["node"] == node.name
+    assert rows[str(first.id)]["station"] is None
