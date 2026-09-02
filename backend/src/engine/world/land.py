@@ -31,7 +31,7 @@ from src.engine.errors import Refusal
 from src.models.event import EventKind
 from src.models.identity import Identity
 from src.models.inventory import Container, ContainerKind
-from src.models.world import Layer, Node, Planet, Vein
+from src.models.world import PLOT, Layer, Node, Planet, Vein
 from src.units import amount as to_amount
 
 #: Where a planet stands on the space layer (D-045). Radius and period are
@@ -53,7 +53,7 @@ DEFERRED = "deferred"
 #: unauthenticated internet silently, and what only `look` should say to
 #: whoever stands in the node stays with `look`. Deliberately narrow: the
 #: node-type glyphs the client draws, and nothing else.
-PUBLIC_SIGNS = ("precursors", "stones", "woods", "meadow", "plot")
+PUBLIC_SIGNS = ("precursors", "stones", "woods", "meadow", PLOT)
 
 
 def public_signs(node: Node) -> list[str]:
@@ -219,6 +219,13 @@ async def grant_node(session: AsyncSession, node: Node, owner: Identity) -> Node
 
     Working on nobody's land stays open to everyone: build, fell, gather, drop
     things on the ground. The ban is on the title, not on the labour.
+
+    **Whether the node is a plot is the caller's to have asked** (D-282). A
+    city's own location -- its core, its market, its administration -- is not
+    handed to a person at all, and both roads to here refuse one before they
+    call: `city.allot` and `estate.buy`. The question is not repeated here
+    because there is no third road: the seed and the tests are what is left,
+    and neither is a player. A new caller answers it first.
     """
     from src.engine import estate  # noqa: PLC0415 -- lazy: breaks the import cycle with estate
 

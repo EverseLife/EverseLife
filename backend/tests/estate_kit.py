@@ -17,7 +17,7 @@ from src.engine import city as town
 from src.engine import ledger, world
 from src.models.city import Citizen
 from src.models.ledger import AccountKind, PostingReason
-from src.models.world import Layer, Node, Surface
+from src.models.world import PLOT, Layer, Node, Surface
 from src.units import money
 
 
@@ -55,7 +55,7 @@ async def _city(session: AsyncSession, catalog: Catalog):
         "Ближний участок",
         area_m2=100,
         parent=delegate,
-        properties={"plot": True},
+        properties={PLOT: True},
     )
     far = await world.create_node(
         session,
@@ -63,7 +63,7 @@ async def _city(session: AsyncSession, catalog: Catalog):
         "Дальний участок",
         area_m2=100,
         parent=delegate,
-        properties={"plot": True},
+        properties={PLOT: True},
     )
     await travel.connect(session, core, near, base_seconds=30, surface=Surface.PAVED)
     await travel.connect(session, near, far, base_seconds=30, surface=Surface.PAVED)
