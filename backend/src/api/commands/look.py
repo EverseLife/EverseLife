@@ -436,11 +436,28 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
             "since": own_.since.isoformat(),
         }
     #: Founding a city (D-023, D-159): shown only where it is possible at all --
-    #: on your own planet node outside a foreign city. The list of what is
-    #: missing must be visible in advance: the entry threshold is buildings, and
-    #: the person must understand which ones exactly they lack, not hit a refusal.
+    #: on a planet node no city covers, by somebody who belongs to no city yet
+    #: (D-281). The list of what is missing must be visible in advance: the
+    #: entry threshold is buildings, and the person must understand which ones
+    #: exactly they lack, not hit a refusal.
+    #:
+    #: The land here is nobody's, and that is the condition rather than a
+    #: loosened one: outside a city land is not privatized (D-198) --
+    #: `world.grant_node` refuses off civic ground with `land-outside-city`,
+    #: and `estate.buy` sells a city's own plots. Asking
+    #: for the reader's **own** node, as this door did until 2026-09-03, was
+    #: asking for a plot; a plot stands in a city, so `city is None` cancelled
+    #: it and the window opened for nobody, ever. The title is still asked
+    #: about, because `establish` asks (`city-found-foreign-land`): the two
+    #: conditions are one condition, and a window offering what the door
+    #: refuses is the whole defect being repaired here.
     seen["foundation"] = None
-    if city is None and node.layer is Layer.PLANET and node.owner_identity_id == identity.id:
+    if (
+        city is None
+        and node.layer is Layer.PLANET
+        and node.owner_identity_id in (None, identity.id)
+        and own_ is None
+    ):
         #: The roles are keys (D-251 wave IV); the words are said here, at the
         #: edge, in the reader's language -- as `doings` and refusals are.
         seen["foundation"] = {

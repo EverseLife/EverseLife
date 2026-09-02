@@ -18,6 +18,7 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from city_kit import _capital, _resident
+from src import i18n
 from src.constants import Catalog, Constants
 from src.engine import city as town
 from src.engine import net, world
@@ -169,6 +170,80 @@ async def test_no_city_without_buildings(
         "отказ называет, чего не хватает"
     )
     assert await town.missing_for_foundation(session, place) == ("bioprinter",)
+
+
+async def test_the_window_offers_founding_on_nobodys_land(
+    session: AsyncSession, catalog: Catalog
+) -> None:
+    """The window that names the threshold opens where the threshold can be met.
+
+    It asked for the reader's **own** node, and outside a city there is no
+    title to have (D-198): what it was asking for is a plot, a plot stands in
+    a city, and a city over the node cancelled the window in the same
+    condition. So it opened for nobody -- not "wrongly for some". The entry
+    threshold is buildings, and no player could see which ones they lacked
+    until they walked into the refusal.
+    """
+    from src.api.commands.look import _look
+
+    place, _, body = await _wasteland(session)
+    await _build_up(session, place, missing="bioprinter")
+
+    seen = (await _look({"identity_id": body.identity_id}, session, {}))["look"]
+    ground = seen["foundation"]
+    assert ground is not None, "на ничьей земле окно основания открыто"
+    assert len(ground["needs"]) == 4, "перечислены все четыре роли, а не только пустые"
+    #: The words are the locale's, and the window says them at the edge
+    #: (D-251 wave IV) -- so the check is against the locale, not a sentence.
+    missing = i18n.render("city-role-bioprinter", locale=i18n.DEFAULT_LOCALE)
+    assert ground["missing"] == [missing], "и названа ровно та, которой нет"
+    assert missing in [need["role"] for need in ground["needs"]], "она же — строка списка"
+
+
+async def test_the_window_hides_founding_where_the_door_would_refuse(
+    session: AsyncSession, catalog: Catalog, own_plot
+) -> None:
+    """A window offering what the door refuses is worse than no window (D-159).
+
+    Both refusals became reachable in the moment the window began opening at
+    all, and neither is a shade of the buildings list: with all four roles
+    green the window would read "ready" and `establish` would still say no.
+    Three people stand on one built-up node so that each refusal is switched
+    on by a single change and read off a single reader -- and so that the
+    citizenship is read where the ground is still nobody's, a state the world
+    does produce.
+    """
+    from src.api.commands.look import _look
+    from src.models.city import Citizen
+
+    place, holder, body = await _wasteland(session)
+    await _build_up(session, place)
+    _, alien = await _resident(session, place, "Чужак")
+    _, guest = await _resident(session, place, "Гость")
+
+    for who in (body, alien, guest):
+        seen = (await _look({"identity_id": who.identity_id}, session, {}))["look"]
+        assert seen["foundation"] is not None, "пока земля ничья, окно открыто всем"
+
+    #: A citizenship elsewhere and nothing besides: one to a person (D-281).
+    #: The ground is untouched, so only the record can have closed the window.
+    other, _ = await _capital(session, catalog)
+    session.add(Citizen(identity_id=alien.identity_id, city_id=other.id))
+    await session.flush()
+
+    seen = (await _look({"identity_id": alien.identity_id}, session, {}))["look"]
+    assert seen["foundation"] is None, "у гражданина другого города окна нет"
+
+    #: Somebody's land: the plot is made civic and only then cut loose from its
+    #: city, because there is no other road to a title outside one (D-198).
+    await own_plot(place, holder)
+    place.owner_city_id = None
+    await session.flush()
+
+    seen = (await _look({"identity_id": guest.identity_id}, session, {}))["look"]
+    assert seen["foundation"] is None, "на чужой земле окна нет — дверь скажет NotYours"
+    seen = (await _look({"identity_id": body.identity_id}, session, {}))["look"]
+    assert seen["foundation"] is not None, "у хозяина той же земли — есть"
 
 
 async def test_no_city_founded_on_foreign_land(

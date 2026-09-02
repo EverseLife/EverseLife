@@ -331,7 +331,8 @@ export type Look = {
   /** The planet's clock: where the count starts and how long a day is (D-029). */
   clock?: { planet: string; epoch?: string; day_hours: number };
   /** Whether a city can be founded here and what is missing for that (D-159).
-   *  Empty -- the place is unsuitable: foreign land, a foreign city or not a planet. */
+   *  Empty -- the place or the person is unsuitable: foreign land, a city over
+   *  the node, not a planet, or a citizenship already held elsewhere (D-281). */
   foundation?: {
     missing: string[];
     needs: { role: string; any_of: string[] }[];
