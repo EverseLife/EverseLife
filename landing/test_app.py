@@ -23,8 +23,10 @@ from collections import Counter
 from html import unescape
 from pathlib import Path
 
-import app as landing
 import pytest
+from fastapi.testclient import TestClient
+
+import app as landing
 import stats
 from app import (
     ALTERNATES,
@@ -38,7 +40,6 @@ from app import (
     X_DEFAULT_LANG,
     app,
 )
-from fastapi.testclient import TestClient
 
 client = TestClient(app)
 

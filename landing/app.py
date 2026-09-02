@@ -27,10 +27,11 @@ import urllib.request
 from datetime import UTC, datetime
 from pathlib import Path
 
-import stats
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from pydantic import BaseModel
+
+import stats
 
 DB_PATH = Path(os.environ.get("LANDING_DB", "/data/signups.db"))
 ROOT = Path(__file__).parent
