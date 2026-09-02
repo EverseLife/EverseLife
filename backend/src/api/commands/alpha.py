@@ -37,12 +37,12 @@ async def _admin(ctx: Ctx) -> Identity:
 
 @command("alpha.spawn", hidden=True)
 async def _alpha_spawn(ctx: Ctx) -> dict:
-    """Print a thing into your own hands (alpha only).
+    """Print a thing into your own hands, or onto the floor underfoot (alpha only).
 
     `goods` -- the name from the catalog, `amount` -- how many, `quality` --
-    optional, on the vault's scale. The thing arrives with `origin = "alpha"`
-    in the journal: matter that the world did not earn is still matter that
-    can be found afterwards.
+    optional, on the vault's scale; `where` -- `hands` (the default) or
+    `floor`. The thing arrives with `origin = "alpha"` in the journal: matter
+    that the world did not earn is still matter that can be found afterwards.
     """
     await _admin(ctx)
     body = await ctx.alive()
@@ -55,6 +55,7 @@ async def _alpha_spawn(ctx: Ctx) -> dict:
         type_key=goods_key(ctx.arg("goods")),
         amount=asked,
         quality=None if ctx.arg("quality") is None else float(ctx.arg("quality")),
+        where=str(ctx.arg("where", alpha.HANDS)),
     )
     #: `Item.amount` is the internal integer (`units.AMOUNT_SCALE`); the player
     #: asked for pieces and is answered in pieces. And the answer is the item's
@@ -90,3 +91,18 @@ async def _alpha_hurry(ctx: Ctx) -> dict:
     identity = await _admin(ctx)
     moved = await alpha.hurry(ctx.db, identity.id, await death.alive_body(ctx.db, identity.id))
     return {"hurried": list(moved)}
+
+
+@command("alpha.energize", hidden=True)
+async def _alpha_energize(ctx: Ctx) -> dict:
+    """Put energy into the pool of the city you stand in (alpha only).
+
+    `amount` -- how much. A test world's pool runs dry, and a dry pool hides
+    every door that needs it; the widget fills it where the world's own coal
+    would have. The answer is the pool's new level -- a confirmation the
+    asker cannot derive, not an echo of the request.
+    """
+    await _admin(ctx)
+    body = await ctx.alive()
+    stored = await alpha.energize(ctx.db, current(), body, float(ctx.arg("amount", 0)))
+    return {"stored": stored}

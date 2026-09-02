@@ -27,6 +27,7 @@
  */
 
 import { useEffect, useState } from "react";
+import * as api from "../api";
 import type { Invention, Look, Plan, Thing } from "../api";
 import { isBuilt, isRelic, membersOf } from "../classes";
 import { ownOrWild } from "./place/shared";
@@ -118,6 +119,11 @@ export function Workshop({ look, machine }: Omit<Props, "busy" | "act">) {
    * The pause debounces the arrow keys on the quantity field; a stale answer
    * from a superseded request is dropped rather than shown.
    */
+  //: The hands are part of the forecast too (live check 2026-09-02): a
+  //: material printed or picked up after the plan was read left "not enough"
+  //: and a grey button standing until the card was reopened. A string of the
+  //: stacks, not the array -- a fresh array every render would refire endlessly.
+  const stockKey = look.inventory.map((thing) => `${thing.id}:${thing.amount}`).join("|");
   useEffect(() => {
     if (selected === null) return;
     let dropped = false;
@@ -152,7 +158,7 @@ export function Workshop({ look, machine }: Omit<Props, "busy" | "act">) {
     //: `tiersKey` stands for `chosenTiers`: a fresh object every render would
     //: refire the effect endlessly, its string does not.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session, selected, qty, recipe, tiersKey, look.node?.key, look.travel, look.survey]);
+  }, [session, selected, qty, recipe, tiersKey, look.node?.key, look.travel, look.survey, stockKey]);
 
   const myMachine = (look.bench ?? []).filter((b) => b.goods === machine);
 
@@ -321,6 +327,22 @@ export function Workshop({ look, machine }: Omit<Props, "busy" | "act">) {
                   {" · "}
                   {t("ui-workshop-ceiling")}{" "}
                   <span className="num">{forecast.ceiling.toFixed(0)}</span>
+                  {/* A machine on electricity says what it will drink (D-269):
+                      billed by the grid inside a city, from the cells beside
+                      it outside. Which of the two is the server's word -- a
+                      price comes only with a grid (D-225) -- not the window's
+                      guess from the city it thinks it stands in. */}
+                  {forecast.energy !== undefined && (
+                    <>
+                      {" · "}
+                      {forecast.price !== undefined
+                        ? t("ui-workshop-energy", {
+                            energy: forecast.energy.toFixed(1),
+                            price: api.tk(forecast.price),
+                          })
+                        : t("ui-workshop-energy-cells", { energy: forecast.energy.toFixed(1) })}
+                    </>
+                  )}
                 </p>
                 <p className="note">
                   {t("ui-workshop-consumes")}{" "}

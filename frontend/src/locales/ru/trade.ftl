@@ -90,6 +90,8 @@ ui-workshop-minutes = мин
 ui-workshop-waste = потери
 ui-workshop-ceiling = потолок
 ui-workshop-consumes = уйдёт:
+ui-workshop-energy = электричество { $energy } · { $price } ₭
+ui-workshop-energy-cells = электричество { $energy } · из аккумуляторов рядом
 ui-workshop-forecast = Прогноз считается сам, пока вы выбираете.
 ui-workshop-queue = В очередь
 ui-workshop-start = Запустить партию
@@ -138,7 +140,7 @@ ui-inventory-hand = Передать…
 ui-inventory-where = Куда положить · { $amount }
 ui-inventory-floor = На пол
 ui-inventory-ground = На землю
-ui-inventory-not-yours = Земля чужая: положенное здесь достанется хозяину, и обратно вы его не возьмёте.
+ui-inventory-passing = Вы здесь проходом: дверь закрыта, и на пол ничего не кладут.
 ui-inventory-in-hands = { $goods } в руках
 # Без предлога: имя сосуда стоит в именительном («канистра»), и «Перелить в
 # канистра» ломало падеж. Склонять имена нечем (D-251: имя — слой показа),

@@ -105,6 +105,8 @@ TOUCHES: dict[str, tuple[str, ...]] = {
 #: Kinds with their own list, when the prefix rule is too coarse.
 TOUCHES_BY_KIND: dict[str, tuple[str, ...]] = {
     "craft.invented": ("doings", "inventory", "knowledge", "orders"),
+    #: The widget's energy goes into the city pool, not the hands (D-229).
+    "alpha.energized": ("node",),
     "body.printed": ("body", "node", "inventory"),
     "body.died": ("body", "node", "inventory"),
 }

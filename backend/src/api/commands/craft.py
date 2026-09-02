@@ -32,7 +32,9 @@ async def _craft_plan(state: dict, db: AsyncSession, message: dict) -> dict:
     body = await _alive_read(state, db)
     output, units, extra = _craft_request(message)
     plan = await craft.plan(db, current(), current_catalog(), body, output, units, **extra)
-    return {"plan": asdict(plan)}
+    #: A question that did not arise sends no key (D-225): the electricity of a
+    #: machine driven by the hands is not nought, it is not a thing.
+    return {"plan": {name: value for name, value in asdict(plan).items() if value is not None}}
 
 
 @command("craft.start")

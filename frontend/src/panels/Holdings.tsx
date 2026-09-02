@@ -102,7 +102,10 @@ export function Holdings({ look, busy, act }: Props) {
     }
   }, [session]);
   //: Reread when the world says so (D-226), not on every look.
-  const edition = useEdition("deed.", "land.", "building.");
+  //: The pool line too: a charge, the tick's own production or the alpha's
+  //: print into the pool all move the number this panel shows -- that one
+  //: kind, not every print of a thing.
+  const edition = useEdition("deed.", "land.", "building.", "energy.", "alpha.energized");
 
   //: The node is a dependency of its own: the grid belongs to the city the body
   //: stands in, so walking out of the walls changes the answer while no edition

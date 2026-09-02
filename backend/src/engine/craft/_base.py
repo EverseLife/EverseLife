@@ -299,6 +299,11 @@ class Plan:
     waste: float
     minutes: float
     consumes: dict[str, float] = field(default_factory=dict)
+    #: Electricity for a machine on it (D-269) and what the grid bills for it.
+    #: Absent at a machine driven by the hands: the wire carries no zero for a
+    #: question that does not arise (D-225).
+    energy: float | None = None
+    price: int | None = None
 
 
 @dataclass(frozen=True, slots=True)

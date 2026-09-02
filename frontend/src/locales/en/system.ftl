@@ -71,12 +71,19 @@ ui-alpha-what-hint = { NAME("iron_ore") }
 ui-alpha-amount = how much
 ui-alpha-quality = quality
 ui-alpha-no-quality = no quality
+ui-alpha-where = where
+ui-alpha-where-hands = into the hands
+ui-alpha-where-floor = onto the floor
+ui-alpha-energy = energy into the city pool
+ui-alpha-energy-hint = how much
+ui-alpha-energize = Into the pool
+ui-alpha-energized = the pool now holds: { $stored }
 ui-alpha-print = Print
 ui-alpha-finish = Finish now
 ui-alpha-printed = printed: { $goods } · { $amount }
 ui-alpha-hurry-nothing = nothing to hurry: nothing is under way
 ui-alpha-hurried = term pulled in: { $kinds }
-ui-alpha-note-print = It prints into the hands and into the ledger: the thing carries the reason “alpha”, and everything the world did not earn can be found by it.
+ui-alpha-note-print = It prints into the hands or onto the floor, and into the ledger: the thing carries the reason “alpha”, and everything the world did not earn can be found by it. Energy is printed into the pool of the city you stand in.
 ui-alpha-note-hurry = “Finish now” moves the term of what you have already started — a survey, a leg, work, building, plowing, a flight and the printing of a body: the ordinary handler finishes them, the same one as after an honest wait.
 
 ## The kinds of term the alpha can pull in.

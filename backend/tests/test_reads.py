@@ -143,6 +143,44 @@ async def test_forecasts_write_nothing(
         assert plan["plan"]["consumes"], plan
 
 
+async def test_a_powered_machine_forecast_makes_no_pool(
+    session: AsyncSession, factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """A machine on electricity (D-269) asks the city pool its price for the
+    forecast -- and a city that has no pool row yet must not get one from a
+    question: `pool_of(create=False)` is the whole of the promise."""
+    from src.api.commands.craft import _craft_plan
+    from src.models.world import Layer
+
+    stamp = uuid.uuid4().hex[:8]
+    capital = await world.create_node(
+        session, f"terra.volt.{stamp}", "Столица", area_m2=1, layer=Layer.PLANET
+    )
+    yard = await world.create_node(
+        session, f"terra.volt.{stamp}.yard", "Двор", area_m2=200, layer=Layer.CITY, parent=capital
+    )
+    identity = await world.create_identity(session, f"Литейщик-{stamp}")
+    body = await world.print_body(session, identity, yard)
+    await world.grant_item(
+        session,
+        await world.node_container(session, yard),
+        "blast_furnace",
+        quality=60,
+        origin="тест",
+    )
+    pocket = await world.body_container(session, body)
+    await world.grant_item(session, pocket, "quartz_sand", amount=40, quality=60, origin="тест")
+    await world.grant_item(session, pocket, "petroleum_coke", amount=20, quality=60, origin="тест")
+    await world.learn(session, identity, "silicon")
+    await session.commit()
+
+    async with factory() as db, db.begin(), _writes_forbidden(db):
+        plan = await _craft_plan(
+            {"identity_id": identity.id}, db, {"output": "silicon", "units": 2}
+        )
+        assert plan["plan"]["energy"] > 0 and "price" in plan["plan"], plan
+
+
 async def test_forecasts_make_no_yard_in_a_place_without_one(
     session: AsyncSession, factory: async_sessionmaker[AsyncSession]
 ) -> None:

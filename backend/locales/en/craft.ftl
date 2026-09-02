@@ -145,3 +145,6 @@ gear-not-in-hands = the thing is not in hand: you put on your own
 gear-no-slot = “{ NAME($goods) }” is not worn: it has no slot
 gear-unknown-slot = there is no “{ $slot }” slot in the world
 gear-overloaded = too much to carry: { NUMBER($carries, minimumFractionDigits: 1, maximumFractionDigits: 1) } kg in hand out of { NUMBER($limit, maximumFractionDigits: 0) }, and this is { NUMBER($extra, minimumFractionDigits: 1, maximumFractionDigits: 1) } kg more. Anything over that goes by transport
+craft-unpowered-no-grid = the “{ NAME($goods) }” runs on the grid, and there is no grid here: outside a city a charged battery is stood beside it
+craft-unpowered-short = the “{ NAME($goods) }” needs { NUMBER($need, minimumFractionDigits: 0, maximumFractionDigits: 1) } energy, and the pool holds { NUMBER($have, minimumFractionDigits: 0, maximumFractionDigits: 1) }: a city without fuel stands still
+craft-unpowered-cells = the “{ NAME($goods) }” needs { NUMBER($need, minimumFractionDigits: 0, maximumFractionDigits: 1) } energy, and the batteries beside it hold { NUMBER($have, minimumFractionDigits: 0, maximumFractionDigits: 1) }

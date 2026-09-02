@@ -31,13 +31,14 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
+from decimal import Decimal
 
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import events, liquid, overload, station, world
+from src.engine import energy, events, liquid, overload, station, world
 from src.engine.errors import Refusal
 from src.models.craft import BatchState, CraftBatch
 from src.models.event import EventKind
@@ -50,6 +51,12 @@ from src.units import AMOUNT_MAX
 
 #: The ground written into the journal for everything printed here.
 ORIGIN = "alpha"
+
+#: Where a print lands (D-229, addendum of 2026-09-02): the hands, or the
+#: floor of the node underfoot.
+HANDS = "hands"
+FLOOR = "floor"
+WHERE = (HANDS, FLOOR)
 
 #: What "hurry" reaches: the waits a tester runs into constantly. All of them
 #: are this body's own work, queued with its `body_id`.
@@ -118,13 +125,21 @@ async def spawn(
     type_key: str,
     amount: float = 1,
     quality: float | None = None,
+    where: str = HANDS,
 ) -> Item:
-    """Print a thing straight into the hands of this body.
+    """Print a thing into the hands of this body, or onto the floor under it.
 
-    Into the hands and nowhere else: a chest, a machine and somebody else's
-    node all have holders, doors and capacity, and a tool that walked past
-    those would be testing a world other than the one being played. What is
-    needed elsewhere is carried there the ordinary way.
+    The hands by default, and no chest, machine or somebody else's node: those
+    have holders, doors and capacity, and a tool that walked past them would be
+    testing a world other than the one being played. The floor is the one other
+    place (addendum of 2026-09-02): a site and a station built in place need
+    tonnes, and a tester should not carry them in thirty-kilogram trips. What
+    is printed there lies where a batch would have stood it, past the carry
+    limit (D-265) that a print into the hands still obeys -- and past the
+    floor's own room (D-192, D-244): a print is not a `ground.drop`, so five
+    hundred ore on two square metres lands, and the next honest drop there
+    is refused for want of space. The tester asked for the pile; the floor
+    counts it from then on.
 
     Quality is optional -- without it the thing has none, exactly as raw
     material out of a vein has none. With it, it is checked against the scale
@@ -142,6 +157,8 @@ async def spawn(
     name = catalog.recipes.resolve(type_key)
     if name not in known(catalog):
         raise NoSuchThing(key="alpha-no-such-thing", goods=type_key)
+    if where not in WHERE:
+        raise AlphaError(key="alpha-nowhere", where=where)
     if amount <= 0:
         raise AlphaError(key="alpha-amount-not-positive")
     if amount > AMOUNT_MAX:
@@ -154,16 +171,18 @@ async def spawn(
         if not scale.min <= quality <= scale.max:
             raise AlphaError(key="alpha-quality-out-of-range", min=scale.min, max=scale.max)
 
-    where = await world.body_container(session, body)
-    if catalog.recipes.built(name):
-        #: Built in place (D-268): printed straight onto the floor, like a batch
-        #: would stand it -- the hands never hold a furnace.
+    target = await world.body_container(session, body)
+    #: Built in place (D-268) lands underfoot whatever was asked: printed
+    #: straight onto the floor, like a batch would stand it -- the hands never
+    #: hold a furnace.
+    underfoot = where == FLOOR or catalog.recipes.built(name)
+    if underfoot:
         here = await session.get(Node, body.node_id)
         if here is not None:
-            where = await world.node_container(session, here)
+            target = await world.node_container(session, here)
     item = await world.grant_item(
         session,
-        where,
+        target,
         name,
         amount=amount,
         quality=quality,
@@ -175,7 +194,7 @@ async def spawn(
     )
     if liquid.is_liquid(catalog, name):
         item = await _poured(session, catalog, body, item, name)
-    else:
+    elif not underfoot:
         #: Printed past the carry limit, the print falls underfoot (D-265):
         #: the tester holds what a body may hold, like everybody else.
         await overload.settle_load(session, constants, catalog, body, [item])
@@ -188,8 +207,47 @@ async def spawn(
         type_key=name,
         amount=amount,
         quality=quality,
+        where=FLOOR if underfoot else HANDS,
     )
     return item
+
+
+async def energize(
+    session: AsyncSession,
+    constants: Constants,
+    body: Body,
+    amount: float,
+    *,
+    now: datetime | None = None,
+) -> float:
+    """Put energy into the pool of the city this body stands in. Returns the pool's level.
+
+    A test world's pool runs dry -- the seed's coal burns out and nobody hauls
+    more -- and a dry pool hides every door that needs it: charging (D-085),
+    the exoskeleton (D-268), a machine on electricity (D-269). Only into a
+    pool: a battery is filled from it by the ordinary door, so nothing here
+    can charge what the grid could not. The pool is a remainder like money
+    (CLAUDE.md): its row is taken for the transaction and brought up to now
+    first, so the tick's own production is not written over.
+    """
+    if amount <= 0:
+        raise AlphaError(key="alpha-amount-not-positive")
+    node = await session.get(Node, body.node_id)
+    pool = None if node is None else await energy.pool_of(session, constants, node, lock=True)
+    if pool is None:
+        raise AlphaError(key="alpha-no-grid")
+    await energy.produce(session, constants, pool, now=now)
+    pool.stored = Decimal(str(float(pool.stored) + amount))
+    await session.flush()
+    await events.record(
+        session,
+        EventKind.ALPHA_ENERGIZED,
+        actor_identity_id=body.identity_id,
+        node_id=body.node_id,
+        energy=amount,
+        stored=float(pool.stored),
+    )
+    return float(pool.stored)
 
 
 async def _poured(

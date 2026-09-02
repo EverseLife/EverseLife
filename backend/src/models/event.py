@@ -322,6 +322,9 @@ class EventKind(StrEnum):
     ALPHA_SPAWNED = "alpha.spawned"
     #: Terms pulled up to now: which kinds of work were not waited out.
     ALPHA_HURRIED = "alpha.hurried"
+    #: Energy put into a city pool by the widget: a test world's pool runs dry,
+    #: and a dry pool hides every door that needs it (D-085, D-268, D-269).
+    ALPHA_ENERGIZED = "alpha.energized"
 
 
 class Event(Base):

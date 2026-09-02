@@ -19,6 +19,7 @@ from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.constants.catalog import ItemKind
 from src.engine import events, goods, occupation, travel
+from src.engine.craft import power
 from src.engine.craft._base import BENCHLESS, CraftError, NotEnough, TooBig, Unmakeable
 from src.engine.craft._internal import _knows, _pick, _pick_station, _stock, _tiers_by
 from src.engine.craft.batch import start
@@ -27,6 +28,7 @@ from src.models.craft import CraftBatch
 from src.models.event import EventKind
 from src.models.identity import Body, BodyState, Identity
 from src.units import (
+    MINUTES_PER_HOUR,
     PERCENT,
     ROUND_RATIO,
     amount_float,
@@ -110,6 +112,18 @@ async def invent(
     #: The machine must stand here: an attempt is work at it, even a failed one.
     if bench is not None:
         await _pick_station(session, body, bench, allow_own=True)
+        #: A try at a machine on electricity runs it (D-269): the base time per
+        #: unit for the units tried, matched or not, and before the materials --
+        #: a machine that cannot be fed burns nothing.
+        await power.draw(
+            session,
+            constants,
+            catalog,
+            body,
+            bench,
+            units * constants[R.CRAFT_TIME_PER_UNIT] / MINUTES_PER_HOUR,
+            now=moment,
+        )
 
     #: What is laid out is in the hands, whatever comes of it.
     inventory = await body_container(session, body)

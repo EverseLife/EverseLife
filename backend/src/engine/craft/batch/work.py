@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import occupation, travel, wear
+from src.engine.craft import power
 from src.engine.craft._base import (
     BENCHLESS,
     CraftError,
@@ -44,6 +45,7 @@ from src.models.craft import BatchKind, CraftBatch
 from src.models.identity import Body, BodyState
 from src.models.inventory import Item
 from src.units import (
+    MINUTES_PER_HOUR,
     PERCENT,
     amount,
     amount_float,
@@ -121,6 +123,19 @@ async def start(
         tiers=tiers,
     )
     forecast = ready.plan
+
+    #: Electricity before the materials (D-269): a machine on it that cannot be
+    #: fed refuses here, while nothing below has been touched yet.
+    if ready.station is not None:
+        await power.draw(
+            session,
+            constants,
+            catalog,
+            body,
+            ready.station.type_key,
+            forecast.minutes / MINUTES_PER_HOUR,
+            now=moment,
+        )
 
     for pick in ready.picks:
         if pick.item.amount > pick.take:

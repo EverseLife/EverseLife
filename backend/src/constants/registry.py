@@ -152,6 +152,8 @@ CRAFT_INPUT_LABOR_RATIO = Num("craft.input_labor_ratio")
 CRAFT_AMOUNT_CAP = Num("craft.amount_cap")
 #: Copying a recipe in the Library is paid with the body, not the account (D-148).
 CRAFT_COPY_STAMINA = Num("craft.copy_stamina")
+#: What a machine on electricity draws per hour of a manual batch (D-269).
+CRAFT_POWERED_ENERGY_PER_HOUR = Num("craft.powered_energy_per_hour")
 HARVEST_RATES = Table("harvest.rates")
 #: What a planet does to those rates (D-232): Aurora is generous with coal and
 #: poor in iron. Multipliers over one table, never a second rarity table.

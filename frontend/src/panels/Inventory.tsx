@@ -94,11 +94,13 @@ export function Inventory({ look }: Props) {
   const tanks = chests.filter((chest) => isVessel(book, chest.goods));
   const boxes = chests.filter((chest) => !isVessel(book, chest.goods));
   const things = look.inventory;
-  //: The engine lets a thing be put down anywhere but only picked up where the
-  //: node allows it -- so on somebody else's land dropping is one-way, and the
-  //: thing stays for its owner. The interface does not offer a door that only
-  //: opens outward: where it cannot be taken back, it is not offered.
-  const mayDropHere = Boolean(look.floor?.mine);
+  //: The floor is symmetric since D-204: whoever got in through the door puts
+  //: down and takes up alike, on a city's floor as on their own. Only a body
+  //: passing through a shut place -- inside without being let in -- has no
+  //: floor at all, and `floor.open` is that one door (live check 2026-09-02:
+  //: the window still asked for one's own land, and a guest in the capital
+  //: could neither unload nor pick up what fell).
+  const mayDropHere = Boolean(look.floor?.open);
   //: Which of the two surfaces this place actually has (D-244). A plot with no
   //: house has no floor; a house grown over the whole plot leaves no ground.
   //: Offering the half that is not there collects a refusal after the click.
@@ -461,7 +463,7 @@ export function Inventory({ look }: Props) {
                               )}
                             </>
                           ) : (
-                            <p className="note">{t("ui-inventory-not-yours")}</p>
+                            <p className="note">{t("ui-inventory-passing")}</p>
                           )}
                           {isVessel(book, thing.goods) &&
                             [

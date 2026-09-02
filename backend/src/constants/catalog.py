@@ -87,6 +87,9 @@ class Recipe(Strict):
     #: Built in place (D-268): a station that never fits in the hands -- its
     #: batch stands it on the floor where it was made, and nobody takes it up.
     built: bool = False
+    #: Runs on electricity (D-269): a manual batch at it draws
+    #: `craft.powered_energy_per_hour` from the grid, or from the cells beside it.
+    powered: bool = False
     mix: bool = False
     roles: bool = False
     #: Edibility and "hot" come from data, not from the engine's guesses (D-119).
@@ -297,6 +300,11 @@ class RecipeBook(Strict):
         """Whether the station is built in place and never carried (D-268)."""
         found = self._by_name.get(self.resolve(name))
         return bool(found is not None and found.built)
+
+    def powered(self, name: str) -> bool:
+        """Whether the station runs on electricity and stands still without it (D-269)."""
+        found = self._by_name.get(self.resolve(name))
+        return bool(found is not None and found.powered)
 
     def is_ingredient(self, name: str) -> bool:
         """Whether it goes into the pot: edibility is data, not a guess by name.

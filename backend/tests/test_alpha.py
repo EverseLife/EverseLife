@@ -54,28 +54,17 @@ from src.models.job import Job, JobKind, JobState
 from src.models.travel import Travel
 from src.models.world import Layer, Surface
 from src.units import amount_float
-
-ORE = "iron_ore"
-BENCH = "workbench"
-MAKE = "handle"
-WOOD = "wood"
-#: A liquid and something to keep it in: liquids live only in vessels (D-230).
-FUEL = "rocket_fuel"
-CANISTER = "canister"
-
-
-async def _body(session: AsyncSession) -> Body:
-    """A body standing on a planet: a survey looks for a place on one, so the
-    node needs a parent even where the test only cares about the term."""
-    stamp = uuid.uuid4().hex[:8]
-    planet = await world.create_node(
-        session, f"terra.{stamp}", "Терра", area_m2=1, layer=Layer.SPACE
-    )
-    here = await world.create_node(
-        session, f"terra.here.{stamp}", "Здесь", area_m2=100, layer=Layer.PLANET, parent=planet
-    )
-    identity = await world.create_identity(session, f"Тэрн-{stamp}")
-    return await world.print_body(session, identity, here)
+from test_alpha_kit import (  # noqa: F401 -- the family's helpers
+    BENCH,
+    CANISTER,
+    FUEL,
+    MAKE,
+    ORE,
+    WOOD,
+    _body,
+    _carried,
+    _master,
+)
 
 
 async def _walker(session: AsyncSession):
@@ -86,29 +75,6 @@ async def _walker(session: AsyncSession):
     identity = await world.create_identity(session, f"Ходок-{stamp}")
     body = await world.print_body(session, identity, here)
     return there, body
-
-
-async def _master(session: AsyncSession):
-    """A workshop with a bench, and a master who knows what to make on it."""
-    stamp = uuid.uuid4().hex[:8]
-    node = await world.create_node(session, f"terra.shop.{stamp}", "Двор", area_m2=200)
-    session.add(Building(node_id=node.id, area_m2=200))
-    await session.flush()
-    yard = await world.node_container(session, node)
-    await world.grant_item(session, yard, BENCH, quality=60, origin="сценарий теста")
-    identity = await world.create_identity(session, f"Мастер-{stamp}")
-    body = await world.print_body(session, identity, node)
-    await world.learn(session, identity, MAKE)
-    pocket = await world.body_container(session, body)
-    await world.grant_item(session, pocket, WOOD, amount=50, quality=60, origin="сценарий теста")
-    return node, body
-
-
-async def _carried(session: AsyncSession, body: Body) -> list[Item]:
-    where = await world.body_container(session, body)
-    return list(
-        (await session.execute(select(Item).where(Item.container_id == where.id))).scalars()
-    )
 
 
 # --- printing a thing --------------------------------------------------------

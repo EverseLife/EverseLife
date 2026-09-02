@@ -47,6 +47,10 @@ const MOVED: Record<string, string> = {
   "body.print": "ui-alpha-job-body-print",
 };
 
+//: Where a print lands (D-229, addendum of 2026-09-02): the server's two words.
+const HANDS = "hands";
+const FLOOR = "floor";
+
 type Props = {
   /** The vault's numbers as `/public/constants` serves them: the quality
    *  scale is one of them, and writing 0..100 here would be a second copy of
@@ -74,6 +78,8 @@ export function Alpha({ values, embodied = true }: Props) {
   const [goods, setGoods] = useState("");
   const [amount, setAmount] = useState("1");
   const [quality, setQuality] = useState("");
+  const [where, setWhere] = useState(HANDS);
+  const [energy, setEnergy] = useState("");
   const [said, setSaid] = useState<string | null>(null);
 
   //: The scale the vault set (`quality.scale`). Absent -- the field simply
@@ -99,6 +105,7 @@ export function Alpha({ values, embodied = true }: Props) {
         //: An empty field is not zero quality: it is a thing without one, as
         //: raw material out of a vein has none.
         ...(quality.trim() === "" ? {} : { quality: Number(quality) }),
+        where,
       });
       //: Both go in as strings: they are read off a line, not summed, and
       //: `NUMBER` would put a thousands separator inside an amount.
@@ -108,6 +115,14 @@ export function Alpha({ values, embodied = true }: Props) {
           amount: String(answer.amount),
         }),
       );
+    });
+
+  //: Energy into the pool of the city underfoot: a test world's pool runs dry,
+  //: and a dry pool hides every door that needs it (D-085, D-268, D-269).
+  const energize = () =>
+    act(async () => {
+      const answer = await session.send("alpha.energize", { amount: Number(energy) });
+      setSaid(t("ui-alpha-energized", { stored: String(answer.stored) }));
     });
 
   const hurry = () =>
@@ -193,6 +208,30 @@ export function Alpha({ values, embodied = true }: Props) {
                     placeholder={t("ui-alpha-no-quality")}
                   />
                 </label>
+                <label>
+                  <span>{t("ui-alpha-where")}</span>
+                  <select value={where} onChange={(e) => setWhere(e.target.value)}>
+                    <option value={HANDS}>{t("ui-alpha-where-hands")}</option>
+                    <option value={FLOOR}>{t("ui-alpha-where-floor")}</option>
+                  </select>
+                </label>
+              </div>
+
+              <div className="row">
+                <label>
+                  <span>{t("ui-alpha-energy")}</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="any"
+                    value={energy}
+                    onChange={(e) => setEnergy(e.target.value)}
+                    placeholder={t("ui-alpha-energy-hint")}
+                  />
+                </label>
+                <button onClick={energize} disabled={busy || !(Number(energy) > 0)}>
+                  {t("ui-alpha-energize")}
+                </button>
               </div>
             </>
           )}

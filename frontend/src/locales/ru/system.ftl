@@ -66,12 +66,19 @@ ui-alpha-what-hint = { NAME("iron_ore") }
 ui-alpha-amount = сколько
 ui-alpha-quality = качество
 ui-alpha-no-quality = без качества
+ui-alpha-where = куда
+ui-alpha-where-hands = в руки
+ui-alpha-where-floor = на пол
+ui-alpha-energy = энергии в пул города
+ui-alpha-energy-hint = сколько
+ui-alpha-energize = В пул
+ui-alpha-energized = в пуле теперь: { $stored }
 ui-alpha-print = Напечатать
 ui-alpha-finish = Завершить сейчас
 ui-alpha-printed = напечатано: { $goods } · { $amount }
 ui-alpha-hurry-nothing = нечего ускорять: ничего не идёт
 ui-alpha-hurried = срок подтянут: { $kinds }
-ui-alpha-note-print = Печатается в руки и в журнал: у вещи записано основание «alpha», и найти всё, что мир не заработал, можно по нему.
+ui-alpha-note-print = Печатается в руки или на пол и в журнал: у вещи записано основание «alpha», и найти всё, что мир не заработал, можно по нему. Энергия печатается в пул города, в котором вы стоите.
 ui-alpha-note-hurry = «Завершить сейчас» двигает срок того, что вы уже начали, — разведки, перехода, работы, стройки, вспашки, перелёта и печати тела: доделывает их обычный обработчик, тот же, что и при честном ожидании.
 
 ## Виды сроков, которые альфа умеет подтянуть.

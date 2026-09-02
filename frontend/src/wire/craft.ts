@@ -59,6 +59,8 @@ export type Recipe = {
   kind: string;
   /** Built in place (D-268): stands where it was made, never taken up. */
   built?: boolean;
+  /** Runs on electricity (D-269): a batch at it draws from the grid or the cells beside it. */
+  powered?: boolean;
   roles: boolean;
   food: boolean;
   inputs: string[];
@@ -89,6 +91,9 @@ export type Plan = {
   waste: number;
   minutes: number;
   consumes: Record<string, number>;
+  /** Electricity for a machine on it and what the grid bills (D-269); absent at a machine driven by the hands. */
+  energy?: number;
+  price?: number;
 };
 
 export type Batch = {

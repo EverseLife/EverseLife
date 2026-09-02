@@ -45,3 +45,5 @@ alpha-amount-too-big = there is no such amount: no more than { $limit }
 alpha-quality-out-of-range = quality runs from { $min } to { $max }
 alpha-liquid-nowhere = “{ NAME($goods) }” is a liquid, and there is nowhere to pour it: take a canister in hand or stand where a tank stands. A liquid does not live in bare palms
 alpha-not-your-body = this body is not this identity's
+alpha-nowhere = a print goes into the hands or onto the floor, not “{ $where }”
+alpha-no-grid = there is no city grid here: energy is printed into a pool from inside a city's built-up area

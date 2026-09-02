@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import Catalog, Constants, current, current_catalog
 from src.constants import registry as R
 from src.engine import goods, travel, wear
+from src.engine.craft import power
 from src.engine.craft._base import (
     Busy,
     CraftError,
@@ -162,6 +163,16 @@ async def _prepare(
 
     picks = _pick(stock, required)
     minutes = batch_minutes(constants, proc, units, wear.effective(constants, station))
+    #: Electricity for a machine on it (D-269): the forecast reads it here, the
+    #: start draws it -- one arithmetic for both, like everything in this flow.
+    juice = await power.forecast(
+        session,
+        constants,
+        catalog,
+        body,
+        None if station is None else station.type_key,
+        minutes / MINUTES_PER_HOUR,
+    )
 
     forecast = Plan(
         output=proc.output,
@@ -179,6 +190,8 @@ async def _prepare(
         waste=waste,
         minutes=minutes,
         consumes=dict(required),
+        energy=None if juice is None else juice[0],
+        price=None if juice is None else juice[1],
     )
     return _Ready(plan=forecast, picks=tuple(picks), station=station, recipe_key=recipe_key)
 

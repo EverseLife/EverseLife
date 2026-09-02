@@ -146,3 +146,6 @@ gear-not-in-hands = вещь не в руках: надевают своё
 gear-no-slot = «{ NAME($goods) }» не надевается: у него нет слота
 gear-unknown-slot = слота «{ $slot }» в мире нет
 gear-overloaded = не унести: в руках { NUMBER($carries, minimumFractionDigits: 1, maximumFractionDigits: 1) } кг из { NUMBER($limit, maximumFractionDigits: 0) }, а это ещё { NUMBER($extra, minimumFractionDigits: 1, maximumFractionDigits: 1) } кг. Всё сверх — только транспортом
+craft-unpowered-no-grid = станок «{ NAME($goods) }» работает от сети, а сети здесь нет: вне города рядом ставят заряженный аккумулятор
+craft-unpowered-short = станку «{ NAME($goods) }» нужно { NUMBER($need, minimumFractionDigits: 0, maximumFractionDigits: 1) } энергии, а в пуле { NUMBER($have, minimumFractionDigits: 0, maximumFractionDigits: 1) }: город без топлива стоит
+craft-unpowered-cells = станку «{ NAME($goods) }» нужно { NUMBER($need, minimumFractionDigits: 0, maximumFractionDigits: 1) } энергии, а в аккумуляторах рядом { NUMBER($have, minimumFractionDigits: 0, maximumFractionDigits: 1) }
