@@ -72,6 +72,7 @@ city-founder-not-dismissed = the founder is removed by the charter, not by order
 # --- laws and charter (D-163) -------------------------------------------------
 
 city-no-such-law = no such code law: { $law }
+city-law-not-an-option = the code-law “{ LAW($law) }” has no option “{ $value }”
 city-no-such-question = no such charter question: { $question }
 city-no-such-option = no such option: { $option }
 city-option-requires = option “{ $option }” requires an answer to “{ $requires }”
@@ -198,7 +199,7 @@ estate-land-not-civic = this is not city land: outside a city it is neither sold
 estate-land-not-a-plot = “{ $node }” is not a plot for sale but the city's own location: a city sells plots, not itself
 estate-land-not-vacant = the node is not empty: the price list sells neither buildings nor the city's veins
 estate-land-city-missing = the node is attached to a city that does not exist
-estate-land-permit = “{ $city }” does not sell land to everyone: code law build_permit is “{ $permit }”. Join the citizens
+estate-land-permit = “{ $city }” does not sell land to everyone: code-law “{ LAW($law) }” is “{ CHOICE($permit) }”. Join the citizens
 estate-land-too-dear = the plot costs { $price } ₭, and the account holds { $have } ₭
 
 estate-about-dead = a dead body describes nothing

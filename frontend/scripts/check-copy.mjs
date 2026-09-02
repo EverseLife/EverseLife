@@ -75,11 +75,6 @@ const ALLOWED = new Map(
         "a search keyword matched against what the player typed. Known defect:" +
         " the Forerunners' door is findable only by a Russian query",
     },
-    "src/panels/Economy.tsx": {
-      '.filter(([, law]) => law.value && law.value !== "нет")':
-        "a code-law's value from the wire, written by the city; same shape as" +
-        " the verdict above and the same server-side change to fix",
-    },
     "src/panels/Kitchen.tsx": {
       'const ROLES = ["основа", "наполнитель", "жир", "приправа"] as const;':
         "the keys of `cook.role_weights` in the vault -- wire value and label" +

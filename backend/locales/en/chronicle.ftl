@@ -26,7 +26,7 @@ chronicle-city-founded = 🏛 **The city of { $city } is founded** — { $where 
 chronicle-city-law-set = 📐 { $city }: code-law “{ $named ->
         [true] { LAW($law) }
        *[false] law
-    }” — was { $was }, now { $now }.
+    }” — was { CHOICE($was) }, now { CHOICE($now) }.
 
 chronicle-city-charter-set = 📜 { $city }: charter — “{ $named ->
         [true] { $question }

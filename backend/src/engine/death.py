@@ -512,10 +512,13 @@ async def _city_pays(
     city = await town.of_node(session, node)
     if city is None:
         return False
-    decision = (town.law(current_catalog(), city, "body_print") or "").strip().lower()
-    if decision in ("", "нет", "-"):
+    #: One of the law's own keys (D-094). It used to be free text read by
+    #: substring, so «гражд» meant citizens and anything unrecognised meant
+    #: everyone -- unreachable for a player who does not write Russian.
+    decision = str(town.law(current_catalog(), city, "body_print") or "").strip()
+    if decision in ("", town.NOBODY):
         return False
-    if "гражд" in decision:
+    if decision == town.CITIZENS:
         return identity_id is not None and await town.is_citizen(session, identity_id, city)
     return True
 
