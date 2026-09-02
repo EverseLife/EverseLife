@@ -31,7 +31,6 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
-from decimal import Decimal
 
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -241,7 +240,7 @@ async def energize(
     if pool is None:
         raise AlphaError(key="alpha-no-grid")
     await energy.produce(session, constants, pool, now=now)
-    pool.stored = Decimal(str(float(pool.stored) + amount))
+    pool.stored = energy.pooled(float(pool.stored) + amount)
     await session.flush()
     await events.record(
         session,
