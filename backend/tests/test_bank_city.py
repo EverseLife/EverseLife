@@ -24,8 +24,9 @@ from src import i18n
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import bank, world
+from src.models.bank import LoanState
 from src.models.ledger import AccountKind
-from src.units import PERCENT, money
+from src.units import MONEY_SCALE, PERCENT, money
 
 # --- collateral ratio as a lever (D-170) -------------------------------------
 
@@ -229,16 +230,86 @@ async def test_turnover_raises_limit(
 async def test_credit_history_is_asset(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """What was repaid earlier raises the limit -- and gives a record without overdue."""
-    who = await _borrower(session, funds=100)
-    loan = await bank.borrow(session, constants, catalog, who, 100)
-    await bank.repay(session, constants, who, loan)
+    """Interest paid raises the limit -- and gives a record without overdue."""
+    who = await _borrower(session, funds=200)
+    taken = datetime.now(UTC) - timedelta(days=constants[R.BANK_YEAR_DAYS])
+    loan = await bank.borrow(session, constants, catalog, who, 100, now=taken)
+    paid = await bank.repay(session, constants, who, loan)
+    interest = paid - money(100)
+    assert interest > 0, "год под ставкой стоит процентов"
 
     limit_, reason = await bank.credit_limit(session, constants, who.id)
     base_ = money(constants[R.BANK_UNSECURED_LIMIT])
-    core = base_ + money(100 * constants[R.CREDIT_REPAID_SHARE] / PERCENT)
+    core = base_ + int(interest * constants[R.CREDIT_INTEREST_SHARE] / PERCENT)
     assert limit_ == int(core * (1 + constants[R.CREDIT_NO_OVERDUE_BONUS] / PERCENT))
-    assert "bank-why-limit-no-overdue" in [one.key for one in reason]
+    assert "bank-why-limit-interest" in [one.key for one in reason]
+
+
+def test_credit_history_cannot_finance_itself(constants: Constants) -> None:
+    """A rouble of interest may never open more than a rouble of limit (D-280).
+
+    Paying interest costs the payer `i` in cash and opens
+    `interest_share x (1 + no_overdue_bonus) x i` of new debt. Above 100 % the
+    carried debt pays for its own growth out of the borrowed money: the limit
+    climbs year after year with nothing sold, and the round trip is back --
+    driven by the calendar instead of by clicks. The vault may retune both
+    numbers; their product is the invariant.
+    """
+    self_financing = (
+        constants[R.CREDIT_INTEREST_SHARE]
+        * (1 + constants[R.CREDIT_NO_OVERDUE_BONUS] / PERCENT)
+        / PERCENT
+    )
+    assert self_financing <= 1, (
+        f"credit.interest_share x стаж = {self_financing:.2f}: лимит финансирует сам себя"
+    )
+
+
+async def test_interest_on_an_open_loan_already_counts(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The limit grows with each payment, not in one jump at closure (D-280)."""
+    who = await _borrower(session, funds=200)
+    taken = datetime.now(UTC) - timedelta(days=constants[R.BANK_YEAR_DAYS])
+    loan = await bank.borrow(session, constants, catalog, who, 100, now=taken)
+    before, _ = await bank.credit_limit(session, constants, who.id)
+
+    #: The interest alone: a payment covers it before the principal, so the
+    #: loan stays open with its body untouched.
+    owed = bank.accruable(constants, loan)
+    assert owed > 0
+    paid = await bank.repay(session, constants, who, loan, owed / MONEY_SCALE)
+    assert loan.state is LoanState.OPEN, "тело осталось: заём открыт"
+    assert loan.interest_paid == paid
+
+    after, reason = await bank.credit_limit(session, constants, who.id)
+    grew = int(paid * constants[R.CREDIT_INTEREST_SHARE] / PERCENT)
+    assert after == int((before + grew) * (1 + constants[R.CREDIT_NO_OVERDUE_BONUS] / PERCENT))
+    assert "bank-why-limit-interest" in [one.key for one in reason]
+
+
+async def test_round_trip_loan_buys_no_limit(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Take and give back the same second -- the limit stays where it was (D-280).
+
+    The old formula counted repaid principal, and this pair of calls raised the
+    limit by `credit.repaid_share` for free; repeated, it lifted itself by its
+    own bootstraps.
+    """
+    who = await _borrower(session, funds=500)
+    before, _ = await bank.credit_limit(session, constants, who.id)
+
+    moment = datetime.now(UTC)
+    for _ in range(3):
+        loan = await bank.borrow(session, constants, catalog, who, 100, now=moment)
+        await bank.repay(session, constants, who, loan, now=moment)
+
+    after, reason = await bank.credit_limit(session, constants, who.id, now=moment)
+    assert after == before, "мгновенный оборот кредита ничего не стоит и ничего не даёт"
+    assert "bank-why-limit-no-overdue" not in [one.key for one in reason], (
+        "множитель за стаж тоже покупался мгновенной парой заём-возврат"
+    )
 
 
 async def test_report_cuts_trust_but_does_not_bury(

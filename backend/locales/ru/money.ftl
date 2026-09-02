@@ -108,7 +108,7 @@ bank-why-council = решение Совета городов ({ $city }); ал�
 
 bank-why-limit-base = база { $money }
 bank-why-limit-turnover = оборот { $money } за { NUMBER($days, maximumFractionDigits: 2) } суток
-bank-why-limit-repaid = возвращено ранее { $money }
+bank-why-limit-interest = уплачено процентов { $money }
 bank-why-limit-no-overdue = стаж без просрочек
 bank-why-limit-trust = доверие { NUMBER($trust, maximumFractionDigits: 0) }% по репортам
 

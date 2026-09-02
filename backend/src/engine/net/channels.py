@@ -11,7 +11,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import CompoundSelect, Select, and_, func, or_, select, true, union_all
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Constants
@@ -33,6 +33,16 @@ from src.runtime import (
 )
 
 # --- channels ----------------------------------------------------------------
+
+#: Before any post. Stands in for "has read nothing" where a comparison needs a
+#: value and not a branch (`_fresh`), and for "never spoke" where a sort needs
+#: one (`channels`). Both want the same thing -- earlier than anything real --
+#: but they want it in different places: asyncpg sends `datetime.min` to
+#: Postgres as `-infinity`, which is what keeps the comparison in `_fresh` an
+#: index bound, while the sort takes `.timestamp()` of the year 1 in Python. A
+#: later hand that finds the year 1 alarming and writes 1970 here would leave
+#: the sort correct and quietly narrow the bound.
+DAWN = datetime.min.replace(tzinfo=UTC)
 
 
 @dataclass(frozen=True, slots=True)
@@ -281,13 +291,11 @@ async def channels(
     ).scalars():
         seen.setdefault(channel.id, channel)
 
-    reader_node = await _where(session, me_id)
+    unread = await _unread_by_channel(
+        session, constants, me_id, native_city_id=None if native is None else native.id, now=moment
+    )
     out: list[ChannelView] = []
     for channel in seen.values():
-        row = await _subscription(session, channel.id, me_id)
-        read_at = None if row is None else row.read_at
-        fresh = await _posts_since(session, channel.id, read_at, limit=NET_PAGE)
-        arrived = await _delivered(session, constants, fresh, reader_node, moment)
         if channel.city_id is not None:
             city = await town.by_id(session, channel.city_id)
             by = city.name if city is not None else channel.name
@@ -308,12 +316,11 @@ async def channels(
                 implied=native is not None and channel.city_id == native.id,
                 by=by,
                 last_at=channel.last_at,
-                unread=len(arrived),
+                unread=unread.get(channel.id, 0),
             )
         )
     #: Official first, then by the latest post.
-    dawn = datetime.min.replace(tzinfo=UTC)
-    out.sort(key=lambda view: (not view.official, -(view.last_at or dawn).timestamp()))
+    out.sort(key=lambda view: (not view.official, -(view.last_at or DAWN).timestamp()))
     return out
 
 
@@ -367,6 +374,132 @@ async def find_channels(
     return out
 
 
+def _my_channels(me_id: uuid.UUID, native_city_id: uuid.UUID | None) -> CompoundSelect:
+    """The ids of the reader's channels: own, chosen, and the city's by
+    citizenship -- the same three the list shows (`channels`).
+
+    A union and not one `OR`, because each branch is then an index the reader
+    is already the key of (`ix_net_channel_owner`, `ix_net_subscription_identity`,
+    the unique `city_id`). Written as a single condition it would read every
+    channel in the world on the commonest command in the game.
+    """
+    picked = [
+        select(NetChannel.id).where(NetChannel.owner_identity_id == me_id),
+        select(NetSubscription.channel_id).where(
+            NetSubscription.identity_id == me_id, NetSubscription.chosen.is_(True)
+        ),
+    ]
+    if native_city_id is not None:
+        picked.append(select(NetChannel.id).where(NetChannel.city_id == native_city_id))
+    #: `union_all` and not `union`: the `IN` this feeds sorts the duplicates out.
+    return union_all(*picked)
+
+
+def _fresh(me_id: uuid.UUID, native_city_id: uuid.UUID | None) -> Select:
+    """The page of unread posts of every channel the reader has, in one query.
+
+    `LATERAL` and not one flat `WHERE`, because the page is **per channel**: the
+    newest `NET_PAGE` a channel holds that the reader has not read. It is also
+    the only bound there is. A citizen who never opens the city's channel
+    accumulates unread posts for as long as the city speaks, and a count with no
+    `LIMIT` would read every one of them on every `look`; the `LIMIT` inside the
+    join walks `ix_net_post_channel_at` backwards and stops -- which it can only
+    do while `at` stays a bound of that index, hence the `coalesce` below.
+
+    Not the same page as `read_channel`: that one shows the newest `NET_PAGE`
+    posts of a channel whether they are read or not, and the two coincide only
+    while there are fewer than `NET_PAGE` unread. A hundred unread is where both
+    stop, and both stop at the same place, which is what the counter needs.
+
+    The author's node comes back with each post because the delay starts there,
+    and nothing else does: a count needs no text and no name.
+    """
+    mine = (
+        select(NetChannel.id.label("channel_id"), NetSubscription.read_at.label("read_at"))
+        .join(
+            NetSubscription,
+            and_(
+                NetSubscription.channel_id == NetChannel.id,
+                NetSubscription.identity_id == me_id,
+            ),
+            isouter=True,
+        )
+        .where(NetChannel.id.in_(_my_channels(me_id, native_city_id)))
+        .subquery("mine")
+    )
+    page = (
+        select(NetPost.node_id, NetPost.at)
+        .where(
+            NetPost.channel_id == mine.c.channel_id,
+            #: `coalesce` and not `read_at IS NULL OR at > read_at`. The two say
+            #: the same thing, and only one of them is a bound the index can be
+            #: walked from: with the `OR`, Postgres drops `at` out of the index
+            #: condition and filters instead, so a channel the reader has read to
+            #: the end is proved empty by reading all of it -- 200k posts scanned
+            #: to return nothing, on the commonest command in the game.
+            NetPost.at > func.coalesce(mine.c.read_at, DAWN),
+        )
+        .order_by(NetPost.at.desc())
+        .limit(NET_PAGE)
+        .lateral("page")
+    )
+    return select(mine.c.channel_id, page.c.node_id, page.c.at).select_from(mine.join(page, true()))
+
+
+async def _unread_by_channel(
+    session: AsyncSession,
+    constants: Constants,
+    me_id: uuid.UUID,
+    *,
+    native_city_id: uuid.UUID | None,
+    now: datetime,
+) -> dict[uuid.UUID, int]:
+    """How many posts have reached this reader unread, per channel.
+
+    One round trip for all the reader's channels, where there used to be three
+    each: the subscription, the page of posts, and the delivery of that page
+    (review 2026-08-23, item 3). `look` asks for this on every breath through
+    `unread_posts`, so what it must not do is grow -- neither with the number of
+    channels the reader keeps, nor with the age of the world.
+
+    The delay is why this is not a `COUNT`. A post has reached the reader only
+    once `post.at + road(author's node -> reader's node)` has passed, and the
+    road is Dijkstra in memory, not SQL (D-222). So the arithmetic is done here,
+    over a bounded page, against one cutoff per author node: the nodes are the
+    places the unread posts were written in, a handful whatever the number of
+    channels.
+
+    Within a planet a cutoff costs no query, but it is not free: `road` answers
+    the first question about a node with a Dijkstra from it and keeps the result
+    for `NET_REACH_CACHE` sources, so a reader whose unread posts come from many
+    places pays a run per place and crowds that cache. Between worlds it is not
+    even that: the road is `ship.passage_curve`, which reads the orbits and
+    solves a few hundred Lambert problems for the hour (D-271). Cheaper would be one
+    Dijkstra from the **reader** -- the map is symmetric within a planet -- but
+    the reader is not the source between planets, where the road is a departure
+    from the author's world at that hour (D-271), and swapping the ends there
+    would quietly change the delay. That is a change to the road, not to the
+    count.
+
+    A channel with nothing unread is simply absent from the answer, and a caller
+    that lists channels of its own (`channels`) reads a zero off the missing key.
+    """
+    rows = (await session.execute(_fresh(me_id, native_city_id))).all()
+    if not rows:
+        return {}
+    reader_node = await _where(session, me_id)
+    #: How old a post written in this node must be to have reached the reader.
+    cutoff: dict[uuid.UUID, datetime] = {}
+    unread: dict[uuid.UUID, int] = {}
+    for channel_id, node_id, at in rows:
+        if node_id not in cutoff:
+            delay = await delay_between(session, constants, node_id, reader_node, now=now)
+            cutoff[node_id] = now - delay
+        if at <= cutoff[node_id]:
+            unread[channel_id] = unread.get(channel_id, 0) + 1
+    return unread
+
+
 async def unread_posts(
     session: AsyncSession,
     constants: Constants,
@@ -374,5 +507,24 @@ async def unread_posts(
     *,
     now: datetime | None = None,
 ) -> int:
-    """Delivered and unread posts across the reader's channels: the tab's count."""
-    return sum(view.unread for view in await channels(session, constants, me_id, now=now))
+    """Delivered and unread posts across the reader's channels: the tab's count.
+
+    Counted, not built. This used to run the channel-list builder and add up the
+    `unread` of every view -- and so paid, per channel, for the author's name,
+    the right to post, and a page of posts with their text, to arrive at one
+    integer (review 2026-08-23, item 3).
+
+    The counting the list itself uses, summed. That is the point of sharing it:
+    the number on the tab is the sum of the numbers on the rows behind it, and a
+    reader who adds those up by hand has to get the same answer.
+    """
+    moment = now or datetime.now(UTC)
+    citizenship = await town.citizenship(session, me_id)
+    unread = await _unread_by_channel(
+        session,
+        constants,
+        me_id,
+        native_city_id=None if citizenship is None else citizenship.city_id,
+        now=moment,
+    )
+    return sum(unread.values())

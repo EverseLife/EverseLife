@@ -49,6 +49,7 @@ cmd-no-such-order = нет такой заявки
 cmd-no-such-reservation = нет такой брони
 cmd-no-such-book-order = нет такого ордера
 cmd-no-such-loan = нет такого займа
+cmd-loan-not-ours = этот заём не на городе: казна платит по своей линии или за своего гражданина
 cmd-no-such-case = нет такого дела
 cmd-no-such-office = нет такой должности
 cmd-no-such-work-order = нет такого заказа

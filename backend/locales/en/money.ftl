@@ -109,7 +109,7 @@ bank-why-council = a decision of the Council of Cities ({ $city }); the algorith
 
 bank-why-limit-base = base { $money }
 bank-why-limit-turnover = turnover { $money } over { NUMBER($days, maximumFractionDigits: 2) } days
-bank-why-limit-repaid = { $money } repaid before
+bank-why-limit-interest = { $money } of interest paid
 bank-why-limit-no-overdue = a record without arrears
 bank-why-limit-trust = trust { NUMBER($trust, maximumFractionDigits: 0) }% from reports
 
