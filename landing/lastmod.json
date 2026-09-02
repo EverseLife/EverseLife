@@ -1,34 +1,34 @@
 {
   "/": {
-    "hash": "07100fc3c5fa6d63",
+    "hash": "7337352040b42b7f",
     "date": "2026-09-02"
   },
   "/en/": {
-    "hash": "823c924a7a199e82",
+    "hash": "d816f4dfd2e4c7a5",
     "date": "2026-09-02"
   },
   "/gameplay": {
-    "hash": "813d44e442437f91",
+    "hash": "0827b9bd9db0549c",
     "date": "2026-09-01"
   },
   "/en/gameplay": {
-    "hash": "d77ccb708951b198",
+    "hash": "7e7397dca5f3e786",
     "date": "2026-09-01"
   },
   "/world": {
-    "hash": "e8995c7fa3b4907f",
+    "hash": "bb9e4dcfa27c3f72",
     "date": "2026-09-01"
   },
   "/en/world": {
-    "hash": "e9b5a9e748a5e354",
+    "hash": "0812f5ff3e75aef1",
     "date": "2026-09-01"
   },
   "/alpha": {
-    "hash": "b27efbf4c960a1bc",
+    "hash": "2287426beb54e7d6",
     "date": "2026-09-02"
   },
   "/en/alpha": {
-    "hash": "032a55c44d80563e",
+    "hash": "40ddaf248076f29b",
     "date": "2026-09-02"
   }
 }

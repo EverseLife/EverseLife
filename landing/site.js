@@ -424,7 +424,7 @@
         if (res.ok && data.ok) {
           // Not "thank you": what happens next, and where the project lives meanwhile.
           msg.innerHTML = WORDS.signedUp +
-            '<a class="ext" href="https://discord.gg/eKhM3H9tKk" target="_blank" rel="noopener noreferrer">Discord</a>.';
+            '<a class="ext" href="/go/discord" target="_blank" rel="noopener noreferrer">Discord</a>.';
           msg.className = "form-msg ok"; form.email.value = "";
         } else {
           msg.textContent = data.error || WORDS.failed;

@@ -62,6 +62,14 @@
 {$LANDING_DOMAIN} {
 	encode zstd gzip
 
+	# `/metrics` belongs to Prometheus, which reaches the landing by service
+	# name over the compose network and never comes through here. Nothing on it
+	# is secret, but an address that answers on the public domain is an address
+	# somebody indexes -- and these numbers are ours, not the site's. 404 rather
+	# than 403: there is no reason to confirm that the path exists. This line
+	# runs before `reverse_proxy` -- Caddy orders `respond` ahead of it.
+	respond /metrics 404
+
 	reverse_proxy landing:8080
 
 	log {

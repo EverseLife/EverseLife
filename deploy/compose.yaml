@@ -156,6 +156,11 @@ services:
       #: `python indexnow.py` tell them a page changed. Empty -- the key route
       #: is not registered and the landing is exactly as it was.
       LANDING_INDEXNOW_KEY: ${LANDING_INDEXNOW_KEY:-}
+      #: The secret behind the daily visitor hash. Unset, the landing makes one
+      #: and keeps it in the same database as the hashes -- which defends the
+      #: rows against a reader, not against somebody holding the whole file.
+      #: Set it here and the file alone is no longer enough to undo a hash.
+      LANDING_VISITOR_SALT: ${LANDING_VISITOR_SALT:-}
     volumes:
       - landing_data:/data
     restart: unless-stopped

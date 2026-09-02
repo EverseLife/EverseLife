@@ -23,6 +23,15 @@ scrape_configs:
     static_configs:
       - targets: ["postgres-exporter:9187"]
 
+  # The landing: who came, from where, and how far they got. The landing counts
+  # this itself, in its own SQLite, because a counter that lives in somebody
+  # else's script costs the visitor a cross-border request -- which is why the
+  # Google one was taken off the page. The exposition is a view over those rows,
+  # so a scrape is one query and the numbers survive a restart.
+  - job_name: landing
+    static_configs:
+      - targets: ["landing:8080"]
+
   # Prometheus watching itself: without it a stopped collector looks like
   # silence rather than a failure.
   - job_name: prometheus
