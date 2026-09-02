@@ -95,6 +95,8 @@ TOUCHES: dict[str, tuple[str, ...]] = {
     #: The works fund paid or the board changed (D-248): the wallet and the
     #: public bank numbers both move.
     "works": ("money", "bank"),
+    #: A sum proposed, signed or printed changes the counter and the treasury (D-270).
+    "emission": ("city", "money"),
     #: The alpha's debug widget (D-229). Without a line here the widget would
     #: work only because the client rereads the world after any action of its
     #: own: a second tab of the same player would see nothing. The thing
@@ -167,7 +169,8 @@ ADDRESSEE_SUFFIX = "_identity_id"
 
 #: What every citizen of the city hears, wherever they stand: the city's
 #: affairs are theirs (D-160). The event names the city by `city_id`.
-CITY_VISIBLE_PREFIXES = frozenset({"city", "justice"})
+#: A sum proposed or printed in the capital is the citizens' affair too (D-270).
+CITY_VISIBLE_PREFIXES = frozenset({"city", "justice", "emission"})
 
 CITY_VISIBLE_KINDS = frozenset({"bank.rate_decided"})
 

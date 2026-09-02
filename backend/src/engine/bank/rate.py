@@ -270,16 +270,17 @@ async def _emission_share(
         )
     ).one()
     issued_, printed = line[0] or 0, line[1] or 0
-    #: What was printed into the works fund (D-248) is emission like any
-    #: other: it enters both the printed and the issued side, so the tap
-    #: cannot hide from the rate formula.
+    #: What was printed into the works fund (D-248) and what the capital
+    #: printed by signatures (D-270) is emission like any other: it enters
+    #: both the printed and the issued side, so neither tap can hide from
+    #: the rate formula.
     works_printed = int(
         await session.scalar(
             select(func.coalesce(func.sum(LedgerEntry.amount), 0))
             .join(LedgerTransaction, LedgerTransaction.id == LedgerEntry.transaction_id)
             .where(
                 LedgerEntry.amount > 0,
-                LedgerTransaction.reason == PostingReason.WORKS_PRINT,
+                LedgerTransaction.reason.in_((PostingReason.WORKS_PRINT, PostingReason.EMISSION)),
                 LedgerTransaction.at >= window,
             )
         )

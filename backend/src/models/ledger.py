@@ -88,6 +88,9 @@ class PostingReason(StrEnum):
     WORKS_PRINT = "works_print"
     #: A work order's escrow paid out to whoever completed it (D-248).
     WORKS_PAYOUT = "works_payout"
+    #: The capital printed into its treasury by the holders' signatures (D-270).
+    #: A separate ground: the emission-share sensor must see it.
+    EMISSION = "emission"
 
 
 class LedgerAccount(Base):
@@ -117,6 +120,12 @@ class LedgerTransaction(Base):
             "ix_ledger_transaction_works_print",
             "at",
             postgresql_where=text("reason = 'works_print'"),
+        ),
+        #: The same for what the capital prints by signatures (D-270).
+        Index(
+            "ix_ledger_transaction_emission",
+            "at",
+            postgresql_where=text("reason = 'emission'"),
         ),
     )
 

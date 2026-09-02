@@ -150,6 +150,7 @@ works-city-order-closed = the order is closed already: there is nothing to withd
 works-city-work-under-way = work on the order is already under way: the worker has put materials in — wait for the end of it
 
 works-city-loan-not-positive = the loan must be positive
+works-city-capital-prints = the capital does not borrow from itself: “{ $city }” prints money by the signatures of the right's holders
 works-city-line-exhausted = the city's line is exhausted: { $money } ₭ free out of { NUMBER($cap, maximumFractionDigits: 2) }% of turnover
 works-city-not-treasury-loan = this is not a treasury loan of this city
 
@@ -209,3 +210,4 @@ ledger-ground-transfer = transfer
 ledger-ground-works_recycle = returned to the works fund
 ledger-ground-works_print = printed into the works fund
 ledger-ground-works_payout = work order payout
+ledger-ground-emission = the capital's emission by signatures

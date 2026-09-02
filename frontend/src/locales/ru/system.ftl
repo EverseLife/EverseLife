@@ -38,6 +38,7 @@ ui-power-dashboard = панель города
 ui-power-justice = суд
 ui-power-citizens = граждане
 ui-power-channel = канал города
+ui-power-emission = эмиссия
 
 ## Как зовут застроенный слой на каждой планете (D-230).
 #

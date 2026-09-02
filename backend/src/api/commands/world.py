@@ -295,6 +295,7 @@ TOLD = frozenset(
         EventKind.ORDER_EXPIRED.value,
         EventKind.RESERVATION_LAPSED.value,
         EventKind.CITY_LAW_SET.value,
+        EventKind.EMISSION_PRINTED.value,
         EventKind.VOTE_CLOSED.value,
         EventKind.CASE_JUDGED.value,
         EventKind.SANCTION_APPLIED.value,

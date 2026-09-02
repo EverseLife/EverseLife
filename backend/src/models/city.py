@@ -24,7 +24,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
-from sqlalchemy import BigInteger, ForeignKey, Index, Numeric, UniqueConstraint
+from sqlalchemy import BigInteger, ForeignKey, Index, Numeric, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.db.base import Base, created_column, uuid_pk
@@ -60,6 +60,9 @@ class Power(StrEnum):
     #: Write in the city's official channel in the Net (D-222): tell the
     #: citizens a law changed without gathering them in one room.
     CHANNEL = "channel"
+    #: Propose and sign the printing of money into the treasury (D-270). Void
+    #: anywhere but the capital: only the capital prints (D-175).
+    EMISSION = "emission"
 
 
 #: Prefix of the right to one law: `law:import_duty`. Separated by a colon
@@ -82,6 +85,10 @@ class City(Base):
     #: The founder. By default also the ruler -- that is what the charter says (D-130).
     founder_identity_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("identity.id"), nullable=True
+    )
+    #: The world's one mint (D-175, D-270): the seed names it, players cannot.
+    capital: Mapped[bool] = mapped_column(
+        nullable=False, default=False, server_default=text("false")
     )
 
     #: Charter answers: `{question: option}`. Filled with `laws.json` defaults

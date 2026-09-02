@@ -154,6 +154,12 @@ CRAFT_AMOUNT_CAP = Num("craft.amount_cap")
 CRAFT_COPY_STAMINA = Num("craft.copy_stamina")
 #: What a machine on electricity draws per hour of a manual batch (D-269).
 CRAFT_POWERED_ENERGY_PER_HOUR = Num("craft.powered_energy_per_hour")
+
+# --- Emission by signatures (D-270) --------------------------------------------
+#: How long a proposal to print collects signatures before it expires.
+EMISSION_PROPOSAL_HOURS = Num("emission.proposal_hours")
+#: The share of the right's holders whose signatures print, percent.
+EMISSION_SIGNATURE_SHARE = Num("emission.signature_share")
 HARVEST_RATES = Table("harvest.rates")
 #: What a planet does to those rates (D-232): Aurora is generous with coal and
 #: poor in iron. Multipliers over one table, never a second rarity table.

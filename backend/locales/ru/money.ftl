@@ -149,6 +149,7 @@ works-city-order-closed = заказ уже закрыт: отзывать не�
 works-city-work-under-way = работа по заказу уже идёт: работник вложил материалы — дождитесь конца
 
 works-city-loan-not-positive = заём должен быть положительным
+works-city-capital-prints = столица у самой себя не занимает: «{ $city }» печатает деньги по подписям держателей права
 works-city-line-exhausted = линия города исчерпана: свободно { $money } ₭ из { NUMBER($cap, maximumFractionDigits: 2) }% оборота
 works-city-not-treasury-loan = это не заём казны этого города
 
@@ -207,3 +208,4 @@ ledger-ground-transfer = перевод
 ledger-ground-works_recycle = возврат в фонд работ
 ledger-ground-works_print = печать в фонд работ
 ledger-ground-works_payout = оплата госзаказа
+ledger-ground-emission = эмиссия по подписям столицы

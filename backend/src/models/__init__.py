@@ -17,6 +17,7 @@ from src.models.chat import ChatGroup, ChatMember, ChatMessage, Utterance
 from src.models.city import City, CityGrant, Office, Power, UtilityMeter
 from src.models.config import ConstantChange, ConstantOverride
 from src.models.craft import BatchKind, BatchState, CraftBatch
+from src.models.emission import EmissionProposal, EmissionSignature, EmissionState
 from src.models.energy import EnergyPool
 from src.models.estate import Building, BuildSite, Deed, SiteState
 from src.models.event import Event, EventKind
@@ -102,6 +103,9 @@ __all__ = [
     "Currency",
     "DailyMetric",
     "Deed",
+    "EmissionProposal",
+    "EmissionSignature",
+    "EmissionState",
     "SiteState",
     "Edge",
     "Equipped",

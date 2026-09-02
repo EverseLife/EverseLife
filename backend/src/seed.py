@@ -143,6 +143,10 @@ async def seed(session: AsyncSession) -> Node:
         await session.flush()
     if city is None:  # pragma: no cover -- a scenario without a city is a defect
         raise RuntimeError("сценарий мира не основал ни одного города")
+    #: The world's one mint (D-175, D-270): the first city the scenario names.
+    #: The seed's word, not a player's -- a city of players cannot become it.
+    city.capital = True
+    await session.flush()
 
     #: The city pool is created at once: a city has one by construction (D-071).
     await energy.ensure_pools(session, constants)

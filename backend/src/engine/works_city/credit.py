@@ -48,6 +48,11 @@ async def borrow_for_works(
     moment = now or datetime.now(UTC)
     await town.require_at_hall(session, body, city)
     await town.require(session, by.id, city, Power.TREASURY)
+    #: The capital is the bank (D-175): it does not borrow from itself, it
+    #: prints by the holders' signatures (D-270). The window hides the
+    #: button; this is the rule.
+    if city.capital:
+        raise WorksCityError(key="works-city-capital-prints", city=city.name)
     total = money(amount)
     if total <= 0:
         raise WorksCityError(key="works-city-loan-not-positive")

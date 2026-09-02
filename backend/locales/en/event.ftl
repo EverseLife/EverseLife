@@ -62,3 +62,4 @@ attention-debt = utility debt: { $node }{ $cut ->
        *[false] {""}
     }
 attention-reservation = collect the reservation: { NAME($goods) }
+event-emission-printed = money was printed into the treasury

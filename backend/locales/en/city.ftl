@@ -272,3 +272,14 @@ chat-hands-over = hands over { $named ->
         [true] { " " }×{ $amount }
        *[false] {""}
     }
+
+## Emission by signatures (D-270)
+
+emission-not-capital = only the capital prints money, and “{ $city }” is not it
+emission-not-positive = the sum to print must be greater than zero
+emission-proposal-open = a proposal is still collecting signatures: { $money } ₭; a second does not stand beside it
+emission-no-proposal = there is no such emission proposal
+emission-proposal-closed = the proposal is closed already: the money was printed or the term ran out
+emission-proposal-expired = the proposal's term ran out; no more signatures are collected under it
+emission-already-signed = your signature already stands under this proposal
+cmd-no-such-proposal = there is no such proposal

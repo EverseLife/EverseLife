@@ -40,7 +40,8 @@ import type {
 } from "../api";
 import { t } from "../locale";
 import { Rule } from "../Rule";
-import { Refusal, useActions, useSession } from "../actions";
+import { Refusal, useActions, useBook, useEdition, useSession } from "../actions";
+import { when } from "../clock";
 import { CityWorks } from "./CityWorks";
 import { Citizenship } from "./admin/Citizenship";
 import { Court } from "./admin/Court";
@@ -64,6 +65,7 @@ const TABS = [
 
 export function Admin({ look }: Omit<Props, "busy" | "act">) {
   const session = useSession();
+  const book = useBook();
   //: This panel's own waiting and its own refusal: one action here
   //: must not grey out the chat, the map and somebody else's orders.
   const acting = useActions();
@@ -80,6 +82,7 @@ export function Admin({ look }: Omit<Props, "busy" | "act">) {
   const [post, setPost] = useState(t("ui-admin-post-default"));
   const [rights, setRights] = useState<string[]>(["dashboard"]);
   const [amount, setAmount] = useState(0);
+  const [print, setPrint] = useState(0);
   const [plot, setPlot] = useState("");
   const [kind, setKind] = useState<(typeof TABS)[number]["id"]>("power");
 
@@ -103,9 +106,12 @@ export function Admin({ look }: Omit<Props, "busy" | "act">) {
     }
   }, [session]);
 
+  //: Another hand's signature or a print elsewhere in the hall moves the
+  //: counter this window shows (D-226): reread when the server says so.
+  const edition = useEdition("emission.", "city.");
   useEffect(() => {
     void reload();
-  }, [reload, look.node?.key]);
+  }, [reload, look.node?.key, edition]);
 
   const go = (what: () => Promise<unknown>) =>
     act(async () => {
@@ -130,6 +136,11 @@ export function Admin({ look }: Omit<Props, "busy" | "act">) {
     city.powers.includes(right) ||
     (right.startsWith(api.LAW_SCOPE) && city.powers.includes("laws"));
   const decides = city.at_hall;
+  //: Named before the JSX: inside a closure TypeScript forgets the narrowing,
+  //: and a `?.` there could send an empty proposal to the server.
+  const proposalId = city.emission?.proposal?.id ?? "";
+  //: The share is the vault's number (D-225): the rule says it, not a copy.
+  const share = Number(book?.constants?.["emission.signature_share"] ?? 0);
   const residents = city.citizens.filter((name) => name !== look.identity);
   const vacant = city.lots.filter((lot) => lot.free);
 
@@ -390,9 +401,81 @@ export function Admin({ look }: Omit<Props, "busy" | "act">) {
             </>
           )}
 
+          {/* Emission by signatures (D-270): the capital prints into its own
+              treasury when the vault's share of the right's holders signed.
+              The live proposal is shown to whoever came in; the hands to
+              those who hold the right, in the hall. */}
+          {city.capital && city.emission && (can("emission") || city.emission.proposal) && (
+            <>
+              <h3>
+                {t("ui-emission-title")}
+                <Rule>{t("ui-emission-rule", { share: share.toFixed(0) })}</Rule>
+              </h3>
+              <p className="note">
+                {t("ui-emission-holders", {
+                  holders: city.emission.holders,
+                  needed: city.emission.needed,
+                })}
+              </p>
+              {city.emission.proposal ? (
+                <div className="row">
+                  <span>
+                    {t("ui-emission-proposal", {
+                      money: api.tk(city.emission.proposal.money),
+                      who: city.emission.proposal.who,
+                      signed: city.emission.proposal.signed,
+                      needed: city.emission.needed,
+                      until: when(city.emission.proposal.expires_at),
+                    })}
+                  </span>
+                  {city.emission.proposal.mine ? (
+                    <span className="note">{t("ui-emission-signed")}</span>
+                  ) : (
+                    can("emission") &&
+                    decides && (
+                      <button
+                        onClick={() =>
+                          go(() => session.send("city.emission_sign", { proposal: proposalId }))
+                        }
+                        disabled={busy}
+                      >
+                        {t("ui-emission-sign")}
+                      </button>
+                    )
+                  )}
+                </div>
+              ) : (
+                can("emission") &&
+                decides && (
+                  <div className="row">
+                    <label>
+                      <span>{t("ui-emission-amount")}</span>
+                      <input
+                        type="number"
+                        min={1}
+                        value={print}
+                        onChange={(e) => setPrint(Number(e.target.value))}
+                      />
+                    </label>
+                    <button
+                      onClick={() =>
+                        go(() => session.send("city.emission_propose", { amount: print }))
+                      }
+                      disabled={busy || print <= 0}
+                    >
+                      {t("ui-emission-print")}
+                    </button>
+                  </div>
+                )
+              )}
+            </>
+          )}
+
           {/* Госзаказ и кредит казне (D-248): решения властью «казна» у себя в
               администрации, как и любая трата. */}
-          {can("treasury") && decides && <CityWorks busy={busy} act={act} />}
+          {can("treasury") && decides && (
+            <CityWorks busy={busy} act={act} capital={Boolean(city.capital)} />
+          )}
 
           <h3>
             {t("ui-admin-charter")}

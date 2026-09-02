@@ -22,6 +22,8 @@ import { Rule } from "../Rule";
 type Props = {
   busy: boolean;
   act: (what: () => Promise<unknown>) => Promise<void>;
+  /** The capital does not borrow from itself (D-175): it prints (D-270). */
+  capital?: boolean;
 };
 
 /** The kinds of order this board posts, each by the message that names it. */
@@ -31,7 +33,7 @@ const CITY_KINDS: Record<string, string> = {
   fuel_delivery: "ui-city-works-fuel",
 };
 
-export function CityWorks({ busy, act }: Props) {
+export function CityWorks({ busy, act, capital = false }: Props) {
   const session = useSession();
   const book = useBook();
   const names = useNames();
@@ -247,20 +249,22 @@ export function CityWorks({ busy, act }: Props) {
             </button>
           </div>
         ))}
-      <div className="row">
-        <input
-          type="number"
-          min={1}
-          value={borrow}
-          onChange={(e) => setBorrow(Number(e.target.value))}
-        />
-        <button
-          onClick={() => go(() => session.send("city.borrow", { amount: borrow }))}
-          disabled={busy || borrow <= 0}
-        >
-          {t("ui-city-borrow")}
-        </button>
-      </div>
+      {!capital && (
+        <div className="row">
+          <input
+            type="number"
+            min={1}
+            value={borrow}
+            onChange={(e) => setBorrow(Number(e.target.value))}
+          />
+          <button
+            onClick={() => go(() => session.send("city.borrow", { amount: borrow }))}
+            disabled={busy || borrow <= 0}
+          >
+            {t("ui-city-borrow")}
+          </button>
+        </div>
+      )}
     </>
   );
 }

@@ -269,3 +269,14 @@ chat-hands-over = передаёт { $named ->
         [true] { " " }×{ $amount }
        *[false] {""}
     }
+
+## Эмиссия по подписям (D-270)
+
+emission-not-capital = деньги печатает только столица, а «{ $city }» — не она
+emission-not-positive = сумма эмиссии должна быть больше нуля
+emission-proposal-open = заявка ещё собирает подписи: { $money } ₭; вторая рядом с ней не стоит
+emission-no-proposal = такой заявки на эмиссию нет
+emission-proposal-closed = заявка уже закрыта: деньги напечатаны или срок вышел
+emission-proposal-expired = срок заявки вышел, подписи под ней больше не собирают
+emission-already-signed = ваша подпись под этой заявкой уже стоит
+cmd-no-such-proposal = нет такой заявки

@@ -62,3 +62,4 @@ attention-debt = долг за быт: { $node }{ $cut ->
        *[false] {""}
     }
 attention-reservation = забрать бронь: { NAME($goods) }
+event-emission-printed = деньги напечатаны в казну

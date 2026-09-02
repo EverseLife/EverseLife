@@ -42,6 +42,7 @@ ui-power-dashboard = city dashboard
 ui-power-justice = court
 ui-power-citizens = citizens
 ui-power-channel = city channel
+ui-power-emission = emission
 
 ## What the built-up layer is called on each planet (D-230).
 #

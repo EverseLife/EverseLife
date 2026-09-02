@@ -159,11 +159,22 @@ ui-city-works-amount = how many units
 ui-city-works-price = price per unit, ₭
 ui-city-works-order-fuel = Order a delivery
 ui-city-loan-title = Credit to the treasury
-ui-city-loan-rule = The treasury borrows from the central bank for public works: at the key rate, with no margin and no premiums, on the city's common credit line — the same one that carries the citizens' loans.
+ui-city-loan-rule = The treasury borrows from the capital for public works: at the key rate, with no margin and no premiums, on the city's common credit line — the same one that carries the citizens' loans.
 ui-city-loan-line = line: { $occupied } ₭ taken of { $permitted } ₭
 ui-city-loan-row = { $outstanding } ₭ left of { $principal } ₭ at { $rate }% · taken { $taken }
 ui-city-loan-repay = Repay from the treasury
-ui-city-borrow = Borrow ₭ from the central bank
+ui-city-borrow = Borrow ₭ from the capital
+
+## Emission by signatures (D-270)
+
+ui-emission-title = Emission
+ui-emission-rule = The capital prints money into its own treasury by signatures: a holder of the “emission” right proposes, the signatures of { $share }% of the holders print. Only the hands that hold the right now count. What is printed enters the emission share — the rate sees it by itself.
+ui-emission-holders = holders of the right: { $holders } · signatures needed: { $needed }
+ui-emission-proposal = { $money } ₭ · proposed by: { $who } · signatures { $signed } of { $needed } · term: { $until }
+ui-emission-sign = Sign
+ui-emission-signed = your signature stands
+ui-emission-amount = how much to print, ₭
+ui-emission-print = Print money
 
 ## Administration: offices, rights, laws, charter (D-154, D-155)
 

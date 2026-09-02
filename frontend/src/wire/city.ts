@@ -70,6 +70,23 @@ export type CityView = {
   at_hall: boolean;
   lots: { key: string; name: string; area: number; owner?: string; free: boolean }[];
   citizens: string[];
+  /** The world's one mint (D-270): present only on the capital. */
+  capital?: boolean;
+  /** The emission counter (D-270), with the capital: how many hands hold the
+   *  right, how many print, and the proposal collecting signatures if one stands. */
+  emission?: {
+    holders: number;
+    needed: number;
+    proposal?: {
+      id: string;
+      /** Minor units, like the treasury. */
+      money: number;
+      who: string;
+      signed: number;
+      expires_at: string;
+      mine: boolean;
+    };
+  };
 };
 
 /** The city's economic panel (D-124, D-140). The public snapshot is visible to all. */
@@ -188,6 +205,7 @@ export const POWERS: Record<string, string> = {
   justice: "ui-power-justice",
   citizens: "ui-power-citizens",
   channel: "ui-power-channel",
+  emission: "ui-power-emission",
 };
 
 /** The right to one law: `law:import_duty` (D-155). */

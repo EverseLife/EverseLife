@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,6 +22,7 @@ from src.api.registry import Refused, command
 from src.constants import current, current_catalog
 from src.engine import (
     bank,
+    emission,
     justice,
     panel,
     vote,
@@ -30,6 +32,7 @@ from src.engine import (
 from src.engine import city as town
 from src.models.bank import Loan
 from src.models.city import Citizen, Office, Power
+from src.models.emission import EmissionState
 from src.models.identity import Identity
 from src.models.justice import Case
 from src.models.vote import Vote
@@ -358,6 +361,13 @@ async def _city_survey(state: dict, db: AsyncSession, message: dict) -> dict:
         if node.properties.get("plot")
     ]
     summary["citizens"] = await _citizens(db)
+    #: The mint (D-270): the flag and the counter travel only with the capital
+    #: -- a city that is not it has nothing to say here (D-225).
+    if city.capital:
+        summary["capital"] = True
+        summary["emission"] = await emission.view(
+            db, current(), city, state["identity_id"], now=datetime.now(UTC)
+        )
     return {"city": summary}
 
 
@@ -629,6 +639,39 @@ async def _city_borrow(state: dict, db: AsyncSession, message: dict) -> dict:
         float(message.get("amount") or 0),
     )
     return {"loan": str(loan.id), "rate": float(loan.rate)}
+
+
+@command("city.emission_propose")
+async def _city_emission_propose(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Propose to print `amount` into the capital's treasury (D-270); the
+    proposer's hand is the first signature, and one holder alone prints at once."""
+    proposal = await emission.propose(
+        db,
+        current(),
+        await _city(state, db, message),
+        await _identity(state, db),
+        await _alive(state, db),
+        float(message.get("amount") or 0),
+    )
+    return {"proposal": str(proposal.id), "printed": proposal.state is EmissionState.PRINTED}
+
+
+@command("city.emission_sign")
+async def _city_emission_sign(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Sign a proposal to print (D-270); the hand that completes the share prints."""
+    try:
+        proposal_id = uuid.UUID(str(message.get("proposal") or ""))
+    except ValueError as bad:
+        raise Refused(key="cmd-no-such-proposal") from bad
+    proposal = await emission.sign(
+        db,
+        current(),
+        await _city(state, db, message),
+        await _identity(state, db),
+        await _alive(state, db),
+        proposal_id,
+    )
+    return {"proposal": str(proposal.id), "printed": proposal.state is EmissionState.PRINTED}
 
 
 @command("city.loan_repay")

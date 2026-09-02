@@ -289,6 +289,10 @@ class EventKind(StrEnum):
     WORKS_ORDER_POSTED = "works.order_posted"
     WORKS_ORDER_CANCELLED = "works.order_cancelled"
     WORKS_PAID = "works.paid"
+    #: Emission by signatures (D-270): a sum proposed, a hand under it, the print.
+    EMISSION_PROPOSED = "emission.proposed"
+    EMISSION_SIGNED = "emission.signed"
+    EMISSION_PRINTED = "emission.printed"
     #: Interest income returned to city treasuries by turnover (D-171).
     #: Cancelled by D-175: the value remains for old events.
     SEIGNIORAGE_PAID = "bank.seigniorage_paid"

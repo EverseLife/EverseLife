@@ -104,6 +104,11 @@ async def catch_up(session: AsyncSession, core: Node) -> None:
         city.laws = {"newcomer_grant": parts.NEWCOMER_GRANT}
         await parts.treasury(session, city)
         log.info("city founded on the existing world: %s", city.name)
+    #: The capital's flag and the founder's full hand (D-270): a world laid
+    #: before the decision has neither, and its president would stand without
+    #: the mint the decision gave the office.
+    city.capital = True
+    await _founder_powers_catch_up(session, city)
 
     #: The city's doors (D-206). A world laid out before that decision has
     #: cities without a gate, and until every one of them has it a road from
@@ -621,4 +626,22 @@ async def _ship_steps(session: AsyncSession, constants) -> None:
     for edge in corridors:
         if edge.base_seconds != step:
             edge.base_seconds = step
+    await session.flush()
+
+
+async def _founder_powers_catch_up(session: AsyncSession, city: City) -> None:
+    """The founder holds every power (D-130), the ones that arrived after this
+    world was laid included: an office written with the old list is topped up
+    to the current one. Only the founder's -- by identity, never by title: a
+    title is the city's free word, and an appointed "president" holds exactly
+    what it was given."""
+    for office in await town.offices(session, city):
+        if office.identity_id != city.founder_identity_id:
+            continue
+        held = set(str(raw) for raw in office.powers or ())
+        missing = set(town.FOUNDER_POWERS) - held
+        if not missing:
+            continue
+        office.powers = sorted(held | missing)
+        log.info("founder's office topped up with %s in %s", sorted(missing), city.name)
     await session.flush()
