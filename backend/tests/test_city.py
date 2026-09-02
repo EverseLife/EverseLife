@@ -531,3 +531,40 @@ async def test_city_land_taken_by_law_code(session: AsyncSession, catalog: Catal
 
     city.laws = {**city.laws, "build_permit": "все"}
     assert town.may_take_city_land(catalog, city, False), "город вправе открыться"
+
+
+# --- the treasury and other people's debts (D-280) ---------------------------
+
+
+async def test_treasury_bails_out_only_its_own(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Its own line or its own citizen, and nobody else's.
+
+    The treasury used to settle any loan by number, and since D-280 every such
+    payment buys the debtor a credit limit -- so a city could raise a
+    stranger's limit with public money, and take its share of the margin back
+    on top.
+    """
+    from src.api.commands.city import _city_bail
+    from src.api.registry import Refused
+    from src.engine import bank
+
+    city, core = await _capital(session, catalog, funds=1000)
+    president, _ = await _resident(session, core, "Президент")
+    await town.install_founder(session, city, president)
+
+    stranger, stranger_body = await _resident(session, core, "Чужой")
+    debt = await bank.borrow(session, constants, catalog, stranger, 100)
+    assert debt.city_id is None, "чужой не гражданин: заём прямой у столицы"
+    await session.flush()
+
+    state = {"identity_id": president.id}
+    with pytest.raises(Refused):
+        await _city_bail(state, session, {"city": core.key, "loan": str(debt.id)})
+    assert debt.outstanding == money(100), "казна не заплатила по чужому займу"
+
+    #: Its own citizen -- the city stands for them, and that is what a city is for.
+    await town.join(session, stranger_body, city)
+    paid = await _city_bail(state, session, {"city": core.key, "loan": str(debt.id)})
+    assert paid["paid"] > 0
