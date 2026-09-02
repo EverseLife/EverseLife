@@ -96,6 +96,12 @@ SKY_CALENDAR_MEMO = 64
 #: Quality is stored to a hundredth of a point (`Numeric(6, 2)` columns).
 ROUND_QUALITY = 2
 
+#: Work banked in minutes is stored to a hundredth (`Plot.plow_done_minutes`
+#: is `Numeric(10, 2)`). The scale of the column, not a property of the game:
+#: a plough is paused and taken up again (D-277), so the remainder has to
+#: survive the round trip through the row unchanged.
+ROUND_MINUTES = 2
+
 #: Argon2id takes memory in KiB, while `pow.memory_per_session` is given in MB.
 KIB_PER_MIB = 1024
 
