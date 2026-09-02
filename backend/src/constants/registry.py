@@ -341,10 +341,12 @@ BANK_UNSECURED_LIMIT = Num("bank.unsecured_limit")
 BANK_CITY_MARGIN_CAP = Num("bank.city_margin_cap")
 #: The city's line with the capital: citizens' debt no higher than this share of turnover (D-175).
 BANK_DEBT_TO_TURNOVER_CAP = Num("bank.debt_to_turnover_cap")
-#: Credit limit from labour (D-173): shares of turnover and of repaid, the
-#: window, the bonus for a record without overdue, the report price and the trust floor.
+#: Credit limit from labour (D-173): the share of turnover, the multiple of the
+#: interest paid (D-280 -- of repaid principal before it, and that was free to
+#: run up), the window, the bonus for a record without overdue, the report price
+#: and the trust floor.
 CREDIT_TURNOVER_SHARE = Num("credit.turnover_share")
-CREDIT_REPAID_SHARE = Num("credit.repaid_share")
+CREDIT_INTEREST_SHARE = Num("credit.interest_share")
 CREDIT_WINDOW = Num("credit.window")
 CREDIT_NO_OVERDUE_BONUS = Num("credit.no_overdue_bonus")
 CREDIT_REPORT_PENALTY = Num("credit.report_penalty")

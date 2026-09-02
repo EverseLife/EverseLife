@@ -322,6 +322,22 @@ async def _city_cases(state: dict, db: AsyncSession, message: dict) -> dict:
     }
 
 
+async def _ours(db: AsyncSession, city, loan: Loan) -> bool:
+    """Whether this loan is the city's business: its line, or its citizen.
+
+    A loan issued through the city sits on its line with the capital (D-175),
+    and repaying it frees that line. A citizen's direct loan from the capital
+    does not, but the city may still stand for its own -- that is what a city
+    is for (D-160).
+    """
+    if loan.city_id == city.id:
+        return True
+    if loan.identity_id is None:
+        return False
+    entry = await town.citizenship(db, loan.identity_id)
+    return entry is not None and entry.city_id == city.id
+
+
 @command("city.bail")
 async def _city_bail(state: dict, db: AsyncSession, message: dict) -> dict:
     """The city repays a citizen's debt from the treasury (D-175): frees its own line.
@@ -337,6 +353,12 @@ async def _city_bail(state: dict, db: AsyncSession, message: dict) -> dict:
     loan = await db.get(Loan, uuid.UUID(message["loan"]))
     if loan is None:
         raise Refused(key="cmd-no-such-loan")
+    #: Its own line or its own citizen, and no one else's (D-280). The treasury
+    #: used to settle any loan by number, and under D-280 every such payment
+    #: also buys the debtor a credit limit -- so a city could raise a stranger's
+    #: limit with public money, and get its share of the margin back on top.
+    if not await _ours(db, city, loan):
+        raise Refused(key="cmd-loan-not-ours")
     treasury = await town.treasury(db, city)
     paid = await bank.repay(
         db,

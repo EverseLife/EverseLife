@@ -183,7 +183,7 @@ ui-inventory-keeps = keeps { $days } d
 ## The bank
 
 ui-bank-title = Bank
-ui-bank-rule = There is no collateral: the limit is earned by work — turnover and loans already repaid. Your own city lends to you at its own margin, and while its line is not spent the rate is lower: past it the money comes straight from the capital, with a premium for the risk.
+ui-bank-rule = There is no collateral: the limit is earned by work — turnover and the interest paid on loans carried. Your own city lends to you at its own margin, and while its line is not spent the rate is lower: past it the money comes straight from the capital, with a premium for the risk.
 ui-bank-rate = key rate
 ui-bank-circulating = in circulation
 ui-bank-reserve = in reserve
