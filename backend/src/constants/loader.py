@@ -58,7 +58,7 @@ def rename_key_table(renames: RenameTable) -> dict[str, str]:
         for name, entry_id in domain.items():
             if merged.get(name, entry_id) != entry_id:
                 raise ConstantError(
-                    f"слово {name!r} переводится двумя ключами: {merged[name]!r} и {entry_id!r}"
+                    f"the word {name!r} translates to two keys: {merged[name]!r} and {entry_id!r}"
                 )
             merged[name] = entry_id
     return merged
@@ -147,7 +147,7 @@ class Constants:
         if cached is not None:
             return cached
         if spec.key not in self._raw:
-            raise ConstantError(f"{spec.key}: нет в наборе констант ({self._source})")
+            raise ConstantError(f"{spec.key}: not in the constant set ({self._source})")
         value = spec.read(self._raw[spec.key])
         self._cache[spec.key] = value
         return value
@@ -166,7 +166,7 @@ class Constants:
         unknown = set(overrides) - set(self._raw)
         if unknown:
             raise ConstantError(
-                "правка ссылается на несуществующие константы: " + ", ".join(sorted(unknown))
+                "the edit references constants that do not exist: " + ", ".join(sorted(unknown))
             )
         return Constants({**self._raw, **overrides}, source=f"{self._source}+overrides")
 
@@ -184,7 +184,7 @@ class Constants:
                 problems.append(str(exc))
         if problems:
             raise ConstantError(
-                f"набор констант непригоден ({self._source}):\n  " + "\n  ".join(problems)
+                f"the constant set is unusable ({self._source}):\n  " + "\n  ".join(problems)
             )
 
 
@@ -192,13 +192,13 @@ def load_constants(build_dir: Path, renames: RenameTable) -> Constants:
     path = Path(build_dir) / "constants.json"
     if not path.exists():
         raise ConstantError(
-            f"не найден {path}. Движок читает только build/ вольта; "
-            f"собери его командой `python tools/build.py` в вольте гейм-дизайна"
+            f"{path} not found. The engine reads only build/ of the vault; "
+            "build it with `python tools/build.py` in the game-design vault"
         )
     with path.open(encoding="utf-8") as fh:
         raw = json.load(fh)
     if not isinstance(raw, dict):
-        raise ConstantError(f"{path}: ожидалась плоская карта ключ → значение")
+        raise ConstantError(f"{path}: expected a flat map of key -> value")
     return Constants(normalize_constants(raw, renames), source=str(path))
 
 
@@ -217,7 +217,7 @@ class ConstantsHolder:
         current = self._current
         if current is None:
             raise ConstantError(
-                "константы не загружены: движок обязан загрузить их при старте, а не по требованию"
+                "constants are not loaded: the engine must load them at startup, not on demand"
             )
         return current
 
