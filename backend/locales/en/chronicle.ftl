@@ -24,7 +24,7 @@ chronicle-somewhere = somewhere
 chronicle-city-founded = 🏛 **The city of { $city } is founded** — { $where }. Founded by: { $who }.
 
 chronicle-city-law-set = 📐 { $city }: code-law “{ $named ->
-        [true] { $law }
+        [true] { LAW($law) }
        *[false] law
     }” — was { $was }, now { $now }.
 

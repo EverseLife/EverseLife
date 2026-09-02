@@ -52,11 +52,14 @@ NOW = datetime(2026, 9, 2, 12, 0, tzinfo=UTC)
 
 #: The whole command, on the two scenes below. Two numbers and not one, because
 #: they measure different worlds and must not share a margin: a city with no
-#: roads in it (63 measured on 2026-09-02) and the same city with two streets
-#: (70 -- two of them the Net's map, the rest `look`'s own, see
+#: roads in it (65 measured on 2026-09-02) and the same city with two streets
+#: (72 -- two of them the Net's map, the rest `look`'s own, see
 #: `_citizen_with_channels`). One ceiling over both would sit flush against the
 #: larger, and the first honest field added anywhere in `look` would break it;
-#: whoever tripped over that would raise the number rather than read it.
+#: whoever tripped over that would raise the number rather than read it. The
+#: margin is not decoration: merging the ballot in the Net tab (D-161) cost
+#: `look` two queries the same day these numbers were taken, 63 and 70 before
+#: it, and a flush ceiling would have failed the merge instead of the code.
 #:
 #: Both are ceilings for a **five-node** city. `terra.capital` has thirteen, and
 #: the territory grows as land is bought, so neither number is a promise about
@@ -122,6 +125,7 @@ async def _citizen_with_channels(
         where.append(street)
 
     official = await net.city_channel(session, city)
+    assert official is not None, "город основан со своим каналом"
     await net.post(session, founder, official.id, "закон сменился", now=NOW)
     for n in range(channels):
         author = await world.create_identity(session, f"Автор-{uuid.uuid4().hex[:6]}")

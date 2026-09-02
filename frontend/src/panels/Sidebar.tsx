@@ -149,7 +149,10 @@ export function Sidebar({ look, onLogout }: { look: Look; onLogout: () => void }
     work: look.batches.length + (look.doings ?? []).filter((d) => d.kind !== "craft").length,
     money: look.orders.length + look.reservations.length,
     goods: look.inventory.length,
-    net: look.net_unread ?? 0,
+    //: A poll waiting for one's answer counts the same as an unread letter:
+    //: both are "there is something here", and the vote has a deadline the
+    //: letter does not (D-161).
+    net: (look.net_unread ?? 0) + (look.net_votes ?? 0),
   };
 
   //: The nearest running term, drawn on the "активности" tab itself -- the

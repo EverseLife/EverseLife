@@ -132,8 +132,6 @@ from src.engine.city.grant import (  # noqa: F401
 )
 from src.engine.city.hall import require_at_hall  # noqa: F401
 from src.engine.city.land import (  # noqa: F401
-    _plain,
-    _shown,
     allot,
     cede,
     survey,
@@ -144,6 +142,7 @@ from src.engine.city.law import (  # noqa: F401
     SPAWN_TERM,
     TRADE_TAX,
     _apply_tariff,
+    apply_law,
     law,
     law_number,
     may_take_city_land,

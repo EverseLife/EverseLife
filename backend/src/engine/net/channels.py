@@ -72,16 +72,18 @@ class Post:
     delivered_at: datetime
 
 
-async def city_channel(session: AsyncSession, city: City) -> NetChannel:
-    """The city's official channel: exists from the first time it is asked for."""
-    channel = (
+async def city_channel(session: AsyncSession, city: City) -> NetChannel | None:
+    """The city's official channel. Born with the city, in `city.found`.
+
+    It used to exist "from the first time it is asked for", and the first ask
+    is `look`: the tab's unread count goes through `channels()`, so the first
+    citizen's first look at a young city inserted a row -- a read that wrote,
+    on the hottest read in the game. `None` here is a city from before the
+    channels were founded with their cities; the migration gives it one.
+    """
+    return (
         await session.execute(select(NetChannel).where(NetChannel.city_id == city.id))
     ).scalar_one_or_none()
-    if channel is None:
-        channel = NetChannel(name=city.name, city_id=city.id)
-        session.add(channel)
-        await session.flush()
-    return channel
 
 
 async def create_channel(
@@ -270,7 +272,8 @@ async def channels(
     seen: dict[uuid.UUID, NetChannel] = {}
     if native is not None:
         official = await city_channel(session, native)
-        seen[official.id] = official
+        if official is not None:
+            seen[official.id] = official
     for channel in (
         await session.execute(
             select(NetChannel)

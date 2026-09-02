@@ -40,7 +40,7 @@ from src.models.farm import Plot, PlotState
 from src.models.identity import Body
 from src.models.job import Job, JobKind, JobState
 from src.models.world import Node
-from src.units import SCALE_MAX, amount, amount_float
+from src.units import ROUND_MINUTES, SCALE_MAX, amount, amount_float
 
 
 async def mark(
@@ -229,7 +229,7 @@ async def plow_pause(
     job.state = JobState.CANCELLED
     job.finished_at = moment
     done = min(plow_minutes(constants, strip), plow_done_minutes(strip, moment))
-    strip.plow_done_minutes = Decimal(str(round(done, 2)))
+    strip.plow_done_minutes = Decimal(str(round(done, ROUND_MINUTES)))
     strip.plow_since = None
     await session.flush()
 

@@ -18,9 +18,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src import runtime
 from src.api.commands.common import _body, _identity
 from src.api.registry import command
-from src.constants import current, current_catalog
+from src.constants import current
 from src.constants import registry as R
-from src.engine import city as town
 from src.engine import (
     utility,
     vote,
@@ -118,27 +117,23 @@ async def _world_summary(state: dict, db: AsyncSession, message: dict) -> dict:
         )
 
     #: A vote you may cast and have not. Yours alone: what other cities decide
-    #: is not your business, and a feed of it would be noise.
-    own_ = await town.citizenship(db, identity.id)
-    if own_ is not None:
-        native = await town.by_id(db, own_.city_id)
-        if native is not None:
-            for poll in await vote.view(db, current_catalog(), native, identity.id):
-                if poll["may_vote"] and poll["mine"] is None and poll["choice"] is None:
-                    #: A law is put to the vote under a name somebody wrote;
-                    #: everything else is named by its kind, and the kind is an
-                    #: enum -- a word of it belongs in the locale, not here,
-                    #: or the player reads «голосование: council».
-                    law = poll.get("law")
-                    attention.append(
-                        {
-                            "kind": "vote",
-                            "say": "attention-vote-law" if law else "attention-vote-kind",
-                            "args": {"law": law} if law else {"kind": poll["kind"]},
-                            "where": native.name,
-                            "until": poll["closes_at"],
-                        }
-                    )
+    #: is not your business, and a feed of it would be noise. The same reading
+    #: the Net tab does -- one walk from a person to their city's ballot box.
+    native, polls = await vote.mine(db, identity.id)
+    for poll in vote.unanswered(polls):
+        #: A law is put to the vote by its D-251 id; everything else is named
+        #: by its kind, and the kind is an enum -- a word of it belongs in the
+        #: locale, not here, or the player reads «голосование: council».
+        law = poll.get("law")
+        attention.append(
+            {
+                "kind": "vote",
+                "say": "attention-vote-law" if law else "attention-vote-kind",
+                "args": {"law": law} if law else {"kind": poll["kind"]},
+                "where": None if native is None else native.name,
+                "until": poll["closes_at"],
+            }
+        )
 
     #: A debt cuts the node off, and the machines in it stop. Property under
     #: threat, and nobody but the owner can clear it.

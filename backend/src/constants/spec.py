@@ -84,14 +84,14 @@ class Spec:
         raise NotImplementedError
 
     def _fail(self, raw: Any, expected: str) -> ConstantError:
-        return ConstantError(f"{self.key}: ожидалось {expected}, получено {raw!r}")
+        return ConstantError(f"{self.key}: expected {expected}, got {raw!r}")
 
 
 @dataclass(frozen=True, slots=True)
 class Num(Spec):
     def read(self, raw: Any) -> float:
         if isinstance(raw, bool) or not isinstance(raw, (int, float)):
-            raise self._fail(raw, "число")
+            raise self._fail(raw, "a number")
         return float(raw)
 
 
@@ -107,7 +107,7 @@ class Flag(Spec):
 class Text(Spec):
     def read(self, raw: Any) -> str:
         if not isinstance(raw, str):
-            raise self._fail(raw, "строка")
+            raise self._fail(raw, "a string")
         return raw
 
 
@@ -120,9 +120,9 @@ class Span(Spec):
             raise self._fail(raw, "{min, max}")
         lo, hi = raw["min"], raw["max"]
         if not isinstance(lo, (int, float)) or not isinstance(hi, (int, float)):
-            raise self._fail(raw, "{min, max} с числами")
+            raise self._fail(raw, "{min, max} with numbers")
         if lo > hi:
-            raise self._fail(raw, "{min, max} с min <= max")
+            raise self._fail(raw, "{min, max} with min <= max")
         return Range(float(lo), float(hi))
 
 
@@ -132,11 +132,11 @@ class Table(Spec):
 
     def read(self, raw: Any) -> dict[str, float]:
         if not isinstance(raw, dict):
-            raise self._fail(raw, "карта имя → число")
+            raise self._fail(raw, "a map of name -> number")
         out: dict[str, float] = {}
         for name, value in raw.items():
             if isinstance(value, bool) or not isinstance(value, (int, float)):
-                raise self._fail(raw, f"число в ключе {name!r}")
+                raise self._fail(raw, f"a number at key {name!r}")
             out[str(name)] = float(value)
         return out
 
@@ -172,15 +172,15 @@ class Book(Spec):
 
     def read(self, raw: Any) -> dict[str, dict[str, float]]:
         if not isinstance(raw, dict) or not raw:
-            raise self._fail(raw, "непустая карта имя → состав")
+            raise self._fail(raw, "a non-empty map of name -> parts")
         out: dict[str, dict[str, float]] = {}
         for name, body in raw.items():
             if not isinstance(body, dict) or not body:
-                raise self._fail(raw, f"состав в ключе {name!r}")
+                raise self._fail(raw, f"parts at key {name!r}")
             parts: dict[str, float] = {}
             for part, value in body.items():
                 if isinstance(value, bool) or not isinstance(value, (int, float)):
-                    raise self._fail(raw, f"число в {name!r} → {part!r}")
+                    raise self._fail(raw, f"a number at {name!r} -> {part!r}")
                 parts[str(part)] = float(value)
             out[str(name)] = parts
         return out
@@ -192,11 +192,11 @@ class Tiers(Spec):
 
     def read(self, raw: Any) -> tuple[Tier, ...]:
         if not isinstance(raw, list) or not raw:
-            raise self._fail(raw, "непустой список ступеней")
+            raise self._fail(raw, "a non-empty list of tiers")
         tiers = []
         for item in raw:
             if not isinstance(item, dict) or not {"from", "to", "name"} <= item.keys():
-                raise self._fail(raw, "ступени {from, to, name}")
+                raise self._fail(raw, "a list of tiers {from, to, name}")
             tiers.append(Tier(float(item["from"]), float(item["to"]), str(item["name"])))
         return tuple(tiers)
 
@@ -207,5 +207,5 @@ class FormulaRef(Spec):
 
     def read(self, raw: Any) -> Formula:
         if not isinstance(raw, dict) or "formula" not in raw:
-            raise self._fail(raw, "{formula: …}")
+            raise self._fail(raw, "{formula: ...}")
         return Formula(str(raw["formula"]))
