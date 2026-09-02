@@ -28,6 +28,27 @@ Three sources, and each was learned by getting it wrong:
   on a branch with another, the branch was re-parented during the merge; main
   is the truth and the stale branch copy is not a collision.
 
+**Exit codes, and the whole design is in them.** Without `--tree` this is a
+forecast -- "here is what main will hold when every branch lands" -- and it
+**always exits 0**, however loudly it prints. A forecast is about unfinished
+work that may never collide, and a tool that refuses a commit over one locks
+the machine: the only cure for a collision is a commit. It locks the innocent
+first, too -- whoever merges first is by definition not the one who must
+re-parent. Two sessions stood in that deadlock within an hour of the first
+version of this check, and the author of it could not commit the repair.
+
+`--tree` is the other question and the only one allowed to refuse: not a
+forecast but a fact -- *this* tree, right now, holds two heads. That is what
+`pre-merge-commit` asks.
+
+**Run it by hand before a merge.** The `pre-merge-commit` hook is the hard
+stop, but it fires only when a merge writes a commit -- and `--ff-only`, the
+way most merges land here, writes none. The first real collision after these
+checks existed came in exactly that way: the hook never saw it, and what caught
+it was somebody running this script before merging. So the hook is a floor, not
+a ceiling; `python backend/tools/check_migration_parents.py` before you merge is
+the thing that actually looks.
+
 **Why not GitHub CI.** The branches never leave the machine -- `git branch -r`
 knows `origin/main` alone, because work lives in local worktrees and is merged
 locally. A runner has nothing to compare. The half that CI *can* do is in
@@ -191,7 +212,8 @@ def main(argv: list[str] | None = None) -> int:
     #: asks only what this working tree now holds: that is what the merge being
     #: committed will leave behind, and blocking it because some *other*
     #: branch is stale would stop a merge that is perfectly sound.
-    only_here = "--tree" in (argv if argv is not None else sys.argv[1:])
+    flags = argv if argv is not None else sys.argv[1:]
+    only_here = "--tree" in flags
     try:
         found = _this_tree() if only_here else gather()
     except Unusable as why:
@@ -221,7 +243,8 @@ def main(argv: list[str] | None = None) -> int:
         "Голову берите из `alembic heads` перед самым коммитом, а не по памяти.",
         file=sys.stderr,
     )
-    return 1
+    #: Only the narrow question refuses. See the exit codes above the module.
+    return 1 if only_here else 0
 
 
 if __name__ == "__main__":
