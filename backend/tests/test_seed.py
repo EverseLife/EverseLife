@@ -46,6 +46,7 @@ from src.models.estate import Building
 from src.models.event import Event, EventKind
 from src.models.inventory import Container, ContainerKind, Item
 from src.models.world import Layer, Node, Planet, Vein
+from src.runtime import CITY_NAME_LIMIT
 from src.seed import CORE, seed
 from src.seed_surfaces import PYROXIS_FIELDS, PYROXIS_PLATEAU, pyroxis_field_key
 
@@ -665,3 +666,32 @@ async def test_the_seed_leaves_a_yard_around_a_rural_hearth(
     assert laid["terra.field.lay"] == 10, "очаг у реки — это очаг, а не стена поперёк луга"
     assert laid["terra.city.lay"] == 260, "в городе застройка и есть участок"
     assert await estate.free_ground(session, field) > 350
+
+
+def test_a_city_of_the_layout_is_named_within_the_ceiling() -> None:
+    """A vault node the seed founds a city on carries a name the engine allows.
+
+    Needs no world: the question is about the layout the vault ships, which is
+    the one thing the two repositories both see. The vault bounds these names
+    at its own end (`WORLD_CITY_NAME_LIMIT` in its `tools/world.py`) and keeps
+    its own copy of the number, because its build reads `data/` and CI copies
+    only `build/*.json` back -- neither side can import the other's constant.
+    This is the other end of that copy.
+
+    Measured against `CITY_NAME_LIMIT` rather than the Net's: the two are equal
+    today, but `test_city_founding` pins only `CITY_NAME_LIMIT <= NET_NAME_LIMIT`,
+    so the city's own ceiling is the smaller one and the Net's follows from it.
+    Getting this wrong would leave the gap the check was written to close --
+    a seeded city named past what a player is allowed to type, whose official
+    channel (`city.found` opens it straight from the model) is one
+    `net.channel.create` would have refused.
+    """
+    over = [
+        spec
+        for spec in seed_world.load_scenario().nodes
+        if spec.city and len(str(spec.name)) > CITY_NAME_LIMIT
+    ]
+    assert not over, (
+        "a city name becomes a channel name: "
+        f"{[(s.key, len(str(s.name))) for s in over]} over {CITY_NAME_LIMIT}"
+    )

@@ -63,32 +63,41 @@ async def found(
     The charter is filled with `laws.json` defaults: the city arises working,
     not as an empty questionnaire of forty questions (D-130).
 
-    **The name is taken as given, and nothing measures it here.** This is the
-    seed's door: the capital and the delegate cities are founded from node
-    names written in the vault (`seed.py`, `seed_catchup.py`), and a vault name
-    is the build's business, not a refusal's -- a content bug should stop the
-    build, not reach a player as words written for a human in a window. So the
-    ceiling for this door stands in the vault: `WORLD_CITY_NAME_LIMIT` in its
-    `tools/world.py` refuses to build a `city: true` node named longer -- the
-    flag `seed_world.city_nodes` selects on, and so the node every call below
-    arrives with (the catch-up's capital reaches it as `core.parent_id`, which
-    is that same flagged node).
+    **The name is taken as given, and nothing measures it here.** Two
+    doors lead in and they are bounded in different places. `establish` is the
+    player's, and it measures what was typed. This one is the seed's: the
+    capital and the delegate cities are founded from node names written in the
+    vault (`seed.py`, `seed_catchup.py`), and a vault name is content, not a
+    typed one -- so it is bounded where content is checked, by
+    `WORLD_CITY_NAME_LIMIT` in the vault's `tools/world.py`, which complains
+    about a `city: true` node named longer. That is the flag
+    `seed_world.city_nodes` selects on, and so the node every seed call arrives
+    with; the catch-up's capital reaches it as `core.parent_id`, the same
+    flagged node.
 
-    The player's door is `establish`, and it measures what was typed. The two
-    guarantees are therefore the same one -- "no city has an over-long name",
-    not merely "no player founds one" -- each door bounded at the layer where
-    its names are written.
+    What hangs on the bound is not the city card. `_open_channel` below gives
+    the city its official channel named after it, straight from the model --
+    past the ceiling `net.channel.create` applies to what a player types. So an
+    unmeasured name here makes a channel no player could have created, and
+    nothing along the way says so.
 
-    What hangs on that is not the city card. The city's official channel takes
-    its name from the city -- `net.city_channel` builds the row directly, past
-    the ceiling `net.channel.create` applies to what a player types -- so an
-    unmeasured name here would have made a channel no player could have
-    created, and nothing along the way would have said so.
+    Two things this does **not** promise. It is not "no city has an over-long
+    name": nothing measures the `name` argument itself, a caller may pass
+    anything, `City.name` is copied once at founding and never follows the node
+    afterwards, and a world laid before the ceiling keeps the names it has
+    (`seed_world.lay` leaves a standing node alone). And the vault's complaint
+    only stops something where it is read as a failure -- the `build.py
+    --check` step of the vault's own CI. A plain `tools/build.py`, which is how
+    both `deploy/sync-vault.py` and this repository's vault action call it,
+    prints the complaint and writes `world.json` regardless.
 
-    The vault holds its own copy of the number, because its build reads `data/`
-    and knows nothing of this repository. The other end of that copy is
-    `test_seed_world`, which measures the shipped layout against the Net's own
-    ceiling: neither side can import the other, but both see the layout.
+    What is promised is narrower and is pinned: the layout that actually
+    arrives here carries city names within the ceiling, checked by
+    `test_a_city_of_the_layout_is_named_within_the_ceiling` in `test_seed`.
+    The vault keeps its own copy of the number because neither repository can
+    import the other -- its build reads `data/`, and CI copies only
+    `build/*.json` back -- but both can see the layout, so that is what the
+    test measures.
     """
     existing_ = await by_node(session, node.id)
     if existing_ is not None:

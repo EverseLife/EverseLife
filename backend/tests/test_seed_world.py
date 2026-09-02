@@ -35,7 +35,6 @@ from src.engine import death, justice, market, places, travel, world
 from src.models.estate import Building
 from src.models.inventory import Container, Item
 from src.models.world import Edge, Layer, Node, Planet, Surface, Vein
-from src.runtime import NET_NAME_LIMIT
 from src.seed import seed
 
 
@@ -347,33 +346,3 @@ async def test_a_city_step_is_the_same_on_two_servers(
     #: were not, the dice are the edge's name and not the clock.
     await seed_world.lay(session, constants, made)
     assert (await travel._edge_between(session, one.id, two.id)).base_seconds == first
-
-
-def test_a_city_of_the_layout_is_named_within_the_net_ceiling() -> None:
-    """A vault node the seed founds a city on carries a name the Net accepts.
-
-    The chain is three links long and every one of them is silent. The seed
-    founds its cities from node names written in the vault (`seed.py`,
-    `seed_catchup.py`); the city's official channel is named after the city
-    (`net.channel.create` is not asked -- `NetChannel` is built directly); and
-    the Net's own ceiling is what any player typing that same name would be
-    refused by. So an over-long node name in the vault would land a channel
-    nobody could have created, and nothing between here and there would say so.
-
-    The bound itself belongs to the vault build (`tools/world.py`,
-    `WORLD_CITY_NAME_LIMIT`) -- a content bug should stop the build, not reach
-    a player as a refusal written for a human in a window. This is the other
-    end of that number, which the vault cannot see: its build reads `data/`,
-    not this repository. Measured against the real layout rather than against
-    the constant, because the layout is what both sides are about, and it is
-    the file that travels here (`vault/world.json`).
-    """
-    over = [
-        spec
-        for spec in seed_world.load_scenario().nodes
-        if spec.city and len(spec.name) > NET_NAME_LIMIT
-    ]
-    assert not over, (
-        "a city name becomes a channel name: "
-        f"{[(s.key, len(s.name)) for s in over]} over {NET_NAME_LIMIT}"
-    )
