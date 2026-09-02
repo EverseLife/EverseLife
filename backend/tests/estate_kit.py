@@ -68,7 +68,10 @@ async def _city(session: AsyncSession, catalog: Catalog):
     await travel.connect(session, core, near, base_seconds=30, surface=Surface.PAVED)
     await travel.connect(session, near, far, base_seconds=30, surface=Surface.PAVED)
 
-    city = await town.found(session, catalog, delegate, "Городок")
+    #: Stamped: a city name is unique across the world
+    #: (`uq_city_name_lower`), and a test that raises two of these would
+    #: collide on the name rather than on what it is testing.
+    city = await town.found(session, catalog, delegate, f"Городок-{stamp}")
     for node in (core, near, far):
         node.owner_city_id = city.id
     await session.flush()
