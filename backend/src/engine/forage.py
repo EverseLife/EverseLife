@@ -20,7 +20,8 @@ with one occupation that lives on any plot with room to walk:
 - **one table sets both pace and mix.** `forage.finds` is finds per hour per
   `forage.reference_area` of empty land, one number per thing. Their sum
   scaled by the empty area is the pace; a thing's share of the sum is what it
-  is that turns up. More land -- faster, but never under
+  is that turns up -- as near as the whole cards of the deck allow (D-213),
+  and the window names the deck's odds. More land -- faster, but never under
   `forage.search_floor`;
 - **the land decides which of them lie on it** (D-254). `forage.place` binds a
   find to a mark of the place -- stone to stony ground, wood and resin to the
@@ -222,8 +223,8 @@ async def _roll(
 
     **The thing is drawn, not tossed for** (D-213): the deck is built by the
     same `forage.finds` weights, and a card taken is not put back until the
-    deck runs out. The proportions are the table's to the letter; what goes
-    away is "ten stones in a row and not one stem of flax".
+    deck runs out. The proportions are the table's to the nearest whole card;
+    what goes away is "ten stones in a row and not one stem of flax".
 
     Quality stays a plain roll -- triangular over `forage.quality` with the
     peak in the middle: what lies on the ground is mostly ordinary, and both a
@@ -555,7 +556,10 @@ async def view(
     if not allowed and row is None:
         return None
 
-    total = sum(table.values()) or 1.0
+    #: The odds named are the deck's, not the table's (D-213): whole cards
+    #: round a fine weight, and what the player is told must be what the
+    #: deck deals.
+    share = luck.shares(table)
     per_hour = pace(constants, table, room)
     seen: dict = {
         "area": room,
@@ -574,10 +578,10 @@ async def view(
         "finds": [
             {
                 "goods": name,
-                "share": table[name] / total,
+                "share": share[name],
                 "units": int(constants[R.FORAGE_HANDFUL][name]),
             }
-            for name in sorted(table, key=lambda name: -table[name])
+            for name in sorted(table, key=lambda name: (-share[name], name))
         ],
         "state": "idle",
         "started_at": None,

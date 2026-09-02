@@ -26,6 +26,7 @@
 import { useEffect, useState } from "react";
 import type { Look } from "../api";
 import { spell } from "../api";
+import { percent } from "../amounts";
 import { busyWith, FORAGE } from "../busy";
 import { Deadline } from "../Deadline";
 import { Hint } from "../Hint";
@@ -197,7 +198,7 @@ export function Forage({ look }: Props) {
         {foraging.finds
           .map(
             (entry) =>
-              `${goodsName(names, entry.goods)} ×${entry.units} (${Math.round(entry.share * 100)}%)`,
+              `${goodsName(names, entry.goods)} ×${entry.units} (${percent(entry.share)})`,
           )
           .join(", ")}
       </p>

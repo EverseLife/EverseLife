@@ -131,6 +131,19 @@ async def test_the_deck_keeps_the_table_proportions(session: AsyncSession) -> No
     assert drawn.count("stone") / len(drawn) == pytest.approx(0.75, abs=0.02)
 
 
+def test_the_announced_share_is_what_the_deck_deals() -> None:
+    """Whole cards round a fine weight; the odds shown are the deck's, not the table's."""
+    table = {"stone": 14.0, "flax": 10.0, "seed": 0.41, "dust": 0.0}
+    told = luck.shares(table)
+    assert set(told) == {"stone", "flax", "seed"}, "a weightless thing has no share"
+    assert sum(told.values()) == pytest.approx(1.0)
+    #: The table says 0.41 / 24.41 of a seed; the deck deals one card in
+    #: fifty-nine (34 + 24 + 1) -- and that is the number to tell.
+    assert told["seed"] == pytest.approx(1 / 59)
+    assert told["seed"] != pytest.approx(0.41 / 24.41)
+    assert luck.shares({"dust": 0.0}) == {}
+
+
 async def test_a_table_edited_in_the_vault_reshuffles(session: AsyncSession) -> None:
     """A deck of yesterday's things must not outlive the table it was built from."""
     who = await _who(session)

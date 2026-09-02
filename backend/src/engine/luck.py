@@ -39,8 +39,9 @@ yes-or-no chance and a choice of many go through here.
 A choice of many is not a coin, and its unfairness is different: ten stones in
 a row and never any flax. So a choice is dealt from a **deck** built by the
 table's own weights -- draw without replacement, and when the deck runs out,
-build it again. The proportions are exactly the table's; the drought is bounded
-by the deck.
+build it again. The proportions are the table's as near as whole cards allow
+-- and the odds announced to the player are the deck's (`shares`), not the
+table's; the drought is bounded by the deck.
 
 ## Why it survives a retry
 
@@ -188,8 +189,9 @@ async def draw(
 
     The deck holds each thing as many times as its weight says, rounded to
     whole cards with at least one each; a draw takes a card out, and an empty
-    deck is built again. So the proportions are the table's and the drought is
-    the deck's length -- never "ten stones and no flax".
+    deck is built again. So the proportions are the table's as near as whole
+    cards allow -- `shares` says how near -- and the drought is the deck's
+    length: never "ten stones and no flax".
     """
     alive = {name: weight for name, weight in weights.items() if weight > 0}
     if not alive:
@@ -215,8 +217,27 @@ def _fresh(weights: dict[str, float]) -> dict[str, int]:
     """A new deck: each thing as many cards as its share of the smallest weight.
 
     Scaled by the smallest weight rather than by a fixed size, so the deck is
-    the shortest one that keeps the table's proportions -- a longer one would
-    only make the drought longer for no gain.
+    the shortest one that keeps the table's proportions to a whole card -- a
+    longer one would only make the drought longer for no gain.
     """
     least = min(weights.values())
     return {name: max(1, round(weight / least)) for name, weight in weights.items()}
+
+
+def shares(weights: dict[str, float]) -> dict[str, float]:
+    """What the deck actually deals, as shares of one: the odds to announce.
+
+    A deck holds whole cards, so a table of fine weights -- wild seed at a
+    sixth of a find an hour against fourteen of stone -- is dealt a little
+    off its own proportions: two and a half cards' worth of a thing is dealt
+    as two or three, never as two and a half. The player is promised what
+    they get, not what the vault wrote (D-213), so a window that names odds
+    names these, not the table's shares. Only the positive weights: a thing
+    of no weight is not in the deck and has no share.
+    """
+    alive = {name: weight for name, weight in weights.items() if weight > 0}
+    if not alive:
+        return {}
+    deck = _fresh(alive)
+    total = sum(deck.values())
+    return {name: cards / total for name, cards in deck.items()}

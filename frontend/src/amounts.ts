@@ -66,6 +66,17 @@ export function tally(goods: string, amount: number): string {
   return counted(goods) ? t("ui-amount-pieces", { amount: trim(amount) }) : trim(amount);
 }
 
+/**
+ * A share of one as whole percent: "62%", and "<1%" where rounding would say
+ * nothing. A find dealt one card in four hundred is rare, not impossible,
+ * and "0%" next to a thing the land does give reads as a lie.
+ */
+export function percent(share: number): string {
+  const whole = share * 100;
+  if (whole > 0 && whole < 1) return "<1%";
+  return `${Math.round(whole)}%`;
+}
+
 /** The number itself, without trailing zeros: 3, 3.5, 0.25. */
 export function trim(amount: number): string {
   return Number(amount.toFixed(3)).toString();

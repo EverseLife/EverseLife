@@ -149,26 +149,39 @@ async def test_quality_is_mostly_ordinary(session: AsyncSession, constants: Cons
     assert sum(rolls) / len(rolls) == pytest.approx(grade.mid, abs=third / 3)
 
 
-async def test_every_thing_in_the_table_is_found(
-    session: AsyncSession, constants: Constants
+async def test_every_thing_in_the_table_is_found_as_often_as_told(
+    session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
     """The mix comes from the vault: no thing named there is unreachable, none is invented.
 
     And now it is guaranteed rather than likely (D-213): the deck holds every
-    thing of the table, so one deck's worth of searches shows all of them.
+    thing of the table, so one deck's worth of searches shows all of them --
+    each exactly as often as the window says. The table's proportions and
+    the deck's differ by whole-card rounding, and the window must name the
+    latter: on a rich plot a wild seed is a card or two in hundreds, and a
+    share off by one card is a promise broken.
     """
     node, body = await _yard(session)
     table = forage.finds(constants, node)
     assert table, "таблица находок пуста"
+    seen = await forage.view(session, constants, catalog, body, node)
+    assert seen is not None
+    told = {entry["goods"]: entry["share"] for entry in seen["finds"]}
+    assert set(told) == set(table)
+    assert sum(told.values()) == pytest.approx(1.0)
+    assert seen["finds"] == sorted(seen["finds"], key=lambda e: (-e["share"], e["goods"]))
+
     #: One deck's worth, and the deck's length is the table's own (D-213): it
     #: holds each thing as many cards as its share of the smallest weight, so
     #: a table with fine weights -- wild seed against stone -- deals longer.
     deck = sum(luck._fresh(table).values())  # noqa: SLF001 -- the guarantee is the deck's
-    seen = {
-        (await forage._roll(session, constants, body, node, random.Random(seed)))[0]
-        for seed in range(deck)
-    }
-    assert seen == set(table)
+    dealt: dict[str, int] = {}
+    for seed in range(deck):
+        found = (await forage._roll(session, constants, body, node, random.Random(seed)))[0]  # noqa: SLF001
+        dealt[found] = dealt.get(found, 0) + 1
+    assert set(dealt) == set(table)
+    for name, share in told.items():
+        assert dealt[name] / deck == pytest.approx(share), name
     for name in table:
         assert constants[R.FORAGE_HANDFUL][name] >= 1
 

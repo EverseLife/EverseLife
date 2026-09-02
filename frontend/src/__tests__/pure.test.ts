@@ -95,6 +95,15 @@ describe("amounts", () => {
     expect(amounts.chosen(12, 7)).toBe(7);
   });
 
+  it("names a share in whole percent, and a rare one as under one", () => {
+    expect(amounts.percent(0.625)).toBe("63%");
+    expect(amounts.percent(1)).toBe("100%");
+    expect(amounts.percent(0.0101)).toBe("1%");
+    expect(amounts.percent(0.0024)).toBe("<1%");
+    expect(amounts.percent(0.0099)).toBe("<1%");
+    expect(amounts.percent(0)).toBe("0%");
+  });
+
   it("drops trailing zeros", () => {
     expect(amounts.trim(3)).toBe("3");
     expect(amounts.trim(3.5)).toBe("3.5");
