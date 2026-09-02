@@ -213,6 +213,10 @@ async def test_a_pause_banks_no_more_than_the_time_worked(
     banked, worked = await _cycled_pause(
         session, constants, body, steady, every=timedelta(seconds=6), times=times
     )
+    #: Said out loud, because the exact assertion leans on it: the loop must
+    #: stay short of the whole, or `plow_pause` caps the bank at the norm and
+    #: the failure would point at the rounding instead of at `farm.plow_time_per_m2`.
+    assert worked < farm.plow_minutes(constants, steady)
     assert banked == worked
 
 

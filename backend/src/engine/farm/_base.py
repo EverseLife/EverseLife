@@ -185,11 +185,12 @@ def plow_banked(plot: Plot, moment: datetime) -> Decimal:
     return done
 
 
-def plow_done_minutes(plot: Plot, moment: datetime) -> float:
-    """What is ploughed by now: the banked minutes and the run under way.
+def plow_progress_minutes(plot: Plot, moment: datetime) -> float:
+    """What is ploughed by now, for shares and remainders: a float will do.
 
-    For shares and remainders, where a hundredth either way is nothing. What
-    is written back to the bank goes through `plow_banked`.
+    Deliberately not named after the column. Writing `plot.plow_done_minutes`
+    from a float is what cost the bank a hundredth a pause -- the bank is
+    written from `plow_banked`, and nothing here rounds back into it.
     """
     return float(plow_banked(plot, moment))
 
