@@ -14,7 +14,8 @@
 import * as api from "../api";
 import { useNames } from "../actions";
 import { t } from "../locale";
-import { goodsName, lawName, lawNote, lawUnit } from "../names";
+import { goodsName, lawName, lawNote, lawOption, lawUnit } from "../names";
+import { NOBODY } from "../wire/city";
 import { Panel } from "./admin/Panel";
 import { Rule } from "../Rule";
 import type { StateView } from "./State";
@@ -76,12 +77,16 @@ export function Economy({ view }: { view: StateView }) {
       <table>
         <tbody>
           {Object.entries(city.laws)
-            .filter(([, law]) => law.value && law.value !== "нет")
+            //: A law switched off is not a rule to read: «nobody» is the key
+            //: for that in every law that is a choice. It used to be the
+            //: Russian word «нет» compared here -- a value the wire happened
+            //: to carry, and the one allowlisted in `check-copy` for this file.
+            .filter(([, law]) => law.value && law.value !== NOBODY)
             .map(([key, law]) => (
               <tr key={key}>
                 <td title={lawNote(names, key) ?? ""}>{lawName(names, key)}</td>
                 <td className="num">
-                  <b>{law.value}</b>
+                  <b>{lawOption(names, key, law.value ?? "")}</b>
                   {lawUnit(names, key) && (
                     <span className="note"> {lawUnit(names, key)}</span>
                   )}

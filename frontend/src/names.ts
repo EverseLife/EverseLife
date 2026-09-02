@@ -40,6 +40,10 @@ export type Names = {
   law_units: Record<string, string>;
   /** The law's note -- the hint under the cursor in the city's window. */
   law_notes: Record<string, string>;
+  /** The choices of a law that is a choice, keyed `<law>.<option>`: the same
+   *  option id means different words under different laws -- `citizens` is
+   *  «гражданам» for the printer and «граждане» for the land. */
+  law_options: Record<string, string>;
 };
 
 /**
@@ -102,6 +106,11 @@ export function lawUnit(names: Names | null, id: string): string | undefined {
 /** The law's note. Absent rather than empty where the vault wrote none. */
 export function lawNote(names: Names | null, id: string): string | undefined {
   return names?.law_notes?.[id];
+}
+
+/** One choice of a law, in the reader's words: `build_permit` + `citizens`. */
+export function lawOption(names: Names | null, law: string, option: string): string {
+  return names?.law_options?.[`${law}.${option}`] ?? option;
 }
 
 /** A building kind id ("wooden") in the player's words ("деревянный"). */

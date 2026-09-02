@@ -79,6 +79,10 @@ const NAME_DOMAINS: Record<string, readonly (keyof Names)[]> = {
   //: general -- `access`, `salary`, `toll` -- and a table shared with goods
   //: would one day answer with the wrong one.
   LAW: ["laws"],
+  //: The value of a law that is a choice, by the composite key
+  //: `<law>.<option>`. A value that is not a choice is not in the table and
+  //: comes back as itself, which is what a rate or a sum wants.
+  CHOICE: ["law_options"],
 };
 
 /**

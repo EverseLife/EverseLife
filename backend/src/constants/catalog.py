@@ -434,6 +434,20 @@ class CharterQuestion(Strict):
         return next((o for o in self.options if o.default), None)
 
 
+class CodeLawOption(Strict):
+    """One choice of a law that is a choice: a key, and the word for it.
+
+    The key is what the city stores and the engine compares; the word is the
+    vault's, and the second language comes by `<law>.<option>` in the names
+    table. Before this the value was free text matched by substring -- «гражд»
+    in it meant citizens -- so the law could not be set in another language at
+    all, and a typo set it to "everyone" in silence.
+    """
+
+    id: str
+    label: str
+
+
 class CodeLaw(Strict):
     """A parametric law: a value, not text (D-094, D-130)."""
 
@@ -443,6 +457,13 @@ class CodeLaw(Strict):
     decision: str | None = None
     note: str | None = None
     default: str | None = None
+    #: Empty for a law that is a number or free text; a list for one that is a
+    #: choice. The window draws a picker exactly when this is not empty.
+    options: tuple[CodeLawOption, ...] = ()
+
+    def has(self, option: str) -> bool:
+        """Whether this key is one of the law's own choices."""
+        return any(one.id == option for one in self.options)
 
 
 class Sanction(Strict):

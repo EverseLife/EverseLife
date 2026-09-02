@@ -165,6 +165,7 @@ battery-body-off-node = the body is outside a node
 battery-not-here = the battery is neither in hand nor standing here
 battery-no-grid = there is no city grid here: outside the city things run on a battery, and it is charged in the city
 battery-nothing-to-give = the pool holds { NUMBER($have, minimumFractionDigits: 0, maximumFractionDigits: 0) } energy, and the battery has room for { NUMBER($place, minimumFractionDigits: 0, maximumFractionDigits: 0) }
+battery-give-too-little = that is too little to pour: energy is counted in thousandths, and less than { NUMBER($least, minimumFractionDigits: 3, maximumFractionDigits: 3) } does not pass
 
 # --- the face (engine/mining.py) ---------------------------------------------
 
