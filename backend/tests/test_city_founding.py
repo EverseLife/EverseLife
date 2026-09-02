@@ -270,6 +270,40 @@ async def test_city_name_is_bounded(
     )
 
 
+async def test_a_city_name_is_taken_only_once(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """One name, one city -- and case does not make a second one free.
+
+    The name becomes the name of the city's official channel, and the Net
+    tells channel names apart ignoring case: `net.channel.create` refuses a
+    second "Novograd" typed by hand. Founding used to hand one out, which is
+    the same disagreement between the two doors that the name's length had.
+    """
+    place, _, body = await _wasteland(session)
+    await _build_up(session, place)
+    await town.establish(session, constants, catalog, body, "Новоград")
+
+    #: A second place, so that what refuses is the name and not the node.
+    other, _, stranger = await _wasteland(session, "Второй")
+    await _build_up(session, other)
+
+    with pytest.raises(town.CityError) as refusal:
+        await town.establish(session, constants, catalog, stranger, "Новоград")
+    assert refusal.value.key == "city-found-name-taken"
+    assert refusal.value.params["name"] == "Новоград"
+
+    #: Case is not a way round it: the Net would call these one name.
+    with pytest.raises(town.CityError) as ignoring_case:
+        await town.establish(session, constants, catalog, stranger, "новоГРАД")
+    assert ignoring_case.value.key == "city-found-name-taken"
+
+    #: A different name on that same place still founds -- the refusal is
+    #: about the name, and nothing else got broken on the way to it.
+    town_of_theirs = await town.establish(session, constants, catalog, stranger, "Второград")
+    assert town_of_theirs.name == "Второград"
+
+
 async def test_no_second_city_on_same_node(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:

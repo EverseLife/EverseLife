@@ -74,6 +74,14 @@ class City(Base):
     """The city. Lives on the delegate node: its territory is that node's children."""
 
     __tablename__ = "city"
+    #: One name, one city -- and the comparison ignores case, because the name
+    #: becomes the name of the city's official channel, and the Net compares
+    #: channel names case-insensitively (`net.create_channel`). Without this the
+    #: two doors into a channel name would disagree: a player is refused a
+    #: second "Novograd" by hand, while founding a second Novograd handed them
+    #: one. The index is what makes it true rather than usually true -- the
+    #: check in `city.establish` is for the words, this is for the race.
+    __table_args__ = (Index("uq_city_name_lower", text("lower(name)"), unique=True),)
 
     id: Mapped[uuid.UUID] = uuid_pk()
     #: The city's delegate node on the planet layer (D-045). One city -- one node.

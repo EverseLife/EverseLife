@@ -22,6 +22,7 @@ citizenship to finish a founding they should not have been running.
 
 from __future__ import annotations
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants
@@ -36,7 +37,7 @@ from src.engine.city._base import (
 )
 from src.engine.city.citizen import _enrol_founder
 from src.engine.city.land import _retire_deed
-from src.engine.city.lookup import by_node, territory
+from src.engine.city.lookup import by_name, by_node, territory
 from src.engine.city.office import _office
 from src.engine.errors import Says
 from src.engine.world import station_names
@@ -251,9 +252,27 @@ async def establish(
     #: is what makes that name one the Net could have accepted itself.
     if len(title) > CITY_NAME_LIMIT:
         raise CityError(key="city-found-name-too-long", limit=CITY_NAME_LIMIT)
+    #: One name, one city. Asked here so that a person gets words rather than a
+    #: database error; the rule itself is held by the `uq_city_name_lower` index,
+    #: because two foundings racing on one name pass this check together. Case
+    #: is ignored for the reason `by_name` gives: the name goes on to be a
+    #: channel's, and the Net tells channel names apart that way.
+    if await by_name(session, title) is not None:
+        raise CityError(key="city-found-name-taken", name=title)
 
     identity = await session.get(Identity, body.identity_id)
-    city = await found(session, catalog, node, title, founder=identity)
+    #: The check above is for the words; this is for the race. Two foundings
+    #: with one name pass the check together, and only `uq_city_name_lower`
+    #: refuses the second -- inside a savepoint, so the loser's transaction
+    #: survives to carry a refusal out instead of a server error. The index
+    #: guards the node as well, so what refused is asked rather than assumed.
+    try:
+        async with session.begin_nested():
+            city = await found(session, catalog, node, title, founder=identity)
+    except IntegrityError as clash:
+        if await by_name(session, title) is None:
+            raise
+        raise CityError(key="city-found-name-taken", name=title) from clash
 
     #: The location becomes city territory (40-society/00). The deed for it is
     #: cancelled: civic land is not traded by deed, otherwise there would be a

@@ -152,6 +152,7 @@ from src.engine.city.law import (  # noqa: F401
 )
 from src.engine.city.lookup import (  # noqa: F401
     by_id,
+    by_name,
     by_node,
     core,
     gate,

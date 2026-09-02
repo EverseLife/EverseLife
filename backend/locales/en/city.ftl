@@ -51,6 +51,7 @@ city-role-market = market
 city-role-power = power source
 city-found-no-name = a city must have a name
 city-found-name-too-long = the city's name is longer than { $limit } characters: the card, the chronicle and the official channel all have to carry it
+city-found-name-taken = a city named “{ $name }” already stands: a city's name becomes the name of its channel in the Net, and no two channels there share one
 city-founder-exists = “{ $city }” already has a founder
 
 # --- power and offices (D-155, D-164, D-231) ----------------------------------
