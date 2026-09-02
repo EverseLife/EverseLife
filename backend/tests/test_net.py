@@ -21,6 +21,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants
@@ -29,6 +30,7 @@ from src.engine import city as town
 from src.engine import net, travel, world
 from src.models.city import Power
 from src.models.identity import BodyState
+from src.models.net import NetSubscription
 from src.models.world import Planet
 from tests.net_kit import _capital
 
@@ -87,8 +89,6 @@ async def test_delay_is_the_road_times_the_constant(
 
     #: The reader is told on arrival, not on sending (D-226): a job waits for
     #: the road, addressed to the reader alone.
-    from sqlalchemy import select
-
     from src.models.job import Job, JobKind
 
     jobs = (
@@ -322,7 +322,19 @@ async def test_the_unread_count_takes_only_the_readers_channels(
     await town._enroll(session, city, reader.id, why="test")
     official = await net.city_channel(session, city)
     await net.post(session, founder, official.id, "закон сменился", now=NOW)
-    #: The city's word alone: implied by citizenship, never subscribed to.
+    #: The city's word alone: implied by citizenship, never subscribed to. The
+    #: absence of the row is the point and is asserted rather than assumed --
+    #: the count reaches `read_at` through an **outer** join, and a citizen who
+    #: has never opened the channel has nothing to join to. Everyone who ever
+    #: clicked has a row, so an inner join would pass every test but this one.
+    assert (
+        await session.scalar(
+            select(func.count())
+            .select_from(NetSubscription)
+            .where(NetSubscription.identity_id == reader.id)
+        )
+        == 0
+    )
     assert await net.unread_posts(session, constants, reader.id, now=NOW) == 1
 
     #: One's own channel counts too -- including, as it always has, what one
