@@ -93,7 +93,7 @@ TRACE_POINTS = 24
 SKY_MEMO_PER_DAY = 144
 SKY_CURVE_MEMO = 512
 SKY_CALENDAR_MEMO = 64
-#: Column scales, not presentation: the four below say how wide the row is,
+#: Column scales, not presentation: the five below say how wide the row is,
 #: not how a summary reads. Changing one alone leaves the code rounding coarser
 #: or finer than the column it writes to, and nothing objects -- so a scale tied
 #: to a single column is pinned to it by a test.
@@ -113,6 +113,13 @@ ROUND_CHARGE = 3
 #: The city pool's energy is stored to a thousandth (`EnergyPool.stored` is
 #: `Numeric(14, 3)`). The scale of the column, not a property of the game.
 ROUND_ENERGY = 3
+#: What the pool could not store, kept to a billionth (`EnergyPool.remainder`
+#: is `Numeric(12, 9)`). Generation is continuous and the pool is not, so each
+#: pass leaves less than a thousandth over; kept here it is spent on the next
+#: pass instead of being thrown away, and a pool read a hundred times a second
+#: ends where a pool read once does. Fine enough that its own rounding is
+#: nothing: a millionth of a thousandth a call.
+ROUND_REMAINDER = 9
 
 #: Argon2id takes memory in KiB, while `pow.memory_per_session` is given in MB.
 KIB_PER_MIB = 1024

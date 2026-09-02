@@ -38,6 +38,19 @@ class EnergyPool(Base):
 
     #: How much energy is in the pool now.
     stored: Mapped[float] = mapped_column(Numeric(14, 3), nullable=False, default=0)
+    #: What the last pass made but could not store. The pool keeps thousandths
+    #: and generation is continuous, so every pass leaves a sliver over; kept
+    #: here it is spent on the next pass rather than thrown away. Without it a
+    #: pool read often enough -- and every command touching energy reads it --
+    #: generates nothing at all. Always `0 <= remainder < 0.001`: the column is
+    #: too narrow to hold one, so a bug that broke the bound would fail loudly
+    #: here rather than quietly credit energy nobody made.
+    #:
+    #: `stored` and this are one pair. Whoever writes `stored` on its own must
+    #: only ever add to it (`alpha.energize` does), or the sliver is orphaned.
+    remainder: Mapped[float] = mapped_column(
+        Numeric(9, 9), nullable=False, default=0, server_default="0"
+    )
     #: Up to what moment generation is already credited. Production runs by
     #: time, not by click: the tick brings the pool up to "now" and moves this stamp.
     counted_at: Mapped[datetime] = created_column()
