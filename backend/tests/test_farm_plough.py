@@ -16,7 +16,6 @@ import contextlib
 import uuid
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal
 
 import pytest
 from sqlalchemy import select
@@ -197,8 +196,6 @@ async def test_a_pause_banks_no_more_than_the_time_worked(
     banks nothing at all" would pass this just as well.
     """
     times = 20
-    #: What each pause may drop: the last hundredth it cannot store.
-    slack = times * float(Decimal(1).scaleb(-ROUND_MINUTES))
     _, _, body = await _farmstead(session)
 
     #: Quicker than the bank's own hundredth: never more than was worked.
@@ -208,13 +205,15 @@ async def test_a_pause_banks_no_more_than_the_time_worked(
     )
     assert banked <= worked
 
-    #: At an honest pace: what was worked, less the hundredths dropped.
+    #: Six seconds is a whole hundredth of a minute, so at this pace there is
+    #: nothing to drop and nothing to excuse: the bank owes the clock exactly.
+    #: Counted in floats it fell a hundredth short here -- `0.7 + 0.1` is
+    #: `0.7999999999999999`, and downwards that is `0.79`.
     steady = await farm.mark(session, constants, body, name="вторая", area=10)
     banked, worked = await _cycled_pause(
         session, constants, body, steady, every=timedelta(seconds=6), times=times
     )
-    assert banked <= worked
-    assert banked == pytest.approx(worked, abs=slack)
+    assert banked == worked
 
 
 def test_the_bank_is_kept_at_the_scale_it_is_written_with() -> None:

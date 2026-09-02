@@ -30,7 +30,7 @@ from src.engine.farm._base import (
     _open_ground,
     _owned,
     _recuttable,
-    plow_done_minutes,
+    plow_banked,
     plow_minutes,
     plow_paused,
 )
@@ -234,16 +234,15 @@ async def plow_pause(
 
     job.state = JobState.CANCELLED
     job.finished_at = moment
-    done = min(plow_minutes(constants, strip), plow_done_minutes(strip, moment))
+    whole = Decimal(str(plow_minutes(constants, strip)))
+    done = min(whole, plow_banked(strip, moment))
     #: Down, never to the nearest. The bank already holds whole hundredths of
     #: a minute, so rounding to the nearest handed back a whole hundredth for
     #: every pause: a pause-and-resume loop cycling between 0.3 and 0.6 s
     #: ploughed at up to twice real time -- quicker than that banked nothing,
     #: slower banked honestly. Downwards the rounding drops at most a
     #: hundredth, and drops it against the plougher.
-    strip.plow_done_minutes = Decimal(str(done)).quantize(
-        Decimal(1).scaleb(-ROUND_MINUTES), rounding=ROUND_DOWN
-    )
+    strip.plow_done_minutes = done.quantize(Decimal(1).scaleb(-ROUND_MINUTES), rounding=ROUND_DOWN)
     strip.plow_since = None
     await session.flush()
 
