@@ -331,6 +331,20 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
     total_seats, taken_seats = await estate.slots(db, constants, node)
     houses = await estate.buildings_of(db, node)
     sites = await estate.under_construction(db, node)
+    #: A site's owner by name (D-266): the window compares it with the name
+    #: it knows itself by, and an id would say nothing to it (D-225).
+    owners = {
+        uuid.UUID(work["owner_identity_id"]) for work in sites if work.get("owner_identity_id")
+    }
+    if owners:
+        named = dict(
+            (
+                await db.execute(select(Identity.id, Identity.name).where(Identity.id.in_(owners)))
+            ).all()
+        )
+        for work in sites:
+            if work.get("owner_identity_id"):
+                work["owner"] = named.get(uuid.UUID(work.pop("owner_identity_id")))
     if storey is not None:
         #: A storey carries no building of its own: the house stands on the plot
         #: below and answers there for the bill, the wear, the repair and the tax
