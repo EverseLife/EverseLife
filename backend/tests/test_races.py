@@ -11,17 +11,18 @@ refused instead of both succeeding on the same coin.
 
 The method is the family's: `conftest._slow` holds a transaction between its
 check and its write, or a handshake starts the second side while the first
-provably holds its lock. The family has three files -- this one races money,
-orders and the body's reserves; `test_races_ground.py` races the ground
-itself; `test_races_mining.py` races what the ground gives up. What is not a
-race but shares the origin -- "чтение не пишет" -- lives in `test_reads.py`.
+provably holds its lock. The family has four files -- this one races money,
+orders and the body's reserves; `test_races_bank.py` races the loan, the limit
+and the city's line; `test_races_ground.py` races the ground itself;
+`test_races_mining.py` races what the ground gives up. What is not a race but
+shares the origin -- "чтение не пишет" -- lives in `test_reads.py`.
 """
 
 from __future__ import annotations
 
 import asyncio
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
@@ -31,13 +32,12 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from conftest import _slow
 from src.constants import current, current_catalog
 from src.constants import registry as R
-from src.engine import city as town
 from src.engine import ledger, market, world
 from src.models.energy import EnergyPool
-from src.models.identity import Body, Identity
+from src.models.identity import Body
 from src.models.ledger import AccountKind, PostingReason
 from src.models.market import Order
-from src.units import MONEY_SCALE, money
+from src.units import money
 
 ORE = "iron_ore"
 
@@ -536,211 +536,3 @@ async def test_two_sellers_do_not_overfill_the_tank(
         "бак держит не больше своей ёмкости: второй налив увидел остаток места"
     )
     assert sum(poured) > 0, "первый налив прошёл"
-
-
-async def test_two_loans_of_the_same_room_leave_one_refused(
-    session: AsyncSession,
-    factory: async_sessionmaker[AsyncSession],
-    constants,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The free room under the credit limit is a remainder like a purse.
-
-    A loan adds a row instead of changing one, so there is nothing to lock but
-    the borrower: without that row two commands read the same room and both
-    take it in full, and the world prints money nobody's limit allowed.
-    """
-    from bank_kit import _enrol
-    from src.engine import bank
-    from src.engine.bank import loan as loan_module
-    from src.models.bank import Loan
-
-    who = await world.create_identity(session, f"Заёмщик-{uuid.uuid4().hex[:6]}")
-    #: A borrower is somebody's citizen since D-281 -- only a city lends -- and
-    #: this one's city is rich enough that the personal limit binds first,
-    #: which is the remainder this test is about.
-    await _enrol(session, who)
-    #: The reserve is opened beforehand: both sessions would otherwise race to
-    #: create it, and a unique violation would hide the race being tested.
-    await bank.reserve_account(session)
-    await session.commit()
-    limit_, _ = await bank.credit_limit(session, constants, who.id)
-    assert limit_ > 0
-
-    _slow(monkeypatch, loan_module, "debt_of")
-
-    async def take() -> None:
-        async with factory() as db, db.begin():
-            borrower = await db.get(Identity, who.id)
-            assert borrower is not None
-            await bank.borrow(db, constants, current_catalog(), borrower, limit_ / MONEY_SCALE)
-
-    outcomes = await asyncio.gather(*(take() for _ in range(2)), return_exceptions=True)
-    refused = [one for one in outcomes if isinstance(one, bank.TooMuch)]
-    assert len(refused) == 1, f"второй заём должен упереться в лимит: {outcomes}"
-
-    async with factory() as db:
-        taken = (await db.execute(select(Loan).where(Loan.identity_id == who.id))).scalars().all()
-        assert sum(one.outstanding for one in taken) == limit_, "долг вышел за лимит"
-
-
-async def test_two_payments_of_the_same_debt_are_not_counted_twice(
-    session: AsyncSession,
-    factory: async_sessionmaker[AsyncSession],
-    constants,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Anyone may pay for the debtor (D-063), so two payers meet on one loan.
-
-    Without the loan's row both read the same outstanding and both settle it
-    in full: the ledger moves twice the money, and since D-280 the doubled
-    `interest_paid` buys a credit limit that was never earned.
-    """
-    from src.engine import bank
-    from src.engine.bank import loan as loan_module
-    from src.models.bank import Loan
-
-    who = await world.create_identity(session, f"Должник-{uuid.uuid4().hex[:6]}")
-    #: Only a city lends, and only to its own (D-281).
-    from bank_kit import _enrol
-
-    await _enrol(session, who)
-    account = await ledger.account_for(session, AccountKind.IDENTITY, who.id)
-    genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
-    await ledger.transfer(
-        session, PostingReason.GENESIS, debit=genesis.id, credit=account.id, amount=money(500)
-    )
-    taken_at = datetime.now(UTC) - timedelta(days=constants[R.BANK_YEAR_DAYS])
-    debt = await bank.borrow(session, current(), current_catalog(), who, 100, now=taken_at)
-    await session.commit()
-
-    _slow(monkeypatch, loan_module, "accrue")
-
-    async def pay() -> int:
-        async with factory() as db, db.begin():
-            payer = await db.get(Identity, who.id)
-            owed = await db.get(Loan, debt.id)
-            assert payer is not None and owed is not None
-            return await bank.repay(db, constants, payer, owed)
-
-    outcomes = await asyncio.gather(*(pay() for _ in range(2)), return_exceptions=True)
-    refused = [one for one in outcomes if isinstance(one, bank.NothingToRepay)]
-    assert len(refused) == 1, f"платить дважды по одному займу нечем: {outcomes}"
-
-    async with factory() as db:
-        settled = await db.get(Loan, debt.id)
-        assert settled is not None
-        assert settled.outstanding == 0
-        assert settled.interest_paid == settled.interest_accrued, (
-            "уплаченный процент не может быть больше начисленного: он покупает лимит"
-        )
-
-
-async def test_two_citizens_do_not_lie_twice_on_the_same_line(
-    session: AsyncSession,
-    factory: async_sessionmaker[AsyncSession],
-    constants,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The city's line with the capital is one remainder for all its citizens.
-
-    `bank.debt_to_turnover_cap` bounds how much of its turnover a city may owe
-    (D-175). Without the city's row two citizens read the same free room and
-    both lie down on it -- the cap is through, and the capital prints against
-    turnover that was counted once.
-    """
-    from src.engine import bank
-    from src.engine.bank import line as line_module
-    from src.models.bank import Loan
-    from src.models.city import Citizen
-    from src.models.market import Order, OrderSide, Trade
-    from src.models.world import Layer
-    from src.units import amount as _amount
-
-    stamp = uuid.uuid4().hex[:8]
-    catalog = current_catalog()
-    planet = await world.create_node(
-        session, f"terra.{stamp}", "Терра", area_m2=1, layer=Layer.SPACE
-    )
-    delegate = await world.create_node(
-        session, f"terra.city.{stamp}", "Город", area_m2=1, layer=Layer.PLANET, parent=planet
-    )
-    marketplace = await world.create_node(
-        session, f"terra.city.{stamp}.market", "Рынок", area_m2=50, parent=delegate
-    )
-    city = await town.found(session, catalog, delegate, f"Город-{stamp}")
-    marketplace.owner_city_id = city.id
-
-    #: One deal makes the city's whole turnover, so the line is exactly known --
-    #: and small enough that the line binds before anyone's personal limit does
-    #: (`bank.unsecured_limit`), otherwise both borrowers are refused for their
-    #: own reasons and the race never happens.
-    merchant = await world.create_identity(session, f"Купец-{stamp}")
-    order = Order(
-        node_id=marketplace.id,
-        identity_id=merchant.id,
-        side=OrderSide.SELL,
-        type_key="bread",
-        tier="common",
-        price=money(50),
-        amount_total=_amount(1),
-        amount_left=0,
-        expires_at=datetime.now(UTC) + timedelta(days=1),
-    )
-    session.add(order)
-    await session.flush()
-    session.add(
-        Trade(
-            node_id=marketplace.id,
-            sell_order_id=order.id,
-            type_key="bread",
-            tier="common",
-            price=money(50),
-            amount=_amount(1),
-        )
-    )
-    borrowers = []
-    for number in range(2):
-        who = await world.create_identity(session, f"Гражданин-{number}-{stamp}")
-        session.add(Citizen(identity_id=who.id, city_id=city.id))
-        borrowers.append(who.id)
-    await bank.reserve_account(session)
-    await session.commit()
-
-    permitted, occupied, free = await bank.city_line(session, constants, city)
-    assert occupied == 0 and free == permitted > 0
-    limit_, _ = await bank.credit_limit(session, constants, borrowers[0])
-    assert free < limit_, "линия города должна упереться раньше личного лимита"
-
-    _slow(monkeypatch, line_module, "city_outstanding")
-
-    async def take(identity_id: uuid.UUID) -> None:
-        async with factory() as db, db.begin():
-            borrower = await db.get(Identity, identity_id)
-            assert borrower is not None
-            await bank.borrow(db, constants, catalog, borrower, free / MONEY_SCALE)
-
-    outcomes = await asyncio.gather(*(take(one) for one in borrowers), return_exceptions=True)
-    #: One is served and one is refused: past the city's line there is nothing
-    #: any more -- the direct loan from the capital at the worse rate went with
-    #: D-281, so the line is the whole answer. Without the city's row the two
-    #: collide in the ledger instead, and one of them dies of a deadlock: the
-    #: cap holds by accident, and the player sees a crash instead of a refusal.
-    refused = [one for one in outcomes if isinstance(one, Exception)]
-    assert len(refused) == 1, f"второму занять нечего: {outcomes}"
-    assert isinstance(refused[0], bank.TooMuch), refused[0]
-
-    async with factory() as db:
-        on_line = (
-            (
-                await db.execute(
-                    select(Loan).where(Loan.city_id == city.id, Loan.identity_id.in_(borrowers))
-                )
-            )
-            .scalars()
-            .all()
-        )
-        assert on_line, "первый заём лёг на линию города"
-        assert sum(one.outstanding for one in on_line) <= permitted, (
-            "на линию города легло больше, чем город может занять"
-        )

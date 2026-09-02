@@ -39,6 +39,13 @@ from src.models.ledger import (
 )
 from src.units import MONEY_SCALE, PERCENT, money, money_str
 
+#: One order for taking loan rows, and every place that locks more than one
+#: keeps to it: the daily collection (`collect`) and the prison's work-off
+#: (`prison_credit`) meet on the same debtor from a worker and from a player's
+#: command, and two orders is a deadlock (`Loan.id` is a random uuid, so no
+#: business order agrees with it by accident).
+LOAN_ORDER = Loan.id
+
 
 async def borrow(
     session: AsyncSession,
@@ -364,18 +371,30 @@ async def collect(
     share = constants[R.DEBT_WORKOFF_RATE] / PERCENT
     withheld = 0
 
-    #: Every row this pass will settle, taken at once and always in the same
-    #: order. One at a time deadlocks on a debtor with two loans: the pass
-    #: holds the first loan and their account and walks on to the second,
-    #: while the debtor's own payment holds that second loan and waits for the
-    #: same account. Postgres then kills one of them, and what reaches the
-    #: player is a raw deadlock instead of a refusal.
+    #: Every row this pass will settle, taken at once and in `LOAN_ORDER`. One
+    #: at a time deadlocks on a debtor with two loans: the pass holds the first
+    #: loan and their account and walks on to the second, while the debtor's
+    #: own payment holds that second loan and waits for the same account.
+    #: Postgres then kills one of them, and what reaches the player is a raw
+    #: deadlock instead of a refusal.
+    #:
+    #: Overdue is asked in SQL rather than in the loop: a pass that locked
+    #: every open loan in the world would hold up payment for debtors who owe
+    #: nothing overdue at all, for as long as the whole walk takes.
+    since = moment - timedelta(days=constants[R.DEBT_GRACE_PERIOD])
     loans = (
         (
             await session.execute(
                 select(Loan)
-                .where(Loan.state == LoanState.OPEN, Loan.identity_id.is_not(None))
-                .order_by(Loan.id)
+                #: A treasury loan (D-248) has no identity to withhold from:
+                #: the city's discipline is its line -- occupied until repaid.
+                #: Left out here, so nothing waits on the capital's rows.
+                .where(
+                    Loan.state == LoanState.OPEN,
+                    Loan.identity_id.is_not(None),
+                    Loan.serviced_at < since,
+                )
+                .order_by(LOAN_ORDER)
                 .with_for_update()
             )
         )
@@ -383,9 +402,6 @@ async def collect(
         .all()
     )
     for loan in loans:
-        #: A treasury loan (D-248) has no identity to withhold from: the
-        #: city's discipline is its line -- occupied until repaid. It is left
-        #: out of the query above, so nothing here waits on the capital's rows.
         if not overdue(constants, loan, moment):
             continue
         await accrue(session, constants, loan, now=moment)
@@ -498,33 +514,44 @@ async def prison_credit(
         return 0
 
     debtor = await session.get(Identity, debtor_identity_id)
-    loans = sorted(await loans_of(session, debtor_identity_id), key=lambda loan: loan.taken_at)
+    #: The debtor's rows, taken at once and in `LOAN_ORDER` -- the same order
+    #: the daily collection takes them in. Locking them one by one in the order
+    #: they were taken is the other half of a deadlock: `Loan.id` is a random
+    #: uuid, so "oldest first" and "by id" disagree about half the time, and
+    #: the collection runs in the worker while this runs in a player's command.
+    held = (
+        (
+            await session.execute(
+                select(Loan)
+                .where(Loan.identity_id == debtor_identity_id, Loan.state == LoanState.OPEN)
+                .order_by(LOAN_ORDER)
+                .with_for_update()
+            )
+        )
+        .scalars()
+        .all()
+    )
+    #: Locked by id, paid oldest first: the order of the queue is a rule of the
+    #: bank (D-174), the order of locking is a rule of the database.
     credited = 0
     remainder = cost
-    for loan in loans:
+    for loan in sorted(held, key=lambda one: one.taken_at):
         if remainder <= 0:
             break
         payment = min(remainder, loan.outstanding)
         if payment <= 0:
             continue
-        try:
-            #: What was actually paid, not what was meant to be: `repay` takes
-            #: the row under the transaction and re-reads it, so a debt settled
-            #: meanwhile takes less than the ore was worth -- and the rest must
-            #: stay with the prisoner rather than vanish into a closed loan.
-            paid = await repay(
-                session,
-                constants,
-                debtor,
-                loan,
-                payment / MONEY_SCALE,
-                from_account=treasury,
-                now=moment,
-            )
-        except NothingToRepay:
-            #: Somebody settled this one while the pick was swinging. The next
-            #: loan in line takes the money; the ore is not lost.
-            continue
+        #: What was actually paid, not what was meant to be: under the lock the
+        #: two agree, but `repay` is the one that knows.
+        paid = await repay(
+            session,
+            constants,
+            debtor,
+            loan,
+            payment / MONEY_SCALE,
+            from_account=treasury,
+            now=moment,
+        )
         credited += paid
         remainder -= paid
     if credited > 0:
