@@ -12,7 +12,7 @@ that name arriving later must not inherit an answer given to a rule that no
 longer exists.
 
 Revision ID: c5a1d3f7e920
-Revises: e2f6b8c4d7a1
+Revises: a1f7d3c58e26
 Create Date: 2026-09-02
 """
 
@@ -24,7 +24,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "c5a1d3f7e920"
-down_revision: str | None = "e2f6b8c4d7a1"
+down_revision: str | None = "a1f7d3c58e26"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
