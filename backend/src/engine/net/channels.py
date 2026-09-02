@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import CompoundSelect, Select, and_, func, or_, select, true, union_all
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Constants
@@ -86,6 +87,14 @@ async def city_channel(session: AsyncSession, city: City) -> NetChannel | None:
     ).scalar_one_or_none()
 
 
+async def _named(session: AsyncSession, name: str) -> uuid.UUID | None:
+    """The channel of that name, case ignored -- the Net's own way of telling
+    names apart (D-284), and the rule `uq_net_channel_name_lower` holds."""
+    return await session.scalar(
+        select(NetChannel.id).where(func.lower(NetChannel.name) == name.lower())
+    )
+
+
 async def create_channel(
     session: AsyncSession, me: Identity, name: str, about: str = ""
 ) -> NetChannel:
@@ -93,14 +102,23 @@ async def create_channel(
     note = about.strip()
     if len(note) > NET_ABOUT_LIMIT:
         raise NetError(key="net-about-too-long", limit=NET_ABOUT_LIMIT)
-    taken = await session.scalar(
-        select(NetChannel.id).where(func.lower(NetChannel.name) == cleaned.lower())
-    )
-    if taken is not None:
+    if await _named(session, cleaned) is not None:
         raise NetError(key="net-channel-exists", channel=cleaned)
+    #: The question above is for the words; this is for the race. Two people
+    #: typing one name in the same second both pass it, and only
+    #: `uq_net_channel_name_lower` refuses the second -- inside a savepoint, so
+    #: the loser's transaction survives to carry a refusal out instead of a
+    #: server error on a legitimate move. What refused is asked rather than
+    #: assumed: this table has another unique index (one channel to a city).
     channel = NetChannel(name=cleaned, about=note, owner_identity_id=me.id)
-    session.add(channel)
-    await session.flush()
+    try:
+        async with session.begin_nested():
+            session.add(channel)
+            await session.flush()
+    except IntegrityError as clash:
+        if await _named(session, cleaned) is None:
+            raise
+        raise NetError(key="net-channel-exists", channel=cleaned) from clash
     return channel
 
 

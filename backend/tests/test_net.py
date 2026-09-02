@@ -30,7 +30,7 @@ from src.engine import city as town
 from src.engine import net, travel, world
 from src.models.city import Power
 from src.models.identity import BodyState
-from src.models.net import NetSubscription
+from src.models.net import NetChannel, NetSubscription
 from src.models.world import Layer, Planet
 from tests.net_kit import _capital
 
@@ -218,8 +218,10 @@ async def test_city_channel_is_official_and_its_power_writes(
     city, core, founder = await _capital(session, catalog)
     assert Power.CHANNEL.value in await town.powers_of(session, founder.id, city)
     views = await net.channels(session, constants, founder.id, now=NOW)
+    #: By the city's own name, not a literal: the kit stamps it, because a
+    #: city name is unique across the world and so is its channel's.
     assert [(v.official, v.writable, v.implied, v.by) for v in views] == [
-        (True, True, True, "Столица")
+        (True, True, True, city.name)
     ]
     channel = await net.city_channel(session, city)
     assert channel is not None
@@ -229,7 +231,7 @@ async def test_city_channel_is_official_and_its_power_writes(
     citizen, _ = await _person(session, core, "Гражданин")
     await town._enroll(session, city, citizen.id, why="test")
     mine = await net.channels(session, constants, citizen.id, now=NOW)
-    assert [(v.name, v.unread, v.writable) for v in mine] == [("Столица", 1, False)]
+    assert [(v.name, v.unread, v.writable) for v in mine] == [(city.name, 1, False)]
     with pytest.raises(net.NetError):
         await net.unsubscribe(session, citizen, channel.id)
     with pytest.raises(net.NotAllowed):
@@ -240,7 +242,7 @@ async def test_city_channel_is_official_and_its_power_writes(
     assert await net.channels(session, constants, stranger.id, now=NOW) == []
     await net.subscribe(session, stranger, channel.id)
     assert [v.name for v in await net.channels(session, constants, stranger.id, now=NOW)] == [
-        "Столица"
+        city.name
     ]
     await net.unsubscribe(session, stranger, channel.id)
     assert await net.channels(session, constants, stranger.id, now=NOW) == []
@@ -408,3 +410,56 @@ async def test_the_unread_count_takes_only_the_readers_channels(
     assert sum(view.unread for view in views) == await net.unread_posts(
         session, constants, reader.id, now=NOW
     )
+
+
+async def test_the_seed_founds_a_city_whose_name_a_channel_holds_without_one(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The seed's door never refuses over a name -- it gives up the channel.
+
+    A name is one channel's (D-284), and the city's official channel takes the
+    city's name, so a player's channel can stand where a vault city is about
+    to be founded. Refusing here was the obvious answer and the wrong one:
+    `found` is the seed's door, the seed is one container the whole deploy
+    waits on, and a refusal would let anybody stop the next deploy of the
+    server by taking a name (OQ-118). So the city is raised and the channel is
+    what is missing -- a state the Net already reads (`city_channel` -> None).
+    """
+    _city, _core, founder = await _capital(session, catalog)
+    name = f"Тёзка-{uuid.uuid4().hex[:8]}"
+    await net.create_channel(session, founder, name)
+    await session.flush()
+
+    place = await world.create_node(
+        session, f"terra.namesake.{uuid.uuid4().hex[:8]}", "Место", area_m2=400
+    )
+    town_of_that_name = await town.found(session, catalog, place, name)
+    await session.flush()
+
+    #: The city stands, whole -- not half of one rolled back.
+    assert town_of_that_name.name == name
+    assert await net.city_channel(session, town_of_that_name) is None
+    #: And the Net still holds exactly one channel of that name: the player's.
+    kept = (
+        await session.execute(
+            select(func.count())
+            .select_from(NetChannel)
+            .where(func.lower(NetChannel.name) == name.lower())
+        )
+    ).scalar()
+    assert kept == 1
+
+
+async def test_a_channel_name_is_refused_whatever_the_case(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Case is not what tells two channels apart -- `uq_net_channel_name_lower`
+    is, and `create_channel` asks the same way it does."""
+    _city, _core, founder = await _capital(session, catalog)
+    name = f"Новоград-{uuid.uuid4().hex[:8]}"
+    await net.create_channel(session, founder, name)
+    await session.flush()
+
+    with pytest.raises(net.NetError) as refusal:
+        await net.create_channel(session, founder, name.upper())
+    assert refusal.value.key == "net-channel-exists"

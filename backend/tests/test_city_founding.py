@@ -15,13 +15,14 @@ from __future__ import annotations
 import uuid
 
 import pytest
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from city_kit import _capital, _resident
 from src.constants import Catalog, Constants
 from src.engine import city as town
 from src.engine import net, world
-from src.models.city import Power
+from src.models.city import City, Power
 from src.models.world import Layer, Node
 from src.units import money
 
@@ -573,3 +574,34 @@ async def test_city_prints_at_own_expense_only_for_own(
 
     assert not await death._city_pays(session, constants, core, guest.id)
     assert await death._city_pays(session, constants, core, own.id)
+
+
+async def test_a_player_is_refused_a_name_a_channel_already_holds(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """One name is one channel's (D-284), and a city's name becomes its own.
+
+    The two doors into that name differ on purpose. This one refuses, because
+    the person is here and can pick another; the seed's cannot refuse -- the
+    vault wrote its name months ago and the deploy waits on the seed -- so
+    there the city is founded without its channel (`test_net`).
+    """
+    place, _, body = await _wasteland(session)
+    await _build_up(session, place)
+
+    holder = await world.create_identity(session, f"Держатель-{uuid.uuid4().hex[:6]}")
+    name = f"Тёзка-{uuid.uuid4().hex[:8]}"
+    await net.create_channel(session, holder, name)
+    await session.flush()
+
+    with pytest.raises(town.CityError) as refusal:
+        await town.establish(session, constants, catalog, body, name)
+    assert refusal.value.key == "city-found-name-in-the-net"
+
+    #: Refused before anything was raised -- not a half city rolled back.
+    standing = (
+        await session.execute(
+            select(func.count()).select_from(City).where(func.lower(City.name) == name.lower())
+        )
+    ).scalar()
+    assert standing == 0
