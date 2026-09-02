@@ -57,6 +57,13 @@ from src.runtime import CITY_NAME_LIMIT
 
 log = logging.getLogger(__name__)
 
+#: The index that holds one name to one city (`models.city.City`). Named here
+#: because the refusal below has to tell it from the node's.
+NAME_INDEX = "uq_city_name_lower"
+#: And the one that holds one name to one channel (`models.net.NetChannel`):
+#: the city's own channel is written from here, so its violation arrives here.
+CHANNEL_NAME_INDEX = "uq_net_channel_name_lower"
+
 
 async def found(
     session: AsyncSession,
@@ -191,7 +198,7 @@ async def _channel_named(session: AsyncSession, name: str) -> uuid.UUID | None:
     `city <-> net` cycle `_open_channel` keeps open on purpose.
     """
     return await session.scalar(
-        select(NetChannel.id).where(func.lower(NetChannel.name) == name.lower())
+        select(NetChannel.id).where(func.lower(NetChannel.name) == func.lower(name))
     )
 
 
@@ -224,15 +231,26 @@ async def _open_channel(session: AsyncSession, city: City) -> None:
     #: The player's door does not reach this: `establish` asks first and
     #: refuses with words, so an unopened channel means the seed's path or a
     #: race, never somebody typing a name they could have been warned about.
+    #: Flushed before the savepoint opens, not inside it. `begin_nested` takes
+    #: its snapshot by flushing through the **parent**, so anything still
+    #: pending here would fail outside the SAVEPOINT and roll back the caller's
+    #: transaction -- while the handler below reported a taken name.
+    await session.flush()
     try:
         async with session.begin_nested():
             session.add(NetChannel(name=city.name, city_id=city.id))
             await session.flush()
-    except IntegrityError:
+    except IntegrityError as clash:
+        #: Only the name. This table has another unique index (one channel to a
+        #: city) and a foreign key besides, and swallowing those would hide a
+        #: real fault behind a sentence about names.
+        if _violated(clash) != CHANNEL_NAME_INDEX:
+            raise
         log.error(
-            "city %r founded without its official channel: the name is taken in the Net. "
-            "Free it (there is no rename in the game -- an UPDATE on net_channel.name) "
-            "and the channel opens on the next founding of this city",
+            "city %r founded without its official channel: the name is taken in the Net "
+            "by another channel. Nothing reopens it by itself -- founding this city again "
+            "returns the city that already stands -- so freeing the name means an UPDATE "
+            "on net_channel.name and then an INSERT of the city's channel by hand",
             city.name,
         )
 
@@ -348,10 +366,14 @@ async def establish(
     #: channel's, and the Net tells channel names apart that way.
     if await by_name(session, title) is not None:
         raise CityError(key="city-found-name-taken", name=title)
-    #: And not a name somebody's channel already holds: the city would open a
-    #: channel of that name a moment later, and the Net keeps one name to one
-    #: channel. Asked here as well as in `_open_channel`, so a person is
-    #: refused before a city is raised and rolled back under them.
+    #: And the same name held by somebody's own channel. A city's name becomes
+    #: its channel's, and `net.channel.create` refuses a name a channel already
+    #: has -- so without this the door the player types a city into could hand
+    #: the Net what the door they type a channel into would not. Asked here and
+    #: not only in `_open_channel`, so a person is refused before a city is
+    #: raised and rolled back under them -- and asked against the row rather
+    #: than through `engine.net`: the Net names the city, and a door back the
+    #: other way is the `city <-> net` cycle wave 3 is removing.
     if await _channel_named(session, title) is not None:
         raise CityError(key="city-found-name-in-the-net", name=title)
 
@@ -369,7 +391,16 @@ async def establish(
         async with session.begin_nested():
             city = await found(session, catalog, node, title, founder=identity)
     except IntegrityError as clash:
-        if _violated(clash) != "uq_city_name_lower":
+        #: Which index refused, asked of the error itself rather than guessed
+        #: from what the table holds afterwards: a double click on `city.found`
+        #: races on the node as well as on the name, and `uq_city_node_id`
+        #: answering would otherwise be reported as a name somebody took.
+        #: The second half is the fallback: `constraint_name` reaches us through
+        #: a private detail of the asyncpg dialect, and on the day it stops the
+        #: loser of a legitimate race would get a server error instead of the
+        #: refusal they had before. Asking the table then is the old behaviour,
+        #: not a guess -- it only runs when the error would not say.
+        if _violated(clash) != NAME_INDEX and await by_name(session, title) is None:
             raise
         raise CityError(key="city-found-name-taken", name=title) from clash
 

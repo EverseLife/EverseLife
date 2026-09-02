@@ -89,9 +89,15 @@ async def city_channel(session: AsyncSession, city: City) -> NetChannel | None:
 
 async def _named(session: AsyncSession, name: str) -> uuid.UUID | None:
     """The channel of that name, case ignored -- the Net's own way of telling
-    names apart (D-284), and the rule `uq_net_channel_name_lower` holds."""
+    names apart (D-284), and the rule `uq_net_channel_name_lower` holds.
+
+    Both sides folded by the database, neither by Python: the index is
+    `lower(name)` in Postgres, and `str.lower` parts from it on code points
+    like a dotted "I". A question answered one way and enforced another would
+    miss exactly the names it was asked about.
+    """
     return await session.scalar(
-        select(NetChannel.id).where(func.lower(NetChannel.name) == name.lower())
+        select(NetChannel.id).where(func.lower(NetChannel.name) == func.lower(name))
     )
 
 

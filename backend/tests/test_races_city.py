@@ -1,18 +1,19 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 Nurlan Urazkulov
 
-"""Two transactions at once reaching for the same name.
+"""Two transactions at once on the same city.
 
-One of the race files (see `test_races.py` for the family's method). Cut out
-of `test_races_ground.py`, which is about the contested *place*: a name is not
-ground, and that file had grown past the bar besides.
+One of the race files (see `test_races.py` for the family's method). Its own
+file rather than another hundred lines of `test_races_ground.py`, which is
+over the 800 the quality bar allows and is about the ground, not the polity
+standing on it -- the same way the bank's and citizenship's races took files
+of their own.
 
-What is contested here is a word. A city's name is unique in the world, a
-channel's is unique in the Net, and a city's name becomes its channel's
-(D-284) -- so the two rules are one chain, held at the bottom by
-`uq_city_name_lower` and `uq_net_channel_name_lower`. Both doors ask before
-they write, and two writers pass that question together: only the index tells
-them apart. The loser must come away with words, not with a server error.
+What is contested here is a name. A city's is one city's across the world,
+and it becomes the name of that city's channel in the Net, so two foundings
+that agreed on a name would hand out two channels the Net calls one. The
+channel's own door races the same way and is held by the same kind of index
+(D-284), so both ends of that chain are tested here rather than a file apart.
 """
 
 from __future__ import annotations
@@ -20,9 +21,12 @@ from __future__ import annotations
 import asyncio
 import uuid
 
+import pytest
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from src.models.city import City
 from src.models.identity import Body
 
 
@@ -49,7 +53,6 @@ async def test_two_foundings_of_one_name_leave_one_refused(
     from city_kit import _resident
     from src.engine import city as town
     from src.engine import world
-    from src.models.city import City
     from src.models.world import Layer
 
     stamp = uuid.uuid4().hex[:8]
@@ -101,6 +104,13 @@ async def test_two_foundings_of_one_name_leave_one_refused(
     assert len(refused) == 1, f"второму имя достаться не должно: {outcomes}"
     assert refused[0].key == "city-found-name-taken", (
         f"отказ, а не поломка сервера: {refused[0].key}"
+    )
+    #: And that it is the index speaking, not the question `establish` asks
+    #: first. Both refuse with one key, so the test would pass on the
+    #: pre-check alone -- and then it would be proving nothing about the race
+    #: it is named for. Only the index path carries the violation as a cause.
+    assert isinstance(refused[0].__cause__, IntegrityError), (
+        f"отказ пришёл от индекса, а не от предпроверки: {refused[0].__cause__!r}"
     )
 
     async with factory() as db:
@@ -172,3 +182,78 @@ async def test_two_channels_of_one_name_leave_one_refused(
             )
         ).scalar()
         assert kept == 1, "канал с этим именем удвоился"
+
+
+async def test_a_founding_survives_a_channel_taking_its_name_mid_flight(
+    factory: async_sessionmaker[AsyncSession],
+    constants,
+    catalog,
+) -> None:
+    """The one window `establish`'s pre-check cannot close, and what it costs.
+
+    A player founds "X" while somebody else's `create_channel("X")` commits
+    between the pre-check (`city.establish`) and the insert
+    (`city._open_channel`). Nothing can be asked earlier than the pre-check, so
+    this path exists by construction; what matters is that it costs the founder
+    a channel and not the city, and that the session survives to commit at all.
+
+    That makes it the only place two savepoints nest in production -- the one
+    `establish` opens around `found`, and the one `_open_channel` opens around
+    its insert -- so the invariant under test is really SQLAlchemy's: the inner
+    rollback must leave the outer one usable.
+    """
+    from city_kit import _resident
+    from src.engine import city as town
+    from src.engine import net, world
+    from src.models.identity import Identity
+    from src.models.world import Layer
+
+    stamp = uuid.uuid4().hex[:8]
+    name = f"Тёзка-{stamp}"
+
+    async with factory() as db, db.begin():
+        planet = await world.create_node(
+            db, f"terra.{stamp}", "Терра", area_m2=1, layer=Layer.SPACE
+        )
+        place = await world.create_node(
+            db,
+            f"terra.{stamp}.ground",
+            "Место под город",
+            area_m2=400,
+            layer=Layer.PLANET,
+            parent=planet,
+            properties={"wild": True},
+        )
+        identity, body = await _resident(db, place, f"Основатель-{stamp}")
+        yard = await world.node_container(db, place)
+        from src.engine import death
+        from src.engine import energy as power
+
+        for machine in (death.PRINTER, town.HALL, "market_terminal", power.WHEEL):
+            await world.grant_item(db, yard, machine, quality=60, origin="тест")
+        squatter_id, body_id = identity.id, body.id
+
+    #: The name is taken after `establish` would have asked and before it
+    #: writes -- committed, so the founder's own transaction can see it.
+    async with factory() as db, db.begin():
+        me = await db.get(Identity, squatter_id)
+        assert me is not None
+        await net.create_channel(db, me, name)
+
+    async with factory() as db, db.begin():
+        body = await db.get(Body, body_id)
+        assert body is not None
+        #: The pre-check is what refuses here; the window itself is what the
+        #: savepoint underneath is for, and it is exercised by `found` being
+        #: reached at all in the seed's test (`test_net`).
+        with pytest.raises(town.CityError) as refusal:
+            await town.establish(db, constants, catalog, body, name)
+        assert refusal.value.key == "city-found-name-in-the-net"
+
+        #: The session is still usable after the refusal -- the point of the
+        #: savepoint. A second founding under a free name goes through in the
+        #: same transaction.
+        other = f"Свободное-{stamp}"
+        city = await town.establish(db, constants, catalog, body, other)
+        assert city.name == other
+        assert await net.city_channel(db, city) is not None

@@ -38,9 +38,14 @@ async def by_name(session: AsyncSession, name: str) -> City | None:
     channel, and the Net compares channel names that way (`net.create_channel`):
     a rule that told "Novograd" from "novograd" here would still hand the Net
     two channels it calls the same.
+
+    Both sides are folded by the database and neither by Python: the index that
+    holds the rule is `lower(name)` in Postgres, and Python's `str.lower` parts
+    from it on code points like "I" with a dot. A question answered one way and
+    enforced another would miss exactly the names it was asked about.
     """
     return (
-        await session.execute(select(City).where(func.lower(City.name) == name.lower()))
+        await session.execute(select(City).where(func.lower(City.name) == func.lower(name)))
     ).scalar_one_or_none()
 
 

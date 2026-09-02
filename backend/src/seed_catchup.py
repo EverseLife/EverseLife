@@ -128,6 +128,24 @@ async def catch_up(session: AsyncSession, core: Node) -> None:
     for delegate in applied.city_nodes(scenario):
         if await town.by_node(session, delegate.id) is not None:
             continue
+        #: A player got to the name first. A city name is one city's
+        #: (`uq_city_name_lower`), and founding this one would raise -- which
+        #: here means the server does not come up at all (DEPLOY.md). That is
+        #: the right answer for a half-laid world and the wrong one for this:
+        #: nothing is broken, two names simply met, and no rename exists in the
+        #: game to undo it from inside. So this one step is allowed to continue
+        #: where the rest of the seed stops, and says loudly what it skipped.
+        taken = await town.by_name(session, delegate.name)
+        if taken is not None:
+            log.error(
+                "city not founded by catch-up: the name %r of node %s is already "
+                "a city on node %s. The layout's city is missing until one of "
+                "them is renamed",
+                delegate.name,
+                delegate.key,
+                taken.node_id,
+            )
+            continue
         founded = await town.found(session, current_catalog(), delegate, delegate.name)
         founded.laws = {"newcomer_grant": parts.NEWCOMER_GRANT}
         await parts.treasury(session, founded)

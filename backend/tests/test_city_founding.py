@@ -309,6 +309,28 @@ async def test_a_city_name_is_taken_only_once(
     assert town_of_theirs.name == "Второград"
 
 
+async def test_a_name_a_channel_already_holds_founds_no_city(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """A city may not take a name somebody's own channel is already using.
+
+    The city half alone would have left the asymmetry half-closed: a player
+    makes the channel "Novograd" by hand, another founds the city "novograd",
+    and the Net ends with two channels of one name -- which is the very thing
+    `net.channel.create` refuses, and the thing this rule exists to prevent.
+    """
+    from src.engine import net
+
+    place, identity, body = await _wasteland(session)
+    await _build_up(session, place)
+    await net.create_channel(session, identity, "Новоград")
+
+    with pytest.raises(town.CityError) as refusal:
+        await town.establish(session, constants, catalog, body, "новоГРАД")
+    assert refusal.value.key == "city-found-name-in-the-net"
+    assert refusal.value.params["name"] == "новоГРАД"
+
+
 async def test_no_second_city_on_same_node(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:

@@ -218,8 +218,8 @@ async def test_city_channel_is_official_and_its_power_writes(
     city, core, founder = await _capital(session, catalog)
     assert Power.CHANNEL.value in await town.powers_of(session, founder.id, city)
     views = await net.channels(session, constants, founder.id, now=NOW)
-    #: By the city's own name, not a literal: the kit stamps it, because a
-    #: city name is unique across the world and so is its channel's.
+    #: By the city's own name, not by a literal: a city name is unique across
+    #: the world now, so the kit stamps it and only the city knows what it got.
     assert [(v.official, v.writable, v.implied, v.by) for v in views] == [
         (True, True, True, city.name)
     ]
