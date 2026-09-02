@@ -60,6 +60,25 @@ async def found(
 
     The charter is filled with `laws.json` defaults: the city arises working,
     not as an empty questionnaire of forty questions (D-130).
+
+    **The name is taken as given, and nothing measures it here.** This is the
+    seed's door: the capital and the delegate cities are founded from node
+    names written in the vault (`seed.py`, `seed_catchup.py`), and a vault name
+    is the build's business, not a refusal's -- a content bug should stop the
+    build, not reach a player as words written for a human in a window. So the
+    ceiling for this door stands in the vault: `WORLD_CITY_NAME_LIMIT` in its
+    `tools/world.py` refuses to build a `city: true` node named longer.
+
+    What hangs on that is not the city card. The city's official channel takes
+    its name from the city -- `net.city_channel` builds the row directly, past
+    the ceiling `net.channel.create` applies to what a player types -- so an
+    unmeasured name here would have made a channel no player could have
+    created, and nothing along the way would have said so.
+
+    The vault holds its own copy of the number, because its build reads `data/`
+    and knows nothing of this repository. The other end of that copy is
+    `test_seed_world`, which measures the shipped layout against the Net's own
+    ceiling: neither side can import the other, but both see the layout.
     """
     existing_ = await by_node(session, node.id)
     if existing_ is not None:
