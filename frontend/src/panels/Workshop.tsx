@@ -99,6 +99,14 @@ export function Workshop({ look, machine }: Omit<Props, "busy" | "act">) {
   );
   const tiersKey = JSON.stringify(chosenTiers);
 
+  //: A new recipe starts at one unit: the count chosen for the last recipe
+  //: is no choice about this one, and carried over it turned a full stock
+  //: into a puzzling «short by 0.316» -- two canisters asked of plastic for
+  //: one, with nothing on the screen saying which batch was being counted.
+  useEffect(() => {
+    setQty(1);
+  }, [selected]);
+
   /**
    * The forecast counts itself while the player is still choosing.
    *
