@@ -159,3 +159,50 @@ async def test_an_emptied_journal_counts_from_one(session: AsyncSession) -> None
     await session.flush()
     again = (await session.execute(select(func.min(Event.id)))).scalar()
     assert again == 1, again
+
+
+def test_migrations_have_exactly_one_head() -> None:
+    """One head, always -- checked by reading the files, not by upgrading.
+
+    Two revisions naming the same `down_revision` are two heads, and
+    `alembic upgrade head` then refuses to choose: the deploy stops and every
+    database test dies on a world that cannot be built. It reached main on
+    2026-09-02 because each branch is faultless alone -- the pair is the
+    defect, and nothing looked at pairs.
+
+    No database and no alembic here on purpose: the fault is in the files, so
+    the files are what is read. That keeps the test in every run, including the
+    ones that skip when Postgres is down -- and this is exactly the check one
+    wants to survive a broken environment.
+
+    Two heads *between branches* this cannot see: a sibling branch is not in
+    this tree. That is `tools/check_migration_parents.py`, run by the
+    pre-commit hook, where the branches actually are.
+    """
+    from pathlib import Path
+
+    versions = Path(__file__).resolve().parents[1] / "migrations" / "versions"
+    revisions: dict[str, str] = {}
+    parents: dict[str, str] = {}
+    for path in sorted(versions.glob("*.py")):
+        text_ = path.read_text(encoding="utf-8")
+        revision = re.search(r"^revision(?::[^=]*)?\s*=\s*[\"']([^\"']+)", text_, re.M)
+        assert revision is not None, f"{path.name}: не найден `revision`"
+        revisions[revision.group(1)] = path.name
+        down = re.search(r"^down_revision(?::[^=]*)?\s*=\s*[\"']([^\"']+)", text_, re.M)
+        if down is not None:
+            parents[revision.group(1)] = down.group(1)
+
+    #: A parent named twice is the collision itself -- reported before the head
+    #: count, because it says *which* two files disagree rather than that the
+    #: chain has two ends.
+    claimed: dict[str, list[str]] = {}
+    for revision, parent in parents.items():
+        claimed.setdefault(parent, []).append(revisions[revision])
+    twice = {parent: sorted(names) for parent, names in claimed.items() if len(names) > 1}
+    assert not twice, f"у одного родителя две миграции: {twice}"
+
+    heads = sorted(set(revisions) - set(parents.values()))
+    assert len(heads) == 1, f"голов должно быть одна, а их {len(heads)}: " + ", ".join(
+        f"{head} ({revisions[head]})" for head in heads
+    )
