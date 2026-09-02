@@ -245,3 +245,70 @@ async def test_an_emptied_journal_counts_from_one(session: AsyncSession) -> None
     await session.flush()
     again = (await session.execute(select(func.min(Event.id)))).scalar()
     assert again == 1, again
+
+
+def test_migrations_have_exactly_one_head() -> None:
+    """One head, always -- checked by reading the files, not by upgrading.
+
+    Two revisions naming the same `down_revision` are two heads, and
+    `alembic upgrade head` then refuses to choose: the deploy stops and every
+    database test dies on a world that cannot be built. It reached main on
+    2026-09-02 because each branch is faultless alone -- the pair is the
+    defect, and nothing looked at pairs.
+
+    No database and no alembic here on purpose: the fault is in the files, so
+    the files are what is read. That keeps the test in every run, including the
+    ones that skip when Postgres is down -- and this is exactly the check one
+    wants to survive a broken environment.
+
+    Two heads *between branches* this cannot see: a sibling branch is not in
+    this tree. That is `tools/check_migration_parents.py`, run by the
+    pre-commit hook, where the branches actually are.
+    """
+    #: The same parser the pre-commit check uses (`tools/check_migration_parents`):
+    #: two copies of this regex would rot apart the day alembic changes its
+    #: template, and both would rot silently.
+    from tools.check_migration_parents import parse as parse_migration
+
+    versions = Path(__file__).resolve().parents[1] / "migrations" / "versions"
+    revisions: dict[str, str] = {}
+    parents: dict[str, tuple[str, ...]] = {}
+    for path in sorted(versions.glob("*.py")):
+        parsed = parse_migration(path.read_text(encoding="utf-8"))
+        assert parsed is not None, f"{path.name}: не найден `revision`"
+        revision, up = parsed
+        #: Two files under one id is a fault alembic itself trips over, and
+        #: a dict would swallow it: the second silently replaces the first.
+        assert revision not in revisions, (
+            f"ревизия {revision} объявлена дважды: {revisions[revision]} и {path.name}"
+        )
+        revisions[revision] = path.name
+        parents[revision] = up
+
+    #: A parent nobody wrote is a broken chain that still counts one head, so
+    #: the head test alone would pass over it.
+    dangling = {
+        revisions[revision]: parent
+        for revision, up in parents.items()
+        for parent in up
+        if parent not in revisions
+    }
+    assert not dangling, f"родитель не существует: {dangling}"
+
+    #: A parent named twice is the collision itself -- reported before the head
+    #: count, because it says *which* two files disagree rather than that the
+    #: chain has two ends. A merge migration legitimately joins two parents,
+    #: and it is a head-count question, not a child-count one -- so a parent
+    #: whose children are rejoined below is not reported here.
+    claimed: dict[str, list[str]] = {}
+    for revision, up in parents.items():
+        for parent in up:
+            claimed.setdefault(parent, []).append(revisions[revision])
+    named = {parent: sorted(names) for parent, names in claimed.items() if len(names) > 1}
+
+    heads = sorted(set(revisions) - {parent for up in parents.values() for parent in up})
+    assert len(heads) == 1, (
+        f"голов должно быть одна, а их {len(heads)}: "
+        + ", ".join(f"{head} ({revisions[head]})" for head in heads)
+        + (f"; у одного родителя несколько детей: {named}" if named else "")
+    )
