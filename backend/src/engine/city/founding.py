@@ -68,8 +68,10 @@ async def found(
     is the build's business, not a refusal's -- a content bug should stop the
     build, not reach a player as words written for a human in a window. So the
     ceiling for this door stands in the vault: `WORLD_CITY_NAME_LIMIT` in its
-    `tools/world.py` refuses to build a `city: true` node named longer, and
-    those are exactly the nodes the two seeds found cities on.
+    `tools/world.py` refuses to build a `city: true` node named longer -- the
+    flag `seed_world.city_nodes` selects on, and so the node every call below
+    arrives with (the catch-up's capital reaches it as `core.parent_id`, which
+    is that same flagged node).
 
     The player's door is `establish`, and it measures what was typed. The two
     guarantees are therefore the same one -- "no city has an over-long name",
