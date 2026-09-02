@@ -550,11 +550,16 @@ async def test_two_loans_of_the_same_room_leave_one_refused(
     the borrower: without that row two commands read the same room and both
     take it in full, and the world prints money nobody's limit allowed.
     """
+    from bank_kit import _enrol
     from src.engine import bank
     from src.engine.bank import loan as loan_module
     from src.models.bank import Loan
 
     who = await world.create_identity(session, f"Заёмщик-{uuid.uuid4().hex[:6]}")
+    #: A borrower is somebody's citizen since D-281 -- only a city lends -- and
+    #: this one's city is rich enough that the personal limit binds first,
+    #: which is the remainder this test is about.
+    await _enrol(session, who)
     #: The reserve is opened beforehand: both sessions would otherwise race to
     #: create it, and a unique violation would hide the race being tested.
     await bank.reserve_account(session)
@@ -596,6 +601,10 @@ async def test_two_payments_of_the_same_debt_are_not_counted_twice(
     from src.models.bank import Loan
 
     who = await world.create_identity(session, f"Должник-{uuid.uuid4().hex[:6]}")
+    #: Only a city lends, and only to its own (D-281).
+    from bank_kit import _enrol
+
+    await _enrol(session, who)
     account = await ledger.account_for(session, AccountKind.IDENTITY, who.id)
     genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
     await ledger.transfer(
@@ -712,11 +721,14 @@ async def test_two_citizens_do_not_lie_twice_on_the_same_line(
             await bank.borrow(db, constants, catalog, borrower, free / MONEY_SCALE)
 
     outcomes = await asyncio.gather(*(take(one) for one in borrowers), return_exceptions=True)
-    #: Both are served: the line shrinks smoothly, and whoever finds it spent
-    #: borrows straight from the capital at the worse rate (D-175). Without the
-    #: city's row the two collide in the ledger instead, and one of them dies
-    #: of a deadlock -- the cap holds by accident, and the player sees a crash.
-    assert not [one for one in outcomes if isinstance(one, Exception)], outcomes
+    #: One is served and one is refused: past the city's line there is nothing
+    #: any more -- the direct loan from the capital at the worse rate went with
+    #: D-281, so the line is the whole answer. Without the city's row the two
+    #: collide in the ledger instead, and one of them dies of a deadlock: the
+    #: cap holds by accident, and the player sees a crash instead of a refusal.
+    refused = [one for one in outcomes if isinstance(one, Exception)]
+    assert len(refused) == 1, f"второму занять нечего: {outcomes}"
+    assert isinstance(refused[0], bank.TooMuch), refused[0]
 
     async with factory() as db:
         on_line = (

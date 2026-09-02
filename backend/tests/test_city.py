@@ -502,9 +502,17 @@ async def test_treasury_bails_out_only_its_own(
     president, _ = await _resident(session, core, "Президент")
     await town.install_founder(session, city, president)
 
-    stranger, stranger_body = await _resident(session, core, "Чужой")
+    #: The stranger belongs to another city and borrows there: since D-281
+    #: that is the only way anyone borrows at all, and it is exactly what
+    #: "not ours" now looks like -- somebody else's line, somebody else's
+    #: citizen. Joining afterwards is no longer a way to make them ours: one
+    #: citizenship to a person, and an open loan does not let go of it.
+    from bank_kit import _enrol, _trade_on
+
+    stranger, _ = await _resident(session, core, "Чужой")
+    elsewhere = await _enrol(session, stranger)
     debt = await bank.borrow(session, constants, catalog, stranger, 100)
-    assert debt.city_id is None, "чужой не гражданин: заём прямой у столицы"
+    assert debt.city_id == elsewhere.id, "заём лёг на линию чужого города"
     await session.flush()
 
     state = {"identity_id": president.id}
@@ -513,6 +521,11 @@ async def test_treasury_bails_out_only_its_own(
     assert debt.outstanding == money(100), "казна не заплатила по чужому займу"
 
     #: Its own citizen -- the city stands for them, and that is what a city is for.
-    await town.join(session, stranger_body, city)
-    paid = await _city_bail(state, session, {"city": core.key, "loan": str(debt.id)})
+    own, own_body = await _resident(session, core, "Свой")
+    await town.join(session, own_body, city)
+    #: A line of its own: the capital lends a city a share of the trade that
+    #: happened on its land, and the capital's own core has seen none here.
+    await _trade_on(session, core, 1000)
+    ours = await bank.borrow(session, constants, catalog, own, 100)
+    paid = await _city_bail(state, session, {"city": core.key, "loan": str(ours.id)})
     assert paid["paid"] > 0
