@@ -157,7 +157,7 @@ describe("marks", () => {
   //: The wire speaks ids since D-251: recipes carry an `id` beside the Russian
   //: `name`, and everything is looked up by the id.
   const recipe = (name: string, id: string, kind: string, food = false) =>
-    ({ name, id, level: 1, kind, roles: false, food, inputs: [], amounts: {} });
+    ({ name, id, kind, roles: false, food, inputs: [], amounts: {} });
   const BOOK = {
     bulk: [],
     liquid: ["water"],

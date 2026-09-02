@@ -553,8 +553,10 @@ function Knowledge({ look }: { look: Look }) {
   //: One recipe open at a time: the eye toggles the row's details in place.
   const [shown, setShown] = useState<string | null>(null);
   const agrotech = look.agrotech ?? [];
-  //: The details come from the book already loaded (D-225): the station, the
-  //: inputs and the level are the vault catalog's, nothing is asked over.
+  //: The details come from the book already loaded (D-225): the station and
+  //: the inputs are the vault catalog's, nothing is asked over. The ladder
+  //: step is not among them: the glossary bans "level", and the engine reads
+  //: nothing off it -- the station and the inputs already say the same.
   const details = (id: string) =>
     (book?.recipes ?? []).find((recipe) => (recipe.id ?? recipe.name) === id);
   return (
@@ -594,7 +596,6 @@ function Knowledge({ look }: { look: Look }) {
               </p>
               {recipe && (
                 <div className="note recipe-peek">
-                  <div>{t("ui-side-recipe-level", { level: String(recipe.level) })}</div>
                   <div>
                     {station
                       ? t("ui-side-recipe-station", { station: goodsName(names, station) })

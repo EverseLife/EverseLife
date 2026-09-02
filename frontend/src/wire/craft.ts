@@ -56,7 +56,6 @@ export type Recipe = {
   /** The stable id (D-251): what the wire, `knows` and commands name. The
    *  Russian `name` stays for display. Optional so hand-built test books work. */
   id?: string;
-  level: number;
   kind: string;
   roles: boolean;
   food: boolean;

@@ -130,7 +130,6 @@ ui-side-recipes-none = nothing yet: recipes are taken at the Library, read off a
 ui-side-recipe-discovered = discovered by you: your own experiment
 ui-side-recipe-pioneer = first discovered by: { $name }
 ui-side-recipe-details = Details of the “{ $recipe }” recipe
-ui-side-recipe-level = level: { $level }
 ui-side-recipe-station = station: { $station }
 ui-side-recipe-by-hand = made by hand, no station needed
 ui-side-recipe-inputs = takes per unit: { $inputs }

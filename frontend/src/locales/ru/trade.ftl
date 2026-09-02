@@ -281,7 +281,6 @@ ui-library-search = рецепт, станция, вход или имя
 ui-library-found = { $found } из { $all }
 ui-library-shelf-empty = Полки пусты: эта библиотека ещё ничего не получила. Принесите носитель «Рецепт» и положите его сюда из инвентаря.
 ui-library-recipe = рецепт
-ui-library-level = ур.
 ui-library-station = станция
 ui-library-inputs = из чего
 ui-library-contribution = вклад

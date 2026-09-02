@@ -128,7 +128,6 @@ ui-side-recipes-none = пока ничего: рецепты берут в Би�
 ui-side-recipe-discovered = открыт вами: собственный опыт
 ui-side-recipe-pioneer = первооткрыватель: { $name }
 ui-side-recipe-details = Детали рецепта «{ $recipe }»
-ui-side-recipe-level = уровень: { $level }
 ui-side-recipe-station = станция: { $station }
 ui-side-recipe-by-hand = делается руками, станция не нужна
 ui-side-recipe-inputs = состав на единицу: { $inputs }

@@ -19,9 +19,9 @@ const book = {
   units: {},
   operations: [],
   recipes: [
-    { name: "Канистра", id: "canister", level: 3, kind: "tool", roles: false, food: false, inputs: [], amounts: {}, store: 20, holds: "liquid" },
-    { name: "Сундук", id: "chest", level: 2, kind: "furniture", roles: false, food: false, inputs: [], amounts: {}, store: 300 },
-    { name: "Кровать", id: "bed", level: 2, kind: "furniture", roles: false, food: false, inputs: [], amounts: {} },
+    { name: "Канистра", id: "canister", kind: "tool", roles: false, food: false, inputs: [], amounts: {}, store: 20, holds: "liquid" },
+    { name: "Сундук", id: "chest", kind: "furniture", roles: false, food: false, inputs: [], amounts: {}, store: 300 },
+    { name: "Кровать", id: "bed", kind: "furniture", roles: false, food: false, inputs: [], amounts: {} },
   ],
   classes: {},
   tool_classes: {},

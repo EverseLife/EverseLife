@@ -64,7 +64,7 @@ export function Library({ look }: Omit<Props, "busy" | "act">) {
     (book?.recipes ?? []).map((r) => [r.id ?? r.name, r]),
   );
   const all = shelf.map((entry) => ({
-    ...(byId[entry.recipe] ?? { name: entry.recipe, inputs: [], level: "?", station: null }),
+    ...(byId[entry.recipe] ?? { name: entry.recipe, inputs: [], station: null }),
     id: entry.recipe,
     contributor: entry.contributor,
     //: The first discoverer (D-259): a different name than the contributor --
@@ -120,7 +120,6 @@ export function Library({ look }: Omit<Props, "busy" | "act">) {
         <thead>
           <tr>
             <th>{t("ui-library-recipe")}</th>
-            <th>{t("ui-library-level")}</th>
             <th>{t("ui-library-station")}</th>
             <th>{t("ui-library-inputs")}</th>
             <th>{t("ui-library-contribution")}</th>
@@ -132,7 +131,6 @@ export function Library({ look }: Omit<Props, "busy" | "act">) {
           {shown.map((recipe) => (
             <tr key={recipe.id}>
               <td>{goodsName(names, recipe.id)}</td>
-              <td className="num">{recipe.level}</td>
               <td className="note">{recipe.station ? goodsName(names, recipe.station) : "—"}</td>
               <td className="note">
                 {recipe.inputs.map((one: string) => goodsName(names, one)).join(", ") || "—"}
