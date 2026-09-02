@@ -47,6 +47,79 @@ from src.units import MONEY_SCALE, PERCENT, money, money_str
 LOAN_ORDER = Loan.id
 
 
+async def lend_to_city(
+    session: AsyncSession,
+    constants: Constants,
+    city,
+    total: int,
+    *,
+    now: datetime | None = None,
+    why: str,
+) -> Loan:
+    """The capital lends to a city: key rate, no margin, on the city's line (D-248).
+
+    Only the capital prints (D-175), and only here -- since D-283 a citizen's
+    loan is paid by their city out of its own treasury, so the one place money
+    is made is the level above: the capital lending to a city, reserve first
+    and the shortfall printed (D-087).
+
+    The **line is not checked here**. Both callers check it themselves, and
+    both must: they hold the city's row for the whole read-then-insert, and
+    each has its own word for what is refused -- the ruler asking for a works
+    loan hears about the line, a citizen hears that their city cannot fund
+    them. A check inside would say one of those two things to both.
+    """
+    moment = now or datetime.now(UTC)
+    reserve_treasury = await reserve_account(session)
+    have = await ledger.balance(session, reserve_treasury.id)
+    printed = max(0, total - have)
+    if printed > 0:
+        genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
+        await ledger.transfer(
+            session,
+            PostingReason.GENESIS,
+            debit=genesis.id,
+            credit=reserve_treasury.id,
+            amount=printed,
+            memo={"печать под кредит казне": city.name},
+        )
+    await ledger.transfer(
+        session,
+        PostingReason.LOAN,
+        debit=reserve_treasury.id,
+        credit=(await town.treasury(session, city)).id,
+        amount=total,
+        memo={"кредит казне": f"{city.name} · {why}"},
+    )
+    rate_value = await key_rate(session, constants)
+    loan = Loan(
+        identity_id=None,
+        principal=total,
+        outstanding=total,
+        rate=rate_value,
+        city_id=city.id,
+        margin=0,
+        printed=printed,
+        taken_at=moment,
+        accrued_at=moment,
+        serviced_at=moment,
+    )
+    session.add(loan)
+    await session.flush()
+    await events.record(
+        session,
+        EventKind.LOAN_TAKEN,
+        loan_id=str(loan.id),
+        amount=total,
+        rate=rate_value,
+        printed=printed,
+        city=city.name,
+        margin=0,
+        why=why,
+    )
+    return loan
+
+
 async def borrow(
     session: AsyncSession,
     constants: Constants,
@@ -56,14 +129,19 @@ async def borrow(
     *,
     now: datetime | None = None,
 ) -> Loan:
-    """Take a loan. Money comes from the reserve; the shortfall is printed (D-087).
+    """Take a loan. The money is the city's own, out of its treasury (D-283).
 
-    The loan goes through the city of citizenship and **only** through it
-    (D-175, D-281): the rate is key plus the city margin, and the loan takes up
-    the city's credit line with the capital. No citizenship -- no loan; the
-    line exhausted -- no loan either. The direct loan from the capital at the
-    risk premium is gone: the capital lends against a line, and a person
-    belonging to nowhere puts up none.
+    One borrows from the city one belongs to and from nowhere else (D-281):
+    the rate is key plus that city's margin, and what is handed over is the
+    city's money. Short of it, the city borrows the difference from the capital
+    on its line (D-248) and hands on what it has just been lent -- so the whole
+    of the world's printing happens one level up, under a city's own debt, and
+    a citizen's loan makes no money at all.
+
+    Three refusals and no fourth: nobody to lend (no citizenship), too much for
+    the borrower (the personal limit), too much for the lender (an empty
+    treasury and no line). The direct loan from the capital that used to catch
+    the last two is gone with D-281.
     """
 
     moment = now or datetime.now(UTC)
@@ -100,48 +178,41 @@ async def borrow(
             inner={"reason": reason},
         )
 
-    #: The city's line is the third remainder and one for the whole city
-    #: (D-175): since D-281 it is the loan's only brake -- past it there is no
-    #: dearer loan from the capital any more, there is nothing -- so two
-    #: citizens must not both read it free. The row serialises them, and the
-    #: loser rereads a line that already carries the winner's loan. The same
-    #: lock the treasury's own borrowing takes (`works_city.credit`).
+    #: The city pays out of its own treasury (D-283), and the treasury is a
+    #: remainder shared by everything the city does -- so its row is taken for
+    #: the whole read-then-insert. The same lock the treasury's own borrowing
+    #: takes (`works_city.credit`), and taken after the citizen's row: one
+    #: direction, person -> citizenship -> city, and nothing deadlocks.
     await session.execute(select(City.id).where(City.id == city.id).with_for_update())
-    _, _, free = await city_line(session, constants, city, now=moment)
-    if total > free:
-        raise TooMuch(
-            key="bank-city-line-exhausted",
-            city=city.name,
-            free=money_str(max(0, free)),
-        )
+    treasury = await town.treasury(session, city)
+    own = await ledger.balance(session, treasury.id)
+    shortfall = max(0, total - own)
+    if shortfall > 0:
+        #: Short, so the city borrows the difference from the capital: on its
+        #: line, at the key rate, no margin (D-248). The capital does not
+        #: borrow from itself -- its treasury fills by emission on the holders'
+        #: signatures (D-270) -- so an empty capital simply lends nothing.
+        _, _, free = await city_line(session, constants, city, now=moment)
+        if city.capital or shortfall > free:
+            raise TooMuch(
+                key="bank-city-cannot-fund",
+                city=city.name,
+                own=money_str(own),
+                free=money_str(0 if city.capital else max(0, free)),
+            )
+        await lend_to_city(session, constants, city, shortfall, now=moment, why=who.name)
 
     margin = city_margin(constants, catalog, city)
     rate_value = await key_rate(session, constants) + margin
-
-    #: The reserve is a steriliser: first we spend already existing TC, and
-    #: print only the shortfall. Printing shows as a separate posting and in telemetry.
-    reserve_treasury = await reserve_account(session)
-    have = await ledger.balance(session, reserve_treasury.id)
-    printed = max(0, total - have)
-    if printed > 0:
-        genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
-        await ledger.transfer(
-            session,
-            PostingReason.GENESIS,
-            debit=genesis.id,
-            credit=reserve_treasury.id,
-            amount=printed,
-            memo={"печать под кредит": who.name},
-        )
 
     account = await ledger.account_for(session, AccountKind.IDENTITY, who.id)
     await ledger.transfer(
         session,
         PostingReason.LOAN,
-        debit=reserve_treasury.id,
+        debit=treasury.id,
         credit=account.id,
         amount=total,
-        memo={"кредит": who.name},
+        memo={"кредит города": city.name, "кому": who.name},
     )
 
     loan = Loan(
@@ -151,7 +222,10 @@ async def borrow(
         rate=rate_value,
         city_id=city.id,
         margin=margin,
-        printed=printed,
+        #: Nothing is printed under a citizen's loan any more (D-283): the city
+        #: hands over money it already has, and whatever had to be made was
+        #: made one level up, under the city's own loan, and is written there.
+        printed=0,
         taken_at=moment,
         accrued_at=moment,
         serviced_at=moment,
@@ -165,7 +239,7 @@ async def borrow(
         loan_id=str(loan.id),
         amount=total,
         rate=rate_value,
-        printed=printed,
+        printed=0,
         city=city.name,
         margin=margin,
     )
@@ -265,36 +339,38 @@ async def _locked(session: AsyncSession, loan: Loan) -> None:
 
 
 async def _settle(session: AsyncSession, loan: Loan, account, payment: int) -> None:
-    """Post a payment: interest ahead of principal, city margin to its treasury.
+    """Post a payment: interest ahead of principal, and all of it to the lender.
 
-    The usual banking order, and it also makes "system income" measurable
-    (D-171): without separate accounting the city margin cannot be separated
-    from the key part that is sterilised in the capital's reserve (D-175).
+    The banking order stays, because without it the interest cannot be told
+    from the principal and "system income" stops being measurable (D-171). What
+    went with D-283 is the split: a payment is no longer cut into the city's
+    margin and the capital's key share, because the two are no longer two
+    lenders in one loan. Whoever lent is paid -- the city's treasury on a
+    citizen's loan, the capital's reserve on a city's own.
+
+    Payer and lender can be the same account: the treasury settling the loan it
+    issued itself, which is how a prisoner's work-off lands (D-174). Then no
+    money moves at all and the debt is simply written down -- the city has
+    already been paid, in ore.
     """
 
     interest = min(payment, max(0, loan.interest_accrued - loan.interest_paid))
-    city_margin = 0
-    if interest > 0 and loan.city_id is not None and float(loan.rate) > 0:
-        city_margin = int(interest * float(loan.margin) / float(loan.rate))
     city = None if loan.city_id is None else await town.by_id(session, loan.city_id)
+    #: A citizen's loan is the city's money (D-283); a city's own loan, and a
+    #: loan of the world before that decision, is the capital's.
+    lender = (
+        await town.treasury(session, city)
+        if loan.identity_id is not None and city is not None
+        else await reserve_account(session)
+    )
 
-    if city_margin > 0 and city is not None:
-        await ledger.transfer(
-            session,
-            PostingReason.BANK_MARGIN,
-            debit=account.id,
-            credit=(await town.treasury(session, city)).id,
-            amount=city_margin,
-            memo={"маржа города": city.name, "заём": str(loan.id)},
-        )
-    to_reserve = payment - city_margin
-    if to_reserve > 0:
+    if payment > 0 and lender.id != account.id:
         await ledger.transfer(
             session,
             PostingReason.LOAN_REPAYMENT,
             debit=account.id,
-            credit=(await reserve_account(session)).id,
-            amount=to_reserve,
+            credit=lender.id,
+            amount=payment,
             memo={"погашение": str(loan.id)},
         )
     loan.interest_paid += interest
@@ -503,9 +579,13 @@ async def prison_credit(
 ) -> int:
     """The treasury pays the reference value of what a prisoner mined toward their debt.
 
-    The circle closes (D-174, D-175): ore to the city, treasury money toward
-    repayment, repayment to the capital's reserve. Returns how much could be
-    credited; zero -- the treasury is empty, and the ore stays with the prisoner.
+    The circle closes inside the city now (D-174, D-283): ore to the city, and
+    the debt it is set against is the city's own, so nothing is transferred --
+    the claim is written down and the city is paid in ore. Against a loan of
+    the capital's -- a city's own borrowing, or a citizen's loan from before
+    D-283 -- the treasury pays as it always did, and the money returns to the
+    reserve. Returns how much could be credited; zero -- the treasury is empty,
+    and the ore stays with the prisoner.
     """
 
     moment = now or datetime.now(UTC)

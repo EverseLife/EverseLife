@@ -268,6 +268,7 @@ ui-admin-panel-no-trades = сделок за период не было
 ui-admin-panel-goods = Товар в городе
 ui-admin-panel-treasury = Казна
 ui-admin-panel-balance = остаток { $balance } ₭
+ui-admin-panel-lent = роздано в кредит { $lent } ₭
 ui-admin-panel-collected = собрано: { $lines }
 ui-admin-panel-spent = потрачено: { $lines }
 ui-admin-panel-ledger-line = { $ground } { $amount } ₭

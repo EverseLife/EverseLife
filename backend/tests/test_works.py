@@ -59,6 +59,29 @@ async def _reserve_surplus(session: AsyncSession, constants: Constants, catalog)
     )
     loan = await bank.borrow(session, constants, catalog, who, 200)
     await bank.repay(session, constants, who, loan, 200)
+    #: The circle is a step longer since D-283: the citizen pays their city,
+    #: and the reserve fills when the city returns what it borrowed to have
+    #: something to lend. Interest on that loan is the reserve's own income.
+    from src.engine import city as town
+    from src.models.bank import Loan, LoanState
+
+    home = await town.by_id(session, (await town.citizenship(session, who.id)).city_id)
+    treasury = await town.treasury(session, home)
+    owed = (
+        (
+            await session.execute(
+                select(Loan).where(
+                    Loan.city_id == home.id,
+                    Loan.identity_id.is_(None),
+                    Loan.state == LoanState.OPEN,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for own in owed:
+        await bank.repay(session, constants, who, own, from_account=treasury)
     ceiling = int(await bank.circulating(session) * constants[R.BANK_RESERVE_CAP] / PERCENT)
     surplus = await bank.reserve(session) - ceiling
     assert surplus > 0, "резерв заведомо выше потолка"

@@ -160,6 +160,9 @@ export type CityPanel = {
   };
   treasury?: {
     balance: number;
+    /** Lent to its own citizens and not yet back (D-283): money that is out,
+     *  not money that is gone -- the difference an empty balance hides. */
+    lent: number;
     collected: Record<string, number>;
     spent: Record<string, number>;
   };

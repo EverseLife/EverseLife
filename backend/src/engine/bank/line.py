@@ -153,10 +153,19 @@ async def offered_rate(
 
 
 async def city_outstanding(session: AsyncSession, city) -> int:
-    """How much citizen debt sits on this city's line with the capital."""
+    """How much this city owes the capital on its line.
+
+    Its **own** borrowing, and only that (D-283): a citizen's loan is paid by
+    the city out of its treasury and is the city's asset, not its debt. What
+    the line bounds is how much a city may borrow from the capital -- for a
+    works order (D-248) or to have something to lend its own people -- and how
+    much of that it hands on is a matter for its treasury, not for the line.
+    """
     result = await session.scalar(
         select(func.coalesce(func.sum(Loan.outstanding), 0)).where(
-            Loan.city_id == city.id, Loan.state == LoanState.OPEN
+            Loan.city_id == city.id,
+            Loan.identity_id.is_(None),
+            Loan.state == LoanState.OPEN,
         )
     )
     return int(result or 0)

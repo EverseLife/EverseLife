@@ -323,19 +323,20 @@ async def _city_cases(state: dict, db: AsyncSession, message: dict) -> dict:
 
 
 async def _ours(db: AsyncSession, city, loan: Loan) -> bool:
-    """Whether this loan is the city's business: its line, or its citizen.
+    """Whether this loan is the city's business -- and that is its line, only.
 
     A loan issued through the city sits on its line with the capital (D-175),
-    and repaying it frees that line. A citizen's direct loan from the capital
-    does not, but the city may still stand for its own -- that is what a city
-    is for (D-160).
+    and repaying it frees that line. Nothing else makes a loan a city's: the
+    treasury may not pay for somebody whose debt it never stood behind.
+
+    Whose citizen the debtor is **now** used to count as well, and the owner
+    struck that out: the money in this loan is the other city's, and the city
+    that took the debtor in has no share in it. The case is not hypothetical
+    since D-281 -- one leaves no city while owing it, so a debtor abroad is
+    somebody's exile, and their debt stays with the city that exiled them.
+    That is the price of exiling a debtor, and it is meant to be felt.
     """
-    if loan.city_id == city.id:
-        return True
-    if loan.identity_id is None:
-        return False
-    entry = await town.citizenship(db, loan.identity_id)
-    return entry is not None and entry.city_id == city.id
+    return loan.city_id == city.id
 
 
 @command("city.bail")

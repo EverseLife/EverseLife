@@ -75,7 +75,7 @@ market-job-no-order = job { $job }: no order
 
 bank-loan-not-positive = the loan must be positive
 bank-no-citizenship = one borrows from the city one belongs to, and you belong to none (D-281)
-bank-city-line-exhausted = the credit line of «{ $city }» with the capital is exhausted: { $free } ₭ free. The line is raised by trades on its land (D-193)
+bank-city-cannot-fund = «{ $city }» has not got the money: { $own } ₭ in the treasury, and { $free } ₭ more it may borrow from the capital. A loan is paid by the city out of its own treasury (D-283)
 bank-over-limit = that much is not lent: { $available } ₭ available out of a { $limit } ₭ limit ({ $reason })
 bank-loan-closed = this loan is already closed
 bank-nothing-to-pay-with = nothing to pay with

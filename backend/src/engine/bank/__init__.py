@@ -92,6 +92,7 @@ from src.engine.bank.loan import (  # noqa: F401
     collect,
     credit_limit,
     debt_of,
+    lend_to_city,
     loans_of,
     overdue,
     overdue_days,
