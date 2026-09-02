@@ -312,9 +312,6 @@ ENERGY_HOME_DRAW_PER_M2 = Num("energy.home_draw_per_m2")
 
 # --- City layout (D-089, D-125) ---------------------------------------------
 LAND_AREA_RING1 = Span("land.area_ring1")
-#: This many days after the declaration citizenship lapses (D-160). Leaving is
-#: free but not instant: otherwise one leaves the city right before a verdict.
-CITY_EXIT_DELAY = Num("city.exit_delay")
 #: How many hours a citizens' poll runs (D-161). Hours, not minutes: not only
 #: those online at the moment of convening take part.
 VOTE_DURATION = Num("vote.duration")
@@ -339,7 +336,6 @@ BANK_RATE_REVIEW_PERIOD = Num("bank.rate_review_period")
 BANK_RATE_FLOOR = Num("bank.rate_floor")
 BANK_RATE_CAP = Num("bank.rate_cap")
 BANK_RATE_STEP_MAX = Num("bank.rate_step_max")
-BANK_RISK_PREMIUM = Span("bank.risk_premium")
 BANK_UNSECURED_LIMIT = Num("bank.unsecured_limit")
 #: Ceiling of the city bank's margin above the key rate (D-175).
 BANK_CITY_MARGIN_CAP = Num("bank.city_margin_cap")

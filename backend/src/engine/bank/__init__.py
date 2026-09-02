@@ -65,6 +65,7 @@ from src.engine.bank._base import (  # noqa: F401
     BankError,
     NotCouncilTime,
     NothingToRepay,
+    NotOurs,
     OutOfCorridor,
     Restrained,
     TooMuch,

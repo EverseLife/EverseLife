@@ -171,7 +171,14 @@ async def catch_up(session: AsyncSession, core: Node) -> None:
             .scalars()
             .first()
         )
-        if first is not None:
+        #: Somebody who already belongs to **another** city is not made the
+        #: founder of this one: founding is entering a citizenship, and there
+        #: is one to a person (D-281). Their own city's citizen is fine -- the
+        #: door gives it, and the first player usually came out of this very
+        #: printer. Otherwise the seat stays empty until somebody living takes
+        #: it: the catch-up does not decide that for them.
+        home = None if first is None else await town.citizenship(session, first.id)
+        if first is not None and (home is None or home.city_id == city.id):
             await town.install_founder(session, city, first)
     elif await town.citizenship(session, city.founder_identity_id) is None:
         #: A founder from before D-195 was a stranger in their own city: no

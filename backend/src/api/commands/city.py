@@ -76,10 +76,14 @@ async def _city_join(state: dict, db: AsyncSession, message: dict) -> dict:
 
 @command("city.leave")
 async def _city_leave(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Declare leaving. Citizenship lapses after `city.exit_delay` (D-160)."""
+    """Leave the city. At once, and only an open loan holds it (D-281).
+
+    Remote, like a vote (D-161): belonging is a record about the person, and
+    one does not walk to the hall to stop being of a city.
+    """
     identity = await _identity(state, db)
-    entry = await town.leave(db, current(), identity)
-    return {"leaves_at": entry.leaving_at.isoformat()}
+    city = await town.leave(db, identity)
+    return {"left": None if city is None else city.name}
 
 
 @command("city.invite")
@@ -123,7 +127,6 @@ async def _city_citizens(state: dict, db: AsyncSession, message: dict) -> dict:
             {
                 "name": None if who is None else who.name,
                 "since": entry.since.isoformat(),
-                "leaving_at": (None if entry.leaving_at is None else entry.leaving_at.isoformat()),
             }
         )
     orders = []

@@ -99,22 +99,22 @@ from src.engine.city.citizen import (  # noqa: F401
     INVITE,
     OPEN,
     AlreadyCitizen,
-    Bound,
+    InDebt,
     NotCitizen,
     _enrol_founder,
     _enroll,
     admission,
     admit,
-    bind,
     citizens_of,
     citizenship,
     describe,
+    enrol_newcomer,
     exile,
-    exited,
     invite,
     is_citizen,
     join,
     leave,
+    owes,
     request_of,
     requests_of,
 )
@@ -139,8 +139,6 @@ from src.engine.city.land import (  # noqa: F401
     upkeep_of,
 )
 from src.engine.city.law import (  # noqa: F401
-    SPAWN_CITIZENSHIP,
-    SPAWN_TERM,
     TRADE_TAX,
     _apply_tariff,
     apply_law,
@@ -149,7 +147,6 @@ from src.engine.city.law import (  # noqa: F401
     may_take_city_land,
     set_charter,
     set_law,
-    spawn_terms,
 )
 from src.engine.city.lookup import (  # noqa: F401
     by_id,

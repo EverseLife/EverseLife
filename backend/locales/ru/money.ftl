@@ -74,6 +74,8 @@ market-job-no-order = задание { $job }: ордера нет
 ## Банк
 
 bank-loan-not-positive = заём должен быть положительным
+bank-no-citizenship = занять можно только у города своего гражданства, а вы нигде не состоите (D-281)
+bank-city-line-exhausted = кредитная линия города «{ $city }» со столицей исчерпана: свободно { $free } ₭. Линию поднимают сделки на его земле (D-193)
 bank-over-limit = столько не дают: доступно { $available } ₭ из лимита { $limit } ₭ ({ $reason })
 bank-loan-closed = этот заём уже закрыт
 bank-nothing-to-pay-with = платить нечем
@@ -113,9 +115,9 @@ bank-why-limit-no-overdue = стаж без просрочек
 bank-why-limit-trust = доверие { NUMBER($trust, maximumFractionDigits: 0) }% по репортам
 
 bank-why-offer-key = ключевая { NUMBER($key, minimumFractionDigits: 2, maximumFractionDigits: 2) }%
-bank-why-offer-no-citizenship = ключевая { NUMBER($key, minimumFractionDigits: 2, maximumFractionDigits: 2) }% + { NUMBER($premium, minimumFractionDigits: 2, maximumFractionDigits: 2) }% за риск: без гражданства занимают напрямую у столицы (D-175)
+bank-why-offer-no-citizenship = кредита нет: занимают только у города своего гражданства, а вы нигде не состоите (D-281)
 bank-why-offer-city = ключевая { NUMBER($key, minimumFractionDigits: 2, maximumFractionDigits: 2) }% + маржа города { NUMBER($margin, minimumFractionDigits: 2, maximumFractionDigits: 2) }% ({ $city }); линии свободно { $free } ₭
-bank-why-offer-line-exhausted = ключевая { NUMBER($key, minimumFractionDigits: 2, maximumFractionDigits: 2) }% + { NUMBER($premium, minimumFractionDigits: 2, maximumFractionDigits: 2) }% за риск: линия города { $city } исчерпана — разрешено { $permitted } ₭ от оборота, свободно { $free } ₭. Линию поднимают сделки на его земле (D-193)
+bank-why-offer-line-exhausted = ключевая { NUMBER($key, minimumFractionDigits: 2, maximumFractionDigits: 2) }% + маржа { NUMBER($margin, minimumFractionDigits: 2, maximumFractionDigits: 2) }%, но занять сейчас нечего: линия города «{ $city }» исчерпана — разрешено { $permitted } ₭ от оборота, свободно { $free } ₭. Линию поднимают сделки на его земле (D-193)
 
 ## Переводы
 
