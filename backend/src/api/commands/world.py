@@ -304,5 +304,6 @@ TOLD = frozenset(
         EventKind.ROAD_LAID.value,
         EventKind.DEED_SOLD.value,
         EventKind.CITY_GRANT_PAID.value,
+        EventKind.ESTATE_SITE_READY.value,
     }
 )

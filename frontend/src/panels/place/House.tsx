@@ -36,7 +36,10 @@ import { Repair } from "./Repair";
  * story, not two windows. Working at a machine is another matter -- for that
  * the machine has a row of its own in the location.
  */
-export function House({ look }: Omit<Props, "busy" | "act">) {
+export function House({
+  look,
+  values,
+}: Omit<Props, "busy" | "act"> & { values: Record<string, any> | null }) {
   const session = useSession();
   const names = useNames();
   //: Own waiting and own refusal: this window is a window of its own in the row.
@@ -67,6 +70,9 @@ export function House({ look }: Omit<Props, "busy" | "act">) {
   };
   //: Which quality of each material goes into the wall (D-058).
   const [tiers, setTiers] = useState<Record<string, string | null>>({});
+  //: How much of a material is about to be brought to a site (D-266), by
+  //: site and goods; unset means "all that fits, of what the hands hold".
+  const [bring, setBring] = useState<Record<string, number>>({});
   //: The bill counts itself while the player is still choosing (D-238, the
   //: workshop's `craft.plan` pattern): the estimate is a read, the debounce
   //: keeps it one question per pause, and the one button left is the one that
@@ -109,7 +115,20 @@ export function House({ look }: Omit<Props, "busy" | "act">) {
 
   const picked = kind || shelf[0]?.kind || "";
 
-  const short = (bill?.materials ?? []).filter((m: any) => m.have < m.need);
+  //: What the hands hold of a material, for the site's rows (D-266).
+  const inHands = (goods: string) =>
+    look.inventory
+      .filter((thing) => thing.goods === goods)
+      .reduce((sum, thing) => sum + thing.amount, 0);
+  type Work = (typeof going)[number];
+  const mine = (w: Work) => w.owner === look.identity;
+  const complete = (w: Work) =>
+    Object.entries(w.needed ?? {}).every(
+      ([goods, need]) => (w.brought?.[goods] ?? 0) + 1e-6 >= need,
+    );
+  //: The start's price from the public constants (D-225), never from the wire.
+  const startStamina = (w: Work) =>
+    (values?.["build.start_stamina_per_m2"] ?? 0) * w.area * w.floors;
 
   return (
     <>
@@ -159,22 +178,158 @@ export function House({ look }: Omit<Props, "busy" | "act">) {
         <p className="note">{t("ui-place-house-none")}</p>
       )}
 
-      {/* A site under way speaks the deadline bar, like every other term. */}
-      {going.map((w, i) => (
-        <div className="doing" key={`${w.ready_at}-${i}`}>
-          <span className="doing-what">
-            {t("ui-place-house-site", {
-              area: w.area.toFixed(0),
-              floors: w.floors,
-            })}
-            {w.kind
-              ? t("ui-place-house-site-kind", { kind: buildingKindName(names, w.kind) })
-              : ""}
-          </span>
-          <span className="doing-aside note">{t("ui-place-house-site-note")}</span>
-          <Deadline until={w.ready_at} label={t("ui-place-house-site-label")} size="row" />
-        </div>
-      ))}
+      {/* A construction site (D-266) is a card with a phase: the bill while
+          gathering, the term while building, the owner's hand when ready.
+          A city order's build has no site and keeps its bare deadline row. */}
+      {going.map((w, i) =>
+        w.site ? (
+          <div className="state-card" key={w.site}>
+            <div className="card-head">
+              <b>
+                {t("ui-place-site-title", { area: w.area.toFixed(0), floors: w.floors })}
+                {w.kind
+                  ? t("ui-place-house-site-kind", { kind: buildingKindName(names, w.kind) })
+                  : ""}
+              </b>
+              <span className="note">
+                {w.state === "gathering"
+                  ? t("ui-place-site-gathering")
+                  : w.state === "building"
+                    ? t("ui-place-site-building")
+                    : t("ui-place-site-ready")}
+              </span>
+            </div>
+            {w.state === "gathering" && (
+              <>
+                <table>
+                  <tbody>
+                    {Object.entries(w.needed ?? {}).map(([goods, need]) => {
+                      const brought = w.brought?.[goods] ?? 0;
+                      const gap = Math.max(0, need - brought);
+                      const have = inHands(goods);
+                      const key = `${w.site}:${goods}`;
+                      const asked = bring[key] ?? Math.min(gap, have);
+                      return (
+                        <tr key={goods}>
+                          <td>{goodsName(names, goods)}</td>
+                          <td className={gap > 0 ? "note" : undefined}>
+                            {t("ui-place-site-brought", {
+                              brought: brought.toFixed(1),
+                              needed: need.toFixed(1),
+                            })}
+                          </td>
+                          <td className="note">
+                            {t("ui-place-site-in-hands", { have: have.toFixed(1) })}
+                          </td>
+                          <td>
+                            {gap > 0 && have > 0 && (
+                              <span className="row">
+                                {/* Which quality goes into the wall: the bringer's
+                                    choice, made at the bringing (D-058). */}
+                                <TierPick
+                                  things={look.inventory}
+                                  goods={goods}
+                                  value={tiers[key]}
+                                  onChange={(tier) =>
+                                    setTiers((was) => ({ ...was, [key]: tier }))
+                                  }
+                                />
+                                <input
+                                  type="number"
+                                  min={0}
+                                  max={Math.min(gap, have)}
+                                  value={asked}
+                                  onChange={(e) =>
+                                    setBring((was) => ({ ...was, [key]: Number(e.target.value) }))
+                                  }
+                                />
+                                <button
+                                  disabled={busy || asked <= 0}
+                                  title={t("ui-place-site-add-hint")}
+                                  onClick={() =>
+                                    act(async () => {
+                                      await session.send("build.site_contribute", {
+                                        site: w.site,
+                                        goods,
+                                        amount: asked,
+                                        tier: tiers[key] || undefined,
+                                      });
+                                      setBring((was) => {
+                                        const next = { ...was };
+                                        delete next[key];
+                                        return next;
+                                      });
+                                    })
+                                  }
+                                >
+                                  {t("ui-place-site-add")}
+                                </button>
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+                {mine(w) ? (
+                  <div className="row">
+                    <button
+                      disabled={busy || !complete(w)}
+                      title={t("ui-place-site-start-hint")}
+                      onClick={() =>
+                        act(() => session.send("build.site_start", { site: w.site }))
+                      }
+                    >
+                      {t("ui-place-site-start", { stamina: startStamina(w).toFixed(1) })}
+                    </button>
+                    {!complete(w) && <span className="note">{t("ui-place-site-waiting")}</span>}
+                  </div>
+                ) : (
+                  <p className="note">{t("ui-place-site-owner-only")}</p>
+                )}
+              </>
+            )}
+            {w.state === "building" && w.ready_at && (
+              <Deadline
+                until={w.ready_at}
+                since={w.started_at ?? undefined}
+                label={t("ui-place-site-building")}
+                size="row"
+              />
+            )}
+            {w.state === "ready" &&
+              (mine(w) ? (
+                <div className="row">
+                  <button
+                    disabled={busy}
+                    onClick={() => act(() => session.send("build.site_finish", { site: w.site }))}
+                  >
+                    {t("ui-place-site-finish")}
+                  </button>
+                </div>
+              ) : (
+                <p className="note">{t("ui-place-site-owner-only")}</p>
+              ))}
+          </div>
+        ) : (
+          <div className="doing" key={`${w.ready_at}-${i}`}>
+            <span className="doing-what">
+              {t("ui-place-house-site", {
+                area: w.area.toFixed(0),
+                floors: w.floors,
+              })}
+              {w.kind
+                ? t("ui-place-house-site-kind", { kind: buildingKindName(names, w.kind) })
+                : ""}
+            </span>
+            <span className="doing-aside note">{t("ui-place-house-site-note")}</span>
+            {w.ready_at && (
+              <Deadline until={w.ready_at} label={t("ui-place-house-site-label")} size="row" />
+            )}
+          </div>
+        ),
+      )}
 
       {/* Ничью землю за городом строит всякий пришедший (D-198): окно нужно и
           там, иначе правило есть, а руки к нему не приложить. */}
@@ -239,23 +394,13 @@ export function House({ look }: Omit<Props, "busy" | "act">) {
             <>
               <table>
                 <tbody>
+                  {/* The bill is a reference here: nothing is brought at the
+                      laying, the materials come to the site by parts (D-266). */}
                   {bill.materials.map((m: any) => (
                     <tr key={m.goods}>
                       <td>{goodsName(names, m.goods)}</td>
-                      <td className={m.have < m.need ? "note" : undefined}>
-                        {t("ui-place-materials-have", {
-                          have: m.have.toFixed(1),
-                          need: m.need.toFixed(1),
-                        })}
-                      </td>
-                      <td>
-                        {/* Which quality goes into the wall (D-058). */}
-                        <TierPick
-                          things={look.inventory}
-                          goods={m.goods}
-                          value={tiers[m.goods]}
-                          onChange={(tier) => setTiers((was) => ({ ...was, [m.goods]: tier }))}
-                        />
+                      <td className="note">
+                        {t("ui-place-site-need", { need: m.need.toFixed(1) })}
                       </td>
                     </tr>
                   ))}
@@ -263,15 +408,16 @@ export function House({ look }: Omit<Props, "busy" | "act">) {
               </table>
               <div className="row">
                 <button
+                  title={t("ui-place-site-lay-hint")}
                   onClick={() =>
                     act(async () => {
-                      await session.send("build.construct", {
+                      //: The site takes the ground now and the materials
+                      //: later, by parts (D-266): the tiers are chosen at
+                      //: each contribution, not here.
+                      await session.send("build.site_lay", {
                         area,
                         floors,
                         kind: picked || undefined,
-                        tiers: Object.fromEntries(
-                          Object.entries(tiers).filter(([, tier]) => tier),
-                        ),
                       });
                       setBill(null);
                     })
@@ -281,24 +427,19 @@ export function House({ look }: Omit<Props, "busy" | "act">) {
                     //: typed parameters run ahead of it, the button waits for
                     //: the recount rather than billing one thing and building another.
                     busy ||
-                    short.length > 0 ||
                     area > free ||
                     area < least ||
                     bill.area !== area ||
                     bill.floors !== floors
                   }
                 >
-                  {t("ui-place-house-build", { area, floors })}
+                  {t("ui-place-site-lay", { area, floors })}
                 </button>
                 <span className="note">
-                  {short.length > 0
-                    ? t("ui-place-short", {
-                        what: short.map((m: any) => goodsName(names, m.goods)).join(", "),
-                      })
-                    : t("ui-place-house-term", {
-                        hours: (bill.minutes / 60).toFixed(1),
-                        kind: buildingKindName(names, bill.kind),
-                      })}
+                  {t("ui-place-house-term", {
+                    hours: (bill.minutes / 60).toFixed(1),
+                    kind: buildingKindName(names, bill.kind),
+                  })}
                 </span>
               </div>
             </>

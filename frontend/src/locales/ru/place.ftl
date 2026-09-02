@@ -122,7 +122,6 @@ ui-place-house-footprint = пятно застройки, м²
 ui-place-house-floors = этажей
 ui-place-house-plan = { $area } м² × { $floors } эт. = { $living } м² жилой площади, и каждый этаж выше первого станет отдельным местом с лестницей. Свободно { $free } м² двора, меньше { $least } м² не строится. Этажность не ограничена — за высоту платит смета.
 ui-place-house-counting = Смета считается сама, пока вы выбираете.
-ui-place-house-build = Строить { $area } м² в { $floors } эт.
 ui-place-house-term = Работы на { $hours } ч; { $kind }.
 
 ## Ремонт дома: чинят тем же, чем построено.
@@ -371,3 +370,22 @@ ui-holdings-unsell = Снять с продажи
 ui-holdings-market = Бумаги на продажу
 ui-holdings-deed-market-area = · { $area } м² · у «{ $owner }»
 ui-holdings-buy = Купить
+
+## Стройплощадка (D-266): материалы вкладами, стройка — временем и телом.
+
+ui-place-site-lay = Заложить стройплощадку · { $area } м² в { $floors } эт.
+ui-place-site-lay-hint = пятно займётся сразу; материалы носят на площадку частями
+ui-place-site-title = стройплощадка: { $area } м² в { $floors } эт.
+ui-place-site-gathering = сбор ресурсов
+ui-place-site-brought = внесено { $brought } из { $needed }
+ui-place-site-need = { $need } по смете
+ui-place-site-in-hands = в руках { $have }
+ui-place-site-add = Внести
+ui-place-site-add-hint = внести из рук: сколько войдёт в смету
+ui-place-site-start = Начать строительство · { $stamina } выносливости
+ui-place-site-start-hint = смета собрана: стройка возьмёт время и выносливость хозяина
+ui-place-site-waiting = ждёт, пока внесут всё по смете
+ui-place-site-building = строится
+ui-place-site-ready = дом готов: осталось завершить
+ui-place-site-finish = Завершить строительство
+ui-place-site-owner-only = начинает и завершает хозяин площадки

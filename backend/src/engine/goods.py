@@ -95,14 +95,15 @@ def spent(name: str, norm: float, value: float, *, catalog: Catalog | None = Non
 
     `norm` is what the recipe asks for the batch, `value` the same with the
     waste share on top. The norm rounds up (D-212: two and a half boards are
-    three boards); the waste rounds to the nearest piece, so the five per cent
-    a saw loses on two ingots is not a whole third ingot -- it is dust, until
-    enough of it gathers over a bigger batch to be a piece of its own. Never
-    below the norm in pieces, whatever the waste rounds to.
+    three boards); the waste rounds to the nearest piece (a tie to the even
+    one, as Python counts), so the five per cent a saw loses on two ingots is
+    not a whole third ingot -- it is dust, until enough of it gathers over a
+    bigger batch to be a piece of its own. Never below the norm in pieces,
+    whatever the waste rounds to.
     """
     if not counted(name, catalog):
         return value
-    return float(max(math.ceil(norm - _DUST), math.floor(value + 0.5)))
+    return float(max(math.ceil(norm - _DUST), round(value)))
 
 
 def at_least_one(name: str, value: float, *, catalog: Catalog | None = None) -> float:

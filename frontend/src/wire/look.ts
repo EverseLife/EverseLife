@@ -251,12 +251,23 @@ export type Look = {
       decay?: number;
       slots: number;
       used: number;
-      /** Work in progress: ordered, paid for, not yet standing. */
+      /**
+       * Work in progress. A city order's build carries only its term; a
+       * construction site (D-266) carries its phase, its bill and what was
+       * brought -- the window draws the progress from these and the buttons
+       * from `state` and `owner`.
+       */
       sites?: {
         area: number;
         floors: number;
         kind?: string;
-        ready_at: string;
+        ready_at: string | null;
+        site?: string;
+        state?: "gathering" | "building" | "ready";
+        owner?: string;
+        needed?: Record<string, number>;
+        brought?: Record<string, number>;
+        started_at?: string | null;
       }[];
     };
     /** Purchase price of an empty civic plot, in minor units (D-089). Absent when not for sale. */

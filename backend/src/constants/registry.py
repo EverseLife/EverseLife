@@ -387,6 +387,8 @@ BUILD_FLOOR_PER_M2 = Num("build.floor_per_m2")
 #: no matching maximum: the plot is the ceiling, and it is a different plot
 #: every time (D-218).
 BUILD_AREA_MIN = Num("build.area_min")
+#: Stamina the owner pays to start the build, per m2 of usable area (D-266).
+BUILD_START_STAMINA_PER_M2 = Num("build.start_stamina_per_m2")
 #: Assembly labour: hours per square metre. Construction is work, not a button.
 BUILD_LABOR_PER_M2 = Num("build.labor_per_m2")
 #: The building type settles three things at once (D-218): what goes into the

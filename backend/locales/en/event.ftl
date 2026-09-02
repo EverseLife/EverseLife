@@ -33,6 +33,7 @@ event-transport-broke = wagon broke apart
 event-road-laid = road laid
 event-deed-sold = deed sold
 event-city-grant_paid = settlement grant paid
+event-estate-site_ready = the build is done: the house waits for its owner
 
 # The earthquake and the warning before it (D-197). They come not to whoever caused
 # them but to whoever is standing here: these two have no culprit. Until this wave

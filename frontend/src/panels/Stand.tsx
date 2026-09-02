@@ -625,7 +625,7 @@ function assemble(
       "full",
       () => (
         <>
-          {own && node && <House look={look} />}
+          {own && node && <House look={look} values={values} />}
           {roofed && stores && <Ground look={look} where="floor" />}
         </>
       ),

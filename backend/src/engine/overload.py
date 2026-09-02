@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import logging
 import math
+from collections.abc import Sequence
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -34,43 +35,36 @@ from src.models.event import EventKind
 from src.models.identity import Body
 from src.models.inventory import Item
 from src.models.world import Node
-from src.units import amount_float
+from src.units import AMOUNT_SCALE, amount_float
 
 log = logging.getLogger(__name__)
 
-#: Below this a float excess is the arithmetic's dust, not a piece owed.
-_DUST = 1e-9
+#: Below a thousandth an excess is the arithmetic's dust, not a piece owed.
+_DUST = 1 / AMOUNT_SCALE
 
 
 async def settle_load(
-    session: AsyncSession, constants: Constants, catalog: Catalog, body: Body, item: Item
+    session: AsyncSession,
+    constants: Constants,
+    catalog: Catalog,
+    body: Body,
+    items: Sequence[Item],
 ) -> float:
-    """After a thing landed in the hands past any door: what does not fit falls.
+    """After things landed in the hands past any door: what does not fit falls.
 
-    `item` is the thing that just arrived -- it is the one that falls, never
-    what was carried before it. Returns the kilograms that fell. The body's
-    row is taken for the transaction: the load is read and then matter is
-    moved on it, and two arrivals at once must not both find room that only
-    one of them has.
+    `items` are the things that just arrived -- they are what falls, in the
+    order given, never what was carried before them. Returns the kilograms
+    that fell. The body's row is taken for the transaction: the load is read
+    and then matter is moved on it, and two arrivals at once must not both
+    find room that only one of them has.
     """
+    if not items:
+        return 0.0
     await session.execute(select(Body.id).where(Body.id == body.id).with_for_update())
     carries = await gear.load_of(session, catalog, body)
     limit = await gear.capacity(session, constants, catalog, body)
     excess = carries - limit
     if excess <= _DUST:
-        return 0.0
-    unit = gear.mass_of(catalog, item.type_key, 1.0)
-    if unit <= 0:
-        #: Weightless things -- energy, coin -- never overload anybody.
-        return 0.0
-    have = amount_float(item.amount)
-    #: Whole pieces of a counted thing, the excess mass of a measured one --
-    #: and never more than arrived.
-    if goods.counted(item.type_key, catalog):
-        quantity = min(have, float(math.ceil(excess / unit - _DUST)))
-    else:
-        quantity = min(have, excess / unit)
-    if quantity <= 0:
         return 0.0
 
     node = await session.get(Node, body.node_id)
@@ -84,30 +78,48 @@ async def settle_load(
         if inside
         else await estate.yard(session, constants, node)
     )
-    mass = unit * quantity
-    overfull = mass / constants[R.BUILD_FLOOR_PER_M2] > area["free"]
-
     yard = await world.node_container(session, node)
-    fell = await world.move_stack(session, item, yard, quantity, outdoors=not inside)
-    await events.record(
-        session,
-        EventKind.ITEM_FELL,
-        actor_identity_id=body.identity_id,
-        node_id=node.id,
-        type_key=item.type_key,
-        amount=fell,
-        roofed=inside,
-        carries=carries,
-        limit=limit,
-    )
-    if overfull:
-        #: Loud on purpose: the floor was full and the thing lay down anyway.
+
+    fallen = 0.0
+    for item in items:
+        if excess <= _DUST:
+            break
+        unit = gear.mass_of(catalog, item.type_key, 1.0)
+        if unit <= 0:
+            #: Weightless things -- energy, coin -- never overload anybody.
+            continue
+        have = amount_float(item.amount)
+        #: Whole pieces of a counted thing, the excess mass of a measured one --
+        #: and never more than arrived.
+        if goods.counted(item.type_key, catalog):
+            quantity = min(have, float(math.ceil(excess / unit - _DUST)))
+        else:
+            quantity = min(have, excess / unit)
+        if quantity <= 0:
+            continue
+        fell = await world.move_stack(session, item, yard, quantity, outdoors=not inside)
+        mass = unit * fell
+        excess -= mass
+        fallen += mass
+        await events.record(
+            session,
+            EventKind.ITEM_FELL,
+            actor_identity_id=body.identity_id,
+            node_id=node.id,
+            type_key=item.type_key,
+            amount=fell,
+            roofed=inside,
+            carries=carries,
+            limit=limit,
+        )
+
+    if fallen > 0 and fallen / constants[R.BUILD_FLOOR_PER_M2] > area["free"]:
+        #: Loud on purpose: the floor was full and the things lay down anyway.
         #: Whoever reads the log is meant to ask how the body got that heavy.
         log.error(
-            "floor overfull at %s: %.1f kg of %s fell with %.1f m2 free (body %s, %.1f/%.1f kg)",
+            "floor overfull at %s: %.1f kg fell with %.1f m2 free (body %s, %.1f/%.1f kg)",
             node.key,
-            mass,
-            item.type_key,
+            fallen,
             area["free"],
             body.id,
             carries,
@@ -118,9 +130,8 @@ async def settle_load(
             EventKind.STORAGE_OVERFULL,
             actor_identity_id=body.identity_id,
             node_id=node.id,
-            type_key=item.type_key,
-            mass=mass,
+            mass=fallen,
             free=area["free"],
             roofed=inside,
         )
-    return unit * fell
+    return fallen

@@ -147,11 +147,24 @@ estate-build-no-room = the plot is { NUMBER($plot, maximumFractionDigits: 0) } m
     }: another { NUMBER($area, maximumFractionDigits: 0) } does not fit
 estate-build-already-queued = the build is queued already
 estate-build-job-nowhere = build { $job } points nowhere
+# The construction site (D-266): its phases and their refusals.
+estate-site-nowhere = site { $site } points nowhere
+estate-site-not-here = the site is on another plot: walk to it
+estate-site-not-gathering = the site is no longer gathering: the build is under way or done
+estate-site-not-needed = "{ NAME($goods) }" is not on the bill
+estate-site-material-full = { NAME($goods) }: brought in full
+estate-site-nothing-to-add = nothing to add: less than one piece
+estate-site-not-yours = not your site: the owner starts and finishes
+estate-site-short = not everything is in: short by { NUMBER($short, maximumFractionDigits: 1) } -- { NAME($goods) }
+estate-site-no-strength = not enough strength: the build takes { NUMBER($need, maximumFractionDigits: 1) } stamina, you have { NUMBER($have, maximumFractionDigits: 1) }
+estate-site-already-started = the build has already started
+estate-site-not-ready = the house is not ready yet: the build is under way
 
 estate-deed-not-yours = the deed is not yours: what you sell is your own
 estate-deed-not-on-sale = the deed is not up for sale
 estate-deed-own = your own deed is not for buying
 estate-deed-addressed = the contract is addressed: the deed is promised to another
+estate-deed-site-open = there is a construction site on the plot: the land is not sold under it until the house is up
 estate-deed-too-dear = the deed costs { $price } ₭, and the account holds { $have } ₭
 
 estate-demolish-dead = a dead body does not demolish

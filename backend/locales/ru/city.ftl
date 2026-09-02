@@ -145,11 +145,25 @@ estate-build-no-room = на участке { NUMBER($plot, maximumFractionDigits
     }: ещё { NUMBER($area, maximumFractionDigits: 0) } не помещается
 estate-build-already-queued = стройка уже поставлена
 estate-build-job-nowhere = стройка { $job } ссылается в никуда
+# Стройплощадка (D-266): фазы и их отказы. Подстановка имени — только
+# меткой, кавычками или деталью за тире (D-258).
+estate-site-nowhere = площадка { $site } ссылается в никуда
+estate-site-not-here = площадка на другом участке: дойдите до неё
+estate-site-not-gathering = площадка уже не собирает: стройка идёт или закончена
+estate-site-not-needed = «{ NAME($goods) }» в смете нет
+estate-site-material-full = { NAME($goods) }: внесено сполна
+estate-site-nothing-to-add = вносить нечего: меньше одной штуки
+estate-site-not-yours = площадка не ваша: начинает и завершает хозяин
+estate-site-short = внесено не всё: не хватает { NUMBER($short, maximumFractionDigits: 1) } — { NAME($goods) }
+estate-site-no-strength = сил не хватает: стройка возьмёт { NUMBER($need, maximumFractionDigits: 1) } выносливости, есть { NUMBER($have, maximumFractionDigits: 1) }
+estate-site-already-started = стройка уже начата
+estate-site-not-ready = дом ещё не готов: стройка идёт
 
 estate-deed-not-yours = бумага не ваша: продают своё
 estate-deed-not-on-sale = бумага не выставлена на продажу
 estate-deed-own = своя бумага не покупается
 estate-deed-addressed = договор адресный: бумага обещана другому
+estate-deed-site-open = на участке стройплощадка: землю с ней не продают, пока дом не встал
 estate-deed-too-dear = бумага стоит { $price } ₭, а на счету { $have } ₭
 
 estate-demolish-dead = мёртвое тело не сносит

@@ -37,7 +37,9 @@ GOLD_METAL = "refined_gold"
 IRON = "iron_ingot"
 
 
-async def _yard(session: AsyncSession, *, metal_: float = 100, iron: float = 100):
+#: Ten ingots, not a hundred: a body over the carry limit drops what it mints
+#: (D-265), and a hundred kilograms of iron is over it three times.
+async def _yard(session: AsyncSession, *, metal_: float = 100, iron: float = 10):
     stamp = uuid.uuid4().hex[:8]
     node = await world.create_node(session, f"terra.mint.{stamp}", "Двор", area_m2=100)
     yard = await world.node_container(session, node)

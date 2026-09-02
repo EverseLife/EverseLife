@@ -8,6 +8,8 @@ the yard, the slots a workshop offers and the space a home gives.
 
 from __future__ import annotations
 
+from typing import Any
+
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,7 +22,7 @@ from src.engine.estate._base import (
     STOREY,
     storey_of,
 )
-from src.models.estate import Building
+from src.models.estate import Building, BuildSite, SiteState
 from src.models.farm import Plot
 from src.models.inventory import Item
 from src.models.job import Job, JobKind, JobState
@@ -137,6 +139,10 @@ async def under_construction(session: AsyncSession, node: Node) -> list[dict]:
                     Job.kind == JobKind.BUILD_FINISH.value,
                     Job.state == JobState.PENDING,
                     Job.payload["node"].astext == str(node.id),
+                    #: A site's job is the site's own term (D-266): the site
+                    #: row below speaks for it, and listing both would promise
+                    #: the ground twice.
+                    Job.payload["site"].astext.is_(None),
                 )
                 .order_by(Job.run_at)
             )
@@ -144,7 +150,7 @@ async def under_construction(session: AsyncSession, node: Node) -> list[dict]:
         .scalars()
         .all()
     )
-    return [
+    works = [
         {
             "area": float(job.payload.get("area", 0)),
             "floors": int(job.payload.get("floors", 1)),
@@ -153,6 +159,40 @@ async def under_construction(session: AsyncSession, node: Node) -> list[dict]:
         }
         for job in rows
     ]
+    #: Sites (D-266): laid, gathering, building or ready -- each holds its
+    #: ground until the house is up, and the window draws its phase from here.
+    sites = (
+        (
+            await session.execute(
+                select(BuildSite)
+                .where(BuildSite.node_id == node.id, BuildSite.state != SiteState.DONE)
+                .order_by(BuildSite.laid_at)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    #: The owner travels as an id here: the ground accounting reads this list
+    #: on every plot check, and naming an owner is the window's need -- `look`
+    #: names them once, for the sites it sends (D-225). A key that would carry
+    #: nothing -- a term not yet set -- is not sent at all.
+    for site in sites:
+        work: dict[str, Any] = {
+            "site": str(site.id),
+            "state": site.state.value,
+            "owner_identity_id": str(site.owner_identity_id),
+            "area": float(site.footprint_m2),
+            "floors": site.floors,
+            "kind": site.kind,
+            "needed": {name: float(value) for name, value in site.needed.items()},
+            "brought": {name: float(value) for name, value in site.brought.items()},
+        }
+        if site.started_at is not None:
+            work["started_at"] = site.started_at.isoformat()
+        if site.ready_at is not None:
+            work["ready_at"] = site.ready_at.isoformat()
+        works.append(work)
+    return works
 
 
 async def floor_mass(session: AsyncSession, node: Node) -> float:

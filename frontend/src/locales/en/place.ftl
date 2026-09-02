@@ -122,7 +122,6 @@ ui-place-house-footprint = footprint, m²
 ui-place-house-floors = storeys
 ui-place-house-plan = { $area } m² × { $floors } fl. = { $living } m² of living space, and every storey above the ground floor becomes a separate place with a stair. { $free } m² of yard free, nothing under { $least } m² is built. Height is not capped — the estimate pays for it.
 ui-place-house-counting = The estimate counts itself while you choose.
-ui-place-house-build = Build { $area } m² over { $floors } fl.
 ui-place-house-term = Work takes { $hours } h; { $kind }.
 
 ## House repair: mended with what it was built of.
@@ -371,3 +370,22 @@ ui-holdings-unsell = Withdraw from sale
 ui-holdings-market = Deeds for sale
 ui-holdings-deed-market-area = · { $area } m² · from { $owner }
 ui-holdings-buy = Buy
+
+## The construction site (D-266): materials by contribution, the build by time and body.
+
+ui-place-site-lay = Lay out a site · { $area } m² on { $floors } fl.
+ui-place-site-lay-hint = the footprint is taken at once; materials are carried to the site by parts
+ui-place-site-title = site: { $area } m² on { $floors } fl.
+ui-place-site-gathering = gathering materials
+ui-place-site-brought = brought { $brought } of { $needed }
+ui-place-site-need = { $need } on the bill
+ui-place-site-in-hands = in hand { $have }
+ui-place-site-add = Bring
+ui-place-site-add-hint = bring from the hands: as much as the bill still takes
+ui-place-site-start = Start the build · { $stamina } stamina
+ui-place-site-start-hint = the bill is full: the build takes time and the owner's stamina
+ui-place-site-waiting = waits for the whole bill to be brought
+ui-place-site-building = under construction
+ui-place-site-ready = the house is ready: finish it
+ui-place-site-finish = Finish the build
+ui-place-site-owner-only = the site's owner starts and finishes

@@ -590,8 +590,10 @@ async def test_wares_do_not_stack_each_with_own_quality(
     async with factory() as session, session.begin():
         _, identity, body = await _workshop(session, machine=FORGE, machine_quality=80)
         await world.learn(session, identity, "iron_pickaxe")
-        await _give(session, body, INGOT, 20, quality=70)
-        await _give(session, body, "handle", 20, quality=70)
+        #: Eight and eight, not twenty and twenty: forty kilograms in the hands
+        #: is over the carry limit, and the pickaxes would fall underfoot (D-265).
+        await _give(session, body, INGOT, 8, quality=70)
+        await _give(session, body, "handle", 8, quality=70)
         batch = await craft.start(session, constants, catalog, body, "iron_pickaxe", 3)
         ready, body_id = batch.ready_at, body.id
 

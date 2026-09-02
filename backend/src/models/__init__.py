@@ -18,7 +18,7 @@ from src.models.city import City, CityGrant, Office, Power, UtilityMeter
 from src.models.config import ConstantChange, ConstantOverride
 from src.models.craft import BatchKind, BatchState, CraftBatch
 from src.models.energy import EnergyPool
-from src.models.estate import Building, Deed
+from src.models.estate import Building, BuildSite, Deed, SiteState
 from src.models.event import Event, EventKind
 from src.models.farm import Plot, PlotState
 from src.models.food import Meal
@@ -87,6 +87,7 @@ __all__ = [
     "BatchState",
     "Body",
     "BodyState",
+    "BuildSite",
     "Building",
     "ChatGroup",
     "ChatMember",
@@ -101,6 +102,7 @@ __all__ = [
     "Currency",
     "DailyMetric",
     "Deed",
+    "SiteState",
     "Edge",
     "Equipped",
     "EnergyPool",

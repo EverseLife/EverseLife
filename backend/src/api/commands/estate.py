@@ -130,6 +130,61 @@ async def _build_construct(state: dict, db: AsyncSession, message: dict) -> dict
     return {"building": True, "ready_at": job.run_at.isoformat()}
 
 
+@command("build.site_lay")
+async def _build_site_lay(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Lay out a construction site: the ground is taken, the bill opens (D-266)."""
+    body = await _alive(state, db)
+    node = await db.get(Node, body.node_id)
+    if node is None:  # pragma: no cover
+        raise Refused(key="cmd-body-off-node")
+    site = await estate.lay_site(
+        db,
+        current(),
+        body,
+        node,
+        float(message["area"]),
+        floors=int(message.get("floors", 1)),
+        kind=message.get("kind") or None,
+    )
+    return {"site": str(site.id)}
+
+
+@command("build.site_contribute")
+async def _build_site_contribute(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Bring a material from the hands to a site standing here (D-266)."""
+    body = await _alive(state, db)
+    site = await estate.site_of(db, uuid.UUID(str(message["site"])))
+    brought = await estate.contribute_to_site(
+        db,
+        current(),
+        current_catalog(),
+        body,
+        site,
+        str(message["goods"]),
+        float(message["amount"]),
+        tier=message.get("tier") or None,
+    )
+    return {"brought": brought}
+
+
+@command("build.site_start")
+async def _build_site_start(state: dict, db: AsyncSession, message: dict) -> dict:
+    """The bill is full: the owner starts the build with time and the body (D-266)."""
+    body = await _alive(state, db)
+    site = await estate.site_of(db, uuid.UUID(str(message["site"])))
+    job = await estate.start_site(db, current(), body, site)
+    return {"ready_at": job.run_at.isoformat()}
+
+
+@command("build.site_finish")
+async def _build_site_finish(state: dict, db: AsyncSession, message: dict) -> dict:
+    """The term is out: the owner raises the house (D-266)."""
+    body = await _alive(state, db)
+    site = await estate.site_of(db, uuid.UUID(str(message["site"])))
+    building = await estate.finish_site(db, current(), body, site)
+    return {"built": True, "building": str(building.id)}
+
+
 @command("build.estimate", readonly=True)
 async def _build_estimate(state: dict, db: AsyncSession, message: dict) -> dict:
     """The bill before the work: what a house of this size and height costs.

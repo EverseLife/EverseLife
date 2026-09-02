@@ -147,6 +147,9 @@ async def _finish_make(
         )
 
     made: list[float] = []
+    #: What arrived in the hands, for the carry rule below (D-265): judged
+    #: once for the whole yield, not piece by piece.
+    arrived: list[Item] = []
     for piece in _pieces(catalog, batch.output, units):
         quality = scale.clamp(float(batch.quality) + noise.uniform(-spread, spread))
         made.append(float(batch.fineness) if coin_ else quality)
@@ -186,12 +189,14 @@ async def _finish_make(
                 amount=spilled,
             )
         elif len(within) > 1 and not liquid.is_liquid(catalog, batch.output):
-            #: Paid into the master's hands past the carry limit, the yield
-            #: falls underfoot (D-265): a station is not carried off because
-            #: it was made rather than picked up. Liquids are in vessels already.
-            from src.engine import overload  # noqa: PLC0415 -- lazy: cycle via storage, estate
+            arrived.append(fresh)
+    if arrived:
+        #: Paid into the master's hands past the carry limit, the yield falls
+        #: underfoot (D-265): a station is not carried off because it was
+        #: made rather than picked up. Liquids are in vessels already.
+        from src.engine import overload  # noqa: PLC0415 -- lazy: cycle via storage, estate
 
-            await overload.settle_load(session, constants, catalog, body, fresh)
+        await overload.settle_load(session, constants, catalog, body, arrived)
     return made
 
 

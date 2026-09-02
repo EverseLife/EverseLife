@@ -28,7 +28,8 @@ from src.engine.estate.building import (
     floor_mass,
     hold_ground,
     kinds,
-    open_storeys,
+    raise_house,
+    ripen_site,
     slots,
     spare_storeys,
     storeys_of,
@@ -291,10 +292,19 @@ async def finish_demolish(session: AsyncSession, job: Job) -> None:
 
 @handler(JobKind.BUILD_FINISH)
 async def finish_build(session: AsyncSession, job: Job) -> None:
-    """Construction is over: the building stands on the plot."""
+    """Construction is over: the building stands on the plot.
+
+    A site's job does not raise the house: it ripens the site (D-266), and
+    the owner raises the house by hand when they choose. The one-motion
+    build of the city's own orders (D-248) stands up here as it always did.
+    """
     node = await session.get(Node, uuid.UUID(job.payload["node"]))
     if node is None:  # pragma: no cover
         raise EstateError(key="estate-build-job-nowhere", job=str(job.id))
+
+    if job.payload.get("site"):
+        await ripen_site(session, uuid.UUID(job.payload["site"]), now=job.run_at)
+        return
 
     #: Old jobs from before storeys carry no `floors`, and those from before
     #: types (D-218) name a tier instead of a type. Either way such a site
@@ -303,32 +313,14 @@ async def finish_build(session: AsyncSession, job: Job) -> None:
     footprint = float(job.payload["area"])
     floors = int(job.payload.get("floors", 1))
     kind = str(job.payload.get("kind") or kinds(current())[0])
-    building = Building(
-        node_id=node.id,
-        #: Usable area is the sum of the floors; the ground taken is the footprint.
-        area_m2=footprint * floors,
-        footprint_m2=footprint,
+    building = await raise_house(
+        session,
+        current(),
+        node,
+        footprint=footprint,
         floors=floors,
         kind=kind,
-    )
-    session.add(building)
-    await session.flush()
-
-    #: The floors above the ground open with the house (D-247): each is a node
-    #: of its own, and a stair leads from the one below. The ground floor is the
-    #: plot itself, so a one-storey house opens nothing. Floors are the plot's,
-    #: so a second house that reaches higher simply carries them further up.
-    await open_storeys(session, current(), node)
-
-    await events.record(
-        session,
-        EventKind.BUILDING_BUILT,
-        actor_identity_id=uuid.UUID(job.payload["identity"]),
-        node_id=node.id,
-        building_id=str(building.id),
-        area=float(building.area_m2),
-        floors=floors,
-        built_of=kind,
+        identity_id=uuid.UUID(job.payload["identity"]),
     )
     #: A house the city ordered collects its pay (D-248): the engine just put
     #: the building on the plot itself -- there is nothing left to verify.

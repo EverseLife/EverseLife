@@ -512,3 +512,14 @@ async def test_the_watermark_adopts_the_journal_it_reads(
         assert hub._last_id == here, "отметка обязана принадлежать читаемому журналу"
     finally:
         push_pump.session_factory = real_factory
+
+
+def test_a_site_touches_the_plot_and_the_hands_and_the_place_sees_it() -> None:
+    """A contribution changes the plot and the bringer's pocket (D-266), and
+    everybody standing on the plot hears of it -- until this line the estate
+    events reached nobody but their actor, with nothing to reread."""
+    from src.api.push._base import NODE_VISIBLE_PREFIXES, touches_of
+
+    assert touches_of("estate.site_contributed") == ("node", "inventory")
+    assert touches_of("estate.site_ready") == ("node", "inventory")
+    assert "estate" in NODE_VISIBLE_PREFIXES

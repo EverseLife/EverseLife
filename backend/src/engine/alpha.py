@@ -172,7 +172,7 @@ async def spawn(
     else:
         #: Printed past the carry limit, the print falls underfoot (D-265):
         #: the tester holds what a body may hold, like everybody else.
-        await overload.settle_load(session, constants, catalog, body, item)
+        await overload.settle_load(session, constants, catalog, body, [item])
     await events.record(
         session,
         EventKind.ALPHA_SPAWNED,

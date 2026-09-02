@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.engine import events, ledger, world
 from src.engine.estate._base import EstateError, NotEnoughMoney, NotForSale
+from src.engine.estate.building.site import sites_of
 from src.models.estate import Deed
 from src.models.event import EventKind
 from src.models.identity import Identity
@@ -52,6 +53,19 @@ async def issue_deed(
     return deed
 
 
+async def _no_site_open(session: AsyncSession, deed: Deed) -> None:
+    """A plot with a construction site on it stays with whoever laid it (D-266).
+
+    The site is the owner's: they alone start and finish it, and the ground it
+    holds is theirs until the house is up. Sold under it, the site would
+    belong to the seller on the buyer's land -- refused, the way demolition
+    is refused while a build is under way.
+    """
+    node = await session.get(Node, deed.node_id)
+    if node is not None and await sites_of(session, node):
+        raise EstateError(key="estate-deed-site-open")
+
+
 async def offer_deed(
     session: AsyncSession,
     identity: Identity,
@@ -66,6 +80,8 @@ async def offer_deed(
     """
     if deed.owner_identity_id != identity.id:
         raise EstateError(key="estate-deed-not-yours")
+    if price > 0:
+        await _no_site_open(session, deed)
     if price <= 0:
         deed.sale_price = None
         deed.sale_to_identity_id = None
@@ -99,6 +115,7 @@ async def buy_deed(session: AsyncSession, buyer: Identity, deed: Deed) -> Deed:
         raise EstateError(key="estate-deed-own")
     if deed.sale_to_identity_id is not None and deed.sale_to_identity_id != buyer.id:
         raise NotForSale(key="estate-deed-addressed")
+    await _no_site_open(session, deed)
 
     price = int(deed.sale_price)
     account = await ledger.account_for(session, AccountKind.IDENTITY, buyer.id)

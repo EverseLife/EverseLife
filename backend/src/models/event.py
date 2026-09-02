@@ -170,6 +170,12 @@ class EventKind(StrEnum):
     LAND_TAXED = "land.taxed"
     #: A building was built on a plot (D-106, D-125).
     BUILDING_BUILT = "building.built"
+    #: The construction site (D-266): laid out, fed by contribution, started
+    #: with time and body, and ready for the owner's hand.
+    ESTATE_SITE_LAID = "estate.site_laid"
+    ESTATE_SITE_CONTRIBUTED = "estate.site_contributed"
+    ESTATE_SITE_STARTED = "estate.site_started"
+    ESTATE_SITE_READY = "estate.site_ready"
     #: The owner took their own house apart, and part of the material came back (D-205).
     BUILDING_DEMOLISHED = "building.demolished"
     #: The daily bite of decay: how much condition the house lost and to what (D-218).

@@ -58,6 +58,9 @@ TOUCHES: dict[str, tuple[str, ...]] = {
     "mining": ("mining", "inventory"),
     "travel": ("body", "node"),
     "road": ("node",),
+    #: A site laid, fed, started or ripe changes the plot and, for the
+    #: bringer, the hands (D-266).
+    "estate": ("node", "inventory"),
     "ship": ("node", "ships"),
     "transport": ("node", "inventory"),
     "craft": ("doings", "inventory", "orders"),
@@ -118,6 +121,8 @@ NODE_VISIBLE_PREFIXES = frozenset(
         "plates",
         "ship",
         "building",
+        #: A construction site on the plot is the plot's business (D-266).
+        "estate",
         "land",
         "station",
         "storage",

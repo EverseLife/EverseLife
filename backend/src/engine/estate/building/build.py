@@ -9,6 +9,7 @@ on schedule.
 
 from __future__ import annotations
 
+import uuid
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
@@ -36,6 +37,7 @@ from src.engine.estate.building.frame import (
     storeys_of,
 )
 from src.engine.jobs import enqueue
+from src.models.estate import Building
 from src.models.event import EventKind
 from src.models.identity import Body, BodyState
 from src.models.job import Job, JobKind
@@ -272,6 +274,52 @@ async def _city_ordered_build(
         and int(order.payload.get("floors", 0)) == floors
         and area >= float(order.payload.get("footprint", 0))
     )
+
+
+async def raise_house(
+    session: AsyncSession,
+    constants: Constants,
+    node: Node,
+    *,
+    footprint: float,
+    floors: int,
+    kind: str,
+    identity_id: uuid.UUID,
+) -> Building:
+    """The house stands on the plot: the record, the storeys above, the word.
+
+    Shared by the old one-motion build's job and the site's own finish
+    (D-266): what a house is once it is up does not depend on how the
+    materials got there.
+    """
+    building = Building(
+        node_id=node.id,
+        #: Usable area is the sum of the floors; the ground taken is the footprint.
+        area_m2=footprint * floors,
+        footprint_m2=footprint,
+        floors=floors,
+        kind=kind,
+    )
+    session.add(building)
+    await session.flush()
+
+    #: The floors above the ground open with the house (D-247): each is a node
+    #: of its own, and a stair leads from the one below. The ground floor is the
+    #: plot itself, so a one-storey house opens nothing. Floors are the plot's,
+    #: so a second house that reaches higher simply carries them further up.
+    await open_storeys(session, constants, node)
+
+    await events.record(
+        session,
+        EventKind.BUILDING_BUILT,
+        actor_identity_id=identity_id,
+        node_id=node.id,
+        building_id=str(building.id),
+        area=float(building.area_m2),
+        floors=floors,
+        built_of=kind,
+    )
+    return building
 
 
 async def construct(
