@@ -20,7 +20,7 @@ from src.models.estate import Deed
 from src.models.event import EventKind
 from src.models.identity import Identity
 from src.models.ledger import AccountKind, PostingReason
-from src.models.world import Node
+from src.models.world import Node, is_plot
 from src.units import money_str
 
 
@@ -53,6 +53,21 @@ async def issue_deed(
     return deed
 
 
+async def _a_plot_and_not_the_city(session: AsyncSession, deed: Deed) -> None:
+    """A city location is not sold on by the person it was handed to (D-281).
+
+    The third door into private title over the city's own centre, and the one
+    that costs real money: title travels with the deed, so a deed written for
+    an allotted core could be listed and bought like any yard. Allotting and
+    buying such a node are refused now; a paper for one still exists in worlds
+    laid before the rule, and it must not turn into a purchase before the
+    catch-up takes the node back.
+    """
+    node = await session.get(Node, deed.node_id)
+    if node is not None and node.owner_city_id is not None and not is_plot(node):
+        raise NotForSale(key="estate-deed-not-a-plot", node=node.name)
+
+
 async def _no_site_open(session: AsyncSession, deed: Deed) -> None:
     """A plot with a construction site on it stays with whoever laid it (D-266).
 
@@ -81,6 +96,7 @@ async def offer_deed(
     if deed.owner_identity_id != identity.id:
         raise EstateError(key="estate-deed-not-yours")
     if price > 0:
+        await _a_plot_and_not_the_city(session, deed)
         await _no_site_open(session, deed)
     if price <= 0:
         deed.sale_price = None
@@ -115,6 +131,7 @@ async def buy_deed(session: AsyncSession, buyer: Identity, deed: Deed) -> Deed:
         raise EstateError(key="estate-deed-own")
     if deed.sale_to_identity_id is not None and deed.sale_to_identity_id != buyer.id:
         raise NotForSale(key="estate-deed-addressed")
+    await _a_plot_and_not_the_city(session, deed)
     await _no_site_open(session, deed)
 
     price = int(deed.sale_price)

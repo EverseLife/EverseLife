@@ -96,6 +96,11 @@ SKY_CALENDAR_MEMO = 64
 #: Quality is stored to a hundredth of a point (`Numeric(6, 2)` columns).
 ROUND_QUALITY = 2
 
+#: Banked minutes of work are stored to a hundredth (`Numeric(10, 2)`): the
+#: plough's progress (D-277). The column's scale, not a length of work --
+#: writing more decimals than the column keeps would round them off anyway.
+ROUND_MINUTES = 2
+
 #: Argon2id takes memory in KiB, while `pow.memory_per_session` is given in MB.
 KIB_PER_MIB = 1024
 

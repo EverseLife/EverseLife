@@ -313,10 +313,12 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
     if shaking_at is not None:
         seen["node"]["shaking_at"] = shaking_at.isoformat()
     #: Both lists, and only to the holder: whom they let into a shut location
-    #: and whom they let in nowhere (D-204). The door belongs to the plot and
-    #: not to a floor of the house on it (D-247): one shuts the way in, and the
-    #: way in is downstairs.
-    if node.owner_identity_id == identity.id and estate.storey_of(node) is None:
+    #: and whom they let in nowhere (D-204). Whether there is a door here at all
+    #: is the engine's question, asked of the engine (`access.has_door`): it is
+    #: the plot that has one, not a floor of the house on it (D-247) and not a
+    #: city's own location (D-281). Half of that rule used to live here, and the
+    #: window drew a gate switch whose every button refused.
+    if node.owner_identity_id == identity.id and access.has_door(node):
         seen["node"]["door"] = {
             "allowed": await access.roster(db, node, allowed=True),
             "barred": await access.roster(db, node, allowed=False),

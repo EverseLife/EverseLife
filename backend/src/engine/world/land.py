@@ -31,7 +31,7 @@ from src.engine.errors import Refusal
 from src.models.event import EventKind
 from src.models.identity import Identity
 from src.models.inventory import Container, ContainerKind
-from src.models.world import Layer, Node, Planet, Vein
+from src.models.world import PLOT, Layer, Node, Planet, Vein
 from src.units import amount as to_amount
 
 #: Where a planet stands on the space layer (D-045). Radius and period are
@@ -53,7 +53,7 @@ DEFERRED = "deferred"
 #: unauthenticated internet silently, and what only `look` should say to
 #: whoever stands in the node stays with `look`. Deliberately narrow: the
 #: node-type glyphs the client draws, and nothing else.
-PUBLIC_SIGNS = ("precursors", "stones", "woods", "meadow", "plot")
+PUBLIC_SIGNS = ("precursors", "stones", "woods", "meadow", PLOT)
 
 
 def public_signs(node: Node) -> list[str]:

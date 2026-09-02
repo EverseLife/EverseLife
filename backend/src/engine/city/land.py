@@ -27,7 +27,7 @@ from src.models.city import (
 from src.models.estate import Deed
 from src.models.event import EventKind
 from src.models.identity import BodyState, Identity
-from src.models.world import PLOT, Node, NodePass
+from src.models.world import Node, NodePass, is_plot, storey_of
 from src.units import ENERGY_PER_TARIFF_UNIT, money, money_str
 
 
@@ -60,7 +60,7 @@ async def allot(
     #: the city does not hand **itself** out. The window has always listed only
     #: marked plots as free -- the wire had no such rule, and one command with
     #: another node's key turned the capital's centre into somebody's yard.
-    if not (node.properties or {}).get(PLOT):
+    if not is_plot(node):
         raise CityError(key="city-land-not-a-plot", node=node.name)
     if node.owner_identity_id is not None:
         raise CityError(key="city-land-taken")
@@ -129,13 +129,7 @@ async def cede(session: AsyncSession, body, node: Node) -> City:
     if meter is not None and meter.debt > 0:
         raise CityError(key="city-land-debt", debt=money_str(meter.debt))
 
-    await world.hand_over(session, node, None)
-    #: Civic land has no door: a shut gate and its lists left on the node would
-    #: show a lock that nobody can open any more.
-    node.gated = False
-    await session.execute(delete(NodePass).where(NodePass.node_id == node.id))
-    await _retire_deed(session, node, city, why="ceded")
-    await session.flush()
+    await _into_the_citys_hands(session, node, city, why="ceded")
 
     await events.record(
         session,
@@ -145,6 +139,76 @@ async def cede(session: AsyncSession, body, node: Node) -> City:
         city_id=str(city.id),
     )
     return city
+
+
+def _handed_out_by_mistake(node: Node, city: City) -> bool:
+    """A city location standing in somebody's name -- the state D-281 forbids.
+
+    A floor is never it on its own: it is held by whoever holds the ground
+    under it (D-247), and the floors go with the plot in `hand_over`.
+    """
+    if node.owner_city_id != city.id or node.owner_identity_id is None:
+        return False
+    if is_plot(node):
+        return False
+    return storey_of(node) is None
+
+
+async def reclaim(session: AsyncSession, node: Node, city: City) -> bool:
+    """Take back a city location that was handed out as if it were a plot.
+
+    The allotment used to ask two things only -- the node is the city's, and
+    nobody holds it yet -- and the capital's core answers both. So a location
+    the city works from could become somebody's yard, and a yard has a door:
+    one signature at the town hall shut the centre of the capital, the market
+    and the printer behind one person's gate. `allot` refuses that now (and
+    `estate.buy` with it); this is for the worlds where it already happened.
+
+    What comes back is a title, and the house on it comes back with it: a
+    building has no holder of its own, and the floors follow their ground.
+    What lay on the floor of the location stops being behind a door -- a city
+    location has none, and whoever stands there may take from its floor
+    (D-204). Nothing is bought back here, because nothing was sold: all three
+    doors into private title over a city location are shut now -- the
+    allotment, the purchase and the sale of the paper -- so this pass can only
+    be undoing what the engine gave away for nothing.
+
+    Returns whether there was anything to take back.
+    """
+    #: The cheap look first, on the row we already hold: the catch-up walks
+    #: every node of every city at every deploy, and locking all of them to
+    #: find the nothing that is usually there would hold up a live world for
+    #: the length of the seed.
+    if not _handed_out_by_mistake(node, city):
+        return False
+    #: And now the row itself, before the decision rather than inside
+    #: `hand_over` after it. The deploy starts the new backend beside the old
+    #: one, so this runs against a world still being played: a deed sale
+    #: slipping between the look and the write would take the buyer's money
+    #: and lose them the node in the same second.
+    await session.execute(
+        select(Node)
+        .where(Node.id == node.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if not _handed_out_by_mistake(node, city):
+        return False
+
+    former = node.owner_identity_id
+    await _into_the_citys_hands(session, node, city, why="not-a-plot")
+    #: The former holder is told, and by name: a title, a house and a door
+    #: gone with no word said would be the world changing behind somebody's
+    #: back. `cede` writes its own event for the same reason -- and this is
+    #: the case where the person did not choose it.
+    await events.record(
+        session,
+        EventKind.LAND_RECLAIMED,
+        actor_identity_id=former,
+        node_id=node.id,
+        city_id=str(city.id),
+    )
+    return True
 
 
 async def upkeep_of(session: AsyncSession, constants: Constants, city: City) -> dict:
@@ -254,6 +318,37 @@ async def survey(session: AsyncSession, constants: Constants, catalog: Catalog, 
             for law in catalog.laws.code_laws
         },
     }
+
+
+async def _into_the_citys_hands(
+    session: AsyncSession,
+    node: Node,
+    city: City,
+    *,
+    why: str,
+) -> None:
+    """The node passes into the city's own hands, and its door goes with it.
+
+    Civic land has no door: a shut gate and its lists left on the node would
+    show a lock that nobody can open any more. The deed is cancelled with it --
+    civic land is not traded by deed (D-159).
+    """
+    await world.hand_over(session, node, None)
+    node.gated = False
+    await session.execute(delete(NodePass).where(NodePass.node_id == node.id))
+    #: The meter is settled with the ground. A node without a holder is
+    #: maintained by the treasury (D-149): `utility.bill` charges it nothing
+    #: and `utility.pay` has nobody to take payment from, so a debt left here
+    #: would never be paid and the cut-off would never be lifted -- the
+    #: location would come back to the city electrically dead, with neither
+    #: craft nor council possible in it, for ever. `cede` never arrives with a
+    #: debt (it refuses first); a location taken back does.
+    meter = await utility.meter_of(session, node, create=False)
+    if meter is not None:
+        meter.debt = 0
+        meter.cut_off = False
+    await _retire_deed(session, node, city, why=why)
+    await session.flush()
 
 
 async def _retire_deed(

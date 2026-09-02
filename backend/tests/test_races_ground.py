@@ -26,10 +26,13 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from conftest import _slow
 from src.constants import current, current_catalog
-from src.engine import travel, world
-from src.models.identity import Body
+from src.engine import ledger, travel, world
+from src.models.city import City
+from src.models.event import Event, EventKind
+from src.models.identity import Body, Identity
 from src.models.inventory import Item
 from src.models.world import Node, Surface, Vein
+from src.units import money
 
 ORE = "iron_ore"
 
@@ -898,3 +901,132 @@ async def test_two_fertilizings_of_one_strip_both_land(
         assert left == to_units(20) - 2 * to_units(current()[R.FARM_FERTILIZER_PER_M2] * 10), (
             "норма списана дважды"
         )
+
+
+async def _a_city_location(session: AsyncSession, holder_name: str):
+    """A city's own location standing in somebody's name: the state D-281 undoes.
+
+    Not a plot -- no `plot` mark on it -- and that is the whole point: this is
+    the core the city works from, handed out by an allotment that asked too
+    little.
+    """
+    from src.engine import city as town
+    from src.models.world import Layer
+
+    stamp = uuid.uuid4().hex[:8]
+    planet = await world.create_node(
+        session, f"terra.{stamp}", "Терра", area_m2=1, layer=Layer.SPACE
+    )
+    delegate = await world.create_node(
+        session, f"terra.city.{stamp}", "Столица", area_m2=1, layer=Layer.PLANET, parent=planet
+    )
+    core = await world.create_node(
+        session, f"terra.city.{stamp}.core", "Ядро", area_m2=100, parent=delegate
+    )
+    city = await town.found(session, current_catalog(), delegate, "Столица")
+    core.owner_city_id = city.id
+    holder = await world.create_identity(session, f"{holder_name}-{stamp}")
+    await world.print_body(session, holder, core)
+    core.owner_identity_id = holder.id
+    await session.flush()
+    return city, core, holder
+
+
+async def test_the_buyer_never_pays_for_a_location_the_city_takes_back(
+    session: AsyncSession,
+    factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The purchase of a deed and the city taking its location back, at once.
+
+    The catch-up runs against a live world -- the deploy raises the new backend
+    beside the old one -- so the pass that returns the city's core meets people
+    still playing. The one thing that must not happen is the one that costs
+    real money: the buyer pays for the paper and loses the node in the same
+    second. Whichever of the two goes first, the money stays in the buyer's
+    account: a city location is not a plot, and no paper for one is traded
+    (D-281).
+    """
+    from src.engine import city as town
+    from src.engine import estate
+    from src.models.estate import Deed
+    from src.models.ledger import AccountKind, PostingReason
+
+    city, core, holder = await _a_city_location(session, "Захвативший")
+    deed = await estate.issue_deed(session, core, holder.id)
+    deed.sale_price = money(100)
+    buyer = await world.create_identity(session, f"Покупатель-{uuid.uuid4().hex[:6]}")
+    purse = await ledger.account_for(session, AccountKind.IDENTITY, buyer.id)
+    genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
+    await ledger.transfer(
+        session, PostingReason.GENESIS, debit=genesis.id, credit=purse.id, amount=money(500)
+    )
+    node_id, city_id, deed_id, buyer_id = core.id, city.id, deed.id, buyer.id
+    await session.commit()
+
+    async def purchase() -> None:
+        async with factory() as db, db.begin():
+            paper = await db.get(Deed, deed_id)
+            if paper is None:
+                return
+            who = await db.get(Identity, buyer_id)
+            await estate.buy_deed(db, who, paper)
+
+    async def retake() -> None:
+        async with factory() as db, db.begin():
+            node = await db.get(Node, node_id)
+            await town.reclaim(db, node, await db.get(City, city_id))
+
+    outcome = await asyncio.gather(purchase(), retake(), return_exceptions=True)
+    unexpected = [
+        one
+        for one in outcome
+        if isinstance(one, BaseException) and not isinstance(one, estate.NotForSale)
+    ]
+    assert not unexpected, outcome
+
+    async with factory() as db:
+        assert await ledger.balance(db, purse.id) == money(500), "покупатель ни за что не заплатил"
+        node = await db.get(Node, node_id)
+        assert node.owner_identity_id is None, "локация вернулась городу"
+
+
+async def test_two_deploys_take_the_same_location_back_once(
+    session: AsyncSession,
+    factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two catch-up passes over one node: the title comes back once.
+
+    A deploy retried, or two of them overlapping, runs the repair twice at the
+    same moment. `reclaim` looks at the row it already holds before it locks --
+    that look is what keeps a whole world's nodes from being locked at every
+    deploy -- so the second pass reads a node still standing in somebody's
+    name. Without the locked reread after the lock it would hand over a node
+    already handed over and tell the former holder twice about one loss.
+    """
+    from src.engine import city as town
+
+    _slow(monkeypatch, world, "hand_over")
+    city, core, _ = await _a_city_location(session, "Захвативший")
+    node_id, city_id = core.id, city.id
+    await session.commit()
+
+    async def catch_up() -> bool:
+        async with factory() as db, db.begin():
+            node = await db.get(Node, node_id)
+            return await town.reclaim(db, node, await db.get(City, city_id))
+
+    outcome = await asyncio.gather(catch_up(), catch_up(), return_exceptions=True)
+    assert not [one for one in outcome if isinstance(one, BaseException)], outcome
+    assert sorted(outcome) == [False, True], f"забрать можно один раз: {outcome}"
+
+    async with factory() as db:
+        told = (
+            (await db.execute(select(Event).where(Event.kind == EventKind.LAND_RECLAIMED.value)))
+            .scalars()
+            .all()
+        )
+        assert len(told) == 1, "об одной потере говорят один раз"
+        node = await db.get(Node, node_id)
+        assert node.owner_identity_id is None

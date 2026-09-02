@@ -21,7 +21,7 @@ from src.engine.errors import Refusal
 from src.models.farm import Plot, PlotState
 from src.models.identity import Body, BodyState
 from src.models.world import Node
-from src.units import SCALE_MAX, SCALE_MIN, SECONDS_PER_HOUR
+from src.units import SCALE_MAX, SCALE_MIN, SECONDS_PER_HOUR, SECONDS_PER_MINUTE
 
 #: The name of water in `build/recipes.json` -- carried by hand where there is no river.
 WATER = "water"
@@ -174,7 +174,7 @@ def plow_done_minutes(plot: Plot, moment: datetime) -> float:
     """What is ploughed by now: the banked minutes and the run under way."""
     done = float(plot.plow_done_minutes)
     if plot.plow_since is not None:
-        done += max(0.0, (moment - plot.plow_since).total_seconds() / 60)
+        done += max(0.0, (moment - plot.plow_since).total_seconds() / SECONDS_PER_MINUTE)
     return done
 
 

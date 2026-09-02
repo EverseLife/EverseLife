@@ -28,7 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants
 from src.engine import access, travel, world
-from src.models.world import Layer
+from src.models.world import PLOT, Layer
 
 
 async def _plot(session: AsyncSession, name: str, *, area: float = 100):
@@ -46,8 +46,13 @@ async def _person(session: AsyncSession, node, name: str):
 
 
 async def _held(session: AsyncSession, node, identity):
-    """A plot with a holder: title is issued by a city, and only by one (D-198)."""
+    """A plot with a holder: title is issued by a city, and only by one (D-198).
+
+    Marked as a plot, because that is what it is: the gate belongs to a plot
+    the authority hands out, not to every node a city owns (D-199).
+    """
     node.owner_city_id = uuid.uuid4()
+    node.properties = {**(node.properties or {}), PLOT: True}
     await session.flush()
     return await world.grant_node(session, node, identity)
 
@@ -134,6 +139,34 @@ async def test_nobodys_land_has_no_door(
     with pytest.raises(access.NotYours):
         await access.set_gate(session, grove, passerby, closed=True)
     assert await access.may_enter(session, grove, passerby.id)
+
+
+async def test_a_city_location_has_no_door(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The gate is a property of the plot, not of the city (D-199).
+
+    The capital's core, its market, its administration are the city's own
+    places: a title over one of them is a title and not a door. The engine used
+    to read "somebody holds it" as "somebody's yard", and one allotment signed
+    at the town hall shut the centre of the capital -- with the printer people
+    come back to life at -- to everybody but its new holder.
+    """
+    core = await _plot(session, "core")
+    holder, _ = await _person(session, core, "holder")
+    #: Held, and civic, and **not** a plot: exactly the case that shut the core.
+    core.owner_city_id = uuid.uuid4()
+    await session.flush()
+    await world.grant_node(session, core, holder)
+    stranger, body = await _person(session, core, "stranger")
+
+    #: There is no door here to shut, and so none to be refused at.
+    with pytest.raises(access.NotYours):
+        await access.set_gate(session, core, holder, closed=True)
+    core.gated = True
+    await session.flush()
+    assert await access.may_enter(session, core, stranger.id)
+    await access.require_entry(session, core, body)
 
 
 async def test_stranger_does_not_run_the_door(

@@ -337,6 +337,57 @@ async def test_city_hands_out_plots(session: AsyncSession, catalog: Catalog) -> 
         await world.grant_node(session, plot, other)
 
 
+async def test_the_city_hands_out_plots_not_itself(session: AsyncSession, catalog: Catalog) -> None:
+    """The core, the market, the town hall are not land in the queue (D-199).
+
+    Allotment asked two things -- the node is the city's and nobody holds it
+    yet -- and the capital's core answers both. The window never offered it:
+    it lists only marked plots. The wire had no such rule, so one command with
+    the core's key made the city's centre somebody's yard, and the yard's
+    holder shut the gate on everybody: the market, the administration and the
+    printer people come back to life at went behind one person's door.
+    """
+    city, core = await _capital(session, catalog)
+    president, president_body = await _resident(session, core, "Президент")
+    await town.install_founder(session, city, president)
+    resident, _ = await _resident(session, core, "Житель")
+
+    assert core.owner_city_id == city.id, "the core is the city's own node"
+    with pytest.raises(town.CityError):
+        await town.allot(session, president, city, core, resident, body=president_body)
+    assert core.owner_identity_id is None
+
+
+async def test_the_former_holder_is_told_the_city_took_its_location_back(
+    session: AsyncSession, catalog: Catalog
+) -> None:
+    """A title, a house and a door gone with no word said would be the world
+    changing behind somebody's back (D-281, D-226).
+
+    The only trace used to be `deed.retired`, which names no actor -- so the
+    push addressed nobody, and if the node carried no paper at all nothing was
+    written down. `cede` records its own event with the person who chose it;
+    this is the case where the person did not choose.
+    """
+    city, core = await _capital(session, catalog)
+    holder, _ = await _resident(session, core, "Захвативший")
+    core.owner_identity_id = holder.id
+    await session.flush()
+
+    assert await town.reclaim(session, core, city) is True
+
+    told = (
+        (await session.execute(select(Event).where(Event.kind == EventKind.LAND_RECLAIMED.value)))
+        .scalars()
+        .all()
+    )
+    assert len(told) == 1
+    assert told[0].actor_identity_id == holder.id, "бывшему хозяину говорят поимённо"
+    assert told[0].node_id == core.id
+    #: And the second pass finds nothing: the catch-up runs at every deploy.
+    assert await town.reclaim(session, core, city) is False
+
+
 # --- narrow rights and presence (D-155) --------------------------------------
 
 

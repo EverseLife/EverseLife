@@ -293,6 +293,31 @@ async def test_the_window_upstairs_says_which_floor_it_is(
     assert "door" not in seen["node"], "дверь осталась внизу"
 
 
+async def test_the_window_offers_no_door_on_a_city_location(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """A gate switch whose every button refuses is worse than none (D-281).
+
+    Whether a location has a door is the engine's question, and the window used
+    to answer half of it on its own -- "is it mine and is it ground". On a city
+    location still standing in somebody's name that came out `true`, and the
+    holder was shown a gate and two list fields where `access.set_gate` and
+    `access.add` both refuse with `access-no-holder`.
+    """
+    from src.api.commands.look import _look
+
+    node = await _plot(session)
+    body = await _holder(session, node)
+    seen = (await _look({"identity_id": body.identity_id}, session, {}))["look"]
+    assert "door" in seen["node"], "у своего участка дверь есть"
+
+    #: The same node, now the city's own location: a title, and no door.
+    node.owner_city_id = uuid.uuid4()
+    await session.flush()
+    seen = (await _look({"identity_id": body.identity_id}, session, {}))["look"]
+    assert "door" not in seen["node"], "у городской локации двери нет"
+
+
 # --- two hands on one plot ----------------------------------------------------
 
 

@@ -29,7 +29,7 @@ from src.engine import access, craft, energy, estate, ledger, utility, world
 from src.engine import city as town
 from src.models.estate import Deed
 from src.models.ledger import AccountKind, PostingReason
-from src.models.world import Layer
+from src.models.world import PLOT, Layer
 from src.units import money
 
 
@@ -46,8 +46,15 @@ async def _city(session: AsyncSession, catalog: Catalog):
         layer=Layer.PLANET,
         parent=planet,
     )
+    #: A plot, and marked as one: the door belongs to a plot the authority
+    #: hands out, not to every node a city owns (D-199, D-281).
     home = await world.create_node(
-        session, f"terra.city.{stamp}.home", "Дом", area_m2=100, parent=delegate
+        session,
+        f"terra.city.{stamp}.home",
+        "Дом",
+        area_m2=100,
+        parent=delegate,
+        properties={PLOT: True},
     )
     city = await town.found(session, catalog, delegate, "Столица")
     home.owner_city_id = city.id
@@ -383,6 +390,40 @@ async def test_cede_refuses_a_deed_on_the_market(
         await town.cede(session, body, home)
     assert refused.value.key == "city-land-deed-on-sale"
     assert home.owner_identity_id == owner.id
+
+
+async def test_a_reclaimed_location_is_not_left_cut_off(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """A location taken back comes back alive, debt and cut-off cleared (D-281).
+
+    `cede` may refuse a debtor -- the holder settles up and gives the plot back
+    afterwards. The city taking its own location back cannot refuse: it is
+    undoing the engine's own mistake. And a debt left on a node without a
+    holder can never be paid: `utility.bill` charges the treasury nothing and
+    `utility.pay` takes payment only from the holder, of whom there is none. So
+    the meter would stay cut off for ever, and with it the core would come back
+    to the city with neither craft nor council possible in it.
+    """
+    city, _, home = await _city(session, catalog)
+    owner, _ = await _resident(session, home, "Захвативший")
+    #: Not a plot -- the city's own location, which is why it comes back.
+    home.properties = {}
+    home.owner_identity_id = owner.id
+    await session.flush()
+
+    meter = await utility.meter_of(session, home)
+    meter.debt = money(50)
+    meter.cut_off = True
+    await session.flush()
+
+    assert await town.reclaim(session, home, city) is True
+
+    assert home.owner_identity_id is None
+    again = await utility.meter_of(session, home, create=False)
+    assert again is not None
+    assert again.debt == 0, "долг некому платить: город сам себе счёта не выставляет"
+    assert not again.cut_off, "возвращённая локация не остаётся отрезанной навсегда"
 
 
 async def test_cede_takes_the_door_down(

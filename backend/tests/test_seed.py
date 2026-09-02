@@ -29,6 +29,7 @@ from src.constants import Catalog, ConstantError, Constants, current_catalog, di
 from src.constants import registry as R
 from src.constants.catalog import ItemKind
 from src.engine import (
+    access,
     death,
     estate,
     events,
@@ -41,11 +42,12 @@ from src.engine import (
     travel,
     world,
 )
+from src.engine import city as town
 from src.models.city import City
-from src.models.estate import Building
+from src.models.estate import Building, Deed
 from src.models.event import Event, EventKind
 from src.models.inventory import Container, ContainerKind, Item
-from src.models.world import Layer, Node, Planet, Vein
+from src.models.world import Layer, Node, NodePass, Planet, Vein
 from src.seed import CORE, seed
 from src.seed_surfaces import PYROXIS_FIELDS, PYROXIS_PLATEAU, pyroxis_field_key
 
@@ -458,6 +460,46 @@ async def test_a_plot_of_an_old_world_gets_its_soil(capital: Node, session: Asyn
     await seed(session)
     await session.refresh(again)
     assert again.properties == before
+
+
+async def test_a_city_location_handed_out_comes_back(capital: Node, session: AsyncSession) -> None:
+    """A world where the core was allotted as a plot gets it back (D-281).
+
+    Allotment asked only whether the node was the city's and free, and the
+    capital's core answers both -- so one signature at the town hall made the
+    centre of the capital somebody's yard, and a yard has a door. The door is
+    gone from such a node now, but the title would stay: land tax on the city's
+    core, machines placed there by its holder, and one house across the whole
+    of it (D-279).
+    """
+    core = await session.scalar(select(Node).where(Node.key == "terra.capital.core"))
+    assert core is not None
+    holder = await world.create_identity(session, "Захвативший ядро")
+    #: Back to how a world of before D-281 holds it: title, gate and a list.
+    await world.grant_node(session, core, holder)
+    core.gated = True
+    session.add(NodePass(node_id=core.id, identity_id=holder.id, allowed=True))
+    await session.flush()
+
+    await seed(session)
+
+    await session.refresh(core)
+    assert core.owner_identity_id is None, "ядро вернулось городу"
+    assert core.gated is False, "у городской локации не бывает ворот"
+    assert await access.listed(session, core) == []
+    assert (
+        await session.scalar(select(func.count()).select_from(Deed).where(Deed.node_id == core.id))
+        == 0
+    )
+
+    #: And a plot is not touched by the same pass: it is its holder's, door and all.
+    lot = await session.scalar(select(Node).where(Node.key == "terra.capital.lot1"))
+    await world.grant_node(session, lot, holder)
+    await session.flush()
+    await seed(session)
+    await session.refresh(lot)
+    assert lot.owner_identity_id == holder.id, "участок остаётся за хозяином"
+    assert await town.reclaim(session, lot, await town.of_node(session, lot)) is False
 
 
 async def test_a_tall_house_of_an_old_world_gets_its_floors(

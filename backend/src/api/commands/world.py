@@ -299,6 +299,7 @@ TOLD = frozenset(
         EventKind.TRANSPORT_BROKE.value,
         EventKind.ROAD_LAID.value,
         EventKind.DEED_SOLD.value,
+        EventKind.LAND_RECLAIMED.value,
         EventKind.CITY_GRANT_PAID.value,
         EventKind.ESTATE_SITE_READY.value,
     }
