@@ -242,15 +242,22 @@ def own_plot(session: AsyncSession):
     Title to land is issued by a city, so the plot first becomes civic and only
     then somebody's. Tests used to call `world.claim_node` -- taking wild land
     on foot -- and that road no longer exists.
+
+    And marked as a plot, which is what the fixture's name has always claimed:
+    a city hands out plots, never its own locations, and only a plot has a door
+    (D-282).
     """
     import uuid
 
     from src.engine import world
+    from src.models.world import PLOT
 
     async def give(node, identity):
         if node.owner_city_id is None:
             node.owner_city_id = uuid.uuid4()
-            await session.flush()
+        if not (node.properties or {}).get(PLOT):
+            node.properties = {**(node.properties or {}), PLOT: True}
+        await session.flush()
         return await world.grant_node(session, node, identity)
 
     return give

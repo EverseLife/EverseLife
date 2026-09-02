@@ -16,7 +16,7 @@ import uuid
 from decimal import Decimal
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from estate_kit import _buyer, _city
@@ -234,6 +234,31 @@ async def test_purchase_pays_treasury_and_issues_deed(
     assert deed.owner_identity_id == identity.id
     assert deed.paid > 0
     assert await town.treasury_balance(session, city) == treasury_before_ + deed.paid
+
+
+async def test_the_city_does_not_sell_its_own_location(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """A city location is not on the price list, empty or not (D-282).
+
+    The other door into the same defect the allotment had: buying asked that
+    the node be the city's and free, and the city's own core answers both.
+    `is_vacant` is not that rule -- it asks about machines, veins and the gate,
+    so a location whose machines were taken down or whose vein ran out was on
+    sale like any plot. And a bought one is worse than an allotted one: money
+    changed hands for the centre of the city.
+    """
+    city, core, _, _ = await _city(session, catalog)
+    _, body = await _buyer(session, core, city=city)
+    #: Bare ground, so that nothing but the missing mark can refuse the sale.
+    yard = await world.node_container(session, core)
+    await session.execute(delete(Item).where(Item.container_id == yard.id))
+    await session.flush()
+    assert await estate.is_vacant(session, constants, core), "фикстура не оставила ядро пустым"
+
+    with pytest.raises(estate.NotForSale):
+        await estate.buy(session, constants, catalog, body, core)
+    assert core.owner_identity_id is None
 
 
 async def test_no_purchase_without_money(

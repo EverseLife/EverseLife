@@ -18,6 +18,7 @@
 # --- city plots (D-089) -------------------------------------------------------
 
 city-land-not-civic = this is not a city plot
+city-land-not-a-plot = “{ $node }” is not a plot to hand out but the city's own location: a city gives out plots, not itself
 city-land-taken = the plot is already someone's
 city-land-dead = a dead body disposes of no plots
 city-land-cede-on-foot = a plot is handed over on foot: walk up to it
@@ -164,6 +165,7 @@ estate-site-no-strength = not enough strength: the build takes { NUMBER($need, m
 estate-site-already-started = the build has already started
 estate-site-not-ready = the house is not ready yet: the build is under way
 
+estate-deed-not-a-plot = “{ $node }” is the city's own location and not a plot: such a paper is not traded
 estate-deed-not-yours = the deed is not yours: what you sell is your own
 estate-deed-not-on-sale = the deed is not up for sale
 estate-deed-own = your own deed is not for buying
@@ -192,6 +194,7 @@ estate-land-buy-dead = a dead body does not buy
 estate-land-buy-on-foot = a plot is bought on foot: walk up to it
 estate-land-taken = the plot is already someone's
 estate-land-not-civic = this is not city land: outside a city it is neither sold nor claimed, yet anyone may work and build there
+estate-land-not-a-plot = “{ $node }” is not a plot for sale but the city's own location: a city sells plots, not itself
 estate-land-not-vacant = the node is not empty: the price list sells neither buildings nor the city's veins
 estate-land-city-missing = the node is attached to a city that does not exist
 estate-land-permit = “{ $city }” does not sell land to everyone: code law build_permit is “{ $permit }”. Join the citizens
@@ -231,7 +234,7 @@ access-no-holder = { $land ->
     }
 access-not-yours = the location is not yours: the door is the holder's to command
 access-self-in-list = you are not kept on your own lists: the holder always enters
-access-barred = “{ $node }” is someone else's location, and the holder does not let you in. You may pass through it, but not stop; a dispute over entry is settled by a claim
+access-barred = “{ $node }” is someone else's location, and the holder does not let you in. You may pass through it, but not stop; only the holder can let you in
 
 # --- the Net (D-222) ----------------------------------------------------------
 

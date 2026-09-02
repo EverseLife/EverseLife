@@ -82,9 +82,10 @@ from src.engine.farm._base import (  # noqa: F401
     WrongState,
     care_minutes,
     day_hours,
-    plow_done_minutes,
+    plow_banked,
     plow_minutes,
     plow_paused,
+    plow_progress_minutes,
     ripe_at,
 )
 from src.engine.farm.plot import (  # noqa: F401

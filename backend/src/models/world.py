@@ -79,6 +79,13 @@ STOREY = "storey"
 #: opening floors above it reads as the sentence it is.
 GROUND_FLOOR = 1
 
+#: The mark of a city plot: a node the authority hands out inside its rings
+#: (D-089). Here for the same reason as `STOREY`: the door asks it (D-199 --
+#: the gate is a property of the plot, not of the city), the allotment asks it,
+#: and the window that lists free land asks it. One key, one place; a second
+#: spelling of it somewhere else is the drift such keys always end in.
+PLOT = "plot"
+
 
 def storey_of(node: Node) -> int | None:
     """Which floor of a house this node is, or `None` if it is ground (D-247).
@@ -91,6 +98,17 @@ def storey_of(node: Node) -> int | None:
     if isinstance(floor, bool) or not isinstance(floor, int):
         return None
     return floor if floor > GROUND_FLOOR else None
+
+
+def is_plot(node: Node) -> bool:
+    """Whether this node is a plot the authority hands out in its rings (D-089).
+
+    Read off the node's own properties, like `storey_of`, and for the same
+    reason: the door asks it, the allotment asks it, the sale asks it, and the
+    window that lists free land asks it. Four readings of one key, so the key
+    is spelled once and the question is asked once.
+    """
+    return bool((node.properties or {}).get(PLOT))
 
 
 class Node(Base):

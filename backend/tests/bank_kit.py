@@ -64,6 +64,40 @@ async def _borrower(session: AsyncSession, *, funds: float = 0, turnover: float 
     return identity
 
 
+async def _trade_on(session: AsyncSession, node, price: float, goods: str = "bread"):
+    """One concluded deal on this node: a city's line is a share of the trade
+    that happened on its land (D-175), so a test that wants a lender wants this."""
+    from src.models.market import Order, OrderSide, Trade
+    from src.units import amount as _amount
+
+    seller = await world.create_identity(session, f"Купец-{uuid.uuid4().hex[:6]}")
+    order_ = Order(
+        node_id=node.id,
+        identity_id=seller.id,
+        side=OrderSide.SELL,
+        type_key=goods,
+        tier="common",
+        price=money(price),
+        amount_total=_amount(1),
+        amount_left=0,
+        expires_at=datetime.now(UTC) + timedelta(days=1),
+    )
+    session.add(order_)
+    await session.flush()
+    session.add(
+        Trade(
+            node_id=node.id,
+            sell_order_id=order_.id,
+            type_key=goods,
+            tier="common",
+            price=money(price),
+            amount=_amount(1),
+        )
+    )
+    await session.flush()
+    return order_
+
+
 async def _city_with_turnover(
     session: AsyncSession, catalog=None, turnover: float = 4000, goods: str = "bread"
 ):
@@ -75,9 +109,7 @@ async def _city_with_turnover(
     """
     from src.constants import current_catalog
     from src.engine import city as town
-    from src.models.market import Order, OrderSide, Trade
     from src.models.world import Layer
-    from src.units import amount as _amount
 
     stamp = uuid.uuid4().hex[:8]
     planet = await world.create_node(
@@ -100,31 +132,7 @@ async def _city_with_turnover(
     )
     city = await town.found(session, catalog or current_catalog(), delegate, f"Город-{stamp}")
     marketplace.owner_city_id = city.id
-    seller = await world.create_identity(session, f"Купец-{stamp}")
-    order_ = Order(
-        node_id=marketplace.id,
-        identity_id=seller.id,
-        side=OrderSide.SELL,
-        type_key=goods,
-        tier="common",
-        price=money(turnover),
-        amount_total=_amount(1),
-        amount_left=0,
-        expires_at=datetime.now(UTC) + timedelta(days=1),
-    )
-    session.add(order_)
-    await session.flush()
-    session.add(
-        Trade(
-            node_id=marketplace.id,
-            sell_order_id=order_.id,
-            type_key=goods,
-            tier="common",
-            price=money(turnover),
-            amount=_amount(1),
-        )
-    )
-    await session.flush()
+    await _trade_on(session, marketplace, turnover, goods=goods)
     return city
 
 

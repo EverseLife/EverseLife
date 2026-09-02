@@ -22,6 +22,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from bank_kit import _borrower, _city_with_turnover, _home
 from conftest import _slow
 from src.constants import current, current_catalog
 from src.constants import registry as R
@@ -48,13 +49,17 @@ async def test_two_loans_of_the_same_room_leave_one_refused(
     from src.engine.bank import loan as loan_module
     from src.models.bank import Loan
 
-    who = await world.create_identity(session, f"Заёмщик-{uuid.uuid4().hex[:6]}")
+    #: A borrower belongs to a city (D-281), and its line is left wide: the
+    #: brake under test is the personal limit, not the city's.
+    who = await _borrower(session, turnover=100_000)
     #: The reserve is opened beforehand: both sessions would otherwise race to
     #: create it, and a unique violation would hide the race being tested.
     await bank.reserve_account(session)
     await session.commit()
     limit_, _ = await bank.credit_limit(session, constants, who.id)
     assert limit_ > 0
+    _, _, free = await bank.city_line(session, constants, await _home(session, who))
+    assert free > limit_, "линия города не должна упереться раньше личного лимита"
 
     _slow(monkeypatch, loan_module, "debt_of")
 
@@ -89,7 +94,7 @@ async def test_two_payments_of_the_same_debt_are_not_counted_twice(
     from src.engine.bank import loan as loan_module
     from src.models.bank import Loan
 
-    who = await world.create_identity(session, f"Должник-{uuid.uuid4().hex[:6]}")
+    who = await _borrower(session)
     account = await ledger.account_for(session, AccountKind.IDENTITY, who.id)
     genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
     await ledger.transfer(
@@ -138,52 +143,14 @@ async def test_two_citizens_do_not_lie_twice_on_the_same_line(
     from src.engine.bank import line as line_module
     from src.models.bank import Loan
     from src.models.city import Citizen
-    from src.models.market import Order, OrderSide, Trade
-    from src.models.world import Layer
-    from src.units import amount as _amount
 
     stamp = uuid.uuid4().hex[:8]
     catalog = current_catalog()
-    planet = await world.create_node(
-        session, f"terra.{stamp}", "Терра", area_m2=1, layer=Layer.SPACE
-    )
-    delegate = await world.create_node(
-        session, f"terra.city.{stamp}", "Город", area_m2=1, layer=Layer.PLANET, parent=planet
-    )
-    marketplace = await world.create_node(
-        session, f"terra.city.{stamp}.market", "Рынок", area_m2=50, parent=delegate
-    )
-    city = await town.found(session, catalog, delegate, f"Город-{stamp}")
-    marketplace.owner_city_id = city.id
-
     #: One deal makes the city's whole turnover, so the line is exactly known --
     #: and small enough that the line binds before anyone's personal limit does
     #: (`bank.unsecured_limit`), otherwise both borrowers are refused for their
     #: own reasons and the race never happens.
-    merchant = await world.create_identity(session, f"Купец-{stamp}")
-    order = Order(
-        node_id=marketplace.id,
-        identity_id=merchant.id,
-        side=OrderSide.SELL,
-        type_key="bread",
-        tier="common",
-        price=money(50),
-        amount_total=_amount(1),
-        amount_left=0,
-        expires_at=datetime.now(UTC) + timedelta(days=1),
-    )
-    session.add(order)
-    await session.flush()
-    session.add(
-        Trade(
-            node_id=marketplace.id,
-            sell_order_id=order.id,
-            type_key="bread",
-            tier="common",
-            price=money(50),
-            amount=_amount(1),
-        )
-    )
+    city = await _city_with_turnover(session, catalog, turnover=50)
     borrowers = []
     for number in range(2):
         who = await world.create_identity(session, f"Гражданин-{number}-{stamp}")
@@ -211,11 +178,15 @@ async def test_two_citizens_do_not_lie_twice_on_the_same_line(
             await bank.borrow(db, constants, catalog, borrower, free / MONEY_SCALE)
 
     outcomes = await asyncio.gather(*(take(one) for one in borrowers), return_exceptions=True)
-    #: Both are served: the line shrinks smoothly, and whoever finds it spent
-    #: borrows straight from the capital at the worse rate (D-175). Without the
-    #: city's row the two collide in the ledger instead, and one of them dies
-    #: of a deadlock -- the cap holds by accident, and the player sees a crash.
-    assert not [one for one in outcomes if isinstance(one, Exception)], outcomes
+    #: One is served and one is told the line is out -- past it there is
+    #: nothing any more (D-281). Without the city's row the two collide in the
+    #: ledger instead and one dies of a deadlock: the cap then holds by
+    #: accident, and what the player sees is a crash and not a refusal.
+    refused = [one for one in outcomes if isinstance(one, bank.TooMuch)]
+    assert len(refused) == 1, f"второй должен упереться в линию города: {outcomes}"
+    assert not [
+        one for one in outcomes if isinstance(one, Exception) and not isinstance(one, bank.TooMuch)
+    ], outcomes
 
     async with factory() as db:
         on_line = (
@@ -251,27 +222,17 @@ async def test_collection_and_the_prison_do_not_deadlock_on_one_debtor(
     from src.engine import bank
     from src.engine.bank import loan as loan_module
     from src.models.bank import Loan
-    from src.models.world import Layer
 
-    stamp = uuid.uuid4().hex[:8]
     catalog = current_catalog()
-    planet = await world.create_node(
-        session, f"terra.{stamp}", "Терра", area_m2=1, layer=Layer.SPACE
-    )
-    delegate = await world.create_node(
-        session, f"terra.city.{stamp}", "Город", area_m2=1, layer=Layer.PLANET, parent=planet
-    )
-    city = await town.found(session, catalog, delegate, f"Город-{stamp}")
+    #: The debtor's own city lends to them and pays for them (D-281, D-174):
+    #: the prisoner works off a debt of the city whose citizen they are.
+    who = await _borrower(session, funds=300, turnover=100_000)
+    city = await _home(session, who)
+    assert city is not None
     treasury = await town.treasury(session, city)
     genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
     await ledger.transfer(
         session, PostingReason.GENESIS, debit=genesis.id, credit=treasury.id, amount=money(1000)
-    )
-
-    who = await world.create_identity(session, f"Каторжник-{stamp}")
-    account = await ledger.account_for(session, AccountKind.IDENTITY, who.id)
-    await ledger.transfer(
-        session, PostingReason.GENESIS, debit=genesis.id, credit=account.id, amount=money(300)
     )
     await bank.reserve_account(session)
     debts = [await bank.borrow(session, constants, catalog, who, 50) for _ in range(2)]

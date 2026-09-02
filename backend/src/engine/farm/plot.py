@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal
+from decimal import ROUND_DOWN, Decimal
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -30,7 +30,7 @@ from src.engine.farm._base import (
     _open_ground,
     _owned,
     _recuttable,
-    plow_done_minutes,
+    plow_banked,
     plow_minutes,
     plow_paused,
 )
@@ -176,6 +176,12 @@ async def _running_plough(session: AsyncSession, **where: object) -> Job | None:
     stmt = (
         select(Job)
         .where(Job.kind == JobKind.FARM_PLOW.value, Job.state == JobState.PENDING)
+        #: One row, and the worker's own choice of it -- `jobs.run_one` orders
+        #: the same way. Without the limit `.first()` trims in Python while the
+        #: lock is taken in the database: every matching row would be held, and
+        #: which one came back would be nobody's decision.
+        .order_by(Job.run_at)
+        .limit(1)
         .with_for_update()
     )
     if "body" in where:
@@ -228,8 +234,15 @@ async def plow_pause(
 
     job.state = JobState.CANCELLED
     job.finished_at = moment
-    done = min(plow_minutes(constants, strip), plow_done_minutes(strip, moment))
-    strip.plow_done_minutes = Decimal(str(round(done, ROUND_MINUTES)))
+    whole = Decimal(str(plow_minutes(constants, strip)))
+    done = min(whole, plow_banked(strip, moment))
+    #: Down, never to the nearest. The bank already holds whole hundredths of
+    #: a minute, so rounding to the nearest handed back a whole hundredth for
+    #: every pause: a pause-and-resume loop cycling between 0.3 and 0.6 s
+    #: ploughed at up to twice real time -- quicker than that banked nothing,
+    #: slower banked honestly. Downwards the rounding drops at most a
+    #: hundredth, and drops it against the plougher.
+    strip.plow_done_minutes = done.quantize(Decimal(1).scaleb(-ROUND_MINUTES), rounding=ROUND_DOWN)
     strip.plow_since = None
     await session.flush()
 
