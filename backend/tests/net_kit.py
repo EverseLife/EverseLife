@@ -39,7 +39,9 @@ async def _capital(session: AsyncSession, catalog: Catalog):
     )
     founder = await world.create_identity(session, f"Основатель-{stamp}")
     await world.print_body(session, founder, core)
-    city = await town.found(session, catalog, delegate, "Столица")
+    #: Stamped: a city name is unique across the world
+    #: (`uq_city_name_lower`), and this kit raises two capitals in one test.
+    city = await town.found(session, catalog, delegate, f"Столица-{stamp}")
     await town.install_founder(session, city, founder)
     core.owner_city_id = city.id
     await session.flush()

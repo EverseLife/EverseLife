@@ -22,6 +22,7 @@ citizenship to finish a founding they should not have been running.
 
 from __future__ import annotations
 
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -50,6 +51,10 @@ from src.models.identity import BodyState, Identity
 from src.models.net import NetChannel
 from src.models.world import Layer, Node
 from src.runtime import CITY_NAME_LIMIT
+
+#: The index that holds one name to one city (`models.city.City`). Named here
+#: because the refusal below has to tell it from the node's.
+NAME_INDEX = "uq_city_name_lower"
 
 
 async def found(
@@ -266,6 +271,17 @@ async def establish(
     #: channel's, and the Net tells channel names apart that way.
     if await by_name(session, title) is not None:
         raise CityError(key="city-found-name-taken", name=title)
+    #: And the same name held by somebody's own channel. A city's name becomes
+    #: its channel's, and `net.channel.create` refuses a name a channel already
+    #: has -- so without this the door the player types a city into could hand
+    #: the Net what the door they type a channel into would not. Asked against
+    #: the row rather than through `engine.net`: the Net names the city, and a
+    #: door back the other way is the `city <-> net` cycle wave 3 is removing.
+    spoken_for = await session.scalar(
+        select(NetChannel.id).where(func.lower(NetChannel.name) == func.lower(title))
+    )
+    if spoken_for is not None:
+        raise CityError(key="city-found-name-in-the-net", name=title)
 
     identity = await session.get(Identity, body.identity_id)
     #: The check above is for the words; this is for the race. Two foundings
@@ -277,7 +293,13 @@ async def establish(
         async with session.begin_nested():
             city = await found(session, catalog, node, title, founder=identity)
     except IntegrityError as clash:
-        if await by_name(session, title) is None:
+        #: Which index refused, asked of the error itself rather than guessed
+        #: from what the table holds afterwards: a double click on `city.found`
+        #: races on the node as well as on the name, and `uq_city_node_id`
+        #: answering would otherwise be reported as a name somebody took. The
+        #: driver's own error carries the name, one cause below SQLAlchemy's.
+        cause = getattr(clash.orig, "__cause__", None)
+        if getattr(cause, "constraint_name", None) != NAME_INDEX:
             raise
         raise CityError(key="city-found-name-taken", name=title) from clash
 
