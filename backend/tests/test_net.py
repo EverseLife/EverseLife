@@ -218,8 +218,10 @@ async def test_city_channel_is_official_and_its_power_writes(
     city, core, founder = await _capital(session, catalog)
     assert Power.CHANNEL.value in await town.powers_of(session, founder.id, city)
     views = await net.channels(session, constants, founder.id, now=NOW)
+    #: By the city's own name, not by a literal: a city name is unique across
+    #: the world now, so the kit stamps it and only the city knows what it got.
     assert [(v.official, v.writable, v.implied, v.by) for v in views] == [
-        (True, True, True, "Столица")
+        (True, True, True, city.name)
     ]
     channel = await net.city_channel(session, city)
     assert channel is not None
@@ -229,7 +231,7 @@ async def test_city_channel_is_official_and_its_power_writes(
     citizen, _ = await _person(session, core, "Гражданин")
     await town._enroll(session, city, citizen.id, why="test")
     mine = await net.channels(session, constants, citizen.id, now=NOW)
-    assert [(v.name, v.unread, v.writable) for v in mine] == [("Столица", 1, False)]
+    assert [(v.name, v.unread, v.writable) for v in mine] == [(city.name, 1, False)]
     with pytest.raises(net.NetError):
         await net.unsubscribe(session, citizen, channel.id)
     with pytest.raises(net.NotAllowed):
@@ -240,7 +242,7 @@ async def test_city_channel_is_official_and_its_power_writes(
     assert await net.channels(session, constants, stranger.id, now=NOW) == []
     await net.subscribe(session, stranger, channel.id)
     assert [v.name for v in await net.channels(session, constants, stranger.id, now=NOW)] == [
-        "Столица"
+        city.name
     ]
     await net.unsubscribe(session, stranger, channel.id)
     assert await net.channels(session, constants, stranger.id, now=NOW) == []
