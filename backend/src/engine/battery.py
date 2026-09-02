@@ -46,6 +46,8 @@ from src.units import (
     SECONDS_PER_HOUR,
     amount_float,
     money,
+    on_grid,
+    step,
 )
 
 #: The class of the cell (D-215). Behaviour binds to the class, so a second
@@ -97,7 +99,7 @@ def charge_of(constants: Constants, item: Item, *, now: datetime | None = None) 
 #: The grid the charge column keeps (`Numeric(12, 3)`). A charge is put on it
 #: before it is stored, so what the engine believes a cell holds is what the
 #: row holds -- otherwise Postgres rounds the write and the two drift apart.
-_STEP = Decimal(1).scaleb(-ROUND_CHARGE)
+_STEP = step(ROUND_CHARGE)
 
 
 def _on_grid(charge: float | Decimal) -> Decimal:
@@ -109,7 +111,7 @@ def _on_grid(charge: float | Decimal) -> Decimal:
     done anyway; putting it here is what makes the stored row and the engine's
     idea of it the same number, which is what the drain then measures against.
     """
-    return max(Decimal(0), Decimal(str(charge)).quantize(_STEP))
+    return max(Decimal(0), on_grid(charge, ROUND_CHARGE))
 
 
 async def settle_charge(
@@ -171,6 +173,12 @@ async def charge_battery(
     will_give = min(wants, float(pool.stored))
     if will_give <= 0:
         raise _grid().NotEnough(key="battery-nothing-to-give", have=float(pool.stored), place=place)
+    #: A pour too thin to be written is refused rather than served. The pool
+    #: gives up a whole step for any positive draw, so a request under one
+    #: would burn the city's energy while the cell gained nothing and the bill
+    #: rounded to nothing -- free of charge, and repeatable.
+    if will_give < float(step(ROUND_CHARGE)):
+        raise _grid().NotEnough(key="battery-give-too-little", least=float(step(ROUND_CHARGE)))
 
     #: The tariff is given per hundred energy -- the bill is issued by it too.
     price = money(will_give / ENERGY_PER_TARIFF_UNIT * float(pool.tariff))
@@ -186,7 +194,7 @@ async def charge_battery(
             memo={"энергии": will_give, "тариф": float(pool.tariff)},
         )
 
-    pool.stored = Decimal(str(float(pool.stored) - will_give))
+    _grid().take_from_pool(pool, will_give)
     item.charge = _on_grid(have + will_give)
     item.charged_at = moment
     await session.flush()

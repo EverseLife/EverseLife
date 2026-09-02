@@ -176,7 +176,7 @@ async def bill(
 
     need = draw_for(constants, node, hours)
     released = min(need, float(pool.stored))
-    pool.stored = Decimal(str(float(pool.stored) - released))
+    energy.take_from_pool(pool, released)
     meter.counted_at = moment
     meter.last_energy = Decimal(str(released))
 
