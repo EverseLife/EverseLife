@@ -83,7 +83,7 @@ async def test_look_writes_nothing(
 
 
 async def test_look_gives_the_city_no_channel(
-    session: AsyncSession, factory: async_sessionmaker[AsyncSession], catalog
+    session: AsyncSession, factory: async_sessionmaker[AsyncSession], constants, catalog
 ) -> None:
     """A citizen's `look` counts the unread of the city's channel -- and does
     not open one where there is none.
@@ -100,6 +100,7 @@ async def test_look_gives_the_city_no_channel(
 
     from src.api.commands.look import _look
     from src.engine import city as town
+    from src.engine import net
     from src.models.net import NetChannel
     from src.models.world import Layer
 
@@ -118,6 +119,12 @@ async def test_look_gives_the_city_no_channel(
     citizen = await world.create_identity(session, f"Гражданин-{stamp}")
     await world.print_body(session, citizen, core)
     await town._enroll(session, city, citizen.id, why="test")
+    #: That the read reaches the city's channel at all, before it is taken
+    #: away. Without this the test would pass just as green in a world where
+    #: the citizen belongs to no city: `channels()` would never enter the
+    #: official branch, and nothing would be left of what it was written for.
+    views = await net.channels(session, constants, citizen.id)
+    assert [view.official for view in views] == [True], views
     #: A city as an old world left it: standing, with no channel of its own.
     await session.execute(delete(NetChannel).where(NetChannel.city_id == city.id))
     await session.commit()
