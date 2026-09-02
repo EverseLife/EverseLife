@@ -19,7 +19,7 @@ upgrade fails on such a pair instead, and says which -- renaming is a decision
 for whoever runs the world, and it is made before the upgrade, not by it.
 
 Revision ID: c7a4b2e10f38
-Revises: c5a1d3f7e920
+Revises: b4e91c07af52
 Create Date: 2026-09-02
 """
 
@@ -31,7 +31,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "c7a4b2e10f38"
-down_revision: str | None = "c5a1d3f7e920"
+down_revision: str | None = "b4e91c07af52"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
