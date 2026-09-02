@@ -569,7 +569,7 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
     #: (D-146). The limit is why wagons exist, and the player must see it as a number.
     worn = await gear.equipped(db, body)
     seen["carry"] = {
-        "load": round(await gear.load_of(db, current_catalog(), body), 2),
+        "load": round(await gear.load_of(db, constants, current_catalog(), body), 2),
         "capacity": round(await gear.capacity(db, constants, current_catalog(), body), 2),
         "slots": list(current_catalog().recipes.gear_slots),
         "equipped": {

@@ -11,11 +11,14 @@ everything was built for cost nothing.
 ## How it is computed
 
 **Load** is the sum of masses of everything in the hands, including what is
-worn: an exoskeleton does not become weightless because it is put on.
+worn -- an exoskeleton does not become weightless because it is put on. A
+worn pack lightens the first kilograms it holds (`inventory.pack`, D-268);
+the rest weighs what it weighs.
 
-**Limit** is `inventory.carry_mass` plus `inventory.carry_bonus` per worn
-thing. A backpack and an exoskeleton raise it, clothes and armour take the
-slot but add nothing to carry -- their effect arrives with environment and combat.
+**Limit** is `inventory.carry_mass` plus `inventory.exo_bonus` for a worn
+exoskeleton -- while a charged battery rides in the hands (D-268). A pack
+raises nothing; clothes and armour take the slot but add nothing to carry --
+their effect arrives with environment and combat.
 
 **One slot per thing.** Without slots a player would wear three backpacks and
 the limit would cease to exist; the slot is the constraint itself, not an
@@ -49,12 +52,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import events, travel, world
+from src.engine import battery, events, stock, travel, world
 from src.engine.errors import Refusal
 from src.models.event import EventKind
 from src.models.gear import Equipped
 from src.models.identity import Body, BodyState
-from src.models.inventory import Item
+from src.models.inventory import Container, ContainerKind, Item
 from src.units import amount_float
 
 
@@ -75,7 +78,9 @@ def mass_of(catalog: Catalog, type_key: str, quantity: float) -> float:
     return catalog.recipes.mass_of(type_key) * quantity
 
 
-async def load_of(session: AsyncSession, catalog: Catalog, body: Body) -> float:
+async def load_of(
+    session: AsyncSession, constants: Constants, catalog: Catalog, body: Body
+) -> float:
     """How much the body carries now, kg. What is worn counts along with everything."""
     things = await world.contents(session, await world.body_container(session, body))
     from src.engine import storage  # noqa: PLC0415 -- lazy: storage -> gear (the carry limit)
@@ -91,7 +96,24 @@ async def load_of(session: AsyncSession, catalog: Catalog, body: Body) -> float:
         for held in inside.values()
         for thing in held
     )
-    return own + fill
+    return packed(constants, catalog, await equipped(session, body), own + fill)
+
+
+def packed(constants: Constants, catalog: Catalog, worn: dict[str, Item], mass: float) -> float:
+    """The load as the body feels it: the pack lightens what fits in it (D-268).
+
+    A pack holds its first `capacity` kilograms of the load and multiplies
+    them by its `factor`; packing is implied -- the first kilograms ride in
+    it. The rest is carried as it is. The pack raises no limit: that is the
+    exoskeleton's business, and the two never compete.
+    """
+    packs = constants[R.INVENTORY_PACK]
+    for thing in worn.values():
+        pack = packs.get(catalog.recipes.resolve(thing.type_key))
+        if pack:
+            inside = min(mass, float(pack["capacity"]))
+            return mass - inside * (1 - float(pack["factor"]))
+    return mass
 
 
 async def equipped(session: AsyncSession, body: Body) -> dict[str, Item]:
@@ -110,13 +132,72 @@ async def equipped(session: AsyncSession, body: Body) -> dict[str, Item]:
 async def capacity(
     session: AsyncSession, constants: Constants, catalog: Catalog, body: Body
 ) -> float:
-    """The carry limit with worn gear in mind, kg."""
-    bonuses = constants[R.INVENTORY_CARRY_BONUS]
+    """The carry limit with worn gear in mind, kg.
+
+    An exoskeleton raises it (D-268) -- while a charged battery rides in the
+    hands. Drained, it is a frame that weighs and lifts nothing.
+    """
     worn = await equipped(session, body)
-    increment = sum(
-        bonuses.get(catalog.recipes.resolve(thing.type_key), 0.0) for thing in worn.values()
+    lift = exo_bonus(constants, catalog, worn)
+    if lift > 0 and not await battery.charged_carried(session, constants, body):
+        lift = 0.0
+    return constants[R.INVENTORY_CARRY_MASS] + lift
+
+
+def exo_bonus(constants: Constants, catalog: Catalog, worn: dict[str, Item]) -> float:
+    """What the worn exoskeleton would add, kg -- powered or not."""
+    bonuses = constants[R.INVENTORY_EXO_BONUS]
+    return sum(bonuses.get(catalog.recipes.resolve(thing.type_key), 0.0) for thing in worn.values())
+
+
+async def wear_exoskeletons(
+    session: AsyncSession, constants: Constants, catalog: Catalog, *, hours: float, now: datetime
+) -> float:
+    """Every worn exoskeleton drinks from the batteries in its wearer's hands (D-268).
+
+    Called by the tick for its own length. A wearer with no charge left keeps
+    the frame on and lifts nothing: the limit falls, and the doors that read it
+    refuse the next pickup. Nothing falls out of the hands by itself.
+
+    One query and one lock order for every wearer's cells at once
+    (`stock.locked_stacks` over all the pockets): a hand-over of a battery
+    locks cells in id order too, and two orders would be a deadlock.
+    Returns the charge drunk, all wearers together.
+    """
+    rate = constants[R.GEAR_EXO_ENERGY_PER_HOUR]
+    if rate <= 0 or hours <= 0:
+        return 0.0
+    names = {catalog.recipes.resolve(name) for name in constants[R.INVENTORY_EXO_BONUS]}
+    pockets = (
+        (
+            await session.execute(
+                select(Container.id)
+                .join(Body, Body.id == Container.owner_id)
+                .join(Equipped, Equipped.body_id == Body.id)
+                .join(Item, Item.id == Equipped.item_id)
+                .where(
+                    Container.kind == ContainerKind.BODY,
+                    Item.type_key.in_(names),
+                    Body.state == BodyState.ALIVE,
+                )
+                .order_by(Container.id)
+            )
+        )
+        .scalars()
+        .all()
     )
-    return constants[R.INVENTORY_CARRY_MASS] + increment
+    if not pockets:
+        return 0.0
+    cells = await stock.locked_stacks(session, pockets, world.station_names(battery.BATTERY))
+    by_pocket: dict[uuid.UUID, list[Item]] = {}
+    for cell in cells:
+        by_pocket.setdefault(cell.container_id, []).append(cell)
+    drunk = 0.0
+    for pocket in pockets:
+        held = by_pocket.get(pocket)
+        if held:
+            drunk += await battery.drain_cells(session, constants, held, rate * hours, now=now)
+    return drunk
 
 
 async def check_carry(
@@ -132,7 +213,7 @@ async def check_carry(
     bonus = mass_of(catalog, type_key, quantity)
     if bonus <= 0:
         return
-    carries = await load_of(session, catalog, body)
+    carries = await load_of(session, constants, catalog, body)
     limit = await capacity(session, constants, catalog, body)
     if carries + bonus > limit:
         raise Overloaded(key="gear-overloaded", carries=carries, limit=limit, extra=bonus)

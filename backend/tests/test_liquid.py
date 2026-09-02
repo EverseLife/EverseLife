@@ -268,9 +268,9 @@ async def test_a_full_canister_weighs_its_fill(
 ) -> None:
     _, _, body = await _home(session)
     canister = await _in_hands(session, body, CANISTER)
-    empty = await gear.load_of(session, catalog, body)
+    empty = await gear.load_of(session, constants, catalog, body)
     await _filled(session, canister, WATER, 40)
-    full = await gear.load_of(session, catalog, body)
+    full = await gear.load_of(session, constants, catalog, body)
     assert full == pytest.approx(empty + 40 * catalog.recipes.mass_of(WATER))
 
 

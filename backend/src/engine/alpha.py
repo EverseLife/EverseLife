@@ -155,6 +155,12 @@ async def spawn(
             raise AlphaError(key="alpha-quality-out-of-range", min=scale.min, max=scale.max)
 
     where = await world.body_container(session, body)
+    if catalog.recipes.built(name):
+        #: Built in place (D-268): printed straight onto the floor, like a batch
+        #: would stand it -- the hands never hold a furnace.
+        here = await session.get(Node, body.node_id)
+        if here is not None:
+            where = await world.node_container(session, here)
     item = await world.grant_item(
         session,
         where,

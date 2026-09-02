@@ -69,6 +69,10 @@ async def finish(session: AsyncSession, job: Job) -> None:
     #: The master stands at the machine -- takes it themselves; left or died --
     #: the output stays at the machine. Matter does not vanish with whoever ordered it.
     at_bench = body.state is BodyState.ALIVE and body.node_id == batch.node_id
+    #: A station built in place never enters the hands (D-268): it stands on
+    #: the floor of the place it was made in, master present or not.
+    if catalog.recipes.built(batch.output):
+        at_bench = False
     where = await body_container(session, body) if at_bench else await node_container(session, node)
 
     if batch.kind is BatchKind.REPAIR:

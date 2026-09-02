@@ -39,6 +39,7 @@ from src.engine import (
     events,
     food,
     frost,
+    gear,
     journal,
     oxygen,
     panel,
@@ -140,6 +141,20 @@ async def _frost(session: AsyncSession, now: datetime) -> dict[str, Any]:
     return {"frozen_dead": dead, "brazier_fuel": round(burnt, ROUND_MASS)}
 
 
+async def _exoskeletons(session: AsyncSession, now: datetime) -> dict[str, Any]:
+    #: A worn exoskeleton drinks from the batteries in its wearer's hands for
+    #: the tick's length (D-268); drained, it lifts nothing until recharged.
+    constants = current()
+    drunk = await gear.wear_exoskeletons(
+        session,
+        constants,
+        current_catalog(),
+        hours=constants[R.TIME_TICK] / MINUTES_PER_HOUR,
+        now=now,
+    )
+    return {"exo_charge": round(drunk, ROUND_MASS)}
+
+
 async def _oxygen(session: AsyncSession, now: datetime) -> dict[str, Any]:
     #: Breathing does not wait for a login either (D-233): a hull under way
     #: makes and spends its air by the clock, and a body left on the black
@@ -226,6 +241,7 @@ WORLD_STEPS: dict[str, tuple[Step, str]] = {
     "automats": (_automats, "first"),
     "orphans": (_orphans, "first"),
     "frost": (_frost, "first"),
+    "exoskeletons": (_exoskeletons, "first"),
     "oxygen": (_oxygen, "first"),
 }
 DAILY_STEPS: dict[str, tuple[Step, str]] = {

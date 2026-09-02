@@ -190,6 +190,10 @@ async def take(session: AsyncSession, catalog: Catalog, body: Body, item: Item) 
         raise NotYours(key="station-relic", goods=item.type_key)
     if not placeable(catalog, item.type_key):
         raise NotStation(key="station-not-a-station", goods=item.type_key)
+    #: Built in place (D-268): a furnace, a column, a printer stand where they
+    #: were made and do not fit in anybody's hands.
+    if catalog.recipes.built(item.type_key):
+        raise NotStation(key="station-built-in-place", goods=item.type_key)
     if not await may_build(session, body, node):
         raise NotYours(key="station-take-not-yours")
     if item.busy_body_id is not None:

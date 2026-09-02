@@ -7,6 +7,7 @@
 import * as api from "../../api";
 import type { Bench } from "../../api";
 import { useBook, useNames, useSession } from "../../actions";
+import { isBuilt } from "../../classes";
 import { DropZone } from "../../DragMove";
 import { t } from "../../locale";
 import { goodsName } from "../../names";
@@ -103,7 +104,7 @@ export function Equipment({
                       : ""}
                 </td>
                 <td>
-                  {(mine || hasPower) && (
+                  {(mine || hasPower) && !isBuilt(book, thing.goods) && (
                     <button
                       className="quiet"
                       onClick={() =>

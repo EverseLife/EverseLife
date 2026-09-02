@@ -118,6 +118,7 @@ station-not-in-hands = этой вещи нет в руках
 station-not-in-node = этой вещи нет в этом узле
 station-not-placeable = «{ NAME($goods) }» — не рабочая станция и не мебель: в здание ставят оборудование
 station-not-a-station = «{ NAME($goods) }» — не рабочая станция и не мебель
+station-built-in-place = { NAME($goods) }: строится на месте и в руки не берётся
 station-relic = «{ NAME($goods) }» — наследие Предтеч: не снимается и не разбирается
 station-node-not-yours = узел не ваш: оборудование ставят у себя. Пустой городской участок выкупают, дикий — занимают
 station-take-not-yours = узел не ваш: чужое оборудование не уносят

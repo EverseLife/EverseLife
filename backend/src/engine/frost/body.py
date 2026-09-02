@@ -37,7 +37,7 @@ async def limit_of(
 ) -> float:
     """The reserve this body can hold, hours: the bare one times what is worn.
 
-    Keyed by thing class the way the carry bonus is (`inventory.carry_bonus`):
+    Keyed by thing class the way the exoskeleton's lift is (`inventory.exo_bonus`):
     a warmer coat is a line in the vault, never a line here.
     """
     return constants[R.FROST_RESERVE_MAX] * await _suit_k(session, constants, catalog, body)

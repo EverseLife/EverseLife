@@ -84,6 +84,9 @@ class Recipe(Strict):
     #: to the class, so a second bed is data, not code.
     thing_class: str | None = Field(default=None, alias="class")
     key: bool = False
+    #: Built in place (D-268): a station that never fits in the hands -- its
+    #: batch stands it on the floor where it was made, and nobody takes it up.
+    built: bool = False
     mix: bool = False
     roles: bool = False
     #: Edibility and "hot" come from data, not from the engine's guesses (D-119).
@@ -289,6 +292,11 @@ class RecipeBook(Strict):
         """Which slot the thing is worn in. Empty -- not gear."""
         found = self._by_name.get(self.resolve(name))
         return found.slot if found is not None else None
+
+    def built(self, name: str) -> bool:
+        """Whether the station is built in place and never carried (D-268)."""
+        found = self._by_name.get(self.resolve(name))
+        return bool(found is not None and found.built)
 
     def is_ingredient(self, name: str) -> bool:
         """Whether it goes into the pot: edibility is data, not a guess by name.

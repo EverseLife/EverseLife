@@ -27,6 +27,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from decimal import Decimal
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Constants
@@ -141,6 +142,10 @@ async def charge_battery(
         raise _grid().NoGrid(key="battery-no-grid")
     await _grid().produce(session, constants, pool, now=moment)
 
+    #: The cell's row before its charge is read and rewritten: a worn
+    #: exoskeleton drinks from this very cell every tick (D-268), and a charge
+    #: written over a drain the tick just committed would undo the drain.
+    await session.refresh(item, with_for_update=True)
     have = await settle_charge(session, constants, item, now=moment)
     place = max(0.0, capacity(constants) - have)
     wants = place if amount_wanted is None else min(float(amount_wanted), place)
@@ -191,6 +196,34 @@ async def batteries_in(session: AsyncSession, node: Node) -> list[Item]:
     return await stock.locked_stacks(session, yard.id, world.station_names(BATTERY))
 
 
+async def batteries_carried(session: AsyncSession, body: Body) -> list[Item]:
+    """The batteries in this body's hands, locked for the transaction (D-268).
+
+    The exoskeleton drinks from them by the hour, and the same cell may be
+    handed over or put down in the same moment: locked in id order, like the
+    yard's.
+    """
+    pocket = await world.body_container(session, body)
+    return await stock.locked_stacks(session, pocket.id, world.station_names(BATTERY))
+
+
+async def charged_carried(
+    session: AsyncSession, constants: Constants, body: Body, *, now: datetime | None = None
+) -> bool:
+    """Whether any battery in the hands holds a charge -- what powers a worn exoskeleton."""
+    moment = now or datetime.now(UTC)
+    pocket = await world.body_container(session, body)
+    cells = (
+        await session.execute(
+            select(Item).where(
+                Item.container_id == pocket.id,
+                Item.type_key.in_(world.station_names(BATTERY)),
+            )
+        )
+    ).scalars()
+    return any(charge_of(constants, cell, now=moment) > 0 for cell in cells)
+
+
 async def drain_batteries(
     session: AsyncSession,
     constants: Constants,
@@ -210,12 +243,38 @@ async def drain_batteries(
     half-fed machine does, and for life support that is exactly the point --
     it makes less air rather than stopping dead.
     """
+    return await drain_cells(session, constants, await batteries_in(session, node), wanted, now=now)
+
+
+async def drain_carried(
+    session: AsyncSession,
+    constants: Constants,
+    body: Body,
+    wanted: float,
+    *,
+    now: datetime | None = None,
+) -> float:
+    """Take charge out of the batteries in the hands (D-268). Returns what was taken."""
+    return await drain_cells(
+        session, constants, await batteries_carried(session, body), wanted, now=now
+    )
+
+
+async def drain_cells(
+    session: AsyncSession,
+    constants: Constants,
+    cells: list[Item],
+    wanted: float,
+    *,
+    now: datetime | None = None,
+) -> float:
+    """Take charge out of these locked cells, in order. Returns what was taken."""
     moment = now or datetime.now(UTC)
     if wanted <= 0:  # pragma: no cover -- callers ask for a positive draw
         return 0.0
     left = wanted
     taken = 0.0
-    for cell in await batteries_in(session, node):
+    for cell in cells:
         if left <= 0:
             break
         have = await settle_charge(session, constants, cell, now=moment)

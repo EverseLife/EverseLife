@@ -28,6 +28,7 @@ storage-mismatch = «{ NAME($goods) }» в «{ NAME($chest) }» не кладу�
 storage-chest-full = в «{ NAME($chest) }» свободно { NUMBER($free, minimumFractionDigits: 1, maximumFractionDigits: 1) } кг, а это { NUMBER($mass, minimumFractionDigits: 1, maximumFractionDigits: 1) } кг
 storage-not-a-storage = «{ NAME($chest) }» — не хранилище: в него не кладут
 storage-relic = «{ NAME($goods) }» — наследие Предтеч: его не поднимают и не уносят
+storage-built-in-place = { NAME($goods) }: строится на месте, с земли не поднимается
 storage-station-fuel = «{ NAME($goods) }» у станции — это её топливо: залитое обратно не поднимают
 
 storage-no-building = здесь нет здания: класть можно только на землю

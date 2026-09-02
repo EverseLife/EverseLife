@@ -17,8 +17,8 @@ for, did not exist for a single day.
 | **harnessed** | the body pulls it along all transits. One at a time, and only what is nearby |
 | **loaded** | cargo rides **in the hold** up to `transport.capacity` kilograms, not in hands |
 
-**Why a hold rather than a bonus to hands.** A bonus would be simpler -- a
-backpack works exactly so via `inventory.carry_bonus`. But then the cargo of a
+**Why a hold rather than a bonus to hands.** A bonus would be simpler -- an
+exoskeleton works exactly so via `inventory.exo_bonus`. But then the cargo of a
 carter who unharnessed would teleport into their hands or evaporate, while
 forty sacks of grain must stay in the wagon where it stopped. A separate
 container is the only way in which "abandon a loaded convoy" is a normal move

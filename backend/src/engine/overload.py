@@ -61,7 +61,7 @@ async def settle_load(
     if not items:
         return 0.0
     await session.execute(select(Body.id).where(Body.id == body.id).with_for_update())
-    carries = await gear.load_of(session, catalog, body)
+    carries = await gear.load_of(session, constants, catalog, body)
     limit = await gear.capacity(session, constants, catalog, body)
     excess = carries - limit
     if excess <= _DUST:

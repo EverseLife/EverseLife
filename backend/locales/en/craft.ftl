@@ -118,6 +118,7 @@ station-not-in-hands = this thing is not in hand
 station-not-in-node = this thing is not in this node
 station-not-placeable = “{ NAME($goods) }” is neither a station nor furniture: what goes into a building is equipment
 station-not-a-station = “{ NAME($goods) }” is neither a station nor furniture
+station-built-in-place = { NAME($goods) }: built in place, never taken up
 station-relic = “{ NAME($goods) }” is a relic of the Forerunners: it is neither taken down nor dismantled
 station-node-not-yours = the node is not yours: equipment goes up on your own land. An empty city plot is bought out, a wild one is taken
 station-take-not-yours = the node is not yours: another's equipment is not carried away

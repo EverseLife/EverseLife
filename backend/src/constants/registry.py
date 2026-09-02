@@ -64,7 +64,11 @@ INVENTORY_CARRY_MASS = Num("inventory.carry_mass")
 INVENTORY_CARRY_VOLUME = Num("inventory.carry_volume")
 #: How many kilograms worn gear adds: backpack and exoskeleton raise the limit,
 #: clothes and armour take the slot but add nothing to carry.
-INVENTORY_CARRY_BONUS = Table("inventory.carry_bonus")
+#: The carry model (D-268): an exoskeleton raises the limit -- while a charged
+#: battery rides along -- and a pack lightens the first kilograms it holds.
+INVENTORY_EXO_BONUS = Table("inventory.exo_bonus")
+INVENTORY_PACK = Book("inventory.pack")
+GEAR_EXO_ENERGY_PER_HOUR = Num("gear.exo_energy_per_hour")
 INVENTORY_MASS_BY_KIND = Table("inventory.mass_by_kind")
 
 # --- Mining: vein and neighbours (D-099, D-101) -----------------------------
@@ -597,7 +601,7 @@ OXYGEN_AUTONOMY_TARGET = Num("oxygen.autonomy_target")
 FROST_RESERVE_MAX = Num("frost.reserve_max")
 FROST_WARM_RATE = Num("frost.warm_rate")
 #: How much worn gear multiplies the reserve, by thing class -- keyed the way
-#: `inventory.carry_bonus` is: the engine keeps no list of warm clothes.
+#: `inventory.exo_bonus` is: the engine keeps no list of warm clothes.
 FROST_SUIT_K = Table("frost.suit_k")
 #: Hours one warmer adds. The thing one walks into the cold with.
 FROST_WARMER_HOURS = Num("frost.warmer_hours")

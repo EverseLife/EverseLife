@@ -97,14 +97,14 @@ async def test_a_print_past_the_limit_falls_in_whole_pieces(
     await alpha.spawn(session, constants, catalog, body, type_key=STEEL, amount=60)
 
     limit = await gear.capacity(session, constants, catalog, body)
-    assert await gear.load_of(session, catalog, body) <= limit + 1e-6
+    assert await gear.load_of(session, constants, catalog, body) <= limit + 1e-6
     kept, fell = await _held(session, body, STEEL), await _lying(session, node, STEEL)
     assert kept + fell == 60, "материя не пропала"
     assert kept == int(kept) and fell == int(fell), "штучное падает целыми штуками"
     assert fell > 0
     #: One more ingot would not have fit: the hands are as full as they may be.
     unit = gear.mass_of(catalog, STEEL, 1)
-    assert await gear.load_of(session, catalog, body) + unit > limit
+    assert await gear.load_of(session, constants, catalog, body) + unit > limit
 
     said = await _told(session, identity.id, EventKind.ITEM_FELL)
     assert len(said) == 1 and said[0].payload["roofed"] is False
@@ -117,7 +117,7 @@ async def test_a_measured_thing_falls_by_the_excess(
     node, _, body = await _ground(session)
     await alpha.spawn(session, constants, catalog, body, type_key=ORE, amount=300)
     limit = await gear.capacity(session, constants, catalog, body)
-    assert await gear.load_of(session, catalog, body) == pytest.approx(limit, abs=1e-3)
+    assert await gear.load_of(session, constants, catalog, body) == pytest.approx(limit, abs=1e-3)
     total = await _held(session, body, ORE) + await _lying(session, node, ORE)
     assert total == pytest.approx(300)
 
@@ -201,7 +201,9 @@ async def test_two_prints_at_once_share_one_pair_of_hands(
         who = await db.get(Body, body_id)
         assert who is not None
         limit = await gear.capacity(db, constants, catalog, who)
-        assert await gear.load_of(db, catalog, who) <= limit + 1e-6, "две печати нашли одно место"
+        assert await gear.load_of(db, constants, catalog, who) <= limit + 1e-6, (
+            "две печати нашли одно место"
+        )
         field = await db.get(Node, node_id)
         assert field is not None
         assert await _held(db, who, STEEL) + await _lying(db, field, STEEL) == 60

@@ -28,6 +28,7 @@ storage-mismatch = “{ NAME($goods) }” does not go into “{ NAME($chest) }�
 storage-chest-full = “{ NAME($chest) }” has { NUMBER($free, minimumFractionDigits: 1, maximumFractionDigits: 1) } kg free, and this is { NUMBER($mass, minimumFractionDigits: 1, maximumFractionDigits: 1) } kg
 storage-not-a-storage = “{ NAME($chest) }” is not a storage: nothing goes into it
 storage-relic = “{ NAME($goods) }” is a relic of the Forerunners: it is neither picked up nor carried away
+storage-built-in-place = { NAME($goods) }: built in place, not picked up
 storage-station-fuel = “{ NAME($goods) }” at a station is its fuel: what has been poured in is not picked back up
 
 storage-no-building = there is no building here: things go on the ground only

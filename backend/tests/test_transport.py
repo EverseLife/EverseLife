@@ -134,7 +134,7 @@ async def test_cargo_rides_in_hold_not_hands(
     carried = await transport.load(session, constants, catalog, body, cargo)
 
     assert carried == pytest.approx(_units(catalog, hands_limit * 3))
-    assert await gear.load_of(session, catalog, body) == pytest.approx(0), (
+    assert await gear.load_of(session, constants, catalog, body) == pytest.approx(0), (
         "погруженное больше не в руках"
     )
     assert await transport.cargo_mass(session, catalog, cart) > hands_limit
@@ -169,7 +169,7 @@ async def test_unloading_hits_hands_limit(
     handful = _units(catalog, 10)
     qty = await transport.unload(session, constants, catalog, body, in_hold, handful)
     assert qty == pytest.approx(handful)
-    assert await gear.load_of(session, catalog, body) == pytest.approx(10)
+    assert await gear.load_of(session, constants, catalog, body) == pytest.approx(10)
 
 
 # --- road (D-107) ------------------------------------------------------------

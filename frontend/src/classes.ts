@@ -41,6 +41,12 @@ export function isRelic(book: RecipeBook | null, name: string): boolean {
   return Boolean(book?.materials?.some((one) => (one.id ?? one.name) === name && one.relic));
 }
 
+/** Whether the station is built in place and never carried (D-268): the
+ *  window does not offer to take it up, as it does not for a relic. */
+export function isBuilt(book: RecipeBook | null, name: string): boolean {
+  return Boolean(book?.recipes?.some((one) => (one.id ?? one.name) === name && one.built));
+}
+
 /** The class of a thing, or `null` when it has none. */
 export function classOf(book: RecipeBook | null, name: string): string | null {
   const classes: Record<string, string[]> = book?.classes ?? {};

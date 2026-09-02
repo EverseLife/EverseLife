@@ -29,7 +29,7 @@
 import { useEffect, useState } from "react";
 import * as api from "../api";
 import type { Invention, Look, Plan, Thing } from "../api";
-import { isRelic, membersOf } from "../classes";
+import { isBuilt, isRelic, membersOf } from "../classes";
 import { tally } from "../amounts";
 import { busyWith, CRAFT } from "../busy";
 import { craftableAt, inputsOf, stationOf } from "../recipes";
@@ -209,7 +209,8 @@ export function Workshop({ look, machine }: Omit<Props, "busy" | "act">) {
           {/* A relic of the Forerunners is never taken down (D-232): offering
               "take it" would be promising a refusal. */}
           {(api.isMine(look) || look.city?.powers.includes("laws")) &&
-            !isRelic(book, station.goods) && (
+            !isRelic(book, station.goods) &&
+            !isBuilt(book, station.goods) && (
             <>
               {" "}
               <button

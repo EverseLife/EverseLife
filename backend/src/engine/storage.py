@@ -401,6 +401,10 @@ async def pick(
     #: leave a wagon as the loophole.
     if catalog.recipes.is_relic(item.type_key):
         raise StorageError(key="storage-relic", goods=item.type_key)
+    #: Built in place (D-268): the same door the relic is refused at -- a
+    #: wagon, an exoskeleton and a market would otherwise carry off a furnace.
+    if catalog.recipes.built(item.type_key):
+        raise StorageError(key="storage-built-in-place", goods=item.type_key)
 
     #: Fuel lying where a fuel plant stands is loaded, not stored (D-189):
     #: the station burns from this very container, so the pile IS its tank,

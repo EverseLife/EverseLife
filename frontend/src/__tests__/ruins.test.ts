@@ -13,7 +13,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { RecipeBook } from "../api";
-import { isRelic } from "../classes";
+import { isBuilt, isRelic } from "../classes";
 import { daysLeft, reactorState } from "../panels/place/Reactor";
 
 const DAY = 86_400_000;
@@ -47,5 +47,19 @@ describe("реликвия", () => {
     expect(isRelic(book, "ТЭЦ")).toBe(false);
     expect(isRelic(book, "Уголь")).toBe(false);
     expect(isRelic(null, "ТЭЦ Предтеч")).toBe(false);
+  });
+});
+
+describe("станция на месте", () => {
+  it("узнаётся по флагу рецепта, не по имени (D-268)", () => {
+    const shelf = {
+      recipes: [
+        { name: "Биопринтер", id: "bioprinter", kind: "station", roles: false, built: true },
+        { name: "Верстак", id: "workbench", kind: "station", roles: false },
+      ],
+    } as unknown as Parameters<typeof isBuilt>[0];
+    expect(isBuilt(shelf, "bioprinter")).toBe(true);
+    expect(isBuilt(shelf, "workbench")).toBe(false);
+    expect(isBuilt(null, "bioprinter")).toBe(false);
   });
 });

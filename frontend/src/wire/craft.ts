@@ -57,6 +57,8 @@ export type Recipe = {
    *  Russian `name` stays for display. Optional so hand-built test books work. */
   id?: string;
   kind: string;
+  /** Built in place (D-268): stands where it was made, never taken up. */
+  built?: boolean;
   roles: boolean;
   food: boolean;
   inputs: string[];
