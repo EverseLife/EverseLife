@@ -15,13 +15,14 @@ from __future__ import annotations
 import uuid
 
 import pytest
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from city_kit import _capital, _resident
 from src.constants import Catalog, Constants
 from src.engine import city as town
 from src.engine import net, world
-from src.models.city import Power
+from src.models.city import City, Power
 from src.models.world import Layer, Node
 from src.units import money
 
@@ -171,6 +172,79 @@ async def test_no_city_without_buildings(
     assert await town.missing_for_foundation(session, place) == ("bioprinter",)
 
 
+async def test_the_window_offers_founding_on_nobodys_land(
+    session: AsyncSession, catalog: Catalog
+) -> None:
+    """The window that names the threshold opens where the threshold can be met.
+
+    It asked for the reader's **own** node, and outside a city there is no
+    title to have (D-198): what it was asking for is a plot, a plot stands in
+    a city, and a city over the node cancelled the window in the same
+    condition. So it opened for nobody -- not "wrongly for some". The entry
+    threshold is buildings, and no player could see which ones they lacked
+    until they walked into the refusal.
+    """
+    from src.api.commands.look import _look
+
+    place, _, body = await _wasteland(session)
+    await _build_up(session, place, missing="bioprinter")
+
+    seen = (await _look({"identity_id": body.identity_id}, session, {}))["look"]
+    ground = seen["foundation"]
+    assert ground is not None, "на ничьей земле окно основания открыто"
+    #: Role keys, not words: the table of roles and the word for each are
+    #: constants and live in `/public/founding` (D-225). The wire carries
+    #: only what this node lacks.
+    assert ground["missing"] == ["bioprinter"], "и названа ровно та роль, которой нет"
+    assert set(ground) == {"missing"}, "каталог ролей здесь не едет"
+
+
+async def test_the_window_hides_founding_where_the_door_would_refuse(
+    session: AsyncSession, catalog: Catalog, own_plot
+) -> None:
+    """A window offering what the door refuses is worse than no window (D-159).
+
+    Both refusals became reachable in the moment the window began opening at
+    all, and neither is a shade of the buildings list: with all four roles
+    green the window would read "ready" and `establish` would still say no.
+    Three people stand on one built-up node so that each refusal is switched
+    on by a single change and read off a single reader -- and so that the
+    citizenship is read where the ground is still nobody's, a state the world
+    does produce.
+    """
+    from src.api.commands.look import _look
+    from src.models.city import Citizen
+
+    place, holder, body = await _wasteland(session)
+    await _build_up(session, place)
+    _, alien = await _resident(session, place, "Чужак")
+    _, guest = await _resident(session, place, "Гость")
+
+    for who in (body, alien, guest):
+        seen = (await _look({"identity_id": who.identity_id}, session, {}))["look"]
+        assert seen["foundation"] is not None, "пока земля ничья, окно открыто всем"
+
+    #: A citizenship elsewhere and nothing besides: one to a person (D-281).
+    #: The ground is untouched, so only the record can have closed the window.
+    other, _ = await _capital(session, catalog)
+    session.add(Citizen(identity_id=alien.identity_id, city_id=other.id))
+    await session.flush()
+
+    seen = (await _look({"identity_id": alien.identity_id}, session, {}))["look"]
+    assert seen["foundation"] is None, "у гражданина другого города окна нет"
+
+    #: Somebody's land: the plot is made civic and only then cut loose from its
+    #: city, because there is no other road to a title outside one (D-198).
+    await own_plot(place, holder)
+    place.owner_city_id = None
+    await session.flush()
+
+    seen = (await _look({"identity_id": guest.identity_id}, session, {}))["look"]
+    assert seen["foundation"] is None, "на чужой земле окна нет — дверь скажет NotYours"
+    seen = (await _look({"identity_id": body.identity_id}, session, {}))["look"]
+    assert seen["foundation"] is not None, "у хозяина той же земли — есть"
+
+
 async def test_no_city_founded_on_foreign_land(
     session: AsyncSession, constants: Constants, catalog: Catalog, own_plot
 ) -> None:
@@ -272,6 +346,62 @@ async def test_city_name_is_bounded(
     assert len(channel.name) <= NET_NAME_LIMIT, (
         "имя канала города не длиннее того, что принимает net.channel.create"
     )
+
+
+async def test_a_city_name_is_taken_only_once(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """One name, one city -- and case does not make a second one free.
+
+    The name becomes the name of the city's official channel, and the Net
+    tells channel names apart ignoring case: `net.channel.create` refuses a
+    second "Novograd" typed by hand. Founding used to hand one out, which is
+    the same disagreement between the two doors that the name's length had.
+    """
+    place, _, body = await _wasteland(session)
+    await _build_up(session, place)
+    await town.establish(session, constants, catalog, body, "Новоград")
+
+    #: A second place, so that what refuses is the name and not the node.
+    other, _, stranger = await _wasteland(session, "Второй")
+    await _build_up(session, other)
+
+    with pytest.raises(town.CityError) as refusal:
+        await town.establish(session, constants, catalog, stranger, "Новоград")
+    assert refusal.value.key == "city-found-name-taken"
+    assert refusal.value.params["name"] == "Новоград"
+
+    #: Case is not a way round it: the Net would call these one name.
+    with pytest.raises(town.CityError) as ignoring_case:
+        await town.establish(session, constants, catalog, stranger, "новоГРАД")
+    assert ignoring_case.value.key == "city-found-name-taken"
+
+    #: A different name on that same place still founds -- the refusal is
+    #: about the name, and nothing else got broken on the way to it.
+    town_of_theirs = await town.establish(session, constants, catalog, stranger, "Второград")
+    assert town_of_theirs.name == "Второград"
+
+
+async def test_a_name_a_channel_already_holds_founds_no_city(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """A city may not take a name somebody's own channel is already using.
+
+    The city half alone would have left the asymmetry half-closed: a player
+    makes the channel "Novograd" by hand, another founds the city "novograd",
+    and the Net ends with two channels of one name -- which is the very thing
+    `net.channel.create` refuses, and the thing this rule exists to prevent.
+    """
+    from src.engine import net
+
+    place, identity, body = await _wasteland(session)
+    await _build_up(session, place)
+    await net.create_channel(session, identity, "Новоград")
+
+    with pytest.raises(town.CityError) as refusal:
+        await town.establish(session, constants, catalog, body, "новоГРАД")
+    assert refusal.value.key == "city-found-name-in-the-net"
+    assert refusal.value.params["name"] == "новоГРАД"
 
 
 async def test_no_second_city_on_same_node(
@@ -530,7 +660,7 @@ async def test_city_prints_at_own_expense_only_for_own(
     from src.engine import death
 
     city, core = await _capital(session, catalog)
-    city.laws = {**city.laws, "body_print": "гражданам"}
+    city.laws = {**city.laws, "body_print": town.CITIZENS}
     await session.flush()
 
     guest, _ = await _resident(session, core, "Гость")
@@ -539,3 +669,34 @@ async def test_city_prints_at_own_expense_only_for_own(
 
     assert not await death._city_pays(session, constants, core, guest.id)
     assert await death._city_pays(session, constants, core, own.id)
+
+
+async def test_a_player_is_refused_a_name_a_channel_already_holds(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """One name is one channel's (D-284), and a city's name becomes its own.
+
+    The two doors into that name differ on purpose. This one refuses, because
+    the person is here and can pick another; the seed's cannot refuse -- the
+    vault wrote its name months ago and the deploy waits on the seed -- so
+    there the city is founded without its channel (`test_net`).
+    """
+    place, _, body = await _wasteland(session)
+    await _build_up(session, place)
+
+    holder = await world.create_identity(session, f"Держатель-{uuid.uuid4().hex[:6]}")
+    name = f"Тёзка-{uuid.uuid4().hex[:8]}"
+    await net.create_channel(session, holder, name)
+    await session.flush()
+
+    with pytest.raises(town.CityError) as refusal:
+        await town.establish(session, constants, catalog, body, name)
+    assert refusal.value.key == "city-found-name-in-the-net"
+
+    #: Refused before anything was raised -- not a half city rolled back.
+    standing = (
+        await session.execute(
+            select(func.count()).select_from(City).where(func.lower(City.name) == name.lower())
+        )
+    ).scalar()
+    assert standing == 0

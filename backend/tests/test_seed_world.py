@@ -35,6 +35,7 @@ from src.engine import death, justice, market, places, travel, world
 from src.models.estate import Building
 from src.models.inventory import Container, Item
 from src.models.world import Edge, Layer, Node, Planet, Surface, Vein
+from src.runtime import CITY_NAME_LIMIT
 from src.seed import seed
 
 
@@ -346,3 +347,46 @@ async def test_a_city_step_is_the_same_on_two_servers(
     #: were not, the dice are the edge's name and not the clock.
     await seed_world.lay(session, constants, made)
     assert (await travel._edge_between(session, one.id, two.id)).base_seconds == first
+
+
+def test_a_city_of_the_layout_is_named_within_the_founding_ceiling() -> None:
+    """Every city the vault lays down carries a name founding would have allowed.
+
+    The ceiling on a city's name lives in this repo (`runtime.CITY_NAME_LIMIT`),
+    and the vault has its own copy of the number, because neither repository
+    can import the other: CI carries `build/*.json` across and nothing else.
+    Two copies of one number drift, and the drift is silent -- a vault name
+    longer than this ceiling founds a city no player could have named, whose
+    official channel then carries a name `net.channel.create` refuses.
+
+    So what is measured here is not the vault's arithmetic but the outcome, and
+    against **this** side's constant: the layout is the one thing both sides
+    see. It fails whichever side moved -- the vault writing a longer name, or
+    this repository lowering the ceiling under a layout already written.
+    """
+    scenario = seed_world.load_scenario()
+    towns = [spec for spec in scenario.nodes if spec.city]
+    assert towns, "в разметке есть хоть один город -- иначе проверять нечего"
+    too_long = [(spec.key, spec.name) for spec in towns if len(spec.name) > CITY_NAME_LIMIT]
+    assert not too_long, (
+        f"имя города в разметке длиннее потолка основания ({CITY_NAME_LIMIT}): {too_long}"
+    )
+
+
+def test_the_layout_gives_no_two_cities_one_name() -> None:
+    """No two cities of the layout share a name, case ignored.
+
+    A city's name becomes the name of its official channel, and the Net tells
+    channel names apart ignoring case. Two cities of one name would hand out
+    two channels of one name -- which `net.channel.create` refuses from anybody
+    who types it, and which `uq_city_name_lower` now refuses outright, so a
+    layout that carried such a pair would fail to seed at all.
+    """
+    scenario = seed_world.load_scenario()
+    seen: dict[str, str] = {}
+    clashes: list[tuple[str, str]] = []
+    for spec in (one for one in scenario.nodes if one.city):
+        first = seen.setdefault(spec.name.lower(), spec.key)
+        if first != spec.key:
+            clashes.append((first, spec.key))
+    assert not clashes, f"два города разметки носят одно имя: {clashes}"

@@ -93,9 +93,9 @@ TRACE_POINTS = 24
 SKY_MEMO_PER_DAY = 144
 SKY_CURVE_MEMO = 512
 SKY_CALENDAR_MEMO = 64
-#: Column scales, not presentation: the two below say how wide the row is, not
-#: how a summary reads. Changing one alone leaves the code rounding coarser or
-#: finer than the column it writes to, and nothing objects -- so a scale tied
+#: Column scales, not presentation: the four below say how wide the row is,
+#: not how a summary reads. Changing one alone leaves the code rounding coarser
+#: or finer than the column it writes to, and nothing objects -- so a scale tied
 #: to a single column is pinned to it by a test.
 #: Quality is stored to a hundredth of a point (`Numeric(6, 2)` columns).
 ROUND_QUALITY = 2
@@ -105,6 +105,14 @@ ROUND_QUALITY = 2
 #: scale of the column, not a property of the game -- how long the ploughing
 #: takes lies in `farm.plow_time_per_m2`.
 ROUND_MINUTES = 2
+#: A battery's charge is stored to a thousandth of a cell (`Item.charge` is
+#: `Numeric(12, 3)`). The scale of the column, not a property of the game: a
+#: stack is drawn evenly, so a draw thinner than this per cell has nowhere to
+#: be written, and the charge must be put on this grid before it is stored.
+ROUND_CHARGE = 3
+#: The city pool's energy is stored to a thousandth (`EnergyPool.stored` is
+#: `Numeric(14, 3)`). The scale of the column, not a property of the game.
+ROUND_ENERGY = 3
 
 #: Argon2id takes memory in KiB, while `pow.memory_per_session` is given in MB.
 KIB_PER_MIB = 1024
@@ -139,3 +147,23 @@ def amount(value: Decimal | int | float | str) -> int:
 
 def amount_float(internal: int) -> float:
     return internal / AMOUNT_SCALE
+
+
+def on_grid(value: float | Decimal, scale: int) -> Decimal:
+    """A number as a `Numeric(_, scale)` column will keep it.
+
+    Put a value on the column's grid **before** it is stored and what the
+    engine believes the row holds is what the row holds. Left to Postgres the
+    two drift apart, and code that measures a change against its own idea of
+    the old value measures against a number the row never had.
+
+    To the nearest, not downwards: a quantity reached through floats sits a
+    hair below itself -- sixteen arrives as `15.999999999999998` -- and
+    flooring would shave a step off every write.
+    """
+    return Decimal(str(value)).quantize(step(scale))
+
+
+def step(scale: int) -> Decimal:
+    """The smallest a `Numeric(_, scale)` column can tell apart."""
+    return Decimal(1).scaleb(-scale)

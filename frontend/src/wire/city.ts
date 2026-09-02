@@ -18,16 +18,46 @@
  */
 
 /**
- * A code-law as it stands in the city: the value in force and where it came
- * from. No name: the law is known by its D-251 id, and the word for it lives
- * in the names table in every language (`lawName`). A copy on the wire would
- * be a second list of the same words, and those drift (D-225).
+ * One line of the founding threshold: a role a settlement cannot live without,
+ * and the machines any one of which fills it.
+ *
+ * A catalog constant -- the same for every player, every place and every
+ * language -- so it comes from `/public/founding` and not from `look`, which
+ * carries only the keys of the roles the node one stands in still lacks
+ * (D-225). The role is a key; its word is the world's own message,
+ * `city-role-<role>`, the very one the door's refusal quotes.
+ */
+export type FoundingRole = {
+  role: string;
+  any_of: string[];
+};
+
+/**
+ * A code-law as it stands in the city: the value in force, and whether the
+ * city decided it or the vault did. Nothing else -- the name, the unit and
+ * the note are vault text, held by id in the names table in every language
+ * (`lawName`, `lawUnit`, `lawNote`); a copy on the wire would be a second
+ * list of the same words, and those drift (D-225).
  */
 export type Law = {
-  unit?: string;
-  note?: string;
   value?: string;
   own: boolean;
+};
+
+/** The choice that means "switched off" in every law that is a choice: the
+ *  city prints for nobody, nobody may take the rings. Named here because two
+ *  windows read it and neither should spell it out. */
+export const NOBODY = "nobody";
+
+/**
+ * The law book out of `/public/laws`: the catalog half, which the city's own
+ * answer no longer repeats. Only the option **ids** are read -- a law that has
+ * them is picked from a list, one that has none is typed -- and the word for
+ * each comes from the names table (`lawOption`), not from here: the label the
+ * vault ships is one language, and the table holds every one.
+ */
+export type LawBook = {
+  code_laws: { id: string; options?: { id: string }[] }[];
 };
 
 export type Office = {

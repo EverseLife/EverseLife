@@ -32,14 +32,23 @@ async def _capital(session: AsyncSession, catalog: Catalog):
         session, f"terra.{stamp}", "Терра", area_m2=1, layer=Layer.SPACE
     )
     delegate = await world.create_node(
-        session, f"terra.city.{stamp}", "Столица", area_m2=1, layer=Layer.PLANET, parent=planet
+        session,
+        f"terra.city.{stamp}",
+        f"Столица-{stamp}",
+        area_m2=1,
+        layer=Layer.PLANET,
+        parent=planet,
     )
     core = await world.create_node(
         session, f"terra.city.{stamp}.core", "Ядро", area_m2=100, parent=delegate
     )
     founder = await world.create_identity(session, f"Основатель-{stamp}")
     await world.print_body(session, founder, core)
-    city = await town.found(session, catalog, delegate, "Столица")
+    #: Stamped: a city name is unique across the world (`uq_city_name_lower`),
+    #: and so is the name of the channel it opens (`uq_net_channel_name_lower`)
+    #: -- a test raising two capitals would collide on the name rather than on
+    #: whatever it set out to test.
+    city = await town.found(session, catalog, delegate, f"Столица-{stamp}")
     await town.install_founder(session, city, founder)
     core.owner_city_id = city.id
     await session.flush()

@@ -50,6 +50,8 @@ city-role-market = рынок
 city-role-power = источник энергии
 city-found-no-name = у города должно быть имя
 city-found-name-too-long = имя города длиннее { $limit } знаков: его несут и карточка, и летопись, и официальный канал
+city-found-name-taken = город с именем «{ $name }» уже есть
+city-found-name-in-the-net = имя «{ $name }» уже носит канал в Сети, а город зовётся так же, как его канал
 city-founder-exists = у города «{ $city }» уже есть основатель
 
 # --- власть и должности (D-155, D-164, D-231) ---------------------------------
@@ -68,6 +70,7 @@ city-founder-not-dismissed = основателя снимает устав, а 
 # --- законы и устав (D-163) ---------------------------------------------------
 
 city-no-such-law = нет такого код-закона: { $law }
+city-law-not-an-option = у код-закона «{ LAW($law) }» нет варианта «{ $value }»
 city-no-such-question = нет такого вопроса устава: { $question }
 city-no-such-option = нет такого варианта: { $option }
 city-option-requires = вариант «{ $option }» требует ответа на «{ $requires }»
@@ -194,7 +197,7 @@ estate-land-not-civic = это не городская земля: за горо
 estate-land-not-a-plot = «{ $node }» — не участок под продажу, а собственная локация города: город продаёт участки, а не себя
 estate-land-not-vacant = узел не пустой: застройку и жилы города прейскурант не продаёт
 estate-land-city-missing = узел приписан к несуществующему городу
-estate-land-permit = «{ $city }» продаёт землю не всякому: код-закон build_permit — «{ $permit }». Вступите в граждане
+estate-land-permit = «{ $city }» продаёт землю не всякому: код-закон «{ LAW($law) }» — «{ CHOICE($permit) }». Вступите в граждане
 estate-land-too-dear = участок стоит { $price } ₭, а на счету { $have } ₭
 
 estate-about-dead = мёртвое тело ничего не описывает

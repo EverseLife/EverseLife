@@ -34,6 +34,16 @@ export type Names = {
    *  travel as ids and are named here, so the wire carries no copy of a word
    *  the table already holds in every language. */
   laws: Record<string, string>;
+  /** What the law's number is measured in, where it has a unit at all:
+   *  `tax_trade` -> «% выручки». Nine of the laws are words rather than
+   *  numbers and are absent here. */
+  law_units: Record<string, string>;
+  /** The law's note -- the hint under the cursor in the city's window. */
+  law_notes: Record<string, string>;
+  /** The choices of a law that is a choice, keyed `<law>.<option>`: the same
+   *  option id means different words under different laws -- `citizens` is
+   *  «гражданам» for the printer and «граждане» for the land. */
+  law_options: Record<string, string>;
 };
 
 /**
@@ -86,6 +96,21 @@ export function propertyName(names: Names | null, id: string): string {
 /** A code-law id ("tax_trade") in the player's words («Налог с продажи»). */
 export function lawName(names: Names | null, id: string): string {
   return names?.laws?.[id] ?? id;
+}
+
+/** What that law's number is measured in, or nothing where it is not a number. */
+export function lawUnit(names: Names | null, id: string): string | undefined {
+  return names?.law_units?.[id];
+}
+
+/** The law's note. Absent rather than empty where the vault wrote none. */
+export function lawNote(names: Names | null, id: string): string | undefined {
+  return names?.law_notes?.[id];
+}
+
+/** One choice of a law, in the reader's words: `build_permit` + `citizens`. */
+export function lawOption(names: Names | null, law: string, option: string): string {
+  return names?.law_options?.[`${law}.${option}`] ?? option;
 }
 
 /** A building kind id ("wooden") in the player's words ("деревянный"). */

@@ -11,7 +11,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Sequence
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.engine import travel, world
@@ -29,6 +29,24 @@ async def by_id(session: AsyncSession, city_id: uuid.UUID) -> City | None:
 async def by_node(session: AsyncSession, node_id: uuid.UUID) -> City | None:
     """The city whose delegate node this is."""
     return (await session.execute(select(City).where(City.node_id == node_id))).scalar_one_or_none()
+
+
+async def by_name(session: AsyncSession, name: str) -> City | None:
+    """The city of that name, case ignored.
+
+    Case is ignored because the name becomes the name of the city's official
+    channel, and the Net compares channel names that way (`net.create_channel`):
+    a rule that told "Novograd" from "novograd" here would still hand the Net
+    two channels it calls the same.
+
+    Both sides are folded by the database and neither by Python: the index that
+    holds the rule is `lower(name)` in Postgres, and Python's `str.lower` parts
+    from it on code points like "I" with a dot. A question answered one way and
+    enforced another would miss exactly the names it was asked about.
+    """
+    return (
+        await session.execute(select(City).where(func.lower(City.name) == func.lower(name)))
+    ).scalar_one_or_none()
 
 
 async def of_node(session: AsyncSession, node: Node) -> City | None:
@@ -124,11 +142,12 @@ async def core(session: AsyncSession, city: City) -> Node | None:
     if own is not None and await world.has_station(session, own, world.BIOPRINTER):
         return own
 
-    printers = [
-        place
-        for place in sorted(await territory(session, city), key=lambda one: one.created_at)
-        if await world.has_station(session, place, world.BIOPRINTER)
-    ]
+    #: One query for the whole territory, not two per node: this runs inside
+    #: `look` (through `estate.price.center_of`), and the walk grew with every
+    #: plot the city ever bought.
+    places = sorted(await territory(session, city), key=lambda one: one.created_at)
+    standing = await world.nodes_with_station(session, places, world.BIOPRINTER)
+    printers = [place for place in places if place.id in standing]
     for place in printers:
         if (place.properties or {}).get(PRECURSOR):
             return place

@@ -20,7 +20,7 @@
 import { useSession } from "../actions";
 import type { CityVote } from "../api";
 import { t } from "../locale";
-import { lawName, type Names } from "../names";
+import { lawName, lawOption, type Names } from "../names";
 
 /** What is being decided, in the reader's words. */
 export function PollSubject({ poll, names }: { poll: CityVote; names: Names | null }) {
@@ -53,10 +53,16 @@ export function PollSubject({ poll, names }: { poll: CityVote; names: Names | nu
   }
   return (
     <>
-      {/* The law is named, not printed: the subject travels as its D-251 id,
-          and the line used to read «tax_trade». */}
+      {/* Both halves are named, not printed: the subject travels as its
+          D-251 id and so does the value of a law that is a choice -- the line
+          read «tax_trade» before the first, and «citizens» before the second.
+          `lawOption` gives a number back unchanged, so a rate needs no
+          telling apart here. */}
       {lawName(names, String(poll.law))}
-      <span className="note"> → {String(poll.value)}</span>
+      <span className="note">
+        {" "}
+        → {lawOption(names, String(poll.law), String(poll.value))}
+      </span>
     </>
   );
 }

@@ -22,6 +22,11 @@ citizenship to finish a founding they should not have been running.
 
 from __future__ import annotations
 
+import logging
+import uuid
+
+from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants
@@ -36,7 +41,7 @@ from src.engine.city._base import (
 )
 from src.engine.city.citizen import AlreadyCitizen, _enrol_founder, citizenship
 from src.engine.city.land import _retire_deed
-from src.engine.city.lookup import by_node, territory
+from src.engine.city.lookup import by_name, by_node, territory
 from src.engine.city.office import _office
 from src.engine.errors import Says
 from src.engine.world import station_names
@@ -49,6 +54,15 @@ from src.models.identity import BodyState, Identity
 from src.models.net import NetChannel
 from src.models.world import Layer, Node
 from src.runtime import CITY_NAME_LIMIT
+
+log = logging.getLogger(__name__)
+
+#: The index that holds one name to one city (`models.city.City`). Named here
+#: because the refusal below has to tell it from the node's.
+NAME_INDEX = "uq_city_name_lower"
+#: And the one that holds one name to one channel (`models.net.NetChannel`):
+#: the city's own channel is written from here, so its violation arrives here.
+CHANNEL_NAME_INDEX = "uq_net_channel_name_lower"
 
 
 async def found(
@@ -63,19 +77,49 @@ async def found(
     The charter is filled with `laws.json` defaults: the city arises working,
     not as an empty questionnaire of forty questions (D-130).
 
-    **The name is taken as given, and nothing checks its length here.** This
-    is the seed's door: the capital and the delegate cities are founded from
-    node names written in the vault (`seed.py`, `seed_catchup.py`). The
-    player's door is `establish`, and the ceiling is there -- so what is
-    guaranteed is "no player founds a city with an over-long name", not "no
-    city has one".
+    **The name is taken as given, and nothing measures it here.** Two
+    doors lead in and they are bounded in different places. `establish` is the
+    player's, and it measures what was typed. This one is the seed's: the
+    capital and the delegate cities are founded from node names written in the
+    vault (`seed.py`, `seed_catchup.py`), and a vault name is content, not a
+    typed one -- so it is bounded where content is checked, by
+    `WORLD_CITY_NAME_LIMIT` in the vault's `tools/world.py`, which complains
+    about a `city: true` node named longer. That is the flag
+    `seed_world.city_nodes` selects on, and so the node every seed call arrives
+    with; the catch-up's capital reaches it as `core.parent_id`, the same
+    flagged node.
 
-    The difference is not covered by anything today, only unexercised: the
-    vault build checks that a name exists in every language, not how long it
-    is, and the longest node name it writes is 22 characters against a
-    ceiling of 40. Closing it belongs in the vault build rather than in a
-    refusal here -- a content bug should stop the build, not reach a player
-    as words written for a human in a window.
+    What hangs on the bound is not the city card. `_open_channel` below gives
+    the city its official channel named after it, straight from the model --
+    past the ceiling `net.channel.create` applies to what a player types. So an
+    unmeasured name here makes a channel no player could have created, and
+    nothing along the way says so.
+
+    Two things this does **not** promise. It is not "no city has an over-long
+    name": nothing measures the `name` argument itself, a caller may pass
+    anything, `City.name` is copied once at founding and never follows the node
+    afterwards, and a world laid before the ceiling keeps the names it has
+    (`seed_world.lay` leaves a standing node alone). And the vault's complaint
+    only stops something where it is read as a failure -- the `build.py
+    --check` step of the vault's own CI. A plain `tools/build.py`, which is how
+    both `deploy/sync-vault.py` and this repository's vault action call it,
+    prints the complaint and writes `world.json` regardless.
+
+    What is promised is narrower and is pinned: the layout that actually
+    arrives here carries city names within the ceiling, and no two of them
+    alike -- both measured over `load_scenario()` in `test_seed_world`. The
+    vault keeps its own copies of those rules because neither repository can
+    import the other -- its build reads `data/`, and CI copies only
+    `build/*.json` back -- but both can see the layout, so that is what the
+    tests measure.
+
+    The one thing the name does decide here is whether the city gets its
+    channel. `_open_channel` below opens it under the city's name, and one
+    name is one channel (D-284); if a player's channel already holds it, the
+    city is founded **without** its official channel and the clash is logged.
+    It is not refused, and deliberately so: this door is the seed's, the whole
+    deploy waits on the seed container, and a refusal would hand any player a
+    way to stop the next deploy. That trade is OQ-118.
     """
     existing_ = await by_node(session, node.id)
     if existing_ is not None:
@@ -134,6 +178,30 @@ async def _mark_gate(session: AsyncSession, city: City, node: Node) -> None:
     await props.stamp(session, node, {travel.EXIT: True})
 
 
+def _violated(clash: IntegrityError) -> str | None:
+    """Which unique index refused, by name -- or `None` if it cannot be told.
+
+    Two wrappers deep: SQLAlchemy's asyncpg dialect raises its own
+    `IntegrityError` and hangs the driver's `UniqueViolationError`, which is
+    what carries `constraint_name`, on `__cause__`. Read rather than guessed
+    from a second look: a table has more than one unique index, and a guess
+    would answer "that name is taken" to a clash that was about something else.
+    """
+    return getattr(getattr(clash.orig, "__cause__", None), "constraint_name", None)
+
+
+async def _channel_named(session: AsyncSession, name: str) -> uuid.UUID | None:
+    """The channel of that name, case ignored -- the Net's own way of telling
+    names apart (`net.channels`), and the rule its unique index holds.
+
+    Asked of the model rather than of `engine.net`: the import would close the
+    `city <-> net` cycle `_open_channel` keeps open on purpose.
+    """
+    return await session.scalar(
+        select(NetChannel.id).where(func.lower(NetChannel.name) == func.lower(name))
+    )
+
+
 async def _open_channel(session: AsyncSession, city: City) -> None:
     """A founded city gets its official voice at once (D-222).
 
@@ -150,8 +218,41 @@ async def _open_channel(session: AsyncSession, city: City) -> None:
     founded before this are given theirs by migration `a1f7d3c58e26`.
     """
 
-    session.add(NetChannel(name=city.name, city_id=city.id))
+    #: **Founding is never refused from here.** The name may be a channel's
+    #: already -- one name is one channel (D-284) -- and the obvious answer,
+    #: refusing, is the wrong one on this path: `found` is also the seed's,
+    #: the seed runs as one container the whole deploy waits on
+    #: (`compose.yaml`: backend and worker want it `completed_successfully`),
+    #: and a refusal here would let any player stop the next deploy of the
+    #: whole server by taking the name of a city the vault has yet to add.
+    #: So the city is founded and it is the channel that is missing -- a state
+    #: the Net already has words for (`city_channel` returns `None` for cities
+    #: older than D-222) -- and the clash is shouted at whoever runs the world.
+    #: The player's door does not reach this: `establish` asks first and
+    #: refuses with words, so an unopened channel means the seed's path or a
+    #: race, never somebody typing a name they could have been warned about.
+    #: Flushed before the savepoint opens, not inside it. `begin_nested` takes
+    #: its snapshot by flushing through the **parent**, so anything still
+    #: pending here would fail outside the SAVEPOINT and roll back the caller's
+    #: transaction -- while the handler below reported a taken name.
     await session.flush()
+    try:
+        async with session.begin_nested():
+            session.add(NetChannel(name=city.name, city_id=city.id))
+            await session.flush()
+    except IntegrityError as clash:
+        #: Only the name. This table has another unique index (one channel to a
+        #: city) and a foreign key besides, and swallowing those would hide a
+        #: real fault behind a sentence about names.
+        if _violated(clash) != CHANNEL_NAME_INDEX:
+            raise
+        log.error(
+            "city %r founded without its official channel: the name is taken in the Net "
+            "by another channel. Nothing reopens it by itself -- founding this city again "
+            "returns the city that already stands -- so freeing the name means an UPDATE "
+            "on net_channel.name and then an INSERT of the city's channel by hand",
+            city.name,
+        )
 
 
 #: What a city cannot be without (D-023, D-159). The list is four roles, not
@@ -258,9 +359,50 @@ async def establish(
     #: is what makes that name one the Net could have accepted itself.
     if len(title) > CITY_NAME_LIMIT:
         raise CityError(key="city-found-name-too-long", limit=CITY_NAME_LIMIT)
+    #: One name, one city. Asked here so that a person gets words rather than a
+    #: database error; the rule itself is held by the `uq_city_name_lower` index,
+    #: because two foundings racing on one name pass this check together. Case
+    #: is ignored for the reason `by_name` gives: the name goes on to be a
+    #: channel's, and the Net tells channel names apart that way.
+    if await by_name(session, title) is not None:
+        raise CityError(key="city-found-name-taken", name=title)
+    #: And the same name held by somebody's own channel. A city's name becomes
+    #: its channel's, and `net.channel.create` refuses a name a channel already
+    #: has -- so without this the door the player types a city into could hand
+    #: the Net what the door they type a channel into would not. Asked here and
+    #: not only in `_open_channel`, so a person is refused before a city is
+    #: raised and rolled back under them -- and asked against the row rather
+    #: than through `engine.net`: the Net names the city, and a door back the
+    #: other way is the `city <-> net` cycle wave 3 is removing.
+    if await _channel_named(session, title) is not None:
+        raise CityError(key="city-found-name-in-the-net", name=title)
 
     identity = await session.get(Identity, body.identity_id)
-    city = await found(session, catalog, node, title, founder=identity)
+    #: The checks above are for the words; this is for the race. Two foundings
+    #: with one name pass them together, and only `uq_city_name_lower` refuses
+    #: the second -- inside a savepoint, so the loser's transaction survives to
+    #: carry a refusal out instead of a server error. Which index refused is
+    #: read off the violation and not guessed from a second look: this table
+    #: has other unique ones (the node, the offices), and a guess would answer
+    #: "the name is taken" to a clash that was about something else. The
+    #: channel's index cannot arrive here -- `_open_channel` swallows its own,
+    #: because that path is the seed's too and may not refuse.
+    try:
+        async with session.begin_nested():
+            city = await found(session, catalog, node, title, founder=identity)
+    except IntegrityError as clash:
+        #: Which index refused, asked of the error itself rather than guessed
+        #: from what the table holds afterwards: a double click on `city.found`
+        #: races on the node as well as on the name, and `uq_city_node_id`
+        #: answering would otherwise be reported as a name somebody took.
+        #: The second half is the fallback: `constraint_name` reaches us through
+        #: a private detail of the asyncpg dialect, and on the day it stops the
+        #: loser of a legitimate race would get a server error instead of the
+        #: refusal they had before. Asking the table then is the old behaviour,
+        #: not a guess -- it only runs when the error would not say.
+        if _violated(clash) != NAME_INDEX and await by_name(session, title) is None:
+            raise
+        raise CityError(key="city-found-name-taken", name=title) from clash
 
     #: The location becomes city territory (40-society/00). The deed for it is
     #: cancelled: civic land is not traded by deed, otherwise there would be a

@@ -9,6 +9,11 @@ it is the number of times the server waits for an answer. A ceiling is the only
 thing that keeps a helper from quietly turning one query into twenty: nothing
 else fails when it does.
 
+Three subjects now: the whole command, the Net's unread count, and the walk
+`look` makes over a city to find its core. The last two are the same defect in
+two places -- a question asked once per thing where one query answers about all
+of them -- and the second was found while measuring the first.
+
 Two kinds of ceiling here, and the second is the point of the first:
 
 * **`look` as a whole** -- a budget, deliberately loose. A guard against a new
@@ -52,8 +57,8 @@ NOW = datetime(2026, 9, 2, 12, 0, tzinfo=UTC)
 
 #: The whole command, on the two scenes below. Two numbers and not one, because
 #: they measure different worlds and must not share a margin: a city with no
-#: roads in it (65 measured on 2026-09-02) and the same city with two streets
-#: (72 -- two of them the Net's map, the rest `look`'s own, see
+#: roads in it (66 measured on 2026-09-03) and the same city with two streets
+#: (69 -- two of them the Net's map, the rest `look`'s own, see
 #: `_citizen_with_channels`). One ceiling over both would sit flush against the
 #: larger, and the first honest field added anywhere in `look` would break it;
 #: whoever tripped over that would raise the number rather than read it. The
@@ -70,6 +75,11 @@ LOOK_BUDGET_ON_ROADS = 80
 #: What one more channel, or one more place an author writes from, is allowed
 #: to add. Zero: the count is a count, not a walk over the reader's world.
 PER_CHANNEL_BUDGET = 0
+
+#: The same, for one more node a city owns. Its own constant and not the Net's:
+#: they are different questions, and a day when the Net earns a query of slack
+#: is not a day the city walk earns ten.
+PER_NODE_BUDGET = 0
 
 
 @pytest.fixture(autouse=True)
@@ -94,15 +104,13 @@ async def _citizen_with_channels(
     everybody stands in the core, `road_seconds` returns on `here == there`, and
     a measurement over this scene never touches the map at all.
 
-    Two streets and not ten, because a street is not free to `look`. Finding a
-    city's core means finding the Forerunners' printer (`city.lookup.core`), and
-    where the city's own node does not hold one the search asks **every** node
-    of the territory what stands in it -- two queries each, and it cannot stop
-    at the first, because a precursor's machine outranks an older one. Ten
-    streets add twenty queries that have nothing to do with the Net and bury the
-    two this scene exists to include. That fan-out is `look`'s own and older
-    than this file; it is named here so that a ceiling measured on a small city
-    is not mistaken for one that holds on a large one.
+    Two streets and not ten, because a street was not free to `look`: finding
+    the city's core asked every node of the territory what stood in it. That is
+    one query for the whole territory now
+    (`test_finding_the_core_does_not_grow_with_the_city`), so the scene could be
+    widened -- but two streets is still enough to put a road in it, and a
+    ceiling measured on a five-node city is not one that holds on a large one
+    either way.
     """
     city, core, founder = await _capital(session, catalog)
     reader = await world.create_identity(session, f"Читатель-{uuid.uuid4().hex[:6]}")
@@ -256,6 +264,60 @@ async def _look_cost(factory, me_id: uuid.UUID) -> int:
         finally:
             meter.stop()
         return meter.count - before
+
+
+async def _city_of_size(session: AsyncSession, catalog: Catalog, *, plots: int):
+    """A city holding `plots` nodes beyond its own, with the printer on the core.
+
+    The printer is deliberately **not** on the city's own node: `city.core`
+    returns from the first check when it is there and never walks at all, so a
+    scene that put it there would measure nothing.
+    """
+    city, core, _ = await _capital(session, catalog)
+    yard = await world.node_container(session, core)
+    printer = await world.grant_item(session, yard, world.BIOPRINTER, quality=60, origin="тест")
+    printer.installed = True
+    for n in range(plots):
+        plot = await world.create_node(
+            session, f"terra.plot.{uuid.uuid4().hex[:8]}", f"Участок {n}", area_m2=50
+        )
+        plot.owner_city_id = city.id
+    await session.flush()
+    return city, core
+
+
+async def test_finding_the_core_does_not_grow_with_the_city(
+    session: AsyncSession, catalog: Catalog
+) -> None:
+    """A city of two nodes and a city of twelve cost the same to find the core of.
+
+    `city.core` asked every node of the territory what stood in it -- a yard and
+    its installed things, two queries each -- to pick one printer, and it does
+    that inside `look`, through `estate.price.center_of`. `terra.capital` has
+    thirteen nodes and a city grows with every plot bought, so the walk had no
+    ceiling at all. One query answers about the whole territory now.
+    """
+    small, small_core = await _city_of_size(session, catalog, plots=1)
+    large, large_core = await _city_of_size(session, catalog, plots=11)
+
+    async def cost(city) -> tuple[int, object]:
+        meter = Counter(session)
+        try:
+            before = meter.count
+            found = await town.core(session, city)
+        finally:
+            meter.stop()
+        return meter.count - before, found
+
+    thin, one = await cost(small)
+    fat, other = await cost(large)
+    #: The core is still found, and it is the node the printer stands in -- not
+    #: merely some node. Counting queries would pass on a wrong answer too.
+    assert one is small_core and other is large_core
+
+    assert fat - thin <= PER_NODE_BUDGET * 10, (
+        f"поиск ядра стоит {thin} запросов на городе из двух узлов и {fat} на городе из двенадцати"
+    )
 
 
 async def test_look_stays_within_its_budget(

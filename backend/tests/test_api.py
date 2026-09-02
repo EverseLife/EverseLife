@@ -57,6 +57,21 @@ def test_catalogs_available(client) -> None:
     plants = client.get("/public/plants").json()
     assert len(plants["plants"]) == 8
 
+    #: The founding threshold is a catalog constant and is read once from
+    #: here, not carried by every `look` (D-225). Roles as keys, and every
+    #: role filled by at least one machine the vault actually knows.
+    #:
+    #: Against `FOUNDATION_ROLES` and not against a literal on purpose: the
+    #: window says a role by rendering `city-role-<role>`, and the message
+    #: for every role is guaranteed by `test_i18n` walking **that** tuple. A
+    #: role added only to `foundation_needs()` would reach the player as a
+    #: bare key with nothing red anywhere; this is what ties the two lists.
+    from src.engine.city.founding import FOUNDATION_ROLES
+
+    roles = client.get("/public/founding").json()["roles"]
+    assert [row["role"] for row in roles] == list(FOUNDATION_ROLES)
+    assert all(row["any_of"] for row in roles), "роль без машины закрыть нечем"
+
 
 def test_action_api_does_not_exist(client) -> None:
     """Not one route changes the world. This is an architectural constraint, not a setting."""

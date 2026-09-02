@@ -24,8 +24,8 @@ reading as it always did.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
-from decimal import Decimal
+from datetime import UTC, datetime, timedelta
+from decimal import ROUND_UP, Decimal
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -42,9 +42,12 @@ from src.models.world import Node
 from src.units import (
     ENERGY_PER_TARIFF_UNIT,
     PERCENT,
+    ROUND_CHARGE,
     SECONDS_PER_HOUR,
     amount_float,
     money,
+    on_grid,
+    step,
 )
 
 #: The class of the cell (D-215). Behaviour binds to the class, so a second
@@ -93,16 +96,74 @@ def charge_of(constants: Constants, item: Item, *, now: datetime | None = None) 
     return max(0.0, float(item.charge) - leaked * days)
 
 
+#: The grid the charge column keeps (`Numeric(12, 3)`). A charge is put on it
+#: before it is stored, so what the engine believes a cell holds is what the
+#: row holds -- otherwise Postgres rounds the write and the two drift apart.
+_STEP = step(ROUND_CHARGE)
+
+
+def _on_grid(charge: float | Decimal) -> Decimal:
+    """The charge as the column will keep it, to the nearest thousandth.
+
+    Not downwards: a charge reached through floats sits a hair below itself --
+    sixteen arrives as `15.999999999999998` -- and flooring that would shave a
+    thousandth off every write. The rounding is the one Postgres would have
+    done anyway; putting it here is what makes the stored row and the engine's
+    idea of it the same number, which is what the drain then measures against.
+    """
+    return max(Decimal(0), on_grid(charge, ROUND_CHARGE))
+
+
 async def settle_charge(
     session: AsyncSession, constants: Constants, item: Item, *, now: datetime | None = None
 ) -> float:
-    """Write into the battery its actual charge as of now."""
+    """Write into the battery its actual charge as of now.
+
+    The stamp moves only when the charge does. A leak thinner than a
+    thousandth has nowhere to be written, and moving the stamp over it would
+    throw those hours away -- and every command that touches a cell settles
+    it, so a cell in steady use would never leak at all. Left alone, the
+    countdown keeps running until the leak is worth a thousandth.
+    """
     moment = now or datetime.now(UTC)
-    charge_ = charge_of(constants, item, now=moment)
-    item.charge = Decimal(str(charge_))
-    item.charged_at = moment
+    was = _on_grid(item.charge or 0)
+    #: Upwards, alone among the writes here: the row must never claim a leak
+    #: that has not happened yet. Rounded to the nearest, a cell would shed a
+    #: whole thousandth once half of one had leaked, and the stamp below --
+    #: which asks how long that drop took -- would run past the clock and be
+    #: pulled back to it, doubling the leak for anyone settling often.
+    charge_ = max(
+        Decimal(0),
+        Decimal(str(charge_of(constants, item, now=moment))).quantize(_STEP, rounding=ROUND_UP),
+    )
+    if charge_ == was:
+        return float(charge_)
+    item.charge = charge_
+    item.charged_at = _leaked_through(constants, item, was - charge_, moment)
     await session.flush()
-    return charge_
+    return float(charge_)
+
+
+def _leaked_through(
+    constants: Constants, item: Item, dropped: Decimal, moment: datetime
+) -> datetime:
+    """The moment the stored drop was actually reached, not "now".
+
+    The charge is written to the nearest thousandth, so a stamp moved to now
+    would claim the whole elapsed for a drop the leak had only half earned,
+    and a cell settled often would leak at twice its rate. Moving the stamp
+    only as far as the drop accounts for leaves the remainder where it is --
+    in the hours -- and the leak keeps its true pace however often it is read.
+    """
+    countdown = item.charged_at or item.created_at
+    per_day = capacity(constants) * constants[R.ENERGY_BATTERY_SELFDISCHARGE] / PERCENT
+    if per_day <= 0:  # pragma: no cover -- a world where cells do not leak
+        return moment
+    days = float(dropped) / per_day
+    earned = countdown + timedelta(seconds=days * constants[R.TIME_DAY_TERRA] * SECONDS_PER_HOUR)
+    #: Never past now: a cell drained to nothing stops leaking, and its stamp
+    #: must not fall behind for good.
+    return min(earned, moment)
 
 
 async def charge_battery(
@@ -152,9 +213,22 @@ async def charge_battery(
     will_give = min(wants, float(pool.stored))
     if will_give <= 0:
         raise _grid().NotEnough(key="battery-nothing-to-give", have=float(pool.stored), place=place)
+    #: A pour too thin to be written is refused rather than served. The pool
+    #: gives up a whole step for any positive draw, so a request under one
+    #: would burn the city's energy while the cell gained nothing and the bill
+    #: rounded to nothing -- free of charge, and repeatable.
+    if will_give < float(step(ROUND_CHARGE)):
+        raise _grid().NotEnough(key="battery-give-too-little", least=float(step(ROUND_CHARGE)))
+
+    #: What the cell will actually hold, and therefore what is charged for.
+    #: The bill used to be issued on the asked-for figure while the row kept
+    #: the rounded one: the payer and the cell disagreed by up to half a
+    #: thousandth every time, in whichever direction the rounding fell.
+    stored = _on_grid(have + will_give)
+    given = float(stored) - have
 
     #: The tariff is given per hundred energy -- the bill is issued by it too.
-    price = money(will_give / ENERGY_PER_TARIFF_UNIT * float(pool.tariff))
+    price = money(given / ENERGY_PER_TARIFF_UNIT * float(pool.tariff))
     if price > 0:
         account = await ledger.account_for(session, AccountKind.IDENTITY, body.identity_id)
         treasury = await ledger.account_for(session, AccountKind.CITY_TREASURY, pool.node_id)
@@ -164,11 +238,11 @@ async def charge_battery(
             debit=account.id,
             credit=treasury.id,
             amount=price,
-            memo={"энергии": will_give, "тариф": float(pool.tariff)},
+            memo={"энергии": given, "тариф": float(pool.tariff)},
         )
 
-    pool.stored = Decimal(str(float(pool.stored) - will_give))
-    item.charge = Decimal(str(have + will_give))
+    _grid().take_from_pool(pool, given)
+    item.charge = stored
     item.charged_at = moment
     await session.flush()
 
@@ -178,11 +252,11 @@ async def charge_battery(
         actor_identity_id=body.identity_id,
         node_id=body.node_id,
         item_id=str(item.id),
-        energy=will_give,
+        energy=given,
         paid=price,
         tariff=float(pool.tariff),
     )
-    return will_give
+    return given
 
 
 async def batteries_in(session: AsyncSession, node: Node) -> list[Item]:
@@ -274,7 +348,13 @@ async def drain_cells(
     *,
     now: datetime | None = None,
 ) -> float:
-    """Take charge out of these locked cells, in order. Returns what was taken."""
+    """Take charge out of these locked cells, in order.
+
+    Returns what the caller may spend, never more than `wanted` and never more
+    than the cells actually gave up. The two can differ: the charge column
+    holds a thousandth of one cell, so a stack pays in whole steps and the
+    remainder is lost rather than handed on.
+    """
     moment = now or datetime.now(UTC)
     if wanted <= 0:  # pragma: no cover -- callers ask for a positive draw
         return 0.0
@@ -292,10 +372,29 @@ async def drain_cells(
         spend = min(left, have * pile)
         #: Drawn evenly from the pile, so a stack never splits into cells of
         #: different charge -- that is what would make it two stacks.
-        cell.charge = Decimal(str(max(0.0, have - spend / pile)))
+        was = Decimal(str(have))
+        rest = _on_grid(was - Decimal(str(spend)) / Decimal(str(pile)))
+        #: A draw thinner than a thousandth of a cell has nowhere to be
+        #: written: the row would keep the charge it started with while the
+        #: caller was told it got the energy, and the next command would find
+        #: the stack full again. A stack of a thousand made every draw under
+        #: half a unit free. So a draw that cannot show takes the smallest
+        #: step the column holds, and what left the cells is read back from
+        #: the cells rather than assumed.
+        if rest >= was:
+            rest = max(Decimal(0), was - _STEP)
+        cell.charge = rest
         cell.charged_at = moment
-        left -= spend
-        taken += spend
+        #: What the cells actually gave up, and what the caller is credited,
+        #: are two numbers. The stack loses a whole step per cell even for a
+        #: draw thinner than that, and the caller must not be handed the
+        #: overshoot: `automat` turns energy into worked hours (`taken / rate`)
+        #: and would run a machine longer than the clock allows. The remainder
+        #: is lost on the grid -- against the drawer, which is the safe side.
+        really = float((was - rest) * Decimal(str(pile)))
+        given = min(really, spend)
+        left -= given
+        taken += given
     if taken > 0:
         await session.flush()
     return taken

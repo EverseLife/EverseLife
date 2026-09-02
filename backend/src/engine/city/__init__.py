@@ -139,17 +139,22 @@ from src.engine.city.land import (  # noqa: F401
     upkeep_of,
 )
 from src.engine.city.law import (  # noqa: F401
+    CITIZENS,
+    EVERYONE,
+    NOBODY,
     TRADE_TAX,
     _apply_tariff,
     apply_law,
     law,
     law_number,
     may_take_city_land,
+    said,
     set_charter,
     set_law,
 )
 from src.engine.city.lookup import (  # noqa: F401
     by_id,
+    by_name,
     by_node,
     core,
     gate,

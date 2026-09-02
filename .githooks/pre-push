@@ -1,0 +1,67 @@
+#!/bin/sh
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
+# Pre-push: two alembic heads must not leave this machine.
+#
+# The last local gate, and it exists because the earlier ones have a hole
+# between them. `pre-commit` forecasts a collision and, by design, never
+# refuses -- a forecast about unfinished work may never come true, and a tool
+# that blocks on one locks the machine, the innocent first. `pre-merge-commit`
+# does refuse, but fires only when a merge writes a commit, and the two ways
+# work actually lands here write none: `--ff-only`, and `git update-ref` plus
+# `git reset` from a worktree. Both were used on 2026-09-02, and neither ran a
+# hook.
+#
+# So a main that cannot be upgraded could sit here until somebody pushed it,
+# and then the server met it before any check did. CI is the backstop --
+# `tests/test_migrations.py::test_migrations_have_exactly_one_head` reads the
+# files and needs no database, so it runs even where every DB test skips --
+# but CI sees the tree only *after* the push. This closes that window on the
+# way out.
+#
+# What it asks is `pre-merge-commit`'s narrow question: does **this tree**
+# hold two heads, right now. Three limits, so nobody trusts it further:
+#
+#   * it judges the working tree, not the commits being pushed. An untracked
+#     migration of your own can refuse a push whose main is sound -- the error
+#     leans the safe way, and committing or removing the file clears it;
+#   * a collision that lives in a *sibling* worktree is not seen here, and
+#     must not be: that is the forecast `pre-commit` prints, and refusing a
+#     push over somebody else's unfinished branch is the deadlock the
+#     forecast's exit code was written to avoid;
+#   * `--no-verify` skips it, like every hook.
+#
+# Enabled by the same `git config core.hooksPath .githooks` as the rest.
+
+set -eu
+
+repo=$(git rev-parse --show-toplevel)
+cd "$repo"
+
+if [ -x backend/.venv/Scripts/python.exe ]; then
+    py="backend/.venv/Scripts/python.exe"
+elif [ -x backend/.venv/bin/python ]; then
+    py="backend/.venv/bin/python"
+elif command -v python3 > /dev/null 2>&1; then
+    py="python3"
+elif command -v python > /dev/null 2>&1; then
+    py="python"
+else
+    # No python is not a reason to block a push: the same property is checked
+    # by the suite in CI, which is where this push is going anyway.
+    exit 0
+fi
+
+# The `-f` guard for the same reason as in the other hooks: `core.hooksPath` is
+# one path for every worktree, and a tree whose branch predates the script
+# would otherwise fail on a missing file with nothing to explain it.
+if [ -f backend/tools/check_migration_parents.py ]; then
+    if ! "$py" backend/tools/check_migration_parents.py --tree; then
+        echo >&2
+        echo "pre-push: в этом дереве две головы миграций -- на сервер они" >&2
+        echo "  поедут вместе, и \`alembic upgrade head\` там откажется выбирать." >&2
+        echo "  Перецепите свою миграцию на голову из \`alembic heads\` и повторите." >&2
+        exit 1
+    fi
+fi

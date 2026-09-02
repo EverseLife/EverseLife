@@ -308,14 +308,15 @@ async def survey(session: AsyncSession, constants: Constants, catalog: Catalog, 
         #: default. The client need not know where the value came from -- it
         #: needs to know which rule it lives by.
         #:
-        #: Keyed by id and **without the name**: the word for a law lives in
-        #: the names table the client already holds, in every language
-        #: (`lawName`), so a copy here would be a second list of the same
-        #: words -- and those drift (D-225).
+        #: Keyed by id and **with nothing but the value**: the law's name, the
+        #: unit beside the number and the note under the cursor are all vault
+        #: text, and the client holds all three by id in every language it
+        #: serves (`lawName`, `lawUnit`, `lawNote`). A copy here would be a
+        #: second list of the same words, and those drift (D-225). Before
+        #: this, `unit` and `note` were the last vault Russian the socket
+        #: carried: an English reader got «Sales tax · % выручки».
         "laws": {
             law.id: {
-                "unit": law.unit,
-                "note": law.note,
                 #: A default like `` `energy.tariff_default` `` expands into a
                 #: number: the player must see the rate in force, not a
                 #: reference to a vault constant.

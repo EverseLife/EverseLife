@@ -48,7 +48,10 @@ async def _capital(session: AsyncSession, catalog: Catalog, *, townhall: bool = 
         parent=delegate,
         properties={"ring": 0},
     )
-    city = await town.found(session, catalog, delegate, "Столица")
+    #: Stamped: a city name is unique across the world
+    #: (`uq_city_name_lower`), and a test that raises two of these would
+    #: collide on the name rather than on what it is testing.
+    city = await town.found(session, catalog, delegate, f"Столица-{stamp}")
     core.owner_city_id = city.id
     await session.flush()
     if townhall:

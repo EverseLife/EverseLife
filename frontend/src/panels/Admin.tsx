@@ -41,7 +41,7 @@ import type {
 import { t } from "../locale";
 import { Rule } from "../Rule";
 import { Refusal, useActions, useBook, useEdition, useNames, useSession } from "../actions";
-import { lawName, type Names } from "../names";
+import { lawName, lawNote, lawOption, lawUnit, type Names } from "../names";
 import { when } from "../clock";
 import { CityWorks } from "./CityWorks";
 import { Citizenship } from "./admin/Citizenship";
@@ -79,6 +79,31 @@ export function Admin({ look }: Omit<Props, "busy" | "act">) {
   const [sanctions, setSanctions] = useState<SanctionKind[]>([]);
   const [penalColonies, setPenalColonies] = useState<{ key: string; name: string }[]>([]);
   const [edit, setEdit] = useState<Record<string, string>>({});
+  //: Which laws are a choice, and of what. Catalog constants live in
+  //: `/public` rather than in the city's answer (D-225), and they change only
+  //: when the vault does -- so one read on mount is the whole of it.
+  const [choices, setChoices] = useState<Record<string, string[]>>({});
+  useEffect(() => {
+    let alive = true;
+    void api
+      .laws()
+      .then((book) => {
+        if (!alive) return;
+        setChoices(
+          Object.fromEntries(
+            book.code_laws
+              .filter((one) => one.options?.length)
+              .map((one) => [one.id, (one.options ?? []).map((option) => option.id)]),
+          ),
+        );
+      })
+      //: A law book that did not arrive costs the picker, not the window: the
+      //: field falls back to what it always was, a line of text.
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
   const [toWhom, setToWhom] = useState("");
   const [post, setPost] = useState(t("ui-admin-post-default"));
   const [rights, setRights] = useState<string[]>(["dashboard"]);
@@ -278,12 +303,35 @@ export function Admin({ look }: Omit<Props, "busy" | "act">) {
                 const editing = can(api.LAW_SCOPE + key) && decides;
                 return (
                   <tr key={key}>
-                    <td title={law.note ?? ""}>
+                    <td title={lawNote(names, key) ?? ""}>
                       {lawName(names, key)}
-                      {law.unit && <span className="note"> · {law.unit}</span>}
+                      {lawUnit(names, key) && (
+                        <span className="note"> · {lawUnit(names, key)}</span>
+                      )}
                     </td>
                     <td className="num">
-                      {editing ? (
+                      {!editing ? (
+                        //: A choice is shown as the word for it, a number as
+                        //: itself: the stored value of a choice is a key now,
+                        //: and «citizens» is not something to read off a table.
+                        //: `lawOption` gives the word where the table knows
+                        //: one and the value itself where it does not, so a
+                        //: choice and a number need no telling apart here.
+                        <b>{law.value ? lawOption(names, key, law.value) : "—"}</b>
+                      ) : choices[key] ? (
+                        <select
+                          value={edit[key] ?? law.value ?? ""}
+                          onChange={(e) =>
+                            setEdit((before) => ({ ...before, [key]: e.target.value }))
+                          }
+                        >
+                          {choices[key].map((option) => (
+                            <option key={option} value={option}>
+                              {lawOption(names, key, option)}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
                         <input
                           value={edit[key] ?? law.value ?? ""}
                           onChange={(e) =>
@@ -291,8 +339,6 @@ export function Admin({ look }: Omit<Props, "busy" | "act">) {
                           }
                           size={10}
                         />
-                      ) : (
-                        <b>{law.value ?? "—"}</b>
                       )}
                     </td>
                     <td className="note">

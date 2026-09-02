@@ -23,10 +23,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Constants
 from src.constants import registry as R
+from src.engine import battery as battery_
 from src.engine import energy, ledger, world
+from src.models.energy import EnergyPool
+from src.models.inventory import Item
 from src.models.ledger import AccountKind
 from src.models.world import Layer
-from src.units import PERCENT, money_str
+from src.units import PERCENT, ROUND_CHARGE, ROUND_ENERGY, amount, money, money_str
 
 
 async def _city(session: AsyncSession, *, river: bool = False):
@@ -224,6 +227,204 @@ async def test_charging_takes_from_pool_and_pays_treasury(
     expected = money(2 * constants[R.ENERGY_TARIFF_DEFAULT])
     assert await ledger.balance(session, treasury.id) == expected
     assert money_str(await ledger.balance(session, account.id)) == money_str(money(100) - expected)
+
+
+def test_the_pool_is_kept_at_the_scale_it_is_written_with() -> None:
+    """`ROUND_ENERGY` and the column's scale are one number in two places.
+
+    Widening `Numeric(14, 3)` alone would leave the forced step ten times the
+    column's own, and every draw too thin to write would cost the city ten
+    times over, in silence.
+    """
+    assert EnergyPool.__table__.c.stored.type.scale == ROUND_ENERGY
+
+
+async def test_a_pour_too_thin_to_write_is_refused_not_served(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """The door refuses what the column cannot hold, instead of burning the pool.
+
+    A positive draw always moves the pool by a whole step. Asked for less than
+    one, the city would pay that step while the cell gained nothing and the
+    bill rounded to nothing: free, and repeatable by anyone standing at a
+    charger.
+    """
+    capital, yard, identity, body = await _city(session)
+    pool = await energy.pool_of(session, constants, yard)
+    pool.stored = Decimal("100")
+    pool.counted_at = datetime.now(UTC)
+    pocket = await world.body_container(session, body)
+    cell = await world.grant_item(session, pocket, energy.BATTERY, quality=55, origin="тест")
+    await session.flush()
+
+    before = Decimal(pool.stored)
+    with pytest.raises(energy.NotEnough):
+        await energy.charge_battery(session, constants, body, cell, 0.0004)
+    assert Decimal(pool.stored) == before
+
+
+async def test_settling_often_does_not_stop_the_leak(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """A cell settled every second still leaks over the hour.
+
+    The charge is kept to a thousandth, so a leak thinner than that cannot be
+    written -- and the stamp used to move regardless, throwing those seconds
+    away. Every command touching a cell settles it, so a cell in steady use
+    never leaked at all.
+    """
+    capital, yard, identity, body = await _city(session)
+    pocket = await world.body_container(session, body)
+    cell = await world.grant_item(session, pocket, energy.BATTERY, quality=55, origin="тест")
+    started = datetime.now(UTC)
+    cell.charge = Decimal("400")
+    cell.charged_at = started
+    await session.flush()
+
+    #: Settled once a second across an hour, then read.
+    for tick in range(3600):
+        await energy.settle_charge(session, constants, cell, now=started + timedelta(seconds=tick))
+    settled_often = float(cell.charge)
+
+    #: The same hour, left alone and settled once.
+    other = await world.grant_item(session, pocket, energy.BATTERY, quality=55, origin="тест")
+    other.charge = Decimal("400")
+    other.charged_at = started
+    await session.flush()
+    settled_once = await energy.settle_charge(
+        session, constants, other, now=started + timedelta(hours=1)
+    )
+
+    #: Within the thousandth the column can tell apart.
+    assert settled_often == pytest.approx(settled_once, abs=0.001)
+    #: And the hour really did cost something, or the test proves nothing.
+    assert settled_once < 400
+
+
+async def test_the_bill_is_for_what_the_cell_actually_holds(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """Payer, pool, cell and journal say one number.
+
+    The bill used to be issued on the asked-for figure while the row kept the
+    rounded one, so the payer and the cell disagreed by up to half a
+    thousandth in whichever direction the rounding fell.
+    """
+    capital, yard, identity, body = await _city(session)
+    pool = await energy.pool_of(session, constants, yard)
+    pool.stored = Decimal("400")
+    pool.counted_at = datetime.now(UTC)
+    pocket = await world.body_container(session, body)
+    cell = await world.grant_item(session, pocket, energy.BATTERY, quality=55, origin="тест")
+    cell.charge = Decimal("0")
+    cell.charged_at = datetime.now(UTC)
+    await session.flush()
+
+    from src.models.ledger import PostingReason
+
+    account = await ledger.account_for(session, AccountKind.IDENTITY, identity.id)
+    genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
+    await ledger.transfer(
+        session,
+        PostingReason.GENESIS,
+        debit=genesis.id,
+        credit=account.id,
+        amount=money(100),
+        memo={},
+    )
+
+    #: An amount that does not sit on the column's grid.
+    given = await energy.charge_battery(session, constants, body, cell, 1.0015)
+    await session.flush()
+    await session.refresh(cell)
+    assert float(cell.charge) == pytest.approx(given)
+
+
+async def test_the_pool_never_hands_out_energy_it_kept(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """A draw too thin to write is not a free draw, for the pool either.
+
+    `EnergyPool.stored` keeps a thousandth, and the taker is billed before the
+    row is written: a draw under half of that used to round back to the figure
+    the pool already held, so the energy was spent and the pool stayed full,
+    command after command.
+    """
+    capital, yard, identity, body = await _city(session)
+    pool = await energy.pool_of(session, constants, yard)
+    pool.stored = Decimal("100")
+    pool.counted_at = datetime.now(UTC)
+    await session.flush()
+    await session.refresh(pool)
+
+    before = Decimal(pool.stored)
+    draws, each = 20, 0.0004
+    for _ in range(draws):
+        energy.take_from_pool(pool, each)
+        await session.flush()
+        await session.refresh(pool)
+
+    #: The row actually moved: the pool paid for every draw it served.
+    assert Decimal(pool.stored) < before
+    #: And it never paid out more than a step per draw.
+    assert float(before - Decimal(pool.stored)) <= draws * 0.001
+
+
+async def test_a_stack_never_hands_out_charge_it_did_not_lose(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """A draw too thin to write is not a free draw.
+
+    The charge column keeps a thousandth of one cell, and a stack is drained
+    evenly, so a draw of less than that per cell used to round back to the
+    charge it started with: the caller was told it got the energy and the row
+    kept everything. A thousand cells made every draw under half a unit free,
+    over and over, a command at a time.
+    """
+    capital, yard, identity, body = await _city(session)
+    pocket = await world.body_container(session, body)
+    pile = 1000
+    stack = await world.grant_item(session, pocket, energy.BATTERY, quality=55, origin="тест")
+    #: A thousand cells standing as one stack (D-179): the charge column is one
+    #: cell's, and the amount says how many there are.
+    stack.amount = amount(pile)
+    stack.charge = Decimal("10")
+    #: One moment throughout: self-discharge is not what is under test.
+    moment = datetime.now(UTC)
+    stack.charged_at = moment
+    await session.flush()
+
+    #: Read back from the row, not from the object: the rounding that hid this
+    #: happens on the way into Postgres, so a draw that never leaves the
+    #: session shows nothing. Each pass here is a command of its own.
+    await session.refresh(stack)
+    before = Decimal(stack.charge)
+    draws, each = 20, 0.4
+    taken = 0.0
+    for _ in range(draws):
+        taken += await battery_.drain_cells(session, constants, [stack], each, now=moment)
+        await session.flush()
+        await session.refresh(stack)
+    left_in_cells = float((before - Decimal(stack.charge)) * pile)
+
+    #: The cells gave up at least what the caller was handed. Backwards, this
+    #: is the free draw: energy delivered out of a stack that never emptied.
+    assert taken <= left_in_cells
+    #: And no more than was asked for. Forwards, this is the other half: the
+    #: stack loses a whole step per cell, and handing that overshoot to the
+    #: caller would let `automat` bill it as hours the clock never allowed.
+    assert taken == pytest.approx(draws * each)
+    #: And the stack actually emptied: it is not that nothing was drawn.
+    assert Decimal(stack.charge) < before
+
+
+def test_the_charge_is_kept_at_the_scale_it_is_written_with() -> None:
+    """`ROUND_CHARGE` and the column's scale are one number in two places.
+
+    Widening `Numeric(12, 3)` alone would leave the drain measuring against a
+    grid the row no longer keeps, and the free draw would be back.
+    """
+    assert Item.__table__.c.charge.type.scale == ROUND_CHARGE
 
 
 async def test_nowhere_to_charge_outside_city(session: AsyncSession, constants: Constants) -> None:

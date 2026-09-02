@@ -426,7 +426,9 @@ async def buy(
         raise NotForSale(
             key="estate-land-permit",
             city=city.name,
-            permit=town.law(catalog, city, "build_permit"),
+            law="build_permit",
+            #: The law holds a key; the sentence wants a word (`CHOICE()`).
+            permit=town.said(catalog, "build_permit", town.law(catalog, city, "build_permit")),
         )
 
     price = await price_of(session, constants, catalog, city, node)

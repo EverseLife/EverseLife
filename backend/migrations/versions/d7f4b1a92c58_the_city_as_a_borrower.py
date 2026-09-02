@@ -7,7 +7,7 @@ city. `ix_loan_borrower` covers the citizen's side of the same table and does
 nothing for this one: the query is by city and state.
 
 Revision ID: d7f4b1a92c58
-Revises: b4e91c07af52
+Revises: b6e3d1a94c07
 Create Date: 2026-09-03
 """
 
@@ -18,7 +18,7 @@ from collections.abc import Sequence
 from alembic import op
 
 revision: str = "d7f4b1a92c58"
-down_revision: str | None = "b4e91c07af52"
+down_revision: str | None = "b6e3d1a94c07"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

@@ -53,6 +53,13 @@ const NAMES = {
   //: short and general -- `access`, `salary`, `toll` -- and one table shared
   //: with goods would one day answer with the wrong one.
   laws: { tax_trade: "Налог с продажи", toll: "Пошлина за проход" },
+  //: A law's unit and its note are vault text held by the same table: the
+  //: socket carries neither, so the client is the only one who can say them.
+  law_units: { tax_trade: "% выручки" },
+  law_notes: { toll: "За вход на территорию или проезд по дороге" },
+  //: The same option id reads differently under different laws, which is why
+  //: the key carries both halves.
+  law_options: { "build_permit.citizens": "граждане", "body_print.citizens": "гражданам" },
 } as Names;
 
 /** The shapes the server's own FTL uses: plain, `$arg`, `NAME()`, a selector. */
