@@ -18,7 +18,14 @@ from src.constants import Constants
 from src.constants import registry as R
 from src.engine import city as town
 from src.engine import events, ledger
-from src.engine.bank._base import BankError, NothingToRepay, TooMuch, key_rate, reserve_account
+from src.engine.bank._base import (
+    BankError,
+    NothingToRepay,
+    NotOurs,
+    TooMuch,
+    key_rate,
+    reserve_account,
+)
 from src.engine.bank.line import city_line, city_margin
 from src.engine.bank.trust import personal_turnover, repaid_total, trust
 from src.engine.errors import Says
@@ -43,16 +50,30 @@ async def borrow(
 ) -> Loan:
     """Take a loan. Money comes from the reserve; the shortfall is printed (D-087).
 
-    The loan goes through the city of citizenship (D-175): the rate is key plus
-    city margin, and the loan takes up the city's credit line with the capital.
-    No citizenship or line exhausted -- a direct loan from the capital at the
-    worse rate.
+    The loan goes through the city of citizenship and **only** through it
+    (D-175, D-281): the rate is key plus the city margin, and the loan takes up
+    the city's credit line with the capital. No citizenship -- no loan; the
+    line exhausted -- no loan either. The direct loan from the capital at the
+    risk premium is gone: the capital lends against a line, and a person
+    belonging to nowhere puts up none.
     """
 
     moment = now or datetime.now(UTC)
     total = money(amount)
     if total <= 0:
         raise BankError(key="bank-loan-not-positive")
+
+    #: Citizenship first: it decides whether there is a lender at all, and it
+    #: is the cheapest question of the three. The row is taken **held** --
+    #: `city.leave` reads the same one held, so a loan and an exit cannot
+    #: cross: whichever comes second sees the first, and the city is never
+    #: left answering for a debt of somebody who has already walked out.
+    entry = await town.citizenship(session, who.id, hold=True)
+    if entry is None:
+        raise NotOurs(key="bank-no-citizenship")
+    city = await town.by_id(session, entry.city_id)
+    if city is None:  # pragma: no cover -- citizenship into nowhere is a bug
+        raise NotOurs(key="bank-no-citizenship")
 
     limit_, reason = await credit_limit(session, constants, who.id, now=moment)
     available = limit_ - await debt_of(session, who.id)
@@ -67,26 +88,19 @@ async def borrow(
             inner={"reason": reason},
         )
 
-    #: The city of citizenship and its line. The line shrinks smoothly: exactly
-    #: the remainder is available, and a "take everything before the cutoff"
-    #: run hits arithmetic.
-    city = None
-    margin = 0.0
-    entry = await town.citizenship(session, who.id)
-    if entry is not None:
-        candidate = await town.by_id(session, entry.city_id)
-        if candidate is not None:
-            _, _, free = await city_line(session, constants, candidate, now=moment)
-            if total <= free:
-                city = candidate
-                margin = city_margin(constants, catalog, candidate)
+    #: The city's line. It shrinks smoothly: exactly the remainder is
+    #: available, and a "take everything before the cutoff" run hits
+    #: arithmetic rather than a special case.
+    _, _, free = await city_line(session, constants, city, now=moment)
+    if total > free:
+        raise TooMuch(
+            key="bank-city-line-exhausted",
+            city=city.name,
+            free=money_str(max(0, free)),
+        )
 
-    if city is not None:
-        rate_value = await key_rate(session, constants) + margin
-    else:
-        #: A direct loan from the capital: the way out for non-citizens and
-        #: residents of cut-off cities, but at the top of the risk range (D-175).
-        rate_value = await key_rate(session, constants) + constants[R.BANK_RISK_PREMIUM].max
+    margin = city_margin(constants, catalog, city)
+    rate_value = await key_rate(session, constants) + margin
 
     #: The reserve is a steriliser: first we spend already existing TC, and
     #: print only the shortfall. Printing shows as a separate posting and in telemetry.
@@ -119,7 +133,7 @@ async def borrow(
         principal=total,
         outstanding=total,
         rate=rate_value,
-        city_id=None if city is None else city.id,
+        city_id=city.id,
         margin=margin,
         printed=printed,
         taken_at=moment,
@@ -136,7 +150,7 @@ async def borrow(
         amount=total,
         rate=rate_value,
         printed=printed,
-        city=None if city is None else city.name,
+        city=city.name,
         margin=margin,
     )
     return loan

@@ -96,16 +96,13 @@ ui-doors-nothing = none
 ui-doors-first-body = first body
 ui-doors-at-once = at once
 ui-doors-citizenship = citizenship
-ui-doors-not-required = not required
+ui-doors-citizenship-at-once = at once
 ui-doors-tax = sales tax
 ui-doors-print-here = Print here
 ui-doors-grant-note = The settling grant is paid by the city out of its own treasury, not by the world out of thin air: a new resident is worth something to a city, and so cities bid for one.
-ui-doors-rules-note = The rows of the table are enforced by the engine: required citizenship takes hold at the moment of printing and holds for the whole term, the tax is withheld from every sale. The Forerunner printer sets no conditions — the machine belongs to no one.
+ui-doors-rules-note = The rows of the table are enforced by the engine: a city's citizenship takes hold at the moment of printing and holds you to nothing — you may leave in the first minute, as long as no loan is open; the tax is withheld from every sale. The Forerunners' printer enrols you into the city whose land it stands on: the machine belongs to nobody, the person who steps out of it does not.
 ui-doors-word-note = In quotes is the city's own word. That is a promise of living people, and the engine does not answer for it: if it is broken, it is a matter for the court.
 ui-doors-back = ← back
-ui-doors-term-always = required
-ui-doors-term-hours = required · { $hours } h
-ui-doors-term-days = required · { $days } d
 
 ## The state tab: economy and population (D-124, D-140, D-154)
 
@@ -210,15 +207,13 @@ ui-admin-pay = Pay ₭
 ui-admin-charter = Charter
 ui-admin-charter-rule = The charter decides who approves a law: “the ruler alone” changes it at once, “by a vote of citizens” calls a vote. Elections of the ruler and the council will arrive with mechanics of their own.
 
-## Citizenship: one per person, entry by the charter, exit with a term (D-160, D-184)
+## Citizenship: one per person, entry by the charter, exit at once (D-160, D-281)
 
 ui-admin-admission-open = admits freely
 ui-admin-admission-application = by application with approval
 ui-admin-admission-invite = by invitation only
 ui-admin-citizenship = Citizenship
 ui-admin-citizenship-in = you belong to
-ui-admin-citizenship-leaving = you are leaving: citizenship falls away { $when }
-ui-admin-citizenship-bound = the obligation ends { $when }
 ui-admin-citizenship-none = You belong nowhere: a guest pays duties, but not taxes.
 ui-admin-your-city = This is your city.
 ui-admin-invited = You have been called: accept the invitation.
@@ -227,11 +222,9 @@ ui-admin-join-blocked = citizenship is one per person: leave your former city fi
 ui-admin-accept-invite = Accept the invitation
 ui-admin-join = Join the citizens
 ui-admin-admission-line = { $city }: { $order }
-ui-admin-leave-bound-title = you took on the term of the obligation when you chose this city's door
-ui-admin-leave-title = the statement goes out over the Net
+ui-admin-leave-title = the word goes out over the Net: no need to walk to the hall
 ui-admin-leave = Leave citizenship
-ui-admin-leave-bound-note = The obligation of the printing holds until its term is up.
-ui-admin-leave-note = Leaving is not instant: citizenship falls away when the term is up.
+ui-admin-leave-note = Leaving is instant. One thing holds it: an open loan — with one, you are not let go until it is settled.
 
 ## A word to the city (D-183)
 

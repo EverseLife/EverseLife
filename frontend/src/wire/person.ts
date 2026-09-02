@@ -75,10 +75,9 @@ export type Door = {
   city: string | null;
   /** The city's word to newcomers: its promise, not a contract (D-183). Empty -- silent. */
   about: string;
-  /** Print conditions -- the engine enforces them (D-184): citizenship at the
-   *  moment of printing, its term in days and the sales tax, %. */
-  citizenship: boolean;
-  term: number;
+  /** The sales tax, %. The one condition of the three left (D-184, D-281):
+   *  citizenship is not a condition any more but what a city door gives, so
+   *  `city` above already says it -- there is no key of its own for it. */
   tax: number;
   /** The Forerunners' Printer: an eternal machine, needs nobody's treasury. */
   precursor: boolean;

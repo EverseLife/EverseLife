@@ -75,7 +75,7 @@ KNOWN: dict[str, int] = {
     "src/engine/chat.py": 2,
     "src/engine/city/_base.py": 1,
     "src/engine/city/grant.py": 2,
-    "src/engine/city/law.py": 4,
+    "src/engine/city/law.py": 3,
     "src/engine/craft/queue.py": 2,
     "src/engine/customs.py": 5,
     "src/engine/death.py": 4,

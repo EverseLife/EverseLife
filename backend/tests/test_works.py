@@ -27,6 +27,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from bank_kit import _enrol
 from src.constants import Constants
 from src.constants import registry as R
 from src.engine import bank, ledger, road, travel, works, world
@@ -48,6 +49,9 @@ async def _inflation_rows(session: AsyncSession, *, old: float, new: float) -> N
 async def _reserve_surplus(session: AsyncSession, constants: Constants, catalog) -> int:
     """Build a reserve well above the ceiling the way the world does: interest and repayment."""
     who = await world.create_identity(session, f"Заёмщик-{uuid.uuid4().hex[:6]}")
+    #: A loan comes from the city one belongs to (D-281): with no citizenship
+    #: there is no interest, and the reserve never fills.
+    await _enrol(session, who)
     account = await ledger.account_for(session, AccountKind.IDENTITY, who.id)
     genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
     await ledger.transfer(

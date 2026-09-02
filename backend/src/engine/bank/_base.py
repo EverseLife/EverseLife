@@ -41,6 +41,15 @@ class NothingToRepay(BankError):
     pass
 
 
+class NotOurs(BankError):
+    """Only a city lends, and only to its own (D-281).
+
+    The direct loan from the capital is gone with it: a person belonging to no
+    city has nobody to answer for them on the line, and a line is what the
+    capital lends against.
+    """
+
+
 async def reserve_account(session: AsyncSession) -> LedgerAccount:
     """The system reserve account. Created on first need."""
     return await ledger.account_for(session, AccountKind.BANK_RESERVE, RESERVE)

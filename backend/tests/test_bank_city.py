@@ -19,7 +19,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from bank_kit import _borrower, _deal
+from bank_kit import _borrower, _city_with_turnover, _deal, _home
 from src import i18n
 from src.constants import Catalog, Constants
 from src.constants import registry as R
@@ -28,64 +28,6 @@ from src.models.ledger import AccountKind
 from src.units import PERCENT, money
 
 # --- collateral ratio as a lever (D-170) -------------------------------------
-
-
-async def _city_with_turnover(
-    session: AsyncSession, catalog, turnover: float, goods: str = "bread"
-):
-    """The city on whose territory the deals happened: the share is computed by them."""
-    from src.engine import city as town
-    from src.models.market import Order, OrderSide, Trade
-    from src.models.world import Layer
-    from src.units import amount as _amount
-
-    stamp = uuid.uuid4().hex[:8]
-    planet = await world.create_node(
-        session, f"terra.{stamp}", "Терра", area_m2=1, layer=Layer.SPACE
-    )
-    delegate = await world.create_node(
-        session,
-        f"terra.city.{stamp}",
-        f"Город-{stamp}",
-        area_m2=1,
-        layer=Layer.PLANET,
-        parent=planet,
-    )
-    marketplace = await world.create_node(
-        session,
-        f"terra.city.{stamp}.market",
-        "Рынок",
-        area_m2=50,
-        parent=delegate,
-    )
-    city = await town.found(session, catalog, delegate, f"Город-{stamp}")
-    marketplace.owner_city_id = city.id
-    seller = await world.create_identity(session, f"Купец-{stamp}")
-    order_ = Order(
-        node_id=marketplace.id,
-        identity_id=seller.id,
-        side=OrderSide.SELL,
-        type_key=goods,
-        tier="common",
-        price=money(turnover),
-        amount_total=_amount(1),
-        amount_left=0,
-        expires_at=datetime.now(UTC) + timedelta(days=1),
-    )
-    session.add(order_)
-    await session.flush()
-    session.add(
-        Trade(
-            node_id=marketplace.id,
-            sell_order_id=order_.id,
-            type_key=goods,
-            tier="common",
-            price=money(turnover),
-            amount=_amount(1),
-        )
-    )
-    await session.flush()
-    return city
 
 
 async def _city_with_townhall(session: AsyncSession, catalog: Catalog):
@@ -279,14 +221,13 @@ async def test_report_one_per_pair_and_revocable(
 
 
 async def _citizen_with_city(session: AsyncSession, catalog: Catalog, *, turnover: float = 4000):
-    """A city with turnover and its citizen: the line is open, the margin is default."""
-    from src.models.city import Citizen
+    """A city with turnover and its citizen: the line is open, the margin is default.
 
-    city = await _city_with_turnover(session, catalog, turnover)
-    who = await _borrower(session)
-    session.add(Citizen(identity_id=who.id, city_id=city.id))
-    await session.flush()
-    return city, who
+    The borrower comes with a city of its own now (D-281) -- there is no other
+    kind of borrower -- so this only says which one it is.
+    """
+    who = await _borrower(session, turnover=turnover)
+    return await _home(session, who), who
 
 
 async def test_citizen_borrows_from_city_with_margin(
@@ -327,31 +268,36 @@ async def test_city_margin_goes_to_its_treasury(
     assert await bank.reserve(session) - reserve_before == interest - city_share
 
 
-async def test_exhausted_line_gives_pricier_direct_loan(
+async def test_exhausted_line_closes_the_door(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """There is always a way out, but at the top of the risk range: the city's line is not
-    elastic."""
+    """Past the city's line there is nothing at all now (D-281).
+
+    The direct loan from the capital at the risk premium used to stand behind
+    it: the line ran out and the borrowing went on, only dearer. It does not
+    -- the capital lends against a line, and a city that has none has nothing
+    to put up for its own.
+    """
     city, who = await _citizen_with_city(session, catalog, turnover=100)
     #: Line = cap% of turnover 100: the very first big loan overflows it.
     await _deal(session, "iron_ore", 4000, 1, seller=who)
-    loan = await bank.borrow(session, constants, catalog, who, 900)
-
-    assert loan.city_id is None, "линии не хватило — заём прямой"
-    assert float(loan.rate) == pytest.approx(
-        constants[R.BANK_BASE_RATE] + constants[R.BANK_RISK_PREMIUM].max
-    )
+    with pytest.raises(bank.TooMuch):
+        await bank.borrow(session, constants, catalog, who, 900)
 
 
-async def test_non_citizen_borrows_directly(
+async def test_non_citizen_borrows_nowhere(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    who = await _borrower(session)
-    loan = await bank.borrow(session, constants, catalog, who, 50)
-    assert loan.city_id is None
-    assert float(loan.rate) == pytest.approx(
-        constants[R.BANK_BASE_RATE] + constants[R.BANK_RISK_PREMIUM].max
-    )
+    """One borrows from the city one belongs to, and from nowhere else (D-281)."""
+    who = await world.create_identity(session, f"Ничей-{uuid.uuid4().hex[:6]}")
+    with pytest.raises(bank.NotOurs):
+        await bank.borrow(session, constants, catalog, who, 50)
+
+    #: And the window says so before the button: no rate at all -- not a zero,
+    #: which beside "no loan" would read as free money -- and the reason why.
+    rate, why = await bank.offered_rate(session, constants, catalog, who)
+    assert rate is None
+    assert [says.key for says in why] == ["bank-why-offer-no-citizenship"]
 
 
 # --- prison credit (D-174) ---------------------------------------------------

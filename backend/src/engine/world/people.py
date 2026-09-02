@@ -229,6 +229,12 @@ async def doors(
     printer of a city, a machine on nobody's land and the prison printer are not
     shown -- one comes into the world through the core, not through any yard
     where a printer was assembled.
+
+    Citizenship is not a key here, and that is D-225: a city's door gives it
+    and a door with no city around it cannot, so `city` already says it. What
+    used to stand in its place was a condition the city switched on and a term
+    it held newcomers by (D-184) -- D-281 took both away, and one condition of
+    the three is left, the tax.
     """
     from src.engine.death import (  # noqa: PLC0415 -- lazy: breaks the import cycle with death
         PRECURSOR,
@@ -240,14 +246,6 @@ async def doors(
             continue
         city = await town.of_node(session, node)
         forerunners = bool(node.properties.get(PRECURSOR))
-        #: Print conditions (D-184): the engine enforces them, so it must show
-        #: them **before** the choice, not after the first sale. The
-        #: Forerunners have no conditions and cannot: the machine is nobody's,
-        #: and the city does not hang conditions on it -- otherwise in a
-        #: one-city world no unconditional door would remain.
-        citizenship, term = (
-            (False, 0.0) if forerunners else town.spawn_terms(constants, catalog, city)
-        )
         listing.append(
             {
                 "node": node.key,
@@ -272,9 +270,6 @@ async def doors(
                     if city is None
                     else to_money(town.law_number(constants, catalog, city, "newcomer_grant"))
                 ),
-                #: Mandatory citizenship and its term in days.
-                "citizenship": citizenship,
-                "term": term,
                 #: The sales tax -- the very one the engine will withhold at the
                 #: first deal. A condition of life here, not of the door.
                 "tax": (
@@ -342,10 +337,12 @@ async def spawn(
     taxes, so the grant pays off. A rich city lures newcomers, a poor one
     cannot afford it.
 
-    **Print conditions** (D-184) are fulfilled here too: citizenship and its
-    term, if the city set them. The person accepted them by choosing the door,
-    and they must take effect at the same moment as the body -- otherwise the
-    condition remains an announcement.
+    **The door gives citizenship** (D-281): whoever chose this city is its
+    citizen from the moment of the print, and it takes effect together with the
+    body -- otherwise what the card promised would be an announcement. The
+    Forerunners' Printer enrols too, into the city whose land it stands on: the
+    machine is nobody's, the person who steps out of it is not. A printer with
+    no city around it enrols into nothing -- there is nowhere to write.
     """
 
     exists = (
@@ -361,17 +358,9 @@ async def spawn(
 
     city = await town.of_node(session, node)
     if city is not None:
-        from src.engine.death import (  # noqa: PLC0415 -- lazy: breaks the import cycle with death
-            PRECURSOR,
-        )
-
         constants, catalog = current(), current_catalog()
-        #: Whoever owns the machine sets the conditions. The Forerunners'
-        #: Printer is nobody's: the city on whose land it stands may not hang
-        #: citizenship on it (D-184).
-        if not node.properties.get(PRECURSOR):
-            #: Citizenship first, then the grant: the city pays its own.
-            await town.bind(session, constants, catalog, city, identity)
+        #: Citizenship first, then the grant: the city pays its own.
+        await town.enrol_newcomer(session, city, identity)
         await town.welcome(session, constants, catalog, city, identity)
     return identity, body
 

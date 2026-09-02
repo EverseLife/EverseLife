@@ -287,14 +287,13 @@ export type Look = {
     /** An application filed or an invitation received -- waits for its side. */
     requested: boolean;
   };
-  /** Where the identity belongs: citizenship is one and visible from everywhere (D-160). */
+  /** Where the identity belongs: citizenship is one and visible from everywhere (D-160).
+   *
+   *  Two fields and no more: leaving is instant (D-281), so there is no filed
+   *  declaration to count down and no term the print held one by. */
   citizenship?: {
     city?: string;
     since: string;
-    /** An exit declaration is filed: citizenship lapses by this date. */
-    leaving_at?: string;
-    /** An obligation taken as a print condition: no leaving before this date (D-184). */
-    bound_until?: string;
   };
   /** An ongoing exploration run, if any (D-152). */
   survey?: { returns_at: string };
