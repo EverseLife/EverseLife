@@ -25,10 +25,11 @@ from src.constants import Constants
 from src.constants import registry as R
 from src.engine import battery as battery_
 from src.engine import energy, ledger, world
+from src.models.energy import EnergyPool
 from src.models.inventory import Item
 from src.models.ledger import AccountKind
 from src.models.world import Layer
-from src.units import PERCENT, ROUND_CHARGE, amount, money_str
+from src.units import PERCENT, ROUND_CHARGE, ROUND_ENERGY, amount, money_str
 
 
 async def _city(session: AsyncSession, *, river: bool = False):
@@ -226,6 +227,70 @@ async def test_charging_takes_from_pool_and_pays_treasury(
     expected = money(2 * constants[R.ENERGY_TARIFF_DEFAULT])
     assert await ledger.balance(session, treasury.id) == expected
     assert money_str(await ledger.balance(session, account.id)) == money_str(money(100) - expected)
+
+
+def test_the_pool_is_kept_at_the_scale_it_is_written_with() -> None:
+    """`ROUND_ENERGY` and the column's scale are one number in two places.
+
+    Widening `Numeric(14, 3)` alone would leave the forced step ten times the
+    column's own, and every draw too thin to write would cost the city ten
+    times over, in silence.
+    """
+    assert EnergyPool.__table__.c.stored.type.scale == ROUND_ENERGY
+
+
+async def test_a_pour_too_thin_to_write_is_refused_not_served(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """The door refuses what the column cannot hold, instead of burning the pool.
+
+    A positive draw always moves the pool by a whole step. Asked for less than
+    one, the city would pay that step while the cell gained nothing and the
+    bill rounded to nothing: free, and repeatable by anyone standing at a
+    charger.
+    """
+    capital, yard, identity, body = await _city(session)
+    pool = await energy.pool_of(session, constants, yard)
+    pool.stored = Decimal("100")
+    pool.counted_at = datetime.now(UTC)
+    pocket = await world.body_container(session, body)
+    cell = await world.grant_item(session, pocket, energy.BATTERY, quality=55, origin="тест")
+    await session.flush()
+
+    before = Decimal(pool.stored)
+    with pytest.raises(energy.NotEnough):
+        await energy.charge_battery(session, constants, body, cell, 0.0004)
+    assert Decimal(pool.stored) == before
+
+
+async def test_the_pool_never_hands_out_energy_it_kept(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """A draw too thin to write is not a free draw, for the pool either.
+
+    `EnergyPool.stored` keeps a thousandth, and the taker is billed before the
+    row is written: a draw under half of that used to round back to the figure
+    the pool already held, so the energy was spent and the pool stayed full,
+    command after command.
+    """
+    capital, yard, identity, body = await _city(session)
+    pool = await energy.pool_of(session, constants, yard)
+    pool.stored = Decimal("100")
+    pool.counted_at = datetime.now(UTC)
+    await session.flush()
+    await session.refresh(pool)
+
+    before = Decimal(pool.stored)
+    draws, each = 20, 0.0004
+    for _ in range(draws):
+        energy.take_from_pool(pool, each)
+        await session.flush()
+        await session.refresh(pool)
+
+    #: The row actually moved: the pool paid for every draw it served.
+    assert Decimal(pool.stored) < before
+    #: And it never paid out more than a step per draw.
+    assert float(before - Decimal(pool.stored)) <= draws * 0.001
 
 
 async def test_a_stack_never_hands_out_charge_it_did_not_lose(

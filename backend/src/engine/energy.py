@@ -68,11 +68,47 @@ from src.models.world import Layer, Node
 from src.units import (
     ENERGY_PER_TARIFF_UNIT,
     HOURS_PER_DAY,
+    ROUND_ENERGY,
     SECONDS_PER_HOUR,
     amount,
     amount_float,
     money,
+    on_grid,
+    step,
 )
+
+#: The grid the pool's column keeps (`Numeric(14, 3)`).
+_STEP = step(ROUND_ENERGY)
+
+
+def pooled(value: float | Decimal) -> Decimal:
+    """An energy figure as the pool's column keeps it, never below nothing."""
+    return max(Decimal(0), on_grid(value, ROUND_ENERGY))
+
+
+def take_from_pool(pool: EnergyPool, wanted: float) -> float:
+    """Take energy off the pool, on the column's grid. Returns what left it.
+
+    The pool is stored to a thousandth, so a draw thinner than that has
+    nowhere to be written: the row would keep the energy while the taker was
+    already billed for it, and the next command would find the pool as full as
+    before. A positive draw therefore always moves the row by at least the
+    smallest step the column holds, so the row always answers for a draw it
+    served. The extra is the pool's loss: the caller bills what it asked for,
+    not what this returns, and no caller reads the return at all. Within one
+    step the two are not equal either way -- the subtraction rounds to the
+    nearest, so a draw can leave up to half a step in the row -- which is why
+    nothing downstream may turn this figure into hours, charge or coin.
+    """
+    if wanted <= 0:
+        return 0.0
+    was = pooled(pool.stored)
+    rest = pooled(Decimal(str(float(was) - wanted)))
+    if rest >= was:
+        rest = max(Decimal(0), was - _STEP)
+    pool.stored = rest
+    return float(was - rest)
+
 
 #: Thing classes from `build/recipes.json` (D-215). Behaviour binds to the
 #: class, never to the item name: a second windmill or a peat-fired plant is
@@ -266,7 +302,7 @@ async def produce(
     #: for whatever its people carried in.
     before = float(pool.stored)
     unpaid = max(0.0, relic_heat - relic)
-    pool.stored = Decimal(str(max(0.0, before + added - heat - unpaid)))
+    pool.stored = pooled(before + added - heat - unpaid)
     pool.counted_at = moment
     await session.flush()
     #: The **net** change, not the generation: a tick that reported the output
@@ -592,7 +628,7 @@ async def draw_for_work(
             memo={"энергии": energy_needed, "за": goods, "тариф": float(pool.tariff)},
         )
 
-    pool.stored = Decimal(str(float(pool.stored) - energy_needed))
+    take_from_pool(pool, energy_needed)
     await session.flush()
     await events.record(
         session,

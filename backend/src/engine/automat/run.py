@@ -259,7 +259,7 @@ async def _draw_energy(
             #: tick survives -- an unpaid factory is an obligation broken,
             #: not a worker crash.
             return 0.0
-    pool.stored = Decimal(str(float(pool.stored) - drawn))
+    energy.take_from_pool(pool, drawn)
     await session.flush()
     return worked
 

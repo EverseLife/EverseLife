@@ -492,7 +492,7 @@ async def _charge(
 
     await stock.consume(session, ingots, amount(iron_needed))
 
-    pool.stored = Decimal(str(float(pool.stored) - energy_needed))
+    energy.take_from_pool(pool, energy_needed)
     await session.flush()
     return price
 

@@ -162,6 +162,7 @@ battery-body-off-node = тело вне узла
 battery-not-here = аккумулятор не в руках и не стоит здесь
 battery-no-grid = здесь нет городской сети: вне города работают от аккумулятора, и заряжают его в городе
 battery-nothing-to-give = в пуле { NUMBER($have, minimumFractionDigits: 0, maximumFractionDigits: 0) } энергии, а в аккумуляторе места на { NUMBER($place, minimumFractionDigits: 0, maximumFractionDigits: 0) }
+battery-give-too-little = столько не перелить: энергия считается тысячными, и меньше { NUMBER($least, minimumFractionDigits: 3, maximumFractionDigits: 3) } не проходит
 
 # --- забой (engine/mining.py) ------------------------------------------------
 
