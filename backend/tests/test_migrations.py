@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import os
 import re
+from pathlib import Path
 
 import pytest
 from alembic.autogenerate import compare_metadata
@@ -72,6 +73,91 @@ async def test_schema_from_migrations_matches_models() -> None:
         + "; ".join(str(item) for item in diff)
         + ". Нужна миграция: `alembic revision --autogenerate`"
     )
+
+
+def test_a_law_choice_keeps_its_meaning_across_the_rename() -> None:
+    """The words a city had become the key the engine acted on, not the key
+    that looks like them.
+
+    `build_permit` and `body_print` were free text read by substring, and the
+    two read the **empty** value differently: an unset permit opened the ring,
+    an unset printer paid for nobody. The migration carries that difference,
+    so no city changes behaviour by being migrated -- which is the only thing
+    a rename of stored values owes anybody.
+    """
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "law_choices",
+        Path(__file__).resolve().parents[1]
+        / "migrations"
+        / "versions"
+        / "b4e91c07af52_law_choices_are_keys.py",
+    )
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    #: Left column: what the cities hold. Right: what the old reader did.
+    assert module._permit("") == "everyone", "an unset permit opened the ring"
+    assert module._print("") == "nobody", "an unset printer paid for nobody"
+    for said in ("никто", "Никто и никогда", "нет", "-"):
+        assert module._permit(said) == "nobody", said
+    for said in ("гражданам", "Гражданам города", "ГРАЖДАНЕ"):
+        assert module._permit(said) == "citizens", said
+        assert module._print(said) == "citizens", said
+    for said in ("всем", "кому угодно", "да"):
+        assert module._permit(said) == "everyone", said
+        assert module._print(said) == "everyone", said
+    #: A value already a key survives a second run untouched.
+    for said in ("nobody", "citizens", "everyone"):
+        assert module._permit(said) in {"nobody", "citizens", "everyone"}
+
+
+async def test_a_law_choice_is_rewritten_in_the_rows_themselves(
+    session: AsyncSession, catalog
+) -> None:
+    """And the walk over the table does it, not only the mapping beside it.
+
+    The clean-database run the house rule asks for proves the migration
+    *applies*; it cannot prove it rewrites anything, because a fresh database
+    has no cities. This puts two of them there with the words they used to
+    hold and reads the keys back out.
+    """
+    import importlib.util
+
+    from city_kit import _capital
+
+    spec = importlib.util.spec_from_file_location(
+        "law_choices_rows",
+        Path(__file__).resolve().parents[1]
+        / "migrations"
+        / "versions"
+        / "b4e91c07af52_law_choices_are_keys.py",
+    )
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    city, _ = await _capital(session, catalog)
+    city.laws = {"build_permit": "граждане", "body_print": "всем", "tax_trade": "7"}
+    await session.commit()
+
+    #: `op.get_bind()` wants an alembic context; the walk itself only wants a
+    #: connection, so it is handed one straight.
+    await session.run_sync(
+        lambda sync: module._rewrite(
+            {"build_permit": module._permit, "body_print": module._print},
+            bind=sync.connection(),
+        )
+    )
+    await session.commit()
+    await session.refresh(city)
+
+    assert city.laws["build_permit"] == "citizens"
+    assert city.laws["body_print"] == "everyone"
+    #: A law that is not a choice is not touched at all.
+    assert city.laws["tax_trade"] == "7"
 
 
 async def test_database_rules_in_place() -> None:

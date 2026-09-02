@@ -530,7 +530,7 @@ async def test_city_prints_at_own_expense_only_for_own(
     from src.engine import death
 
     city, core = await _capital(session, catalog)
-    city.laws = {**city.laws, "body_print": "гражданам"}
+    city.laws = {**city.laws, "body_print": town.CITIZENS}
     await session.flush()
 
     guest, _ = await _resident(session, core, "Гость")

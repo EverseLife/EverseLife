@@ -25,7 +25,7 @@ chronicle-city-founded = 🏛 **Основан город { $city }** — { $whe
 chronicle-city-law-set = 📐 { $city }: код-закон «{ $named ->
         [true] { LAW($law) }
        *[false] закон
-    }» — было { $was }, стало { $now }.
+    }» — было { CHOICE($was) }, стало { CHOICE($now) }.
 
 chronicle-city-charter-set = 📜 { $city }: устав — «{ $named ->
         [true] { $question }

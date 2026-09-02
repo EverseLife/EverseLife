@@ -89,6 +89,23 @@ def law_number(constants: Constants, catalog: Catalog, city: City | None, law_id
         return 0.0
 
 
+def said(catalog: Catalog, law_id: str, value: object) -> str:
+    """The value as a **message** should receive it: a key a locale can look up.
+
+    A law that is a choice stores a key, and a key in a sentence is the defect
+    this whole change was undoing -- «было nobody, стало citizens». The word
+    for it lives in the vault under `<law>.<option>`, so that is what travels;
+    `CHOICE()` turns it back into a word in the reader's language. A law that
+    is a number hands its number over unchanged, and the lookup misses it and
+    returns it as it is.
+    """
+    text = "" if value is None else str(value)
+    chosen = next((one for one in catalog.laws.code_laws if one.id == law_id), None)
+    if chosen is not None and chosen.has(text):
+        return f"{law_id}.{text}"
+    return text
+
+
 def shown(constants: Constants, catalog: Catalog, city: City, law_id: str) -> str | None:
     """The law's value as it is **read**: text, ready to be shown or recorded.
 
@@ -141,6 +158,13 @@ async def set_law(
     known = {law.id for law in catalog.laws.code_laws}
     if law_id not in known:
         raise CityError(key="city-no-such-law", law=law_id)
+    #: A law that is a choice takes its own keys and nothing else. The window
+    #: draws a picker, so this guards the wire (D-224): before the keys, an
+    #: unrecognised word fell through to "everyone" -- a typo opened the city's
+    #: land and nothing said so.
+    chosen = next((one for one in catalog.laws.code_laws if one.id == law_id), None)
+    if chosen is not None and chosen.options and not chosen.has(str(value)):
+        raise CityError(key="city-law-not-an-option", law=law_id, value=str(value))
     #: The right is narrow: the "minister of economy" edits duties and does not
     #: touch the tax (D-155). A `laws` holder is covered by the same check. The
     #: charter may add a council to the authority: "the council proposes laws"
@@ -202,10 +226,11 @@ async def apply_law(
         node_id=city.node_id,
         city_id=str(city.id),
         law=law_id,
-        #: What the rule **was** and **is**, both read the same way: the id
-        #: names the law, and the chronicle turns it into a word (`LAW()`).
-        was=before,
-        now=shown(constants, catalog, city, law_id),
+        #: What the rule **was** and **is**, both as a locale can say them:
+        #: the id names the law (`LAW()`), and a chosen value travels as
+        #: `<law>.<option>` for `CHOICE()`. A number goes as itself.
+        was=said(catalog, law_id, before),
+        now=said(catalog, law_id, shown(constants, catalog, city, law_id)),
     )
 
 
@@ -295,18 +320,26 @@ async def set_charter(
 TRADE_TAX = "tax_trade"
 
 
+#: The choices of `build_permit` and `body_print`. Both laws answer the same
+#: question -- whom does the city do this for -- so both spell it the same way.
+NOBODY, CITIZENS, EVERYONE = "nobody", "citizens", "everyone"
+
+
 def may_take_city_land(catalog: Catalog, city: City, citizen: bool) -> bool:
     """Whether this person may take civic plots (`build_permit`).
 
-    The law's value is the city's word, not an engine enumeration: options live
-    in the vault and grow without code changes (D-094), so what is written is
-    read.
+    The value is one of the law's own keys (D-094): the options live in the
+    vault and the engine compares ids. It used to be free text matched by
+    substring -- «гражд» meant citizens -- which no player of another language
+    could ever type, and which turned any unrecognised word into "everyone".
+
+    An unknown value is still "everyone", and deliberately: a city whose law
+    somebody wrote by hand into the database must not lock its own land, and
+    the vault's default (`citizens`) is what a city is founded with anyway.
     """
-    decision = str(law(catalog, city, "build_permit") or "").strip().lower()
-    if not decision:
-        return True
-    if decision.startswith("никто") or decision in ("нет", "-"):
+    decision = str(law(catalog, city, "build_permit") or "").strip()
+    if decision == NOBODY:
         return False
-    if "гражд" in decision:
+    if decision == CITIZENS:
         return citizen
     return True

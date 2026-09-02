@@ -128,6 +128,11 @@ NAME_DOMAINS: dict[str, tuple[str, ...]] = {
     #: because law ids are short and general -- `access`, `salary`, `toll` --
     #: and a table shared with goods would one day answer with the wrong one.
     "LAW": ("laws",),
+    #: The value a law that is a choice holds, by the composite key
+    #: `<law>.<option>`: `citizens` reads differently under different laws.
+    #: A value that is not a choice -- a rate, a sum -- is not in the table and
+    #: comes back as itself, which is exactly what a number wants.
+    "CHOICE": ("law_options",),
 }
 
 
