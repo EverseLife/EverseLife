@@ -43,9 +43,10 @@ class RenameTable(BaseModel):
     #: id and the reader sees the name -- in Discord, in the digest, in the panel.
     laws: dict[str, str] = Field(default_factory=dict)
     virtual_stations: dict[str, str] = Field(default_factory=dict)
-    #: Имя каждой вещи по языкам: домен -> id -> слово. Русский выведен
-    #: обращением карт выше (вольт пишется по-русски и id выведен из имени);
-    #: остальные приходят оверлеем по id (`data/locales/<язык>.yaml`).
+    #: Each thing's name per language: domain -> id -> word. Russian is derived
+    #: by inverting the maps above (the vault is written in Russian and the id
+    #: is derived from the name); the others arrive as an overlay by id
+    #: (`data/locales/<lang>.yaml`).
     names_ru: dict[str, dict[str, str]] = Field(default_factory=dict)
     names_en: dict[str, dict[str, str]] = Field(default_factory=dict)
 
@@ -72,7 +73,7 @@ class RenameTable(BaseModel):
             return found
         if name in self._goods_ids:
             return name
-        raise ConstantError(f"нет устойчивого ключа для имени {name!r} в renames.json")
+        raise ConstantError(f"no stable key for the name {name!r} in renames.json")
 
     _goods_ids: set[str] = PrivateAttr(default_factory=set)
 
@@ -93,7 +94,7 @@ class RenamesHolder:
     def current(self) -> RenameTable:
         current = self._current
         if current is None:
-            raise ConstantError("таблица устойчивых ключей не загружена: её ставит bootstrap")
+            raise ConstantError("the stable key table is not loaded: bootstrap installs it")
         return current
 
 
@@ -155,8 +156,8 @@ def load_renames(build_dir: Path) -> RenameTable:
     path = Path(build_dir) / "renames.json"
     if not path.exists():
         raise ConstantError(
-            f"не найден {path}: движок читает таблицу устойчивых ключей из слепка; "
-            "пересинхронизируй вольт (`python deploy/sync-vault.py`)"
+            f"{path} not found: the engine reads the stable key table from the "
+            "snapshot; resync the vault (`python deploy/sync-vault.py`)"
         )
     with path.open(encoding="utf-8") as fh:
         return RenameTable.model_validate(json.load(fh))

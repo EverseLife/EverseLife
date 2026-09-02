@@ -46,6 +46,7 @@ from src.models.city import (
 )
 from src.models.event import EventKind
 from src.models.identity import BodyState, Identity
+from src.models.net import NetChannel
 from src.models.world import Layer, Node
 from src.runtime import CITY_NAME_LIMIT
 
@@ -104,6 +105,7 @@ async def found(
     session.add(city)
     await session.flush()
     await _mark_gate(session, city, node)
+    await _open_channel(session, city)
 
     if founder is not None:
         await _office(
@@ -143,6 +145,26 @@ async def _mark_gate(session: AsyncSession, city: City, node: Node) -> None:
     if any((place.properties or {}).get(travel.EXIT) for place in ground):
         return
     await props.stamp(session, node, {travel.EXIT: True})
+
+
+async def _open_channel(session: AsyncSession, city: City) -> None:
+    """A founded city gets its official voice at once (D-222).
+
+    The Net used to open the channel on the first ask for it, and the first ask
+    is `look`: the unread count for the tab walks the reader's channels, so the
+    first citizen's first look at a young city wrote a row. A city's channel is
+    not a consequence of somebody reading; it is part of what a city is, like
+    the gate above.
+
+    Written from the model and not through `engine.net` on purpose. The Net
+    already names the city -- it asks who holds the `channel` power and who the
+    citizens are -- and a door back the other way would make `city <-> net` one
+    more mutual cycle of the kind wave 3 is spending itself on removing. Cities
+    founded before this are given theirs by migration `a1f7d3c58e26`.
+    """
+
+    session.add(NetChannel(name=city.name, city_id=city.id))
+    await session.flush()
 
 
 #: What a city cannot be without (D-023, D-159). The list is four roles, not

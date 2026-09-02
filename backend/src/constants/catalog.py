@@ -196,7 +196,7 @@ class RecipeBook(Strict):
         canonical = self.resolve(name)
         found = self._by_name.get(canonical)
         if found is None:
-            raise ConstantError(f"нет рецепта {name!r} в build/recipes.json")
+            raise ConstantError(f"no recipe {name!r} in build/recipes.json")
         return found
 
     def names(self) -> frozenset[str]:
@@ -219,7 +219,7 @@ class RecipeBook(Strict):
         """Labour hours in a unit -- the basis of the reference price and duty valuation."""
         canonical = self.resolve(name)
         if canonical not in self.labor_hours:
-            raise ConstantError(f"нет трудоёмкости {name!r} в build/recipes.json")
+            raise ConstantError(f"no labour hours for {name!r} in build/recipes.json")
         return self.labor_hours[canonical]
 
     def tools_of_class(self, tool_class: str) -> tuple[str, ...]:
@@ -395,7 +395,7 @@ class PlantCatalog(Strict):
         for plant in self.plants:
             if plant.id == plant_id:
                 return plant
-        raise ConstantError(f"нет культуры {plant_id!r} в build/plants.json")
+        raise ConstantError(f"no crop {plant_id!r} in build/plants.json")
 
     def by_seed(self, type_key: str) -> Plant | None:
         """The crop these seeds sow, or None if the goods are not a seed at all.
@@ -495,7 +495,7 @@ class CatalogHolder:
     def current(self) -> Catalog:
         current = self._current
         if current is None:
-            raise ConstantError("каталоги не загружены: движок обязан загрузить их при старте")
+            raise ConstantError("catalogs are not loaded: the engine must load them at startup")
         return current
 
     def is_loaded(self) -> bool:
@@ -512,7 +512,7 @@ def current_catalog() -> Catalog:
 def _read(build_dir: Path, name: str) -> Any:
     path = Path(build_dir) / name
     if not path.exists():
-        raise ConstantError(f"не найден {path}: собери вольт `python tools/build.py`")
+        raise ConstantError(f"{path} not found: build the vault with `python tools/build.py`")
     with path.open(encoding="utf-8") as fh:
         return json.load(fh)
 
@@ -534,7 +534,7 @@ def _domain_id(table: dict[str, str], kind: str):
             return found
         if name in ids:
             return name
-        raise ConstantError(f"нет устойчивого ключа ({kind}) для имени {name!r}")
+        raise ConstantError(f"no stable key ({kind}) for the name {name!r}")
 
     return translate
 
@@ -546,9 +546,9 @@ def _renamed_recipes(payload: dict, renames: RenameTable) -> dict:
     Russian names become ids. Past it the whole engine speaks ids -- which is
     why the translation is total and strict rather than best-effort.
     """
-    klass = _domain_id(renames.classes, "класс")
-    prop = _domain_id(renames.node_properties, "свойство узла")
-    slot = _domain_id(renames.slots, "слот")
+    klass = _domain_id(renames.classes, "class")
+    prop = _domain_id(renames.node_properties, "node property")
+    slot = _domain_id(renames.slots, "slot")
     #: The vault refers to things by synonyms too ("Печь" for the smelting
     #: furnace) -- a goods position resolves the synonym before the id.
     payload_synonyms: dict[str, str] = payload.get("synonyms") or {}
