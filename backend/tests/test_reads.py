@@ -21,8 +21,10 @@ import pytest
 from sqlalchemy import event, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from src.constants import current
 from src.engine import ledger, market, world
 from src.models.ledger import AccountKind
+from src.models.world import Layer
 
 
 async def test_reads_do_not_write(session: AsyncSession) -> None:
@@ -82,6 +84,64 @@ async def test_look_writes_nothing(
     assert await count(session) == before
 
 
+async def test_look_counts_the_polls_without_opening_an_account(
+    session: AsyncSession, factory: async_sessionmaker[AsyncSession], catalog
+) -> None:
+    """The counter on the Net tab asks the census, and the census is a read.
+
+    A city may set the property census (`vote_qualification`), and asking it
+    used to walk to `ledger.account_for`, which **creates** the account it does
+    not find. With the counter now on `look`, every read by a citizen of such
+    a city wrote a row -- and the older test above could not see it: its
+    identity has no citizenship, so the walk ended at the first query.
+    """
+    from sqlalchemy import func
+
+    from src.api.commands import look as api
+    from src.engine import city as town
+    from src.engine import net, vote
+    from src.models.city import Citizen
+    from src.models.ledger import LedgerAccount
+
+    stamp = uuid.uuid4().hex[:8]
+    planet = await world.create_node(
+        session, f"terra.{stamp}", "Терра", area_m2=1, layer=Layer.SPACE
+    )
+    delegate = await world.create_node(
+        session, f"terra.census.{stamp}", "Ценз", area_m2=1, layer=Layer.PLANET, parent=planet
+    )
+    core = await world.create_node(
+        session, f"terra.census.{stamp}.core", "Ядро", area_m2=100, parent=delegate
+    )
+    city = await town.found(session, catalog, delegate, "Ценз")
+    core.owner_city_id = city.id
+    yard = await world.node_container(session, core)
+    await world.grant_item(session, yard, town.HALL, quality=65, origin="тест")
+    city.charter = {**city.charter, vote.QUALIFICATION: vote.PROPERTY}
+    city.charter_params = {vote.QUALIFICATION: 1}
+    await session.flush()
+
+    identity = await world.create_identity(session, f"Гражданин-{stamp}")
+    await world.print_body(session, identity, core)
+    session.add(Citizen(identity_id=identity.id, city_id=city.id))
+    await session.flush()
+    await vote.open_law(session, current(), city, identity, "tax_trade", "4")
+    #: The city's channel is made here rather than left to the read, and that
+    #: is not tidiness: `net.channels` **creates** it when it does not find
+    #: one, so the very first look of the very first citizen of a city writes
+    #: a row. Older than this counter and not its doing -- a leak of the same
+    #: family, written down where it was found rather than fixed in passing.
+    await net.city_channel(session, city)
+    await session.commit()
+
+    before = await session.scalar(select(func.count()).select_from(LedgerAccount))
+    async with factory() as db, db.begin(), _writes_forbidden(db):
+        seen = await api._look({"identity_id": identity.id}, db, {"cmd": "look"})
+    #: No property, no voice -- and no account opened to find that out.
+    assert seen["look"]["net_votes"] == 0
+    assert await session.scalar(select(func.count()).select_from(LedgerAccount)) == before
+
+
 async def test_look_gives_the_city_no_channel(
     session: AsyncSession, factory: async_sessionmaker[AsyncSession], constants, catalog
 ) -> None:
@@ -102,7 +162,6 @@ async def test_look_gives_the_city_no_channel(
     from src.engine import city as town
     from src.engine import net
     from src.models.net import NetChannel
-    from src.models.world import Layer
 
     stamp = uuid.uuid4().hex[:8]
     planet = await world.create_node(

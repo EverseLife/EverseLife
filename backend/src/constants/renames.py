@@ -39,6 +39,9 @@ class RenameTable(BaseModel):
     #: Crop cultures (D-057): «Полба» -> `spelt`. Their own domain -- a culture
     #: and its produce are different things with different names.
     plants: dict[str, str] = Field(default_factory=dict)
+    #: Code-laws (D-094): «Налог с продажи» -> `tax_trade`. The wire carries the
+    #: id and the reader sees the name -- in Discord, in the digest, in the panel.
+    laws: dict[str, str] = Field(default_factory=dict)
     virtual_stations: dict[str, str] = Field(default_factory=dict)
     #: Имя каждой вещи по языкам: домен -> id -> слово. Русский выведен
     #: обращением карт выше (вольт пишется по-русски и id выведен из имени);
@@ -120,6 +123,10 @@ NAME_DOMAINS: dict[str, tuple[str, ...]] = {
     #: Not `PLANT`, which reads as `PLANET` at a glance in a message file.
     #: A culture is not its produce: «Полба» is sown, «Зерно» is harvested.
     "CULTURE": ("plants",),
+    #: A code-law by its id: `tax_trade` -> «Налог с продажи». Its own domain
+    #: because law ids are short and general -- `access`, `salary`, `toll` --
+    #: and a table shared with goods would one day answer with the wrong one.
+    "LAW": ("laws",),
 }
 
 

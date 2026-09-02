@@ -246,6 +246,23 @@ async def test_every_line_the_chronicle_may_write_says_something(
     assert "за 0" in told[3], f"ноль голосов пропал из счёта: {told[3]}"
 
 
+async def test_a_changed_law_is_named_rather_than_keyed(
+    session: AsyncSession, catalog: Catalog
+) -> None:
+    """The channel is told which law moved, in words, and from what to what.
+
+    The payload carries the D-251 id and the line used to print it raw --
+    «код-закон «tax_trade» — было —, стало 1» -- naming nothing and hiding
+    the rule that had been in force all along. The name comes from the vault's
+    table (`LAW()`), and both values are the rule on either side of the change.
+    """
+    event = await events.record(session, EventKind.CITY_LAW_SET, law="tax_trade", was="3", now="1")
+    line = (await chronicle.compose(session, [event]))[0]
+    assert "tax_trade" not in line, f"the key reached the channel: {line}"
+    assert "Налог с продажи" in line, f"the law is not named: {line}"
+    assert "было 3, стало 1" in line, f"the change is not said: {line}"
+
+
 async def test_a_name_with_discord_markup_in_it_stays_text(
     session: AsyncSession, catalog: Catalog
 ) -> None:

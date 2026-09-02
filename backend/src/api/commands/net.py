@@ -21,6 +21,7 @@ from src.constants import current
 from src.engine import (
     chat,
     net,
+    vote,
 )
 from src.models.chat import Utterance
 
@@ -97,9 +98,20 @@ async def _chat_leave(state: dict, db: AsyncSession, message: dict) -> dict:
 
 @command("net.threads")
 async def _net_threads(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Correspondence and channels: the sidebar's "Net" tab in one reading."""
+    """Correspondence, channels and open polls: the "Net" tab in one reading.
+
+    A poll is here because a vote is remote (D-161): the tab is where what
+    reaches a person from afar arrives, and a ballot box that could only be
+    found by walking into the town hall was reachable exactly by the people
+    who least needed telling. The city's own affairs, wherever one stands.
+    """
     me = await _identity(state, db)
+    #: The city comes back beside the polls and is dropped here: the client
+    #: knows its own city from `look`, and one citizenship to a person means
+    #: the same word on every row (D-225).
+    _, polls = await vote.mine(db, me.id)
     return {
+        "votes": polls,
         "threads": [
             {
                 "id": view.id,

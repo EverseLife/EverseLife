@@ -116,6 +116,11 @@ TOUCHES_BY_KIND: dict[str, tuple[str, ...]] = {
     "alpha.energized": ("node",),
     "body.printed": ("body", "node", "inventory"),
     "body.died": ("body", "node", "inventory"),
+    #: A code-law can move a number the node view shows -- the tariff lives in
+    #: the pool and is read from there (D-085). On the ruler's road the client
+    #: rereads after its own command anyway; a law passed by a vote is nobody's
+    #: command, and the tariff on the screen stayed at yesterday's figure.
+    "city.law_set": ("city", "node"),
 }
 
 #: What everybody standing in the node sees happen there, by prefix or kind.

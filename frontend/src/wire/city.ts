@@ -17,9 +17,13 @@
  * (D-183).
  */
 
-/** The city's code-law in force: its own decision or the vault default (D-130). */
+/**
+ * A code-law as it stands in the city: the value in force and where it came
+ * from. No name: the law is known by its D-251 id, and the word for it lives
+ * in the names table in every language (`lawName`). A copy on the wire would
+ * be a second list of the same words, and those drift (D-225).
+ */
 export type Law = {
-  name: string;
   unit?: string;
   note?: string;
   value?: string;
