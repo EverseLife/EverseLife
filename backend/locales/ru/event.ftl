@@ -49,7 +49,7 @@ event-plates-erupted = землетрясение
 # на котором читают, а не тем, что случайно лежит в базе.
 
 attention-case = против вас иск: { $claim }
-attention-vote-law = голосование: { $law }
+attention-vote-law = голосование: { LAW($law) }
 attention-vote-kind = голосование: { $kind ->
         [election] выборы правителя
         [recall] отзыв правителя

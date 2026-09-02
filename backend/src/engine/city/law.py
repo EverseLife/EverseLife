@@ -23,6 +23,7 @@ waiting for wave 3 of the review.
 
 from __future__ import annotations
 
+import json
 from decimal import Decimal
 
 from sqlalchemy import select
@@ -88,6 +89,35 @@ def law_number(constants: Constants, catalog: Catalog, city: City | None, law_id
         return 0.0
 
 
+def shown(constants: Constants, catalog: Catalog, city: City, law_id: str) -> str | None:
+    """The law's value as it is **read**: text, ready to be shown or recorded.
+
+    The rule in force, own or default, with a vault reference expanded into
+    the number it stands for -- a player must see the tariff, not
+    `` `energy.tariff_default` ``. Two callers and one answer: the city panel
+    draws it, and the event of a change records what it was before, so a
+    chronicle line saying «было 3, стало 1» tells the truth about the rule
+    rather than about the column.
+    """
+    raw = law(catalog, city, law_id)
+    if raw is None:
+        return None
+    if isinstance(raw, (dict, list)):
+        #: A composite law (duty) goes to the client as is: showing it as a
+        #: string would force the client to parse it back.
+        return json.dumps(raw, ensure_ascii=False)
+    text = str(raw).strip()
+    if text.startswith("`") and text.endswith("`"):
+        return _plain(law_number(constants, catalog, city, law_id))
+    return text
+
+
+def _plain(value: float) -> str:
+    """A number without trailing zeros: tariff "5", not "5.0"."""
+    whole = int(value)
+    return str(whole) if value == whole else str(value)
+
+
 async def set_law(
     session: AsyncSession,
     constants: Constants,
@@ -132,10 +162,34 @@ async def set_law(
         await ballots.open_law(session, constants, city, by, law_id, value)
         return city
 
-    laws = dict(city.laws or {})
-    before = laws.get(law_id)
-    laws[law_id] = value
-    city.laws = laws
+    await apply_law(session, constants, catalog, city, law_id, value, by=by)
+    return city
+
+
+async def apply_law(
+    session: AsyncSession,
+    constants: Constants,
+    catalog: Catalog,
+    city: City,
+    law_id: str,
+    value,
+    *,
+    by: Identity | None = None,
+) -> None:
+    """Write a decided law into the city, carry it through and announce it.
+
+    One step for both roads to the same decision: the authority's own
+    (`set_law`) and the citizens' (`vote.close`). What follows the writing is
+    not the writing -- the tariff has to reach the meter, and the world has to
+    be told what changed -- and a second copy of that on the second road went
+    stale on the day it was written: a tariff voted through by the citizens
+    never reached the pool, and no chronicle line said the law had moved.
+
+    `by` is whoever decided alone; a poll passes with nobody in that place --
+    the decision is the city's, not the proposer's.
+    """
+    before = shown(constants, catalog, city, law_id)
+    city.laws = {**(city.laws or {}), law_id: value}
     await session.flush()
 
     if law_id == "energy_tariff":
@@ -144,14 +198,15 @@ async def set_law(
     await events.record(
         session,
         EventKind.CITY_LAW_SET,
-        actor_identity_id=by.id,
+        actor_identity_id=None if by is None else by.id,
         node_id=city.node_id,
         city_id=str(city.id),
         law=law_id,
+        #: What the rule **was** and **is**, both read the same way: the id
+        #: names the law, and the chronicle turns it into a word (`LAW()`).
         was=before,
-        now=value,
+        now=shown(constants, catalog, city, law_id),
     )
-    return city
 
 
 async def _apply_tariff(

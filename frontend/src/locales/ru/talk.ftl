@@ -93,6 +93,7 @@ ui-profile-write = Написать сообщение
 
 ## Сеть (D-044, D-069, D-222): список переписок и каналов.
 
+ui-net-votes = Голосования
 ui-net-write = Написать
 ui-net-channels = Каналы
 ui-net-threads = Переписка

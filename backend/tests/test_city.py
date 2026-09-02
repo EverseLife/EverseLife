@@ -14,6 +14,7 @@ from __future__ import annotations
 import uuid
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from city_kit import _capital, _resident
@@ -21,6 +22,7 @@ from src.constants import Catalog, Constants
 from src.engine import city as town
 from src.engine import energy, ledger, world
 from src.models.city import Power
+from src.models.event import Event, EventKind
 from src.models.ledger import AccountKind
 from src.units import money
 
@@ -110,6 +112,40 @@ async def test_city_decision_beats_default(
     await town.set_law(session, constants, catalog, president, city, "tax_trade", "11", body=body)
     assert town.law(catalog, city, "tax_trade") == "11"
     assert town.law_number(constants, catalog, city, "tax_trade") == 11
+
+
+async def test_a_law_change_records_the_rule_that_was_in_force(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """«Было» is the rule, not the column it was written in.
+
+    A law the city had never touched sat in nobody's column while the world
+    charged the vault's default, and the announcement of the change read
+    «было —»: true about the row, false about the world. What is recorded is
+    what was being charged before and what is charged now.
+    """
+    city, core = await _capital(session, catalog)
+    president, body = await _resident(session, core, "Президент")
+    await town.install_founder(session, city, president)
+    assert not (city.laws or {}).get("tax_trade"), "the city has not decided this law yet"
+
+    await town.set_law(session, constants, catalog, president, city, "tax_trade", "1", body=body)
+
+    written = (
+        (
+            await session.execute(
+                select(Event)
+                .where(Event.kind == EventKind.CITY_LAW_SET.value)
+                .order_by(Event.at.desc())
+            )
+        )
+        .scalars()
+        .first()
+    )
+    assert written is not None
+    assert written.payload["law"] == "tax_trade"
+    assert written.payload["was"] == catalog.laws.code_law_defaults()["tax_trade"]
+    assert written.payload["now"] == "1"
 
 
 async def test_tariff_reaches_pool(

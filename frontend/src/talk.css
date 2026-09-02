@@ -116,6 +116,27 @@
   background: var(--base-850);
   color: var(--base-50);
 }
+/* A poll is not a link into a screen but the screen itself: the row holds the
+   ballot, so it is a block with buttons rather than a button. */
+.net-poll {
+  gap: 0.3rem;
+  cursor: default;
+}
+.net-poll:hover {
+  background: transparent;
+  color: var(--base-200);
+}
+.net-poll .row {
+  align-items: center;
+  gap: 0.35rem;
+}
+/* The count is the whole line here, not a preview of one: cut short by the
+   ellipsis a thread's first words can spare, «за 0 · против 0 · из 2» loses
+   the part that matters. In a column this narrow it wraps instead. */
+.net-poll .net-preview {
+  white-space: normal;
+  overflow: visible;
+}
 .net-head {
   display: flex;
   align-items: baseline;

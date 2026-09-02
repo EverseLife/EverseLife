@@ -17,13 +17,15 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import city as town
-from src.engine import ledger, vote, world
+from src.engine import energy, ledger, vote, world
 from src.models.city import Citizen
+from src.models.event import Event, EventKind
 from src.models.ledger import AccountKind, PostingReason
 from src.models.vote import Vote, VoteKind, VoteState
 from src.models.world import Layer
@@ -182,6 +184,42 @@ async def test_result_applied_itself_on_term(
     assert (city.laws or {}).get(LAW) == VALUE, "закон принят сам"
 
 
+async def test_a_passed_law_is_carried_through_and_announced(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The citizens' road ends where the ruler's own does: in the world.
+
+    Closing a poll used to write the value into `city.laws` and stop there --
+    so a tariff decided by the city never reached the meter that charges by
+    it, and nothing said the law had moved. Both roads take the same step now.
+    """
+    city, core, ruler, body = await _city(session, catalog)
+    pool = await energy.pool_of(session, constants, core)
+    assert pool is not None
+
+    await town.set_law(session, constants, catalog, ruler, city, "energy_tariff", "9", body=body)
+    (poll,) = await vote.open_votes(session, city)
+    supporter, _ = await _resident(session, core, city, "Сторонник")
+    await vote.cast(session, city, ruler, poll, True)
+    await vote.cast(session, city, supporter, poll, True)
+
+    await _bring(session, poll)
+    assert poll.state is VoteState.PASSED
+    await session.refresh(pool)
+    assert float(pool.tariff) == 9, "the city decided the tariff and the meter never heard"
+
+    told = (
+        (await session.execute(select(Event).where(Event.kind == EventKind.CITY_LAW_SET.value)))
+        .scalars()
+        .all()
+    )
+    assert len(told) == 1, "a law changed by the city was announced once"
+    assert told[0].payload["law"] == "energy_tariff"
+    assert told[0].payload["now"] == "9"
+    #: Nobody decided alone: the proposer convened, the citizens decided.
+    assert told[0].actor_identity_id is None
+
+
 async def test_no_majority_law_fails(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
@@ -330,14 +368,14 @@ async def test_the_view_names_the_asker_among_the_candidates(
     await vote.nominate(session, city, ruler, election)
     await vote.nominate(session, city, rival, election)
 
-    seen = await vote.view(session, catalog, city, ruler.id)
+    seen = await vote.view(session, city, ruler.id)
     (poll,) = [one for one in seen if one["id"] == str(election.id)]
     assert {one["name"]: one["own"] for one in poll["candidates"]} == {
         ruler.name: True,
         rival.name: False,
     }
     #: And from the other side of the same election.
-    seen = await vote.view(session, catalog, city, rival.id)
+    seen = await vote.view(session, city, rival.id)
     (poll,) = [one for one in seen if one["id"] == str(election.id)]
     assert {one["name"]: one["own"] for one in poll["candidates"]} == {
         ruler.name: False,

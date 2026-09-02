@@ -14,7 +14,7 @@
 import * as api from "../api";
 import { useNames } from "../actions";
 import { t } from "../locale";
-import { goodsName } from "../names";
+import { goodsName, lawName } from "../names";
 import { Panel } from "./admin/Panel";
 import { Rule } from "../Rule";
 import type { StateView } from "./State";
@@ -79,7 +79,7 @@ export function Economy({ view }: { view: StateView }) {
             .filter(([, law]) => law.value && law.value !== "нет")
             .map(([key, law]) => (
               <tr key={key}>
-                <td title={law.note ?? ""}>{law.name}</td>
+                <td title={law.note ?? ""}>{lawName(names, key)}</td>
                 <td className="num">
                   <b>{law.value}</b>
                   {law.unit && <span className="note"> {law.unit}</span>}

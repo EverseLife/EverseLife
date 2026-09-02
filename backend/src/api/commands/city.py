@@ -36,7 +36,7 @@ from src.models.emission import EmissionState
 from src.models.identity import Identity
 from src.models.justice import Case
 from src.models.vote import Vote
-from src.models.world import Node
+from src.models.world import PLOT, Node
 
 
 @command("city.found")
@@ -141,17 +141,44 @@ async def _city_citizens(state: dict, db: AsyncSession, message: dict) -> dict:
 async def _city_votes(state: dict, db: AsyncSession, message: dict) -> dict:
     """Ongoing city polls. Remote: can be viewed from anywhere."""
     city = await _city(state, db, message)
-    return {"votes": await vote.view(db, current_catalog(), city, state["identity_id"])}
+    return {"votes": await vote.view(db, city, state["identity_id"])}
+
+
+async def _poll(db: AsyncSession, message: dict):
+    """The poll the message names, and the city whose poll it is.
+
+    The city comes from the **ballot**, not from the ground under the voter:
+    a vote is cast from the road, from the mine and from another planet
+    (D-161), and reading the city off the body refused whoever was standing
+    in none -- and would have answered the wrong city's poll for whoever was
+    standing in somebody else's. Whether this person has a voice in this poll
+    is the engine's own check (`may_vote_in`), and it is the one that matters.
+
+    **No living body is asked for**, and that is the point rather than an
+    oversight: the electorate is captured at convening from the citizens
+    (D-160), the dead among them included, so a body waiting to be printed
+    that could not answer would be a voice counted into the quorum and unable
+    to reach it. An identity in the cloud still holds its account and its
+    citizenship (D-012); what it cannot do is anything by hand, and a ballot
+    is not by hand.
+
+    Locked: `nominate` reads the candidate list, adds a name and writes the
+    whole list back, so two people standing at once lost one of themselves.
+    """
+    poll = await db.get(Vote, uuid.UUID(str(message["vote"])), with_for_update=True)
+    if poll is None:
+        raise Refused(key="cmd-no-such-vote")
+    city = await town.by_id(db, poll.city_id)
+    if city is None:  # pragma: no cover -- a poll of a city that is gone
+        raise Refused(key="cmd-no-such-vote")
+    return poll, city
 
 
 @command("city.vote")
 async def _city_vote(state: dict, db: AsyncSession, message: dict) -> dict:
     """Vote. A vote is participation, not governing: cast over the Net (D-161)."""
     identity = await _identity(state, db)
-    city = await _city(state, db, message)
-    poll = await db.get(Vote, uuid.UUID(message["vote"]))
-    if poll is None or poll.city_id != city.id:
-        raise Refused(key="cmd-no-such-vote")
+    poll, city = await _poll(db, message)
     await vote.cast(db, city, identity, poll, bool(message.get("yes")))
     pro, contra = await vote.standing(db, poll)
     return {"yes": pro, "no": contra}
@@ -179,10 +206,7 @@ async def _city_recall(state: dict, db: AsyncSession, message: dict) -> dict:
 async def _city_nominate(state: dict, db: AsyncSession, message: dict) -> dict:
     """Nominate yourself for ruler. Yourself, not on somebody's proposal."""
     identity = await _identity(state, db)
-    city = await _city(state, db, message)
-    poll = await db.get(Vote, uuid.UUID(message["vote"]))
-    if poll is None or poll.city_id != city.id:
-        raise Refused(key="cmd-no-such-vote")
+    poll, city = await _poll(db, message)
     await vote.nominate(db, city, identity, poll)
     return {"nominated": identity.name}
 
@@ -191,10 +215,7 @@ async def _city_nominate(state: dict, db: AsyncSession, message: dict) -> dict:
 async def _city_choose(state: dict, db: AsyncSession, message: dict) -> dict:
     """Cast a vote for a candidate in the election."""
     identity = await _identity(state, db)
-    city = await _city(state, db, message)
-    poll = await db.get(Vote, uuid.UUID(message["vote"]))
-    if poll is None or poll.city_id != city.id:
-        raise Refused(key="cmd-no-such-vote")
+    poll, city = await _poll(db, message)
     candidate = await db.get(Identity, uuid.UUID(message["candidate"]))
     if candidate is None:
         raise Refused(key="cmd-no-such-identity")
@@ -355,10 +376,10 @@ async def _city_survey(state: dict, db: AsyncSession, message: dict) -> dict:
             "name": node.name,
             "area": float(node.area_m2),
             "owner": None if node.owner_identity_id is None else str(node.owner_identity_id),
-            "free": node.owner_identity_id is None and bool(node.properties.get("plot")),
+            "free": node.owner_identity_id is None and bool(node.properties.get(PLOT)),
         }
         for node in plots
-        if node.properties.get("plot")
+        if node.properties.get(PLOT)
     ]
     summary["citizens"] = await _citizens(db)
     #: The mint (D-270): the flag and the counter travel only with the capital

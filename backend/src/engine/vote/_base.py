@@ -89,7 +89,13 @@ async def may_vote(
         term = timedelta(days=param(city, QUALIFICATION))
         return entry.since + term <= moment
     if census == PROPERTY:
-        account = await ledger.account_for(session, AccountKind.IDENTITY, identity_id)
+        #: `find_account`, not `account_for`: this is a **read** -- the digest
+        #: and the Net tab ask it on every look -- and `account_for` creates
+        #: the row it does not find. No account means nothing was ever posted,
+        #: which is a balance of zero and an honest answer to the census.
+        account = await ledger.find_account(session, AccountKind.IDENTITY, identity_id)
+        if account is None:
+            return money(param(city, QUALIFICATION)) <= 0
         return await ledger.balance(session, account.id) >= money(param(city, QUALIFICATION))
     #: The treasury-contribution census is not enforced: contribution is not
     #: tracked (D-161). Such a city votes with all citizens rather than locking up.

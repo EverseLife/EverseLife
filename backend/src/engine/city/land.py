@@ -8,8 +8,6 @@ Split out of `engine/city.py` along its sections (review 2026-08-23, wave 3).
 
 from __future__ import annotations
 
-import json
-
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,7 +16,7 @@ from src.constants import registry as R
 from src.engine import energy, estate, events, travel, utility, world
 from src.engine.city._base import CityError, NoCity, NotYours
 from src.engine.city.hall import require_at_hall
-from src.engine.city.law import law, law_number
+from src.engine.city.law import shown
 from src.engine.city.lookup import by_id, territory
 from src.engine.city.office import offices, require
 from src.engine.city.treasury import treasury_balance
@@ -29,7 +27,7 @@ from src.models.city import (
 from src.models.estate import Deed
 from src.models.event import EventKind
 from src.models.identity import BodyState, Identity
-from src.models.world import Node, NodePass
+from src.models.world import PLOT, Node, NodePass
 from src.units import ENERGY_PER_TARIFF_UNIT, money, money_str
 
 
@@ -48,11 +46,22 @@ async def allot(
     rings is answered by the code-law `build_permit`. The engine checks the
     `land` right: allotting land is a separate decision, neither lawmaking nor
     treasury spending (D-155).
+
+    What is given out is a **plot**. The city's own locations are not land in
+    the queue: a location the city works from is nobody's private yard, and
+    entering it is not for one holder to allow (D-199).
     """
     await require_at_hall(session, body, city)
     await require(session, by.id, city, Power.LAND)
     if node.owner_city_id != city.id:
         raise CityError(key="city-land-not-civic")
+    #: A plot, and not simply a node the city owns: the core with the printer,
+    #: the market, the administration, the gate are the city's own places, and
+    #: the city does not hand **itself** out. The window has always listed only
+    #: marked plots as free -- the wire had no such rule, and one command with
+    #: another node's key turned the capital's centre into somebody's yard.
+    if not (node.properties or {}).get(PLOT):
+        raise CityError(key="city-land-not-a-plot", node=node.name)
     if node.owner_identity_id is not None:
         raise CityError(key="city-land-taken")
 
@@ -227,41 +236,24 @@ async def survey(session: AsyncSession, constants: Constants, catalog: Catalog, 
         #: Laws are given out **as in force**: the own decision or the vault
         #: default. The client need not know where the value came from -- it
         #: needs to know which rule it lives by.
+        #:
+        #: Keyed by id and **without the name**: the word for a law lives in
+        #: the names table the client already holds, in every language
+        #: (`lawName`), so a copy here would be a second list of the same
+        #: words -- and those drift (D-225).
         "laws": {
             law.id: {
-                "name": law.name,
                 "unit": law.unit,
                 "note": law.note,
                 #: A default like `` `energy.tariff_default` `` expands into a
                 #: number: the player must see the rate in force, not a
                 #: reference to a vault constant.
-                "value": _shown(constants, catalog, city, law.id),
+                "value": shown(constants, catalog, city, law.id),
                 "own": law.id in (city.laws or {}),
             }
             for law in catalog.laws.code_laws
         },
     }
-
-
-def _shown(constants: Constants, catalog: Catalog, city: City, law_id: str) -> str | None:
-    raw = law(catalog, city, law_id)
-    if raw is None:
-        return None
-    if isinstance(raw, (dict, list)):
-        #: A composite law (duty) goes to the client as is: showing it as a
-        #: string would force the client to parse it back.
-
-        return json.dumps(raw, ensure_ascii=False)
-    text = str(raw).strip()
-    if text.startswith("`") and text.endswith("`"):
-        return _plain(law_number(constants, catalog, city, law_id))
-    return text
-
-
-def _plain(value: float) -> str:
-    """A number without trailing zeros: tariff "5", not "5.0"."""
-    whole = int(value)
-    return str(whole) if value == whole else str(value)
 
 
 async def _retire_deed(
