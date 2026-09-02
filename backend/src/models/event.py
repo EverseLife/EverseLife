@@ -159,7 +159,7 @@ class EventKind(StrEnum):
     #: moment the meter for it is charged to the treasury, not to a person.
     LAND_CEDED = "land.ceded"
     #: A city location taken back from a private title it should never have
-    #: had (D-281): the holder did not choose this, so they are told by name.
+    #: had (D-282): the holder did not choose this, so they are told by name.
     LAND_RECLAIMED = "land.reclaimed"
     #: A deed for a plot: issued, listed, sold (D-116).
     DEED_ISSUED = "deed.issued"

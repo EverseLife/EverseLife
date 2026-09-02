@@ -49,7 +49,7 @@ async def allot(
 
     What is given out is a **plot**. The city's own locations are not land in
     the queue: a location the city works from is nobody's private yard, and
-    entering it is not for one holder to allow (D-199, D-281).
+    entering it is not for one holder to allow (D-199, D-282).
     """
     await require_at_hall(session, body, city)
     await require(session, by.id, city, Power.LAND)
@@ -142,7 +142,7 @@ async def cede(session: AsyncSession, body, node: Node) -> City:
 
 
 def _handed_out_by_mistake(node: Node, city: City) -> bool:
-    """A city location standing in somebody's name -- the state D-281 forbids.
+    """A city location standing in somebody's name -- the state D-282 forbids.
 
     A floor is never it on its own: it is held by whoever holds the ground
     under it (D-247), and the floors go with the plot in `hand_over`.

@@ -239,7 +239,7 @@ async def test_purchase_pays_treasury_and_issues_deed(
 async def test_the_city_does_not_sell_its_own_location(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """A city location is not on the price list, empty or not (D-281).
+    """A city location is not on the price list, empty or not (D-282).
 
     The other door into the same defect the allotment had: buying asked that
     the node be the city's and free, and the city's own core answers both.

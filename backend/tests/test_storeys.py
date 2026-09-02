@@ -296,7 +296,7 @@ async def test_the_window_upstairs_says_which_floor_it_is(
 async def test_the_window_offers_no_door_on_a_city_location(
     session: AsyncSession, constants: Constants
 ) -> None:
-    """A gate switch whose every button refuses is worse than none (D-281).
+    """A gate switch whose every button refuses is worse than none (D-282).
 
     Whether a location has a door is the engine's question, and the window used
     to answer half of it on its own -- "is it mine and is it ground". On a city

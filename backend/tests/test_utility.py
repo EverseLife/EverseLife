@@ -47,7 +47,7 @@ async def _city(session: AsyncSession, catalog: Catalog):
         parent=planet,
     )
     #: A plot, and marked as one: the door belongs to a plot the authority
-    #: hands out, not to every node a city owns (D-199, D-281).
+    #: hands out, not to every node a city owns (D-199, D-282).
     home = await world.create_node(
         session,
         f"terra.city.{stamp}.home",
@@ -395,7 +395,7 @@ async def test_cede_refuses_a_deed_on_the_market(
 async def test_a_reclaimed_location_is_not_left_cut_off(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """A location taken back comes back alive, debt and cut-off cleared (D-281).
+    """A location taken back comes back alive, debt and cut-off cleared (D-282).
 
     `cede` may refuse a debtor -- the holder settles up and gives the plot back
     afterwards. The city taking its own location back cannot refuse: it is

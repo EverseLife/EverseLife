@@ -245,7 +245,7 @@ def own_plot(session: AsyncSession):
 
     And marked as a plot, which is what the fixture's name has always claimed:
     a city hands out plots, never its own locations, and only a plot has a door
-    (D-281).
+    (D-282).
     """
     import uuid
 

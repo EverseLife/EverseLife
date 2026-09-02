@@ -54,7 +54,7 @@ async def issue_deed(
 
 
 async def _a_plot_and_not_the_city(session: AsyncSession, deed: Deed) -> None:
-    """A city location is not sold on by the person it was handed to (D-281).
+    """A city location is not sold on by the person it was handed to (D-282).
 
     The third door into private title over the city's own centre, and the one
     that costs real money: title travels with the deed, so a deed written for

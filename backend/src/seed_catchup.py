@@ -287,7 +287,7 @@ async def catch_up(session: AsyncSession, core: Node) -> None:
     #: servers replaying one world lay the same ground (D-007).
     await _soil(session, constants, scenario)
 
-    #: City locations handed out as if they were plots (D-281). The allotment
+    #: City locations handed out as if they were plots (D-282). The allotment
     #: asked only whether the node was the city's and free, and the capital's
     #: core answers both -- so a signature at the town hall could turn the
     #: centre of the city into somebody's yard, and a yard has a door. The
@@ -384,7 +384,7 @@ async def _accounts_catch_up(session: AsyncSession) -> None:
 
 
 async def _return_city_locations(session: AsyncSession) -> None:
-    """Give the city back its own locations (D-281).
+    """Give the city back its own locations (D-282).
 
     Only what is not a plot: an allotted or bought plot is its holder's, door
     and all, and nothing here touches it. What comes back is the core, the

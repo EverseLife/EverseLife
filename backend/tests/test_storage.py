@@ -37,7 +37,7 @@ async def _yard(session: AsyncSession):
     never privatized (D-198), and there both floor and chest are open to all --
     which is exactly what these tests must not be checking. Marked as a plot,
     because the door belongs to a plot and not to every node a city owns
-    (D-199, D-281): a city's own location lets everybody in.
+    (D-199, D-282): a city's own location lets everybody in.
     """
     stamp = uuid.uuid4().hex[:8]
     node = await world.create_node(

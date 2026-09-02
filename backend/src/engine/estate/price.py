@@ -404,7 +404,7 @@ async def buy(
         raise NotForSale(key="estate-land-taken")
     if node.owner_city_id is None:
         raise NotForSale(key="estate-land-not-civic")
-    #: A plot, and not simply a node the city owns (D-281). `is_vacant` below
+    #: A plot, and not simply a node the city owns (D-282). `is_vacant` below
     #: asks about machines, veins and the gate, not about plot-ness -- so a
     #: city location whose machines were taken down or whose vein ran out
     #: became buyable, and the city sold its own centre for coin. The same

@@ -904,7 +904,7 @@ async def test_two_fertilizings_of_one_strip_both_land(
 
 
 async def _a_city_location(session: AsyncSession, holder_name: str):
-    """A city's own location standing in somebody's name: the state D-281 undoes.
+    """A city's own location standing in somebody's name: the state D-282 undoes.
 
     Not a plot -- no `plot` mark on it -- and that is the whole point: this is
     the core the city works from, handed out by an allotment that asked too
@@ -946,7 +946,7 @@ async def test_the_buyer_never_pays_for_a_location_the_city_takes_back(
 
     **The two never meet, and that is the answer rather than an ordering.**
     There is no window to widen here: `buy_deed` refuses a paper written for a
-    city location before it looks at anybody's purse (D-281), so whichever
+    city location before it looks at anybody's purse (D-282), so whichever
     coroutine wins the row, the money has not moved. A test of the guard from
     the side the guard exists for -- the second session running at the same
     moment -- and the reason no lock is enough on its own.

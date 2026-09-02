@@ -16,7 +16,7 @@ from src.engine.errors import Refusal
 
 #: The mark of a city plot (D-089): land, whatever else it is, so it carries
 #: soil like any other (D-246). Spelled in `models.world`, because the door
-#: reads it there too (D-199, D-281), and re-exported here so the search keeps
+#: reads it there too (D-199, D-282), and re-exported here so the search keeps
 #: saying it in its own words.
 from src.models.world import PLOT  # noqa: F401
 

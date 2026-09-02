@@ -316,7 +316,7 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
     #: and whom they let in nowhere (D-204). Whether there is a door here at all
     #: is the engine's question, asked of the engine (`access.has_door`): it is
     #: the plot that has one, not a floor of the house on it (D-247) and not a
-    #: city's own location (D-281). Half of that rule used to live here, and the
+    #: city's own location (D-282). Half of that rule used to live here, and the
     #: window drew a gate switch whose every button refused.
     if node.owner_identity_id == identity.id and access.has_door(node):
         seen["node"]["door"] = {

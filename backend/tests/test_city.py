@@ -363,7 +363,7 @@ async def test_the_former_holder_is_told_the_city_took_its_location_back(
     session: AsyncSession, catalog: Catalog
 ) -> None:
     """A title, a house and a door gone with no word said would be the world
-    changing behind somebody's back (D-281, D-226).
+    changing behind somebody's back (D-282, D-226).
 
     The only trace used to be `deed.retired`, which names no actor -- so the
     push addressed nobody, and if the node carried no paper at all nothing was

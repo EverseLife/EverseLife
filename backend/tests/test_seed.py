@@ -463,7 +463,7 @@ async def test_a_plot_of_an_old_world_gets_its_soil(capital: Node, session: Asyn
 
 
 async def test_a_city_location_handed_out_comes_back(capital: Node, session: AsyncSession) -> None:
-    """A world where the core was allotted as a plot gets it back (D-281).
+    """A world where the core was allotted as a plot gets it back (D-282).
 
     Allotment asked only whether the node was the city's and free, and the
     capital's core answers both -- so one signature at the town hall made the
@@ -475,7 +475,7 @@ async def test_a_city_location_handed_out_comes_back(capital: Node, session: Asy
     core = await session.scalar(select(Node).where(Node.key == "terra.capital.core"))
     assert core is not None
     holder = await world.create_identity(session, "Захвативший ядро")
-    #: Back to how a world of before D-281 holds it: title, gate and a list.
+    #: Back to how a world of before D-282 holds it: title, gate and a list.
     await world.grant_node(session, core, holder)
     core.gated = True
     session.add(NodePass(node_id=core.id, identity_id=holder.id, allowed=True))
