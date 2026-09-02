@@ -536,6 +536,41 @@ async def test_city_land_taken_by_law_code(session: AsyncSession, catalog: Catal
 # --- the treasury and other people's debts (D-280) ---------------------------
 
 
+async def _turnover(session: AsyncSession, node, sum_: float) -> None:
+    """A deal on the city's ground: its line with the capital is measured by
+    it (D-175), and since D-281 a city with no line lends nothing at all."""
+    from datetime import UTC, datetime, timedelta
+
+    from src.models.market import Order, OrderSide, Trade
+    from src.units import amount as _amount
+
+    seller = await world.create_identity(session, f"Купец-{uuid.uuid4().hex[:6]}")
+    order = Order(
+        node_id=node.id,
+        identity_id=seller.id,
+        side=OrderSide.SELL,
+        type_key="bread",
+        tier="common",
+        price=money(sum_),
+        amount_total=_amount(1),
+        amount_left=0,
+        expires_at=datetime.now(UTC) + timedelta(days=1),
+    )
+    session.add(order)
+    await session.flush()
+    session.add(
+        Trade(
+            node_id=node.id,
+            sell_order_id=order.id,
+            type_key="bread",
+            tier="common",
+            price=money(sum_),
+            amount=_amount(1),
+        )
+    )
+    await session.flush()
+
+
 async def test_treasury_bails_out_only_its_own(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
@@ -551,12 +586,18 @@ async def test_treasury_bails_out_only_its_own(
     from src.engine import bank
 
     city, core = await _capital(session, catalog, funds=1000)
+    await _turnover(session, core, 1000)
     president, _ = await _resident(session, core, "Президент")
     await town.install_founder(session, city, president)
 
-    stranger, stranger_body = await _resident(session, core, "Чужой")
+    #: A debtor of somebody else's city: since D-281 only one's own city lends,
+    #: so a stranger's loan is a stranger's city's line, never this one's.
+    elsewhere, far_core = await _capital(session, catalog)
+    await _turnover(session, far_core, 1000)
+    stranger, stranger_body = await _resident(session, far_core, "Чужой")
+    await town.join(session, stranger_body, elsewhere)
     debt = await bank.borrow(session, constants, catalog, stranger, 100)
-    assert debt.city_id is None, "чужой не гражданин: заём прямой у столицы"
+    assert debt.city_id == elsewhere.id, "заём лёг на линию чужого города"
     await session.flush()
 
     state = {"identity_id": president.id}
@@ -565,6 +606,8 @@ async def test_treasury_bails_out_only_its_own(
     assert debt.outstanding == money(100), "казна не заплатила по чужому займу"
 
     #: Its own citizen -- the city stands for them, and that is what a city is for.
-    await town.join(session, stranger_body, city)
-    paid = await _city_bail(state, session, {"city": core.key, "loan": str(debt.id)})
+    own, own_body = await _resident(session, core, "Свой")
+    await town.join(session, own_body, city)
+    mine = await bank.borrow(session, constants, catalog, own, 50)
+    paid = await _city_bail(state, session, {"city": core.key, "loan": str(mine.id)})
     assert paid["paid"] > 0
