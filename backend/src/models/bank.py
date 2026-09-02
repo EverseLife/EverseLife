@@ -36,7 +36,13 @@ class LoanState(StrEnum):
 
 class Loan(Base):
     __tablename__ = "loan"
-    __table_args__ = (Index("ix_loan_borrower", "identity_id", "state"),)
+    __table_args__ = (
+        Index("ix_loan_borrower", "identity_id", "state"),
+        #: The city's own side of the same question (D-285): what it owes
+        #: the capital, asked by the line, by its trust and by the daily
+        #: withholding -- three readers, each of them on every pass.
+        Index("ix_loan_city", "city_id", "state"),
+    )
 
     id: Mapped[uuid.UUID] = uuid_pk()
     #: Empty for a treasury loan (D-248): the borrower is then the city in

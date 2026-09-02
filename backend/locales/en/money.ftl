@@ -153,7 +153,7 @@ works-city-work-under-way = work on the order is already under way: the worker h
 
 works-city-loan-not-positive = the loan must be positive
 works-city-capital-prints = the capital does not borrow from itself: “{ $city }” prints money by the signatures of the right's holders
-works-city-line-exhausted = the city's line is exhausted: { $money } ₭ free out of { NUMBER($cap, maximumFractionDigits: 2) }% of turnover
+works-city-line-exhausted = the city's line is exhausted: { $money } ₭ free out of { $permitted } ₭. The line is raised by trade on the city's land and by the interest it has paid (D-285)
 works-city-not-treasury-loan = this is not a treasury loan of this city
 
 ## Customs

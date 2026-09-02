@@ -339,8 +339,17 @@ BANK_RATE_STEP_MAX = Num("bank.rate_step_max")
 BANK_UNSECURED_LIMIT = Num("bank.unsecured_limit")
 #: Ceiling of the city bank's margin above the key rate (D-175).
 BANK_CITY_MARGIN_CAP = Num("bank.city_margin_cap")
-#: The city's line with the capital: citizens' debt no higher than this share of turnover (D-175).
-BANK_DEBT_TO_TURNOVER_CAP = Num("bank.debt_to_turnover_cap")
+#: What the capital withholds of every income into a debtor city's treasury (D-285).
+BANK_INCOME_WITHHELD_SHARE = Num("bank.income_withheld_share")
+#: A city measured as a borrower (D-285): the same formula as a person's,
+#: with numbers of its own -- a bigger base, because a city lends to others
+#: rather than to itself, and a harsher penalty, because an overdue is the
+#: city's own doing where a complaint about a person is somebody else's word.
+CREDIT_CITY_BASE = Num("credit.city_base")
+CREDIT_CITY_TURNOVER_SHARE = Num("credit.city_turnover_share")
+CREDIT_CITY_INTEREST_SHARE = Num("credit.city_interest_share")
+CREDIT_CITY_OVERDUE_PENALTY = Num("credit.city_overdue_penalty")
+CREDIT_CITY_TRUST_FLOOR = Num("credit.city_trust_floor")
 #: Credit limit from labour (D-173): the share of turnover, the multiple of the
 #: interest paid (D-280 -- of repaid principal before it, and that was free to
 #: run up), the window, the bonus for a record without overdue, the report price

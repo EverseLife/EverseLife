@@ -40,7 +40,7 @@ from src.models.ledger import AccountKind, PostingReason
 from src.models.market import Order, OrderSide, Trade
 from src.models.works import WorkOrderKind, WorkOrderState
 from src.models.world import Layer, Node
-from src.units import PERCENT, money
+from src.units import MONEY_SCALE, money
 
 
 async def _city_with_ruler(session: AsyncSession, catalog: Catalog, *, funds: float = 0):
@@ -620,9 +620,14 @@ async def test_line_refuses_beyond_the_cap(
 ) -> None:
     city, core, ruler, ruler_body = await _city_with_ruler(session, catalog)
     await _turnover_on(session, city, core, 10)
-    cap_tc = 10 * constants[R.BANK_DEBT_TO_TURNOVER_CAP] / PERCENT
+    #: The line is what the city has earned the right to owe (D-285), so it is
+    #: asked rather than computed from a share of turnover here: the formula is
+    #: the bank's business, and a test that repeats it checks itself.
+    permitted, _, _ = await bank.city_line(session, constants, city)
     with pytest.raises(works_city.WorksCityError) as refused:
-        await works_city.borrow_for_works(session, constants, city, ruler, ruler_body, cap_tc + 1)
+        await works_city.borrow_for_works(
+            session, constants, city, ruler, ruler_body, permitted / MONEY_SCALE + 1
+        )
     assert refused.value.key == "works-city-line-exhausted"
 
 
@@ -640,8 +645,13 @@ async def test_two_rulers_cannot_break_the_line_together(
     from src.models.identity import Body, Identity
 
     city, core, ruler, ruler_body = await _city_with_ruler(session, catalog)
-    #: Turnover 10 TC: the line fits one loan of 20 TC, never two.
     await _turnover_on(session, city, core, 10)
+    #: The line is asked, then filled to within one loan of its ceiling: two
+    #: rulers taking that last loan at once is the race, and what the line is
+    #: made of (D-285) is not this test's business.
+    permitted, _, free = await bank.city_line(session, constants, city)
+    if free > money(20):
+        await bank.lend_to_city(session, constants, city, free - money(20), why="тест")
     city_id, ruler_id, body_id = city.id, ruler.id, ruler_body.id
     await session.commit()
 
@@ -672,8 +682,8 @@ async def test_two_rulers_cannot_break_the_line_together(
     async with factory() as db:
         place = await db.get(City, city_id)
         assert place is not None
-        treasury = await town.treasury(db, place)
-        assert await ledger.balance(db, treasury.id) == money(20)
+        _, occupied, _ = await bank.city_line(db, constants, place)
+        assert occupied <= permitted, "вдвоём линию не пробили"
 
 
 async def test_collection_never_touches_a_treasury_loan(

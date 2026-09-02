@@ -11,7 +11,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Constants
@@ -35,6 +35,8 @@ from src.models.event import EventKind
 from src.models.identity import Identity
 from src.models.ledger import (
     AccountKind,
+    LedgerEntry,
+    LedgerTransaction,
     PostingReason,
 )
 from src.units import MONEY_SCALE, PERCENT, money, money_str
@@ -462,9 +464,10 @@ async def collect(
         (
             await session.execute(
                 select(Loan)
-                #: A treasury loan (D-248) has no identity to withhold from:
-                #: the city's discipline is its line -- occupied until repaid.
-                #: Left out here, so nothing waits on the capital's rows.
+                #: A treasury loan (D-248) has no identity to withhold
+                #: from: a city is collected from by its own pass, out of its
+                #: takings (D-285). Left out here, so the two never meet on a
+                #: row and nothing waits on the capital's.
                 .where(
                     Loan.state == LoanState.OPEN,
                     Loan.identity_id.is_not(None),
@@ -566,6 +569,109 @@ async def credit_limit(
 
 
 # --- prison credit (D-174) ---------------------------------------------------
+
+
+async def collect_from_cities(
+    session: AsyncSession, constants: Constants, *, now: datetime | None = None
+) -> int:
+    """The capital withholds a share of a debtor city's income (D-285). Returns the total.
+
+    A city that does not service what it borrowed pays with its takings: the
+    capital keeps `bank.income_withheld_share` of everything that came into the
+    treasury since the debt was last serviced. A share of the **income**, not a
+    sweep of the balance -- a city whose remainder is swept simply keeps the
+    remainder at zero and never pays; a city whose takings are halved pays
+    while it lives, and lives while it pays.
+
+    Counted from the journal rather than intercepted at each till, and that is
+    the design and not a shortcut: money reaches a treasury from a dozen places
+    (duty, tax, works, land, fines) and a thirteenth will be added by somebody
+    who never reads this file. The journal has them all, and it has them after
+    the fact -- so a city that spent its takings before the pass still owes the
+    share of what it took.
+
+    It runs beside the citizens' collection and takes rows the same way -- the
+    loan first, its accounts after -- so the two passes and any payment made by
+    hand meet in one order and never cross.
+    """
+    moment = now or datetime.now(UTC)
+    share = constants[R.BANK_INCOME_WITHHELD_SHARE] / PERCENT
+    withheld = 0
+
+    since = moment - timedelta(days=constants[R.DEBT_GRACE_PERIOD])
+    loans = (
+        (
+            await session.execute(
+                select(Loan)
+                .where(
+                    Loan.state == LoanState.OPEN,
+                    Loan.identity_id.is_(None),
+                    Loan.serviced_at < since,
+                )
+                .order_by(LOAN_ORDER)
+                .with_for_update()
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for loan in loans:
+        city = await town.by_id(session, loan.city_id)
+        if city is None:  # pragma: no cover -- a loan of a city that is gone
+            continue
+        await accrue(session, constants, loan, now=moment)
+        treasury = await town.treasury(session, city)
+        income = await _income_since(session, treasury.id, loan.serviced_at)
+        payment = min(
+            int(income * share), await ledger.balance(session, treasury.id), loan.outstanding
+        )
+        if payment <= 0:
+            continue
+
+        await _settle(session, loan, treasury, payment)
+        #: Unlike a citizen's withholding this **does** move the debt's clock:
+        #: the moment is the watermark the next pass counts income from, and
+        #: the city is paying, which is what being serviced means.
+        loan.serviced_at = moment
+        if loan.outstanding <= 0:
+            loan.state = LoanState.REPAID
+            loan.repaid_at = moment
+        withheld += payment
+        await events.record(
+            session,
+            EventKind.DEBT_WITHHELD,
+            node_id=city.node_id,
+            city_id=str(city.id),
+            loan_id=str(loan.id),
+            amount=payment,
+            left=loan.outstanding,
+            treasury_loan=True,
+        )
+    await session.flush()
+    return withheld
+
+
+async def _income_since(session: AsyncSession, account_id: uuid.UUID, since: datetime) -> int:
+    """What the city **took** after that moment: credits, less what it borrowed.
+
+    A loan paid into the treasury is not income, and withholding a share of it
+    would mean the capital handing a city a hundred and taking fifty of it
+    straight back -- the city would end up owing a hundred for fifty, which is
+    not a debt but a trick. Everything else counts: duty, tax, works, land,
+    fines, and whatever is added to that list after this line is written.
+    """
+    total = await session.scalar(
+        select(func.coalesce(func.sum(LedgerEntry.amount), 0))
+        .select_from(LedgerEntry)
+        .join(LedgerTransaction, LedgerTransaction.id == LedgerEntry.transaction_id)
+        .where(
+            LedgerEntry.account_id == account_id,
+            LedgerEntry.amount > 0,
+            LedgerTransaction.at > since,
+            LedgerTransaction.reason != PostingReason.LOAN,
+        )
+    )
+    return int(total or 0)
 
 
 async def prison_credit(

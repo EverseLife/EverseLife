@@ -205,8 +205,15 @@ async def _land_tax(session: AsyncSession, now: datetime) -> dict[str, Any]:
 
 
 async def _debt(session: AsyncSession, now: datetime) -> dict[str, Any]:
-    #: Overdue debt is repaid by force with a share of the balance (D-063, D-168).
-    return {"debt_withheld": await bank.collect(session, current(), now=now)}
+    #: Overdue debt is repaid by force with a share of the balance (D-063, D-168),
+    #: and a city that owes the capital pays with a share of its takings (D-285).
+    #: People first: their withholding feeds the treasuries the second pass
+    #: then takes its share of, and the other order would leave that share for
+    #: tomorrow.
+    return {
+        "debt_withheld": await bank.collect(session, current(), now=now),
+        "city_debt_withheld": await bank.collect_from_cities(session, current(), now=now),
+    }
 
 
 async def _works(session: AsyncSession, now: datetime) -> dict[str, Any]:

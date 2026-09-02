@@ -362,10 +362,32 @@ async def test_a_short_treasury_borrows_only_the_difference(
 async def test_a_city_that_cannot_borrow_lends_nothing(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """An empty treasury and no line is a refusal, not a loan from nowhere (D-283)."""
-    #: One deal of a single TC: a line of three, and nothing in the treasury --
-    #: the city has neither its own money nor anywhere to get a hundred.
+    """An empty treasury and no line is a refusal, not a loan from nowhere (D-283).
+
+    Past the city's line there is nothing at all, and that is the whole of the
+    change: the direct loan from the capital used to stand behind it, so the
+    line ran out and the borrowing went on, only dearer (D-281 took that away).
+    Now the city hands over its own money, and when it has none and cannot
+    borrow any, the answer is no.
+    """
+    from src.engine import city as town
+
     city, who = await _citizen_with_city(session, catalog, turnover=1)
+    #: The line is filled by the city's own borrowing and the money it brought
+    #: is spent, so the city is left with nothing of its own and nothing to
+    #: borrow -- the one position in which it cannot lend at all.
+    _, _, free = await bank.city_line(session, constants, city)
+    if free > 0:
+        await bank.lend_to_city(session, constants, city, free, why="тест")
+    treasury = await town.treasury(session, city)
+    genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
+    await ledger.transfer(
+        session,
+        PostingReason.GENESIS,
+        debit=treasury.id,
+        credit=genesis.id,
+        amount=await ledger.balance(session, treasury.id),
+    )
 
     with pytest.raises(bank.TooMuch):
         await bank.borrow(session, constants, catalog, who, 100)
@@ -401,23 +423,6 @@ async def test_the_whole_interest_goes_to_the_city_that_lent(
     assert await bank.reserve(session) == reserve_before, "столица не получила ничего"
 
 
-async def test_exhausted_line_closes_the_door(
-    session: AsyncSession, constants: Constants, catalog: Catalog
-) -> None:
-    """Past the city's line there is nothing at all now (D-281).
-
-    The direct loan from the capital at the risk premium used to stand behind
-    it: the line ran out and the borrowing went on, only dearer. It does not
-    -- the capital lends against a line, and a city that has none has nothing
-    to put up for its own.
-    """
-    city, who = await _citizen_with_city(session, catalog, turnover=100)
-    #: Line = cap% of turnover 100: the very first big loan overflows it.
-    await _deal(session, "iron_ore", 4000, 1, seller=who)
-    with pytest.raises(bank.TooMuch):
-        await bank.borrow(session, constants, catalog, who, 900)
-
-
 async def test_non_citizen_borrows_nowhere(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
@@ -431,6 +436,71 @@ async def test_non_citizen_borrows_nowhere(
     rate, why = await bank.offered_rate(session, constants, catalog, who)
     assert rate is None
     assert [says.key for says in why] == ["bank-why-offer-no-citizenship"]
+
+
+async def test_a_debtor_city_pays_with_half_of_what_it_takes(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Overdue on its own loan: the capital keeps a share of every income (D-285)."""
+    from src.engine import city as town
+
+    city = await _city_with_turnover(session, catalog)
+    loan = await bank.lend_to_city(session, constants, city, money(100), why="тест")
+    #: The money it borrowed is spent, and the debt goes unserviced past the grace.
+    treasury = await town.treasury(session, city)
+    genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
+    await ledger.transfer(
+        session,
+        PostingReason.GENESIS,
+        debit=treasury.id,
+        credit=genesis.id,
+        amount=await ledger.balance(session, treasury.id),
+    )
+    loan.serviced_at = datetime.now(UTC) - timedelta(days=constants[R.DEBT_GRACE_PERIOD] + 5)
+    await session.flush()
+
+    #: And then the city takes something: duty, tax, a works payment -- the
+    #: journal does not care which, and neither does the withholding.
+    await ledger.transfer(
+        session,
+        PostingReason.GENESIS,
+        debit=genesis.id,
+        credit=treasury.id,
+        amount=money(40),
+    )
+    owed_before, reserve_before = loan.outstanding, await bank.reserve(session)
+
+    withheld = await bank.collect_from_cities(session, constants)
+
+    share = constants[R.BANK_INCOME_WITHHELD_SHARE] / PERCENT
+    assert withheld == money(40) * share, "удержана доля прихода, а не остаток казны"
+    assert loan.outstanding < owed_before, "долг уменьшился"
+    assert await bank.reserve(session) - reserve_before == withheld, "ушло в резерв столицы"
+    assert await town.treasury_balance(session, city) == money(40) - withheld, "половина осталась"
+
+
+async def test_a_citys_overdue_cuts_what_it_may_borrow(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """A city's trust is its own payment record (D-285), and the line follows it."""
+    city = await _city_with_turnover(session, catalog)
+    full, _, _ = await bank.city_line(session, constants, city)
+    assert await bank.city_trust(session, constants, city.id) == 1
+
+    loan = await bank.lend_to_city(session, constants, city, money(10), why="тест")
+    loan.serviced_at = datetime.now(UTC) - timedelta(days=constants[R.DEBT_GRACE_PERIOD] + 5)
+    await session.flush()
+
+    cut = constants[R.CREDIT_CITY_OVERDUE_PENALTY] / PERCENT
+    assert await bank.city_trust(session, constants, city.id) == pytest.approx(1 - cut)
+    narrowed, _, _ = await bank.city_line(session, constants, city)
+    assert narrowed < full, "просрочка сузила линию"
+
+    #: Settled -- and the line is back: trust is what is owed now, not a memory
+    #: of what once was.
+    loan.state = LoanState.REPAID
+    await session.flush()
+    assert await bank.city_trust(session, constants, city.id) == 1
 
 
 # --- prison credit (D-174) ---------------------------------------------------

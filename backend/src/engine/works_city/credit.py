@@ -13,7 +13,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Constants
-from src.constants import registry as R
 from src.engine import bank, events
 from src.engine import city as town
 from src.engine.works_city._base import WorksCityError
@@ -59,12 +58,12 @@ async def borrow_for_works(
     #: free. The city row serialises them; the loser rereads a line that
     #: already carries the winner's loan.
     await session.execute(select(City.id).where(City.id == city.id).with_for_update())
-    _, _, free = await bank.city_line(session, constants, city, now=moment)
+    permitted, _, free = await bank.city_line(session, constants, city, now=moment)
     if total > free:
         raise WorksCityError(
             key="works-city-line-exhausted",
             money=money_str(free),
-            cap=constants[R.BANK_DEBT_TO_TURNOVER_CAP],
+            permitted=money_str(permitted),
         )
 
     #: The money itself is moved by the bank (D-283): reserve first, the

@@ -152,7 +152,7 @@ works-city-work-under-way = работа по заказу уже идёт: ра
 
 works-city-loan-not-positive = заём должен быть положительным
 works-city-capital-prints = столица у самой себя не занимает: «{ $city }» печатает деньги по подписям держателей права
-works-city-line-exhausted = линия города исчерпана: свободно { $money } ₭ из { NUMBER($cap, maximumFractionDigits: 2) }% оборота
+works-city-line-exhausted = линия города исчерпана: свободно { $money } ₭ из { $permitted } ₭. Линию поднимают оборот на земле города и уплаченный им процент (D-285)
 works-city-not-treasury-loan = это не заём казны этого города
 
 ## Таможня

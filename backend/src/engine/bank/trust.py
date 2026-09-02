@@ -17,7 +17,7 @@ from src.constants import Constants
 from src.constants import registry as R
 from src.engine import events
 from src.engine.bank._base import BankError
-from src.models.bank import DefectReport, Loan
+from src.models.bank import DefectReport, Loan, LoanState
 from src.models.event import EventKind
 from src.models.identity import Identity
 from src.models.market import Order, Trade
@@ -40,6 +40,37 @@ async def trust(session: AsyncSession, constants: Constants, identity_id: uuid.U
     )
     share = (PERCENT - constants[R.CREDIT_REPORT_PENALTY] * int(report_count or 0)) / PERCENT
     return max(constants[R.CREDIT_TRUST_FLOOR] / PERCENT, share)
+
+
+async def city_trust(session: AsyncSession, constants: Constants, city_id: uuid.UUID) -> float:
+    """A city's trust 0..1, and it is its own payment record (D-285).
+
+    A citizen's trust is cut by complaints about a defective print; nobody
+    complains about a city, and the thing a lender wants to know about one is
+    the same thing anyway -- how it pays. So the input is the city's **unpaid**
+    overdue: each such loan cuts trust by `credit.city_overdue_penalty` and it
+    stops at `credit.city_trust_floor`. The penalty is the harsher of the two
+    on purpose (D-285): a complaint about a person is somebody else's word and
+    can be withdrawn, an overdue is the city's own doing and cannot.
+
+    Counted from what is owed **now**, not from a history of episodes -- which
+    is what makes "recovers by paying" true without anything having to forget:
+    the loan is settled, the row leaves the count, the trust is back.
+    """
+    moment = datetime.now(UTC)
+    since = moment - timedelta(days=constants[R.DEBT_GRACE_PERIOD])
+    late = await session.scalar(
+        select(func.count())
+        .select_from(Loan)
+        .where(
+            Loan.city_id == city_id,
+            Loan.identity_id.is_(None),
+            Loan.state == LoanState.OPEN,
+            Loan.serviced_at < since,
+        )
+    )
+    share = (PERCENT - constants[R.CREDIT_CITY_OVERDUE_PENALTY] * int(late or 0)) / PERCENT
+    return max(constants[R.CREDIT_CITY_TRUST_FLOOR] / PERCENT, share)
 
 
 async def personal_turnover(

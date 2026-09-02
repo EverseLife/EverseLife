@@ -54,6 +54,19 @@ async def test_two_citizens_do_not_spend_one_treasury_twice(
     city = await _city_with_turnover(session, catalog, turnover=1)
     treasury = await town.treasury(session, city)
     genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
+    #: The line is spent first, so the only money the city has to lend is the
+    #: hundred put in its treasury: the remainder two askings meet on.
+    _, _, free = await bank.city_line(session, constants, city)
+    if free > 0:
+        await bank.lend_to_city(session, constants, city, free, why="тест")
+    await ledger.transfer(
+        session,
+        PostingReason.GENESIS,
+        debit=treasury.id,
+        credit=genesis.id,
+        amount=await ledger.balance(session, treasury.id),
+        memo={},
+    )
     await ledger.transfer(
         session,
         PostingReason.GENESIS,
