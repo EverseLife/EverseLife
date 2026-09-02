@@ -12,7 +12,7 @@ import { DropZone } from "../../DragMove";
 import { t } from "../../locale";
 import { goodsName } from "../../names";
 import type { Props } from "./shared";
-import { placeable } from "./shared";
+import { ownOrWild, placeable } from "./shared";
 
 
 /** The common equipment section: machines and furniture differ only by kind.
@@ -47,7 +47,9 @@ export function Equipment({
   const session = useSession();
   const book = useBook();
   const names = useNames();
-  const mine = api.isMine(look);
+  //: Own plot or nobody's land: the engine lets anyone take a station up
+  //: where nobody holds the ground (D-198), and the window must not hide it.
+  const mine = ownOrWild(look);
   //: The owner places and removes, and on civic land the authority (`station.may_build`).
   //: In somebody else's house neither is entitled.
   const hasPower = Boolean(
