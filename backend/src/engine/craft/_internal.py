@@ -151,10 +151,12 @@ async def _prepare(
     #:
     #: What a counted thing gives to the work, it gives whole (D-212): two and a
     #: half boards means three boards, and the half that was cut is not returned.
+    #: The waste on top of that is dust until it gathers into a piece: five per
+    #: cent of two ingots does not cost a third one (`goods.spent`).
     #: Rounding comes after the proportion is judged -- accuracy is about what
     #: the master laid out, not about what the saw could not halve.
     required = {
-        name: goods.whole(name, value / (1 - waste / PERCENT), up=True, catalog=catalog)
+        name: goods.spent(name, value, value / (1 - waste / PERCENT), catalog=catalog)
         for name, value in actual.items()
     }
 

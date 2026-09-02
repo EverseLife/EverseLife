@@ -135,6 +135,37 @@ async def test_a_work_spends_whole_pieces(
     assert gone == int(gone)
 
 
+async def test_the_waste_on_a_counted_input_is_dust_until_it_is_a_piece(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Five per cent of two ingots is not a third ingot (playtest 2026-09-02).
+
+    The waste share is taken on top of the norm, and rounding that sum up
+    charged a whole extra piece for a fraction of one: two wires cost three
+    copper, one frame cost two. The norm still rounds up (D-212); the waste
+    rounds to the nearest piece and reaches one only over a big enough batch.
+    """
+    _, identity, body = await _workshop(session)
+    await world.learn(session, identity, NAILS)
+    await _give(session, body, INGOT, 40)
+
+    two = await craft.plan(session, constants, catalog, body, NAILS, 2)
+    assert two.consumes[INGOT] == 2, "5% от двух слитков -- не третий слиток"
+    twenty = await craft.plan(session, constants, catalog, body, NAILS, 20)
+    assert twenty.consumes[INGOT] == 21, "а с двадцати -- уже целый слиток"
+
+
+def test_spent_never_goes_below_the_norm_in_pieces(catalog: Catalog) -> None:
+    #: A norm of a third of a piece is a whole piece to spend, whatever the
+    #: waste on it rounds to -- the recipe cannot be worked for nothing.
+    assert goods.spent(INGOT, 0.3, 0.316, catalog=catalog) == 1
+    assert goods.spent(INGOT, 2.0, 2.105, catalog=catalog) == 2
+    assert goods.spent(INGOT, 2.0, 2.6, catalog=catalog) == 3
+    assert goods.spent(ORE, 2.0, 2.105, catalog=catalog) == pytest.approx(2.105), (
+        "весовое не трогаем"
+    )
+
+
 async def test_the_bill_of_a_house_is_in_whole_pieces(constants: Constants) -> None:
     lot = estate.bill(constants, footprint=7, floors=1, kind=estate.kinds(constants)[0])
     for name, qty in lot.items():

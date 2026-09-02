@@ -435,14 +435,16 @@ async def test_input_written_off_at_once_with_loss(
     """Waste is sink S9: there is less matter in the world than there was (D-129)."""
     _, identity, body = await _workshop(session)
     await world.learn(session, identity, NAILS)
-    await _give(session, body, INGOT, 10, quality=60)
+    await _give(session, body, INGOT, 30, quality=60)
 
-    norm = catalog.recipes.recipe(NAILS).amounts[INGOT] * 4
-    batch = await craft.start(session, constants, catalog, body, NAILS, 4)
+    #: Twenty, not four: on a counted input the waste is dust until it gathers
+    #: into a piece (`goods.spent`), and five per cent of four ingots never does.
+    norm = catalog.recipes.recipe(NAILS).amounts[INGOT] * 20
+    batch = await craft.start(session, constants, catalog, body, NAILS, 20)
     await session.commit()
 
     left = await _in_inventory(session, body, INGOT)
-    written_off = 10 - left
+    written_off = 30 - left
     assert written_off > norm, "потери берутся сверх нормы, а не из выхода"
     assert batch.state is BatchState.RUNNING
     assert batch.ready_at > batch.started_at
@@ -701,7 +703,8 @@ async def test_copying_recipe_costs_stamina(
     assert await craft.copy_recipe(session, catalog, body, NAILS) is None
     assert float(body.stamina) == pytest.approx(now_)
 
-    body.stamina = Decimal("1")
+    #: Below the price, whatever the vault sets it to: the number is a knob.
+    body.stamina = Decimal(str(constants[R.CRAFT_COPY_STAMINA] / 2))
     await session.flush()
     with pytest.raises(craft.NoStrength):
         await craft.copy_recipe(session, catalog, body, "rope")

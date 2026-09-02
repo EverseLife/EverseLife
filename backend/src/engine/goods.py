@@ -23,7 +23,10 @@ Which way to round is not a detail:
 * **what is spent is raised** (`whole(..., up=True)`). A batch that needs two
   and a half boards takes three: the half board it does not use is not
   returned, because it was cut. This is the visible price of a piece being
-  whole, and the forecast shows it before the batch starts (D-092).
+  whole, and the forecast shows it before the batch starts (D-092);
+* **but the waste on top of the norm is not a piece until it is one**
+  (`spent`). Five per cent of two ingots is dust off the saw, not a third
+  ingot: the norm rounds up, the waste on it rounds to the nearest piece.
 """
 
 from __future__ import annotations
@@ -85,6 +88,21 @@ def whole(name: str, value: float, *, up: bool = False, catalog: Catalog | None 
     if not counted(name, catalog):
         return value
     return float(math.ceil(value - _DUST) if up else math.floor(value + _DUST))
+
+
+def spent(name: str, norm: float, value: float, *, catalog: Catalog | None = None) -> float:
+    """What a work spends of a counted thing: the norm whole, the waste honest.
+
+    `norm` is what the recipe asks for the batch, `value` the same with the
+    waste share on top. The norm rounds up (D-212: two and a half boards are
+    three boards); the waste rounds to the nearest piece, so the five per cent
+    a saw loses on two ingots is not a whole third ingot -- it is dust, until
+    enough of it gathers over a bigger batch to be a piece of its own. Never
+    below the norm in pieces, whatever the waste rounds to.
+    """
+    if not counted(name, catalog):
+        return value
+    return float(max(math.ceil(norm - _DUST), math.floor(value + 0.5)))
 
 
 def at_least_one(name: str, value: float, *, catalog: Catalog | None = None) -> float:

@@ -127,10 +127,12 @@ async def test_a_recipe_opens_even_when_the_prototype_is_short(
     """
     _, _, body = await _yard(session)
     norm = _norm(catalog, BEAM)
+    #: Twenty units, not one: the waste on a counted input is dust until it
+    #: gathers into a piece (`goods.spent`), and on one beam it never does.
     for name, per_unit in norm.items():
-        await _give(session, body, catalog.recipes.resolve(name), per_unit)
+        await _give(session, body, catalog.recipes.resolve(name), per_unit * 20)
 
-    result = await craft.invent(session, constants, catalog, body, norm, 1, station=BENCH)
+    result = await craft.invent(session, constants, catalog, body, norm, 20, station=BENCH)
     assert result.success and result.learned == (BEAM,)
     assert result.batch is None
     assert result.note_key == "craft-not-enough"
