@@ -1,0 +1,55 @@
+#!/bin/sh
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
+# Pre-merge-commit: a merge must not leave two alembic heads behind.
+#
+# This is the moment the damage is actually done. `pre-commit` warns earlier --
+# "two branches are heading for one parent" -- but that is a forecast, and a
+# forecast can be true for weeks without hurting anybody. The merge is when
+# main stops being upgradable, and from then on every database test dies on a
+# world that cannot be built.
+#
+# What it asks is deliberately narrower than `pre-commit`'s question. Here we
+# look **only at the tree this merge has just produced** (`--tree`), not at
+# every branch on the machine: a neighbour's stale branch is not a reason to
+# refuse a merge that is itself sound.
+#
+# Two limits, so nobody trusts this further than it goes:
+#
+#   * a **fast-forward** merge makes no commit, so this hook never runs. Most
+#     merges here are `--ff-only`, which means the forecast in `pre-commit` and
+#     the test in CI stay the ones that carry the weight;
+#   * `--no-verify` skips it, like every hook.
+#
+# Enabled by the same `git config core.hooksPath .githooks` as the rest.
+
+set -eu
+
+repo=$(git rev-parse --show-toplevel)
+cd "$repo"
+
+if [ -x backend/.venv/Scripts/python.exe ]; then
+    py="backend/.venv/Scripts/python.exe"
+elif [ -x backend/.venv/bin/python ]; then
+    py="backend/.venv/bin/python"
+elif command -v python3 > /dev/null 2>&1; then
+    py="python3"
+elif command -v python > /dev/null 2>&1; then
+    py="python"
+else
+    # No python is not a reason to block a merge: the same check runs in CI.
+    exit 0
+fi
+
+# The `-f` guard for the same reason as in `pre-commit`: `core.hooksPath` is
+# one path for every worktree, and a tree whose branch predates the script
+# would otherwise fail on a missing file with nothing to explain it.
+if [ -f backend/tools/check_migration_parents.py ]; then
+    if ! "$py" backend/tools/check_migration_parents.py --tree; then
+        echo >&2
+        echo "pre-merge-commit: мерж оставил бы две головы миграций -- перецепите" >&2
+        echo "  свою миграцию на голову из \`alembic heads\` и повторите" >&2
+        exit 1
+    fi
+fi

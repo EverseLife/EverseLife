@@ -175,9 +175,25 @@ def heads(found: dict[str, tuple[tuple[str, ...], list[str]]]) -> list[str]:
     return sorted(revision for revision in found if revision not in claimed)
 
 
-def main() -> int:
+def _this_tree() -> dict[str, tuple[tuple[str, ...], list[str]]]:
+    """Only the files lying here -- the state a merge has just produced."""
+    root = Path(_git("rev-parse", "--show-toplevel").strip() or ".")
+    found: dict[str, tuple[tuple[str, ...], list[str]]] = {}
+    for path in sorted((root / VERSIONS).glob("*.py")):
+        parsed = parse(path.read_text(encoding="utf-8", errors="replace"))
+        if parsed is not None:
+            found[parsed[0]] = (parsed[1], [path.name])
+    return found
+
+
+def main(argv: list[str] | None = None) -> int:
+    #: Two questions, and a merge must be judged by the narrower one. `--tree`
+    #: asks only what this working tree now holds: that is what the merge being
+    #: committed will leave behind, and blocking it because some *other*
+    #: branch is stale would stop a merge that is perfectly sound.
+    only_here = "--tree" in (argv if argv is not None else sys.argv[1:])
     try:
-        found = gather()
+        found = _this_tree() if only_here else gather()
     except Unusable as why:
         print(f"проверка родителей миграций не работает: {why}", file=sys.stderr)
         return 1
@@ -186,8 +202,12 @@ def main() -> int:
         return 0
 
     print(
-        "миграции: когда всё это вольётся в main, у него будет "
-        f"{len(ends)} головы -- `alembic upgrade head` откажется выбирать",
+        (
+            "миграции: этот мерж оставляет "
+            if only_here
+            else "миграции: когда всё это вольётся в main, у него будет "
+        )
+        + f"{len(ends)} головы -- `alembic upgrade head` откажется выбирать",
         file=sys.stderr,
     )
     for head in ends:
