@@ -24,7 +24,10 @@ two knows a person exists, and the arrow never turns round.
 
 `printer_nodes` joins the node's yard by hand instead of asking `things`:
 the question is "every node in the world with a printer in it", and the
-lookups over there answer for one node at a time.
+lookups over there all start from nodes already in hand -- one of them
+(`has_station`) or a named set of them (`nodes_with_station`). There is no
+third caller for a world-wide one, and inventing one to save this join would
+put a `SELECT` over every container in the world within easy reach.
 """
 
 from __future__ import annotations

@@ -93,9 +93,9 @@ TRACE_POINTS = 24
 SKY_MEMO_PER_DAY = 144
 SKY_CURVE_MEMO = 512
 SKY_CALENDAR_MEMO = 64
-#: Column scales, not presentation: the two below say how wide the row is, not
-#: how a summary reads. Changing one alone leaves the code rounding coarser or
-#: finer than the column it writes to, and nothing objects -- so a scale tied
+#: Column scales, not presentation: the three below say how wide the row is,
+#: not how a summary reads. Changing one alone leaves the code rounding coarser
+#: or finer than the column it writes to, and nothing objects -- so a scale tied
 #: to a single column is pinned to it by a test.
 #: Quality is stored to a hundredth of a point (`Numeric(6, 2)` columns).
 ROUND_QUALITY = 2
@@ -105,6 +105,11 @@ ROUND_QUALITY = 2
 #: scale of the column, not a property of the game -- how long the ploughing
 #: takes lies in `farm.plow_time_per_m2`.
 ROUND_MINUTES = 2
+#: A battery's charge is stored to a thousandth of a cell (`Item.charge` is
+#: `Numeric(12, 3)`). The scale of the column, not a property of the game: a
+#: stack is drawn evenly, so a draw thinner than this per cell has nowhere to
+#: be written, and the charge must be put on this grid before it is stored.
+ROUND_CHARGE = 3
 
 #: Argon2id takes memory in KiB, while `pow.memory_per_session` is given in MB.
 KIB_PER_MIB = 1024

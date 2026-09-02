@@ -63,6 +63,16 @@
       "port": 5174
     },
     {
+      "name": "frontend-clean",
+      "runtimeExecutable": "powershell",
+      "runtimeArgs": [
+        "-Command",
+        "npm run dev -- --port 5176 --strictPort"
+      ],
+      "cwd": ".claude/worktrees/ui-check/frontend",
+      "port": 5176
+    },
+    {
       "name": "vault-editor",
       "runtimeExecutable": "backend/.venv/Scripts/python.exe",
       "runtimeArgs": [

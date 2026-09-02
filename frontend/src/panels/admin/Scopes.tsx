@@ -16,7 +16,7 @@ import * as api from "../../api";
 import type { CityView } from "../../api";
 import { useNames } from "../../actions";
 import { t } from "../../locale";
-import { lawName } from "../../names";
+import { lawName, lawNote } from "../../names";
 
 /** The set of rights for a new office: broad ones plus one per law. */
 export function Scopes({
@@ -54,10 +54,10 @@ export function Scopes({
         ))}
       </div>
       <div className="row">
-        {Object.entries(city.laws).map(([key, law]) => {
+        {Object.keys(city.laws).map((key) => {
           const right = api.LAW_SCOPE + key;
           return (
-            <label className="note" key={key} title={law.note ?? ""}>
+            <label className="note" key={key} title={lawNote(names, key) ?? ""}>
               <input
                 type="checkbox"
                 checked={selected.includes(right)}

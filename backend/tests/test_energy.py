@@ -23,10 +23,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Constants
 from src.constants import registry as R
+from src.engine import battery as battery_
 from src.engine import energy, ledger, world
+from src.models.inventory import Item
 from src.models.ledger import AccountKind
 from src.models.world import Layer
-from src.units import PERCENT, money_str
+from src.units import PERCENT, ROUND_CHARGE, amount, money_str
 
 
 async def _city(session: AsyncSession, *, river: bool = False):
@@ -224,6 +226,63 @@ async def test_charging_takes_from_pool_and_pays_treasury(
     expected = money(2 * constants[R.ENERGY_TARIFF_DEFAULT])
     assert await ledger.balance(session, treasury.id) == expected
     assert money_str(await ledger.balance(session, account.id)) == money_str(money(100) - expected)
+
+
+async def test_a_stack_never_hands_out_charge_it_did_not_lose(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """A draw too thin to write is not a free draw.
+
+    The charge column keeps a thousandth of one cell, and a stack is drained
+    evenly, so a draw of less than that per cell used to round back to the
+    charge it started with: the caller was told it got the energy and the row
+    kept everything. A thousand cells made every draw under half a unit free,
+    over and over, a command at a time.
+    """
+    capital, yard, identity, body = await _city(session)
+    pocket = await world.body_container(session, body)
+    pile = 1000
+    stack = await world.grant_item(session, pocket, energy.BATTERY, quality=55, origin="тест")
+    #: A thousand cells standing as one stack (D-179): the charge column is one
+    #: cell's, and the amount says how many there are.
+    stack.amount = amount(pile)
+    stack.charge = Decimal("10")
+    #: One moment throughout: self-discharge is not what is under test.
+    moment = datetime.now(UTC)
+    stack.charged_at = moment
+    await session.flush()
+
+    #: Read back from the row, not from the object: the rounding that hid this
+    #: happens on the way into Postgres, so a draw that never leaves the
+    #: session shows nothing. Each pass here is a command of its own.
+    await session.refresh(stack)
+    before = Decimal(stack.charge)
+    draws, each = 20, 0.4
+    taken = 0.0
+    for _ in range(draws):
+        taken += await battery_.drain_cells(session, constants, [stack], each, now=moment)
+        await session.flush()
+        await session.refresh(stack)
+    left_in_cells = float((before - Decimal(stack.charge)) * pile)
+
+    #: The cells gave up at least what the caller was handed. Backwards, this
+    #: is the free draw: energy delivered out of a stack that never emptied.
+    assert taken <= left_in_cells
+    #: And no more than was asked for. Forwards, this is the other half: the
+    #: stack loses a whole step per cell, and handing that overshoot to the
+    #: caller would let `automat` bill it as hours the clock never allowed.
+    assert taken == pytest.approx(draws * each)
+    #: And the stack actually emptied: it is not that nothing was drawn.
+    assert Decimal(stack.charge) < before
+
+
+def test_the_charge_is_kept_at_the_scale_it_is_written_with() -> None:
+    """`ROUND_CHARGE` and the column's scale are one number in two places.
+
+    Widening `Numeric(12, 3)` alone would leave the drain measuring against a
+    grid the row no longer keeps, and the free draw would be back.
+    """
+    assert Item.__table__.c.charge.type.scale == ROUND_CHARGE
 
 
 async def test_nowhere_to_charge_outside_city(session: AsyncSession, constants: Constants) -> None:

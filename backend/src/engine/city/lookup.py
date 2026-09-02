@@ -137,11 +137,12 @@ async def core(session: AsyncSession, city: City) -> Node | None:
     if own is not None and await world.has_station(session, own, world.BIOPRINTER):
         return own
 
-    printers = [
-        place
-        for place in sorted(await territory(session, city), key=lambda one: one.created_at)
-        if await world.has_station(session, place, world.BIOPRINTER)
-    ]
+    #: One query for the whole territory, not two per node: this runs inside
+    #: `look` (through `estate.price.center_of`), and the walk grew with every
+    #: plot the city ever bought.
+    places = sorted(await territory(session, city), key=lambda one: one.created_at)
+    standing = await world.nodes_with_station(session, places, world.BIOPRINTER)
+    printers = [place for place in places if place.id in standing]
     for place in printers:
         if (place.properties or {}).get(PRECURSOR):
             return place

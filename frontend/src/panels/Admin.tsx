@@ -41,7 +41,7 @@ import type {
 import { t } from "../locale";
 import { Rule } from "../Rule";
 import { Refusal, useActions, useBook, useEdition, useNames, useSession } from "../actions";
-import { lawName, type Names } from "../names";
+import { lawName, lawNote, lawUnit, type Names } from "../names";
 import { when } from "../clock";
 import { CityWorks } from "./CityWorks";
 import { Citizenship } from "./admin/Citizenship";
@@ -278,9 +278,11 @@ export function Admin({ look }: Omit<Props, "busy" | "act">) {
                 const editing = can(api.LAW_SCOPE + key) && decides;
                 return (
                   <tr key={key}>
-                    <td title={law.note ?? ""}>
+                    <td title={lawNote(names, key) ?? ""}>
                       {lawName(names, key)}
-                      {law.unit && <span className="note"> · {law.unit}</span>}
+                      {lawUnit(names, key) && (
+                        <span className="note"> · {lawUnit(names, key)}</span>
+                      )}
                     </td>
                     <td className="num">
                       {editing ? (

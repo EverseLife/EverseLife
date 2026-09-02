@@ -254,11 +254,22 @@ export default function App() {
    * Only after a greeting: which language this account reads is the account's
    * business, and the server says it in `hello`.
    */
-  const speak = useCallback(async (want: string) => {
-    const next = await loadWords(want || DEFAULT_LOCALE, namesRef.current);
-    learn(next);
-    setWords(next);
-  }, []);
+  const speak = useCallback(
+    async (want: string) => {
+      //: The names first, and in the same breath: a message calls `NAME()`
+      //: over the table it was built with, so the two halves of a language
+      //: cannot be chosen apart. They used to be -- the catalogs are read
+      //: before the session says what it speaks, so `show` ran on the default
+      //: and nothing called it again, and an English player read English
+      //: sentences about «Железная руда» until they switched the language by
+      //: hand. Cheap to repeat: every language arrived in one bundle.
+      show(want || DEFAULT_LOCALE);
+      const next = await loadWords(want || DEFAULT_LOCALE, namesRef.current);
+      learn(next);
+      setWords(next);
+    },
+    [show],
+  );
 
   /**
    * Change the language of the account (D-249, D-251 wave III).
@@ -275,13 +286,12 @@ export default function App() {
       //: copy of the session must not go on saying the old one until the next
       //: revive happens to reread it from `hello`.
       session.current.locale = next;
-      //: Both halves of a language change: the names of things and the
-      //: sentences about them. The names are already here -- every language
-      //: came in one bundle (D-251 wave V) -- so only the messages are read.
-      show(next);
+      //: Both halves of a language change -- the names of things and the
+      //: sentences about them -- and `speak` takes both: every language came
+      //: in one bundle (D-251 wave V), so the names are a lookup, not a read.
       await speak(next);
     },
-    [show, speak],
+    [speak],
   );
 
   const enter = (email: string, password: string) =>
