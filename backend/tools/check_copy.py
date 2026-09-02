@@ -6,8 +6,8 @@
 The twin of `frontend/scripts/check-copy.mjs`, and it works the other way
 round because the two halves are at different stages. The client is **clean**:
 every sentence it shows lives in `src/locales/*.ftl`, and the lint there fails
-on any Cyrillic outside them. The engine is not clean yet -- 260 string
-literals in 51 modules -- and a lint that fails on all of them could only be
+on any Cyrillic outside them. The engine is not clean yet -- 208 string
+literals in 48 modules -- and a lint that fails on all of them could only be
 turned off.
 
 So this one is a **ratchet**: every module that still writes Russian is listed
@@ -22,9 +22,9 @@ is fine here, and often better than an English one.
 
 What is still in the list, by kind, so the number can be read:
 
-* **boot-time errors** for whoever runs the server (`constants/*`, `db/ddl`,
-  `jobs`, `loader`, `spec`, `formula`). Developer-facing, and CLAUDE.md wants
-  them in English -- a separate sweep, not this one;
+* **boot-time errors** for whoever runs the server (`db/ddl`, `jobs`).
+  Developer-facing, and CLAUDE.md wants them in English. The `constants/*`
+  half of this kind was swept on 2026-09-02; these two are what is left;
 * **names the world generates for itself** (`seed_*`, `explore/site`, `ruins`,
   `ship/building`, `farm`): data rather than copy, and a design decision is
   written down for them in the vault plan;
@@ -58,16 +58,14 @@ CYRILLIC = re.compile(r"[\u0400-\u04FF]")
 #: the totals conserved literal for literal (bank -> bank/loan, vote ->
 #: vote/_base + vote/poll, works_city -> credit + order + pay, farm ->
 #: plot + season, estate/building -> estate/building/build); nothing new
-#: was written, and the kinds above still cover every one of them.
+#: was written, and the kinds above still cover every one of them. On
+#: 2026-09-02 the five `constants/*` entries left the list translated rather
+#: than moved: `catalog`, `formula`, `loader`, `spec` and `renames` raise
+#: their boot-time errors in English now.
 KNOWN: dict[str, int] = {
     "src/api/app.py": 1,
     "src/api/commands/city.py": 1,
     "src/api/commands/transport.py": 1,
-    "src/constants/catalog.py": 14,
-    "src/constants/formula.py": 8,
-    "src/constants/loader.py": 10,
-    "src/constants/renames.py": 5,
-    "src/constants/spec.py": 13,
     "src/db/ddl.py": 4,
     "src/engine/account.py": 15,
     "src/engine/bank/loan.py": 5,

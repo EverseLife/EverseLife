@@ -216,6 +216,21 @@ async def _capital(session: AsyncSession, catalog: Catalog):
     return city, core, founder
 
 
+async def test_the_channel_is_founded_with_the_city(
+    session: AsyncSession, catalog: Catalog
+) -> None:
+    """A city has its voice from the founding, before anybody looks.
+
+    It used to be opened by the first read of it, and `look` reads it for the
+    tab's count: the city's channel was a row an INSERT-free command wrote.
+    Nobody has read anything here -- the channel is there all the same, under
+    the city's own name.
+    """
+    city, _, _ = await _capital(session, catalog)
+    channel = await net.city_channel(session, city)
+    assert channel is not None and channel.name == city.name
+
+
 async def test_city_channel_is_official_and_its_power_writes(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
@@ -226,6 +241,7 @@ async def test_city_channel_is_official_and_its_power_writes(
         (True, True, True, "Столица")
     ]
     channel = await net.city_channel(session, city)
+    assert channel is not None
     await net.post(session, founder, channel.id, "закон сменился", now=NOW)
 
     #: A citizen reads it without subscribing, and cannot drop it.

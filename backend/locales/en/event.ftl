@@ -49,7 +49,7 @@ event-plates-erupted = earthquake
 # reader reads in, and not whatever happens to lie in the database.
 
 attention-case = a claim against you: { $claim }
-attention-vote-law = vote: { $law }
+attention-vote-law = vote: { LAW($law) }
 attention-vote-kind = vote: { $kind ->
         [election] election of a ruler
         [recall] recall of a ruler

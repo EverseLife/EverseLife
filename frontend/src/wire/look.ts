@@ -320,6 +320,10 @@ export type Look = {
   doings?: Doing[];
   /** Letters and posts that have arrived and are not read (D-222): the tab's count. */
   net_unread?: number;
+  /** Polls of one's own city still waiting for an answer (D-161). Counted
+   *  apart from the letters: the tab adds them up, an unread letter and an
+   *  unanswered ballot are not the same thing. */
+  net_votes?: number;
   /** Does a drilling rig stand in this node: the stand shows the row by it. */
   rig_here?: boolean;
   /** Ships within sight of this node (D-201): moored at the pier one stands

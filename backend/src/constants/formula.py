@@ -49,7 +49,7 @@ def evaluate(text: str, **names: float) -> float:
     try:
         tree = ast.parse(text, mode="eval")
     except SyntaxError as broken:
-        raise NotComputable(f"формула {text!r} не разбирается: {broken}") from broken
+        raise NotComputable(f"formula {text!r} does not parse: {broken}") from broken
     return _walk(tree.body, text, names)
 
 
@@ -58,13 +58,15 @@ def _walk(node: ast.AST, text: str, names: dict[str, float]) -> Any:
         return float(node.value)
     if isinstance(node, ast.Name):
         if node.id not in names:
-            raise NotComputable(f"формула {text!r} требует величину {node.id!r}, а её не передали")
+            raise NotComputable(
+                f"formula {text!r} needs the quantity {node.id!r}, and it was not passed"
+            )
         return float(names[node.id])
     if isinstance(node, ast.BinOp) and type(node.op) in BINARY:
         return BINARY[type(node.op)](_walk(node.left, text, names), _walk(node.right, text, names))
     if isinstance(node, ast.UnaryOp) and type(node.op) in UNARY:
         return UNARY[type(node.op)](_walk(node.operand, text, names))
     raise NotComputable(
-        f"формула {text!r} содержит {type(node).__name__}: это алгоритм, "
-        "и движок обязан написать его сам"
+        f"formula {text!r} contains {type(node).__name__}: this is an algorithm, "
+        "and the engine must write it itself"
     )

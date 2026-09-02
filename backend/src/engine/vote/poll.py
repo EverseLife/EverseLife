@@ -16,7 +16,7 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.constants import Catalog, Constants, current
+from src.constants import Constants, current, current_catalog
 from src.constants import registry as R
 from src.engine import city as town
 from src.engine import events
@@ -250,11 +250,19 @@ async def close(session: AsyncSession, job: Job) -> None:
     else:
         elapsed, reason = passes(current(), poll, pro, contra)
         if elapsed and city is not None and poll.kind is VoteKind.LAW:
-            law = str(poll.subject.get("law"))
-            city.laws = {
-                **(city.laws or {}),
-                law: poll.subject.get("value"),
-            }
+            #: The same step the authority's own road takes: writing the law is
+            #: not all that follows a decision -- the tariff has to reach the
+            #: meter, and the world has to be told which rule moved and from
+            #: what. Nobody is named as the actor: the decision is the city's,
+            #: and whoever proposed it did not make it.
+            await town.apply_law(
+                session,
+                current(),
+                current_catalog(),
+                city,
+                str(poll.subject.get("law")),
+                poll.subject.get("value"),
+            )
         if poll.kind is VoteKind.RECALL and city is not None:
             await _finish_recall(session, poll, city, elapsed)
         if elapsed and poll.kind is VoteKind.CHARTER and city is not None:
@@ -278,14 +286,96 @@ async def close(session: AsyncSession, job: Job) -> None:
     )
 
 
-async def view(
-    session: AsyncSession, catalog: Catalog, city: City, identity_id: uuid.UUID
-) -> list[dict]:
+async def mine(session: AsyncSession, identity_id: uuid.UUID) -> tuple[City | None, list[dict]]:
+    """The polls of one's **own** city one has a voice in, and that city.
+
+    A vote is participation and travels the Net (D-161): a citizen down a mine,
+    on the road or on another planet is one of the electorate all the same, and
+    the poll has to reach them there rather than wait at the town hall. What
+    other cities decide is not their business, and a feed of it would be noise.
+
+    One reader, two consumers -- the Net tab and the return digest -- because
+    the answer is one and the same, and a second copy of the walk from a person
+    to their city's ballot box would drift.
+
+    The city comes back **beside** the polls rather than on each of them: the
+    digest names it in its line, and a copy of the same word on every row would
+    be a key the client can already derive (D-225) -- there is one citizenship
+    to a person, and its city is in `look`.
+    """
+    own = await town.citizenship(session, identity_id)
+    if own is None:
+        return None, []
+    native = await town.by_id(session, own.city_id)
+    if native is None:  # pragma: no cover -- citizenship in a city that is gone
+        return None, []
+    return native, [poll for poll in await view(session, native, identity_id) if poll["may_vote"]]
+
+
+def unanswered(polls: list[dict]) -> list[dict]:
+    """Those of them still waiting for this person: no ballot cast in either shape.
+
+    A yes-or-no poll is answered by `mine`, an election by `choice`; one is
+    always empty in the other's kind, so both are asked.
+    """
+    return [poll for poll in polls if poll["mine"] is None and poll["choice"] is None]
+
+
+async def waiting(
+    session: AsyncSession, identity_id: uuid.UUID, *, now: datetime | None = None
+) -> int:
+    """How many polls want this person's answer: the count on the Net tab.
+
+    Counted, not assembled. `look` asks this on every read, and every citizen
+    rereads `look` whenever anything happens in their city -- so building the
+    whole ballot card of every poll (tally, candidates, each candidate's name)
+    to arrive at a single number would put a dozen queries on the hottest path
+    in the game. Instead one query finds the open polls of one's own city with
+    no ballot of one's own in them, and the census is asked only of those.
+
+    Two queries where nothing is running, one for somebody with no city -- and
+    that is the usual state of the world.
+    """
+    moment = now or datetime.now(UTC)
+    own = await town.citizenship(session, identity_id)
+    if own is None:
+        return 0
+    #: No ballot of one's own is the whole test: a yes-or-no answer and a name
+    #: chosen in an election are the same row, so the poll one has answered
+    #: either way is not waiting.
+    open_ = (
+        (
+            await session.execute(
+                select(Vote).where(
+                    Vote.city_id == own.city_id,
+                    Vote.state == VoteState.OPEN,
+                    ~select(Ballot.id)
+                    .where(Ballot.vote_id == Vote.id, Ballot.identity_id == identity_id)
+                    .exists(),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if not open_:
+        return 0
+    city = await town.by_id(session, own.city_id)
+    if city is None:  # pragma: no cover -- citizenship in a city that is gone
+        return 0
+    counted = 0
+    for poll in open_:
+        if await may_vote_in(session, city, identity_id, poll, now=moment):
+            counted += 1
+    return counted
+
+
+async def view(session: AsyncSession, city: City, identity_id: uuid.UUID) -> list[dict]:
     """Ongoing polls through the client's eyes: subject, deadlines and own vote."""
     result: list[dict] = []
     for poll in await open_votes(session, city):
         pro, contra = await standing(session, poll)
-        mine = (
+        ballot = (
             await session.execute(
                 select(Ballot).where(
                     Ballot.vote_id == poll.id,
@@ -326,8 +416,8 @@ async def view(
                 "candidates": candidates,
                 "choice": (
                     None
-                    if mine is None or mine.choice_identity_id is None
-                    else str(mine.choice_identity_id)
+                    if ballot is None or ballot.choice_identity_id is None
+                    else str(ballot.choice_identity_id)
                 ),
                 "closes_at": poll.closes_at.isoformat(),
                 "threshold": poll.threshold,
@@ -335,7 +425,7 @@ async def view(
                 "electorate": poll.electorate,
                 "yes": pro,
                 "no": contra,
-                "mine": None if mine is None else mine.yes,
+                "mine": None if ballot is None else ballot.yes,
                 "voters": poll.voters,
                 "may_vote": await may_vote_in(session, city, identity_id, poll),
             }

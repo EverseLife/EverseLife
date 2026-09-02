@@ -14,7 +14,9 @@
 
 import * as api from "../../api";
 import type { CityView } from "../../api";
+import { useNames } from "../../actions";
 import { t } from "../../locale";
+import { lawName } from "../../names";
 
 /** The set of rights for a new office: broad ones plus one per law. */
 export function Scopes({
@@ -28,6 +30,7 @@ export function Scopes({
   setSelected: (who: (before: string[]) => string[]) => void;
   can: (right: string) => boolean;
 }) {
+  const names = useNames();
   const toggle = (right: string) =>
     setSelected((before) =>
       before.includes(right) ? before.filter((p) => p !== right) : [...before, right],
@@ -61,7 +64,7 @@ export function Scopes({
                 disabled={!can(right)}
                 onChange={() => toggle(right)}
               />{" "}
-              {law.name}
+              {lawName(names, key)}
             </label>
           );
         })}

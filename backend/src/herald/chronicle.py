@@ -186,10 +186,21 @@ async def _city_law_set(event: Event, names: Names) -> Says | None:
         "chronicle-city-law-set",
         {
             "city": await names.city(event.payload.get("city_id")),
-            #: A law's name is written by people; unnamed, the line still says
-            #: which kind of thing changed.
-            "named": _flag(plain(event.payload.get("law"))),
-            "law": plain(event.payload.get("law")),
+            #: The law travels as its D-251 id and the message turns it into a
+            #: word (`LAW()`). It used to be printed raw, so the line read
+            #: «код-закон «tax_trade»». A payload without one is still a
+            #: sentence: the line then says that a law moved, without naming it.
+            #:
+            #: Unescaped, unlike the text around it: this is a **key** on its
+            #: way to a lookup, and `plain()` would turn `tax_trade` into
+            #: `tax\_trade`, which no table has. Nothing of a player's writing
+            #: reaches here -- `set_law` records only ids the catalog knows.
+            "named": _flag(event.payload.get("law")),
+            "law": str(event.payload.get("law") or ""),
+            #: Both values are the rule **in force** on either side of the
+            #: change (`city.shown`), not the city's own column: a law nobody
+            #: had touched read «было —» while the world was charging the
+            #: vault's default all along.
             "was": plain(event.payload.get("was")) or NOTHING,
             "now": plain(event.payload.get("now")) or NOTHING,
         },
