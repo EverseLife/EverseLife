@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
+# The landing's own lint settings: the server's rules, and one line of its own.
+#
+# `src` is what tells ruff which imports are ours. The server's copy says
+# `[".", "tests"]` relative to `backend/`, so a check aimed at this folder from
+# anywhere else looked for `app` and `stats` under `backend/` and, not finding
+# them, sorted them as somebody else's packages. The same two files then came
+# out sorted one way from `landing/` and another way from the repository root --
+# and whoever ran it from the root would "fix" the imports into the shape that
+# fails in CI. This file settles it: the paths here are read relative to the
+# file itself, so `app` and `stats` are ours from wherever ruff is started.
+#
+# Everything else is inherited rather than repeated: one ruleset for the
+# repository, and a second copy of it would drift within a month.
+extend = "../backend/pyproject.toml"
+
+src = ["."]
