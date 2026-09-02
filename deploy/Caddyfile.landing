@@ -1,5 +1,9 @@
 # The landing's edge on its own host: TLS and one route.
 #
+# Standby, like `compose.landing.yaml` beside it: today the landing runs on the
+# game host, behind the main `Caddyfile`. That file says why the split was tried
+# and why it was undone.
+#
 # A cut-down copy of the main Caddyfile -- only the landing lives here. Caddy
 # obtains and renews the certificate itself (ACME, HTTP-01): the domain must
 # point here with its A/AAAA records and ports 80 and 443 must be open.
@@ -18,6 +22,13 @@
 
 {$LANDING_DOMAIN} {
 	encode zstd gzip
+
+	# Same as on the main edge: `/metrics` is the landing's own counter, meant
+	# for Prometheus over the compose network, and has no business answering on
+	# the public domain. It has to be repeated here -- this file is a separate
+	# edge, and the day it is used the numbers would otherwise be served to
+	# anybody who asked.
+	respond /metrics 404
 
 	reverse_proxy landing:8080
 

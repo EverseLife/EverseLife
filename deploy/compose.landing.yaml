@@ -1,14 +1,22 @@
-# The landing on its own host, away from the game.
+# The landing on its own host, away from the game -- NOT how it is deployed.
 #
-# Why apart: the game's addresses at Contabo turned out to be filtered for a
-# share of Russian home networks by lists nobody publishes, and the landing is
-# the acquisition funnel -- the one page that must open for a stranger. So it
-# lives on an address picked for reachability (Timeweb EU, checked against the
-# lists and probed from Russia before this file was written), while the game
-# stays where it is until the address proves itself. The landing was built for
-# this split: its own SQLite on its own volume, not one query into the game.
+# Today the landing runs on the game host, as the `landing` service in
+# `compose.yaml` behind the main `Caddyfile`. This file is the standby: the
+# split was tried on 2026-09-01 and undone the same day.
 #
-# Bring-up and the transfer of signups: DEPLOY.md, "Лендинг на своём хосте".
+# Why it was tried: the game's addresses at Contabo turned out to be filtered
+# for a share of Russian home networks by lists nobody publishes, and the
+# landing is the acquisition funnel -- the one page that must open for a
+# stranger. Why it was undone: the address picked for reachability (Timeweb
+# Cloud Amsterdam) turned out filtered by the same DPI, so changing hoster buys
+# no reach -- two providers and three addresses said the same thing. If RU
+# reachability over v4 matters again, the cheaper design is a pipe: a VPS in
+# Russia passing TCP through to the origin.
+#
+# Kept because it still works and costs nothing to keep: the landing was built
+# separable -- its own SQLite on its own volume, not one query into the game.
+#
+# Bring-up and the transfer of signups: DEPLOY.md, "Лендинг на отдельном хосте".
 #
 # `.env` next to this file needs LANDING_DOMAIN and ACME_EMAIL; the rest has
 # working defaults. The image comes from GHCR -- CI builds it, nothing is

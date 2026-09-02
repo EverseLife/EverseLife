@@ -165,6 +165,32 @@ jobs:
       - run: uvx ruff format --check --config backend/pyproject.toml tools
       - run: uvx pytest -q tools
 
+  landing:
+    name: Landing
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: landing
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+
+      # The landing has no environment of its own either -- two dependencies
+      # and the standard library. Its tests pin what a deploy must not lose
+      # quietly: every page served, the sitemap, both languages pointing at
+      # each other, and now the counter -- that no address is stored, that a
+      # stranger's URL cannot invent Prometheus series, and that a broken
+      # database never reaches the reader. None of that shows on the page, so
+      # nothing but a test can say it broke.
+      # Lint borrows the server's ruleset, like `tools` does. Only `check`:
+      # `format` would rewrite files this change never touched, and a wholesale
+      # reformat is its own commit, not a rider on this one.
+      - run: uvx ruff check --config ../backend/pyproject.toml .
+      - run: uv pip install --system -r requirements.txt pytest httpx
+      - run: pytest -q test_app.py
+        env:
+          LANDING_DB: ./ci-signups.db
+
   agents:
     name: Agents
     runs-on: ubuntu-latest
@@ -195,9 +221,9 @@ jobs:
       # The server image carries the numbers inside, so they are built before it.
       - uses: ./.github/actions/vault
 
-      # GHCR не принимает заглавные буквы в имени, а владелец у нас
-      # `EverseLife`. Приводим один раз здесь, чтобы метки собирались из
-      # готового значения, а не из выражения с фильтром в каждой из трёх.
+      # GHCR does not accept capital letters in the name, and our owner is
+      # `EverseLife`. Lowercase it once here, so that the tags are built from
+      # a ready value rather than from a filter expression in every image.
       - name: Owner in lowercase
         run: echo "OWNER=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_ENV"
 
@@ -374,10 +400,11 @@ jobs:
   deploy-landing:
     name: Deploy landing
     needs: images
-    # The landing lives on its own host (deploy/compose.landing.yaml explains
-    # why). Until the LANDING_DEPLOY_ENABLED=true variable is set on Actions,
-    # the job is silent -- same rule as the main deploy: a fork must not knock
-    # on somebody's server.
+    # For a landing on its own host, which is not how it is deployed today: it
+    # rides the game host's deploy (deploy/compose.landing.yaml says why the
+    # split was tried and undone). So this job is normally silent -- and stays
+    # silent until the LANDING_DEPLOY_ENABLED=true variable is set on Actions,
+    # same rule as the main deploy: a fork must not knock on somebody's server.
     if: vars.LANDING_DEPLOY_ENABLED == 'true'
     runs-on: ubuntu-latest
     environment: production

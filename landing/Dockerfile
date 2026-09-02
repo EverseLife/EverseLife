@@ -6,7 +6,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY app.py export.py indexnow.py lastmod.py lastmod.json ./
+COPY app.py stats.py export.py indexnow.py lastmod.py lastmod.json ./
 # Every page, not a list of them: a page added to `SITE_PAGES` and forgotten
 # here passes the tests -- they read the source tree -- and is missing only in
 # the image, where it takes the sitemap down with it. The folders under /en/

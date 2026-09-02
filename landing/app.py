@@ -27,6 +27,7 @@ import urllib.request
 from datetime import UTC, datetime
 from pathlib import Path
 
+import stats
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from pydantic import BaseModel
@@ -264,13 +265,31 @@ def _refusal(which: str, lang: str) -> str:
     return said.get(lang, said[DEFAULT_LANG])
 
 
-def _page_handler(file: Path, lang: str):
+def _page_handler(file: Path, path: str, lang: str):
     #: `Content-Language` states outright what the page is written in. Google
     #: works that out from the text and from `hreflang` and does not need the
     #: header; Bing and Yandex do read it, and it costs a line. It is not
     #: `Vary: Accept-Language`: nothing here varies by that header, and saying
     #: otherwise would only tell every cache to keep a copy per browser.
-    def handler() -> FileResponse:
+    def handler(request: Request) -> FileResponse:
+        #: The visit is written down here and not in middleware, so that only
+        #: pages are counted: an asset, a font and a sitemap are not readers.
+        #: `stats.see_page` returns before anything reaches the disk, so this
+        #: costs the visitor nothing -- which is the whole point of counting
+        #: on our side instead of in somebody's script.
+        #:
+        #: HEAD is skipped: that is a monitor asking whether the site is up,
+        #: and counting it would make the uptime check the busiest reader here.
+        if request.method == "GET":
+            stats.see_page(
+                path=path,
+                lang=lang,
+                ip=_client_ip(request),
+                agent=request.headers.get("user-agent", ""),
+                referrer=request.headers.get("referer", ""),
+                query=request.url.query,
+                own_host=request.url.hostname or "",
+            )
         return FileResponse(
             file,
             media_type="text/html",
@@ -283,7 +302,7 @@ def _page_handler(file: Path, lang: str):
 #: HEAD as well as GET: link checkers and uptime monitors ask for headers
 #: first, and a 405 there reads as a broken site.
 for _path, _file in PAGES.items():
-    app.api_route(_path, methods=["GET", "HEAD"])(_page_handler(_file, PAGE_LANG[_path]))
+    app.api_route(_path, methods=["GET", "HEAD"])(_page_handler(_file, _path, PAGE_LANG[_path]))
 
 
 def _redirect_handler(target: str):
@@ -364,8 +383,11 @@ for _path, _file in OG_IMAGES.items():
 
 @app.get("/robots.txt")
 def robots() -> Response:
+    #: `/go/` is closed to crawlers: those addresses are doors, not pages.
+    #: A crawler that follows one gains nothing -- the invitation is not its
+    #: to accept -- and costs us a click in the count that no person made.
     return Response(
-        f"User-agent: *\nAllow: /\n\nSitemap: {SITE}/sitemap.xml\n",
+        f"User-agent: *\nAllow: /\nDisallow: /go/\n\nSitemap: {SITE}/sitemap.xml\n",
         media_type="text/plain",
     )
 
@@ -448,6 +470,44 @@ def health() -> dict:
     return {"ok": True}
 
 
+#: Where the invitation goes. `discord.com/invite/...` and not `discord.gg`:
+#: the short form is a deep link, and a phone that has the app installed but
+#: cannot open it lands nowhere -- which is exactly what a reader described
+#: under the DTF post, after half an hour of trying. This form opens in the
+#: browser and offers the app rather than demanding it.
+DISCORD_INVITE = os.environ.get(
+    "LANDING_DISCORD_INVITE", "https://discord.com/invite/eKhM3H9tKk"
+)
+
+
+@app.api_route("/go/discord", methods=["GET", "HEAD"])
+def go_discord(request: Request) -> RedirectResponse:
+    """The door to the alpha, through our own address so the click is counted.
+
+    A click on an outbound link is invisible to a server -- the browser simply
+    leaves. Sending the click through here is the only way to know how many
+    people went for the invitation without putting a script on the page. It
+    also means the invitation itself lives in one place instead of eighteen
+    anchors across eight files.
+    """
+    if request.method == "GET":
+        stats.see_event("discord_click", _client_ip(request), request.headers.get("user-agent", ""))
+    #: 302, not 301: the invitation can be replaced, and a browser that cached
+    #: a permanent redirect would keep sending people to the old one.
+    return RedirectResponse(DISCORD_INVITE, status_code=302)
+
+
+@app.get("/metrics")
+def metrics() -> Response:
+    """What Prometheus scrapes. Not for the public -- Caddy answers 404 here.
+
+    The service itself does not check who is asking: inside the compose
+    network only Prometheus can reach this port at all, and a second gate in
+    the application would be a password to keep in step with nothing.
+    """
+    return Response(stats.metrics(), media_type="text/plain; version=0.0.4; charset=utf-8")
+
+
 @app.post("/api/signup")
 def signup(body: Signup, request: Request) -> JSONResponse:
     if body.website:
@@ -481,6 +541,11 @@ def signup(body: Signup, request: Request) -> JSONResponse:
         conn.close()
 
     if new_one:
+        #: Counted by the same visitor hash the page views carry, so "which
+        #: campaign brought this address" is a join and not a cookie: nothing
+        #: identifying travels with the visitor, and the client sends nothing
+        #: it was not going to send anyway.
+        stats.see_event("signup", ip, request.headers.get("user-agent", ""))
         #: In a separate thread: the applicant's reply must not wait for somebody's network.
         threading.Thread(target=_notify, args=(in_total,), daemon=True).start()
     return JSONResponse({"ok": True})

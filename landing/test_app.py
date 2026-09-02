@@ -18,12 +18,14 @@ rivals for one query.
 import importlib
 import json
 import re
+import sqlite3
 from collections import Counter
 from html import unescape
 from pathlib import Path
 
 import app as landing
 import pytest
+import stats
 from app import (
     ALTERNATES,
     ASSET_CACHE,
@@ -418,3 +420,213 @@ def test_a_refusal_speaks_the_language_of_the_page() -> None:
     #: An unknown language falls back to the original, never to a key name.
     said = client.post("/api/signup", json={"email": "not-an-email", "lang": "fr"})
     assert said.json()["error"] == landing.REFUSALS["not_an_email"][DEFAULT_LANG]
+
+
+# --- The counter -------------------------------------------------------------
+#
+# What these pin is the part that is easy to break quietly: a page that stops
+# being counted, a label that grows without bound, an address that starts being
+# stored. None of it shows on the page, so only a test can say it broke.
+
+
+def visits_of(where: str) -> list[sqlite3.Row]:
+    """Rows the counter wrote for one page, newest first."""
+    stats.flush()
+    conn = stats.connect()
+    conn.row_factory = sqlite3.Row
+    try:
+        return conn.execute(
+            "SELECT * FROM visits WHERE path = ? ORDER BY id DESC", (where,)
+        ).fetchall()
+    finally:
+        conn.close()
+
+
+def test_a_page_view_is_written_down_with_where_it_came_from() -> None:
+    client.get("/gameplay", headers={"referer": "https://dtf.ru/indie/5273472-something"})
+    row = visits_of("/gameplay")[0]
+    assert row["source"] == "dtf.ru"
+    assert row["medium"] == "referral"
+    assert row["referrer"] == "dtf.ru"
+    assert row["bot"] == 0
+
+
+def test_utm_tags_win_over_the_referrer() -> None:
+    """The link we wrote knows which post it is; the referrer only knows the site.
+
+    DTF is one host and many posts, so `utm_content` is the difference between
+    "DTF works" and "the second post worked and the first did not".
+    """
+    client.get(
+        "/world?utm_source=dtf&utm_medium=social&utm_campaign=alpha-wave-1&utm_content=npc-post",
+        headers={"referer": "https://dtf.ru/indie/5273472-something"},
+    )
+    row = visits_of("/world")[0]
+    assert (row["source"], row["medium"]) == ("dtf", "social")
+    assert (row["campaign"], row["content"]) == ("alpha-wave-1", "npc-post")
+
+
+def test_a_visit_stores_no_address() -> None:
+    """Uniques are counted by a salted hash, and the address itself is not kept.
+
+    The signups table holds an address on purpose -- that is somebody asking
+    to be written to. A page view is not, and a counter that quietly built a
+    log of who read what would be a different product than the one described.
+    """
+    conn = stats.connect()
+    try:
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(visits)")}
+    finally:
+        conn.close()
+    assert "ip" not in columns
+    row = visits_of("/gameplay")[0]
+    assert len(row["visitor"]) == 16
+    assert row["visitor"] != stats.visitor("testclient", "x", "1999-01-01")
+
+
+def test_a_monitor_is_not_a_reader() -> None:
+    before = len(visits_of("/alpha"))
+    client.request("HEAD", "/alpha")
+    assert len(visits_of("/alpha")) == before
+
+
+def test_a_crawler_is_marked_and_never_becomes_an_event() -> None:
+    crawler = {"user-agent": "Mozilla/5.0 (compatible; Googlebot/2.1)"}
+    client.get("/alpha", headers=crawler)
+    assert visits_of("/alpha")[0]["bot"] == 1
+
+    stats.flush()
+    conn = stats.connect()
+    try:
+        before = conn.execute("SELECT count(*) FROM events").fetchone()[0]
+    finally:
+        conn.close()
+    client.get("/go/discord", headers=crawler)
+    stats.flush()
+    conn = stats.connect()
+    try:
+        assert conn.execute("SELECT count(*) FROM events").fetchone()[0] == before
+    finally:
+        conn.close()
+
+
+def test_the_door_to_discord_counts_and_is_closed_to_crawlers() -> None:
+    """The invite is reached through our own address, or the click is invisible.
+
+    `discord.com/invite/...` and not `discord.gg`: the short form is a deep
+    link into an app that may not open, which is how a reader who wanted in
+    spent half an hour outside.
+    """
+    answer = client.get("/go/discord", follow_redirects=False)
+    assert answer.status_code == 302
+    assert answer.headers["location"] == landing.DISCORD_INVITE
+    assert "discord.com/invite/" in landing.DISCORD_INVITE
+
+    stats.flush()
+    conn = stats.connect()
+    try:
+        assert conn.execute(
+            "SELECT count(*) FROM events WHERE kind = 'discord_click'"
+        ).fetchone()[0] >= 1
+    finally:
+        conn.close()
+
+    assert "Disallow: /go/" in client.get("/robots.txt").text
+
+
+def test_metrics_speak_prometheus_and_keep_their_labels_countable() -> None:
+    """A campaign is a stranger's string; a label set has to stay small.
+
+    Anyone can put `?utm_campaign=` and anything after it on a link to us. The
+    row keeps what they wrote -- that is the archive's job -- but the
+    exposition names only the busiest campaigns and folds the rest into one,
+    so a stranger cannot invent a million time series in Prometheus.
+    """
+    for number in range(stats.CAMPAIGN_TOP + 5):
+        client.get(f"/?utm_source=test&utm_campaign=made-up-{number}")
+    stats.flush()
+
+    text = stats.exposition()
+    assert "# TYPE landing_visits_total counter" in text
+    assert "landing_unique_visitors{window=" in text
+    assert "landing_funnel{" in text
+
+    named = re.findall(r'landing_campaign_visits\{campaign="([^"]+)"\}', text)
+    #: The cap, plus the two rows that are not campaigns: untagged traffic and
+    #: the folded tail. Untagged is always the biggest row, so it is reported
+    #: beside the cap rather than inside it -- otherwise it alone would cost a
+    #: real campaign its line.
+    assert len(named) <= stats.CAMPAIGN_TOP + 2, named
+    assert len(named) == len(set(named)), named
+    assert "(none)" in named and "other" in named
+    real = [one for one in named if one not in ("(none)", "other")]
+    assert len(real) == stats.CAMPAIGN_TOP, real
+
+    #: Every line is `name{labels} number` -- a stray quote or newline from a
+    #: URL would make the whole exposition unparseable, and Prometheus would
+    #: drop the scrape rather than the bad line.
+    shape = re.compile(r'[a-z_]+(\{[a-z_]+="[^"\n]*"(,[a-z_]+="[^"\n]*")*\})? -?[\d.e+-]+')
+    for line in text.splitlines():
+        if line and not line.startswith("#"):
+            assert shape.fullmatch(line), line
+
+
+def test_metrics_are_not_part_of_the_site() -> None:
+    """The route exists for Prometheus on the compose network, and Caddy 404s it.
+
+    Nothing here is secret, but it is not the site's, and an address that
+    answers on the public domain is an address somebody indexes.
+    """
+    assert "/metrics" not in [row["ru"] for row in SITE_PAGES]
+    assert "/metrics" not in client.get("/sitemap.xml").text
+
+
+def test_a_tag_we_wrote_lands_on_the_same_line_as_the_referrer() -> None:
+    """`utm_source=dtf` and a referrer from `dtf.ru` are one source, not two.
+
+    Otherwise the graph splits the same audience across two lines and the
+    tagged links -- the ones we control -- are the half that falls into
+    `other`.
+    """
+    assert stats._bucket("dtf") == "dtf"
+    assert stats._bucket("dtf.ru") == "dtf"
+    assert stats._bucket("news.dtf.ru") == "dtf"
+    assert stats._bucket("some-blog.example") == "other"
+
+
+def test_a_stranger_cannot_invent_mediums_either() -> None:
+    """`utm_medium` is somebody else's string too, and it becomes a label.
+
+    The campaign is capped and the source is bucketed; without the same fold
+    here, fifty invented mediums are fifty Prometheus series -- and because
+    the visit counters cover all of history, they would never age out.
+    """
+    for number in range(40):
+        client.get(f"/gameplay?utm_source=dtf&utm_medium=invented-{number}")
+    stats.flush()
+    mediums = set(re.findall(r'landing_visits_total\{[^}]*medium="([^"]+)"', stats.exposition()))
+    assert not [one for one in mediums if one.startswith("invented-")], mediums
+    assert mediums <= stats.MEDIUMS | {"other"}, mediums
+
+    #: The row itself keeps what arrived -- the archive is not the label set.
+    kept = {row["medium"] for row in visits_of("/gameplay")}
+    assert any(one.startswith("invented-") for one in kept), kept
+
+
+def test_a_broken_database_never_reaches_the_reader(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The counter may lose a row; it may not lose the page or the signup.
+
+    `see_page` runs inside the page handler. Everything it might touch --
+    opening the file, the salt, the hash, the insert -- was moved to the
+    writer thread for this reason, and what is left is wrapped: a page that
+    answers 500 because bookkeeping failed costs more than the bookkeeping
+    could ever be worth.
+    """
+    def explode(*args, **kwargs):
+        raise sqlite3.OperationalError("unable to open database file")
+
+    monkeypatch.setattr(stats, "_enqueue", explode)
+    assert client.get("/world").status_code == 200
+    assert client.get("/go/discord", follow_redirects=False).status_code == 302
+    said = client.post("/api/signup", json={"email": "kept@example.test", "lang": "ru"})
+    assert said.status_code == 200 and said.json() == {"ok": True}
