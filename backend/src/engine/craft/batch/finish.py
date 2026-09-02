@@ -185,6 +185,13 @@ async def _finish_make(
                 type_key=batch.output,
                 amount=spilled,
             )
+        elif len(within) > 1 and not liquid.is_liquid(catalog, batch.output):
+            #: Paid into the master's hands past the carry limit, the yield
+            #: falls underfoot (D-265): a station is not carried off because
+            #: it was made rather than picked up. Liquids are in vessels already.
+            from src.engine import overload  # noqa: PLC0415 -- lazy: cycle via storage, estate
+
+            await overload.settle_load(session, constants, catalog, body, fresh)
     return made
 
 

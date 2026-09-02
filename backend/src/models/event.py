@@ -211,6 +211,12 @@ class EventKind(StrEnum):
 
     #: Put down on the floor of a place and picked up from it (D-192).
     ITEM_DROPPED = "item.dropped"
+    #: What did not fit in the hands fell underfoot (D-265): a batch's yield
+    #: or a print past the carry limit.
+    ITEM_FELL = "item.fell"
+    #: A fall landed on a floor with no room for it: the floor is overfull,
+    #: and somebody should ask how the body got that heavy (D-265).
+    STORAGE_OVERFULL = "storage.overfull"
     ITEM_PICKED = "item.picked"
 
     # exploration (D-152)

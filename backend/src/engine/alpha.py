@@ -37,7 +37,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import events, liquid, station, world
+from src.engine import events, liquid, overload, station, world
 from src.engine.errors import Refusal
 from src.models.craft import BatchState, CraftBatch
 from src.models.event import EventKind
@@ -169,6 +169,10 @@ async def spawn(
     )
     if liquid.is_liquid(catalog, name):
         item = await _poured(session, catalog, body, item, name)
+    else:
+        #: Printed past the carry limit, the print falls underfoot (D-265):
+        #: the tester holds what a body may hold, like everybody else.
+        await overload.settle_load(session, constants, catalog, body, item)
     await events.record(
         session,
         EventKind.ALPHA_SPAWNED,
