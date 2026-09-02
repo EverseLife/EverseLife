@@ -219,6 +219,13 @@ async def grant_node(session: AsyncSession, node: Node, owner: Identity) -> Node
 
     Working on nobody's land stays open to everyone: build, fell, gather, drop
     things on the ground. The ban is on the title, not on the labour.
+
+    **Whether the node is a plot is the caller's to have asked** (D-281). A
+    city's own location -- its core, its market, its administration -- is not
+    handed to a person at all, and both roads to here refuse one before they
+    call: `city.allot` and `estate.buy`. The question is not repeated here
+    because there is no third road: the seed and the tests are what is left,
+    and neither is a player. A new caller answers it first.
     """
     from src.engine import estate  # noqa: PLC0415 -- lazy: breaks the import cycle with estate
 

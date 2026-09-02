@@ -24,6 +24,7 @@ from src.engine import energy, ledger, world
 from src.models.city import Power
 from src.models.event import Event, EventKind
 from src.models.ledger import AccountKind
+from src.models.world import PLOT
 from src.units import money
 
 # --- offices and powers ------------------------------------------------------
@@ -321,7 +322,7 @@ async def test_city_hands_out_plots(session: AsyncSession, catalog: Catalog) -> 
         "Участок",
         area_m2=100,
         parent=await session.get(type(core), core.parent_id),
-        properties={"plot": True},
+        properties={PLOT: True},
     )
     plot.owner_city_id = city.id
     await session.flush()

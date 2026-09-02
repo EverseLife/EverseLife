@@ -935,7 +935,6 @@ async def _a_city_location(session: AsyncSession, holder_name: str):
 async def test_the_buyer_never_pays_for_a_location_the_city_takes_back(
     session: AsyncSession,
     factory: async_sessionmaker[AsyncSession],
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The purchase of a deed and the city taking its location back, at once.
 
@@ -943,9 +942,14 @@ async def test_the_buyer_never_pays_for_a_location_the_city_takes_back(
     beside the old one -- so the pass that returns the city's core meets people
     still playing. The one thing that must not happen is the one that costs
     real money: the buyer pays for the paper and loses the node in the same
-    second. Whichever of the two goes first, the money stays in the buyer's
-    account: a city location is not a plot, and no paper for one is traded
-    (D-281).
+    second.
+
+    **The two never meet, and that is the answer rather than an ordering.**
+    There is no window to widen here: `buy_deed` refuses a paper written for a
+    city location before it looks at anybody's purse (D-281), so whichever
+    coroutine wins the row, the money has not moved. A test of the guard from
+    the side the guard exists for -- the second session running at the same
+    moment -- and the reason no lock is enough on its own.
     """
     from src.engine import city as town
     from src.engine import estate

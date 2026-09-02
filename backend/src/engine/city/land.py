@@ -168,10 +168,17 @@ async def reclaim(session: AsyncSession, node: Node, city: City) -> bool:
     building has no holder of its own, and the floors follow their ground.
     What lay on the floor of the location stops being behind a door -- a city
     location has none, and whoever stands there may take from its floor
-    (D-204). Nothing is bought back here, because nothing was sold: all three
-    doors into private title over a city location are shut now -- the
-    allotment, the purchase and the sale of the paper -- so this pass can only
-    be undoing what the engine gave away for nothing.
+    (D-204).
+
+    **Coin is not looked at, and that is a decision, not an oversight.** The
+    three doors -- the allotment, the purchase, the sale of the paper -- are
+    shut going forward, so what this meets is a world laid before the rule,
+    where the purchase asked only that the node be empty. Practically that
+    door was never walked through: every unmarked node of a city carries a
+    machine, a vein or the gate, and `is_vacant` turns all three away. Should
+    a paid one exist somewhere, it comes back too: the city's centre is not
+    for sale at any price, and a refund is the treasury's to decide, not the
+    seed's.
 
     Returns whether there was anything to take back.
     """

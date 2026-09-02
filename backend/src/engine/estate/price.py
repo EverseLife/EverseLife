@@ -370,7 +370,7 @@ async def is_vacant(session: AsyncSession, constants: Constants, node: Node) -> 
     if await built_area(session, node) > 0:
         return False
     #: The city's transit gate is a common road, not a plot (D-176).
-    if (node.properties or {}).get("exit"):
+    if (node.properties or {}).get(travel.EXIT):
         return False
     _, occupied = await slots(session, constants, node)
     if occupied > 0:
