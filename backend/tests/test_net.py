@@ -29,7 +29,8 @@ from src.engine import city as town
 from src.engine import net, travel, world
 from src.models.city import Power
 from src.models.identity import BodyState
-from src.models.world import Layer, Planet
+from src.models.world import Planet
+from tests.net_kit import _capital
 
 NOW = datetime(2026, 8, 22, 12, 0, tzinfo=UTC)
 
@@ -196,26 +197,6 @@ async def test_no_letters_to_oneself(session: AsyncSession) -> None:
 # --- channels ----------------------------------------------------------------
 
 
-async def _capital(session: AsyncSession, catalog: Catalog):
-    stamp = uuid.uuid4().hex[:8]
-    planet = await world.create_node(
-        session, f"terra.{stamp}", "Терра", area_m2=1, layer=Layer.SPACE
-    )
-    delegate = await world.create_node(
-        session, f"terra.city.{stamp}", "Столица", area_m2=1, layer=Layer.PLANET, parent=planet
-    )
-    core = await world.create_node(
-        session, f"terra.city.{stamp}.core", "Ядро", area_m2=100, parent=delegate
-    )
-    founder = await world.create_identity(session, f"Основатель-{stamp}")
-    await world.print_body(session, founder, core)
-    city = await town.found(session, catalog, delegate, "Столица")
-    await town.install_founder(session, city, founder)
-    core.owner_city_id = city.id
-    await session.flush()
-    return city, core, founder
-
-
 async def test_city_channel_is_official_and_its_power_writes(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
@@ -292,3 +273,78 @@ async def test_a_post_arrives_to_each_reader_by_their_own_road(
     later = NOW + timedelta(seconds=road * constants[R.COMM_DELAY_PER_SECOND])
     _, there = await net.read_channel(session, constants, far.id, channel.id, now=later)
     assert [p.text for p in there] == ["слышали?"]
+
+
+async def test_the_unread_count_waits_for_the_road(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """The tab's count obeys the same delay the channel does.
+
+    It is counted in SQL and not by building the channel list (review
+    2026-08-23, item 3), and the road is the one thing SQL does not know: the
+    count asks per author node how old a post must be to have arrived. Two
+    authors, two roads, one reader -- the near word is counted and the far one
+    is not, until it is.
+    """
+    a = await _place(session, "a")
+    b = await _place(session, "b")
+    await travel.connect(session, a, b, base_seconds=3600)
+    near_author, _ = await _person(session, a, "Рядом")
+    far_author, _ = await _person(session, b, "Далеко")
+    reader, _ = await _person(session, a, "Читатель")
+    for author, name in ((near_author, "Близкие"), (far_author, "Дальние")):
+        channel = await net.create_channel(session, author, f"{name} вести")
+        await net.subscribe(session, reader, channel.id)
+        await net.post(session, author, channel.id, "слышали?", now=NOW)
+
+    assert await net.unread_posts(session, constants, reader.id, now=NOW) == 1
+    road = await net.road_seconds(session, constants, a.id, b.id, now=NOW)
+    later = NOW + timedelta(seconds=road * constants[R.COMM_DELAY_PER_SECOND])
+    assert await net.unread_posts(session, constants, reader.id, now=later) == 2
+
+
+async def test_the_unread_count_takes_only_the_readers_channels(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Own, chosen and the city's -- and nothing else; read is not unread.
+
+    The three sources are one `UNION` in the counting query now (`_my_channels`),
+    so each is worth a row of its own here: a channel nobody subscribed to must
+    not be counted, and neither must a channel already read.
+
+    The last line is the seam. `channels` picks the reader's channels its own
+    way, in Python, and only the count goes through `_my_channels`; nothing but
+    this would notice the two rules drifting apart, and a badge that disagrees
+    with the rows under it is exactly what a reader adds up by hand.
+    """
+    city, core, founder = await _capital(session, catalog)
+    reader, _ = await _person(session, core, "Гражданин")
+    await town._enroll(session, city, reader.id, why="test")
+    official = await net.city_channel(session, city)
+    await net.post(session, founder, official.id, "закон сменился", now=NOW)
+    #: The city's word alone: implied by citizenship, never subscribed to.
+    assert await net.unread_posts(session, constants, reader.id, now=NOW) == 1
+
+    #: One's own channel counts too -- including, as it always has, what one
+    #: wrote there oneself. A letter to oneself is impossible, a post is not.
+    own = await net.create_channel(session, reader, "Мои вести")
+    await net.post(session, reader, own.id, "я тут", now=NOW)
+    assert await net.unread_posts(session, constants, reader.id, now=NOW) == 2
+
+    #: A stranger's channel is not counted until it is chosen.
+    stranger, _ = await _person(session, core, "Приезжий")
+    foreign = await net.create_channel(session, stranger, "Чужие вести")
+    await net.post(session, stranger, foreign.id, "не для всех", now=NOW)
+    assert await net.unread_posts(session, constants, reader.id, now=NOW) == 2
+    await net.subscribe(session, reader, foreign.id)
+    assert await net.unread_posts(session, constants, reader.id, now=NOW) == 3
+
+    #: Reading takes the channel out of the count, and only that channel.
+    await net.read_channel(session, constants, reader.id, official.id, now=NOW)
+    assert await net.unread_posts(session, constants, reader.id, now=NOW) == 2
+
+    #: The tab and the rows behind it are one count, and say so.
+    views = await net.channels(session, constants, reader.id, now=NOW)
+    assert sum(view.unread for view in views) == await net.unread_posts(
+        session, constants, reader.id, now=NOW
+    )

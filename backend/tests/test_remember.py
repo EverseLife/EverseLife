@@ -21,39 +21,14 @@ from __future__ import annotations
 
 import uuid
 
-import pytest
-from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.db.base import remember
 from src.engine import world
 from src.units import amount as to_amount
 
-
-class Counter:
-    """How many statements the database was actually asked to run."""
-
-    def __init__(self, session: AsyncSession) -> None:
-        self.count = 0
-        #: `get_bind` on an async session already hands back the sync engine
-        #: the driver runs on -- that is where statements are seen.
-        self._engine = session.get_bind()
-        event.listen(self._engine, "before_cursor_execute", self._seen)
-
-    def _seen(self, *args: object) -> None:
-        self.count += 1
-
-    def stop(self) -> None:
-        event.remove(self._engine, "before_cursor_execute", self._seen)
-
-
-@pytest.fixture
-def counted(session: AsyncSession):
-    meter = Counter(session)
-    try:
-        yield meter
-    finally:
-        meter.stop()
+#: `counted` -- the statement meter -- comes from `conftest.py`: the budget of
+#: `look` (`test_query_budget.py`) measures with the same one.
 
 
 async def _place(session: AsyncSession):
