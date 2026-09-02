@@ -49,6 +49,10 @@ const NAMES = {
   planets: { terra: "Терра", pyroxis: "Пироксис" },
   plants: { beans: "Бобы", spelt: "Полба" },
   virtual_stations: { hands: "Руки" },
+  //: Code-laws are a domain of their own for the same reason: their ids are
+  //: short and general -- `access`, `salary`, `toll` -- and one table shared
+  //: with goods would one day answer with the wrong one.
+  laws: { tax_trade: "Налог с продажи", toll: "Пошлина за проход" },
 } as Names;
 
 /** The shapes the server's own FTL uses: plain, `$arg`, `NAME()`, a selector. */
@@ -60,6 +64,7 @@ estate-unknown-kind = «{ KIND($kind) }» — не тип здания; стро
 ship-planet-has-no-orbit = у планеты { PLANET($planet) } нет орбитального узла
 market-wrong-tier = ступень «{ TIER($tier) }» не та
 gear-wrong-slot = слот «{ SLOT($slot) }» занят
+attention-vote-law = голосование: { LAW($law) }
 farm-wrong-seeds = «{ NAME($goods) }» — не семена культуры «{ CULTURE($culture) }»
 energy-wrong-fuel = годится { NAMES($fuel) }
 storage-mismatch = «{ NAME($goods) }» в «{ NAME($chest) }» не кладут: { $why ->
@@ -149,6 +154,7 @@ describe("the rest of the message functions", () => {
     );
     expect(t("market-wrong-tier", { tier: "fine" })).toBe("ступень «отличное» не та");
     expect(t("gear-wrong-slot", { slot: "back" })).toBe("слот «спина» занят");
+    expect(t("attention-vote-law", { law: "tax_trade" })).toBe("голосование: Налог с продажи");
   });
 
   it("keeps the domains apart where an id means two things", () => {
@@ -192,8 +198,9 @@ describe("the rest of the message functions", () => {
       "gear-wrong-slot",
       "farm-wrong-seeds",
       "energy-wrong-fuel",
+      "attention-vote-law",
     ]) {
-      expect(t(key, { kind: "stone", kinds: "wooden", planet: "terra", tier: "fine", slot: "back", goods: "beans", culture: "beans", fuel: "clay" })).not.toMatch(/\{\s*[A-Z]/);
+      expect(t(key, { kind: "stone", kinds: "wooden", planet: "terra", tier: "fine", slot: "back", goods: "beans", culture: "beans", fuel: "clay", law: "toll" })).not.toMatch(/\{\s*[A-Z]/);
     }
   });
 });
