@@ -9,8 +9,8 @@ and the warmer that buys a few more.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
-from decimal import Decimal
+from datetime import UTC, datetime, timedelta
+from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal
 from typing import Any
 
 from sqlalchemy import select
@@ -27,7 +27,7 @@ from src.models.identity import Body, BodyState
 from src.models.inventory import Item
 from src.models.travel import Travel, TravelState
 from src.models.world import Node
-from src.units import SECONDS_PER_HOUR, amount
+from src.units import ROUND_STAMINA, ROUND_WARMTH, SECONDS_PER_HOUR, amount, on_grid
 
 # --- the body's reserve -------------------------------------------------------
 
@@ -195,18 +195,36 @@ async def _advance(
     hours = (moment - locked.warmth_at).total_seconds() / SECONDS_PER_HOUR
     if hours <= 0:
         return Spell(left=was, uncovered=0.0)
+    #: The reserve is kept to a hundredth of an hour -- six-and-thirty seconds
+    #: -- and a stretch shorter than that cannot be written to it. The stamp
+    #: used to move over such a stretch anyway, and every command settles the
+    #: body, so a player acting oftener than twice a minute paid no cold at
+    #: all. The stamp moves only as far as the reserve actually shifted, and
+    #: the leftover seconds wait in the clock for the next settling.
     if warm:
         #: Coming back is as much faster than going as the vault says, and the
         #: suit speeds both: a big coat must not take half a day to warm up.
-        gain = constants[R.FROST_WARM_RATE] * (ceiling / constants[R.FROST_RESERVE_MAX]) * hours
-        left = min(ceiling, was + gain)
+        rate = constants[R.FROST_WARM_RATE] * (ceiling / constants[R.FROST_RESERVE_MAX])
+        gain = rate * hours
+        #: Down: never more warmth than the hours earned. The ceiling is put
+        #: on the grid too -- clamping to a ceiling off it would hand the row
+        #: a number the grid never had, which is the whole disease.
+        roof = float(on_grid(ceiling, ROUND_WARMTH, ROUND_FLOOR))
+        left = min(roof, float(on_grid(was + gain, ROUND_WARMTH, ROUND_FLOOR)))
         uncovered = 0.0
+        spent = hours if left >= roof or rate <= 0 else (left - was) / rate
     else:
-        left = max(0.0, was - hours)
+        #: Toward plus infinity: never more cold than the hours brought.
+        left = max(0.0, float(on_grid(was - hours, ROUND_WARMTH, ROUND_CEILING)))
         uncovered = max(0.0, hours - was)
+        #: The hours past the reserve are settled below, against stamina, and
+        #: how far the stamp goes for them is decided there: stamina is kept to
+        #: a hundredth as well, and a charge too thin to write is a charge
+        #: nobody paid. Claiming those hours here on the strength of a payment
+        #: that never landed would be this very defect, one column down.
+        spent = was - left
 
     locked.warmth = Decimal(str(left))
-    locked.warmth_at = moment
     #: The stretch the reserve did not cover is **paid here**, in the same
     #: place it is counted, and by whoever settles first. Left to the tick, it
     #: would be paid only by a body that stands still: every command settles
@@ -214,8 +232,19 @@ async def _advance(
     #: active frozen player would burn a sixth of what a sleeping one does,
     #: while D-231 charges for time and not for idleness.
     if uncovered > 0:
-        burnt = constants[R.FROST_FROZEN_STAMINA] * uncovered
-        locked.stamina = Decimal(str(max(0.0, float(locked.stamina) - burnt)))
+        toll = constants[R.FROST_FROZEN_STAMINA]
+        had = float(locked.stamina)
+        #: Up, toward what the body had: never charged more than the cold
+        #: brought. What the column cannot show is not paid, and the hours it
+        #: would have paid for are left in the clock for the next settling --
+        #: so a body settled every second pays the same as one settled once.
+        rest = float(on_grid(max(0.0, had - toll * uncovered), ROUND_STAMINA, ROUND_CEILING))
+        locked.stamina = Decimal(str(rest))
+        paid = had - rest
+        #: Nothing left to take: the stretch is spent whatever it cost, or a
+        #: body at nothing would never move its stamp again.
+        spent += uncovered if rest <= 0 or toll <= 0 else paid / toll
+    locked.warmth_at = locked.warmth_at + timedelta(hours=max(0.0, min(hours, spent)))
     await session.flush()
     if left <= 0 < was:
         await events.record(
@@ -262,14 +291,19 @@ async def use_warmer(
 
     before = await settle(session, constants, catalog, body, now=moment)
     ceiling = await limit_of(session, constants, catalog, body)
-    left = min(ceiling, before + constants[R.FROST_WARMER_HOURS])
+    roof = float(on_grid(ceiling, ROUND_WARMTH, ROUND_FLOOR))
+    gained = on_grid(before + constants[R.FROST_WARMER_HOURS], ROUND_WARMTH, ROUND_FLOOR)
+    left = min(roof, float(gained))
     if left <= before:
         raise FrostError(key="frost-reserve-full", have=before, ceiling=ceiling)
     #: The stack is locked before it is spent, like every other write-off in the
     #: world: the body's own lock is not a substitute for the thing's.
     await stock.lock_items(session, [item])
     body.warmth = Decimal(str(left))
-    body.warmth_at = moment
+    #: The stamp is left where `settle` put it: breaking a warmer adds hours to
+    #: the reserve, it does not make the cold before it go away. Moved to now,
+    #: the seconds the settling could not yet write off would be forgiven with
+    #: it -- the very leak this file was straightened out to stop.
     await stock.consume(session, [item], amount(1))
     await session.flush()
 

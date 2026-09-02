@@ -25,7 +25,7 @@ from src.constants import registry as R
 from src.engine import frost, gear, travel, world
 from src.models.identity import Body, BodyState
 from src.models.world import Layer, Node, Planet
-from src.units import SECONDS_PER_HOUR
+from src.units import ROUND_STAMINA, ROUND_WARMTH, SECONDS_PER_HOUR
 
 SUIT = "insulated_suit"
 
@@ -44,6 +44,120 @@ async def test_the_reserve_melts_hour_by_hour(
 
     left = await frost.settle(session, constants, catalog, body)
     assert left == pytest.approx(constants[R.FROST_RESERVE_MAX] - 2, abs=0.05)
+
+
+def test_the_body_is_kept_at_the_scales_it_is_written_with() -> None:
+    """`ROUND_WARMTH` and `ROUND_STAMINA` each answer to their own column.
+
+    Both settlings measure how far a value moved against the grid they believe
+    it sits on. Widen either column without its constant and the measurement
+    is against a number the row never held.
+    """
+    assert Body.__table__.c.warmth.type.scale == ROUND_WARMTH
+    assert Body.__table__.c.stamina.type.scale == ROUND_STAMINA
+
+
+async def _settled(
+    session: AsyncSession,
+    constants: Constants,
+    catalog: Catalog,
+    body: Body,
+    started: datetime,
+    *,
+    every: float,
+    span: float,
+) -> None:
+    """Settle the body every `every` seconds across `span` of them."""
+    step_count = int(span / every)
+    for tick in range(1, step_count + 1):
+        when = started + timedelta(seconds=every * tick)
+        await frost.settle(session, constants, catalog, body, now=when)
+
+
+async def test_settling_often_costs_the_same_cold_as_settling_once(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """A body settled every second loses the hour it stood in the cold.
+
+    The reserve is kept to a hundredth of an hour -- six-and-thirty seconds --
+    so a shorter stretch cannot be written to it, and the stamp used to move
+    over it regardless. Every command settles the body, so a player acting
+    oftener than twice a minute stood in the frost for nothing.
+    """
+    _, yard = await _town(session)
+    often = await _dweller(session, yard)
+    once = await _dweller(session, yard)
+    started = datetime.now(UTC)
+    for who in (often, once):
+        who.warmth = Decimal("5")
+        who.warmth_at = started
+    await session.flush()
+
+    #: Ten seconds: under the six-and-thirty the reserve can tell apart, so
+    #: every one of the three hundred settlings is a stretch it cannot write.
+    await _settled(session, constants, catalog, often, started, every=10.0, span=3600.0)
+    await frost.settle(session, constants, catalog, once, now=started + timedelta(hours=1))
+
+    #: Exactly, not nearly: an hour is a whole number of the column's steps, so
+    #: a difference of even one step is the defect and not the arithmetic.
+    assert float(often.warmth) == float(once.warmth) == 4.0
+
+
+async def test_the_frozen_pay_the_same_stamina_however_often_they_are_settled(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Past the reserve the cold is paid in stamina, and that column is narrow too.
+
+    At `frost.frozen_stamina` an hour, a second costs four thousandths -- under
+    the hundredth `Body.stamina` keeps. Charged and rounded away it is charged
+    to nobody, and the stamp moved on regardless: a frozen player giving a
+    command a second paid nothing for the hour.
+    """
+    _, yard = await _town(session)
+    often = await _dweller(session, yard)
+    once = await _dweller(session, yard)
+    started = datetime.now(UTC)
+    for who in (often, once):
+        #: Already out of reserve, so every hour is paid in stamina.
+        who.warmth = Decimal("0")
+        who.warmth_at = started
+        who.stamina = Decimal("100")
+    await session.flush()
+
+    #: A second at a time: at fifteen an hour the toll needs a stretch under
+    #: about a second and a fifth to fall below the hundredth stamina keeps, so
+    #: the step is fine and the span is short instead.
+    span = 600.0
+    await _settled(session, constants, catalog, often, started, every=1.0, span=span)
+    await frost.settle(session, constants, catalog, once, now=started + timedelta(seconds=span))
+
+    toll = constants[R.FROST_FROZEN_STAMINA] * span / SECONDS_PER_HOUR
+    assert float(once.stamina) == pytest.approx(100 - toll, abs=0.01)
+    assert float(often.stamina) == pytest.approx(float(once.stamina), abs=0.01)
+
+
+async def test_warming_often_gains_the_same_as_warming_once(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The reserve fills at the same rate however often it is asked about."""
+    _, yard = await _town(session)
+    await _place(session, yard, HEATER)
+    await _charge(session, constants, yard, constants[R.FROST_HEATER_DRAW] * 4)
+    often = await _dweller(session, yard)
+    once = await _dweller(session, yard)
+    started = datetime.now(UTC)
+    for who in (often, once):
+        who.warmth = Decimal("0")
+        who.warmth_at = started
+    await session.flush()
+
+    #: Five seconds: at three an hour that is under the hundredth as well.
+    span = 900.0
+    await _settled(session, constants, catalog, often, started, every=5.0, span=span)
+    await frost.settle(session, constants, catalog, once, now=started + timedelta(seconds=span))
+
+    assert float(once.warmth) > 0, "the half hour must be worth something"
+    assert float(often.warmth) == pytest.approx(float(once.warmth), abs=0.01)
 
 
 async def test_a_warm_node_fills_the_reserve_back(

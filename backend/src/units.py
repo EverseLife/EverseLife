@@ -13,7 +13,7 @@ That is exactly why the module is excluded from the magic-number check
 
 from __future__ import annotations
 
-from decimal import Decimal
+from decimal import ROUND_HALF_EVEN, Decimal
 
 #: Money is stored as integer minor units: 1 TC = 10 000 units. Integers rule
 #: out rounding errors in double entry -- no posting can "lose a cent"
@@ -93,7 +93,7 @@ TRACE_POINTS = 24
 SKY_MEMO_PER_DAY = 144
 SKY_CURVE_MEMO = 512
 SKY_CALENDAR_MEMO = 64
-#: Column scales, not presentation: the five below say how wide the row is,
+#: Column scales, not presentation: the seven below say how wide the row is,
 #: not how a summary reads. Changing one alone leaves the code rounding coarser
 #: or finer than the column it writes to, and nothing objects -- so a scale tied
 #: to a single column is pinned to it by a test.
@@ -120,6 +120,15 @@ ROUND_ENERGY = 3
 #: ends where a pool read once does. Fine enough that its own rounding is
 #: nothing: a millionth of a thousandth a call.
 ROUND_REMAINDER = 9
+#: The body's heat reserve is stored to a hundredth of an hour (`Body.warmth`
+#: is `Numeric(6, 2)`), which is thirty-six seconds. The scale of the column,
+#: not a property of the game: how long the reserve lasts is `frost.*`.
+ROUND_WARMTH = 2
+#: The body's stamina, the same shape on the same table (`Body.stamina` is
+#: `Numeric(6, 2)`). Its own name because it is pinned to its own column: the
+#: cold is charged against it, and a charge too thin to write is one nobody
+#: paid.
+ROUND_STAMINA = 2
 
 #: Argon2id takes memory in KiB, while `pow.memory_per_session` is given in MB.
 KIB_PER_MIB = 1024
@@ -156,7 +165,7 @@ def amount_float(internal: int) -> float:
     return internal / AMOUNT_SCALE
 
 
-def on_grid(value: float | Decimal, scale: int) -> Decimal:
+def on_grid(value: float | Decimal, scale: int, rounding: str = ROUND_HALF_EVEN) -> Decimal:
     """A number as a `Numeric(_, scale)` column will keep it.
 
     Put a value on the column's grid **before** it is stored and what the
@@ -164,11 +173,13 @@ def on_grid(value: float | Decimal, scale: int) -> Decimal:
     two drift apart, and code that measures a change against its own idea of
     the old value measures against a number the row never had.
 
-    To the nearest, not downwards: a quantity reached through floats sits a
-    hair below itself -- sixteen arrives as `15.999999999999998` -- and
-    flooring would shave a step off every write.
+    To the nearest by default: a quantity reached through floats sits a hair
+    below itself -- sixteen arrives as `15.999999999999998` -- and flooring
+    every write would shave a step off it. Pass a direction where the rounding
+    must not invent the change it is rounding: a reserve that drains wants
+    `ROUND_CEILING`, so the row never claims more spent than the clock brought.
     """
-    return Decimal(str(value)).quantize(step(scale))
+    return Decimal(str(value)).quantize(step(scale), rounding=rounding)
 
 
 def step(scale: int) -> Decimal:
