@@ -49,6 +49,7 @@ city-role-administration = администрация
 city-role-market = рынок
 city-role-power = источник энергии
 city-found-no-name = у города должно быть имя
+city-found-name-too-long = имя города длиннее { $limit } знаков: его несут и карточка, и летопись, и официальный канал
 city-founder-exists = у города «{ $city }» уже есть основатель
 
 # --- власть и должности (D-155, D-164, D-231) ---------------------------------

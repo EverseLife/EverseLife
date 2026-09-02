@@ -125,6 +125,12 @@ HERALD_TEXT_LIMIT = 200
 #: Length limit of the city's word to newcomers (D-183). Door cards are
 #: compared by eye: a city that wrote a page would turn the choice into reading.
 CITY_ABOUT_LIMIT = 300
+#: City name length limit. The same hygiene as a plot's nameplate or a ship's:
+#: the name is drawn on cards, in the chronicle and in every refusal that
+#: quotes it, and there is nothing here to balance. It is not above
+#: `NET_NAME_LIMIT` on purpose: the city's official channel takes its name
+#: from the city, and a name the city may carry must be one the Net may hold.
+CITY_NAME_LIMIT = 40
 
 #: Account (D-187): login hygiene, not game. A shorter password is not a
 #: password; a session token lives a month so that a page refresh does not

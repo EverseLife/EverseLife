@@ -46,7 +46,9 @@ from src.models.city import (
 )
 from src.models.event import EventKind
 from src.models.identity import BodyState, Identity
+from src.models.net import NetChannel
 from src.models.world import Layer, Node
+from src.runtime import CITY_NAME_LIMIT
 
 
 async def found(
@@ -60,6 +62,20 @@ async def found(
 
     The charter is filled with `laws.json` defaults: the city arises working,
     not as an empty questionnaire of forty questions (D-130).
+
+    **The name is taken as given, and nothing checks its length here.** This
+    is the seed's door: the capital and the delegate cities are founded from
+    node names written in the vault (`seed.py`, `seed_catchup.py`). The
+    player's door is `establish`, and the ceiling is there -- so what is
+    guaranteed is "no player founds a city with an over-long name", not "no
+    city has one".
+
+    The difference is not covered by anything today, only unexercised: the
+    vault build checks that a name exists in every language, not how long it
+    is, and the longest node name it writes is 22 characters against a
+    ceiling of 40. Closing it belongs in the vault build rather than in a
+    refusal here -- a content bug should stop the build, not reach a player
+    as words written for a human in a window.
     """
     existing_ = await by_node(session, node.id)
     if existing_ is not None:
@@ -76,6 +92,7 @@ async def found(
     session.add(city)
     await session.flush()
     await _mark_gate(session, city, node)
+    await _open_channel(session, city)
 
     if founder is not None:
         await _office(
@@ -115,6 +132,26 @@ async def _mark_gate(session: AsyncSession, city: City, node: Node) -> None:
     if any((place.properties or {}).get(travel.EXIT) for place in ground):
         return
     await props.stamp(session, node, {travel.EXIT: True})
+
+
+async def _open_channel(session: AsyncSession, city: City) -> None:
+    """A founded city gets its official voice at once (D-222).
+
+    The Net used to open the channel on the first ask for it, and the first ask
+    is `look`: the unread count for the tab walks the reader's channels, so the
+    first citizen's first look at a young city wrote a row. A city's channel is
+    not a consequence of somebody reading; it is part of what a city is, like
+    the gate above.
+
+    Written from the model and not through `engine.net` on purpose. The Net
+    already names the city -- it asks who holds the `channel` power and who the
+    citizens are -- and a door back the other way would make `city <-> net` one
+    more mutual cycle of the kind wave 3 is spending itself on removing. Cities
+    founded before this are given theirs by migration `a1f7d3c58e26`.
+    """
+
+    session.add(NetChannel(name=city.name, city_id=city.id))
+    await session.flush()
 
 
 #: What a city cannot be without (D-023, D-159). The list is four roles, not
@@ -205,6 +242,15 @@ async def establish(
     title = name.strip()
     if not title:
         raise CityError(key="city-found-no-name")
+    #: The bound sits on this door and not in `found`, because this is where a
+    #: player names a city -- `found` is also the seed's, and vault names are
+    #: the vault build's business, not a refusal's. There is no renaming
+    #: afterwards, so this is the only moment. What hangs on the bound is not
+    #: only the card: the city's official channel takes its name from the city,
+    #: and `CITY_NAME_LIMIT <= NET_NAME_LIMIT` (pinned in `test_city_founding`)
+    #: is what makes that name one the Net could have accepted itself.
+    if len(title) > CITY_NAME_LIMIT:
+        raise CityError(key="city-found-name-too-long", limit=CITY_NAME_LIMIT)
 
     identity = await session.get(Identity, body.identity_id)
     city = await found(session, catalog, node, title, founder=identity)

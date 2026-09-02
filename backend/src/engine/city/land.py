@@ -49,7 +49,7 @@ async def allot(
 
     What is given out is a **plot**. The city's own locations are not land in
     the queue: a location the city works from is nobody's private yard, and
-    entering it is not for one holder to allow (D-199).
+    entering it is not for one holder to allow (D-199, D-281).
     """
     await require_at_hall(session, body, city)
     await require(session, by.id, city, Power.LAND)

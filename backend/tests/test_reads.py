@@ -99,7 +99,7 @@ async def test_look_counts_the_polls_without_opening_an_account(
 
     from src.api.commands import look as api
     from src.engine import city as town
-    from src.engine import net, vote
+    from src.engine import vote
     from src.models.city import Citizen
     from src.models.ledger import LedgerAccount
 
@@ -126,12 +126,6 @@ async def test_look_counts_the_polls_without_opening_an_account(
     session.add(Citizen(identity_id=identity.id, city_id=city.id))
     await session.flush()
     await vote.open_law(session, current(), city, identity, "tax_trade", "4")
-    #: The city's channel is made here rather than left to the read, and that
-    #: is not tidiness: `net.channels` **creates** it when it does not find
-    #: one, so the very first look of the very first citizen of a city writes
-    #: a row. Older than this counter and not its doing -- a leak of the same
-    #: family, written down where it was found rather than fixed in passing.
-    await net.city_channel(session, city)
     await session.commit()
 
     before = await session.scalar(select(func.count()).select_from(LedgerAccount))
@@ -140,6 +134,64 @@ async def test_look_counts_the_polls_without_opening_an_account(
     #: No property, no voice -- and no account opened to find that out.
     assert seen["look"]["net_votes"] == 0
     assert await session.scalar(select(func.count()).select_from(LedgerAccount)) == before
+
+
+async def test_look_gives_the_city_no_channel(
+    session: AsyncSession, factory: async_sessionmaker[AsyncSession], constants, catalog
+) -> None:
+    """A citizen's `look` counts the unread of the city's channel -- and does
+    not open one where there is none.
+
+    The channel used to exist "from the first time it is asked for", and the
+    first ask is this very read: the Net tab's count walks the reader's
+    channels, and the city's is among them by citizenship. One INSERT behind
+    the hottest read in the game -- and it fired so rarely, once per city on
+    its first citizen's first look, that nothing caught it. The city is
+    founded with its channel now; the one here is from before that, founded
+    and left voiceless.
+    """
+    from sqlalchemy import delete, func
+
+    from src.api.commands.look import _look
+    from src.engine import city as town
+    from src.engine import net
+    from src.models.net import NetChannel
+
+    stamp = uuid.uuid4().hex[:8]
+    planet = await world.create_node(
+        session, f"terra.{stamp}", "Терра", area_m2=1, layer=Layer.SPACE
+    )
+    delegate = await world.create_node(
+        session, f"terra.mute.{stamp}", "Столица", area_m2=1, layer=Layer.PLANET, parent=planet
+    )
+    core = await world.create_node(
+        session, f"terra.mute.{stamp}.core", "Ядро", area_m2=100, parent=delegate
+    )
+    city = await town.found(session, catalog, delegate, "Столица")
+    core.owner_city_id = city.id
+    citizen = await world.create_identity(session, f"Гражданин-{stamp}")
+    await world.print_body(session, citizen, core)
+    await town._enroll(session, city, citizen.id, why="test")
+    #: That the read reaches the city's channel at all, before it is taken
+    #: away. Without this the test would pass just as green in a world where
+    #: the citizen belongs to no city: `channels()` would never enter the
+    #: official branch, and nothing would be left of what it was written for.
+    views = await net.channels(session, constants, citizen.id)
+    assert [view.official for view in views] == [True], views
+    #: A city as an old world left it: standing, with no channel of its own.
+    await session.execute(delete(NetChannel).where(NetChannel.city_id == city.id))
+    await session.commit()
+
+    async def channels() -> int:
+        return await session.scalar(
+            select(func.count()).select_from(NetChannel).where(NetChannel.city_id == city.id)
+        )
+
+    assert await channels() == 0, "канал снесён -- это город старого мира"
+    async with factory() as db, db.begin(), _writes_forbidden(db):
+        seen = await _look({"identity_id": citizen.id}, db, {"cmd": "look"})
+    assert seen["look"]["net_unread"] == 0, seen
+    assert await channels() == 0, "взгляд завёл городу канал -- чтение не пишет"
 
 
 @contextlib.asynccontextmanager
