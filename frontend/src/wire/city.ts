@@ -18,14 +18,13 @@
  */
 
 /**
- * A code-law as it stands in the city: the value in force and where it came
- * from. No name: the law is known by its D-251 id, and the word for it lives
- * in the names table in every language (`lawName`). A copy on the wire would
- * be a second list of the same words, and those drift (D-225).
+ * A code-law as it stands in the city: the value in force, and whether the
+ * city decided it or the vault did. Nothing else -- the name, the unit and
+ * the note are vault text, held by id in the names table in every language
+ * (`lawName`, `lawUnit`, `lawNote`); a copy on the wire would be a second
+ * list of the same words, and those drift (D-225).
  */
 export type Law = {
-  unit?: string;
-  note?: string;
   value?: string;
   own: boolean;
 };

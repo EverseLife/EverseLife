@@ -149,6 +149,26 @@ async def test_a_law_change_records_the_rule_that_was_in_force(
     assert written.payload["now"] == "1"
 
 
+async def test_the_wire_carries_no_vault_prose_about_a_law(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """A law reaches the client as a value and nothing else (D-225, D-251).
+
+    Its name, the unit beside the number and the note under the cursor are all
+    the vault's text, and the vault writes them in Russian: while the socket
+    carried them, an English reader got «Sales tax · % выручки» with a Russian
+    hint. The client holds all three by id in every language it serves, so the
+    only thing left to send is what the client cannot know -- the value in
+    force and whether the city or the vault decided it.
+    """
+    city, _ = await _capital(session, catalog)
+    survey = await town.survey(session, constants, catalog, city)
+
+    assert survey["laws"], "the catalog gave no laws at all"
+    for law_id, shown in survey["laws"].items():
+        assert set(shown) == {"value", "own"}, f"{law_id} carries more than its value"
+
+
 async def test_tariff_reaches_pool(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
