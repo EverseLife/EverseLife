@@ -68,24 +68,46 @@ def _fresh_map():
 
 
 async def _citizen_with_channels(
-    session: AsyncSession, catalog: Catalog, *, channels: int
+    session: AsyncSession, catalog: Catalog, *, channels: int, streets: int = 0
 ) -> uuid.UUID:
     """A citizen of a city who has subscribed to `channels` written channels.
 
     Two sources of a channel at once -- the city's by citizenship and the
-    chosen ones -- with one unread post in each. Everybody stands in the city's
-    core: what this scene measures is the number of channels and nothing else.
+    chosen ones -- with one unread post in each.
+
+    `streets` lays that many roads inside the city and spreads the authors over
+    them, so that the scene has a map to read: a street is not a border, and an
+    edge between two nodes of one city needs no gate (D-206). With none of them
+    everybody stands in the core, `road_seconds` returns on `here == there`, and
+    a measurement over this scene never touches the map at all.
+
+    Two streets and not ten, when they are wanted. `look` reads a container and
+    its contents per node of the city, so every street added costs it two
+    queries that have nothing to do with the Net -- ten of them add twenty and
+    bury the two this scene exists to include. That fan-out is `look`'s own and
+    older than this file; it is named here so that a ceiling measured on a small
+    city is not mistaken for one that holds on a large one.
     """
     city, core, founder = await _capital(session, catalog)
     reader = await world.create_identity(session, f"Читатель-{uuid.uuid4().hex[:6]}")
     await world.print_body(session, reader, core)
     await town._enroll(session, city, reader.id, why="test")
 
+    where = [core]
+    for _ in range(streets):
+        street = await world.create_node(
+            session, f"terra.street.{uuid.uuid4().hex[:8]}", "Улица", area_m2=50, parent=core
+        )
+        street.owner_city_id = city.id
+        await session.flush()
+        await travel.connect(session, where[-1], street, base_seconds=60)
+        where.append(street)
+
     official = await net.city_channel(session, city)
     await net.post(session, founder, official.id, "закон сменился", now=NOW)
     for n in range(channels):
         author = await world.create_identity(session, f"Автор-{uuid.uuid4().hex[:6]}")
-        await world.print_body(session, author, core)
+        await world.print_body(session, author, where[n % len(where)])
         feed = await net.create_channel(session, author, f"Вести {n} {uuid.uuid4().hex[:6]}")
         await net.subscribe(session, reader, feed.id)
         await net.post(session, author, feed.id, "слышали?", now=NOW)
@@ -200,14 +222,10 @@ async def test_the_unread_count_does_not_grow_with_the_roads(
     )
 
 
-async def test_look_stays_within_its_budget(
-    session: AsyncSession, constants: Constants, catalog: Catalog, factory
-) -> None:
-    """The whole command, on a citizen with ten channels, under the ceiling."""
+async def _look_cost(factory, me_id: uuid.UUID) -> int:
     from src.api.commands.look import _look
 
-    me_id = await _citizen_with_channels(session, catalog, channels=10)
-
+    net.forget_graph()
     async with factory() as db:
         meter = Counter(db)
         try:
@@ -215,6 +233,26 @@ async def test_look_stays_within_its_budget(
             await _look({"identity_id": me_id}, db, {"cmd": "look"})
         finally:
             meter.stop()
-        spent = meter.count - before
+        return meter.count - before
 
+
+async def test_look_stays_within_its_budget(
+    session: AsyncSession, constants: Constants, catalog: Catalog, factory
+) -> None:
+    """The whole command, on a citizen with ten channels, under the ceiling.
+
+    Measured twice, and the second time is the one that had to be added: with
+    every author in the reader's own node the Net's road is never walked and the
+    map never read, so a ceiling taken there would guard a `look` two queries
+    and one code path shorter than the real one. The second scene is two streets
+    wide for the reason `_citizen_with_channels` gives.
+    """
+    together = await _citizen_with_channels(session, catalog, channels=10)
+    spent = await _look_cost(factory, together)
     assert spent <= LOOK_BUDGET, f"look стоит {spent} запросов при потолке {LOOK_BUDGET}"
+
+    scattered = await _citizen_with_channels(session, catalog, channels=10, streets=2)
+    on_roads = await _look_cost(factory, scattered)
+    assert on_roads <= LOOK_BUDGET, (
+        f"look по сцене с дорогами стоит {on_roads} запросов при потолке {LOOK_BUDGET}"
+    )

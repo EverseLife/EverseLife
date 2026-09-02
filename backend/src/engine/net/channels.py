@@ -34,6 +34,10 @@ from src.runtime import (
 
 # --- channels ----------------------------------------------------------------
 
+#: Before any post. Stands in for "has read nothing" where a comparison needs
+#: a value and not a branch -- see `_fresh`.
+DAWN = datetime.min.replace(tzinfo=UTC)
+
 
 @dataclass(frozen=True, slots=True)
 class ChannelView:
@@ -307,8 +311,7 @@ async def channels(
             )
         )
     #: Official first, then by the latest post.
-    dawn = datetime.min.replace(tzinfo=UTC)
-    out.sort(key=lambda view: (not view.official, -(view.last_at or dawn).timestamp()))
+    out.sort(key=lambda view: (not view.official, -(view.last_at or DAWN).timestamp()))
     return out
 
 
@@ -387,13 +390,17 @@ def _fresh(me_id: uuid.UUID, native_city_id: uuid.UUID | None) -> Select:
     """The page of unread posts of every channel the reader has, in one query.
 
     `LATERAL` and not one flat `WHERE`, because the page is **per channel**: the
-    newest `NET_PAGE` a channel holds that the reader has not read, which is
-    what `read_channel` shows them and therefore what the channel's counter has
-    to agree with. It is also the only bound there is. A citizen who never opens
-    the city's channel accumulates unread posts for as long as the city speaks,
-    and a count with no `LIMIT` would read every one of them on every `look`;
-    the `LIMIT` inside the join walks `ix_net_post_channel_at` backwards and
-    stops.
+    newest `NET_PAGE` a channel holds that the reader has not read. It is also
+    the only bound there is. A citizen who never opens the city's channel
+    accumulates unread posts for as long as the city speaks, and a count with no
+    `LIMIT` would read every one of them on every `look`; the `LIMIT` inside the
+    join walks `ix_net_post_channel_at` backwards and stops -- which it can only
+    do while `at` stays a bound of that index, hence the `coalesce` below.
+
+    Not the same page as `read_channel`: that one shows the newest `NET_PAGE`
+    posts of a channel whether they are read or not, and the two coincide only
+    while there are fewer than `NET_PAGE` unread. A hundred unread is where both
+    stop, and both stop at the same place, which is what the counter needs.
 
     The author's node comes back with each post because the delay starts there,
     and nothing else does: a count needs no text and no name.
@@ -415,7 +422,13 @@ def _fresh(me_id: uuid.UUID, native_city_id: uuid.UUID | None) -> Select:
         select(NetPost.node_id, NetPost.at)
         .where(
             NetPost.channel_id == mine.c.channel_id,
-            or_(mine.c.read_at.is_(None), NetPost.at > mine.c.read_at),
+            #: `coalesce` and not `read_at IS NULL OR at > read_at`. The two say
+            #: the same thing, and only one of them is a bound the index can be
+            #: walked from: with the `OR`, Postgres drops `at` out of the index
+            #: condition and filters instead, so a channel the reader has read to
+            #: the end is proved empty by reading all of it -- 200k posts scanned
+            #: to return nothing, on the commonest command in the game.
+            NetPost.at > func.coalesce(mine.c.read_at, DAWN),
         )
         .order_by(NetPost.at.desc())
         .limit(NET_PAGE)
@@ -445,7 +458,17 @@ async def _unread_by_channel(
     road is Dijkstra in memory, not SQL (D-222). So the arithmetic is done here,
     over a bounded page, against one cutoff per author node: the nodes are the
     places the unread posts were written in, a handful whatever the number of
-    channels, and the delay to each is one lookup in the map (`road`).
+    channels.
+
+    A cutoff costs no query, but it is not free: `road` answers the first
+    question about a node with a Dijkstra from it and keeps the result for
+    `NET_REACH_CACHE` sources, so a reader whose unread posts come from many
+    places pays a run per place and crowds that cache. Cheaper would be one
+    Dijkstra from the **reader** -- the map is symmetric within a planet -- but
+    the reader is not the source between planets, where the road is a departure
+    from the author's world at that hour (D-271), and swapping the ends there
+    would quietly change the delay. That is a change to the road, not to the
+    count.
 
     A channel with nothing unread is simply absent from the answer, and a caller
     that lists channels of its own (`channels`) reads a zero off the missing key.
