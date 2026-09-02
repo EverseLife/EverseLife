@@ -33,8 +33,10 @@ lever:** no inflation data -- no reaction to it.
 
 The borrower's rate is fixed at issue and does not change afterwards, whatever
 the bank decides later. There is no collateral (D-173): the limit is granted
-by **labour** -- sales turnover, repaid loans, a record without overdue payments
-and trust -- and it is computed by a public formula, like the rate.
+by **labour** -- sales turnover, interest paid on loans carried, a record
+without overdue payments and trust -- and it is computed by a public formula,
+like the rate. Servicing, not the round trip (D-280): a loan taken and given
+back the same second costs nothing and proves nothing.
 
 ## The bank is two-tier (D-175)
 
@@ -63,6 +65,7 @@ from src.engine.bank._base import (  # noqa: F401
     BankError,
     NotCouncilTime,
     NothingToRepay,
+    NotOurs,
     OutOfCorridor,
     Restrained,
     TooMuch,
@@ -109,8 +112,8 @@ from src.engine.bank.rate import (  # noqa: F401
     seigniorage_cancelled,
 )
 from src.engine.bank.trust import (  # noqa: F401
+    interest_paid_total,
     personal_turnover,
-    repaid_total,
     report_defect,
     trust,
     withdraw_report,

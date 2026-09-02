@@ -312,9 +312,6 @@ ENERGY_HOME_DRAW_PER_M2 = Num("energy.home_draw_per_m2")
 
 # --- City layout (D-089, D-125) ---------------------------------------------
 LAND_AREA_RING1 = Span("land.area_ring1")
-#: This many days after the declaration citizenship lapses (D-160). Leaving is
-#: free but not instant: otherwise one leaves the city right before a verdict.
-CITY_EXIT_DELAY = Num("city.exit_delay")
 #: How many hours a citizens' poll runs (D-161). Hours, not minutes: not only
 #: those online at the moment of convening take part.
 VOTE_DURATION = Num("vote.duration")
@@ -339,16 +336,17 @@ BANK_RATE_REVIEW_PERIOD = Num("bank.rate_review_period")
 BANK_RATE_FLOOR = Num("bank.rate_floor")
 BANK_RATE_CAP = Num("bank.rate_cap")
 BANK_RATE_STEP_MAX = Num("bank.rate_step_max")
-BANK_RISK_PREMIUM = Span("bank.risk_premium")
 BANK_UNSECURED_LIMIT = Num("bank.unsecured_limit")
 #: Ceiling of the city bank's margin above the key rate (D-175).
 BANK_CITY_MARGIN_CAP = Num("bank.city_margin_cap")
 #: The city's line with the capital: citizens' debt no higher than this share of turnover (D-175).
 BANK_DEBT_TO_TURNOVER_CAP = Num("bank.debt_to_turnover_cap")
-#: Credit limit from labour (D-173): shares of turnover and of repaid, the
-#: window, the bonus for a record without overdue, the report price and the trust floor.
+#: Credit limit from labour (D-173): the share of turnover, the multiple of the
+#: interest paid (D-280 -- of repaid principal before it, and that was free to
+#: run up), the window, the bonus for a record without overdue, the report price
+#: and the trust floor.
 CREDIT_TURNOVER_SHARE = Num("credit.turnover_share")
-CREDIT_REPAID_SHARE = Num("credit.repaid_share")
+CREDIT_INTEREST_SHARE = Num("credit.interest_share")
 CREDIT_WINDOW = Num("credit.window")
 CREDIT_NO_OVERDUE_BONUS = Num("credit.no_overdue_bonus")
 CREDIT_REPORT_PENALTY = Num("credit.report_penalty")

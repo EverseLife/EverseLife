@@ -289,29 +289,10 @@ async def set_charter(
     return city
 
 
-#: Print conditions -- what a newcomer accepts by choosing the city's door (D-184).
-SPAWN_CITIZENSHIP = "spawn_citizenship"
-
-
-SPAWN_TERM = "spawn_term"
-
-
+#: The one print condition left of the three (D-184, D-281): the tax the
+#: engine withholds at every sale. Citizenship is no longer a condition the
+#: city switches on but what the door gives, and the term that held it is gone.
 TRADE_TAX = "tax_trade"
-
-
-def spawn_terms(constants: Constants, catalog: Catalog, city: City | None) -> tuple[bool, float]:
-    """The city's print conditions: whether citizenship is mandatory and for how many days.
-
-    A term without mandatory citizenship refers to nothing and is therefore
-    zero: there is nothing to hold if nobody joined anything.
-    """
-    if city is None:
-        return False, 0.0
-    decision = str(law(catalog, city, SPAWN_CITIZENSHIP) or "").strip().lower()
-    required = decision.startswith("обяз")
-    if not required:
-        return False, 0.0
-    return True, max(law_number(constants, catalog, city, SPAWN_TERM), 0.0)
 
 
 def may_take_city_land(catalog: Catalog, city: City, citizen: bool) -> bool:

@@ -20,7 +20,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from bank_kit import _borrower, _deal
+from bank_kit import _borrower, _deal, _enrol, _home
 from src import i18n
 from src.constants import Catalog, Constants
 from src.constants import registry as R
@@ -382,7 +382,14 @@ async def test_withholding_takes_share_of_remainder(
     share = constants[R.DEBT_WORKOFF_RATE] / PERCENT
     assert withheld == pytest.approx(before * share, rel=0.02)
     assert await _account(session, who) == before - withheld
-    assert await bank.reserve(session) == withheld, "удержанное ушло в резерв"
+    #: Out of circulation, and in two parts: the key share to the reserve, the
+    #: city's margin to its treasury (D-175). Every borrower is somebody's
+    #: citizen now (D-281), so there is always a treasury to take its share.
+    from src.engine import city as town
+
+    treasury = await town.treasury(session, await _home(session, who))
+    to_city = await ledger.balance(session, treasury.id)
+    assert await bank.reserve(session) + to_city == withheld, "удержанное ушло из обращения"
 
 
 async def test_serviced_debt_left_alone(
@@ -411,6 +418,9 @@ async def test_debt_holds_in_node_and_releases_on_payoff(
 
     debtor = await world.create_identity(session, f"Должник-{uuid.uuid4().hex[:6]}")
     body = await world.print_body(session, debtor, from_node)
+    #: A loan comes from the city one belongs to (D-281), and this debtor
+    #: stands on a node of their own -- so the belonging is written by hand.
+    await _enrol(session, debtor)
     loan = await bank.borrow(session, constants, catalog, debtor, 100)
     #: The money is spent, the debt remains, and it is not serviced.
     account = await ledger.account_for(session, AccountKind.IDENTITY, debtor.id)

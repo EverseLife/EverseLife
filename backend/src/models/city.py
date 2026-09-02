@@ -189,15 +189,16 @@ class UtilityMeter(Base):
 
 
 class Citizen(Base):
-    """Citizenship: the identity belongs to a city (D-160).
+    """Citizenship: the identity belongs to a city (D-160, D-281).
 
     **One per person.** Dual citizenship is forbidden by the world's charter,
     not by agreement -- so the constraint is in the database: a second record
     for the same identity is physically impossible.
 
-    Leaving is free but not instant: the declaration sets `leaving_at`, and the
-    record holds until then. The delay exists exactly so that one cannot leave
-    the city right before a verdict.
+    The row says everything there is to say, because leaving is now a deletion
+    and nothing else (D-281): no date of a filed declaration, no term the
+    print held one by. What holds a citizenship is a loan, and a loan is a row
+    of its own in another table.
     """
 
     __tablename__ = "citizen"
@@ -211,13 +212,6 @@ class Citizen(Base):
     city_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("city.id"), nullable=False)
     #: Since when: the residency census (`vote_qualification`) is counted from it.
     since: Mapped[datetime] = created_column()
-    #: When citizenship lapses by the exit declaration. Empty -- not leaving.
-    leaving_at: Mapped[datetime | None] = mapped_column(nullable=True)
-    #: Until when citizenship cannot be given up: a print condition accepted by
-    #: choosing the door (D-184). Written at print time and not changed later --
-    #: a city that raises the term retroactively does not lengthen somebody's
-    #: obligation. Empty -- no obligation, one may leave the same day.
-    bound_until: Mapped[datetime | None] = mapped_column(nullable=True)
     created_at: Mapped[datetime] = created_column()
 
 

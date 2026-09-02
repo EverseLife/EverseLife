@@ -423,14 +423,15 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
     seen["citizenship"] = None
     if own_ is not None:
         native = await town.by_id(db, own_.city_id)
+        #: No date of a filed exit and no term of a print obligation: the exit
+        #: is instant and unannounced (D-281), and nothing holds a citizenship
+        #: but an open loan -- which the bank window already says, and the
+        #: refusal says at the moment it matters. `since` stays: it is the date
+        #: the residency census runs from, and the only thing about a
+        #: citizenship there is to show besides the city.
         seen["citizenship"] = {
             "city": None if native is None else native.name,
             "since": own_.since.isoformat(),
-            "leaving_at": (None if own_.leaving_at is None else own_.leaving_at.isoformat()),
-            #: An obligation accepted as a print condition (D-184): citizenship
-            #: does not lapse before this date. It must be shown in advance --
-            #: the person must not learn about the term from a refusal.
-            "bound_until": (None if own_.bound_until is None else own_.bound_until.isoformat()),
         }
     #: Founding a city (D-023, D-159): shown only where it is possible at all --
     #: on your own planet node outside a foreign city. The list of what is

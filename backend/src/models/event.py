@@ -259,10 +259,12 @@ class EventKind(StrEnum):
     #: because a promise on the card is grounds for a lawsuit, and "what was
     #: written then" must be preserved.
     CITY_DESCRIBED = "city.described"
-    #: Citizenship (D-160): applied or invited, admitted, leaving, ended.
+    #: Citizenship (D-160): applied or invited, admitted, ended. Nothing
+    #: announces a leaving any more -- it ends in the same breath it is asked
+    #: for (D-281) -- but `city.citizenship_leaving` rows written before that
+    #: stay in the log: history is not rewritten by a rule change.
     CITIZENSHIP_REQUESTED = "city.citizenship_requested"
     CITIZENSHIP_GRANTED = "city.citizenship_granted"
-    CITIZENSHIP_LEAVING = "city.citizenship_leaving"
     CITIZENSHIP_ENDED = "city.citizenship_ended"
     #: Citizens' vote (D-161): convened, vote cast, result tallied.
     VOTE_OPENED = "city.vote_opened"

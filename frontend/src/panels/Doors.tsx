@@ -15,8 +15,11 @@
  * has to be kind. The Forerunners' Printer is the last card: a fallback door
  * with neither residents nor a treasury, and it is always open.
  *
- * Print conditions (D-184) stand as table rows, not in text: the engine
- * enforces them, and the person must see them before clicking, not learn them from a refusal.
+ * What a door gives and what it asks (D-184, D-281) stands as table rows, not
+ * in text: the engine enforces it, and the person must see it before clicking,
+ * not learn it from a refusal. Two rows now instead of three -- a city door
+ * makes you its citizen on the spot, and nothing holds that afterwards except
+ * a loan you took yourself.
  */
 
 import { useMemo, useState } from "react";
@@ -105,16 +108,16 @@ export function Doors({ doors, name, busy, trouble, onPick, onBack }: Props) {
                     <td>{t("ui-doors-first-body")}</td>
                     <td className="num">{t("ui-doors-at-once")}</td>
                   </tr>
-                  {/* Условия печати (D-184). Показаны у городских дверей и
-                      только у них: у Предтеч условий нет и быть не может —
-                      машина ничья. */}
+                  {/* Что даёт дверь (D-184, D-281). Показано у городских
+                      дверей и только у них: гражданство даёт город, а дверь,
+                      вокруг которой города нет, не даёт ничего — записывать
+                      не во что. Срока обязательства больше нет: выйти можно
+                      в первую же минуту, пока не взят кредит. */}
                   {door.city && (
                     <>
                       <tr>
                         <td>{t("ui-doors-citizenship")}</td>
-                        <td className="num">
-                          {door.citizenship ? obligation(door.term) : t("ui-doors-not-required")}
-                        </td>
+                        <td className="num">{t("ui-doors-citizenship-at-once")}</td>
                       </tr>
                       <tr>
                         <td>{t("ui-doors-tax")}</td>
@@ -150,13 +153,4 @@ export function Doors({ doors, name, busy, trouble, onPick, onBack }: Props) {
       </div>
     </section>
   );
-}
-
-/** The obligation in words: "for 3 days" or just "mandatory". */
-function obligation(days: number): string {
-  if (days <= 0) return t("ui-doors-term-always");
-  if (days < 1) return t("ui-doors-term-hours", { hours: String(Math.round(days * 24)) });
-  return t("ui-doors-term-days", {
-    days: days % 1 === 0 ? String(days) : days.toFixed(1),
-  });
 }
