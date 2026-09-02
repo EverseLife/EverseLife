@@ -49,7 +49,7 @@ from __future__ import annotations
 import random
 import uuid
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal
+from decimal import ROUND_FLOOR, Decimal
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -69,6 +69,7 @@ from src.units import (
     ENERGY_PER_TARIFF_UNIT,
     HOURS_PER_DAY,
     ROUND_ENERGY,
+    ROUND_REMAINDER,
     SECONDS_PER_HOUR,
     amount,
     amount_float,
@@ -84,6 +85,27 @@ _STEP = step(ROUND_ENERGY)
 def pooled(value: float | Decimal) -> Decimal:
     """An energy figure as the pool's column keeps it, never below nothing."""
     return max(Decimal(0), on_grid(value, ROUND_ENERGY))
+
+
+def _banked(total: float) -> tuple[Decimal, Decimal]:
+    """Split what the pool has come to into what it can hold and what it cannot.
+
+    Downwards -- and this is the one place in the file that rounds down rather
+    than to the nearest, because that is what holds the bound the whole thing
+    rests on: `0 <= over < one thousandth`. To the nearest, the sliver would
+    go negative and the row would take up to half a step nobody produced.
+
+    The two are the whole, to the sliver's own billionth: that much is shaved
+    off each pass, and past a pool of some hundred million the float sum stops
+    splitting cleanly at all. Neither reaches a city.
+    """
+    if total <= 0:
+        #: A city that cannot pay for its heat does not owe the world (D-232),
+        #: and it carries no debt into the next hour either.
+        return Decimal(0), Decimal(0)
+    stored = Decimal(str(total)).quantize(step(ROUND_ENERGY), rounding=ROUND_FLOOR)
+    over = Decimal(str(total)) - stored
+    return stored, over.quantize(step(ROUND_REMAINDER), rounding=ROUND_FLOOR)
 
 
 def take_from_pool(pool: EnergyPool, wanted: float) -> float:
@@ -302,7 +324,15 @@ async def produce(
     #: for whatever its people carried in.
     before = float(pool.stored)
     unpaid = max(0.0, relic_heat - relic)
-    pool.stored = pooled(before + added - heat - unpaid)
+    #: What the last pass could not store is spent first: generation is
+    #: continuous and the pool is not, so without carrying the sliver a city
+    #: read often enough would make nothing at all. Carried as energy and not
+    #: as hours -- a windmill rolls its output afresh every pass, so hours held
+    #: back would be re-rolled and the high rolls would keep winning them.
+    total = before + float(pool.remainder) + added - heat - unpaid
+    stored, over = _banked(total)
+    pool.stored = stored
+    pool.remainder = over
     pool.counted_at = moment
     await session.flush()
     #: The **net** change, not the generation: a tick that reported the output

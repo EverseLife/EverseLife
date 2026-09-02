@@ -29,7 +29,16 @@ from src.models.energy import EnergyPool
 from src.models.inventory import Item
 from src.models.ledger import AccountKind
 from src.models.world import Layer
-from src.units import PERCENT, ROUND_CHARGE, ROUND_ENERGY, amount, money, money_str
+from src.units import (
+    PERCENT,
+    ROUND_CHARGE,
+    ROUND_ENERGY,
+    ROUND_REMAINDER,
+    SECONDS_PER_HOUR,
+    amount,
+    money,
+    money_str,
+)
 
 
 async def _city(session: AsyncSession, *, river: bool = False):
@@ -261,6 +270,119 @@ async def test_a_pour_too_thin_to_write_is_refused_not_served(
     with pytest.raises(energy.NotEnough):
         await energy.charge_battery(session, constants, body, cell, 0.0004)
     assert Decimal(pool.stored) == before
+
+
+def test_the_remainder_is_kept_at_the_scale_it_is_written_with() -> None:
+    """`ROUND_REMAINDER` and the column's scale are one number in two places.
+
+    Narrow the column and the engine writes digits Postgres then rounds away,
+    believing something the row does not hold; widen it and the split throws
+    away digits the row would have kept.
+    """
+    assert EnergyPool.__table__.c.remainder.type.scale == ROUND_REMAINDER
+
+
+async def test_a_city_that_cannot_pay_its_heat_carries_no_sliver_forward(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """Frozen at nothing, the pool keeps no crumb to spend on better days.
+
+    A city whose heat outruns its wheels sits at nothing and owes the world
+    nothing (D-232). What it could not store is not owed to it either -- and
+    the stamp still moves, so the frozen hours cannot pile up and pay out at
+    once the moment the balance turns.
+    """
+    _, node, _, _ = await _city(session, river=True)
+    await _place(session, node, energy.WHEEL)
+    started = datetime.now(UTC)
+    pool = await energy.pool_of(session, constants, node)
+    pool.stored = Decimal(0)
+    pool.remainder = Decimal("0.000999999")
+    pool.counted_at = started
+    await session.flush()
+
+    #: Heat with no climate is nothing, so the cold is made by hand: the pool
+    #: is emptied and asked to cover a draw it cannot meet.
+    energy.take_from_pool(pool, 5.0)
+    await energy.produce(session, constants, pool, now=started + timedelta(seconds=1))
+
+    assert float(pool.stored) >= 0
+    assert 0 <= float(pool.remainder) < 0.001
+    #: The hours were counted, not held back for a later windfall.
+    assert pool.counted_at > started
+
+
+class _Swinging:
+    """A die that swings between the ends instead of rolling.
+
+    The windmill must change its rate from pass to pass -- that is exactly
+    what a remainder carried as *hours* got wrong, handing the cheap hours
+    back to be re-rolled -- while the total over many passes stays a number
+    the test can name.
+    """
+
+    def __init__(self) -> None:
+        self.high = False
+
+    def uniform(self, low: float, high: float) -> float:
+        self.high = not self.high
+        return high if self.high else low
+
+
+@pytest.mark.parametrize("station", ["wheel", "windmill"])
+async def test_reading_the_pool_often_makes_what_the_hours_are_worth(
+    session: AsyncSession, constants: Constants, station: str
+) -> None:
+    """A pool brought up to date a hundred times makes what the hours are worth.
+
+    The pool keeps thousandths and generation is continuous, so every pass
+    leaves a sliver over. Dropped, it was the whole of a short pass -- and
+    every command touching energy brings the pool up to date, so a busy city
+    made nothing. Carried as hours instead of energy, a windmill's cheap hours
+    came back to be re-rolled and it made about a ninth too much.
+    """
+    river = station == "wheel"
+    _, node, _, _ = await _city(session, river=river)
+    await _place(session, node, energy.WHEEL if river else energy.WINDMILL)
+
+    if river:
+        rate = richest = constants[R.ENERGY_WATERWHEEL_RATE]
+        dice = random.Random(20260903)
+    else:
+        wind = constants[R.ENERGY_WINDMILL_RATE]
+        #: Swung evenly between the ends over an even number of passes.
+        rate = (wind.min + wind.max) / 2
+        richest = wind.max
+        dice = _Swinging()
+
+    started = datetime.now(UTC)
+    #: Short enough that a single pass is worth less than the pool can hold,
+    #: which is the whole point: dropped, every one of them is worth nothing.
+    span, steps = 6.0, 100
+    pool = await energy.pool_of(session, constants, node)
+    pool.counted_at = started
+    await session.flush()
+
+    for tick in range(1, steps + 1):
+        await energy.produce(
+            session, constants, pool, now=started + timedelta(seconds=span * tick / steps), rng=dice
+        )
+        #: The bound the whole construction rests on, held at every pass: a
+        #: sliver that went negative would be the row taking energy nobody
+        #: made, and one that reached a thousandth would be energy the row
+        #: could have held and did not.
+        assert 0 <= float(pool.remainder) < 0.001
+
+    worth = rate * span / SECONDS_PER_HOUR
+    assert worth > 0.001, "the span must be worth more than the pool's own step"
+    #: The pair is the whole: that is the point of the column, so it is held to
+    #: far less than the step rather than to a couple of them.
+    assert float(pool.stored) + float(pool.remainder) == pytest.approx(worth, abs=1e-6)
+    #: And the row itself is within the thousandth it cannot split.
+    assert float(pool.stored) == pytest.approx(worth, abs=0.001)
+    #: Even the richest single pass is below the step, or the loss the column
+    #: exists to prevent is never exercised.
+    assert richest * (span / steps) / SECONDS_PER_HOUR < 0.001
 
 
 async def test_settling_often_does_not_stop_the_leak(
