@@ -221,9 +221,9 @@ jobs:
       # The server image carries the numbers inside, so they are built before it.
       - uses: ./.github/actions/vault
 
-      # GHCR не принимает заглавные буквы в имени, а владелец у нас
-      # `EverseLife`. Приводим один раз здесь, чтобы метки собирались из
-      # готового значения, а не из выражения с фильтром в каждой из трёх.
+      # GHCR does not accept capital letters in the name, and our owner is
+      # `EverseLife`. Lowercase it once here, so that the tags are built from
+      # a ready value rather than from a filter expression in every image.
       - name: Owner in lowercase
         run: echo "OWNER=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_ENV"
 
