@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import world
+from src.engine.ship import course
 from src.engine.ship._base import (
     AT_PORT,
     BRIDGE,
@@ -27,8 +28,8 @@ from src.engine.ship._base import (
 from src.engine.ship.belonging import crew_of, nodes_of
 from src.engine.ship.physics import (
     _things,
-    base_hours,
     climb_hours,
+    efficiency,
     engine_class,
     engines,
     fall_hours,
@@ -37,7 +38,8 @@ from src.engine.ship.physics import (
     life_support,
     mass,
     mass_parts,
-    passage_hours,
+    passage_curve,
+    ratio,
     thrust,
 )
 from src.engine.ship.view.sight import _oxygen
@@ -46,6 +48,7 @@ from src.models.ship import Ship
 from src.models.world import Node, Planet
 from src.runtime import SHIP_GRID, SHIP_GRID_REACH
 from src.units import (
+    ROUND_DV,
     ROUND_HOURS,
     ROUND_MASS,
     ROUND_RATIO,
@@ -86,6 +89,26 @@ async def profile(
     #: client -- `docked` is a key, and whether that key names an orbit is a
     #: fact about the world (D-225).
     stage = UNDER_WAY if docked is None else (IN_ORBIT if is_orbit(docked) else AT_PORT)
+
+    def priced_arc(sample: course.Sample | None) -> dict[str, object] | None:
+        """One arc, priced: what it takes and what it burns (D-271).
+
+        The passage pays for delta-v. What must be in the tanks besides is
+        the descent at the far end -- one number per planet, sent beside the
+        arcs as `reserve` rather than added into each of them (D-225). `via`
+        is the planet the arc bends round, or nothing.
+        """
+        if sample is None or have_class is None:
+            return None
+        burn = course.fuel_for_speed(
+            constants, weight, sample.dv, efficiency=efficiency(constants, have_class)
+        )
+        return {
+            "hours": round(sample.hours, ROUND_HOURS),
+            "dv": round(sample.dv, ROUND_DV),
+            "via": sample.via,
+            "fuel": round(burn, ROUND_MASS),
+        }
 
     def priced(hours: float | None, *, reserve: float = 0.0) -> dict[str, object]:
         """One offered move, priced: what it takes, what it burns, what it needs.
@@ -198,17 +221,39 @@ async def profile(
             orbit = orbits.get(target)
             if orbit is None or target is docked.planet:
                 continue
-            table = await base_hours(session, constants, planet, target, at=moment)
-            if table is None:
+            curve = await passage_curve(session, constants, planet, target, at=moment)
+            if not curve:
                 continue
+            #: The two ends of the slider (D-271): the fastest arc the engines
+            #: deliver and the cheapest the horizon offers. The whole curve is
+            #: `forecast`, read when the planet is chosen -- sixty samples per
+            #: world in every summary would be the redundancy D-225 names.
+            kept = (
+                fuel_for(
+                    constants, weight, fall_hours(constants, target, thrust_ratio), klass=have_class
+                )
+                if thrust_ratio > 0 and have_class is not None
+                else 0.0
+            )
             routes.append(
                 {
                     "node": orbit.key,
                     "name": orbit.name,
                     "planet": target.value,
-                    **priced(
-                        passage_hours(constants, table, thrust_ratio) if thrust_ratio > 0 else None,
-                        reserve=fall_hours(constants, target, thrust_ratio),
+                    "cheap": priced_arc(course.cheapest(curve)),
+                    "fast": priced_arc(
+                        course.fastest(constants, curve, thrust_ratio) if thrust_ratio > 0 else None
+                    ),
+                    #: The descent at the far end, kept in the tanks and not
+                    #: burnt by the passage (pillar P6): what an arc needs is
+                    #: its own fuel plus this.
+                    "reserve": round(kept, ROUND_MASS),
+                    #: Reachable or not is about **thrust**, and nothing else:
+                    #: a ship that cannot leave the ground cannot leave it for
+                    #: any destination. Class closes no route (D-235).
+                    "reachable": (
+                        have_class is not None
+                        and thrust_ratio >= constants[R.SHIP_MIN_THRUST_RATIO]
                     ),
                 }
             )
@@ -325,3 +370,49 @@ async def profile(
         #: planet, each aimed at that planet's orbital node.
         "routes": sorted(routes, key=lambda route: (not route["reachable"], route["name"])),
     }
+
+
+async def forecast(
+    session: AsyncSession,
+    constants: Constants,
+    catalog: Catalog,
+    ship: Ship,
+    target: Planet,
+) -> dict[str, object]:
+    """The slider (D-271): every arc to `target` the sky offers right now, priced
+    for this hull.
+
+    Planetary samples off the memoised curve, with the hull laid over them:
+    what each burns by its class and mass, and whether the engines can give
+    that delta-v in that time (`ok`). The client draws the range between the
+    fastest `ok` sample and the cheapest one and sends back the hours it
+    picked; the casting off asks the sky once more (D-202).
+    """
+    moment = datetime.now(UTC)
+    connector = await session.get(Node, ship.connector_node_id)
+    planet = Planet.TERRA if connector is None else connector.planet
+    weight = await mass(session, constants, catalog, ship)
+    thrust_ratio = await ratio(session, constants, catalog, ship)
+    have_class = await engine_class(session, constants, ship)
+    curve = await passage_curve(session, constants, planet, target, at=moment)
+    share = 1.0 if have_class is None else efficiency(constants, have_class)
+    reserve = (
+        fuel_for(constants, weight, fall_hours(constants, target, thrust_ratio), klass=have_class)
+        if thrust_ratio > 0
+        else 0.0
+    )
+    samples = []
+    for sample in curve:
+        burn = course.fuel_for_speed(constants, weight, sample.dv, efficiency=share)
+        samples.append(
+            {
+                "hours": round(sample.hours, ROUND_HOURS),
+                "dv": round(sample.dv, ROUND_DV),
+                "via": sample.via,
+                "fuel": round(burn, ROUND_MASS),
+                "ok": sample.dv <= course.deliverable(constants, thrust_ratio, sample.hours),
+            }
+        )
+    #: The descent kept back at the far end, once: every sample needs its own
+    #: fuel plus this, and the client adds the two (D-225).
+    return {"planet": target.value, "reserve": round(reserve, ROUND_MASS), "samples": samples}

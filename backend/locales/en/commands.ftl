@@ -74,3 +74,4 @@ cmd-nothing-to-resume = nothing to resume: either nothing waits here, or the sta
 
 cmd-door-does-not-print = there is no printing at the door “{ $node }”
 cmd-world-not-created = the world is not made yet: nowhere to be printed
+cmd-no-such-planet = no such planet

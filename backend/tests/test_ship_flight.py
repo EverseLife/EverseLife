@@ -14,6 +14,7 @@ the attempt. The slipway lives in `test_ship.py`, the console in
 from __future__ import annotations
 
 import asyncio
+import math
 import uuid
 from datetime import timedelta
 
@@ -403,7 +404,7 @@ async def test_no_route_is_closed_by_the_class_of_the_engine(
     summary = await ship.profile(session, constants, catalog, vessel)
     aurora = next(route for route in summary["routes"] if route["node"] == far.key)
     assert aurora["reachable"], "класс больше не запирает маршрут"
-    assert aurora["hours"] > 0 and aurora["fuel"] > 0
+    assert aurora["cheap"]["hours"] > 0 and aurora["cheap"]["fuel"] > 0
     assert await ship.fly(session, constants, catalog, owner, vessel, far) is not None
 
 
@@ -471,7 +472,7 @@ async def test_ship_takes_the_planet_of_the_port_it_stands_at(
         #: The way back is an interplanetary passage, not a local hop: the sky
         #: between the two is what it costs, and it is priced in hours and fuel
         #: rather than in a class of engine somebody must own (D-235).
-        assert back["hours"] > 0 and back["fuel"] > 0, (
+        assert back["cheap"]["hours"] > 0 and back["cheap"]["fuel"] > 0, (
             "обратный рейс считается межпланетным, а не местным"
         )
 
@@ -503,40 +504,170 @@ async def _sphere(
     )
 
 
-async def test_passage_time_follows_the_sky(session: AsyncSession, constants: Constants) -> None:
-    """The same route costs differently at different hours (D-037).
+async def test_passage_price_follows_the_sky(session: AsyncSession, constants: Constants) -> None:
+    """The same passage costs differently at different hours (D-037, D-271).
 
-    Two planets started level: at the epoch they stand on one side of the star
-    and the way between them is the shortest it ever gets; two days later the
-    inner one has gone half a circle and stands opposite, and the way is the
-    longest. Everything in between is the sky's doing.
-
-    The outer planet is given an unreachably long year on purpose -- with one
-    of the two standing still the configuration is exactly known, and the test
-    checks the rule rather than arithmetic on two moving bodies.
+    Two planets on Keplerian orbits: the inner one laps the outer, and the
+    cheapest arc the sky offers changes with where the two stand. At the
+    window the cheap end of the slider is the Hohmann transfer -- half the
+    period of the ellipse touching both orbits; away from it every arc costs
+    more. And the curve is a curve: the fast end always costs more than the
+    cheap one.
     """
-    await _sphere(session, "terra", Planet.TERRA, radius=100, period=4)
-    await _sphere(session, "aurora", Planet.AURORA, radius=200, period=1_000_000)
+    inner = await _sphere(session, "terra", Planet.TERRA, radius=100, period=10)
+    await _sphere(session, "aurora", Planet.AURORA, radius=100 * 4 ** (2 / 3), period=40)
     await session.flush()
 
     origin = await world.epoch(session)
     assert origin is not None
-    window = constants[R.SHIP_ROUTE_WINDOW_HOURS]["aurora-terra"]
-    apart = constants[R.SHIP_ROUTE_APART_HOURS]["aurora-terra"]
+    mu = ship.course.mu_of((100.0, 10.0, 0.0))
+    hohmann_days = math.pi * math.sqrt(((100 + 100 * 4 ** (2 / 3)) / 2) ** 3 / mu)
 
-    together = await ship.base_hours(session, constants, Planet.TERRA, Planet.AURORA, at=origin)
-    opposite = await ship.base_hours(
-        session, constants, Planet.TERRA, Planet.AURORA, at=origin + timedelta(days=2)
-    )
-    between = await ship.base_hours(
-        session, constants, Planet.TERRA, Planet.AURORA, at=origin + timedelta(days=1)
-    )
+    cheapest: list[tuple[float, float]] = []
+    for day in range(0, 14):
+        curve = await ship.passage_curve(
+            session, constants, Planet.TERRA, Planet.AURORA, at=origin + timedelta(days=day)
+        )
+        assert curve, "небо всегда предлагает хоть одну дугу"
+        low = ship.course.cheapest(curve)
+        assert low is not None
+        assert curve[0].dv > low.dv, "быстрый край дороже дешёвого"
+        cheapest.append((low.dv, low.hours))
 
-    assert together == pytest.approx(window, rel=1e-3), (
-        "в сближение рейс идёт по короткому краю вольта"
+    best = min(cheapest)
+    worst = max(cheapest)
+    assert worst[0] > best[0] * 1.5, "в плохой день дешёвая дуга заметно дороже, чем в окно"
+    assert best[1] / 24 == pytest.approx(hohmann_days, rel=0.15), (
+        "в окно дешёвая дуга -- гомановская, половина периода переходного эллипса"
     )
-    assert opposite == pytest.approx(apart, rel=1e-3), "в противостояние — по длинному"
-    assert window < between < apart, "между краями время идёт по расстоянию"
+    assert inner.planet is Planet.TERRA
+
+
+async def test_the_slider_has_two_ends_and_the_order_names_one(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The owner picks the flight time; the engines and the tanks bound it (D-271).
+
+    Unnamed, the cheapest arc flies. Named, the arc for those hours is what is
+    paid for: more delta-v than the cheapest and more fuel with it. Asked for
+    a speed the engines cannot deliver in the time, the order is refused with
+    the numbers; asked for an hour off the slider, refused likewise.
+    """
+    here = await _port(session)
+    await _port(session, name="Порт Авроры", planet=Planet.AURORA)
+    far = await _orbit(session, Planet.AURORA)
+    _, owner = await _shipwright(session, here)
+    vessel = await _laid(session, constants, owner, here)
+    await _flightworthy(session, constants, catalog, vessel)
+    connector = await session.get(Node, vessel.connector_node_id)
+    await _fuel(session, connector, 5000)
+    owner.node_id = connector.id
+    await session.flush()
+    await _in_orbit(session, constants, catalog, owner, vessel)
+
+    forecast = await ship.forecast(session, constants, catalog, vessel, Planet.AURORA)
+    samples = forecast["samples"]
+    assert samples and any(one["ok"] for one in samples), "хоть одна дуга по силам двигателям"
+    fast = next(one for one in samples if one["ok"])
+    cheap = min(samples, key=lambda one: one["dv"])
+    assert fast["dv"] > cheap["dv"] and fast["fuel"] > cheap["fuel"]
+    #: Off the slider on either side: refused before anything is burnt.
+    with pytest.raises(ship.NoArc):
+        await ship.fly(session, constants, catalog, owner, vessel, far, hours=0)
+    with pytest.raises(ship.NoArc):
+        await ship.fly(
+            session,
+            constants,
+            catalog,
+            owner,
+            vessel,
+            far,
+            hours=constants[R.ORBIT_LONGEST_DAYS] * 24 + 1,
+        )
+    #: A time the engines cannot make: the first sample that is not `ok`, if
+    #: there is one, is refused by thrust and not by fuel.
+    slow_engines = [one for one in samples if not one["ok"]]
+    if slow_engines:
+        with pytest.raises(ship.NotEnoughThrust):
+            await ship.fly(
+                session, constants, catalog, owner, vessel, far, hours=slow_engines[0]["hours"]
+            )
+    #: A planet that does not go round this star cannot be bent round.
+    with pytest.raises(ship.NoArc):
+        await ship.fly(session, constants, catalog, owner, vessel, far, via="nowhere")
+
+    before = await ship.fuel_aboard(session, vessel)
+    flight = await ship.fly(
+        session, constants, catalog, owner, vessel, far, hours=fast["hours"], via=fast["via"]
+    )
+    burnt = before - await ship.fuel_aboard(session, vessel)
+    assert flight.run_at - flight.created_at == pytest.approx(
+        timedelta(hours=fast["hours"]), abs=timedelta(minutes=1)
+    ), "рейс идёт ровно выбранное время"
+    assert burnt == pytest.approx(fast["fuel"], rel=0.05), "и стоит то, что обещал ползунок"
+    assert flight.payload["dv"] == pytest.approx(fast["dv"], rel=0.05)
+    assert len(flight.payload["arc"]) >= 2, "дуга записана в рейс, и карта её рисует"
+
+
+async def test_a_turn_back_from_an_arc_pays_the_arc_again(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The way home is a second arc and costs what the first did (D-242, D-271)."""
+    here = await _port(session)
+    await _port(session, name="Порт Авроры", planet=Planet.AURORA)
+    far = await _orbit(session, Planet.AURORA)
+    _, owner = await _shipwright(session, here)
+    vessel = await _laid(session, constants, owner, here)
+    await _flightworthy(session, constants, catalog, vessel)
+    connector = await session.get(Node, vessel.connector_node_id)
+    await _fuel(session, connector, 5000)
+    owner.node_id = connector.id
+    await session.flush()
+    await _in_orbit(session, constants, catalog, owner, vessel)
+
+    flight = await ship.fly(session, constants, catalog, owner, vessel, far)
+    paid = flight.payload["dv"]
+    weight = await ship.mass(session, constants, catalog, vessel)
+    klass = await ship.engine_class(session, constants, vessel)
+    expected = ship.course.fuel_for_speed(
+        constants, weight, paid, efficiency=ship.efficiency(constants, klass)
+    )
+    before = await ship.fuel_aboard(session, vessel)
+    back = await ship.recall(
+        session, constants, catalog, owner, vessel, now=flight.created_at + timedelta(hours=2)
+    )
+    burnt = before - await ship.fuel_aboard(session, vessel)
+    assert burnt == pytest.approx(expected, rel=0.05), "разворот стоит ту же Δv, что рейс"
+    #: Back along the flown part only: the way home starts where the helm
+    #: went over and ends at the orbit the hull cast off from.
+    out = flight.payload["arc"]
+    home = back.payload["arc"]
+    assert home[-1] == out[0], "разворот кончается там, где рейс начался"
+    assert len(home) < len(out), "и покрывает лишь пройденную часть дуги"
+    hours = (flight.run_at - flight.created_at).total_seconds() / 3600
+    expected_tip = ship.course.flown(out, 2 / hours)[-1]
+    assert home[0] == pytest.approx(expected_tip), "и начинается в точке разворота"
+
+
+async def test_corridors_forecast_the_coming_days(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """The map's corridors carry a calendar (D-271): the cheapest passage for
+    each of the coming days, one entry per day from today, for every pair of
+    playable worlds -- a deferred one is bent round, not flown to."""
+    await _sphere(session, "terra", Planet.TERRA, radius=100, period=10)
+    await _sphere(session, "aurora", Planet.AURORA, radius=100 * 4 ** (2 / 3), period=40)
+    shut = await _sphere(session, "aquatica", Planet.AQUATICA, radius=100 * 2 ** (2 / 3), period=20)
+    shut.properties = {**(shut.properties or {}), world.DEFERRED: True}
+    await session.flush()
+    origin = await world.epoch(session)
+    assert origin is not None
+    lines = await ship.corridors(session, constants, at=origin + timedelta(days=3, hours=5))
+    assert [(line["a"], line["b"]) for line in lines] == [("aurora", "terra")]
+    days = lines[0]["days"]
+    assert len(days) == int(constants[R.ORBIT_CALENDAR_DAYS])
+    assert [day["day"] for day in days] == list(range(3, 3 + len(days)))
+    assert all(day["dv"] > 0 and day["hours"] > 0 for day in days)
 
 
 async def test_berths_are_numbered_and_the_lowest_free_one_is_taken(
@@ -586,11 +717,12 @@ async def test_berths_are_numbered_and_the_lowest_free_one_is_taken(
 async def test_a_crossing_needs_more_fuel_than_the_climb(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Fuel goes by mass and by days: enough to reach orbit is not enough for a world away.
+    """Fuel goes by mass and by speed: enough to reach orbit is not enough for the fast arc.
 
     The climb is affordable by construction -- it already checked the fuel for
     the way back down, and that is the whole of a local journey (D-245). What a
-    short tank does not buy is the days of an interplanetary passage.
+    short tank does not buy is the delta-v of the fast end of the slider
+    (D-271): the cheap arc of a light hull is cheap indeed, the fast one is not.
     """
     port = await _port(session)
     await _port(session, name="Порт Авроры", planet=Planet.AURORA)
@@ -602,17 +734,19 @@ async def test_a_crossing_needs_more_fuel_than_the_climb(
     await _equip(session, connector, LIFE)
     await _equip(session, connector, CONSOLE)
     #: Enough for the climb and the descent behind it several times over, and
-    #: nowhere near enough for a world away. The interplanetary passage is hours
-    #: to days rather than a fixed number of days (D-037): its price depends on
-    #: where the planets stand, and this tank is short of even the shortest
-    #: window.
+    #: nowhere near enough for a world away. The passage pays for the arc's
+    #: delta-v (D-271): its price depends on where the planets stand, and this
+    #: tank is short of even the cheapest arc the sky offers.
     await _fuel(session, connector, 4)
     owner.node_id = connector.id
     await session.flush()
 
     await _in_orbit(session, constants, catalog, owner, vessel)
+    forecast = await ship.forecast(session, constants, catalog, vessel, Planet.AURORA)
+    fast = next(one for one in forecast["samples"] if one["ok"])
+    assert fast["fuel"] + forecast["reserve"] > await ship.fuel_aboard(session, vessel)
     with pytest.raises(ship.NoFuel):
-        await ship.fly(session, constants, catalog, owner, vessel, far)
+        await ship.fly(session, constants, catalog, owner, vessel, far, hours=fast["hours"])
 
 
 async def test_the_ground_does_not_cross_and_a_climb_does_not_climb_twice(

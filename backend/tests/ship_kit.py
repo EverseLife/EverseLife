@@ -13,6 +13,7 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src import seed_parts
 from src.constants import Catalog, Constants
 from src.engine import ship, storage, world
 from src.models.estate import Building
@@ -31,6 +32,17 @@ TANK = "fuel_tank"
 
 CONSOLE = "ship_console"
 
+#: The seed's system, as `world.orbit_of` reads it: Keplerian, so that every
+#: planet gives the same pull of the star (D-271).
+ORBITS = {
+    circle.planet: {
+        world.ORBIT_RADIUS: circle.radius,
+        world.ORBIT_PERIOD: circle.period_days,
+        world.ORBIT_PHASE: circle.phase,
+    }
+    for circle in seed_parts.SYSTEM
+}
+
 
 async def _orbit(session: AsyncSession, planet: Planet = Planet.TERRA) -> Node:
     """The planet's orbital node, and the planet's own node under it (D-245).
@@ -40,7 +52,15 @@ async def _orbit(session: AsyncSession, planet: Planet = Planet.TERRA) -> Node:
     exactly one of them per world.
     """
     sphere = (await select_node(session, planet.value)) or await world.create_node(
-        session, planet.value, planet.value.title(), area_m2=1, planet=planet, layer=Layer.SPACE
+        session,
+        planet.value,
+        planet.value.title(),
+        area_m2=1,
+        planet=planet,
+        layer=Layer.SPACE,
+        #: The seed's orbit (D-271): a passage is a Lambert arc between two
+        #: orbits, and a planet without one is a planet nothing crosses to.
+        properties={world.ORBIT: ORBITS[planet]},
     )
     key = ship.orbit_key(planet)
     return (await select_node(session, key)) or await world.create_node(

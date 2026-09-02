@@ -31,7 +31,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { MapNode } from "../../api";
 import { t } from "../../locale";
 import { planetName } from "../../planets";
-import { term } from "../map/orbits";
+import { along, term } from "../map/orbits";
 import type { Route, Vessel } from "./model";
 
 /** The chart's own frame. Not the map's: this one is a panel, not a scene. */
@@ -119,17 +119,21 @@ export function Chart({
     const t0 = new Date(vessel.flight.started_at).getTime();
     const t1 = new Date(vessel.flight.arrives_at).getTime();
     const share = Math.min(1, Math.max(0, (Date.now() - t0) / Math.max(1, t1 - t0)));
+    //: Along the arc the sky gave the passage (D-271), where there is one; a
+    //: climb or a descent has none and is drawn straight beside the planet.
+    const arc = vessel.flight.arc;
+    if (arc && arc.length >= 2) {
+      const point = along(arc, share);
+      return { x: STAR.x + point[0] * fit, y: STAR.y + point[1] * fit };
+    }
     return { x: home.x + (goal.x - home.x) * share, y: home.y + (goal.y - home.y) * share };
   })();
 
-  /** One line per destination planet: the cheapest row of it carries the price. */
+  /** One line per destination planet: the row carries both ends of the slider. */
   const corridors = useMemo(() => {
     const best = new Map<string, Route>();
     for (const route of vessel.routes) {
-      const known = best.get(route.planet);
-      if (!known || (route.hours ?? Infinity) < (known.hours ?? Infinity)) {
-        best.set(route.planet, route);
-      }
+      if (!best.has(route.planet)) best.set(route.planet, route);
     }
     return [...best.values()];
   }, [vessel.routes]);
@@ -159,10 +163,20 @@ export function Chart({
             >
               <line x1={home.x} y1={home.y} x2={there.x} y2={there.y} />
               <text x={mid.x} y={mid.y - 6} textAnchor="middle">
-                {route.hours == null ? "—" : term(route.hours)}
+                {route.cheap == null
+                  ? "—"
+                  : t("ui-ship-chart-cheap", {
+                      term: term(route.cheap.hours),
+                      fuel: route.cheap.fuel.toFixed(0),
+                    })}
               </text>
               <text x={mid.x} y={mid.y + 10} textAnchor="middle" className="chart-fuel">
-                {route.fuel == null ? "" : t("ui-ship-fuel", { fuel: route.fuel.toFixed(0) })}
+                {route.fast == null
+                  ? ""
+                  : t("ui-ship-chart-fast", {
+                      term: term(route.fast.hours),
+                      fuel: route.fast.fuel.toFixed(0),
+                    })}
               </text>
             </g>
           );

@@ -138,8 +138,8 @@ async def test_between_planets_the_road_is_the_passage(
 ) -> None:
     a = await _place(session, "port", planet=Planet.TERRA)
     b = await _place(session, "port", planet=Planet.PYROXIS)
-    hours = float(constants[R.SHIP_ROUTE_APART_HOURS]["pyroxis-terra"])
-    #: No orbits in this world: the long end, never the cheap one.
+    hours = float(constants[R.ORBIT_LONGEST_DAYS]) * 24
+    #: No orbits in this world: the slow end of the slider, never the cheap one.
     assert await net.road_seconds(session, constants, a.id, b.id, now=NOW) == pytest.approx(
         hours * 3600
     )

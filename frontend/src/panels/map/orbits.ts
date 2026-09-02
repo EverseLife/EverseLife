@@ -12,7 +12,7 @@
  * ground, not the sky).
  */
 
-import type { MapRoute } from "../../api";
+import type { ForecastDay, MapRoute } from "../../api";
 import { t } from "../../locale";
 import { H, W } from "./model";
 
@@ -21,9 +21,18 @@ export const TURN = Math.PI * 2;
 export const MS_PER_DAY = 86_400_000;
 //: The orbit is honest, and an honest orbit is not visible: Terra walks half a
 //: degree an hour. So the motion is shown by winding the clock forward rather
-//: than by waiting -- a month ahead, three days a second.
+//: than by waiting -- as far as the engine's calendar goes, three days a
+//: second. `FORECAST_DAYS` is only the fallback for a sky with no corridors:
+//: the horizon itself is read off the calendar (`horizon`, D-225).
 export const FORECAST_DAYS = 60;
 export const FORECAST_SPEED = 3;
+
+/** How far ahead the sky may be wound: the length of the corridors' calendar. */
+export function horizon(routes: MapRoute[] | undefined): number {
+  const days = (routes ?? []).map((route) => route.days?.length ?? 0);
+  const top = Math.max(0, ...days);
+  return top > 0 ? top : FORECAST_DAYS;
+}
 //: How far off its planet a docked ship stands: clear of the body and its
 //: name, close enough to read as "at this port".
 export const BERTH = 26;
@@ -34,8 +43,9 @@ export const BERTH = 26;
 export const MARGIN = 60;
 
 export const HOURS_PER_DAY = 24;
-//: How close to the short end still counts as "the window is open". A tenth of
-//: the spread: near enough that waiting buys almost nothing.
+//: How close to the calendar's dip still counts as "the window is open": a
+//: tenth of the way up from the cheapest day to the dearest. Near enough that
+//: waiting buys almost nothing.
 export const WINDOW_EDGE = 0.1;
 
 /** Which side of its planet a ship is moored on: steady, and its own per ship. */
@@ -46,17 +56,52 @@ export function mooring(key: string): number {
 }
 
 /**
- * What a passage between two planets costs at this distance, in hours (D-037).
+ * The corridor's forecast for a day: the cheapest passage leaving then (D-271).
  *
- * The vault gives the two ends -- the planets on one side of the star and on
- * opposite sides of it -- and the distance says where between them the moment
- * falls. The same rule the engine settles a flight by, so the map's forecast
- * and the server's price come from one formula rather than two.
+ * The engine drew the calendar, one entry per day from now; the client only
+ * leafs through it as the sky is wound forward. A day past the calendar's end
+ * has no forecast, and the map says nothing rather than guessing.
  */
-export function passage(route: MapRoute, gap: number, near: number, far: number): number {
-  const share = far > near ? (gap - near) / (far - near) : 0;
+export function forecast(route: MapRoute, day: number): ForecastDay | undefined {
+  const days = route.days ?? [];
+  if (days.length === 0) return undefined;
+  const index = Math.min(days.length - 1, Math.max(0, Math.floor(day - days[0].day)));
+  return days[index];
+}
+
+/** Whether the window is open on that day: the cheapest arc costs within a
+ *  tenth of the spread above the calendar's dip. */
+export function windowOpen(route: MapRoute, day: number): boolean {
+  const today = forecast(route, day);
+  const days = route.days ?? [];
+  if (!today || days.length === 0) return false;
+  let low = Infinity;
+  let high = -Infinity;
+  for (const one of days) {
+    low = Math.min(low, one.dv);
+    high = Math.max(high, one.dv);
+  }
+  return today.dv - low <= (high - low) * WINDOW_EDGE;
+}
+
+/**
+ * Where along an arc a share of the flight time falls, in the arc's own units.
+ *
+ * The points are at equal time steps, so the share picks the segment and the
+ * remainder interpolates inside it: no orbital arithmetic on the client, the
+ * server drew the line (D-225, D-271).
+ */
+export function along(arc: [number, number][], share: number): [number, number] {
+  const last = arc.length - 1;
+  if (last <= 0) return arc[0] ?? [0, 0];
   const held = Math.min(1, Math.max(0, share));
-  return route.window_hours + (route.apart_hours - route.window_hours) * held;
+  const at = held * last;
+  const i = Math.min(last - 1, Math.floor(at));
+  const rest = at - i;
+  return [
+    arc[i][0] + (arc[i + 1][0] - arc[i][0]) * rest,
+    arc[i][1] + (arc[i + 1][1] - arc[i][1]) * rest,
+  ];
 }
 
 /** A term in words: hours until they turn into days. Real time, not the planet's.

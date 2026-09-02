@@ -165,3 +165,10 @@ occupation-busy = тело занято: { $what }{ $term ->
         [true] { " " }({ $left })
        *[false] {""}
     }
+
+# The arc between worlds (D-271).
+ship-hours-out-of-range = { NUMBER($hours) } ч — вне ползунка: дуга летит от часа до { NUMBER($limit) } ч
+ship-no-arc = на { NUMBER($hours) } ч небо дуги не даёт: всякая срезает корону звезды. Выберите другое время на ползунке
+ship-no-planet-to-pass = планета { PLANET($planet) } не ходит вокруг этой звезды: огибать нечего
+ship-too-fast-for-thrust = за { NUMBER($hours) } ч двигатели выдают { NUMBER($have) } ед. скорости, а дуге нужно { NUMBER($need) }: сдвиньте ползунок к дешёвому краю, снимите массу или ставьте двигатели
+ship-hours-is-a-number = время полёта задаётся числом часов

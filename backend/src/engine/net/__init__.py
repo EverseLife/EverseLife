@@ -12,7 +12,7 @@ the road to arrive. Two things are decided here and nowhere else.
 
 The road is the fastest path on foot between the writer's body and the
 reader's -- the same edges, the same seconds as walking them (`travel.route`).
-Between planets the road is the passage: `ship.base_hours` for this hour's sky,
+Between planets the road is the passage: the cheapest arc of this hour's sky,
 so a letter to Pyroxis takes longer when Pyroxis stands across the star. No
 road at all on one planet -- islands, a hull in flight -- counts as the sea:
 a climb to orbit and a descent back, `ship.ascent_hours` plus

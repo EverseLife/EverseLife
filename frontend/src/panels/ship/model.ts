@@ -26,11 +26,38 @@ export type Price = {
   reachable: boolean;
 };
 
-/** A destination the console offers: a place, and what going there costs. */
-export type Route = Price & {
+/** A leg to or from the ground, priced by the hour: the climb to the orbit
+ *  above the pad, aimed at that one node (D-245). */
+export type Leg = Price & {
   node: string;
   name: string;
   planet: string;
+};
+
+/** One arc of a crossing, priced for this hull (D-271): the flight time, the
+ *  delta-v the sky asks for it, the planet it bends round and what it burns.
+ *  What must be in the tanks besides is the route's `reserve`, sent once. */
+export type ArcPrice = {
+  hours: number;
+  dv: number;
+  via: string | null;
+  fuel: number;
+};
+
+/** A destination the console offers: a planet's orbit, and the two ends of
+ *  the slider to it -- the fastest arc the engines deliver and the cheapest
+ *  the horizon offers. The whole slider is read on demand (`ship.course`). */
+export type Route = {
+  node: string;
+  name: string;
+  planet: string;
+  /** Enough thrust to leave the ground at all. Class closes no route. */
+  reachable: boolean;
+  cheap: ArcPrice | null;
+  fast: ArcPrice | null;
+  /** The descent at the far end, kept in the tanks and not burnt by the
+   *  passage (pillar P6): an arc needs its own fuel plus this (D-225). */
+  reserve: number;
 };
 
 /** A pad under the hull. Nothing but a name: what the descent costs is a fact
@@ -82,6 +109,11 @@ export type Flight = {
   /** Whether this is the way back (D-242): a turn-back is not turned back, and
    *  the button must be dark rather than collect a refusal per click. */
   back: boolean;
+  /** The planet the arc bends round, if any (D-271). */
+  via?: string | null;
+  /** The arc itself, map units at equal time steps: the chart draws the hull
+   *  along it. Absent on the climb and the descent. */
+  arc?: [number, number][] | null;
 };
 
 export type Vessel = {
@@ -107,7 +139,7 @@ export type Vessel = {
    * The climb to the orbit above the pad, priced by the planet's gravity.
    * Empty anywhere but on the ground: there is no such move from there.
    */
-  climb: Route | null;
+  climb: Leg | null;
   /** What coming down costs from here: one price for the whole planet (D-245). */
   descent: Price | null;
   /**
@@ -161,4 +193,33 @@ export function wanted(move: Price | null): number {
 export function autonomy(air: Air): number | null {
   if (!air.sealed || air.per_hour >= 0) return null;
   return air.units / -air.per_hour;
+}
+
+/** One point of the slider, priced for this hull. */
+export type Sample = {
+  hours: number;
+  dv: number;
+  /** The planet the arc bends round, or nothing for a direct arc. */
+  via: string | null;
+  fuel: number;
+  /** Whether the engines can give that delta-v in that time. */
+  ok: boolean;
+};
+
+/** What `ship.course` answers: the samples, and the reserve once beside them. */
+export type CourseAnswer = { planet: string; reserve: number; samples: Sample[] };
+
+/**
+ * The slider's range: from the first arc the engines deliver to the cheapest
+ * one. Everything faster is refused by thrust, everything slower costs more
+ * for nothing -- neither is a choice worth offering.
+ */
+export function range(samples: Sample[]): [number, number] | null {
+  const first = samples.findIndex((s) => s.ok);
+  if (first < 0) return null;
+  let cheapest = first;
+  for (let i = first; i < samples.length; i++) {
+    if (samples[i].dv < samples[cheapest].dv) cheapest = i;
+  }
+  return [first, cheapest];
 }

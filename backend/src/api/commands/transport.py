@@ -26,7 +26,7 @@ from src.engine import (
 from src.models.identity import Body
 from src.models.inventory import Item
 from src.models.ship import Ship
-from src.models.world import Node
+from src.models.world import Node, Planet
 
 
 @command("energy.grid")
@@ -282,11 +282,45 @@ async def _ship_ascend(state: dict, db: AsyncSession, message: dict) -> dict:
 
 @command("ship.fly")
 async def _ship_fly(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Cross to another planet's orbit. Fuel now, arrival by a journal job."""
+    """Cross to another planet's orbit. Fuel now, arrival by a journal job.
+
+    `hours` is the flight time off the console's slider (D-271); without it
+    the cheapest arc flies. `via` names the planet the arc bends round.
+    """
     body = await _alive(state, db)
     vessel = await _ship_of(db, body, message.get("ship"))
-    job = await ship.fly(db, current(), current_catalog(), body, vessel, await _target(db, message))
+    hours = message.get("hours")
+    if hours is not None:
+        try:
+            hours = float(hours)
+        except (TypeError, ValueError) as exc:
+            raise Refused(key="ship-hours-is-a-number") from exc
+    via = message.get("via")
+    job = await ship.fly(
+        db,
+        current(),
+        current_catalog(),
+        body,
+        vessel,
+        await _target(db, message),
+        hours=hours,
+        via=None if via is None else str(via),
+    )
     return {"flight": str(job.id), "arrives_at": job.run_at.isoformat()}
+
+
+@command("ship.course", readonly=True)
+async def _ship_course(state: dict, db: AsyncSession, message: dict) -> dict:
+    """The slider to one planet (D-271): every arc the sky offers now, priced
+    for this hull. A reading: nothing is written, and the body is not locked
+    -- a forecast must never be able to delay an order (`common._alive_read`)."""
+    body = await _alive_read(state, db)
+    vessel = await _ship_of(db, body, message.get("ship"))
+    try:
+        target = Planet(str(message.get("planet") or ""))
+    except ValueError as exc:
+        raise Refused(key="cmd-no-such-planet") from exc
+    return await ship.forecast(db, current(), current_catalog(), vessel, target)
 
 
 @command("ship.land")

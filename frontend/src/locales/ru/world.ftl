@@ -256,7 +256,6 @@ ui-ship-need-foundation = Нужна «{ $goods }» в руках — её де�
 ## Карта рубки и чертёж отсеков.
 
 ui-ship-chart = карта рейса
-ui-ship-fuel = { $fuel } топлива
 ui-ship-plan = план корабля
 ui-ship-plan-rule = Перетаскивайте отсеки по сетке: меняется только чертёж. Переходы остаются те, что возникли при закладке, и каждый из них — одна секунда. Пустое поле тянет чертёж, колесо приближает.
 ui-ship-plan-askew = Часть отсеков стоит не по клеткам: их поставили до сетки.
@@ -410,3 +409,16 @@ ui-factory-port-in = вход
 ui-factory-port-out = выход
 ui-factory-idle = — без программы —
 ui-factory-backlog = в работе { $backlog }
+
+## Ползунок курса: от самой быстрой дуги до самой дешёвой (D-271).
+
+ui-ship-course-loading = Небо считает дуги…
+ui-ship-no-arc-fits = Ни одну дугу двигатели не вытянут: снимите массу или ставьте двигатели.
+ui-ship-slider = время полёта
+ui-ship-end-fast = быстро: { $term }
+ui-ship-end-cheap = дёшево: { $term }
+ui-ship-arc-cost = { $term } · { $fuel } топлива · Δv { $dv }
+ui-ship-arc-via = пролёт: { $planet }
+ui-ship-chart-cheap = дёшево { $term } · { $fuel }
+ui-ship-chart-fast = быстро { $term } · { $fuel }
+ui-ship-course-failed = Небо не ответило: { $why }

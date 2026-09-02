@@ -39,8 +39,9 @@ import { t } from "../locale";
 import { goodsName } from "../names";
 import { planetName } from "../planets";
 import { Chart } from "./ship/Chart";
+import { Course } from "./ship/Course";
 import { Plan } from "./ship/Plan";
-import { autonomy, wanted, type Pad, type Route, type Vessel } from "./ship/model";
+import { autonomy, wanted, type Pad, type Vessel } from "./ship/model";
 import { term } from "./map/orbits";
 
 /**
@@ -317,6 +318,7 @@ function Passage({
       <span className="doing-what">
         {t("ui-ship-flight", { back: String(Boolean(v.flight.back)), name: v.flight.name })}
         {v.flight.planet && ` · ${planetName(v.flight.planet)}`}
+        {v.flight.via && ` · ${t("ui-ship-arc-via", { planet: planetName(v.flight.via) })}`}
       </span>
       <Deadline
         until={v.flight.arrives_at}
@@ -340,68 +342,6 @@ function Passage({
         <span className="note">{t("ui-ship-no-origin")}</span>
       )}
     </div>
-  );
-}
-
-/**
- * The course: what the chart's chosen planet costs, and the order to cross to it.
- *
- * One planet is one row, because a crossing goes orbit to orbit (D-245): the
- * sky has one distance to a world, and which pad the hull ends on is not
- * decided here at all -- it is chosen over the planet, once the hull is there.
- */
-function Course({
-  vessel,
-  planet,
-  busy,
-  fly,
-}: {
-  vessel: Vessel;
-  planet: string | null;
-  busy: boolean;
-  fly: (orbit: string) => void;
-}) {
-  if (planet === null) {
-    return <p className="note">{t("ui-ship-pick-planet")}</p>;
-  }
-  const routes: Route[] = vessel.routes.filter((route) => route.planet === planet);
-  if (routes.length === 0) {
-    return <p className="note">{t("ui-ship-no-route")}</p>;
-  }
-  const first = routes[0];
-  const port = first.node;
-  return (
-    <p>
-      <span
-        className="planet-dot"
-        style={{ background: `var(--planet-${planet})` }}
-        aria-hidden="true"
-      />
-      <b>{planetName(planet)}</b> ·{" "}
-      {t("ui-ship-leg-cost", {
-        hours: first.hours?.toFixed(1) ?? "",
-        fuel: first.fuel?.toFixed(0) ?? "",
-      })}
-      {!first.reachable && ` · ${t("ui-ship-thrust-cut")}`}{" "}
-      <span className="note">{first.name}</span>{" "}
-      <button
-        onClick={() => fly(port)}
-        disabled={busy || !first.reachable || vessel.fuel < wanted(first)}
-        title={t(first.reachable ? "ui-ship-fly-hint" : "ui-ship-thrust-short")}
-      >
-        {t("ui-ship-fly")}
-      </button>
-      {vessel.fuel < wanted(first) && (
-        <span className="note">
-          {" "}
-          ·{" "}
-          {t("ui-ship-dry-fly", {
-            fuel: vessel.fuel.toFixed(0),
-            needs: first.needs?.toFixed(0) ?? "",
-          })}
-        </span>
-      )}
-    </p>
   );
 }
 
@@ -656,7 +596,9 @@ export function Ship({
                     vessel={v}
                     planet={course}
                     busy={busy || deaf}
-                    fly={(port) => go(() => session.send("ship.fly", { ship: v.ship, port }))}
+                    fly={(port, hours, via) =>
+                      go(() => session.send("ship.fly", { ship: v.ship, port, hours, via }))
+                    }
                   />
                 </>
               )}

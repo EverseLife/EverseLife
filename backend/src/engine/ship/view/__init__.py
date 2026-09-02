@@ -6,6 +6,7 @@ Split out of `engine/ship.py` along its sections (review 2026-08-23, wave 3).
 """
 
 from src.engine.ship.view.card import (  # noqa: F401
+    forecast,
     profile,
 )
 from src.engine.ship.view.sight import (  # noqa: F401

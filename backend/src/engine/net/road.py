@@ -25,7 +25,7 @@ from src.runtime import (
     NET_GRAPH_TTL,
     NET_REACH_CACHE,
 )
-from src.units import SECONDS_PER_HOUR
+from src.units import HOURS_PER_DAY, SECONDS_PER_HOUR
 
 # --- the road ----------------------------------------------------------------
 
@@ -116,11 +116,19 @@ async def road_seconds(
     if planet_a is None or planet_b is None:
         return sea
     if planet_a is not planet_b:
-        hours = await ship.base_hours(session, constants, planet_a, planet_b, at=now)
-        if hours is None:
-            #: No passage between these two in the vault at all: the far end
-            #: of the longest one there is. Not knowing must not come out cheap.
-            hours = max(float(h) for h in constants[R.SHIP_ROUTE_APART_HOURS].values())
+        #: A word between worlds goes with the cheap passage (D-271): the
+        #: least delta-v the sky offers today, and however long that arc takes.
+        #: No orbits to ask -- the slow end of the slider. Not knowing the sky
+        #: must never come out cheaper than knowing it.
+        curve = await ship.passage_curve(
+            session, constants, planet_a, planet_b, at=now, flybys=False
+        )
+        cheapest = ship.course.cheapest(curve)
+        hours = (
+            float(constants[R.ORBIT_LONGEST_DAYS]) * HOURS_PER_DAY
+            if cheapest is None
+            else cheapest.hours
+        )
         return float(hours) * SECONDS_PER_HOUR
     seconds = _from(graph, here).get(there)
     return sea if seconds is None else seconds

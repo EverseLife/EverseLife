@@ -70,7 +70,7 @@ quietly weld the ship to a wild node past the inspection at the gangway.
 
 Neither engines nor routes. Thrust and class come by the item's name from
 `ship.thrust` and `ship.engine_class`, passage times from
-`ship.route_window_hours` and `ship.route_apart_hours` keyed by the pair of
+the orbits of the two planets and the flight time chosen (D-271), not a table of
 planets -- exactly as a vehicle's capacity comes by its name (D-090). A
 second-class engine appears in the vault and flies without a release.
 
@@ -173,7 +173,7 @@ quietly weld the ship to a wild node past the inspection at the gangway.
 
 Neither engines nor routes. Thrust and class come by the item's name from
 `ship.thrust` and `ship.engine_class`, passage times from
-`ship.route_window_hours` and `ship.route_apart_hours` keyed by the pair of
+the orbits of the two planets and the flight time chosen (D-271), not a table of
 planets -- exactly as a vehicle's capacity comes by its name (D-090). A
 second-class engine appears in the vault and flies without a release.
 
@@ -400,3 +400,9 @@ class Docked(ShipError):
 
 class TooFar(ShipError):
     """The weakest engine's class is below the route's (D-037, D-054)."""
+
+
+class NoArc(ShipError):
+    """The sky offers no arc for the flight time asked (D-271): every one
+    grazes the corona, the time is off the slider, or the planet to bend
+    round does not go round this star."""

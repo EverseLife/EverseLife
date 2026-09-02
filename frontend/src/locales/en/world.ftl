@@ -256,7 +256,6 @@ ui-ship-need-foundation = You need a “{ $goods }” in hand — it is made in 
 ## The bridge chart and the plan of the compartments.
 
 ui-ship-chart = passage chart
-ui-ship-fuel = { $fuel } fuel
 ui-ship-plan = ship plan
 ui-ship-plan-rule = Drag the compartments about the grid: only the plan changes. The crossings stay as they arose at the keel, and each of them is one second. Empty field drags the plan, the wheel zooms in.
 ui-ship-plan-askew = Some compartments do not stand on the cells: they were placed before the grid.
@@ -410,3 +409,16 @@ ui-factory-port-in = input
 ui-factory-port-out = output
 ui-factory-idle = -- no programme --
 ui-factory-backlog = in work { $backlog }
+
+## The course slider: from the fastest arc to the cheapest (D-271).
+
+ui-ship-course-loading = The sky is computing the arcs…
+ui-ship-no-arc-fits = The engines cannot fly any arc: shed mass or add engines.
+ui-ship-slider = flight time
+ui-ship-end-fast = fast: { $term }
+ui-ship-end-cheap = cheap: { $term }
+ui-ship-arc-cost = { $term } · { $fuel } fuel · Δv { $dv }
+ui-ship-arc-via = flyby: { $planet }
+ui-ship-chart-cheap = cheap { $term } · { $fuel }
+ui-ship-chart-fast = fast { $term } · { $fuel }
+ui-ship-course-failed = The sky did not answer: { $why }

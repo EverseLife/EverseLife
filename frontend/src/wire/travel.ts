@@ -116,7 +116,15 @@ export type MapNode = {
   /** A ship under way. It has no edges at all while it flies, so its place on
    *  the map is a share of the way between the port it left and the one it is
    *  due at -- nothing in the graph could say it. */
-  flight: { to: string; started_at: string; arrives_at: string } | null;
+  flight: {
+    to: string;
+    started_at: string;
+    arrives_at: string;
+    /** The arc a crossing flies, map units, at equal time steps (D-271): the
+     *  hull is drawn along it at the share of the time gone. Absent on the
+     *  legs to and from the ground. */
+    arc?: [number, number][] | null;
+  } | null;
   /** Place-sign property ids ("woods", "stones"): the map draws the node's
    *  type glyph by them (D-238, D-251). Optional: older servers do not send it. */
   features?: string[];
@@ -126,15 +134,18 @@ export type MapNode = {
 
 export type MapEdge = { a: string; b: string; surface: Exit["surface"]; seconds: number };
 
+/** One day of a corridor's calendar: the cheapest passage leaving then --
+ *  its delta-v and how long that arc takes (D-271). */
+export type ForecastDay = { day: number; dv: number; hours: number };
+
 /** A corridor between two planets: not an edge of the graph but the price of a
- *  passage (D-037). The two ends are the vault's -- in conjunction and in
- *  opposition -- and where between them a given hour falls is decided by where
- *  the planets stand then. Ends by planet, not by node key. */
+ *  passage (D-037, D-271). The engine forecasts the cheapest arc for each of
+ *  the coming days -- the window is where the calendar dips -- and the client
+ *  leafs through it as it winds the sky. Ends by planet, not by node key. */
 export type MapRoute = {
   a: string;
   b: string;
-  window_hours: number;
-  apart_hours: number;
+  days: ForecastDay[];
 };
 
 export type WorldMap = { nodes: MapNode[]; edges: MapEdge[]; routes: MapRoute[] };

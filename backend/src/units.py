@@ -82,6 +82,17 @@ KG_PER_TON = 1000.0
 ROUND_MASS = 1
 ROUND_HOURS = 2
 ROUND_RATIO = 3
+#: Delta-v of a passage, map units per day (D-271), and the points of
+#: the arc it flies, map units: a tenth is finer than the map draws.
+ROUND_DV = 2
+ROUND_TRACE = 1
+#: How the sky is stored and remembered (D-271), not how it is priced:
+#: points along a drawn arc, the memo's buckets of a day, and how many
+#: curves and calendars a process keeps.
+TRACE_POINTS = 24
+SKY_MEMO_PER_DAY = 144
+SKY_CURVE_MEMO = 512
+SKY_CALENDAR_MEMO = 64
 #: Quality is stored to a hundredth of a point (`Numeric(6, 2)` columns).
 ROUND_QUALITY = 2
 

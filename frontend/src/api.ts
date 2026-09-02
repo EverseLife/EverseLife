@@ -122,6 +122,7 @@ export type {
   InSight,
   MapEdge,
   MapNode,
+  ForecastDay,
   MapRoute,
   RoadWork,
   Transit,

@@ -65,6 +65,10 @@ async def passages(session: AsyncSession) -> dict[uuid.UUID, dict[str, object]]:
             "to": uuid.UUID(str(job.payload["to"])),
             "started_at": job.created_at,
             "arrives_at": job.run_at,
+            #: The arc a crossing flies, in map units (D-271): the map draws
+            #: the hull along it, at the share of the time gone. Legs to and
+            #: from the ground carry none -- they are drawn beside the planet.
+            "arc": job.payload.get("arc"),
         }
     return under_way
 
@@ -256,4 +260,8 @@ async def _flight(session: AsyncSession, ship: Ship) -> dict[str, object] | None
         #: a refusal per click. Not derivable: the destination alone does not
         #: say which way the helm went.
         "back": bool(job.payload.get("back")),
+        #: The planet the arc bends round, if any (D-271): the console names
+        #: it. And the arc itself, for the chart to draw the hull along.
+        "via": job.payload.get("via"),
+        "arc": job.payload.get("arc"),
     }

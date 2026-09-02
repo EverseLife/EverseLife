@@ -75,7 +75,7 @@ import {
   type Link,
   type Point,
 } from "./map/model";
-import { STAR } from "./map/orbits";
+import { STAR, horizon } from "./map/orbits";
 
 /**
  * Whether the camera was left tied to the body, remembered past the panel.
@@ -358,6 +358,7 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
     epoch,
     orbiting,
     spaceRepr: (key: string) => repr(key, "space"),
+    horizon: horizon(map?.routes),
   });
   const { fit } = sky;
 
@@ -641,7 +642,14 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
           onWheel={zoom}
         >
           {orbiting && (
-            <SkyBackdrop map={map} visible={visible} at={at} repr={repr} fit={fit} />
+            <SkyBackdrop
+              map={map}
+              visible={visible}
+              at={at}
+              repr={repr}
+              fit={fit}
+              day={sky.day}
+            />
           )}
 
           <Edges edges={shownEdges} at={at} labelled={!orbiting} />

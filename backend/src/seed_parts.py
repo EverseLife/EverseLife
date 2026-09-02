@@ -84,9 +84,13 @@ class Orbit(NamedTuple):
     #: fifth planet somebody adds.
     genitive: str
     planet: Planet
-    #: Display radius in the map's own units. Orbits are **not to scale**
-    #: (10-world/06): the proportions repeat the system's figure from the
-    #: landing, so the client and the poster show one and the same sky.
+    #: Radius in the map's own units. **Keplerian** since D-271: the periods
+    #: are the tuned numbers (they set how often the windows open), and the
+    #: radii follow from them by the third law -- `r^3 / T^2` is the same for
+    #: every planet, Terra's 136 at 28 days being the measure. The star's pull
+    #: is read off the orbits (`course.mu_of`), so a radius that broke the law
+    #: would price every passage differently by the planet it left from;
+    #: `tests/test_seed` pins the agreement.
     radius: float
     #: A full circle, in real days. This is not astronomy: the number decides
     #: how fast the sky turns. Terra's month is the measure -- some twelve
@@ -121,10 +125,10 @@ class Orbit(NamedTuple):
 #: of the alpha: what cannot be reached is shown and marked, so that a player
 #: sees from the first day where the road does not go yet (50-interface/05).
 SYSTEM = (
-    Orbit("pyroxis", "Пироксис", "Пироксиса", Planet.PYROXIS, 60, 11, 0.80, climate=frost.HEAT),
-    Orbit("terra", "Терра", "Терры", Planet.TERRA, 136, 28, 2.10),
-    Orbit("aquatica", "Акватика", "Акватики", Planet.AQUATICA, 172, 70, 4.00, deferred=True),
-    Orbit("aurora", "Аврора", "Авроры", Planet.AURORA, 220, 130, 2.28, climate=frost.FROST),
+    Orbit("pyroxis", "Пироксис", "Пироксиса", Planet.PYROXIS, 72.95, 11, 0.80, climate=frost.HEAT),
+    Orbit("terra", "Терра", "Терры", Planet.TERRA, 136.0, 28, 2.10),
+    Orbit("aquatica", "Акватика", "Акватики", Planet.AQUATICA, 250.51, 70, 4.00, deferred=True),
+    Orbit("aurora", "Аврора", "Авроры", Planet.AURORA, 378.52, 130, 2.28, climate=frost.FROST),
 )
 
 

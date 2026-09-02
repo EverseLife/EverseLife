@@ -19,6 +19,7 @@ from src.constants import Catalog, Constants, current
 from src.constants import registry as R
 from src.engine import events, travel
 from src.engine.jobs import enqueue, handler
+from src.engine.ship import course
 from src.engine.ship._base import (
     _EPS,
     CLIMB,
@@ -27,6 +28,7 @@ from src.engine.ship._base import (
     PASSAGE,
     Docked,
     InFlight,
+    NoArc,
     NoFuel,
     NoLifeSupport,
     NoPort,
@@ -42,15 +44,16 @@ from src.engine.ship.belonging import crew_of, nodes_of
 from src.engine.ship.building import _planet_root
 from src.engine.ship.command import _commanded_by, _landable, _will_take
 from src.engine.ship.physics import (
-    base_hours,
     burn_checked,
     climb_hours,
+    efficiency,
     engine_class,
     fall_hours,
     fuel_for,
     life_support,
     mass,
-    passage_hours,
+    passage_arc,
+    passage_curve,
     ratio,
 )
 from src.engine.ship.view import lands_anywhere, open_landings
@@ -60,9 +63,12 @@ from src.models.job import Job, JobKind, JobState
 from src.models.ship import Ship
 from src.models.world import Node, Surface
 from src.units import (
+    HOURS_PER_DAY,
+    ROUND_DV,
     ROUND_HOURS,
     ROUND_MASS,
     ROUND_RATIO,
+    ROUND_TRACE,
     SECONDS_PER_HOUR,
 )
 
@@ -145,6 +151,7 @@ async def _burn(
     hours: float,
     reserve: float,
     refusal: str,
+    dv: float | None = None,
 ) -> tuple[float, float]:
     """Charge the tanks for a leg, having first checked the way out of its end.
 
@@ -163,6 +170,10 @@ async def _burn(
     -- a message variant rather than a sentence: the words are the locale's
     (D-251).
 
+    `dv` is given for a crossing between worlds (D-271): the passage pays for
+    speed rather than for hours, while the reserve at its end is a descent and
+    still pays per hour. Without it the leg is priced by `hours` alone.
+
     Returns the mass burnt and the mass of the hull it was computed against --
     the caller writes both into the journal.
     """
@@ -174,8 +185,11 @@ async def _burn(
     #: turn-back charges it. Class is power and **efficiency** (D-235), and a
     #: leg that ignored it charged one price on the screen and another at the
     #: tanks.
-    need = fuel_for(constants, weight, hours, klass=klass)
-    whole = fuel_for(constants, weight, hours + reserve, klass=klass)
+    if dv is None:
+        need = fuel_for(constants, weight, hours, klass=klass)
+    else:
+        need = course.fuel_for_speed(constants, weight, dv, efficiency=efficiency(constants, klass))
+    whole = need + fuel_for(constants, weight, reserve, klass=klass)
     #: In reference units on both sides (D-252): the need is quoted in
     #: rocket-fuel units, and the tanks answer with what their kinds are
     #: worth -- kerosene closes more of it per unit than it shows. Checked
@@ -220,14 +234,26 @@ async def _launch(
     weight: float,
     thrust_ratio: float,
     at: datetime,
+    arc: course.Arc | None = None,
 ) -> Job:
     """Write the leg into the journal and queue its arrival.
 
     One shape for all three legs, and `leg` is the only thing that tells them
     apart in the record: a climb, a crossing and a descent differ in what they
-    cost, not in what happens at the end of them.
+    cost, not in what happens at the end of them. A crossing carries its arc
+    (D-271): the delta-v it paid, the planet it bends round, and the line the
+    map draws it on -- none of which the map could work out from the two ends.
     """
     arrives = at + timedelta(hours=hours)
+    told: dict[str, object] = {}
+    payload: dict[str, object] = {"ship": str(ship.id), "to": str(to.id), "leg": leg}
+    if arc is not None:
+        told = {"dv": round(arc.dv, ROUND_DV), "via": arc.via}
+        payload.update(
+            dv=round(arc.dv, ROUND_DV),
+            via=arc.via,
+            arc=[[round(x, ROUND_TRACE), round(y, ROUND_TRACE)] for x, y in arc.trace],
+        )
     event = await events.record(
         session,
         EventKind.SHIP_LAUNCHED,
@@ -242,12 +268,13 @@ async def _launch(
         mass=round(weight, ROUND_MASS),
         ratio=round(thrust_ratio, ROUND_RATIO),
         arrives_at=arrives.isoformat(),
+        **told,
     )
     job = await enqueue(
         session,
         JobKind.SHIP_FLIGHT,
         arrives,
-        payload={"ship": str(ship.id), "to": str(to.id), "leg": leg},
+        payload=payload,
         dedup_key=f"ship.flight:{ship.id}:{event.id}",
         cause_event_id=event.id,
         body_id=body.id,
@@ -330,14 +357,19 @@ async def fly(
     ship: Ship,
     target: Node,
     *,
+    hours: float | None = None,
+    via: str | None = None,
     now: datetime | None = None,
 ) -> Job:
     """Cross to another planet's orbit. Orbit to orbit, never ground to ground.
 
-    The passage the sky prices (D-201): its length is `ship.base_hours` for the
-    pair of planets at this very hour, and it is settled **here**, at the
-    casting off, never recomputed -- a sky turning under a ship already under
-    way would make the passage longer than the one paid for.
+    The passage the sky prices (D-201, D-271): a Lambert arc from where this
+    planet stands now to where the other will stand in `hours`, settled
+    **here**, at the casting off, never recomputed -- a sky turning under a
+    ship already under way would make the passage longer than the one paid
+    for. `hours` is the owner's choice off the console's slider, from the
+    fastest the engines deliver to the cheapest the horizon offers; unnamed,
+    the cheapest arc flies. `via` bends the arc round a third planet.
 
     What D-245 changed is only its ends. A crossing starts and finishes in
     orbit, so the ground is one more leg away at each end, and the way from
@@ -368,25 +400,48 @@ async def fly(
         raise NoPort(key="ship-nowhere-to-land", node=target.name)
 
     #: The sky, asked once and written into the passage.
-    table = await base_hours(session, constants, here.planet, target.planet, at=moment)
-    if table is None:
+    curve = await passage_curve(session, constants, here.planet, target.planet, at=moment)
+    pick = course.cheapest(curve)
+    if pick is None:
         raise TooFar(
             key="ship-no-such-route",
             planet_from=here.planet.value,
             planet_to=target.planet.value,
         )
+    if hours is None:
+        hours = pick.hours
+        if via is None:
+            via = pick.via
+    limit = float(constants[R.ORBIT_LONGEST_DAYS]) * HOURS_PER_DAY
+    if not hours > 0 or hours > limit:
+        raise NoArc(key="ship-hours-out-of-range", hours=round(hours, ROUND_HOURS), limit=limit)
+    arc = await passage_arc(
+        session, constants, here.planet, target.planet, at=moment, hours=hours, via=via
+    )
+    if arc is None:
+        if via is not None:
+            raise NoArc(key="ship-no-planet-to-pass", planet=via)
+        raise NoArc(key="ship-no-arc", hours=round(hours, ROUND_HOURS))
     #: No route is closed by class (D-235): class is power and efficiency, and
-    #: both are already priced -- a weak engine on a heavy hull flies longer
-    #: (`passage_hours`) and burns more for every hour of it (`fuel_for`). What
-    #: is still refused is having no engine at all, and having too little thrust
-    #: to move; neither is a licence, both are physics.
-    hours = passage_hours(constants, table, thrust_ratio)
+    #: both are already priced -- a weak engine on a heavy hull cannot fly the
+    #: fast arcs (`deliverable`) and burns more for every arc it can. What is
+    #: still refused is having no engine at all, and asking for a speed the
+    #: engines cannot give in the time; neither is a licence, both are physics.
+    can = course.deliverable(constants, thrust_ratio, hours)
+    if arc.dv > can:
+        raise NotEnoughThrust(
+            key="ship-too-fast-for-thrust",
+            hours=round(hours, ROUND_HOURS),
+            need=round(arc.dv, ROUND_DV),
+            have=round(can, ROUND_DV),
+        )
     burnt, weight = await _burn(
         session,
         constants,
         catalog,
         ship,
         hours=hours,
+        dv=arc.dv,
         #: The descent at the far end, kept back the way the climb keeps its own.
         reserve=fall_hours(constants, target.planet, thrust_ratio),
         refusal="cross",
@@ -404,6 +459,7 @@ async def fly(
         weight=weight,
         thrust_ratio=thrust_ratio,
         at=moment,
+        arc=arc,
     )
 
 
@@ -541,12 +597,18 @@ async def recall(
     floor = 0.0 if is_orbit(home) else down
     flown = max(0.0, (moment - running.created_at).total_seconds() / SECONDS_PER_HOUR)
     gone = max(flown, floor)
+    #: A crossing paid for speed, not for hours (D-271), and the way home is a
+    #: second arc that costs what the first did: the same delta-v, however far
+    #: along it the helm went over. Legs to and from the ground carry no
+    #: delta-v and keep paying by the hour.
+    paid = running.payload.get("dv")
     burnt, _ = await _burn(
         session,
         constants,
         catalog,
         ship,
         hours=gone,
+        dv=None if paid is None else float(paid),
         #: A turn-back is a leg like the others, and it keeps what the others
         #: keep: an orbit has no bunker, so coming home to one is refused
         #: without the descent still in the tanks. Turned back into an orbit
@@ -566,6 +628,16 @@ async def recall(
     await session.flush()
 
     arrives = moment + timedelta(hours=gone)
+    home_arc: dict[str, object] = {}
+    if paid is not None:
+        #: Only the part of the arc the hull has actually flown, reversed:
+        #: the way back starts where the helm went over, not at the far end.
+        whole = (running.run_at - running.created_at).total_seconds()
+        share = 1.0 if whole <= 0 else min(1.0, flown * SECONDS_PER_HOUR / whole)
+        home_arc = {
+            "dv": paid,
+            "arc": list(reversed(course.flown(running.payload.get("arc") or [], share))),
+        }
     event = await events.record(
         session,
         EventKind.SHIP_RECALLED,
@@ -583,8 +655,9 @@ async def recall(
         JobKind.SHIP_FLIGHT,
         arrives,
         #: Marked as the way back: a turn-back counts the hours of the leg it
-        #: replaced, and has none of its own to count.
-        payload={"ship": str(ship.id), "to": str(home.id), "back": True},
+        #: replaced, and has none of its own to count. The arc goes home with
+        #: it, reversed: the map draws the hull back along the way it came.
+        payload={"ship": str(ship.id), "to": str(home.id), "back": True, **home_arc},
         dedup_key=f"ship.flight:{ship.id}:{event.id}",
         cause_event_id=event.id,
         body_id=body.id,

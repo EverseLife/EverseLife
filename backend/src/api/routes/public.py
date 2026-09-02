@@ -11,6 +11,7 @@ the catalogs is pointless -- they lie in the vault anyway.
 from __future__ import annotations
 
 from dataclasses import asdict
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Header, HTTPException, Response
@@ -274,10 +275,10 @@ async def world_map(
             ],
             #: The corridors of space. Not edges of the graph -- between planets
             #: there are none, and one does not walk there -- but what a passage
-            #: costs: the two ends from the vault, and the sky decides where
-            #: between them the moment falls (D-037). Keyed by planet, so the
-            #: client ties a corridor to the bodies it already draws.
-            "routes": vessels.corridors(constants),
+            #: costs: a calendar of the cheapest arc for each of the coming days
+            #: (D-271), so the map says when the window opens. Keyed by planet,
+            #: so the client ties a corridor to the bodies it already draws.
+            "routes": await vessels.corridors(db, constants, at=datetime.now(UTC)),
         }
 
 

@@ -70,7 +70,7 @@ quietly weld the ship to a wild node past the inspection at the gangway.
 
 Neither engines nor routes. Thrust and class come by the item's name from
 `ship.thrust` and `ship.engine_class`, passage times from
-`ship.route_window_hours` and `ship.route_apart_hours` keyed by the pair of
+the orbits of the two planets and the flight time chosen (D-271), not a table of
 planets -- exactly as a vehicle's capacity comes by its name (D-090). A
 second-class engine appears in the vault and flies without a release.
 
@@ -117,6 +117,7 @@ A package: one module per section of the old file; this file re-exports
 the names so `from src.engine import ship` reads as before.
 """
 
+from src.engine.ship import course  # noqa: F401
 from src.engine.ship._base import (  # noqa: F401
     _EPS,
     ABOARD,
@@ -135,6 +136,7 @@ from src.engine.ship._base import (  # noqa: F401
     Deaf,
     Docked,
     InFlight,
+    NoArc,
     NoConsole,
     NoFoundation,
     NoFuel,
@@ -188,10 +190,10 @@ from src.engine.ship.flight import (  # noqa: F401
 from src.engine.ship.physics import (  # noqa: F401
     _sphere,
     _things,
-    base_hours,
     burn_checked,
     climb_hours,
     corridors,
+    efficiency,
     engine_class,
     engines,
     fall_hours,
@@ -204,10 +206,12 @@ from src.engine.ship.physics import (  # noqa: F401
     life_support,
     mass,
     mass_parts,
+    orbits_of,
+    passage_arc,
+    passage_curve,
     passage_hours,
     ratio,
-    route_key,
-    separation,
+    sky_days,
     spend_fuel,
     tank_stacks,
     tanks_of,
@@ -221,6 +225,7 @@ from src.engine.ship.shape import (  # noqa: F401
 )
 from src.engine.ship.view import (  # noqa: F401
     beacon_lit,
+    forecast,
     in_sight,
     landings,
     lands_anywhere,

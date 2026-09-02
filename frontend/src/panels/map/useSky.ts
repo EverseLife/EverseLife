@@ -19,23 +19,27 @@ import type { MapNode } from "../../api";
 import type { Point } from "./model";
 import {
   BERTH,
-  FORECAST_DAYS,
   FORECAST_SPEED,
   MARGIN,
   MS_PER_DAY,
   STAR,
   TURN,
+  along,
   mooring,
 } from "./orbits";
 import { H } from "./model";
 
 export type Sky = {
+  /** Days since the epoch the sky is showing, winding included. */
+  day: number;
   /** Where each planet and hull is, by key. A ref: this is redrawing, not state. */
   places: React.RefObject<Map<string, Point>>;
   /** How the vault's radii are squeezed into the frame. */
   fit: number;
   /** How many days ahead the sky is wound. Zero is now. */
   ahead: number;
+  /** How far it may be wound: the corridors' calendar. */
+  horizon: number;
   winding: boolean;
   setWinding: (on: boolean | ((was: boolean) => boolean)) => void;
   /** Wind to a given day ahead: the slider and the "now" button. */
@@ -47,10 +51,13 @@ export function useSky({
   epoch,
   orbiting,
   spaceRepr,
+  horizon,
 }: {
   visible: MapNode[];
   epoch: string | null;
   orbiting: boolean;
+  /** How far ahead the sky may be wound, days: the calendar's length. */
+  horizon: number;
   /** The node's delegate on the space layer: a ship in flight is bound for one. */
   spaceRepr: (key: string) => string | null;
 }): Sky {
@@ -100,6 +107,14 @@ export function useSky({
         //: never happens.
         const at_ = Date.now() + aheadRef.current * MS_PER_DAY;
         const share = Math.min(1, Math.max(0, (at_ - t0) / Math.max(1, t1 - t0)));
+        //: Along the arc the sky gave the passage (D-271) where there is one;
+        //: a climb or a descent has none and goes straight between its ends.
+        const arc = node.flight.arc;
+        if (arc && arc.length >= 2) {
+          const point = along(arc, share);
+          put(node.key, STAR.x + point[0] * fit, STAR.y + point[1] * fit);
+          continue;
+        }
         put(node.key, berth.x + (goal.x - berth.x) * share, berth.y + (goal.y - berth.y) * share);
       } else if (berth) {
         //: Docked, a ship stands **beside** its planet rather than on it: on it
@@ -126,7 +141,7 @@ export function useSky({
     let last = performance.now();
     const step = (now: number) => {
       aheadRef.current =
-        (aheadRef.current + ((now - last) / 1000) * FORECAST_SPEED) % FORECAST_DAYS;
+        (aheadRef.current + ((now - last) / 1000) * FORECAST_SPEED) % horizon;
       last = now;
       setAhead(aheadRef.current);
       draw();
@@ -134,7 +149,7 @@ export function useSky({
     };
     raf = requestAnimationFrame(step);
     return () => cancelAnimationFrame(raf);
-  }, [orbiting, winding, visible, epoch]);
+  }, [orbiting, winding, visible, epoch, horizon]);
 
   const wind = (day: number) => {
     setWinding(false);
@@ -144,5 +159,9 @@ export function useSky({
     setFrame((f) => f + 1);
   };
 
-  return { places, fit, ahead, winding, setWinding, wind };
+  //: Which day the sky shows, winding included: the corridor calendar is
+  //: leafed to it (D-271).
+  const start = epoch ? new Date(epoch).getTime() : Date.now();
+  const day = (Date.now() - start) / MS_PER_DAY + ahead;
+  return { places, fit, ahead, day, horizon, winding, setWinding, wind };
 }

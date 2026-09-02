@@ -542,19 +542,39 @@ SHIP_DESCENT_HOURS = Num("ship.descent_hours")
 #: which planets differ from one another at all, before any geology: a heavy
 #: world is dear to leave and dear to land on.
 PLANET_GRAVITY = Table("planet.gravity")
-#: Passage times between two planets' orbits: the two ends of a corridor.
-#: The key is the pair of planets in alphabetical order -- the route is
-#: undirected, like an edge of the map.
-#:
-#: The two ends of an interplanetary passage: the planets on one side of the
-#: star and on opposite sides of it. Where between them today's sky stands is
-#: what the passage actually costs (D-037).
-SHIP_ROUTE_WINDOW_HOURS = Table("ship.route_window_hours")
-SHIP_ROUTE_APART_HOURS = Table("ship.route_apart_hours")
+#: Fuel for a crossing between worlds, per ton of hull and per unit of delta-v
+#: (D-271): a passage pays for speed, not for hours -- the legs to and from
+#: the ground still pay per day (`SHIP_FUEL_PER_TON_DAY`).
+SHIP_FUEL_PER_TON_SPEED = Num("ship.fuel_per_ton_speed")
 #: The fuel multiplier by the ship's class (D-235). Class is power and
 #: efficiency, never a licence for a route: a first-class engine reaches
 #: Pyroxis too, it just takes longer and burns more.
 SHIP_ENGINE_EFFICIENCY = Table("ship.engine_efficiency")
+
+# --- Celestial mechanics (D-271) -----------------------------------------------
+#: A passage between worlds is a Lambert arc round the star, and the vault
+#: tunes what the hull makes of it, not the sky itself: the star's pull is
+#: read off the orbits (Kepler III), so that two sources cannot disagree.
+#: Acceleration per unit of thrust-to-mass, map units per day squared: the
+#: fast end of the slider, since the engines must give the arc's delta-v
+#: within `ORBIT_BURN_SHARE` of the flight.
+ORBIT_THRUST_SCALE = Num("orbit.thrust_scale")
+ORBIT_BURN_SHARE = Num("orbit.burn_share")
+#: Below this perihelion an arc is not offered: one does not cut through the star.
+ORBIT_CORONA_RADIUS = Num("orbit.corona_radius")
+#: The slow end of the slider: no arc longer than this, however cheap.
+ORBIT_LONGEST_DAYS = Num("orbit.longest_days")
+#: A planet's pull at a flyby, per unit of `PLANET_GRAVITY`, and how close the
+#: hull may pass: together they bound the free turn of a gravity assist.
+ORBIT_FLYBY_MU = Num("orbit.flyby_mu")
+ORBIT_FLYBY_RADIUS = Num("orbit.flyby_radius")
+#: The slider's grid: the shortest arc offered, hours, and the step between
+#: samples as a share; the map's calendar is coarser and looks this many
+#: days ahead.
+ORBIT_SLIDER_FROM_HOURS = Num("orbit.slider_from_hours")
+ORBIT_SLIDER_STEP = Num("orbit.slider_step")
+ORBIT_CALENDAR_STEP = Num("orbit.calendar_step")
+ORBIT_CALENDAR_DAYS = Num("orbit.calendar_days")
 
 # --- Eruptions of Pyroxis (D-197, D-233) ------------------------------------
 #: The planet's rhythm, not an event of the server: how often the ground moves,

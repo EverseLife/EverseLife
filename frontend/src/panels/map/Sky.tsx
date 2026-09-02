@@ -5,17 +5,17 @@
  * What only the space layer draws, and the one control only it has.
  *
  * The star, the rings the planets run on, the corridors between them with what
- * a passage costs right now, and the line a ship in flight is on. None of it is
- * a graph: there are no edges in the void and nobody walks there (D-037,
- * D-201), so all of it is drawn from the clock and from the vault's two ends of
- * each route rather than from anything the map holds.
+ * a passage costs on the day shown, and the arc a ship in flight is on. None of
+ * it is a graph: there are no edges in the void and nobody walks there (D-037,
+ * D-201), so all of it is drawn from the clock and from the engine's calendar
+ * of each corridor rather than from anything the map holds (D-271).
  */
 
 import type { MapNode, WorldMap } from "../../api";
 import { Hint } from "../../Hint";
 import { t } from "../../locale";
 import type { LayerId, Point } from "./model";
-import { FORECAST_DAYS, STAR, WINDOW_EDGE, passage, term } from "./orbits";
+import { STAR, forecast, term, windowOpen } from "./orbits";
 import type { Sky } from "./useSky";
 
 /**
@@ -36,7 +36,7 @@ export function SkyClock({ sky }: { sky: Sky }) {
       <input
         type="range"
         min={0}
-        max={FORECAST_DAYS}
+        max={sky.horizon}
         step={0.25}
         value={ahead}
         aria-label={t("ui-map-sky-slider")}
@@ -64,12 +64,16 @@ export function SkyBackdrop({
   at,
   repr,
   fit,
+  day,
 }: {
   map: WorldMap;
   visible: MapNode[];
   at: (key: string) => Point | undefined;
   repr: (key: string, layer: LayerId) => string | null;
   fit: number;
+  /** Which day the sky is showing, counted from the epoch: the calendar is
+   *  leafed to it. */
+  day: number;
 }) {
   /** The planet's own node, by planet name: corridors are keyed by planet. */
   const sphereOf = (planet: string): MapNode | undefined =>
@@ -97,24 +101,20 @@ export function SkyBackdrop({
         <circle className="star" cx={STAR.x} cy={STAR.y} r={7} />
       </g>
 
-      {/* The corridors: what a passage between two planets costs right now.
-          There is no edge under them -- one does not walk the void -- so they
-          are drawn from the vault's two ends and the current distance, by the
-          same rule the engine settles a flight by (D-037). This is what makes a
-          passage something one plans: the window is worth waiting for, and the
-          map says how long. */}
+      {/* The corridors: what the cheapest passage between two planets costs on
+          the day shown. There is no edge under them -- one does not walk the
+          void -- so they are drawn from the engine's calendar (D-271): the
+          cheapest arc for each of the coming days, and the window is where it
+          dips. This is what makes a passage something one plans: the window
+          is worth waiting for, and the map says how long. */}
       {(map.routes ?? []).map((route) => {
         const one = sphereOf(route.a);
         const other = sphereOf(route.b);
         const here = one && at(one.key);
         const there = other && at(other.key);
         if (!one || !other || !here || !there) return null;
-        const gap = Math.hypot(there.x - here.x, there.y - here.y);
-        const near = Math.abs(one.orbit!.radius - other.orbit!.radius) * fit;
-        const far = (one.orbit!.radius + other.orbit!.radius) * fit;
-        const hours = passage(route, gap, near, far);
-        const open =
-          hours - route.window_hours < (route.apart_hours - route.window_hours) * WINDOW_EDGE;
+        const today = forecast(route, day);
+        const open = windowOpen(route, day);
         const midX = (here.x + there.x) / 2;
         const midY = (here.y + there.y) / 2;
         const away = Math.hypot(midX - STAR.x, midY - STAR.y) || 1;
@@ -126,17 +126,23 @@ export function SkyBackdrop({
               y={midY + ((midY - STAR.y) / away) * 14}
               className={`passage${open ? " open" : ""}`}
             >
-              {term(hours)}
+              {today ? term(today.hours) : "—"}
             </text>
           </g>
         );
       })}
 
       {/* The line a ship is on. There is no edge under it -- undocking took the
-          only one away (D-201) -- so the corridor is drawn from the passage
-          itself: whence, whither, and the hull somewhere along it. */}
+          only one away (D-201) -- so it is drawn from the passage itself: the
+          arc the sky gave it (D-271), or, on a climb and a descent, the
+          straight step between the two ends. */}
       {visible.map((node) => {
         if (!node.flight) return null;
+        const arc = node.flight.arc;
+        if (arc && arc.length >= 2) {
+          const points = arc.map(([x, y]) => `${STAR.x + x * fit},${STAR.y + y * fit}`);
+          return <polyline key={`route|${node.key}`} className="route" points={points.join(" ")} />;
+        }
         const from = at(node.parent ?? "");
         const to = at(repr(node.flight.to, "space") ?? "");
         if (!from || !to) return null;

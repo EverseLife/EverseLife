@@ -223,6 +223,20 @@ async def test_the_planets_carry_their_climate(
     assert await frost.is_warm(session, constants, port)
 
 
+def test_the_system_is_keplerian() -> None:
+    """Every planet gives the same pull of the star (D-271).
+
+    The star's gravitational parameter is read off the orbit a passage leaves
+    from (`course.mu_of`), so two planets that disagreed about it would price
+    the same passage differently by the direction it is flown in.
+    """
+    pulls = [
+        ship.course.mu_of((circle.radius, circle.period_days, circle.phase))
+        for circle in seed_parts.SYSTEM
+    ]
+    assert max(pulls) == pytest.approx(min(pulls), rel=1e-3), "r^3 / T^2 одно у всех планет"
+
+
 async def test_every_open_planet_has_an_orbit_to_hang_over(
     capital: Node, session: AsyncSession
 ) -> None:

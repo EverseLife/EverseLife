@@ -30,7 +30,7 @@ import {
   sceneKey,
   type Link,
 } from "../panels/map/model";
-import { mooring, passage, term } from "../panels/map/orbits";
+import { along, forecast, mooring, term, windowOpen } from "../panels/map/orbits";
 import { long, price, spread } from "../panels/map/words";
 import { DEFAULT_LOCALE, Words, learn } from "../locale";
 
@@ -566,21 +566,54 @@ describe("orbits", () => {
     expect(term(36)).toBe("1.5 сут");
   });
 
-  //: A passage costs the vault's two ends and the share of the distance
-  //: between them -- the same formula the server settles a flight by (D-037).
-  it("prices a passage between the window and opposition by distance", () => {
-    const route = { window_hours: 10, apart_hours: 30 } as never;
-    expect(passage(route, 100, 100, 300)).toBe(10);
-    expect(passage(route, 300, 100, 300)).toBe(30);
-    expect(passage(route, 200, 100, 300)).toBe(20);
+  //: The corridor's calendar is the engine's (D-271): the client leafs to the
+  //: day shown and reads the cheapest arc off it, never recomputes it.
+  it("leafs the calendar to the day shown and clamps at its ends", () => {
+    const route = {
+      a: "terra",
+      b: "pyroxis",
+      days: [
+        { day: 10, dv: 30, hours: 200 },
+        { day: 11, dv: 12, hours: 240 },
+        { day: 12, dv: 20, hours: 220 },
+      ],
+    } as never;
+    expect(forecast(route, 11.4)?.dv).toBe(12);
+    expect(forecast(route, 3)?.day).toBe(10);
+    expect(forecast(route, 99)?.day).toBe(12);
+    expect(forecast({ a: "a", b: "b", days: [] } as never, 11)).toBeUndefined();
   });
 
-  it("keeps the price inside the vault's ends whatever the distance", () => {
-    const route = { window_hours: 10, apart_hours: 30 } as never;
-    expect(passage(route, 0, 100, 300)).toBe(10);
-    expect(passage(route, 1000, 100, 300)).toBe(30);
-    //: The ends have met: nothing to divide, and the price is the near one.
-    expect(passage(route, 150, 200, 200)).toBe(10);
+  it("calls the window open within a tenth of the spread above the dip", () => {
+    const route = {
+      a: "terra",
+      b: "pyroxis",
+      days: [
+        { day: 0, dv: 30, hours: 1 },
+        { day: 1, dv: 12, hours: 1 },
+        { day: 2, dv: 13, hours: 1 },
+        { day: 3, dv: 20, hours: 1 },
+      ],
+    } as never;
+    expect(windowOpen(route, 1)).toBe(true);
+    expect(windowOpen(route, 2)).toBe(true);
+    expect(windowOpen(route, 3)).toBe(false);
+  });
+
+  //: The arc's points are at equal time steps: a share of the time is a
+  //: place on the polyline, interpolated inside its segment.
+  it("finds the place along an arc by the share of the time gone", () => {
+    const arc: [number, number][] = [
+      [0, 0],
+      [10, 0],
+      [10, 10],
+    ];
+    expect(along(arc, 0)).toEqual([0, 0]);
+    expect(along(arc, 0.25)).toEqual([5, 0]);
+    expect(along(arc, 0.5)).toEqual([10, 0]);
+    expect(along(arc, 1)).toEqual([10, 10]);
+    expect(along(arc, 2)).toEqual([10, 10]);
+    expect(along([[3, 4]], 0.5)).toEqual([3, 4]);
   });
 
   //: A ship's mooring is its own and does not move: otherwise the hull would

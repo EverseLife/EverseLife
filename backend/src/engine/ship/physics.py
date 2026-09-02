@@ -8,7 +8,7 @@ Split out of `engine/ship.py` along its sections (review 2026-08-23, wave 3).
 
 from __future__ import annotations
 
-import math
+import asyncio
 from datetime import datetime
 
 from sqlalchemy import select
@@ -17,7 +17,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import Catalog, ConstantError, Constants
 from src.constants import registry as R
 from src.constants.catalog import ItemKind
+from src.db.base import remember
 from src.engine import gear, stock, world
+from src.engine.ship import course
 from src.engine.ship._base import FUEL, LIFE_SUPPORT, TANK, NotEnoughThrust
 from src.engine.ship.belonging import nodes_of
 from src.models.inventory import Container, ContainerKind, Item
@@ -374,15 +376,6 @@ async def ratio(session: AsyncSession, constants: Constants, catalog: Catalog, s
     return await thrust(session, constants, ship) / weight
 
 
-def route_key(one: Planet, other: Planet) -> str:
-    """The route key: the pair of planets in alphabetical order.
-
-    A route is undirected, like an edge of the map, so one key describes both
-    directions -- two would sooner or later disagree with each other.
-    """
-    return "-".join(sorted((one.value, other.value)))
-
-
 async def _sphere(session: AsyncSession, planet: Planet) -> Node | None:
     """The planet's own node: the one carrying its orbit.
 
@@ -404,111 +397,186 @@ async def _sphere(session: AsyncSession, planet: Planet) -> Node | None:
     )
 
 
-async def separation(
-    session: AsyncSession, here: Planet, there: Planet, at: datetime
-) -> tuple[float, float, float] | None:
-    """How far two planets stand apart now, and the two ends that distance lives between.
+async def orbits_of(session: AsyncSession) -> dict[Planet, course.Orbit]:
+    """Every planet that goes round the star, with its orbit. One reading per command.
 
-    Returns `(now, together, opposite)`. Together is `|Ra - Rb|` -- the planets
-    on one side of the star, the shortest the corridor between them ever is;
-    opposite is `Ra + Rb`, the longest. None means the world has no orbits to
-    ask (an old world, a test): the caller then has nothing to modulate by.
+    Deferred worlds are here too (D-104): a planet one may not land on still
+    pulls, and a hull may be bent round it. Where a passage may **end** is the
+    beacons' business (`lit_ports`), not the sky's.
     """
-    one = await _sphere(session, here)
-    other = await _sphere(session, there)
-    if one is None or other is None:
-        return None
-    first = world.orbit_of(one)
-    second = world.orbit_of(other)
-    if first is None or second is None:
-        return None
 
+    async def read() -> dict[Planet, course.Orbit]:
+        spheres = (
+            (
+                await session.execute(
+                    select(Node).where(Node.layer == Layer.SPACE, Node.parent_id.is_(None))
+                )
+            )
+            .scalars()
+            .all()
+        )
+        found: dict[Planet, course.Orbit] = {}
+        for sphere in spheres:
+            circle = world.orbit_of(sphere)
+            if circle is None or sphere.planet is None:
+                continue
+            found[sphere.planet] = (
+                float(circle["radius"]),
+                float(circle["period_days"]),
+                float(circle["phase"]),
+            )
+        return found
+
+    return await remember(session, ("orbits",), read)
+
+
+async def deferred_planets(session: AsyncSession) -> frozenset[Planet]:
+    """The worlds drawn but not playable (D-104): no corridor ends at them,
+    though a passage may still bend round them."""
+
+    async def read() -> frozenset[Planet]:
+        spheres = (
+            (
+                await session.execute(
+                    select(Node).where(Node.layer == Layer.SPACE, Node.parent_id.is_(None))
+                )
+            )
+            .scalars()
+            .all()
+        )
+        return frozenset(
+            sphere.planet
+            for sphere in spheres
+            if sphere.planet is not None and (sphere.properties or {}).get(world.DEFERRED)
+        )
+
+    return await remember(session, ("deferred_planets",), read)
+
+
+async def sky_days(session: AsyncSession, at: datetime) -> float:
+    """Days since the world's epoch: the argument every orbit is read at."""
     origin = await world.epoch(session)
     gone = 0.0 if origin is None else (at - origin).total_seconds()
-    days = gone / SECONDS_PER_HOUR / HOURS_PER_DAY
-
-    def place(orbit: dict[str, float]) -> tuple[float, float]:
-        angle = orbit["phase"] + math.tau * days / orbit["period_days"]
-        return orbit["radius"] * math.cos(angle), orbit["radius"] * math.sin(angle)
-
-    ax, ay = place(first)
-    bx, by = place(second)
-    radii = (first["radius"], second["radius"])
-    return math.dist((ax, ay), (bx, by)), abs(radii[0] - radii[1]), sum(radii)
+    return gone / SECONDS_PER_HOUR / HOURS_PER_DAY
 
 
-async def base_hours(
+def _others(
+    constants: Constants, orbits: dict[Planet, course.Orbit], here: Planet, there: Planet
+) -> dict[str, tuple[course.Orbit, float]]:
+    """The planets a passage may be bent round: everything but its two ends."""
+    return {
+        planet.value: (orbit, gravity(constants, planet))
+        for planet, orbit in orbits.items()
+        if planet is not here and planet is not there
+    }
+
+
+async def passage_curve(
     session: AsyncSession,
     constants: Constants,
     here: Planet,
     there: Planet,
     *,
     at: datetime,
-) -> float | None:
-    """The passage's table time at the reference thrust-to-mass, hours.
+    flybys: bool = True,
+) -> tuple[course.Sample, ...]:
+    """Delta-v against flight time for a passage cast off at `at` (D-271).
 
     **Not a constant of the route but of the moment.** Planets go round the
-    star at their own periods, so the way between any two of them stretches and
-    shrinks by itself: the vault gives the two ends -- in conjunction and in
-    opposition -- and the sky decides where between them today falls. A ship
-    setting out at the wrong hour pays four to five times over, which is why
+    star at their own periods, and the arc between any two of them is priced
+    by where both stand: a ship setting out at the wrong hour pays many times
+    over on the fast end, or waits weeks on the cheap one -- which is why
     interplanetary trade goes in waves and a passage is planned rather than
     simply started.
 
-    None means there is no such route in the vault at all -- and that is a
-    refusal, not a zero: the engine invents no ways between planets.
+    Empty means the sky has no such passage at all -- a planet without an
+    orbit, or the same planet twice: there is no corridor from a planet to
+    itself (D-245). `flybys` off asks for direct arcs only -- a letter's
+    delay needs no third planet.
+
+    Off the event loop: a cold curve is a few hundred Lambert solutions, and
+    every socket would wait for them.
     """
     if here is there:
-        #: There is no corridor from a planet to itself (D-245). Two ports of
-        #: one world are reached by climbing to its orbit and coming down
-        #: again, and that is two legs with their own prices -- not a passage.
-        return None
-    key = route_key(here, there)
-    window = constants[R.SHIP_ROUTE_WINDOW_HOURS]
-    apart = constants[R.SHIP_ROUTE_APART_HOURS]
-    if key not in window or key not in apart:
-        return None
-
-    near, far = float(window[key]), float(apart[key])
-    spread = await separation(session, here, there, at)
-    if spread is None:
-        #: A world with no orbits to ask -- and the answer is the **long** end.
-        #: Not knowing the sky must never come out cheaper than knowing it:
-        #: were the planets ever to go missing from under this query, flights
-        #: would silently turn into bargains and nobody would notice.
-        return far
-    now, together, opposite = spread
-    if opposite <= together:  # pragma: no cover -- two planets on one orbit
-        return near
-    share = min(1, max(0, (now - together) / (opposite - together)))
-    return near + (far - near) * share
+        return ()
+    orbits = await orbits_of(session)
+    if here not in orbits or there not in orbits:
+        return ()
+    days = await sky_days(session, at)
+    others = _others(constants, orbits, here, there) if flybys else None
+    return await asyncio.to_thread(
+        course.curve, constants, orbits[here], orbits[there], days, others=others
+    )
 
 
-def corridors(constants: Constants) -> list[dict[str, object]]:
-    """Every interplanetary route the vault knows: its two ends and its class.
+async def passage_arc(
+    session: AsyncSession,
+    constants: Constants,
+    here: Planet,
+    there: Planet,
+    *,
+    at: datetime,
+    hours: float,
+    via: str | None,
+) -> course.Arc | None:
+    """The arc a passage of `hours` would fly, cast off at `at` -- or nothing.
 
-    For the map, which draws the corridors and what a passage along them costs
-    right now. The ends travel rather than the answer on purpose: the client
-    already has the orbits and winds them forward, so it can price a passage
-    for any moment -- and a player planning a run needs exactly that, not
-    today's number alone. The engine stays the authority: this is a forecast,
-    and the flight is settled by `base_hours` at the moment of casting off.
+    Settled at the casting off (D-202): the console quoted a forecast, this is
+    the sky asked once more at the very moment, and it is what the tanks pay.
     """
-    window = constants[R.SHIP_ROUTE_WINDOW_HOURS]
-    apart = constants[R.SHIP_ROUTE_APART_HOURS]
-    lines: list[dict[str, object]] = []
-    for key in sorted(window):
-        if key not in apart:  # pragma: no cover -- the vault gives both ends
-            continue
-        first, _, second = key.partition("-")
-        lines.append(
-            {
-                "a": first,
-                "b": second,
-                "window_hours": float(window[key]),
-                "apart_hours": float(apart[key]),
-            }
+    if here is there:
+        return None
+    orbits = await orbits_of(session)
+    if here not in orbits or there not in orbits:
+        return None
+    days = await sky_days(session, at)
+    others = _others(constants, orbits, here, there)
+    if via is not None:
+        if via not in others:
+            return None
+        orbit, pull = others[via]
+        return course.flyby(
+            constants, orbits[here], orbit, orbits[there], days, hours, via, gravity=pull
         )
+    return course.arc(constants, orbits[here], orbits[there], days, hours)
+
+
+async def corridors(
+    session: AsyncSession, constants: Constants, *, at: datetime
+) -> list[dict[str, object]]:
+    """Every interplanetary corridor with its calendar: the cheapest passage
+    for each of the coming days, by pair of planets.
+
+    For the map, which draws the corridors and says when the window opens. The
+    engine forecasts and the client leafs through: the arc is not arithmetic a
+    client may be asked to repeat (D-271), and a forecast for sixty days is a
+    picture, not a quote -- the flight is settled at the casting off.
+    """
+    orbits = await orbits_of(session)
+    shut = await deferred_planets(session)
+    days = await sky_days(session, at)
+    lines: list[dict[str, object]] = []
+    #: Only between worlds one may go to: a deferred planet is drawn and
+    #: bent round, not flown to (D-104), and a corridor to it would promise
+    #: a passage the engine refuses.
+    named = sorted(
+        (pair for pair in orbits.items() if pair[0] not in shut), key=lambda pair: pair[0].value
+    )
+    horizon = int(constants[R.ORBIT_CALENDAR_DAYS])
+    for i, (one, first) in enumerate(named):
+        for other, second in named[i + 1 :]:
+            forecast = await asyncio.to_thread(
+                course.calendar, constants, first, second, days, horizon
+            )
+            lines.append(
+                {
+                    "a": one.value,
+                    "b": other.value,
+                    "days": [
+                        {"day": day.day, "dv": day.dv, "hours": day.hours} for day in forecast
+                    ],
+                }
+            )
     return lines
 
 
